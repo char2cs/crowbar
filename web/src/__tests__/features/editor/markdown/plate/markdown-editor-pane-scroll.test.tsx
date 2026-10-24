@@ -1,6 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { StrictMode } from 'react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
+import { getEditorHost, loadEditorHost } from '@/features/editor/host/editor-host'
 import { clearPreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { MarkdownEditorPane } from '@/features/editor/markdown/plate/markdown-editor-pane'
 import {
@@ -8,6 +10,7 @@ import {
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
 import type { EditorContent } from '@/features/panes/types/pane-content'
+import { workspaceRef } from '@/lib/api/documents'
 
 // Deliberately small. jsdom has no layout engine, so the document's height is
 // irrelevant here — `scrollTop` is a plain property that never clamps, and what
@@ -25,19 +28,19 @@ const BUFFER_CONTENT: Record<string, string> = {
 function openFixtures(): void {
   resetWindowPaneStoreForTests()
   windowPaneStore.setState({
-    buffers: Object.entries(BUFFER_CONTENT).map(([id, content]): EditorContent => ({
-      id,
-      type: 'editor',
-      authority: 'workspace',
-      workspaceId: 'ws-1',
-      path: `${id}.md`,
-      name: `${id}.md`,
-      content,
-      savedContent: content,
-      isDirty: false,
-      isVirtual: false,
-      tokens: [],
-    })),
+    buffers: Object.entries(BUFFER_CONTENT).map(([id, text]): EditorContent => {
+      getEditorHost()!.documents.open(workspaceRef('ws-1', `${id}.md`), 'markdown', text)
+      return {
+        id,
+        type: 'editor',
+        authority: 'workspace',
+        workspaceId: 'ws-1',
+        path: `${id}.md`,
+        name: `${id}.md`,
+        isDirty: false,
+        isVirtual: false,
+      }
+    }),
   })
 }
 
@@ -53,6 +56,8 @@ const renderPane = (bufferId: string) =>
 
 const scrollerOf = (view: ReturnType<typeof render>) =>
   view.container.querySelector('.crowbar-markdown-editor') as HTMLElement
+
+beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
 
 describe('MarkdownEditorPane scroll retention', () => {
   beforeEach(() => {

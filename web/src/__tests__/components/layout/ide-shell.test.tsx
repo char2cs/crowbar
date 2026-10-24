@@ -493,7 +493,6 @@ describe('IDEShell', () => {
         type: 'editor',
         doc: workspaceRef('ws-a', '/repo-a/a.ts'),
         name: 'a.ts',
-        content: '',
       })
 
       render(<IDEShell />)

@@ -36,7 +36,7 @@ export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
  * build holding the database open is enough to strand a newer one's upgrade.
  *
  * Healing beats wiping here: the entity stores are re-seedable from GET, but
- * the rest of the database (editor state, layout, chat history) is not, so
+ * the rest of the database (drafts, layout, chat history) is not, so
  * `deleteDatabase` would cost the user real work to repair a cache. Creating
  * just what is missing costs nothing and leaves everything else untouched.
  */
@@ -82,19 +82,18 @@ async function openDatabase(): Promise<IDBPDatabase<CrowbarDB>> {
 }
 
 async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
-  return openDB<CrowbarDB>('crowbar', 10, {
+  return openDB<CrowbarDB>('crowbar', 11, {
     upgrade(db, oldVersion) {
       // Retired stores are no longer in CrowbarDB; the upgrade chain still
       // creates and then drops them, so it goes through the untyped handle.
       const raw = db as unknown as IDBDatabase
       if (oldVersion < 1) {
         db.createObjectStore('workspace-layout', { keyPath: 'workspaceId' })
-        const editorStore = db.createObjectStore('editor-state', {
-          keyPath: ['workspaceId', 'bufferId'],
-        })
-        editorStore.createIndex('workspaceId', 'workspaceId')
-        // ui-preferences (dropped in v10) and query-cache (dropped in v5) are
-        // created only to keep the upgrade chain whole.
+        // editor-state (dropped in v11), ui-preferences (dropped in v10) and
+        // query-cache (dropped in v5) are created only to keep the chain whole.
+        raw
+          .createObjectStore('editor-state', { keyPath: ['workspaceId', 'bufferId'] })
+          .createIndex('workspaceId', 'workspaceId')
         raw.createObjectStore('ui-preferences')
         raw.createObjectStore('query-cache')
       }
@@ -156,6 +155,11 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
         for (const name of ['ui-preferences', 'workspace-hierarchy']) {
           if (raw.objectStoreNames.contains(name)) raw.deleteObjectStore(name)
         }
+      }
+      if (oldVersion < 11) {
+        // Documents keep their unsaved text as drafts; nothing used the cursor state.
+        if (raw.objectStoreNames.contains('editor-state')) raw.deleteObjectStore('editor-state')
+        db.createObjectStore('editor-drafts', { keyPath: 'uri' })
       }
     },
   })

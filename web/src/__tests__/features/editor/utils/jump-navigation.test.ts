@@ -1,8 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
 import { activeEditors } from '@/features/editor/lib/active-editor-context'
+import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
 import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
+import { documentText } from '@/features/editor/documents/document-text'
+import { loadEditorHost } from '@/features/editor/host/editor-host'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
@@ -43,6 +46,8 @@ windowPaneStore.subscribe(publishShownBuffer)
 
 const { navigateToJumpEntry } = await import('@/features/editor/utils/jump-navigation')
 
+beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
+
 const entryFor = (bufferId: string, filePath: string, workspaceId = 'w1') => ({
   bufferId,
   doc: workspaceRef(workspaceId, filePath),
@@ -67,12 +72,11 @@ const isRenderable = (paneId: string): boolean => {
   return pane.editorTabIds.includes(pane.activeEditorTabId)
 }
 
-function openInWorkspace(path: string, name: string, content: string, workspaceId = 'w1'): string {
+function openInWorkspace(path: string, name: string, workspaceId = 'w1'): string {
   return windowPaneStore.getState().bufferActions.openContent({
     type: 'editor',
     doc: workspaceRef(workspaceId, path),
     name,
-    content,
   })
 }
 
@@ -88,7 +92,7 @@ describe('navigateToJumpEntry', () => {
   })
 
   it('shows the file when its tab is still open in the active pane', async () => {
-    const id = openInWorkspace('/a.ts', 'a.ts', 'a')
+    const id = openInWorkspace('/a.ts', 'a.ts')
 
     await navigateToJumpEntry(entryFor(id, '/a.ts'))
 
@@ -97,7 +101,7 @@ describe('navigateToJumpEntry', () => {
   })
 
   it('shows the file after its tab was closed but the buffer survives', async () => {
-    const id = openInWorkspace('/a.ts', 'a.ts', 'a')
+    const id = openInWorkspace('/a.ts', 'a.ts')
     // Tab closed, buffer still in the store — jump navigation finds it by id and
     // must re-attach it to the pane, not just mark it active.
     windowPaneStore.getState().paneActions.removeEditorTabFromPane(ROOT_PANE_ID, id)
@@ -122,9 +126,7 @@ describe('navigateToJumpEntry', () => {
     // returned '' — the tab reappeared with the right name and no text in it.
     await navigateToJumpEntry(entryFor('gone', '/b.ts'))
 
-    const pane = windowPaneStore.getState().panes[ROOT_PANE_ID]
-    const active = windowPaneStore.getState().buffers.find((b) => b.id === pane?.activeEditorTabId)
-    expect((active as { content?: string })?.content).toBe('reopened content')
+    expect(documentText(workspaceRef('w1', '/b.ts'))).toBe('reopened content')
   })
 
   it('reads from the entry’s own workspace, not whichever is active later', async () => {
@@ -151,13 +153,14 @@ describe('navigateToJumpEntry', () => {
   })
 
   it('never reveals a same-path buffer of another workspace', async () => {
-    const sibling = openInWorkspace('/src/app.ts', 'app.ts', 'b', 'w2')
+    const sibling = openInWorkspace('/src/app.ts', 'app.ts', 'w2')
 
     const ok = await navigateToJumpEntry(entryFor('gone', '/src/app.ts', 'w1'))
 
     expect(ok).toBe(true)
     expect(activeBuffer()?.id).not.toBe(sibling)
-    expect(activeBuffer()).toMatchObject({ workspaceId: 'w1', content: 'reopened content' })
+    expect(activeBuffer()).toMatchObject({ workspaceId: 'w1' })
+    expect(documentText(workspaceRef('w1', '/src/app.ts'))).toBe('reopened content')
   })
 })
 

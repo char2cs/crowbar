@@ -1,10 +1,10 @@
 /**
- * The ONE write path for editor buffers: content changes, manual save, Save
- * All and autosave all go through here.
+ * The ONE write path for editor buffers: manual save, Save All and autosave
+ * all go through here, and so do the dirty flag and the drafts.
  *
  * Invariants (pinned by __tests__/features/editor/lib/buffer-save.test.ts):
- *  - Autosave is debounced PER BUFFER: editing buffer B never cancels A's
- *    pending autosave.
+ *  - Edits are quiet-debounced PER DOCUMENT: editing B never delays A's
+ *    draft or autosave.
  *  - A save marks a buffer clean only if the buffer still holds exactly the
  *    content that was written. Edits that land while the write is in flight
  *    keep the buffer dirty (and re-arm autosave).
@@ -15,7 +15,8 @@
  */
 import { useFileWatcherStore } from '@/features/file-system/controllers/file-watcher-store'
 import { workspaceRef, writeDocument, type DocumentRef } from '@/lib/api/documents'
-import { documentRefOf } from '@/features/editor/documents/document-ref'
+import { bestEffort } from '@/lib/best-effort'
+import { documentName, documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
 import {
   applyExternalText,
   documentText,
@@ -24,7 +25,9 @@ import {
   replaceDocumentText,
   savedDocumentText,
 } from '@/features/editor/documents/document-text'
-import { findDocumentBuffer } from '@/features/editor/documents/open-document'
+import { clearDraft, noteDraftChanged, writeDraft } from '@/features/editor/documents/draft-store'
+import { documentModelOpener, findDocumentBuffer } from '@/features/editor/documents/open-document'
+import { getEditorHost } from '@/features/editor/host/editor-host'
 import { clearBlame } from '@/features/git/stores/git-blame-store'
 import { requestGitRefresh } from '@/features/git/stores/git-refresh'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -33,11 +36,13 @@ import { useSettingsStore } from '@/features/settings/store'
 import { flagExternalChange } from '@/features/workspace/lib/external-buffer-sync'
 import { toast } from '@/features/window/stores/toast-store'
 
-/** Quiet period after the last edit before an autosave write. */
-/** @internal Exported for unit tests. */
-export const AUTOSAVE_DELAY_MS = 1000
+/**
+ * Quiet period after the last edit before a dirty document's draft and autosave are written.
+ * @internal Exported for unit tests.
+ */
+export const QUIET_PERIOD_MS = 1000
 
-const autosaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const quietTimers = new Map<string, ReturnType<typeof setTimeout>>() // by document uri
 const saveChains = new Map<string, Promise<boolean>>()
 
 /** openContent always gives an editor buffer a path; one without is ignored. */
@@ -46,6 +51,13 @@ export type PathedBuffer = EditorContent & { path: string }
 export function findEditorBuffer(bufferId: string): PathedBuffer | null {
   const buffer = windowPaneStore.getState().buffers.find((b) => b.id === bufferId)
   return buffer && isEditorContent(buffer) && buffer.path ? (buffer as PathedBuffer) : null
+}
+
+function bufferOfDocument(uri: string): PathedBuffer | null {
+  const buffer = windowPaneStore
+    .getState()
+    .buffers.find((b) => isEditorContent(b) && b.path && documentUri(documentRefOf(b)) === uri)
+  return buffer ? (buffer as PathedBuffer) : null
 }
 
 function patchEditorBuffer(bufferId: string, patch: (b: EditorContent) => EditorContent): void {
@@ -65,42 +77,48 @@ function reportSaveError(error: unknown): void {
   toast.error('Failed to save file', message)
 }
 
-function canAutosave(buffer: PathedBuffer): boolean {
-  return !buffer.isVirtual && !buffer.path.startsWith('untitled:')
-}
+const isUntitled = (buffer: PathedBuffer) => buffer.isVirtual || buffer.path.startsWith('untitled:')
 
-export function cancelAutosave(bufferId: string): void {
-  const timer = autosaveTimers.get(bufferId)
+/** Drops the draft write and autosave waiting on `uri`'s edits to pause. */
+export function cancelPendingWrites(uri: string): void {
+  const timer = quietTimers.get(uri)
   if (timer === undefined) return
   clearTimeout(timer)
-  autosaveTimers.delete(bufferId)
+  quietTimers.delete(uri)
 }
 
-function scheduleAutosave(bufferId: string): void {
-  cancelAutosave(bufferId)
-  autosaveTimers.set(
-    bufferId,
+function whenQuiet(uri: string): void {
+  cancelPendingWrites(uri)
+  quietTimers.set(
+    uri,
     setTimeout(() => {
-      autosaveTimers.delete(bufferId)
-      void saveBuffer(bufferId, { reason: 'auto' })
-    }, AUTOSAVE_DELAY_MS),
+      quietTimers.delete(uri)
+      bestEffort(writeDraft(uri), 'write draft')
+      const buffer = bufferOfDocument(uri)
+      if (buffer && !isUntitled(buffer) && useSettingsStore.getState().settings.autoSave) {
+        void saveBuffer(buffer.id, { reason: 'auto' })
+      }
+    }, QUIET_PERIOD_MS),
   )
 }
 
-/**
- * Record new text for a buffer (from Monaco's content sink or the markdown
- * editor) and arm that buffer's autosave when enabled.
- */
-export function setBufferContent(bufferId: string, content: string): void {
-  const buffer = findEditorBuffer(bufferId)
-  if (!buffer) return
-  if (buffer.content !== content) {
-    patchEditorBuffer(bufferId, (b) => ({ ...b, content, isDirty: content !== b.savedContent }))
-  }
-  const next = findEditorBuffer(bufferId)
-  if (next?.isDirty && canAutosave(next) && useSettingsStore.getState().settings.autoSave) {
-    scheduleAutosave(bufferId)
-  }
+/** The document's dirty flag flipped: its buffer mirrors it, and a first edit keeps a preview. */
+export function setDocumentDirty(uri: string, dirty: boolean): void {
+  const buffer = bufferOfDocument(uri)
+  if (buffer && buffer.isDirty !== dirty)
+    patchEditorBuffer(buffer.id, (b) => ({ ...b, isDirty: dirty }))
+  if (buffer && dirty && buffer.isPreview)
+    windowPaneStore.getState().bufferActions.promotePreview(buffer.id)
+  if (dirty) return
+  cancelPendingWrites(uri)
+  clearDraft(uri)
+}
+
+/** The document's text changed: once edits pause, a dirty one gets its draft and autosave. */
+export function noteDocumentEdited(uri: string): void {
+  if (!getEditorHost()?.documents.isDirty(uri)) return
+  noteDraftChanged(uri)
+  whenQuiet(uri)
 }
 
 /** The text to save once formatted; null when the document closed meanwhile. */
@@ -142,41 +160,35 @@ async function saveAsUntitled(buffer: PathedBuffer, content: string): Promise<bo
   if (!target) return false
   // Buffers are window-level — write to THIS buffer's own workspace, never the
   // merely-active one.
-  const ref = workspaceRef(buffer.workspaceId, target)
-  const open = findDocumentBuffer(ref)
-  if (open && documentText(ref) !== savedDocumentText(ref)) {
+  const asked = workspaceRef(buffer.workspaceId, target)
+  const open = findDocumentBuffer(asked)
+  if (open && documentText(asked) !== savedDocumentText(asked)) {
     toast.error(`Save or discard changes in ${open.name} first`)
     return false
   }
+  // Ready before the write, so nothing can open the target between its write and its rebind.
+  const openModel = await documentModelOpener()
+  let ref: DocumentRef
   try {
-    await writeDocument(ref, content)
+    ref = await writeDocument(asked, content)
   } catch (error) {
     console.error('Error saving file:', error)
     reportSaveError(error)
     return false
   }
-  clearBlame(buffer.workspaceId, target)
+  if (ref.authority === 'workspace') clearBlame(ref.workspaceId, ref.path)
   // Decided after the write, so an open that landed during it is seen too.
   const holder = findDocumentBuffer(ref)
   if (holder) return adoptSavedAs(buffer, holder, content)
-  markDocumentSaved(documentRefOf(buffer), content)
-  patchEditorBuffer(buffer.id, (b) => ({
-    ...b,
-    path: target,
-    name: target.split('/').pop() || target,
-    isVirtual: false,
-  }))
-  return true
-}
-
-function saveVirtual(buffer: PathedBuffer, content: string): boolean {
-  const ref = documentRefOf(buffer)
-  if (buffer.path === 'settings://user-settings.json') {
-    const ok = useSettingsStore.getState().updateSettingsFromJSON(content)
-    if (ok) markDocumentSaved(ref, content)
-    return ok
-  }
-  markDocumentSaved(ref, content)
+  // The untitled tab becomes the document; text typed during the write stays, unsaved.
+  const untitled = documentUri(documentRefOf(buffer))
+  openModel(ref, documentText(documentRefOf(buffer)) ?? content, content)
+  windowPaneStore.getState().bufferActions.rebindEditorBuffer(buffer.id, ref, documentName(ref))
+  getEditorHost()?.documents.release(untitled)
+  clearDraft(untitled)
+  const uri = documentUri(ref)
+  setDocumentDirty(uri, getEditorHost()?.documents.isDirty(uri) ?? false)
+  noteDocumentEdited(uri)
   return true
 }
 
@@ -187,12 +199,12 @@ async function writeToDisk(
   const opened = findEditorBuffer(bufferId)
   if (!opened) return false
   const ref = documentRefOf(opened)
+  // A tab whose document never opened (a missing file) has no text to write.
+  if (!getEditorHost()?.documents.has(documentUri(ref))) return false
   const text = await readDocumentText(ref)
   const buffer = findEditorBuffer(bufferId)
   if (!buffer) return false
-  if (buffer.path.startsWith('untitled:'))
-    return reason === 'manual' && saveAsUntitled(buffer, text)
-  if (buffer.isVirtual) return saveVirtual(buffer, text)
+  if (isUntitled(buffer)) return reason === 'manual' && saveAsUntitled(buffer, text)
   // An autosave for a buffer a previous save already caught up is a no-op.
   if (reason === 'auto' && !buffer.isDirty) return true
 
@@ -222,20 +234,18 @@ async function writeToDisk(
 
   // Edits typed during the write keep the buffer dirty; make sure autosave
   // picks them up rather than leaving them waiting for the next keystroke.
-  const after = findEditorBuffer(bufferId)
-  if (after?.isDirty && useSettingsStore.getState().settings.autoSave) scheduleAutosave(bufferId)
+  noteDocumentEdited(documentUri(ref))
   return true
 }
 
 /**
  * Save one buffer. Saves of the same buffer run strictly one after another.
- * Resolves true when the buffer's content reached disk (or its virtual owner).
+ * Resolves true when the buffer's content reached disk.
  */
 export function saveBuffer(
   bufferId: string,
   options: { reason: 'manual' | 'auto' } = { reason: 'manual' },
 ): Promise<boolean> {
-  if (options.reason === 'manual') cancelAutosave(bufferId)
   const previous = saveChains.get(bufferId) ?? Promise.resolve(true)
   const next = previous.then(
     () => writeToDisk(bufferId, options),

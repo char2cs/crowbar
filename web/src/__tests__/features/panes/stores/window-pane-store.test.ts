@@ -116,7 +116,6 @@ describe('windowPaneStore — never destroyed, created once for the window', () 
       type: 'editor',
       doc: workspaceRef('ws-evicted-2', '/src/a.ts'),
       name: 'a.ts',
-      content: 'hello',
     })
 
     destroyWorkspaceStore('ws-evicted-2')

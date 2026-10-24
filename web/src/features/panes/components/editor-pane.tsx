@@ -3,6 +3,8 @@ import { ErrorBoundary } from '@/components/error-boundary'
 import { useBufferById } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { useEditorHost } from '@/features/editor/host/use-editor-host'
 import { isEditorContent } from '@/features/panes/types/pane-content'
+import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
+import { useDocumentOpen } from '@/features/editor/documents/use-document-open'
 import { isMarkdownPath } from '@/features/editor/markdown/plate/is-markdown-path'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 
@@ -26,8 +28,6 @@ interface EditorPaneProps {
   paneId: string
   bufferId: string
   isActiveSurface: boolean
-  isPreview: boolean
-  onPromote: () => void
   showToolbar?: boolean
   className?: string
 }
@@ -36,8 +36,6 @@ export function EditorPane({
   paneId,
   bufferId,
   isActiveSurface,
-  isPreview,
-  onPromote,
   showToolbar,
   className,
 }: EditorPaneProps) {
@@ -51,6 +49,9 @@ export function EditorPane({
   )
 
   const host = useEditorHost()
+  const uri =
+    buffer && isEditorContent(buffer) && buffer.path ? documentUri(documentRefOf(buffer)) : null
+  const documentOpen = useDocumentOpen(uri)
 
   // BUG-001: the file backing a restored buffer no longer exists on disk.
   // Render a terminal placeholder instead of an editor — there is no content
@@ -66,8 +67,8 @@ export function EditorPane({
     )
   }
 
-  // Markdown buffers in rich view route to Plate instead of Monaco. Ahead of
-  // the host gate: rich mode never touches Monaco, so it never waits on it.
+  // Markdown buffers in rich view route to Plate instead of Monaco's editor.
+  // Plate parses its document once, so it waits for the document's text.
   if (
     buffer &&
     isEditorContent(buffer) &&
@@ -75,6 +76,7 @@ export function EditorPane({
     isMarkdownPath(buffer.path) &&
     markdownView === 'rich'
   ) {
+    if (!documentOpen) return null
     return (
       // M8: the lazy chunk can fail to load (offline, a stale asset hash after
       // a deploy) and a rejected `lazy()` throws during render — Suspense only
@@ -94,13 +96,7 @@ export function EditorPane({
               buffer — otherwise file A's document stays live while `bufferId`
               (and the flush target) moves to B, and the next edit writes A's
               whole text into B. */}
-          <MarkdownEditorPane
-            key={bufferId}
-            paneId={paneId}
-            bufferId={bufferId}
-            isPreview={isPreview}
-            onPromote={onPromote}
-          />
+          <MarkdownEditorPane key={bufferId} paneId={paneId} bufferId={bufferId} />
         </Suspense>
       </ErrorBoundary>
     )
@@ -127,8 +123,6 @@ export function EditorPane({
           bufferId={bufferId}
           host={host}
           isActiveSurface={isActiveSurface}
-          isPreview={isPreview}
-          onPromote={onPromote}
           showToolbar={showToolbar}
           className={className}
         />

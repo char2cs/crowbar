@@ -13,7 +13,8 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { homeOf } from '@/features/panes/lib/view-state'
 import { isEditorContent, type EditorContent } from '@/features/panes/types/pane-content'
 import { toast } from '@/features/window/stores/toast-store'
-import { documentName, documentRefOf, sameDocument } from './document-ref'
+import { getEditorHost, loadEditorHost } from '@/features/editor/host/editor-host'
+import { documentName, documentRefOf, documentUri, sameDocument } from './document-ref'
 
 export interface OpenDocumentOptions {
   preview?: boolean
@@ -85,6 +86,20 @@ function reportOpenFailure(target: DocumentTarget, error: unknown): void {
   else toast.error('Failed to open file', name)
 }
 
+/** Opens a document's model holding `text`; it is dirty while disk holds other `savedText`. */
+export type OpenDocumentModel = (ref: DocumentRef, text: string, savedText?: string) => void
+
+/** Resolves once Monaco has loaded, with the way to open document models synchronously. */
+export async function documentModelOpener(): Promise<OpenDocumentModel> {
+  const [host, { langForUri }] = await Promise.all([
+    loadEditorHost(),
+    import('@/features/editor/lib/monaco-adapters'),
+  ])
+  return (ref, text, savedText = text) => {
+    host.documents.open(ref, langForUri(documentUri(ref)), text, savedText)
+  }
+}
+
 /**
  * Open a document in an editor tab and answer its buffer id: an open buffer is
  * shown, anything else is read first. A failed read is reported and answers null.
@@ -95,9 +110,9 @@ export async function openDocument(
 ): Promise<string | null> {
   const open = 'absolutePath' in target ? null : findDocumentBuffer(target)
   if (open) return show(open, opts)
-  let read
+  let read, openModel
   try {
-    read = await readDocument(target)
+    ;[read, openModel] = await Promise.all([readDocument(target), documentModelOpener()])
   } catch (error) {
     reportOpenFailure(target, error)
     return null
@@ -105,17 +120,17 @@ export async function openDocument(
   // A concurrent open of the same document, or another spelling of it, may have landed.
   const landed = findDocumentBuffer(read.ref)
   if (landed) return show(landed, opts)
-  const id = windowPaneStore.getState().bufferActions.openContent(
-    {
-      type: 'editor',
-      doc: read.ref,
-      name: documentName(read.ref),
-      content: read.text,
-      isPreview: opts.preview,
-    },
-    { paneId: opts.paneId },
-  )
-  if (!id) return null
+  openModel(read.ref, read.text)
+  const id = windowPaneStore
+    .getState()
+    .bufferActions.openContent(
+      { type: 'editor', doc: read.ref, name: documentName(read.ref), isPreview: opts.preview },
+      { paneId: opts.paneId },
+    )
+  if (!id) {
+    getEditorHost()?.documents.release(documentUri(read.ref))
+    return null
+  }
   opts.beforeShow?.(id)
   return id
 }
@@ -138,18 +153,25 @@ export async function openDocumentFromDialog(paneId: string): Promise<void> {
   if (picked) await openDocumentsAtPaths(picked, paneId)
 }
 
+/** An untitled path no open buffer holds: each untitled tab is its own document. */
+function freeUntitledRef(workspaceId: string): DocumentRef {
+  const taken = new Set(windowPaneStore.getState().buffers.map((b) => b.path))
+  let n = 1
+  while (taken.has(`untitled:Untitled-${n}`)) n += 1
+  return workspaceRef(workspaceId, `untitled:Untitled-${n}`)
+}
+
 /** A new, unsaved document in `workspaceId`, opened into `paneId`. */
-export function openUntitledDocument(workspaceId: string, paneId: string): Promise<string> {
-  return Promise.resolve(
-    windowPaneStore.getState().bufferActions.openContent(
-      {
-        type: 'editor',
-        doc: workspaceRef(workspaceId, 'untitled:Untitled'),
-        name: 'Untitled',
-        content: '',
-        isVirtual: true,
-      },
+export async function openUntitledDocument(workspaceId: string, paneId: string): Promise<string> {
+  const openModel = await documentModelOpener()
+  const doc = freeUntitledRef(workspaceId)
+  openModel(doc, '')
+  const id = windowPaneStore
+    .getState()
+    .bufferActions.openContent(
+      { type: 'editor', doc, name: 'Untitled', isVirtual: true },
       { paneId },
-    ),
-  )
+    )
+  if (!id) getEditorHost()?.documents.release(documentUri(doc))
+  return id
 }

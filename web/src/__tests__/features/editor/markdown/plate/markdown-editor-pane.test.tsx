@@ -1,7 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import type { Value } from 'platejs'
 import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
+import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
+import { getEditorHost, loadEditorHost } from '@/features/editor/host/editor-host'
 import {
   applyExternalText,
   documentText,
@@ -66,27 +68,27 @@ const { BUFFER_CONTENT, THROW_SENTINEL } = vi.hoisted(() => {
   }
 })
 
-// Each fixture is an open document in the real buffer store, so the pane reads
-// and writes it through the same seam the app uses; reading `documentText`
-// also runs the pane's pending write, the way a save does.
+// Each fixture is an open document with its tab, so the pane reads and writes
+// it through the same seam the app uses; reading `documentText` also runs the
+// pane's pending write, the way a save does.
 const docOf = (bufferId: string): DocumentRef => workspaceRef('ws-1', `${bufferId}.md`)
 
 function openFixtures(): void {
   resetWindowPaneStoreForTests()
   windowPaneStore.setState({
-    buffers: Object.entries(BUFFER_CONTENT).map(([id, content]): EditorContent => ({
-      id,
-      type: 'editor',
-      authority: 'workspace',
-      workspaceId: 'ws-1',
-      path: `${id}.md`,
-      name: `${id}.md`,
-      content,
-      savedContent: content,
-      isDirty: false,
-      isVirtual: false,
-      tokens: [],
-    })),
+    buffers: Object.entries(BUFFER_CONTENT).map(([id, text]): EditorContent => {
+      getEditorHost()!.documents.open(docOf(id), 'markdown', text)
+      return {
+        id,
+        type: 'editor',
+        authority: 'workspace',
+        workspaceId: 'ws-1',
+        path: `${id}.md`,
+        name: `${id}.md`,
+        isDirty: false,
+        isVirtual: false,
+      }
+    }),
   })
 }
 
@@ -133,6 +135,8 @@ vi.mock('platejs/react', async (importOriginal) => {
     },
   }
 })
+
+beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
 
 beforeEach(() => {
   openExternalUrl.mockClear()
@@ -331,7 +335,8 @@ describe('MarkdownEditorPane', () => {
       render(<MarkdownEditorPane paneId="p1" bufferId="b1" />)
       await screen.findByText('Hello')
 
-      act(() => applyExternalText(docOf('b1'), reloaded, { saved: true }))
+      // Slate re-renders a microtask after the change, not 150 ms later.
+      await act(async () => applyExternalText(docOf('b1'), reloaded, { saved: true }))
 
       expect(screen.getByText('Reloaded')).toBeInTheDocument()
       expect(screen.queryByText('Hello')).toBeNull()

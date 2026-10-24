@@ -12,6 +12,9 @@ vi.mock('@/features/editor/documents/open-document', async (importOriginal) => (
 }))
 vi.mock('@/features/file-system/controllers/platform', () => ({ exists }))
 
+import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
+import { replaceDocumentText } from '@/features/editor/documents/document-text'
+import { getEditorHost, loadEditorHost } from '@/features/editor/host/editor-host'
 import { MarkdownPreview } from '@/features/editor/markdown/markdown-preview'
 import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
@@ -33,21 +36,20 @@ const LONG_MARKDOWN = Array.from({ length: 200 }, (_, i) => `# Heading ${i}\n\nB
   '\n',
 )
 
-function makeSource(path: string, content: string): EditorContent {
+/** The open source document's tab; `doc`'s text is `text`. */
+function makeSource(doc: DocumentRef, text: string): EditorContent {
+  getEditorHost()!.documents.open(doc, 'markdown', text)
   return {
-    id: `src-${path}`,
+    id: `src-${doc.path}`,
     type: 'editor',
-    authority: 'workspace',
-    path,
-    name: path.split('/').pop() ?? path,
-    content,
-    savedContent: content,
+    authority: doc.authority,
+    path: doc.path,
+    name: doc.path.split('/').pop() ?? doc.path,
     isDirty: false,
     isVirtual: false,
     isPinned: false,
     isPreview: false,
-    tokens: [],
-    workspaceId: 'w1',
+    workspaceId: doc.authority === 'workspace' ? doc.workspaceId : '',
   }
 }
 
@@ -77,11 +79,11 @@ function makePreview(
  */
 function setupStore(paths: string[]) {
   const store = createWorkspaceStore('w1')
+  resetWindowPaneStoreForTests()
   const buffers: PaneContent[] = paths.flatMap((path) => [
-    makeSource(path, LONG_MARKDOWN),
+    makeSource(workspaceRef('w1', path), LONG_MARKDOWN),
     makePreview(path),
   ])
-  resetWindowPaneStoreForTests()
   windowPaneStore.setState((s) => {
     s.buffers = buffers
     s.panes[ROOT_PANE_ID] = {
@@ -112,6 +114,8 @@ function renderPreview(store: ReturnType<typeof createWorkspaceStore>, bufferId:
 
 const scrollerOf = (view: ReturnType<typeof render>) =>
   view.container.querySelector('.markdown-preview') as HTMLElement
+
+beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
 
 describe('MarkdownPreview scroll retention', () => {
   // The first Plate render pays its module and plugin setup; keep it out of
@@ -158,14 +162,7 @@ describe('MarkdownPreview scroll retention', () => {
 
   it('renders the buffer it was handed, not the active pane buffer', () => {
     const store = setupStore(['/repo/README.md', '/repo/CHANGELOG.md'])
-    windowPaneStore.setState((s) => {
-      s.buffers = s.buffers.map((b) =>
-        b.id === 'src-/repo/CHANGELOG.md'
-          ? ({ ...b, content: '# Changelog only heading' } as typeof b)
-          : b,
-      )
-      return s
-    })
+    replaceDocumentText(workspaceRef('w1', '/repo/CHANGELOG.md'), '# Changelog only heading')
 
     // The pane's active tab is the README preview; this instance is asked for
     // the CHANGELOG preview (the split-pane case).
@@ -175,9 +172,9 @@ describe('MarkdownPreview scroll retention', () => {
 
   it('renders its own workspace’s source when another workspace has the same path', () => {
     const store = setupStore(['/repo/README.md'])
-    const foreign = { ...makeSource('/repo/README.md', '# Foreign heading'), id: 'src-w2' }
+    const foreign = makeSource(workspaceRef('w2', '/repo/README.md'), '# Foreign heading')
     windowPaneStore.setState((s) => {
-      s.buffers = [{ ...foreign, workspaceId: 'w2' }, ...s.buffers]
+      s.buffers = [{ ...foreign, id: 'src-w2' }, ...s.buffers]
       return s
     })
 
@@ -188,9 +185,10 @@ describe('MarkdownPreview scroll retention', () => {
 })
 
 describe('MarkdownPreview links', () => {
-  function previewOf(source: EditorContent, ref: DocumentRef) {
-    const preview = makePreview(source.path ?? '', ref)
+  function previewOf(ref: DocumentRef, text: string) {
     resetWindowPaneStoreForTests()
+    const source = makeSource(ref, text)
+    const preview = makePreview(ref.path, ref)
     windowPaneStore.setState((s) => {
       s.buffers = [source, preview]
       s.panes[ROOT_PANE_ID] = {
@@ -211,10 +209,7 @@ describe('MarkdownPreview links', () => {
 
   it('opens a relative link beside its source, in the source’s workspace', async () => {
     setActiveWorkspaceId('w-other')
-    previewOf(
-      makeSource('docs/README.md', '[spec](./spec.md)\n'),
-      workspaceRef('w1', 'docs/README.md'),
-    )
+    previewOf(workspaceRef('w1', 'docs/README.md'), '[spec](./spec.md)\n')
 
     await waitFor(() =>
       expect(openDocument).toHaveBeenCalledWith(workspaceRef('w1', 'docs/spec.md'), {
@@ -226,12 +221,7 @@ describe('MarkdownPreview links', () => {
   })
 
   it('opens a host document’s link as a host document', async () => {
-    const source = {
-      ...makeSource('/tmp/notes/a.md', '[b](../other/b.md)\n'),
-      authority: 'host' as const,
-      workspaceId: '',
-    }
-    previewOf(source, { authority: 'host', path: '/tmp/notes/a.md' })
+    previewOf({ authority: 'host', path: '/tmp/notes/a.md' }, '[b](../other/b.md)\n')
 
     await waitFor(() =>
       expect(openDocument).toHaveBeenCalledWith(

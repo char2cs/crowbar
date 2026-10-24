@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
 
 const { readDisk } = vi.hoisted(() => ({ readDisk: vi.fn() }))
@@ -7,28 +7,20 @@ vi.mock('@/lib/api/documents', async (importOriginal) => ({
   readDocument: async (ref: DocumentRef) => ({ ref, text: await readDisk(ref) }),
 }))
 
+import { MONACO_LOAD_MS, openTestDocument } from '@/__tests__/__fixtures__/documents'
 import {
   documentText,
   replaceDocumentText,
   savedDocumentText,
 } from '@/features/editor/documents/document-text'
 import { findDocumentBuffer } from '@/features/editor/documents/open-document'
+import { loadEditorHost } from '@/features/editor/host/editor-host'
 import { reloadBufferFromDisk } from '@/features/editor/lib/reload-buffer'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 
 const A = workspaceRef('ws-1', 'src/a.ts')
 
-function openBuffer(content: string, doc: DocumentRef = A): string {
-  return windowPaneStore.getState().bufferActions.openContent({
-    type: 'editor',
-    doc,
-    name: 'a.ts',
-    content,
-  })
-}
+const openBuffer = (text: string, doc: DocumentRef = A) => openTestDocument(doc, text)
 
 function state(ref: DocumentRef = A) {
   return {
@@ -38,6 +30,8 @@ function state(ref: DocumentRef = A) {
   }
 }
 
+beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
+
 beforeEach(() => {
   vi.clearAllMocks()
   resetWindowPaneStoreForTests()
@@ -45,7 +39,7 @@ beforeEach(() => {
 
 describe('reloadBufferFromDisk (P0-9)', () => {
   it('reloads a clean buffer from disk without asking', async () => {
-    const id = openBuffer('old')
+    const id = await openBuffer('old')
     readDisk.mockResolvedValue('disk')
     const confirm = vi.fn(() => true)
 
@@ -57,7 +51,7 @@ describe('reloadBufferFromDisk (P0-9)', () => {
   })
 
   it('reloads a document outside every workspace from its own path', async () => {
-    const id = openBuffer('old', { authority: 'host', path: '/tmp/a.ts' })
+    const id = await openBuffer('old', { authority: 'host', path: '/tmp/a.ts' })
     readDisk.mockResolvedValue('disk')
 
     expect(await reloadBufferFromDisk(id, () => true)).toBe('reloaded')
@@ -66,7 +60,7 @@ describe('reloadBufferFromDisk (P0-9)', () => {
   })
 
   it('never marks unsaved edits as saved: a declined prompt keeps them dirty', async () => {
-    const id = openBuffer('old')
+    const id = await openBuffer('old')
     replaceDocumentText(A, 'unsaved edit')
     readDisk.mockResolvedValue('disk')
 
@@ -77,7 +71,7 @@ describe('reloadBufferFromDisk (P0-9)', () => {
   })
 
   it('a confirmed reload of a dirty buffer takes the disk content', async () => {
-    const id = openBuffer('old')
+    const id = await openBuffer('old')
     replaceDocumentText(A, 'unsaved edit')
     readDisk.mockResolvedValue('disk')
 
@@ -87,7 +81,7 @@ describe('reloadBufferFromDisk (P0-9)', () => {
   })
 
   it('does not overwrite edits typed while the disk read was in flight', async () => {
-    const id = openBuffer('old')
+    const id = await openBuffer('old')
     let finish: (text: string) => void = () => {}
     readDisk.mockImplementation(() => new Promise<string>((r) => (finish = r)))
 

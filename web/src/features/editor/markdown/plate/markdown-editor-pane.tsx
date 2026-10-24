@@ -30,24 +30,15 @@ import { MarkdownViewToggle } from './markdown-view-toggle'
 // file's header for why the two cannot be shared.
 import './markdown-editor.css'
 
-// Matches Monaco's ContentSink debounce cadence (see code-editor.tsx).
+// Serializing the whole document per keystroke would stall typing.
 const SINK_DELAY_MS = 150
 
 interface MarkdownEditorPaneProps {
   paneId: string
   bufferId: string
-  /** True while this tab is a single-click preview (italic, evictable). */
-  isPreview?: boolean
-  /** Promote the preview tab to a permanent one. Called on the first real edit. */
-  onPromote?: () => void
 }
 
-export function MarkdownEditorPane({
-  paneId,
-  bufferId,
-  isPreview,
-  onPromote,
-}: MarkdownEditorPaneProps) {
+export function MarkdownEditorPane({ paneId, bufferId }: MarkdownEditorPaneProps) {
   // `paneId` isn't consumed yet — it's the Task-6 integration point (pane-scoped
   // rich/source toggle affordance keyed off the owning pane rather than just the
   // buffer). Accepted now so the call site doesn't need to change later.
@@ -97,13 +88,7 @@ export function MarkdownEditorPane({
           boundary itself also clears a crash from the previous buffer, so a
           file that broke Plate doesn't poison its neighbour's tab. */}
       <ErrorBoundary key={bufferId} fallback={<FallbackToSource onMount={fallbackToSource} />}>
-        <MarkdownRichEditor
-          bufferId={bufferId}
-          doc={doc}
-          content={content}
-          isPreview={isPreview}
-          onPromote={onPromote}
-        />
+        <MarkdownRichEditor bufferId={bufferId} doc={doc} content={content} />
       </ErrorBoundary>
     </div>
   )
@@ -113,14 +98,10 @@ function MarkdownRichEditor({
   bufferId,
   doc,
   content,
-  isPreview,
-  onPromote,
 }: {
   bufferId: string
   doc: DocumentRef | null
   content: string | null
-  isPreview?: boolean
-  onPromote?: () => void
 }) {
   // Split off any leading YAML frontmatter BEFORE it ever reaches Plate.
   // Markdown parses a leading `---` block as a thematic break + setext
@@ -189,26 +170,15 @@ function MarkdownRichEditor({
     )
   }
 
-  // Trailing-debounce serialize -> document text, mirroring Monaco's ContentSink.
-  // `flush` always reads the editor's CURRENT value (not just a value captured
-  // at the last onChange) so a flush run by a reader of the text or by unmount
-  // persists whatever is on screen even if no debounce is in flight — the same
-  // contract Cmd+S relies on for Monaco.
+  // Trailing-debounce serialize -> document text. `flush` reads the editor's
+  // CURRENT value, so a flush run by a reader of the text or by unmount
+  // persists whatever is on screen even if no debounce is in flight.
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // The document text this editor believes it is in sync with: what it last
   // adopted AND what it last wrote. Used by the resync to recognise its own
   // write echoing back (see below).
   const syncedContentRef = useRef<string | null>(content)
-
-  // Preview promotion mirrors Monaco (editor-surface's `writeContent`): the
-  // first edit that actually persists promotes the tab. Held in refs so
-  // `flush`'s identity — and therefore the debounce and the pending writer —
-  // doesn't churn on every preview/promote prop change.
-  const isPreviewRef = useRef(isPreview)
-  isPreviewRef.current = isPreview
-  const onPromoteRef = useRef(onPromote)
-  onPromoteRef.current = onPromote
 
   const flush = useCallback(() => {
     if (timerRef.current) {
@@ -227,7 +197,6 @@ function MarkdownRichEditor({
       // compare against the document's raw text instead.
       return
     }
-    if (isPreviewRef.current) onPromoteRef.current?.()
     // Pin the write to THIS pane's document rather than the active buffer —
     // this pane may not be active when a flush lands (tab-switch race).
     replaceDocumentText(doc, md)

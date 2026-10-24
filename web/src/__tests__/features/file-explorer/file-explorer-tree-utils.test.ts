@@ -46,13 +46,10 @@ describe('getExplorerTargetPath', () => {
       authority: 'host',
       path: '/tmp/notes.md',
       name: 'notes.md',
-      content: '',
-      savedContent: '',
       isDirty: false,
       isVirtual: false,
       isPinned: false,
       isPreview: false,
-      tokens: [],
       workspaceId: '',
     } satisfies PaneContent
     const preview = {

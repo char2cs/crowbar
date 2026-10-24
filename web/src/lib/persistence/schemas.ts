@@ -6,6 +6,7 @@ import type {
   MergeStrategy,
 } from '@/features/workspace/stores/slices/branch-review-slice'
 import type { ChatDTO, ProjectDTO, RepoDTO, WorkspaceDTO, ThreadDTO, FolderDTO } from '@/lib/types'
+import type { EditorDraft } from '@/features/editor/documents/draft-store'
 
 export interface BranchReviewPersistedState {
   wsId: string
@@ -47,16 +48,6 @@ export interface WorkspaceLayout {
   updatedAt: number
 }
 
-export interface EditorState {
-  workspaceId: string
-  bufferId: string
-  cursorLine: number
-  cursorColumn: number
-  scrollTop: number
-  folds: [number, number][]
-  updatedAt: number
-}
-
 export interface SidebarUI {
   /**
    * RETIRED. Written by the pre-restyle tree's repo/branch chevrons and its
@@ -93,11 +84,8 @@ export interface CrowbarDB extends DBSchema {
     key: string
     value: WorkspaceLayout
   }
-  'editor-state': {
-    key: [string, string]
-    value: EditorState
-    indexes: { workspaceId: string }
-  }
+  // Unsaved text of dirty documents (v11), keyed by document uri.
+  'editor-drafts': { key: string; value: EditorDraft }
   'sidebar-ui': {
     key: string
     value: SidebarUI

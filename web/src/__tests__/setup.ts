@@ -210,3 +210,42 @@ if (typeof ShadowRoot !== 'undefined' && !('adoptedStyleSheets' in ShadowRoot.pr
     configurable: true,
   })
 }
+
+// jsdom has no async clipboard, yet its user agent says AppleWebKit, so once Monaco's
+// services exist its WebKit clipboard workaround writes a ClipboardItem on every click.
+// The browser's clipboard.write settles each item's data; these stubs settle it too.
+if (typeof globalThis.ClipboardItem === 'undefined') {
+  class ClipboardItemStub {
+    readonly #data: Record<string, Promise<unknown>>
+    constructor(data: Record<string, unknown>) {
+      this.#data = {}
+      for (const [type, value] of Object.entries(data)) {
+        const settled = Promise.resolve(value)
+        settled.then(undefined, () => undefined)
+        this.#data[type] = settled
+      }
+    }
+    get types(): string[] {
+      return Object.keys(this.#data)
+    }
+    async getType(type: string): Promise<Blob> {
+      const value = await this.#data[type]
+      return value instanceof Blob ? value : new Blob([String(value)], { type })
+    }
+  }
+  globalThis.ClipboardItem = ClipboardItemStub as unknown as typeof ClipboardItem
+}
+if (typeof navigator !== 'undefined' && !navigator.clipboard) {
+  let items: ClipboardItem[] = []
+  const clipboard = {
+    write: async (next: ClipboardItem[]) => void (items = next),
+    read: async () => items,
+    writeText: async (text: string) => void (items = [new ClipboardItem({ 'text/plain': text })]),
+    readText: async () => (items[0] ? (await items[0].getType('text/plain')).text() : ''),
+  }
+  Object.defineProperty(navigator, 'clipboard', {
+    value: clipboard,
+    configurable: true,
+    writable: true,
+  })
+}

@@ -24,7 +24,6 @@ function renderBuffer(doc: DocumentRef) {
     type: 'editor',
     doc,
     name: doc.path.split('/').pop()!,
-    content: '# readme',
   })
   render(<Breadcrumb bufferId={bufferId} />)
 }

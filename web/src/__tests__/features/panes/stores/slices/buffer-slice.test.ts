@@ -5,6 +5,7 @@ import {
   windowPaneStore,
   type WindowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
+import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 import { workspaceRef } from '@/lib/api/documents'
@@ -48,7 +49,6 @@ const editor = (
   type: 'editor' as const,
   doc: workspaceRef(workspaceId, path),
   name: path.split('/').pop() ?? path,
-  content: '',
   isPreview,
 })
 
@@ -69,10 +69,7 @@ describe('buffer-slice', () => {
   })
 
   it('openContent creates an editor buffer and returns its id', () => {
-    const id = store.getState().bufferActions.openContent({
-      ...editor('/src/index.ts'),
-      content: 'const x = 1',
-    })
+    const id = store.getState().bufferActions.openContent(editor('/src/index.ts'))
     expect(id).toBeTruthy()
     expect(store.getState().buffers).toHaveLength(1)
     const buf = store.getState().buffers[0]
@@ -97,7 +94,6 @@ describe('buffer-slice', () => {
         type: 'editor',
         doc: { authority: 'host', path: '/src/index.ts' },
         name: 'index.ts',
-        content: '',
       }),
     ]
     expect(new Set(ids).size).toBe(3)
@@ -231,34 +227,38 @@ describe('buffer-slice', () => {
     expect(closeChat).not.toHaveBeenCalled()
   })
 
-  it('reopening a closed host document brings it back as a host document', async () => {
-    // The daemon answers a read with the ref it was asked for. The reopen's first
-    // dynamic import of the document API can take seconds to transform.
-    const echo = vi.fn(async (url: string) => {
-      const q = new URL(url, 'http://daemon').searchParams
-      const ref = q.has('workspace')
-        ? { authority: 'workspace', workspaceId: q.get('workspace'), path: q.get('path') }
-        : { authority: 'host', path: q.get('path') }
-      return new Response(JSON.stringify({ success: true, data: { ...ref, content: 'hi' } }))
-    })
-    vi.stubGlobal('fetch', echo)
-    onTestFinished(() => void vi.unstubAllGlobals())
-    resetWindowPaneStoreForTests()
-    const doc = { authority: 'host' as const, path: '/tmp/s5/notes.md' }
-    const { bufferActions, activePaneId } = windowPaneStore.getState()
-    const id = bufferActions.openContent({ type: 'editor', doc, name: 'notes.md', content: 'hi' })
-    closeTab(windowPaneStore, activePaneId, id)
+  it(
+    'reopening a closed host document brings it back as a host document',
+    async () => {
+      // The daemon answers a read with the ref it was asked for. The reopen opens
+      // the document's Monaco model, whose first load takes seconds.
+      const echo = vi.fn(async (url: string) => {
+        const q = new URL(url, 'http://daemon').searchParams
+        const ref = q.has('workspace')
+          ? { authority: 'workspace', workspaceId: q.get('workspace'), path: q.get('path') }
+          : { authority: 'host', path: q.get('path') }
+        return new Response(JSON.stringify({ success: true, data: { ...ref, content: 'hi' } }))
+      })
+      vi.stubGlobal('fetch', echo)
+      onTestFinished(() => void vi.unstubAllGlobals())
+      resetWindowPaneStoreForTests()
+      const doc = { authority: 'host' as const, path: '/tmp/s5/notes.md' }
+      const { bufferActions, activePaneId } = windowPaneStore.getState()
+      const id = bufferActions.openContent({ type: 'editor', doc, name: 'notes.md' })
+      closeTab(windowPaneStore, activePaneId, id)
 
-    windowPaneStore.getState().bufferActions.reopenLastClosedBuffer()
+      windowPaneStore.getState().bufferActions.reopenLastClosedBuffer()
 
-    await vi.waitFor(
-      () =>
-        expect(windowPaneStore.getState().buffers).toEqual([
-          expect.objectContaining({ authority: 'host', path: doc.path, workspaceId: '' }),
-        ]),
-      { timeout: 15_000 },
-    )
-  }, 20_000)
+      await vi.waitFor(
+        () =>
+          expect(windowPaneStore.getState().buffers).toEqual([
+            expect.objectContaining({ authority: 'host', path: doc.path, workspaceId: '' }),
+          ]),
+        { timeout: MONACO_LOAD_MS },
+      )
+    },
+    MONACO_LOAD_MS,
+  )
 
   it('preview flag is set when isPreview is true', () => {
     const id = store.getState().bufferActions.openContent(editor('/b.ts', { isPreview: true }))

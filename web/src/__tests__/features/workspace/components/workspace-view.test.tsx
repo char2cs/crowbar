@@ -1,19 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, act, cleanup } from '@testing-library/react'
 
-// Focused WorkspaceView lifecycle tests for keep-alive semantics: hydrate runs
-// once per mount and a warm (hidden -> active) flip does no work of its own
-// (disk reconciliation belongs to the files feed, see use-workspace-file-tree).
-const { hydrateSpy, reconcileSpy, activeEffectsSpy, agentChatsStreamSpy } = vi.hoisted(() => ({
-  hydrateSpy: vi.fn(async (_wsId: string) => ({ layout: null, editorStates: [] })),
-  reconcileSpy: vi.fn(async (_wsId: string) => {}),
+// Focused WorkspaceView lifecycle tests for keep-alive semantics: a warm
+// (hidden -> active) flip does no work of its own (disk reconciliation belongs
+// to the files feed, see use-workspace-file-tree).
+const { activeEffectsSpy, agentChatsStreamSpy } = vi.hoisted(() => ({
   activeEffectsSpy: vi.fn((_wsId: string, _active: boolean) => {}),
   agentChatsStreamSpy: vi.fn((_wsId: string) => {}),
-}))
-
-vi.mock('@/lib/persistence/hydrate', () => ({
-  hydrateWorkspace: (wsId: string) => hydrateSpy(wsId),
-  reconcileWorkspaceBuffersWithDisk: (wsId: string) => reconcileSpy(wsId),
 }))
 
 // The host hands the view its store; a stable fake is all the view needs.
@@ -54,8 +47,6 @@ async function renderView(active: boolean) {
 }
 
 beforeEach(() => {
-  hydrateSpy.mockClear()
-  reconcileSpy.mockClear()
   activeEffectsSpy.mockClear()
   agentChatsStreamSpy.mockClear()
 })
@@ -65,23 +56,6 @@ afterEach(() => {
 })
 
 describe('WorkspaceView keep-alive lifecycle', () => {
-  it('cold mount: hydrates once and does NOT disk-reconcile again (hydrate already does)', async () => {
-    await renderView(true)
-
-    expect(hydrateSpy).toHaveBeenCalledTimes(1)
-    expect(hydrateSpy).toHaveBeenCalledWith('ws-a')
-    expect(reconcileSpy).not.toHaveBeenCalled()
-  })
-
-  it('warm re-activation: only flips the feeds, with no re-hydrate and no disk re-read', async () => {
-    const { setActive } = await renderView(true)
-    await setActive(false)
-    await setActive(true)
-
-    expect(hydrateSpy).toHaveBeenCalledTimes(1) // still only the cold hydrate
-    expect(reconcileSpy).not.toHaveBeenCalled()
-  })
-
   // The tree/git feeds stay mounted while hidden so a switch back is a
   // selection, not a refetch; `active` only tells them whether to do a first load.
   it('keeps the data feeds mounted while hidden and tells them whether the workspace is active', async () => {

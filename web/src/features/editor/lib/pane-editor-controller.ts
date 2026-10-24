@@ -2,7 +2,7 @@
  * Pure, React-free core of the per-pane editor switch controller.
  *
  * `applyActiveBuffer` is the imperative switch logic that runs whenever a pane's
- * `activeBufferId` changes. It is intentionally decoupled from React and from
+ * active document changes or opens. It is intentionally decoupled from React and from
  * Monaco so it can be unit-tested with fakes: given a manager + an active-editor
  * registry + the buffer that just became active, it swaps the pane's retained
  * widget onto that buffer's model and publishes the new ActiveEditorContext.
@@ -20,16 +20,14 @@ import type {
 
 /** The minimal manager surface the switch logic needs (subset of EditorManager). */
 export interface PaneSwitchManager {
-  showBuffer(paneId: string, uri: string): void
+  /** False, leaving the pane empty, while the document is not open. */
+  showBuffer(paneId: string, uri: string): boolean
   /** Underlying monaco standalone editor for the pane (opaque to this module). */
   getRawEditor(paneId: string): unknown
 }
 
 /** The minimal shape of the buffer that just became active in the pane. */
 export interface ActiveBufferInfo {
-  /** Buffer id — the content-write target (so a flush attributes to the right
-   *  buffer even after the active buffer has changed on a fast switch). */
-  bufferId: string
   /** The buffer's document — the model key, so two workspaces' files at the
    *  same path never share a model. */
   doc: DocumentRef
@@ -49,27 +47,9 @@ interface EditorWithModel {
  *   `registry.set` is uri-deduped (same uri → subscribers not re-notified), so
  *   switching to the buffer that is already active is a no-op end-to-end.
  *
- * Returns the published ActiveEditorContext (or undefined if it could not be
- * published, e.g. no buffer / no raw editor) so the caller can rebind listeners
- * to the new model.
+ * Returns the published ActiveEditorContext, or undefined when nothing was
+ * published (no buffer, its document not open yet, or no raw editor).
  */
-/**
- * I2 reconcile gate. On a swap/rebind the satellite external-sync effect would
- * otherwise apply the STORE snapshot over the freshly-bound model. That is only
- * safe when the store is the authoritative value — i.e. the buffer is NOT dirty.
- *
- * Genuine external changes (disk reload, format-on-save, undo applied to the
- * store) only ever update the store content for a CLEAN buffer; a dirty buffer
- * is flagged, never overwritten (see external-buffer-sync). So when the buffer
- * is dirty the held model carries pending local edits the store snapshot does
- * not, and applying it would CLOBBER those edits (lost keystrokes). Skip it.
- *
- * Returns true when the store snapshot may be reconciled onto the model.
- */
-export function shouldReconcileModelFromStore(buffer: { isDirty: boolean } | null): boolean {
-  return !buffer?.isDirty
-}
-
 export function applyActiveBuffer(
   deps: { manager: PaneSwitchManager; registry: ActiveEditorRegistry },
   paneId: string,
@@ -79,7 +59,7 @@ export function applyActiveBuffer(
   const { manager, registry } = deps
   const uri = documentUri(buffer.doc)
 
-  manager.showBuffer(paneId, uri)
+  if (!manager.showBuffer(paneId, uri)) return undefined
 
   const editor = manager.getRawEditor(paneId) as EditorWithModel | null
   const model = editor?.getModel() ?? null

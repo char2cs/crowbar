@@ -8,6 +8,9 @@ import {
   type TerminalContent,
 } from '@/features/panes/types/pane-content'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
+import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
+import { clearDraft } from '@/features/editor/documents/draft-store'
+import { getEditorHost } from '@/features/editor/host/editor-host'
 // Leaf module (zustand only, no Plate) — a static import keeps the rich
 // editor's chunk out of the base bundle while still releasing the buffer's
 // rich/source preference synchronously.
@@ -60,8 +63,8 @@ export function releaseUnreferencedBuffers(state: BufferOwnershipState): PaneCon
 /**
  * Free everything a released buffer held outside the store: a terminal's PTY
  * (terminals never enter the reopen history, so the shell dies here or it
- * leaks), git-blame data and the markdown view preference. Undo history
- * belongs to the buffer's Monaco model and goes with it.
+ * leaks), an editor's document (its model, undo history and draft), git-blame
+ * data and the markdown view preference.
  */
 export function disposeBuffers(released: readonly PaneContent[]): void {
   for (const buf of released) {
@@ -82,6 +85,9 @@ export function disposeBuffers(released: readonly PaneContent[]): void {
       )
     }
     if (isEditorContent(buf) && buf.path) {
+      const uri = documentUri(documentRefOf(buf))
+      getEditorHost()?.documents.release(uri)
+      clearDraft(uri)
       const { path: filePath, workspaceId } = buf
       bestEffort(
         import('@/features/git/stores/git-blame-store').then(({ clearBlame }) => {

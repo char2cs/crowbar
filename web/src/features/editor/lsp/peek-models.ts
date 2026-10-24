@@ -8,7 +8,6 @@ import type * as Monaco from 'monaco-editor'
 import { readDocumentFromDisk, workspaceRef } from '@/lib/api/documents'
 import { getEditorHost } from '@/features/editor/host/editor-host'
 import { documentUri, refFromUri } from '../documents/document-ref'
-import { documentText } from '../documents/document-text'
 import { langForUri } from '../lib/monaco-adapters'
 import { toMonacoRange, type DaemonLocation } from './lsp-to-monaco'
 
@@ -33,13 +32,13 @@ export function toMonacoLocations(
   return inside
 }
 
-// The ModelRegistry adopts a peek model if its file is later opened; otherwise
-// it is disposed when the next peek replaces it.
+// The DocumentRegistry adopts a peek model if its file is later opened;
+// otherwise it is disposed when the next peek replaces it.
 const peekModels = new Set<Monaco.editor.ITextModel>()
 
 function isHeld(model: Monaco.editor.ITextModel): boolean {
   const ref = refFromUri(model.uri.toString())
-  if (ref && getEditorHost()?.models.get(documentUri(ref))) return true
+  if (ref && getEditorHost()?.documents.has(documentUri(ref))) return true
   return monacoEditor.getEditors().some((e) => e.getModel() === model)
 }
 
@@ -54,7 +53,7 @@ export async function ensurePreviewModels(locations: Monaco.languages.Location[]
     [...uris].map(async (raw) => {
       const ref = refFromUri(raw)
       if (!ref || monacoEditor.getModel(Uri.parse(raw))) return
-      const text = documentText(ref) ?? (await readDocumentFromDisk(ref))
+      const text = await readDocumentFromDisk(ref)
       if (text === null || monacoEditor.getModel(Uri.parse(raw))) return
       const uri = documentUri(ref)
       peekModels.add(monacoEditor.createModel(text, langForUri(uri), Uri.parse(uri)))

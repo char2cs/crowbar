@@ -13,13 +13,10 @@ const editorBuffer: EditorContent = {
   authority: 'workspace',
   path: '/project/bar.ts',
   name: 'bar.ts',
-  content: '',
-  savedContent: '',
   isDirty: false,
   isVirtual: false,
   isPinned: false,
   isPreview: false,
-  tokens: [],
   workspaceId: 'w1',
 }
 

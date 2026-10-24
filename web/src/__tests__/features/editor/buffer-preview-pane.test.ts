@@ -79,7 +79,6 @@ describe('buffer preview pane integration', () => {
       type: 'editor',
       doc: workspaceRef('test-ws', '/workspace/a.ts'),
       name: 'a.ts',
-      content: 'a',
       isPreview: true,
     })
     const rightPaneId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
@@ -91,7 +90,6 @@ describe('buffer preview pane integration', () => {
       type: 'editor',
       doc: workspaceRef('test-ws', '/workspace/b.ts'),
       name: 'b.ts',
-      content: 'b',
       isPreview: true,
     })
 
@@ -114,7 +112,6 @@ describe('buffer preview pane integration', () => {
       type: 'editor',
       doc: workspaceRef('test-ws', '/workspace/preview.ts'),
       name: 'preview.ts',
-      content: 'preview',
       isPreview: true,
     })
 
@@ -132,7 +129,6 @@ describe('buffer preview pane integration', () => {
       type: 'editor',
       doc: workspaceRef('test-ws', '/workspace/pinned.ts'),
       name: 'pinned.ts',
-      content: 'pinned',
       isPreview: true,
     })
 

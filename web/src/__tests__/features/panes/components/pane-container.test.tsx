@@ -112,21 +112,12 @@ vi.mock('@/features/agent/components/agent-chat-pane', () => ({
 // looks the same afterwards.
 const { editorMountCount } = vi.hoisted(() => ({ editorMountCount: { current: 0 } }))
 vi.mock('@/features/panes/components/editor-pane', () => ({
-  EditorPane: ({
-    bufferId,
-    isPreview,
-    isActiveSurface,
-  }: {
-    bufferId: string
-    isPreview: boolean
-    isActiveSurface: boolean
-  }) => {
+  EditorPane: ({ bufferId, isActiveSurface }: { bufferId: string; isActiveSurface: boolean }) => {
     useEffect(() => {
       editorMountCount.current += 1
     }, [])
     return createElement('div', {
       'data-testid': `editor-marker-${bufferId}`,
-      'data-preview': String(isPreview),
       'data-active-surface': String(isActiveSurface),
     })
   },
@@ -253,11 +244,8 @@ function seedEditorTab(
       authority: 'workspace',
       path: `/${id}.ts`,
       name: `${id}.ts`,
-      content: '',
-      savedContent: '',
       isDirty: false,
       isVirtual: false,
-      tokens: [],
       isPreview: overrides.isPreview ?? false,
       workspaceId: 'w1',
     })
@@ -558,37 +546,6 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     expect(chatAfter).toBe(chatBefore)
   })
 
-  it("reads the active tab's preview styling from its own isPreview field", async () => {
-    const store = createWorkspaceStore('w1')
-    seedEditorTab(store, ROOT_PANE_ID, 'tab-preview', { isPreview: true })
-
-    await renderPane(store)
-
-    expect(await screen.findByTestId('editor-marker-tab-preview')).toHaveAttribute(
-      'data-preview',
-      'true',
-    )
-  })
-
-  it('does not read preview styling off a removed pane-level id', async () => {
-    const store = createWorkspaceStore('w1')
-    seedEditorTab(store, ROOT_PANE_ID, 'tab-plain', { isPreview: false })
-
-    await renderPane(store)
-
-    expect(await screen.findByTestId('editor-marker-tab-plain')).toHaveAttribute(
-      'data-preview',
-      'false',
-    )
-    // PaneGroup no longer carries previewBufferId at all (Task 1) — nothing
-    // in the pane state this test seeded could make the tab preview except
-    // its own isPreview field, which was set to false above.
-    expect(
-      (windowPaneStore.getState().panes[ROOT_PANE_ID] as unknown as Record<string, unknown>)
-        .previewBufferId,
-    ).toBe(undefined)
-  })
-
   it('a split-zone drop of a tab from a DIFFERENT pane is rejected — a tab may never cross a pane boundary via drag', async () => {
     const store = createWorkspaceStore('w1')
     await renderPane(store)
@@ -659,11 +616,8 @@ describe('PaneContainer — chat/editor-view hosting', () => {
         authority: 'workspace',
         path: '/moved.ts',
         name: 'moved.ts',
-        content: '',
-        savedContent: '',
         isDirty: false,
         isVirtual: false,
-        tokens: [],
         isPreview: false,
         workspaceId: 'w1',
       })

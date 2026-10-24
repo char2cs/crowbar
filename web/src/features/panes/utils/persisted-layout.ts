@@ -1,9 +1,13 @@
 import {
   PANE_CONTENT_TYPES,
   hasUnsavedEdits,
+  type EditorContent,
   type PaneContent,
 } from '@/features/panes/types/pane-content'
 import { workspaceRef } from '@/lib/api/documents'
+import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
+import type { EditorDraft } from '@/features/editor/documents/draft-store'
+import type { WorkspaceLayout } from '@/lib/persistence/schemas'
 
 interface PersistablePane {
   editorTabIds: string[]
@@ -86,4 +90,36 @@ export function upgradeLegacyBuffers(buffers: PaneContent[]): PaneContent[] {
     }
     return buffer
   })
+}
+
+/**
+ * Layouts saved while buffers carried their text: unsaved text becomes a
+ * draft, and every buffer keeps only its identity. Runs after
+ * `upgradeLegacyBuffers`, so each editor names its document.
+ */
+export function splitLegacyEditorContent(layout: WorkspaceLayout): {
+  layout: WorkspaceLayout
+  drafts: EditorDraft[]
+} {
+  if (!layout.buffers) return { layout, drafts: [] }
+  const drafts: EditorDraft[] = []
+  const buffers = layout.buffers.map((buffer) => {
+    if (buffer.type !== 'editor') return buffer
+    const {
+      content,
+      savedContent,
+      tokens: _tokens,
+      ...kept
+    } = buffer as EditorContent & {
+      content?: unknown
+      savedContent?: unknown
+      tokens?: unknown
+    }
+    if (typeof content !== 'string' || content === savedContent) return kept
+    const uri = documentUri(documentRefOf(kept))
+    const savedText = typeof savedContent === 'string' ? savedContent : ''
+    drafts.push({ uri, text: content, savedText, updatedAt: layout.updatedAt })
+    return { ...kept, isDirty: true }
+  })
+  return { layout: { ...layout, buffers }, drafts }
 }

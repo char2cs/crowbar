@@ -75,13 +75,10 @@ function makeEditorBuffer(i: number): EditorContent {
     authority: 'workspace',
     path: `/project/file-${i}.ts`,
     name: `file-${i}.ts`,
-    content: '',
-    savedContent: '',
     isDirty: false,
     isVirtual: false,
     isPinned: false,
     isPreview: false,
-    tokens: [],
     workspaceId: 'w1',
   }
 }
@@ -97,13 +94,10 @@ function makeSoleTab(id: string, isUncloseable: boolean): EditorContent {
     authority: 'workspace',
     path: `/project/${id}.ts`,
     name: `${id}.ts`,
-    content: '',
-    savedContent: '',
     isDirty: false,
     isVirtual: false,
     isPinned: false,
     isPreview: false,
-    tokens: [],
     isUncloseable,
     workspaceId: 'w1',
   }

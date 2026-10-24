@@ -1,5 +1,4 @@
-import { getDB } from './idb'
-import type { EditorState, WorkspaceLayout } from './schemas'
+import type { WorkspaceLayout } from './schemas'
 import {
   loadWindowPaneLayout,
   saveWorkspaceLayout,
@@ -12,23 +11,16 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { ViewState } from '@/features/panes/lib/view-state'
 import { repairViewState } from '@/features/panes/lib/view-repair'
 import {
+  splitLegacyEditorContent,
   upgradeLegacyBuffers,
   validateLoadedBuffers,
 } from '@/features/panes/utils/persisted-layout'
 import { getFirstLeafId } from '@/features/panes/utils/pane-layout'
-import {
-  hasUnsavedEdits,
-  isPersistableContent,
-  type PaneContent,
-} from '@/features/panes/types/pane-content'
-import { reconcileBuffersWithDisk } from '@/features/workspace/lib/external-buffer-sync'
+import { putDrafts } from '@/features/editor/documents/draft-store'
+import { restoreDocuments } from '@/features/editor/documents/restore-documents'
 import { fetchHomeChats, fetchRepoChats, fetchRepos, isNotFoundError } from '@/lib/api'
 import { loadSidebarUI } from './sidebar-ui'
 import { useSidebarStore } from '@/lib/store/sidebar'
-
-export interface WorkspaceHydrationResult {
-  editorStates: EditorState[]
-}
 
 /**
  * One-time, window-level hydration of pane/buffer layout — awaited at boot
@@ -57,8 +49,10 @@ export async function hydrateWindowPaneLayout(): Promise<void> {
     ...restored,
     panes,
     activeProjectId: windowPaneStore.getState().activeProjectId,
-    buffers: buffers.map(restoreBufferDirtyState),
+    buffers,
   })
+  // Documents load behind the restored tabs: Monaco and disk are not on the boot path.
+  restoreDocuments().catch((err: unknown) => console.error('Restoring documents failed:', err))
 }
 
 /**
@@ -70,13 +64,16 @@ export async function hydrateWindowPaneLayout(): Promise<void> {
  * (a project-home chat, a repo never opened) keeps its pane unplaced (null)
  * for the daemon to answer — never dropped on the cache's silence.
  * v2 → v3: buffers name their documents (`upgradeLegacyBuffers`).
+ * v3 → v4: buffers drop their text; unsaved text is written as drafts first.
  */
 export async function upgradeWindowPaneLayout(layout: WorkspaceLayout): Promise<WorkspaceLayout> {
   const version = layout.version ?? 1
   if (version >= WINDOW_LAYOUT_VERSION) return layout
   const placed = version < 2 ? await placeChatPanes(layout) : layout
   const buffers = placed.buffers && upgradeLegacyBuffers(placed.buffers)
-  return { ...placed, buffers, version: WINDOW_LAYOUT_VERSION }
+  const split = splitLegacyEditorContent({ ...placed, buffers })
+  await putDrafts(split.drafts)
+  return { ...split.layout, version: WINDOW_LAYOUT_VERSION }
 }
 
 async function placeChatPanes(layout: WorkspaceLayout): Promise<WorkspaceLayout> {
@@ -177,46 +174,6 @@ export function restoreWindowPaneState(layout: WorkspaceLayout): ViewState {
     mostRecentActivePaneIds: layout.mostRecentActivePaneIds ?? [],
     fullscreenPaneId: null,
   })
-}
-
-/**
- * Per-workspace hydration: fetches this workspace's own saved editor-view
- * state (cursor/scroll/folds — still workspace+buffer keyed, untouched by
- * Task 26) and reconciles whatever of ITS buffers already exist in the
- * (window-level, already-hydrated-once) pane store against disk — a restored
- * buffer's content can be stale the moment the app opens.
- */
-export async function hydrateWorkspace(workspaceId: string): Promise<WorkspaceHydrationResult> {
-  const db = await getDB()
-  const editorStates = await db.getAllFromIndex('editor-state', 'workspaceId', workspaceId)
-
-  const buffers = windowPaneStore.getState().buffers.filter((b) => b.workspaceId === workspaceId)
-  await reconcileBuffersWithDisk(buffers)
-
-  return { editorStates }
-}
-
-/**
- * Reconcile a LIVE workspace's open buffers against disk. Workspace keep-alive
- * skips re-hydration on a warm re-activation (the store never died), but files
- * can change on disk while the workspace sits hidden — its file watcher is
- * active-only, and agents/terminals keep working in hidden worktrees. Called on
- * every hidden→active transition; same policy as restore-time reconciliation:
- * clean buffers silently reload, dirty buffers keep edits and get flagged with
- * hasExternalChange.
- */
-export async function reconcileWorkspaceBuffersWithDisk(workspaceId: string): Promise<void> {
-  const buffers = windowPaneStore.getState().buffers.filter((b) => b.workspaceId === workspaceId)
-  await reconcileBuffersWithDisk(buffers)
-}
-
-/**
- * A restored buffer holding edits disk lacks is dirty, even if the persisted
- * snapshot raced and saved isDirty=false.
- */
-function restoreBufferDirtyState(buffer: PaneContent): PaneContent {
-  if (!isPersistableContent(buffer)) return buffer
-  return { ...buffer, isDirty: hasUnsavedEdits(buffer) }
 }
 
 export async function hydrateSidebar(): Promise<void> {

@@ -8,9 +8,12 @@ import {
   mergeChildren,
 } from '@/features/files/lib/file-tree-api'
 import { refreshDirectory } from '@/features/files/lib/file-tree-handlers'
-import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
+import {
+  reconcileWorkspaceDocuments,
+  syncBufferWithDisk,
+} from '@/features/workspace/lib/external-buffer-sync'
 import { workspaceRef } from '@/lib/api/documents'
-import { reconcileWorkspaceBuffersWithDisk } from '@/lib/persistence/hydrate'
+import { bestEffort } from '@/lib/best-effort'
 import { wsManager } from '@/lib/ws/manager'
 import { useWorkspaceStore } from '../workspace-context'
 
@@ -67,8 +70,8 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
           return
         }
         store.setState({ files: root, fileTreeStatus: 'ready' })
-        // Buffers restored while this workspace was never shown may predate disk.
-        void reconcileWorkspaceBuffersWithDisk(wsId).catch(() => {})
+        // Documents restored while this workspace was never shown may predate disk.
+        bestEffort(reconcileWorkspaceDocuments(wsId), 'reconcile documents')
       })
   }, [store, wsId, active, chatScopeReady])
 
@@ -104,7 +107,7 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
       // Writes may have been missed while the socket was down.
       if (evt?.reconnected) {
         void refreshDirectory(wsId, store)
-        void reconcileWorkspaceBuffersWithDisk(wsId).catch(() => {})
+        bestEffort(reconcileWorkspaceDocuments(wsId), 'reconcile documents')
         return
       }
       if (!evt?.path) return

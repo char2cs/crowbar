@@ -1,13 +1,12 @@
-import { EditorManager, type BufferMeta } from '@/features/editor/lib/editor-manager'
-import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
-import { ModelRegistry } from '@/features/editor/lib/model-registry'
-import { isEditorContent } from '@/features/panes/types/pane-content'
+import { DocumentRegistry } from '@/features/editor/documents/document-registry'
+import { EditorManager } from '@/features/editor/lib/editor-manager'
 
 /** The window's one Monaco environment: every pane, whatever workspace its
- *  buffer belongs to, mounts on this manager and shares this model table. */
+ *  buffer belongs to, mounts on this manager, and every open document's model
+ *  lives in this registry. */
 export interface EditorHost {
   readonly manager: EditorManager
-  readonly models: ModelRegistry
+  readonly documents: DocumentRegistry
 }
 
 let host: EditorHost | null = null
@@ -32,27 +31,20 @@ export function subscribeEditorHost(listener: () => void): () => void {
  * forgotten so the next caller retries.
  */
 export function loadEditorHost(): Promise<EditorHost> {
-  // window-pane-store loads here too: its pane actions import this module.
+  // buffer-save loads here too: through the pane store it imports this module.
   loading ??= Promise.all([
     import('@/features/editor/lib/monaco-adapters'),
-    import('@/features/panes/stores/window-pane-store'),
+    import('@/features/editor/lib/buffer-save'),
   ]).then(
-    ([adapters, { windowPaneStore }]) => {
-      // The uri names the whole document, so the lookup spans every buffer in the window.
-      const meta: BufferMeta = {
-        lang: adapters.langForUri,
-        text: (uri) => {
-          for (const b of windowPaneStore.getState().buffers) {
-            if (isEditorContent(b) && b.path && documentUri(documentRefOf(b)) === uri) {
-              return b.content
-            }
-          }
-          return ''
-        },
-      }
-      const models = new ModelRegistry(adapters.realModelApi())
+    ([adapters, save]) => {
+      const documents = new DocumentRegistry(adapters.realModelApi(), {
+        dirtyChanged: save.setDocumentDirty,
+        contentChanged: save.noteDocumentEdited,
+        opened: () => {},
+        released: save.cancelPendingWrites,
+      })
       const editors = adapters.realEditorApi(adapters.EDITOR_CREATE_OPTIONS)
-      host = { manager: new EditorManager(editors, models, meta), models }
+      host = { manager: new EditorManager(editors, documents), documents }
       for (const listener of [...listeners]) listener()
       return host
     },

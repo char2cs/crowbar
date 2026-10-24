@@ -1,16 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { useEffect, type ReactNode } from 'react'
 
-// Records every MOUNT (not render) of the Plate surface, plus the props it was
-// handed — the pane remounts it per buffer (C1) and wires preview/promote (M3).
-const plateMounts: { bufferId: string; isPreview?: boolean; onPromote?: () => void }[] = []
+// Records every MOUNT (not render) of the Plate surface: the pane remounts it per buffer (C1).
+const plateMounts: { bufferId: string }[] = []
 vi.mock('@/features/editor/markdown/plate/markdown-editor-pane', () => ({
-  MarkdownEditorPane: (props: {
-    bufferId: string
-    isPreview?: boolean
-    onPromote?: () => void
-  }) => {
+  MarkdownEditorPane: (props: { bufferId: string }) => {
     useEffect(() => {
       plateMounts.push(props)
       // eslint-disable-next-line react-hooks/exhaustive-deps -- records the mount only
@@ -19,9 +14,10 @@ vi.mock('@/features/editor/markdown/plate/markdown-editor-pane', () => ({
   },
 }))
 
+import { MONACO_LOAD_MS, openTestDocument } from '@/__tests__/__fixtures__/documents'
 import { EditorPane } from '@/features/panes/components/editor-pane'
-import { getEditorHost } from '@/features/editor/host/editor-host'
-import { documentUri } from '@/features/editor/documents/document-ref'
+import { getEditorHost, loadEditorHost } from '@/features/editor/host/editor-host'
+import { documentText, replaceDocumentText } from '@/features/editor/documents/document-text'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 import {
   resetWindowPaneStoreForTests,
@@ -31,30 +27,12 @@ import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-con
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { workspaceRef } from '@/lib/api/documents'
 
-// Real host and real Monaco: the pane loads the editor on first mount. A
-// ceiling, not a wait — the monaco chunk takes seconds on a busy CI box.
-const MONACO_LOAD_MS = 120_000
+const open = (path: string, opts: { isPreview?: boolean } = {}) =>
+  openTestDocument(workspaceRef('ws-buffer', path), 'A', opts)
 
-function open(path: string, workspaceId = 'ws-buffer'): string {
-  return windowPaneStore.getState().bufferActions.openContent({
-    type: 'editor',
-    doc: workspaceRef(workspaceId, path),
-    name: path,
-    content: 'A',
-  })
-}
-
-function pane(bufferId: string, extra: { isPreview?: boolean; onPromote?: () => void } = {}) {
+function pane(bufferId: string) {
   const paneId = windowPaneStore.getState().activePaneId
-  return (
-    <EditorPane
-      paneId={paneId}
-      bufferId={bufferId}
-      isActiveSurface
-      isPreview={extra.isPreview ?? false}
-      onPromote={extra.onPromote ?? (() => {})}
-    />
-  )
+  return <EditorPane paneId={paneId} bufferId={bufferId} isActiveSurface />
 }
 
 /** The pane tree renders under some workspace's ambient store. */
@@ -71,6 +49,8 @@ function monacoMounted(): boolean {
   return getEditorHost()?.manager.getEditor(paneId) !== undefined
 }
 
+beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
+
 beforeEach(() => {
   plateMounts.length = 0
   resetWindowPaneStoreForTests()
@@ -81,19 +61,20 @@ describe('EditorPane', () => {
   it(
     'renders Monaco for a buffer whose workspace has no store yet',
     async () => {
-      const id = open('src/x.ts')
+      const id = await open('src/x.ts')
       render(inAmbient(pane(id)))
 
       await waitFor(() => expect(monacoMounted()).toBe(true), { timeout: MONACO_LOAD_MS })
       // The mount shows the active buffer in the same effect.
-      const model = getEditorHost()?.models.get(documentUri(workspaceRef('ws-buffer', 'src/x.ts')))
-      expect(model?.getValue()).toBe('A')
+      const paneId = windowPaneStore.getState().activePaneId
+      const shown = getEditorHost()?.manager.getEditor(paneId)?.getModel()
+      expect(shown?.getValue()).toBe('A')
     },
     MONACO_LOAD_MS,
   )
 
   it('routes rich markdown to Plate', async () => {
-    const id = open('README.md')
+    const id = await open('README.md')
     render(inAmbient(pane(id)))
 
     expect(await screen.findByTestId('plate-surface')).toBeInTheDocument()
@@ -103,7 +84,7 @@ describe('EditorPane', () => {
   it(
     'routes source-view markdown to Monaco',
     async () => {
-      const id = open('README.md')
+      const id = await open('README.md')
       useMarkdownViewStore.setState({ views: { [id]: 'source' } })
       render(inAmbient(pane(id)))
 
@@ -113,8 +94,8 @@ describe('EditorPane', () => {
     MONACO_LOAD_MS,
   )
 
-  it('shows "File not found" for a missing buffer', () => {
-    const id = open('src/gone.ts')
+  it('shows "File not found" for a missing buffer', async () => {
+    const id = await open('src/gone.ts')
     windowPaneStore.setState((s) => ({
       buffers: s.buffers.map((b) => (b.id === id ? { ...b, fileMissing: true } : b)),
     }))
@@ -128,8 +109,8 @@ describe('EditorPane', () => {
   // `.md` tab switch is a prop update. Plate parses its document once per
   // mount; unkeyed, file A's document would stay live under B's id.
   it('remounts the Plate surface when the buffer changes', async () => {
-    const one = open('one.md')
-    const two = open('two.md')
+    const one = await open('one.md')
+    const two = await open('two.md')
     const { rerender } = render(inAmbient(pane(one)))
     await screen.findByText(one)
 
@@ -139,16 +120,27 @@ describe('EditorPane', () => {
     expect(plateMounts.map((m) => m.bufferId)).toEqual([one, two])
   })
 
-  // M3: an edited markdown preview tab must promote to permanent, as Monaco's does.
-  it('hands the preview/promote seam to the Plate surface', async () => {
-    const onPromote = vi.fn()
-    const id = open('one.md')
-    render(inAmbient(pane(id, { isPreview: true, onPromote })))
-    await screen.findByTestId('plate-surface')
+  // Plate parses its document once per mount, so it must not mount before the text exists.
+  it('mounts Plate for rich markdown only once the document has opened', async () => {
+    const doc = workspaceRef('ws-buffer', 'late.md')
+    const id = windowPaneStore
+      .getState()
+      .bufferActions.openContent({ type: 'editor', doc, name: 'late.md' })
+    render(inAmbient(pane(id)))
+    expect(screen.queryByTestId('plate-surface')).toBeNull()
 
-    expect(plateMounts).toHaveLength(1)
-    expect(plateMounts[0].isPreview).toBe(true)
-    plateMounts[0].onPromote?.()
-    expect(onPromote).toHaveBeenCalledTimes(1)
+    await act(async () => void (await loadEditorHost()).documents.open(doc, 'markdown', '# late'))
+
+    expect(await screen.findByTestId('plate-surface')).toBeInTheDocument()
+    expect(documentText(doc)).toBe('# late')
+  })
+
+  // M3: an edited preview tab promotes to permanent, from either surface.
+  it('promotes a preview tab once its document is edited', async () => {
+    const id = await open('one.md', { isPreview: true })
+
+    replaceDocumentText(workspaceRef('ws-buffer', 'one.md'), 'edited')
+
+    expect(windowPaneStore.getState().buffers.find((b) => b.id === id)?.isPreview).toBe(false)
   })
 })

@@ -12,13 +12,11 @@ describe('buffer slice auto-eviction', () => {
       type: 'editor',
       doc: workspaceRef('test-ws', '/a.ts'),
       name: 'a.ts',
-      content: '',
     })
     store.getState().bufferActions.openContent({
       type: 'editor',
       doc: workspaceRef('test-ws', '/b.ts'),
       name: 'b.ts',
-      content: '',
     })
     expect(store.getState().buffers).toHaveLength(2)
 
@@ -26,7 +24,6 @@ describe('buffer slice auto-eviction', () => {
       type: 'editor',
       doc: workspaceRef('test-ws', '/c.ts'),
       name: 'c.ts',
-      content: '',
     })
     // /a.ts should be evicted (was first, least recent)
     expect(store.getState().buffers).toHaveLength(2)
@@ -46,20 +43,17 @@ describe('buffer slice auto-eviction', () => {
       type: 'editor',
       doc: workspaceRef('test-ws', '/a.ts'),
       name: 'a.ts',
-      content: '',
     })
     store.getState().bufferActions.setPinned(idA, true)
     store.getState().bufferActions.openContent({
       type: 'editor',
       doc: workspaceRef('test-ws', '/b.ts'),
       name: 'b.ts',
-      content: '',
     })
     store.getState().bufferActions.openContent({
       type: 'editor',
       doc: workspaceRef('test-ws', '/c.ts'),
       name: 'c.ts',
-      content: '',
     })
     // b.ts should be evicted; a.ts (pinned) stays
     expect(store.getState().buffers.map((b) => b.name)).toContain('a.ts')
@@ -75,13 +69,11 @@ describe('buffer slice auto-eviction', () => {
       type: 'editor',
       doc: workspaceRef('test-ws', '/a.ts'),
       name: 'a.ts',
-      content: '',
     })
     store.getState().bufferActions.openContent({
       type: 'editor',
       doc: workspaceRef('test-ws', '/b.ts'),
       name: 'b.ts',
-      content: '',
     })
     // Terminal stays, a.ts evicted
     expect(store.getState().buffers.map((b) => b.type)).toContain('terminal')
@@ -101,13 +93,11 @@ describe('buffer slice auto-eviction', () => {
       type: 'editor',
       doc: workspaceRef('ws-a', '/a.ts'),
       name: 'a.ts',
-      content: '',
     })
     store.getState().bufferActions.openContent({
       type: 'editor',
       doc: workspaceRef('ws-b', '/x.ts'),
       name: 'x.ts',
-      content: '',
     })
     // ws-b is nowhere near its own cap (only 1 buffer) — ws-a opening a
     // second file must never touch ws-b's tab.
@@ -115,7 +105,6 @@ describe('buffer slice auto-eviction', () => {
       type: 'editor',
       doc: workspaceRef('ws-a', '/b.ts'),
       name: 'b.ts',
-      content: '',
     })
 
     const names = store.getState().buffers.map((b) => b.name)
@@ -132,13 +121,11 @@ describe('buffer slice auto-eviction', () => {
       type: 'editor',
       doc: workspaceRef('test-ws', '/a.ts'),
       name: 'a.ts',
-      content: 'unsaved edits',
     })
     store.getState().bufferActions.openContent({
       type: 'editor',
       doc: workspaceRef('test-ws', '/b.ts'),
       name: 'b.ts',
-      content: '',
     })
     store.setState((s) => {
       s.buffers = s.buffers.map((b) =>
@@ -154,7 +141,6 @@ describe('buffer slice auto-eviction', () => {
       type: 'editor',
       doc: workspaceRef('test-ws', '/c.ts'),
       name: 'c.ts',
-      content: '',
     })
 
     const names = store.getState().buffers.map((b) => b.name)
@@ -175,7 +161,6 @@ describe('buffer slice auto-eviction', () => {
       type: 'editor',
       doc: workspaceRef('test-ws', '/a.ts'),
       name: 'a.ts',
-      content: '',
     })
     // Terminal stays (protected), editor is also created — intentionally exceeds limit
     expect(store.getState().buffers).toHaveLength(2)

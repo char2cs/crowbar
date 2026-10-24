@@ -2,7 +2,6 @@ import { Suspense, useCallback, useMemo, useRef, useSyncExternalStore } from 're
 import { createPortal } from 'react-dom'
 import { useStore } from 'zustand'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { useBufferActions } from '@/features/workspace/stores/hooks/use-buffer-store'
 import {
   getEditorPortalEntry,
   subscribeEditorPortalEntry,
@@ -48,7 +47,7 @@ function EditorHostSlot({ paneId }: { paneId: string }) {
     () => getEditorPortalEntry(paneId),
   )
 
-  // Remember the last KNOWN GOOD target node, buffer (id + isPreview), and
+  // Remember the last KNOWN GOOD target node, buffer id, and
   // active-surface flag — NOT just the active buffer id. `entry` itself goes
   // briefly `undefined` on every dependency change of PaneContainer's own
   // registration effect (a tab switch, a focus change — anything in that
@@ -65,34 +64,21 @@ function EditorHostSlot({ paneId }: { paneId: string }) {
   // (the pane's last editor tab actually closed) should tear it down — that
   // unmounts EditorHostSlot itself, which is the real, structural signal.
   const lastNodeRef = useRef<HTMLDivElement | null>(null)
-  const lastShownRef = useRef<{ id: string; isPreview: boolean } | null>(null)
+  const lastShownRef = useRef<string | null>(null)
   const lastActiveSurfaceRef = useRef(false)
   if (entry) {
     lastNodeRef.current = entry.node
     lastActiveSurfaceRef.current = entry.isActiveSurface
-    if (entry.activeEditorBufferId) {
-      lastShownRef.current = { id: entry.activeEditorBufferId, isPreview: entry.isPreview }
-    }
+    if (entry.activeEditorBufferId) lastShownRef.current = entry.activeEditorBufferId
   }
   const node = lastNodeRef.current
   const shown = lastShownRef.current
-
-  const { promotePreview } = useBufferActions()
-  const onPromote = useCallback(() => {
-    if (shown) promotePreview(shown.id)
-  }, [promotePreview, shown])
 
   if (!node || !shown) return null
 
   return createPortal(
     <Suspense fallback={null}>
-      <EditorPane
-        paneId={paneId}
-        bufferId={shown.id}
-        isActiveSurface={lastActiveSurfaceRef.current}
-        isPreview={shown.isPreview}
-        onPromote={onPromote}
-      />
+      <EditorPane paneId={paneId} bufferId={shown} isActiveSurface={lastActiveSurfaceRef.current} />
     </Suspense>,
     node,
   )

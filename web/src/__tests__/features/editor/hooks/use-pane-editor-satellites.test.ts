@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
 import { editor as monacoEditor, languages, Uri } from 'monaco-editor/esm/vs/editor/editor.api.js'
+import { MONACO_LOAD_MS, openTestDocument } from '@/__tests__/__fixtures__/documents'
 import { loadEditorHost, type EditorHost } from '@/features/editor/host/editor-host'
 import { activeEditors } from '@/features/editor/lib/active-editor-context'
 import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
@@ -19,19 +20,11 @@ vi.mock('@/features/editor/hooks/use-inline-blame', () => ({ useInlineBlame: () 
 
 const PATH = 'package.json'
 const A = documentUri(workspaceRef('ws-a', PATH))
-const B = documentUri(workspaceRef('ws-b', PATH))
 
-function openSamePathInTwoWorkspaces() {
+async function openSamePathInTwoWorkspaces() {
   resetWindowPaneStoreForTests()
-  const open = (workspaceId: string, content: string) =>
-    windowPaneStore.getState().bufferActions.openContent({
-      type: 'editor',
-      doc: workspaceRef(workspaceId, PATH),
-      name: PATH,
-      content,
-    })
-  const a = open('ws-a', 'AAAA')
-  const b = open('ws-b', 'BBBB')
+  const a = await openTestDocument(workspaceRef('ws-a', PATH), 'AAAA')
+  const b = await openTestDocument(workspaceRef('ws-b', PATH), 'BBBB')
   return { a, b, paneId: windowPaneStore.getState().activePaneId }
 }
 
@@ -56,7 +49,6 @@ function showActive(host: EditorHost, paneId: string) {
   const buffer = state.buffers.find((b) => b.id === id)
   if (!buffer || buffer.type !== 'editor') return
   applyActiveBuffer({ manager: host.manager, registry: activeEditors }, paneId, {
-    bufferId: buffer.id,
     doc: documentRefOf(buffer),
   })
 }
@@ -67,7 +59,7 @@ afterEach(() => {
 })
 
 async function mountPane() {
-  const fixture = openSamePathInTwoWorkspaces()
+  const fixture = await openSamePathInTwoWorkspaces()
   const host = await loadEditorHost()
   const container = document.body.appendChild(document.createElement('div'))
   host.manager.mountPane(fixture.paneId, container)
@@ -78,64 +70,46 @@ async function mountPane() {
   })
   const satellites = () => {
     const view = renderHook(() =>
-      usePaneEditorSatellites(fixture.paneId, { registry: activeEditors, manager: host.manager }),
+      usePaneEditorSatellites(fixture.paneId, { registry: activeEditors }),
     )
     cleanups.push(view.unmount)
   }
-  const followActiveTab = () =>
-    cleanups.push(windowPaneStore.subscribe(() => showActive(host, fixture.paneId)))
-  return { ...fixture, host, satellites, followActiveTab }
+  return { ...fixture, host, satellites }
 }
 
-describe('usePaneEditorSatellites store → model reconcile', () => {
-  it('a tab switch between two workspaces’ same-path files leaves each model its own text', async () => {
-    const { a, b, paneId, host, satellites, followActiveTab } = await mountPane()
-    activate(paneId, a)
-    showActive(host, paneId)
-    followActiveTab()
-    satellites()
+describe('usePaneEditorSatellites model language', () => {
+  it(
+    'the bound model keeps its own language while the active tab overrides another’s',
+    async () => {
+      languages.register({ id: 'json' })
+      languages.register({ id: 'python' })
+      const { a, b, paneId, host, satellites } = await mountPane()
+      activate(paneId, a)
+      showActive(host, paneId)
+      activate(paneId, b)
+      overrideLanguage(b, 'python')
 
-    activate(paneId, b)
+      satellites()
 
-    expect(host.models.get(A)?.getValue()).toBe('AAAA')
-    expect(host.models.get(B)?.getValue()).toBe('BBBB')
-  }, 120000)
+      expect(monacoEditor.getModel(Uri.parse(A))?.getLanguageId()).toBe('json')
+    },
+    MONACO_LOAD_MS,
+  )
 
-  it('binding while the store shows another workspace’s same-path file writes nothing', async () => {
-    const { a, b, paneId, host, satellites } = await mountPane()
-    activate(paneId, a)
-    showActive(host, paneId)
-    activate(paneId, b)
+  it(
+    'an untitled buffer’s chosen language reaches its model',
+    async () => {
+      languages.register({ id: 'python' })
+      const { paneId, host, satellites } = await mountPane()
+      const untitled = await openUntitledDocument('ws-a', paneId)
+      showActive(host, paneId)
+      satellites()
 
-    satellites()
+      overrideLanguage(untitled, 'python')
 
-    expect(host.models.get(A)?.getValue()).toBe('AAAA')
-  }, 120000)
-
-  it('the bound model keeps its own language while the active tab overrides another’s', async () => {
-    languages.register({ id: 'json' })
-    languages.register({ id: 'python' })
-    const { a, b, paneId, host, satellites } = await mountPane()
-    activate(paneId, a)
-    showActive(host, paneId)
-    activate(paneId, b)
-    overrideLanguage(b, 'python')
-
-    satellites()
-
-    expect(monacoEditor.getModel(Uri.parse(A))?.getLanguageId()).toBe('json')
-  }, 120000)
-
-  it('an untitled buffer’s chosen language reaches its model', async () => {
-    languages.register({ id: 'python' })
-    const { paneId, host, satellites } = await mountPane()
-    const untitled = await openUntitledDocument('ws-a', paneId)
-    showActive(host, paneId)
-    satellites()
-
-    overrideLanguage(untitled, 'python')
-
-    const uri = documentUri(workspaceRef('ws-a', 'untitled:Untitled'))
-    expect(monacoEditor.getModel(Uri.parse(uri))?.getLanguageId()).toBe('python')
-  }, 120000)
+      const uri = documentUri(workspaceRef('ws-a', 'untitled:Untitled-1'))
+      expect(monacoEditor.getModel(Uri.parse(uri))?.getLanguageId()).toBe('python')
+    },
+    MONACO_LOAD_MS,
+  )
 })

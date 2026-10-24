@@ -1,17 +1,13 @@
 import { readDocument } from '@/lib/api/documents'
-import { documentRefOf } from '@/features/editor/documents/document-ref'
+import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
 import { applyExternalText, documentText } from '@/features/editor/documents/document-text'
-import { cancelAutosave, findEditorBuffer, type PathedBuffer } from './buffer-save'
+import { cancelPendingWrites, findEditorBuffer, type PathedBuffer } from './buffer-save'
 
 export type ReloadOutcome = 'reloaded' | 'kept' | 'failed'
 
 /**
- * Replace a buffer's content with what is on disk. A dirty buffer is only
- * reloaded when `confirmDiscard` agrees; edits typed while the read is in
- * flight are never overwritten (the reload is abandoned instead).
- *
- * The open Monaco model follows through the normal store → model sync, which
- * applies it as an undoable edit.
+ * Replace a buffer's text with what is on disk, as one undoable edit. A dirty buffer
+ * reloads only if `confirmDiscard` agrees; edits typed during the read abandon it.
  */
 export async function reloadBufferFromDisk(
   bufferId: string,
@@ -24,7 +20,7 @@ export async function reloadBufferFromDisk(
   const buffer = findEditorBuffer(bufferId)
   if (seen === null || !buffer) return 'failed'
   if (buffer.isDirty && !confirmDiscard(buffer)) return 'kept'
-  cancelAutosave(bufferId)
+  cancelPendingWrites(documentUri(ref))
 
   let disk: string
   try {

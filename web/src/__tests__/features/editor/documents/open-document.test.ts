@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { readDocument, openNativeDialog, desktop } = vi.hoisted(() => ({
   readDocument: vi.fn(),
@@ -15,6 +15,7 @@ vi.mock('@/lib/crowbar-bridge', async (importOriginal) => ({
   isTauri: () => desktop.value,
 }))
 
+import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
 import { ApiError } from '@/lib/api'
 import {
   HOST_DOCUMENT_TRANSPORT_CODE,
@@ -22,11 +23,15 @@ import {
   type DocumentRef,
   type DocumentTarget,
 } from '@/lib/api/documents'
+import { documentRefOf } from '@/features/editor/documents/document-ref'
+import { documentText, replaceDocumentText } from '@/features/editor/documents/document-text'
 import {
   openDocument,
   openDocumentFromDialog,
   openDocumentsAtPaths,
+  openUntitledDocument,
 } from '@/features/editor/documents/open-document'
+import { loadEditorHost } from '@/features/editor/host/editor-host'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
@@ -47,6 +52,8 @@ const editors = () => windowPaneStore.getState().buffers.filter(isEditorContent)
 const pane = () => windowPaneStore.getState().panes[windowPaneStore.getState().activePaneId]
 
 let toastError: ReturnType<typeof vi.spyOn>
+
+beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
 
 beforeEach(() => {
   resetWindowPaneStoreForTests()
@@ -73,10 +80,22 @@ describe('openDocument', () => {
         path: '/tmp/s5/notes.md',
         workspaceId: '',
         name: 'notes.md',
-        content: 'hi',
       }),
     ])
+    expect(documentText(host('/tmp/s5/notes.md'))).toBe('hi')
     expect(pane().activeEditorTabId).toBe(id)
+  })
+
+  it('each untitled tab is a document of its own', async () => {
+    const paneId = windowPaneStore.getState().activePaneId
+    await openUntitledDocument('ws-a', paneId)
+    await openUntitledDocument('ws-a', paneId)
+    const [first, second] = editors().map(documentRefOf)
+
+    replaceDocumentText(first!, 'scratch')
+
+    expect(documentText(first!)).toBe('scratch')
+    expect(documentText(second!)).toBe('')
   })
 
   it('the same file through an absolute path reuses the workspace buffer', async () => {

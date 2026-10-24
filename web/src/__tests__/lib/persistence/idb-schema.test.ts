@@ -58,7 +58,7 @@ describe('idb schema v10', () => {
     expect(await db.get('sidebar-ui', 'global')).toMatchObject({ collapsedChatRows: ['c1'] })
   })
   // The v9 database exactly as the base build (70ec430) left it, one record in
-  // every store: the v10 upgrade may drop the two retired stores and nothing else.
+  // every store: the upgrades may drop the retired stores and nothing else.
   it('upgrades a base-build v9 database with data in every store, losing only the retired', async () => {
     const byKey = (key: string) => ({ keyPath: key })
     const stores: Array<[string, IDBObjectStoreParameters | undefined, unknown, IDBValidKey?]> = [
@@ -104,14 +104,23 @@ describe('idb schema v10', () => {
     const raw = db as unknown as IDBPDatabase
     const names = Array.from(db.objectStoreNames)
     for (const [name, params, value, key] of stores) {
-      if (RETIRED.includes(name)) {
+      if ([...RETIRED, 'editor-state'].includes(name)) {
         expect(names).not.toContain(name)
         continue
       }
-      const id = key ?? (name === 'editor-state' ? ['w1', 'b1'] : keyOf(value, params))
-      expect(await raw.get(name, id), name).toEqual(name === 'editor-state' ? editorState : value)
+      expect(await raw.get(name, key ?? keyOf(value, params)), name).toEqual(value)
     }
-    expect(await db.getAllFromIndex('editor-state', 'workspaceId', 'w1')).toEqual([editorState])
+  })
+})
+
+describe('idb schema v11', () => {
+  it('keeps unsaved editor text as drafts keyed by document uri', async () => {
+    const db = await getDB()
+    const draft = { uri: 'crowbar://w/ws1/a.ts', text: 'mine', savedText: 'disk', updatedAt: 1 }
+    await db.put('editor-drafts', draft)
+
+    expect(await db.get('editor-drafts', draft.uri)).toEqual(draft)
+    expect(Array.from(db.objectStoreNames)).not.toContain('editor-state')
   })
 })
 

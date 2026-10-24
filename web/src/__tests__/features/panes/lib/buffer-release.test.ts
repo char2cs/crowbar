@@ -81,7 +81,6 @@ describe('buffer ownership (invariant C2)', () => {
       type: 'editor',
       doc: workspaceRef('w', 'a.ts'),
       name: 'a.ts',
-      content: '',
     })
     const paneId = store.getState().activePaneId
 
@@ -115,7 +114,6 @@ describe('buffer ownership (invariant C2)', () => {
       type: 'editor',
       doc: workspaceRef('w', 'b.ts'),
       name: 'b.ts',
-      content: '',
     })
     const right = paneActions.splitPane(left, 'horizontal', bufferId)!
 
@@ -172,7 +170,6 @@ describe('buffer ownership (invariant C2)', () => {
             type: 'editor',
             doc: workspaceRef('w', `f${rand(4)}.ts`),
             name: 'f',
-            content: '',
           })
           break
         case 3:

@@ -1,11 +1,9 @@
 import { vi } from 'vitest'
 
-type Ref = { workspaceId: string; path: string }
-const readFileMock = vi.fn<(wsId: string, path: string) => Promise<string>>()
-vi.mock('@/lib/api/documents', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/api/documents')>()),
-  readDocument: async (ref: Ref) => ({ ref, text: await readFileMock(ref.workspaceId, ref.path) }),
-  readDocumentFromDisk: (ref: Ref) => readFileMock(ref.workspaceId, ref.path).catch(() => null),
+// Restoring documents loads Monaco and reads disk; restore-documents.test owns that.
+const restoreDocumentsMock = vi.fn(async () => {})
+vi.mock('@/features/editor/documents/restore-documents', () => ({
+  restoreDocuments: () => restoreDocumentsMock(),
 }))
 
 // The daemon's chat listings, for placing a restored member the cache does not know.
@@ -22,36 +20,21 @@ vi.mock('@/lib/api', async (importOriginal) => {
   }
 })
 
-const toastWarning = vi.fn()
-vi.mock('@/features/window/stores/toast-store', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/features/window/stores/toast-store')>()
-  return {
-    ...actual,
-    toast: {
-      ...actual.toast,
-      warning: (...args: unknown[]) => toastWarning(...args),
-    },
-  }
-})
-
 import {
-  hydrateWorkspace,
   hydrateSidebar,
   hydrateWindowPaneLayout,
   placeRestoredChatMembers,
   upgradeWindowPaneLayout,
 } from '@/lib/persistence/hydrate'
 import { ApiError } from '@/lib/api'
-import { workspaceRef } from '@/lib/api/documents'
-import { documentText, savedDocumentText } from '@/features/editor/documents/document-text'
+import { loadDrafts } from '@/features/editor/documents/draft-store'
 import { getDB, resetDB } from '@/lib/persistence/idb'
 import {
   WINDOW_LAYOUT_VERSION,
   WINDOW_SESSION_ID,
   loadWindowPaneLayout,
 } from '@/lib/persistence/workspace-layout'
-import type { WorkspaceLayout, EditorState } from '@/lib/persistence/schemas'
-import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import type { WorkspaceLayout } from '@/lib/persistence/schemas'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
@@ -95,72 +78,6 @@ const HYDRATE_TEST_REPOS: Repo[] = [
   },
 ]
 
-async function seedDB(workspaceId: string) {
-  const db = await getDB()
-  const layout: WorkspaceLayout = {
-    workspaceId,
-    panes: {
-      [ROOT_PANE_ID]: {
-        id: ROOT_PANE_ID,
-        type: 'group',
-        chatId: null,
-        runnerId: null,
-        editorTabIds: [],
-        activeEditorTabId: null,
-        editorOpen: false,
-        viewId: null,
-      },
-    },
-    views: {},
-    viewOrder: [],
-    activeViewId: null,
-    stage: createLeaf(ROOT_PANE_ID),
-    bottomLayout: createLeaf('bottom-pane'),
-    activePaneId: ROOT_PANE_ID,
-    mostRecentActivePaneIds: [ROOT_PANE_ID],
-    buffers: [],
-    updatedAt: Date.now(),
-  }
-  const editorState: EditorState = {
-    workspaceId,
-    bufferId: '/src/main.ts',
-    cursorLine: 10,
-    cursorColumn: 5,
-    scrollTop: 200,
-    folds: [],
-    updatedAt: Date.now(),
-  }
-  await db.put('workspace-layout', layout)
-  await db.put('editor-state', editorState)
-  return { layout, editorState }
-}
-
-describe('hydrateWorkspace', () => {
-  beforeEach(async () => {
-    resetDB()
-    globalThis.indexedDB = new IDBFactory()
-  })
-
-  afterEach(() => {
-    destroyWorkspaceStore('missing-ws')
-    destroyWorkspaceStore('ws-test')
-  })
-
-  // Pane/buffer layout is window-level and restored once at boot by
-  // hydrateWindowPaneLayout (see below); hydrateWorkspace keeps editorStates.
-  it('returns empty editor states when IDB is empty', async () => {
-    const result = await hydrateWorkspace('missing-ws')
-    expect(result.editorStates).toEqual([])
-  })
-
-  it('returns editor states when seeded', async () => {
-    const { editorState } = await seedDB('ws-test')
-    const result = await hydrateWorkspace('ws-test')
-    expect(result.editorStates).toHaveLength(1)
-    expect(result.editorStates[0].bufferId).toBe(editorState.bufferId)
-  })
-})
-
 describe('hydrateWindowPaneLayout', () => {
   beforeEach(() => {
     resetDB()
@@ -176,7 +93,7 @@ describe('hydrateWindowPaneLayout', () => {
     expect(after.panes).toEqual(before.panes)
   })
 
-  it('restores a v2 window-session row: views, stage, buffers that now name their file', async () => {
+  it('restores a v2 row: views, stage, buffers that name their file, then their documents', async () => {
     const layout: WorkspaceLayout = {
       version: 2,
       workspaceId: WINDOW_SESSION_ID,
@@ -201,15 +118,21 @@ describe('hydrateWindowPaneLayout', () => {
       updatedAt: Date.now(),
     }
     await (await getDB()).put('workspace-layout', layout)
+    let tabsAtRestore: string[] = []
+    restoreDocumentsMock.mockImplementationOnce(async () => {
+      tabsAtRestore = windowPaneStore.getState().buffers.map((b) => b.id)
+    })
 
     await hydrateWindowPaneLayout()
 
+    expect(tabsAtRestore).toEqual(['buf-1'])
     const state = windowPaneStore.getState()
     expect(state.viewOrder).toEqual(['view-b', 'view-a'])
     expect(state.activeViewId).toBe('view-a')
     expect(state.activePaneId).toBe('pane-a')
     expect(getAllLeafIds(state.stage)).toEqual([ROOT_PANE_ID])
-    expect(state.buffers).toMatchObject([{ id: 'buf-1', content: 'saved', authority: 'workspace' }])
+    expect(state.buffers).toMatchObject([{ id: 'buf-1', authority: 'workspace' }])
+    expect(state.buffers[0]).not.toHaveProperty('content')
   })
 
   // The one versioned load-time upgrade: a v1 member carried only its chat;
@@ -376,7 +299,7 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
       savedContent: 'on disk',
       isDirty: true,
       workspaceId,
-    }
+    } as EditorContent
   }
 
   async function seedBaseLayout(over: Record<string, unknown>) {
@@ -449,7 +372,11 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     expect(state.buffers.map((b) => b.id).sort()).toEqual(['buf-dirty', 'buf-orphan'])
     const holders = Object.values(state.panes).filter((p) => p.editorTabIds.includes('buf-orphan'))
     expect(holders).toHaveLength(1)
-    expect(state.buffers.every((b) => (b as EditorContent).content === 'unsaved edits')).toBe(true)
+    expect(state.buffers.every((b) => (b as EditorContent).isDirty)).toBe(true)
+    expect([...(await loadDrafts()).values()].map((d) => d.text)).toEqual([
+      'unsaved edits',
+      'unsaved edits',
+    ])
     expect(viewIntegrityViolations(state)).toEqual([])
 
     // The daemon then places the unknown member.
@@ -599,7 +526,8 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     const state = windowPaneStore.getState()
     expect(state.buffers.map((b) => b.id)).toEqual(['buf-1', 'buf-2'])
     expect(state.panes[ROOT_PANE_ID].editorTabIds).toEqual(['buf-1', 'buf-2'])
-    expect((state.buffers[0] as EditorContent).content).toBe('unsaved edits')
+    expect(state.buffers[0]).toMatchObject({ isDirty: true })
+    expect((await loadDrafts()).size).toBe(1)
   })
 })
 
@@ -623,6 +551,7 @@ function pane(
   }
 }
 
+/** A buffer as layouts before v4 saved it, text and all. */
 function buffer(id: string): EditorContent {
   return {
     id,
@@ -639,285 +568,6 @@ function buffer(id: string): EditorContent {
     workspaceId: 'ws-test',
   } as EditorContent
 }
-
-describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)', () => {
-  const WS = 'ws-restore'
-
-  function makeEditorBuffer(overrides: Partial<EditorContent> = {}): EditorContent {
-    return {
-      id: 'buf-1',
-      type: 'editor',
-      authority: 'workspace',
-      path: '/repo/README.md',
-      name: 'README.md',
-      content: 'saved content',
-      savedContent: 'saved content',
-      isDirty: false,
-      isVirtual: false,
-      isPreview: false,
-      tokens: [],
-      workspaceId: WS,
-      ...overrides,
-    }
-  }
-
-  // Seeded through the real restore path (IDB row + hydrateWindowPaneLayout),
-  // so the persisted-isDirty correction on restore is exercised, not bypassed.
-  async function seedLayoutWithBuffers(buffers: EditorContent[]) {
-    resetWindowPaneStoreForTests()
-    const db = await getDB()
-    await db.put('workspace-layout', {
-      workspaceId: WINDOW_SESSION_ID,
-      panes: {
-        [ROOT_PANE_ID]: {
-          id: ROOT_PANE_ID,
-          type: 'group',
-          chatId: null,
-          runnerId: null,
-          editorTabIds: buffers.map((b) => b.id),
-          activeEditorTabId: buffers[0]?.id ?? null,
-          editorOpen: true,
-          viewId: null,
-        },
-      },
-      views: {},
-      viewOrder: [],
-      activeViewId: null,
-      stage: createLeaf(ROOT_PANE_ID),
-      bottomLayout: createLeaf('bottom-pane'),
-      activePaneId: ROOT_PANE_ID,
-      mostRecentActivePaneIds: [ROOT_PANE_ID],
-      buffers,
-      updatedAt: Date.now(),
-    })
-    await hydrateWindowPaneLayout()
-  }
-
-  function getRestoredBuffer(): EditorContent {
-    return windowPaneStore.getState().buffers[0] as EditorContent
-  }
-
-  const README = workspaceRef(WS, '/repo/README.md')
-  beforeEach(() => {
-    resetDB()
-    globalThis.indexedDB = new IDBFactory()
-    readFileMock.mockReset()
-    toastWarning.mockReset()
-    localStorage.removeItem(`workspace:${WS}:state`)
-  })
-
-  afterEach(() => {
-    destroyWorkspaceStore(WS)
-  })
-
-  it('silently reloads a restored clean buffer whose file changed on disk', async () => {
-    await seedLayoutWithBuffers([makeEditorBuffer()])
-    readFileMock.mockResolvedValue('disk content changed while closed')
-
-    await hydrateWorkspace(WS)
-
-    const buf = getRestoredBuffer()
-    // Reads must target the hydrating workspace explicitly, not the active one.
-    expect(readFileMock).toHaveBeenCalledWith(WS, '/repo/README.md')
-    expect(documentText(README)).toBe('disk content changed while closed')
-    expect(savedDocumentText(README)).toBe('disk content changed while closed')
-    expect(buf.isDirty).toBe(false)
-    expect(buf.hasExternalChange).toBe(false)
-    expect(toastWarning).not.toHaveBeenCalled()
-  })
-
-  it('keeps a restored dirty buffer intact and flags the external change', async () => {
-    await seedLayoutWithBuffers([
-      makeEditorBuffer({ content: 'unsaved user edits', isDirty: true }),
-    ])
-    readFileMock.mockResolvedValue('disk content changed while closed')
-
-    await hydrateWorkspace(WS)
-
-    const buf = getRestoredBuffer()
-    expect(documentText(README)).toBe('unsaved user edits')
-    expect(buf.isDirty).toBe(true)
-    expect(buf.hasExternalChange).toBe(true)
-    expect(toastWarning).toHaveBeenCalledTimes(1)
-  })
-
-  it('restores the dirty marker when content diverges from savedContent even if isDirty was persisted as false', async () => {
-    await seedLayoutWithBuffers([
-      makeEditorBuffer({ content: 'unsaved user edits', isDirty: false }),
-    ])
-    // Disk matches savedContent — no external change, so no toast/reload.
-    readFileMock.mockResolvedValue('saved content')
-
-    await hydrateWorkspace(WS)
-
-    const buf = getRestoredBuffer()
-    expect(documentText(README)).toBe('unsaved user edits')
-    expect(buf.isDirty).toBe(true)
-    expect(toastWarning).not.toHaveBeenCalled()
-  })
-
-  it('does not reload or toast when disk matches the restored buffer', async () => {
-    await seedLayoutWithBuffers([makeEditorBuffer()])
-    readFileMock.mockResolvedValue('saved content')
-
-    await hydrateWorkspace(WS)
-
-    const buf = getRestoredBuffer()
-    expect(documentText(README)).toBe('saved content')
-    expect(buf.isDirty).toBe(false)
-    expect(buf.hasExternalChange).toBeUndefined()
-    expect(toastWarning).not.toHaveBeenCalled()
-  })
-
-  it('skips virtual editor buffers and survives unreadable files', async () => {
-    await seedLayoutWithBuffers([
-      makeEditorBuffer({ id: 'buf-virtual', path: 'untitled:1', isVirtual: true }),
-    ])
-    readFileMock.mockRejectedValue(new Error('ENOENT'))
-
-    await hydrateWorkspace(WS)
-
-    expect(readFileMock).not.toHaveBeenCalled()
-    expect(documentText(workspaceRef(WS, 'untitled:1'))).toBe('saved content')
-    expect(toastWarning).not.toHaveBeenCalled()
-  })
-
-  // BUG-001: a restored tab for a file that no longer exists must become a
-  // terminal "file not found" state — flagged once, never re-fetched.
-  it('flags the buffer fileMissing when the content load 404s', async () => {
-    await seedLayoutWithBuffers([makeEditorBuffer()])
-    readFileMock.mockRejectedValue(new ApiError('file not found', 404))
-
-    await hydrateWorkspace(WS)
-
-    const buf = getRestoredBuffer()
-    expect(readFileMock).toHaveBeenCalledTimes(1)
-    expect(buf.fileMissing).toBe(true)
-    // Content untouched — closing the tab or restoring the file is the way out.
-    expect(documentText(README)).toBe('saved content')
-  })
-
-  it('keeps the editor (no fileMissing) for a dirty buffer whose file 404s', async () => {
-    await seedLayoutWithBuffers([
-      makeEditorBuffer({ content: 'unsaved user edits', isDirty: true }),
-    ])
-    readFileMock.mockRejectedValue(new ApiError('file not found', 404))
-
-    await hydrateWorkspace(WS)
-
-    const buf = getRestoredBuffer()
-    // The unsaved edits are the only copy left; saving recreates the file.
-    expect(buf.fileMissing).toBeUndefined()
-    expect(documentText(README)).toBe('unsaved user edits')
-  })
-
-  it('does not flag fileMissing on non-404 errors (transient failures)', async () => {
-    await seedLayoutWithBuffers([makeEditorBuffer()])
-    readFileMock.mockRejectedValue(new ApiError('backend exploded', 500))
-
-    await hydrateWorkspace(WS)
-
-    expect(getRestoredBuffer().fileMissing).toBeUndefined()
-  })
-
-  it('clears a persisted fileMissing flag when the file is back on disk', async () => {
-    await seedLayoutWithBuffers([makeEditorBuffer({ fileMissing: true })])
-    readFileMock.mockResolvedValue('saved content')
-
-    await hydrateWorkspace(WS)
-
-    expect(getRestoredBuffer().fileMissing).toBe(false)
-  })
-})
-
-// Keep-alive warm return: the workspace store is LIVE (no hydration happens),
-// but files changed on disk while the workspace sat hidden — its file watcher
-// is active-only and agents keep editing hidden worktrees. The warm-activation
-// path calls this to apply the same policy as the restore-time reconcile.
-describe('reconcileWorkspaceBuffersWithDisk (keep-alive warm return)', () => {
-  const WS = 'ws-warm'
-
-  function liveEditorBuffer(overrides: Partial<EditorContent> = {}): EditorContent {
-    return {
-      id: 'buf-live',
-      type: 'editor',
-      authority: 'workspace',
-      path: '/repo/agent-edited.ts',
-      name: 'agent-edited.ts',
-      content: 'content when hidden',
-      savedContent: 'content when hidden',
-      isDirty: false,
-      isVirtual: false,
-      isPreview: false,
-      tokens: [],
-      workspaceId: WS,
-      ...overrides,
-    }
-  }
-
-  const EDITED = workspaceRef(WS, '/repo/agent-edited.ts')
-  beforeEach(() => {
-    resetDB()
-    globalThis.indexedDB = new IDBFactory()
-    readFileMock.mockReset()
-    toastWarning.mockReset()
-    localStorage.removeItem(`workspace:${WS}:state`)
-    resetWindowPaneStoreForTests()
-  })
-
-  afterEach(() => {
-    destroyWorkspaceStore(WS)
-  })
-
-  it('reloads a clean buffer whose file changed on disk while the workspace was hidden', async () => {
-    windowPaneStore.setState((s) => {
-      s.buffers = [liveEditorBuffer()]
-      return s
-    })
-    readFileMock.mockResolvedValue('agent rewrote this while you were away')
-
-    const { reconcileWorkspaceBuffersWithDisk } = await import('@/lib/persistence/hydrate')
-    await reconcileWorkspaceBuffersWithDisk(WS)
-
-    const buf = windowPaneStore.getState().buffers[0] as EditorContent
-    expect(readFileMock).toHaveBeenCalledWith(WS, '/repo/agent-edited.ts')
-    expect(documentText(EDITED)).toBe('agent rewrote this while you were away')
-    expect(savedDocumentText(EDITED)).toBe('agent rewrote this while you were away')
-    expect(buf.isDirty).toBe(false)
-  })
-
-  it('keeps a dirty buffer intact and flags the external change', async () => {
-    windowPaneStore.setState((s) => {
-      s.buffers = [liveEditorBuffer({ content: 'unsaved user edits', isDirty: true })]
-      return s
-    })
-    readFileMock.mockResolvedValue('agent rewrote this while you were away')
-
-    const { reconcileWorkspaceBuffersWithDisk } = await import('@/lib/persistence/hydrate')
-    await reconcileWorkspaceBuffersWithDisk(WS)
-
-    const buf = windowPaneStore.getState().buffers[0] as EditorContent
-    expect(documentText(EDITED)).toBe('unsaved user edits')
-    expect(buf.isDirty).toBe(true)
-    expect(buf.hasExternalChange).toBe(true)
-  })
-
-  it('is a no-op when disk still matches the buffers', async () => {
-    windowPaneStore.setState((s) => {
-      s.buffers = [liveEditorBuffer()]
-      return s
-    })
-    readFileMock.mockResolvedValue('content when hidden')
-
-    const { reconcileWorkspaceBuffersWithDisk } = await import('@/lib/persistence/hydrate')
-    await reconcileWorkspaceBuffersWithDisk(WS)
-
-    const buf = windowPaneStore.getState().buffers[0] as EditorContent
-    expect(documentText(EDITED)).toBe('content when hidden')
-    expect(buf.hasExternalChange).toBeUndefined()
-    expect(toastWarning).not.toHaveBeenCalled()
-  })
-})
 
 describe('hydrateSidebar', () => {
   beforeEach(async () => {

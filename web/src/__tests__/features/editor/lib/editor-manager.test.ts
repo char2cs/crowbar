@@ -1,51 +1,32 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { IModelLike } from '@/features/editor/documents/document-registry'
 import {
   EditorManager,
   type IEditorLike,
   type MonacoEditorApi,
 } from '@/features/editor/lib/editor-manager'
-import {
-  ModelRegistry,
-  type IModelLike,
-  type MonacoModelApi,
-} from '@/features/editor/lib/model-registry'
 
-function fakeModelApi(): MonacoModelApi {
-  const models = new Map<string, IModelLike>()
-  return {
-    createModel: vi.fn((value: string, _l: string, uri: string) => {
-      let text = value
-      const m: IModelLike = {
-        uri,
-        dispose: vi.fn(() => models.delete(uri)),
-        getValue: () => text,
-        setValueIfChanged: vi.fn((next: string) => {
-          if (next === text) return
-          text = next
-        }),
-      }
-      models.set(uri, m)
-      return m
-    }),
-    getModel: (uri: string) => models.get(uri) ?? null,
-  }
+/** The open documents' models, as the registry hands them out. */
+function fakeDocuments(...uris: string[]) {
+  const models = new Map(
+    uris.map((uri) => [uri, { uri, dispose: vi.fn() } as unknown as IModelLike]),
+  )
+  return { get: (uri: string) => models.get(uri) ?? null }
 }
+
 function fakeEditorApi(): MonacoEditorApi & { created: IEditorLike[] } {
   const created: IEditorLike[] = []
   return {
     created,
     create: vi.fn(() => {
       let model: IModelLike | null = null
-      let vs: unknown = null
       const ed: IEditorLike = {
         setModel: vi.fn((m: IModelLike | null) => {
           model = m
         }),
         getModel: () => model,
-        saveViewState: vi.fn(() => vs ?? { for: model?.uri }),
-        restoreViewState: vi.fn((s: unknown) => {
-          vs = s
-        }),
+        saveViewState: vi.fn(() => ({ for: model?.uri })),
+        restoreViewState: vi.fn(),
         layout: vi.fn(),
         dispose: vi.fn(),
         raw: vi.fn(() => ({ id: 'raw-editor' })),
@@ -55,199 +36,78 @@ function fakeEditorApi(): MonacoEditorApi & { created: IEditorLike[] } {
     }),
   }
 }
-const lang = () => 'ts'
-const text = () => 'code'
+
+const A = 'crowbar://editor/a'
+const B = 'crowbar://editor/b'
+
+function setup(...panes: string[]) {
+  const ea = fakeEditorApi()
+  const documents = fakeDocuments(A, B)
+  const m = new EditorManager(ea, documents)
+  for (const pane of panes) m.mountPane(pane, {} as HTMLElement)
+  return { ea, documents, m }
+}
 
 describe('EditorManager', () => {
   it('creates exactly one widget per pane', () => {
-    const ea = fakeEditorApi()
-    const reg = new ModelRegistry(fakeModelApi())
-    const m = new EditorManager(ea, reg, { lang, text })
-    const el = {} as HTMLElement
-    m.mountPane('p1', el)
-    m.mountPane('p1', el)
+    const { ea, m } = setup('p1')
+    m.mountPane('p1', {} as HTMLElement)
     expect(ea.create).toHaveBeenCalledTimes(1)
   })
 
-  it('showBuffer swaps the model without creating a new widget', () => {
-    const ea = fakeEditorApi()
-    const reg = new ModelRegistry(fakeModelApi())
-    const m = new EditorManager(ea, reg, { lang, text })
-    m.mountPane('p1', {} as HTMLElement)
-    m.showBuffer('p1', 'crowbar://editor/a')
-    m.showBuffer('p1', 'crowbar://editor/b')
+  it('showBuffer swaps to the open document’s model without a new widget', () => {
+    const { ea, documents, m } = setup('p1')
+    expect(m.showBuffer('p1', A)).toBe(true)
+    expect(m.showBuffer('p1', B)).toBe(true)
     expect(ea.create).toHaveBeenCalledTimes(1)
-    const ed = ea.created[0]
-    expect(ed.getModel()!.uri).toBe('crowbar://editor/b')
+    expect(ea.created[0].getModel()).toBe(documents.get(B))
   })
 
-  it('saves outgoing view-state and restores incoming on swap', () => {
-    const ea = fakeEditorApi()
-    const reg = new ModelRegistry(fakeModelApi())
-    const m = new EditorManager(ea, reg, { lang, text })
-    m.mountPane('p1', {} as HTMLElement)
-    m.showBuffer('p1', 'crowbar://editor/a')
-    m.showBuffer('p1', 'crowbar://editor/b')
-    m.showBuffer('p1', 'crowbar://editor/a')
-    const ed = ea.created[0]
-    expect(ed.restoreViewState).toHaveBeenCalled()
+  it('a document that is not open leaves the pane empty and answers false', () => {
+    const { ea, m } = setup('p1')
+    m.showBuffer('p1', A)
+    expect(m.showBuffer('p1', 'crowbar://editor/closed')).toBe(false)
+    expect(ea.created[0].getModel()).toBeNull()
   })
 
-  it('round-trips view-state: state saved on leaving a buffer is restored on returning', () => {
-    const ea = fakeEditorApi()
-    const reg = new ModelRegistry(fakeModelApi())
-    const m = new EditorManager(ea, reg, { lang, text })
-    m.mountPane('p1', {} as HTMLElement)
-    m.showBuffer('p1', 'crowbar://editor/a')
+  it('round-trips view-state: state saved on leaving a document is restored on returning', () => {
+    const { ea, m } = setup('p1')
+    m.showBuffer('p1', A)
     const ed = ea.created[0]
-    // simulate a meaningful view-state for 'a' by stubbing saveViewState's return
     const stateA = { scroll: 42 }
     ed.saveViewState = () => stateA
-    m.showBuffer('p1', 'crowbar://editor/b') // leaving a -> saves stateA
-    const restored: unknown[] = []
-    ed.restoreViewState = (s: unknown) => restored.push(s)
-    m.showBuffer('p1', 'crowbar://editor/a') // returning to a -> restores stateA
-    expect(restored).toContain(stateA)
+    m.showBuffer('p1', B)
+    m.showBuffer('p1', A)
+    expect(ed.restoreViewState).toHaveBeenCalledWith(stateA)
   })
 
-  it('two panes on the same uri share the model but keep independent view-state keys', () => {
-    const modelApi = fakeModelApi()
-    const ea = fakeEditorApi()
-    const reg = new ModelRegistry(modelApi)
-    const m = new EditorManager(ea, reg, { lang, text })
-    m.mountPane('p1', {} as HTMLElement)
-    m.mountPane('p2', {} as HTMLElement)
-    m.showBuffer('p1', 'crowbar://editor/a')
-    m.showBuffer('p2', 'crowbar://editor/a')
-    expect(modelApi.createModel).toHaveBeenCalledTimes(1)
+  it('two panes on one document show its one model', () => {
+    const { ea, m } = setup('p1', 'p2')
+    m.showBuffer('p1', A)
+    m.showBuffer('p2', A)
     expect(ea.created[0].getModel()).toBe(ea.created[1].getModel())
   })
 
-  it('unmountPane disposes the widget and releases its model', () => {
-    const modelApi = fakeModelApi()
-    const ea = fakeEditorApi()
-    const reg = new ModelRegistry(modelApi)
-    const m = new EditorManager(ea, reg, { lang, text })
-    m.mountPane('p1', {} as HTMLElement)
-    m.showBuffer('p1', 'crowbar://editor/a')
-    const ed = ea.created[0]
-    const model = ed.getModel()
-    m.unmountPane('p1')
-    expect(ed.dispose).toHaveBeenCalled()
-    expect(model!.dispose).toHaveBeenCalled()
+  it('closeBuffer forgets where the pane was in that document', () => {
+    const { ea, m } = setup('p1')
+    m.showBuffer('p1', A)
+    m.showBuffer('p1', B)
+    m.closeBuffer('p1', A)
+    m.showBuffer('p1', A)
+    expect(ea.created[0].restoreViewState).not.toHaveBeenCalled()
   })
 
-  it('reuses the model when switching back within a pane (no recreate => undo preserved)', () => {
-    const modelApi = fakeModelApi()
-    const ea = fakeEditorApi()
-    const m = new EditorManager(ea, new ModelRegistry(modelApi), { lang, text })
-    m.mountPane('p1', {} as HTMLElement)
-    m.showBuffer('p1', 'crowbar://editor/a')
-    m.showBuffer('p1', 'crowbar://editor/b')
-    m.showBuffer('p1', 'crowbar://editor/a') // back to a
-    expect(modelApi.createModel).toHaveBeenCalledTimes(2) // a and b only — NOT 3
-    expect(ea.created[0].getModel()!.uri).toBe('crowbar://editor/a')
-  })
-
-  it("closeBuffer releases a tab's model; unmountPane releases all remaining held", () => {
-    const modelApi = fakeModelApi()
-    const ea = fakeEditorApi()
-    const m = new EditorManager(ea, new ModelRegistry(modelApi), { lang, text })
-    m.mountPane('p1', {} as HTMLElement)
-    m.showBuffer('p1', 'crowbar://editor/a')
-    m.showBuffer('p1', 'crowbar://editor/b')
-    m.showBuffer('p1', 'crowbar://editor/a')
-    const aModel = ea.created[0].getModel()
-    m.closeBuffer('p1', 'crowbar://editor/b')
-    // b released & disposed (no other holder)
+  it('unmountPane disposes the widget and leaves the document’s model alone', () => {
+    const { ea, documents, m } = setup('p1')
+    m.showBuffer('p1', A)
     m.unmountPane('p1')
-    expect(aModel!.dispose).toHaveBeenCalled() // a released on unmount
     expect(ea.created[0].dispose).toHaveBeenCalled()
-  })
-
-  it('disposes the model when the LAST holder closes it (closeBuffer)', () => {
-    const modelApi = fakeModelApi()
-    const ea = fakeEditorApi()
-    const m = new EditorManager(ea, new ModelRegistry(modelApi), { lang, text })
-    m.mountPane('p1', {} as HTMLElement)
-    m.showBuffer('p1', 'crowbar://editor/a')
-    const aModel = ea.created[0].getModel()
-    expect(aModel!.dispose).not.toHaveBeenCalled()
-    m.closeBuffer('p1', 'crowbar://editor/a') // last (only) holder closes
-    expect(aModel!.dispose).toHaveBeenCalled()
-  })
-
-  it('reopening a file AFTER closing it re-acquires a fresh model (createModel called again)', () => {
-    const modelApi = fakeModelApi()
-    const ea = fakeEditorApi()
-    const m = new EditorManager(ea, new ModelRegistry(modelApi), { lang, text })
-    m.mountPane('p1', {} as HTMLElement)
-    m.showBuffer('p1', 'crowbar://editor/a')
-    expect(modelApi.createModel).toHaveBeenCalledTimes(1)
-    m.closeBuffer('p1', 'crowbar://editor/a') // releases + disposes (no holder)
-    m.showBuffer('p1', 'crowbar://editor/a') // reopen → fresh model (reads disk text)
-    expect(modelApi.createModel).toHaveBeenCalledTimes(2)
-  })
-
-  it('a shared model held by TWO panes disposes only when BOTH panes release it', () => {
-    const modelApi = fakeModelApi()
-    const ea = fakeEditorApi()
-    const m = new EditorManager(ea, new ModelRegistry(modelApi), { lang, text })
-    m.mountPane('p1', {} as HTMLElement)
-    m.mountPane('p2', {} as HTMLElement)
-    m.showBuffer('p1', 'crowbar://editor/a')
-    m.showBuffer('p2', 'crowbar://editor/a') // shared model, two holders
-    const aModel = ea.created[0].getModel()
-    m.closeBuffer('p1', 'crowbar://editor/a') // one holder gone
-    expect(aModel!.dispose).not.toHaveBeenCalled()
-    m.closeBuffer('p2', 'crowbar://editor/a') // last holder gone
-    expect(aModel!.dispose).toHaveBeenCalled()
-  })
-
-  it('applyExternalEdit edits the live model (not recreate) when the pane shows the uri', () => {
-    const modelApi = fakeModelApi()
-    const ea = fakeEditorApi()
-    const reg = new ModelRegistry(modelApi)
-    const m = new EditorManager(ea, reg, { lang, text })
-    m.mountPane('p1', {} as HTMLElement)
-    m.showBuffer('p1', 'crowbar://editor/a')
-    const createdCount = vi.mocked(modelApi.createModel).mock.calls.length
-    const model = ea.created[0].getModel()
-    m.applyExternalEdit('p1', 'crowbar://editor/a', 'fresh from disk')
-    expect(model!.setValueIfChanged).toHaveBeenCalledWith('fresh from disk')
-    expect(model!.getValue()).toBe('fresh from disk')
-    // No model recreation — it edited in place (undo preserved).
-    expect(vi.mocked(modelApi.createModel).mock.calls.length).toBe(createdCount)
-  })
-
-  it('applyExternalEdit edits the held registry model when the pane is not showing the uri', () => {
-    const modelApi = fakeModelApi()
-    const ea = fakeEditorApi()
-    const reg = new ModelRegistry(modelApi)
-    const m = new EditorManager(ea, reg, { lang, text })
-    m.mountPane('p1', {} as HTMLElement)
-    m.showBuffer('p1', 'crowbar://editor/a') // a is held
-    m.showBuffer('p1', 'crowbar://editor/b') // now showing b, a still held
-    const heldA = reg.get('crowbar://editor/a')
-    expect(heldA?.getValue()).toBe('code') // initial registry text
-    m.applyExternalEdit('p1', 'crowbar://editor/a', 'disk text')
-    // Edited the held model in place (not via the visible-pane branch).
-    expect(heldA?.getValue()).toBe('disk text')
-  })
-
-  it('applyExternalEdit is a no-op for an unknown uri', () => {
-    const ea = fakeEditorApi()
-    const reg = new ModelRegistry(fakeModelApi())
-    const m = new EditorManager(ea, reg, { lang, text })
-    m.mountPane('p1', {} as HTMLElement)
-    expect(() => m.applyExternalEdit('p1', 'crowbar://editor/never', 'x')).not.toThrow()
+    expect(documents.get(A)!.dispose).not.toHaveBeenCalled()
   })
 
   it('getRawEditor exposes the underlying editor for a mounted pane', () => {
-    const ea = fakeEditorApi()
-    const reg = new ModelRegistry(fakeModelApi())
-    const m = new EditorManager(ea, reg, { lang, text })
-    expect(m.getRawEditor('p1')).toBeNull() // not mounted yet
+    const { m } = setup()
+    expect(m.getRawEditor('p1')).toBeNull()
     m.mountPane('p1', {} as HTMLElement)
     expect(m.getRawEditor('p1')).toEqual({ id: 'raw-editor' })
   })

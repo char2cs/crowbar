@@ -1,128 +1,117 @@
 /**
  * The one way to read or change a document's text outside the Monaco surface.
- * Backed by the buffer's `content` for now; callers never see where text lives.
+ * The text lives in the document's Monaco model; callers never see where.
  */
 import type { DocumentRef } from '@/lib/api/documents'
-import { setBufferContent } from '@/features/editor/lib/buffer-save'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import {
-  isEditorContent,
-  type EditorContent,
-  type PaneContent,
-} from '@/features/panes/types/pane-content'
+  getEditorHost,
+  loadEditorHost,
+  subscribeEditorHost,
+  type EditorHost,
+} from '@/features/editor/host/editor-host'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { isEditorContent, type EditorContent } from '@/features/panes/types/pane-content'
 import { documentRefOf, documentUri, sameDocument } from './document-ref'
 
-const pendingWriters = new Map<string, Set<() => void>>()
-const externalListeners = new Map<string, Set<() => void>>()
+type DiskFlags = Partial<Pick<EditorContent, 'hasExternalChange' | 'fileMissing'>>
 
-function holderIn(buffers: readonly PaneContent[], ref: DocumentRef): EditorContent | null {
-  for (const b of buffers) {
-    if (isEditorContent(b) && b.path && sameDocument(documentRefOf(b), ref)) return b
-  }
-  return null
-}
+const documents = () => getEditorHost()?.documents ?? null
 
-function holderOf(ref: DocumentRef): EditorContent | null {
-  return holderIn(windowPaneStore.getState().buffers, ref)
-}
-
-/** False when no open document holds `ref`. */
-function patchHolder(ref: DocumentRef, patch: (b: EditorContent) => EditorContent): boolean {
-  const id = holderOf(ref)?.id
-  if (!id) return false
+/** Sets the holder's disk flags, writing only when one actually changes. */
+function setDiskFlags(ref: DocumentRef, flags: DiskFlags): void {
+  const holder = windowPaneStore
+    .getState()
+    .buffers.find((b) => isEditorContent(b) && b.path && sameDocument(documentRefOf(b), ref))
+  if (!holder || !isEditorContent(holder)) return
+  const keys = Object.keys(flags) as (keyof DiskFlags)[]
+  if (keys.every((key) => Boolean(holder[key]) === flags[key])) return
   windowPaneStore.setState((state) => ({
-    buffers: state.buffers.map((b) => (b.id === id && isEditorContent(b) ? patch(b) : b)),
+    buffers: state.buffers.map((b) => (b.id === holder.id ? { ...b, ...flags } : b)),
   }))
-  return true
 }
 
-function addTo(registry: Map<string, Set<() => void>>, ref: DocumentRef, fn: () => void) {
-  const key = documentUri(ref)
-  const set = registry.get(key) ?? new Set()
-  registry.set(key, set.add(fn))
+/** Runs `attach` against the host now, or once it has loaded. */
+function withHost(attach: (host: EditorHost) => () => void): () => void {
+  const host = getEditorHost()
+  if (host) return attach(host)
+  let detach: (() => void) | null = null
+  const stop = subscribeEditorHost(() => {
+    const loaded = getEditorHost()
+    if (loaded) detach = attach(loaded)
+  })
   return () => {
-    set.delete(fn)
-    if (set.size === 0 && registry.get(key) === set) registry.delete(key)
+    stop()
+    detach?.()
   }
-}
-
-function callAll(registry: Map<string, Set<() => void>>, ref: DocumentRef): void {
-  for (const fn of [...(registry.get(documentUri(ref)) ?? [])]) fn()
-}
-
-/** Land edits an editor is still debouncing: Monaco's content sinks, then the ref's writers. */
-function landPendingEdits(ref: DocumentRef): void {
-  if (typeof window !== 'undefined') window.dispatchEvent(new Event('flush-editor-content'))
-  callAll(pendingWriters, ref)
 }
 
 /** The document's current text, including edits a pending writer holds; null when not open. */
 export function documentText(ref: DocumentRef): string | null {
-  landPendingEdits(ref)
-  return holderOf(ref)?.content ?? null
-}
-
-function documentOpened(ref: DocumentRef): Promise<void> {
-  if (holderOf(ref)) return Promise.resolve()
-  return new Promise((resolve) => {
-    const stop = windowPaneStore.subscribe((state) => {
-      if (!holderIn(state.buffers, ref)) return
-      stop()
-      resolve()
-    })
-  })
+  return documents()?.text(documentUri(ref)) ?? null
 }
 
 /** `documentText` once the document is open. */
 export async function readDocumentText(ref: DocumentRef): Promise<string> {
-  await documentOpened(ref)
-  return documentText(ref) ?? readDocumentText(ref)
+  const host = await loadEditorHost()
+  const uri = documentUri(ref)
+  if (!host.documents.has(uri)) {
+    await new Promise<void>((resolve) => {
+      const stop = host.documents.onDidOpen((opened) => {
+        if (opened !== uri) return
+        stop()
+        resolve()
+      })
+    })
+  }
+  return host.documents.text(uri) ?? readDocumentText(ref)
 }
 
 /** A user edit: undoable, and dirty unless it lands back on the saved text. */
 export function replaceDocumentText(ref: DocumentRef, text: string): void {
-  const holder = holderOf(ref)
-  if (holder) setBufferContent(holder.id, text)
+  documents()?.replace(documentUri(ref), text)
 }
 
 /** Text from outside the editor (a reload, a change on disk, a format result). */
 export function applyExternalText(ref: DocumentRef, text: string, opts: { saved: boolean }): void {
-  const patched = patchHolder(ref, (b) =>
-    opts.saved
-      ? {
-          ...b,
-          content: text,
-          savedContent: text,
-          isDirty: false,
-          hasExternalChange: false,
-          fileMissing: false,
-        }
-      : { ...b, content: text, isDirty: text !== b.savedContent },
-  )
-  if (patched) callAll(externalListeners, ref)
+  const registry = documents()
+  const uri = documentUri(ref)
+  if (!registry?.has(uri)) return
+  registry.applyExternal(uri, text, opts.saved)
+  if (opts.saved) setDiskFlags(ref, { hasExternalChange: false, fileMissing: false })
 }
 
 /** Record `text` as what disk holds; the document is clean only if it still holds exactly that. */
 export function markDocumentSaved(ref: DocumentRef, text: string): void {
-  patchHolder(ref, (b) => ({
-    ...b,
-    savedContent: text,
-    isDirty: b.content !== text,
-    hasExternalChange: b.content === text ? false : b.hasExternalChange,
-  }))
+  const registry = documents()
+  const uri = documentUri(ref)
+  if (!registry?.has(uri)) return
+  registry.markSaved(uri, text)
+  if (!registry.isDirty(uri)) setDiskFlags(ref, { hasExternalChange: false })
 }
 
 /** What disk held at the last load or save; null when not open. */
 export function savedDocumentText(ref: DocumentRef): string | null {
-  return holderOf(ref)?.savedContent ?? null
+  return documents()?.savedText(documentUri(ref)) ?? null
 }
 
 /** Called after each `applyExternalText` to `ref`, never for user edits. */
 export function onExternalText(ref: DocumentRef, listener: () => void): () => void {
-  return addTo(externalListeners, ref, listener)
+  const uri = documentUri(ref)
+  return withHost((host) => host.documents.onDidApplyExternal(uri, listener))
+}
+
+/** Called whenever `ref`'s document opens, from now on. */
+export function onDocumentOpen(ref: DocumentRef, listener: () => void): () => void {
+  const uri = documentUri(ref)
+  return withHost((host) =>
+    host.documents.onDidOpen((opened) => {
+      if (opened === uri) listener()
+    }),
+  )
 }
 
 /** `flush` writes edits an editor of `ref` is still holding; every read of the text runs it first. */
 export function registerPendingWriter(ref: DocumentRef, flush: () => void): () => void {
-  return addTo(pendingWriters, ref, flush)
+  const uri = documentUri(ref)
+  return withHost((host) => host.documents.registerPendingWriter(uri, flush))
 }

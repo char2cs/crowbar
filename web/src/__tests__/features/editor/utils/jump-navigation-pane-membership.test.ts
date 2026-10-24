@@ -32,7 +32,6 @@ describe('jump navigation — pane membership invariant', () => {
       type: 'editor',
       doc: workspaceRef('w1', '/a.ts'),
       name: 'a.ts',
-      content: 'a',
     })
 
     windowPaneStore.getState().paneActions.activateEditorTabInPane(ROOT_PANE_ID, id)
@@ -46,7 +45,6 @@ describe('jump navigation — pane membership invariant', () => {
       type: 'editor',
       doc: workspaceRef('w1', '/a.ts'),
       name: 'a.ts',
-      content: 'a',
     })
 
     // Detach the tab from the pane while the buffer itself stays alive — exactly
@@ -73,7 +71,6 @@ describe('jump navigation — pane membership invariant', () => {
       type: 'editor' as const,
       doc: workspaceRef('w1', '/a.ts'),
       name: 'a.ts',
-      content: 'a',
     }
     const id = windowPaneStore.getState().bufferActions.openContent(spec)
     windowPaneStore.getState().paneActions.removeEditorTabFromPane(ROOT_PANE_ID, id)

@@ -1,14 +1,5 @@
 import type { DocumentRef } from '@/lib/api/documents'
 
-// ── Token entry for syntax highlighting cache ───────────────────────
-
-export interface TokenEntry {
-  start: number
-  end: number
-  token_type: string
-  class_name: string
-}
-
 // ── Content type discriminant ───────────────────────────────────────
 //
 // A pane's chat is PaneGroup.chatId, never a member of this union: 'agentChat'
@@ -58,12 +49,12 @@ export interface EditorTabBase {
 
 // ── Per-type content definitions ────────────────────────────────────
 
+/** A tab on a document; its text lives in the document's Monaco model. */
 export interface EditorContent extends EditorTabBase {
   type: 'editor'
   /** Whose file `path` names: a workspace's (relative), or the host's (absolute, `workspaceId` ''). */
   authority: DocumentRef['authority']
-  content: string
-  savedContent: string
+  /** Mirrors the document's dirty flag, written only when it flips. */
   isDirty: boolean
   /**
    * The file changed on disk (externally) while the buffer had unsaved edits.
@@ -80,7 +71,6 @@ export interface EditorContent extends EditorTabBase {
   isVirtual: boolean
   language?: string
   languageOverride?: string
-  tokens: TokenEntry[]
 }
 
 export interface TerminalContent extends EditorTabBase {
@@ -140,9 +130,9 @@ export function isPersistableContent(c: PaneContent): c is EditorContent {
   return c.type === 'editor' && !c.isVirtual
 }
 
-/** An editor buffer holding edits disk does not have — the only copy of them. */
+/** An editor buffer holding edits disk does not have. */
 export function hasUnsavedEdits(c: PaneContent): boolean {
-  return c.type === 'editor' && (c.isDirty || c.content !== c.savedContent)
+  return c.type === 'editor' && c.isDirty
 }
 
 /** Content types that are virtual (not backed by a real file on disk). */
@@ -166,7 +156,6 @@ export type OpenEditorTabSpec =
       type: 'editor'
       doc: DocumentRef
       name: string
-      content: string
       isVirtual?: boolean
       isPreview?: boolean
       language?: string

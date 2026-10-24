@@ -2,7 +2,7 @@ import { isNotFoundError } from '@/lib/api'
 import { readDocument, readDocumentFromDisk, type DocumentRef } from '@/lib/api/documents'
 import { documentRefOf, sameDocument } from '@/features/editor/documents/document-ref'
 import { applyExternalText, savedDocumentText } from '@/features/editor/documents/document-text'
-import { documentRefusal } from '@/features/editor/documents/open-document'
+import { documentModelOpener, documentRefusal } from '@/features/editor/documents/open-document'
 import { useFileWatcherStore } from '@/features/file-system/controllers/file-watcher-store'
 import {
   isEditorContent,
@@ -66,8 +66,8 @@ export async function syncBufferWithDisk(ref: DocumentRef): Promise<void> {
     // rebroadcasts each one with no echo suppression — so a straggler slips past
     // the consumed marker. Before warning, confirm the on-disk bytes actually
     // diverged from the baseline we last wrote; if they match, this is our own
-    // write echoing back, not an external edit. Mirrors the restore-path guard
-    // in reconcileBuffer below (disk === saved text).
+    // write echoing back, not an external edit. Mirrors the activation guard
+    // in reconcileDocument below (disk === saved text).
     const disk = await readDocumentFromDisk(ref)
     if (disk === null || disk === savedDocumentText(ref)) return // own-write echo — nothing diverged
 
@@ -89,30 +89,26 @@ export async function syncBufferWithDisk(ref: DocumentRef): Promise<void> {
 }
 
 /**
- * Restored buffers may be stale: the file can change on disk while the app is
- * closed. Each is reconciled with the policy of a live external change, but
- * only when disk diverges from the saved text — otherwise every dirty buffer
- * would get a false "changed on disk" toast on every reload.
- *
- * A file gone from disk marks a clean buffer missing (a dirty one keeps the
- * only copy of its edits). A file the daemon refuses this client keeps its tab
- * and its reason is shown once; other failures stay silent and non-terminal.
+ * Reconcile a workspace's documents with disk after it sat hidden (its watcher is
+ * active-only). Only disk diverging from the saved text counts, or every dirty buffer
+ * would warn on each activation; a missing file that came back reopens.
  */
-export async function reconcileBuffersWithDisk(buffers: PaneContent[]): Promise<void> {
+export async function reconcileWorkspaceDocuments(workspaceId: string): Promise<void> {
   const refusals = new Map<string, string>()
-  const reconciles: Promise<void>[] = []
-  for (const buffer of buffers) {
-    if (isPersistableContent(buffer)) reconciles.push(reconcileBuffer(buffer, refusals))
-  }
-  await Promise.allSettled(reconciles)
+  const buffers = windowPaneStore
+    .getState()
+    .buffers.filter(
+      (b): b is EditorContent => isPersistableContent(b) && b.workspaceId === workspaceId,
+    )
+  await Promise.allSettled(buffers.map((buffer) => reconcileDocument(buffer, refusals)))
   for (const [title, message] of refusals) toast.error(title, message)
 }
 
-async function reconcileBuffer(
-  buffer: EditorContent,
-  refusals: Map<string, string>,
-): Promise<void> {
+async function reconcileDocument(buffer: EditorContent, refusals: Map<string, string>) {
   const ref = documentRefOf(buffer)
+  const open = savedDocumentText(ref) !== null
+  // Neither open nor missing: the restore has not reached it yet.
+  if (!open && !buffer.fileMissing) return
   let disk: string
   try {
     disk = (await readDocument(ref)).text
@@ -122,18 +118,15 @@ async function reconcileBuffer(
     else if (isNotFoundError(err) && !buffer.isDirty) setBufferFileMissing(ref, true)
     return
   }
+  if (!open) {
+    const openModel = await documentModelOpener()
+    if (windowPaneStore.getState().buffers.some(holding(ref))) openModel(ref, disk)
+  }
   if (buffer.fileMissing) setBufferFileMissing(ref, false)
-  if (disk !== savedDocumentText(ref)) await syncBufferWithDisk(ref)
+  if (open && disk !== savedDocumentText(ref)) await syncBufferWithDisk(ref)
 }
 
-/** Host documents restored with the window: no workspace activation reconciles them. */
-export function reconcileHostBuffersWithDisk(): Promise<void> {
-  return reconcileBuffersWithDisk(
-    windowPaneStore.getState().buffers.filter((b) => isEditorContent(b) && b.authority === 'host'),
-  )
-}
-
-function setBufferFileMissing(ref: DocumentRef, fileMissing: boolean): void {
+export function setBufferFileMissing(ref: DocumentRef, fileMissing: boolean): void {
   windowPaneStore.setState((state) => ({
     buffers: state.buffers.map((b) => (holding(ref)(b) ? { ...b, fileMissing } : b)),
   }))

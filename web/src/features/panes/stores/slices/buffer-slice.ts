@@ -83,6 +83,8 @@ export interface BufferActions {
   openContent(spec: OpenEditorTabSpec, opts?: OpenContentOptions): string
   closeBuffer(id: string): void
   renameBuffer(id: string, name: string): void
+  /** An untitled buffer saved as `doc` becomes that document's tab. */
+  rebindEditorBuffer(id: string, doc: DocumentRef, name: string): void
   setPinned(id: string, pinned: boolean): void
   setPreview(id: string, preview: boolean): void
   promotePreview(id: string): void
@@ -222,12 +224,9 @@ export const createBufferSlice: StateCreator<
             authority: spec.doc.authority,
             path: spec.doc.path,
             name: spec.name,
-            content: spec.content,
-            savedContent: spec.content,
             isDirty: false,
             isVirtual: spec.isVirtual ?? false,
             language: spec.language,
-            tokens: [],
             isPinned: false,
             isPreview,
             workspaceId,
@@ -321,6 +320,18 @@ export const createBufferSlice: StateCreator<
         set((state) => {
           const buf = state.buffers.find((b) => b.id === id)
           if (buf) buf.name = name
+        })
+      },
+
+      rebindEditorBuffer(id, doc, name) {
+        set((state) => {
+          const buf = state.buffers.find((b) => b.id === id)
+          if (!buf || !isEditorContent(buf)) return
+          buf.authority = doc.authority
+          buf.path = doc.path
+          buf.workspaceId = ownerOf(doc)
+          buf.name = name
+          buf.isVirtual = false
         })
       },
 

@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import {
+  splitLegacyEditorContent,
   upgradeLegacyBuffers,
   validateLoadedBuffers,
   type Snapshot,
 } from '@/features/panes/utils/persisted-layout'
 import type { PaneContent } from '@/features/panes/types/pane-content'
+import { documentUri } from '@/features/editor/documents/document-ref'
+import { workspaceRef } from '@/lib/api/documents'
+import type { WorkspaceLayout } from '@/lib/persistence/schemas'
 
 describe('validateLoadedBuffers', () => {
   const ROOT = { adoptInto: 'root' }
@@ -81,15 +85,8 @@ describe('validateLoadedBuffers', () => {
     const leaked = {
       buffers: [
         { id: 'e-1', type: 'editor', path: '/a.ts', name: 'a.ts' },
-        { id: 'e-2', type: 'editor', path: '/b.ts', content: 'edit', savedContent: 'disk' },
-        {
-          id: 'e-3',
-          type: 'editor',
-          path: '/c.ts',
-          content: 'x',
-          savedContent: 'x',
-          isDirty: true,
-        },
+        { id: 'e-2', type: 'editor', path: '/b.ts', isDirty: true },
+        { id: 'e-3', type: 'editor', path: '/c.ts', isDirty: true },
       ],
       panes: {
         root: { id: 'root', editorTabIds: [], activeEditorTabId: null },
@@ -178,5 +175,39 @@ describe('upgradeLegacyBuffers', () => {
   it('leaves a current buffer as it is', () => {
     const host = { id: 'e-2', type: 'editor', authority: 'host', path: '/a.ts', workspaceId: '' }
     expect(legacy([host])).toEqual([host])
+  })
+})
+
+describe('splitLegacyEditorContent', () => {
+  const legacyLayout = (buffer: object) =>
+    ({
+      workspaceId: 'window',
+      panes: {},
+      buffers: [buffer],
+      updatedAt: 7,
+    }) as unknown as WorkspaceLayout
+  const legacyBuffer = { id: 'e-1', type: 'editor', authority: 'workspace', workspaceId: 'w1' }
+
+  it('moves legacy unsaved buffer text into drafts', () => {
+    const { layout, drafts } = splitLegacyEditorContent(
+      legacyLayout({ ...legacyBuffer, path: 'a.ts', content: 'a', savedContent: 'b', tokens: [] }),
+    )
+
+    expect(drafts).toEqual([
+      { uri: documentUri(workspaceRef('w1', 'a.ts')), text: 'a', savedText: 'b', updatedAt: 7 },
+    ])
+    expect(layout.buffers[0]).toMatchObject({ id: 'e-1', isDirty: true })
+    for (const field of ['content', 'savedContent', 'tokens']) {
+      expect(layout.buffers[0]).not.toHaveProperty(field)
+    }
+  })
+
+  it('drops clean legacy buffer text without a draft', () => {
+    const { layout, drafts } = splitLegacyEditorContent(
+      legacyLayout({ ...legacyBuffer, path: 'a.ts', content: 'same', savedContent: 'same' }),
+    )
+
+    expect(drafts).toEqual([])
+    expect(layout.buffers[0]).toEqual({ ...legacyBuffer, path: 'a.ts' })
   })
 })

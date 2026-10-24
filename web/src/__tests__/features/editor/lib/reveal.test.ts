@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Invariant (spec §7-E): the cursor lands on the right line after a
 // cross-file reveal. The old jump paths placed it from a 100–150 ms timer by
@@ -16,7 +16,9 @@ vi.mock('@/lib/api/documents', async (importOriginal) => ({
   },
 }))
 
+import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
 import { activeEditors } from '@/features/editor/lib/active-editor-context'
+import { loadEditorHost } from '@/features/editor/host/editor-host'
 import { documentUri } from '@/features/editor/documents/document-ref'
 import { revealInEditor } from '@/features/editor/lib/reveal'
 import {
@@ -39,7 +41,6 @@ function openBuffer(path: string): string {
     type: 'editor',
     doc: workspaceRef('ws-1', path),
     name: path,
-    content: `content of ${path}`,
   })
 }
 
@@ -50,6 +51,9 @@ function showInPane(paneId: string, path: string, editor: unknown, workspaceId =
 function show(paneId: string, doc: DocumentRef, editor: unknown) {
   activeEditors.set(paneId, { paneId, uri: documentUri(doc), filePath: doc.path, editor })
 }
+
+// Opening a closed file opens its Monaco model.
+beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
 
 beforeEach(() => {
   vi.clearAllMocks()

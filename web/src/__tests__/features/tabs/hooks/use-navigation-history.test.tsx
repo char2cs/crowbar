@@ -24,7 +24,6 @@ function openFile(workspaceId: string, path: string) {
     type: 'editor',
     doc: workspaceRef(workspaceId, path),
     name: path.split('/').pop()!,
-    content: path,
   })
 }
 

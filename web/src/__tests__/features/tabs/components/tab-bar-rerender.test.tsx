@@ -55,13 +55,10 @@ function makeEditorBuffer(i: number, overrides: Partial<EditorContent> = {}): Ed
     authority: 'workspace',
     path: `/project/file-${i}.ts`,
     name: `file-${i}.ts`,
-    content: '',
-    savedContent: '',
     isDirty: false,
     isVirtual: false,
     isPinned: false,
     isPreview: false,
-    tokens: [],
     workspaceId: 'w1',
     ...overrides,
   }
@@ -118,8 +115,7 @@ describe('TabBar render isolation', () => {
     expect(before.get('file-2.ts')).toBeGreaterThan(0)
 
     // Flip an INACTIVE buffer's dirty flag while REUSING every other buffer's
-    // object reference — only buf-2's identity changes, exactly as an immer
-    // copy-on-write content flush would leave the untouched tabs shared.
+    // object reference — only buf-2's identity changes, as a store write does.
     act(() => {
       windowPaneStore.setState((s) => {
         s.buffers = s.buffers.map((b) =>
@@ -234,17 +230,16 @@ describe('TabBar handler delegation', () => {
 })
 
 // TabBarItem's memo (asserted above) isolates WHICH tab repaints. This closes
-// TabBar's OWN re-render: a content flush that leaves every rendered field
+// TabBar's OWN re-render: a buffer write that leaves every rendered field
 // unchanged must not re-render the strip at all (no sort, no remap). The
-// icon-count probe can't see this — TabBarItem's memo already bails on
-// unchanged content — so we count commits of the TabBar subtree with a
-// Profiler instead: a bailed-out subtree produces no commit, hence no onRender.
+// icon-count probe can't see this — TabBarItem's memo already bails — so we
+// count commits of the TabBar subtree with a Profiler instead.
 describe('TabBar strip-level render isolation', () => {
   afterEach(() => {
     vi.clearAllMocks()
   })
 
-  it('does not re-render the strip when a buffer content flush leaves rendered fields unchanged', () => {
+  it('does not re-render the strip when a buffer write leaves rendered fields unchanged', () => {
     const buffers = Array.from({ length: 5 }, (_, i) => makeEditorBuffer(i))
     const store = setupStore(buffers)
 
@@ -271,13 +266,13 @@ describe('TabBar strip-level render isolation', () => {
     const baseline = commits
     expect(baseline).toBeGreaterThan(0)
 
-    // Change ONLY `content` on one buffer (a non-rendered field) while reusing
-    // every other buffer's reference — exactly an immer content flush. No
-    // rendered field moves, so the strip must not commit again.
+    // Change ONLY the language override (a non-rendered field) while reusing
+    // every other buffer's reference. No rendered field moves, so the strip
+    // must not commit again.
     act(() => {
       windowPaneStore.setState((s) => {
         s.buffers = s.buffers.map((b) =>
-          b.id === 'buf-2' && b.type === 'editor' ? { ...b, content: 'typed a char' } : b,
+          b.id === 'buf-2' && b.type === 'editor' ? { ...b, languageOverride: 'plaintext' } : b,
         )
         return s
       })

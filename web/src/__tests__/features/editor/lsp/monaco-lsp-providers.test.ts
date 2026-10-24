@@ -61,10 +61,6 @@ import { documentUri } from '@/features/editor/documents/document-ref'
 import { LspClient } from '@/features/editor/lsp/lsp-client'
 import { query } from '@/features/editor/lsp/lsp-query'
 import { registerLspProviders } from '@/features/editor/lsp/monaco-lsp-providers'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
 import { workspaceRef } from '@/lib/api/documents'
 
 registerLspProviders()
@@ -157,7 +153,6 @@ describe('LSP commands', () => {
   })
 
   it('applies the edits a command made in the order the server made them', async () => {
-    resetWindowPaneStoreForTests()
     vi.mocked(query).mockResolvedValue({
       target,
       result: [{ title: 'Fill', command: 'gopls.fill', arguments: [] }],
@@ -168,13 +163,8 @@ describe('LSP commands', () => {
       { markers: [], trigger: 1 },
       none,
     )) as { actions: Monaco.languages.CodeAction[] }
-    // An open buffer with no Monaco model: its edits go read → apply → write.
-    const id = windowPaneStore.getState().bufferActions.openContent({
-      type: 'editor',
-      doc: workspaceRef('ws1', 'fill.go'),
-      name: 'fill.go',
-      content: 'a',
-    })
+    const fill = { pushEditOperations: vi.fn() }
+    monaco.models.set(documentUri(workspaceRef('ws1', 'fill.go')), fill)
     const at = (character: number) => ({
       start: { line: 0, character },
       end: { line: 0, character },
@@ -190,10 +180,8 @@ describe('LSP commands', () => {
 
     await run(actions[0].command)
 
-    const content = () => {
-      const buffer = windowPaneStore.getState().buffers.find((b) => b.id === id)
-      return buffer && 'content' in buffer ? buffer.content : undefined
-    }
-    await vi.waitFor(() => expect(content()).toBe('xya'))
+    await vi.waitFor(() => expect(fill.pushEditOperations).toHaveBeenCalledTimes(2))
+    const texts = fill.pushEditOperations.mock.calls.map(([, ops]) => ops[0].text)
+    expect(texts).toEqual(['x', 'y'])
   })
 })

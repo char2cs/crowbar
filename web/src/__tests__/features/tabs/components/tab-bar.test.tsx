@@ -1,8 +1,10 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createElement } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
+import { loadEditorHost } from '@/features/editor/host/editor-host'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import type { AgentChat } from '@/features/agent/api/agent-api'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
@@ -42,12 +44,9 @@ function makeEditorBuffer(i: number): EditorContent {
     authority: 'workspace',
     path: `/project/file-${i}.ts`,
     name: `file-${i}.ts`,
-    content: '',
-    savedContent: '',
     isDirty: false,
     isVirtual: false,
     isPreview: false,
-    tokens: [],
     workspaceId: 'w1',
   }
 }
@@ -174,6 +173,7 @@ describe('TabBar "+" placement', () => {
 })
 
 describe('TabBar "+" click behaviour', () => {
+  beforeAll(() => loadEditorHost(), MONACO_LOAD_MS) // a new file opens its Monaco model
   afterEach(() => {
     vi.clearAllMocks()
   })
@@ -207,11 +207,10 @@ describe('TabBar "+" click behaviour', () => {
     await user.click(await screen.findByRole('menuitem', { name: /New File/ }))
 
     expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
-    const editorTabIds = windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds ?? []
-    expect(editorTabIds).toHaveLength(2)
-    const newBuf = windowPaneStore.getState().buffers.find((b) => b.id === editorTabIds[1])
-    expect(newBuf?.type).toBe('editor')
-    expect((newBuf as EditorContent)?.isVirtual).toBe(true)
+    const tabs = () => windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds ?? []
+    await waitFor(() => expect(tabs()).toHaveLength(2))
+    const newBuf = windowPaneStore.getState().buffers.find((b) => b.id === tabs()[1])
+    expect(newBuf).toMatchObject({ type: 'editor', isVirtual: true })
   })
 
   it('"New Terminal" opens a new terminal tab in this pane', async () => {

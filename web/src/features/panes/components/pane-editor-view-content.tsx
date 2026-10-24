@@ -6,7 +6,7 @@ import { NewTabView } from './new-tab-view'
 import { renderPaneContent } from './pane-content-registry'
 import { TerminalPane } from './terminal-pane'
 
-type EditorBufferShell = Pick<EditorContent, 'id' | 'path' | 'name' | 'type' | 'isPreview'>
+type EditorBufferShell = Pick<EditorContent, 'id' | 'path' | 'name' | 'type'>
 type PaneRenderBuffer = Exclude<PaneContent, EditorContent> | EditorBufferShell
 
 interface PaneEditorViewContentProps {
@@ -42,7 +42,6 @@ export function PaneEditorViewContent({
               path: buffer.path,
               name: buffer.name,
               type: buffer.type,
-              isPreview: buffer.isPreview,
             } satisfies EditorBufferShell)
           : buffer,
       ),
@@ -68,18 +67,10 @@ export function PaneEditorViewContent({
     setEditorPortalEntry(paneId, {
       node,
       activeEditorBufferId: activeEditorBuffer?.id ?? null,
-      isPreview: activeEditorBuffer?.isPreview ?? false,
       isActiveSurface: isEditorTabActive && isActivePane,
     })
     return () => clearEditorPortalEntry(paneId)
-  }, [
-    paneId,
-    hasOpenEditorBuffer,
-    activeEditorBuffer?.id,
-    activeEditorBuffer?.isPreview,
-    isEditorTabActive,
-    isActivePane,
-  ])
+  }, [paneId, hasOpenEditorBuffer, activeEditorBuffer?.id, isEditorTabActive, isActivePane])
 
   return (
     <>

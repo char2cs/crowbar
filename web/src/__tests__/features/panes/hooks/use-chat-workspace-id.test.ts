@@ -24,11 +24,8 @@ const editorTab = (id: string, wsId: string): EditorContent => ({
   name: id,
   path: id,
   workspaceId: wsId,
-  content: '',
-  savedContent: '',
   isDirty: false,
   isVirtual: false,
-  tokens: [],
 })
 
 const paneActions = () => windowPaneStore.getState().paneActions

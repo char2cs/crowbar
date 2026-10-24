@@ -37,6 +37,7 @@ vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => {
           dispose: vi.fn(),
           getValue: vi.fn(() => text),
           getFullModelRange: vi.fn(() => ({})),
+          pushStackElement: vi.fn(),
           pushEditOperations: vi.fn((_s: unknown, edits: Array<{ text: string }>) => {
             text = edits[0].text
             return null
@@ -44,6 +45,7 @@ vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => {
         }
       }),
       getModel: vi.fn(() => null),
+      getEditors: vi.fn(() => []),
       create: vi.fn(() => ({
         setModel: vi.fn(),
         getModel: vi.fn(() => null),
@@ -62,6 +64,7 @@ vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => {
   }
 })
 
+import { editor as monacoEditor } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import {
   EDITOR_CREATE_OPTIONS,
   langForUri,
@@ -106,14 +109,14 @@ describe('monaco-adapters', () => {
     expect(typeof model.dispose).toBe('function')
   })
 
-  it('setValueIfChanged uses pushEditOperations (preserves undo) only when text differs', () => {
+  it('replaceAll replaces the whole text as an undo step of its own', () => {
     const model = realModelApi().createModel('hello', 'typescript', 'crowbar://editor/x')
-    // No-op when unchanged.
-    model.setValueIfChanged('hello')
-    expect(model.getValue()).toBe('hello')
-    // Applies via edit op when changed.
-    model.setValueIfChanged('world')
+    const raw = vi.mocked(monacoEditor.createModel).mock.results.at(-1)?.value
+
+    model.replaceAll('world', false)
+
     expect(model.getValue()).toBe('world')
+    expect(raw.pushStackElement).toHaveBeenCalledTimes(2)
   })
 
   it('langForUri derives a monaco language id from the file path', () => {

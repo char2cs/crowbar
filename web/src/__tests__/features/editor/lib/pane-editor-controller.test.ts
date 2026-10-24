@@ -1,25 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   applyActiveBuffer,
-  shouldReconcileModelFromStore,
   type PaneSwitchManager,
 } from '@/features/editor/lib/pane-editor-controller'
 import type { ActiveEditorRegistry } from '@/features/editor/lib/active-editor-context'
 import { documentUri } from '@/features/editor/documents/document-ref'
 import { workspaceRef } from '@/lib/api/documents'
 
-/** Fake manager: one model per uri it has been shown; getRawEditor exposes the
+/** Fake manager: every document but `closed` is open; getRawEditor exposes the
  *  current model so applyActiveBuffer can read it for the published context. */
-function fakeManager() {
+function fakeManager(closed?: string) {
   let currentUri: string | null = null
   const models = new Map<string, { uri: string; getValue: () => string }>()
   const editor = { getModel: () => (currentUri ? (models.get(currentUri) ?? null) : null) }
   const manager: PaneSwitchManager & { editor: typeof editor } = {
     editor,
     showBuffer: vi.fn((_paneId: string, uri: string) => {
-      if (currentUri === uri) return
+      if (uri === closed) {
+        currentUri = null
+        return false
+      }
       if (!models.has(uri)) models.set(uri, { uri, getValue: () => '' })
       currentUri = uri
+      return true
     }),
     getRawEditor: vi.fn(() => editor),
   }
@@ -40,7 +43,6 @@ describe('applyActiveBuffer', () => {
     const setSpy = vi.spyOn(registry, 'set')
 
     const ctx = applyActiveBuffer({ manager, registry }, 'p1', {
-      bufferId: 'b-a',
       doc: workspaceRef('w1', '/a.ts'),
     })
 
@@ -72,7 +74,6 @@ describe('applyActiveBuffer', () => {
     const manager = fakeManager()
     const registry = freshRegistry
     applyActiveBuffer({ manager, registry }, 'p1', {
-      bufferId: 'b-a',
       doc: workspaceRef('w1', '/a.ts'),
     })
 
@@ -82,7 +83,6 @@ describe('applyActiveBuffer', () => {
 
     // Same path again — showBuffer is uri-deduped and registry.set is uri-deduped.
     applyActiveBuffer({ manager, registry }, 'p1', {
-      bufferId: 'b-a',
       doc: workspaceRef('w1', '/a.ts'),
     })
     expect(cb).toHaveBeenCalledTimes(1) // no re-notify
@@ -92,12 +92,11 @@ describe('applyActiveBuffer', () => {
     const registry = freshRegistry
     const setSpy = vi.spyOn(registry, 'set')
     const manager: PaneSwitchManager = {
-      showBuffer: vi.fn(),
+      showBuffer: vi.fn(() => true),
       getRawEditor: vi.fn(() => null),
     }
 
     const ctx = applyActiveBuffer({ manager, registry }, 'p1', {
-      bufferId: 'b-a',
       doc: workspaceRef('w1', '/a.ts'),
     })
 
@@ -105,24 +104,17 @@ describe('applyActiveBuffer', () => {
     expect(ctx).toBeUndefined()
     expect(setSpy).not.toHaveBeenCalled()
   })
-})
 
-// I2 regression: on a swap/rebind the external-sync effect must NOT overwrite a
-// model that is AHEAD of the store with pending local edits (a DIRTY buffer);
-// it MUST still apply a genuine external change (store ahead of a stale model,
-// which lands the buffer CLEAN). The gate is `shouldReconcileModelFromStore`.
-describe('shouldReconcileModelFromStore (I2)', () => {
-  it('skips the reconcile when the buffer is dirty (model ahead — pending edits)', () => {
-    // Model has un-flushed local edits → store snapshot is older → do NOT apply.
-    expect(shouldReconcileModelFromStore({ isDirty: true })).toBe(false)
-  })
+  it('publishes nothing while the document is not open', () => {
+    const doc = workspaceRef('w1', '/a.ts')
+    const registry = freshRegistry
+    const setSpy = vi.spyOn(registry, 'set')
 
-  it('applies the reconcile when the buffer is clean (genuine external change)', () => {
-    // Disk reload / format-on-save / undo land the buffer clean and authoritative.
-    expect(shouldReconcileModelFromStore({ isDirty: false })).toBe(true)
-  })
+    const ctx = applyActiveBuffer({ manager: fakeManager(documentUri(doc)), registry }, 'p1', {
+      doc,
+    })
 
-  it('applies (no-op-safe) when there is no editor buffer', () => {
-    expect(shouldReconcileModelFromStore(null)).toBe(true)
+    expect(ctx).toBeUndefined()
+    expect(setSpy).not.toHaveBeenCalled()
   })
 })

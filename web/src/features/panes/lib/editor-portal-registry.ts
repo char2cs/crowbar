@@ -26,7 +26,6 @@ export interface EditorPortalEntry {
    * going blank or unmounting.
    */
   activeEditorBufferId: string | null
-  isPreview: boolean
   isActiveSurface: boolean
 }
 

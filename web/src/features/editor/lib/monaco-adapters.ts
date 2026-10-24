@@ -10,7 +10,7 @@
 // specifier ANYWHERE would silently defeat it.
 import { editor as monacoEditor, Uri } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type { IEditorLike, MonacoEditorApi } from '@/features/editor/lib/editor-manager'
-import type { IModelLike, MonacoModelApi } from '@/features/editor/lib/model-registry'
+import type { IModelLike, MonacoModelApi } from '@/features/editor/documents/document-registry'
 import { refFromUri } from '@/features/editor/documents/document-ref'
 import { getLanguageIdFromPath } from '@/features/editor/utils/language-id'
 import { toMonacoLanguageId } from '@/features/editor/monaco/language'
@@ -86,9 +86,9 @@ export const EDITOR_CREATE_OPTIONS: monacoEditor.IStandaloneEditorConstructionOp
  * Also kicks off (fire-and-forget) the on-demand grammar/language-service load
  * for this path via `loadLanguageForPath` — see `language-contributions.ts`.
  * NOT awaited: this function must return the language id synchronously so the
- * caller (`ModelRegistry.acquire` → `monacoEditor.createModel`) can create the
- * model immediately, without threading an async contract through
- * `EditorManager`/`ModelRegistry`/the pane-switch controller. If the
+ * caller (`DocumentRegistry.open` → `monacoEditor.createModel`) can create the
+ * model immediately, without threading an async contract through the
+ * document open path. If the
  * contribution resolves shortly after, monaco retokenizes the already-created
  * model in place once its language is registered — a brief plaintext flash
  * that self-corrects, not a permanent gap (see task-5-report.md for what was
@@ -114,11 +114,28 @@ function wrapModel(model: monacoEditor.ITextModel): IModelLike {
     getValue() {
       return model.getValue()
     },
-    setValueIfChanged(text: string) {
-      if (model.getValue() === text) return
-      // pushEditOperations replaces the full range as a single undoable edit,
-      // preserving the existing undo stack (unlike setValue, which resets it).
+    getValueLength() {
+      return model.getValueLength()
+    },
+    getAlternativeVersionId() {
+      return model.getAlternativeVersionId()
+    },
+    onDidChangeContent(listener) {
+      return model.onDidChangeContent(() => listener())
+    },
+    replaceAll(text, preserveSelections) {
+      const showing = preserveSelections
+        ? monacoEditor.getEditors().filter((e) => e.getModel() === model)
+        : []
+      const carets = showing.map((e) => e.getSelections())
+      // One undo step of its own (unlike setValue, which resets the undo stack).
+      model.pushStackElement()
       model.pushEditOperations(null, [{ range: model.getFullModelRange(), text }], () => null)
+      model.pushStackElement()
+      showing.forEach((e, i) => {
+        const selections = carets[i]
+        if (selections) e.setSelections(selections)
+      })
     },
   }
 }

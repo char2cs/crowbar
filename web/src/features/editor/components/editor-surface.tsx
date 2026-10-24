@@ -8,7 +8,6 @@ import { useStore } from 'zustand'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
-import { setBufferContent } from '@/features/editor/lib/buffer-save'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { documentRefOf } from '@/features/editor/documents/document-ref'
@@ -58,8 +57,6 @@ export interface EditorSurfaceProps {
   /** The window's editor host; EditorPane mounts this surface once it has loaded. */
   host: EditorHost
   isActiveSurface?: boolean
-  isPreview?: boolean
-  onPromote?: () => void
   showToolbar?: boolean
   className?: string
   breadcrumbProps?: BreadcrumbProps
@@ -84,8 +81,6 @@ export function EditorSurface({
   bufferId,
   host,
   isActiveSurface = true,
-  isPreview = false,
-  onPromote,
   showToolbar = true,
   className,
   breadcrumbProps,
@@ -93,13 +88,13 @@ export function EditorSurface({
   const containerRef = useRef<HTMLDivElement>(null)
   const overlayContainerRef = useRef<HTMLDivElement>(null)
 
-  const { manager } = host
+  const { manager, documents } = host
 
   const { setActiveEditorViewKey, setCursorAndSelection } = useEditorStateStore.use.actions()
 
   const zoomLevel = useZoomStore.use.editorZoomLevel()
 
-  // ── Imperative buffer-switch controller (model swap + content seam) ───────
+  // ── Imperative buffer-switch controller (model swap) ───────────────────────
   // Cursor/selection sync is rAF-COALESCED off the per-cursor hot path: a burst
   // of cursor moves / keystrokes schedules a single trailing frame that reads
   // the editor's CURRENT position+selection once and writes them in ONE batched
@@ -233,50 +228,13 @@ export function EditorSurface({
     manager.unmountPane(paneId)
   }, [manager, paneId])
 
-  // Persist a content change, folding preview-promote-on-first-edit in. Skipped
-  // when this surface isn't active (matches legacy CodeEditor) or when the edit
-  // is the echo of a genuine external change applied by the satellites.
-  const isPreviewRef = useRef(isPreview)
-  isPreviewRef.current = isPreview
-  const onPromoteRef = useRef(onPromote)
-  onPromoteRef.current = onPromote
-  const isActiveSurfaceRef = useRef(isActiveSurface)
-  isActiveSurfaceRef.current = isActiveSurface
-  const externalApplyRef = useRef<string | null>(null)
-
-  // Shared write core. `targetBufferId` (when known) pins the write to a SPECIFIC
-  // buffer so a flush during a fast tab switch attributes content to the edited
-  // buffer, not the now-active one (I3). When omitted, the write targets this
-  // pane's active buffer.
-  const writeContent = useCallback(
-    (content: string, targetBufferId?: string) => {
-      if (externalApplyRef.current === content) {
-        externalApplyRef.current = null
-        return
-      }
-      if (!isActiveSurfaceRef.current) return
-      if (isPreviewRef.current) onPromoteRef.current?.()
-      const bufferId =
-        targetBufferId ?? windowPaneStore.getState().panes[paneId]?.activeEditorTabId ?? null
-      if (bufferId) setBufferContent(bufferId, content)
-    },
-    [paneId],
-  )
-
-  // Controller seam: the imperative ContentSink flush passes the buffer it was
-  // tracking so the write targets the edited buffer (I3 fix).
-  const onControllerContentChange = useCallback(
-    (content: string, bufferId: string | null) => writeContent(content, bufferId ?? undefined),
-    [writeContent],
-  )
-
   const selectActiveBuffer = useCallback(
     (state: import('@/features/panes/stores/window-pane-store.types').WindowPaneState) => {
       const id = state.panes[paneId]?.activeEditorTabId ?? null
       const buffer = id ? state.buffers.find((b) => b.id === id) : null
       // Only an editor buffer names a document Monaco holds a model for.
       if (!buffer || !isEditorContent(buffer) || !buffer.path) return null
-      return { bufferId: buffer.id, doc: documentRefOf(buffer) }
+      return { doc: documentRefOf(buffer) }
     },
     [paneId],
   )
@@ -286,20 +244,18 @@ export function EditorSurface({
     selectActiveBuffer,
     manager,
     registry: activeEditors,
+    onDidOpen: (listener) => documents.onDidOpen(listener),
     mountPane,
     unmountPane,
-    onContentChange: onControllerContentChange,
     syncCursorAndSelection,
   })
 
   // ── Retained-widget satellite concerns (settings, theme, LSP document sync) ─
   usePaneEditorSatellites(paneId, {
     registry: activeEditors,
-    manager,
     isActiveSurface,
     readOnly: false,
     scrollable: true,
-    externalApplyRef,
   })
 
   // ── Status-bar cursor: which pane/buffer the mirrored cursor belongs to ───

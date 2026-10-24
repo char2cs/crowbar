@@ -19,8 +19,9 @@ vi.mock('@/features/files/lib/file-tree-api', async (importOriginal) => {
   return { ...actual, fetchFileTree }
 })
 vi.mock('@/lib/ws/manager', () => ({ wsManager: { subscribe, send: vi.fn() } }))
-vi.mock('@/lib/persistence/hydrate', () => ({
-  reconcileWorkspaceBuffersWithDisk: reconcileBuffers,
+vi.mock('@/features/workspace/lib/external-buffer-sync', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/workspace/lib/external-buffer-sync')>()),
+  reconcileWorkspaceDocuments: reconcileBuffers,
 }))
 
 const rootTree: AppFile[] = [

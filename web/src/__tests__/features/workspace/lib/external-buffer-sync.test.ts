@@ -1,5 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { EditorContent } from '@/features/panes/types/pane-content'
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
+import { isEditorContent, type EditorContent } from '@/features/panes/types/pane-content'
+import type { DocumentRef } from '@/lib/api/documents'
+import { MONACO_LOAD_MS, openTestDocument } from '@/__tests__/__fixtures__/documents'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
@@ -31,45 +33,39 @@ const { ApiError } = await import('@/lib/api')
 const { HOST_DOCUMENT_TRANSPORT_CODE, workspaceRef } = await import('@/lib/api/documents')
 const { documentText, replaceDocumentText, savedDocumentText } =
   await import('@/features/editor/documents/document-text')
-const { reconcileHostBuffersWithDisk, syncBufferWithDisk } =
+const { reconcileWorkspaceDocuments, syncBufferWithDisk } =
   await import('@/features/workspace/lib/external-buffer-sync')
 const { useFileWatcherStore } =
   await import('@/features/file-system/controllers/file-watcher-store')
-
-function makeBuffer(overrides: Partial<EditorContent> = {}): EditorContent {
-  return {
-    id: 'buf-1',
-    type: 'editor',
-    authority: 'workspace',
-    path: 'README.md',
-    name: 'README.md',
-    content: 'old content',
-    savedContent: 'old content',
-    isDirty: false,
-    isVirtual: false,
-    isPinned: false,
-    isPreview: false,
-    tokens: [],
-    workspaceId: 'ws-1',
-    ...overrides,
-  }
-}
-
-// Buffers are window-level: syncBufferWithDisk takes the document's ref and
-// reads/writes the one `windowPaneStore` singleton.
-function seedBuffers(buffers: EditorContent[]): void {
-  resetWindowPaneStoreForTests()
-  windowPaneStore.setState((s) => {
-    s.buffers = buffers
-    return s
-  })
-}
-
-function getBuffer(id = 'buf-1'): EditorContent {
-  return windowPaneStore.getState().buffers.find((b) => b.id === id) as EditorContent
-}
+const { loadEditorHost } = await import('@/features/editor/host/editor-host')
 
 const README = workspaceRef('ws-1', 'README.md')
+
+let bufferId = ''
+
+/** README.md open in a tab: `text` in the editor, `saved` on disk at the last load. */
+async function seed(text = 'old content', saved = text, doc: DocumentRef = README) {
+  resetWindowPaneStoreForTests()
+  bufferId = await openTestDocument(doc, text, { saved })
+}
+
+/** A restored tab whose document has not opened: no text anywhere yet. */
+function seedTab(doc: DocumentRef, flags: Partial<EditorContent> = {}) {
+  resetWindowPaneStoreForTests()
+  const { bufferActions } = windowPaneStore.getState()
+  bufferId = bufferActions.openContent({ type: 'editor', doc, name: doc.path })
+  windowPaneStore.setState((s) => ({
+    buffers: s.buffers.map((b) =>
+      b.id === bufferId && isEditorContent(b) ? { ...b, ...flags } : b,
+    ),
+  }))
+}
+
+function getBuffer(): EditorContent {
+  return windowPaneStore.getState().buffers.find((b) => b.id === bufferId) as EditorContent
+}
+
+beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
 
 beforeEach(() => {
   readDiskMock.mockReset()
@@ -80,8 +76,8 @@ beforeEach(() => {
 })
 
 describe('syncBufferWithDisk', () => {
-  it('reloads a clean buffer from disk (content and savedContent)', async () => {
-    seedBuffers([makeBuffer()])
+  it('reloads a clean buffer from disk (text and saved text)', async () => {
+    await seed()
     readDiskMock.mockResolvedValue('restored content')
 
     await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
@@ -94,12 +90,12 @@ describe('syncBufferWithDisk', () => {
     expect(documentText(README)).toBe('restored content')
     expect(savedDocumentText(README)).toBe('restored content')
     expect(buf.isDirty).toBe(false)
-    expect(buf.hasExternalChange).toBe(false)
+    expect(buf.hasExternalChange).toBeFalsy()
     expect(toastWarning).not.toHaveBeenCalled()
   })
 
   it('keeps a dirty buffer intact, flags the conflict and toasts once', async () => {
-    seedBuffers([makeBuffer({ content: 'user edits', savedContent: 'old content', isDirty: true })])
+    await seed('user edits', 'old content')
     // A genuine external edit: disk diverges from the baseline we last wrote.
     readDiskMock.mockResolvedValue('someone else wrote this')
 
@@ -126,14 +122,8 @@ describe('syncBufferWithDisk', () => {
     // the single-shot pendingSaves marker only cancels the first. A straggler
     // event on a still-dirty buffer must NOT produce a phantom "changed on disk"
     // toast when the on-disk bytes are exactly what we last wrote.
-    seedBuffers([
-      makeBuffer({
-        content: 'newer unsaved keystrokes',
-        savedContent: 'autosaved value',
-        isDirty: true,
-      }),
-    ])
-    readDiskMock.mockResolvedValue('autosaved value') // disk === savedContent
+    await seed('newer unsaved keystrokes', 'autosaved value')
+    readDiskMock.mockResolvedValue('autosaved value') // disk === saved text
 
     await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
 
@@ -147,7 +137,7 @@ describe('syncBufferWithDisk', () => {
   })
 
   it('ignores own-save echoes and consumes the pending-save marker', async () => {
-    seedBuffers([makeBuffer()])
+    await seed()
     useFileWatcherStore.getState().markPendingSave('README.md')
 
     await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
@@ -163,7 +153,7 @@ describe('syncBufferWithDisk', () => {
   })
 
   it('does nothing when no open buffer matches the path', async () => {
-    seedBuffers([makeBuffer({ path: 'other.ts', name: 'other.ts' })])
+    await seed('old content', 'old content', workspaceRef('ws-1', 'other.ts'))
 
     await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
 
@@ -172,7 +162,7 @@ describe('syncBufferWithDisk', () => {
   })
 
   it('does not clobber edits made while the disk read was in flight', async () => {
-    seedBuffers([makeBuffer()])
+    await seed()
     let resolveRead: (v: string) => void = () => {}
     readDiskMock.mockReturnValue(
       new Promise<string>((r) => {
@@ -191,7 +181,7 @@ describe('syncBufferWithDisk', () => {
   })
 
   it('survives a failed disk read without touching the buffer', async () => {
-    seedBuffers([makeBuffer()])
+    await seed()
     readDiskMock.mockResolvedValue(null)
 
     await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
@@ -200,35 +190,54 @@ describe('syncBufferWithDisk', () => {
   })
 })
 
-describe('reconcileHostBuffersWithDisk', () => {
-  const host = (id: string, path: string) =>
-    makeBuffer({ id, authority: 'host', workspaceId: '', path, name: path.split('/').pop() })
+describe('reconcileWorkspaceDocuments', () => {
+  it('reloads an open document whose file changed while the workspace was hidden', async () => {
+    await seed()
+    readDocumentMock.mockResolvedValue({ ref: README, text: 'changed while hidden' })
+    readDiskMock.mockResolvedValue('changed while hidden')
 
-  it('reloads a restored host document from disk', async () => {
-    seedBuffers([host('h-1', '/tmp/a.md'), makeBuffer()])
-    readDocumentMock.mockResolvedValue({ text: 'on disk' })
-    readDiskMock.mockResolvedValue('on disk')
+    await reconcileWorkspaceDocuments('ws-1')
 
-    await reconcileHostBuffersWithDisk()
-
-    expect(readDocumentMock).toHaveBeenCalledTimes(1)
-    expect(readDocumentMock).toHaveBeenCalledWith({ authority: 'host', path: '/tmp/a.md' })
-    expect(documentText({ authority: 'host', path: '/tmp/a.md' })).toBe('on disk')
+    expect(documentText(README)).toBe('changed while hidden')
+    expect(getBuffer().isDirty).toBe(false)
   })
 
-  it('a restored host document the daemon refuses keeps its tab and says why once', async () => {
-    seedBuffers([host('h-1', '/tmp/a.md'), host('h-2', '/tmp/b.md')])
+  it('marks a clean document whose file is gone as missing', async () => {
+    await seed()
+    readDocumentMock.mockRejectedValue(new ApiError('gone', 404))
+
+    await reconcileWorkspaceDocuments('ws-1')
+
+    expect(getBuffer().fileMissing).toBe(true)
+  })
+
+  it('opens a missing file that came back', async () => {
+    seedTab(README, { fileMissing: true })
+    readDocumentMock.mockResolvedValue({ ref: README, text: 'back again' })
+
+    await reconcileWorkspaceDocuments('ws-1')
+
+    expect(getBuffer().fileMissing).toBe(false)
+    expect(documentText(README)).toBe('back again')
+  })
+
+  it('leaves a document the restore has not reached yet alone', async () => {
+    seedTab(README)
+
+    await reconcileWorkspaceDocuments('ws-1')
+
+    expect(readDocumentMock).not.toHaveBeenCalled()
+    expect(documentText(README)).toBeNull()
+  })
+
+  it('a refusal keeps the tab and says why once', async () => {
+    await seed()
     readDocumentMock.mockRejectedValue(new ApiError('refused', 403, HOST_DOCUMENT_TRANSPORT_CODE))
 
-    await reconcileHostBuffersWithDisk()
+    await reconcileWorkspaceDocuments('ws-1')
 
-    expect(windowPaneStore.getState().buffers.map((b) => b.id)).toEqual(['h-1', 'h-2'])
-    expect(documentText({ authority: 'host', path: '/tmp/a.md' })).toBe('old content')
-    expect(getBuffer('h-1').fileMissing).toBeFalsy()
+    expect(getBuffer().fileMissing).toBeFalsy()
+    expect(documentText(README)).toBe('old content')
     expect(toastError).toHaveBeenCalledTimes(1)
-    expect(toastError).toHaveBeenCalledWith(
-      "Can't open this file here",
-      'Files outside your workspaces open only in the Crowbar desktop app.',
-    )
   })
 })

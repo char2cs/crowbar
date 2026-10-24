@@ -1,7 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// Only apiFetch (the real HTTP boundary every document write ends at) needs
-// mocking: the body names the workspace a save lands in.
+// apiFetch is the HTTP boundary every write ends at; its body names the workspace.
 vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api')
   return { ...actual, apiFetch: vi.fn() }
@@ -17,10 +16,11 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOri
 
 const { formatDocumentWithLsp } = vi.hoisted(() => ({ formatDocumentWithLsp: vi.fn() }))
 vi.mock('@/features/editor/lsp/format-buffer', () => ({ formatDocumentWithLsp }))
-
+import { MONACO_LOAD_MS, openTestDocument } from '@/__tests__/__fixtures__/documents'
 import { apiFetch } from '@/lib/api'
+import { loadEditorHost } from '@/features/editor/host/editor-host'
 import {
-  AUTOSAVE_DELAY_MS,
+  QUIET_PERIOD_MS,
   saveActiveBuffer,
   saveAllDirtyBuffers,
   saveBuffer,
@@ -47,38 +47,36 @@ import { useFileWatcherStore } from '@/features/file-system/controllers/file-wat
 
 const mockFetch = apiFetch as ReturnType<typeof vi.fn>
 
-/** A buffer of `workspaceId`, forced dirty: openContent always opens one clean. */
-function openDirtyBuffer(workspaceId: string | DocumentRef, path: string, content: string): string {
+/** The daemon answers a write with the ref it wrote. */
+function written(_url: string, init?: RequestInit) {
+  const { workspaceId, path } = JSON.parse(String(init?.body ?? '{}')) as Record<string, string>
+  return workspaceId ? { authority: 'workspace', workspaceId, path } : { authority: 'host', path }
+}
+
+/** A buffer of `workspaceId` holding `content` disk does not have. */
+function openDirtyBuffer(workspaceId: string | DocumentRef, path: string, content: string) {
   const doc = typeof workspaceId === 'string' ? workspaceRef(workspaceId, path) : workspaceId
-  const id = windowPaneStore.getState().bufferActions.openContent({
-    type: 'editor',
-    doc,
-    name: path,
-    content,
-  })
-  windowPaneStore.setState((s) => {
-    s.buffers = s.buffers.map((b) =>
-      b.id === id && b.type === 'editor' ? { ...b, isDirty: true } : b,
-    )
-    return s
-  })
-  return id
+  return openTestDocument(doc, content, { saved: 'on disk', name: path })
 }
 
 function bufferById(id: string): EditorContent {
   return windowPaneStore.getState().buffers.find((b) => b.id === id) as EditorContent
 }
 
+beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
+
 beforeEach(() => {
   vi.clearAllMocks()
-  mockFetch.mockResolvedValue({})
+  mockFetch.mockImplementation((url: string, init?: RequestInit) =>
+    Promise.resolve(written(url, init)),
+  )
   resetWindowPaneStoreForTests()
 })
 
 // A dirty buffer of ws-owner while ws-active is on screen: the write must land in ws-owner.
 describe("buffer-save — Critical 1: saves target the BUFFER's own workspace, not the active one", () => {
   it("handleSave writes to the dirty buffer's own workspace", async () => {
-    openDirtyBuffer('ws-owner', 'a.ts', 'edited content')
+    await openDirtyBuffer('ws-owner', 'a.ts', 'edited content')
 
     await saveActiveBuffer()
 
@@ -93,13 +91,11 @@ describe("buffer-save — Critical 1: saves target the BUFFER's own workspace, n
   })
 
   it("saveActiveBuffer (Save As, an untitled buffer) writes to the buffer's own workspace", async () => {
-    const id = windowPaneStore.getState().bufferActions.openContent({
-      type: 'editor',
-      doc: workspaceRef('ws-owner', 'untitled:Untitled-1'),
-      name: 'Untitled-1',
-      content: 'new file content',
-      isVirtual: true,
-    })
+    const id = await openTestDocument(
+      workspaceRef('ws-owner', 'untitled:Untitled-1'),
+      'new file content',
+      { isVirtual: true },
+    )
     vi.stubGlobal(
       'prompt',
       vi.fn(() => 'new-name.ts'),
@@ -115,8 +111,8 @@ describe("buffer-save — Critical 1: saves target the BUFFER's own workspace, n
   })
 
   it('handleSaveAll writes each dirty buffer to ITS OWN workspace, never the active one', async () => {
-    openDirtyBuffer('ws-owner', 'a.ts', 'from ws-owner')
-    openDirtyBuffer('ws-active', 'b.ts', 'from ws-active')
+    await openDirtyBuffer('ws-owner', 'a.ts', 'from ws-owner')
+    await openDirtyBuffer('ws-active', 'b.ts', 'from ws-active')
 
     const savedCount = await saveAllDirtyBuffers()
 
@@ -126,9 +122,7 @@ describe("buffer-save — Critical 1: saves target the BUFFER's own workspace, n
       ([, init]) =>
         JSON.parse((init as RequestInit).body as string) as { path: string; workspaceId: string },
     )
-    // Each buffer's own write landed in ITS OWN workspace, not cross-wired —
-    // the bug this locks in would have sent BOTH writes to whichever workspace
-    // was merely active.
+    // Not cross-wired: both writes once went to whichever workspace was active.
     expect(calls.find((c) => c.path === 'a.ts')?.workspaceId).toBe('ws-owner')
     expect(calls.find((c) => c.path === 'b.ts')?.workspaceId).toBe('ws-active')
   })
@@ -138,7 +132,7 @@ describe('buffer-save — a document outside every workspace', () => {
   it('writes to its own path and touches no workspace', async () => {
     const refreshed = vi.fn()
     const stop = onGitRefreshRequested('', refreshed)
-    openDirtyBuffer({ authority: 'host', path: '/tmp/notes.md' }, 'notes.md', 'edited')
+    await openDirtyBuffer({ authority: 'host', path: '/tmp/notes.md' }, 'notes.md', 'edited')
 
     expect(await saveActiveBuffer()).toBe(true)
 
@@ -168,18 +162,13 @@ function textOf(ref: DocumentRef) {
   return { text: documentText(ref), saved: savedDocumentText(ref) }
 }
 
-function openCleanBuffer(workspaceId: string, path: string, content: string): string {
-  return windowPaneStore.getState().bufferActions.openContent({
-    type: 'editor',
-    doc: workspaceRef(workspaceId, path),
-    name: path,
-    content,
-  })
-}
+const openCleanBuffer = (workspaceId: string, path: string, content: string) =>
+  openTestDocument(workspaceRef(workspaceId, path), content)
 
 describe('buffer-save — P0-10: autosave is per buffer and never mislabels edits', () => {
   beforeEach(() => {
-    vi.useFakeTimers()
+    // IndexedDB (the drafts) runs on setImmediate, which stays real.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     useSettingsStore.setState((s) => ({ settings: { ...s.settings, autoSave: true } }))
   })
   afterEach(() => {
@@ -188,12 +177,12 @@ describe('buffer-save — P0-10: autosave is per buffer and never mislabels edit
   })
 
   it("editing buffer B does not cancel buffer A's pending autosave", async () => {
-    const a = openCleanBuffer('ws-owner', 'a.ts', 'a0')
-    const b = openCleanBuffer('ws-owner', 'b.ts', 'b0')
+    const a = await openCleanBuffer('ws-owner', 'a.ts', 'a0')
+    const b = await openCleanBuffer('ws-owner', 'b.ts', 'b0')
 
     replaceDocumentText(A, 'a1')
     replaceDocumentText(B, 'b1')
-    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    await vi.advanceTimersByTimeAsync(QUIET_PERIOD_MS)
 
     expect(writesFor('a.ts')).toEqual(['a1'])
     expect(writesFor('b.ts')).toEqual(['b1'])
@@ -202,7 +191,7 @@ describe('buffer-save — P0-10: autosave is per buffer and never mislabels edit
   })
 
   it('an edit that lands while the write is in flight keeps the buffer dirty', async () => {
-    const id = openCleanBuffer('ws-owner', 'a.ts', 'v0')
+    const id = await openCleanBuffer('ws-owner', 'a.ts', 'v0')
     let finishWrite: () => void = () => {}
     mockFetch.mockImplementationOnce(
       () => new Promise((resolve) => (finishWrite = () => resolve({}))),
@@ -218,13 +207,13 @@ describe('buffer-save — P0-10: autosave is per buffer and never mislabels edit
     expect(textOf(A)).toEqual({ text: 'v2', saved: 'v1' })
     expect(bufferById(id).isDirty).toBe(true)
     // ...and autosave catches the late edit up.
-    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    await vi.advanceTimersByTimeAsync(QUIET_PERIOD_MS)
     expect(writesFor('a.ts')).toEqual(['v1', 'v2'])
     expect(bufferById(id).isDirty).toBe(false)
   })
 
   it('a failed write leaves the buffer dirty with its previous saved baseline', async () => {
-    const id = openCleanBuffer('ws-owner', 'a.ts', 'v0')
+    const id = await openCleanBuffer('ws-owner', 'a.ts', 'v0')
     mockFetch.mockRejectedValueOnce(new Error('disk full'))
 
     replaceDocumentText(A, 'v1')
@@ -235,7 +224,7 @@ describe('buffer-save — P0-10: autosave is per buffer and never mislabels edit
   })
 
   it('saves of one buffer are serialized, newest content last', async () => {
-    const id = openCleanBuffer('ws-owner', 'a.ts', 'v0')
+    const id = await openCleanBuffer('ws-owner', 'a.ts', 'v0')
     const resolvers: Array<() => void> = []
     mockFetch.mockImplementation(() => new Promise((r) => resolvers.push(() => r({}))))
 
@@ -265,7 +254,7 @@ describe('buffer-save — the text a save writes', () => {
   })
 
   it('writes edits a pending writer has not flushed yet', async () => {
-    const id = openCleanBuffer('ws-owner', 'a.ts', 'saved')
+    const id = await openCleanBuffer('ws-owner', 'a.ts', 'saved')
     const stop = registerPendingWriter(A, () => replaceDocumentText(A, 'typed, not flushed'))
 
     expect(await saveBuffer(id)).toBe(true)
@@ -277,7 +266,7 @@ describe('buffer-save — the text a save writes', () => {
 
   it('format on save writes the formatted text and leaves the buffer clean', async () => {
     useSettingsStore.setState((s) => ({ settings: { ...s.settings, formatOnSave: true } }))
-    const id = openDirtyBuffer('ws-owner', 'a.ts', 'const a=1')
+    const id = await openDirtyBuffer('ws-owner', 'a.ts', 'const a=1')
     formatDocumentWithLsp.mockResolvedValue('const a = 1\n')
 
     expect(await saveBuffer(id)).toBe(true)
@@ -290,7 +279,7 @@ describe('buffer-save — the text a save writes', () => {
 
   it('drops a format result when an edit lands while the formatter runs', async () => {
     useSettingsStore.setState((s) => ({ settings: { ...s.settings, formatOnSave: true } }))
-    const id = openDirtyBuffer('ws-owner', 'a.ts', 'const a=1')
+    const id = await openDirtyBuffer('ws-owner', 'a.ts', 'const a=1')
     formatDocumentWithLsp.mockImplementation(() => {
       replaceDocumentText(A, 'const a=12')
       return Promise.resolve('const a = 1\n')
@@ -308,23 +297,21 @@ describe('buffer-save — Save As onto a document that is already open', () => {
   const UNTITLED = workspaceRef('ws-owner', 'untitled:Untitled-1')
 
   type Flags = { isVirtual?: boolean; isPreview?: boolean }
-  function openIn(paneId: string, doc: DocumentRef, content: string, flags: Flags = {}): string {
-    const spec = { type: 'editor' as const, doc, name: doc.path, content, ...flags }
-    return windowPaneStore.getState().bufferActions.openContent(spec, { paneId })
-  }
+  const openIn = (paneId: string, doc: DocumentRef, text: string, flags: Flags = {}) =>
+    openTestDocument(doc, text, { paneId, ...flags })
 
   /** Save As whose write stays in flight while `during` runs. */
-  async function saveAsDuring(during: () => void): Promise<boolean> {
+  async function saveAsDuring(during: () => unknown): Promise<boolean> {
     let started = () => {}
     let finish = () => {}
     const begun = new Promise<void>((resolve) => (started = resolve))
-    mockFetch.mockImplementationOnce(() => {
+    mockFetch.mockImplementationOnce((url: string, init?: RequestInit) => {
       started()
-      return new Promise((resolve) => (finish = () => resolve({})))
+      return new Promise((resolve) => (finish = () => resolve(written(url, init))))
     })
     const save = saveActiveBuffer()
     await begun
-    during()
+    await during()
     finish()
     return save
   }
@@ -344,10 +331,10 @@ describe('buffer-save — Save As onto a document that is already open', () => {
   })
 
   it('a clean target takes the saved text, and the untitled tab becomes it in place', async () => {
-    const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
-    const before = openIn(ROOT_PANE_ID, A, 'a')
-    const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
-    const after = openIn(ROOT_PANE_ID, B, 'b')
+    const target = await openIn(BOTTOM_PANE_ID, FOO, 'old')
+    const before = await openIn(ROOT_PANE_ID, A, 'a')
+    const untitled = await openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
+    const after = await openIn(ROOT_PANE_ID, B, 'b')
     windowPaneStore.getState().paneActions.activateEditorTabInPane(ROOT_PANE_ID, untitled)
     useGitBlameStore.setState({ blame: { [blameKey('ws-owner', 'foo.ts')]: success([]) } })
 
@@ -363,9 +350,9 @@ describe('buffer-save — Save As onto a document that is already open', () => {
   })
 
   it('refuses a target with unsaved edits and writes nothing', async () => {
-    const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
+    const target = await openIn(BOTTOM_PANE_ID, FOO, 'old')
     replaceDocumentText(FOO, 'their edits')
-    const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
+    const untitled = await openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
     const error = vi.spyOn(toast, 'error')
 
     expect(await saveActiveBuffer()).toBe(false)
@@ -379,8 +366,8 @@ describe('buffer-save — Save As onto a document that is already open', () => {
   })
 
   it('closes the untitled tab and focuses the target when its pane already holds it', async () => {
-    const target = openIn(ROOT_PANE_ID, FOO, 'old')
-    openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
+    const target = await openIn(ROOT_PANE_ID, FOO, 'old')
+    await openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
 
     expect(await saveActiveBuffer()).toBe(true)
 
@@ -390,10 +377,11 @@ describe('buffer-save — Save As onto a document that is already open', () => {
   })
 
   it('a document opened while the write runs takes the saved text and the untitled tab', async () => {
-    const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
+    const untitled = await openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
     let target = ''
 
-    expect(await saveAsDuring(() => (target = openIn(BOTTOM_PANE_ID, FOO, 'old')))).toBe(true)
+    const during = async () => (target = await openIn(BOTTOM_PANE_ID, FOO, 'old'))
+    expect(await saveAsDuring(during)).toBe(true)
 
     expect(holdersOfFoo()).toEqual([target])
     expect(textOf(FOO)).toEqual({ text: 'new text', saved: 'new text' })
@@ -403,8 +391,8 @@ describe('buffer-save — Save As onto a document that is already open', () => {
   })
 
   it('keeps edits typed into the untitled tab while the write runs', async () => {
-    const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
-    openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
+    const target = await openIn(BOTTOM_PANE_ID, FOO, 'old')
+    await openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
 
     expect(await saveAsDuring(() => replaceDocumentText(UNTITLED, 'new text, and more'))).toBe(true)
 
@@ -415,8 +403,8 @@ describe('buffer-save — Save As onto a document that is already open', () => {
   })
 
   it('a target edited during the write keeps its edits and is flagged as changed on disk', async () => {
-    const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
-    const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
+    const target = await openIn(BOTTOM_PANE_ID, FOO, 'old')
+    const untitled = await openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
     const warning = vi.spyOn(toast, 'warning')
 
     expect(await saveAsDuring(() => replaceDocumentText(FOO, 'their edits'))).toBe(true)
@@ -429,21 +417,22 @@ describe('buffer-save — Save As onto a document that is already open', () => {
   })
 
   it('a target edited to exactly the written text ends clean, with no warning', async () => {
-    const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
+    const target = await openIn(BOTTOM_PANE_ID, FOO, 'old')
     const warning = vi.spyOn(toast, 'warning')
-    openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
+    await openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
 
     expect(await saveAsDuring(() => replaceDocumentText(FOO, 'new text'))).toBe(true)
 
     expect(warning).not.toHaveBeenCalled()
     expect(textOf(FOO)).toEqual({ text: 'new text', saved: 'new text' })
-    expect(bufferById(target)).toMatchObject({ isDirty: false, hasExternalChange: false })
+    expect(bufferById(target).isDirty).toBe(false)
+    expect(bufferById(target).hasExternalChange).toBeFalsy()
     expect(tabsOf(ROOT_PANE_ID)).toEqual({ tabs: [target], active: target })
   })
 
   it('keeps the untitled tab and all its text when both sides moved during the write', async () => {
-    const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
-    const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
+    const target = await openIn(BOTTOM_PANE_ID, FOO, 'old')
+    const untitled = await openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
 
     const saved = await saveAsDuring(() => {
       replaceDocumentText(FOO, 'their edits')
@@ -459,8 +448,8 @@ describe('buffer-save — Save As onto a document that is already open', () => {
   })
 
   it('a failed write onto an open document changes nothing and says why', async () => {
-    const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
-    const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
+    const target = await openIn(BOTTOM_PANE_ID, FOO, 'old')
+    const untitled = await openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
     mockFetch.mockRejectedValueOnce(new Error('disk full'))
     const error = vi.spyOn(toast, 'error')
 
@@ -474,8 +463,18 @@ describe('buffer-save — Save As onto a document that is already open', () => {
     expect(tabsOf(BOTTOM_PANE_ID)).toEqual({ tabs: [target], active: target })
   })
 
+  it('a new file takes the untitled tab; text typed during the write stays unsaved', async () => {
+    const untitled = await openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
+
+    expect(await saveAsDuring(() => replaceDocumentText(UNTITLED, 'new text, and more'))).toBe(true)
+
+    expect(bufferById(untitled)).toMatchObject({ path: 'foo.ts', isVirtual: false, isDirty: true })
+    expect(textOf(FOO)).toEqual({ text: 'new text, and more', saved: 'new text' })
+    expect(documentText(UNTITLED)).toBeNull()
+  })
+
   it('a failed new-file Save As says why and keeps the untitled tab', async () => {
-    const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
+    const untitled = await openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
     mockFetch.mockRejectedValueOnce(new Error('disk full'))
     const error = vi.spyOn(toast, 'error')
 
@@ -487,8 +486,8 @@ describe('buffer-save — Save As onto a document that is already open', () => {
   })
 
   it('Save As onto a preview tab leaves it kept, not a preview', async () => {
-    const target = openIn(BOTTOM_PANE_ID, FOO, 'old', { isPreview: true })
-    openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
+    const target = await openIn(BOTTOM_PANE_ID, FOO, 'old', { isPreview: true })
+    await openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
 
     expect(await saveActiveBuffer()).toBe(true)
 

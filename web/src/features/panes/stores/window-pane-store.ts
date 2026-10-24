@@ -6,9 +6,13 @@ import { createPaneSlice } from './slices/pane-slice'
 import { createBufferSlice } from './slices/buffer-slice'
 import { saveWorkspaceLayout } from '@/lib/persistence/workspace-layout'
 import { viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
+import { isEditorContent } from '@/features/panes/types/pane-content'
+import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
+import { getEditorHost } from '@/features/editor/host/editor-host'
 
 export type WindowPaneStore = StoreApi<WindowPaneState>
 
+/** @internal Exported for unit tests. */
 export type WindowPaneSnapshot = Partial<
   Pick<
     WindowPaneState,
@@ -40,6 +44,8 @@ export type WindowPaneSnapshot = Partial<
  * `createWindowPaneStore` is exported (not just the singleton below) so
  * tests can exercise a fresh, isolated store per test — see
  * `window-pane-store.test.ts`.
+ *
+ * @internal Exported for unit tests.
  */
 export function createWindowPaneStore(snapshot?: WindowPaneSnapshot): WindowPaneStore {
   const store = createStore<WindowPaneState>()(
@@ -130,8 +136,16 @@ export const windowPaneStore = createWindowPaneStore()
  * call then silently mutates the discarded throwaway store, leaving `target`
  * itself frozen at whatever data this reset assigned, forever. This resets
  * only the plain-data fields and leaves `target`'s actions untouched.
+ *
+ * @internal Exported for unit tests.
  */
 export function resetWindowPaneStoreForTests(target: WindowPaneStore = windowPaneStore): void {
+  // The buffers' documents go with them, as closing them would release them.
+  for (const b of target.getState().buffers) {
+    if (isEditorContent(b) && b.path) {
+      getEditorHost()?.documents.release(documentUri(documentRefOf(b)))
+    }
+  }
   const fresh = createWindowPaneStore().getState()
   target.setState({
     panes: fresh.panes,

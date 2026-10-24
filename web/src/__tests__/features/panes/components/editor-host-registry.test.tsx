@@ -53,11 +53,8 @@ function seedEditorTab(paneId: string, id: string) {
       authority: 'workspace',
       path: `/${id}.ts`,
       name: `${id}.ts`,
-      content: '',
-      savedContent: '',
       isDirty: false,
       isVirtual: false,
-      tokens: [],
       isPinned: false,
       isPreview: false,
       workspaceId: 'w1',
@@ -93,7 +90,6 @@ describe('EditorHostRegistry / EditorHostSlot', () => {
       setEditorPortalEntry(ROOT_PANE_ID, {
         node,
         activeEditorBufferId: 'tab-a',
-        isPreview: false,
         isActiveSurface: true,
       })
     })
@@ -116,7 +112,6 @@ describe('EditorHostRegistry / EditorHostSlot', () => {
       setEditorPortalEntry(ROOT_PANE_ID, {
         node,
         activeEditorBufferId: 'tab-a',
-        isPreview: false,
         isActiveSurface: true,
       })
     })
@@ -134,7 +129,6 @@ describe('EditorHostRegistry / EditorHostSlot', () => {
       setEditorPortalEntry(ROOT_PANE_ID, {
         node,
         activeEditorBufferId: 'tab-a',
-        isPreview: false,
         isActiveSurface: true,
       })
     })

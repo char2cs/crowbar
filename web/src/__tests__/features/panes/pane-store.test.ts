@@ -40,11 +40,8 @@ function openTab(paneId: string, id: string): void {
     path: `src/${id}.ts`,
     name: `${id}.ts`,
     workspaceId: 'test-ws',
-    content: '',
-    savedContent: '',
     isDirty: false,
     isVirtual: false,
-    tokens: [],
   }
   store.setState((state) => {
     if (!state.buffers.some((b) => b.id === id)) state.buffers.push(buffer)
