@@ -48,7 +48,7 @@ The five failure modes a person will hit that no single task's happy-path test c
 1. **Document identity.** `DocumentRef = { authority: 'workspace', workspaceId, path (relative) } | { authority: 'host', path (absolute) }`. The daemon canonicalises every absolute path: if it lies inside a known worktree or project home (longest canonical prefix, symlinks resolved), it becomes that workspace's document. A file therefore has exactly one identity, and LSP, blame and the watcher apply whenever they can. Buffers keep workspace-relative paths, so S8's worktree move does not invalidate persisted tabs.
 2. **Authority = transport.** Host documents are served only when `http.LocalAddrContextKey`'s network is `unix`. Loopback TCP is refused too, because any local process and DNS-rebinding web pages can reach it. The daemon cannot verify that a path came from a dialog, a drop or a terminal link, and a unix-socket client already has a shell through the PTY routes. So the transport check is the security boundary. The "grant" is enforced on the client by construction: only `openDocumentFromDialog`, `openDocumentsAtPaths` (OS drop) and terminal links build a path-only `DocumentTarget`.
 3. **One document API.** `GET/PUT /v0/documents/content` replaces the chat-scoped and project-home `/files/content` routes for every client read and write: editor, assets, uploads, templates, `.gitignore`. Tree and mutation routes stay on `/files`.
-4. **Host documents get text editing only:** open, edit, save, reload, rich markdown, previews, shiki highlighting. They get no LSP, blame, git status, explorer reveal or external-change watch, because no watcher runs outside worktrees. Open an issue for the external-change watch in T3 (step 7); do not add a poll.
+4. **Host documents get text editing and the external-change watch:** open, edit, save, reload, rich markdown, previews, shiki highlighting, and external changes followed as for workspace files (T6b: the daemon watches each open host document's own file, held by the documents clients have open and armed before the first read). They get no LSP, blame, git status or explorer reveal. Do not add a poll.
 5. **Monaco models own all document text, including rich markdown.** Plate reads the model at mount and writes back into it, debounced 150 ms as today, with a registered pending writer so saves see unflushed edits. The first rich-markdown open therefore loads the editor host; the cold-open budget covers it.
 6. **Dirty state** = the model's alternative version id differs from the saved one, AND (when lengths match) the text differs from the saved text. This keeps today's behaviour that typing a character and deleting it is clean. The store is written only on transitions.
 7. **Unsaved text persists as drafts** in an `editor-drafts` IndexedDB store, written after a 1 s quiet period per document and on `pagehide`. They no longer live in the layout record, which keeps identity only. The legacy layout's buffer content converts into drafts once (T6), as this stage's piece of the legacy → layout-1 conversion.
@@ -106,7 +106,7 @@ O4 runs on `make dev-bundle` because Vite dev serves Monaco unbundled, which mak
 | Dirty dot, unsaved aria labels, close-dirty confirmation | `tab-bar-item.tsx`, `tab-bar.tsx`, `use-pane-keyboard.ts`, `use-tab-keyboard-nav.ts` | Unchanged readers of `isDirty`; writer is the registry (T6) |
 | Save, Save All, autosave (1 s per document), format-on-save, Save As for untitled, locked-workspace error toast | `buffer-save.ts` | Text read through the seam (T5) from the model (T6); autosave keyed by document uri |
 | Reload from disk with dirty confirmation | `reload-buffer.ts` | `applyExternalText` (T5) |
-| External change: clean buffer reloads silently, dirty buffer flagged + toast; warm-reactivation reconcile | `external-buffer-sync.ts`, `hydrate.ts`, `use-workspace-file-tree.ts` | `savedDocumentText` + `applyExternalText` (T5); reconcile moves into `external-buffer-sync.ts` (T6) |
+| External change: clean buffer reloads silently, dirty buffer flagged + toast; warm-reactivation reconcile | `external-buffer-sync.ts`, `hydrate.ts`, `use-workspace-file-tree.ts` | `savedDocumentText` + `applyExternalText` (T5); reconcile moves into `external-buffer-sync.ts` (T6); host documents follow external changes through `/v0/documents/ws` into the same `syncBufferWithDisk` (T6b) |
 | "File not found" placeholder | `editor-pane.tsx` + hydrate | `restore-documents.ts` sets `fileMissing` (T6) |
 | Unsaved edits survive reload | Full buffer text in the persisted layout | `editor-drafts` store (T6) |
 | Rich markdown (Plate): rich/source toggle, frontmatter banner, images/assets, mermaid, HTML nodes, callouts, code blocks | `markdown/plate/*` | Plate reads and writes the model (T5/T6); assets resolve from the `DocumentRef` (T3) |
@@ -577,7 +577,7 @@ In `document-ref.test.ts`:
   - `useLspDocumentSync` and `useInlineBlame` no-op for host refs.
   - The breadcrumb renders host paths as non-interactive segments.
   - Explorer reveal ignores host buffers.
-- [ ] **Step 7:** Open a GitHub-style issue note in the commit body ("host documents have no external-change watch") and ask the user to file it. No code for it.
+- [ ] **Step 7:** Superseded by Task 6b (user decision, 2026-10-24): host documents get the external-change watch in this stage, so no issue is filed and T3 adds no code for it.
 - [ ] **Step 8: Verify.** Run the new tests plus `terminal-file-links.test.ts`, `persisted-layout.test.ts`, `reveal.test.ts`, `jump-navigation.test.ts`, `monaco-lsp-providers.test.ts`, `markdown-asset.test.ts`, `file-tree-handlers.test.ts`, `use-file-explorer-drag-drop.test.ts`, `use-pane-keyboard.test.ts`, `editor-tab-actions.test.ts`. Then `bun tsc --noEmit`, eslint on touched dirs, `bun run knip`, `bun run lint:doctor`.
   Live (`make dev-desktop`, user at the keyboard for the drop and the link):
   - Cmd+O picks `/tmp/…/host-probe.ts`: opens, edits, Cmd+S, `cat` shows the edit.
@@ -910,6 +910,272 @@ it('drops clean legacy buffer text without a draft')
 
 ---
 
+## Task 6b: Host documents follow external changes
+
+**Goal:** An open host document follows changes made on disk the way a workspace file does: a clean buffer reloads silently, and a dirty buffer keeps its edits and is flagged with a toast. The daemon owns the watch. A client holds a host path by holding one `GET /v0/documents/ws?path=<canonical>` subscription for as long as the document is open. The broadcaster's `OnSubscribe`/`OnUnsubscribe` drive a refcounted registry (the same lifecycle that refcounts workspace watchers), so closing the document, or the socket dropping, releases it. Each held path has one OS watch on that file alone, so cost scales with the number of open host documents, never with the tree under their directory. The last release stops the watch.
+
+**Armed before read.** The client opens the subscription first. The daemon arms the watch in `OnSubscribe` before it answers the upgrade, so the 101 is the ack. Only then does the client read the content. This order holds for every open path: dialog, drop, terminal link, reopen, and boot or hydrate restore. A write before the ack is in the read; a write after it arrives as an event. A duplicate reload of identical text is a no-op through `syncBufferWithDisk`, and nothing is reconciled after the fact. The workspace stream has the same ordering question (its tree and buffers are read before its subscription registers); that is out of scope here.
+
+Spike, 2026-10-24, scratch only: an FSEvents stream rooted at the file path, with `kFSEventStreamCreateFlagFileEvents` (already set in `backend_darwin.c`), delivered the file's in-place write, atomic replace, delete, rename-away and recreate, even with the path missing or spelled in another case. It delivered nothing from siblings (including `doc.md.bak`), the temp file or subdirectories, so darwin needs no kqueue; Linux inotify watches the parent directory without recursion.
+
+Today, for comparison: the workspace watcher (`engine/fs/internal/watch/watcher.go`, FSEvents on darwin via `backend_darwin.go`, inotify elsewhere via `backend_fsnotify.go`) dispatches `domain.FileChangeEvent` → `realtime/watcher_dispatcher.go` → `hub.BroadcastFile` → `v0.Container.PushFile` → the `files` broadcaster (`filesDef`, `/v0/chats/:chatId/files/ws` and `/home/files/ws`). On the web, `use-workspace-file-tree.ts` calls `syncBufferWithDisk` for `modified`/`created`. A host document has no workspace or chat to subscribe by, so it needs its own subscription route. It carries the same event type, and the web handles it with the same sync function.
+
+**Behaviour** (the workspace rules, applied to host documents):
+
+| On disk | Event for the held path | Clean buffer | Dirty buffer |
+|---|---|---|---|
+| Written in place | `modified` | Reloads silently (`applyExternalText(ref, disk, { saved: true })`) | Keeps its edits; flagged `hasExternalChange` and one toast, only if disk ≠ `savedDocumentText(ref)` |
+| Replaced by rename (atomic save: temp file + rename onto the path) | `created`: the new inode marks it; the temp file is never watched | Reloads silently | Flag + toast |
+| Deleted, or renamed away | `deleted` / `renamed` | Untouched: keeps its text and stays clean; a save recreates the file | Untouched, stays dirty |
+| Recreated after a delete | `created` | Reloads silently | Flag + toast |
+| Echo of this client's own save | `modified` / `created` | No change (disk equals the saved text) | No flag (disk equals the saved text) |
+| Socket dropped and back (`{reconnected: true}`) | The new socket's open is the ack for the re-armed watch | `syncBufferWithDisk(ref)`: the read after the re-arm | Same |
+
+`fileMissing` is set only when a document is opened or restored and its file is gone (404), as for workspace files.
+
+**Files (Go):**
+- Create: `api/internal/engine/fs/internal/watch/burst.go` + `burst_test.go`. This is the debounce buffer extracted from `Watcher.loop`/`handleBurst`: the loop's one `time.NewTimer` moves here, so `go.timers` in `make ratchet` does not rise.
+- Create: `api/internal/engine/fs/internal/watch/file_watcher.go` + `file_watcher_test.go`.
+- Modify: `watch/backend.go`: `watchSpec.file`, a root that is one file. `backend_darwin.go`: with `file` set, it roots the stream at the file and `wanted` passes every event, because a file-rooted stream delivers only that file. `backend_fsnotify.go` + `backend_fsnotify_test.go`: with `file` set, it adds the parent directory alone (no walk, no `created` follow-up) and passes only events whose base name is the file's.
+- Modify: `watch/watcher.go`: `loop`/`handleBurst` use `burst`; `handleOne` sets `Authority: domain.DocumentAuthorityWorkspace`. Update the expected events in `watcher_test.go` in place; that file is on the file-size baseline and must not grow.
+- Modify: `api/internal/engine/fs/fs.go` (`Engine.NewFileWatcher`), `api/internal/engine/fs/watcher_contract.go` (`FileWatcher` alias).
+- Modify: `api/internal/domain/file.go`: `FileChangeEvent.Authority`.
+- Create: `api/internal/app/realtime/host_watch_manager.go` + `host_watch_manager_internal_test.go`.
+- Modify: `api/internal/app/realtime/service.go` + `service_internal_test.go`: `AcquireHostWatch`, `ReleaseHostWatch`; `Close` stops every host watch.
+- Modify: `api/internal/app/usecases/file/document.go` + `document_test.go`, `file.go` (the `Usecase` interface) and `usecases/mocks/mocks.go`: `HostDocument`.
+- Modify: `api/internal/api/v0/endpoints/documents/{routes.go,handlers.go,handlers_test.go}`: `GET /documents/ws` → `h.Watch`, which runs the gate and then the stream handler.
+- Create: `api/internal/api/v0/file_streams.go` + `file_streams_test.go`. They hold `documentsDef` and `withHostWatchLifecycle`, and `filesDef` + `withWatcherLifecycle` move in from `container.go`.
+- Modify: `api/internal/api/v0/container.go` (baseline 904 lines, must not grow): add the `documents` broadcaster; `PushFile` routes a host event to `documents` and every other event to `files`.
+- Modify: `api/internal/api/v0/router.go`: `documents.Register(rg, c.app.Usecases.File, c.documents.Handle)`.
+- Modify: `api/internal/api/v0/container_push_internal_test.go`, `route_audit_test.go` (adds `GET /v0/documents/ws`; on the baseline, so take the line back inside the same file), and `container_test_hooks.go` (integration tag): add `WaitNDocumentsRegistered`.
+- Create: `api/tests/kit/documents.go` with `(e *Env) DialDocument`, which returns at the 101. `kit/env.go` is on the file-size baseline.
+- Modify tests: `api/tests/integration/files/files_test.go` (kit, unix socket) and `api/tests/files_test.go` (httptest, TCP).
+- Modify: `api/ARCHITECTURE.md`: the `realtime/` bullet and the Watchers flow name the host document watch.
+
+**Files (web):**
+- Modify: `web/src/lib/ws/manager.ts` + `web/src/__tests__/lib/ws/manager.test.ts`: `opened(endpoint)`.
+- Modify: `web/src/lib/api/documents.ts`: `documentWatchEndpoint`.
+- Modify: `web/src/features/workspace/lib/external-buffer-sync.ts`: `followHostDocument`.
+- Modify: `web/src/features/editor/documents/open-document.ts` and `restore-documents.ts` (T6): a host document is armed, then read.
+- Modify: `web/src/features/editor/host/editor-host.ts`: `releaseWithDocument`.
+- Modify tests:
+  - `web/src/__tests__/features/workspace/lib/external-buffer-sync.test.ts`: adds `@/lib/ws/manager` as its third `vi.mock`;
+  - `web/src/__tests__/features/editor/host/editor-host.test.ts`;
+  - `web/src/__tests__/features/editor/documents/restore-documents.test.ts`.
+
+**Interfaces — Consumes:**
+- From T1: `resolveDocument`, `transportOf`, `documentError` and the `host_document_requires_local_transport` / `daemon_state_document` codes.
+- From T3: host `DocumentRef`s on buffers, `openDocument`, and `syncBufferWithDisk(ref: DocumentRef)` keyed by `sameDocument`.
+- From T5/T6: `applyExternalText`, `savedDocumentText`, `restoreDocuments`, and `DocumentListener.released`.
+
+**Produces:**
+
+```go
+// engine/fs/internal/watch (re-exported as fs.FileWatcher)
+type FileWatcher struct{ /* path, emit, backend, burst, loopDone */ }
+func NewFileWatcher(path string, emit func(change domain.FileChangeType)) *FileWatcher
+func (w *FileWatcher) Start(ctx context.Context) error // returns once the OS watch is armed
+func (w *FileWatcher) Stop()                           // idempotent; joins the loop, so no emit follows it
+// engine/fs Engine
+NewFileWatcher(path string, emit func(change domain.FileChangeType)) *FileWatcher
+
+// domain/file.go: extended once, so the event carries a DocumentRef
+type FileChangeEvent struct {
+	Type      FileChangeType    `json:"type"`
+	Authority DocumentAuthority `json:"authority"`
+	Path      string            `json:"path"` // workspace-relative, or the held absolute host path
+	NewPath   string            `json:"newPath,omitempty"`
+	WsID      string            `json:"wsId"` // "" for a host document
+}
+
+// app/realtime
+func NewHostWatchManager(root context.Context, h *hub.Hub, fsEngine enginefs.Engine) *HostWatchManager
+func (m *HostWatchManager) Acquire(path string) // canonical absolute path; the first holder arms its watch before returning
+func (m *HostWatchManager) Release(path string) // the last holder stops it
+func (m *HostWatchManager) StopAll()
+func (s *Service) AcquireHostWatch(path string)
+func (s *Service) ReleaseHostWatch(path string)
+
+// usecases/file: the read gate, for a path a client wants to hold
+HostDocument(ctx context.Context, path string, transport domain.Transport) (domain.DocumentRef, error)
+```
+
+HTTP contract: `GET /v0/documents/ws?path=<canonical abs>` is a WebSocket. Before the upgrade, `h.Watch` calls `HostDocument` and refuses the request in these cases:
+- off the unix socket: 403 `host_document_requires_local_transport`;
+- under `<home>/state`: 403 `daemon_state_document`;
+- a path that resolves to a workspace document, or that is not the canonical spelling the content read answered: 400.
+
+Then `documentsDef` admits the client. Its `ScopeKey` is the `path` query, and `OnSubscribe`/`OnUnsubscribe` = `AcquireHostWatch`/`ReleaseHostWatch`. `admit` runs `OnSubscribe` before the upgrade, so **the 101 is the ack: the watch is armed when the client's socket opens.** The Tauri bridge (`ws_bridge.rs` `open_bridge`) reports open only after `client_async` completes the handshake. After the upgrade, frames are `{"type","authority":"host","path","wsId":""}` for that path only. There is no snapshot. `documentsDef` has `FlatNamespace` and one `Required` filter `{Param:"path", Extract: e.Path, Match: ExactMatch}`.
+
+```ts
+// lib/ws/manager.ts (WSManager)
+opened(endpoint: string): Promise<void>  // the endpoint's socket is open (at once if it already is); rejects if it closes first
+// lib/api/documents.ts
+export function documentWatchEndpoint(path: string): string  // '/v0/documents/ws?path=<encoded>'
+// features/workspace/lib/external-buffer-sync.ts
+export function followHostDocument(ref: Extract<DocumentRef, { authority: 'host' }>): Promise<() => void>  // resolves at the ack
+// features/editor/host/editor-host.ts
+export function releaseWithDocument(uri: string, dispose: () => void): void  // run once when the document is released
+```
+
+Open order on the web (`open-document.ts`, `restore-documents.ts`):
+1. **A host `DocumentRef` target that is not open yet** (reopen, jump, restore): `const unwatch = await followHostDocument(ref)`. Then `readDocument(ref)`, `documents.open`, `openContent` and `releaseWithDocument(uri, unwatch)`. On any failure, or when the re-check finds the buffer already open, call `unwatch()`.
+2. **An `{ absolutePath }` target** (dialog, drop, terminal link): the first `readDocument` only resolves the ref. A workspace ref opens from that read, because the files stream covers it. A host ref that is not open yet goes through step 1, so its model holds the read made after the ack. The first read's text is dropped; T8 re-measures O3.
+3. **Restore** (boot and hydrate) uses step 1 for every host buffer, with T6's draft rules applied to the read made after the ack.
+4. **A rejected follow** (the socket closed before opening: refused, or daemon down): no host document opens unwatched. `readDocument` runs only to say why (T3's refusal copy, e.g. "Can't open this file here" over TCP); if it succeeds, the failure is "Failed to open file".
+5. **`followHostDocument`'s callback**:
+   - `modified`/`created` → `void syncBufferWithDisk(ref)`;
+   - `deleted`/`renamed` → nothing;
+   - `{reconnected: true}` (the new socket's open, after the daemon re-armed the watch) → `void syncBufferWithDisk(ref)`.
+
+The client keeps no list of watched paths: each open host document holds its own disposer. T7 adds its LSP disposer in the same `released` listener.
+
+Registry rules (`host_watch_manager.go`, ≤ 200 lines):
+- The registry keys handles by the canonical held path. Each handle holds a count (one per client subscription) and one `watcherProc` (the existing seam, which `*FileWatcher` satisfies). It is built by an injected `fileWatcherFactory`; the production constructor passes `fsEngine.NewFileWatcher` and `hub.BroadcastFile`.
+- `Acquire` arms the path's watcher under the lock before it returns: one FSEvents stream on the file, or one inotify watch on its parent directory. Arming must not be deferred to a goroutine, because the ack depends on it. If `Start` fails, it is logged and nothing is recorded.
+- `Release` removes an emptied handle under the lock and calls `Stop` after unlocking. The watcher's emit takes the same lock, so stopping while holding it would deadlock.
+- Each emit closure captures its own handle and drops events once that handle is no longer current. A watcher that is still stopping therefore never broadcasts into its successor.
+- The broadcast names the held spelling, never the reported one (FSEvents reports the on-disk case).
+- There is no linger timer: a re-acquire after the last release arms a fresh watch.
+- `FileWatcher` runs `newBackend(ctx, watchSpec{tree: path, file: true})` through `burst` and `classifyChange`. The darwin backend's inode tracking already turns FSEvents' history flags into the edges in the behaviour table.
+
+- [ ] **Step 1: Failing Go tests.** There are no sleeps: wait on channels with a deadline or `require.Eventually`.
+
+`burst_test.go`:
+```go
+func TestBurst_MergesOpsPerPathInFirstSeenOrder(t *testing.T)  // a(Create) b(Write) a(Write) → [a Create|Write, b Write]; take empties it
+```
+
+`file_watcher_test.go` (real backend, `t.TempDir()`, emits go to a channel; runs on darwin and in Docker for inotify):
+```go
+func TestFileWatcher_ReportsAnInPlaceWrite(t *testing.T)                 // append to a.md → modified
+func TestFileWatcher_AtomicReplaceIsCreated(t *testing.T)                // write .a.md.tmp, rename onto a.md → created
+func TestFileWatcher_DeleteThenRecreate(t *testing.T)                    // rm a.md → deleted; write it again → created
+func TestFileWatcher_IgnoresSiblingsAndSubdirectories(t *testing.T)      // write b.md, a.md.bak, sub/c.md, then a.md → the first emit is a.md's
+func TestFileWatcher_WatchesAPathThatDoesNotExistYet(t *testing.T)       // Start on a missing a.md; create it → created
+func TestFileWatcher_EmitsNothingAfterStop(t *testing.T)                 // Stop returns; emit fails the test if called after (the loop is joined)
+```
+
+`backend_fsnotify_test.go`: a `file` spec adds exactly one watch, the parent directory, and never walks its subdirectories.
+
+`host_watch_manager_internal_test.go` (fake factory recording Start/Stop and exposing each emit; recording broadcast sink):
+```go
+func TestHostWatchManager_OneWatchPerHeldPath(t *testing.T)            // /d/a.md ×2 clients → built once; /d/b.md → a second watch, never one per sibling
+func TestHostWatchManager_ArmsBeforeAcquireReturns(t *testing.T)       // the fake's Start has returned when Acquire returns
+func TestHostWatchManager_LastReleaseStopsTheWatch(t *testing.T)       // two holders of a; release once → running; release again → Stop exactly once; re-acquire builds a fresh watcher
+func TestHostWatchManager_BroadcastsTheHeldPath(t *testing.T)          // emit(modified) → one event {modified, host, "/d/a.md", wsId ""}
+func TestHostWatchManager_StaleWatcherNeverReachesItsSuccessor(t *testing.T)  // release (Stop blocked on a channel), re-acquire, fire the old emit → nothing
+func TestHostWatchManager_StopAllStopsEveryWatchAndRefusesLaterAcquires(t *testing.T)
+```
+
+`document_test.go`: `HostDocument` returns the canonical host ref over local transport, and refuses in four cases:
+- remote transport: `ErrHostDocumentNeedsLocalTransport`;
+- a path inside a worktree: `ErrInvalidArgument`;
+- a symlinked-parent spelling: `ErrInvalidArgument`;
+- a path under `<home>/state`: `ErrDaemonStateDocument`.
+
+`handlers_test.go`: `Watch` answers 403 with the code under `httptest.NewServer`, before any upgrade. Under the unix-socket server, a canonical host path reaches the stream handler (a recording `gin.HandlerFunc`), and a workspace path gets 400.
+
+`file_streams_test.go`: a `documentsDef` client on `path=/d/a.md` receives host events for `/d/a.md` only, never `/d/b.md` and never a workspace event. The lifecycle hooks receive `/d/a.md` as the scope.
+
+`container_push_internal_test.go`: `PushFile` sends a host event to `documents` only and a workspace event to `files` only.
+
+Black-box, in `api/tests/integration/files/files_test.go` (kit, unix socket):
+```go
+func (s *FilesSuite) TestRegression_HostDocumentWatchArmedBeforeRead() {
+	// a written "v1\n"; canonA := the `path` GET /v0/documents/content answered
+	// w := s.Env.DialDocument(t, canonA)   // returns at the 101: OnSubscribe has armed the watch
+	// os.WriteFile(a, "v2\n")              // the hook: a write between the ack and the read
+	// GET content → "v2\n"                 // the read holds the newest text
+	// w.ReadUntil(path == canonA)          // and the write still arrives as an event: nothing fell in between
+}
+func (s *FilesSuite) TestRegression_HostDocumentFollowsExternalChange() {
+	// a, b := dir/a.md, dir/b.md in one os.MkdirTemp outside every worktree; canonA, canonB as above
+	// wa := s.Env.DialDocument(t, canonA); wb := s.Env.DialDocument(t, canonB)
+	// os.WriteFile(a, "external\n") → wa.ReadUntil: authority "host", path canonA, type modified|created
+	// wa.Close(); then os.WriteFile(a, "after close\n"); os.WriteFile(b, "barrier\n")
+	// wb.ReadUntil(path == canonB), failing on any frame naming canonA  // a closed document's changes reach no client
+}
+```
+In `api/tests/files_test.go` (httptest, TCP):
+```go
+func TestRegression_HostDocumentWatchRefusedOverTCP(t *testing.T)  // h.raw(GET /v0/documents/ws?path=<abs>, 403): code host_document_requires_local_transport
+```
+The refcount and the stop on the last release cannot be observed by a client. The `HostWatchManager` unit tests pin them.
+
+- [ ] **Step 2:** Run them. `cd api && go test -tags noEmbed ./internal/engine/fs/... ./internal/app/realtime/... ./internal/app/usecases/file/... ./internal/api/...` and `go test -tags 'integration noEmbed' -run 'TestFilesSuite/TestRegression_HostDocument|TestRegression_HostDocumentWatchRefusedOverTCP' ./tests/...`. Expected: FAIL (types and route missing).
+- [ ] **Step 3: Engine.**
+  - Extract `burst`.
+  - Add `watchSpec.file` to both backends.
+  - Implement `FileWatcher` and `Engine.NewFileWatcher`.
+  - Add `FileChangeEvent.Authority` and set it in `handleOne`.
+  - Run the watch package tests on darwin, and in Docker for inotify (the Linux CI backend).
+- [ ] **Step 4: Realtime.** Add `HostWatchManager`, wire it into `realtime.New`, add the `Service` methods, and call `StopAll` from `Close`.
+- [ ] **Step 5: Usecase and HTTP.** Add the following, all in new files where a baselined file would otherwise grow:
+  - `HostDocument`, which calls `resolveDocument` and then checks that the result is a host ref equal to `path`;
+  - `h.Watch`;
+  - `documentsDef` and `withHostWatchLifecycle`;
+  - the `documents` broadcaster and `PushFile` routing;
+  - the router line, `WaitNDocumentsRegistered` and `kit.DialDocument`.
+  Then update `ARCHITECTURE.md`.
+- [ ] **Step 6: Failing web tests.**
+
+`manager.test.ts`:
+```ts
+it('opened resolves when the endpoint socket opens, and at once when it already is')
+it('opened rejects when the socket closes before it opens')
+```
+
+`external-buffer-sync.test.ts`: a fake `wsManager` records the endpoint and the order of calls, hands the test its callback, and resolves `opened` when the test says so. Documents open through `openDocument`, with `@/lib/api/documents` mocked as the file already does.
+```ts
+describe('followHostDocument', () => {
+  it('reads a host document only after its watch is armed')          // call order: subscribe('/v0/documents/ws?path=%2Ftmp%2Fs5%2Fnotes.md') → opened → readDocument
+  it('a write between the watch ack and the read ends in the newest text')  // the hook at ack sets disk 'v2' and queues {type:'modified'}; model 'v2', clean; the event re-reads 'v2', no change; disk 'v3' + event → 'v3'
+  it('reloads a clean host document when its file changes')         // {type:'modified',authority:'host',path,wsId:''}; disk 'v2' → documentText 'v2', clean, no toast
+  it('reloads a clean host document replaced by an atomic save')      // {type:'created'} → reload
+  it('flags a dirty host document and toasts once')                   // replaceDocumentText → dirty; two events → hasExternalChange, one toast, edits kept
+  it('ignores the echo of its own save')                              // disk === savedDocumentText → no flag, no toast
+  it('leaves the buffer alone when its file is deleted or renamed away')  // {type:'deleted'}, {type:'renamed'} → no read; text and dirty flag unchanged
+  it('reads once more when the socket reopens')                       // {reconnected:true} → one readDocument for the ref
+  it('opens no host document whose watch is refused, and says why')   // opened rejects; readDocument 403 → no buffer, "Can't open this file here"
+  it('stops following when the document is released')                // release → the socket is unsubscribed
+})
+```
+
+`editor-host.test.ts` (no mocks): a disposer handed to `releaseWithDocument` runs exactly once when its document is released, and never for another document.
+
+`restore-documents.test.ts`: a restored host buffer's read happens after its watch is armed (call order), and a restored workspace buffer opens no document watch.
+- [ ] **Step 7: Web.** Implement in this order:
+  1. `WSManager.opened` (it rejects on a close before `onopen`, and a rejected follow unsubscribes, so no retry outlives it);
+  2. `documentWatchEndpoint`;
+  3. `followHostDocument`, which resolves with its unsubscribe once `opened` resolves;
+  4. `releaseWithDocument`, which keeps `Map<uri, () => void>`; the T6 `released(uri)` listener runs and deletes the entry;
+  5. the open order above, in `openDocument` and `restoreDocuments`.
+- [ ] **Step 8: Verify.**
+  - Go: the Step 2 commands, then `make lint`, `make deadcode` and `make ratchet` (`go.timers` unchanged; no baselined file grows).
+  - Web: `node_modules/.bin/vitest run` on `src/__tests__/lib/ws/manager.test.ts`, `src/__tests__/features/workspace/lib/external-buffer-sync.test.ts`, `src/__tests__/features/editor/host/editor-host.test.ts`, `src/__tests__/features/editor/documents/restore-documents.test.ts` and `src/__tests__/features/editor/documents/open-document.test.ts`. Then `bun tsc --noEmit`, eslint on the touched dirs, `bun run knip` and `bun run lint:doctor`.
+  - `grep -rniE 'claude|codex'` over the files this task creates is empty (no provider vocabulary).
+- [ ] **Step 9: Live (`make dev-desktop`; the user types for the dirty case).**
+  - Cmd+O `/tmp/…/host-probe.ts`, then `printf '// ext\n' >> /tmp/…/host-probe.ts` in a terminal: the line appears, the tab stays clean, and no toast shows.
+  - Type to make it dirty, then append again: one "changed on disk" toast, and the edits are kept.
+  - Save, then `perl -pi -e 's/ext/EXT/' /tmp/…/host-probe.ts` (temp + rename): the buffer reloads.
+  - `rm` the file: the tab is unchanged. `printf 'back\n' >` it: the buffer reloads to `back`.
+  - Open a second file in the same directory and change each externally: each buffer follows only its own file.
+  - Show the document in two panes and close one: it still follows.
+  - Quit, append to the file, relaunch: the restored tab shows the appended text, and a further append reloads it.
+  - Run `make meter` idle (`scripts/meter/README.md`) with a host document open directly under `$HOME` (busy `~/Library` beside it), then with none. There should be no added file opens, held descriptors or execs, and the daemon's idle CPU (`top -l 2 -pid <daemon pid>`) should stay at the no-document level. If not, stop and report.
+- [ ] **Step 10:** Commit with `feat(editor): host documents follow external changes`.
+
+**Acceptance:**
+- An external write to an open host document reloads a clean buffer and flags a dirty one, as for a workspace file.
+- Every open path arms the watch before it reads (unit and black-box tests).
+- One OS watch serves each held path, never one per sibling or per subdirectory, and the last close stops it (unit tests).
+- A closed document's changes reach no client (black-box).
+- The watch route refuses TCP with the code.
+- `make ratchet` and the `make meter` gate are green.
+
+---
+
 ## Task 7: LSP and diagnostics attach to the document
 
 **Goal:** One didOpen, didChange stream, didClose and diagnostics subscription per document. Today they are per pane.
@@ -954,6 +1220,14 @@ it('puts pushed diagnostics on the model and clears them on release')
   - Edit and save writes the disk.
   - Reload the app: the host tab restores.
   - Run `make dev-web` + `make dev-api` in a browser and try a host open: the "Can't open this file here" toast appears, and no tab or Open File… item exists.
+- [ ] **Step 3b: Host documents follow external changes (T6b)** (desktop app, user at the keyboard for the dirty case):
+  - With `/tmp/…/host-probe.ts` open and clean, `printf '// ext\n' >>` it: the buffer reloads silently.
+  - Dirty the buffer, then append again: one toast, and the edits are kept.
+  - `perl -pi -e` (atomic replace) on a clean buffer: it reloads.
+  - `rm` the file: the tab is unchanged. Recreate it: the buffer reloads.
+  - Two host files in one directory: each buffer follows only its own file.
+  - Quit, append to the file, relaunch: the restored tab shows the appended text (armed, then read) and still follows.
+  - `make meter` idle with a host document open directly under `$HOME`: no added file opens, held descriptors or execs, and the daemon's idle CPU is unchanged against a run with none open. The watch is on the file, so `~/Library` churn must not reach the daemon.
 - [ ] **Step 4: Animation checklist** (live, by eye):
   - Tab close-button fade on hover.
   - Status-bar button colour transitions.
@@ -965,7 +1239,7 @@ it('puts pushed diagnostics on the model and clears them on release')
 - [ ] **Step 5: Static gates.**
   - Web: `cd web && bun tsc --noEmit && bunx eslint . --max-warnings 0 && bun run knip && bunx prettier --check . && bun run lint:doctor && bun run lint:baselines`.
   - Go: `cd api && make lint && make deadcode && make missing-tests`.
-  - Targeted tests: every test file created or modified in T0–T7 (`git diff --name-only <T0 parent>..HEAD -- web/src/__tests__ api`), run explicitly by path.
+  - Targeted tests: every test file created or modified in T0–T7 and T6b (`git diff --name-only <T0 parent>..HEAD -- web/src/__tests__ api`), run explicitly by path.
 - [ ] **Step 6:** Commit with `docs(plans): record the S5 gate measurements`.
 
 **Acceptance:** Appendix B shows every metric passing; the checklists are ticked in the commit body.
