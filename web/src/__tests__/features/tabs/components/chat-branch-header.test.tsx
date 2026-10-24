@@ -7,6 +7,9 @@ import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { ChatBranchHeader } from '@/features/tabs/components/chat-branch-header'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { success } from '@/lib/loadable'
+import { useProjectDataStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import type { Chat, Repo, Workspace } from '@/lib/store/sidebar'
 
@@ -298,6 +301,39 @@ describe('ChatBranchHeader', () => {
     renderHeader()
     fireEvent.doubleClick(screen.getByTestId('chat-branch-header'))
     expect(screen.getByDisplayValue('Seeding test')).toBeInTheDocument()
+  })
+
+  describe('a chat created directly under a project', () => {
+    function seedHomeChat(
+      projects: unknown[] = [{ id: 'proj-1', name: 'Crowbar Seed', path: '/p' }],
+    ) {
+      useHomeTreeStore.setState({
+        trees: { 'proj-1': { chats: [makeSidebarChat()], folders: [] } },
+      })
+      useProjectDataStore.setState({ data: success(projects as never) })
+    }
+    afterEach(() => {
+      useHomeTreeStore.setState({ trees: {} })
+      useProjectDataStore.setState({ data: { status: 'idle' } as never })
+    })
+
+    it('shows the project icon on the left and the project name as the path', () => {
+      seedHomeChat()
+      renderHeader({ wsId: null, repos: [] })
+      const header = screen.getByTestId('chat-branch-header')
+      const icon = screen.getByTestId('chat-branch-header-project-icon')
+      expect(icon.parentElement).toBe(header)
+      const route = screen.getByTestId('chat-branch-header-route')
+      expect(route).toHaveTextContent(/^Crowbar Seed$/)
+      expect(route.previousElementSibling).toBe(screen.getByTestId('chat-branch-header-glyph'))
+    })
+
+    it('keeps the plain fallback until the project resolves', () => {
+      seedHomeChat([])
+      renderHeader({ wsId: null, repos: [] })
+      expect(screen.queryByTestId('chat-branch-header-project-icon')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('chat-branch-header-route')).not.toBeInTheDocument()
+    })
   })
 
   it('keeps the route line and repo icon in place while the title is edited', () => {

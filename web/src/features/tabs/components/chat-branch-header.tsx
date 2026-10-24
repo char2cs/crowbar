@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { performRenameChat } from '@/components/sidebar/lib/row-actions'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
+import { ProjectIconMark } from '@/components/layout/project-icon-mark'
 import { RepoIconMark } from '@/components/layout/repo-icon-mark'
 import { formatChangeCount } from '@/components/layout/format-change-count'
 import {
@@ -14,6 +15,9 @@ import {
 import { CHAT_TITLE_PENDING_LABEL, useChatTitle } from '@/features/agent/hooks/use-chat-title'
 import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import { dataOf } from '@/lib/loadable'
+import { useHomeTreeStore, type HomeTree } from '@/lib/store/home-tree'
+import { useProjectDataStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { cn } from '@/lib/utils'
 
@@ -52,6 +56,12 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
     wsId ? (s.repos.find((r) => r.workspaces.some((w) => w.id === wsId)) ?? null) : null,
   )
   const workspace = repo?.workspaces.find((w) => w.id === wsId) ?? null
+  // A project-home chat rides no repo (home-tree.ts), so the chat's own
+  // project id comes from the home tree that lists it, never from `wsId`.
+  const homeProjectId = useHomeTreeStore((s) => homeProjectIdOf(s.trees, chatId))
+  const project = useProjectDataStore((s) =>
+    homeProjectId ? (dataOf(s.data)?.find((p) => p.id === homeProjectId) ?? null) : null,
+  )
   // A thread owns no branch — it runs on the one its parent owns — so it gets
   // the bubble, never the branch mark, exactly as `RowGlyph` (sidebar-row.tsx)
   // already draws it in the tree. `wsId` above cannot answer this: a thread
@@ -75,6 +85,10 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
         <span data-testid="chat-branch-header-repo-icon" className="flex shrink-0 items-center">
           <RepoIconMark repo={repo} size="xl" />
         </span>
+      ) : project && !routed ? (
+        <span data-testid="chat-branch-header-project-icon" className="flex shrink-0 items-center">
+          <ProjectIconMark project={project} size="xl" />
+        </span>
       ) : (
         <KindGlyph
           working={working}
@@ -97,6 +111,19 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
           />
         ) : (
           <ChatTitle title={title} className="truncate" />
+        )}
+        {project && !routed && (
+          <span className={cn(ROW_SUBLABEL, 'flex items-center gap-1')}>
+            <KindGlyph
+              working={working}
+              isThread={isThread}
+              className="size-[13px]"
+              iconClassName="size-[13px]"
+            />
+            <span data-testid="chat-branch-header-route" className="min-w-0 truncate">
+              {project.name}
+            </span>
+          </span>
         )}
         {routed && (
           <span className={cn(ROW_SUBLABEL, 'flex items-center gap-1')}>
@@ -161,6 +188,13 @@ function KindGlyph({
       )}
     </span>
   )
+}
+
+function homeProjectIdOf(trees: Record<string, HomeTree>, chatId: string): string | null {
+  for (const projectId of Object.keys(trees)) {
+    if (trees[projectId].chats.some((c) => c.id === chatId)) return projectId
+  }
+  return null
 }
 
 const ROUTE_SEPARATOR = <span className="shrink-0">/</span>
