@@ -13,6 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -135,12 +136,14 @@ func TestEndingRunner_APromptItAcknowledgesOpensNoTurn(t *testing.T) {
 		{"while it is ingested, the CLI dies", func(t *testing.T, f testFixture, store *readHook, live engineagents.Runner) {
 			t.Helper()
 			mark := uuid.NewString()
-			store.arm(mark, func() { crashRunner(t, f, live.CurrentChatID, live) })
+			var recorded <-chan struct{}
+			store.arm(mark, func() { recorded = crashOffTheHook(t, f, live) })
 			acknowledge(t, f, live.ID, mark, nil)
+			finished(t, recorded, "the crash's exit")
 		}},
 		{"once the CLI's death is recorded", func(t *testing.T, f testFixture, _ *readHook, live engineagents.Runner) {
 			t.Helper()
-			acked := onceExitRecorded(t, f, live, func() { acknowledge(t, f, live.ID, "", nil) })
+			acked := onceExitRecorded(t, f, live, func() { acknowledge(t, f, live.ID, "", apperr.ErrNotFound) })
 			crashRunner(t, f, live.CurrentChatID, live)
 			finished(t, acked, "the acknowledgement")
 		}},
@@ -184,17 +187,18 @@ func acknowledge(t *testing.T, f testFixture, runnerID, mark string, want error)
 }
 
 // A steered prompt the ending runner's last turn_stop carries leaves no turn
-// open on it: a crash settles it before the turn_stop could deliver it, and a
-// Stop queued behind that turn_stop ends the turn it delivered.
+// open on it: a crash recorded first settles it and refuses the turn_stop, and
+// a Stop or crash queued behind that turn_stop ends the turn it delivered.
 func TestEndingRunner_ASteerItsTurnStopCarriesOpensNoTurn(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		race func(t *testing.T, f testFixture, store *readHook, mark string, live engineagents.Runner, stop func())
-		want ledger.PromptStatus
+		name    string
+		race    func(t *testing.T, f testFixture, store *readHook, mark string, live engineagents.Runner, stop func())
+		want    ledger.PromptStatus
+		hookErr error
 	}{
-		{"stop", stopWhileTheTurnStopHoldsTheChat, ledger.PromptStatusDelivered},
-		{"crash", crashWhileTheStopIsIngested, ledger.PromptStatusSettled},
-		{"crash recorded", stopOnceTheCrashIsRecorded, ledger.PromptStatusSettled},
+		{"stop", stopWhileTheTurnStopHoldsTheChat, ledger.PromptStatusDelivered, nil},
+		{"crash", crashWhileTheStopIsIngested, ledger.PromptStatusDelivered, nil},
+		{"crash recorded", stopOnceTheCrashIsRecorded, ledger.PromptStatusSettled, apperr.ErrNotFound},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &readHook{}
@@ -215,8 +219,8 @@ func TestEndingRunner_ASteerItsTurnStopCarriesOpensNoTurn(t *testing.T) {
 			tc.race(t, f, store, mark, live, func() {
 				ctx, cancel := context.WithTimeout(marked(f.ctx, mark), 5*time.Second)
 				defer cancel()
-				assert.NoError(t, f.usecase.IngestHook(ctx, runnerID, "claude", "turn_stop",
-					mustJSON(t, map[string]any{"last_assistant_message": ""})))
+				assert.ErrorIs(t, f.usecase.IngestHook(ctx, runnerID, "claude", "turn_stop",
+					mustJSON(t, map[string]any{"last_assistant_message": ""})), tc.hookErr)
 			})
 
 			assert.Equal(t, tc.want, receipt(t, f, chatID, requestID).Status,
@@ -266,22 +270,21 @@ func stopWhileTheTurnStopHoldsTheChat(
 }
 
 // crashWhileTheStopIsIngested crashes the CLI once the turn_stop holds its
-// chat's lock, before it reads the steer it would deliver.
+// chat's lock, before it reads the steer it would deliver: the crash's exit
+// waits that turn_stop out, as a Stop does.
 func crashWhileTheStopIsIngested(
 	t *testing.T, f testFixture, store *readHook, mark string, live engineagents.Runner, stop func(),
 ) {
 	t.Helper()
-	crashed := false
-	store.arm(mark, func() {
-		crashRunner(t, f, live.CurrentChatID, live)
-		crashed = true
-	})
+	var recorded <-chan struct{}
+	store.arm(mark, func() { recorded = crashOffTheHook(t, f, live) })
 	stop()
-	require.True(t, crashed, "the turn_stop never read its chat")
+	require.NotNil(t, recorded, "the turn_stop never read its chat")
+	finished(t, recorded, "the crash's exit")
 }
 
-// stopOnceTheCrashIsRecorded ingests the turn_stop once the CLI's death is in
-// the ledger, while its runner is still being retired.
+// stopOnceTheCrashIsRecorded sends the turn_stop once the CLI's death is in
+// the ledger, while the exit's record still holds the chat.
 func stopOnceTheCrashIsRecorded(
 	t *testing.T, f testFixture, _ *readHook, _ string, live engineagents.Runner, stop func(),
 ) {
@@ -291,9 +294,9 @@ func stopOnceTheCrashIsRecorded(
 	finished(t, stopped, "the turn_stop")
 }
 
-// onceExitRecorded runs during from the frame announcing live's exit: after
-// the ledger recorded it, before its runner leaves the live table, which waits
-// until during commits or returns. The channel closes once during returns.
+// onceExitRecorded starts during from the frame announcing live's exit, while
+// the exit's record still holds the chat, so during waits that record out. The
+// channel closes once during returns.
 func onceExitRecorded(t *testing.T, f testFixture, live engineagents.Runner, during func()) <-chan struct{} {
 	t.Helper()
 	done := make(chan struct{})
@@ -304,16 +307,10 @@ func onceExitRecorded(t *testing.T, f testFixture, live engineagents.Runner, dur
 			return
 		}
 		once.Do(func() {
-			_, committed, err := f.ledger.Watch(f.ctx, live.CurrentChatID)
-			require.NoError(t, err)
 			go func() {
 				defer close(done)
 				during()
 			}()
-			select {
-			case <-done:
-			case <-committed:
-			}
 		})
 	})
 	return done
@@ -348,6 +345,23 @@ func stopChat(t *testing.T, f testFixture, chatID string, _ engineagents.Runner)
 func crashRunner(t *testing.T, f testFixture, _ string, live engineagents.Runner) {
 	t.Helper()
 	f.term.exit(t, live.TerminalSession)
+}
+
+// crashOffTheHook kills live's PTY now and runs its exit callback on its own
+// goroutine, as the terminal's reaper does: the hook in flight holds the chat
+// that callback records under. The channel closes once the exit is recorded.
+func crashOffTheHook(t *testing.T, f testFixture, live engineagents.Runner) <-chan struct{} {
+	t.Helper()
+	f.term.mu.Lock()
+	onExit := f.term.dieLocked(live.TerminalSession)
+	f.term.mu.Unlock()
+	require.NotNil(t, onExit, "live's PTY had not exited yet")
+	recorded := make(chan struct{})
+	go func() {
+		defer close(recorded)
+		onExit(engineterminal.Exit{})
+	}()
+	return recorded
 }
 
 // stopOp is the walk's Stop. S4: it is bounded, and unless a send raced it the

@@ -61,14 +61,11 @@ func TestLoseRefusedSession_OnlyTheCLIsRefusalLosesTheSession(t *testing.T) {
 		"a crash without a line": {engineterminal.Exit{Code: 1, Screen: "Killed"}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			rs := &Runners{
-				ledger: boundTestLedger(t, "claude", "S1"),
-				live:   liveWith(t, engineagents.Runner{ID: "runner-1", CurrentChatID: "chat-1", TerminalSession: "term-1"}),
-			}
+			rs := &Runners{ledger: boundTestLedger(t, "claude", "S1")}
 			appendPrompt(t, rs.ledger, "req-1", "runner-1")
 			watch := resumeWatch{chatID: "chat-1", providerID: "claude", sessionID: "S1", agent: testAgent(t, "claude")}
 
-			rs.loseRefusedSession(t.Context(), watch, "runner-1", tc.exit)
+			cause := rs.loseRefusedSession(t.Context(), "runner-1", runnerExit{Exit: tc.exit, resume: watch})
 
 			st, err := rs.ledger.State(t.Context(), "chat-1")
 			require.NoError(t, err)
@@ -77,27 +74,28 @@ func TestLoseRefusedSession_OnlyTheCLIsRefusalLosesTheSession(t *testing.T) {
 			if !tc.lost {
 				assert.Equal(t, ledger.ConversationBound, c.State)
 				assert.Equal(t, ledger.PromptStatusPending, p.Status)
-				assert.Empty(t, exitCause(t, rs.live, "runner-1"), "the runner exited on its own")
+				assert.Empty(t, cause, "the runner exited on its own")
 				return
 			}
 			assert.Equal(t, ledger.ConversationLost, c.State)
 			assert.Equal(t, ledger.PromptStatusSettled, p.Status)
 			assert.Equal(t, ledger.ReasonSessionLost, p.Reason)
-			assert.Equal(t, domain.AgentExitResumeFailed, exitCause(t, rs.live, "runner-1"))
+			assert.Equal(t, domain.AgentExitResumeFailed, cause)
 		})
 	}
 }
 
 // A launch that resumed nothing has nothing to lose, whatever it exits with.
 func TestLoseRefusedSession_AFreshLaunchLosesNothing(t *testing.T) {
-	rs := &Runners{ledger: boundTestLedger(t, "claude", "S1"), live: newLiveTable()}
-	rs.loseRefusedSession(t.Context(), resumeWatch{}, "runner-1",
-		engineterminal.Exit{Code: 1, Screen: "No conversation found with session ID: S1"})
+	rs := &Runners{ledger: boundTestLedger(t, "claude", "S1")}
+	cause := rs.loseRefusedSession(t.Context(), "runner-1",
+		runnerExit{Exit: engineterminal.Exit{Code: 1, Screen: "No conversation found with session ID: S1"}})
 
 	st, err := rs.ledger.State(t.Context(), "chat-1")
 	require.NoError(t, err)
 	c, _ := st.Conversation("claude")
 	assert.Equal(t, ledger.ConversationBound, c.State)
+	assert.Empty(t, cause)
 }
 
 const apiLoseProvider = "api-lose-test"

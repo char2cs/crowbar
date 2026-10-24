@@ -14,6 +14,7 @@ import (
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
@@ -71,6 +72,74 @@ func TestReconcileRunnerExit_RecordsWhatTheRunnerStreamedWithItsExit(t *testing.
 	body, err := ledger.DecodeBody[ledger.AssistantText](rows[salvaged])
 	require.NoError(t, err)
 	assert.Equal(t, "streamed by runner-1", body.Text)
+}
+
+// askedLock is the ingress's chat locks, telling asked of every chat an exit
+// asks it for.
+type askedLock struct {
+	*ingress.Locks
+	asked chan<- string
+}
+
+func (l askedLock) Lock(ctx context.Context, chatID string) (func(), error) {
+	l.asked <- chatID
+	return l.Locks.Lock(ctx, chatID)
+}
+
+// A runner's exit never cuts into a hook recording on its chat: the exit's
+// commit waits for the chat's lock, so it lands after what the hook records.
+func TestRunnerExit_RecordsAfterTheHookHoldingItsChat(t *testing.T) {
+	for name, exit := range map[string]func(t *testing.T, rs *Runners){
+		"its PTY exits": func(t *testing.T, rs *Runners) {
+			t.Helper()
+			home := t.TempDir()
+			rs.onRunnerExit(home, "runner-1", filepath.Join(home, "runner-1"), resumeWatch{})(engineterminal.Exit{})
+		},
+		"it is ended with no PTY": func(t *testing.T, rs *Runners) {
+			t.Helper()
+			assert.NoError(t, rs.endMarked(context.Background(), interruptRunner))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			locks, asked := ingress.NewLocks(), make(chan string, 1)
+			rs := retiring(t, &Runners{
+				chatLock: askedLock{Locks: locks, asked: asked},
+				agents:   stubAgentsForInterrupt{}, turns: noopTurns{},
+				apiConns: newAPIConnRegistry(), attached: newAttachRegistry(),
+			})
+			runnerStarted(t, rs, true)
+			unlock, err := locks.Lock(t.Context(), "chat-1")
+			require.NoError(t, err)
+
+			exited := make(chan struct{})
+			go func() {
+				defer close(exited)
+				exit(t, rs)
+			}()
+			// The exit asks for the chat, or, recording without it, has already ended.
+			select {
+			case <-asked:
+			case <-exited:
+			}
+			said, err := ledger.NewRow(ledger.KindAssistantText, "T-1", "", ledger.AssistantText{
+				MessageID: "m-1", Index: ledger.IndexComplete, Text: "said before the exit",
+			})
+			require.NoError(t, err)
+			_, _, err = rs.ledger.Append(t.Context(), "chat-1", said)
+			require.NoError(t, err)
+			unlock()
+			<-exited
+
+			rows, err := rs.ledger.Read(t.Context(), "chat-1", 0, 0)
+			require.NoError(t, err)
+			kinds := make([]ledger.Kind, 0, len(rows))
+			for _, r := range rows {
+				kinds = append(kinds, r.Kind)
+			}
+			assert.Less(t, slices.Index(kinds, ledger.KindAssistantText), slices.Index(kinds, ledger.KindRunnerExited),
+				"the exit waits for the hook holding the chat: %v", kinds)
+		})
+	}
 }
 
 // TestRegression_RetireTerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY:

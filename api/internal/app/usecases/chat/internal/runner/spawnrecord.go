@@ -83,8 +83,9 @@ func (rs *Runners) recordSpawnFailure(ctx context.Context, chatID, runnerID stri
 		return
 	}
 	// Claimed first, in turn order, so no hook opens a turn on it after.
-	rs.claimEnd(runnerID)
+	claimed, _ := rs.claimEnd(runnerID)
 	rs.live.remove(runnerID)
+	rs.loseRefusedSession(ctx, runnerID, claimed.exit)
 	if create || errors.Is(*err, context.Canceled) {
 		return
 	}

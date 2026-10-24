@@ -133,9 +133,10 @@ func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
 	}
 	chatID := entry.runner.CurrentChatID
 	defer rs.announceRunner(ctx, chatID, runnerID, frameExited)
-	reason := cmp.Or(entry.cause, domain.AgentExitExited)
+	lost := rs.loseRefusedSession(ctx, runnerID, entry.exit)
+	reason := cmp.Or(entry.cause, lost, domain.AgentExitExited)
 	_, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
-		return rs.exitRows(st, chatID, ledger.RunnerExited{RunnerID: runnerID, Reason: reason, ExitCode: entry.code},
+		return rs.exitRows(st, chatID, ledger.RunnerExited{RunnerID: runnerID, Reason: reason, ExitCode: entry.exit.Code},
 			ledger.ReasonRunnerExited)
 	})
 	if err != nil {
@@ -145,21 +146,38 @@ func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
 	slog.InfoContext(ctx, "agent: runner ended", "component", "runner", "chat", chatID, "reason", reason)
 }
 
+// endUnheld records runnerID's exit for a path not holding its chat, under the
+// chat's lock: no hook records between its check and its commit.
+func (rs *Runners) endUnheld(ctx context.Context, runnerID string) {
+	ctx = context.WithoutCancel(ctx)
+	runner, ok := rs.live.byRunner(runnerID)
+	if !ok {
+		rs.reconcileRunnerExit(ctx, runnerID) // nothing is left to record, only to forget
+		return
+	}
+	unlock, err := rs.chatLock.Lock(ctx, runner.CurrentChatID)
+	if err != nil {
+		slog.ErrorContext(ctx, "agent: record runner exit: hold the chat", "runner_id", runnerID, "err", err)
+		return
+	}
+	defer unlock()
+	rs.reconcileRunnerExit(ctx, runnerID)
+}
+
 // onRunnerExit is a runner process's exit callback.
 func (rs *Runners) onRunnerExit(home, runnerID, tmpDir string, resume resumeWatch) func(engineterminal.Exit) {
 	return func(exit engineterminal.Exit) {
 		ctx := context.Background()
-		rs.loseRefusedSession(ctx, resume, runnerID, exit)
 		reapRunnerDir(ctx, home, tmpDir)
 		// A dead PTY takes its api connection with it.
 		rs.apiConns.drop(runnerID)
-		rs.live.noteExitCode(runnerID, exit.Code)
+		rs.live.noteExit(runnerID, runnerExit{Exit: exit, resume: resume})
 		// A process that died before its runner_started committed is recorded by
-		// its spawn, after that row.
+		// its spawn, which holds the chat, after that row.
 		if rs.live.exitBeforeStart(runnerID) {
 			return
 		}
-		rs.reconcileRunnerExit(ctx, runnerID)
+		rs.endUnheld(ctx, runnerID)
 	}
 }
 

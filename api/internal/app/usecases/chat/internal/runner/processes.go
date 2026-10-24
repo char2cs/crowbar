@@ -78,7 +78,7 @@ func (rs *Runners) endMarked(ctx context.Context, runner agents.Runner) error {
 		return err
 	}
 	if !ptyExits {
-		rs.reconcileRunnerExit(ctx, runner.ID)
+		rs.endUnheld(ctx, runner.ID)
 	}
 	return nil
 }

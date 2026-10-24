@@ -120,17 +120,26 @@ type resumeWatch struct {
 	agent                         engineagents.Agent
 }
 
+// runnerExit is how a runner's process ended, kept for the one exit that
+// records its end.
+type runnerExit struct {
+	engineterminal.Exit
+	resume resumeWatch
+}
+
 // loseRefusedSession loses the watched session when exit is the CLI's own
-// refusal of it. It runs before the exit is reconciled, so the prompt the
-// runner carried is settled as lost rather than as an ordinary exit.
-func (rs *Runners) loseRefusedSession(ctx context.Context, w resumeWatch, runnerID string, exit engineterminal.Exit) {
+// refusal of it, and then returns resume_failed. The exit's record runs it
+// first, so what the runner carried is settled as lost, not as an exit.
+func (rs *Runners) loseRefusedSession(ctx context.Context, runnerID string, exit runnerExit) string {
+	w := exit.resume
 	if w.sessionID == "" {
-		return
+		return ""
 	}
 	reason, refused := w.agent.RefusedResume(exit.Code, exit.Screen)
-	if refused && rs.loseSession(ctx, w.chatID, w.providerID, w.sessionID, reason, runnerID) {
-		rs.live.markExiting(runnerID, domain.AgentExitResumeFailed)
+	if !refused || !rs.loseSession(ctx, w.chatID, w.providerID, w.sessionID, reason, runnerID) {
+		return ""
 	}
+	return domain.AgentExitResumeFailed
 }
 
 // loseAPISession loses the session an api connection's provider refused; a

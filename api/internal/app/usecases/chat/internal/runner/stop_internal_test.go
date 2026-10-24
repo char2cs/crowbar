@@ -49,6 +49,9 @@ func retiring(t *testing.T, rs *Runners) *Runners {
 	if rs.ledger == nil {
 		rs.ledger = newTestLedger(t)
 	}
+	if rs.chatLock == nil {
+		rs.chatLock = newTestLock()
+	}
 	return rs
 }
 

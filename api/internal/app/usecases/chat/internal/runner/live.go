@@ -34,7 +34,7 @@ type liveEntry struct {
 	claimed bool
 	exited  chan struct{} // closed by remove
 	cause   string        // the first exit reason noted; "" = exited on its own
-	code    int           // the process's exit code, once it has one
+	exit    runnerExit    // how its process ended, once it has
 }
 
 // liveView is one read of a chat's entry.
@@ -192,12 +192,12 @@ func (t *liveTable) keepLive(runnerID string) {
 	}
 }
 
-// noteExitCode keeps the code of a process whose exit is recorded later.
-func (t *liveTable) noteExitCode(runnerID string, code int) {
+// noteExit keeps how runnerID's process ended for the exit that records it.
+func (t *liveTable) noteExit(runnerID string, exit runnerExit) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if e, ok := t.runners[runnerID]; ok {
-		e.code = code
+		e.exit = exit
 	}
 }
 
@@ -211,7 +211,7 @@ func (t *liveTable) claimExit(runnerID string) (liveEntry, bool) {
 		return liveEntry{}, false
 	}
 	e.claimed, e.exiting = true, true
-	return liveEntry{runner: e.runner, started: e.started, cause: e.cause, code: e.code}, true
+	return liveEntry{runner: e.runner, started: e.started, cause: e.cause, exit: e.exit}, true
 }
 
 // remove drops runnerID and closes its exit channel: the chat is free.
