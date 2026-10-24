@@ -28,7 +28,8 @@ type toolFact struct {
 	turnID string
 	seq    int64
 	call   domain.ActivityToolCall
-	closed bool
+	// started: its pre was folded, so its start is observed, not guessed.
+	started, closed bool
 }
 
 type scopeFact struct {
@@ -67,9 +68,13 @@ func (f *facts) applyTool(r ledger.Row) {
 			c.Locations = append(c.Locations, domain.ActivityToolLocation{Path: l.Path, Line: l.Line})
 		}
 	}
+	t.started = t.started || body.Phase == ledger.ToolPre
 	if body.Phase != ledger.ToolPre && !t.closed {
 		at := r.At
 		t.closed, c.Status, c.Error, c.DurationMS, c.EndedAt = true, body.Status, body.Error, body.DurationMS, &at
+		if c.DurationMS == 0 && t.started {
+			c.DurationMS = int(at.Sub(c.StartedAt).Milliseconds())
+		}
 	}
 	if body.SpawnsScope != "" {
 		f.scope(body.SpawnsScope, r).opened = true

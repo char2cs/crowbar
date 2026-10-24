@@ -67,6 +67,21 @@ func TestProjector_AToolCallMergesItsPhases(t *testing.T) {
 	require.NotNil(t, call.EndedAt)
 }
 
+// A call whose provider reports no duration takes the one its rows observed,
+// but only from a start that was seen: none is invented.
+func TestProjector_AnUnreportedDurationIsTheOneItsRowsObserved(t *testing.T) {
+	b := newBook(t)
+	b.open("T1", "go")
+	b.add(tool(t, "", ledger.ToolCall{ToolID: "seen", Phase: ledger.ToolPre, Name: "x"}))
+	b.add(tool(t, "", ledger.ToolCall{ToolID: "seen", Phase: ledger.ToolPost}))
+	b.add(tool(t, "", ledger.ToolCall{ToolID: "unseen", Phase: ledger.ToolPost}))
+
+	got := b.activity().ToolCalls
+	require.Len(t, got, 2)
+	assert.Equal(t, 1000, got[0].DurationMS, "a commit a second")
+	assert.Zero(t, got[1].DurationMS)
+}
+
 func TestProjector_AToolOpenWhenItsTurnEndedReadsAbandoned(t *testing.T) {
 	b := newBook(t)
 	b.open("T1", "go")
