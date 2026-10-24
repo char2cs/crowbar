@@ -424,4 +424,46 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     description: 'Thickness of the terminal cursor',
     keywords: ['terminal', 'cursor', 'width', 'thickness', 'bar'],
   },
+
+  // Browser Settings
+  {
+    id: 'browser-homepage',
+    tab: 'browser',
+    section: 'Navigation',
+    label: 'Homepage',
+    description: 'Page a new browser tab opens on; leave empty for a blank address bar',
+    keywords: ['browser', 'homepage', 'home', 'start', 'new tab', 'url', 'web'],
+  },
+  {
+    id: 'browser-search-engine',
+    tab: 'browser',
+    section: 'Navigation',
+    label: 'Search Engine',
+    description: 'Used when the address bar text is not a web address',
+    keywords: ['browser', 'search', 'engine', 'google', 'duckduckgo', 'bing', 'brave', 'address'],
+  },
+  {
+    id: 'browser-custom-search-url',
+    tab: 'browser',
+    section: 'Navigation',
+    label: 'Custom Search URL',
+    description: 'Search address for the custom engine, with %s where the query goes',
+    keywords: ['browser', 'search', 'custom', 'engine', 'url', 'template', 'kagi'],
+  },
+  {
+    id: 'browser-zoom',
+    tab: 'browser',
+    section: 'Display',
+    label: 'Page Zoom',
+    description: 'Default zoom for pages, in percent; applies to tabs opened afterwards',
+    keywords: ['browser', 'zoom', 'scale', 'size', 'magnify', 'page'],
+  },
+  {
+    id: 'browser-clear-data',
+    tab: 'browser',
+    section: 'Privacy',
+    label: 'Clear Browsing Data',
+    description: 'Delete cookies, cache and site storage of every browser tab',
+    keywords: ['browser', 'clear', 'cookies', 'cache', 'history', 'privacy', 'storage', 'delete'],
+  },
 ]

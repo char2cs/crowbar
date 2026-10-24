@@ -110,4 +110,23 @@ describe('settings normalization', () => {
       expect(normalizeSettingValue('themeMode', 'invalid' as ThemeMode)).toBe('system')
     })
   })
+
+  describe('browser settings', () => {
+    it('clamps the page zoom to a range the webview can render', () => {
+      expect(normalizeSettingValue('browserZoom', 10)).toBe(50)
+      expect(normalizeSettingValue('browserZoom', 900)).toBe(300)
+      expect(normalizeSettingValue('browserZoom', 125.4)).toBe(125)
+      expect(normalizeSettingValue('browserZoom', Number.NaN)).toBe(100)
+    })
+
+    it('resolves a persisted unknown search engine or zoom to the defaults', () => {
+      const normalized = normalizeSettings({
+        ...getDefaultSettingsSnapshot(),
+        browserSearchEngine: 'altavista' as never,
+        browserZoom: 'big' as never,
+      })
+      expect(normalized.browserSearchEngine).toBe('duckduckgo')
+      expect(normalized.browserZoom).toBe(100)
+    })
+  })
 })

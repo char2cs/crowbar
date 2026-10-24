@@ -39,6 +39,11 @@ export const defaultSettings: Settings = {
   terminalCursorStyle: 'block',
   terminalCursorBlink: true,
   terminalCursorWidth: 2,
+  // Browser
+  browserHomepage: '',
+  browserSearchEngine: 'duckduckgo',
+  browserCustomSearchUrl: '',
+  browserZoom: 100,
   // UI
   uiFontFamily: DEFAULT_UI_FONT_FAMILY,
   uiFontSize: UI_FONT_SIZE_DEFAULT,
