@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChat } from '@/features/agent/api/agent-api'
@@ -13,11 +13,6 @@ import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-con
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import type { Chat, Repo, Workspace } from '@/lib/store/sidebar'
-
-const { openBranchReviewMock } = vi.hoisted(() => ({ openBranchReviewMock: vi.fn() }))
-vi.mock('@/features/panes/utils/pane-command-actions', () => ({
-  openBranchReviewForWorkspace: openBranchReviewMock,
-}))
 
 function makeChat(overrides: Partial<AgentChat> = {}): AgentChat {
   return {
@@ -157,16 +152,12 @@ describe('ChatOnlyPaneHeader', () => {
     )
   })
 
-  it("the branch-review shortcut opens branch review for THIS pane's own workspace and pane", () => {
+  // Branch review is offered by the editor area (New Tab page), not here.
+  it('offers no branch review, even for a chat that owns its worktree', () => {
+    seedRepoChats(true)
     renderHeader(makePane(), 'w1')
-    fireEvent.click(screen.getByRole('button', { name: /review this branch/i }))
-    expect(openBranchReviewMock).toHaveBeenCalledTimes(1)
-    // The pane id too, not just the workspace: openContent (buffer-slice.ts)
-    // always adds the new tab to whichever pane is currently ACTIVE, so a
-    // click on an INACTIVE pane's own shortcut must assert this pane active
-    // first — passing only the workspace correctly tagged the buffer but
-    // still let it land in the wrong pane's tab strip (live-reported).
-    expect(openBranchReviewMock).toHaveBeenCalledWith('w1', ROOT_PANE_ID)
+    expect(screen.queryByRole('button', { name: /review/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open editor' })).toBeInTheDocument()
   })
 
   // Closing a chat/view is a sidebar operation only (Recents' own ×, or a
@@ -176,28 +167,16 @@ describe('ChatOnlyPaneHeader', () => {
     expect(screen.queryByRole('button', { name: /close/i })).not.toBeInTheDocument()
   })
 
-  // Live-reported: a THREAD's own header offered "Review this branch". A
-  // thread owns no branch — it runs on the one its parent owns — so the
-  // affordance belongs to the owning chat's header only, exactly as the tree
-  // only ever draws Fork/branch chrome on a `kind: 'branch'` row.
-  it('hides the branch-review shortcut for a thread that owns no worktree', () => {
+  // A thread runs on its parent's workspace, so it can open files and
+  // terminals there; a chat with no workspace has nowhere to open them.
+  it('offers Open editor for a thread, which runs on its parent workspace', () => {
     seedRepoChats(false)
     renderHeader(makePane())
-    expect(screen.queryByRole('button', { name: /review this branch/i })).not.toBeInTheDocument()
-    // The identity header still shows — only the branch action is gone.
-    expect(screen.getByTestId('chat-branch-header')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open editor' })).toBeInTheDocument()
   })
 
-  it('still shows the branch-review shortcut for a chat that owns its worktree', () => {
-    seedRepoChats(true)
-    renderHeader(makePane())
-    expect(screen.getByRole('button', { name: /review this branch/i })).toBeInTheDocument()
-  })
-
-  it('hides the branch-review shortcut on the bottom pane', () => {
-    renderHeader(makePane({ id: BOTTOM_PANE_ID }))
-    expect(screen.queryByRole('button', { name: /review this branch/i })).not.toBeInTheDocument()
-    // The identity header still shows — it isn't a pane-action.
-    expect(screen.getByTestId('chat-branch-header')).toBeInTheDocument()
+  it('offers no Open editor for a chat with no workspace', () => {
+    renderHeader(makePane(), null)
+    expect(screen.queryByRole('button', { name: 'Open editor' })).not.toBeInTheDocument()
   })
 })

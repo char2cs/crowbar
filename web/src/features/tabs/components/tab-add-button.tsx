@@ -1,63 +1,37 @@
-// Lucide Plus (stroke-based) to match the sibling toolbar icons — back/forward/
-// settings are Lucide; Phosphor's bold Plus rendered heavier and larger than them.
 import { PlusIcon } from '@phosphor-icons/react'
-import { FilePlus, GlobeIcon, TerminalWindow } from '@phosphor-icons/react'
 import React from 'react'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { Button } from '@/components/ui/button'
 
 interface TabAddButtonProps {
   isBottomPane: boolean
-  onNewFile: () => void
-  onNewTerminal: () => void
-  onNewBrowser: () => void
+  onNewTab: () => void
 }
 
 /**
- * The tab strip's "+" — a dropdown offering what can land in this pane's
- * editor view: a new (blank, unsaved) file, a new terminal, or a new browser.
- * It is rendered as the LAST child inside the scrolling tab container (see
- * tab-bar.tsx), immediately after the last tab, so it flows and shifts
- * horizontally as tabs open and close — the same placement a browser's
- * new-tab button uses. It is a plain button, never wrapped in
- * `SortableEditorTab`/`useSortable`, so it never enters `sortedBufferIds`
- * and is never draggable.
+ * The tab strip's "+": opens a New Tab page in this pane, where what lands in
+ * it is chosen (new-tab-view.tsx). It is the LAST child inside the scrolling
+ * tab container (see tab-bar.tsx), so it shifts as tabs open and close, the
+ * way a browser's new-tab button does. Never a `SortableEditorTab`, so it is
+ * never draggable.
  */
 const TabAddButton = React.memo(function TabAddButton({
   isBottomPane,
-  onNewFile,
-  onNewTerminal,
-  onNewBrowser,
+  onNewTab,
 }: TabAddButtonProps) {
   if (isBottomPane) return null
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        aria-label="New tab"
-        className="inline-flex size-8 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-sidebar-element-hover data-[popup-open]:bg-sidebar-element-hover sm:size-7"
-      >
-        <PlusIcon className="size-4" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-40">
-        <DropdownMenuItem onClick={onNewFile}>
-          <FilePlus className="size-4" />
-          New File
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={onNewTerminal}>
-          <TerminalWindow className="size-4" />
-          New Terminal
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={onNewBrowser}>
-          <GlobeIcon className="size-4" />
-          New Browser
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      aria-label="New tab"
+      tooltip="New tab"
+      tooltipSide="bottom"
+      onClick={onNewTab}
+      className="shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover"
+    >
+      <PlusIcon />
+    </Button>
   )
 })
 

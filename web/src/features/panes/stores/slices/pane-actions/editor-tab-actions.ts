@@ -36,19 +36,26 @@ function paneCanSafelyLoseLastTab(state: WindowPaneState, paneId: string): boole
 
 /** Put `tabId` in `paneId` and make it the pane's shown tab. False when the
  *  pane does not exist. Pure over the draft, so `openContent` can create a
- *  buffer and seat it in one `set`. */
+ *  buffer and seat it in one `set`. A `replaces` tab the pane holds leaves it,
+ *  a new `tabId` taking its slot; the caller releases its buffer (C2). */
 export function placeTab(
   state: WindowPaneState,
   paneId: string,
   tabId: string,
   preview = false,
+  replaces?: string,
 ): boolean {
   const pane = state.panes[paneId]
   if (!pane) return false
   // A tab id always names a buffer (C2); slice-only stores carry no list.
   if (Array.isArray(state.buffers) && !state.buffers.some((b) => b.id === tabId)) return false
   const hadEditorTabs = pane.editorTabIds.length > 0
-  if (!pane.editorTabIds.includes(tabId)) pane.editorTabIds.push(tabId)
+  const slot = replaces && replaces !== tabId ? pane.editorTabIds.indexOf(replaces) : -1
+  if (!pane.editorTabIds.includes(tabId)) {
+    if (slot >= 0) pane.editorTabIds.splice(slot, 0, tabId)
+    else pane.editorTabIds.push(tabId)
+  }
+  if (slot >= 0) pane.editorTabIds = pane.editorTabIds.filter((id) => id !== replaces)
   pane.activeEditorTabId = tabId
   // Respect a split the user already toggled off.
   if (!hadEditorTabs) pane.editorOpen = true

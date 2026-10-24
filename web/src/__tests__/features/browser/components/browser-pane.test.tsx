@@ -23,8 +23,12 @@ const api = vi.hoisted(() => ({
   forward: vi.fn().mockResolvedValue(undefined),
   reload: vi.fn().mockResolvedValue(undefined),
   close: vi.fn().mockResolvedValue(undefined),
+  evaluate: vi.fn(),
+  copyText: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock('@/lib/browser-bridge', () => ({ browserApi: api }))
+const toasts = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
+vi.mock('@/features/window/stores/toast-store', () => ({ toast: toasts }))
 
 class FakeResizeObserver {
   static instances: FakeResizeObserver[] = []
@@ -83,6 +87,127 @@ beforeEach(() => {
   useSidebarPeekStore.setState({ occupied: false })
   useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() })
   windowPaneStore.getState().paneActions.setActiveProject('p1')
+})
+
+describe('BrowserPane pick mode', () => {
+  const picked = {
+    kind: 'region',
+    title: 'T',
+    url: 'https://a.test/',
+    items: [{ s: '#a', tag: 'p', role: '', name: '', text: 'A', r: [1, 2, 3, 4], h: '', i: 0 }],
+    more: 1,
+    box: [1, 2, 3, 4],
+  }
+
+  beforeEach(() => {
+    api.evaluate.mockReset()
+    api.copyText.mockReset().mockResolvedValue(undefined)
+    toasts.success.mockClear()
+    toasts.error.mockClear()
+  })
+
+  it('copies the pointer through the native pasteboard when the page finishes a pick', async () => {
+    const user = userEvent.setup()
+    const id = openBrowser('https://a.test')
+    api.evaluate.mockResolvedValueOnce(JSON.stringify(picked))
+    renderPane(<BrowserPane paneId="p-this" bufferId={id} visible />)
+
+    await user.click(screen.getByRole('button', { name: 'Pick element' }))
+
+    await vi.waitFor(() => expect(toasts.success).toHaveBeenCalledWith('Pointer copied', '2 items'))
+    expect(api.copyText).toHaveBeenCalledWith(
+      expect.stringMatching(
+        new RegExp(
+          `^⌖ region "A" · https://a.test/ · tab ${id} · 2 items\n[\\s\\S]*\n⌖data \\{"v":1`,
+        ),
+      ),
+    )
+    expect(screen.getByRole('button', { name: 'Pick element' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+  })
+
+  it('cancels the pending pick from the same button and copies nothing', async () => {
+    const user = userEvent.setup()
+    const id = openBrowser('https://a.test')
+    let finish!: (value: string) => void
+    api.evaluate.mockImplementation((_id: string, body: string) =>
+      body.includes('"pick"')
+        ? new Promise<string>((resolve) => (finish = resolve))
+        : Promise.resolve('true'),
+    )
+    renderPane(<BrowserPane paneId="p-this" bufferId={id} visible />)
+    const button = screen.getByRole('button', { name: 'Pick element' })
+
+    await user.click(button)
+    expect(button).toHaveAttribute('aria-pressed', 'true')
+    await user.click(button)
+    expect(api.evaluate).toHaveBeenLastCalledWith(id, expect.stringContaining('"cancelPick"'), 5000)
+    act(() => finish('null'))
+
+    await vi.waitFor(() => expect(button).toHaveAttribute('aria-pressed', 'false'))
+    expect(api.copyText).not.toHaveBeenCalled()
+    expect(toasts.success).not.toHaveBeenCalled()
+  })
+
+  it('reports a failed native copy instead of claiming success', async () => {
+    const user = userEvent.setup()
+    const id = openBrowser('https://a.test')
+    api.evaluate.mockResolvedValueOnce(JSON.stringify(picked))
+    api.copyText.mockRejectedValueOnce('pasteboard unavailable')
+    renderPane(<BrowserPane paneId="p-this" bufferId={id} visible />)
+
+    await user.click(screen.getByRole('button', { name: 'Pick element' }))
+
+    await vi.waitFor(() =>
+      expect(toasts.error).toHaveBeenCalledWith('Could not pick', 'pasteboard unavailable'),
+    )
+    expect(toasts.success).not.toHaveBeenCalled()
+  })
+
+  it('cancels the pick when the tab leaves the screen', async () => {
+    const user = userEvent.setup()
+    const id = openBrowser('https://a.test')
+    api.evaluate.mockImplementation((_id: string, body: string) =>
+      body.includes('"pick"') ? new Promise<string>(() => {}) : Promise.resolve('true'),
+    )
+    const view = renderPane(<BrowserPane paneId="p-this" bufferId={id} visible />)
+    await user.click(screen.getByRole('button', { name: 'Pick element' }))
+
+    view.rerender(<BrowserPane paneId="p-this" bufferId={id} visible={false} />)
+
+    await vi.waitFor(() =>
+      expect(api.evaluate).toHaveBeenLastCalledWith(
+        id,
+        expect.stringContaining('"cancelPick"'),
+        5000,
+      ),
+    )
+  })
+
+  it('reports a failed pick instead of hanging in pick mode', async () => {
+    const user = userEvent.setup()
+    const id = openBrowser('https://a.test')
+    api.evaluate.mockRejectedValueOnce(new Error('the page went away'))
+    renderPane(<BrowserPane paneId="p-this" bufferId={id} visible />)
+
+    await user.click(screen.getByRole('button', { name: 'Pick element' }))
+
+    await vi.waitFor(() =>
+      expect(toasts.error).toHaveBeenCalledWith('Could not pick', 'the page went away'),
+    )
+    expect(screen.getByRole('button', { name: 'Pick element' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+  })
+
+  it('has nothing to pick before the tab has a page', () => {
+    const id = openBrowser()
+    renderPane(<BrowserPane paneId="p-this" bufferId={id} visible />)
+    expect(screen.getByRole('button', { name: 'Pick element' })).toBeDisabled()
+  })
 })
 
 describe('BrowserPane', () => {

@@ -1,3 +1,5 @@
+import { SIDEBAR_FILE_ROW_HEIGHT } from '@/components/sidebar/sidebar-file-row'
+
 export type FileTreeDensity = 'compact' | 'default' | 'comfortable'
 
 export const FILE_TREE_DENSITY_OPTIONS: Array<{ value: FileTreeDensity; label: string }> = [
@@ -16,23 +18,9 @@ export function normalizeFileTreeDensity(value: string): FileTreeDensity {
   return isFileTreeDensity(value) ? value : DEFAULT_FILE_TREE_DENSITY
 }
 
-export const FILE_TREE_DENSITY_CONFIG: Record<
-  FileTreeDensity,
-  {
-    rowHeight: number
-    rowClassName: string
-  }
-> = {
-  compact: {
-    rowHeight: 20,
-    rowClassName: 'h-5 gap-1 px-1.5 py-0.5',
-  },
-  default: {
-    rowHeight: 24,
-    rowClassName: 'h-6 gap-1.5 px-1.5 py-1',
-  },
-  comfortable: {
-    rowHeight: 28,
-    rowClassName: 'h-7 gap-2 px-1.5 py-1.5',
-  },
+// Row pitch per density; the rows and their virtualiser both read it.
+export const FILE_TREE_DENSITY_CONFIG: Record<FileTreeDensity, { rowHeight: number }> = {
+  compact: { rowHeight: 20 },
+  default: { rowHeight: SIDEBAR_FILE_ROW_HEIGHT },
+  comfortable: { rowHeight: 30 },
 }

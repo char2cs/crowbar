@@ -4,7 +4,17 @@ import { useSyncExternalStore } from 'react'
 // is blocking; only wrappers made solely of tooltip/toast slots are exempt.
 const NON_BLOCKING = '[data-slot="tooltip-content"], [data-slot*="toast"]'
 const IGNORED_TAGS = new Set(['SCRIPT', 'STYLE', 'LINK', 'NOSCRIPT', 'INPUT', 'TEXTAREA', 'SELECT'])
-const CLIPPED_AWAY = /^inset\(100%|^rect\(0(px)?,? 0(px)?,? 0(px)?,? 0(px)?\)/
+const INSET_CLIPS_ALL = /^inset\(100%|^inset\((?:100|[5-9]\d(?:\.\d+)?)%\)/
+const RECT =
+  /^rect\(\s*(-?[\d.]+)(?:px)?,?\s+(-?[\d.]+)(?:px)?,?\s+(-?[\d.]+)(?:px)?,?\s+(-?[\d.]+)(?:px)?\s*\)/
+
+// A clip rect with no area (top >= bottom or left >= right) paints nothing.
+function clipsEverything(clip: string): boolean {
+  const m = RECT.exec(clip)
+  if (!m) return false
+  const [top, right, bottom, left] = m.slice(1).map(Number)
+  return top >= bottom || left >= right
+}
 
 // Persistent helpers libraries park in the body (Slate's shadow input, dnd-kit's
 // live regions) are made unpaintable on purpose; that, not their tag, exempts them.
@@ -15,8 +25,8 @@ function cannotPaint(el: Element): boolean {
     style.display === 'none' ||
     style.visibility === 'hidden' ||
     parseFloat(style.opacity) === 0 ||
-    CLIPPED_AWAY.test(style.clipPath) ||
-    CLIPPED_AWAY.test(style.clip)
+    INSET_CLIPS_ALL.test(style.clipPath) ||
+    clipsEverything(style.clip)
   )
 }
 

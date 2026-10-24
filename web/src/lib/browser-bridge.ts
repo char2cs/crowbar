@@ -49,6 +49,8 @@ export const browserApi = {
     invoke<string>('browser_eval', { id, body, timeoutMs }),
   screenshot: (id: string, maxWidth?: number) =>
     invoke<BrowserScreenshot>('browser_screenshot', { id, maxWidth }),
+  /** Writes to the OS pasteboard: a pick finishes inside the native webview, so the app document has no user activation for navigator.clipboard. */
+  copyText: (text: string) => invoke<void>('browser_copy_text', { text }),
   capabilities: () => invoke<{ clearData: boolean }>('browser_capabilities'),
   clearData: () => invoke<void>('browser_clear_data'),
   onNavigated: (handler: (e: NavigatedEvent) => void): Promise<UnlistenFn> =>

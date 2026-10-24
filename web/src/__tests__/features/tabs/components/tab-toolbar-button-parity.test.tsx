@@ -37,11 +37,6 @@ const diff = (a: Set<string>, b: Set<string>) => [
 ]
 
 describe('tab bar toolbar button parity', () => {
-  // TabAddButton is a DropdownMenu trigger now (it offers New File/New
-  // Terminal, not one default action) and is styled to LOOK like this same
-  // recipe rather than rendering through the shared Button component that
-  // produces it — see tab-add-button.tsx's own doc. It's covered separately;
-  // this comparison stays with two peers that both genuinely are Buttons.
   it('renders the sidebar toggle with the same recipe as its tab-bar peers', () => {
     render(
       <>

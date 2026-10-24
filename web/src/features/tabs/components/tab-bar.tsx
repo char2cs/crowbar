@@ -13,12 +13,11 @@ import { BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import {
   splitEditorGroup,
   openBranchReviewForWorkspace,
-  ensurePaneChatThenOpen,
+  togglePaneEditor,
 } from '@/features/panes/utils/pane-command-actions'
 import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
 import { useHasViewStrip } from '@/features/panes/hooks/use-project-view-ids'
 import { BuildReadout } from '@/components/layout/build-readout'
-import { browserHomepage } from '@/features/browser/lib/homepage'
 import { useSettingsStore } from '@/features/settings/store'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { saveBuffer } from '@/features/editor/lib/buffer-save'
@@ -37,6 +36,7 @@ import { SplitToggleButton } from './split-toggle-button'
 import { BranchReviewShortcutButton } from './branch-review-shortcut-button'
 import { ChatTabItem } from './chat-tab-item'
 import { PaneTopRow } from './pane-top-row'
+import { usePaneNewTabActions } from '../hooks/use-pane-new-tab-actions'
 import { useBufferDisplayName } from '../hooks/use-buffer-display-name'
 import { useTabKeyboardNav } from '../hooks/use-tab-keyboard-nav'
 import { useTabDrag } from '../hooks/use-tab-drag'
@@ -133,7 +133,6 @@ const TabBar = ({
   } = usePaneActions()
   const {
     closeBuffer,
-    openContent,
     promotePreview: promotePreviewBuffer,
     setPinned,
     confirmPendingClose,
@@ -349,21 +348,11 @@ const TabBar = ({
       draggedBufferId,
     })
 
-  // Spec §7.1/§7.2: `PaneGroup.editorOpen` is the split-toggle's own state —
-  // chat-only vs. chat+editor. A plain store write, not a new pane-slice
-  // action: every existing action is already just a wrapper around the same
-  // `set()`, and this field carries no other invariant to protect.
   const handleToggleSplit = useCallback(() => {
-    if (!paneId) return
-    // windowPaneStore's exported type erases the immer producer signature (see
-    // editor-app-store.ts's setState calls) — return a new partial state
-    // rather than mutating the draft in place.
-    windowPaneStore.setState((state) => {
-      const p = state.panes[paneId]
-      if (!p) return {}
-      return { panes: { ...state.panes, [paneId]: { ...p, editorOpen: !p.editorOpen } } }
-    })
+    if (paneId) togglePaneEditor(paneId)
   }, [paneId])
+
+  const { onNewTab } = usePaneNewTabActions(wsId, paneId ?? '')
 
   // The tab-bar sidebar-toggle is only a fallback for reopening a collapsed
   // sidebar (when open, the sidebar header owns the toggle). It appears on the
@@ -654,49 +643,9 @@ const TabBar = ({
                 {/* Flows immediately after the last tab and shifts as tabs
                     open/close — NOT a SortableEditorTab, so it never joins
                     sortedBufferIds and is never draggable. Last child inside
-                    the scroller (spec §7.1). A dropdown, not a single default
-                    action: the things that can actually land in this
-                    pane's editor view are a blank file, a terminal or a
-                    browser, so all are offered rather than picking one
-                    silently. */}
-                {paneId && (
-                  <TabAddButton
-                    isBottomPane={isBottomPane}
-                    onNewFile={() => {
-                      if (!wsId) return
-                      ensurePaneChatThenOpen(wsId, paneId, (target) => {
-                        openContent(
-                          {
-                            type: 'editor',
-                            path: 'untitled:Untitled',
-                            name: 'Untitled',
-                            content: '',
-                            isVirtual: true,
-                          },
-                          { paneId: target },
-                        )
-                      })
-                    }}
-                    onNewTerminal={() => {
-                      if (!wsId) return
-                      ensurePaneChatThenOpen(wsId, paneId, (target) => {
-                        openContent({ type: 'terminal' }, { paneId: target })
-                      })
-                    }}
-                    onNewBrowser={() => {
-                      if (!wsId) return
-                      ensurePaneChatThenOpen(wsId, paneId, (target) => {
-                        openContent(
-                          {
-                            type: 'browser',
-                            url: browserHomepage(useSettingsStore.getState().settings),
-                          },
-                          { paneId: target },
-                        )
-                      })
-                    }}
-                  />
-                )}
+                    the scroller (spec §7.1). Opens a New Tab page, where
+                    what lands in this pane is chosen. */}
+                {paneId && <TabAddButton isBottomPane={isBottomPane} onNewTab={onNewTab} />}
               </div>
             </SortableContext>
           )}

@@ -3,7 +3,7 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { PaneGroup } from '@/features/panes/types/pane'
 import type { BrowserContent } from '@/features/panes/types/pane-content'
 import { browserApi } from '@/lib/browser-bridge'
-import { domAgentBody, type DomOp } from './dom-agent'
+import { domAgentBody, type DomOp, type PointerOp } from './dom-agent'
 import { whenWebviewLive, whenWebviewVisible } from './webview-registry'
 
 /** How long each wait may take; a wait that runs out is reported, never retried. */
@@ -16,7 +16,14 @@ export interface AgentLimits {
 const DEFAULT_LIMITS: AgentLimits = { liveMs: 5_000, showMs: 5_000, loadMs: 15_000 }
 const PAGE_OP_TIMEOUT_MS = 15_000
 const EVAL_TIMEOUT_MS = 30_000
-const DOM_OPS: ReadonlySet<string> = new Set(['snapshot', 'click', 'type', 'press_key', 'scroll'])
+const DOM_OPS: ReadonlySet<string> = new Set([
+  'snapshot',
+  'click',
+  'type',
+  'press_key',
+  'scroll',
+  'resolve',
+])
 
 export interface TabInfo {
   id: string
@@ -217,6 +224,6 @@ export async function runAgentOp(
     }
     default:
       if (!DOM_OPS.has(op)) throw new Error(`unknown browser op ${JSON.stringify(op)}`)
-      return runInPage(tab, domAgentBody(op as DomOp, args), PAGE_OP_TIMEOUT_MS)
+      return runInPage(tab, domAgentBody(op as DomOp | PointerOp, args), PAGE_OP_TIMEOUT_MS)
   }
 }

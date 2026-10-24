@@ -11,6 +11,7 @@ const SURFACE_BY_TYPE: Record<PaneContent['type'], SidebarTab> = {
   branchReview: 'git',
   terminal: 'chats',
   browser: 'chats',
+  newTabPage: 'chats',
 }
 
 export function sidebarSurfaceOf(type: PaneContent['type']): SidebarTab {

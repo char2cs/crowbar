@@ -349,18 +349,55 @@ describe('usePaneKeyboard — mod+w on a pane with no tabs', () => {
 })
 
 describe('usePaneKeyboard — new tab / terminal / file chords', () => {
-  // A New Tab is no longer a mintable placeholder tab — a pane already shows
-  // its own empty stage for free whenever it holds no editor tabs, and there
-  // is no primitive yet for "detach the active tab without closing it" to
-  // reproduce the old "add a blank scratch tab beside my real ones" gesture.
-  // The chord is inert until one exists; it must not fall through and open a
-  // terminal or anything else.
-  it('mod+t is currently a no-op (no more mintable New Tab placeholder)', () => {
+  it('mod+t opens a New Tab page in the active pane', () => {
+    fakeState.panes[ROOT_PANE_ID].chatId = 'chat-1'
     renderHook(() => usePaneKeyboard())
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true }))
-    expect(openContent).not.toHaveBeenCalled()
-    expect(dropChatOnPane).not.toHaveBeenCalled()
-    expect(openChat).not.toHaveBeenCalled()
+    expect(openContent).toHaveBeenCalledWith(
+      { type: 'newTabPage', workspaceId: 'ws-1' },
+      { paneId: ROOT_PANE_ID },
+    )
+    expect(createChat).not.toHaveBeenCalled()
+  })
+
+  describe('mod+n with focus inside an editor area', () => {
+    let host: HTMLElement
+    beforeEach(() => {
+      fakeState.panes['pane-2'] = { activeEditorTabId: null, editorTabIds: [], chatId: 'chat-2' }
+      fakeState.agentChats = {
+        providers: [{ id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: true }],
+        chats: [],
+      }
+      createChat.mockResolvedValue('chat-9')
+      host = document.createElement('div')
+      host.innerHTML =
+        '<div data-pane-id="pane-2"><div data-editor-view=""><button>in editor</button></div>' +
+        '<button>in chat</button></div>'
+      document.body.appendChild(host)
+    })
+    afterEach(() => host.remove())
+
+    const pressCmdN = () =>
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true }))
+
+    it('opens a New Tab page in THAT pane instead of a new chat', () => {
+      host.querySelector<HTMLButtonElement>('[data-editor-view] button')!.focus()
+      renderHook(() => usePaneKeyboard())
+      pressCmdN()
+      expect(openContent).toHaveBeenCalledWith(
+        { type: 'newTabPage', workspaceId: 'ws-1' },
+        { paneId: 'pane-2' },
+      )
+      expect(createChat).not.toHaveBeenCalled()
+    })
+
+    it('stays New Chat when focus is in the pane but outside its editor area', () => {
+      host.querySelectorAll<HTMLButtonElement>('button')[1]!.focus()
+      renderHook(() => usePaneKeyboard())
+      pressCmdN()
+      expect(createChat).toHaveBeenCalled()
+      expect(openContent).not.toHaveBeenCalled()
+    })
   })
 
   it("mod+j opens a terminal, attaching the workspace's real owning chat", () => {

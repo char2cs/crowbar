@@ -1,70 +1,113 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { NewTabView } from '@/features/panes/components/new-tab-view'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 
-// This used to offer New Terminal / New File / Review the Branch / a chat
-// history list — real actions, each of which silently minted a brand-new,
-// redundant chat for a pane that merely hadn't been told its workspace's real
-// owning chat yet (the ensurePaneChatThenOpen bug — see
-// pane-command-actions.test.ts). A pane with nothing open must never be a
-// screen a user can act from, so these lock the fix in: nothing here is
-// clickable, full stop.
+const ensurePaneChatThenOpen = vi.hoisted(() => vi.fn())
+const openContent = vi.hoisted(() => vi.fn())
+const openBranchReviewForWorkspace = vi.hoisted(() => vi.fn())
+const isThread = vi.hoisted(() => ({ value: false }))
+
+vi.mock('@/features/panes/utils/pane-command-actions', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/panes/utils/pane-command-actions')>()),
+  ensurePaneChatThenOpen,
+  openBranchReviewForWorkspace,
+}))
+vi.mock('@/features/panes/hooks/use-chat-is-thread', () => ({
+  useChatIsThread: () => isThread.value,
+}))
+vi.mock('@/features/workspace/stores/hooks/use-buffer-store', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/workspace/stores/hooks/use-buffer-store')>()),
+  useBufferActions: () => ({ openContent }),
+}))
+
+// An empty editor area greets with the Crowbar logo. Its actions go through
+// ensurePaneChatThenOpen, which needs the pane's workspace: without one the
+// view stays inert so it never mints a redundant chat (pane-command-actions.test.ts).
 describe('NewTabView', () => {
-  it('renders no buttons at all', () => {
-    render(<NewTabView paneId={ROOT_PANE_ID} />)
+  beforeEach(() => {
+    vi.clearAllMocks()
+    isThread.value = false
+    ensurePaneChatThenOpen.mockImplementation((_ws, _pane, open: (p: string) => void) =>
+      open('pane-x'),
+    )
+  })
+
+  it('without a resolved workspace shows only the decorative logo', () => {
+    const { container } = render(<NewTabView paneId={ROOT_PANE_ID} wsId={null} />)
     expect(screen.queryAllByRole('button')).toHaveLength(0)
-  })
-
-  it('offers none of the old create actions', () => {
-    render(<NewTabView paneId={ROOT_PANE_ID} />)
-    expect(screen.queryByText(/new terminal/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/new file/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/review the branch/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/new chat/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/untitled chat/i)).not.toBeInTheDocument()
-  })
-
-  it('renders no chat history rows or hand-off row', () => {
-    render(<NewTabView paneId={ROOT_PANE_ID} />)
-    expect(screen.queryAllByTestId('nt-chat-row')).toHaveLength(0)
-    expect(screen.queryByText(/more in this worktree/i)).not.toBeInTheDocument()
-  })
-
-  it('renders nothing focusable/interactive at all', () => {
-    const { container } = render(<NewTabView paneId={ROOT_PANE_ID} />)
-    expect(container.querySelectorAll('button, a, input, [role="button"]')).toHaveLength(0)
-  })
-
-  it('renders only the wordmark, marked decorative and inert', () => {
-    const { container } = render(<NewTabView paneId={ROOT_PANE_ID} />)
     const svgs = container.querySelectorAll('svg')
     expect(svgs).toHaveLength(1)
     expect(svgs[0]).toHaveAttribute('aria-hidden', 'true')
-    expect(svgs[0]).toHaveClass('pointer-events-none')
   })
 
-  // The tumbling ASCII-art backdrop this pane used to lose along with the
-  // real actions it correctly gave up (see the file-level comment above) —
-  // ambient decoration, not a control, so it belongs back regardless.
-  // Lazy-loaded (see new-tab-view.tsx's own note on why), so this waits for
-  // the dynamic import to resolve rather than asserting synchronously.
-  // Rendered onto a `<canvas>` now (perf fix — see ascii-crowbar.tsx's own
-  // doc comment) — `canvas.width` (the sized backing store `measure()`
-  // writes once the geometry is decoded) is the DOM-visible proof the effect
-  // actually ran, the same role `pre.textContent` truthiness used to play.
-  it('renders the tumbling ASCII-art backdrop, still marked decorative and inert', async () => {
-    const { container } = render(<NewTabView paneId={ROOT_PANE_ID} />)
-    const canvas = await waitFor(() => {
-      const el = container.querySelector('canvas')
-      expect(el).toBeInTheDocument()
-      return el!
+  it('with a workspace offers New Terminal, New Browser and New File', () => {
+    render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)
+    expect(screen.getByRole('button', { name: /new terminal/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /new browser/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /new file/i })).toBeInTheDocument()
+  })
+
+  it('opens a browser tab through the pane-chat guard', async () => {
+    render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)
+    await userEvent.click(screen.getByRole('button', { name: /new browser/i }))
+    expect(openContent).toHaveBeenCalledWith(expect.objectContaining({ type: 'browser' }), {
+      paneId: 'pane-x',
     })
-    expect(canvas.width).toBeGreaterThan(0)
-    const backdrop = canvas.closest('[aria-hidden="true"]')
-    expect(backdrop).toHaveClass('pointer-events-none')
-    // Still nothing clickable — the backdrop must not reopen the hole this
-    // pane's whole simplification closed.
-    expect(container.querySelectorAll('button, a, input, [role="button"]')).toHaveLength(0)
+  })
+
+  it('opens a terminal through the pane-chat guard', async () => {
+    render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)
+    await userEvent.click(screen.getByRole('button', { name: /new terminal/i }))
+    expect(ensurePaneChatThenOpen).toHaveBeenCalledWith('w1', ROOT_PANE_ID, expect.any(Function))
+    expect(openContent).toHaveBeenCalledWith({ type: 'terminal' }, { paneId: 'pane-x' })
+  })
+
+  it('opens an untitled file through the pane-chat guard', async () => {
+    render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)
+    await userEvent.click(screen.getByRole('button', { name: /new file/i }))
+    expect(openContent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'editor', path: 'untitled:Untitled' }),
+      { paneId: 'pane-x' },
+    )
+  })
+
+  // Same gate as the header's shortcut: a thread owns no branch to review.
+  it('offers Review Branch last for a non-thread chat, opening the review in this pane', async () => {
+    render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)
+    const names = screen.getAllByRole('button').map((b) => b.textContent)
+    expect(names).toEqual(['New Terminal', 'New Browser', 'New File', 'Review Branch'])
+    await userEvent.click(screen.getByRole('button', { name: /review branch/i }))
+    expect(openBranchReviewForWorkspace).toHaveBeenCalledWith('w1', ROOT_PANE_ID, undefined)
+  })
+
+  // As a tab of its own, a choice takes that tab's place, like a browser's.
+  it('as a New Tab page, every choice replaces the page instead of adding a tab', async () => {
+    render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" replaceTabId="page-1" />)
+    await userEvent.click(screen.getByRole('button', { name: /new terminal/i }))
+    expect(openContent).toHaveBeenLastCalledWith(
+      { type: 'terminal' },
+      { paneId: 'pane-x', replaceTabId: 'page-1' },
+    )
+    await userEvent.click(screen.getByRole('button', { name: /new browser/i }))
+    expect(openContent).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'browser' }), {
+      paneId: 'pane-x',
+      replaceTabId: 'page-1',
+    })
+    await userEvent.click(screen.getByRole('button', { name: /new file/i }))
+    expect(openContent).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'editor' }), {
+      paneId: 'pane-x',
+      replaceTabId: 'page-1',
+    })
+    await userEvent.click(screen.getByRole('button', { name: /review branch/i }))
+    expect(openBranchReviewForWorkspace).toHaveBeenCalledWith('w1', ROOT_PANE_ID, 'page-1')
+  })
+
+  it('hides Review Branch for a thread', () => {
+    isThread.value = true
+    render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)
+    expect(screen.queryByRole('button', { name: /review branch/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /new file/i })).toBeInTheDocument()
   })
 })

@@ -13,6 +13,7 @@ import {
   AGENT_ZOOM_RESET,
   CATEGORY_ORDER,
   TOGGLE_CONSOLE,
+  BROWSER_TOGGLE_PICK,
 } from '@/features/keymaps/registry'
 
 describe('keymap registry — New Tab commands', () => {
@@ -113,5 +114,13 @@ describe('keymap registry — console', () => {
     const command = getCommand(TOGGLE_CONSOLE)
     expect(command).toMatchObject({ category: 'Navigation', liveEditable: true })
     expect(command?.defaultChord).toBe('mod+`')
+  })
+})
+
+describe('keymap registry — browser pick', () => {
+  it('registers the pick toggle as a live-editable Tabs command on its own chord', () => {
+    const command = getCommand(BROWSER_TOGGLE_PICK)
+    expect(command).toMatchObject({ category: 'Tabs', liveEditable: true })
+    expect(COMMANDS.filter((c) => c.defaultChord === command?.defaultChord)).toHaveLength(1)
   })
 })

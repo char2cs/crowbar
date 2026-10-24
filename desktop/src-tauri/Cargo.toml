@@ -54,7 +54,7 @@ objc2-foundation = { version = "0.3", features = ["NSData", "NSDictionary", "NSE
 # snapshot, so page results come back natively and the page gets no IPC channel.
 # Same versions wry/tauri already resolve.
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKWebView", "WKContentWorld", "WKFrameInfo", "WKSnapshotConfiguration"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSImage", "NSImageRep", "NSBitmapImageRep"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSPasteboard"] }
 block2 = "0.6"
 base64 = "0.22"
 

@@ -180,21 +180,7 @@ describe('TabBar "+" click behaviour', () => {
     vi.clearAllMocks()
   })
 
-  it('opens a dropdown offering New File and New Terminal', async () => {
-    const user = userEvent.setup()
-    const buffers = [makeEditorBuffer(0)]
-    const store = setupStore(buffers)
-    act(() => {
-      renderTabBar(store, { wsId: 'w1' })
-    })
-
-    await user.click(screen.getByRole('button', { name: 'New tab' }))
-
-    expect(await screen.findByRole('menuitem', { name: /New File/ })).toBeDefined()
-    expect(screen.getByRole('menuitem', { name: /New Terminal/ })).toBeDefined()
-  })
-
-  it('"New File" focuses this pane and opens a new blank editor tab in it', async () => {
+  it('focuses this pane and opens a New Tab page in it, with no menu', async () => {
     const user = userEvent.setup()
     const buffers = [makeEditorBuffer(0)]
     const store = setupPaneStore({ buffers, chatId: 'chat-1' })
@@ -206,30 +192,32 @@ describe('TabBar "+" click behaviour', () => {
     })
 
     await user.click(screen.getByRole('button', { name: 'New tab' }))
-    await user.click(await screen.findByRole('menuitem', { name: /New File/ }))
 
+    expect(screen.queryByRole('menuitem')).toBeNull()
     expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
-    const editorTabIds = windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds ?? []
-    expect(editorTabIds).toHaveLength(2)
-    const newBuf = windowPaneStore.getState().buffers.find((b) => b.id === editorTabIds[1])
-    expect(newBuf?.type).toBe('editor')
-    expect((newBuf as EditorContent)?.isVirtual).toBe(true)
+    const pane = windowPaneStore.getState().panes[ROOT_PANE_ID]
+    expect(pane?.editorTabIds).toHaveLength(2)
+    const page = windowPaneStore.getState().buffers.find((b) => b.id === pane?.editorTabIds[1])
+    expect(page).toMatchObject({ type: 'newTabPage', name: 'New Tab', workspaceId: 'w1' })
+    expect(pane?.activeEditorTabId).toBe(page?.id)
+    expect(screen.getByRole('tab', { name: 'New Tab' })).toHaveAttribute('aria-selected', 'true')
   })
 
-  it('"New Terminal" opens a new terminal tab in this pane', async () => {
+  it('a second + focuses the open New Tab instead of stacking another', async () => {
     const user = userEvent.setup()
-    const buffers = [makeEditorBuffer(0)]
-    const store = setupPaneStore({ buffers, chatId: 'chat-1' })
+    const store = setupPaneStore({ buffers: [makeEditorBuffer(0)], chatId: 'chat-1' })
     act(() => {
       renderTabBar(store, { wsId: 'w1' })
     })
 
     await user.click(screen.getByRole('button', { name: 'New tab' }))
-    await user.click(await screen.findByRole('menuitem', { name: /New Terminal/ }))
+    await user.click(screen.getByRole('tab', { name: 'file-0.ts' }))
+    await user.click(screen.getByRole('button', { name: 'New tab' }))
 
-    const editorTabIds = windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds ?? []
-    const newBuf = windowPaneStore.getState().buffers.find((b) => b.id === editorTabIds[1])
-    expect(newBuf?.type).toBe('terminal')
+    expect(screen.getAllByRole('tab', { name: 'New Tab' })).toHaveLength(1)
+    const pane = windowPaneStore.getState().panes[ROOT_PANE_ID]
+    expect(pane?.editorTabIds).toHaveLength(2)
+    expect(pane?.activeEditorTabId).toBe(pane?.editorTabIds[1])
   })
 })
 

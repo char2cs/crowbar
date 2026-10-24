@@ -1,6 +1,7 @@
 //! Native browser tabs: one Tauri child webview per tab, owned by Tauri's own
 //! webview manager and addressed by the label `browser-<id>`.
 mod agent;
+mod clipboard;
 mod commands;
 mod data;
 mod events;
@@ -8,6 +9,7 @@ mod events;
 mod webkit;
 
 pub use agent::*;
+pub use clipboard::*;
 pub use commands::*;
 pub use data::*;
 

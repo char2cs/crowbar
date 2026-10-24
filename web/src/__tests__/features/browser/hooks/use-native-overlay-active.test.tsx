@@ -150,6 +150,14 @@ describe('useNativeOverlayActive', () => {
       'dnd-kit live region',
       `<div id="DndLiveRegion-0" role="status" aria-live="assertive" style="position:fixed;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(100%);white-space:nowrap">x</div>`,
     ],
+    [
+      'Monaco aria container',
+      '<div class="monaco-aria-container" style="position:absolute;width:1px;height:1px;clip:rect(1px, 1px, 1px, 1px);clip-path:inset(50%);display:block;visibility:visible;opacity:1">x</div>',
+    ],
+    [
+      'a helper clipped only by a zero-area rect',
+      '<div style="position:absolute;clip:rect(1px, 1px, 1px, 1px)">x</div>',
+    ],
     ['dnd-kit described-by text', '<div id="DndDescribedBy-0" hidden>Press space</div>'],
     ['a display:none helper', '<div style="display:none">x</div>'],
     ['a visibility:hidden helper', '<div style="visibility:hidden">x</div>'],
@@ -166,6 +174,16 @@ describe('useNativeOverlayActive', () => {
     const { result } = renderHook(() => useNativeOverlayActive())
     await act(async () => {
       appendNodeToBody('<div aria-hidden="true" data-drop-indicator style="position:fixed"></div>')
+    })
+    expect(result.current).toBe(true)
+  })
+
+  it('still counts a real-sized popup that is only partly clipped', async () => {
+    const { result } = renderHook(() => useNativeOverlayActive())
+    await act(async () => {
+      appendNodeToBody(
+        '<div role="menu" style="position:fixed;width:200px;height:100px;clip-path:inset(10%);clip:rect(0px, 100px, 50px, 0px)">x</div>',
+      )
     })
     expect(result.current).toBe(true)
   })

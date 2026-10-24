@@ -32,7 +32,11 @@ function renderHeader() {
     createElement(
       WorkspaceStoreContext.Provider,
       { value: store },
-      createElement(ChatColumnHeader, { chatId: 'chat-1', wsId: 'w1', isBottomPane: false }),
+      createElement(ChatColumnHeader, {
+        chatId: 'chat-1',
+        wsId: 'w1',
+        isBottomPane: false,
+      }),
     ),
   )
 }

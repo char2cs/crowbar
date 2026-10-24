@@ -18,6 +18,8 @@ type PaneRenderBuffer = Exclude<PaneContent, EditorContent> | EditorBufferShell
 
 interface PaneEditorViewContentProps {
   paneId: string
+  /** The pane's own workspace; null until it resolves. */
+  wsId: string | null
   editorTabIds: string[]
   activeEditorTabId: string | null | undefined
   /** The editor view is hidden (the chat fills the pane, or a tabs-mode chat tab is up). */
@@ -35,6 +37,7 @@ interface PaneEditorViewContentProps {
  */
 export function PaneEditorViewContent({
   paneId,
+  wsId,
   editorTabIds,
   activeEditorTabId,
   editorViewHidden,
@@ -93,9 +96,7 @@ export function PaneEditorViewContent({
 
   return (
     <>
-      {/* A fallback for a pane holding nothing — deliberately inert; see
-          new-tab-view.tsx. */}
-      {!activeBuffer && <NewTabView paneId={paneId} />}
+      {!activeBuffer && <NewTabView paneId={paneId} wsId={wsId} />}
 
       {/* Terminals stay mounted to keep their PTYs, outside the Suspense
           boundary so a cold chunk load never unmounts them. Visible only as
@@ -170,7 +171,7 @@ export function PaneEditorViewContent({
               {...sidebarSurfaceRoot(sidebarSurfaceOf(activeBuffer.type))}
               className="absolute inset-0 outline-none"
             >
-              {renderPaneContent(activeBuffer, { isActivePane })}
+              {renderPaneContent(activeBuffer, { isActivePane, paneId, wsId })}
             </div>
           )}
       </Suspense>

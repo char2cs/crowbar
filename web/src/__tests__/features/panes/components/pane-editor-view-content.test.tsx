@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { useStore } from 'zustand'
+import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { PaneEditorViewContent } from '@/features/panes/components/pane-editor-view-content'
 import { getEditorPortalEntry } from '@/features/panes/lib/editor-portal-registry'
 import {
@@ -54,6 +56,7 @@ function Host({ activeTab }: { activeTab: string }) {
   return (
     <PaneEditorViewContent
       paneId="p1"
+      wsId={null}
       editorTabIds={['ed', 'term', 'rev', 'md']}
       activeEditorTabId={activeTab}
       editorViewHidden={false}
@@ -115,5 +118,42 @@ describe('PaneEditorViewContent sidebar surfaces', () => {
     renderHost('term')
     act(() => screen.getByLabelText('terminal input').focus())
     expect(mode()).toBe('chats')
+  })
+})
+
+function LivePane() {
+  const pane = useStore(windowPaneStore, (s) => s.panes[ROOT_PANE_ID])
+  return (
+    <PaneEditorViewContent
+      paneId={ROOT_PANE_ID}
+      wsId="w1"
+      editorTabIds={pane.editorTabIds}
+      activeEditorTabId={pane.activeEditorTabId}
+      editorViewHidden={false}
+      isActivePane
+      showing
+    />
+  )
+}
+
+describe('PaneEditorViewContent New Tab page', () => {
+  beforeEach(() => {
+    resetWindowPaneStoreForTests()
+    windowPaneStore.getState().paneActions.openChat('chat-1')
+  })
+
+  it('shows the new-tab actions, and a choice replaces the page', async () => {
+    const page = windowPaneStore
+      .getState()
+      .bufferActions.openContent({ type: 'newTabPage', workspaceId: 'w1' })
+    render(<LivePane />)
+
+    await userEvent.click(screen.getByRole('button', { name: /new terminal/i }))
+
+    const { panes, buffers } = windowPaneStore.getState()
+    expect(panes[ROOT_PANE_ID].editorTabIds).toHaveLength(1)
+    expect(buffers.map((b) => b.type)).toEqual(['terminal'])
+    expect(buffers.some((b) => b.id === page)).toBe(false)
+    expect(screen.getByLabelText('terminal input')).toBeInTheDocument()
   })
 })

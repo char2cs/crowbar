@@ -3,6 +3,7 @@ import {
   Globe,
   GitPullRequest,
   Package,
+  Plus,
   PushPin as Pin,
   TerminalWindow as Terminal,
   X,
@@ -165,6 +166,8 @@ const TabBarItem = memo(function TabBarItem({
                 <Terminal className="text-muted-foreground" />
               ) : buffer.type === 'browser' ? (
                 <Globe className="text-muted-foreground" />
+              ) : buffer.type === 'newTabPage' ? (
+                <Plus className="text-muted-foreground" />
               ) : (
                 <FileExplorerIcon
                   fileName={buffer.name}

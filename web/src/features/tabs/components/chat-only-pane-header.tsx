@@ -1,12 +1,10 @@
 import { BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { usePaneTopRowEdges } from '../hooks/use-pane-top-row-edges'
-import { openBranchReviewForWorkspace } from '@/features/panes/utils/pane-command-actions'
-import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
 import { useSettingsStore } from '@/features/settings/store'
 import type { PaneGroup } from '@/features/panes/types/pane'
 import { ChatHeaderSlot } from '@/features/agent/hooks/chat-header-slot'
 import { ChatBranchHeader } from './chat-branch-header'
-import { BranchReviewShortcutButton } from './branch-review-shortcut-button'
+import { OpenEditorButton } from './open-editor-button'
 import { PaneTopRow } from './pane-top-row'
 
 interface ChatOnlyPaneHeaderProps {
@@ -19,19 +17,15 @@ interface ChatOnlyPaneHeaderProps {
  * per the chats/pane redesign, that pane has no IDE sector to speak of, so
  * this replaces TabBar's whole row rather than leaving it to draw an empty
  * tab strip. Renders through the same `PaneTopRow` shell TabBar's own row
- * does (drag region, macOS traffic-light inset), plus the same right-pinned
- * branch-review shortcut — only the middle (the tab strip) is gone, replaced
- * by the chat's own identity header. Closing a chat/view is a SIDEBAR
- * operation only (Recents' own ×, or a row's own close) — this row offers no
- * close control of its own.
+ * does (drag region, macOS traffic-light inset); the middle (the tab strip)
+ * is replaced by the chat's own identity header. Branch review is reached
+ * from the editor area (Open editor, then Review Branch). Closing a chat/view
+ * is a SIDEBAR operation only — this row offers no close control of its own.
  */
 export function ChatOnlyPaneHeader({ pane, wsId }: ChatOnlyPaneHeaderProps) {
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const { rowRef, isAtLeftEdge, isAtTopEdge } = usePaneTopRowEdges([sidebarPosition])
   const isBottomPane = pane.id === BOTTOM_PANE_ID
-  // A thread has no branch of its own to review — it runs on the worktree its
-  // parent owns. `wsId` names that inherited ground, so it can never gate this.
-  const isThread = useChatIsThread(pane.chatId ?? null)
 
   return (
     <PaneTopRow
@@ -51,16 +45,8 @@ export function ChatOnlyPaneHeader({ pane, wsId }: ChatOnlyPaneHeaderProps) {
       overlay
     >
       <ChatBranchHeader chatId={pane.chatId ?? ''} wsId={wsId} className="h-full min-w-0 flex-1" />
+      <OpenEditorButton paneId={pane.id} wsId={wsId} />
       <ChatHeaderSlot />
-      {!isThread && (
-        <BranchReviewShortcutButton
-          isBottomPane={isBottomPane}
-          // THIS pane's own workspace — not whichever one happens to be
-          // globally active, which is a different pane in a split showing a
-          // different chat/branch entirely.
-          onOpen={() => openBranchReviewForWorkspace(wsId, pane.id)}
-        />
-      )}
     </PaneTopRow>
   )
 }

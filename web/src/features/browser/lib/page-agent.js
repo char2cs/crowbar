@@ -289,9 +289,12 @@ function pageAgent() {
   }
 
   const ops = { snapshot, click, type, press_key, scroll, wait }
-  return (op, args) => {
-    const run = ops[op]
-    if (!run) throw new Error(`unknown browser op ${JSON.stringify(op)} (agent script v${VERSION})`)
-    return run(args ?? {})
+  const run = (op, args) => {
+    const fn = ops[op]
+    if (!fn) throw new Error(`unknown browser op ${JSON.stringify(op)} (agent script v${VERSION})`)
+    return fn(args ?? {})
   }
+  // The pointer script builds on these, so refs from both come from one registry.
+  run.helpers = { roleOf, nameOf, hidden, refOf }
+  return run
 }

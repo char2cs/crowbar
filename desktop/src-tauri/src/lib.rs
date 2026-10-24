@@ -1168,6 +1168,7 @@ pub fn run() {
             browser::browser_screenshot,
             browser::browser_capabilities,
             browser::browser_clear_data,
+            browser::browser_copy_text,
         ])
         .build(tauri::generate_context!())
         .expect("error building Tauri app")

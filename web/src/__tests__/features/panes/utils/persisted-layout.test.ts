@@ -215,4 +215,32 @@ describe('validateLoadedBuffers', () => {
 
     expect(validateLoadedBuffers(current, ROOT)).toEqual(current)
   })
+
+  // Distinct from the retired `newTab` placeholder above, which old layouts
+  // still carry and must keep dropping.
+  it('restores a New Tab page where it was, beside the layouts that predate it', () => {
+    const live = {
+      buffers: [
+        {
+          id: 'p-1',
+          type: 'newTabPage',
+          path: 'new-tab://p-1',
+          name: 'New Tab',
+          workspaceId: 'w1',
+        },
+        { id: 'nt-1', type: 'newTab', path: '', name: 'New Tab' },
+        { id: 'e-1', type: 'editor', path: '/a.ts', name: 'a.ts' },
+      ],
+      panes: {
+        root: { id: 'root', editorTabIds: ['e-1', 'p-1', 'nt-1'], activeEditorTabId: 'p-1' },
+      },
+    } as unknown as Snapshot
+
+    const out = validateLoadedBuffers({ ...live, buffers: toPersistedBuffers(live.buffers) }, ROOT)
+
+    expect(out.buffers.map((b) => b.id)).toEqual(['p-1', 'e-1'])
+    expect(out.buffers[0]).toEqual(live.buffers[0])
+    expect(out.panes.root.editorTabIds).toEqual(['e-1', 'p-1'])
+    expect(out.panes.root.activeEditorTabId).toBe('p-1')
+  })
 })

@@ -5,6 +5,7 @@ import type {
   PaneContent,
   TerminalContent,
 } from '../types/pane-content'
+import { NewTabView } from './new-tab-view'
 
 // Lazy so each surface's heavy dependencies (git diff, markdown parser, CSV
 // grid) stay out of the main chunk until a tab of that type is opened.
@@ -39,6 +40,9 @@ export type RegisteredContent = Exclude<
 
 interface SurfaceContext {
   isActivePane: boolean
+  paneId: string
+  /** The pane's own chat workspace; null until it resolves. */
+  wsId: string | null
 }
 
 type Renderers = {
@@ -63,6 +67,9 @@ const RENDERERS: Renderers = {
   markdownPreview: (c) => <MarkdownPreview bufferId={c.id} />,
   htmlPreview: () => <HtmlPreview />,
   csvPreview: () => <CsvPreview />,
+  newTabPage: (c, { paneId, wsId }) => (
+    <NewTabView paneId={paneId} wsId={wsId} replaceTabId={c.id} />
+  ),
 }
 
 export function renderPaneContent(content: RegisteredContent, ctx: SurfaceContext): ReactNode {

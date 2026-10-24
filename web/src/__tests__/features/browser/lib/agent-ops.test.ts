@@ -143,6 +143,17 @@ describe('page ops', () => {
     expect(body).toContain('run("snapshot", {})')
   })
 
+  it('runs resolve as page script, and keeps the user-only pick ops out of the agent surface', async () => {
+    const tab = await openFor('chat-a')
+    api.evaluate.mockResolvedValue('{"items":[{"found":false}]}')
+    const args = { items: [{ s: '#a' }], detail: 'refs' }
+    expect(await runAgentOp(req('chat-a', 'resolve', tab, args))).toEqual({
+      items: [{ found: false }],
+    })
+    expect(api.evaluate.mock.calls[0][1]).toContain('run("resolve", ')
+    await expect(runAgentOp(req('chat-a', 'pick', tab))).rejects.toThrow(/unknown browser op/)
+  })
+
   it('runs eval code as given and returns the parsed result', async () => {
     const tab = await openFor('chat-a')
     api.evaluate.mockResolvedValue('{"n":2}')

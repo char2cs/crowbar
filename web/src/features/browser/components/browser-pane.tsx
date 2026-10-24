@@ -1,14 +1,25 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { ArrowClockwiseIcon, ArrowLeftIcon, ArrowRightIcon } from '@phosphor-icons/react'
+import {
+  ArrowClockwiseIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  CrosshairIcon,
+} from '@phosphor-icons/react'
+import { useStore } from 'zustand'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { bestEffort } from '@/lib/best-effort'
 import { useBufferActions, useBufferById } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { useBrowserOccluded } from '@/features/browser/hooks/use-browser-occluded'
+import { usePointerPick } from '@/features/browser/hooks/use-pointer-pick'
 import { useBrowserWebview } from '@/features/browser/hooks/use-browser-webview'
 import { browserApi } from '@/lib/browser-bridge'
 import { useBrowserAgentStore } from '@/features/browser/lib/agent-activity-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
+import { eventMatchesChord } from '@/features/keymaps/utils/chord'
+import { BROWSER_TOGGLE_PICK } from '@/features/keymaps/registry'
 import { useSettingsStore } from '@/features/settings/store'
 import { searchTemplateFor } from '@/features/browser/lib/search-engines'
 import { normalizeBrowserUrl } from '@/features/browser/lib/normalize-url'
@@ -40,6 +51,20 @@ export function BrowserPane({ paneId, bufferId, visible }: BrowserPaneProps) {
     visible: visible && !occluded,
     placeholderRef,
   })
+
+  const { picking, toggle: togglePick } = usePointerPick(bufferId, visible && !occluded)
+  const focused = useStore(windowPaneStore, (s) => s.activePaneId === paneId)
+  const pickChord = useEffectiveChordMap()[BROWSER_TOGGLE_PICK]
+  useEffect(() => {
+    if (!hasUrl || !visible || !focused || !pickChord) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat || !eventMatchesChord(e, pickChord)) return
+      e.preventDefault()
+      togglePick()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [hasUrl, visible, focused, pickChord, togglePick])
 
   useEffect(() => {
     if (!hasUrl && visible) inputRef.current?.focus()
@@ -89,6 +114,19 @@ export function BrowserPane({ paneId, bufferId, visible }: BrowserPaneProps) {
           onClick={() => bestEffort(browserApi.reload(bufferId), 'browser reload')}
         >
           <ArrowClockwiseIcon />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Pick element"
+          aria-pressed={picking}
+          tooltip="Pick element (copy pointer)"
+          active={picking}
+          disabled={!hasUrl}
+          onClick={togglePick}
+        >
+          <CrosshairIcon />
         </Button>
         {agentActive && <Badge variant="info">Agent</Badge>}
         <Input
