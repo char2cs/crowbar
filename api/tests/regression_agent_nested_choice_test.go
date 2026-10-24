@@ -107,20 +107,26 @@ func TestRegression_ANestedAskDoesNotChangeHowNestedToolRowsRender(t *testing.T)
 	assert.Len(t, ids, 2)
 }
 
-// A turn that already closed leaves nothing to wait on: the ask is recorded
-// resolved, exactly as a top-level ask on a closed turn is, so no card is left
-// pending on a chat that is not waiting.
-func TestRegression_ANestedAskAfterTheTurnClosedLeavesNoPendingCard(t *testing.T) {
+// A subagent's CLI held on an ask past its turn's end really waits, so the ask
+// is a card the person answers, as a held top-level ask outside a turn is.
+func TestRegression_ANestedAskAfterTheTurnClosedIsAnAnswerableCard(t *testing.T) {
 	c := newNestedChoiceChat(t)
+	conn := c.dial()
 	postAnswerStubHook(t, c.h, repoBase(c.imported), c.runnerID, "turn_stop",
 		`{"session_id":"main","last_assistant_message":"done"}`)
 	c.h.Quiesce()
 
-	c.nestedAsk(t, "late")
-	c.h.Quiesce()
-	var listed []struct {
-		ID string `json:"id"`
+	choiceID := c.nestedAsk(t, "late")
+	readUntil(t, conn, c.choiceFrame(func(choices []map[string]any) bool {
+		return len(choices) == 1 && choices[0]["id"] == choiceID && choices[0]["answerable"] == true
+	}))
+
+	c.answer(t, choiceID)
+	var answer struct {
+		Stdout string `json:"stdout"`
 	}
-	c.h.get(repoBase(c.imported)+"/chats/"+c.chatID+"/choices", &listed)
-	assert.Empty(t, listed)
+	c.h.post(repoBase(c.imported)+"/chats/hooks/await", map[string]string{"ask_id": choiceID},
+		http.StatusOK, &answer)
+	assert.JSONEq(t, `{"decision":{"behavior":"allow"}}`, answer.Stdout,
+		"the person's answer reaches the held subagent")
 }
