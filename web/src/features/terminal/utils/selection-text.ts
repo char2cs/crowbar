@@ -51,7 +51,7 @@ const NON_BREAKING_SPACE = /\u00A0/g
  * True when row `y` is filled all the way to its last column, i.e. the text
  * continues on the row below.
  */
-function rowRunsToTheEdge(source: SelectionSource, y: number): boolean {
+export function rowRunsToTheEdge(source: SelectionSource, y: number): boolean {
   const cell = source.getLine(y)?.getCell(source.cols - 1)
   return !!cell && cell.getChars() !== ''
 }

@@ -86,6 +86,7 @@ export function TerminalTab({
       <XtermTerminal
         sessionId={sessionId}
         workspaceId={workspaceId}
+        paneId={paneId}
         isActive={isActive}
         isVisible={isVisible}
         onTerminalExit={handleTerminalExit}
