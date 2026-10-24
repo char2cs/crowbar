@@ -7,9 +7,9 @@ import { cn } from '@/lib/utils'
 import type { Project } from '@/lib/types'
 import { EditableProjectIcon, ProjectIconMark } from './project-icon-mark'
 
-// One tile size and radius for every mark on the line, so the active project,
-// the others and the dashed `+` read as a set (proportioned to the 19px name).
-const TILE = 'flex size-7 shrink-0 items-center justify-center rounded-[8px] border'
+// One footprint for every mark on the line, so the active project, the others
+// and the `+` share a hit area (proportioned to the 19px name).
+const TILE = 'flex size-7 shrink-0 items-center justify-center rounded-[8px]'
 
 interface SidebarProjectSwitcherProps {
   /** Every open project. With none and no `onAddProject`, nothing renders. */
@@ -48,7 +48,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {active && (
           <>
-            <span className={cn(TILE, 'border-border bg-sidebar-element-hover')}>
+            <span className={TILE}>
               <EditableProjectIcon project={active} size="lg" />
             </span>
             {renamingId === active.id ? (
@@ -79,10 +79,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
           variant="ghost"
           size="icon-sm"
           data-testid="space-mark"
-          className={cn(
-            TILE,
-            'border-border bg-sidebar-element-hover p-0 opacity-80 hover:opacity-100',
-          )}
+          className={cn(TILE, 'p-0 opacity-80 hover:bg-sidebar-element-hover hover:opacity-100')}
           tooltip={project.name}
           tooltipSide="bottom"
           aria-label={project.name}
@@ -95,10 +92,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
           onClick={onAddProject}
           variant="ghost"
           size="icon-sm"
-          className={cn(
-            TILE,
-            'border-dashed border-border bg-transparent p-0 text-muted-foreground hover:bg-sidebar-element-hover',
-          )}
+          className={cn(TILE, 'p-0 text-muted-foreground hover:bg-sidebar-element-hover')}
           tooltip="Add space"
           tooltipSide="bottom"
           aria-label="Add space"
