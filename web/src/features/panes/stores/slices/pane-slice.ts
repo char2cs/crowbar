@@ -71,6 +71,8 @@ export interface PaneActions {
   addEditorTabToPane(paneId: string, tab: EditorTabBase): void
   removeEditorTabFromPane(paneId: string, tabId: string): void
   moveEditorTabToPane(tabId: string, fromPaneId: string, toPaneId: string): void
+  /** Every pane showing `fromId` shows `toId` in its place, or only `toId` if it has both. */
+  replaceEditorTab(fromId: string, toId: string): void
   setEditorTabPreview(paneId: string, tabId: string): void
   setEditorTabPinned(paneId: string, tabId: string, pinned: boolean): void
   setPaneLocked(paneId: string, locked: boolean): void

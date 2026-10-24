@@ -83,6 +83,18 @@ describe('document text', () => {
     expect(heard).toHaveBeenCalledTimes(2)
   })
 
+  it('notifies nobody when no open document holds the ref', () => {
+    const ref = workspaceRef('ws-1', 'closed.md')
+    const heard = vi.fn()
+    const stop = onExternalText(ref, heard)
+
+    applyExternalText(ref, 'from a watch', { saved: true })
+
+    expect(heard).not.toHaveBeenCalled()
+    expect(documentText(ref)).toBeNull()
+    stop()
+  })
+
   it('markDocumentSaved cleans the buffer only if the text still matches', async () => {
     const ref = await open('src/a.ts', 'v0')
 

@@ -21,7 +21,9 @@ import {
   documentText,
   markDocumentSaved,
   readDocumentText,
+  savedDocumentText,
 } from '@/features/editor/documents/document-text'
+import { findDocumentBuffer } from '@/features/editor/documents/open-document'
 import { clearBlame } from '@/features/git/stores/git-blame-store'
 import { requestGitRefresh } from '@/features/git/stores/git-refresh'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -110,13 +112,27 @@ async function formatBeforeSave(ref: DocumentRef, text: string): Promise<string 
   return documentText(ref)
 }
 
+/** One document, one buffer: the untitled tab becomes the open document's, which saves `content`. */
+function saveOntoOpenDocument(untitledId: string, open: EditorContent, content: string) {
+  const ref = documentRefOf(open)
+  if (documentText(ref) !== savedDocumentText(ref)) {
+    toast.error(`Save or discard changes in ${open.name} first`)
+    return Promise.resolve(false)
+  }
+  applyExternalText(ref, content, { saved: false })
+  windowPaneStore.getState().paneActions.replaceEditorTab(untitledId, open.id)
+  return saveBuffer(open.id)
+}
+
 async function saveAsUntitled(buffer: PathedBuffer, content: string): Promise<boolean> {
   const target = window.prompt('Save as:', buffer.name)
   if (!target) return false
   // Buffers are window-level — write to THIS buffer's own workspace, never the
   // merely-active one.
-  await writeDocument(workspaceRef(buffer.workspaceId, target), content)
-  // Marked under its untitled name: the target may already be open in another tab.
+  const ref = workspaceRef(buffer.workspaceId, target)
+  const open = findDocumentBuffer(ref)
+  if (open) return saveOntoOpenDocument(buffer.id, open, content)
+  await writeDocument(ref, content)
   markDocumentSaved(documentRefOf(buffer), content)
   patchEditorBuffer(buffer.id, (b) => ({
     ...b,

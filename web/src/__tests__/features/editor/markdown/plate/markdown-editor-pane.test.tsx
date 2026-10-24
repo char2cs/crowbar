@@ -141,6 +141,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   useMarkdownViewStore.setState({ views: {} })
 })
 
@@ -405,7 +406,6 @@ describe('MarkdownEditorPane', () => {
       // The same bytes come back as the document's text. Re-parsing them would
       // reset the caret mid-typing, so the document must be left exactly as-is.
       act(() => vi.advanceTimersByTime(300))
-      vi.useRealTimers()
 
       expect(capturedEditor!.children).toBe(childrenBefore)
       expect(documentText(docOf('b1'))).toBe(written)

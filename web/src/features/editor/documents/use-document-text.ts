@@ -17,22 +17,24 @@ function textIn(state: WindowPaneState, ref: DocumentRef): string | null {
 
 /** The document's text as last shown: it moves at most once per interval while edits stream in. */
 function shownText(ref: DocumentRef | null) {
-  let shown = ref ? textIn(windowPaneStore.getState(), ref) : null
+  const current = () => (ref ? textIn(windowPaneStore.getState(), ref) : null)
+  let shown: { text: string | null } | null = null
+  const read = () => (shown ??= { text: current() }).text
   return {
-    read: () => shown,
+    read,
     subscribe(notify: () => void): () => void {
       if (!ref) return () => {}
       const refresh = createRafCoalescer(
         () => {
-          const next = textIn(windowPaneStore.getState(), ref)
-          if (next === shown) return
-          shown = next
+          const next = current()
+          if (next === read()) return
+          shown = { text: next }
           notify()
         },
         { minIntervalMs: () => RENDER_INTERVAL_MS },
       )
       const changed = (state: WindowPaneState) => {
-        if (textIn(state, ref) !== shown) refresh.schedule()
+        if (textIn(state, ref) !== read()) refresh.schedule()
       }
       // A change between render and subscribe would otherwise wait for the next one.
       changed(windowPaneStore.getState())

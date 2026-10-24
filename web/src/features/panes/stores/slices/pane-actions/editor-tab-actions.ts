@@ -17,6 +17,7 @@ type EditorTabActions = Pick<
   | 'addEditorTabToPane'
   | 'removeEditorTabFromPane'
   | 'moveEditorTabToPane'
+  | 'replaceEditorTab'
   | 'setEditorTabPreview'
   | 'setEditorTabPinned'
   | 'setPaneLocked'
@@ -149,6 +150,22 @@ export function createEditorTabActions(set: PaneSet, get: PaneGet): EditorTabAct
       if (!get().panes[fromPaneId]?.editorTabIds.includes(tabId)) {
         releaseEditorTabModel(fromPaneId, tabId)
       }
+    },
+
+    replaceEditorTab(fromId, toId) {
+      for (const pane of Object.values(get().panes)) {
+        if (pane.editorTabIds.includes(fromId)) releaseEditorTabModel(pane.id, fromId)
+      }
+      set((state) => {
+        for (const pane of Object.values(state.panes)) {
+          const index = pane.editorTabIds.indexOf(fromId)
+          if (index === -1) continue
+          if (pane.editorTabIds.includes(toId)) pane.editorTabIds.splice(index, 1)
+          else pane.editorTabIds[index] = toId
+          if (pane.activeEditorTabId === fromId) pane.activeEditorTabId = toId
+          syncSoleEditorTabCloseability(state, pane.id, paneCanSafelyLoseLastTab(state, pane.id))
+        }
+      })
     },
 
     setEditorTabPreview(paneId, tabId) {

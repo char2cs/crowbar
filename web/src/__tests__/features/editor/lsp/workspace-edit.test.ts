@@ -1,6 +1,22 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const { readDocument, writeDocument } = vi.hoisted(() => ({
+  readDocument: vi.fn(),
+  writeDocument: vi.fn(),
+}))
+vi.mock('@/lib/api/documents', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/documents')>()),
+  readDocument,
+  writeDocument,
+}))
+
+import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
+import { documentText } from '@/features/editor/documents/document-text'
+import { findDocumentBuffer, openDocument } from '@/features/editor/documents/open-document'
+import { resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 import {
   applyTextEditsToContent,
+  applyWorkspaceEdit,
   collectWorkspaceTextEdits,
   filePathFromUri,
   isWorkspaceEdit,
@@ -95,5 +111,62 @@ describe('workspace edit utilities', () => {
 
     expect(isWorkspaceEdit(edit)).toBe(true)
     expect(collectWorkspaceTextEdits(edit).get('/tmp/a.ts')).toHaveLength(2)
+  })
+})
+
+describe('applyWorkspaceEdit', () => {
+  const PATH = '/repo/src/a.ts'
+  const rename = {
+    changes: {
+      [`file://${PATH}`]: [
+        {
+          range: { start: { line: 0, character: 6 }, end: { line: 0, character: 9 } },
+          newText: 'uno',
+        },
+      ],
+    },
+  }
+
+  async function open(workspaceId: string, text: string): Promise<DocumentRef> {
+    const ref = workspaceRef(workspaceId, PATH)
+    readDocument.mockResolvedValueOnce({ ref, text })
+    await openDocument(ref)
+    return ref
+  }
+
+  beforeEach(() => {
+    resetWindowPaneStoreForTests()
+    readDocument.mockReset()
+    writeDocument.mockReset().mockResolvedValue(undefined)
+  })
+
+  it('edits an open document in place and leaves it dirty', async () => {
+    const ref = await open('ws-1', 'const one = 1')
+
+    await applyWorkspaceEdit(rename, 'ws-1')
+
+    expect(documentText(ref)).toBe('const uno = 1')
+    expect(findDocumentBuffer(ref)?.isDirty).toBe(true)
+    expect(writeDocument).not.toHaveBeenCalled()
+  })
+
+  it('writes a closed file in its own workspace', async () => {
+    readDocument.mockResolvedValueOnce({ ref: workspaceRef('ws-1', PATH), text: 'const one = 1' })
+
+    await expect(applyWorkspaceEdit(rename, 'ws-1')).resolves.toEqual({ editedFiles: 1 })
+
+    expect(readDocument).toHaveBeenCalledWith(workspaceRef('ws-1', PATH))
+    expect(writeDocument).toHaveBeenCalledWith(workspaceRef('ws-1', PATH), 'const uno = 1')
+  })
+
+  it("leaves another workspace's buffer for the same path untouched", async () => {
+    const sibling = await open('ws-2', 'const one = 1')
+    readDocument.mockResolvedValueOnce({ ref: workspaceRef('ws-1', PATH), text: 'const one = 1' })
+
+    await applyWorkspaceEdit(rename, 'ws-1')
+
+    expect(documentText(sibling)).toBe('const one = 1')
+    expect(findDocumentBuffer(sibling)?.isDirty).toBe(false)
+    expect(writeDocument).toHaveBeenCalledWith(workspaceRef('ws-1', PATH), 'const uno = 1')
   })
 })

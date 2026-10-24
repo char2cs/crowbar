@@ -35,6 +35,8 @@ import {
   savedDocumentText,
 } from '@/features/editor/documents/document-text'
 import { useSettingsStore } from '@/features/settings/store'
+import { BOTTOM_PANE_ID, ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { toast } from '@/features/window/stores/toast-store'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
@@ -309,5 +311,79 @@ describe('buffer-save — the text a save writes', () => {
 
     expect(writesFor('a.ts')).toEqual(['const a=12'])
     expect(textOf(A)).toEqual({ text: 'const a=12', saved: 'const a=12' })
+  })
+})
+
+describe('buffer-save — Save As onto a document that is already open', () => {
+  const FOO = workspaceRef('ws-owner', 'foo.ts')
+  const UNTITLED = workspaceRef('ws-owner', 'untitled:Untitled-1')
+
+  function openIn(paneId: string, doc: DocumentRef, content: string, isVirtual = false): string {
+    const name = doc.path
+    const spec = { type: 'editor' as const, doc, name, content, isVirtual }
+    return windowPaneStore.getState().bufferActions.openContent(spec, { paneId })
+  }
+
+  function tabsOf(paneId: string) {
+    const pane = windowPaneStore.getState().panes[paneId]
+    return { tabs: pane?.editorTabIds, active: pane?.activeEditorTabId }
+  }
+
+  const holdersOfFoo = () =>
+    windowPaneStore
+      .getState()
+      .buffers.filter((b) => b.path === 'foo.ts')
+      .map((b) => b.id)
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      'prompt',
+      vi.fn(() => 'foo.ts'),
+    )
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('a clean target takes the saved text, and the untitled tab becomes it in place', async () => {
+    const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
+    const before = openIn(ROOT_PANE_ID, A, 'a')
+    const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', true)
+    const after = openIn(ROOT_PANE_ID, B, 'b')
+    windowPaneStore.getState().paneActions.activateEditorTabInPane(ROOT_PANE_ID, untitled)
+
+    expect(await saveActiveBuffer()).toBe(true)
+
+    expect(writesFor('foo.ts')).toEqual(['new text'])
+    expect(holdersOfFoo()).toEqual([target])
+    expect(textOf(FOO)).toEqual({ text: 'new text', saved: 'new text' })
+    expect(bufferById(target).isDirty).toBe(false)
+    expect(tabsOf(ROOT_PANE_ID)).toEqual({ tabs: [before, target, after], active: target })
+    expect(bufferById(untitled)).toBeUndefined()
+  })
+
+  it('refuses a target with unsaved edits and writes nothing', async () => {
+    const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
+    replaceDocumentText(FOO, 'their edits')
+    const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', true)
+    const error = vi.spyOn(toast, 'error')
+
+    expect(await saveActiveBuffer()).toBe(false)
+
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(error).toHaveBeenCalledWith('Save or discard changes in foo.ts first')
+    expect(holdersOfFoo()).toEqual([target])
+    expect(textOf(FOO)).toEqual({ text: 'their edits', saved: 'old' })
+    expect(textOf(UNTITLED)).toEqual({ text: 'new text', saved: 'new text' })
+    expect(tabsOf(ROOT_PANE_ID)).toEqual({ tabs: [untitled], active: untitled })
+  })
+
+  it('closes the untitled tab and focuses the target when its pane already holds it', async () => {
+    const target = openIn(ROOT_PANE_ID, FOO, 'old')
+    openIn(ROOT_PANE_ID, UNTITLED, 'new text', true)
+
+    expect(await saveActiveBuffer()).toBe(true)
+
+    expect(holdersOfFoo()).toEqual([target])
+    expect(textOf(FOO)).toEqual({ text: 'new text', saved: 'new text' })
+    expect(tabsOf(ROOT_PANE_ID)).toEqual({ tabs: [target], active: target })
   })
 })

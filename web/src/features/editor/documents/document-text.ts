@@ -26,12 +26,14 @@ function holderOf(ref: DocumentRef): EditorContent | null {
   return holderIn(windowPaneStore.getState().buffers, ref)
 }
 
-function patchHolder(ref: DocumentRef, patch: (b: EditorContent) => EditorContent): void {
+/** False when no open document holds `ref`. */
+function patchHolder(ref: DocumentRef, patch: (b: EditorContent) => EditorContent): boolean {
   const id = holderOf(ref)?.id
-  if (!id) return
+  if (!id) return false
   windowPaneStore.setState((state) => ({
     buffers: state.buffers.map((b) => (b.id === id && isEditorContent(b) ? patch(b) : b)),
   }))
+  return true
 }
 
 function addTo(registry: Map<string, Set<() => void>>, ref: DocumentRef, fn: () => void) {
@@ -85,7 +87,7 @@ export function replaceDocumentText(ref: DocumentRef, text: string): void {
 
 /** Text from outside the editor (a reload, a change on disk, a format result). */
 export function applyExternalText(ref: DocumentRef, text: string, opts: { saved: boolean }): void {
-  patchHolder(ref, (b) =>
+  const patched = patchHolder(ref, (b) =>
     opts.saved
       ? {
           ...b,
@@ -97,7 +99,7 @@ export function applyExternalText(ref: DocumentRef, text: string, opts: { saved:
         }
       : { ...b, content: text, isDirty: text !== b.savedContent },
   )
-  callAll(externalListeners, ref)
+  if (patched) callAll(externalListeners, ref)
 }
 
 /** Record `text` as what disk holds; the document is clean only if it still holds exactly that. */
