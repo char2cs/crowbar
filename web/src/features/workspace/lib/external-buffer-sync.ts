@@ -13,6 +13,24 @@ import {
 import { toast } from '@/features/window/stores/toast-store'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 
+const holding = (ref: DocumentRef) => (b: PaneContent) =>
+  isEditorContent(b) && !b.isVirtual && sameDocument(documentRefOf(b), ref)
+
+/** A dirty buffer whose file changed on disk keeps its edits; it is flagged and the user told once. */
+export function flagExternalChange(ref: DocumentRef): void {
+  const holder = windowPaneStore.getState().buffers.find(holding(ref))
+  if (!holder || !isEditorContent(holder) || !holder.isDirty || holder.hasExternalChange) return
+  windowPaneStore.setState((state) => ({
+    buffers: state.buffers.map((b) =>
+      b.id === holder.id && isEditorContent(b) ? { ...b, hasExternalChange: true } : b,
+    ),
+  }))
+  toast.warning(
+    `${holder.name} changed on disk`,
+    'Your unsaved changes are kept. Saving will overwrite the on-disk version.',
+  )
+}
+
 /**
  * Reconcile an open editor buffer with an external on-disk change (e.g.
  * `git restore`, another tool writing the file). Matches real-IDE behaviour:
@@ -26,8 +44,7 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
  */
 export async function syncBufferWithDisk(ref: DocumentRef): Promise<void> {
   const { path } = ref
-  const holds = (b: PaneContent) =>
-    isEditorContent(b) && !b.isVirtual && sameDocument(documentRefOf(b), ref)
+  const holds = holding(ref)
   const { pendingSaves, clearPendingSave } = useFileWatcherStore.getState()
   if (pendingSaves.has(path)) {
     // Echo of our own write — consume the marker, nothing to reconcile.
@@ -52,25 +69,11 @@ export async function syncBufferWithDisk(ref: DocumentRef): Promise<void> {
     // write echoing back, not an external edit. Mirrors the restore-path guard
     // in reconcileBuffer below (disk === saved text).
     const disk = await readDocumentFromDisk(ref)
-    if (disk === null) return
+    if (disk === null || disk === savedDocumentText(ref)) return // own-write echo — nothing diverged
 
-    // Re-read at apply time: the user may have edited/closed the buffer, or a
-    // concurrent echo may have already flagged it, while the read was in flight.
-    const current = windowPaneStore.getState().buffers.find(holds)
-    if (!current || !isEditorContent(current) || !current.isDirty || current.hasExternalChange) {
-      return
-    }
-    if (disk === savedDocumentText(ref)) return // own-write echo — nothing diverged
-
-    windowPaneStore.setState((state) => ({
-      buffers: state.buffers.map((b) =>
-        holds(b) && isEditorContent(b) && b.isDirty ? { ...b, hasExternalChange: true } : b,
-      ),
-    }))
-    toast.warning(
-      `${current.name} changed on disk`,
-      'Your unsaved changes are kept. Saving will overwrite the on-disk version.',
-    )
+    // Re-checked at apply time: the buffer may have been saved, closed or
+    // already flagged while the read was in flight.
+    flagExternalChange(ref)
     return
   }
 
@@ -132,10 +135,6 @@ export function reconcileHostBuffersWithDisk(): Promise<void> {
 
 function setBufferFileMissing(ref: DocumentRef, fileMissing: boolean): void {
   windowPaneStore.setState((state) => ({
-    buffers: state.buffers.map((b) =>
-      isEditorContent(b) && !b.isVirtual && sameDocument(documentRefOf(b), ref)
-        ? { ...b, fileMissing }
-        : b,
-    ),
+    buffers: state.buffers.map((b) => (holding(ref)(b) ? { ...b, fileMissing } : b)),
   }))
 }

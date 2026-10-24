@@ -435,6 +435,25 @@ describe('buffer-save — Save As onto a document that is already open', () => {
     expect(bufferById(target).isDirty).toBe(true)
   })
 
+  it('a target edited during the write keeps its edits and is flagged as changed on disk', async () => {
+    const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
+    const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
+    const write = deferredWrite()
+    const warning = vi.spyOn(toast, 'warning')
+
+    const save = saveActiveBuffer()
+    await write.begun
+    replaceDocumentText(FOO, 'their edits')
+    write.finish()
+
+    expect(await save).toBe(true)
+    expect(textOf(FOO)).toEqual({ text: 'their edits', saved: 'old' })
+    expect(bufferById(target)).toMatchObject({ isDirty: true, hasExternalChange: true })
+    expect(warning).toHaveBeenCalledWith('foo.ts changed on disk', expect.any(String))
+    expect(tabsOf(ROOT_PANE_ID)).toEqual({ tabs: [target], active: target })
+    expect(bufferById(untitled)).toBeUndefined()
+  })
+
   it('a failed write onto an open document changes nothing and says why', async () => {
     const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
     const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })

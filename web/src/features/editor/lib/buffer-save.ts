@@ -30,6 +30,7 @@ import { requestGitRefresh } from '@/features/git/stores/git-refresh'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { isEditorContent, type EditorContent } from '@/features/panes/types/pane-content'
 import { useSettingsStore } from '@/features/settings/store'
+import { flagExternalChange } from '@/features/workspace/lib/external-buffer-sync'
 import { toast } from '@/features/window/stores/toast-store'
 
 /** Quiet period after the last edit before an autosave write. */
@@ -117,9 +118,14 @@ async function formatBeforeSave(ref: DocumentRef, text: string): Promise<string 
 function adoptSavedAs(untitled: PathedBuffer, holder: EditorContent, written: string): void {
   const ref = documentRefOf(holder)
   const typed = documentText(documentRefOf(untitled))
-  applyExternalText(ref, written, { saved: true })
-  // Edits typed into the untitled tab while the write ran stay, unsaved.
-  if (typed !== null && typed !== written) replaceDocumentText(ref, typed)
+  if (documentText(ref) !== savedDocumentText(ref)) {
+    // Edited during the write: the rule for any disk change under unsaved edits.
+    flagExternalChange(ref)
+  } else {
+    applyExternalText(ref, written, { saved: true })
+    // Edits typed into the untitled tab while the write ran stay, unsaved.
+    if (typed !== null && typed !== written) replaceDocumentText(ref, typed)
+  }
   patchEditorBuffer(holder.id, (b) => ({ ...b, isPreview: false }))
   windowPaneStore.getState().paneActions.replaceEditorTab(untitled.id, holder.id)
 }
