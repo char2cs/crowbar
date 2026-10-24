@@ -14,10 +14,10 @@ type Subagent struct {
 }
 
 // scopeKeys is a subagent scope as its rows left it. Outlived: a main-scope
-// turn end came after it opened.
+// turn end came after it opened. Exited: its runner is gone, its stop may not.
 type scopeKeys struct {
-	turnID                     string
-	started, stopped, outlived bool
+	turnID, runnerID                   string
+	started, stopped, outlived, exited bool
 }
 
 // ScopeTurn is the turn that spawned scope.
@@ -32,11 +32,11 @@ func (s State) ScopeOpen(scope string) bool {
 	return sc.started && !sc.stopped
 }
 
-// ScopeWaits reports whether scope is open and no turn end came after it
-// opened: what it asks is waited on.
+// ScopeWaits reports whether scope is open, its runner lives, and no turn end
+// came after it opened: what it asks is waited on.
 func (s State) ScopeWaits(scope string) bool {
 	sc := s.keys.scopes[scope]
-	return sc.started && !sc.stopped && !sc.outlived
+	return sc.started && !sc.stopped && !sc.outlived && !sc.exited
 }
 
 // HasScopePhase reports whether scope's phase is already recorded.
@@ -59,7 +59,7 @@ func (s *State) applySubagent(r Row) {
 	k := s.keys.init()
 	sc, ok := k.scopes[r.Scope]
 	if !ok {
-		sc.turnID = r.TurnID
+		sc.turnID, sc.runnerID = r.TurnID, k.runnerOf(r.TurnID)
 	}
 	switch body.Phase {
 	case SubagentStart:
@@ -88,6 +88,6 @@ func (s *State) outliveScopes(r Row) {
 func (s *State) spawnScope(scope, turnID string) {
 	k := s.keys.init()
 	if _, ok := k.scopes[scope]; !ok {
-		k.scopes[scope] = scopeKeys{turnID: turnID, started: true}
+		k.scopes[scope] = scopeKeys{turnID: turnID, runnerID: k.runnerOf(turnID), started: true}
 	}
 }

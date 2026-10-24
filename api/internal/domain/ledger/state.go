@@ -29,7 +29,8 @@ type State struct {
 }
 
 // keepTurns is how many of the newest main turns keep their keys: a retried
-// or late hook names the running turn or the one before it.
+// or late hook names the running turn or the one before it. A scope still
+// open outlives its turn's keys until it stops or its runner exits.
 const keepTurns = 2
 
 // keys are the natural keys of the newest turns' facts.
@@ -79,10 +80,20 @@ func (k *keys) openTurn(turnID, providerTurnID, runnerID string) {
 	maps.DeleteFunc(k.provider, func(_, t string) bool { return t == gone })
 	maps.DeleteFunc(k.messages, func(_ string, m messageKeys) bool { return m.turnID == gone })
 	maps.DeleteFunc(k.tools, func(_ string, t toolKeys) bool { return t.turnID == gone })
-	maps.DeleteFunc(k.scopes, func(_ string, s scopeKeys) bool { return s.turnID == gone && s.stopped })
+	maps.DeleteFunc(k.scopes, func(_ string, s scopeKeys) bool { return s.turnID == gone && (s.stopped || s.exited) })
 	maps.DeleteFunc(k.asks, func(_ string, a PendingAsk) bool { return a.TurnID == gone })
 	delete(k.lastMain, gone)
 	delete(k.replies, gone)
+}
+
+// runnerOf is the runner of kept turn turnID; "" when it is not kept.
+func (k keys) runnerOf(turnID string) string {
+	for _, t := range k.turns {
+		if t.id == turnID {
+			return t.runnerID
+		}
+	}
+	return ""
 }
 
 // ProviderTurn is the kept turn the provider names providerTurnID.

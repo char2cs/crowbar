@@ -43,13 +43,14 @@ func TestState_AScopeATurnEndOutlivedIsNotWaitedOn(t *testing.T) {
 	assert.True(t, st.ScopeWaits("B"), "one opened after the end outlives it, as a delegated agent does")
 }
 
-func TestState_ARunnersExitStopsEveryScope(t *testing.T) {
+func TestState_ARunnersExitLeavesItsScopesNothingWaitsOn(t *testing.T) {
 	st := ledger.Fold("c1", sequenced(t,
 		turnStart(t, "T1"), subagent(t, "A", ledger.SubagentStart),
 		row(t, ledger.KindRunnerExited, "", ledger.RunnerExited{RunnerID: "run-1", Reason: "exited"}),
 	))
 
-	assert.False(t, st.ScopeOpen("A"))
+	assert.False(t, st.ScopeWaits("A"))
+	assert.True(t, st.ScopeOpen("A"), "its late reports still reach it")
 }
 
 func TestCheck_ASubagentRowNeedsItsScope(t *testing.T) {
