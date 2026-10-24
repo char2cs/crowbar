@@ -133,6 +133,41 @@ func TestRegression_DanglingSymlinkWriteRefused(t *testing.T) {
 	assert.ErrorIs(t, err, os.ErrNotExist)
 }
 
+// TestRegression_MissingWorktreeStillOwnsItsPaths proves a path under a
+// worktree gone from disk stays that workspace's document: a save meets the
+// workspace's lock instead of going out as a host file, and nothing is written.
+func TestRegression_MissingWorktreeStillOwnsItsPaths(t *testing.T) {
+	h := newHarness(t)
+	imported := importProject(t, h)
+	worktree := workspaceWorktree(t, h, imported)
+	require.NoError(t, os.RemoveAll(worktree))
+	abs := filepath.Join(worktree, "README.md")
+
+	h.mutationError(http.MethodPut, documentsContent, map[string]string{"path": abs, "content": "x"}, http.StatusConflict)
+	_, err := os.Stat(abs)
+	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+// TestRegression_UnicodeSpellingsAreOneDocument proves a file's NFC and NFD
+// spellings resolve to one document, spelled as on disk, on a volume that
+// treats them as one name.
+func TestRegression_UnicodeSpellingsAreOneDocument(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	worktree := workspaceWorktree(t, h, imported)
+	nfc, nfd := "caf\u00e9.md", "cafe\u0301.md"
+	require.NoError(t, os.WriteFile(filepath.Join(worktree, nfd), []byte("x\n"), 0o600))
+	if _, err := os.Stat(filepath.Join(worktree, nfc)); err != nil {
+		t.Skip("normalization-sensitive volume")
+	}
+
+	for _, typed := range []string{nfd, nfc} {
+		var doc documentRef
+		h.get(documentsContent+"?path="+url.QueryEscape(filepath.Join(worktree, typed)), &doc)
+		assert.Equal(t, documentRef{Authority: "workspace", WorkspaceID: imported.workspaceID, Path: nfd}, doc, typed)
+	}
+}
+
 // refusal makes a request the daemon must refuse with 403 and answers the error
 // envelope's machine-readable code.
 func refusal(t *testing.T, h *harness, method string, path string, body any) string {

@@ -174,9 +174,9 @@ describe('hydrateWindowPaneLayout', () => {
     expect(after.panes).toEqual(before.panes)
   })
 
-  it('restores the views, the stage and the buffers from the one window-session row', async () => {
-    const db = await getDB()
+  it('restores a v2 window-session row: views, stage, buffers that now name their file', async () => {
     const layout: WorkspaceLayout = {
+      version: 2,
       workspaceId: WINDOW_SESSION_ID,
       panes: {
         [ROOT_PANE_ID]: pane(ROOT_PANE_ID, null, { editorTabIds: ['buf-1'] }),
@@ -195,10 +195,10 @@ describe('hydrateWindowPaneLayout', () => {
       bottomLayout: createLeaf('bottom-pane'),
       activePaneId: 'pane-a',
       mostRecentActivePaneIds: ['pane-a'],
-      buffers: [buffer('buf-1')],
+      buffers: [{ ...buffer('buf-1'), authority: undefined } as never],
       updatedAt: Date.now(),
     }
-    await db.put('workspace-layout', layout)
+    await (await getDB()).put('workspace-layout', layout)
 
     await hydrateWindowPaneLayout()
 
@@ -207,8 +207,7 @@ describe('hydrateWindowPaneLayout', () => {
     expect(state.activeViewId).toBe('view-a')
     expect(state.activePaneId).toBe('pane-a')
     expect(getAllLeafIds(state.stage)).toEqual([ROOT_PANE_ID])
-    expect(state.buffers).toHaveLength(1)
-    expect(state.buffers[0]).toMatchObject({ id: 'buf-1', content: 'saved' })
+    expect(state.buffers).toMatchObject([{ id: 'buf-1', content: 'saved', authority: 'workspace' }])
   })
 
   // The one versioned load-time upgrade: a v1 member carried only its chat;

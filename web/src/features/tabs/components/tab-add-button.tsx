@@ -20,8 +20,8 @@ interface TabAddButtonProps {
 }
 
 /**
- * The tab strip's "+" — a dropdown offering the two things that can land in
- * this pane's editor view: a new (blank, unsaved) file, or a new terminal.
+ * The tab strip's "+" — a dropdown offering what can land in this pane's
+ * editor view: a new (blank, unsaved) file, a file from disk, or a terminal.
  * It is rendered as the LAST child inside the scrolling tab container (see
  * tab-bar.tsx), immediately after the last tab, so it flows and shifts
  * horizontally as tabs open and close — the same placement a browser's

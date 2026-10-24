@@ -4,6 +4,7 @@ import { editor as monacoEditor, languages, Uri } from 'monaco-editor/esm/vs/edi
 import { loadEditorHost, type EditorHost } from '@/features/editor/host/editor-host'
 import { activeEditors } from '@/features/editor/lib/active-editor-context'
 import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
+import { openUntitledDocument } from '@/features/editor/documents/open-document'
 import { workspaceRef } from '@/lib/api/documents'
 import { applyActiveBuffer } from '@/features/editor/lib/pane-editor-controller'
 import { usePaneEditorSatellites } from '@/features/editor/hooks/use-pane-editor-satellites'
@@ -32,6 +33,16 @@ function openSamePathInTwoWorkspaces() {
   const a = open('ws-a', 'AAAA')
   const b = open('ws-b', 'BBBB')
   return { a, b, paneId: windowPaneStore.getState().activePaneId }
+}
+
+function overrideLanguage(bufferId: string, languageOverride: string) {
+  act(() =>
+    windowPaneStore.setState((state) => ({
+      buffers: state.buffers.map((buf) =>
+        buf.id === bufferId && buf.type === 'editor' ? { ...buf, languageOverride } : buf,
+      ),
+    })),
+  )
 }
 
 function activate(paneId: string, bufferId: string) {
@@ -108,16 +119,23 @@ describe('usePaneEditorSatellites store → model reconcile', () => {
     activate(paneId, a)
     showActive(host, paneId)
     activate(paneId, b)
-    act(() =>
-      windowPaneStore.setState((state) => ({
-        buffers: state.buffers.map((buf) =>
-          buf.id === b && buf.type === 'editor' ? { ...buf, languageOverride: 'python' } : buf,
-        ),
-      })),
-    )
+    overrideLanguage(b, 'python')
 
     satellites()
 
     expect(monacoEditor.getModel(Uri.parse(A))?.getLanguageId()).toBe('json')
+  }, 120000)
+
+  it('an untitled buffer’s chosen language reaches its model', async () => {
+    languages.register({ id: 'python' })
+    const { paneId, host, satellites } = await mountPane()
+    const untitled = await openUntitledDocument('ws-a', paneId)
+    showActive(host, paneId)
+    satellites()
+
+    overrideLanguage(untitled, 'python')
+
+    const uri = documentUri(workspaceRef('ws-a', 'untitled:Untitled'))
+    expect(monacoEditor.getModel(Uri.parse(uri))?.getLanguageId()).toBe('python')
   }, 120000)
 })

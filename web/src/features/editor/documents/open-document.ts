@@ -20,7 +20,7 @@ import { documentName, documentRefOf, sameDocument } from './document-ref'
 
 export interface OpenDocumentOptions {
   preview?: boolean
-  /** The pane the tab lands in; omitted, the pane already showing it or the focused one. */
+  /** The pane a tab lands in when no pane holds the document yet; omitted, the focused one. */
   paneId?: string
   /** Called with the buffer about to be shown, before anything observes it shown. */
   beforeShow?: (bufferId: string) => void
@@ -46,13 +46,11 @@ function show(buffer: EditorContent, { paneId, beforeShow }: OpenDocumentOptions
   beforeShow?.(buffer.id)
   const { panes, paneActions } = windowPaneStore.getState()
   const holder = Object.values(panes).find((p) => p.editorTabIds.includes(buffer.id))
-  if (paneId && paneId !== holder?.id) {
-    paneActions.addEditorTabToPane(paneId, buffer)
-  } else if (holder) {
+  if (holder) {
     paneActions.setActivePane(holder.id)
     paneActions.activateEditorTabInPane(holder.id, buffer.id)
   } else {
-    paneActions.addEditorTabToPane(windowPaneStore.getState().activePaneId, buffer)
+    paneActions.addEditorTabToPane(paneId ?? windowPaneStore.getState().activePaneId, buffer)
   }
   return buffer.id
 }

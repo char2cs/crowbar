@@ -99,6 +99,21 @@ describe('openDocument', () => {
     expect(readDocument).not.toHaveBeenCalled()
   })
 
+  it('an open aimed at another pane shows the document in the pane holding it', async () => {
+    const ref = workspaceRef('w1', 'src/a.ts')
+    readDocument.mockResolvedValue({ ref, text: 'a' })
+    const holder = windowPaneStore.getState().activePaneId
+    const id = await openDocument(ref)
+    const other = windowPaneStore.getState().paneActions.splitPane(holder, 'horizontal')!
+
+    await openDocument(ref, { paneId: other })
+
+    const { panes, activePaneId } = windowPaneStore.getState()
+    expect(activePaneId).toBe(holder)
+    expect(panes[holder]?.activeEditorTabId).toBe(id)
+    expect(panes[other]?.editorTabIds).not.toContain(id)
+  })
+
   it('a refused host read says why and opens nothing', async () => {
     readDocument.mockRejectedValue(new ApiError('refused', 403, HOST_DOCUMENT_TRANSPORT_CODE))
 

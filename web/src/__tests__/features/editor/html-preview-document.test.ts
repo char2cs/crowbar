@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { buildHtmlPreviewDocument } from '@/features/editor/components/html/html-preview-document'
+import type { DocumentRef } from '@/lib/api/documents'
+import {
+  buildHostPreviewDocument,
+  buildHtmlPreviewDocument,
+} from '@/features/editor/components/html/html-preview-document'
 
 // The preview frame is sandboxed with an opaque origin and loaded from
 // srcdoc: a relative path resolves against nothing, so local assets must be
@@ -55,5 +59,33 @@ describe('buildHtmlPreviewDocument', () => {
     loadAsset.mockClear()
     await buildHtmlPreviewDocument('<img src="a.png"><img src="a.png">', loadAsset)
     expect(loadAsset).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('buildHostPreviewDocument', () => {
+  const files: Record<string, string> = {
+    '/site/css/a.css': 'h1{color:red}',
+    '/x.css': 'h1{color:blue}',
+    '/site/app.js': 'alert(1)',
+  }
+  const read = vi.fn(async (ref: DocumentRef) => files[ref.path] ?? '')
+  const build = (html: string) =>
+    buildHostPreviewDocument(html, { authority: 'host', path: '/site/index.html' }, read)
+
+  it('inlines its own stylesheets as <style> and reads nothing its policy blocks', async () => {
+    read.mockClear()
+    const doc = await build(
+      '<link rel="stylesheet" href="css/a.css"><link rel="stylesheet" href="../x.css"><script src="app.js"></script>',
+    )
+
+    expect(doc).toContain('<style>h1{color:red}</style>')
+    expect(doc).toContain('<link rel="stylesheet" href="../x.css">')
+    expect(doc).toContain('<script src="app.js"></script>')
+    expect(read.mock.calls.map(([ref]) => ref.path)).toEqual(['/site/css/a.css'])
+  })
+
+  it('keeps a stylesheet’s media query', async () => {
+    const doc = await build('<link media="print" rel="stylesheet" href="css/a.css">')
+    expect(doc).toContain('<style media="print">h1{color:red}</style>')
   })
 })

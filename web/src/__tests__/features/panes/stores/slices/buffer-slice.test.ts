@@ -1,6 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, onTestFinished, vi } from 'vitest'
 import {
   createWindowPaneStore,
+  resetWindowPaneStoreForTests,
+  windowPaneStore,
   type WindowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
@@ -228,6 +230,35 @@ describe('buffer-slice', () => {
     await vi.waitFor(() => expect(killTerminalSession).toHaveBeenCalledWith('sess-term'))
     expect(closeChat).not.toHaveBeenCalled()
   })
+
+  it('reopening a closed host document brings it back as a host document', async () => {
+    // The daemon answers a read with the ref it was asked for. The reopen's first
+    // dynamic import of the document API can take seconds to transform.
+    const echo = vi.fn(async (url: string) => {
+      const q = new URL(url, 'http://daemon').searchParams
+      const ref = q.has('workspace')
+        ? { authority: 'workspace', workspaceId: q.get('workspace'), path: q.get('path') }
+        : { authority: 'host', path: q.get('path') }
+      return new Response(JSON.stringify({ success: true, data: { ...ref, content: 'hi' } }))
+    })
+    vi.stubGlobal('fetch', echo)
+    onTestFinished(() => void vi.unstubAllGlobals())
+    resetWindowPaneStoreForTests()
+    const doc = { authority: 'host' as const, path: '/tmp/s5/notes.md' }
+    const { bufferActions, activePaneId } = windowPaneStore.getState()
+    const id = bufferActions.openContent({ type: 'editor', doc, name: 'notes.md', content: 'hi' })
+    closeTab(windowPaneStore, activePaneId, id)
+
+    windowPaneStore.getState().bufferActions.reopenLastClosedBuffer()
+
+    await vi.waitFor(
+      () =>
+        expect(windowPaneStore.getState().buffers).toEqual([
+          expect.objectContaining({ authority: 'host', path: doc.path, workspaceId: '' }),
+        ]),
+      { timeout: 15_000 },
+    )
+  }, 20_000)
 
   it('preview flag is set when isPreview is true', () => {
     const id = store.getState().bufferActions.openContent(editor('/b.ts', { isPreview: true }))

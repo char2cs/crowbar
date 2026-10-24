@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { resolveWorkspaceRootPath } from '@/lib/workspace/resolve-root-path'
+import { resolveWorkspaceRootPath, workspaceRootPath } from '@/lib/workspace/resolve-root-path'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { useProjectDataStore } from '@/lib/store/projects'
+import { recordWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
+import { success } from '@/lib/loadable'
 
 const { getActiveWorkspaceId } = vi.hoisted(() => ({
   getActiveWorkspaceId: vi.fn<() => string | null>(() => null),
@@ -30,6 +33,7 @@ const repo: Repo = {
 beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState({ repos: [repo] })
+  __resetWorkspaceScopesForTest()
   window.location.hash = ''
 })
 
@@ -52,5 +56,20 @@ describe('resolveWorkspaceRootPath', () => {
   it('returns undefined for an unknown workspace off the home route', () => {
     getActiveWorkspaceId.mockReturnValue('ws-unknown')
     expect(resolveWorkspaceRootPath()).toBeUndefined()
+  })
+})
+
+describe('workspaceRootPath', () => {
+  it('answers for the workspace it is given, whichever is active', () => {
+    getActiveWorkspaceId.mockReturnValue('ws-default')
+    expect(workspaceRootPath('ws-feature')).toBe('/disk/worktrees/feat')
+  })
+
+  it("maps a project's home workspace to the project's own path", () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'ws-home' })
+    useProjectDataStore.setState({
+      data: success([{ id: 'p1', path: '/disk/project' }] as never),
+    })
+    expect(workspaceRootPath('ws-home')).toBe('/disk/project')
   })
 })

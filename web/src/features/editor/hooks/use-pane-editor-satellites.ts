@@ -27,7 +27,6 @@ import type { EditorManager } from '@/features/editor/lib/editor-manager'
 import { documentRefOf, documentUri, refFromUri } from '@/features/editor/documents/document-ref'
 import { shouldReconcileModelFromStore } from '@/features/editor/lib/pane-editor-controller'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { documentBufferIn } from '@/features/editor/documents/open-document'
 import { isEditorContent, type PaneContent } from '@/features/panes/types/pane-content'
 import { getLanguageIdFromPath } from '../utils/language-id'
 import { useEditorOptions, useEditorTheme, useModelOptions } from './use-editor-appearance'
@@ -96,11 +95,14 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
   const doc = refFromUri(uri)
   const workspaceId = doc?.authority === 'workspace' ? doc.workspaceId : null
 
-  // The bound model's own buffer, not the active tab: the two differ while a
-  // swap is in flight, and another buffer's override must never land here.
-  const languageOverride = useStore(windowPaneStore, (state) =>
-    doc ? documentBufferIn(state.buffers, doc)?.languageOverride : undefined,
-  )
+  // The bound model's own buffer, untitled ones included, never the active tab:
+  // the two differ while a swap is in flight.
+  const languageOverride = useStore(windowPaneStore, (state) => {
+    const own = state.buffers.find(
+      (b) => isEditorContent(b) && documentUri(documentRefOf(b)) === uri,
+    )
+    return own && isEditorContent(own) ? own.languageOverride : undefined
+  })
   const languageId = languageOverride ?? getLanguageIdFromPath(filePath) ?? 'plaintext'
 
   useEditorTheme(editor)

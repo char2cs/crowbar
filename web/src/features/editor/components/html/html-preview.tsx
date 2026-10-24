@@ -3,21 +3,13 @@ import { readDocument, type DocumentRef } from '@/lib/api/documents'
 import { siblingRef } from '@/features/editor/documents/document-ref'
 import { usePreviewSource } from '@/features/editor/documents/use-preview-source'
 import { mimeForPath, toDataUrl } from '@/features/editor/lib/asset-data-url'
-import { buildHtmlPreviewDocument, withHostPreviewPolicy } from './html-preview-document'
+import { buildHostPreviewDocument, buildHtmlPreviewDocument } from './html-preview-document'
 
 // No `allow-same-origin`: combined with `allow-scripts` it lets the framed
 // document reach the parent Crowbar origin and remove its own sandbox. A host
 // document is any file on disk, so it gets no scripts at all.
 const WORKSPACE_SANDBOX = 'allow-scripts allow-forms allow-popups allow-modals'
 const HOST_SANDBOX = ''
-
-/** The asset `reference` names beside `doc`; a host document reaches only its own subtree. */
-function assetRef(doc: DocumentRef, reference: string): DocumentRef | null {
-  const ref = siblingRef(doc, reference)
-  if (doc.authority === 'workspace') return ref
-  const dir = doc.path.slice(0, doc.path.lastIndexOf('/') + 1)
-  return ref.path.startsWith(dir) ? ref : null
-}
 
 export function HtmlPreview({ bufferId }: { bufferId?: string }) {
   const source = usePreviewSource(bufferId)
@@ -29,15 +21,19 @@ export function HtmlPreview({ bufferId }: { bufferId?: string }) {
   // edit wins over a slower earlier build.
   useEffect(() => {
     let cancelled = false
+    const read = async (ref: DocumentRef) => (await readDocument(ref)).text
     const loadAsset = async (reference: string) => {
-      const ref = doc ? assetRef(doc, reference) : null
+      const ref = doc ? siblingRef(doc, reference) : null
       const mime = ref ? mimeForPath(ref.path) : null
       if (!ref || !mime) return null
-      return toDataUrl(mime, (await readDocument(ref)).text)
+      return toDataUrl(mime, await read(ref))
     }
-    void buildHtmlPreviewDocument(source.content, loadAsset).then((html) => {
-      if (cancelled) return
-      setIframeContent(doc?.authority === 'host' ? withHostPreviewPolicy(html) : html)
+    const built =
+      doc?.authority === 'host'
+        ? buildHostPreviewDocument(source.content, doc, read)
+        : buildHtmlPreviewDocument(source.content, loadAsset)
+    void built.then((html) => {
+      if (!cancelled) setIframeContent(html)
     })
     return () => {
       cancelled = true

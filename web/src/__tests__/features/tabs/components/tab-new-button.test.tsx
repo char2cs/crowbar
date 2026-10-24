@@ -1,34 +1,33 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { ComponentProps } from 'react'
 import { afterEach, describe, it, expect, vi } from 'vitest'
 import TabAddButton from '@/features/tabs/components/tab-add-button'
 
+/** The "+" of a top pane, with a no-op for every action the test does not watch. */
+function renderAddButton(props: Partial<ComponentProps<typeof TabAddButton>> = {}) {
+  render(
+    <TabAddButton
+      isBottomPane={false}
+      onNewFile={vi.fn()}
+      onNewTerminal={vi.fn()}
+      onOpenFile={vi.fn()}
+      {...props}
+    />,
+  )
+}
+
 describe('TabAddButton', () => {
   it('renders the + trigger button', () => {
-    render(
-      <TabAddButton
-        isBottomPane={false}
-        onNewFile={vi.fn()}
-        onNewTerminal={vi.fn()}
-        onOpenFile={vi.fn()}
-      />,
-    )
+    renderAddButton()
     expect(screen.getByRole('button', { name: 'New tab' })).toBeDefined()
   })
 
-  // Two things can land in a pane's editor view — a blank file, or a
-  // terminal — so a single default click can't pick one silently; the "+"
-  // opens a dropdown offering both.
+  // More than one thing can land in a pane's editor view, so a single default
+  // click can't pick one silently; the "+" opens a dropdown offering them.
   it('opens a dropdown offering New File and New Terminal', async () => {
     const user = userEvent.setup()
-    render(
-      <TabAddButton
-        isBottomPane={false}
-        onNewFile={vi.fn()}
-        onNewTerminal={vi.fn()}
-        onOpenFile={vi.fn()}
-      />,
-    )
+    renderAddButton()
 
     await user.click(screen.getByRole('button', { name: 'New tab' }))
 
@@ -39,14 +38,7 @@ describe('TabAddButton', () => {
   it('calls onNewFile when "New File" is chosen', async () => {
     const user = userEvent.setup()
     const onNewFile = vi.fn()
-    render(
-      <TabAddButton
-        isBottomPane={false}
-        onNewFile={onNewFile}
-        onNewTerminal={vi.fn()}
-        onOpenFile={vi.fn()}
-      />,
-    )
+    renderAddButton({ onNewFile })
 
     await user.click(screen.getByRole('button', { name: 'New tab' }))
     await user.click(await screen.findByRole('menuitem', { name: /New File/ }))
@@ -57,14 +49,7 @@ describe('TabAddButton', () => {
   it('calls onNewTerminal when "New Terminal" is chosen', async () => {
     const user = userEvent.setup()
     const onNewTerminal = vi.fn()
-    render(
-      <TabAddButton
-        isBottomPane={false}
-        onNewFile={vi.fn()}
-        onNewTerminal={onNewTerminal}
-        onOpenFile={vi.fn()}
-      />,
-    )
+    renderAddButton({ onNewTerminal })
 
     await user.click(screen.getByRole('button', { name: 'New tab' }))
     await user.click(await screen.findByRole('menuitem', { name: /New Terminal/ }))
@@ -73,14 +58,7 @@ describe('TabAddButton', () => {
   })
 
   it('is absent in the bottom pane', () => {
-    render(
-      <TabAddButton
-        isBottomPane={true}
-        onNewFile={vi.fn()}
-        onNewTerminal={vi.fn()}
-        onOpenFile={vi.fn()}
-      />,
-    )
+    renderAddButton({ isBottomPane: true })
     expect(screen.queryByRole('button', { name: 'New tab' })).toBeNull()
   })
 
@@ -94,14 +72,7 @@ describe('TabAddButton', () => {
       ;(window as TauriWindow).__TAURI_INTERNALS__ = {}
       const user = userEvent.setup()
       const onOpenFile = vi.fn()
-      render(
-        <TabAddButton
-          isBottomPane={false}
-          onNewFile={vi.fn()}
-          onNewTerminal={vi.fn()}
-          onOpenFile={onOpenFile}
-        />,
-      )
+      renderAddButton({ onOpenFile })
 
       await user.click(screen.getByRole('button', { name: 'New tab' }))
       await user.click(await screen.findByRole('menuitem', { name: /Open File…/ }))
@@ -111,14 +82,7 @@ describe('TabAddButton', () => {
 
     it('is not offered in the browser, which has no file dialog', async () => {
       const user = userEvent.setup()
-      render(
-        <TabAddButton
-          isBottomPane={false}
-          onNewFile={vi.fn()}
-          onNewTerminal={vi.fn()}
-          onOpenFile={vi.fn()}
-        />,
-      )
+      renderAddButton()
 
       await user.click(screen.getByRole('button', { name: 'New tab' }))
 

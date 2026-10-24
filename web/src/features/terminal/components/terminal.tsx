@@ -157,6 +157,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   )
   const { terminal, addons } = useXtermInstance({
     sessionId,
+    workspaceId,
     container,
     enabled: activated,
     write: writeFromTerminal,

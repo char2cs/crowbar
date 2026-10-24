@@ -3,6 +3,10 @@
 // inside Crowbar's editor. URLs are handled separately by the web-links addon;
 // this provider deliberately skips anything that is part of a URL.
 import type { IBufferLine, IDisposable, ILink, Terminal } from '@xterm/xterm'
+import { revealInEditor } from '@/features/editor/lib/reveal'
+import { workspaceRootPath } from '@/lib/workspace/resolve-root-path'
+import { toast } from '@/features/window/stores/toast-store'
+import { useTerminalStore } from '../stores/terminal-store'
 
 export interface FileLinkCandidate {
   /** The full matched text, including any trailing :line[:col] suffix. */
@@ -108,4 +112,31 @@ export function registerTerminalFileLinks(
       callback(links.length > 0 ? links : undefined)
     },
   })
+}
+
+/**
+ * File references open inside Crowbar: relative paths resolve against the
+ * session cwd when known, else the root of the terminal's own workspace (none:
+ * absolute paths only), and the daemon resolves the absolute path to its
+ * workspace's document or a host one.
+ */
+export function terminalFileLinksFor(
+  getSessionId: () => string,
+  getWorkspaceId: () => string | undefined,
+): TerminalFileLinksOptions {
+  return {
+    getRoot: () => {
+      const cwd = useTerminalStore.getState().getSession(getSessionId())?.currentDirectory
+      if (cwd?.startsWith('/')) return cwd
+      const workspaceId = getWorkspaceId()
+      return workspaceId ? workspaceRootPath(workspaceId) : undefined
+    },
+    openFile: (absolutePath, line) => {
+      const position = line ? { line: line - 1, character: 0 } : undefined
+      void revealInEditor({ doc: { absolutePath }, position })
+    },
+    onUnresolved: (candidateText) => {
+      toast.error('Cannot open file', `Could not resolve ${candidateText} to a path.`)
+    },
+  }
 }

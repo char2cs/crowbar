@@ -1,8 +1,20 @@
-import { describe, it, expect } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
+import type { ILinkProvider, Terminal } from '@xterm/xterm'
+
+const { revealInEditor } = vi.hoisted(() => ({ revealInEditor: vi.fn() }))
+vi.mock('@/features/editor/lib/reveal', () => ({ revealInEditor }))
+vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  getActiveWorkspaceId: () => 'ws-a',
+}))
+
 import {
   parseFileLinkCandidates,
+  registerTerminalFileLinks,
   resolveFileLinkPath,
+  terminalFileLinksFor,
 } from '@/features/terminal/lib/terminal-file-links'
+import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 
 describe('parseFileLinkCandidates', () => {
   it('matches a repo-relative path with a line suffix', () => {
@@ -85,5 +97,55 @@ describe('resolveFileLinkPath', () => {
   it('returns null without a usable root or for ~ paths', () => {
     expect(resolveFileLinkPath('web/a.ts', undefined)).toBeNull()
     expect(resolveFileLinkPath('~/notes.md', root)).toBeNull()
+  })
+})
+
+describe('terminalFileLinksFor', () => {
+  beforeEach(() => {
+    revealInEditor.mockReset()
+    const ws = (id: string, localPath: string) => ({ id, branch: id, localPath })
+    useSidebarStore.setState({
+      repos: [
+        {
+          id: 'r1',
+          defaultWorkspaceId: 'ws-main',
+          localPath: '/disk/repo',
+          workspaces: [ws('ws-a', '/disk/a'), ws('ws-b', '/disk/b')],
+        } as unknown as Repo,
+      ],
+    })
+  })
+
+  /** Clicks the first file link xterm would draw on a row reading `text`. */
+  function click(text: string, workspaceId: string | undefined) {
+    let provider: ILinkProvider | undefined
+    const terminal = {
+      registerLinkProvider: (p: ILinkProvider) => ((provider = p), { dispose: () => {} }),
+      buffer: { active: { getLine: () => ({ translateToString: () => text }) } },
+    } as unknown as Terminal
+    registerTerminalFileLinks(
+      terminal,
+      terminalFileLinksFor(
+        () => 'tab-1',
+        () => workspaceId,
+      ),
+    )
+    provider?.provideLinks(1, (links) => links?.[0]?.activate(new MouseEvent('click'), text))
+  }
+
+  it("resolves a relative link against its own terminal's workspace, not the active one", () => {
+    click('error in src/a.ts:10', 'ws-b')
+
+    expect(revealInEditor).toHaveBeenCalledExactlyOnceWith({
+      doc: { absolutePath: '/disk/b/src/a.ts' },
+      position: { line: 9, character: 0 },
+    })
+  })
+
+  it('a terminal of no workspace opens absolute links only', () => {
+    click('error in src/a.ts:10', undefined)
+    click('see /etc/hosts', undefined)
+
+    expect(revealInEditor.mock.calls).toEqual([[{ doc: { absolutePath: '/etc/hosts' } }]])
   })
 })
