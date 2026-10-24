@@ -3,8 +3,13 @@ import { PlusIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
 import { performRenameProject } from '@/components/sidebar/lib/row-actions'
+import { cn } from '@/lib/utils'
 import type { Project } from '@/lib/types'
 import { EditableProjectIcon, ProjectIconMark } from './project-icon-mark'
+
+// One tile size and radius for every mark on the line, so the active project,
+// the others and the dashed `+` read as a set (proportioned to the 19px name).
+const TILE = 'flex size-7 shrink-0 items-center justify-center rounded-[8px] border'
 
 interface SidebarProjectSwitcherProps {
   /** Every open project. With none and no `onAddProject`, nothing renders. */
@@ -38,12 +43,14 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
   return (
     <div
       data-testid="sidebar-project-switcher"
-      className="flex shrink-0 items-center gap-1 px-2 pt-1.5"
+      className="flex h-11 shrink-0 items-center gap-2 overflow-hidden px-3"
     >
-      <div className="flex min-w-0 flex-1 items-center gap-2 pl-1">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         {active && (
           <>
-            <EditableProjectIcon project={active} size="lg" />
+            <span className={cn(TILE, 'border-border bg-sidebar-element-hover')}>
+              <EditableProjectIcon project={active} size="lg" />
+            </span>
             {renamingId === active.id ? (
               <InlineRenameInput
                 defaultValue={active.name}
@@ -72,7 +79,10 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
           variant="ghost"
           size="icon-sm"
           data-testid="space-mark"
-          className="shrink-0 rounded-sm text-muted-foreground opacity-60 hover:bg-sidebar-element-hover hover:opacity-100"
+          className={cn(
+            TILE,
+            'border-border bg-sidebar-element-hover p-0 opacity-80 hover:opacity-100',
+          )}
           tooltip={project.name}
           tooltipSide="bottom"
           aria-label={project.name}
@@ -85,7 +95,10 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
           onClick={onAddProject}
           variant="ghost"
           size="icon-sm"
-          className="shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover"
+          className={cn(
+            TILE,
+            'border-dashed border-border bg-transparent p-0 text-muted-foreground hover:bg-sidebar-element-hover',
+          )}
           tooltip="Add space"
           tooltipSide="bottom"
           aria-label="Add space"
