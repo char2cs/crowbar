@@ -67,16 +67,20 @@ func fixtureRetaining(wait, retention time.Duration) (*answerdesk.Desk, *answerd
 	return d, slot
 }
 
-func TestAwait_TheBudgetExpiringPrintsNothingAndFreesTheSlot(t *testing.T) {
+// A relay whose budget runs out prints nothing, so its CLI asks the question
+// itself: the desk closes it as proceeded past, once.
+func TestAwait_TheBudgetExpiringPrintsNothingAndClosesItsQuestion(t *testing.T) {
 	t.Parallel()
-	d, _ := fixture(time.Millisecond)
+	d, _, ledger := withLedger(time.Millisecond)
 
 	answer, err := d.Await(context.Background(), "choice-1")
+	d.Abandon(context.Background(), "choice-1")
 
 	require.NoError(t, err)
 	assert.Empty(t, answer.Stdout)
 	_, waiting := d.Pending("choice-1")
 	assert.False(t, waiting, "an expired wait must not leave a slot an answer could reach")
+	assert.Equal(t, []resolution{{"chat-1", "choice-1", domain.ChoiceResolutionProceeded}}, ledger.all())
 }
 
 // A relay that stops waiting leaves its ask to be retired: abandoned, its

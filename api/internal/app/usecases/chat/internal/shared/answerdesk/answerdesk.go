@@ -120,13 +120,9 @@ func (d *Desk) Pending(askID string) (PendingAnswer, bool) {
 	return PendingAnswer{ChoiceID: slot.ChoiceID, Wait: Wait(slot.Keys.Wait)}, true
 }
 
-// Await blocks the relay held on askID until a person answers, its declared
-// budget expires, or ctx is cancelled. It returns the stdout the relay must
-// print — empty when nobody answered in time. A relay that stops waiting leaves
-// its ask held, for Abandon or its runner's release to retire.
-//
-// A verdict is claimed by EXACTLY ONE relay: one arriving after the answer was
-// claimed gets nothing rather than replaying it into a CLI that already acted.
+// Await blocks the relay held on askID until a person answers, claimed by exactly
+// one relay; until its budget runs out, when its CLI asks itself and the question
+// closes as proceeded; or until ctx ends, leaving the ask to Abandon.
 func (d *Desk) Await(ctx context.Context, askID string) (HookAnswer, error) {
 	slot, held := d.held(askID)
 	if !held {
@@ -147,7 +143,9 @@ func (d *Desk) Await(ctx context.Context, askID string) (HookAnswer, error) {
 		if stdout, claimed := d.claim(slot); claimed {
 			return HookAnswer{Stdout: stdout}, nil
 		}
-		d.release(slot)
+		if d.release(slot) {
+			d.record(context.WithoutCancel(ctx), slot, domain.ChoiceResolutionProceeded, "agent: answer: budget ran out")
+		}
 		return HookAnswer{}, nil
 	case <-ctx.Done():
 		return HookAnswer{}, ctx.Err()
@@ -272,15 +270,18 @@ func (d *Desk) claim(slot *Slot) ([]byte, bool) {
 	return slot.stdout, true
 }
 
-func (d *Desk) release(slot *Slot) {
+// release frees slot's relay unanswered, and reports whether it did: a verdict
+// that landed meanwhile keeps it.
+func (d *Desk) release(slot *Slot) bool {
 	defer d.announce(slot.ChatID)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.claimableLocked(slot) {
-		return
+		return false
 	}
 	d.forgetLocked(slot)
 	slot.settle(nil)
+	return true
 }
 
 func (d *Desk) dropExpired() {

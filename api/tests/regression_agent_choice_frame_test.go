@@ -144,7 +144,9 @@ func TestRegression_SeveralChoicesRideOneFrameAndEachAnswerShrinksIt(t *testing.
 	}))
 }
 
-func TestRegression_AChoiceWhoseRelayExpiredIsPushedAsUnanswerable(t *testing.T) {
+// A relay that waits out its budget prints nothing and its CLI asks the question
+// itself: the choice closes as proceeded, and no card is left.
+func TestRegression_AChoiceWhoseRelayExpiredIsClosedAsProceeded(t *testing.T) {
 	descriptor := strings.Replace(answerStubProviderDescriptorYAML, "timeout_seconds: 5", "timeout_seconds: 1", 1)
 	c := newChoiceFrameChat(t, descriptor)
 	conn := c.dial()
@@ -157,8 +159,12 @@ func TestRegression_AChoiceWhoseRelayExpiredIsPushedAsUnanswerable(t *testing.T)
 	// The relay waits out its budget and is released with nobody having answered.
 	c.h.post("/v0/projects/"+c.imported.projectID+"/repos/"+c.imported.repoID+"/chats/hooks/await",
 		map[string]string{"ask_id": choiceID}, http.StatusOK, nil)
-	readUntil(t, conn, c.choiceFrame(func(choices []map[string]any) bool {
-		return len(choices) == 1 && choices[0]["id"] == choiceID &&
-			choices[0]["pending"] == true && choices[0]["answerable"] == false
-	}))
+	readUntil(t, conn, c.choiceFrame(func(choices []map[string]any) bool { return len(choices) == 0 }))
+	var activity struct {
+		Choices []struct{ ID, Resolution string } `json:"choices"`
+	}
+	c.h.get(repoBase(c.imported)+"/chats/"+c.chatID+"/activity", &activity)
+	require.Len(t, activity.Choices, 1)
+	require.Equal(t, choiceID, activity.Choices[0].ID)
+	require.Equal(t, "proceeded", activity.Choices[0].Resolution, "its CLI went on without Crowbar's answer")
 }
