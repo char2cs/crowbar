@@ -29,7 +29,12 @@ function FootRow({
   return (
     <button
       type="button"
-      className={cn(ROW_BASE, ROW_INACTIVE, 'w-[calc(100%-0.75rem)] text-left')}
+      // Muted like the tab strip's "+" (tab-add-button.tsx): verbs, not content rows.
+      className={cn(
+        ROW_BASE,
+        ROW_INACTIVE,
+        'w-[calc(100%-0.75rem)] text-left text-muted-foreground',
+      )}
       onClick={onClick}
     >
       <span className={ROW_GLYPH_BOX}>{icon}</span>
