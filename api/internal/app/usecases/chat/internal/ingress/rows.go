@@ -301,8 +301,8 @@ func lastText(texts []liveText, turnID string) string {
 	return out
 }
 
-// abandonAsks close turnID's open asks its end, async or not, leaves nothing
-// to answer.
+// abandonAsks closes the open asks of turnID that its end leaves nothing to
+// answer: an async end keeps the held ones (ledger.Ask.OutlivesEnd).
 func abandonAsks(st ledger.State, turnID string, async bool) ([]ledger.Row, error) {
 	var rows []ledger.Row
 	for _, a := range st.PendingAsks() {
