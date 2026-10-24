@@ -165,6 +165,8 @@ func (r *Recorder) Dispatch(
 		src.Scope = ev.SessionID
 	}
 	switch {
+	case src.Scope == "" && ev.Kind == engineagents.HookSessionStart && !startsOn(st, runner.ID):
+		return nil, "", fmt.Errorf("agent: hook: a past runner's session: %w", seam.ErrHookNotRecorded)
 	case src.Scope == "" && ev.Kind == engineagents.HookSessionStart:
 		return nil, "", r.runners.HandleSessionStart(ctx, runner, ev)
 	case ev.Kind == engineagents.HookSessionEnd:
@@ -242,11 +244,7 @@ func (r *Recorder) promptOf(
 		text = worktreepath.RestoreDurableAttachmentRefs(text, chatsDir, chat.ID)
 	}
 	sigils, escape := agent.PromptLeadingSigils()
-	text = promptsigil.Strip(sigils, escape, chat.ID, text)
-	if err := r.titles.RenameChat(ctx, chat.ID, deriveTitle(text), "derived"); err != nil {
-		slog.WarnContext(ctx, "agent: ingest hook: derived title", "err", err, "chat_id", chat.ID)
-	}
-	return Prompt{Text: text, Origin: ledger.OriginProvider}
+	return Prompt{Text: promptsigil.Strip(sigils, escape, chat.ID, text), Origin: ledger.OriginProvider}
 }
 
 func harnessSaid(agent engineagents.Agent, text string) bool {
@@ -279,6 +277,11 @@ func (r *Recorder) commit(
 	}
 	if fx.Live != nil {
 		r.publishLive(chat, runnerID, *fx.Live)
+	}
+	if fx.Title != "" {
+		if err := r.titles.RenameChat(ctx, chat.ID, deriveTitle(fx.Title), "derived"); err != nil {
+			slog.WarnContext(ctx, "agent: ingest hook: derived title", "err", err, "chat_id", chat.ID)
+		}
 	}
 	if fx.Ended != "" {
 		r.live.forget(chat.ID, runnerID, fx.Ended)
@@ -328,6 +331,18 @@ func (r *Recorder) chatForRunner(ctx context.Context, runner engineagents.Runner
 		return domain.Chat{}, fmt.Errorf("agent: hook: chat: %w", err)
 	}
 	return chat, nil
+}
+
+// Mark appends row to runner's chat; a chat gone is errChatGone.
+func (r *Recorder) Mark(ctx context.Context, runner engineagents.Runner, row ledger.Row) error {
+	chat, err := r.chatForRunner(ctx, runner)
+	if err != nil {
+		return err
+	}
+	if _, _, err := r.ledger.Append(ctx, chat.ID, row); err != nil {
+		return fmt.Errorf("agent: hook: mark: %w", err)
+	}
+	return nil
 }
 
 // RecordTelemetry records a usage report runner sent over its hook channel. It

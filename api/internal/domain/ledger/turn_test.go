@@ -187,6 +187,21 @@ func TestEndTurnOf_AnEndThatClosesNothingIsALateRow(t *testing.T) {
 	assert.Equal(t, "T1", r.TurnID)
 }
 
+// A past runner's late end names no provider turn: it is about the newest turn
+// that runner ran, never the one running now.
+func TestEndTurnOf_APastRunnersLateEndNamesItsOwnTurn(t *testing.T) {
+	st := ledger.Fold("c1", sequenced(t,
+		started(t, "r1"), turnStarted(t, "T1", "r1"), turnEnded(t, "T1", ledger.TurnEnded{Status: "done", RunnerID: "r1"}),
+		started(t, "r2"), turnStarted(t, "T2", "r2"),
+	))
+
+	r, closes, err := ledger.EndTurnOf(st, "r1", "", ledger.TurnEnded{Status: "done"})
+
+	require.NoError(t, err)
+	assert.False(t, closes)
+	assert.Equal(t, "T1", r.TurnID)
+}
+
 // The background-work clause reads the live runner's last restatement, late or
 // not: a late one clears it, and another runner's late end changes nothing.
 func TestFold_ALateEndRestatesTheLiveRunnersBackgroundWork(t *testing.T) {

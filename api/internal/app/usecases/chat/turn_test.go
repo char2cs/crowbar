@@ -980,16 +980,16 @@ func TestHook_AnUnknownRunnerIsRefusedAndDeadLettered(t *testing.T) {
 	assert.Equal(t, 1, deadLetters(t, f))
 }
 
-// Once the PTY is gone the runner is gone, and a late hook from it changes
-// nothing. (Liveness has exactly one source: the process.)
-func TestHook_AnExitedRunnersHookIsRefused(t *testing.T) {
+// Once the PTY is gone no turn opens on its runner: a late prompt from it
+// changes nothing. (Liveness has exactly one source: the process.)
+func TestHook_AnExitedRunnersPromptOpensNothing(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
 	f.wait()
 	f.bc.reset()
 
-	lateHook(t, f, runnerID, "claude", "user_prompt", map[string]any{"prompt": "a ghost speaks"})
+	hook(t, f, runnerID, "claude", "user_prompt", map[string]any{"prompt": "a ghost speaks"})
 
 	assert.Empty(t, f.bcKinds(t))
 	handoff, err := f.usecase.AssembleHandoff(f.ctx, chatID)
@@ -1921,8 +1921,8 @@ func TestSwitchProvider_BackgroundWork_IsRefusedUntilItEnds(t *testing.T) {
 }
 
 // A stopped Claude still finishing its text after a switch to Codex: what it
-// streamed is kept under Claude when it exits, and its late turn_stop finds no
-// runner, so nothing of it lands under Codex.
+// streamed is kept under Claude when it exits, and its late turn_stop lands in
+// its own turn, so nothing of it lands under Codex.
 func TestRegression_InterruptedTurnGraduallyFinishingIsNotMisattributedToTheNextProvider(t *testing.T) {
 	f := newFixture(t)
 
@@ -1955,7 +1955,7 @@ func TestRegression_InterruptedTurnGraduallyFinishingIsNotMisattributedToTheNext
 			"session_id":             "s1",
 			"last_assistant_message": "Valve Software: The Reluctant Giant",
 		}))
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.NoError(t, err)
 	f.wait()
 
 	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)

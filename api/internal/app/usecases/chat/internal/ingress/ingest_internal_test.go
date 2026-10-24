@@ -319,6 +319,26 @@ func TestRecorder_AnotherSessionsEventIsForeignUnlessNested(t *testing.T) {
 	assert.Equal(t, "child", rows[len(rows)-1].Scope)
 }
 
+// A runner past its exit still says what it said, in its own turn; it moves
+// the chat onto no session.
+func TestRecorder_AnExitedRunnersLastWordsAreItsTurns(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
+	require.NoError(t, err)
+	exit, err := ledger.Exit(f.state(t), ledger.RunnerExited{RunnerID: "run-1", Reason: "exited"}, "exited")
+	require.NoError(t, err)
+	_, _, err = f.ledger.Append(t.Context(), testChat, exit...)
+	require.NoError(t, err)
+
+	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, Message: "the last word"})
+	require.NoError(t, err)
+	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookSessionStart, SessionID: "s-late"})
+
+	require.ErrorIs(t, err, seam.ErrHookNotRecorded)
+	assert.Empty(t, f.runners.started)
+	assert.Equal(t, []string{"the last word"}, said(f.rows(t)))
+}
+
 func TestRecorder_AHeldAskIsParkedOnTheDesk(t *testing.T) {
 	f := newRecorderFixture(t, "claude")
 	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})

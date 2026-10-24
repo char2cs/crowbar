@@ -21,6 +21,13 @@ import (
 type fakeRunners struct {
 	mu   sync.Mutex
 	byID map[string]engineagents.Runner
+	// recorded are the runners only their chats' ledgers still know.
+	recorded map[string]engineagents.Runner
+}
+
+func (r *fakeRunners) RecordedRunner(_ context.Context, id string) (engineagents.Runner, bool, error) {
+	runner, ok := r.recorded[id]
+	return runner, ok, nil
 }
 
 func (r *fakeRunners) RunnerByID(id string) (engineagents.Runner, bool) {
@@ -69,6 +76,7 @@ type dispatched struct {
 
 type fakeTurns struct {
 	dispatched []dispatched
+	marked     []ledger.Row
 	telemetry  int
 	reply      []byte
 	ask        string
@@ -80,6 +88,14 @@ type fakeTurns struct {
 func (t *fakeTurns) RecordTelemetry(context.Context, engineagents.Runner, engineagents.Agent, []byte) error {
 	t.telemetry++
 	return t.err
+}
+
+func (t *fakeTurns) Mark(_ context.Context, _ engineagents.Runner, row ledger.Row) error {
+	if t.err != nil {
+		return t.err
+	}
+	t.marked = append(t.marked, row)
+	return nil
 }
 
 func (t *fakeTurns) Dispatch(
@@ -94,14 +110,8 @@ func (t *fakeTurns) Dispatch(
 }
 
 type fakeLedger struct {
-	appended    map[string][]ledger.Row
 	letters     []ledgerstore.DeadLetter
 	failLetters error
-}
-
-func (l *fakeLedger) Append(_ context.Context, chatID string, rows ...ledger.Row) ([]ledger.Row, ledger.State, error) {
-	l.appended[chatID] = append(l.appended[chatID], rows...)
-	return rows, ledger.State{}, nil
 }
 
 func (*fakeLedger) DeadLetterCount(context.Context, ...string) (int, error) { return 0, nil }
@@ -130,7 +140,7 @@ func newFixture() fixture {
 		}},
 		descriptors: &fakeDescriptors{},
 		turns:       &fakeTurns{},
-		ledger:      &fakeLedger{appended: map[string][]ledger.Row{}},
+		ledger:      &fakeLedger{},
 		locks:       NewLocks(),
 	}
 	f.ingress = New(Deps{
@@ -175,8 +185,8 @@ func TestHook_UnmappablePayloadRecordsAMarkerAndIsRefused(t *testing.T) {
 
 	require.ErrorIs(t, err, ErrUnmappable)
 	require.ErrorIs(t, err, apperr.ErrUnprocessable)
-	require.Len(t, f.ledger.appended["chat-1"], 1, "one marker on the runner's chat")
-	marker, decodeErr := ledger.DecodeBody[ledger.Marker](f.ledger.appended["chat-1"][0])
+	require.Len(t, f.turns.marked, 1, "one marker on the runner's chat")
+	marker, decodeErr := ledger.DecodeBody[ledger.Marker](f.turns.marked[0])
 	require.NoError(t, decodeErr)
 	assert.Equal(t, ledger.MarkerDeadLetter, marker.Kind)
 	assert.Equal(t, "user_prompt: "+f.descriptors.agent.err.Error(), marker.Detail)
@@ -271,22 +281,37 @@ func TestHook_ASenderThatGivesUpWaitingForTheChatIsDeadLettered(t *testing.T) {
 	})
 }
 
-func TestHook_ARunnerRemovedWhileTheHookWaitedIsUnknown(t *testing.T) {
+// A runner that exited while its hook waited for the chat still takes it: the
+// hook is its, on its chat.
+func TestHook_ARunnerThatExitedWhileItsHookWaitedStillTakesIt(t *testing.T) {
 	f := newFixture()
 	f.descriptors.resolved = make(chan struct{})
 	unlock := f.hold(t)
 	done := make(chan error, 1)
 	go func() {
-		_, err := f.ingress.Hook(t.Context(), "runner-1", "p", "tool_pre", []byte(`{}`), engineagents.ChannelHooks)
+		_, err := f.ingress.Hook(t.Context(), "runner-1", "p", "turn_stop", []byte(`{}`), engineagents.ChannelHooks)
 		done <- err
 	}()
 	<-f.descriptors.resolved
-	f.runners.remove("runner-1") // a purge takes its runner off the table under the chat's lock
+	f.runners.remove("runner-1") // its exit takes it off the table under the chat's lock
 	unlock()
 
-	require.ErrorIs(t, <-done, ErrUnknownRunner)
-	assert.Empty(t, f.turns.dispatched)
-	assert.Equal(t, []string{reasonUnknownRunner}, f.reasons())
+	require.NoError(t, <-done)
+	require.Len(t, f.turns.dispatched, 1)
+	assert.Equal(t, "chat-1", f.turns.dispatched[0].runner.CurrentChatID)
+	assert.Empty(t, f.ledger.letters)
+}
+
+func TestHook_AnExitedRunnerItsChatsLedgerStartedTakesItsHooks(t *testing.T) {
+	f := newFixture()
+	f.runners.recorded = map[string]engineagents.Runner{"runner-0": {ID: "runner-0", CurrentChatID: "chat-1"}}
+
+	_, err := f.ingress.Hook(t.Context(), "runner-0", "p", "turn_stop", []byte(`{}`), engineagents.ChannelHooks)
+
+	require.NoError(t, err)
+	require.Len(t, f.turns.dispatched, 1)
+	assert.Equal(t, "runner-0", f.turns.dispatched[0].runner.ID)
+	assert.Empty(t, f.ledger.letters)
 }
 
 func TestHook_DeclaredFiltersAreAcknowledgedWithNoRecord(t *testing.T) {
@@ -381,23 +406,15 @@ func TestHook_AnAcknowledgedHookIsDeadLetteredOrRefused(t *testing.T) {
 	}
 }
 
-// The marker an unmappable hook leaves is written on the runner's chat only
-// while the table still holds the runner, once the chat's lock is taken.
-func TestHook_AnUnmappableHookFromARunnerRemovedMeanwhileMarksNothing(t *testing.T) {
+// An unmappable hook of a runner whose chat was purged marks nothing.
+func TestHook_AnUnmappableHookOfAChatGoneMarksNothing(t *testing.T) {
 	f := newFixture()
 	f.descriptors.agent.err = fmt.Errorf("message: %w", engineagents.ErrRequiredFieldMissing)
-	f.descriptors.resolved = make(chan struct{})
-	unlock := f.hold(t)
-	done := make(chan error, 1)
-	go func() {
-		_, err := f.ingress.Hook(t.Context(), "runner-1", "p", "user_prompt", []byte(`{}`), engineagents.ChannelHooks)
-		done <- err
-	}()
-	<-f.descriptors.resolved
-	f.runners.remove("runner-1") // a purge takes its runner off the table under the chat's lock
-	unlock()
+	f.turns.err = fmt.Errorf("chat: %w", apperr.ErrNotFound)
 
-	require.ErrorIs(t, <-done, ErrUnknownRunner)
-	assert.Empty(t, f.ledger.appended["chat-1"], "a purged chat gets no marker")
-	assert.Equal(t, []string{reasonUnknownRunner}, f.reasons())
+	_, err := f.ingress.Hook(t.Context(), "runner-1", "p", "user_prompt", []byte(`{}`), engineagents.ChannelHooks)
+
+	require.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.Empty(t, f.turns.marked, "a purged chat gets no marker")
+	assert.Equal(t, []string{reasonUnknownChat}, f.reasons())
 }

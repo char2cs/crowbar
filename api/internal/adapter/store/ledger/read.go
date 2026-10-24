@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -105,6 +106,30 @@ func (s *Store) RefInUse(ctx context.Context, ref string) (bool, error) {
 		return false, fmt.Errorf("ledger: ref in use %s: %w", ref, err)
 	}
 	return n > 0, nil
+}
+
+// RunnerStart is the runner_started row that put runnerID on a chat, and that
+// chat; a purged chat's runners are gone with it.
+func (s *Store) RunnerStart(ctx context.Context, runnerID string) (string, ledger.RunnerStarted, bool, error) {
+	needle, err := json.Marshal(runnerID)
+	if err != nil {
+		return "", ledger.RunnerStarted{}, false, fmt.Errorf("ledger: runner start %s: %w", runnerID, err)
+	}
+	var recs []record
+	err = s.db.WithContext(ctx).Raw(
+		`SELECT chat_id, kind, body FROM chat_ledger WHERE kind = ? AND instr(body, ?) > 0 ORDER BY seq`,
+		string(ledger.KindRunnerStarted), `"runnerId":`+string(needle),
+	).Scan(&recs).Error
+	if err != nil {
+		return "", ledger.RunnerStarted{}, false, fmt.Errorf("ledger: runner start %s: %w", runnerID, err)
+	}
+	for _, r := range recs {
+		body, err := ledger.DecodeBody[ledger.RunnerStarted](ledger.Row{Kind: ledger.Kind(r.Kind), Body: r.Body})
+		if err == nil && body.RunnerID == runnerID {
+			return r.ChatID, body, true, nil
+		}
+	}
+	return "", ledger.RunnerStarted{}, false, nil
 }
 
 // fromMicros is the time a stored at column names, as the store stamped it.

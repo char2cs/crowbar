@@ -5,8 +5,11 @@ package runner
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -267,6 +270,26 @@ func (rs *Runners) AllLive(context.Context) ([]engineagents.Runner, error) {
 // RunnerByID is runnerID's runner while it is in the table.
 func (rs *Runners) RunnerByID(runnerID string) (engineagents.Runner, bool) {
 	return rs.live.byRunner(runnerID)
+}
+
+// RecordedRunner is runnerID as its chat's ledger started it, for a hook the
+// table no longer resolves: what a CLI said before it died is its chat's.
+func (rs *Runners) RecordedRunner(ctx context.Context, runnerID string) (engineagents.Runner, bool, error) {
+	chatID, started, ok, err := rs.ledger.RunnerStart(ctx, runnerID)
+	if err != nil || !ok {
+		return engineagents.Runner{}, false, err
+	}
+	chat, err := rs.chats.GetChat(ctx, chatID)
+	if errors.Is(err, agentchat.ErrNotFound) {
+		return engineagents.Runner{}, false, nil
+	}
+	if err != nil {
+		return engineagents.Runner{}, false, fmt.Errorf("agent: recorded runner %s: %w", runnerID, err)
+	}
+	return engineagents.Runner{
+		ID: runnerID, ProviderID: started.Provider, WorkspaceID: chat.WorkspaceID, CurrentChatID: chatID,
+		TerminalSession: started.TerminalSession,
+	}, true, nil
 }
 
 // TurnRunner runs open on runnerID's runner held against its end, and reports

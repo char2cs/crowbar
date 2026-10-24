@@ -60,6 +60,8 @@ type Effects struct {
 	Live    *LiveDelta // the text the event streamed
 	// Ended is the turn whose end spent its streamed text.
 	Ended string
+	// Title is the words of a prompt that opened a turn: they title the chat.
+	Title string
 }
 
 // Map decides the rows for one parsed event against the chat's state. It does
@@ -72,7 +74,11 @@ func Map(st ledger.State, ev engineagents.CanonicalEvent, src Source, refs BlobR
 	switch ev.Kind {
 	case engineagents.HookUserPrompt:
 		rows, err := mapPrompt(st, ev, src)
-		return rows, Effects{}, err
+		fx := Effects{}
+		if len(rows) > 0 && src.Prompt.Origin == ledger.OriginProvider {
+			fx.Title = src.Prompt.Text
+		}
+		return rows, fx, err
 	case engineagents.HookTurnStop:
 		return mapStop(st, ev, src)
 	case engineagents.HookTurnFailed:

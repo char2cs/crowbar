@@ -2,10 +2,12 @@ package ingress
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -66,9 +68,10 @@ func (i *Ingress) refuse(ctx context.Context, h hook, chatID, reason string, ref
 	return refused
 }
 
-// unmappable marks chatID's transcript where h was lost and refuses h. The mark
-// is written under the chat's lock, on the runner the table still holds then.
-func (i *Ingress) unmappable(ctx context.Context, h hook, chatID string, cause error) error {
+// unmappable marks the transcript of runner's chat where h was lost and
+// refuses h. A chat gone meanwhile is marked nowhere.
+func (i *Ingress) unmappable(ctx context.Context, h hook, runner engineagents.Runner, cause error) error {
+	chatID := runner.CurrentChatID
 	refused := fmt.Errorf("%w: %s: %w", ErrUnmappable, h.event, cause)
 	row, err := ledger.NewRow(ledger.KindMarker, "", "", ledger.Marker{
 		Kind: ledger.MarkerDeadLetter, Detail: h.event + ": " + cause.Error(),
@@ -76,11 +79,13 @@ func (i *Ingress) unmappable(ctx context.Context, h hook, chatID string, cause e
 	if err != nil {
 		return i.refuse(ctx, h, chatID, reasonUnmappable, refused)
 	}
-	err = i.record(ctx, h, chatID, func(engineagents.Runner) error {
-		if _, _, err := i.ledger.Append(context.WithoutCancel(ctx), chatID, row); err != nil {
+	err = i.record(ctx, h, runner, func() error {
+		err := i.turns.Mark(context.WithoutCancel(ctx), runner, row)
+		if err != nil && !errors.Is(err, apperr.ErrNotFound) {
 			slog.ErrorContext(ctx, "ingress: mark an unmappable hook", "chat_id", chatID, "event", h.event, "err", err)
+			return nil
 		}
-		return nil
+		return err
 	})
 	if err != nil {
 		return err

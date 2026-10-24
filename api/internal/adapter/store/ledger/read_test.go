@@ -77,3 +77,25 @@ func TestRead_OpenChatsListsOnlyChatsWithOpenWork(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"c1", "c3"}, open, "a pending prompt and a running turn are open; a settled prompt is not")
 }
+
+func TestRead_ARunnersStartNamesItsChatUntilTheChatIsForgotten(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	for chatID, runnerID := range map[string]string{"c1": "r1", "c2": "r12"} {
+		r, err := ledger.NewRow(ledger.KindRunnerStarted, "", "", ledger.RunnerStarted{RunnerID: runnerID, Provider: "p1"})
+		require.NoError(t, err)
+		_, _, err = s.Append(ctx, chatID, r)
+		require.NoError(t, err)
+	}
+
+	chatID, started, ok, err := s.RunnerStart(ctx, "r1")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "c1", chatID)
+	assert.Equal(t, "p1", started.Provider)
+
+	require.NoError(t, s.Forget(ctx, "c1"))
+	_, _, ok, err = s.RunnerStart(ctx, "r1")
+	require.NoError(t, err)
+	assert.False(t, ok, "a purged chat's runner is unknown")
+}

@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -126,4 +127,26 @@ func TestTurnRunner_AnEndingRunnerOpensNoTurn(t *testing.T) {
 	assert.Equal(t, 1, opened, "open never runs on an ending runner")
 	_, resolves := rs.RunnerByID("r1")
 	assert.True(t, resolves, "its hooks still find it")
+}
+
+// A runner the table no longer holds is still its chat's, as the ledger
+// started it, until that chat is gone.
+func TestRecordedRunner_IsTheRunnerAsItsChatsLedgerStartedIt(t *testing.T) {
+	l := newTestLedger(t)
+	rs := &Runners{ledger: l, chats: purgedChats{
+		stubChatsForSpawn: stubChatsForSpawn{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}}, gone: "chat-purged",
+	}}
+	appendStarted(t, l, "chat-1", "r1")
+	appendStarted(t, l, "chat-purged", "r2")
+
+	got, ok, err := rs.RecordedRunner(t.Context(), "r1")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, engineagents.Runner{ID: "r1", ProviderID: "claude", WorkspaceID: "ws-1", CurrentChatID: "chat-1"}, got)
+
+	for _, runnerID := range []string{"r2", "never-started"} {
+		_, ok, err = rs.RecordedRunner(t.Context(), runnerID)
+		require.NoError(t, err)
+		assert.False(t, ok, runnerID)
+	}
 }

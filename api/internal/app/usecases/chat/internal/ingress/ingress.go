@@ -5,6 +5,7 @@
 package ingress
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -18,7 +19,7 @@ import (
 )
 
 var (
-	// ErrUnknownRunner is a hook from a runner the live table does not hold.
+	// ErrUnknownRunner is a hook from a runner no live table or chat holds.
 	ErrUnknownRunner = fmt.Errorf("ingress: unknown runner: %w", apperr.ErrNotFound)
 	// ErrUnmappable is a hook its runner's descriptor cannot map.
 	ErrUnmappable = fmt.Errorf("ingress: unmappable hook: %w", apperr.ErrUnprocessable)
@@ -32,9 +33,11 @@ type Reply struct {
 	Ask string
 }
 
-// Runners is the live table a hook names its runner in.
+// Runners resolves the runner a hook names: in the live table, else as its
+// chat's ledger started it.
 type Runners interface {
 	RunnerByID(runnerID string) (engineagents.Runner, bool)
+	RecordedRunner(ctx context.Context, runnerID string) (engineagents.Runner, bool, error)
 }
 
 // Descriptors resolves the descriptor a runner's hooks are parsed with.
@@ -47,15 +50,16 @@ type Descriptors interface {
 // failed is its error, and a hook it keeps nothing of is seam.ErrHookNotRecorded.
 type Turns interface {
 	RecordTelemetry(ctx context.Context, runner engineagents.Runner, agent engineagents.Agent, raw []byte) error
+	// Mark records row, the trace of a hook nothing else is kept of, on runner's chat.
+	Mark(ctx context.Context, runner engineagents.Runner, row ledger.Row) error
 	Dispatch(
 		ctx context.Context, runner engineagents.Runner, agent engineagents.Agent,
 		ev engineagents.CanonicalEvent, raw []byte, channel engineagents.Channel,
 	) (reply []byte, ask string, err error)
 }
 
-// Ledger takes an unmappable hook's marker and every dead letter.
+// Ledger keeps every dead letter.
 type Ledger interface {
-	Append(ctx context.Context, chatID string, rows ...ledger.Row) ([]ledger.Row, ledger.State, error)
 	DeadLetter(ctx context.Context, d ledgerstore.DeadLetter) error
 	DeadLetterCount(ctx context.Context, reasons ...string) (int, error)
 }
@@ -95,9 +99,9 @@ func (i *Ingress) Hook(
 	channel engineagents.Channel,
 ) (Reply, error) {
 	h := hook{runnerID: runnerID, provider: provider, event: event, raw: raw}
-	runner, ok := i.runners.RunnerByID(runnerID)
-	if !ok {
-		return Reply{}, i.refuse(ctx, h, "", reasonUnknownRunner, ErrUnknownRunner)
+	runner, ok, err := i.resolve(ctx, runnerID)
+	if err != nil || !ok {
+		return Reply{}, i.refuse(ctx, h, "", reasonUnknownRunner, cmp.Or(err, ErrUnknownRunner))
 	}
 	chatID := runner.CurrentChatID
 	if provider != "" && provider != runner.ProviderID {
@@ -109,8 +113,8 @@ func (i *Ingress) Hook(
 		return Reply{}, i.refuse(ctx, h, chatID, reasonNoDescriptor, fmt.Errorf("ingress: resolve descriptor: %w", err))
 	}
 	if event == engineagents.HookTelemetry {
-		return Reply{}, i.record(ctx, h, chatID, func(r engineagents.Runner) error {
-			return i.turns.RecordTelemetry(ctx, r, agent, raw)
+		return Reply{}, i.record(ctx, h, runner, func() error {
+			return i.turns.RecordTelemetry(ctx, runner, agent, raw)
 		})
 	}
 	ev, err := agent.ParseHook(event, raw, channel)
@@ -120,12 +124,12 @@ func (i *Ingress) Hook(
 	case errors.Is(err, engineagents.ErrForeignConversation):
 		return Reply{}, i.deadLetter(ctx, h, chatID, reasonForeign)
 	case err != nil:
-		return Reply{}, i.unmappable(ctx, h, chatID, err)
+		return Reply{}, i.unmappable(ctx, h, runner, err)
 	}
 	var reply Reply
-	err = i.record(ctx, h, chatID, func(r engineagents.Runner) error {
+	err = i.record(ctx, h, runner, func() error {
 		var err error
-		reply.Body, reply.Ask, err = i.turns.Dispatch(ctx, r, agent, ev, raw, channel)
+		reply.Body, reply.Ask, err = i.turns.Dispatch(ctx, runner, agent, ev, raw, channel)
 		return err
 	})
 	if err != nil {
@@ -134,23 +138,30 @@ func (i *Ingress) Hook(
 	return reply, nil
 }
 
-// record runs write under chatID's lock, on the runner as the table holds it
-// once the lock is taken: a purge takes a chat's runner off the table under it.
-// What write could not record is dead-lettered.
-func (i *Ingress) record(
-	ctx context.Context, h hook, chatID string,
-	write func(engineagents.Runner) error,
-) error {
+// resolve is the runner a hook names: as the live table holds it, else as its
+// chat's ledger started it, for a hook its CLI sent before it died.
+func (i *Ingress) resolve(ctx context.Context, runnerID string) (engineagents.Runner, bool, error) {
+	if runner, ok := i.runners.RunnerByID(runnerID); ok {
+		return runner, true, nil
+	}
+	runner, ok, err := i.runners.RecordedRunner(ctx, runnerID)
+	if err != nil {
+		return engineagents.Runner{}, false, fmt.Errorf("ingress: resolve runner %s: %w", runnerID, err)
+	}
+	return runner, ok, nil
+}
+
+// record runs write under the lock of runner's chat. A runner that exited
+// meanwhile still takes its hook; a chat purged meanwhile refuses it. What
+// write could not record is dead-lettered.
+func (i *Ingress) record(ctx context.Context, h hook, runner engineagents.Runner, write func() error) error {
+	chatID := runner.CurrentChatID
 	unlock, err := i.locks.Lock(ctx, chatID)
 	if err != nil {
 		return i.refuse(ctx, h, chatID, reasonSenderGone, fmt.Errorf("ingress: %s: %w", h.event, err))
 	}
 	defer unlock()
-	runner, ok := i.runners.RunnerByID(h.runnerID)
-	if !ok {
-		return i.refuse(ctx, h, chatID, reasonUnknownRunner, ErrUnknownRunner)
-	}
-	err = write(runner)
+	err = write()
 	switch {
 	case err == nil:
 		return nil

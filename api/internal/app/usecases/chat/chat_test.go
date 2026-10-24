@@ -1922,7 +1922,7 @@ func TestRegression_SessionStartAfterItsChatWasDeleted_IsDroppedNotRecorded(t *t
 // to a corpse. That is the very failure the ordering existed to prevent.
 //
 // Displacement fixes it at the source: the CLI we are killing is taken OFF the chat when
-// we kill it, so its late announcement resolves to no chat at all and is dropped.
+// we kill it, so its late announcement moves no chat and is only dead-lettered.
 func TestRegression_LateSessionAnnouncement_DoesNotStealTheChatFromTheIncomingCLI(t *testing.T) {
 	f := newFixture(t)
 
@@ -1933,7 +1933,7 @@ func TestRegression_LateSessionAnnouncement_DoesNotStealTheChatFromTheIncomingCL
 	f.wait()
 
 	// t3: the outgoing CLI, still dying, finally reports the conversation it came up in.
-	lateHook(t, f, outgoing, "", "session_start", map[string]any{"session_id": "s-late"})
+	hook(t, f, outgoing, "", "session_start", map[string]any{"session_id": "s-late"})
 
 	live, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)

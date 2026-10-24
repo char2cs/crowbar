@@ -233,12 +233,20 @@ func FailTurnOf(st State, runnerID, providerTurnID string, fail TurnFailed) (Row
 }
 
 // turnOf is the turn a report by runnerID naming providerTurnID is about, and
-// whether it is running; a fresh id when the ledger holds no such turn.
+// whether it is running. A late report is about the kept turn it names, else
+// its runner's newest; a fresh id when the ledger holds no such turn.
 func (s State) turnOf(runnerID, providerTurnID string) (string, bool) {
-	if !s.hasTurn || s.turn.RunnerID != runnerID || !s.turn.Names(providerTurnID) {
-		return uuid.NewString(), false
+	if s.hasTurn && s.turn.RunnerID == runnerID && s.turn.Names(providerTurnID) {
+		return s.turn.ID, s.turn.Status == TurnStatusRunning
 	}
-	return s.turn.ID, s.turn.Status == TurnStatusRunning
+	id, ok := s.ProviderTurn(providerTurnID)
+	if providerTurnID == "" {
+		id, ok = s.RunnerTurn(runnerID)
+	}
+	if ok && (id != s.turn.ID || s.turn.Status != TurnStatusRunning) {
+		return id, false
+	}
+	return uuid.NewString(), false
 }
 
 // Stop is a user's Stop as rows: the running turn interrupted, and every
