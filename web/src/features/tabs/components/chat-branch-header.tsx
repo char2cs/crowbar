@@ -73,7 +73,7 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
     >
       {routed && repo ? (
         <span data-testid="chat-branch-header-repo-icon" className="flex shrink-0 items-center">
-          <RepoIconMark repo={repo} size="xl" />
+          <RepoIconMark repo={repo} size="2xl" />
         </span>
       ) : (
         <KindGlyph
@@ -102,8 +102,8 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
                 <KindGlyph
                   working={working}
                   isThread={isThread}
-                  className="size-3.5"
-                  iconClassName="size-3.5"
+                  className="size-[13px]"
+                  iconClassName="size-[13px]"
                 />
               )}
               <WorkspaceRoute
@@ -205,7 +205,7 @@ function ChatTitle({ title, className }: { title: string | null; className: stri
     <span
       data-testid="chat-branch-header-title"
       data-title-pending={title === null ? 'true' : undefined}
-      className={cn('font-heading text-[15px] font-normal', className)}
+      className={cn('font-heading text-xl leading-5 font-normal', className)}
     >
       {title ?? CHAT_TITLE_PENDING_LABEL}
     </span>

@@ -25,6 +25,8 @@ const SIZES = {
   // Headline size — the New Tab surface, where the repo/branch stack is the
   // largest type in the pane and a 20px mark reads as a stray favicon.
   xl: { box: 'size-6', text: 'text-[13px]', emoji: 'text-xl' },
+  // The chat heading's gutter mark: spans both of its lines.
+  '2xl': { box: 'size-8', text: 'text-[15px]', emoji: 'text-3xl' },
 }
 
 interface RepoIconMarkProps {
