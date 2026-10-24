@@ -79,6 +79,7 @@ func publishRow(feed *ChatFeed, chatID, wsID string, r ledger.Row) {
 func movesAsks(kind ledger.Kind) bool {
 	return slices.Contains([]ledger.Kind{
 		ledger.KindAsk, ledger.KindAskResolved, ledger.KindTurnEnded, ledger.KindTurnFailed, ledger.KindRunnerExited,
+		ledger.KindSubagent,
 	}, kind)
 }
 

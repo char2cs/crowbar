@@ -3,6 +3,7 @@ package chat_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
@@ -235,4 +237,36 @@ func TestLedgerFeed_ALateTurnStopAnnouncesNothing(t *testing.T) {
 	assert.True(t, f.busy(t, chatID), "B still runs")
 	rows := ledgerRows(t, f, chatID)
 	assert.Equal(t, ledger.KindTurnEnded, rows[len(rows)-1].Kind, "the late stop is written")
+}
+
+// A subagent's stop closes the questions it held, and the chat's clients are
+// told: no card is left without its asker.
+func TestLedgerFeed_ASubagentsStopClearsTheQuestionsItHeld(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	var mu sync.Mutex
+	var frames []int
+	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{
+		Choices: func(_, _ string, choices []domain.ActivityChoice, _ []string) {
+			mu.Lock()
+			defer mu.Unlock()
+			frames = append(frames, len(choices))
+		},
+	})
+	row := func(kind ledger.Kind, scope string, body any) ledger.Row {
+		r, err := ledger.NewRow(kind, "T1", scope, body)
+		require.NoError(t, err)
+		return r
+	}
+	appendWithin(t, f, chatID,
+		row(ledger.KindTurnStarted, "", ledger.TurnStarted{RunnerID: runnerID}),
+		row(ledger.KindSubagent, "A", ledger.Subagent{Phase: ledger.SubagentStart}),
+		row(ledger.KindAsk, "A", ledger.Ask{AskID: "choice-1", Event: "permission", Kind: domain.ChoiceKindPermission, Answerable: true}),
+	)
+	appendWithin(t, f, chatID, row(ledger.KindSubagent, "A", ledger.Subagent{Phase: ledger.SubagentStop}))
+	f.wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []int{1, 0}, frames, "the ask, then its close")
 }
