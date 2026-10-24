@@ -29,6 +29,7 @@ beforeEach(() => {
   sidebar.open = true
   useSettingsStore.setState((state) => {
     state.settings.buildBadgeOverride = 'beta'
+    state.settings.sidebarPosition = 'left'
   })
   useSidebarStore.setState({
     ...getInitialState(),
@@ -122,5 +123,17 @@ describe('ViewTabsRow', () => {
     sidebar.open = false
     render(<ViewTabsRow />)
     expect(screen.getByText(/beta - /)).toBeInTheDocument()
+  })
+
+  it('places the readout before the reopen toggle so they never overlap', () => {
+    sidebar.open = false
+    useSettingsStore.setState((state) => {
+      state.settings.sidebarPosition = 'right'
+    })
+    actions().openChat('chat-1', { workspaceId: 'ws-1' })
+    render(<ViewTabsRow />)
+    const readout = screen.getByText(/beta - /)
+    const toggle = screen.getByRole('button', { name: 'Show sidebar' })
+    expect(readout.compareDocumentPosition(toggle)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   })
 })
