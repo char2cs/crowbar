@@ -42,8 +42,7 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const repos = useSidebarStore((s) => s.repos)
-  // Live project list — the import-only useProjectStore.projects starts empty
-  // (see context-pill).
+  // Live project list — the import-only useProjectStore.projects starts empty.
   const projects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
 

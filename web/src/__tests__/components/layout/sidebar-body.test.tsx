@@ -1,7 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SidebarBody } from '@/components/layout/sidebar-body'
-import { useUIState } from '@/features/window/stores/ui-state-store'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import {
   EMPTY_FOCUSED_WORKSPACE_CONTEXT,
@@ -46,7 +45,12 @@ const HOME_CTX: FocusedWorkspaceContext = {
 }
 
 function renderBody() {
-  return render(<SidebarBody chatsPanel={<div data-testid="panel-chats" />} />)
+  return render(
+    <SidebarBody
+      chatsPanel={<div data-testid="panel-chats" />}
+      projectSwitcher={<div data-testid="project-switcher" />}
+    />,
+  )
 }
 
 describe('SidebarBody', () => {
@@ -136,9 +140,11 @@ describe('SidebarBody', () => {
     expect(screen.getByRole('tab', { name: 'Files' })).toBeDisabled()
   })
 
-  it('Settings sits beside the mode bar and opens the settings dialog', () => {
+  it('puts the project switcher on the first line, above the mode bar', () => {
     renderBody()
-    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
-    expect(useUIState.getState().isSettingsOpen).toBe(true)
+    const switcher = screen.getByTestId('project-switcher')
+    const modeBar = screen.getByRole('tablist', { name: 'Sidebar mode' })
+    expect(switcher.compareDocumentPosition(modeBar)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(screen.queryByRole('button', { name: 'Settings' })).toBeNull()
   })
 })

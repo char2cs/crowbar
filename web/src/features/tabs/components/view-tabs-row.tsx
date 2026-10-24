@@ -96,7 +96,7 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
         ))}
       </div>
       {!sidebarOpen && sidebarPosition === 'right' && isAtRightEdge && toggle}
-      {(sidebarPosition === 'left' || !sidebarOpen) && <BuildReadout className="right-3" />}
+      {!sidebarOpen && <BuildReadout className="right-3" />}
       {drag.dragging && <DropIndicator ref={drag.attachDropLine} />}
       {drag.ghostRows && (
         <DragGhost ref={drag.ghostRef} origin={drag.ghostOrigin}>

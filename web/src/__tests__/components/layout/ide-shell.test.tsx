@@ -33,8 +33,17 @@ vi.mock('@/features/workspace/components/workspace-view', () => ({
 }))
 // The mode bar and its panels; sidebar-body.test.tsx owns what they do.
 vi.mock('@/components/layout/sidebar-body', () => ({
-  SidebarBody: ({ chatsPanel }: { chatsPanel: React.ReactNode }) => (
-    <div data-testid="sidebar-body">{chatsPanel}</div>
+  SidebarBody: ({
+    chatsPanel,
+    projectSwitcher,
+  }: {
+    chatsPanel: React.ReactNode
+    projectSwitcher: React.ReactNode
+  }) => (
+    <div data-testid="sidebar-body">
+      {projectSwitcher}
+      {chatsPanel}
+    </div>
   ),
 }))
 // The removal service. Stubbed for the same reason SidebarBody is — this
@@ -195,31 +204,26 @@ describe('IDEShell', () => {
     expect(screen.getByTestId('sidebar-resize-handle')).toBeInTheDocument()
   })
 
-  it('wires SidebarProjectHeader to the project data and handlers', () => {
+  it('feeds the project switcher the live projects', () => {
+    router.pathname = '/ide/p1/home'
+    useProjectDataStore.setState({
+      data: success([
+        { id: 'p1', name: 'crowbar', path: '/p1', lastActivity: new Date(0) },
+        { id: 'p2', name: 'other', path: '/p2', lastActivity: new Date(0) },
+      ]),
+    })
     render(<IDEShell />)
-    expect(sidebarProjectHeaderMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        projects: [],
-        activeProjectId: undefined,
-        onSelectProject: expect.any(Function),
-        onAddProject: expect.any(Function),
-      }),
-    )
+    expect(screen.getByTestId('active-project-name')).toHaveTextContent('crowbar')
+    expect(screen.getByRole('button', { name: 'other' })).toBeInTheDocument()
   })
 
   // The create-space form lives in the Chats panel (SidebarTreeSurface).
   describe('creating a space', () => {
-    function lastHeaderProps() {
-      const calls = sidebarProjectHeaderMock.mock.calls
-      return calls[calls.length - 1][0] as {
-        onAddProject: () => void
-        onSelectProject: (id: string) => void
-      }
-    }
+    const addSpace = () => act(() => screen.getByRole('button', { name: 'Add space' }).click())
 
     it('switches the sidebar to Chats so the form is on screen', () => {
       render(<IDEShell />)
-      act(() => lastHeaderProps().onAddProject())
+      addSpace()
       expect(sidebarState.setActiveTab).toHaveBeenCalledWith('chats')
       expect(screen.getByTestId('sidebar-tree-surface')).toHaveAttribute(
         'data-creating-space',
@@ -230,9 +234,16 @@ describe('IDEShell', () => {
     // Picking an existing space while the create form is open has to replace
     // it, not leave the form stranded behind the newly-routed content.
     it('selecting an existing space closes the create-space form', () => {
+      router.pathname = '/ide/p1/home'
+      useProjectDataStore.setState({
+        data: success([
+          { id: 'p1', name: 'crowbar', path: '/p1', lastActivity: new Date(0) },
+          { id: 'p2', name: 'other', path: '/p2', lastActivity: new Date(0) },
+        ]),
+      })
       render(<IDEShell />)
-      act(() => lastHeaderProps().onAddProject())
-      act(() => lastHeaderProps().onSelectProject('p1'))
+      addSpace()
+      act(() => screen.getByRole('button', { name: 'other' }).click())
       expect(screen.getByTestId('sidebar-tree-surface')).toHaveAttribute(
         'data-creating-space',
         'false',
@@ -362,10 +373,8 @@ describe('IDEShell', () => {
 
     it('keeps RemovalTray mounted while the create-space form is open', () => {
       render(<IDEShell />)
-      const calls = sidebarProjectHeaderMock.mock.calls
-      const { onAddProject } = calls[calls.length - 1][0] as { onAddProject: () => void }
 
-      act(() => onAddProject())
+      act(() => screen.getByRole('button', { name: 'Add space' }).click())
 
       expect(screen.getByTestId('removal-tray')).toBeInTheDocument()
     })

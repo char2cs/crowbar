@@ -4,6 +4,8 @@ import { SidebarProvider } from '@/components/ui/sidebar'
 import { SidebarProjectHeader } from './sidebar-project-header'
 import { useNavigationHistory } from '@/features/tabs/hooks/use-navigation-history'
 import { SidebarBody } from './sidebar-body'
+import { SidebarFoot } from './sidebar-foot'
+import { SidebarProjectSwitcher } from './sidebar-project-switcher'
 import { RemovalTray } from './removal-tray'
 import { SidebarTreeSurface } from './sidebar-tree-surface'
 import { useSpaceSwitcherKeyboard } from '@/features/keymaps/hooks/use-space-switcher-keyboard'
@@ -125,17 +127,17 @@ function IdeShellBody() {
     projectPath,
   )
   // The tree's only entry point for a SECOND space (spec §3 ruling): a
-  // trailing `+` mark alongside the space marks in SidebarProjectHeader. Swaps
+  // trailing `+` in SidebarProjectSwitcher. Swaps
   // SpaceScroller for CreateSpacePanel in place (sidebar-tree-surface.tsx)
   // rather than opening a modal — Zen's own "Create a Space" sheet lives in
   // the sidebar itself. Lifted here, alongside `allProjects`, so both the
-  // footer (the marks) and the surface below can reach it.
+  // switcher and the surface below can reach it.
   const [creatingSpace, setCreatingSpace] = useState(false)
   const handleCreateSpace = useCallback((project: Project) => {
     importProjectAndSync(project)
     setCreatingSpace(false)
   }, [])
-  // Space marks (spec §4.1): same navigation the workspace switcher's own
+  // Project switcher (spec §4.1): same navigation the workspace switcher's own
   // project-home rows already use (workspace-switcher.tsx's `select`).
   // Shared verbatim with SidebarTreeSurface's SpaceScroller below
   // (`onActiveProjectChange`) — one "switch to project" action, not two.
@@ -145,7 +147,7 @@ function IdeShellBody() {
   //
   // useCallback'd (stable across renders unless `navigate` itself changes —
   // TanStack Router's own hook already returns a stable reference) so the
-  // memoized SidebarTreeSurface/SidebarProjectHeader below don't see a fresh prop
+  // memoized SidebarTreeSurface/SidebarProjectSwitcher below don't see a fresh prop
   // identity, and therefore don't re-render, on an IDEShell render this
   // handler had no part in.
   const handleSelectProject = useCallback(
@@ -156,7 +158,7 @@ function IdeShellBody() {
     [navigate],
   )
   // Same reason as `handleSelectProject` above — stable identities so
-  // memoized SidebarTreeSurface/SidebarProjectHeader can actually skip a render
+  // memoized SidebarTreeSurface/SidebarProjectSwitcher can actually skip a render
   // that doesn't touch space-creation state, instead of always seeing a
   // fresh inline-arrow prop.
   const handleCancelCreateSpace = useCallback(() => setCreatingSpace(false), [])
@@ -214,15 +216,16 @@ function IdeShellBody() {
   const sidebarContent = (
     <SidebarPeek hidden={!sidebarOpen} side={sidebarSide} width={preferredWidth}>
       <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-transparent select-none">
-        {!hasNavScreen && (
-          <SidebarProjectHeader
-            projects={allProjects}
-            activeProjectId={activeProjectIdFromRoute}
-            onSelectProject={handleSelectProject}
-            onAddProject={handleAddProject}
-          />
-        )}
+        {!hasNavScreen && <SidebarProjectHeader />}
         <SidebarBody
+          projectSwitcher={
+            <SidebarProjectSwitcher
+              projects={allProjects}
+              activeProjectId={activeProjectIdFromRoute}
+              onSelectProject={handleSelectProject}
+              onAddProject={handleAddProject}
+            />
+          }
           chatsPanel={
             !hasNavScreen && (
               <SidebarTreeSurface
@@ -236,6 +239,7 @@ function IdeShellBody() {
             )
           }
         />
+        <SidebarFoot />
         {/* The removal service, mounted where NOTHING unmounts it.
             It draws no held row of its own (those transform in place in the
             tree, sidebar-row.tsx) — it owns the 8s commit clock, the seconds
