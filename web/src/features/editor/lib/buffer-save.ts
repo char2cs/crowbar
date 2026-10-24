@@ -114,17 +114,20 @@ async function formatBeforeSave(ref: DocumentRef, text: string): Promise<string 
   return documentText(ref)
 }
 
-/** One document, one buffer: `holder` takes the written text and the untitled tab's place. */
+/** `holder` takes the untitled tab's place, unless both were edited while the write ran. */
 function adoptSavedAs(untitled: PathedBuffer, holder: EditorContent, written: string): void {
   const ref = documentRefOf(holder)
   const typed = documentText(documentRefOf(untitled))
+  const late = typed !== null && typed !== written ? typed : null
   if (documentText(ref) !== savedDocumentText(ref)) {
     // Edited during the write: the rule for any disk change under unsaved edits.
     flagExternalChange(ref)
+    // Both moved on: the untitled tab stays, holding its late typing.
+    if (late !== null) return
   } else {
     applyExternalText(ref, written, { saved: true })
     // Edits typed into the untitled tab while the write ran stay, unsaved.
-    if (typed !== null && typed !== written) replaceDocumentText(ref, typed)
+    if (late !== null) replaceDocumentText(ref, late)
   }
   patchEditorBuffer(holder.id, (b) => ({ ...b, isPreview: false }))
   windowPaneStore.getState().paneActions.replaceEditorTab(untitled.id, holder.id)

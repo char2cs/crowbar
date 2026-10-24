@@ -324,8 +324,8 @@ describe('buffer-save — Save As onto a document that is already open', () => {
     return windowPaneStore.getState().bufferActions.openContent(spec, { paneId })
   }
 
-  /** The next write stays in flight until `finish`; `begun` resolves once it is sent. */
-  function deferredWrite() {
+  /** Save As whose write stays in flight while `during` runs. */
+  async function saveAsDuring(during: () => void): Promise<boolean> {
     let started = () => {}
     let finish = () => {}
     const begun = new Promise<void>((resolve) => (started = resolve))
@@ -333,7 +333,11 @@ describe('buffer-save — Save As onto a document that is already open', () => {
       started()
       return new Promise((resolve) => (finish = () => resolve({})))
     })
-    return { begun, finish: () => finish() }
+    const save = saveActiveBuffer()
+    await begun
+    during()
+    finish()
+    return save
   }
 
   function tabsOf(paneId: string) {
@@ -342,17 +346,9 @@ describe('buffer-save — Save As onto a document that is already open', () => {
   }
 
   const holdersOfFoo = () =>
-    windowPaneStore
-      .getState()
-      .buffers.filter((b) => b.path === 'foo.ts')
-      .map((b) => b.id)
+    windowPaneStore.getState().buffers.flatMap((b) => (b.path === 'foo.ts' ? [b.id] : []))
 
-  beforeEach(() => {
-    vi.stubGlobal(
-      'prompt',
-      vi.fn(() => 'foo.ts'),
-    )
-  })
+  beforeEach(() => vi.stubGlobal('prompt', () => 'foo.ts'))
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
@@ -404,14 +400,10 @@ describe('buffer-save — Save As onto a document that is already open', () => {
 
   it('a document opened while the write runs takes the saved text and the untitled tab', async () => {
     const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
-    const write = deferredWrite()
+    let target = ''
 
-    const save = saveActiveBuffer()
-    await write.begun
-    const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
-    write.finish()
+    expect(await saveAsDuring(() => (target = openIn(BOTTOM_PANE_ID, FOO, 'old')))).toBe(true)
 
-    expect(await save).toBe(true)
     expect(holdersOfFoo()).toEqual([target])
     expect(textOf(FOO)).toEqual({ text: 'new text', saved: 'new text' })
     expect(bufferById(target).isDirty).toBe(false)
@@ -422,14 +414,9 @@ describe('buffer-save — Save As onto a document that is already open', () => {
   it('keeps edits typed into the untitled tab while the write runs', async () => {
     const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
     openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
-    const write = deferredWrite()
 
-    const save = saveActiveBuffer()
-    await write.begun
-    replaceDocumentText(UNTITLED, 'new text, and more')
-    write.finish()
+    expect(await saveAsDuring(() => replaceDocumentText(UNTITLED, 'new text, and more'))).toBe(true)
 
-    expect(await save).toBe(true)
     expect(holdersOfFoo()).toEqual([target])
     expect(textOf(FOO)).toEqual({ text: 'new text, and more', saved: 'new text' })
     expect(bufferById(target).isDirty).toBe(true)
@@ -438,20 +425,32 @@ describe('buffer-save — Save As onto a document that is already open', () => {
   it('a target edited during the write keeps its edits and is flagged as changed on disk', async () => {
     const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
     const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
-    const write = deferredWrite()
     const warning = vi.spyOn(toast, 'warning')
 
-    const save = saveActiveBuffer()
-    await write.begun
-    replaceDocumentText(FOO, 'their edits')
-    write.finish()
+    expect(await saveAsDuring(() => replaceDocumentText(FOO, 'their edits'))).toBe(true)
 
-    expect(await save).toBe(true)
     expect(textOf(FOO)).toEqual({ text: 'their edits', saved: 'old' })
     expect(bufferById(target)).toMatchObject({ isDirty: true, hasExternalChange: true })
     expect(warning).toHaveBeenCalledWith('foo.ts changed on disk', expect.any(String))
     expect(tabsOf(ROOT_PANE_ID)).toEqual({ tabs: [target], active: target })
     expect(bufferById(untitled)).toBeUndefined()
+  })
+
+  it('keeps the untitled tab and all its text when both sides moved during the write', async () => {
+    const target = openIn(BOTTOM_PANE_ID, FOO, 'old')
+    const untitled = openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
+
+    const saved = await saveAsDuring(() => {
+      replaceDocumentText(FOO, 'their edits')
+      replaceDocumentText(UNTITLED, 'new text, and more')
+    })
+
+    expect(saved).toBe(true)
+    expect(writesFor('foo.ts')).toEqual(['new text'])
+    expect(textOf(FOO)).toEqual({ text: 'their edits', saved: 'old' })
+    expect(bufferById(target).hasExternalChange).toBe(true)
+    expect(documentText(UNTITLED)).toBe('new text, and more')
+    expect(tabsOf(ROOT_PANE_ID)).toEqual({ tabs: [untitled], active: untitled })
   })
 
   it('a failed write onto an open document changes nothing and says why', async () => {
