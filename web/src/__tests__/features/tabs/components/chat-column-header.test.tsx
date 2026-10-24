@@ -61,7 +61,7 @@ describe('ChatColumnHeader', () => {
     })
     renderHeader()
     expect(screen.getByTestId('chat-branch-header-route')).toHaveTextContent(
-      /^crowbar \/ develop \/ fix\/refactor-chats$/,
+      /^crowbar\/develop\/fix\/refactor-chats$/,
     )
   })
 
