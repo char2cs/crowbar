@@ -40,7 +40,6 @@ export const OPEN_WORKSPACE_SWITCHER = 'navigation.openWorkspaceSwitcher'
 
 export const TOGGLE_CONSOLE = 'navigation.toggleConsole'
 
-export const SIDEBAR_TAB_WORKSPACES = 'navigation.sidebarWorkspaces'
 export const SIDEBAR_TAB_FILES = 'navigation.sidebarFiles'
 export const SIDEBAR_TAB_GIT = 'navigation.sidebarGit'
 export const SIDEBAR_TAB_CHATS = 'navigation.sidebarChats'
@@ -240,36 +239,27 @@ export const COMMANDS: Command[] = [
     defaultChord: 'mod+`',
     liveEditable: true,
   },
-  // The digit IS the tab's position in the sidebar strip — mod+2 is whatever sits
-  // second. Keep these four in strip order, and renumber them when the strip is
-  // reordered: a number that doesn't match what the user is looking at is a
-  // shortcut they will never find.
-  {
-    id: SIDEBAR_TAB_WORKSPACES,
-    label: 'Sidebar: Workspaces',
-    category: 'Navigation',
-    defaultChord: 'mod+1',
-    liveEditable: true,
-  },
+  // The digit IS the mode's position in the sidebar mode bar (Chats, Files,
+  // Git). Project switching rides mod+shift+digit (use-space-switcher-keyboard.ts).
   {
     id: SIDEBAR_TAB_CHATS,
     label: 'Sidebar: Chats',
     category: 'Navigation',
-    defaultChord: 'mod+2',
+    defaultChord: 'mod+1',
     liveEditable: true,
   },
   {
     id: SIDEBAR_TAB_FILES,
     label: 'Sidebar: Files',
     category: 'Navigation',
-    defaultChord: 'mod+3',
+    defaultChord: 'mod+2',
     liveEditable: true,
   },
   {
     id: SIDEBAR_TAB_GIT,
     label: 'Sidebar: Git',
     category: 'Navigation',
-    defaultChord: 'mod+4',
+    defaultChord: 'mod+3',
     liveEditable: true,
   },
 ]

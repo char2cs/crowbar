@@ -7,14 +7,13 @@ vi.mock('@/utils/platform', async (importOriginal) => ({
   IS_MAC: false,
 }))
 
-// The digit follows the tab's POSITION in the sidebar strip, so Chats — which
-// renders second — is mod+2. Mirrors the registry defaults on purpose.
+// Mirrors the registry defaults on purpose: the digit is the mode's position
+// in the mode bar (Chats, Files, Git).
 vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
   useEffectiveChordMap: () => ({
-    'navigation.sidebarWorkspaces': 'mod+1',
-    'navigation.sidebarChats': 'mod+2',
-    'navigation.sidebarFiles': 'mod+3',
-    'navigation.sidebarGit': 'mod+4',
+    'navigation.sidebarChats': 'mod+1',
+    'navigation.sidebarFiles': 'mod+2',
+    'navigation.sidebarGit': 'mod+3',
   }),
 }))
 
@@ -23,6 +22,16 @@ vi.mock('@/lib/store/sidebar', () => ({
   useSidebarStore: {
     getState: () => ({ setActiveTab }),
   },
+}))
+
+const focused = vi.hoisted(() => ({
+  ctx: { workspaceId: 'w1', repoId: 'r1' } as { workspaceId: string | null; repoId: string | null },
+}))
+vi.mock('@/features/window/stores/focused-workspace-context-store', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@/features/window/stores/focused-workspace-context-store')
+  >()),
+  getFocusedWorkspaceContext: () => focused.ctx,
 }))
 
 function dispatchKeydown(init: KeyboardEventInit): KeyboardEvent {
@@ -36,33 +45,36 @@ describe('useSidebarTabKeyboard', () => {
     vi.clearAllMocks()
   })
 
-  it('switches to chats on Ctrl+1', () => {
+  beforeEach(() => {
+    focused.ctx = { workspaceId: 'w1', repoId: 'r1' }
+  })
+
+  it.each([
+    ['1', 'chats'],
+    ['2', 'files'],
+    ['3', 'git'],
+  ])('switches mode on Ctrl+%s to %s', (key, tab) => {
     renderHook(() => useSidebarTabKeyboard())
-    const event = dispatchKeydown({ key: '1', ctrlKey: true })
+    const event = dispatchKeydown({ key, ctrlKey: true })
+    expect(setActiveTab).toHaveBeenCalledWith(tab)
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('has no fourth mode: Ctrl+4 does nothing', () => {
+    renderHook(() => useSidebarTabKeyboard())
+    dispatchKeydown({ key: '4', ctrlKey: true })
+    expect(setActiveTab).not.toHaveBeenCalled()
+  })
+
+  it('ignores a mode the focused workspace does not offer', () => {
+    focused.ctx = { workspaceId: null, repoId: null }
+    renderHook(() => useSidebarTabKeyboard())
+    const files = dispatchKeydown({ key: '2', ctrlKey: true })
+    dispatchKeydown({ key: '3', ctrlKey: true })
+    expect(setActiveTab).not.toHaveBeenCalled()
+    expect(files.defaultPrevented).toBe(false)
+    dispatchKeydown({ key: '1', ctrlKey: true })
     expect(setActiveTab).toHaveBeenCalledWith('chats')
-    expect(event.defaultPrevented).toBe(true)
-  })
-
-  // The Workspaces mode is gone: its chord lands on Chats, the same as Ctrl+2.
-  it('switches to chats on Ctrl+2', () => {
-    renderHook(() => useSidebarTabKeyboard())
-    const event = dispatchKeydown({ key: '2', ctrlKey: true })
-    expect(setActiveTab).toHaveBeenCalledWith('chats')
-    expect(event.defaultPrevented).toBe(true)
-  })
-
-  it('switches to files on Ctrl+3', () => {
-    renderHook(() => useSidebarTabKeyboard())
-    const event = dispatchKeydown({ key: '3', ctrlKey: true })
-    expect(setActiveTab).toHaveBeenCalledWith('files')
-    expect(event.defaultPrevented).toBe(true)
-  })
-
-  it('switches to git on Ctrl+4', () => {
-    renderHook(() => useSidebarTabKeyboard())
-    const event = dispatchKeydown({ key: '4', ctrlKey: true })
-    expect(setActiveTab).toHaveBeenCalledWith('git')
-    expect(event.defaultPrevented).toBe(true)
   })
 
   it('does not fire on plain number key', () => {
