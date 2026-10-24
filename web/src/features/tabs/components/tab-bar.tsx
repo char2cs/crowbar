@@ -1,6 +1,7 @@
 import { DndContext, DragOverlay, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useStore } from 'zustand'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
@@ -17,6 +18,7 @@ import {
 import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
 import { useHasViewStrip } from '@/features/panes/hooks/use-project-view-ids'
 import { BuildReadout } from '@/components/layout/build-readout'
+import { browserHomepage } from '@/features/browser/lib/homepage'
 import { useSettingsStore } from '@/features/settings/store'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { saveBuffer } from '@/features/editor/lib/buffer-save'
@@ -653,9 +655,10 @@ const TabBar = ({
                     open/close — NOT a SortableEditorTab, so it never joins
                     sortedBufferIds and is never draggable. Last child inside
                     the scroller (spec §7.1). A dropdown, not a single default
-                    action: the two things that can actually land in this
-                    pane's editor view are a blank file or a terminal, so
-                    both are offered rather than picking one silently. */}
+                    action: the things that can actually land in this
+                    pane's editor view are a blank file, a terminal or a
+                    browser, so all are offered rather than picking one
+                    silently. */}
                 {paneId && (
                   <TabAddButton
                     isBottomPane={isBottomPane}
@@ -678,6 +681,18 @@ const TabBar = ({
                       if (!wsId) return
                       ensurePaneChatThenOpen(wsId, paneId, (target) => {
                         openContent({ type: 'terminal' }, { paneId: target })
+                      })
+                    }}
+                    onNewBrowser={() => {
+                      if (!wsId) return
+                      ensurePaneChatThenOpen(wsId, paneId, (target) => {
+                        openContent(
+                          {
+                            type: 'browser',
+                            url: browserHomepage(useSettingsStore.getState().settings),
+                          },
+                          { paneId: target },
+                        )
                       })
                     }}
                   />
@@ -715,18 +730,23 @@ const TabBar = ({
           )}
         </PaneTopRow>
 
-        <DragOverlay dropAnimation={null}>
-          {draggedBuffer ? (
-            <div className="tab-drag-preview ui-font flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/95 px-2 py-1 ui-text-xs opacity-95 shadow-sm">
-              <span className="max-w-[200px] truncate text-foreground">
-                {draggedBuffer.name}
-                {draggedBuffer.type === 'editor' && draggedBuffer.isDirty && (
-                  <span className="ml-1 text-muted-foreground">•</span>
-                )}
-              </span>
-            </div>
-          ) : null}
-        </DragOverlay>
+        {/* In the body, so the drag preview sits among the other body-level overlays
+            that hide a browser tab's native webview. */}
+        {createPortal(
+          <DragOverlay dropAnimation={null}>
+            {draggedBuffer ? (
+              <div className="tab-drag-preview ui-font flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/95 px-2 py-1 ui-text-xs opacity-95 shadow-sm">
+                <span className="max-w-[200px] truncate text-foreground">
+                  {draggedBuffer.name}
+                  {draggedBuffer.type === 'editor' && draggedBuffer.isDirty && (
+                    <span className="ml-1 text-muted-foreground">•</span>
+                  )}
+                </span>
+              </div>
+            ) : null}
+          </DragOverlay>,
+          document.body,
+        )}
       </DndContext>
 
       <MemoizedTabContextMenu

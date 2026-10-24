@@ -186,4 +186,30 @@ describe('TabBarItem sidebar surface', () => {
     act(() => diffTab.focus())
     expect(useSidebarStore.getState().activeTab).toBe('git')
   })
+
+  it('exposes the full title of a long tab to assistive tech and the hover tooltip', async () => {
+    const title = 'Crowbar - Bring your own agent. Keep your own context. Always.'
+    const browserBuffer = {
+      id: 'b-1',
+      type: 'browser',
+      url: 'https://crowbar.test',
+      name: title,
+      path: 'browser://b-1',
+      isPinned: false,
+      isPreview: false,
+      workspaceId: 'w1',
+    } as const
+    render(<TabBarItem buffer={browserBuffer} isActive {...shared} displayName={title} />)
+
+    const tab = screen.getByRole('tab', { name: title })
+    expect(tab.textContent).toBe(title)
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+
+    fireEvent.pointerEnter(tab)
+    fireEvent.mouseEnter(tab)
+    fireEvent.focus(tab)
+    expect(
+      await screen.findByText(title, { selector: '[data-slot="tooltip-content"] *' }),
+    ).toBeTruthy()
+  })
 })

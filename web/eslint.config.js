@@ -178,6 +178,7 @@ export default tseslint.config(
       'src/lib/ws/tauri-transport.ts',
       'src/lib/native-dialog.ts',
       'src/lib/external-open.ts',
+      'src/lib/browser-bridge.ts',
     ],
     rules: {
       'no-restricted-imports': 'off',

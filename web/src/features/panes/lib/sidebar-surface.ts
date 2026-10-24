@@ -10,6 +10,7 @@ const SURFACE_BY_TYPE: Record<PaneContent['type'], SidebarTab> = {
   commitDiff: 'git',
   branchReview: 'git',
   terminal: 'chats',
+  browser: 'chats',
 }
 
 export function sidebarSurfaceOf(type: PaneContent['type']): SidebarTab {

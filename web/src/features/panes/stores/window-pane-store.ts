@@ -5,6 +5,7 @@ import type { WindowPaneState } from './window-pane-store.types'
 import { createPaneSlice } from './slices/pane-slice'
 import { createBufferSlice } from './slices/buffer-slice'
 import { saveWorkspaceLayout } from '@/lib/persistence/workspace-layout'
+import { toPersistedBuffers } from '@/features/panes/utils/persisted-layout'
 import { viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
 
 export type WindowPaneStore = StoreApi<WindowPaneState>
@@ -106,7 +107,7 @@ export function createWindowPaneStore(snapshot?: WindowPaneSnapshot): WindowPane
         bottomLayout: current.bottomLayout,
         activePaneId: current.activePaneId,
         mostRecentActivePaneIds: current.mostRecentActivePaneIds,
-        buffers: current.buffers,
+        buffers: toPersistedBuffers(current.buffers),
         updatedAt: Date.now(),
       })
     }, 300)

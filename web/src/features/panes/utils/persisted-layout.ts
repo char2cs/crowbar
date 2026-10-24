@@ -4,6 +4,27 @@ import {
   type PaneContent,
 } from '@/features/panes/types/pane-content'
 
+/** A native webview id; Rust names the webview `browser-<id>`. */
+const WEBVIEW_ID = /^[A-Za-z0-9_-]+$/
+
+function isRestorable(buffer: PaneContent): boolean {
+  if (!PANE_CONTENT_TYPES.has(buffer.type)) return false
+  return buffer.type !== 'browser' || (WEBVIEW_ID.test(buffer.id) && typeof buffer.url === 'string')
+}
+
+/** Strips what only a live webview knows (an in-flight load) from a browser tab. */
+function withoutTransient(buffer: PaneContent): PaneContent {
+  if (buffer.type !== 'browser' || !('loading' in buffer)) return buffer
+  const rest = { ...buffer }
+  delete rest.loading
+  return rest
+}
+
+/** The buffers as they are written to the saved layout. */
+export function toPersistedBuffers(buffers: PaneContent[]): PaneContent[] {
+  return buffers.map(withoutTransient)
+}
+
 interface PersistablePane {
   editorTabIds: string[]
   activeEditorTabId: string | null
@@ -39,7 +60,7 @@ export function validateLoadedBuffers<P extends PersistablePane, T extends Snaps
   snapshot: T,
   { adoptInto, keepUnlisted = false }: Adoption,
 ): T {
-  const known = snapshot.buffers.filter((b) => PANE_CONTENT_TYPES.has(b.type))
+  const known = snapshot.buffers.flatMap((b) => (isRestorable(b) ? [withoutTransient(b)] : []))
   const knownIds = new Set(known.map((b) => b.id))
   const panes = {} as Record<string, P>
   const listed = new Set<string>()

@@ -1,5 +1,10 @@
 import { lazy, type ReactNode } from 'react'
-import type { EditorContent, PaneContent, TerminalContent } from '../types/pane-content'
+import type {
+  BrowserContent,
+  EditorContent,
+  PaneContent,
+  TerminalContent,
+} from '../types/pane-content'
 
 // Lazy so each surface's heavy dependencies (git diff, markdown parser, CSV
 // grid) stay out of the main chunk until a tab of that type is opened.
@@ -24,9 +29,13 @@ const HtmlPreview = lazy(() =>
 const CsvPreview = lazy(() => import('@/extensions/viewers/csv/csv-preview'))
 
 /** A tab whose surface a pane renders on demand. Editors (portaled from
- *  EditorHostRegistry) and terminals (kept mounted for their PTY) are hosted
- *  by the pane itself and never reach this registry. */
-export type RegisteredContent = Exclude<PaneContent, EditorContent | TerminalContent>
+ *  EditorHostRegistry), terminals (kept mounted for their PTY) and browsers
+ *  (kept mounted for their webview) are hosted by the pane itself and never
+ *  reach this registry. */
+export type RegisteredContent = Exclude<
+  PaneContent,
+  EditorContent | TerminalContent | BrowserContent
+>
 
 interface SurfaceContext {
   isActivePane: boolean
@@ -49,7 +58,7 @@ const RENDERERS: Renderers = {
     <CommitDiffPane sha={c.sha} wsId={c.wsId} isActivePane={isActivePane} />
   ),
   branchReview: (c, { isActivePane }) => (
-    <BranchReviewPane wsId={c.wsId} isActivePane={isActivePane} />
+    <BranchReviewPane bufferId={c.id} view={c.view} wsId={c.wsId} isActivePane={isActivePane} />
   ),
   markdownPreview: (c) => <MarkdownPreview bufferId={c.id} />,
   htmlPreview: () => <HtmlPreview />,

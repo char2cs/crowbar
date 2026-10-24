@@ -1,7 +1,7 @@
 // Lucide Plus (stroke-based) to match the sibling toolbar icons — back/forward/
 // settings are Lucide; Phosphor's bold Plus rendered heavier and larger than them.
 import { PlusIcon } from '@phosphor-icons/react'
-import { FilePlus, TerminalWindow } from '@phosphor-icons/react'
+import { FilePlus, GlobeIcon, TerminalWindow } from '@phosphor-icons/react'
 import React from 'react'
 import {
   DropdownMenu,
@@ -14,11 +14,12 @@ interface TabAddButtonProps {
   isBottomPane: boolean
   onNewFile: () => void
   onNewTerminal: () => void
+  onNewBrowser: () => void
 }
 
 /**
- * The tab strip's "+" — a dropdown offering the two things that can land in
- * this pane's editor view: a new (blank, unsaved) file, or a new terminal.
+ * The tab strip's "+" — a dropdown offering what can land in this pane's
+ * editor view: a new (blank, unsaved) file, a new terminal, or a new browser.
  * It is rendered as the LAST child inside the scrolling tab container (see
  * tab-bar.tsx), immediately after the last tab, so it flows and shifts
  * horizontally as tabs open and close — the same placement a browser's
@@ -30,6 +31,7 @@ const TabAddButton = React.memo(function TabAddButton({
   isBottomPane,
   onNewFile,
   onNewTerminal,
+  onNewBrowser,
 }: TabAddButtonProps) {
   if (isBottomPane) return null
 
@@ -49,6 +51,10 @@ const TabAddButton = React.memo(function TabAddButton({
         <DropdownMenuItem onClick={onNewTerminal}>
           <TerminalWindow className="size-4" />
           New Terminal
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onNewBrowser}>
+          <GlobeIcon className="size-4" />
+          New Browser
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

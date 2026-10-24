@@ -5,7 +5,14 @@ import TabAddButton from '@/features/tabs/components/tab-add-button'
 
 describe('TabAddButton', () => {
   it('renders the + trigger button', () => {
-    render(<TabAddButton isBottomPane={false} onNewFile={vi.fn()} onNewTerminal={vi.fn()} />)
+    render(
+      <TabAddButton
+        isBottomPane={false}
+        onNewFile={vi.fn()}
+        onNewTerminal={vi.fn()}
+        onNewBrowser={vi.fn()}
+      />,
+    )
     expect(screen.getByRole('button', { name: 'New tab' })).toBeDefined()
   })
 
@@ -14,7 +21,14 @@ describe('TabAddButton', () => {
   // opens a dropdown offering both.
   it('opens a dropdown offering New File and New Terminal', async () => {
     const user = userEvent.setup()
-    render(<TabAddButton isBottomPane={false} onNewFile={vi.fn()} onNewTerminal={vi.fn()} />)
+    render(
+      <TabAddButton
+        isBottomPane={false}
+        onNewFile={vi.fn()}
+        onNewTerminal={vi.fn()}
+        onNewBrowser={vi.fn()}
+      />,
+    )
 
     await user.click(screen.getByRole('button', { name: 'New tab' }))
 
@@ -25,7 +39,14 @@ describe('TabAddButton', () => {
   it('calls onNewFile when "New File" is chosen', async () => {
     const user = userEvent.setup()
     const onNewFile = vi.fn()
-    render(<TabAddButton isBottomPane={false} onNewFile={onNewFile} onNewTerminal={vi.fn()} />)
+    render(
+      <TabAddButton
+        isBottomPane={false}
+        onNewFile={onNewFile}
+        onNewTerminal={vi.fn()}
+        onNewBrowser={vi.fn()}
+      />,
+    )
 
     await user.click(screen.getByRole('button', { name: 'New tab' }))
     await user.click(await screen.findByRole('menuitem', { name: /New File/ }))
@@ -36,7 +57,14 @@ describe('TabAddButton', () => {
   it('calls onNewTerminal when "New Terminal" is chosen', async () => {
     const user = userEvent.setup()
     const onNewTerminal = vi.fn()
-    render(<TabAddButton isBottomPane={false} onNewFile={vi.fn()} onNewTerminal={onNewTerminal} />)
+    render(
+      <TabAddButton
+        isBottomPane={false}
+        onNewFile={vi.fn()}
+        onNewTerminal={onNewTerminal}
+        onNewBrowser={vi.fn()}
+      />,
+    )
 
     await user.click(screen.getByRole('button', { name: 'New tab' }))
     await user.click(await screen.findByRole('menuitem', { name: /New Terminal/ }))
@@ -44,8 +72,33 @@ describe('TabAddButton', () => {
     expect(onNewTerminal).toHaveBeenCalledTimes(1)
   })
 
+  it('calls onNewBrowser when "New Browser" is chosen', async () => {
+    const user = userEvent.setup()
+    const onNewBrowser = vi.fn()
+    render(
+      <TabAddButton
+        isBottomPane={false}
+        onNewFile={vi.fn()}
+        onNewTerminal={vi.fn()}
+        onNewBrowser={onNewBrowser}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'New tab' }))
+    await user.click(await screen.findByRole('menuitem', { name: /New Browser/ }))
+
+    expect(onNewBrowser).toHaveBeenCalledTimes(1)
+  })
+
   it('is absent in the bottom pane', () => {
-    render(<TabAddButton isBottomPane={true} onNewFile={vi.fn()} onNewTerminal={vi.fn()} />)
+    render(
+      <TabAddButton
+        isBottomPane={true}
+        onNewFile={vi.fn()}
+        onNewTerminal={vi.fn()}
+        onNewBrowser={vi.fn()}
+      />,
+    )
     expect(screen.queryByRole('button', { name: 'New tab' })).toBeNull()
   })
 })

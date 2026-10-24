@@ -5,6 +5,7 @@ import type {
   OpenEditorTabSpec,
   EditorContent,
   BranchReviewContent,
+  BrowserContent,
   CommitDiffContent,
   TerminalContent,
   MarkdownPreviewContent,
@@ -21,6 +22,7 @@ import { useSettingsStore } from '@/features/settings/store'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { nanoid } from 'nanoid'
 import { bestEffort } from '@/lib/best-effort'
+import { browserTabName } from '@/features/browser/lib/browser-tab-name'
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -41,6 +43,7 @@ export interface BufferActions {
   openContent(spec: OpenEditorTabSpec, opts?: OpenContentOptions): string
   closeBuffer(id: string): void
   renameBuffer(id: string, name: string): void
+  setBrowserLocation(id: string, patch: { url?: string; title?: string; loading?: boolean }): void
   setPinned(id: string, pinned: boolean): void
   setPreview(id: string, preview: boolean): void
   promotePreview(id: string): void
@@ -292,6 +295,17 @@ export const createBufferSlice: StateCreator<
             isPreview: false,
             workspaceId,
           } satisfies TerminalContent
+        } else if (spec.type === 'browser') {
+          buf = {
+            id,
+            type: 'browser',
+            url: spec.url ?? '',
+            name: browserTabName(undefined, spec.url ?? ''),
+            path: `browser://${id}`,
+            isPinned: false,
+            isPreview: false,
+            workspaceId,
+          } satisfies BrowserContent
         } else if (spec.type === 'markdownPreview') {
           buf = {
             id,
@@ -366,6 +380,23 @@ export const createBufferSlice: StateCreator<
         set((state) => {
           const buf = state.buffers.find((b) => b.id === id)
           if (buf) buf.name = name
+        })
+      },
+
+
+      // The webview is the source of truth for where it is; this stores what it
+      // reports so the tab strip and a re-mounted pane agree with it.
+      setBrowserLocation(id, patch) {
+        set((state) => {
+          const buf = state.buffers.find((b) => b.id === id)
+          if (!buf || buf.type !== 'browser') return
+          if (patch.url !== undefined && patch.url !== buf.url) {
+            buf.url = patch.url
+            buf.title = undefined
+          }
+          if (patch.title !== undefined) buf.title = patch.title
+          if (patch.loading !== undefined) buf.loading = patch.loading
+          buf.name = browserTabName(buf.title, buf.url)
         })
       },
 

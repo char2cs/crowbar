@@ -90,12 +90,14 @@ pub fn handle_request<R: Runtime>(
     responder: UriSchemeResponder,
 ) {
     let app = ctx.app_handle().clone();
+    let label = ctx.webview_label().to_string();
     let state_app = app.clone();
 
     tauri::async_runtime::spawn(async move {
         // Dropping the timed-out future drops the request sender, which is what
         // tells hyper's connection task to close and hand the descriptor back.
-        let forwarded = forward(
+        let forwarded = serve(
+            &label,
             || state_app.state::<SidecarHandle>().socket_path(),
             request,
             |attempt| tokio::time::sleep(connect_retry_delay(attempt)),
@@ -111,6 +113,24 @@ pub fn handle_request<R: Runtime>(
         // NSException that cannot unwind through the ObjC bridge -> abort().
         let _ = app.run_on_main_thread(move || responder.respond(resp));
     });
+}
+
+/// Remote pages in browser tabs must never reach the daemon API.
+async fn serve<S, W, F>(
+    webview_label: &str,
+    socket: S,
+    request: http::Request<Vec<u8>>,
+    wait: W,
+) -> http::Response<Vec<u8>>
+where
+    S: Fn() -> Option<PathBuf>,
+    W: FnMut(u32) -> F,
+    F: Future<Output = ()>,
+{
+    if crate::browser::exempt_from_app_guard(webview_label) {
+        return error_response(403, "crowbar api is not available to browser tabs");
+    }
+    forward(socket, request, wait).await
 }
 
 /// Connects to the daemon — re-reading the socket path each time, since it is
@@ -211,7 +231,9 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::UnixListener;
 
-    use super::{connect_retry_delay, forward, CONNECT_ATTEMPTS, DAEMON_UNAVAILABLE, PROXY_HEADER};
+    use super::{
+        connect_retry_delay, forward, serve, CONNECT_ATTEMPTS, DAEMON_UNAVAILABLE, PROXY_HEADER,
+    };
 
     fn request(method: http::Method) -> http::Request<Vec<u8>> {
         http::Request::builder()
@@ -284,6 +306,41 @@ mod tests {
         assert_eq!(resp.status(), 200);
         assert_eq!(resp.body(), b"ok");
         assert_eq!(waits.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn browser_webviews_never_reach_the_daemon() {
+        let dir = tempdir::Dir::new("browser-label");
+        let path = socket_in(&dir);
+        let listener = UnixListener::bind(&path).expect("bind");
+        let resp = serve(
+            "browser-abc",
+            || Some(path.clone()),
+            request(http::Method::GET),
+            |_| async {},
+        )
+        .await;
+        assert_eq!(resp.status(), 403);
+        // The connect is already complete or never happened by now, so a pending accept means no connection.
+        assert!(
+            futures_util::FutureExt::now_or_never(listener.accept()).is_none(),
+            "a browser tab's request reached the daemon socket"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_main_webview_still_reaches_the_daemon() {
+        let dir = tempdir::Dir::new("main-label");
+        let path = socket_in(&dir);
+        serve_once(path.clone());
+        let resp = serve(
+            "main",
+            || Some(path.clone()),
+            request(http::Method::GET),
+            |_| async {},
+        )
+        .await;
+        assert_eq!(resp.status(), 200);
     }
 
     #[tokio::test]

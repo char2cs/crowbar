@@ -1,7 +1,18 @@
-import { type CSSProperties, type ReactNode, useEffect, useState } from 'react'
+import {
+  type CSSProperties,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
+import { useSidebarPeekStore } from '@/features/window/stores/sidebar-peek-store'
 import { cn } from '@/utils/cn'
 import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
 
+/** The properties `transition-transform` animates that actually move the card:
+ *  the slide is written as `translate-x-*`, i.e. the CSS `translate` property. */
+const SLIDE_PROPERTIES = new Set(['translate', 'transform'])
 /** Gap between the peeked card and the window edges (Tailwind `inset-2`). */
 const PEEK_MARGIN_PX = 8
 /**
@@ -51,6 +62,8 @@ interface SidebarPeekProps {
  */
 export function SidebarPeek({ hidden, side, width, children }: SidebarPeekProps) {
   const [hovered, setHovered] = useState(false)
+  const setOccupied = useSidebarPeekStore((s) => s.setOccupied)
+  const cardRef = useRef<HTMLDivElement>(null)
   const peeking = hidden && hovered
   const isRight = side === 'right'
 
@@ -94,6 +107,34 @@ export function SidebarPeek({ hidden, side, width, children }: SidebarPeekProps)
     }
   }, [hidden, peeking, isRight, width])
 
+  // Native webviews step aside while the card is on screen, including its
+  // slide-out, which ends at transitionend. With no transition (reduced
+  // motion, docked) that event never comes, so the card is gone at once.
+  useLayoutEffect(() => {
+    if (peeking) {
+      setOccupied(true)
+      return
+    }
+    const card = cardRef.current
+    if (
+      !card ||
+      !getComputedStyle(card)
+        .transitionDuration.split(',')
+        .some((d) => parseFloat(d) > 0)
+    ) {
+      setOccupied(false)
+      return
+    }
+    const done = (event: Event) => {
+      if (event.target === card && SLIDE_PROPERTIES.has((event as TransitionEvent).propertyName)) {
+        setOccupied(false)
+      }
+    }
+    card.addEventListener('transitionend', done)
+    return () => card.removeEventListener('transitionend', done)
+  }, [peeking, setOccupied])
+  useEffect(() => () => setOccupied(false), [setOccupied])
+
   return (
     <div
       data-sidebar-peek=""
@@ -101,6 +142,7 @@ export function SidebarPeek({ hidden, side, width, children }: SidebarPeekProps)
       className={cn('flex min-h-0 flex-col', hidden ? 'contents' : 'h-full')}
     >
       <div
+        ref={cardRef}
         // Parked off-screen it is still in the DOM, so without this a Tab from
         // the editor walks into an invisible sidebar — and anything typed after
         // the card slides away keeps landing in a search field nobody can see.

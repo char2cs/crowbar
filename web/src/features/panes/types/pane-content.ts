@@ -21,12 +21,14 @@ export type EditorTabContentType =
   | 'htmlPreview'
   | 'csvPreview'
   | 'branchReview'
+  | 'browser'
 
 /** Every content type this build can render.
  *
  *  A saved layout outlives the code that wrote it, so the restore path checks
  *  a persisted buffer's type against this set and drops what it no longer
- *  knows — see validateLoadedBuffers in persisted-layout.ts. */
+ *  knows — see validateLoadedBuffers in persisted-layout.ts.
+ */
 export const PANE_CONTENT_TYPES: ReadonlySet<EditorTabContentType> = new Set<EditorTabContentType>([
   'editor',
   'terminal',
@@ -35,6 +37,7 @@ export const PANE_CONTENT_TYPES: ReadonlySet<EditorTabContentType> = new Set<Edi
   'htmlPreview',
   'csvPreview',
   'branchReview',
+  'browser',
 ])
 
 // ── Base fields shared by every editor-tab content type ─────────────
@@ -121,9 +124,20 @@ export interface CsvPreviewContent extends EditorTabBase {
   sourceFilePath: string
 }
 
+
 export interface BranchReviewContent extends EditorTabBase {
   type: 'branchReview'
   wsId: string
+}
+
+/** A native webview tab. The buffer id is the Rust webview id; `url` is ''
+ *  until the first navigation, and the webview is not created before then. */
+export interface BrowserContent extends EditorTabBase {
+  type: 'browser'
+  url: string
+  title?: string
+  /** A page load is in flight, as the webview reports it. */
+  loading?: boolean
 }
 
 // ── Discriminated union ─────────────────────────────────────────────
@@ -136,6 +150,7 @@ export type PaneContent =
   | HtmlPreviewContent
   | CsvPreviewContent
   | BranchReviewContent
+  | BrowserContent
 
 // ── Type guards ─────────────────────────────────────────────────────
 
@@ -168,6 +183,7 @@ const VIRTUAL_TYPES: ReadonlySet<EditorTabContentType> = new Set([
   'terminal',
   'branchReview',
   'commitDiff',
+  'browser',
 ])
 
 export function isVirtualContent(c: PaneContent): boolean {
@@ -251,6 +267,12 @@ export type OpenEditorTabSpec =
       type: 'branchReview'
       wsId: string
       name: string
+      workspaceId?: string
+    }
+  | {
+      type: 'browser'
+      /** Opens on this page; omitted for the blank address bar. */
+      url?: string
       workspaceId?: string
     }
 

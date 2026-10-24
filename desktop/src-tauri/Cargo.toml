@@ -38,6 +38,9 @@ tauri-plugin-mcp-bridge = "0.13"
 # Diagnostics-bundle export (Settings -> Export diagnostics): deflate only.
 zip = { version = "8", default-features = false, features = ["deflate"] }
 
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+
 [target."cfg(unix)".dependencies]
 libc = "0.2"
 
@@ -46,7 +49,14 @@ objc2 = "0.6"
 # NSPoint/NSRect only, for set_traffic_light_position's msg_send! calls —
 # already resolved at this exact version transitively (wry/window-vibrancy),
 # so this adds no new version to the tree.
-objc2-foundation = "0.3"
+objc2-foundation = { version = "0.3", features = ["NSData", "NSDictionary", "NSError", "NSString", "NSValue", "block2"] }
+# Agent control of browser tabs: WKWebView's evaluate-with-completion and
+# snapshot, so page results come back natively and the page gets no IPC channel.
+# Same versions wry/tauri already resolve.
+objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKWebView", "WKContentWorld", "WKFrameInfo", "WKSnapshotConfiguration"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSImage", "NSImageRep", "NSBitmapImageRep"] }
+block2 = "0.6"
+base64 = "0.22"
 
 [profile.release]
 panic = "abort"

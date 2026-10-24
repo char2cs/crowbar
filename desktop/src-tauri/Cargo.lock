@@ -655,6 +655,8 @@ checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 name = "crowbar-desktop"
 version = "0.0.0"
 dependencies = [
+ "base64 0.22.1",
+ "block2 0.6.2",
  "bytes",
  "futures-util",
  "http-body-util",
@@ -663,7 +665,9 @@ dependencies = [
  "libc",
  "log",
  "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
+ "objc2-web-kit 0.3.2",
  "serde_json",
  "tauri",
  "tauri-build",

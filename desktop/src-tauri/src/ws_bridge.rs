@@ -173,7 +173,7 @@ pub async fn ws_open(
     on_message: Channel<InvokeResponseBody>,
     idle_timeout_ms: Option<u64>,
     manager: State<'_, WsBridgeManager>,
-    window: tauri::WebviewWindow,
+    window: tauri::Window,
 ) -> Result<(), String> {
     let socket = crate::sidecar::socket_path();
     open_bridge(

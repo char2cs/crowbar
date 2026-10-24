@@ -15,6 +15,7 @@ type EditorTabActions = Pick<
   | 'activateEditorTabInPane'
   | 'activateChatInPane'
   | 'addEditorTabToPane'
+  | 'revealEditorTab'
   | 'removeEditorTabFromPane'
   | 'moveEditorTabToPane'
   | 'setEditorTabPreview'
@@ -84,6 +85,16 @@ export function createEditorTabActions(set: PaneSet, get: PaneGet): EditorTabAct
         pane.chatSelected = false
         state.activePaneId = paneId
         touchPane(state, paneId)
+      })
+    },
+
+    revealEditorTab(paneId, tabId) {
+      set((state) => {
+        const pane = state.panes[paneId]
+        if (!pane || !pane.editorTabIds.includes(tabId)) return
+        pane.activeEditorTabId = tabId
+        pane.chatSelected = false
+        pane.editorOpen = true
       })
     },
 

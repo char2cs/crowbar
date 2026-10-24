@@ -182,6 +182,7 @@ export function PaneContainer({
           editorViewHidden={editorViewHidden}
           isActivePane={isActivePane}
           showing={showing}
+          dropTargeted={drop.isDragOver || drop.isTabDragOver || !!drop.internalHoverZone}
         />
       </div>
     </div>

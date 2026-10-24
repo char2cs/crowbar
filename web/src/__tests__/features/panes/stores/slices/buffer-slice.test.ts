@@ -129,6 +129,41 @@ describe('buffer-slice', () => {
     ).toBeUndefined()
   })
 
+  it('openContent creates an empty browser tab per call and never dedups', () => {
+    const { bufferActions } = store.getState()
+    const a = bufferActions.openContent({ type: 'browser' })
+    const b = bufferActions.openContent({ type: 'browser' })
+    expect(a).not.toBe(b)
+    expect(a).toMatch(/^[A-Za-z0-9_-]+$/)
+    expect(store.getState().buffers[0]).toMatchObject({ type: 'browser', url: '', name: 'Browser' })
+  })
+
+  it('openContent opens a browser tab on the given page, named for its host', () => {
+    const { bufferActions } = store.getState()
+    bufferActions.openContent({ type: 'browser', url: 'https://example.com/home' })
+    expect(store.getState().buffers[0]).toMatchObject({
+      type: 'browser',
+      url: 'https://example.com/home',
+      name: 'example.com',
+    })
+  })
+
+  it('setBrowserLocation keeps the stored url and the tab name in step', () => {
+    const { bufferActions } = store.getState()
+    const id = bufferActions.openContent({ type: 'browser' })
+    bufferActions.setBrowserLocation(id, { url: 'https://example.com/a' })
+    expect(store.getState().buffers[0]).toMatchObject({
+      url: 'https://example.com/a',
+      name: 'example.com',
+    })
+    bufferActions.setBrowserLocation(id, { title: 'Example Domain' })
+    expect(store.getState().buffers[0]).toMatchObject({
+      url: 'https://example.com/a',
+      title: 'Example Domain',
+      name: 'Example Domain',
+    })
+  })
+
   it('closing a tab removes its buffer from the list', () => {
     const id = store.getState().bufferActions.openContent(editor('/a.ts'))
     closeTab(store, ROOT_PANE_ID, id)
@@ -214,6 +249,7 @@ describe('buffer-slice', () => {
     store.getState().bufferActions.setPinned(id, false)
     expect(store.getState().bufferActions.getBufferById(id)?.isPinned).toBe(false)
   })
+
 
   describe('promotePreview', () => {
     it('clears the preview flag on every buffer', () => {
