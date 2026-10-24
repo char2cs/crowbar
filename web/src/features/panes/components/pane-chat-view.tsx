@@ -54,6 +54,7 @@ export function PaneChatView({
     <div
       ref={ref}
       data-chat-view=""
+      data-sidebar-surface="chats"
       hidden={hidden}
       className={cn(
         // No fill: the shared `data-pane-content` box already paints it.

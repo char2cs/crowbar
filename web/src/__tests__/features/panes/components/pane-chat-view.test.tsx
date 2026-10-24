@@ -2,9 +2,11 @@ import { createElement } from 'react'
 import { act, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { useSidebarFocusMode } from '@/components/layout/use-sidebar-focus-mode'
+import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 
 vi.mock('@/features/agent/components/agent-chat-pane', () => ({
-  AgentChatPane: () => createElement('div', { 'data-testid': 'chat-surface' }),
+  AgentChatPane: () => createElement('textarea', { 'data-testid': 'chat-surface' }),
 }))
 
 type Module = typeof import('@/features/panes/components/pane-chat-view') &
@@ -61,5 +63,23 @@ describe('PaneChatView chat surface loading', () => {
     renderView(mod)
 
     expect(screen.getByTestId('chat-surface')).toBeTruthy()
+  })
+})
+
+describe('PaneChatView sidebar surface', () => {
+  it('focus in the chat column shows Chats', async () => {
+    const mod = await freshModule()
+    await mod.preloadAgentChatPane()
+    useSidebarStore.setState({ ...getInitialState(), activeTab: 'files' })
+    function FocusMode() {
+      useSidebarFocusMode()
+      return null
+    }
+    render(createElement(FocusMode))
+    renderView(mod)
+
+    act(() => screen.getByTestId('chat-surface').focus())
+
+    expect(useSidebarStore.getState().activeTab).toBe('chats')
   })
 })

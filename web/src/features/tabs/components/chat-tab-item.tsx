@@ -37,6 +37,7 @@ export function ChatTabItem({ chatId, isActive, onSelect }: ChatTabItemProps) {
     <Tab
       data-testid="chat-tab-item"
       data-role="chat-tab"
+      data-sidebar-surface="chats"
       role="tab"
       aria-selected={isActive}
       onClick={onSelect}

@@ -10,6 +10,7 @@ import { memo, useCallback } from 'react'
 import type { RefCallback } from 'react'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
 import type { PaneContent } from '@/features/panes/types/pane-content'
+import { sidebarSurfaceOf } from '@/features/panes/lib/sidebar-surface'
 import { sameRenderedBuffer } from './tab-bar-item-utils'
 import { Button } from '@/components/ui/button'
 import { Tab } from '@/components/ui/tabs'
@@ -98,7 +99,11 @@ const TabBarItem = memo(function TabBarItem({
      * close button and called handleDragStart → handleTabSelect before the
      * close button's own onClick could run.
      */
-    <div ref={tabRef} className="group/tab relative">
+    <div
+      ref={tabRef}
+      data-sidebar-surface={sidebarSurfaceOf(buffer.type)}
+      className="group/tab relative"
+    >
       {showDropIndicatorBefore ? (
         <div className="drop-indicator absolute top-1 bottom-1 left-0 z-20 w-0.5 bg-secondary" />
       ) : null}

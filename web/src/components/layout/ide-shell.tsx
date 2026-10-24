@@ -26,6 +26,7 @@ import { PlaceholderToastWatcher } from './placeholder-toast-watcher'
 import { SidebarToastOverlay } from './sidebar-toast-overlay'
 import { SidebarPeek } from './sidebar-peek'
 import { useSidebarPanel, SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from './use-sidebar-panel'
+import { useSidebarFocusMode } from './use-sidebar-focus-mode'
 import { SidebarSplitPane } from './sidebar-split-pane'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 import { useSidebarStore } from '@/lib/store/sidebar'
@@ -66,6 +67,7 @@ function IdeShellBody() {
   // a side effect (see the hook's own doc).
   useMacTrafficLightSync(sidebarSide, `${theme}:${themeMode}`)
   const { sidebarOpen, setSidebarOpen, preferredWidth, commitPreferredWidth } = useSidebarPanel()
+  useSidebarFocusMode()
 
   // §7: the TanStack /ide/:projectId/:repoId/:wsId route params are the
   // canonical source for the active project/repo/workspace — read them directly

@@ -4,6 +4,7 @@ import type { EditorContent, PaneContent, TerminalContent } from '../types/pane-
 import { clearEditorPortalEntry, setEditorPortalEntry } from '../lib/editor-portal-registry'
 import { NewTabView } from './new-tab-view'
 import { renderPaneContent } from './pane-content-registry'
+import { sidebarSurfaceOf } from '../lib/sidebar-surface'
 import { TerminalPane } from './terminal-pane'
 
 type EditorBufferShell = Pick<EditorContent, 'id' | 'path' | 'name' | 'type' | 'isPreview'>
@@ -97,6 +98,7 @@ export function PaneEditorViewContent({
           return (
             <div
               key={b.id}
+              data-sidebar-surface={sidebarSurfaceOf(b.type)}
               className="absolute inset-0"
               style={isActive ? undefined : { visibility: 'hidden' }}
             >
@@ -122,16 +124,21 @@ export function PaneEditorViewContent({
       {hasOpenEditorBuffer && (
         <div
           ref={editorPortalTargetRef}
+          data-sidebar-surface={sidebarSurfaceOf('editor')}
           className="absolute inset-0"
           style={isEditorTabActive ? undefined : { visibility: 'hidden' }}
         />
       )}
 
       <Suspense fallback={null}>
-        {activeBuffer &&
-          activeBuffer.type !== 'terminal' &&
-          activeBuffer.type !== 'editor' &&
-          renderPaneContent(activeBuffer, { isActivePane })}
+        {activeBuffer && activeBuffer.type !== 'terminal' && activeBuffer.type !== 'editor' && (
+          <div
+            data-sidebar-surface={sidebarSurfaceOf(activeBuffer.type)}
+            className="absolute inset-0"
+          >
+            {renderPaneContent(activeBuffer, { isActivePane })}
+          </div>
+        )}
       </Suspense>
     </>
   )
