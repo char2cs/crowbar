@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
@@ -30,56 +31,79 @@ type Activity struct {
 }
 
 // Projector keeps the folded rows of the chats read lately, advanced by the
-// ledger's publication and refilled under the chat's writer on a miss, so no
-// fill can install rows a publication already moved past.
+// ledger's publication and refilled under the chat's writer on a miss. Each
+// chat has its own lock: no chat's publication waits on another's.
 type Projector struct {
 	store *ledgerstore.Store
-	mu    sync.Mutex
-	chats map[string]*entry
-	reads uint64 // counts reads: the chat read least lately is the one dropped
+	chats sync.Map // chat id → *entry
+	held  atomic.Int64
+	reads atomic.Uint64 // counts reads: the chat read least lately is the one dropped
 }
 
 type entry struct {
+	mu       sync.Mutex
 	facts    *facts
 	view     *view // nil until read since the last row
-	lastRead uint64
+	lastRead atomic.Uint64
+	dropped  atomic.Bool
 }
 
 // New builds the Projector over store; subscribe Apply to its publication.
 func New(store *ledgerstore.Store) *Projector {
-	return &Projector{store: store, chats: map[string]*entry{}}
+	return &Projector{store: store}
 }
 
-// Apply advances chatID's cached rows by a publication. A chat it does not
-// hold is left to its next read; one whose rows do not follow is dropped. It
-// returns the listed messages the rows changed, for a cached chat.
+// Apply folds a publication into chatID's cached rows at the cost of its rows,
+// returning the agent's listed messages they settled or changed. An uncached
+// chat waits for its next read; one whose rows do not follow is dropped.
 func (p *Projector) Apply(chatID string, rows []ledger.Row) []domain.LedgerMessage {
 	if len(rows) == 0 {
 		return nil
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	e, ok := p.chats[chatID]
+	e, ok := p.entry(chatID)
 	if !ok {
 		return nil
 	}
-	if rows[0].Seq != e.facts.head+1 {
-		delete(p.chats, chatID)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.dropped.Load() {
 		return nil
 	}
-	before := e.read().messages
+	if rows[0].Seq != e.facts.head+1 {
+		p.drop(chatID, e)
+		return nil
+	}
 	for _, r := range rows {
 		e.facts.apply(r)
 	}
 	e.view = nil
-	return changed(before, e.read().messages)
+	return e.facts.settled()
 }
 
 // Forget drops chatID: the chat is being erased.
 func (p *Projector) Forget(chatID string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	delete(p.chats, chatID)
+	if e, ok := p.entry(chatID); ok {
+		p.drop(chatID, e)
+	}
+}
+
+func (p *Projector) entry(chatID string) (*entry, bool) {
+	v, ok := p.chats.Load(chatID)
+	if !ok {
+		return nil, false
+	}
+	e, ok := v.(*entry)
+	return e, ok
+}
+
+// drop drops e, chatID's entry, and reports whether it was still held.
+func (p *Projector) drop(chatID string, e *entry) bool {
+	if !p.chats.CompareAndDelete(chatID, e) {
+		return false
+	}
+	e.dropped.Store(true)
+	p.held.Add(-1)
+	return true
 }
 
 // Messages pages chatID's listed messages by their Sequence.
@@ -152,37 +176,49 @@ func (p *Projector) view(ctx context.Context, chatID string) (*view, error) {
 }
 
 func (p *Projector) cached(chatID string) (*view, bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	e, ok := p.chats[chatID]
+	e, ok := p.entry(chatID)
 	if !ok {
 		return nil, false
 	}
-	p.touchLocked(e)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.dropped.Load() {
+		return nil, false
+	}
+	e.lastRead.Store(p.reads.Add(1))
 	return e.read(), true
 }
 
+// install caches chatID folded from rows, its ledger's head, then drops the
+// chat read least lately while more than cachedChats are held.
 func (p *Projector) install(chatID string, rows []ledger.Row) *view {
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	e := &entry{facts: fold(chatID, rows)}
-	p.touchLocked(e)
-	p.chats[chatID] = e
-	for len(p.chats) > cachedChats {
-		oldest := chatID
-		for id, c := range p.chats {
-			if c.lastRead < p.chats[oldest].lastRead {
-				oldest = id
-			}
-		}
-		delete(p.chats, oldest)
+	e.lastRead.Store(p.reads.Add(1))
+	v := e.read()
+	if old, loaded := p.chats.Swap(chatID, e); !loaded {
+		p.held.Add(1)
+	} else if was, ok := old.(*entry); ok {
+		was.dropped.Store(true)
 	}
-	return e.read()
+	for p.held.Load() > cachedChats {
+		if !p.dropOldest() {
+			break
+		}
+	}
+	return v
 }
 
-func (p *Projector) touchLocked(e *entry) {
-	p.reads++
-	e.lastRead = p.reads
+// dropOldest drops the chat read least lately, and reports whether it did.
+func (p *Projector) dropOldest() bool {
+	oldestID, oldest := "", (*entry)(nil)
+	p.chats.Range(func(k, v any) bool {
+		id, _ := k.(string)
+		if c, ok := v.(*entry); ok && (oldest == nil || c.lastRead.Load() < oldest.lastRead.Load()) {
+			oldestID, oldest = id, c
+		}
+		return true
+	})
+	return oldest != nil && p.drop(oldestID, oldest)
 }
 
 func (e *entry) read() *view {
@@ -192,18 +228,18 @@ func (e *entry) read() *view {
 	return e.view
 }
 
-// changed are the messages of after whose text or settling differs from before.
-func changed(before, after []domain.LedgerMessage) []domain.LedgerMessage {
-	seen := make(map[string]domain.LedgerMessage, len(before))
-	for _, m := range before {
-		seen[m.ID] = m
-	}
+// settled are the agent's listed messages the rows folded since the last call
+// settled or changed, in the order they are listed.
+func (f *facts) settled() []domain.LedgerMessage {
 	var out []domain.LedgerMessage
-	for _, m := range after {
-		if old, ok := seen[m.ID]; !ok || old.Text != m.Text || old.Sequence != m.Sequence {
-			out = append(out, m)
+	for _, m := range f.text.Changed() {
+		if m.Key.Scope == "" && m.Settled && m.Text != "" {
+			out = append(out, f.agentMessage(m).msg)
 		}
 	}
+	slices.SortStableFunc(out, func(a, b domain.LedgerMessage) int {
+		return cmp.Or(cmp.Compare(a.Sequence, b.Sequence), cmp.Compare(a.DisplayOrder, b.DisplayOrder))
+	})
 	return out
 }
 
@@ -255,6 +291,7 @@ func fold(chatID string, rows []ledger.Row) *facts {
 	for _, r := range rows {
 		f.apply(r)
 	}
+	f.text.Changed() // what a later publication changed starts here
 	return f
 }
 

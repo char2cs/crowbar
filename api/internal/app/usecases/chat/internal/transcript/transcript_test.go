@@ -291,3 +291,63 @@ func TestProjector_ARefusedReadIsAnError(t *testing.T) {
 	_, err = b.p.PendingChoices(ctx, chatID)
 	require.Error(t, err)
 }
+
+// cachedHistory is a projector holding a read chat of about n rows of whole
+// turns, its ledger's head, and next rows to publish after it: one new
+// message each.
+func cachedHistory(tb testing.TB, n, next int) (*transcript.Projector, []ledger.Row) {
+	tb.Helper()
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(tb, err)
+	store, err := ledgerstore.Open(db, time.Now)
+	require.NoError(tb, err)
+	rows := make([]ledger.Row, 0, n+6)
+	for turn := 0; len(rows) < n; turn++ {
+		id := fmt.Sprintf("T%d", turn)
+		rows = append(rows,
+			mkTB(tb, ledger.KindUserMessage, id, "", ledger.UserMessage{Text: "go", Origin: ledger.OriginProvider}),
+			mkTB(tb, ledger.KindTurnStarted, id, "", ledger.TurnStarted{RunnerID: "run-1"}),
+			mkTB(tb, ledger.KindToolCall, id, "", ledger.ToolCall{ToolID: id + "-t", Phase: ledger.ToolPre, Name: "Read"}),
+			mkTB(tb, ledger.KindToolCall, id, "", ledger.ToolCall{ToolID: id + "-t", Phase: ledger.ToolPost, Status: "ok"}),
+			mkTB(tb, ledger.KindAssistantText, id, "", ledger.AssistantText{MessageID: id + "-m", Index: ledger.IndexComplete, Text: "done"}),
+			mkTB(tb, ledger.KindTurnEnded, id, "", ledger.TurnEnded{Status: "done", RunnerID: "run-1"}),
+		)
+	}
+	committed, _, err := store.Append(tb.Context(), chatID, rows...)
+	require.NoError(tb, err)
+	p := transcript.New(store)
+	_, err = p.Messages(tb.Context(), chatID, 0, 0, 1)
+	require.NoError(tb, err)
+	head := committed[len(committed)-1]
+	out := make([]ledger.Row, 0, next)
+	for i := range next {
+		r := mkTB(tb, ledger.KindAssistantText, head.TurnID, "", ledger.AssistantText{
+			MessageID: fmt.Sprintf("late-%d", i), Index: ledger.IndexComplete, Text: "more",
+		})
+		r.Seq, r.At = head.Seq+int64(i)+1, head.At
+		out = append(out, r)
+	}
+	return p, out
+}
+
+func mkTB[B any](tb testing.TB, kind ledger.Kind, turnID, scope string, body B) ledger.Row {
+	tb.Helper()
+	r, err := ledger.NewRow(kind, turnID, scope, body)
+	require.NoError(tb, err)
+	return r
+}
+
+// A publication costs what it commits, not what the chat already holds.
+func TestProjector_ApplyCostsItsCommitNotTheChatsHistory(t *testing.T) {
+	const runs = 50
+	allocs := map[int]float64{}
+	for _, n := range []int{100, 10_000} {
+		p, next := cachedHistory(t, n, runs+1)
+		i := 0
+		allocs[n] = testing.AllocsPerRun(runs, func() {
+			require.Len(t, p.Apply(chatID, next[i:i+1]), 1)
+			i++
+		})
+	}
+	assert.LessOrEqual(t, allocs[10_000], allocs[100]+5, "allocations per commit: %v", allocs)
+}

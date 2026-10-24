@@ -120,6 +120,12 @@ type MessageFold struct {
 	byKey map[MessageKey]*message
 	order []*message
 	ended map[string]bool // main turns whose end is folded
+	// open are the messages not yet settled; an end settles only these.
+	open []*message
+	// joiners are the messages naming each reply, by the reply's key.
+	joiners map[MessageKey][]*message
+	// touched are the messages whose text or settling moved since Changed.
+	touched []*message
 }
 
 type chunk struct {
@@ -134,12 +140,13 @@ type message struct {
 	completes []string
 	forced    bool // settled by an end rather than by its own rows
 	late      bool // began after its turn had ended
+	touched   bool // in the fold's touched
 }
 
 // Apply folds r, which must follow every row already folded.
 func (f *MessageFold) Apply(r Row) {
 	if f.byKey == nil {
-		f.byKey, f.ended = map[MessageKey]*message{}, map[string]bool{}
+		f.byKey, f.ended, f.joiners = map[MessageKey]*message{}, map[string]bool{}, map[MessageKey][]*message{}
 	}
 	switch r.Kind {
 	case KindAssistantText:
@@ -171,7 +178,11 @@ func (f *MessageFold) applyText(r Row) {
 			reply:       body.Reply, chunks: map[int]chunk{}, late: f.ended[r.TurnID],
 		}
 		f.byKey[key] = m
-		f.order = append(f.order, m)
+		f.order, f.open = append(f.order, m), append(f.open, m)
+		if m.reply != "" {
+			target := MessageKey{TurnID: key.TurnID, Scope: key.Scope, MessageID: m.reply}
+			f.joiners[target] = append(f.joiners[target], m)
+		}
 	}
 	if body.Index == IndexComplete {
 		m.completes = append(m.completes, body.Text)
@@ -179,24 +190,33 @@ func (f *MessageFold) applyText(r Row) {
 	} else if _, dup := m.chunks[body.Index]; !dup {
 		m.chunks[body.Index] = chunk{text: body.Text, final: body.Final}
 	}
-	m.update(r)
+	f.update(m, r)
 }
 
 // settle settles, at r, every unsettled message which says.
 func (f *MessageFold) settle(r Row, which func(*message) bool) {
-	for _, m := range f.order {
+	open := f.open[:0]
+	for _, m := range f.open {
 		if !m.Settled && which(m) {
 			m.forced = true
-			m.update(r)
+			f.update(m, r)
+		}
+		if !m.Settled {
+			open = append(open, m)
 		}
 	}
+	clear(f.open[len(open):])
+	f.open = open
 }
 
-func (m *message) update(r Row) {
+func (f *MessageFold) update(m *message, r Row) {
 	text, natural := m.text()
 	settled := natural || m.forced
 	if settled && (!m.Settled || text != m.Text) {
 		m.SettleSeq, m.SettledAt = r.Seq, r.At
+	}
+	if (text != m.Text || settled != m.Settled) && !m.touched {
+		m.touched, f.touched = true, append(f.touched, m)
 	}
 	m.Text, m.Settled = text, settled
 }
@@ -266,35 +286,71 @@ func Related(a, b string) bool {
 // Messages is every message by its first row; a late message that agrees with
 // the reply its turn closed on is shown as that reply, once it settles.
 func (f *MessageFold) Messages() []MessageText {
-	joined := map[*message]bool{}
-	merged := map[*message]MessageText{}
-	for _, m := range f.order {
-		target, ok := f.byKey[MessageKey{TurnID: m.Key.TurnID, Scope: m.Key.Scope, MessageID: m.reply}]
-		if m.reply == "" || !ok || target == m || !Related(m.Text, target.Text) {
-			continue
-		}
-		joined[m] = true
-		if !m.Settled {
-			continue // shown under the reply's id until it settles
-		}
-		out, seen := merged[target]
-		if !seen {
-			out = target.MessageText
-		}
-		if text := fuller(out.Text, m.Text); text != out.Text {
-			out.Text, out.SettleSeq = text, max(out.SettleSeq, m.SettleSeq)
-			out.SettledAt = latest(out.SettledAt, m.SettledAt)
-		}
-		merged[target] = out
-	}
 	out := make([]MessageText, 0, len(f.order))
 	for _, m := range f.order {
-		switch {
-		case joined[m]:
-		case merged[m].Key != (MessageKey{}):
-			out = append(out, merged[m])
-		default:
-			out = append(out, m.MessageText)
+		if _, joined := f.joins(m); !joined {
+			out = append(out, f.shown(m))
+		}
+	}
+	return out
+}
+
+// Changed is, as Messages shows them, the messages the rows folded since the
+// last Changed moved, with the replies they join and the messages joining
+// them; a message shown as its reply is left out.
+func (f *MessageFold) Changed() []MessageText {
+	var moved []*message
+	seen := map[*message]bool{}
+	add := func(m *message) {
+		if !seen[m] {
+			seen[m], moved = true, append(moved, m)
+		}
+	}
+	for _, m := range f.touched {
+		m.touched = false
+		add(m)
+		if target, ok := f.joins(m); ok {
+			add(target)
+		}
+		for _, j := range f.joiners[m.Key] {
+			add(j)
+		}
+	}
+	clear(f.touched)
+	f.touched = f.touched[:0]
+	slices.SortFunc(moved, func(a, b *message) int { return cmp.Compare(a.FirstSeq, b.FirstSeq) })
+	out := make([]MessageText, 0, len(moved))
+	for _, m := range moved {
+		if _, joined := f.joins(m); !joined {
+			out = append(out, f.shown(m))
+		}
+	}
+	return out
+}
+
+// joins is the reply m is shown as: the one it names, when they agree. An
+// unsettled one is shown under the reply's id until it settles.
+func (f *MessageFold) joins(m *message) (*message, bool) {
+	if m.reply == "" {
+		return nil, false
+	}
+	target, ok := f.byKey[MessageKey{TurnID: m.Key.TurnID, Scope: m.Key.Scope, MessageID: m.reply}]
+	if !ok || target == m || !Related(m.Text, target.Text) {
+		return nil, false
+	}
+	return target, true
+}
+
+// shown is m with the settled messages that join it.
+func (f *MessageFold) shown(m *message) MessageText {
+	out := m.MessageText
+	for _, j := range f.joiners[m.Key] {
+		if target, ok := f.joins(j); !ok || target != m || !j.Settled {
+			continue
+		}
+		if text := fuller(out.Text, j.Text); text != out.Text {
+			out.Text, out.SettleSeq = text, max(out.SettleSeq, j.SettleSeq)
+			out.SettledAt = latest(out.SettledAt, j.SettledAt)
 		}
 	}
 	return out

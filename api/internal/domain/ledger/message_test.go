@@ -210,6 +210,27 @@ func TestMessages_ALateFinalChunkAfterTheNextTurnOpenedJoinsItsMessage(t *testin
 	assert.Equal(t, int64(5), got[0].SettleSeq)
 }
 
+// Changed is what each fold moved, as Messages shows it: a repeat moves
+// nothing, and a late message is the reply it joins.
+func TestMessages_ChangedIsWhatTheRowsMoved(t *testing.T) {
+	rows := sequenced(t,
+		turnStart(t, "T1"), text(t, "T1", "m1", 0, false, "partial"), complete(t, "T1", ledger.ReplyID("T1"), "SAID"),
+		ended(t, "T1"), text(t, "T1", "m1", 0, false, "partial"), lateText(t, "m", ledger.ReplyID("T1"), 0, true, "SAID IN FULL"),
+	)
+	var f ledger.MessageFold
+	changed := func(rows ...ledger.Row) []string {
+		for _, r := range rows {
+			f.Apply(r)
+		}
+		return texts(f.Changed())
+	}
+
+	assert.Equal(t, []string{"SAID"}, changed(rows[:3]...), "of what moved, only the reply is settled")
+	assert.Equal(t, []string{"partial"}, changed(rows[3]), "an end settles what it did not say")
+	assert.Empty(t, changed(rows[4]), "a repeated chunk moves nothing")
+	assert.Equal(t, []string{"SAID IN FULL"}, changed(rows[5]), "a late message is the reply it joins")
+}
+
 func TestState_KeepsWhatARetriedChunkIsRecognisedBy(t *testing.T) {
 	st := ledger.Fold("c1", sequenced(t,
 		turnStart(t, "T1"),
