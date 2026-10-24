@@ -938,7 +938,7 @@ export async function listProviders(wsId: string): Promise<AgentProvider[]> {
 /**
  * Whether `provider` may be the target of a chat CREATED directly on its
  * terminal surface — the shared gate behind every "New thread in Terminal"
- * affordance (the sidebar row menu, the space header's overflow menu, the
+ * affordance (the sidebar row menu, the
  * ⌥⌘N chord). `hasTerminal` says the surface exists at all; `terminalStartHere`
  * says it may be LAUNCHED INTO rather than reached only by switching to it
  * after a turn (design spec 2.5's `start_here`; both shipped descriptors

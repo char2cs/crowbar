@@ -30,7 +30,7 @@ import type { ChatDTO, FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 //
 // The pre-restyle tree also folded whole projects away (`collapsedProjects`),
 // and that set once gated visibility here. The restyled sidebar has no writer
-// for it — the SpaceHeader fold is panel-local — so a project the OLD build
+// for it — no project fold exists — so a project the OLD build
 // persisted as folded would otherwise render blank whenever it is not active,
 // with nothing in the UI able to un-fold it. The key is retired: it is never
 // consulted, same as `collapsedRepos` (see schemas.ts).

@@ -77,9 +77,8 @@ export function startHomeRowThread(
 }
 
 /**
- * The sidebar header's "start a thread on the project's home workspace"
- * button — NOT reachable through `handleCreate` above, which resolves its
- * `parentId` against the repo-scoped sidebar store (`resolveRow`) and has no
+ * The tree foot's "New thread" on the project's home workspace — NOT
+ * reachable through `handleCreate` above, which resolves its `parentId` against the repo-scoped sidebar store (`resolveRow`) and has no
  * notion of project home at all (home-workspace-resolver.ts: "home is a
  * project-level concept, not a repo workspace" — it never appears in
  * `repos`). Creates directly against the resolved home workspace id, then
@@ -94,15 +93,12 @@ export function handleCreateHomeThread(
   projectId: string,
   homeWorkspaceId: string,
   navigate: NavigateFn,
-  /** Same as `handleCreate`'s own optional 4th arg. */
-  presentation?: LandingChatPresentation,
 ): Promise<void> {
   return startThread({
     inFlightKey: `thread:home:${projectId}`,
     projectId,
     workspaceId: homeWorkspaceId,
     parentId: '',
-    presentation,
     landed: (chatId) => waitForRootHomeChat(projectId, homeWorkspaceId, chatId),
     onCreated: (chatId) => openHomeChat(projectId, homeWorkspaceId, chatId, navigate),
   })

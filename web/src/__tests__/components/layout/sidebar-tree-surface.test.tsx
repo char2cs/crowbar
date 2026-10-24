@@ -36,7 +36,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
   readChatWorking: () => false,
 }))
 // Kept stubbed rather than removed: several rendered rows (the promote
-// dropdown, the space header overflow) can reach a real `toast.error` call on
+// dropdown, the tree foot's New thread) can reach a real `toast.error` call on
 // a rejected promise, and the real store would otherwise queue a live toast
 // during a render test.
 vi.mock('@/features/window/stores/toast-store', () => ({

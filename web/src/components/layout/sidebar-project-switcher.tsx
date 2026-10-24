@@ -1,8 +1,10 @@
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import { PlusIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
+import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
+import { performRenameProject } from '@/components/sidebar/lib/row-actions'
 import type { Project } from '@/lib/types'
-import { ProjectIconMark } from './project-icon-mark'
+import { EditableProjectIcon, ProjectIconMark } from './project-icon-mark'
 
 interface SidebarProjectSwitcherProps {
   /** Every open project. With none and no `onAddProject`, nothing renders. */
@@ -17,7 +19,8 @@ interface SidebarProjectSwitcherProps {
 /**
  * First line of the sidebar body: the active project's icon and name, then
  * the other projects' icons and a trailing `+`. The name truncates before the
- * icons are pushed off. Memoized: every prop is a primitive or a stable callback.
+ * icons are pushed off. The active mark edits the icon; double-clicking the
+ * name renames the project. Memoized: every prop is a primitive or a stable callback.
  */
 export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
   projects,
@@ -25,6 +28,8 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
   onSelectProject,
   onAddProject,
 }: SidebarProjectSwitcherProps) {
+  // Holds the project id, so switching spaces mid-edit drops the editor.
+  const [renamingId, setRenamingId] = useState<string | null>(null)
   if (projects.length === 0 && !onAddProject) return null
 
   const active = projects.find((p) => p.id === activeProjectId)
@@ -38,13 +43,25 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
       <div className="flex min-w-0 flex-1 items-center gap-2 pl-1">
         {active && (
           <>
-            <ProjectIconMark project={active} size="lg" />
-            <span
-              data-testid="active-project-name"
-              className="min-w-0 truncate font-heading text-[15px] font-normal"
-            >
-              {active.name}
-            </span>
+            <EditableProjectIcon project={active} size="lg" />
+            {renamingId === active.id ? (
+              <InlineRenameInput
+                defaultValue={active.name}
+                onConfirm={(name) => {
+                  setRenamingId(null)
+                  if (name !== active.name) void performRenameProject(active.id, name)
+                }}
+                onCancel={() => setRenamingId(null)}
+              />
+            ) : (
+              <span
+                data-testid="active-project-name"
+                className="min-w-0 truncate font-heading text-[15px] font-normal"
+                onDoubleClick={() => setRenamingId(active.id)}
+              >
+                {active.name}
+              </span>
+            )}
           </>
         )}
       </div>

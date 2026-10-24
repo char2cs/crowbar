@@ -26,7 +26,7 @@ const project = (id: string): Project => ({
 // pre-restyle tree wrote `collapsedProjects` (project-home-row.tsx /
 // workspace-tree.tsx called `toggleProject`), and `getVisibleProjectIds` still
 // drops every project in that set — but the restyled sidebar has NO writer for
-// it (`toggleProject` has zero callers; the SpaceHeader fold is panel-local),
+// it (`toggleProject` has zero callers; no project fold exists),
 // so a project the old build folded away loses its repos/home streams and its
 // rows whenever it is not the active one, and nothing in the UI can ever bring
 // them back. The persisted key must replay as "every project open".

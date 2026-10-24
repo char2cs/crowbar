@@ -61,7 +61,7 @@ export interface SidebarUI {
   /**
    * RETIRED. Written by the pre-restyle tree's repo/branch chevrons and its
    * project-row fold; the restyled tree folds through `collapsedChatRows` only
-   * (the SpaceHeader fold is panel-local). A record still carrying any of them
+   * (no project fold exists). A record still carrying any of them
    * never gates visibility (project-visibility.ts) — no migration.
    */
   collapsedRepos?: string[]

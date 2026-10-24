@@ -75,8 +75,7 @@ describe('IconPopover — real (non-staged) mode is unchanged', () => {
     expect(apiFetch).toHaveBeenCalledExactlyOnceWith('/v0/projects/p1/icon', { method: 'DELETE' })
   })
 
-  // A caller (space-header.tsx) toggles this trigger's visibility by wrapping
-  // it in a bare, unstyled `<span>` rather than unmounting it — that span is
+  // A caller may wrap this trigger in a bare, unstyled `<span>` — that span is
   // an inline formatting context, so the trigger's own `inline-flex` box is
   // subject to `vertical-align: baseline` there unless it opts out. Caught
   // live: an uploaded project/repo icon sitting a few px above its name.

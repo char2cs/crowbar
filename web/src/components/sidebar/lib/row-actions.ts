@@ -227,11 +227,9 @@ export async function performRenameRepo(repoId: string, name: string): Promise<v
 }
 
 /**
- * Fire a project rename — the space header's own double-click gesture,
- * restored from the deleted tree's `project-home-row.tsx`. A project is not a
- * `SidebarRow` (it has no id in `useSidebarStore`'s repos-derived rows), so
- * this can't route through `performRenameRow` below; `SpaceHeader` already
- * holds `project` directly and calls this on its own.
+ * Fire a project rename — the project switcher's double-click on the active
+ * name. A project is not a `SidebarRow` (it has no id in `useSidebarStore`'s
+ * repos-derived rows), so this can't route through `performRenameRow` below.
  */
 export async function performRenameProject(projectId: string, name: string): Promise<void> {
   try {
