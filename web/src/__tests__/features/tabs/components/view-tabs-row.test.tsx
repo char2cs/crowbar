@@ -131,7 +131,13 @@ describe('ViewTabsRow', () => {
       state.settings.sidebarPosition = 'right'
     })
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
+    // jsdom has no layout: report a row flush against the window's right edge.
+    const rect = { left: 0, top: 0, width: window.innerWidth, height: 32, right: window.innerWidth }
+    const measure = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue(rect as DOMRect)
     render(<ViewTabsRow />)
+    measure.mockRestore()
     const readout = screen.getByText(/beta - /)
     const toggle = screen.getByRole('button', { name: 'Show sidebar' })
     expect(readout.compareDocumentPosition(toggle)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
