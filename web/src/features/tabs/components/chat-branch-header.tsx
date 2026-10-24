@@ -142,7 +142,7 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
             />
             {(added > 0 || deleted > 0) && (
               <span className="shrink-0 whitespace-pre">
-                {' -- '}
+                {' '}
                 {added > 0 && <span className={ROW_SUBLABEL_ADD}>+{formatChangeCount(added)}</span>}
                 {added > 0 && deleted > 0 && ' '}
                 {deleted > 0 && (

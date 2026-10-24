@@ -157,6 +157,12 @@ describe('ChatBranchHeader', () => {
     expect(screen.getByText('-2')).toBeInTheDocument()
   })
 
+  it('shows the counts after the route with no dash between them', () => {
+    renderHeader()
+    const line = screen.getByTestId('chat-branch-header-route').parentElement!
+    expect(line.textContent).toBe('crowbar/feature/pricing-rounding +34 -2')
+  })
+
   it('routes the workspace as repo / parent / branch on one line, branch last', () => {
     renderHeader({
       repos: [makeRepo([makeWorkspace({ parentId: 'w0', parentBranch: 'develop' })])],

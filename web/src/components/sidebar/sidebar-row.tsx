@@ -600,7 +600,7 @@ function BranchSecondLine({
   return (
     <span className={cn(ROW_SUBLABEL, activeGround && 'text-foreground-inverse')}>
       {row.branchName}
-      {(added > 0 || deleted > 0) && ' -- '}
+      {(added > 0 || deleted > 0) && ' '}
       {added > 0 && <span className={ROW_SUBLABEL_ADD}>+{formatChangeCount(added)}</span>}
       {added > 0 && deleted > 0 && ' '}
       {deleted > 0 && <span className={ROW_SUBLABEL_DEL}>-{formatChangeCount(deleted)}</span>}
