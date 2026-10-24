@@ -3,6 +3,7 @@
 package tests
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -532,9 +533,7 @@ func TestRegression_ChatFolderMutationsRideTheChatsStream(t *testing.T) {
 	waitForFolderFrame(t, frames, folder.ID, "folder_deleted")
 }
 
-// waitForFolderFrame drains frames until one matching (folderID, kind) arrives,
-// tolerating any other frame in between — a real signal wait, never a
-// sleep/poll, backstopped only by the test context's Done().
+// waitForFolderFrame waits for folderID's kind frame.
 func waitForFolderFrame(
 	t *testing.T,
 	frames <-chan map[string]any,
@@ -542,17 +541,8 @@ func waitForFolderFrame(
 	kind string,
 ) map[string]any {
 	t.Helper()
-	for {
-		select {
-		case f := <-frames:
-			if f["folderId"] == folderID && f["kind"] == kind {
-				return f
-			}
-		case <-t.Context().Done():
-			t.Fatalf("timed out waiting for folder %s's %q frame", folderID, kind)
-			return nil
-		}
-	}
+	return waitForFrame(t, frames, fmt.Sprintf("folder %s's %q frame", folderID, kind),
+		func(f map[string]any) bool { return f["folderId"] == folderID && f["kind"] == kind })
 }
 
 func folderIDs(

@@ -23,8 +23,8 @@ import (
 // agentFrames records every frame the agent lifecycle WebSocket delivers and lets a
 // test wait for one BY PREDICATE, regardless of the order the frames arrive in.
 //
-// A teardown produces frames from several aggregates at once (a `displaced`, then an
-// `exited` once the PTY dies) in no promised order. waitForChatFrame DISCARDS every
+// A teardown produces frames from several aggregates at once (the chat's
+// `deleted`, its runner's `exited`) in no promised order. waitForChatFrame DISCARDS every
 // frame that does not match; recording first and matching after cannot lose one.
 type agentFrames struct {
 	t    *testing.T
@@ -62,12 +62,13 @@ func recordAgentWS(
 
 // await blocks until some frame satisfying match has been seen — one that arrived
 // before this call included. It never sleeps and never polls: it re-scans on a real
-// signal (a frame landed) and the test context's Done() is the sole backstop.
+// signal (a frame landed), backstopped by frameDeadline.
 func (f *agentFrames) await(
 	match func(map[string]any) bool,
 	what string,
 ) map[string]any {
 	f.t.Helper()
+	deadline := frameDeadline(f.t)
 	for {
 		f.mu.Lock()
 		for _, frame := range f.seen {
@@ -80,17 +81,15 @@ func (f *agentFrames) await(
 
 		select {
 		case <-f.ping:
-		case <-f.t.Context().Done():
+		case <-deadline.Done():
 			f.t.Fatalf("timed out waiting for %s; frames seen: %v", what, f.snapshot())
 			return nil
 		}
 	}
 }
 
-// awaitRunner waits for a runner-lifecycle frame (started/session_bound/
-// displaced/exited) for runnerID. It keys on the runner id ALONE, never the chat: a
-// `displaced` frame deliberately carries an EMPTY chatId — that emptiness IS its
-// meaning (Crowbar has taken the runner off its chat and it now holds nothing).
+// awaitRunner waits for a runner-lifecycle frame (started/exited) for runnerID,
+// keyed on the runner id alone.
 func (f *agentFrames) awaitRunner(
 	runnerID string,
 	kind string,
@@ -263,7 +262,7 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	resp := h.raw(http.MethodDelete, base+"/chats/"+doomed, nil, http.StatusAccepted)
 	_ = resp.Body.Close()
 	frames.awaitChat(doomed, "deleted")
-	frames.awaitRunner(doomedRunner, "displaced") // its CLI is taken off the chat and killed
+	frames.awaitRunner(doomedRunner, "exited") // its CLI ends with the chat
 	h.Quiesce()
 
 	// THE RULE: the vendor's session file is untouched, byte for byte.

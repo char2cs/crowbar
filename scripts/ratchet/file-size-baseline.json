@@ -94,7 +94,7 @@
   "api/tests/integration/terminal/terminal_test.go": 1015,
   "api/tests/integration/worktree/worktree_test.go": 734,
   "api/tests/kit/env.go": 1636,
-  "api/tests/regression_agent_chat_folders_test.go": 625,
+  "api/tests/regression_agent_chat_folders_test.go": 615,
   "api/tests/regression_agent_chat_threads_test.go": 590,
   "api/tests/regressions_test.go": 1315,
   "api/tests/repo_import_test.go": 692,

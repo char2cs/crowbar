@@ -3,16 +3,41 @@
 package tests
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-// waitForChatFrame drains frames until one matching (chatID, kind) arrives,
-// tolerating any other frame in between (a delete displaces and kills the chat's
-// live CLI, so runner frames race the chat's own) — a real signal wait, never a
-// sleep/poll, backstopped only by the test context's Done().
+// waitForFrame drains frames until one satisfies match, tolerating any other
+// frame in between — a real signal wait, never a sleep/poll, backstopped by
+// frameDeadline.
+func waitForFrame(
+	t *testing.T,
+	frames <-chan map[string]any,
+	what string,
+	match func(map[string]any) bool,
+) map[string]any {
+	t.Helper()
+	deadline := frameDeadline(t)
+	var seen []map[string]any
+	for {
+		select {
+		case f := <-frames:
+			if match(f) {
+				return f
+			}
+			seen = append(seen, f)
+		case <-deadline.Done():
+			t.Fatalf("timed out waiting for %s; frames seen: %v", what, seen)
+			return nil
+		}
+	}
+}
+
+// waitForChatFrame waits for chatID's kind frame; a delete ends the chat's
+// live CLI, so runner frames race the chat's own.
 func waitForChatFrame(
 	t *testing.T,
 	frames <-chan map[string]any,
@@ -20,17 +45,8 @@ func waitForChatFrame(
 	kind string,
 ) map[string]any {
 	t.Helper()
-	for {
-		select {
-		case f := <-frames:
-			if f["chatId"] == chatID && f["kind"] == kind {
-				return f
-			}
-		case <-t.Context().Done():
-			t.Fatalf("timed out waiting for chat %s's %q frame", chatID, kind)
-			return nil
-		}
-	}
+	return waitForFrame(t, frames, fmt.Sprintf("chat %s's %q frame", chatID, kind),
+		func(f map[string]any) bool { return f["chatId"] == chatID && f["kind"] == kind })
 }
 
 // boundTo reports whether frame's chat snapshot shows chatID bound to sessionID.
@@ -40,20 +56,11 @@ func boundTo(frame map[string]any, chatID, sessionID string) bool {
 	return frame["chatId"] == chatID && conversation["sessionId"] == sessionID && conversation["state"] == "bound"
 }
 
-// waitForConversation waits for a frame showing chatID bound to sessionID,
-// discarding every other frame as waitForChatFrame does.
+// waitForConversation waits for a frame showing chatID bound to sessionID.
 func waitForConversation(t *testing.T, frames <-chan map[string]any, chatID, sessionID string) {
 	t.Helper()
-	for {
-		select {
-		case f := <-frames:
-			if boundTo(f, chatID, sessionID) {
-				return
-			}
-		case <-t.Context().Done():
-			t.Fatalf("timed out waiting for chat %s to bind session %s", chatID, sessionID)
-		}
-	}
+	waitForFrame(t, frames, fmt.Sprintf("chat %s to bind session %s", chatID, sessionID),
+		func(f map[string]any) bool { return boundTo(f, chatID, sessionID) })
 }
 
 // TestAgentDelete_HardDeletesAndBroadcastsScopedDeleted proves the Task 5

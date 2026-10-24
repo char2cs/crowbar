@@ -3,9 +3,11 @@
 package tests
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
@@ -18,8 +20,7 @@ import (
 // goroutine's only exit conditions are a real signal — a read error (the
 // connection closing, e.g. on test cleanup) — never a timer; it is the
 // no-sleep/no-poll counterpart to harness_test.go's readUntil, structured as a
-// channel so callers can select against the test context's Done() as the sole
-// backstop instead of a fixed read deadline.
+// channel so callers can select against frameDeadline as their backstop.
 func dialAgentWS(
 	t *testing.T,
 	h *harness,
@@ -46,6 +47,18 @@ func dialAgentWS(
 		}
 	}()
 	return frames
+}
+
+// frameBound is how long a test waits for a frame the daemon owes it: one that
+// never comes fails the test by name instead of hanging the package.
+const frameBound = 30 * time.Second
+
+// frameDeadline is t's context, ended frameBound from now.
+func frameDeadline(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), frameBound)
+	t.Cleanup(cancel)
+	return ctx
 }
 
 // TestAgentWS_HomeMountIsolation proves the agent-chat lifecycle WebSocket's
@@ -85,7 +98,7 @@ func TestAgentWS_HomeMountIsolation(t *testing.T) {
 	case f := <-framesB:
 		require.Equal(t, "created", f["kind"])
 		require.Equal(t, chatB.ID, f["chatId"], "project B's own home connection must see its own chat's created frame")
-	case <-t.Context().Done():
+	case <-frameDeadline(t).Done():
 		t.Fatal("timed out waiting for project B's own created frame")
 	}
 
@@ -104,7 +117,7 @@ func TestAgentWS_HomeMountIsolation(t *testing.T) {
 	case f := <-framesA:
 		assert.Equal(t, "created", f["kind"])
 		assert.Equal(t, chatA.ID, f["chatId"], "project A's home subscriber must never see project B's chat")
-	case <-t.Context().Done():
+	case <-frameDeadline(t).Done():
 		t.Fatal("timed out waiting for project A's created frame")
 	}
 }
@@ -203,7 +216,7 @@ func TestAgentWS_RepoScopedNeverCarriesAnotherReposChats(t *testing.T) {
 	case f := <-framesA:
 		assert.Equal(t, chatA.ID, f["chatId"],
 			"a repo-scoped subscriber must never receive another repo's chat frames")
-	case <-t.Context().Done():
+	case <-frameDeadline(t).Done():
 		t.Fatal("timed out waiting for repo A's own frame")
 	}
 }
