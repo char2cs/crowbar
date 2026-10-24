@@ -84,49 +84,48 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
         />
       )}
 
-      {renaming && title !== null ? (
-        <InlineRenameInput
-          defaultValue={title}
-          onConfirm={(name) => {
-            setRenaming(false)
-            if (name !== title) void performRenameChat(chatId, name)
-          }}
-          onCancel={() => setRenaming(false)}
-        />
-      ) : (
-        <span className="flex min-w-0 flex-1 flex-col justify-center">
+      <span className="flex min-w-0 flex-1 flex-col justify-center">
+        {renaming && title !== null ? (
+          <InlineRenameInput
+            defaultValue={title}
+            className={CHAT_TITLE_TEXT}
+            onConfirm={(name) => {
+              setRenaming(false)
+              if (name !== title) void performRenameChat(chatId, name)
+            }}
+            onCancel={() => setRenaming(false)}
+          />
+        ) : (
           <ChatTitle title={title} className="truncate" />
-          {routed && (
-            <span className={cn(ROW_SUBLABEL, 'flex items-center gap-1')}>
-              {repo && (
-                <KindGlyph
-                  working={working}
-                  isThread={isThread}
-                  className="size-[13px]"
-                  iconClassName="size-[13px]"
-                />
-              )}
-              <WorkspaceRoute
-                repoName={repo?.name}
-                parentBranch={routed.parentBranch}
-                branch={routed.branch}
+        )}
+        {routed && (
+          <span className={cn(ROW_SUBLABEL, 'flex items-center gap-1')}>
+            {repo && (
+              <KindGlyph
+                working={working}
+                isThread={isThread}
+                className="size-[13px]"
+                iconClassName="size-[13px]"
               />
-              {(added > 0 || deleted > 0) && (
-                <span className="shrink-0 whitespace-pre">
-                  {' -- '}
-                  {added > 0 && (
-                    <span className={ROW_SUBLABEL_ADD}>+{formatChangeCount(added)}</span>
-                  )}
-                  {added > 0 && deleted > 0 && ' '}
-                  {deleted > 0 && (
-                    <span className={ROW_SUBLABEL_DEL}>-{formatChangeCount(deleted)}</span>
-                  )}
-                </span>
-              )}
-            </span>
-          )}
-        </span>
-      )}
+            )}
+            <WorkspaceRoute
+              repoName={repo?.name}
+              parentBranch={routed.parentBranch}
+              branch={routed.branch}
+            />
+            {(added > 0 || deleted > 0) && (
+              <span className="shrink-0 whitespace-pre">
+                {' -- '}
+                {added > 0 && <span className={ROW_SUBLABEL_ADD}>+{formatChangeCount(added)}</span>}
+                {added > 0 && deleted > 0 && ' '}
+                {deleted > 0 && (
+                  <span className={ROW_SUBLABEL_DEL}>-{formatChangeCount(deleted)}</span>
+                )}
+              </span>
+            )}
+          </span>
+        )}
+      </span>
     </div>
   )
 }
@@ -198,6 +197,9 @@ function WorkspaceRoute({
   )
 }
 
+// Shared with the rename input so entering edit mode never changes the text.
+const CHAT_TITLE_TEXT = 'font-heading text-xl leading-5 font-normal tracking-normal'
+
 /** The name line. A `null` title is the store's gap, drawn as the pending mark
  *  and marked as such, never as a chat that happens to be untitled. */
 function ChatTitle({ title, className }: { title: string | null; className: string }) {
@@ -205,7 +207,7 @@ function ChatTitle({ title, className }: { title: string | null; className: stri
     <span
       data-testid="chat-branch-header-title"
       data-title-pending={title === null ? 'true' : undefined}
-      className={cn('font-heading text-xl leading-5 font-normal', className)}
+      className={cn(CHAT_TITLE_TEXT, className)}
     >
       {title ?? CHAT_TITLE_PENDING_LABEL}
     </span>

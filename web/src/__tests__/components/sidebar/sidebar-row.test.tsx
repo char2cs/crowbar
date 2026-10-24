@@ -600,6 +600,13 @@ describe('SidebarRow', () => {
       expect(screen.queryByText('feature/parser-fix')).not.toBeInTheDocument()
     })
 
+    it('does not draw a second line for a row drawn as a view tab', () => {
+      render(<SidebarRow row={forkRow} depth={0} onOpen={vi.fn()} tab="tab" />)
+      expect(screen.getByText('Fix the parser')).toBeInTheDocument()
+      expect(screen.queryByText(/feature\/parser-fix/)).not.toBeInTheDocument()
+      expect(screen.queryByText('+42')).not.toBeInTheDocument()
+    })
+
     it('does not draw a second line for a chat bubble row', () => {
       const { container } = render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
       expect(container.querySelector('[data-sidebar-row-label] > span')).not.toBeInTheDocument()

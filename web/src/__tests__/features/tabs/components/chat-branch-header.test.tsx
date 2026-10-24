@@ -300,6 +300,15 @@ describe('ChatBranchHeader', () => {
     expect(screen.getByDisplayValue('Seeding test')).toBeInTheDocument()
   })
 
+  it('keeps the route line and repo icon in place while the title is edited', () => {
+    renderHeader()
+    fireEvent.doubleClick(screen.getByTestId('chat-branch-header'))
+    const input = screen.getByDisplayValue('Seeding test')
+    expect(screen.getByTestId('chat-branch-header-route')).toBeInTheDocument()
+    expect(screen.getByTestId('chat-branch-header-repo-icon')).toBeInTheDocument()
+    expect(input.parentElement).toContainElement(screen.getByTestId('chat-branch-header-route'))
+  })
+
   it('confirming a changed name renames the chat', async () => {
     const { performRenameChat } = await import('@/components/sidebar/lib/row-actions')
     renderHeader()

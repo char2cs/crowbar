@@ -215,6 +215,7 @@ export function SidebarRow({
   // `label` IS `branchName`, which is what the last check below catches
   // without a field of its own: a second line would just repeat the label.
   const showBranchSecondLine =
+    !tab &&
     row.kind === 'branch' &&
     !isProjectHome &&
     !row.locked &&
@@ -245,7 +246,9 @@ export function SidebarRow({
           isDragging && 'opacity-40',
           'group',
           tab && 'mx-0 my-0',
-          tab && 'h-8',
+          // The shell's own inset plus this gives the pill the same 6px at the
+          // edges as above and below its single line.
+          tab && 'h-8 px-1',
         )}
         onClick={(e) => {
           // A click inside the inline editor (or on the space it just
@@ -307,7 +310,7 @@ export function SidebarRow({
         {renaming ? (
           <InlineRenameInput
             defaultValue={row.label}
-            mono={row.kind === 'branch' && !showBranchSecondLine}
+            mono={row.kind === 'branch' && !showBranchSecondLine && !tab}
             onConfirm={(name) => {
               useSidebarInlineRenameStore.getState().stopRenaming()
               if (name !== row.label) void performRenameRow(row.id, name)
@@ -350,7 +353,7 @@ export function SidebarRow({
             data-sidebar-row-label=""
             className={cn(
               'min-w-0 flex-1 truncate',
-              row.kind === 'branch' && 'font-mono',
+              row.kind === 'branch' && !tab && 'font-mono',
               row.labelProvisional && 'italic',
               // A row with a view is grey — focused or not (§3.2) — UNLESS
               // the row's own ground already carries that signal (see the

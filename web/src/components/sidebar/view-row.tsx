@@ -82,7 +82,7 @@ export function RecentsViewRow({
       className={cn(
         // One painted shell; members share it flush. The × is always shown and
         // overlays the shell's end, so no label ever moves.
-        'group/tab relative mx-0.5 flex h-8 items-center rounded-full border px-1',
+        'group/tab relative mx-0.5 flex h-8 items-center rounded-full border',
         isShowing ? TAB_ACTIVE : TAB_IDLE,
       )}
     >
