@@ -11,6 +11,9 @@ import { EditableProjectIcon, ProjectIconMark } from './project-icon-mark'
 // and the `+` share a hit area (proportioned to the 19px name).
 const TILE = 'flex size-7 shrink-0 items-center justify-center rounded-[8px]'
 
+// Shared with the rename input so entering edit mode never changes the text.
+const PROJECT_NAME_TEXT = 'font-heading text-[19px] leading-6 font-normal tracking-tight'
+
 interface SidebarProjectSwitcherProps {
   /** Every open project. With none and no `onAddProject`, nothing renders. */
   projects: Project[]
@@ -54,6 +57,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
             {renamingId === active.id ? (
               <InlineRenameInput
                 defaultValue={active.name}
+                className={PROJECT_NAME_TEXT}
                 onConfirm={(name) => {
                   setRenamingId(null)
                   if (name !== active.name) void performRenameProject(active.id, name)
@@ -63,7 +67,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
             ) : (
               <span
                 data-testid="active-project-name"
-                className="min-w-0 truncate font-heading text-[19px] leading-6 font-normal tracking-tight"
+                className={cn('min-w-0 truncate', PROJECT_NAME_TEXT)}
                 onDoubleClick={() => setRenamingId(active.id)}
               >
                 {active.name}
