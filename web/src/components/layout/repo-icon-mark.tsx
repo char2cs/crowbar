@@ -26,7 +26,7 @@ const SIZES = {
   // largest type in the pane and a 20px mark reads as a stray favicon.
   xl: { box: 'size-6', text: 'text-[13px]', emoji: 'text-xl' },
   // The chat heading's gutter mark: spans both of its lines.
-  '2xl': { box: 'size-8', text: 'text-[15px]', emoji: 'text-3xl' },
+  '2xl': { box: 'size-7', text: 'text-[13px]', emoji: 'text-2xl' },
 }
 
 interface RepoIconMarkProps {
