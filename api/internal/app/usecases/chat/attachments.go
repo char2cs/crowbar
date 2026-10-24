@@ -70,6 +70,9 @@ func (u *Usecase) ReadAttachment(
 	if err != nil {
 		return nil, "", fmt.Errorf("agent: read attachment: chats dir: %w", err)
 	}
-	dir := worktreepath.AttachmentsDir(chatsDir, chatID)
-	return repoattachments.Read(dir, fileName)
+	data, contentType, err := repoattachments.Read(worktreepath.AttachmentsDir(chatsDir, chatID), fileName)
+	if err != nil {
+		return nil, "", fmt.Errorf("agent: read attachment: %w", err)
+	}
+	return data, contentType, nil
 }

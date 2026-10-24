@@ -94,6 +94,7 @@ func TestReadAttachment_MissingFileIsNotFound(t *testing.T) {
 
 	_, _, err := f.usecase.ReadAttachment(f.ctx, chatID, "no-such-file.png")
 	assert.ErrorIs(t, err, repoattachments.ErrNotFound)
+	assert.ErrorContains(t, err, "agent: read attachment:")
 }
 
 func TestReadAttachment_ChatLookupFailure_ReturnsWrappedError(t *testing.T) {

@@ -159,6 +159,25 @@ func (c *choiceFeed) publish(
 	feed.Choices(chatID, wsID, choices, answerable)
 }
 
+// forget drops chatID: the chat is being erased.
+func (c *choiceFeed) forget(chatID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.sent, chatID)
+}
+
+// forgetting is the transcript the record erases a chat through: what the
+// chat's clients were told of its questions goes with it.
+type forgetting struct {
+	*transcript.Projector
+	choices *choiceFeed
+}
+
+func (f forgetting) Forget(chatID string) {
+	f.Projector.Forget(chatID)
+	f.choices.forget(chatID)
+}
+
 func choiceFingerprint(choices []domain.ActivityChoice, answerable []string) string {
 	ids := make([]string, 0, len(choices))
 	for _, c := range choices {

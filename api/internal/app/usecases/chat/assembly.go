@@ -208,7 +208,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	}
 	u.conversations = conversation.New(conversation.Deps{
 		Chats:      d.Chats,
-		Transcript: u.transcript,
+		Transcript: forgetting{Projector: u.transcript, choices: &u.choiceFeed},
 		Blobs:      d.Blobs,
 		Telemetry:  sh.telemetry,
 		Agents:     d.Agents,
