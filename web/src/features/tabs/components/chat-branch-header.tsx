@@ -73,7 +73,7 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
     >
       {routed && repo ? (
         <span data-testid="chat-branch-header-repo-icon" className="flex shrink-0 items-center">
-          <RepoIconMark repo={repo} size="2xl" />
+          <RepoIconMark repo={repo} size="lg" />
         </span>
       ) : (
         <KindGlyph
