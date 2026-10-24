@@ -1,4 +1,3 @@
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import {
   copyFileNode,
   createFileNode,
@@ -8,7 +7,8 @@ import {
   mergeChildren,
   renameFileNode,
 } from '@/features/files/lib/file-tree-api'
-import { openFileContent } from '@/features/workspace/lib/open-file-content'
+import { openDocument } from '@/features/editor/documents/open-document'
+import { workspaceRef } from '@/lib/api/documents'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import type { AppFile } from '@/features/file-system/types/app'
 import { revealItemInFinder } from '@/lib/crowbar-bridge'
@@ -73,18 +73,6 @@ export async function refreshDirectory(
   fileTreeActions.setFiles(!path ? reconciled : mergeChildren(files, path, reconciled))
 }
 
-/** Open a workspace-relative file in an editor tab (preview unless `preview` is false). */
-export function openWorkspaceFile(
-  wsId: string,
-  path: string,
-  opts: FileOpenTarget & { preview?: boolean } = {},
-): Promise<void> {
-  return openFileContent(wsId, path, windowPaneStore.getState().bufferActions, {
-    preview: opts.preview ?? false,
-    paneId: opts.paneId,
-  })
-}
-
 // Reveal in Finder (explorer + tab context menus). The tab menu passes the
 // buffer's workspace-relative path; the explorer passes an absolute one.
 // Relative paths resolve against the on-disk workspace root; virtual buffers
@@ -111,11 +99,11 @@ export function createFileTreeHandlers(wsId: string, store: WorkspaceStore) {
   return {
     handleFileOpen: async (path: string, isDir?: boolean, opts?: FileOpenTarget) => {
       if (isDir) return
-      await openWorkspaceFile(wsId, path, { preview: false, paneId: opts?.paneId })
+      await openDocument(workspaceRef(wsId, path), { paneId: opts?.paneId })
     },
     handleFileSelect: (path: string, isDir?: boolean, opts?: FileOpenTarget) => {
       if (isDir) return
-      void openWorkspaceFile(wsId, path, { preview: true, paneId: opts?.paneId })
+      void openDocument(workspaceRef(wsId, path), { preview: true, paneId: opts?.paneId })
     },
     handleCreateNewFileInDirectory: async (dirPath: string, fileName?: string) => {
       if (!fileName) return

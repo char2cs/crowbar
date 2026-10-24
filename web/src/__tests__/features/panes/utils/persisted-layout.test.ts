@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { validateLoadedBuffers, type Snapshot } from '@/features/panes/utils/persisted-layout'
+import {
+  upgradeLegacyBuffers,
+  validateLoadedBuffers,
+  type Snapshot,
+} from '@/features/panes/utils/persisted-layout'
+import type { PaneContent } from '@/features/panes/types/pane-content'
 
 describe('validateLoadedBuffers', () => {
   const ROOT = { adoptInto: 'root' }
@@ -146,5 +151,32 @@ describe('validateLoadedBuffers', () => {
     } as unknown as Snapshot
 
     expect(validateLoadedBuffers(current, ROOT)).toEqual(current)
+  })
+})
+
+describe('upgradeLegacyBuffers', () => {
+  const legacy = (buffers: object[]) => upgradeLegacyBuffers(buffers as unknown as PaneContent[])
+
+  it('loads an editor buffer saved before documents had an authority as a workspace one', () => {
+    const [buffer] = legacy([{ id: 'e-1', type: 'editor', path: 'src/a.ts', workspaceId: 'w1' }])
+    expect(buffer).toMatchObject({ authority: 'workspace', path: 'src/a.ts', workspaceId: 'w1' })
+  })
+
+  it('names a legacy preview’s source as the document of its own workspace', () => {
+    const [md, html] = legacy([
+      { id: 'm', type: 'markdownPreview', sourceFilePath: 'README.md', workspaceId: 'w1' },
+      { id: 'h', type: 'htmlPreview', sourceFilePath: 'site/index.html', workspaceId: 'w2' },
+    ])
+    expect(md).toMatchObject({
+      source: { authority: 'workspace', workspaceId: 'w1', path: 'README.md' },
+    })
+    expect(html).toMatchObject({
+      source: { authority: 'workspace', workspaceId: 'w2', path: 'site/index.html' },
+    })
+  })
+
+  it('leaves a current buffer as it is', () => {
+    const host = { id: 'e-2', type: 'editor', authority: 'host', path: '/a.ts', workspaceId: '' }
+    expect(legacy([host])).toEqual([host])
   })
 })

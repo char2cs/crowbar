@@ -59,7 +59,6 @@ function deferredAssetResolver() {
   const pending = new Map<string, (data: string | null) => void>()
   const asset = {
     wsId: 'ws1',
-    fileDir: '',
     resolve: (src: string) =>
       new Promise<string | null>((resolve) => {
         pending.set(src, resolve)

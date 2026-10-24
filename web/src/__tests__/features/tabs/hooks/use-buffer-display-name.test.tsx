@@ -11,6 +11,7 @@ import type {
 const editorBuffer: EditorContent = {
   id: 'buf-editor',
   type: 'editor',
+  authority: 'workspace',
   path: '/project/foo.ts',
   name: 'foo.ts',
   content: '',

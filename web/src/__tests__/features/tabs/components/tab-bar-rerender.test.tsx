@@ -52,6 +52,7 @@ function makeEditorBuffer(i: number, overrides: Partial<EditorContent> = {}): Ed
   return {
     id: `buf-${i}`,
     type: 'editor',
+    authority: 'workspace',
     path: `/project/file-${i}.ts`,
     name: `file-${i}.ts`,
     content: '',

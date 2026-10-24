@@ -19,6 +19,10 @@ import { useSettingsStore } from '@/features/settings/store'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { saveBuffer } from '@/features/editor/lib/buffer-save'
 import { reloadBufferFromDisk } from '@/features/editor/lib/reload-buffer'
+import {
+  openDocumentFromDialog,
+  openUntitledDocument,
+} from '@/features/editor/documents/open-document'
 import { useSidebarStore } from '@/features/layout/stores/sidebar-store'
 import UnsavedChangesDialog from '@/features/window/components/unsaved-changes-dialog'
 import { useSidebar } from '@/components/ui/sidebar'
@@ -649,24 +653,16 @@ const TabBar = ({
                     onNewFile={() => {
                       if (!wsId) return
                       ensurePaneChatThenOpen(wsId, paneId, (target) => {
-                        openContent(
-                          {
-                            type: 'editor',
-                            path: 'untitled:Untitled',
-                            name: 'Untitled',
-                            content: '',
-                            isVirtual: true,
-                          },
-                          { paneId: target },
-                        )
+                        void openUntitledDocument(wsId, target)
                       })
                     }}
                     onNewTerminal={() => {
                       if (!wsId) return
                       ensurePaneChatThenOpen(wsId, paneId, (target) => {
-                        openContent({ type: 'terminal' }, { paneId: target })
+                        openContent({ type: 'terminal', workspaceId: wsId }, { paneId: target })
                       })
                     }}
+                    onOpenFile={() => void openDocumentFromDialog(paneId)}
                   />
                 )}
               </div>

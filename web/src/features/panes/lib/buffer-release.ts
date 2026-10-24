@@ -2,7 +2,7 @@ import { current, isDraft } from 'immer'
 import type { PaneGroup } from '@/features/panes/types/pane'
 import {
   isEditorContent,
-  shouldStartLsp,
+  isPersistableContent,
   type ClosedBuffer,
   type PaneContent,
   type TerminalContent,
@@ -42,8 +42,9 @@ export function releaseUnreferencedBuffers(state: BufferOwnershipState): PaneCon
   const detached = released.map((buf) => (isDraft(buf) ? current(buf) : buf))
   if (!Array.isArray(state.closedBuffersHistory)) return detached
   for (const buf of released) {
-    if (!shouldStartLsp(buf)) continue
+    if (!isPersistableContent(buf)) continue
     state.closedBuffersHistory.unshift({
+      authority: buf.authority,
       path: buf.path ?? '',
       name: buf.name,
       isPinned: buf.isPinned ?? false,

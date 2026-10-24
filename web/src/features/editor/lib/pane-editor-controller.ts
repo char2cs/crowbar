@@ -11,7 +11,8 @@
  * (vanilla zustand) in {@link usePaneEditorController}, not by a render-path hook.
  */
 
-import { fileUri } from '@/features/editor/lib/editor-uri'
+import type { DocumentRef } from '@/lib/api/documents'
+import { documentUri } from '@/features/editor/documents/document-ref'
 import type {
   ActiveEditorContext,
   ActiveEditorRegistry,
@@ -29,12 +30,9 @@ export interface ActiveBufferInfo {
   /** Buffer id — the content-write target (so a flush attributes to the right
    *  buffer even after the active buffer has changed on a fast switch). */
   bufferId: string
-  /** Filesystem path — half of the stable model key (`fileUri(workspaceId,
-   *  filePath)`). */
-  filePath: string
-  /** The buffer's own workspace — the other half of the model uri, so two
-   *  workspaces' files at the same path never share a model. */
-  workspaceId: string
+  /** The buffer's document — the model key, so two workspaces' files at the
+   *  same path never share a model. */
+  doc: DocumentRef
 }
 
 /** Opaque editor handle that exposes only `getModel()` (cast at the seam). */
@@ -79,7 +77,7 @@ export function applyActiveBuffer(
 ): ActiveEditorContext | undefined {
   if (!buffer) return undefined
   const { manager, registry } = deps
-  const uri = fileUri(buffer.workspaceId, buffer.filePath)
+  const uri = documentUri(buffer.doc)
 
   manager.showBuffer(paneId, uri)
 
@@ -90,7 +88,7 @@ export function applyActiveBuffer(
   const ctx: ActiveEditorContext = {
     paneId,
     uri,
-    filePath: buffer.filePath,
+    filePath: buffer.doc.path,
     model,
     editor,
   }

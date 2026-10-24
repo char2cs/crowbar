@@ -1,6 +1,14 @@
-import { readDocumentFromDisk, workspaceRef } from '@/lib/api/documents'
+import { isNotFoundError } from '@/lib/api'
+import { readDocument, readDocumentFromDisk, type DocumentRef } from '@/lib/api/documents'
+import { documentRefOf, sameDocument } from '@/features/editor/documents/document-ref'
+import { documentRefusal } from '@/features/editor/documents/open-document'
 import { useFileWatcherStore } from '@/features/file-system/controllers/file-watcher-store'
-import { isEditorContent } from '@/features/panes/types/pane-content'
+import {
+  isEditorContent,
+  isPersistableContent,
+  type EditorContent,
+  type PaneContent,
+} from '@/features/panes/types/pane-content'
 import { toast } from '@/features/window/stores/toast-store'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 
@@ -15,7 +23,10 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
  * - A dirty buffer is never clobbered: it is flagged with hasExternalChange
  *   and a toast tells the user the file changed underneath them.
  */
-export async function syncBufferWithDisk(workspaceId: string, path: string): Promise<void> {
+export async function syncBufferWithDisk(ref: DocumentRef): Promise<void> {
+  const { path } = ref
+  const holds = (b: PaneContent) =>
+    isEditorContent(b) && !b.isVirtual && sameDocument(documentRefOf(b), ref)
   const { pendingSaves, clearPendingSave } = useFileWatcherStore.getState()
   if (pendingSaves.has(path)) {
     // Echo of our own write — consume the marker, nothing to reconcile.
@@ -23,15 +34,9 @@ export async function syncBufferWithDisk(workspaceId: string, path: string): Pro
     return
   }
 
-  // Task 26: buffers are window-level (one flat list for every workspace), so
-  // every lookup here is scoped by `workspaceId` too — `path` alone is
-  // workspace-RELATIVE and a sibling worktree can hold a different file at
-  // the same path.
-  const buffer = windowPaneStore
-    .getState()
-    .buffers.find(
-      (b) => isEditorContent(b) && !b.isVirtual && b.path === path && b.workspaceId === workspaceId,
-    )
+  // Buffers are one window-level list: a sibling worktree can hold another
+  // file at the same relative path, so every lookup matches the whole document.
+  const buffer = windowPaneStore.getState().buffers.find(holds)
   if (!buffer || !isEditorContent(buffer)) return
 
   if (buffer.isDirty) {
@@ -45,17 +50,12 @@ export async function syncBufferWithDisk(workspaceId: string, path: string): Pro
     // diverged from the baseline we last wrote; if they match, this is our own
     // write echoing back, not an external edit. Mirrors the restore-path guard
     // in hydrate.ts (diskContent === savedContent).
-    const disk = await readDocumentFromDisk(workspaceRef(workspaceId, path))
+    const disk = await readDocumentFromDisk(ref)
     if (disk === null) return
 
     // Re-read at apply time: the user may have edited/closed the buffer, or a
     // concurrent echo may have already flagged it, while the read was in flight.
-    const current = windowPaneStore
-      .getState()
-      .buffers.find(
-        (b) =>
-          isEditorContent(b) && !b.isVirtual && b.path === path && b.workspaceId === workspaceId,
-      )
+    const current = windowPaneStore.getState().buffers.find(holds)
     if (!current || !isEditorContent(current) || !current.isDirty || current.hasExternalChange) {
       return
     }
@@ -63,9 +63,7 @@ export async function syncBufferWithDisk(workspaceId: string, path: string): Pro
 
     windowPaneStore.setState((state) => ({
       buffers: state.buffers.map((b) =>
-        isEditorContent(b) && b.path === path && b.workspaceId === workspaceId && b.isDirty
-          ? { ...b, hasExternalChange: true }
-          : b,
+        holds(b) && isEditorContent(b) && b.isDirty ? { ...b, hasExternalChange: true } : b,
       ),
     }))
     toast.warning(
@@ -75,22 +73,14 @@ export async function syncBufferWithDisk(workspaceId: string, path: string): Pro
     return
   }
 
-  // Read from the buffer's own workspace, not the active one: this runs from
-  // async flows (FS events, restore reconciliation) that can complete after
-  // the user switched workspaces, and the same relative path in a sibling
-  // worktree holds different content.
-  const content = await readDocumentFromDisk(workspaceRef(workspaceId, path))
+  const content = await readDocumentFromDisk(ref)
   if (content === null) return
 
   // Re-check at apply time: the user may have started editing (or closed the
   // buffer) while the read was in flight — never clobber fresh edits.
   windowPaneStore.setState((state) => ({
     buffers: state.buffers.map((b) =>
-      isEditorContent(b) &&
-      !b.isVirtual &&
-      b.path === path &&
-      b.workspaceId === workspaceId &&
-      !b.isDirty
+      holds(b) && isEditorContent(b) && !b.isDirty
         ? {
             ...b,
             content,
@@ -99,6 +89,61 @@ export async function syncBufferWithDisk(workspaceId: string, path: string): Pro
             hasExternalChange: false,
             fileMissing: false,
           }
+        : b,
+    ),
+  }))
+}
+
+/**
+ * Restored buffers may be stale: the file can change on disk while the app is
+ * closed. Each is reconciled with the policy of a live external change, but
+ * only when disk diverges from `savedContent` — otherwise every dirty buffer
+ * would get a false "changed on disk" toast on every reload.
+ *
+ * A file gone from disk marks a clean buffer missing (a dirty one keeps the
+ * only copy of its edits). A file the daemon refuses this client keeps its tab
+ * and its reason is shown once; other failures stay silent and non-terminal.
+ */
+export async function reconcileBuffersWithDisk(buffers: PaneContent[]): Promise<void> {
+  const refusals = new Map<string, string>()
+  const reconciles: Promise<void>[] = []
+  for (const buffer of buffers) {
+    if (isPersistableContent(buffer)) reconciles.push(reconcileBuffer(buffer, refusals))
+  }
+  await Promise.allSettled(reconciles)
+  for (const [title, message] of refusals) toast.error(title, message)
+}
+
+async function reconcileBuffer(
+  buffer: EditorContent,
+  refusals: Map<string, string>,
+): Promise<void> {
+  const ref = documentRefOf(buffer)
+  let disk: string
+  try {
+    disk = (await readDocument(ref)).text
+  } catch (err) {
+    const refusal = documentRefusal(err)
+    if (refusal) refusals.set(refusal.title, refusal.message)
+    else if (isNotFoundError(err) && !buffer.isDirty) setBufferFileMissing(ref, true)
+    return
+  }
+  if (buffer.fileMissing) setBufferFileMissing(ref, false)
+  if (disk !== buffer.savedContent) await syncBufferWithDisk(ref)
+}
+
+/** Host documents restored with the window: no workspace activation reconciles them. */
+export function reconcileHostBuffersWithDisk(): Promise<void> {
+  return reconcileBuffersWithDisk(
+    windowPaneStore.getState().buffers.filter((b) => isEditorContent(b) && b.authority === 'host'),
+  )
+}
+
+function setBufferFileMissing(ref: DocumentRef, fileMissing: boolean): void {
+  windowPaneStore.setState((state) => ({
+    buffers: state.buffers.map((b) =>
+      isEditorContent(b) && !b.isVirtual && sameDocument(documentRefOf(b), ref)
+        ? { ...b, fileMissing }
         : b,
     ),
   }))

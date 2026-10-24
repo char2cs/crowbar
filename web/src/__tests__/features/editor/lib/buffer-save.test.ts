@@ -32,19 +32,22 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import type { EditorContent } from '@/features/panes/types/pane-content'
+import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
+import { onGitRefreshRequested } from '@/features/git/stores/git-refresh'
+import { useFileWatcherStore } from '@/features/file-system/controllers/file-watcher-store'
 
 const mockFetch = apiFetch as ReturnType<typeof vi.fn>
 
 /** Open a buffer belonging to `workspaceId` and immediately mark it dirty —
  *  openContent always creates a CLEAN buffer (savedContent === content), so
  *  dirtiness has to be forced after the fact. */
-function openDirtyBuffer(workspaceId: string, path: string, content: string): string {
+function openDirtyBuffer(workspaceId: string | DocumentRef, path: string, content: string): string {
+  const doc = typeof workspaceId === 'string' ? workspaceRef(workspaceId, path) : workspaceId
   const id = windowPaneStore.getState().bufferActions.openContent({
     type: 'editor',
-    path,
+    doc,
     name: path,
     content,
-    workspaceId,
   })
   windowPaneStore.setState((s) => {
     s.buffers = s.buffers.map((b) =>
@@ -93,11 +96,10 @@ describe("buffer-save — Critical 1: saves target the BUFFER's own workspace, n
   it("saveActiveBuffer (Save As, an untitled buffer) writes to the buffer's own workspace", async () => {
     const id = windowPaneStore.getState().bufferActions.openContent({
       type: 'editor',
-      path: 'untitled:Untitled-1',
+      doc: workspaceRef('ws-owner', 'untitled:Untitled-1'),
       name: 'Untitled-1',
       content: 'new file content',
       isVirtual: true,
-      workspaceId: 'ws-owner',
     })
     vi.stubGlobal(
       'prompt',
@@ -133,6 +135,23 @@ describe("buffer-save — Critical 1: saves target the BUFFER's own workspace, n
   })
 })
 
+describe('buffer-save — a document outside every workspace', () => {
+  it('writes to its own path and touches no workspace', async () => {
+    const refreshed = vi.fn()
+    const stop = onGitRefreshRequested('', refreshed)
+    openDirtyBuffer({ authority: 'host', path: '/tmp/notes.md' }, 'notes.md', 'edited')
+
+    expect(await saveActiveBuffer()).toBe(true)
+
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit]
+    expect(JSON.parse(init.body as string)).toEqual({ path: '/tmp/notes.md', content: 'edited' })
+    expect(refreshed).not.toHaveBeenCalled()
+    expect(useFileWatcherStore.getState().pendingSaves.has('/tmp/notes.md')).toBe(false)
+    stop()
+  })
+})
+
 function writesFor(path: string): string[] {
   return mockFetch.mock.calls
     .map(
@@ -146,10 +165,9 @@ function writesFor(path: string): string[] {
 function openCleanBuffer(workspaceId: string, path: string, content: string): string {
   return windowPaneStore.getState().bufferActions.openContent({
     type: 'editor',
-    path,
+    doc: workspaceRef(workspaceId, path),
     name: path,
     content,
-    workspaceId,
   })
 }
 

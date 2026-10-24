@@ -139,6 +139,36 @@ func TestReadDocument_PlaceholderRowsClaimNothing(t *testing.T) {
 	assert.Equal(t, domain.DocumentRef{Authority: domain.DocumentAuthorityHost, Path: "/elsewhere/a.md"}, doc.DocumentRef)
 }
 
+// TestDocument_MissingWorktreeStillClaimsItsPaths pins a worktree directory gone
+// from disk: identity cannot match it, so its paths are claimed by canonical
+// prefix and a write keeps the workspace's lock check instead of going to the host.
+func TestDocument_MissingWorktreeStillClaimsItsPaths(t *testing.T) {
+	fs, syncer, uc, _ := newDocumentUsecase(t)
+	p := t.TempDir()
+	wt := filepath.Join(p, "repo", "wt")
+	home := domain.Workspace{ID: "home", Kind: domain.WorkspaceKindHome, WorktreePath: p}
+	withRows(syncer, home, domain.Workspace{ID: "w1", WorktreePath: wt, Status: domain.WorkspaceStatusLocked})
+	recordReads(fs)
+	ctx := context.Background()
+	target := domain.DocumentRef{Path: filepath.Join(wt, "src", "a.md")}
+
+	doc, err := uc.ReadDocument(ctx, target, domain.TransportRemote)
+	require.NoError(t, err)
+	assert.Equal(t, workspaceRef("w1", "src/a.md"), doc.DocumentRef)
+	_, err = uc.WriteDocument(ctx, target, "x", "", domain.TransportLocal, time.Now())
+	require.ErrorIs(t, err, apperr.ErrLocked)
+
+	doc, err = uc.ReadDocument(ctx, domain.DocumentRef{Path: filepath.Join(p, "repo", "wt-sibling.md")}, domain.TransportRemote)
+	require.NoError(t, err)
+	assert.Equal(t, workspaceRef("home", "repo/wt-sibling.md"), doc.DocumentRef, "a prefix claims whole names only")
+
+	if runtime.GOOS == "darwin" {
+		doc, err = uc.ReadDocument(ctx, domain.DocumentRef{Path: filepath.Join(p, "Repo", "WT", "a.md")}, domain.TransportRemote)
+		require.NoError(t, err)
+		assert.Equal(t, "w1", doc.WorkspaceID, "darwin folds case")
+	}
+}
+
 func TestReadDocument_SymlinkIntoWorktreeIsTheWorkspaceDocument(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink semantics differ on windows")

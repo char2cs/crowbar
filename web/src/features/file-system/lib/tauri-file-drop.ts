@@ -137,11 +137,9 @@ function releaseSharedSubscriptionIfIdle(): void {
  * `drop` event at all: `dragDropEnabled` defaults to true and nothing in
  * `desktop/src-tauri/tauri.conf.json` overrides it, so `DataTransfer` never
  * carries files for a real drag and no DOM `drop` handler ever fires for
- * one. `extractDroppedFilePaths` (file-system-dropped-paths.ts) covers only
- * the other, unavoidably path-less case — a plain browser tab, where a
- * `DataTransfer` exists but no browser exposes a real host path on a `File`
- * either way. This hook is what actually answers "a real file got dropped
- * here, and here is its path" on the desktop build.
+ * one; in a plain browser tab no `File` exposes a real host path either. This
+ * hook is what actually answers "a real file got dropped here, and here is its
+ * path" on the desktop build.
  *
  * Every mounted consumer would otherwise receive the SAME window-wide event
  * — Tauri does not scope `onDragDropEvent` to an element, and there is no DOM

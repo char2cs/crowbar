@@ -21,7 +21,7 @@ vi.mock('@/features/editor/markdown/plate/markdown-editor-pane', () => ({
 
 import { EditorPane } from '@/features/panes/components/editor-pane'
 import { getEditorHost } from '@/features/editor/host/editor-host'
-import { fileUri } from '@/features/editor/lib/editor-uri'
+import { documentUri } from '@/features/editor/documents/document-ref'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 import {
   resetWindowPaneStoreForTests,
@@ -29,15 +29,19 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { workspaceRef } from '@/lib/api/documents'
 
 // Real host and real Monaco: the pane loads the editor on first mount. A
 // ceiling, not a wait — the monaco chunk takes seconds on a busy CI box.
 const MONACO_LOAD_MS = 120_000
 
 function open(path: string, workspaceId = 'ws-buffer'): string {
-  return windowPaneStore
-    .getState()
-    .bufferActions.openContent({ type: 'editor', path, name: path, content: 'A', workspaceId })
+  return windowPaneStore.getState().bufferActions.openContent({
+    type: 'editor',
+    doc: workspaceRef(workspaceId, path),
+    name: path,
+    content: 'A',
+  })
 }
 
 function pane(bufferId: string, extra: { isPreview?: boolean; onPromote?: () => void } = {}) {
@@ -82,7 +86,7 @@ describe('EditorPane', () => {
 
       await waitFor(() => expect(monacoMounted()).toBe(true), { timeout: MONACO_LOAD_MS })
       // The mount shows the active buffer in the same effect.
-      const model = getEditorHost()?.models.get(fileUri('ws-buffer', 'src/x.ts'))
+      const model = getEditorHost()?.models.get(documentUri(workspaceRef('ws-buffer', 'src/x.ts')))
       expect(model?.getValue()).toBe('A')
     },
     MONACO_LOAD_MS,

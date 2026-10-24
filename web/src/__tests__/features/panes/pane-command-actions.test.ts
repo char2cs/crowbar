@@ -51,6 +51,7 @@ describe('pane command actions', () => {
         {
           id: 'buffer-a',
           type: 'editor',
+          authority: 'workspace',
           path: '/workspace/a.ts',
           name: 'a.ts',
           isPinned: false,

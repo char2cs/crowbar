@@ -95,8 +95,7 @@ export function AttachFileModal({
   const handleDragLeave = useCallback(() => setDropTarget(false), [])
 
   // Plain-browser fallback — a real DataTransfer.files DOES carry usable File
-  // bytes here, unrelated to extractDroppedFilePaths (which is about a host
-  // PATH, not bytes).
+  // bytes here, though never a host path.
   const handleDrop = useCallback(
     (e: DragEvent) => {
       setDropTarget(false)

@@ -1,4 +1,8 @@
-import { saveWorkspaceLayout, WINDOW_SESSION_ID } from '@/lib/persistence/workspace-layout'
+import {
+  saveWorkspaceLayout,
+  WINDOW_LAYOUT_VERSION,
+  WINDOW_SESSION_ID,
+} from '@/lib/persistence/workspace-layout'
 import { loadWindowPaneLayout } from '@/lib/persistence/workspace-layout'
 import type { WorkspaceLayout } from '@/lib/persistence/schemas'
 import { IDBFactory } from 'fake-indexeddb'
@@ -44,7 +48,7 @@ describe('window pane layout persistence', () => {
     await saveWorkspaceLayout(mockLayout)
     const loaded = await loadWindowPaneLayout()
     expect(loaded?.activePaneId).toBe(ROOT_PANE_ID)
-    expect(loaded?.version).toBe(2)
+    expect(loaded?.version).toBe(WINDOW_LAYOUT_VERSION)
   })
 
   it('returns null when nothing has been saved yet', async () => {

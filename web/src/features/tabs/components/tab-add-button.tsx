@@ -1,8 +1,9 @@
 // Lucide Plus (stroke-based) to match the sibling toolbar icons — back/forward/
 // settings are Lucide; Phosphor's bold Plus rendered heavier and larger than them.
 import { PlusIcon } from '@phosphor-icons/react'
-import { FilePlus, TerminalWindow } from '@phosphor-icons/react'
+import { FilePlus, FolderOpen, TerminalWindow } from '@phosphor-icons/react'
 import React from 'react'
+import { isTauri } from '@/lib/crowbar-bridge'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,6 +15,8 @@ interface TabAddButtonProps {
   isBottomPane: boolean
   onNewFile: () => void
   onNewTerminal: () => void
+  /** Desktop only: the browser has no native file dialog. */
+  onOpenFile: () => void
 }
 
 /**
@@ -30,6 +33,7 @@ const TabAddButton = React.memo(function TabAddButton({
   isBottomPane,
   onNewFile,
   onNewTerminal,
+  onOpenFile,
 }: TabAddButtonProps) {
   if (isBottomPane) return null
 
@@ -50,6 +54,12 @@ const TabAddButton = React.memo(function TabAddButton({
           <TerminalWindow className="size-4" />
           New Terminal
         </DropdownMenuItem>
+        {isTauri() && (
+          <DropdownMenuItem onClick={onOpenFile}>
+            <FolderOpen className="size-4" />
+            Open File…
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

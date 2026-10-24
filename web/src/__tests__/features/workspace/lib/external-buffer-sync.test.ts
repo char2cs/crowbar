@@ -6,25 +6,31 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 
 const readDiskMock = vi.fn<(wsId: string, path: string) => Promise<string | null>>()
+const readDocumentMock = vi.fn()
 vi.mock('@/lib/api/documents', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api/documents')>()),
+  readDocument: (ref: unknown) => readDocumentMock(ref),
   readDocumentFromDisk: (ref: { workspaceId: string; path: string }) =>
     readDiskMock(ref.workspaceId, ref.path),
 }))
 
 const toastWarning = vi.fn()
+const toastError = vi.fn()
 // The toast API moved to the window toast-store (cossui migration); mock the path
 // external-buffer-sync actually imports, not the legacy @/components/ui/toast.
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: {
     warning: (...args: unknown[]) => toastWarning(...args),
-    error: vi.fn(),
+    error: (...args: unknown[]) => toastError(...args),
     info: vi.fn(),
     success: vi.fn(),
   },
 }))
 
-const { syncBufferWithDisk } = await import('@/features/workspace/lib/external-buffer-sync')
+const { ApiError } = await import('@/lib/api')
+const { HOST_DOCUMENT_TRANSPORT_CODE, workspaceRef } = await import('@/lib/api/documents')
+const { reconcileHostBuffersWithDisk, syncBufferWithDisk } =
+  await import('@/features/workspace/lib/external-buffer-sync')
 const { useFileWatcherStore } =
   await import('@/features/file-system/controllers/file-watcher-store')
 
@@ -32,6 +38,7 @@ function makeBuffer(overrides: Partial<EditorContent> = {}): EditorContent {
   return {
     id: 'buf-1',
     type: 'editor',
+    authority: 'workspace',
     path: 'README.md',
     name: 'README.md',
     content: 'old content',
@@ -46,8 +53,8 @@ function makeBuffer(overrides: Partial<EditorContent> = {}): EditorContent {
   }
 }
 
-// Task 26: buffers are window-level now — syncBufferWithDisk takes a plain
-// workspaceId string and reads/writes the one `windowPaneStore` singleton.
+// Buffers are window-level: syncBufferWithDisk takes the document's ref and
+// reads/writes the one `windowPaneStore` singleton.
 function seedBuffers(buffers: EditorContent[]): void {
   resetWindowPaneStoreForTests()
   windowPaneStore.setState((s) => {
@@ -62,7 +69,9 @@ function getBuffer(id = 'buf-1'): EditorContent {
 
 beforeEach(() => {
   readDiskMock.mockReset()
+  readDocumentMock.mockReset()
   toastWarning.mockReset()
+  toastError.mockReset()
   useFileWatcherStore.setState({ pendingSaves: new Set() })
 })
 
@@ -71,7 +80,7 @@ describe('syncBufferWithDisk', () => {
     seedBuffers([makeBuffer()])
     readDiskMock.mockResolvedValue('restored content')
 
-    await syncBufferWithDisk('ws-1', 'README.md')
+    await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
 
     const buf = getBuffer()
     // The read targets the buffer's own workspace, never the active one —
@@ -90,7 +99,7 @@ describe('syncBufferWithDisk', () => {
     // A genuine external edit: disk diverges from the baseline we last wrote.
     readDiskMock.mockResolvedValue('someone else wrote this')
 
-    await syncBufferWithDisk('ws-1', 'README.md')
+    await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
 
     const buf = getBuffer()
     expect(readDiskMock).toHaveBeenCalledWith('ws-1', 'README.md')
@@ -103,7 +112,7 @@ describe('syncBufferWithDisk', () => {
     // A second external change while already flagged must not re-toast (and must
     // not even hit the disk — the hasExternalChange guard returns first).
     readDiskMock.mockClear()
-    await syncBufferWithDisk('ws-1', 'README.md')
+    await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
     expect(toastWarning).toHaveBeenCalledTimes(1)
     expect(readDiskMock).not.toHaveBeenCalled()
   })
@@ -122,7 +131,7 @@ describe('syncBufferWithDisk', () => {
     ])
     readDiskMock.mockResolvedValue('autosaved value') // disk === savedContent
 
-    await syncBufferWithDisk('ws-1', 'README.md')
+    await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
 
     const buf = getBuffer()
     expect(readDiskMock).toHaveBeenCalledWith('ws-1', 'README.md')
@@ -137,7 +146,7 @@ describe('syncBufferWithDisk', () => {
     seedBuffers([makeBuffer()])
     useFileWatcherStore.getState().markPendingSave('README.md')
 
-    await syncBufferWithDisk('ws-1', 'README.md')
+    await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
 
     expect(readDiskMock).not.toHaveBeenCalled()
     expect(getBuffer().content).toBe('old content')
@@ -145,14 +154,14 @@ describe('syncBufferWithDisk', () => {
 
     // The next external event for the same path is no longer suppressed.
     readDiskMock.mockResolvedValue('external write')
-    await syncBufferWithDisk('ws-1', 'README.md')
+    await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
     expect(getBuffer().content).toBe('external write')
   })
 
   it('does nothing when no open buffer matches the path', async () => {
     seedBuffers([makeBuffer({ path: 'other.ts', name: 'other.ts' })])
 
-    await syncBufferWithDisk('ws-1', 'README.md')
+    await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
 
     expect(readDiskMock).not.toHaveBeenCalled()
     expect(toastWarning).not.toHaveBeenCalled()
@@ -167,7 +176,7 @@ describe('syncBufferWithDisk', () => {
       }),
     )
 
-    const sync = syncBufferWithDisk('ws-1', 'README.md')
+    const sync = syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
     // User types while the read is pending.
     windowPaneStore.setState((s) => {
       s.buffers = [makeBuffer({ content: 'typed meanwhile', isDirty: true })]
@@ -185,8 +194,41 @@ describe('syncBufferWithDisk', () => {
     seedBuffers([makeBuffer()])
     readDiskMock.mockResolvedValue(null)
 
-    await syncBufferWithDisk('ws-1', 'README.md')
+    await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
 
     expect(getBuffer().content).toBe('old content')
+  })
+})
+
+describe('reconcileHostBuffersWithDisk', () => {
+  const host = (id: string, path: string) =>
+    makeBuffer({ id, authority: 'host', workspaceId: '', path, name: path.split('/').pop() })
+
+  it('reloads a restored host document from disk', async () => {
+    seedBuffers([host('h-1', '/tmp/a.md'), makeBuffer()])
+    readDocumentMock.mockResolvedValue({ text: 'on disk' })
+    readDiskMock.mockResolvedValue('on disk')
+
+    await reconcileHostBuffersWithDisk()
+
+    expect(readDocumentMock).toHaveBeenCalledTimes(1)
+    expect(readDocumentMock).toHaveBeenCalledWith({ authority: 'host', path: '/tmp/a.md' })
+    expect(getBuffer('h-1').content).toBe('on disk')
+  })
+
+  it('a restored host document the daemon refuses keeps its tab and says why once', async () => {
+    seedBuffers([host('h-1', '/tmp/a.md'), host('h-2', '/tmp/b.md')])
+    readDocumentMock.mockRejectedValue(new ApiError('refused', 403, HOST_DOCUMENT_TRANSPORT_CODE))
+
+    await reconcileHostBuffersWithDisk()
+
+    expect(windowPaneStore.getState().buffers.map((b) => b.id)).toEqual(['h-1', 'h-2'])
+    expect(getBuffer('h-1').content).toBe('old content')
+    expect(getBuffer('h-1').fileMissing).toBeFalsy()
+    expect(toastError).toHaveBeenCalledTimes(1)
+    expect(toastError).toHaveBeenCalledWith(
+      "Can't open this file here",
+      'Files outside your workspaces open only in the Crowbar desktop app.',
+    )
   })
 })

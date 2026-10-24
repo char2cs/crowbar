@@ -1,7 +1,8 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import type * as Monaco from 'monaco-editor'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
-import { fileUri } from '@/features/editor/lib/editor-uri'
+import { documentUri } from '@/features/editor/documents/document-ref'
+import { workspaceRef } from '@/lib/api/documents'
 import { showingLayout } from '@/features/panes/lib/view-state'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { editorTab, makePaneOnlyStore } from '@/__tests__/__fixtures__/view-state'
@@ -171,8 +172,8 @@ describe('reorder / preview / pinned / cycling', () => {
 
   it('setEditorTabPreview marks exactly one preview per pane', () => {
     const store = withBuffers([
-      { id: 'a', type: 'editor', isPreview: false, workspaceId: 'ws-test' },
-      { id: 'b', type: 'editor', isPreview: false, workspaceId: 'ws-test' },
+      { id: 'a', type: 'editor', authority: 'workspace', isPreview: false, workspaceId: 'ws-test' },
+      { id: 'b', type: 'editor', authority: 'workspace', isPreview: false, workspaceId: 'ws-test' },
     ])
     const actions = store.getState().paneActions
     const preview = (id: string) => store.getState().buffers.find((b) => b.id === id)?.isPreview
@@ -184,8 +185,15 @@ describe('reorder / preview / pinned / cycling', () => {
 
   it('setEditorTabPinned sets isPinned; clearEditorTabPreviewEverywhere clears every pane', () => {
     const store = withBuffers([
-      { id: 'a', type: 'editor', isPinned: false, isPreview: true, workspaceId: 'ws-test' },
-      { id: 'b', type: 'editor', isPreview: true, workspaceId: 'ws-test' },
+      {
+        id: 'a',
+        type: 'editor',
+        authority: 'workspace',
+        isPinned: false,
+        isPreview: true,
+        workspaceId: 'ws-test',
+      },
+      { id: 'b', type: 'editor', authority: 'workspace', isPreview: true, workspaceId: 'ws-test' },
     ])
     const actions = store.getState().paneActions
     actions.addEditorTabToPane(ROOT_PANE_ID, editorTab('a'))
@@ -237,16 +245,25 @@ describe('editor model release (C1)', () => {
       manager: { closeBuffer },
     } as unknown as ReturnType<typeof host.getEditorHost>)
     const store = withBuffers([
-      { id: 'tab-ed', type: 'editor', path: '/src/a.ts', workspaceId: 'ws-test' },
+      {
+        id: 'tab-ed',
+        type: 'editor',
+        authority: 'workspace',
+        path: '/src/a.ts',
+        workspaceId: 'ws-test',
+      },
     ])
     return { store, closeBuffer }
   }
 
-  it('removeEditorTabFromPane releases the model for that pane (paneId + fileUri)', async () => {
+  it('removeEditorTabFromPane releases the model for that pane (paneId + document uri)', async () => {
     const { store, closeBuffer } = await storeWithHost()
     store.getState().paneActions.addEditorTabToPane(ROOT_PANE_ID, editorTab('tab-ed'))
     store.getState().paneActions.removeEditorTabFromPane(ROOT_PANE_ID, 'tab-ed')
-    expect(closeBuffer).toHaveBeenCalledWith(ROOT_PANE_ID, fileUri('ws-test', '/src/a.ts'))
+    expect(closeBuffer).toHaveBeenCalledWith(
+      ROOT_PANE_ID,
+      documentUri(workspaceRef('ws-test', '/src/a.ts')),
+    )
   })
 
   it('does not release for a pane that never held the tab', async () => {
@@ -258,9 +275,15 @@ describe('editor model release (C1)', () => {
     const { loadEditorHost } = await import('@/features/editor/host/editor-host')
     const { manager, models } = await loadEditorHost()
     const store = withBuffers([
-      { id: 'tab-ed', type: 'editor', path: '/src/a.ts', workspaceId: 'ws-test' },
+      {
+        id: 'tab-ed',
+        type: 'editor',
+        authority: 'workspace',
+        path: '/src/a.ts',
+        workspaceId: 'ws-test',
+      },
     ])
-    const uri = fileUri('ws-test', '/src/a.ts')
+    const uri = documentUri(workspaceRef('ws-test', '/src/a.ts'))
     const panes = [ROOT_PANE_ID, BOTTOM_PANE_ID]
     for (const paneId of panes) manager.mountPane(paneId, document.createElement('div'))
     // What each pane's controller does: show the pane's active tab on every change.

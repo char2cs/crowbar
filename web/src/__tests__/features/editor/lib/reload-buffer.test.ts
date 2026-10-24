@@ -1,12 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
 
 const { readDisk } = vi.hoisted(() => ({ readDisk: vi.fn() }))
 vi.mock('@/lib/api/documents', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api/documents')>()),
-  readDocument: async (ref: { workspaceId: string; path: string }) => ({
-    ref,
-    text: await readDisk(ref.workspaceId, ref.path),
-  }),
+  readDocument: async (ref: DocumentRef) => ({ ref, text: await readDisk(ref) }),
 }))
 
 import { reloadBufferFromDisk } from '@/features/editor/lib/reload-buffer'
@@ -16,13 +14,12 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 
-function openBuffer(content: string): string {
+function openBuffer(content: string, doc: DocumentRef = workspaceRef('ws-1', 'src/a.ts')): string {
   return windowPaneStore.getState().bufferActions.openContent({
     type: 'editor',
-    path: 'src/a.ts',
+    doc,
     name: 'a.ts',
     content,
-    workspaceId: 'ws-1',
   })
 }
 
@@ -54,8 +51,17 @@ describe('reloadBufferFromDisk (P0-9)', () => {
     expect(await reloadBufferFromDisk(id, confirm)).toBe('reloaded')
 
     expect(confirm).not.toHaveBeenCalled()
-    expect(readDisk).toHaveBeenCalledWith('ws-1', 'src/a.ts')
+    expect(readDisk).toHaveBeenCalledWith(workspaceRef('ws-1', 'src/a.ts'))
     expect(buffer(id)).toMatchObject({ content: 'disk', savedContent: 'disk', isDirty: false })
+  })
+
+  it('reloads a document outside every workspace from its own path', async () => {
+    const id = openBuffer('old', { authority: 'host', path: '/tmp/a.ts' })
+    readDisk.mockResolvedValue('disk')
+
+    expect(await reloadBufferFromDisk(id, () => true)).toBe('reloaded')
+
+    expect(readDisk).toHaveBeenCalledWith({ authority: 'host', path: '/tmp/a.ts' })
   })
 
   it('never marks unsaved edits as saved: a declined prompt keeps them dirty', async () => {

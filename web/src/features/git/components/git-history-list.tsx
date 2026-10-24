@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
+import { openDocument } from '@/features/editor/documents/open-document'
+import { workspaceRef } from '@/lib/api/documents'
 import { useRegisteredWorkspaceStore } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
 import { resolveOnscreenPaneForWorkspace } from '@/features/panes/lib/pane-chat-workspace'
 import { useStore } from 'zustand'
@@ -23,12 +24,11 @@ export function GitHistoryList({ wsId: scopedWsId }: { wsId: string | null }) {
   const { handleViewCommitDiff } = useGitDiffHandlers({
     activeRepoPath: wsId || null,
     onFileSelect: (path, isDir) => {
-      if (isDir) return
-      const rel = wsId && path.startsWith(`${wsId}/`) ? path.slice(wsId.length + 1) : path
-      // Opens in this workspace's on-screen pane, named explicitly (C8) — the
-      // focused pane can be a different chat sharing the workspace.
+      if (isDir || !wsId) return
+      const rel = path.startsWith(`${wsId}/`) ? path.slice(wsId.length + 1) : path
+      // This workspace's on-screen pane (C8): the focused one may be another chat's.
       const paneId = resolveOnscreenPaneForWorkspace(wsId) ?? undefined
-      void openWorkspaceFile(wsId, rel, { paneId })
+      void openDocument(workspaceRef(wsId, rel), { paneId })
     },
   })
 

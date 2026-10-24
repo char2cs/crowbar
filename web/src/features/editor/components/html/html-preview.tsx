@@ -1,61 +1,50 @@
 import { useEffect, useRef, useState } from 'react'
-import { useStore } from 'zustand'
-import { useShallow } from 'zustand/react/shallow'
-import { readDocument, workspaceRef } from '@/lib/api/documents'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { hasTextContent } from '@/features/panes/types/pane-content'
-import { mimeForPath, resolveAssetPath, toDataUrl } from '@/features/editor/lib/asset-data-url'
-import { getDirName } from '@/utils/path-helpers'
-import { buildHtmlPreviewDocument } from './html-preview-document'
+import { readDocument, type DocumentRef } from '@/lib/api/documents'
+import { siblingRef } from '@/features/editor/documents/document-ref'
+import { usePreviewSource } from '@/features/editor/documents/use-preview-source'
+import { mimeForPath, toDataUrl } from '@/features/editor/lib/asset-data-url'
+import { buildHtmlPreviewDocument, withHostPreviewPolicy } from './html-preview-document'
 
-export function HtmlPreview() {
-  const { hasSourceBuffer, sourceContent, sourcePath, workspaceId } = useStore(
-    windowPaneStore,
-    useShallow((state) => {
-      const activeBufferId = state.panes[state.activePaneId]?.activeEditorTabId ?? null
-      const activeBuffer = activeBufferId
-        ? state.buffers.find((buffer) => buffer.id === activeBufferId)
-        : null
-      const sourceBuffer =
-        activeBuffer?.type === 'htmlPreview'
-          ? (state.buffers.find(
-              (buffer) =>
-                buffer.path === activeBuffer.sourceFilePath &&
-                buffer.workspaceId === activeBuffer.workspaceId,
-            ) ?? activeBuffer)
-          : activeBuffer
+// No `allow-same-origin`: combined with `allow-scripts` it lets the framed
+// document reach the parent Crowbar origin and remove its own sandbox. A host
+// document is any file on disk, so it gets no scripts at all.
+const WORKSPACE_SANDBOX = 'allow-scripts allow-forms allow-popups allow-modals'
+const HOST_SANDBOX = ''
 
-      return {
-        hasSourceBuffer: Boolean(sourceBuffer),
-        sourceContent: sourceBuffer && hasTextContent(sourceBuffer) ? sourceBuffer.content : '',
-        sourcePath: sourceBuffer?.path,
-        workspaceId: sourceBuffer?.workspaceId,
-      }
-    }),
-  )
+/** The asset `reference` names beside `doc`; a host document reaches only its own subtree. */
+function assetRef(doc: DocumentRef, reference: string): DocumentRef | null {
+  const ref = siblingRef(doc, reference)
+  if (doc.authority === 'workspace') return ref
+  const dir = doc.path.slice(0, doc.path.lastIndexOf('/') + 1)
+  return ref.path.startsWith(dir) ? ref : null
+}
+
+export function HtmlPreview({ bufferId }: { bufferId?: string }) {
+  const source = usePreviewSource(bufferId)
+  const { doc } = source
   const [iframeContent, setIframeContent] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Local assets are read as documents of the file's own workspace
-  // and inlined; the latest edit wins over a slower earlier build.
+  // Local assets are read as documents beside the file and inlined; the latest
+  // edit wins over a slower earlier build.
   useEffect(() => {
     let cancelled = false
-    const fileDir = sourcePath ? getDirName(sourcePath) : ''
     const loadAsset = async (reference: string) => {
-      const path = resolveAssetPath(fileDir, reference)
-      const mime = mimeForPath(path)
-      if (!workspaceId || !mime) return null
-      return toDataUrl(mime, (await readDocument(workspaceRef(workspaceId, path))).text)
+      const ref = doc ? assetRef(doc, reference) : null
+      const mime = ref ? mimeForPath(ref.path) : null
+      if (!ref || !mime) return null
+      return toDataUrl(mime, (await readDocument(ref)).text)
     }
-    void buildHtmlPreviewDocument(sourceContent, loadAsset).then((doc) => {
-      if (!cancelled) setIframeContent(doc)
+    void buildHtmlPreviewDocument(source.content, loadAsset).then((html) => {
+      if (cancelled) return
+      setIframeContent(doc?.authority === 'host' ? withHostPreviewPolicy(html) : html)
     })
     return () => {
       cancelled = true
     }
-  }, [sourceContent, sourcePath, workspaceId])
+  }, [source.content, doc])
 
-  if (!hasSourceBuffer) {
+  if (!source.shown) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
         No active buffer
@@ -69,12 +58,7 @@ export function HtmlPreview() {
         title="HTML Preview"
         srcDoc={iframeContent}
         className="h-full w-full border-none"
-        // No `allow-same-origin`: combined with `allow-scripts` it lets the framed
-        // document (potentially agent-generated / untrusted HTML) reach the parent
-        // Crowbar origin and remove its own sandbox. Dropping it gives the preview an
-        // opaque origin — scripts/forms/popups/modals still run, but it can't touch
-        // the host app's DOM, cookies, or storage.
-        sandbox="allow-scripts allow-forms allow-popups allow-modals"
+        sandbox={doc?.authority === 'host' ? HOST_SANDBOX : WORKSPACE_SANDBOX}
       />
     </div>
   )

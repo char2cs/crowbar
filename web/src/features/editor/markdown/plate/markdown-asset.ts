@@ -1,34 +1,22 @@
 import { createContext, useContext } from 'react'
-import { readDocument, workspaceRef } from '@/lib/api/documents'
+import { readDocument, type DocumentRef } from '@/lib/api/documents'
+import { siblingRef } from '@/features/editor/documents/document-ref'
 import {
   isImagePath,
   isSelfLoading,
   mimeForPath,
-  resolveAssetPath,
   toDataUrl,
 } from '@/features/editor/lib/asset-data-url'
 
 /**
- * Where a markdown buffer lives, so local image references inside it can be
- * resolved and loaded. Provided by `MarkdownEditorPane`; consumed by the `html`
- * node (and any other renderer that shows local assets). Null when unknown
- * (e.g. a standalone unit-test render) — resolution is then skipped and images
- * keep their raw src.
+ * Where a markdown body's local image references resolve. Provided by
+ * `MarkdownEditorPane` (`doc`: siblings of that document) and by chat (`resolve`:
+ * the attachment-serving endpoint, since an attachment ref is not a path).
+ * Null when unknown (e.g. a standalone unit-test render): images keep their raw src.
  */
-export interface MarkdownAssetInfo {
-  /** Workspace id the file belongs to (for its document reads, or a `resolve`
-   *  override that needs it). */
-  wsId: string
-  /** The file's own directory, workspace-relative ('' = workspace root).
-   *  Unused when `resolve` is set. */
-  fileDir: string
-  /** Override the default fileDir-relative document read.
-   *  When present, `loadLocalImage` calls this directly with the raw `src`
-   *  instead — the chat asset context (`chat-asset-resolver.ts`) uses this to
-   *  route through the attachment-serving endpoint, since a chat-attachment
-   *  ref isn't a workspace-relative path. */
-  resolve?: (src: string, signal?: AbortSignal) => Promise<string | null>
-}
+export type MarkdownAssetInfo =
+  | { doc: DocumentRef }
+  | { wsId: string; resolve: (src: string, signal?: AbortSignal) => Promise<string | null> }
 
 export const MarkdownAssetContext = createContext<MarkdownAssetInfo | null>(null)
 
@@ -36,15 +24,11 @@ export function useMarkdownAsset(): MarkdownAssetInfo | null {
   return useContext(MarkdownAssetContext)
 }
 
-export { resolveAssetPath }
-
 /**
- * Load a local image referenced from a markdown file as a `data:` URL the
+ * Load a local image referenced from a markdown body as a `data:` URL the
  * webview can render, or `null` if it can't/shouldn't be resolved (remote URL,
- * non-image, unknown workspace, or a read error). Reads through the same
- * document API the editor already uses; binary files come back as a
- * latin1 byte string (base64-decoded by the daemon layer), which re-encodes to
- * base64 cleanly. SVG is text, so it's passed through utf8 instead.
+ * non-image, no context, or a read error). Binary files come back as a latin1
+ * byte string, which re-encodes to base64 cleanly; SVG is text and goes utf8.
  */
 export async function loadLocalImage(
   asset: MarkdownAssetInfo | null,
@@ -52,13 +36,13 @@ export async function loadLocalImage(
   signal?: AbortSignal,
 ): Promise<string | null> {
   if (!asset || !src || isSelfLoading(src)) return null
-  if (asset.resolve) return asset.resolve(src, signal)
-  const path = resolveAssetPath(asset.fileDir, src)
-  const mime = mimeForPath(path)
-  if (!mime || !isImagePath(path)) return null
+  if ('resolve' in asset) return asset.resolve(src, signal)
+  const ref = siblingRef(asset.doc, src)
+  const mime = mimeForPath(ref.path)
+  if (!mime || !isImagePath(ref.path)) return null
 
   try {
-    return toDataUrl(mime, (await readDocument(workspaceRef(asset.wsId, path))).text)
+    return toDataUrl(mime, (await readDocument(ref)).text)
   } catch {
     return null
   }

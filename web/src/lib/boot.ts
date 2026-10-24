@@ -13,6 +13,7 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { markStart } from '@/lib/perf/instrumentation'
 import { retireOrphanedStorage } from '@/lib/persistence/retired-storage'
+import { reconcileHostBuffersWithDisk } from '@/features/workspace/lib/external-buffer-sync'
 
 /**
  * Hydrates whatever this window's pane/buffer layout and sidebar tree were
@@ -50,8 +51,10 @@ export async function hydrateCriticalStores(): Promise<void> {
   const chatSurface = showsChat() ? preloadAgentChatPane() : undefined
   // Layout hydration to the first transcript row shown; AgentTranscript closes it.
   if (chatSurface) markStart('chat:first-row')
-  // The one network step, deliberately not awaited: members stay unplaced until it answers.
+  // The network steps, deliberately not awaited: members stay unplaced until
+  // answered, and restored host documents show their saved text until read.
   void placeRestoredChatMembers()
+  void reconcileHostBuffersWithDisk()
   await useWorkspaceListStore.getState().fetch()
   useSidebarStore.getState().setRepos(dataOf(useWorkspaceListStore.getState().data) ?? [])
   // setRepos recorded each workspace's scope, which the messages URL needs. Not

@@ -2,22 +2,21 @@ import type { Terminal } from '@xterm/xterm'
 import { useEffect, useRef, useState } from 'react'
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
-import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { revealInEditor } from '@/features/editor/lib/reveal'
 import { resolveWorkspaceRootPath } from '@/lib/workspace/resolve-root-path'
 import { toast } from '@/features/window/stores/toast-store'
 import { injectLinkStyles, removeLinkStyles, type TerminalAddons } from './use-terminal-addons'
 import { useTerminalTheme } from './use-terminal-theme'
 import { fitToContainer } from './use-pty-size-sync'
 import { mountXterm, type MountedXterm } from '../lib/mount-xterm'
-import { workspaceRelativePath, type TerminalFileLinksOptions } from '../lib/terminal-file-links'
+import type { TerminalFileLinksOptions } from '../lib/terminal-file-links'
 import { useTerminalStore } from '../stores/terminal-store'
 import { resolveTerminalFont } from '../utils/resolve-font'
 
 /**
  * File references open inside Crowbar: relative paths resolve against the
- * session cwd when known, else the workspace root, then are relativized back
- * onto the workspace root (the files API takes worktree-relative paths).
+ * session cwd when known, else the workspace root, and the daemon resolves the
+ * absolute path to its workspace's document or a host one.
  */
 function fileLinksFor(getSessionId: () => string): TerminalFileLinksOptions {
   return {
@@ -26,20 +25,9 @@ function fileLinksFor(getSessionId: () => string): TerminalFileLinksOptions {
       if (cwd?.startsWith('/')) return cwd
       return resolveWorkspaceRootPath()
     },
-    openFile: (absolutePath) => {
-      const rel = workspaceRelativePath(absolutePath, resolveWorkspaceRootPath())
-      if (!rel) {
-        toast.error('Cannot open file', `${absolutePath} is outside the current workspace.`)
-        return
-      }
-      const wsId = getActiveWorkspaceId()
-      if (!wsId) {
-        toast.error('Cannot open file', 'No editor is available in this view.')
-        return
-      }
-      void openWorkspaceFile(wsId, rel).catch(() => {
-        toast.error('Could not open file', absolutePath)
-      })
+    openFile: (absolutePath, line) => {
+      const position = line ? { line: line - 1, character: 0 } : undefined
+      void revealInEditor({ doc: { absolutePath }, position })
     },
     onUnresolved: (candidateText) => {
       toast.error('Cannot open file', `Could not resolve ${candidateText} to a path.`)

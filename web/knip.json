@@ -97,7 +97,6 @@
     "src/features/editor/lib/selection-drag.ts": ["exports"],
     "src/features/editor/lsp/workspace-edit.ts": ["exports", "types"],
     "src/features/editor/markdown/plate/html-node.tsx": ["exports", "types"],
-    "src/features/editor/markdown/plate/markdown-asset.ts": ["exports"],
     "src/features/editor/markdown/plate/markdown-image-node.tsx": ["exports"],
     "src/features/editor/monaco/define-theme.ts": ["exports", "types"],
     "src/features/editor/monaco/language-contributions.ts": ["exports"],

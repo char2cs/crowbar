@@ -117,15 +117,12 @@ export async function fetchChatAttachmentMetadata(
   }
 }
 
-/** The `MarkdownAssetContext` value for chat: same shape the standalone
- *  markdown file editor provides, but `resolve` routes through the
- *  attachment-serving endpoint instead of a workspace file read. `fileDir`
- *  is unused here — every chat-attachment ref already carries its own
- *  chatId+filename. */
+/** The `MarkdownAssetContext` value for chat: `resolve` routes through the
+ *  attachment-serving endpoint, since every chat-attachment ref carries its
+ *  own chatId+filename rather than a path beside a document. */
 export function chatMarkdownAssetInfo(wsId: string): MarkdownAssetInfo {
   return {
     wsId,
-    fileDir: '',
     resolve: (src, signal) => fetchChatAttachmentDataUrl(wsId, src, signal),
   }
 }

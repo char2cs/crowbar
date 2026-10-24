@@ -5,7 +5,8 @@ import {
   type PaneSwitchManager,
 } from '@/features/editor/lib/pane-editor-controller'
 import type { ActiveEditorRegistry } from '@/features/editor/lib/active-editor-context'
-import { fileUri } from '@/features/editor/lib/editor-uri'
+import { documentUri } from '@/features/editor/documents/document-ref'
+import { workspaceRef } from '@/lib/api/documents'
 
 /** Fake manager: one model per uri it has been shown; getRawEditor exposes the
  *  current model so applyActiveBuffer can read it for the published context. */
@@ -33,27 +34,26 @@ beforeEach(async () => {
 })
 
 describe('applyActiveBuffer', () => {
-  it('calls showBuffer(paneId, fileUri(path)) and publishes context to the registry', () => {
+  it('calls showBuffer(paneId, documentUri(doc)) and publishes context to the registry', () => {
     const manager = fakeManager()
     const registry = freshRegistry
     const setSpy = vi.spyOn(registry, 'set')
 
     const ctx = applyActiveBuffer({ manager, registry }, 'p1', {
       bufferId: 'b-a',
-      filePath: '/a.ts',
-      workspaceId: 'w1',
+      doc: workspaceRef('w1', '/a.ts'),
     })
 
-    expect(manager.showBuffer).toHaveBeenCalledWith('p1', fileUri('w1', '/a.ts'))
+    expect(manager.showBuffer).toHaveBeenCalledWith('p1', documentUri(workspaceRef('w1', '/a.ts')))
     expect(setSpy).toHaveBeenCalledTimes(1)
     expect(ctx).toMatchObject({
       paneId: 'p1',
-      uri: fileUri('w1', '/a.ts'),
+      uri: documentUri(workspaceRef('w1', '/a.ts')),
       filePath: '/a.ts',
     })
     expect(ctx?.model).toBe(manager.editor.getModel())
     expect(ctx?.editor).toBe(manager.editor)
-    expect(registry.get('p1')?.uri).toBe(fileUri('w1', '/a.ts'))
+    expect(registry.get('p1')?.uri).toBe(documentUri(workspaceRef('w1', '/a.ts')))
   })
 
   it('is a no-op when the buffer is null', () => {
@@ -73,8 +73,7 @@ describe('applyActiveBuffer', () => {
     const registry = freshRegistry
     applyActiveBuffer({ manager, registry }, 'p1', {
       bufferId: 'b-a',
-      filePath: '/a.ts',
-      workspaceId: 'w1',
+      doc: workspaceRef('w1', '/a.ts'),
     })
 
     const cb = vi.fn()
@@ -84,8 +83,7 @@ describe('applyActiveBuffer', () => {
     // Same path again — showBuffer is uri-deduped and registry.set is uri-deduped.
     applyActiveBuffer({ manager, registry }, 'p1', {
       bufferId: 'b-a',
-      filePath: '/a.ts',
-      workspaceId: 'w1',
+      doc: workspaceRef('w1', '/a.ts'),
     })
     expect(cb).toHaveBeenCalledTimes(1) // no re-notify
   })
@@ -100,11 +98,10 @@ describe('applyActiveBuffer', () => {
 
     const ctx = applyActiveBuffer({ manager, registry }, 'p1', {
       bufferId: 'b-a',
-      filePath: '/a.ts',
-      workspaceId: 'w1',
+      doc: workspaceRef('w1', '/a.ts'),
     })
 
-    expect(manager.showBuffer).toHaveBeenCalledWith('p1', fileUri('w1', '/a.ts'))
+    expect(manager.showBuffer).toHaveBeenCalledWith('p1', documentUri(workspaceRef('w1', '/a.ts')))
     expect(ctx).toBeUndefined()
     expect(setSpy).not.toHaveBeenCalled()
   })

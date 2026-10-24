@@ -8,12 +8,16 @@ import {
   type PaneEditorControllerDeps,
 } from '@/features/editor/hooks/use-pane-editor-controller'
 import type { ActiveEditorRegistry } from '@/features/editor/lib/active-editor-context'
-import type { PaneSwitchManager } from '@/features/editor/lib/pane-editor-controller'
-import { fileUri } from '@/features/editor/lib/editor-uri'
+import type {
+  ActiveBufferInfo,
+  PaneSwitchManager,
+} from '@/features/editor/lib/pane-editor-controller'
+import { documentUri } from '@/features/editor/documents/document-ref'
+import { workspaceRef } from '@/lib/api/documents'
 
 interface TestState {
   activeBufferId: string | null
-  buffers: Record<string, { bufferId: string; filePath: string; workspaceId: string }>
+  buffers: Record<string, ActiveBufferInfo>
   setActive(id: string | null): void
 }
 
@@ -21,8 +25,8 @@ function makeStore() {
   return createStore<TestState>((set) => ({
     activeBufferId: 'a',
     buffers: {
-      a: { bufferId: 'a', filePath: '/a.ts', workspaceId: 'w1' },
-      b: { bufferId: 'b', filePath: '/b.ts', workspaceId: 'w1' },
+      a: { bufferId: 'a', doc: workspaceRef('w1', '/a.ts') },
+      b: { bufferId: 'b', doc: workspaceRef('w1', '/b.ts') },
     },
     setActive: (id) => set({ activeBufferId: id }),
   }))
@@ -98,7 +102,7 @@ describe('usePaneEditorController', () => {
   it('mounts the pane once and applies the initial buffer', () => {
     const { deps, manager } = setup()
     expect(deps.mountPane).toHaveBeenCalledTimes(1)
-    expect(manager.showBuffer).toHaveBeenCalledWith('p1', fileUri('w1', '/a.ts'))
+    expect(manager.showBuffer).toHaveBeenCalledWith('p1', documentUri(workspaceRef('w1', '/a.ts')))
     expect(deps.registry.get('p1')?.filePath).toBe('/a.ts')
   })
 
@@ -108,7 +112,7 @@ describe('usePaneEditorController', () => {
 
     act(() => store.getState().setActive('b'))
 
-    expect(manager.showBuffer).toHaveBeenCalledWith('p1', fileUri('w1', '/b.ts'))
+    expect(manager.showBuffer).toHaveBeenCalledWith('p1', documentUri(workspaceRef('w1', '/b.ts')))
     expect(deps.mountPane).toHaveBeenCalledTimes(1) // still mounted once
     expect(deps.registry.get('p1')?.filePath).toBe('/b.ts')
   })

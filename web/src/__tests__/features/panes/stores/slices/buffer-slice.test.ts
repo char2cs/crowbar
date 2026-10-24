@@ -5,6 +5,7 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
+import { workspaceRef } from '@/lib/api/documents'
 
 const { killTerminalSession } = vi.hoisted(() => ({
   killTerminalSession: vi.fn(async () => {}),
@@ -38,12 +39,15 @@ vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
 
-const editor = (path: string, extra: { isPreview?: boolean; workspaceId?: string } = {}) => ({
+const editor = (
+  path: string,
+  { isPreview, workspaceId = 'w1' }: { isPreview?: boolean; workspaceId?: string } = {},
+) => ({
   type: 'editor' as const,
-  path,
+  doc: workspaceRef(workspaceId, path),
   name: path.split('/').pop() ?? path,
   content: '',
-  ...extra,
+  isPreview,
 })
 
 /** Close a tab the way every close affordance does: the pane lets go. */
@@ -82,6 +86,26 @@ describe('buffer-slice', () => {
     expect(store.getState().buffers).toHaveLength(1)
   })
 
+  it('openContent keeps one buffer per document: workspace, other workspace and host', () => {
+    const { openContent } = store.getState().bufferActions
+    const ids = [
+      openContent(editor('/src/index.ts')),
+      openContent(editor('/src/index.ts', { workspaceId: 'w2' })),
+      openContent({
+        type: 'editor',
+        doc: { authority: 'host', path: '/src/index.ts' },
+        name: 'index.ts',
+        content: '',
+      }),
+    ]
+    expect(new Set(ids).size).toBe(3)
+    expect(store.getState().buffers.map((b) => b.type === 'editor' && b.authority)).toEqual([
+      'workspace',
+      'workspace',
+      'host',
+    ])
+  })
+
   it('openContent seats the new tab in the focused pane by default', () => {
     const id = store.getState().bufferActions.openContent(editor('/src/index.ts'))
     expect(store.getState().panes[ROOT_PANE_ID].editorTabIds).toEqual([id])
@@ -107,7 +131,7 @@ describe('buffer-slice', () => {
   it('opening an already-open terminal reveals its pane instead of adding a copy', () => {
     const { bufferActions } = store.getState()
     const id = bufferActions.openContent(
-      { type: 'terminal', sessionId: 'sess-1', name: 'Terminal 1' },
+      { type: 'terminal', sessionId: 'sess-1', name: 'Terminal 1', workspaceId: 'w1' },
       { paneId: BOTTOM_PANE_ID },
     )
 
@@ -115,6 +139,7 @@ describe('buffer-slice', () => {
       type: 'terminal',
       sessionId: 'sess-1',
       name: 'Terminal 1',
+      workspaceId: 'w1',
     })
 
     expect(again).toBe(id)
@@ -162,6 +187,7 @@ describe('buffer-slice', () => {
       type: 'terminal',
       sessionId: 'sess-9',
       name: 'Terminal 1',
+      workspaceId: 'w1',
     })
     closeTab(store, ROOT_PANE_ID, id)
     expect(store.getState().buffers).toHaveLength(0)
@@ -196,6 +222,7 @@ describe('buffer-slice', () => {
       type: 'terminal',
       sessionId: 'sess-term',
       name: 'Terminal 1',
+      workspaceId: 'w1',
     })
     closeTab(store, ROOT_PANE_ID, id)
     await vi.waitFor(() => expect(killTerminalSession).toHaveBeenCalledWith('sess-term'))

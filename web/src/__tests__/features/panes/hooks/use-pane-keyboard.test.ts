@@ -175,6 +175,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 
 import { usePaneKeyboard } from '@/features/panes/hooks/use-pane-keyboard'
 import { useSettingsStore } from '@/features/settings/store'
+import { workspaceRef } from '@/lib/api/documents'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -372,7 +373,8 @@ describe('usePaneKeyboard — new tab / terminal / file chords', () => {
 
     expect(getOwningChatId).toHaveBeenCalledWith('ws-1')
     expect(dropChatOnPane).toHaveBeenCalledWith('chat-1', ROOT_PANE_ID, 'center', 'ws-1')
-    expect(openContent).toHaveBeenCalledWith({ type: 'terminal' }, { paneId: ROOT_PANE_ID })
+    expect(openContent.mock.calls[0]?.[0]).toEqual({ type: 'terminal', workspaceId: 'ws-1' })
+    expect(openContent.mock.calls[0]?.[1]).toEqual({ paneId: ROOT_PANE_ID })
     expect(createChat).not.toHaveBeenCalled()
   })
 
@@ -394,7 +396,7 @@ describe('usePaneKeyboard — new tab / terminal / file chords', () => {
 
     expect(dropChatOnPane).toHaveBeenCalledWith('chat-1', ROOT_PANE_ID, 'center', 'ws-1')
     expect(openContent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'editor', isVirtual: true }),
+      expect.objectContaining({ doc: workspaceRef('ws-1', 'untitled:Untitled'), isVirtual: true }),
       { paneId: ROOT_PANE_ID },
     )
     expect(createChat).not.toHaveBeenCalled()
@@ -405,9 +407,7 @@ describe('usePaneKeyboard — new tab / terminal / file chords', () => {
   it('mod+n does not open a file — that chord is New Chat now', () => {
     renderHook(() => usePaneKeyboard())
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true }))
-    expect(openContent).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'editor', isVirtual: true }),
-    )
+    expect(openContent).not.toHaveBeenCalled()
   })
 })
 

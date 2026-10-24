@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type * as Monaco from 'monaco-editor'
 import { getEditorHost, loadEditorHost, type EditorHost } from '@/features/editor/host/editor-host'
 import { activeEditors } from '@/features/editor/lib/active-editor-context'
-import { fileUri } from '@/features/editor/lib/editor-uri'
+import { documentUri } from '@/features/editor/documents/document-ref'
 import { applyActiveBuffer } from '@/features/editor/lib/pane-editor-controller'
 import {
   resetWindowPaneStoreForTests,
@@ -12,6 +12,7 @@ import {
   destroyWorkspaceStore,
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
+import { workspaceRef } from '@/lib/api/documents'
 
 // Real Monaco, no mocks: the host's whole job is the one model table every
 // pane shares. A ceiling, not a wait — the first load pulls the multi-MB
@@ -21,9 +22,12 @@ const MONACO_LOAD_MS = 120_000
 const mounted: string[] = []
 
 function open(workspaceId: string, path: string, content: string): string {
-  return windowPaneStore
-    .getState()
-    .bufferActions.openContent({ type: 'editor', path, name: path, content, workspaceId })
+  return windowPaneStore.getState().bufferActions.openContent({
+    type: 'editor',
+    doc: workspaceRef(workspaceId, path),
+    name: path,
+    content,
+  })
 }
 
 function show(host: EditorHost, paneId: string, bufferId: string, ws: string, path: string) {
@@ -33,8 +37,7 @@ function show(host: EditorHost, paneId: string, bufferId: string, ws: string, pa
   }
   applyActiveBuffer({ manager: host.manager, registry: activeEditors }, paneId, {
     bufferId,
-    filePath: path,
-    workspaceId: ws,
+    doc: workspaceRef(ws, path),
   })
 }
 
@@ -88,7 +91,7 @@ describe('editor host', () => {
 
       destroyWorkspaceStore('ws-a')
 
-      expect(host.models.get(fileUri('ws-a', 'src/x.ts'))?.getValue()).toBe('A')
+      expect(host.models.get(documentUri(workspaceRef('ws-a', 'src/x.ts')))?.getValue()).toBe('A')
       expect(shownModel(host, 'p1')?.isDisposed()).toBe(false)
     },
     MONACO_LOAD_MS,
@@ -102,7 +105,7 @@ describe('editor host', () => {
       show(host, 'p1', a, 'ws-a', 'src/x.ts')
       show(host, 'p2', a, 'ws-a', 'src/x.ts')
 
-      host.manager.closeBuffer('p2', fileUri('ws-a', 'src/x.ts'))
+      host.manager.closeBuffer('p2', documentUri(workspaceRef('ws-a', 'src/x.ts')))
 
       const model = shownModel(host, 'p1')
       expect(model?.isDisposed()).toBe(false)

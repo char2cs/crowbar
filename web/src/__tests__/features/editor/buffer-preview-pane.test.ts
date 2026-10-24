@@ -10,6 +10,7 @@ import {
   setActiveWorkspaceId,
   destroyWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
+import { workspaceRef } from '@/lib/api/documents'
 
 // Task 26 hoisted buffers/panes out of the per-workspace store into one
 // window-level store, and Task 2's ruling settled that preview/pinned are the
@@ -76,7 +77,7 @@ describe('buffer preview pane integration', () => {
 
     const firstPreviewId = bufferActions.openContent({
       type: 'editor',
-      path: '/workspace/a.ts',
+      doc: workspaceRef('test-ws', '/workspace/a.ts'),
       name: 'a.ts',
       content: 'a',
       isPreview: true,
@@ -88,7 +89,7 @@ describe('buffer preview pane integration', () => {
     // The split became the active pane, so the second preview opens there.
     const secondPreviewId = bufferActions.openContent({
       type: 'editor',
-      path: '/workspace/b.ts',
+      doc: workspaceRef('test-ws', '/workspace/b.ts'),
       name: 'b.ts',
       content: 'b',
       isPreview: true,
@@ -111,7 +112,7 @@ describe('buffer preview pane integration', () => {
 
     const previewId = bufferActions.openContent({
       type: 'editor',
-      path: '/workspace/preview.ts',
+      doc: workspaceRef('test-ws', '/workspace/preview.ts'),
       name: 'preview.ts',
       content: 'preview',
       isPreview: true,
@@ -129,7 +130,7 @@ describe('buffer preview pane integration', () => {
 
     const previewId = bufferActions.openContent({
       type: 'editor',
-      path: '/workspace/pinned.ts',
+      doc: workspaceRef('test-ws', '/workspace/pinned.ts'),
       name: 'pinned.ts',
       content: 'pinned',
       isPreview: true,

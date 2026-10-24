@@ -1,5 +1,4 @@
 import { apiFetch, isNotFoundError } from '@/lib/api'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { filesBaseForWorkspace } from '@/lib/workspace-scope-url'
 
 // This module holds the REAL file operations. Everything here talks to the
@@ -15,14 +14,8 @@ import { filesBaseForWorkspace } from '@/lib/workspace-scope-url'
 // and its length guard) and every relative link in the Markdown preview was
 // dead. Do not reintroduce a reader that fabricates a success value — if the
 // operation cannot be performed, throw.
-
-// Resolve the active workspace and build its files base URL. Throws when no
-// workspace is active so callers fail loudly rather than act on nothing.
-function filesBase(): string {
-  const wsId = getActiveWorkspaceId()
-  if (!wsId) throw new Error('no active workspace for file operation')
-  return filesBaseForWorkspace(wsId)
-}
+//
+// Every operation names its workspace: the active one may not own the file.
 
 /** One directory level, as the file explorer and breadcrumb consume it. */
 export interface DirectoryEntry {
@@ -48,9 +41,9 @@ interface FileTreeNode {
  * Rejects on a daemon failure. Callers depend on that: "Open All Files" catches
  * and falls back to the already-loaded tree.
  */
-export async function readDirectory(path: string): Promise<DirectoryEntry[]> {
+export async function readDirectory(workspaceId: string, path: string): Promise<DirectoryEntry[]> {
   const query = path ? `?path=${encodeURIComponent(path)}` : ''
-  const nodes = await apiFetch<FileTreeNode[]>(`${filesBase()}/tree${query}`)
+  const nodes = await apiFetch<FileTreeNode[]>(`${filesBaseForWorkspace(workspaceId)}/tree${query}`)
   return nodes.map((node) => {
     const isDirectory = node.type === 'directory'
     return {
@@ -71,7 +64,7 @@ export async function readDirectory(path: string): Promise<DirectoryEntry[]> {
  * A missing PARENT (404) is an honest `false`. Any other failure rejects: "the
  * daemon errored" must never be reported to the user as "the file is not there".
  */
-export async function exists(path: string): Promise<boolean> {
+export async function exists(workspaceId: string, path: string): Promise<boolean> {
   const normalized = path.replace(/^\/+/, '').replace(/\/+$/, '')
   // The workspace root is always present and has no parent to list.
   if (!normalized) return true
@@ -80,7 +73,7 @@ export async function exists(path: string): Promise<boolean> {
   const parent = lastSlash === -1 ? '' : normalized.slice(0, lastSlash)
 
   try {
-    const entries = await readDirectory(parent)
+    const entries = await readDirectory(workspaceId, parent)
     return entries.some((entry) => entry.path === normalized)
   } catch (error) {
     if (isNotFoundError(error)) return false
@@ -88,8 +81,8 @@ export async function exists(path: string): Promise<boolean> {
   }
 }
 
-export async function moveFile(src: string, dest: string): Promise<void> {
-  await apiFetch(filesBase(), {
+export async function moveFile(workspaceId: string, src: string, dest: string): Promise<void> {
+  await apiFetch(filesBaseForWorkspace(workspaceId), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path: src, newPath: dest }),

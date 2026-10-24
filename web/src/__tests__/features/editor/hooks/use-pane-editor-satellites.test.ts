@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
+import { editor as monacoEditor, languages, Uri } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import { loadEditorHost, type EditorHost } from '@/features/editor/host/editor-host'
 import { activeEditors } from '@/features/editor/lib/active-editor-context'
-import { fileUri } from '@/features/editor/lib/editor-uri'
+import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
+import { workspaceRef } from '@/lib/api/documents'
 import { applyActiveBuffer } from '@/features/editor/lib/pane-editor-controller'
 import { usePaneEditorSatellites } from '@/features/editor/hooks/use-pane-editor-satellites'
 import {
@@ -15,15 +17,18 @@ vi.mock('@/features/editor/hooks/use-lsp-document-sync', () => ({ useLspDocument
 vi.mock('@/features/editor/hooks/use-inline-blame', () => ({ useInlineBlame: () => {} }))
 
 const PATH = 'package.json'
-const A = fileUri('ws-a', PATH)
-const B = fileUri('ws-b', PATH)
+const A = documentUri(workspaceRef('ws-a', PATH))
+const B = documentUri(workspaceRef('ws-b', PATH))
 
 function openSamePathInTwoWorkspaces() {
   resetWindowPaneStoreForTests()
   const open = (workspaceId: string, content: string) =>
-    windowPaneStore
-      .getState()
-      .bufferActions.openContent({ type: 'editor', path: PATH, name: PATH, content, workspaceId })
+    windowPaneStore.getState().bufferActions.openContent({
+      type: 'editor',
+      doc: workspaceRef(workspaceId, PATH),
+      name: PATH,
+      content,
+    })
   const a = open('ws-a', 'AAAA')
   const b = open('ws-b', 'BBBB')
   return { a, b, paneId: windowPaneStore.getState().activePaneId }
@@ -38,11 +43,10 @@ function showActive(host: EditorHost, paneId: string) {
   const state = windowPaneStore.getState()
   const id = state.panes[paneId]?.activeEditorTabId
   const buffer = state.buffers.find((b) => b.id === id)
-  if (!buffer?.path) return
+  if (!buffer || buffer.type !== 'editor') return
   applyActiveBuffer({ manager: host.manager, registry: activeEditors }, paneId, {
     bufferId: buffer.id,
-    filePath: buffer.path,
-    workspaceId: buffer.workspaceId,
+    doc: documentRefOf(buffer),
   })
 }
 
@@ -95,5 +99,25 @@ describe('usePaneEditorSatellites store → model reconcile', () => {
     satellites()
 
     expect(host.models.get(A)?.getValue()).toBe('AAAA')
+  }, 120000)
+
+  it('the bound model keeps its own language while the active tab overrides another’s', async () => {
+    languages.register({ id: 'json' })
+    languages.register({ id: 'python' })
+    const { a, b, paneId, host, satellites } = await mountPane()
+    activate(paneId, a)
+    showActive(host, paneId)
+    activate(paneId, b)
+    act(() =>
+      windowPaneStore.setState((state) => ({
+        buffers: state.buffers.map((buf) =>
+          buf.id === b && buf.type === 'editor' ? { ...buf, languageOverride: 'python' } : buf,
+        ),
+      })),
+    )
+
+    satellites()
+
+    expect(monacoEditor.getModel(Uri.parse(A))?.getLanguageId()).toBe('json')
   }, 120000)
 })

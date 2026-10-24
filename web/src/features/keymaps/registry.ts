@@ -22,6 +22,7 @@ export const PANE_SPLIT_DOWN = 'panes.splitDown'
 export const TAB_NEW = 'tabs.new'
 export const TAB_NEW_TERMINAL = 'tabs.newTerminal'
 export const TAB_NEW_FILE = 'tabs.newFile'
+export const TAB_OPEN_FILE = 'tabs.openFile'
 export const AGENT_NEW_CHAT = 'agent.newChat'
 export const AGENT_NEW_CHAT_TERMINAL = 'agent.newChatTerminal'
 export const AGENT_CYCLE_PROVIDER = 'agent.cycleProvider'
@@ -141,6 +142,13 @@ export const COMMANDS: Command[] = [
     label: 'New file',
     category: 'Tabs',
     defaultChord: 'mod+shift+n',
+    liveEditable: true,
+  },
+  {
+    id: TAB_OPEN_FILE,
+    label: 'Open file…',
+    category: 'Tabs',
+    defaultChord: 'mod+o',
     liveEditable: true,
   },
   {

@@ -57,7 +57,7 @@ export function ChatLinkElement(props: PlateElementProps<TLinkElement>) {
   const url = props.element.url
   const parsed = parseChatAttachmentRef(url)
 
-  if (!parsed || !asset) return <LinkElement {...props} />
+  if (!parsed || !asset || !('wsId' in asset)) return <LinkElement {...props} />
 
   return (
     <ChatAttachmentFileCard
@@ -79,7 +79,7 @@ export function ChatLinkElementStatic(props: PlateElementProps<TLinkElement>) {
   const url = props.element.url
   const parsed = parseChatAttachmentRef(url)
 
-  if (!parsed || !asset) return <LinkElement {...props} />
+  if (!parsed || !asset || !('wsId' in asset)) return <LinkElement {...props} />
 
   return (
     <ChatAttachmentFileCardStatic

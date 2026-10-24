@@ -22,6 +22,7 @@ describe('pane buffer actions', () => {
       state.buffers.push({
         id: 'buffer-a',
         type: 'editor',
+        authority: 'workspace',
         path: '/buffer-a.ts',
         name: 'buffer-a.ts',
         content: '',

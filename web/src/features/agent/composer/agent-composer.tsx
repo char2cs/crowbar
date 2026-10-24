@@ -177,8 +177,7 @@ export function AgentComposer(props: AgentComposerProps) {
   }, [])
 
   // Plain-browser (non-Tauri dev) fallback: a real DataTransfer.files DOES
-  // carry usable File bytes here — this is a completely different problem
-  // from extractDroppedFilePaths's (which is about a host PATH, not bytes).
+  // carry usable File bytes here, though never a host path.
   const handlePillDrop = useCallback(
     (e: DragEvent) => {
       setDropTarget(false)

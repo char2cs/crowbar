@@ -15,6 +15,11 @@ import { selectEnabledProviders } from '@/features/workspace/stores/slices/agent
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { presetChatLandingPresentation } from '@/features/agent/hooks/use-chat-presentation'
 import {
+  openDocumentFromDialog,
+  openUntitledDocument,
+} from '@/features/editor/documents/open-document'
+import { isTauri } from '@/lib/crowbar-bridge'
+import {
   AGENT_NEW_CHAT,
   AGENT_NEW_CHAT_TERMINAL,
   PANE_NAVIGATE_DOWN,
@@ -27,6 +32,7 @@ import {
   TAB_NEW,
   TAB_NEW_FILE,
   TAB_NEW_TERMINAL,
+  TAB_OPEN_FILE,
   TAB_REOPEN_CLOSED,
 } from '@/features/keymaps/registry'
 
@@ -76,8 +82,11 @@ export function usePaneKeyboard() {
         // owning chat; it never mints one (pane-command-actions.ts).
         e.preventDefault()
         const targetPaneId = windowPaneStore.getState().activePaneId
-        ensurePaneChatThenOpen(workspaceStore.getState().workspaceId, targetPaneId, (paneId) => {
-          windowPaneStore.getState().bufferActions.openContent({ type: 'terminal' }, { paneId })
+        const { workspaceId } = workspaceStore.getState()
+        ensurePaneChatThenOpen(workspaceId, targetPaneId, (paneId) => {
+          windowPaneStore
+            .getState()
+            .bufferActions.openContent({ type: 'terminal', workspaceId }, { paneId })
         })
         return
       }
@@ -86,18 +95,17 @@ export function usePaneKeyboard() {
         // Same Law 3 fix as TAB_NEW_TERMINAL above, for a new file.
         e.preventDefault()
         const targetPaneId = windowPaneStore.getState().activePaneId
-        ensurePaneChatThenOpen(workspaceStore.getState().workspaceId, targetPaneId, (paneId) => {
-          windowPaneStore.getState().bufferActions.openContent(
-            {
-              type: 'editor',
-              path: 'untitled:Untitled',
-              name: 'Untitled',
-              content: '',
-              isVirtual: true,
-            },
-            { paneId },
-          )
+        const { workspaceId } = workspaceStore.getState()
+        ensurePaneChatThenOpen(workspaceId, targetPaneId, (paneId) => {
+          void openUntitledDocument(workspaceId, paneId)
         })
+        return
+      }
+
+      // The browser has no native file dialog; its own Cmd+O is left alone.
+      if (matches(TAB_OPEN_FILE) && isTauri()) {
+        e.preventDefault()
+        void openDocumentFromDialog(windowPaneStore.getState().activePaneId)
         return
       }
 

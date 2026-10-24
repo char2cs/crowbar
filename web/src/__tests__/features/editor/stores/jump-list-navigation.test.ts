@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
+import { workspaceRef } from '@/lib/api/documents'
+import { sameDocument } from '@/features/editor/documents/document-ref'
 
-const at = (name: string, line = 1) => ({
+const at = (name: string, line = 1, workspaceId = 'w1') => ({
   bufferId: `buf-${name}`,
-  workspaceId: 'w1',
-  filePath: `/src/${name}.ts`,
+  doc: workspaceRef(workspaceId, `/src/${name}.ts`),
   line,
   column: 1,
   offset: 0,
@@ -42,24 +43,24 @@ describe('jump list — back/forward over file navigation history', () => {
     visitAthenBthenC()
 
     // Going back from the present records where we are, so forward can return.
-    expect(actions().goBack(at('c'))?.filePath).toBe('/src/b.ts')
-    expect(actions().goBack()?.filePath).toBe('/src/a.ts')
+    expect(actions().goBack(at('c'))?.doc.path).toBe('/src/b.ts')
+    expect(actions().goBack()?.doc.path).toBe('/src/a.ts')
 
     // At the oldest entry: back exhausted, forward available.
     expect(actions().canGoBack()).toBe(false)
     expect(actions().canGoForward()).toBe(true)
 
-    expect(actions().goForward()?.filePath).toBe('/src/b.ts')
-    expect(actions().goForward()?.filePath).toBe('/src/c.ts')
+    expect(actions().goForward()?.doc.path).toBe('/src/b.ts')
+    expect(actions().goForward()?.doc.path).toBe('/src/c.ts')
     expect(actions().canGoForward()).toBe(false)
   })
 
   it('keeps a nearby line of another workspace’s same-path file as its own entry', () => {
     actions().pushEntry(at('a', 10))
-    actions().pushEntry({ ...at('a', 12), bufferId: 'buf-a-w2', workspaceId: 'w2' })
+    actions().pushEntry({ ...at('a', 12, 'w2'), bufferId: 'buf-a-w2' })
 
-    expect(actions().goBack(at('c'))?.workspaceId).toBe('w2')
-    expect(actions().goBack()?.workspaceId).toBe('w1')
+    expect(actions().goBack(at('c'))?.doc).toEqual(workspaceRef('w2', '/src/a.ts'))
+    expect(actions().goBack()?.doc).toEqual(workspaceRef('w1', '/src/a.ts'))
   })
 
   it('truncates the forward branch when navigating somewhere new mid-history', () => {
@@ -71,7 +72,7 @@ describe('jump list — back/forward over file navigation history', () => {
     actions().pushEntry(at('d'))
 
     expect(actions().canGoForward()).toBe(false)
-    expect(useJumpListStore.getState().entries.map((e) => e.filePath)).not.toContain('/src/c.ts')
+    expect(useJumpListStore.getState().entries.map((e) => e.doc.path)).not.toContain('/src/c.ts')
   })
 
   describe('consumeNavigationTarget', () => {
@@ -139,7 +140,7 @@ describe('jump list — back/forward over file navigation history', () => {
       actions().pushEntry(at('c'))
 
       const back = actions().goBack(at('d'))
-      expect(back?.filePath).toBe('/src/c.ts')
+      expect(back?.doc.path).toBe('/src/c.ts')
 
       // Reopened from disk under a brand-new buffer id.
       actions().retargetNavigation('buf-c-reopened')
@@ -148,7 +149,7 @@ describe('jump list — back/forward over file navigation history', () => {
       expect(actions().consumeNavigationTarget('buf-c-reopened')).toBe(true)
       expect(actions().canGoForward()).toBe(true)
       // Back again steps to B — not to D, the file we started from.
-      expect(actions().goBack(at('c'))?.filePath).toBe('/src/b.ts')
+      expect(actions().goBack(at('c'))?.doc.path).toBe('/src/b.ts')
     })
 
     it('keeps the entry’s own workspace stamp — retargeting moves the marker, not the entry', () => {
@@ -156,8 +157,9 @@ describe('jump list — back/forward over file navigation history', () => {
       const back = actions().goBack(at('c'))
       actions().retargetNavigation('buf-b-reopened')
 
-      expect(back?.workspaceId).toBe('w1')
-      expect(useJumpListStore.getState().entries.every((e) => e.workspaceId === 'w1')).toBe(true)
+      expect(back?.doc).toEqual(workspaceRef('w1', '/src/b.ts'))
+      const docs = useJumpListStore.getState().entries.map((e) => e.doc)
+      expect(docs.every((doc) => sameDocument(doc, workspaceRef('w1', doc.path)))).toBe(true)
     })
   })
 })

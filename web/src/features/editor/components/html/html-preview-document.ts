@@ -89,3 +89,17 @@ export async function buildHtmlPreviewDocument(
   )
   return resolved.size === 0 ? html : rewriteTags(html, resolved)
 }
+
+const HOST_PREVIEW_POLICY = "default-src 'none'; style-src 'unsafe-inline'; img-src data:"
+const DOCTYPE_PATTERN = /^\s*<!doctype[^>]*>/i
+
+/**
+ * `html` under a policy that loads nothing but inline styles and data images,
+ * for a document outside every workspace. The meta goes after any doctype so
+ * the document keeps its standards mode.
+ */
+export function withHostPreviewPolicy(html: string): string {
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${HOST_PREVIEW_POLICY}">`
+  const doctype = DOCTYPE_PATTERN.exec(html)?.[0] ?? ''
+  return doctype + meta + html.slice(doctype.length)
+}

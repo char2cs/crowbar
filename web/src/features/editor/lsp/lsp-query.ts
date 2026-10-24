@@ -1,12 +1,13 @@
 /**
  * One cancellable daemon LSP request on behalf of a Monaco model. Every
- * request targets the model's OWN workspace (its uri names it), first flushes
+ * request targets the model's OWN workspace (its uri names it; a host document
+ * has no language server), first flushes
  * the document's pending didChange so the server answers against the text on
  * screen, and is aborted when Monaco cancels the query.
  */
 import type * as Monaco from 'monaco-editor'
 import { toast } from '@/features/window/stores/toast-store'
-import { uriToFsPath, uriToWorkspaceId } from '../lib/editor-uri'
+import { refFromUri } from '../documents/document-ref'
 import { LspClient } from './lsp-client'
 
 export interface ModelTarget {
@@ -14,10 +15,9 @@ export interface ModelTarget {
   path: string
 }
 
-export function modelTarget(model: Monaco.editor.ITextModel): ModelTarget | null {
-  const uri = model.uri.toString()
-  const wsId = uriToWorkspaceId(uri)
-  return wsId ? { wsId, path: uriToFsPath(uri) } : null
+function modelTarget(model: Monaco.editor.ITextModel): ModelTarget | null {
+  const ref = refFromUri(model.uri.toString())
+  return ref?.authority === 'workspace' ? { wsId: ref.workspaceId, path: ref.path } : null
 }
 
 function isAbort(error: unknown): boolean {

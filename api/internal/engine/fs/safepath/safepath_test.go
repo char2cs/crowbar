@@ -189,3 +189,23 @@ func TestLocate_SpellsTheRestAsOnDisk(
 	_, rel := safepath.Locate(shouted, []string{root})
 	assert.Equal(t, filepath.Join("src", "a.md"), rel)
 }
+
+// TestLocate_SpellsNormalizationAsOnDisk verifies one file has one spelling on
+// a normalization-insensitive volume: a name typed in NFC that reaches an NFD
+// entry, or the reverse, resolves to the entry's own spelling.
+func TestLocate_SpellsNormalizationAsOnDisk(
+	t *testing.T,
+) {
+	nfc, nfd := "café.md", "café.md"
+	for _, pair := range [][2]string{{nfd, nfc}, {nfc, nfd}} {
+		onDisk, typed := pair[0], pair[1]
+		root := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(root, onDisk), nil, 0o600))
+		if _, err := os.Stat(filepath.Join(root, typed)); err != nil {
+			t.Skip("normalization-sensitive volume")
+		}
+
+		_, rel := safepath.Locate(filepath.Join(root, typed), []string{root})
+		assert.Equal(t, onDisk, rel)
+	}
+}

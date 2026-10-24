@@ -2,22 +2,13 @@ import isEqual from 'fast-deep-equal'
 import { immer } from 'zustand/middleware/immer'
 import { createWithEqualityFn } from 'zustand/traditional'
 import { createSelectors } from '@/utils/zustand-selectors'
+import type { DocumentRef } from '@/lib/api/documents'
+import { sameDocument } from '@/features/editor/documents/document-ref'
 
 export interface JumpListEntry {
   bufferId: string
-  /**
-   * The workspace this entry was recorded in.
-   *
-   * This store is a process-GLOBAL singleton that outlives every workspace
-   * switch, while `filePath` is workspace-RELATIVE. Linked worktrees of one repo hold the same relative
-   * paths with different content, so an entry that does not name its own
-   * workspace is ambiguous: resolving it against whatever is active at
-   * navigation time opens a sibling checkout's file under the right tab title.
-   * `navigateToJumpEntry` refuses any entry whose workspace is not the active
-   * one rather than guessing.
-   */
-  workspaceId: string
-  filePath: string
+  /** The whole document, so an entry resolves the same from any workspace. */
+  doc: DocumentRef
   line: number
   column: number
   offset: number
@@ -108,9 +99,7 @@ export const useJumpListStore = createSelectors(
             // Check for duplicate (same file and within line threshold)
             const lastEntry = state.entries[state.entries.length - 1]
             if (lastEntry) {
-              const isSameFile =
-                lastEntry.filePath === newEntry.filePath &&
-                lastEntry.workspaceId === newEntry.workspaceId
+              const isSameFile = sameDocument(lastEntry.doc, newEntry.doc)
               const isNearbyLine =
                 Math.abs(lastEntry.line - newEntry.line) <= DUPLICATE_LINE_THRESHOLD
 

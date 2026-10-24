@@ -10,6 +10,7 @@ vi.mock('@/features/file-explorer/components/file-explorer-icon', () => ({
 const editorBuffer: EditorContent = {
   id: 'buf-1',
   type: 'editor',
+  authority: 'workspace',
   path: '/project/bar.ts',
   name: 'bar.ts',
   content: '',

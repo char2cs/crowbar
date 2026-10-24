@@ -20,6 +20,7 @@ import type { EditorContent } from '@/features/panes/types/pane-content'
 const editorTab = (id: string, wsId: string): EditorContent => ({
   id,
   type: 'editor',
+  authority: 'workspace',
   name: id,
   path: id,
   workspaceId: wsId,

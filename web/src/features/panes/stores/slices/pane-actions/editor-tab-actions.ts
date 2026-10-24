@@ -1,5 +1,5 @@
 import { isEditorContent } from '@/features/panes/types/pane-content'
-import { fileUri } from '@/features/editor/lib/editor-uri'
+import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { getEditorHost } from '@/features/editor/host/editor-host'
 import { removePane } from '@/features/panes/lib/view-ops'
@@ -66,7 +66,7 @@ export function createEditorTabActions(set: PaneSet, get: PaneGet): EditorTabAct
   const releaseEditorTabModel = (paneId: string, tabId: string) => {
     const buf = get().buffers?.find((b) => b.id === tabId)
     if (!buf || !isEditorContent(buf) || !buf.path) return
-    getEditorHost()?.manager.closeBuffer(paneId, fileUri(buf.workspaceId, buf.path))
+    getEditorHost()?.manager.closeBuffer(paneId, documentUri(documentRefOf(buf)))
   }
 
   return {

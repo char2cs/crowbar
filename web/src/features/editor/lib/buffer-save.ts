@@ -15,6 +15,7 @@
  */
 import { useFileWatcherStore } from '@/features/file-system/controllers/file-watcher-store'
 import { workspaceRef, writeDocument } from '@/lib/api/documents'
+import { documentRefOf } from '@/features/editor/documents/document-ref'
 import { clearBlame } from '@/features/git/stores/git-blame-store'
 import { requestGitRefresh } from '@/features/git/stores/git-refresh'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -162,7 +163,9 @@ async function writeToDisk(
   // An autosave for a buffer a previous save already caught up is a no-op.
   if (reason === 'auto' && !buffer.isDirty) return true
 
-  if (reason === 'manual' && useSettingsStore.getState().settings.formatOnSave) {
+  // A host document has no language server, watcher, git status or blame.
+  const inWorkspace = buffer.authority === 'workspace'
+  if (inWorkspace && reason === 'manual' && useSettingsStore.getState().settings.formatOnSave) {
     await formatBeforeSave(buffer)
     buffer = findEditorBuffer(bufferId)
     if (!buffer) return false
@@ -171,19 +174,20 @@ async function writeToDisk(
   const { path, workspaceId } = buffer
   const written = buffer.content
   try {
-    useFileWatcherStore.getState().markPendingSave(path)
-    await writeDocument(workspaceRef(workspaceId, path), written)
+    if (inWorkspace) useFileWatcherStore.getState().markPendingSave(path)
+    await writeDocument(documentRefOf(buffer), written)
   } catch (error) {
     console.error('Error saving file:', error)
     reportSaveError(error)
     return false
   }
   markSaved(bufferId, written)
-
-  const { LspClient } = await import('@/features/editor/lsp/lsp-client')
-  void LspClient.getInstance().documentSave(workspaceId, path)
-  requestGitRefresh(workspaceId)
-  clearBlame(workspaceId, path)
+  if (inWorkspace) {
+    const { LspClient } = await import('@/features/editor/lsp/lsp-client')
+    void LspClient.getInstance().documentSave(workspaceId, path)
+    requestGitRefresh(workspaceId)
+    clearBlame(workspaceId, path)
+  }
 
   // Edits typed during the write keep the buffer dirty; make sure autosave
   // picks them up rather than leaving them waiting for the next keystroke.

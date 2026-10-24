@@ -16,6 +16,7 @@ type OpenHandler = (path: string, isDir: boolean) => void | Promise<void>
  * All" (confirmed past a threshold) — as state plus the props that render them.
  */
 export function useFileExplorerDialogs({
+  workspaceId,
   filteredFiles,
   isVisible,
   rootFolderPath,
@@ -24,6 +25,7 @@ export function useFileExplorerDialogs({
   onDeletePath,
   updateActivePath,
 }: {
+  workspaceId: string | null
   filteredFiles: FileEntry[]
   isVisible: Parameters<typeof collectLocalFilesInDirectory>[2]
   rootFolderPath?: string
@@ -60,7 +62,9 @@ export function useFileExplorerDialogs({
     async (directoryPath: string) => {
       let filePaths: string[]
       try {
-        filePaths = await collectLocalFilesInDirectory(directoryPath, readDirectory, isVisible)
+        if (!workspaceId) throw new Error('the explorer names no workspace')
+        const list = (path: string) => readDirectory(workspaceId, path)
+        filePaths = await collectLocalFilesInDirectory(directoryPath, list, isVisible)
       } catch (error) {
         console.error('Failed to scan directory for Open All, falling back to loaded tree:', error)
         filePaths = collectLoadedFilesInDirectory(filteredFiles, directoryPath, rootFolderPath)
@@ -74,7 +78,7 @@ export function useFileExplorerDialogs({
       }
       await openFilePathsInTabs(uniqueFilePaths)
     },
-    [filteredFiles, isVisible, openFilePathsInTabs, rootFolderPath],
+    [filteredFiles, isVisible, openFilePathsInTabs, rootFolderPath, workspaceId],
   )
 
   const confirmOpenAllFiles = useCallback(async () => {

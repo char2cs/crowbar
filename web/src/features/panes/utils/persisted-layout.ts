@@ -3,6 +3,7 @@ import {
   hasUnsavedEdits,
   type PaneContent,
 } from '@/features/panes/types/pane-content'
+import { workspaceRef } from '@/lib/api/documents'
 
 interface PersistablePane {
   editorTabIds: string[]
@@ -68,4 +69,21 @@ export function validateLoadedBuffers<P extends PersistablePane, T extends Snaps
   }
   const buffers = known.filter((b) => listed.has(b.id))
   return { ...snapshot, buffers, panes }
+}
+
+/**
+ * Buffers saved before a buffer named its document: an editor's file was
+ * always its workspace's, and so was a preview's source.
+ */
+export function upgradeLegacyBuffers(buffers: PaneContent[]): PaneContent[] {
+  return buffers.map((buffer) => {
+    const saved = buffer as unknown as Record<string, unknown>
+    if (saved.type === 'editor' && !saved.authority) return { ...buffer, authority: 'workspace' }
+    if ((saved.type === 'markdownPreview' || saved.type === 'htmlPreview') && !saved.source) {
+      const { sourceFilePath, ...rest } = saved
+      const path = typeof sourceFilePath === 'string' ? sourceFilePath : ''
+      return { ...rest, source: workspaceRef(buffer.workspaceId, path) } as unknown as PaneContent
+    }
+    return buffer
+  })
 }

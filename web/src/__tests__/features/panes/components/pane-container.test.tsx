@@ -250,6 +250,7 @@ function seedEditorTab(
     state.buffers.push({
       id,
       type: 'editor',
+      authority: 'workspace',
       path: `/${id}.ts`,
       name: `${id}.ts`,
       content: '',
@@ -257,7 +258,6 @@ function seedEditorTab(
       isDirty: false,
       isVirtual: false,
       tokens: [],
-      isPinned: false,
       isPreview: overrides.isPreview ?? false,
       workspaceId: 'w1',
     })
@@ -656,6 +656,7 @@ describe('PaneContainer — chat/editor-view hosting', () => {
       state.buffers.push({
         id: 'moved-tab',
         type: 'editor',
+        authority: 'workspace',
         path: '/moved.ts',
         name: 'moved.ts',
         content: '',
@@ -663,7 +664,6 @@ describe('PaneContainer — chat/editor-view hosting', () => {
         isDirty: false,
         isVirtual: false,
         tokens: [],
-        isPinned: false,
         isPreview: false,
         workspaceId: 'w1',
       })

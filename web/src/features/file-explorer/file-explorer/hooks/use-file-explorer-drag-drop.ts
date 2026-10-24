@@ -9,8 +9,8 @@ import {
   setDropHoverAt,
   startFileDrag,
 } from '@/features/panes/stores/drag-store'
-import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { openDocument } from '@/features/editor/documents/open-document'
+import { workspaceRef } from '@/lib/api/documents'
 import { getDirName, getPathSeparator, joinPath } from '@/utils/path-helpers'
 
 interface DragState {
@@ -30,6 +30,8 @@ const initialDragState: DragState = {
 }
 
 export function useFileExplorerDragDrop(
+  /** The workspace whose tree this is: drops open and move its files, never the active one's. */
+  workspaceId: string | null,
   rootFolderPath: string | undefined,
   onFileMove?: (oldPath: string, newPath: string) => void,
   onAutoExpandDirectory?: (path: string) => void,
@@ -215,9 +217,8 @@ export function useFileExplorerDragDrop(
       // pane of its own, so the zone is not consulted.
       if (isOverPane && !isOverFileTree && draggedItem && !draggedItem.isDir) {
         const { paneId } = resolveDropTarget({ x: e.clientX, y: e.clientY })
-        const wsId = getActiveWorkspaceId()
-        if (paneId && wsId) {
-          void openWorkspaceFile(wsId, draggedItem.path, { paneId })
+        if (paneId && workspaceId) {
+          void openDocument(workspaceRef(workspaceId, draggedItem.path), { paneId })
         }
         setDragState(initialDragState)
         clearAutoExpand()
@@ -225,7 +226,7 @@ export function useFileExplorerDragDrop(
         return
       }
 
-      if (dragOverPath && draggedItem) {
+      if (dragOverPath && draggedItem && workspaceId) {
         const { path: sourcePath, name: sourceName } = draggedItem
         let targetPath = dragOverPath
 
@@ -245,7 +246,7 @@ export function useFileExplorerDragDrop(
         const newPath = joinPath(targetPath, sourceName)
 
         try {
-          await moveFile(sourcePath, newPath)
+          await moveFile(workspaceId, sourcePath, newPath)
           onFileMove?.(sourcePath, newPath)
         } catch (error) {
           console.error('Failed to move file:', error)
@@ -282,6 +283,7 @@ export function useFileExplorerDragDrop(
     onMoveError,
     rootFolderPath,
     scheduleAutoExpand,
+    workspaceId,
   ])
 
   const startDrag = useCallback((e: React.MouseEvent, file: FileEntry) => {

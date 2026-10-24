@@ -9,7 +9,6 @@ import type {
   TerminalContent,
   MarkdownPreviewContent,
   HtmlPreviewContent,
-  CsvPreviewContent,
   ClosedBuffer,
   PendingClose,
 } from '@/features/panes/types/pane-content'
@@ -18,7 +17,8 @@ import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { disposeBuffers, releaseUnreferencedBuffers } from '@/features/panes/lib/buffer-release'
 import { placeTab } from './pane-actions/editor-tab-actions'
 import { useSettingsStore } from '@/features/settings/store'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { documentRefOf, sameDocument } from '@/features/editor/documents/document-ref'
+import type { DocumentRef } from '@/lib/api/documents'
 import { nanoid } from 'nanoid'
 import { bestEffort } from '@/lib/best-effort'
 
@@ -28,6 +28,48 @@ import { bestEffort } from '@/lib/best-effort'
 // for free (PaneContainer) — there is no placeholder buffer to protect any
 // more, only the always-live terminal type stays exempt from auto-eviction.
 const AUTO_EVICTION_PROTECTED = new Set<PaneContent['type']>(['terminal'])
+
+const ownerOf = (ref: DocumentRef) => (ref.authority === 'workspace' ? ref.workspaceId : '')
+
+/** The workspace a spec names; never the active one, so an open lands where its caller meant. */
+function specWorkspaceId(spec: OpenEditorTabSpec): string {
+  switch (spec.type) {
+    case 'editor':
+      return ownerOf(spec.doc)
+    case 'markdownPreview':
+    case 'htmlPreview':
+      return ownerOf(spec.source)
+    case 'terminal':
+      return spec.workspaceId
+    default:
+      return spec.wsId
+  }
+}
+
+function findOpen(buffers: PaneContent[], spec: OpenEditorTabSpec): PaneContent | undefined {
+  switch (spec.type) {
+    case 'editor':
+      return buffers.find((b) => isEditorContent(b) && sameDocument(documentRefOf(b), spec.doc))
+    case 'markdownPreview':
+    case 'htmlPreview':
+      return buffers.find(
+        (b) =>
+          (b.type === 'markdownPreview' || b.type === 'htmlPreview') &&
+          b.type === spec.type &&
+          sameDocument(b.source, spec.source),
+      )
+    case 'branchReview':
+      return buffers.find((b) => b.type === 'branchReview' && b.wsId === spec.wsId)
+    case 'commitDiff':
+      return buffers.find(
+        (b) => b.type === 'commitDiff' && b.wsId === spec.wsId && b.sha === spec.sha,
+      )
+    default:
+      return spec.sessionId
+        ? buffers.find((b) => b.type === 'terminal' && b.sessionId === spec.sessionId)
+        : undefined
+  }
+}
 
 // ── Actions ──────────────────────────────────────────────────────────
 
@@ -103,71 +145,8 @@ export const createBufferSlice: StateCreator<
     bufferActions: {
       openContent(spec, opts = {}) {
         const paneId = opts.paneId ?? get().activePaneId
-        // Resolve the owning workspace once: an explicit spec.workspaceId wins
-        // (the caller already knows — e.g. openFileContent's own wsId param),
-        // commitDiff/branchReview fall back to their own (pre-existing) wsId
-        // field, and everything else defaults to whichever workspace is
-        // currently active. `buffers` is one flat, window-level list now (Task
-        // 26) — every path-keyed lookup below must scope on this, or two
-        // workspaces sharing a relative path (the common case: they're worktrees
-        // of the same repo) would silently share one buffer.
-        const workspaceId =
-          spec.workspaceId ??
-          (spec.type === 'branchReview' || spec.type === 'commitDiff' ? spec.wsId : undefined) ??
-          getActiveWorkspaceId() ??
-          ''
-
-        // Deduplicate: return existing buffer id if already open
-        const existing = (() => {
-          if (spec.type === 'editor') {
-            return get().buffers.find(
-              (b) => b.type === 'editor' && b.path === spec.path && b.workspaceId === workspaceId,
-            )
-          }
-          if (spec.type === 'branchReview') {
-            return get().buffers.find(
-              (b) =>
-                b.type === 'branchReview' &&
-                (b as BranchReviewContent).wsId === spec.wsId &&
-                b.workspaceId === workspaceId,
-            )
-          }
-          if (spec.type === 'commitDiff') {
-            return get().buffers.find(
-              (b) =>
-                b.type === 'commitDiff' &&
-                b.wsId === spec.wsId &&
-                b.sha === spec.sha &&
-                b.workspaceId === workspaceId,
-            )
-          }
-          if (spec.type === 'terminal' && spec.sessionId) {
-            return get().buffers.find(
-              (b) => b.type === 'terminal' && (b as TerminalContent).sessionId === spec.sessionId,
-            )
-          }
-          if (spec.type === 'markdownPreview') {
-            return get().buffers.find(
-              (b) =>
-                b.type === 'markdownPreview' &&
-                b.path === spec.path &&
-                b.workspaceId === workspaceId,
-            )
-          }
-          if (spec.type === 'htmlPreview') {
-            return get().buffers.find(
-              (b) =>
-                b.type === 'htmlPreview' && b.path === spec.path && b.workspaceId === workspaceId,
-            )
-          }
-          if (spec.type === 'csvPreview') {
-            return get().buffers.find(
-              (b) =>
-                b.type === 'csvPreview' && b.path === spec.path && b.workspaceId === workspaceId,
-            )
-          }
-          return undefined
-        })()
+        const workspaceId = specWorkspaceId(spec)
+        const existing = findOpen(get().buffers, spec)
 
         if (existing) {
           // A terminal buffer IS a live view onto ONE PTY. Opening it again must
@@ -240,7 +219,8 @@ export const createBufferSlice: StateCreator<
           buf = {
             id,
             type: 'editor',
-            path: spec.path,
+            authority: spec.doc.authority,
+            path: spec.doc.path,
             name: spec.name,
             content: spec.content,
             savedContent: spec.content,
@@ -292,43 +272,18 @@ export const createBufferSlice: StateCreator<
             isPreview: false,
             workspaceId,
           } satisfies TerminalContent
-        } else if (spec.type === 'markdownPreview') {
-          buf = {
-            id,
-            type: 'markdownPreview',
-            path: spec.path,
-            name: spec.name,
-            content: spec.content,
-            sourceFilePath: spec.sourceFilePath,
-            isPinned: false,
-            isPreview: false,
-            workspaceId,
-          } satisfies MarkdownPreviewContent
-        } else if (spec.type === 'htmlPreview') {
-          buf = {
-            id,
-            type: 'htmlPreview',
-            path: spec.path,
-            name: spec.name,
-            content: spec.content,
-            sourceFilePath: spec.sourceFilePath,
-            isPinned: false,
-            isPreview: false,
-            workspaceId,
-          } satisfies HtmlPreviewContent
         } else {
-          // spec.type === 'csvPreview'
           buf = {
             id,
-            type: 'csvPreview',
-            path: spec.path,
+            type: spec.type,
+            path: `${spec.source.path}:preview`,
             name: spec.name,
             content: spec.content,
-            sourceFilePath: spec.sourceFilePath,
+            source: spec.source,
             isPinned: false,
             isPreview: false,
             workspaceId,
-          } satisfies CsvPreviewContent
+          } satisfies MarkdownPreviewContent | HtmlPreviewContent
         }
 
         // Created and seated in one write: a buffer never exists without a
@@ -405,39 +360,12 @@ export const createBufferSlice: StateCreator<
         set((state) => {
           state.closedBuffersHistory.shift()
         })
-        const id = get().bufferActions.openContent({
-          type: 'editor',
-          path: entry.path,
-          name: entry.name,
-          content: '',
-          workspaceId: entry.workspaceId,
-        })
-        // The history entry carries no content; load it from disk and fill the
-        // buffer in place. Dynamic import keeps the API client out of the
-        // slice's static graph. Skip the fill if the user already typed into
-        // the empty buffer.
-        // Read from the CLOSED buffer's own workspace (not necessarily the
-        // active one — the active workspace can change while the read is in
-        // flight, and the same relative path in a sibling worktree holds
-        // different content).
+        // Dynamic import keeps the document API out of the slice's static graph.
         bestEffort(
-          import('@/lib/api/documents').then(async ({ readDocument, workspaceRef }) => {
-            try {
-              const doc = await readDocument(workspaceRef(entry.workspaceId, entry.path))
-              const content = doc.text
-              set((state) => {
-                const buf = state.buffers.find((b) => b.id === id)
-                if (buf && buf.type === 'editor' && buf.content === '') {
-                  buf.content = content
-                  buf.savedContent = content
-                  buf.isDirty = false
-                }
-              })
-            } catch {
-              // File no longer exists — leave the empty buffer; saving will recreate it.
-            }
-          }),
-          'refill reopened buffer',
+          import('@/features/editor/documents/open-document').then(({ openDocument }) =>
+            openDocument(documentRefOf(entry)),
+          ),
+          'reopen closed buffer',
         )
       },
 

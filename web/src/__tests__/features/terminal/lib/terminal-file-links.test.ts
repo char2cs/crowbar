@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import {
   parseFileLinkCandidates,
   resolveFileLinkPath,
-  workspaceRelativePath,
 } from '@/features/terminal/lib/terminal-file-links'
 
 describe('parseFileLinkCandidates', () => {
@@ -86,27 +85,5 @@ describe('resolveFileLinkPath', () => {
   it('returns null without a usable root or for ~ paths', () => {
     expect(resolveFileLinkPath('web/a.ts', undefined)).toBeNull()
     expect(resolveFileLinkPath('~/notes.md', root)).toBeNull()
-  })
-})
-
-// handleFileOpen / the files API only accept worktree-RELATIVE paths, so the
-// resolved absolute path must be mapped back onto the workspace root.
-describe('workspaceRelativePath', () => {
-  const root = '/Users/dev/project'
-
-  it('relativizes paths inside the root', () => {
-    expect(workspaceRelativePath('/Users/dev/project/web/a.ts', root)).toBe('web/a.ts')
-    expect(workspaceRelativePath('/Users/dev/project/README.md', root + '/')).toBe('README.md')
-  })
-
-  it('rejects paths outside the root', () => {
-    expect(workspaceRelativePath('/tmp/x.log', root)).toBeNull()
-    // Prefix trap: /Users/dev/project-two is NOT inside /Users/dev/project.
-    expect(workspaceRelativePath('/Users/dev/project-two/a.ts', root)).toBeNull()
-  })
-
-  it('rejects the root itself and missing roots', () => {
-    expect(workspaceRelativePath('/Users/dev/project', root)).toBeNull()
-    expect(workspaceRelativePath('/Users/dev/project/a.ts', undefined)).toBeNull()
   })
 })

@@ -8,7 +8,7 @@
  * `panes[paneId].activeBufferId` — it does NOT go through `useStore`/React render.
  *
  * On each swap the controller:
- *  1. calls {@link applyActiveBuffer} → `manager.showBuffer(paneId, fileUri(path))`
+ *  1. calls {@link applyActiveBuffer} → `manager.showBuffer(paneId, documentUri(doc))`
  *     and publishes the new ActiveEditorContext to the active-editor registry, and
  *  2. rebinds the once-registered listeners' target to the new model via a ref
  *     (the `onDidChangeModelContent` etc. handlers are attached once to the
@@ -27,7 +27,7 @@
 
 import { useEffect, useRef } from 'react'
 import type { StoreApi } from 'zustand'
-import { fileUri } from '@/features/editor/lib/editor-uri'
+import { documentUri } from '@/features/editor/documents/document-ref'
 import { ContentSink } from '@/features/editor/lib/content-sink'
 import {
   applyActiveBuffer,
@@ -152,7 +152,7 @@ export function usePaneEditorController<S>(
     let currentUri: string | null = null
     const applySwitch = () => {
       const buffer = depsRef.current.selectActiveBuffer(store.getState())
-      const nextUri = buffer ? fileUri(buffer.workspaceId, buffer.filePath) : null
+      const nextUri = buffer ? documentUri(buffer.doc) : null
       if (nextUri === currentUri) return
       // Flush the outgoing buffer's pending edit BEFORE swapping away — and
       // before `currentBufferId` is updated — so the flush attributes to the

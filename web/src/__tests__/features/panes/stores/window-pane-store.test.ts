@@ -18,6 +18,7 @@ import {
   getOrCreateWorkspaceStore,
   destroyWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
+import { workspaceRef } from '@/lib/api/documents'
 
 /** Flush the microtask queue a few times — enough for one dynamic `import()`
  *  plus its `.then()` chain (destroyWorkspaceStore's window-pane-store
@@ -113,10 +114,9 @@ describe('windowPaneStore — never destroyed, created once for the window', () 
 
     const bufferId = windowPaneStore.getState().bufferActions.openContent({
       type: 'editor',
-      path: '/src/a.ts',
+      doc: workspaceRef('ws-evicted-2', '/src/a.ts'),
       name: 'a.ts',
       content: 'hello',
-      workspaceId: 'ws-evicted-2',
     })
 
     destroyWorkspaceStore('ws-evicted-2')

@@ -9,60 +9,29 @@
  * be active — the wrong file on a slow switch, the wrong line on a large one.
  */
 import type * as Monaco from 'monaco-editor'
-import { readDocument, workspaceRef } from '@/lib/api/documents'
+import type { DocumentTarget } from '@/lib/api/documents'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { isEditorContent } from '@/features/panes/types/pane-content'
+import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
+import { openDocument } from '@/features/editor/documents/open-document'
 import { activeEditors } from './active-editor-context'
-import { fileUri } from './editor-uri'
 
 type CodeEditor = Monaco.editor.ICodeEditor
 
 export interface RevealTarget {
-  workspaceId: string
-  /** Workspace-relative path. */
-  path: string
+  doc: DocumentTarget
   /** 0-based LSP-style position. */
   position?: { line: number; character: number }
   /** Called with the buffer that will be shown, just before it is activated. */
   beforeShow?: (bufferId: string) => void
 }
 
-function findEditorBufferId(workspaceId: string, path: string): string | null {
-  const buffer = windowPaneStore
-    .getState()
-    .buffers.find((b) => isEditorContent(b) && b.path === path && b.workspaceId === workspaceId)
-  return buffer?.id ?? null
-}
-
 /**
- * Make `bufferId` the active tab of the pane that holds it, or attach it to
- * the active pane when none does (a pane only renders tabs in its own
- * editorTabIds — activating one it does not hold leaves it blank).
- */
-function showBufferInPane(bufferId: string): string {
-  const state = windowPaneStore.getState()
-  const holding = state.paneActions.getPaneByEditorTabId(bufferId)
-  if (holding) {
-    state.paneActions.setActivePane(holding.id)
-    state.paneActions.activateEditorTabInPane(holding.id, bufferId)
-    return holding.id
-  }
-  const buffer = state.buffers.find((b) => b.id === bufferId)
-  if (buffer) state.paneActions.addEditorTabToPane(state.activePaneId, buffer)
-  return state.activePaneId
-}
-
-/**
- * Resolves with the pane's editor once it shows `path`, or null if the pane
+ * Resolves with the pane's editor once it shows `uri`, or null if the pane
  * moves to another tab (or the buffer closes) first. No timeout: the pane
  * either shows the buffer or the user navigated away.
  */
-function editorReadyFor(
-  paneId: string,
-  workspaceId: string,
-  path: string,
-  bufferId: string,
-): Promise<CodeEditor | null> {
+function editorReadyFor(paneId: string, uri: string, bufferId: string): Promise<CodeEditor | null> {
   return new Promise((resolve) => {
     const cleanups: Array<() => void> = []
     let settled = false
@@ -83,8 +52,7 @@ function editorReadyFor(
         state.panes[paneId]?.activeEditorTabId !== bufferId
       )
     }
-    // By uri, not path: one window registry sees every workspace's files.
-    const uri = fileUri(workspaceId, path)
+    // By uri, not path: one window registry sees every document.
     own(
       activeEditors.subscribe(paneId, (ctx) => {
         if (ctx?.uri === uri && ctx.editor) settle(ctx.editor as CodeEditor)
@@ -113,31 +81,20 @@ function placeCursor(editor: CodeEditor, target: RevealTarget): void {
 }
 
 /**
- * Open (or switch to) `target.path` in `target.workspaceId` and place the
- * cursor. Resolves with the editor showing it, or null when the file could
- * not be opened or the user navigated away before it showed. Read failures
- * propagate so callers can tell the user.
+ * Open (or switch to) `target.doc` and place the cursor. Resolves with the
+ * editor showing it, or null when the document could not be opened (the open
+ * reports why) or the user navigated away before it showed.
  */
 export async function revealInEditor(target: RevealTarget): Promise<CodeEditor | null> {
-  let bufferId = findEditorBufferId(target.workspaceId, target.path)
-  if (!bufferId) {
-    // Read through the target's own workspace: sibling worktrees share
-    // relative paths with different content.
-    const doc = await readDocument(workspaceRef(target.workspaceId, target.path))
-    const content = doc.text
-    bufferId =
-      findEditorBufferId(target.workspaceId, target.path) ??
-      windowPaneStore.getState().bufferActions.openContent({
-        type: 'editor',
-        path: target.path,
-        name: target.path.split('/').pop() || target.path,
-        content,
-        workspaceId: target.workspaceId,
-      })
-  }
-  target.beforeShow?.(bufferId)
-  const paneId = showBufferInPane(bufferId)
-  const editor = await editorReadyFor(paneId, target.workspaceId, target.path, bufferId)
+  const bufferId = await openDocument(target.doc, { beforeShow: target.beforeShow })
+  if (!bufferId) return null
+  const state = windowPaneStore.getState()
+  const buffer = state.buffers.find((b) => b.id === bufferId)
+  if (!buffer || !isEditorContent(buffer)) return null
+  const paneId = state.panes[state.activePaneId]?.editorTabIds.includes(bufferId)
+    ? state.activePaneId
+    : (state.paneActions.getPaneByEditorTabId(bufferId)?.id ?? state.activePaneId)
+  const editor = await editorReadyFor(paneId, documentUri(documentRefOf(buffer)), bufferId)
   if (editor) placeCursor(editor, target)
   return editor
 }

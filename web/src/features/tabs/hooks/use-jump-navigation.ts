@@ -2,8 +2,9 @@ import { useCallback } from 'react'
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { navigateToJumpEntry } from '@/features/editor/utils/jump-navigation'
-import { getActiveWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { documentRefOf } from '@/features/editor/documents/document-ref'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { isEditorContent } from '@/features/panes/types/pane-content'
 
 export function useJumpNavigation() {
   const jumpListActions = useJumpListStore.use.actions()
@@ -14,9 +15,6 @@ export function useJumpNavigation() {
   const canGoForward = jumpListActions.canGoForward()
 
   const handleJumpBack = useCallback(async () => {
-    const store = getActiveWorkspaceStore()
-    if (!store) return
-    const wsState = store.getState()
     const paneState = windowPaneStore.getState()
     const editorState = useEditorStateStore.getState()
     const currentActiveBufferId = paneState.panes[paneState.activePaneId]?.activeEditorTabId ?? null
@@ -25,13 +23,10 @@ export function useJumpNavigation() {
       : undefined
 
     const currentPosition =
-      currentActiveBufferId && currentActiveBuffer?.path
+      currentActiveBufferId && currentActiveBuffer && isEditorContent(currentActiveBuffer)
         ? {
             bufferId: currentActiveBufferId,
-            // The forward-stack entry this synthesises is a position in THIS
-            // workspace; without the stamp it would be unresolvable later.
-            workspaceId: wsState.workspaceId,
-            filePath: currentActiveBuffer.path,
+            doc: documentRefOf(currentActiveBuffer),
             line: editorState.cursorPosition.line,
             column: editorState.cursorPosition.column,
             offset: editorState.cursorPosition.offset,

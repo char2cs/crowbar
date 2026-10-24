@@ -67,21 +67,6 @@ export function resolveFileLinkPath(path: string, root: string | undefined): str
   return parts.join('/')
 }
 
-// Converts an absolute path into a workspace-relative one, or null when the
-// path lies outside the workspace root. The files API (and therefore
-// handleFileOpen) is workspace-scoped and only accepts worktree-relative
-// paths — an absolute path is rejected by the daemon's path guard.
-export function workspaceRelativePath(
-  absolutePath: string,
-  root: string | undefined,
-): string | null {
-  if (!root || !root.startsWith('/') || !absolutePath.startsWith('/')) return null
-  const prefix = root.endsWith('/') ? root : `${root}/`
-  if (!absolutePath.startsWith(prefix)) return null
-  const rel = absolutePath.slice(prefix.length)
-  return rel === '' ? null : rel
-}
-
 export interface TerminalFileLinksOptions {
   /** The directory relative paths resolve against (terminal cwd / worktree). */
   getRoot: () => string | undefined

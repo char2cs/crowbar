@@ -196,8 +196,9 @@ func spell(
 	return filepath.Join(spelled...)
 }
 
-// entryName is the name of dir's entry that name reaches on a case-insensitive
-// volume; name itself when it is spelled so or reaches nothing.
+// entryName is the name of dir's entry that name reaches on a case- or
+// normalization-insensitive volume, else name. Case is tried first; any other
+// alias, such as NFC typed for an NFD entry, is matched by identity.
 func entryName(
 	dir string,
 	name string,
@@ -217,6 +218,11 @@ func entryName(
 	}
 	for _, e := range entries {
 		if strings.EqualFold(e.Name(), name) && sameEntry(filepath.Join(dir, e.Name()), want) {
+			return e.Name()
+		}
+	}
+	for _, e := range entries {
+		if sameEntry(filepath.Join(dir, e.Name()), want) {
 			return e.Name()
 		}
 	}

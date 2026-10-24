@@ -189,7 +189,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   }, [addons, container])
 
   const focusTerminal = useCallback(() => terminal?.focus(), [terminal])
-  const fileDrop = useTerminalFileDrop(containerRef, write, focusTerminal)
+  useTerminalFileDrop(containerRef, write, focusTerminal)
   const search = useTerminalSearch(terminal, addons)
   useTerminalShortcuts({ isActive, container, search })
 
@@ -235,8 +235,6 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
           data-terminal-drop-target
           data-terminal-session-id={sessionId}
           className="xterm-container flex h-full min-h-0 flex-1 text-foreground"
-          onDragOver={fileDrop.onDragOver}
-          onDrop={fileDrop.onDrop}
           onMouseDown={focusTerminal}
         />
       </div>

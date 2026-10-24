@@ -52,6 +52,18 @@ describe('useLspDocumentSync', () => {
     expect(posts()).toEqual(['/v0/chats/chat-1/lsp/didOpen', '/v0/chats/chat-1/lsp/didClose'])
   })
 
+  it('sends nothing for a document outside every workspace', async () => {
+    const { unmount } = renderHook(() =>
+      useLspDocumentSync(model, '/tmp/s5/a.ts', 'typescript', null),
+    )
+    await act(() => vi.runAllTimersAsync())
+    model.setValue('let a = 2')
+    unmount()
+    await act(() => vi.runAllTimersAsync())
+
+    expect(posts()).toEqual([])
+  })
+
   it('sends nothing for a hidden pane when another workspace becomes active', async () => {
     const { rerender } = renderHook(() => useLspDocumentSync(model, 'src/a.ts', 'typescript', 'w1'))
     await act(() => vi.runAllTimersAsync())

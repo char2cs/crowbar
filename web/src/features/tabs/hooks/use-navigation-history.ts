@@ -4,10 +4,12 @@ import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { documentRefOf } from '@/features/editor/documents/document-ref'
+import type { DocumentRef } from '@/lib/api/documents'
 
 interface Origin {
   bufferId: string
-  filePath: string
+  doc: DocumentRef
   workspaceId: string
 }
 
@@ -63,7 +65,7 @@ export function useNavigationHistory(): void {
 
     const incoming: Origin | null =
       buffer?.type === 'editor' && buffer.path
-        ? { bufferId: buffer.id, filePath: buffer.path, workspaceId: buffer.workspaceId }
+        ? { bufferId: buffer.id, doc: documentRefOf(buffer), workspaceId: buffer.workspaceId }
         : null
 
     const origin = originRef.current
@@ -90,8 +92,7 @@ export function useNavigationHistory(): void {
     const { cursorPosition } = useEditorStateStore.getState()
     useJumpListStore.getState().actions.pushEntry({
       bufferId: origin.bufferId,
-      workspaceId: origin.workspaceId,
-      filePath: origin.filePath,
+      doc: origin.doc,
       line: cursorPosition.line,
       column: cursorPosition.column,
       offset: cursorPosition.offset,

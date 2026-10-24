@@ -15,7 +15,8 @@ function Probe() {
   const asset = useMarkdownAsset()
   const [resolved, setResolved] = useState<string | null | undefined>(undefined)
   useEffect(() => {
-    void asset?.resolve?.('chats/c1/attachments/x.png').then(setResolved)
+    if (asset && 'resolve' in asset)
+      void asset.resolve('chats/c1/attachments/x.png').then(setResolved)
   }, [asset])
   return <span data-testid="probe">{resolved === undefined ? 'pending' : String(resolved)}</span>
 }
@@ -59,7 +60,7 @@ describe('ChatMarkdownAssetProvider', () => {
         <CaptureWsId />
       </ChatMarkdownAssetProvider>,
     )
-    expect(seen[0]?.wsId).toBe('ws1')
+    expect(seen[0]).toMatchObject({ wsId: 'ws1' })
   })
 
   it('supplies the chat id via ChatIdContext', () => {

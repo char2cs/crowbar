@@ -5,6 +5,7 @@ import {
   TAB_NEW,
   TAB_NEW_TERMINAL,
   TAB_NEW_FILE,
+  TAB_OPEN_FILE,
   AGENT_NEW_CHAT,
   AGENT_CYCLE_PROVIDER,
   AGENT_TOGGLE_VIEW_MODE,
@@ -30,6 +31,14 @@ describe('keymap registry — New Tab commands', () => {
   it('binds New Chat to mod+n and New File to mod+shift+n', () => {
     expect(getCommand(AGENT_NEW_CHAT)?.defaultChord).toBe('mod+n')
     expect(getCommand(TAB_NEW_FILE)?.defaultChord).toBe('mod+shift+n')
+  })
+
+  it('binds Open file… to mod+o under Tabs', () => {
+    expect(getCommand(TAB_OPEN_FILE)).toMatchObject({
+      label: 'Open file…',
+      category: 'Tabs',
+      defaultChord: 'mod+o',
+    })
   })
 
   // Toggles the open chat between its Chat and Terminal surfaces. Registered
@@ -69,11 +78,12 @@ describe('keymap registry — New Tab commands', () => {
 
   // Every chord the New Tab surface draws must be rebindable, or the badge
   // it renders can never go out of sync with reality by design.
-  it('makes all six live-editable', () => {
+  it('makes every tab and chat command live-editable', () => {
     for (const id of [
       TAB_NEW,
       TAB_NEW_TERMINAL,
       TAB_NEW_FILE,
+      TAB_OPEN_FILE,
       AGENT_NEW_CHAT,
       AGENT_CYCLE_PROVIDER,
       AGENT_TOGGLE_VIEW_MODE,

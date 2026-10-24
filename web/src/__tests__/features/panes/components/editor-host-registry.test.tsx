@@ -50,6 +50,7 @@ function seedEditorTab(paneId: string, id: string) {
     state.buffers.push({
       id,
       type: 'editor',
+      authority: 'workspace',
       path: `/${id}.ts`,
       name: `${id}.ts`,
       content: '',

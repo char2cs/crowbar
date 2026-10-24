@@ -1,10 +1,9 @@
 import { useCallback, useState, type RefObject } from 'react'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useDragStore } from '@/features/panes/stores/drag-store'
-import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { extractDroppedFilePaths } from '@/features/file-system/utils/file-system-dropped-paths'
+import { openDocumentsAtPaths } from '@/features/editor/documents/open-document'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
+import { isTauri } from '@/lib/crowbar-bridge'
 import { ensureBufferInPaneDropTarget } from '@/features/panes/utils/pane-drop-actions'
 import type { DropZone } from '@/features/panes/components/split-drop-overlay'
 
@@ -28,30 +27,23 @@ function readTabPayload(e: React.DragEvent): TabDragPayload | null {
   }
 }
 
-/** A terminal dragged out of the terminal panel becomes a tab of `paneId`. */
+/** A terminal dragged out of the terminal panel becomes a tab of `paneId`, in its workspace. */
 function adoptPanelTerminal(paneId: string, tab: TabDragPayload & { terminalId: string }): void {
-  windowPaneStore.getState().bufferActions.openContent(
+  const { panes, bufferActions } = windowPaneStore.getState()
+  bufferActions.openContent(
     {
       type: 'terminal',
       sessionId: tab.terminalId,
       name: tab.name,
       command: tab.initialCommand,
       workingDirectory: tab.currentDirectory,
+      workspaceId: panes[paneId]?.workspaceId ?? '',
     },
     { paneId },
   )
   window.dispatchEvent(
     new CustomEvent('terminal-detach-to-buffer', { detail: { terminalId: tab.terminalId } }),
   )
-}
-
-async function openDroppedFiles(paths: readonly string[], paneId: string): Promise<void> {
-  const wsId = getActiveWorkspaceId()
-  if (!wsId) return
-  for (const path of paths) {
-    // react-doctor-disable-next-line async-await-in-loop -- kept sequential: each open appends to the pane's tab list, so concurrent opens would land tabs out of drop order.
-    await openWorkspaceFile(wsId, path, { paneId })
-  }
 }
 
 /**
@@ -74,10 +66,11 @@ export function usePaneDropHandlers(paneId: string, containerRef: RefObject<HTML
     e.stopPropagation()
     const types = e.dataTransfer.types
     const hasTabData = types.includes('application/tab-data')
+    // An OS file drag lands only on the desktop: a browser drop carries no host path.
     const accepts =
       hasTabData ||
       types.includes('text/plain') ||
-      types.includes('Files') ||
+      (types.includes('Files') && isTauri()) ||
       !!useDragStore.getState().file
     if (!accepts) return
     e.dataTransfer.dropEffect = 'move'
@@ -120,21 +113,16 @@ export function usePaneDropHandlers(paneId: string, containerRef: RefObject<HTML
     [paneId],
   )
 
-  const handleDrop = useCallback(
-    async (e: React.DragEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-      setIsDragOver(false)
-      setIsTabDragOver(false)
-      // Tab drops are handled by SplitDropOverlay.
-      if (e.dataTransfer.types.includes('application/tab-data')) return
-      await openDroppedFiles(extractDroppedFilePaths(e.dataTransfer), paneId)
-    },
-    [paneId],
-  )
+  // Tab drops are handled by SplitDropOverlay; an OS file drop arrives through Tauri.
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+    setIsTabDragOver(false)
+  }, [])
 
   const handleTauriFileDrop = useCallback(
-    (paths: string[]) => openDroppedFiles(paths, paneId),
+    (paths: string[]) => openDocumentsAtPaths(paths, paneId),
     [paneId],
   )
   useTauriFileDrop(containerRef, handleTauriFileDrop)

@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 // `Value` resolves from `platejs` (re-exported from `@platejs/slate`), not
 // from `platejs/react` — the react entrypoint's barrel does not re-export it
 // (see markdown-serialization.ts for the same note).
@@ -6,11 +6,11 @@ import type { Value } from 'platejs'
 import { Plate, PlateContent, usePlateEditor } from 'platejs/react'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { useBufferById } from '@/features/workspace/stores/hooks/use-buffer-store'
-import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { setBufferContent } from '@/features/editor/lib/buffer-save'
 import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { MarkdownAssetContext, type MarkdownAssetInfo } from './markdown-asset'
-import { hasTextContent } from '@/features/panes/types/pane-content'
+import { hasTextContent, isEditorContent } from '@/features/panes/types/pane-content'
+import { documentRefOf, documentUri, refFromUri } from '@/features/editor/documents/document-ref'
 import { toast } from '@/features/window/stores/toast-store'
 import { useMarkdownViewStore } from './markdown-view-store'
 import { joinFrontmatter, splitFrontmatter } from './markdown-frontmatter'
@@ -137,23 +137,18 @@ function MarkdownRichEditor({
 
   const editor = usePlateEditor({ plugins: markdownPlugins, value: initial.initialValue })
 
-  // Where this file lives, so the `html` node can resolve local `<img>` srcs
-  // (README logos etc.) against the file's folder. `null` when unknown — the
-  // node then leaves images at their raw src instead of guessing.
+  // The document this buffer holds, so the `html` node can resolve local
+  // `<img>` srcs (README logos etc.) beside it. `null` for an unsaved buffer —
+  // the node then leaves images at their raw src instead of guessing.
   const assetBuffer = useBufferById(bufferId)
-  // Raw context (not `useWorkspaceStoreContext`, which throws without a
-  // provider): a standalone render — e.g. a unit test of this component — has
-  // no workspace, and that should just mean "no local-image resolution", not a
-  // crash. `workspaceId` is stable for the store's life, so reading it off the
-  // store snapshot (non-reactively) is fine.
-  const workspaceStore = useContext(WorkspaceStoreContext)
+  const assetUri =
+    assetBuffer && isEditorContent(assetBuffer) && !assetBuffer.isVirtual
+      ? documentUri(documentRefOf(assetBuffer))
+      : null
   const assetInfo = useMemo<MarkdownAssetInfo | null>(() => {
-    const wsId = workspaceStore?.getState().workspaceId
-    const path = assetBuffer && 'path' in assetBuffer ? assetBuffer.path : undefined
-    if (!wsId || !path) return null
-    const fileDir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
-    return { wsId, fileDir }
-  }, [workspaceStore, assetBuffer])
+    const doc = assetUri ? refFromUri(assetUri) : null
+    return doc ? { doc } : null
+  }, [assetUri])
 
   // Baseline = the canonical FULL-DOCUMENT serialization of the document the
   // editor ACTUALLY holds (frontmatter + body) — i.e. exactly what a no-edit

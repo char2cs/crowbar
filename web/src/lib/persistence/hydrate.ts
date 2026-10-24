@@ -11,15 +11,13 @@ import type { PaneGroup } from '@/features/panes/types/pane'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { ViewState } from '@/features/panes/lib/view-state'
 import { repairViewState } from '@/features/panes/lib/view-repair'
-import { validateLoadedBuffers } from '@/features/panes/utils/persisted-layout'
-import { getFirstLeafId } from '@/features/panes/utils/pane-layout'
 import {
-  isEditorContent,
-  isPersistableContent,
-  type PaneContent,
-} from '@/features/panes/types/pane-content'
-import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
-import { readDocument, workspaceRef } from '@/lib/api/documents'
+  upgradeLegacyBuffers,
+  validateLoadedBuffers,
+} from '@/features/panes/utils/persisted-layout'
+import { getFirstLeafId } from '@/features/panes/utils/pane-layout'
+import { isPersistableContent, type PaneContent } from '@/features/panes/types/pane-content'
+import { reconcileBuffersWithDisk } from '@/features/workspace/lib/external-buffer-sync'
 import { fetchHomeChats, fetchRepoChats, fetchRepos, isNotFoundError } from '@/lib/api'
 import { loadSidebarUI } from './sidebar-ui'
 import { useSidebarStore } from '@/lib/store/sidebar'
@@ -67,9 +65,17 @@ export async function hydrateWindowPaneLayout(): Promise<void> {
  * the chat's cached record (`crowbar_chats`). A chat the cache does not know
  * (a project-home chat, a repo never opened) keeps its pane unplaced (null)
  * for the daemon to answer — never dropped on the cache's silence.
+ * v2 → v3: buffers name their documents (`upgradeLegacyBuffers`).
  */
 export async function upgradeWindowPaneLayout(layout: WorkspaceLayout): Promise<WorkspaceLayout> {
-  if ((layout.version ?? 1) >= WINDOW_LAYOUT_VERSION) return layout
+  const version = layout.version ?? 1
+  if (version >= WINDOW_LAYOUT_VERSION) return layout
+  const placed = version < 2 ? await placeChatPanes(layout) : layout
+  const buffers = placed.buffers && upgradeLegacyBuffers(placed.buffers)
+  return { ...placed, buffers, version: WINDOW_LAYOUT_VERSION }
+}
+
+async function placeChatPanes(layout: WorkspaceLayout): Promise<WorkspaceLayout> {
   const owner = new Map<string, string>()
   for (const chat of await getAllEntities<ChatDTO>('crowbar_chats')) {
     if (chat.workspaceId) owner.set(chat.id, chat.workspaceId)
@@ -79,7 +85,7 @@ export async function upgradeWindowPaneLayout(layout: WorkspaceLayout): Promise<
     const workspaceId = pane.chatId ? pane.workspaceId || owner.get(pane.chatId) : null
     panes[id] = { ...pane, workspaceId: workspaceId ?? null }
   }
-  return { ...layout, panes, version: WINDOW_LAYOUT_VERSION }
+  return { ...layout, panes }
 }
 
 /**
@@ -181,9 +187,7 @@ export async function hydrateWorkspace(workspaceId: string): Promise<WorkspaceHy
   const editorStates = await db.getAllFromIndex('editor-state', 'workspaceId', workspaceId)
 
   const buffers = windowPaneStore.getState().buffers.filter((b) => b.workspaceId === workspaceId)
-  if (buffers.length > 0) {
-    await reconcileRestoredBuffers(workspaceId, buffers)
-  }
+  await reconcileBuffersWithDisk(buffers)
 
   return { editorStates }
 }
@@ -199,7 +203,7 @@ export async function hydrateWorkspace(workspaceId: string): Promise<WorkspaceHy
  */
 export async function reconcileWorkspaceBuffersWithDisk(workspaceId: string): Promise<void> {
   const buffers = windowPaneStore.getState().buffers.filter((b) => b.workspaceId === workspaceId)
-  await reconcileRestoredBuffers(workspaceId, buffers)
+  await reconcileBuffersWithDisk(buffers)
 }
 
 /**
@@ -211,66 +215,6 @@ export async function reconcileWorkspaceBuffersWithDisk(workspaceId: string): Pr
 function restoreBufferDirtyState(buffer: PaneContent): PaneContent {
   if (!isPersistableContent(buffer)) return buffer
   return { ...buffer, isDirty: buffer.isDirty || buffer.content !== buffer.savedContent }
-}
-
-/**
- * BUG-026/BUG-013: restored buffers may be stale — the file can change on
- * disk while the app is closed. Reconcile every restored real-file editor
- * buffer with disk using the same policy as live external FS events:
- * clean buffers silently reload, dirty buffers keep edits and get flagged
- * with hasExternalChange + a toast.
- *
- * Unlike a live FS event, at restore time we don't know whether the file
- * actually changed, so we first compare disk against savedContent and only
- * invoke syncBufferWithDisk when they diverge — otherwise every dirty
- * buffer would get a false "changed on disk" toast on every reload.
- */
-async function reconcileRestoredBuffers(
-  workspaceId: string,
-  buffers: PaneContent[],
-): Promise<void> {
-  const realFileBuffers = buffers.filter(isPersistableContent)
-  if (realFileBuffers.length === 0) return
-  await Promise.allSettled(
-    realFileBuffers.map(async (buffer) => {
-      // isPersistableContent buffers always have a real path (openContent
-      // requires one for 'editor'); skip defensively if that ever breaks.
-      if (!buffer.path) return
-      // Read from the hydrating workspace explicitly: hydration can still be
-      // in flight when the user switches workspaces, and an active-workspace
-      // read would then load the sibling worktree's file into this store.
-      let diskContent: string | null
-      try {
-        diskContent = (await readDocument(workspaceRef(workspaceId, buffer.path))).text
-      } catch (err) {
-        // BUG-001: a 404 means the file is gone (e.g. its worktree was
-        // deleted). Mark a clean buffer terminally so the pane shows a "file
-        // not found" placeholder and nothing re-fetches the dead path. A
-        // dirty buffer keeps its editor: the unsaved edits are the only copy
-        // left, and saving recreates the file. Other errors (network, 5xx)
-        // stay silent and non-terminal as before.
-        if (isNotFoundError(err) && !buffer.isDirty) {
-          setBufferFileMissing(workspaceId, buffer.path, true)
-        }
-        return
-      }
-      // The file is back (or was never gone) — clear a stale missing flag
-      // that may have been persisted by a previous session.
-      if (buffer.fileMissing) setBufferFileMissing(workspaceId, buffer.path, false)
-      if (diskContent === buffer.savedContent) return
-      await syncBufferWithDisk(workspaceId, buffer.path)
-    }),
-  )
-}
-
-function setBufferFileMissing(workspaceId: string, path: string, fileMissing: boolean): void {
-  windowPaneStore.setState((state) => ({
-    buffers: state.buffers.map((b) =>
-      isEditorContent(b) && !b.isVirtual && b.path === path && b.workspaceId === workspaceId
-        ? { ...b, fileMissing }
-        : b,
-    ),
-  }))
 }
 
 export async function hydrateSidebar(): Promise<void> {

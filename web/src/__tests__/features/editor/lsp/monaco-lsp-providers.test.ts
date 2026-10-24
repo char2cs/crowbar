@@ -51,13 +51,13 @@ vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => {
     },
   }
 })
-vi.mock('@/features/editor/lsp/lsp-query', () => ({ query: vi.fn(), modelTarget: vi.fn() }))
+vi.mock('@/features/editor/lsp/lsp-query', () => ({ query: vi.fn() }))
 vi.mock('@/features/editor/lsp/lsp-client', () => {
   const request = vi.fn()
   return { LspClient: { getInstance: () => ({ request }) } }
 })
 
-import { fileUri } from '@/features/editor/lib/editor-uri'
+import { documentUri } from '@/features/editor/documents/document-ref'
 import { LspClient } from '@/features/editor/lsp/lsp-client'
 import { query } from '@/features/editor/lsp/lsp-query'
 import { registerLspProviders } from '@/features/editor/lsp/monaco-lsp-providers'
@@ -65,6 +65,7 @@ import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
+import { workspaceRef } from '@/lib/api/documents'
 
 registerLspProviders()
 
@@ -111,7 +112,7 @@ describe('LSP commands', () => {
     expect(lenses[1].command).toEqual({ id: '', title: '3 references' })
 
     const goMod = { pushEditOperations: vi.fn() }
-    monaco.models.set(fileUri('ws1', 'go.mod'), goMod)
+    monaco.models.set(documentUri(workspaceRef('ws1', 'go.mod')), goMod)
     request.mockResolvedValue({
       result: null,
       edits: [{ changes: { 'go.mod': [{ range, newText: 'require x\n' }] } }],
@@ -170,10 +171,9 @@ describe('LSP commands', () => {
     // An open buffer with no Monaco model: its edits go read → apply → write.
     const id = windowPaneStore.getState().bufferActions.openContent({
       type: 'editor',
-      path: 'fill.go',
+      doc: workspaceRef('ws1', 'fill.go'),
       name: 'fill.go',
       content: 'a',
-      workspaceId: 'ws1',
     })
     const at = (character: number) => ({
       start: { line: 0, character },

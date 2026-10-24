@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fileUri } from '@/features/editor/lib/editor-uri'
+import { documentUri } from '@/features/editor/documents/document-ref'
+import { workspaceRef } from '@/lib/api/documents'
 
 // DOM-free: mock the light `editor.api.js` entry (what `monaco-adapters.ts`
 // imports instead of the bare `monaco-editor` specifier — see the comment
@@ -116,6 +117,6 @@ describe('monaco-adapters', () => {
   })
 
   it('langForUri derives a monaco language id from the file path', () => {
-    expect(langForUri(fileUri('ws-1', '/proj/main.ts'))).toBe('typescript')
+    expect(langForUri(documentUri(workspaceRef('ws-1', '/proj/main.ts')))).toBe('typescript')
   })
 })

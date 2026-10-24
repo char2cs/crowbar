@@ -2,8 +2,12 @@ package file
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
@@ -136,6 +140,9 @@ func owningWorkspace(
 	rows []domain.Workspace,
 	canon string,
 ) (domain.Workspace, string, bool) {
+	if row, rel, ok := missingWorktreeOwner(rows, canon); ok {
+		return row, rel, true
+	}
 	roots := make([]string, len(rows))
 	for i, row := range rows {
 		roots[i] = row.WorktreePath
@@ -150,4 +157,46 @@ func owningWorkspace(
 		}
 	}
 	return rows[hits[0]], rel, true
+}
+
+// missingWorktreeOwner is the row whose worktree is gone from disk and whose
+// canonical path is canon's longest prefix. A missing root has no identity to
+// compare, and any existing root on canon's path lies above it.
+func missingWorktreeOwner(
+	rows []domain.Workspace,
+	canon string,
+) (domain.Workspace, string, bool) {
+	var owner domain.Workspace
+	var ownerRel string
+	longest := 0
+	for _, row := range rows {
+		if row.WorktreePath == "" {
+			continue
+		}
+		if _, err := os.Stat(row.WorktreePath); !errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		root := safepath.Canonical(row.WorktreePath)
+		if rel, ok := pathBelow(root, canon); ok && len(root) > longest {
+			owner, ownerRel, longest = row, rel, len(root)
+		}
+	}
+	return owner, ownerRel, longest > 0
+}
+
+// pathBelow is path relative to root when root is a whole-name prefix of it;
+// darwin volumes fold case by default, so the prefix does too there.
+func pathBelow(
+	root string,
+	path string,
+) (string, bool) {
+	prefix := root + string(filepath.Separator)
+	if len(path) <= len(prefix) {
+		return "", false
+	}
+	head := path[:len(prefix)]
+	if head != prefix && (runtime.GOOS != "darwin" || !strings.EqualFold(head, prefix)) {
+		return "", false
+	}
+	return filepath.ToSlash(path[len(prefix):]), true
 }

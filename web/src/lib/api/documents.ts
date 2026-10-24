@@ -25,6 +25,9 @@ export interface DocumentRead {
 /** The daemon's refusal of a host document asked for off the local socket. */
 export const HOST_DOCUMENT_TRANSPORT_CODE = 'host_document_requires_local_transport'
 
+/** The daemon's refusal of a file under its own state directory. */
+export const DAEMON_STATE_DOCUMENT_CODE = 'daemon_state_document'
+
 const DOCUMENTS = '/v0/documents/content'
 
 function toRef(wire: DocumentRef & { workspaceId?: string }): DocumentRef {

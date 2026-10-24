@@ -9,6 +9,7 @@ import {
 } from '@/features/files/lib/file-tree-api'
 import { refreshDirectory } from '@/features/files/lib/file-tree-handlers'
 import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
+import { workspaceRef } from '@/lib/api/documents'
 import { reconcileWorkspaceBuffersWithDisk } from '@/lib/persistence/hydrate'
 import { wsManager } from '@/lib/ws/manager'
 import { useWorkspaceStore } from '../workspace-context'
@@ -110,7 +111,7 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
       // An external write to an open buffer must reconcile it (silent reload
       // when clean, conflict flag when dirty); own-save echoes are filtered inside.
       if (evt.type === 'modified' || evt.type === 'created') {
-        void syncBufferWithDisk(wsId, evt.path)
+        void syncBufferWithDisk(workspaceRef(wsId, evt.path))
       }
       if (!isStructuralChange(evt.type)) return
       void refreshDirectory(wsId, store, parentDir(evt.path))

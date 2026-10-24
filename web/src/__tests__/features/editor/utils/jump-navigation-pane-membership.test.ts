@@ -4,6 +4,7 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
+import { workspaceRef } from '@/lib/api/documents'
 
 /**
  * A pane renders `paneBuffers.find((b) => b.id === pane.activeEditorTabId)`,
@@ -29,10 +30,9 @@ describe('jump navigation — pane membership invariant', () => {
     resetWindowPaneStoreForTests()
     const id = windowPaneStore.getState().bufferActions.openContent({
       type: 'editor',
-      path: '/a.ts',
+      doc: workspaceRef('w1', '/a.ts'),
       name: 'a.ts',
       content: 'a',
-      workspaceId: 'w1',
     })
 
     windowPaneStore.getState().paneActions.activateEditorTabInPane(ROOT_PANE_ID, id)
@@ -44,10 +44,9 @@ describe('jump navigation — pane membership invariant', () => {
     resetWindowPaneStoreForTests()
     const id = windowPaneStore.getState().bufferActions.openContent({
       type: 'editor',
-      path: '/a.ts',
+      doc: workspaceRef('w1', '/a.ts'),
       name: 'a.ts',
       content: 'a',
-      workspaceId: 'w1',
     })
 
     // Detach the tab from the pane while the buffer itself stays alive — exactly
@@ -72,10 +71,9 @@ describe('jump navigation — pane membership invariant', () => {
     resetWindowPaneStoreForTests()
     const spec = {
       type: 'editor' as const,
-      path: '/a.ts',
+      doc: workspaceRef('w1', '/a.ts'),
       name: 'a.ts',
       content: 'a',
-      workspaceId: 'w1',
     }
     const id = windowPaneStore.getState().bufferActions.openContent(spec)
     windowPaneStore.getState().paneActions.removeEditorTabFromPane(ROOT_PANE_ID, id)

@@ -32,11 +32,43 @@ describe('getExplorerTargetPath', () => {
       isPinned: false,
       isPreview: false,
       content: '# Test',
-      sourceFilePath: '/workspace/README.md',
+      source: { authority: 'workspace', workspaceId: 'w1', path: '/workspace/README.md' },
       workspaceId: 'w1',
     } satisfies PaneContent
 
     expect(getExplorerTargetPath(buffer)).toBe('/workspace/README.md')
+  })
+
+  it('ignores a document outside every workspace, and its preview', () => {
+    const editor = {
+      id: 'host',
+      type: 'editor',
+      authority: 'host',
+      path: '/tmp/notes.md',
+      name: 'notes.md',
+      content: '',
+      savedContent: '',
+      isDirty: false,
+      isVirtual: false,
+      isPinned: false,
+      isPreview: false,
+      tokens: [],
+      workspaceId: '',
+    } satisfies PaneContent
+    const preview = {
+      id: 'host-preview',
+      type: 'markdownPreview',
+      path: '/tmp/notes.md:preview',
+      name: 'notes.md (Preview)',
+      content: '',
+      source: { authority: 'host', path: '/tmp/notes.md' },
+      isPinned: false,
+      isPreview: false,
+      workspaceId: '',
+    } satisfies PaneContent
+
+    expect(getExplorerTargetPath(editor)).toBeUndefined()
+    expect(getExplorerTargetPath(preview)).toBeUndefined()
   })
 
   it('ignores non-file buffers', () => {

@@ -1,7 +1,20 @@
-import { fireEvent, render } from '@testing-library/react'
+import { fireEvent, render, waitFor } from '@testing-library/react'
 import { createElement, StrictMode } from 'react'
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const { openDocument, exists } = vi.hoisted(() => ({
+  openDocument: vi.fn(async () => null),
+  exists: vi.fn(async (_ws: string, _path: string) => true),
+}))
+vi.mock('@/features/editor/documents/open-document', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/editor/documents/open-document')>()),
+  openDocument,
+}))
+vi.mock('@/features/file-system/controllers/platform', () => ({ exists }))
+
 import { MarkdownPreview } from '@/features/editor/markdown/markdown-preview'
+import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { clearPreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type {
@@ -24,6 +37,7 @@ function makeSource(path: string, content: string): EditorContent {
   return {
     id: `src-${path}`,
     type: 'editor',
+    authority: 'workspace',
     path,
     name: path.split('/').pop() ?? path,
     content,
@@ -37,17 +51,20 @@ function makeSource(path: string, content: string): EditorContent {
   }
 }
 
-function makePreview(path: string): MarkdownPreviewContent {
+function makePreview(
+  path: string,
+  source: DocumentRef = workspaceRef('w1', path),
+): MarkdownPreviewContent {
   return {
     id: `preview-${path}`,
     type: 'markdownPreview',
     path: `${path} (preview)`,
     name: `Preview: ${path.split('/').pop()}`,
     content: '',
-    sourceFilePath: path,
+    source,
     isPinned: false,
     isPreview: false,
-    workspaceId: 'w1',
+    workspaceId: source.authority === 'workspace' ? source.workspaceId : '',
   }
 }
 
@@ -167,5 +184,60 @@ describe('MarkdownPreview scroll retention', () => {
     const view = renderPreview(store, 'preview-/repo/README.md')
     expect(view.container.innerHTML).toContain('Heading 0')
     expect(view.container.innerHTML).not.toContain('Foreign heading')
+  })
+})
+
+describe('MarkdownPreview links', () => {
+  function previewOf(source: EditorContent, ref: DocumentRef) {
+    const preview = makePreview(source.path ?? '', ref)
+    resetWindowPaneStoreForTests()
+    windowPaneStore.setState((s) => {
+      s.buffers = [source, preview]
+      s.panes[ROOT_PANE_ID] = {
+        ...s.panes[ROOT_PANE_ID],
+        editorTabIds: [source.id, preview.id],
+        activeEditorTabId: preview.id,
+      }
+      return s
+    })
+    const view = renderPreview(createWorkspaceStore('w1'), preview.id)
+    fireEvent.click(view.container.querySelector('a') as HTMLAnchorElement)
+  }
+
+  beforeEach(() => {
+    openDocument.mockClear()
+    exists.mockClear()
+  })
+
+  it('opens a relative link beside its source, in the source’s workspace', async () => {
+    setActiveWorkspaceId('w-other')
+    previewOf(
+      makeSource('docs/README.md', '[spec](./spec.md)\n'),
+      workspaceRef('w1', 'docs/README.md'),
+    )
+
+    await waitFor(() =>
+      expect(openDocument).toHaveBeenCalledWith(workspaceRef('w1', 'docs/spec.md'), {
+        preview: true,
+      }),
+    )
+    expect(exists).toHaveBeenCalledWith('w1', 'docs/spec.md')
+    setActiveWorkspaceId(null)
+  })
+
+  it('opens a host document’s link as a host document', async () => {
+    const source = {
+      ...makeSource('/tmp/notes/a.md', '[b](../other/b.md)\n'),
+      authority: 'host' as const,
+      workspaceId: '',
+    }
+    previewOf(source, { authority: 'host', path: '/tmp/notes/a.md' })
+
+    await waitFor(() =>
+      expect(openDocument).toHaveBeenCalledWith(
+        { authority: 'host', path: '/tmp/other/b.md' },
+        { preview: true },
+      ),
+    )
   })
 })

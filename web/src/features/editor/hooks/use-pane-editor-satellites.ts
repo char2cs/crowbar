@@ -24,9 +24,10 @@ import type {
   ActiveEditorRegistry,
 } from '@/features/editor/lib/active-editor-context'
 import type { EditorManager } from '@/features/editor/lib/editor-manager'
-import { fileUri, uriToWorkspaceId } from '@/features/editor/lib/editor-uri'
+import { documentRefOf, documentUri, refFromUri } from '@/features/editor/documents/document-ref'
 import { shouldReconcileModelFromStore } from '@/features/editor/lib/pane-editor-controller'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { documentBufferIn } from '@/features/editor/documents/open-document'
 import { isEditorContent, type PaneContent } from '@/features/panes/types/pane-content'
 import { getLanguageIdFromPath } from '../utils/language-id'
 import { useEditorOptions, useEditorTheme, useModelOptions } from './use-editor-appearance'
@@ -90,12 +91,15 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
   const [bound, setBound] = useState<BoundEditor>(() => toBound(registry.get(paneId)))
   useEffect(() => registry.subscribe(paneId, (ctx) => setBound(toBound(ctx))), [paneId, registry])
   const { editor, model, uri, filePath } = bound
-  // The model uri names the buffer's own workspace, whatever pane shows it.
-  const workspaceId = uriToWorkspaceId(uri) ?? ''
+  // The model uri names the buffer's own document, whatever pane shows it; a
+  // host document belongs to no workspace's language server or git.
+  const doc = refFromUri(uri)
+  const workspaceId = doc?.authority === 'workspace' ? doc.workspaceId : null
 
-  const languageOverride = useStore(
-    windowPaneStore,
-    (state) => activeEditorBuffer(state, paneId)?.languageOverride,
+  // The bound model's own buffer, not the active tab: the two differ while a
+  // swap is in flight, and another buffer's override must never land here.
+  const languageOverride = useStore(windowPaneStore, (state) =>
+    doc ? documentBufferIn(state.buffers, doc)?.languageOverride : undefined,
   )
   const languageId = languageOverride ?? getLanguageIdFromPath(filePath) ?? 'plaintext'
 
@@ -130,7 +134,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
     // Matched by uri, not path: another workspace can hold the same relative path.
     const boundBuffer = (state: Parameters<typeof activeEditorBuffer>[0]) => {
       const buffer = activeEditorBuffer(state, paneId)
-      return buffer?.path && fileUri(buffer.workspaceId, buffer.path) === uri ? buffer : null
+      return buffer?.path && documentUri(documentRefOf(buffer)) === uri ? buffer : null
     }
     // On (re)bind the store is authoritative only for a CLEAN buffer: a dirty
     // one's model is ahead of the store with un-flushed keystrokes (I2).

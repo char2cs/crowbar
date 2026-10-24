@@ -36,6 +36,7 @@ function openTab(paneId: string, id: string): void {
   const buffer: EditorContent = {
     id,
     type: 'editor',
+    authority: 'workspace',
     path: `src/${id}.ts`,
     name: `${id}.ts`,
     workspaceId: 'test-ws',

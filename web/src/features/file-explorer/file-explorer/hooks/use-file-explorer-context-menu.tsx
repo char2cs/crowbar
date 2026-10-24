@@ -21,6 +21,7 @@ import {
 } from '@phosphor-icons/react'
 import { useCallback, useMemo, useState } from 'react'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { findDocumentBuffer } from '@/features/editor/documents/open-document'
 import { readDocument, workspaceRef, writeDocument } from '@/lib/api/documents'
 import {
   buildEnvTemplateContent,
@@ -170,14 +171,8 @@ export function useFileExplorerContextMenu({
 
         await writeDocument(workspaceRef(workspaceId, createdPath), templateContent)
 
-        // Task 26: buffers are window-level — scope by workspaceId too, or a
-        // sibling worktree's buffer at the same relative path could get this
-        // content instead.
-        const createdBuffer = windowPaneStore
-          .getState()
-          .buffers.find(
-            (buffer) => buffer.path === createdPath && buffer.workspaceId === workspaceId,
-          )
+        // Buffers are window-level: a sibling worktree's same relative path is another document.
+        const createdBuffer = findDocumentBuffer(workspaceRef(workspaceId, createdPath))
         if (createdBuffer) {
           windowPaneStore.setState((state) => ({
             ...state,
@@ -296,12 +291,13 @@ export function useFileExplorerContextMenu({
           label: 'Open in Terminal',
           icon: <Terminal />,
           onClick: () => {
+            if (!workspaceId) return
             const folderName = getBaseName(dirTargetPath, 'terminal')
             windowPaneStore.getState().bufferActions.openContent({
               type: 'terminal',
               name: folderName,
               workingDirectory: dirTargetPath,
-              workspaceId: workspaceId ?? undefined,
+              workspaceId,
             })
           },
         },

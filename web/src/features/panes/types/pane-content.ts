@@ -1,3 +1,5 @@
+import type { DocumentRef } from '@/lib/api/documents'
+
 // ── Token entry for syntax highlighting cache ───────────────────────
 
 export interface TokenEntry {
@@ -14,13 +16,7 @@ export interface TokenEntry {
 // see pane.ts.
 
 export type EditorTabContentType =
-  | 'editor'
-  | 'terminal'
-  | 'commitDiff'
-  | 'markdownPreview'
-  | 'htmlPreview'
-  | 'csvPreview'
-  | 'branchReview'
+  'editor' | 'terminal' | 'commitDiff' | 'markdownPreview' | 'htmlPreview' | 'branchReview'
 
 /** Every content type this build can render.
  *
@@ -33,7 +29,6 @@ export const PANE_CONTENT_TYPES: ReadonlySet<EditorTabContentType> = new Set<Edi
   'commitDiff',
   'markdownPreview',
   'htmlPreview',
-  'csvPreview',
   'branchReview',
 ])
 
@@ -65,6 +60,8 @@ export interface EditorTabBase {
 
 export interface EditorContent extends EditorTabBase {
   type: 'editor'
+  /** Whose file `path` names: a workspace's (relative), or the host's (absolute, `workspaceId` ''). */
+  authority: DocumentRef['authority']
   content: string
   savedContent: string
   isDirty: boolean
@@ -106,19 +103,13 @@ export interface CommitDiffContent extends EditorTabBase {
 export interface MarkdownPreviewContent extends EditorTabBase {
   type: 'markdownPreview'
   content: string
-  sourceFilePath: string
+  source: DocumentRef
 }
 
 export interface HtmlPreviewContent extends EditorTabBase {
   type: 'htmlPreview'
   content: string
-  sourceFilePath: string
-}
-
-export interface CsvPreviewContent extends EditorTabBase {
-  type: 'csvPreview'
-  content: string
-  sourceFilePath: string
+  source: DocumentRef
 }
 
 export interface BranchReviewContent extends EditorTabBase {
@@ -134,7 +125,6 @@ export type PaneContent =
   | CommitDiffContent
   | MarkdownPreviewContent
   | HtmlPreviewContent
-  | CsvPreviewContent
   | BranchReviewContent
 
 // ── Type guards ─────────────────────────────────────────────────────
@@ -179,33 +169,22 @@ export function isVirtualContent(c: PaneContent): boolean {
 /** Whether this content has text content (for search, etc.) */
 export function hasTextContent(
   c: PaneContent,
-): c is EditorContent | MarkdownPreviewContent | HtmlPreviewContent | CsvPreviewContent {
-  return (
-    c.type === 'editor' ||
-    c.type === 'markdownPreview' ||
-    c.type === 'htmlPreview' ||
-    c.type === 'csvPreview'
-  )
-}
-
-/** Whether the content type should trigger LSP operations. */
-export function shouldStartLsp(c: PaneContent): c is EditorContent {
-  return c.type === 'editor' && !c.isVirtual
+): c is EditorContent | MarkdownPreviewContent | HtmlPreviewContent {
+  return c.type === 'editor' || c.type === 'markdownPreview' || c.type === 'htmlPreview'
 }
 
 // ── Open spec (input to openContent) ────────────────────────────────
 
+// Every spec names its own workspace: an open never falls back to the active one.
 export type OpenEditorTabSpec =
   | {
       type: 'editor'
-      path: string
+      doc: DocumentRef
       name: string
       content: string
       isVirtual?: boolean
       isPreview?: boolean
       language?: string
-      /** Defaults to the active workspace when omitted — see EditorTabBase.workspaceId. */
-      workspaceId?: string
     }
   | {
       type: 'terminal'
@@ -214,49 +193,16 @@ export type OpenEditorTabSpec =
       workingDirectory?: string
       sessionId?: string
       path?: string
-      workspaceId?: string
+      workspaceId: string
     }
-  | {
-      type: 'commitDiff'
-      wsId: string
-      sha: string
-      name: string
-      workspaceId?: string
-    }
-  | {
-      type: 'markdownPreview'
-      path: string
-      name: string
-      content: string
-      sourceFilePath: string
-      workspaceId?: string
-    }
-  | {
-      type: 'htmlPreview'
-      path: string
-      name: string
-      content: string
-      sourceFilePath: string
-      workspaceId?: string
-    }
-  | {
-      type: 'csvPreview'
-      path: string
-      name: string
-      content: string
-      sourceFilePath: string
-      workspaceId?: string
-    }
-  | {
-      type: 'branchReview'
-      wsId: string
-      name: string
-      workspaceId?: string
-    }
+  | { type: 'commitDiff'; wsId: string; sha: string; name: string }
+  | { type: 'markdownPreview' | 'htmlPreview'; source: DocumentRef; name: string; content: string }
+  | { type: 'branchReview'; wsId: string; name: string }
 
 // ── Buffer history / dialog state (used by workspace store) ─────────
 
 export interface ClosedBuffer {
+  authority: DocumentRef['authority']
   path: string
   name: string
   isPinned: boolean

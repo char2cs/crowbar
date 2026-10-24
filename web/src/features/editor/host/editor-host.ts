@@ -1,5 +1,5 @@
 import { EditorManager, type BufferMeta } from '@/features/editor/lib/editor-manager'
-import { fileUri } from '@/features/editor/lib/editor-uri'
+import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
 import { ModelRegistry } from '@/features/editor/lib/model-registry'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 
@@ -38,12 +38,12 @@ export function loadEditorHost(): Promise<EditorHost> {
     import('@/features/panes/stores/window-pane-store'),
   ]).then(
     ([adapters, { windowPaneStore }]) => {
-      // The uri carries the workspace, so the lookup spans every buffer in the window.
+      // The uri names the whole document, so the lookup spans every buffer in the window.
       const meta: BufferMeta = {
         lang: adapters.langForUri,
         text: (uri) => {
           for (const b of windowPaneStore.getState().buffers) {
-            if (isEditorContent(b) && b.path && fileUri(b.workspaceId, b.path) === uri) {
+            if (isEditorContent(b) && b.path && documentUri(documentRefOf(b)) === uri) {
               return b.content
             }
           }

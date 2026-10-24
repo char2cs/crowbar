@@ -28,6 +28,7 @@ function makeTab(id: string): EditorContent {
   return {
     id,
     type: 'editor',
+    authority: 'workspace',
     path: `src/${id}.ts`,
     name: `${id}.ts`,
     workspaceId: 'w1',

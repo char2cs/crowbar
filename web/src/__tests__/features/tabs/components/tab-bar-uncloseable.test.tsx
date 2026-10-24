@@ -72,6 +72,7 @@ function makeEditorBuffer(i: number): EditorContent {
   return {
     id: `buf-${i}`,
     type: 'editor',
+    authority: 'workspace',
     path: `/project/file-${i}.ts`,
     name: `file-${i}.ts`,
     content: '',
@@ -93,6 +94,7 @@ function makeSoleTab(id: string, isUncloseable: boolean): EditorContent {
   return {
     id,
     type: 'editor',
+    authority: 'workspace',
     path: `/project/${id}.ts`,
     name: `${id}.ts`,
     content: '',

@@ -11,7 +11,7 @@
 import { editor as monacoEditor, Uri } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type { IEditorLike, MonacoEditorApi } from '@/features/editor/lib/editor-manager'
 import type { IModelLike, MonacoModelApi } from '@/features/editor/lib/model-registry'
-import { uriToFsPath } from '@/features/editor/lib/editor-uri'
+import { refFromUri } from '@/features/editor/documents/document-ref'
 import { getLanguageIdFromPath } from '@/features/editor/utils/language-id'
 import { toMonacoLanguageId } from '@/features/editor/monaco/language'
 import { loadLanguageForPath } from '@/features/editor/monaco/language-contributions'
@@ -97,7 +97,7 @@ export const EDITOR_CREATE_OPTIONS: monacoEditor.IStandaloneEditorConstructionOp
  * fire-and-forget kickoff — the user just gets no highlighting for that file.
  */
 export function langForUri(uri: string): string {
-  const fsPath = uriToFsPath(uri)
+  const fsPath = refFromUri(uri)?.path ?? ''
   void loadLanguageForPath(fsPath).catch(() => {})
   return toMonacoLanguageId(getLanguageIdFromPath(fsPath))
 }
@@ -125,7 +125,7 @@ function wrapModel(model: monacoEditor.ITextModel): IModelLike {
 
 /**
  * Real `MonacoModelApi` over `monaco-editor`. Model URIs are the string keys
- * produced by `editor-uri.ts`; we parse them into `monaco.Uri` for the model
+ * produced by `document-ref.ts`; we parse them into `monaco.Uri` for the model
  * store and adapt the model's `.uri` back to a string so the registry's
  * string-keyed bookkeeping stays consistent.
  */

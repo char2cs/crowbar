@@ -1,31 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
-import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { activeEditors } from '@/features/editor/lib/active-editor-context'
-import { fileUri } from '@/features/editor/lib/editor-uri'
+import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
+import { isEditorContent } from '@/features/panes/types/pane-content'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 
-let store: ReturnType<typeof createWorkspaceStore>
-
-vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import('@/features/workspace/stores/workspace-store-registry')
-  >()),
-  // navigateToJumpEntry reads ONLY `workspaceId` off the active store —
-  // panes/buffers come from windowPaneStore (not mocked).
-  getActiveWorkspaceStore: () => store,
-}))
-const readDisk = vi.fn(async (_wsId: string, _path: string) => 'reopened content')
+const readDisk = vi.fn(async (_ref: DocumentRef) => 'reopened content')
 vi.mock('@/lib/api/documents', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api/documents')>()),
-  readDocument: async (ref: { workspaceId: string; path: string }) => ({
-    ref,
-    text: await readDisk(ref.workspaceId, ref.path),
-  }),
+  readDocument: async (ref: DocumentRef) => ({ ref, text: await readDisk(ref) }),
 }))
 
 /**
@@ -42,10 +31,10 @@ const editor = {
 function publishShownBuffer() {
   const state = windowPaneStore.getState()
   const active = state.buffers.find((b) => b.id === state.panes[ROOT_PANE_ID]?.activeEditorTabId)
-  if (!active?.path) return
+  if (!active?.path || !isEditorContent(active)) return
   activeEditors.set(ROOT_PANE_ID, {
     paneId: ROOT_PANE_ID,
-    uri: fileUri(active.workspaceId, active.path),
+    uri: documentUri(documentRefOf(active)),
     filePath: active.path,
     editor,
   })
@@ -56,8 +45,7 @@ const { navigateToJumpEntry } = await import('@/features/editor/utils/jump-navig
 
 const entryFor = (bufferId: string, filePath: string, workspaceId = 'w1') => ({
   bufferId,
-  filePath,
-  workspaceId,
+  doc: workspaceRef(workspaceId, filePath),
   line: 1,
   column: 1,
   offset: 0,
@@ -79,20 +67,24 @@ const isRenderable = (paneId: string): boolean => {
   return pane.editorTabIds.includes(pane.activeEditorTabId)
 }
 
-function openInWorkspace(path: string, name: string, content: string): string {
+function openInWorkspace(path: string, name: string, content: string, workspaceId = 'w1'): string {
   return windowPaneStore.getState().bufferActions.openContent({
     type: 'editor',
-    path,
+    doc: workspaceRef(workspaceId, path),
     name,
     content,
-    workspaceId: store.getState().workspaceId,
   })
+}
+
+const activeBuffer = () => {
+  const { buffers, panes } = windowPaneStore.getState()
+  return buffers.find((b) => b.id === panes[ROOT_PANE_ID]?.activeEditorTabId)
 }
 
 describe('navigateToJumpEntry', () => {
   beforeEach(() => {
     resetWindowPaneStoreForTests()
-    store = createWorkspaceStore('w1')
+    setActiveWorkspaceId('w1')
   })
 
   it('shows the file when its tab is still open in the active pane', async () => {
@@ -141,61 +133,31 @@ describe('navigateToJumpEntry', () => {
     readDisk.mockClear()
     await navigateToJumpEntry(entryFor('gone', '/b.ts'))
 
-    expect(readDisk).toHaveBeenCalledWith('w1', '/b.ts')
+    expect(readDisk).toHaveBeenCalledWith(workspaceRef('w1', '/b.ts'))
   })
 
-  // The jump list is a process-GLOBAL singleton that survives a workspace
-  // switch, and its file paths are workspace-RELATIVE. Sibling worktrees of one
-  // repo hold the same relative paths with different content, so resolving an
-  // entry against whatever workspace is active NOW silently opens the wrong
-  // file under the right tab title. An entry names the workspace it was
-  // recorded in; anything else must be refused, not guessed at.
-  it('refuses an entry recorded in a DIFFERENT workspace than the active one', async () => {
-    // Recorded while workspace w1 (branch feature/x) was active...
-    const fromW1 = entryFor('gone', '/src/app.ts', 'w1')
-    // ...but the user has since switched to the sibling worktree w2.
-    store = createWorkspaceStore('w2')
+  // The jump list is a process-global singleton that survives a workspace
+  // switch, and sibling worktrees hold the same relative paths. An entry names
+  // its whole document, so it opens that document from any workspace.
+  it('opens the entry’s own document after a switch to a sibling worktree', async () => {
+    setActiveWorkspaceId('w2')
     readDisk.mockClear()
-
-    const ok = await navigateToJumpEntry(fromW1)
-
-    expect(ok).toBe(false)
-    expect(readDisk).not.toHaveBeenCalled()
-    expect(windowPaneStore.getState().buffers).toHaveLength(0)
-  })
-
-  it('does not reveal a same-path buffer that belongs to the wrong workspace', async () => {
-    store = createWorkspaceStore('w2')
-    // w2 has its OWN /src/app.ts open — the tab title would look identical.
-    openInWorkspace('/src/app.ts', 'app.ts', 'b')
-    const paneBefore = windowPaneStore.getState().panes[ROOT_PANE_ID]?.activeEditorTabId
 
     const ok = await navigateToJumpEntry(entryFor('gone', '/src/app.ts', 'w1'))
 
-    expect(ok).toBe(false)
-    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.activeEditorTabId).toBe(paneBefore)
+    expect(ok).toBe(true)
+    expect(readDisk).toHaveBeenCalledWith(workspaceRef('w1', '/src/app.ts'))
+    expect(activeBuffer()).toMatchObject({ workspaceId: 'w1', path: '/src/app.ts' })
   })
 
-  it('still navigates when the entry names the workspace that is active', async () => {
-    readDisk.mockClear()
-    const ok = await navigateToJumpEntry(entryFor('gone', '/b.ts', 'w1'))
+  it('never reveals a same-path buffer of another workspace', async () => {
+    const sibling = openInWorkspace('/src/app.ts', 'app.ts', 'b', 'w2')
+
+    const ok = await navigateToJumpEntry(entryFor('gone', '/src/app.ts', 'w1'))
 
     expect(ok).toBe(true)
-    expect(readDisk).toHaveBeenCalledWith('w1', '/b.ts')
-  })
-
-  // Pre-production graceful fallback: entries persisted (or recorded by a code
-  // path not yet updated) without a workspaceId must still work rather than
-  // being dropped — an unstamped entry names no workspace to disagree with.
-  it('accepts a legacy entry that carries no workspaceId', async () => {
-    readDisk.mockClear()
-    const legacy = entryFor('gone', '/b.ts') as Partial<ReturnType<typeof entryFor>>
-    delete legacy.workspaceId
-
-    const ok = await navigateToJumpEntry(legacy as ReturnType<typeof entryFor>)
-
-    expect(ok).toBe(true)
-    expect(readDisk).toHaveBeenCalledWith('w1', '/b.ts')
+    expect(activeBuffer()?.id).not.toBe(sibling)
+    expect(activeBuffer()).toMatchObject({ workspaceId: 'w1', content: 'reopened content' })
   })
 })
 
@@ -209,7 +171,6 @@ describe('navigateToJumpEntry', () => {
 describe('navigateToJumpEntry — the Back/Forward handshake survives a reopen', () => {
   beforeEach(() => {
     resetWindowPaneStoreForTests()
-    store = createWorkspaceStore('w1')
     useJumpListStore.getState().actions.clear()
   })
 
@@ -226,21 +187,6 @@ describe('navigateToJumpEntry — the Back/Forward handshake survives a reopen',
     expect(reopenedId).not.toBe(back.bufferId)
     // This is what use-navigation-history asks one render later.
     expect(jump.consumeNavigationTarget(reopenedId!)).toBe(true)
-  })
-
-  it('clears the pending marker when the entry is refused, so it cannot swallow a later navigation', async () => {
-    const jump = useJumpListStore.getState().actions
-    jump.pushEntry(entryFor('buf-a', '/a.ts'))
-    const back = jump.goBack(entryFor('buf-b', '/b.ts'))!
-    // The user switched workspaces between pressing Back and this resolving.
-    store = createWorkspaceStore('w2')
-
-    const ok = await navigateToJumpEntry(back)
-
-    expect(ok).toBe(false)
-    // A marker left pending here silently suppresses the next genuine visit to
-    // that buffer id.
-    expect(jump.consumeNavigationTarget(back.bufferId)).toBe(false)
   })
 
   it('clears the pending marker when the file can no longer be read', async () => {

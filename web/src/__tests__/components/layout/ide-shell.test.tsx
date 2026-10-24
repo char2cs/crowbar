@@ -14,6 +14,7 @@ import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { __resetHomeWorkspaceResolverForTest } from '@/features/workspace/lib/home-workspace-resolver'
 import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'
+import { workspaceRef } from '@/lib/api/documents'
 
 const router = vi.hoisted(() => ({ pathname: '/', navigate: vi.fn() }))
 
@@ -490,10 +491,9 @@ describe('IDEShell', () => {
       paneActions().setActivePane(ROOT_PANE_ID)
       windowPaneStore.getState().bufferActions.openContent({
         type: 'editor',
-        path: '/repo-a/a.ts',
+        doc: workspaceRef('ws-a', '/repo-a/a.ts'),
         name: 'a.ts',
         content: '',
-        workspaceId: 'ws-a',
       })
 
       render(<IDEShell />)

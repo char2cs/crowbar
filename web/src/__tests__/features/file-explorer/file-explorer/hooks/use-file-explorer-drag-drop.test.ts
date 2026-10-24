@@ -5,6 +5,7 @@ import { useFileExplorerDragDrop } from '@/features/file-explorer/file-explorer/
 import type { FileEntry } from '@/features/file-system/types/app'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useDragStore } from '@/features/panes/stores/drag-store'
+import { workspaceRef } from '@/lib/api/documents'
 
 // moveFile is the only async side effect on drop; stub it so a "drop on a
 // directory" never hits the real platform controller.
@@ -12,10 +13,10 @@ vi.mock('@/features/file-system/controllers/platform', () => ({
   moveFile: vi.fn().mockResolvedValue(undefined),
 }))
 
-const { openWorkspaceFile } = vi.hoisted(() => ({
-  openWorkspaceFile: vi.fn(async () => {}),
+const { openDocument } = vi.hoisted(() => ({
+  openDocument: vi.fn(async () => null),
 }))
-vi.mock('@/features/files/lib/file-tree-handlers', () => ({ openWorkspaceFile }))
+vi.mock('@/features/editor/documents/open-document', () => ({ openDocument }))
 
 const makeFile = (name: string, path: string, isDir = false): FileEntry => ({
   name,
@@ -58,7 +59,7 @@ describe('useFileExplorerDragDrop — stable listener subscription (H13)', () =>
     ).length
 
   it('attaches each document listener exactly once per drag, not once per mousemove', () => {
-    const { result } = renderHook(() => useFileExplorerDragDrop(undefined))
+    const { result } = renderHook(() => useFileExplorerDragDrop(null, undefined))
 
     // Start a drag.
     act(() => {
@@ -96,7 +97,7 @@ describe('useFileExplorerDragDrop — stable listener subscription (H13)', () =>
   })
 
   it('still handles mouseup after many mousemoves (no stranded isDragging)', () => {
-    const { result } = renderHook(() => useFileExplorerDragDrop(undefined))
+    const { result } = renderHook(() => useFileExplorerDragDrop(null, undefined))
 
     act(() => {
       const e = {
@@ -125,7 +126,7 @@ describe('useFileExplorerDragDrop — stable listener subscription (H13)', () =>
   })
 
   it('removes the document.body drag-preview div once the drag ends', () => {
-    const { result } = renderHook(() => useFileExplorerDragDrop(undefined))
+    const { result } = renderHook(() => useFileExplorerDragDrop(null, undefined))
 
     act(() => {
       const e = {
@@ -173,13 +174,13 @@ describe('useFileExplorerDragDrop — dropping a file on a pane', () => {
   afterEach(() => {
     pane.remove()
     setActiveWorkspaceId(null)
-    openWorkspaceFile.mockClear()
+    openDocument.mockClear()
     delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint
     delete (document as unknown as { elementsFromPoint?: unknown }).elementsFromPoint
   })
 
   function drag(file: FileEntry) {
-    const { result } = renderHook(() => useFileExplorerDragDrop(undefined))
+    const { result } = renderHook(() => useFileExplorerDragDrop('ws-a', undefined))
     act(() => {
       result.current.startDrag(
         {
@@ -194,8 +195,8 @@ describe('useFileExplorerDragDrop — dropping a file on a pane', () => {
     return result
   }
 
-  it('opens the file in the pane it was dropped on, by id', () => {
-    setActiveWorkspaceId('ws-a')
+  it('opens the file of its own workspace in the pane it was dropped on, by id', () => {
+    setActiveWorkspaceId('ws-other')
     const result = drag(makeFile('a.ts', 'src/a.ts'))
     expect(useDragStore.getState().file).toEqual({ path: 'src/a.ts', name: 'a.ts', isDir: false })
 
@@ -204,17 +205,18 @@ describe('useFileExplorerDragDrop — dropping a file on a pane', () => {
       document.dispatchEvent(mouseEvent('mouseup', 1, 50))
     })
 
-    expect(openWorkspaceFile).toHaveBeenCalledWith('ws-a', 'src/a.ts', { paneId: 'pane-b' })
+    expect(openDocument).toHaveBeenCalledWith(workspaceRef('ws-a', 'src/a.ts'), {
+      paneId: 'pane-b',
+    })
     expect(result.current.dragState.isDragging).toBe(false)
     expect(useDragStore.getState().file).toBeNull()
   })
 
   it('ignores a directory drop', () => {
-    setActiveWorkspaceId('ws-a')
     drag(makeFile('src', 'src', true))
     act(() => {
       document.dispatchEvent(mouseEvent('mouseup', 50, 50))
     })
-    expect(openWorkspaceFile).not.toHaveBeenCalled()
+    expect(openDocument).not.toHaveBeenCalled()
   })
 })

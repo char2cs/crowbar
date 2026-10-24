@@ -21,7 +21,6 @@ const HtmlPreview = lazy(() =>
     default: m.HtmlPreview,
   })),
 )
-const CsvPreview = lazy(() => import('@/extensions/viewers/csv/csv-preview'))
 
 /** A tab whose surface a pane renders on demand. Editors (portaled from
  *  EditorHostRegistry) and terminals (kept mounted for their PTY) are hosted
@@ -52,8 +51,7 @@ const RENDERERS: Renderers = {
     <BranchReviewPane wsId={c.wsId} isActivePane={isActivePane} />
   ),
   markdownPreview: (c) => <MarkdownPreview bufferId={c.id} />,
-  htmlPreview: () => <HtmlPreview />,
-  csvPreview: () => <CsvPreview />,
+  htmlPreview: (c) => <HtmlPreview bufferId={c.id} />,
 }
 
 export function renderPaneContent(content: RegisteredContent, ctx: SurfaceContext): ReactNode {

@@ -3,7 +3,8 @@
  * an idle tick so it never delays the first paint), debounced didChange from
  * the model's own edits, didClose on swap/unmount, and the diagnostics
  * markers the daemon pushes for it. All of it is addressed to the pane's own
- * workspace, so which workspace is active never touches a hidden pane.
+ * workspace, so which workspace is active never touches a hidden pane; a host
+ * document (no workspace) has no server.
  */
 import { useEffect } from 'react'
 import { editor as monacoEditor } from 'monaco-editor/esm/vs/editor/editor.api.js'
@@ -16,10 +17,10 @@ export function useLspDocumentSync(
   model: Monaco.editor.ITextModel | null,
   filePath: string,
   languageId: string,
-  workspaceId: string,
+  workspaceId: string | null,
 ): void {
   useEffect(() => {
-    if (!model || !filePath) return
+    if (!model || !filePath || workspaceId === null) return
     const client = LspClient.getInstance()
 
     const unsubscribe = client.onDiagnosticsUpdate(workspaceId, (path, diagnostics) => {

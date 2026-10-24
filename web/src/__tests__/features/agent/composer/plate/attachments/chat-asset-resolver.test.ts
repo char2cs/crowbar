@@ -299,23 +299,21 @@ describe('chatMarkdownAssetInfo', () => {
       vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(blob) }),
     )
     const asset = chatMarkdownAssetInfo('ws1')
-    expect(await asset.resolve?.('chats/c1/attachments/x.png')).toBe(
+    expect(await ('resolve' in asset && asset.resolve('chats/c1/attachments/x.png'))).toBe(
       `data:image/png;base64,${btoa('x')}`,
     )
     vi.unstubAllGlobals()
   })
 
-  it('carries wsId and an empty fileDir (unused for chat attachment refs)', () => {
-    const asset = chatMarkdownAssetInfo('ws1')
-    expect(asset.wsId).toBe('ws1')
-    expect(asset.fileDir).toBe('')
+  it('carries the chat’s workspace', () => {
+    expect(chatMarkdownAssetInfo('ws1')).toMatchObject({ wsId: 'ws1' })
   })
 
   it('resolve() returns null (never rejects) for a non-attachment src', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     const asset = chatMarkdownAssetInfo('ws1')
-    await expect(asset.resolve?.('not-an-attachment')).resolves.toBeNull()
+    await expect('resolve' in asset && asset.resolve('not-an-attachment')).resolves.toBeNull()
     expect(fetchMock).not.toHaveBeenCalled()
     vi.unstubAllGlobals()
   })

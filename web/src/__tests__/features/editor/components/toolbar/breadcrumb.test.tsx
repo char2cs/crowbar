@@ -2,33 +2,37 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import Breadcrumb from '@/features/editor/components/toolbar/breadcrumb'
 import { fetchFileTree } from '@/features/files/lib/file-tree-api'
-import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
+import { openDocument } from '@/features/editor/documents/open-document'
+import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
-vi.mock('@/features/files/lib/file-tree-handlers', async (importOriginal) => ({
+vi.mock('@/features/editor/documents/open-document', async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  openWorkspaceFile: vi.fn(() => Promise.resolve()),
+  openDocument: vi.fn(() => Promise.resolve(null)),
 }))
 vi.mock('@/features/files/lib/file-tree-api', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   fetchFileTree: vi.fn(() => Promise.resolve([])),
 }))
 
-// The pane shows ws-b's file while ws-a is the active workspace.
-function renderForeignBuffer(path: string) {
+function renderBuffer(doc: DocumentRef) {
   const bufferId = windowPaneStore.getState().bufferActions.openContent({
     type: 'editor',
-    path,
-    name: path.split('/').pop()!,
+    doc,
+    name: doc.path.split('/').pop()!,
     content: '# readme',
-    workspaceId: 'ws-b',
   })
-  setActiveWorkspaceId('ws-a')
   render(<Breadcrumb bufferId={bufferId} />)
+}
+
+// The pane shows ws-b's file while ws-a is the active workspace.
+function renderForeignBuffer(path: string) {
+  setActiveWorkspaceId('ws-a')
+  renderBuffer(workspaceRef('ws-b', path))
 }
 
 beforeEach(() => {
@@ -47,7 +51,9 @@ describe('Breadcrumb acts on its own buffer’s workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'README.md' }))
 
     await waitFor(() =>
-      expect(openWorkspaceFile).toHaveBeenCalledWith('ws-b', 'docs/README.md', { preview: true }),
+      expect(openDocument).toHaveBeenCalledWith(workspaceRef('ws-b', 'docs/README.md'), {
+        preview: true,
+      }),
     )
   })
 
@@ -65,6 +71,30 @@ describe('Breadcrumb acts on its own buffer’s workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
 
     const preview = windowPaneStore.getState().buffers.find((b) => b.type === 'markdownPreview')
-    expect(preview?.workspaceId).toBe('ws-b')
+    expect(preview).toMatchObject({
+      workspaceId: 'ws-b',
+      source: workspaceRef('ws-b', 'docs/README.md'),
+    })
+  })
+})
+
+describe('Breadcrumb of a host document', () => {
+  it('shows its path as plain segments', () => {
+    renderBuffer({ authority: 'host', path: '/tmp/notes/a.md' })
+
+    expect(screen.getByText('notes')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'notes' })).toBeNull()
+  })
+
+  it('previews it as a host document', () => {
+    renderBuffer({ authority: 'host', path: '/tmp/notes/a.md' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+
+    const preview = windowPaneStore.getState().buffers.find((b) => b.type === 'markdownPreview')
+    expect(preview).toMatchObject({
+      workspaceId: '',
+      source: { authority: 'host', path: '/tmp/notes/a.md' },
+    })
   })
 })

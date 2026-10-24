@@ -1,19 +1,16 @@
 import './styles.css'
 import { useCallback, useMemo, useRef } from 'react'
-import { useStore } from 'zustand'
-import { useShallow } from 'zustand/react/shallow'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { exists } from '@/features/file-system/controllers/platform'
-import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { hasTextContent } from '@/features/panes/types/pane-content'
+import { siblingRef } from '@/features/editor/documents/document-ref'
+import { openDocument } from '@/features/editor/documents/open-document'
+import { usePreviewSource } from '@/features/editor/documents/use-preview-source'
+import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
 import { openExternalUrl } from '@/lib/external-open'
 import { useSettingsStore } from '@/features/settings/store'
 import { logger } from '../utils/logger'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { splitFrontmatter } from './plate/markdown-frontmatter'
-import { resolvePreviewLinkPath } from './resolve-preview-link'
 
 export interface MarkdownPreviewProps {
   /**
@@ -25,12 +22,28 @@ export interface MarkdownPreviewProps {
   bufferId?: string
 }
 
-/** GitHub-style heading slug: `## Getting Started` → `getting-started`. */
-function openLinkedFile(path: string): Promise<void> {
-  const wsId = getActiveWorkspaceId()
-  return wsId ? openWorkspaceFile(wsId, path, { preview: true }) : Promise.resolve()
+/**
+ * Open a relative link from `source`'s document. A workspace link without an
+ * extension also tries `.md` (bare links are extension-less by convention); the
+ * check is needed because a failed open reports itself and cannot drive a retry.
+ */
+async function openLinkedDocument(source: DocumentRef, href: string): Promise<void> {
+  const target = siblingRef(source, href)
+  if (target.authority === 'host') {
+    await openDocument(target, { preview: true })
+    return
+  }
+  const { workspaceId, path } = target
+  if (await exists(workspaceId, path)) {
+    await openDocument(target, { preview: true })
+  } else if (!path.endsWith('.md') && (await exists(workspaceId, `${path}.md`))) {
+    await openDocument(workspaceRef(workspaceId, `${path}.md`), { preview: true })
+  } else {
+    logger.warn('MarkdownPreview', `File not found: ${path}`)
+  }
 }
 
+/** GitHub-style heading slug: `## Getting Started` → `getting-started`. */
 function slugify(text: string): string {
   return text
     .trim()
@@ -52,32 +65,7 @@ function findAnchorTarget(root: HTMLElement | null, id: string): Element | null 
 }
 
 export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
-  const { sourceBufferPath, sourceContent } = useStore(
-    windowPaneStore,
-    useShallow((state) => {
-      // Prefer the buffer this instance was handed: with a split, the pane
-      // rendering the preview is not necessarily the ACTIVE pane, and reading
-      // the active pane's buffer would show another pane's file.
-      const ownBuffer = bufferId ? state.buffers.find((buffer) => buffer.id === bufferId) : null
-      const activeBufferId = state.panes[state.activePaneId]?.activeEditorTabId ?? null
-      const activeBuffer =
-        ownBuffer ??
-        (activeBufferId ? state.buffers.find((buffer) => buffer.id === activeBufferId) : null)
-      const sourceBuffer =
-        activeBuffer?.type === 'markdownPreview'
-          ? (state.buffers.find(
-              (buffer) =>
-                buffer.path === activeBuffer.sourceFilePath &&
-                buffer.workspaceId === activeBuffer.workspaceId,
-            ) ?? activeBuffer)
-          : activeBuffer
-
-      return {
-        sourceBufferPath: sourceBuffer?.path,
-        sourceContent: sourceBuffer && hasTextContent(sourceBuffer) ? sourceBuffer.content : '',
-      }
-    }),
-  )
+  const { content: sourceContent, doc: sourceDoc } = usePreviewSource(bufferId)
   const fontSize = useSettingsStore((state) => state.settings.fontSize)
   const uiFontFamily = useSettingsStore((state) => state.settings.uiFontFamily)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -100,7 +88,9 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
 
       if (!link) return
 
-      const href = link.getAttribute('href')
+      // The link plugin renders a relative url without `href` (it only emits
+      // urls it deems safe to navigate); its own url stays on the element.
+      const href = link.getAttribute('href') ?? link.getAttribute('data-slate-url')
       if (!href) return
 
       e.preventDefault()
@@ -130,34 +120,14 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
         return
       }
 
-      if (!sourceBufferPath) return
-
-      const targetPath = resolvePreviewLinkPath(href, sourceBufferPath)
-
+      if (!sourceDoc) return
       try {
-        // The `.md`-suffix retry is why this keeps a pre-check instead of just
-        // opening optimistically: bare markdown links ([spec](./spec)) are
-        // extension-less by convention, and the open path swallows its own
-        // failure into a toast, so a failed open cannot drive the second
-        // attempt. `exists` costs one lazy directory listing and rejects on a
-        // real daemon error rather than reporting "not there".
-        if (await exists(targetPath)) {
-          await openLinkedFile(targetPath)
-          return
-        }
-
-        const withMd = targetPath.endsWith('.md') ? targetPath : `${targetPath}.md`
-        if (await exists(withMd)) {
-          await openLinkedFile(withMd)
-          return
-        }
-
-        logger.warn('MarkdownPreview', `File not found: ${targetPath}`)
+        await openLinkedDocument(sourceDoc, href)
       } catch (error) {
         logger.error('MarkdownPreview', 'Failed to handle link:', error)
       }
     },
-    [sourceBufferPath],
+    [sourceDoc],
   )
 
   const handleWheelCapture = useCallback((event: React.WheelEvent<HTMLDivElement>) => {

@@ -10,7 +10,8 @@ import { useSettingsStore } from '@/features/settings/store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { setBufferContent } from '@/features/editor/lib/buffer-save'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
-import { hasTextContent } from '@/features/panes/types/pane-content'
+import { isEditorContent } from '@/features/panes/types/pane-content'
+import { documentRefOf } from '@/features/editor/documents/document-ref'
 import type { EditorHost } from '@/features/editor/host/editor-host'
 import { activeEditors } from '@/features/editor/lib/active-editor-context'
 import { registerLspProviders } from '../lsp/monaco-lsp-providers'
@@ -273,11 +274,9 @@ export function EditorSurface({
     (state: import('@/features/panes/stores/window-pane-store.types').WindowPaneState) => {
       const id = state.panes[paneId]?.activeEditorTabId ?? null
       const buffer = id ? state.buffers.find((b) => b.id === id) : null
-      // Text-content buffers always carry a real path (see OpenEditorTabSpec) —
-      // skip publishing an active-buffer switch rather than key Monaco's model
-      // registry by an undefined uri if that invariant is ever violated.
-      if (!buffer || !hasTextContent(buffer) || !buffer.path) return null
-      return { bufferId: buffer.id, filePath: buffer.path, workspaceId: buffer.workspaceId }
+      // Only an editor buffer names a document Monaco holds a model for.
+      if (!buffer || !isEditorContent(buffer) || !buffer.path) return null
+      return { bufferId: buffer.id, doc: documentRefOf(buffer) }
     },
     [paneId],
   )
