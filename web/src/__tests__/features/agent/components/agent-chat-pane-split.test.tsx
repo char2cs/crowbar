@@ -18,6 +18,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChat, AgentProvider } from '@/features/agent/api/agent-api'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { SPLIT_SIDE_BY_SIDE_MIN_PX } from '@/features/agent/hooks/use-chat-presentation'
+import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
 
 const { getChatFn } = vi.hoisted(() => ({ getChatFn: vi.fn() }))
 
@@ -182,7 +184,7 @@ function setSplitEnabled(enabled: boolean) {
 
 async function renderPane(
   store: Store,
-  opts: { isActivePane?: boolean; isVisible?: boolean } = {},
+  opts: { isActivePane?: boolean; isVisible?: boolean; belowOverlayHeader?: boolean } = {},
 ) {
   await act(async () =>
     render(
@@ -196,6 +198,7 @@ async function renderPane(
           paneId: 'b1',
           isActivePane: opts.isActivePane ?? true,
           isVisible: opts.isVisible ?? true,
+          belowOverlayHeader: opts.belowOverlayHeader,
         }),
       ),
     ),
@@ -249,6 +252,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  vi.restoreAllMocks()
   useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() })
   localStorage.clear()
 })
@@ -369,6 +373,24 @@ describe('AgentChatPane — the split view', () => {
     expect(showing()).toBe('chat')
     expect(chatView()).toHaveAttribute('data-active', 'true')
     expect(xterm()).toHaveAttribute('data-visible', 'false')
+  })
+
+  it('keeps the terminal half out from under an overlay header beside the chat', async () => {
+    await renderPane(seed(), { belowOverlayHeader: true })
+    await choose('Split')
+
+    expect(terminalHalf().style.paddingTop).toBe(`${CHROME_ROW_HEIGHT_PX}px`)
+  })
+
+  it('gives the terminal half no clearance when a stacked split puts the chat above it', async () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(
+      SPLIT_SIDE_BY_SIDE_MIN_PX - 1,
+    )
+    await renderPane(seed(), { belowOverlayHeader: true })
+    await choose('Split')
+
+    expect(screen.getByRole('separator')).toHaveAttribute('aria-orientation', 'horizontal')
+    expect(terminalHalf().style.paddingTop).toBe('0px')
   })
 })
 
