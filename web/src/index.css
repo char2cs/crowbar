@@ -78,6 +78,40 @@
   }
 }
 
+/* The daemon names a repo's tile colour by token (avatar.go palette); without
+   a class behind each token the tile has no fill and its letter vanishes. */
+@utility avatar-rose {
+  background-color: var(--color-rose-700);
+}
+
+@utility avatar-amber {
+  background-color: var(--color-amber-700);
+}
+
+@utility avatar-emerald {
+  background-color: var(--color-emerald-700);
+}
+
+@utility avatar-cyan {
+  background-color: var(--color-cyan-700);
+}
+
+@utility avatar-indigo {
+  background-color: var(--color-indigo-700);
+}
+
+@utility avatar-violet {
+  background-color: var(--color-violet-700);
+}
+
+@utility avatar-slate {
+  background-color: var(--color-slate-700);
+}
+
+@utility avatar-pink {
+  background-color: var(--color-pink-700);
+}
+
 @utility ui-font {
   font-family: var(--app-font-family, var(--font-sans));
 }

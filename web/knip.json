@@ -19,6 +19,7 @@
     "src/components/layout/project-icon-mark.tsx": ["types"],
     "src/components/layout/removal-plan.ts": ["types"],
     "src/components/layout/repo-avatar.tsx": ["exports", "types"],
+    "src/components/layout/repo-icon-mark.tsx": ["types"],
     "src/components/layout/workspace-branch-icon.tsx": ["exports"],
     "src/components/layout/workspace-switcher-model.ts": ["files"],
     "src/components/layout/workspace-switcher.tsx": ["files"],

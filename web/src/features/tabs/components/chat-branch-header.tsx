@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { performRenameChat } from '@/components/sidebar/lib/row-actions'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
-import { RepoIconMark, type RepoIconSource } from '@/components/layout/repo-icon-mark'
+import { RepoIconMark } from '@/components/layout/repo-icon-mark'
 import { formatChangeCount } from '@/components/layout/format-change-count'
 import {
   ROW_GLYPH_BOX,
@@ -59,17 +59,31 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
   const isThread = useChatIsThread(chatId)
   const [renaming, setRenaming] = useState(false)
 
+  const routed = workspace?.branch ? workspace : null
   const added = workspace?.added ?? 0
   const deleted = workspace?.deleted ?? 0
 
   return (
     <div
       data-testid="chat-branch-header"
-      className={cn('flex items-center gap-1.5 text-[13px]', className)}
+      className={cn('flex items-center gap-2 text-[13px]', className)}
       onDoubleClick={() => {
         if (title !== null) setRenaming(true)
       }}
     >
+      {routed && repo ? (
+        <span data-testid="chat-branch-header-repo-icon" className="flex shrink-0 items-center">
+          <RepoIconMark repo={repo} size="xl" />
+        </span>
+      ) : (
+        <KindGlyph
+          working={working}
+          isThread={isThread}
+          className="size-5"
+          iconClassName="size-[18px]"
+        />
+      )}
+
       {renaming && title !== null ? (
         <InlineRenameInput
           defaultValue={title}
@@ -79,67 +93,74 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
           }}
           onCancel={() => setRenaming(false)}
         />
-      ) : workspace?.branch ? (
+      ) : (
         <span className="flex min-w-0 flex-1 flex-col justify-center">
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span data-testid="chat-branch-header-glyph" className={cn(ROW_GLYPH_BOX, 'size-5')}>
-              {working ? (
-                <FlickerSpinner className="size-[18px]" />
-              ) : isThread ? (
-                <ChatsCircle
-                  data-testid="chat-branch-header-chat-icon"
-                  className="size-[18px] text-muted-foreground"
-                  weight="regular"
-                />
-              ) : (
-                <GitBranch
-                  data-testid="chat-branch-header-branch-icon"
-                  className="size-[18px] text-muted-foreground"
+          <ChatTitle title={title} className="truncate" />
+          {routed && (
+            <span className={cn(ROW_SUBLABEL, 'flex items-center gap-1')}>
+              {repo && (
+                <KindGlyph
+                  working={working}
+                  isThread={isThread}
+                  className="size-3.5"
+                  iconClassName="size-3.5"
                 />
               )}
+              <WorkspaceRoute
+                repoName={repo?.name}
+                parentBranch={routed.parentBranch}
+                branch={routed.branch}
+              />
+              {(added > 0 || deleted > 0) && (
+                <span className="shrink-0 whitespace-pre">
+                  {' -- '}
+                  {added > 0 && (
+                    <span className={ROW_SUBLABEL_ADD}>+{formatChangeCount(added)}</span>
+                  )}
+                  {added > 0 && deleted > 0 && ' '}
+                  {deleted > 0 && (
+                    <span className={ROW_SUBLABEL_DEL}>-{formatChangeCount(deleted)}</span>
+                  )}
+                </span>
+              )}
             </span>
-            <ChatTitle title={title} className="min-w-0 truncate" />
-          </span>
-          <span className={cn(ROW_SUBLABEL, 'flex items-center')}>
-            <WorkspaceRoute
-              repo={repo}
-              parentBranch={workspace.parentBranch}
-              branch={workspace.branch}
-            />
-            {(added > 0 || deleted > 0) && (
-              <span className="shrink-0 whitespace-pre">
-                {' -- '}
-                {added > 0 && <span className={ROW_SUBLABEL_ADD}>+{formatChangeCount(added)}</span>}
-                {added > 0 && deleted > 0 && ' '}
-                {deleted > 0 && (
-                  <span className={ROW_SUBLABEL_DEL}>-{formatChangeCount(deleted)}</span>
-                )}
-              </span>
-            )}
-          </span>
-        </span>
-      ) : (
-        <span className="flex min-w-0 flex-1 items-center gap-1.5">
-          <span data-testid="chat-branch-header-glyph" className={cn(ROW_GLYPH_BOX, 'size-5')}>
-            {working ? (
-              <FlickerSpinner className="size-[18px]" />
-            ) : isThread ? (
-              <ChatsCircle
-                data-testid="chat-branch-header-chat-icon"
-                className="size-[18px] text-muted-foreground"
-                weight="regular"
-              />
-            ) : (
-              <GitBranch
-                data-testid="chat-branch-header-branch-icon"
-                className="size-[18px] text-muted-foreground"
-              />
-            )}
-          </span>
-          <ChatTitle title={title} className="min-w-0 truncate" />
+          )}
         </span>
       )}
     </div>
+  )
+}
+
+/** The chat-kind mark (or the working spinner). Where it sits is the caller's
+ *  call: left slot when there is no repo to show, else leading the route. */
+function KindGlyph({
+  working,
+  isThread,
+  className,
+  iconClassName,
+}: {
+  working: boolean
+  isThread: boolean
+  className: string
+  iconClassName: string
+}) {
+  return (
+    <span data-testid="chat-branch-header-glyph" className={cn(ROW_GLYPH_BOX, className)}>
+      {working ? (
+        <FlickerSpinner className={iconClassName} />
+      ) : isThread ? (
+        <ChatsCircle
+          data-testid="chat-branch-header-chat-icon"
+          className={cn(iconClassName, 'text-muted-foreground')}
+          weight="regular"
+        />
+      ) : (
+        <GitBranch
+          data-testid="chat-branch-header-branch-icon"
+          className={cn(iconClassName, 'text-muted-foreground')}
+        />
+      )}
+    </span>
   )
 }
 
@@ -149,29 +170,20 @@ const ROUTE_SEPARATOR = <span className="shrink-0 whitespace-pre"> / </span>
  *  parent's branch (`Workspace.parentBranch`); the leading segments give up
  *  their width first so the branch, the one that names this chat, stays legible. */
 function WorkspaceRoute({
-  repo,
+  repoName,
   parentBranch,
   branch,
 }: {
-  repo: RepoIconSource | null
+  repoName: string | undefined
   parentBranch: string | undefined
   branch: string
 }) {
   const parent = parentBranch && parentBranch !== branch ? parentBranch : null
   return (
     <span data-testid="chat-branch-header-route" className="flex min-w-0 items-center">
-      {repo && (
+      {repoName && (
         <>
-          <span className="flex min-w-0 shrink-[1000] items-center gap-1">
-            {/* Fixed to the route line's 13px so the 16px mark cannot grow the 42px header. */}
-            <span
-              data-testid="chat-branch-header-repo-icon"
-              className="flex h-[13px] shrink-0 items-center"
-            >
-              <RepoIconMark repo={repo} size="sm" />
-            </span>
-            <span className="min-w-0 truncate">{repo.name}</span>
-          </span>
+          <span className="min-w-0 shrink-[1000] truncate">{repoName}</span>
           {ROUTE_SEPARATOR}
         </>
       )}
@@ -181,14 +193,7 @@ function WorkspaceRoute({
           {ROUTE_SEPARATOR}
         </>
       )}
-      <span className="flex min-w-0 items-center gap-1">
-        <GitBranch
-          data-testid="chat-branch-header-route-branch-icon"
-          aria-hidden="true"
-          className="size-3 shrink-0"
-        />
-        <span className="min-w-0 truncate">{branch}</span>
-      </span>
+      <span className="min-w-0 truncate">{branch}</span>
     </span>
   )
 }

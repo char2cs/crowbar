@@ -164,24 +164,25 @@ describe('ChatBranchHeader', () => {
     expect(route).not.toContainElement(screen.getByTestId('chat-branch-header-title'))
   })
 
-  it('puts the chat glyph on the title line, beside the title, not on the route line', () => {
+  it('shows the repo icon in the left column, outside the title and route lines', () => {
     renderHeader()
-    const glyph = screen.getByTestId('chat-branch-header-glyph')
+    const repoIcon = screen.getByTestId('chat-branch-header-repo-icon')
     const title = screen.getByTestId('chat-branch-header-title')
-    expect(glyph.parentElement).toBe(title.parentElement)
-    expect(glyph.nextElementSibling).toBe(title)
-    expect(screen.getByTestId('chat-branch-header-route')).not.toContainElement(glyph)
+    const route = screen.getByTestId('chat-branch-header-route')
+    expect(repoIcon.parentElement).toBe(screen.getByTestId('chat-branch-header'))
+    expect(repoIcon.nextElementSibling).toContainElement(title)
+    expect(repoIcon).not.toContainElement(route)
+    expect(route).not.toContainElement(repoIcon)
   })
 
-  it('leads the repo segment with a repo icon and the branch segment with a branch icon', () => {
+  it('leads the route line with the chat glyph and leaves the title line bare', () => {
     renderHeader()
+    const glyph = screen.getByTestId('chat-branch-header-glyph')
     const route = screen.getByTestId('chat-branch-header-route')
-    const repoIcon = screen.getByTestId('chat-branch-header-repo-icon')
-    const branchIcon = screen.getByTestId('chat-branch-header-route-branch-icon')
-    expect(route).toContainElement(repoIcon)
-    expect(route).toContainElement(branchIcon)
-    expect(route.firstElementChild).toContainElement(repoIcon)
-    expect(route.lastElementChild).toContainElement(branchIcon)
+    expect(glyph.nextElementSibling).toBe(route)
+    expect(glyph.parentElement).not.toContainElement(screen.getByTestId('chat-branch-header-title'))
+    expect(screen.getByTestId('chat-branch-header-title').querySelector('svg')).toBeNull()
+    expect(route.querySelector('svg')).toBeNull()
     expect(route).toHaveTextContent(/^crowbar \/ feature\/pricing-rounding$/)
   })
 
