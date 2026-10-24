@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -182,12 +182,7 @@ func (u *Usecase) AnswerChoice(
 		return fmt.Errorf("agent: answer choice: render: %w", err)
 	}
 
-	answered := false
-	_, _, err = u.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
-		rows, err := ledger.ResolveAsk(st, choiceID, ledger.ResolutionAnswered, optionIDs)
-		answered = len(rows) > 0
-		return rows, err
-	})
+	answered, err := u.asks.resolve(ctx, chatID, choiceID, ledger.ResolutionAnswered, optionIDs)
 	if err != nil {
 		return fmt.Errorf("agent: answer choice: %w", err)
 	}
@@ -198,17 +193,23 @@ func (u *Usecase) AnswerChoice(
 	return nil
 }
 
-// askResolver closes an ask with the outcome its relay reached.
-type askResolver struct{ ledger *ledgerstore.Store }
+// askResolver closes a chat's asks: the outcome a relay reached, or a person's
+// answer.
+type askResolver struct{ writes ingress.Writer }
 
 func (r askResolver) ResolveAsk(ctx context.Context, chatID, askID, resolution string) error {
-	_, _, err := r.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
-		return ledger.ResolveAsk(st, askID, resolution, nil)
-	})
-	if err != nil {
+	if _, err := r.resolve(ctx, chatID, askID, resolution, nil); err != nil {
 		return fmt.Errorf("agent: resolve ask: %w", err)
 	}
 	return nil
+}
+
+// resolve closes askID as resolution, and reports whether it was still open.
+func (r askResolver) resolve(ctx context.Context, chatID, askID, resolution string, optionIDs []string) (bool, error) {
+	rows, err := r.writes.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		return ledger.ResolveAsk(st, askID, resolution, optionIDs)
+	})
+	return len(rows) > 0, err
 }
 
 // pendingChoice finds the still-open question by id. A prompt the CLI has already

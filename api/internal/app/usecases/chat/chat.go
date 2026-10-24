@@ -231,6 +231,8 @@ type Usecase struct {
 	// because a slot describes a live hook process holding a live provider gate
 	// open; see answers.go.
 	answers *answerdesk.Desk
+	// asks closes the chat's asks, for the desk and for a person's answer.
+	asks askResolver
 	// tools is the agent-facing capability surface. It is kept after construction
 	// for one reason: its Chats, ChatLogs, Lineage and ToolAccess ports are this
 	// type's own methods, so New is the only thing that can fill them, and a nil

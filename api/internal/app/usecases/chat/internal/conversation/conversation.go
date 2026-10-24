@@ -28,6 +28,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -61,6 +62,11 @@ type Transcript interface {
 	Forget(chatID string)
 }
 
+// Writes commits rows to a chat's ledger under the chat's lock.
+type Writes interface {
+	Do(ctx context.Context, chatID string, fn func(ledger.State) ([]ledger.Row, error)) ([]ledger.Row, error)
+}
+
 // Conversations is the chat record.
 type Conversations struct {
 	chats agentchat.EventStore
@@ -78,6 +84,8 @@ type Conversations struct {
 	// the descriptor catalog a chat's model/effort selection is validated against.
 	home   func() (string, error)
 	ledger *ledgerstore.Store
+	// writes commits the chat's own notes, under the chat's lock.
+	writes Writes
 	// defaultPermissionLevel resolves the current global default at mint time
 	// — Crowbar's own guarded/trusted/full-auto name, not yet checked against
 	// any provider (a bare-minted chat has none). It's a closure, not a
@@ -102,6 +110,7 @@ type Deps struct {
 	Lineage    seam.ChatLineage
 	Home       func() (string, error)
 	Ledger     *ledgerstore.Store
+	Writes     Writes
 
 	// DefaultPermissionLevel resolves the current global default at the
 	// moment a chat is minted. It's a closure, not a direct usecase
@@ -122,6 +131,7 @@ func New(d Deps) *Conversations {
 		lineage:    d.Lineage,
 		home:       d.Home,
 		ledger:     d.Ledger,
+		writes:     d.Writes,
 
 		defaultPermissionLevel: d.DefaultPermissionLevel,
 	}

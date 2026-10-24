@@ -122,7 +122,7 @@ func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
 	ctx = context.WithoutCancel(ctx)
 	rs.agents.ForgetRunner(runnerID)
 	rs.surfaces.drop(runnerID)
-	rs.answers.ReleaseRunner(ctx, runnerID)
+	rs.answers.ReleaseRunner(runnerID)
 	entry, ok := rs.claimEnd(runnerID)
 	if !ok {
 		return

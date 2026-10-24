@@ -80,6 +80,26 @@ func TestChoices_AnAskItsTurnOutlivedIsAbandoned(t *testing.T) {
 	assert.Empty(t, c.AnsweredOptionIDs)
 }
 
+// Its runner's exit abandons an ask, as the ledger's state does; another
+// runner's exit leaves it open.
+func TestChoices_AnAskIsAbandonedByItsOwnRunnersExit(t *testing.T) {
+	b := newBook(t)
+	b.open("T1", "go")
+	b.add(asked(t, ledger.Ask{AskID: "choice-1", Event: "permission", Kind: domain.ChoiceKindPermission, Answerable: true}))
+
+	b.add(mk(t, ledger.KindRunnerExited, "", "", ledger.RunnerExited{RunnerID: "run-0", Reason: "exited"}))
+	pending, err := b.p.PendingChoices(t.Context(), chatID)
+	require.NoError(t, err)
+	require.Len(t, pending, 1, "another runner's exit leaves it open")
+	assert.Nil(t, b.activity().Choices[0].ResolvedAt)
+
+	b.add(mk(t, ledger.KindRunnerExited, "", "", ledger.RunnerExited{RunnerID: "run-1", Reason: "exited"}))
+	assert.Equal(t, ledger.ResolutionAbandoned, b.activity().Choices[0].Resolution)
+	pending, err = b.p.PendingChoices(t.Context(), chatID)
+	require.NoError(t, err)
+	assert.Empty(t, pending)
+}
+
 // What a publication announces is read from the state alone, under the writer.
 func TestChoices_PendingChoicesOfTheState(t *testing.T) {
 	b := newBook(t)

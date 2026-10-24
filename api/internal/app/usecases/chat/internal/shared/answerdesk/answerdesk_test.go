@@ -188,7 +188,7 @@ func TestReleaseRunner_FreesOnlyThatRunnersRelays(t *testing.T) {
 		ChoiceID: "choice-2", ChatID: "chat-2", RunnerID: "runner-2",
 	})
 
-	released := d.ReleaseRunner(context.Background(), "runner-1")
+	released := d.ReleaseRunner("runner-1")
 
 	require.Len(t, released, 1)
 	assert.Same(t, mine, released[0])
@@ -212,7 +212,7 @@ func TestReleaseRunner_DoesNotReportAnAlreadyDecidedRelay(t *testing.T) {
 	d, slot := fixture(time.Minute)
 	d.Resolve(slot, []byte("allow"))
 
-	released := d.ReleaseRunner(context.Background(), "runner-1")
+	released := d.ReleaseRunner("runner-1")
 
 	assert.Empty(t, released, "a decided relay is not an abandoned one")
 	_, waiting := d.Pending("choice-1")
@@ -365,25 +365,16 @@ func TestLedger_AbandonClosesTheQuestionAsProceeded(t *testing.T) {
 		"an undecided prompt is being resolved by the provider's own UI")
 }
 
-func TestLedger_ReleaseRunnerClosesTheQuestionAsAbandoned(t *testing.T) {
-	t.Parallel()
-
-	d, _, ledger := withLedger(time.Minute)
-
-	d.ReleaseRunner(context.Background(), "runner-1")
-
-	require.Equal(t, []resolution{{"chat-1", "choice-1", domain.ChoiceResolutionAbandoned}}, ledger.all())
-}
-
-func TestLedger_AnsweredRelaysAreNotClosedAgainByADeadRunner(t *testing.T) {
+// A dead runner's exit closes its questions; releasing its relays writes nothing.
+func TestLedger_ADeadRunnersReleaseWritesNothing(t *testing.T) {
 	t.Parallel()
 
 	d, slot, ledger := withLedger(time.Minute)
-	d.Resolve(slot, []byte("allow"))
 
-	d.ReleaseRunner(context.Background(), "runner-1")
+	d.ReleaseRunner("runner-1")
 
-	assert.Empty(t, ledger.all(), "a decided relay was answered, not abandoned")
+	<-slot.Settled()
+	assert.Empty(t, ledger.all())
 }
 
 // A ledger that refuses must not strand the relay it already released.
@@ -408,7 +399,7 @@ func TestLedger_NilLedgerIsSilent(t *testing.T) {
 	d, _ := fixture(time.Minute)
 
 	d.Abandon(context.Background(), "choice-1")
-	d.ReleaseRunner(context.Background(), "runner-1")
+	d.ReleaseRunner("runner-1")
 }
 
 func TestWithChange_AnnouncesEachMoveOfTheAnswerableSetAfterTheLockIsReleased(t *testing.T) {
@@ -446,7 +437,7 @@ func TestWithChange_AReleasedRelayAndADeadRunnerAreAnnounced(t *testing.T) {
 
 	_, err := d.Await(context.Background(), "choice-1")
 	require.NoError(t, err)
-	d.ReleaseRunner(context.Background(), "runner-2")
+	d.ReleaseRunner("runner-2")
 
 	assert.Equal(t, []string{"chat-1", "chat-2"}, announced)
 }

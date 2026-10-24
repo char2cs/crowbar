@@ -242,7 +242,7 @@ type facts struct {
 	compacting *markFact
 	asks       map[string]*askFact
 	asked      []*askFact
-	exits      []ledger.Row
+	exits      []exitFact
 	// runners are the providers the chat's runners ran, by runner id.
 	runners map[string]string
 }
@@ -274,7 +274,9 @@ func (f *facts) apply(r ledger.Row) {
 			f.runners[body.RunnerID] = body.Provider
 		}
 	case ledger.KindRunnerExited:
-		f.exits = append(f.exits, r)
+		if body, err := ledger.DecodeBody[ledger.RunnerExited](r); err == nil {
+			f.exits = append(f.exits, exitFact{runnerID: body.RunnerID, seq: r.Seq, at: r.At})
+		}
 	case ledger.KindPlan:
 		f.applyPlan(r)
 	case ledger.KindToolCall:
@@ -302,16 +304,34 @@ func (f *facts) turn(id string) *turnFacts {
 	return t
 }
 
+// exitFact is a runner's exit.
+type exitFact struct {
+	runnerID string
+	seq      int64
+	at       time.Time
+}
+
 // closedBy is when what turnID's turn opened at seq is over though nothing
-// closed it: at its turn's end, else at the first runner exit after it. A
+// closed it: at its turn's end, else at its runner's first exit after it. A
 // late fact of a turn that already ended is over with it, unless strict.
 func (f *facts) closedBy(turnID string, seq int64, strict bool) (time.Time, bool) {
-	if t, ok := f.turns[turnID]; ok && t.ended && (!strict || t.endSeq > seq) {
+	t, ok := f.turns[turnID]
+	if ok && t.ended && (!strict || t.endSeq > seq) {
 		return t.endAt, true
 	}
+	return f.exitAfter(t, seq)
+}
+
+// exitAfter is the first exit after seq of t's runner; of any runner when t
+// names none.
+func (f *facts) exitAfter(t *turnFacts, seq int64) (time.Time, bool) {
+	var runnerID string
+	if t != nil {
+		runnerID = t.start.RunnerID
+	}
 	for _, x := range f.exits {
-		if x.Seq > seq {
-			return x.At, true
+		if x.seq > seq && (runnerID == "" || x.runnerID == runnerID) {
+			return x.at, true
 		}
 	}
 	return time.Time{}, false

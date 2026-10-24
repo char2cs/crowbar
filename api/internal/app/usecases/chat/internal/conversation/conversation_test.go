@@ -19,6 +19,7 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/conversation"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/transcript"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
@@ -126,7 +127,7 @@ func newFixture(t *testing.T, lineage stubLineage) fixture {
 		Workspace:  stubWorkspace{home: home, worktree: worktree},
 		Lineage:    lineage,
 		Home:       func() (string, error) { return home, nil },
-		Ledger:     chatLedger,
+		Ledger:     chatLedger, Writes: ingress.NewWriter(chatLedger, ingress.NewLocks()),
 
 		DefaultPermissionLevel: func(context.Context) (string, error) { return level, nil },
 	})
@@ -212,12 +213,8 @@ func TestMintChat_CreatesAReadableDormantChat(t *testing.T) {
 	assert.Empty(t, chat.Title)
 }
 
-// TestRegression_MintChat_RecordsTheProviderItIsBornOn pins the durable write
-// itself. domain.Chat.ProviderID used to be written ONLY by the best-effort
-// SetProvider a successful spawn makes, so a chat whose CLI never came up carried
-// nothing — and on a dormant chat with no conversation row and no switch marker,
-// that field is the last thing anything can ask. Writing it at the mint is what
-// makes the answer exist before any process does.
+// A chat records the provider it is born on at its mint, before any CLI runs:
+// a dormant chat with no switch marker has nothing else that names it.
 func TestRegression_MintChat_RecordsTheProviderItIsBornOn(t *testing.T) {
 	t.Parallel()
 

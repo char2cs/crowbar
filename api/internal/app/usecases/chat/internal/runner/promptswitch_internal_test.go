@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -139,4 +140,37 @@ func TestSubmitPromptWithSwitch_ARevivesUnchangedPickCommitsNothing(t *testing.T
 	assert.Contains(t, h.term.lastCall().argv, "deep", "the revive runs the chat's pick")
 	assert.Empty(t, committed, "an unchanged pick is not written again")
 	assert.Empty(t, dividers(t, h.rs.ledger, h.chatID))
+}
+
+// A selection's dividers land after the hook holding its chat: the change
+// waits for the chat's lock, so they never cut into that hook's record.
+func TestSetChatSelection_ItsDividersLandAfterTheHookHoldingTheChat(t *testing.T) {
+	locks, asked := ingress.NewLocks(), make(chan string, 1)
+	var committed []string
+	rs := &Runners{
+		chatLock: askedLock{Locks: locks, asked: asked}, parks: newParks(), ledger: newTestLedger(t),
+		conversations: stagedConversations{committed: &committed},
+	}
+	unlock, err := locks.Lock(t.Context(), "chat-1") // a hook mid-record
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() { done <- rs.SetChatSelection(context.Background(), "chat-1", "deep", "") }()
+	select {
+	case <-asked:
+	case err := <-done:
+		done <- err
+	}
+	said, err := ledger.NewRow(ledger.KindAssistantText, "T-1", "", ledger.AssistantText{MessageID: "m-1", Text: "said"})
+	require.NoError(t, err)
+	_, _, err = rs.ledger.Append(t.Context(), "chat-1", said)
+	require.NoError(t, err)
+	unlock()
+	require.NoError(t, <-done)
+
+	rows, err := rs.ledger.Read(t.Context(), "chat-1", 0, 0)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	assert.Equal(t, ledger.KindAssistantText, rows[0].Kind)
+	assert.Equal(t, ledger.KindMarker, rows[1].Kind, "the divider follows the hook's row")
 }

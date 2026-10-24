@@ -69,7 +69,8 @@ func (c *Conversations) appendNote(ctx context.Context, chatID, text string) err
 	if err != nil {
 		return fmt.Errorf("agent: append note: %w", err)
 	}
-	if _, _, err := c.ledger.Append(ctx, chatID, row); err != nil {
+	_, err = c.writes.Do(ctx, chatID, func(ledger.State) ([]ledger.Row, error) { return []ledger.Row{row}, nil })
+	if err != nil {
 		return fmt.Errorf("agent: append note: %w", err)
 	}
 	return nil

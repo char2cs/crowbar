@@ -107,6 +107,8 @@ type shared struct {
 	// every user-initiated path decides under it. It is the only thing that can
 	// stop two concurrent switches putting two CLIs on one chat.
 	locks *ingress.Locks
+	// writes is the ledger as every path that is not a hook writes it.
+	writes ingress.Writer
 	// answers is the desk of relays parked on a human decision.
 	answers *answerdesk.Desk
 }
@@ -130,13 +132,14 @@ func New(d Deps) *Usecase {
 		nodes:      d.Nodes,
 		repoRoots:  d.RepoRoots,
 	}
+	locks := ingress.NewLocks()
 	sh := shared{
 		telemetry: telemetry.NewDurable(context.Background(), d.ChatTelemetry),
-		locks:     ingress.NewLocks(),
-		answers: answerdesk.New(
-			answerdesk.DefaultRetention, askResolver{ledger: d.Ledger}, answerdesk.WithChange(u.announceChoices),
-		),
+		locks:     locks,
+		writes:    ingress.NewWriter(d.Ledger, locks),
 	}
+	u.asks = askResolver{writes: sh.writes}
+	sh.answers = answerdesk.New(answerdesk.DefaultRetention, u.asks, answerdesk.WithChange(u.announceChoices))
 	u.answers = sh.answers
 	// The tool surface's self-ports, filled in here because the usecase does
 	// not exist when the caller builds the Deps.
@@ -213,6 +216,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Lineage:    d.Lineage,
 		Home:       d.Home,
 		Ledger:     d.Ledger,
+		Writes:     sh.writes,
 
 		DefaultPermissionLevel: u.DefaultPermissionLevel,
 	})

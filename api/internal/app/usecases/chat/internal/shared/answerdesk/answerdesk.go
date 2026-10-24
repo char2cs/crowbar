@@ -18,9 +18,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Ledger closes an ask with the outcome its relay reached: proceeded past, or
-// abandoned with its runner. The desk owns that write because it alone knows
-// which one a relay reached.
+// Ledger closes an ask its relay proceeded past. The desk owns that write
+// because it alone knows the relay reached it.
 type Ledger interface {
 	ResolveAsk(ctx context.Context, chatID, askID, resolution string) error
 }
@@ -216,18 +215,13 @@ func (d *Desk) Discard(slot *Slot) bool {
 	return decided
 }
 
-// ReleaseRunner frees every relay of a runner that is gone and closes each
-// still-waiting question as abandoned. A relay whose verdict had already landed
-// is left alone: it was answered, not abandoned.
-//
-// It returns the slots it released, so a caller can see what a dead runner took
-// with it.
-func (d *Desk) ReleaseRunner(ctx context.Context, runnerID string) []*Slot {
+// ReleaseRunner frees every still-waiting relay of a runner that is gone, and
+// returns them. It writes nothing: the runner's exit closes its questions. A
+// relay whose verdict had already landed is left alone.
+func (d *Desk) ReleaseRunner(runnerID string) []*Slot {
 	blocked := d.releaseRunner(runnerID)
 	for _, slot := range blocked {
 		d.announce(slot.ChatID)
-		d.record(ctx, slot, domain.ChoiceResolutionAbandoned,
-			"agent: answer: release prompt of dead runner")
 	}
 	return blocked
 }
