@@ -13,7 +13,6 @@ import {
 import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
 import { chatLedgerStore } from '@/features/agent/stores/chat-ledger-store'
 import { resetChatPresentationMemoryForTests } from '@/features/agent/hooks/use-chat-presentation'
-import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
 import { nanoid } from 'nanoid'
 
 // Hoisted fakes — declared before the vi.mock calls that reference them.
@@ -838,26 +837,6 @@ describe('AgentChatPane', () => {
       await screen.findByTestId('agent-empty-document')
       const section = document.querySelector('.agent-chat.chat') as HTMLElement
       expect(section.style.getPropertyValue('--agent-transcript-header-clearance')).toBe('0px')
-    })
-
-    // The TUI's grid cannot scroll behind the glass: its first row must start
-    // below the header's row, or the header's subtitle paints over it.
-    it('starts the terminal surface below an overlay header', async () => {
-      landOnTerminal()
-      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      await renderBelowOverlayHeader(store, 'c1', 'r1')
-
-      const surface = await screen.findByTestId('agent-terminal-surface')
-      expect(surface.style.paddingTop).toBe(`${CHROME_ROW_HEIGHT_PX}px`)
-    })
-
-    it('gives the terminal surface no clearance with no overlay header above', async () => {
-      landOnTerminal()
-      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      await renderPane(store, openChatPane(store, 'c1', 'r1'))
-
-      const surface = await screen.findByTestId('agent-terminal-surface')
-      expect(surface.style.paddingTop).toBe('0px')
     })
   })
 

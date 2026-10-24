@@ -342,11 +342,6 @@ export function AgentChatPane({
   const chatSurfaceRef = useRef<HTMLDivElement>(null)
   const terminalSurfaceRef = useRef<HTMLDivElement>(null)
 
-  // The TUI's grid cannot scroll behind the overlay header's glass, so its top
-  // edge clears the header row — unless a stacked split puts the chat above it.
-  const terminalHeaderClearancePx =
-    belowOverlayHeader && !(splitting && splitStacked) ? HEADER_ROW_HEIGHT_PX : 0
-
   const gridSlack = useTerminalGridSlack(
     columnRef,
     attachment.state === 'attached' && presentation === 'terminal',
@@ -1100,7 +1095,6 @@ export function AgentChatPane({
             isActivePane={isActivePane}
             isVisible={isVisible}
             gridSlack={gridSlack}
-            headerClearancePx={terminalHeaderClearancePx}
             providers={providers}
             activeProviderId={activeProviderId}
             switchDisabled={
