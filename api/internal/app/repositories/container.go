@@ -35,6 +35,9 @@ import (
 type Container struct {
 	Workspace    workspace.Workspace
 	ReviewThread reviewthread.ReviewThread
+	// ReviewThreadChanges wakes in-process waiters when a review thread changes;
+	// it is what the hub projection's broadcast feeds.
+	ReviewThreadChanges *reviewthread.Changes
 	// AgentChat is the asynx-backed EventStore: its store/hub projections are
 	// live on axAgentChat and the agent usecase sends every AgentChat mutation
 	// through it (the gorm-backed store was retired in the Task 10 cutover).
@@ -170,11 +173,13 @@ func New(
 	// state/store/review_thread.db (Task 12), no longer the shared view.db: pass
 	// ReviewThreadView() as the read-model DB while keeping ReviewThreadES() for the
 	// lazy AggregateLister Replay (§3.7).
-	rt, err := reviewthread.New(axReviewThread, adapters.ReviewThreadES(), adapters.ReviewThreadView(), func(domain.ReviewThread) {})
+	threadChanges := reviewthread.NewChanges()
+	rt, err := reviewthread.New(axReviewThread, adapters.ReviewThreadES(), adapters.ReviewThreadView(), threadChanges.Notify)
 	if err != nil {
 		return nil, err
 	}
 	c.ReviewThread = rt
+	c.ReviewThreadChanges = threadChanges
 
 	// agentchat: build the asynx-backed EventStore over the singleton
 	// axAgentChat, registering its store + hub projections (store.New, invoked by

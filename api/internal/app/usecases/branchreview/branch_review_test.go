@@ -202,6 +202,7 @@ type mockGitEngine struct {
 	DiffAgainstRefFn  func(ctx context.Context, repoPath, ref string) (gitdomain.MultiFileDiff, error)
 	ReviewFilesFn     func(ctx context.Context, repoPath, ref string, dirty []string) ([]gitdomain.ReviewFileSummary, error)
 	ReviewFilePatchFn func(ctx context.Context, repoPath, ref, path string, maxLines int, w io.Writer) (int, bool, error)
+	ReviewFileSidesFn func(ctx context.Context, repoPath, ref, path, oldPath string) (gitdomain.ReviewFileSides, error)
 	ReviewOutlineFn   func(ctx context.Context, repoPath, ref string) ([]gitdomain.FileOutline, error)
 	ReviewSearchFn    func(ctx context.Context, repoPath, ref, query string, opts gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error)
 	MergeBaseFn       func(ctx context.Context, repoPath, a, b string) (string, error)
@@ -244,6 +245,16 @@ func (g *mockGitEngine) ReviewFilePatch(
 		return g.ReviewFilePatchFn(ctx, repoPath, ref, path, maxLines, w)
 	}
 	return 0, false, nil
+}
+
+func (g *mockGitEngine) ReviewFileSides(
+	ctx context.Context,
+	repoPath, ref, path, oldPath string,
+) (gitdomain.ReviewFileSides, error) {
+	if g.ReviewFileSidesFn != nil {
+		return g.ReviewFileSidesFn(ctx, repoPath, ref, path, oldPath)
+	}
+	return gitdomain.ReviewFileSides{}, nil
 }
 
 func (g *mockGitEngine) ReviewOutline(

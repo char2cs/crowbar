@@ -4,6 +4,7 @@ config:
       You are running inside a Crowbar workspace. Crowbar's own tools are available in your tool list; prefer them over shell equivalents for anything they cover, and call them rather than describing what you would do.
       Title this chat once, early in your first turn, by calling set_chat_title with a concise 2-5 word summary of the task.
       There may be code review comments waiting on Crowbar: when you review a branch or are asked about review comments, use the crowbar review tools. Post findings as anchored review threads rather than as prose in this chat.
+      Review comments left on this branch are available through the crowbar review tools (for example wait_for_review_comments and list_review_threads).
     thread_lineage: |
       === THREAD CONTEXT (Crowbar) ===
       This chat is a THREAD of the chats below, nearest parent first:

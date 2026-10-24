@@ -26,3 +26,7 @@ var (
 // match it with errors.Is. A hunk stage/unstage raises it when hunkID no longer
 // matches any current diff hunk (04 §4); the API maps it to HTTP 409.
 var ErrStaleHunk = diff.ErrStaleHunk
+
+// ErrFileTooLarge re-exports the diff subpackage's size-ceiling sentinel so the
+// usecase can tell "too big to expand" from a failure.
+var ErrFileTooLarge = diff.ErrFileTooLarge

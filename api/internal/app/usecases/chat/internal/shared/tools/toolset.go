@@ -23,6 +23,8 @@ type Deps struct {
 	Review       ReviewReader
 	Threads      ThreadReader
 	ThreadWrites ThreadWriter
+	// ThreadChanges wakes wait_for_review_comments; nil withdraws that tool.
+	ThreadChanges ThreadChanges
 	// Idempotency is the per-daemon retry guard the write tools dedup through. It
 	// is a dependency rather than something a tool creates for itself because it
 	// must outlive the per-request ToolSet — see Idempotency.

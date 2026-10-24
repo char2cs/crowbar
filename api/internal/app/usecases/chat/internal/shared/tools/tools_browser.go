@@ -86,7 +86,7 @@ func browserTools(deps Deps) []toolDef {
 	if deps.Browser == nil {
 		return nil
 	}
-	defs := []toolDef{browserTabsDef(deps.Browser), browserScreenshotDef(deps.Browser)}
+	defs := []toolDef{browserTabsDef(deps.Browser), browserScreenshotDef(deps.Browser), browserResolveDef(deps.Browser)}
 	for _, spec := range browserSpecs {
 		defs = append(defs, spec.def(deps.Browser))
 	}

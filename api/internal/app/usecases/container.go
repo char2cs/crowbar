@@ -560,6 +560,8 @@ func newAgentToolDeps(
 		return agentusecase.ToolDeps{}, fmt.Errorf("usecases: wire agent tools: no workspace store")
 	case repos.ReviewThread == nil:
 		return agentusecase.ToolDeps{}, fmt.Errorf("usecases: wire agent tools: no review thread store")
+	case repos.ReviewThreadChanges == nil:
+		return agentusecase.ToolDeps{}, fmt.Errorf("usecases: wire agent tools: no review thread change source")
 	case review == nil:
 		return agentusecase.ToolDeps{}, fmt.Errorf("usecases: wire agent tools: no branch review usecase")
 	case threadBroadcast == nil:
@@ -577,6 +579,7 @@ func newAgentToolDeps(
 		Review:          review,
 		Threads:         repos.ReviewThread,
 		ThreadWrites:    repos.ReviewThread,
+		ThreadChanges:   repos.ReviewThreadChanges,
 		Idempotency:     agentusecase.NewToolIdempotency(),
 		ThreadBroadcast: threadBroadcast,
 		ChatReads:       chatReader,

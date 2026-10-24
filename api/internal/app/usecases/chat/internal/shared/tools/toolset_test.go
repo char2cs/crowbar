@@ -217,14 +217,14 @@ func TestToolSet_FoldsAToolThisSetDidNotRegister(t *testing.T) {
 	require.NotContains(t, snap, "list_review_threads")
 }
 
-// TestToolSet_NilMetricsStillRegistersAllEightTools is the fail-open guard:
+// TestToolSet_NilMetricsStillRegistersAllNineTools is the fail-open guard:
 // every other Deps port suppresses its tool group when nil, but Metrics must
 // not — losing the call counters is never a reason to lose a capability. The
 // shared toolsetOn fixture never sets Metrics, so this also doubles as proof
 // that a production Deps left without Metrics wired keeps working.
-func TestToolSet_NilMetricsStillRegistersAllEightTools(t *testing.T) {
+func TestToolSet_NilMetricsStillRegistersAllNineTools(t *testing.T) {
 	ts, _ := toolsetOn(t, &spyRenamer{})
-	require.Len(t, ts.Tools(), 8)
+	require.Len(t, ts.Tools(), 9)
 
 	out, err := ts.Call(context.Background(), "set_chat_title", json.RawMessage(`{"title":"x"}`))
 	require.NoError(t, err)
@@ -2161,7 +2161,7 @@ func TestCapabilitiesPreamble_OnlyNamesRegisteredTools(t *testing.T) {
 	for _, tool := range ts.Tools() {
 		registered[tool.Name] = true
 	}
-	require.Len(t, registered, 8, "the preamble must be checked against the whole surface")
+	require.Len(t, registered, 9, "the preamble must be checked against the whole surface")
 
 	preamble := config.GetPrompts().CapabilitiesInstruction
 	require.NotEmpty(t, preamble)
@@ -2266,6 +2266,7 @@ func toolsetOn(t *testing.T, renamer tools.ChatRenamer) (*tools.ToolSet, string)
 		ChatLogs:        &stubChatLogs{},
 		Lineage:         &stubLineage{},
 		ThreadBroadcast: (&spyThreadBroadcast{}).fn(),
+		ThreadChanges:   reviewthread.NewChanges(),
 	}
 	return tools.NewToolSet(deps, "RUN", tok), tok
 }
@@ -2284,15 +2285,15 @@ func TestToolSet_AdvertisesSetChatTitle(t *testing.T) {
 // Global constraint: codex does not defer tool schemas, so every tool costs
 // context on every codex turn.
 //
-// Exactly 8, not "at most 8". A LessOrEqual here is a guard that cannot fail
+// Exactly 9, not "at most 9". A LessOrEqual here is a guard that cannot fail
 // for the reason it exists: it passes just as happily on a fixture that wires
-// five tools as on one that wires all eight — which is precisely how a
+// five tools as on one that wires all nine — which is precisely how a
 // 5-of-8 toolsetOn hid for three tasks while this test stayed green, silently
 // narrowing every other guard built on the same fixture to the tools that
 // happened to remain.
 func TestToolSet_RespectsToolCeiling(t *testing.T) {
 	ts, _ := toolsetOn(t, &spyRenamer{})
-	require.Len(t, ts.Tools(), 8)
+	require.Len(t, ts.Tools(), 9)
 }
 
 // No tool may take a scope argument — authority comes from the runner, never

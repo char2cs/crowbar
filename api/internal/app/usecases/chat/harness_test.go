@@ -1391,6 +1391,7 @@ func newFixtureUsing(
 			Review:          fixtureReviewReader{},
 			Threads:         fixtureThreadReader{},
 			ThreadWrites:    fixtureThreadWriter{},
+			ThreadChanges:   reviewthread.NewChanges(),
 			Idempotency:     agenttools.NewIdempotency(),
 			ThreadBroadcast: noopThreadBroadcast,
 		},
