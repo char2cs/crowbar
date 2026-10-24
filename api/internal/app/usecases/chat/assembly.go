@@ -123,7 +123,7 @@ func New(d Deps) *Usecase {
 		chats:      d.Chats,
 		ledger:     d.Ledger,
 		blobs:      d.Blobs,
-		transcript: transcript.New(d.Ledger),
+		transcript: &feedTranscript{Projector: transcript.New(d.Ledger)},
 		agents:     d.Agents,
 		ws:         d.Workspace,
 		worktree:   d.Worktree,
@@ -208,7 +208,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	}
 	u.conversations = conversation.New(conversation.Deps{
 		Chats:      d.Chats,
-		Transcript: forgetting{Projector: u.transcript, choices: &u.choiceFeed},
+		Transcript: u.transcript,
 		Blobs:      d.Blobs,
 		Telemetry:  sh.telemetry,
 		Agents:     d.Agents,

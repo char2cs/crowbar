@@ -41,7 +41,7 @@ func (u *Usecase) publishLedgerRows(chatID string, rows []ledger.Row, st ledger.
 		}
 	}
 	if asked {
-		u.choiceFeed.publish(feed, chatID, wsID, transcript.PendingChoicesOf(st), u.answers.AnswerableIDs)
+		u.transcript.choices.publish(feed, chatID, wsID, transcript.PendingChoicesOf(st), u.answers.AnswerableIDs)
 	}
 }
 
@@ -96,7 +96,7 @@ func (u *Usecase) announceChoices(chatID string) {
 		if err != nil {
 			return err
 		}
-		u.choiceFeed.publish(feed, chatID, snap.Chat.WorkspaceID, transcript.PendingChoicesOf(st), u.answers.AnswerableIDs)
+		u.transcript.choices.publish(feed, chatID, snap.Chat.WorkspaceID, transcript.PendingChoicesOf(st), u.answers.AnswerableIDs)
 		return nil
 	})
 	if err != nil {
@@ -164,16 +164,16 @@ func (c *choiceFeed) forget(chatID string) {
 	delete(c.sent, chatID)
 }
 
-// forgetting is the transcript the record erases a chat through: what the
-// chat's clients were told of its questions goes with it.
-type forgetting struct {
+// feedTranscript is the transcript with what each chat's clients were last
+// told of its questions: erasing a chat forgets both.
+type feedTranscript struct {
 	*transcript.Projector
-	choices *choiceFeed
+	choices choiceFeed
 }
 
-func (f forgetting) Forget(chatID string) {
-	f.Projector.Forget(chatID)
-	f.choices.forget(chatID)
+func (t *feedTranscript) Forget(chatID string) {
+	t.Projector.Forget(chatID)
+	t.choices.forget(chatID)
 }
 
 func choiceFingerprint(choices []domain.ActivityChoice, answerable []string) string {

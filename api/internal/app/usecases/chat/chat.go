@@ -20,7 +20,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/transcript"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -211,7 +210,7 @@ type Usecase struct {
 	ledger *ledgerstore.Store
 	blobs  *ledgerstore.Blobs
 	// transcript is the ledger in the read shapes the clients speak.
-	transcript *transcript.Projector
+	transcript *feedTranscript
 	ws         WorkspaceReader
 	worktree   WorktreeCreator
 	// folders/nodes are the Folder+Node ports 2026-09-08
@@ -245,8 +244,6 @@ type Usecase struct {
 	snapshots *snapshot.Snapshots
 	// feed is the hub, bound at sweep start; ledger commits publish through it.
 	feed atomic.Pointer[ChatFeed]
-	// choiceFeed dedups the question frames each chat is sent.
-	choiceFeed choiceFeed
 
 	// The five components. Each owns one responsibility, and the delegating
 	// methods in this file and the other five are the whole of what reaches them.
