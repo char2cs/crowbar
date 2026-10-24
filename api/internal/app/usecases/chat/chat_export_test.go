@@ -13,3 +13,6 @@ import (
 // without depending on which test in the binary ran first. A composition rule tested
 // through a memoised global is a test that passes for the wrong reason.
 var ComposeContext = conversation.ComposeContext
+
+// ForgetTranscript drops chatID's cached transcript: its next read is the ledger's.
+func (u *Usecase) ForgetTranscript(chatID string) { u.transcript.Forget(chatID) }

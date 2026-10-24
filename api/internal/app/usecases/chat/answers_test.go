@@ -141,14 +141,8 @@ func TestAnswer_APermissionIsAnsweredFromCrowbarAndReachesTheCLI(t *testing.T) {
 	assert.Empty(t, pendingChoices(t, f, chatID), "an answered prompt stops pending")
 }
 
-// TestAnswer_AHumanAnswerAlsoResolvesThePermissionsOwnInterruption is the
-// human-path half of the fix for a live-review finding on a45f7930: a
-// permission choice and the interruption banner it opens (observation.go's
-// HookPermission case) were only ever paired going in — resolving the
-// choice left the interruption open until turn-close, so it kept counting
-// against domain.MaxOpenPerTurn for the rest of the turn. See
-// TestRegression_ManyAutoApprovedPermissionsInOneTurnNeverHitMaxOpenPerTurn
-// (permission_level_test.go) for the auto-approve half of the same fix.
+// A person's answer closes the permission's interruption with its choice, so
+// it stops counting against MaxOpenPerTurn.
 func TestAnswer_AHumanAnswerAlsoResolvesThePermissionsOwnInterruption(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -173,16 +167,8 @@ func TestAnswer_AHumanAnswerAlsoResolvesThePermissionsOwnInterruption(t *testing
 			"against MaxOpenPerTurn for the rest of the turn")
 }
 
-// TestAnswer_AnAnsweredQuestionAlsoResolvesItsOwnInterruption is the
-// AskUserQuestion half of the same fix: AskUserQuestion is a TOOL, not a
-// separate event — it arrives on HookPermission exactly like a plain
-// tool_permission choice does (see claude.yaml's own comment on this), so
-// its interruption shares the identical id scheme and must close the same
-// way. A live review of 56db1f38 caught an earlier version of this fix
-// scoping the guard by choice.Kind == ChoiceToolPermission instead of the
-// hook the relay actually arrived on — which happened to also exclude
-// this case, since a question's own Kind is ChoiceKindQuestion, not
-// ChoiceToolPermission.
+// A question arrives on the permission hook, so its answer closes its
+// interruption the same way, whatever the choice's kind.
 func TestAnswer_AnAnsweredQuestionAlsoResolvesItsOwnInterruption(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -580,6 +566,20 @@ func TestAnswer_AnUnreadableWorkspaceFailsTheAnswerRatherThanGuessing(t *testing
 	f.ws.err = errors.New("worktree gone")
 	err := f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil)
 	require.Error(t, err)
+}
+
+// A pending read that fails is an error, never "no longer pending".
+func TestAnswer_AFailedPendingReadIsAnError(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	_, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
+	require.NoError(t, f.ledgerDB.Exec(`ALTER TABLE chat_ledger RENAME TO unreadable`).Error)
+	f.usecase.own.ForgetTranscript(chatID)
+
+	err := f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil)
+	require.NoError(t, f.ledgerDB.Exec(`ALTER TABLE unreadable RENAME TO chat_ledger`).Error)
+	require.ErrorContains(t, err, "no such table")
+	assert.NotErrorIs(t, err, apperr.ErrConflict)
 }
 
 func TestAnswer_AnUnrecordableDecisionIsNotHandedToTheRelay(t *testing.T) {

@@ -28,10 +28,8 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// The stores are the REAL asynx-backed aggregates over in-memory event logs, not
-// stubs. Everything this package does is a write followed by a read of the same
-// record, and a stub would let the two agree with each other while both were
-// wrong.
+// The stores are the real aggregates over in-memory logs: a write followed by
+// a read of the same record must not agree with a stub while both are wrong.
 
 type fixture struct {
 	conversations *conversation.Conversations
@@ -245,11 +243,8 @@ func TestMintChat_NoProviderAskedForRecordsNone(t *testing.T) {
 	assert.Empty(t, chat.ProviderID)
 }
 
-// The landing surface is DURABLE, not a one-shot spawn argument: every
-// respawn (a restart_tui prompt, a model change, a resume after the daemon
-// restarted) rebuilds the process from scratch, and a chat born on the
-// terminal that silently came back on the api transport would lose the very
-// view it was created for.
+// The landing surface is durable: every respawn rebuilds the process, and a
+// chat born on one surface must come back on it.
 func TestMintChat_PersistsTheLandingSurface(t *testing.T) {
 	t.Parallel()
 
@@ -488,73 +483,73 @@ func TestSetChatSelection_ClearingBackToTheProviderDefaultIsAllowed(t *testing.T
 	assert.Empty(t, chat.Effort)
 }
 
-// The note is for a conversation ALREADY under way: a chat that has said nothing
-// has nothing to be told it inherits, because the spawn is about to tell the CLI
-// the same thing through its prior context.
-func TestNoteThreadLineage_WritesNothingIntoAChatThatHasNotSpoken(t *testing.T) {
-	t.Parallel()
-
-	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
-	require.NoError(t, err)
-
-	require.NoError(t, f.conversations.NoteThreadLineage(t.Context(), chatID, []string{"parent-1"}))
-	f.settle()
-
-	turns, err := f.conversations.ChatTurns(t.Context(), chatID)
-	require.NoError(t, err)
-	assert.Empty(t, turns)
+// notes are the notes a chat already under way is told; a chat that has said
+// nothing is not, since its spawn tells the CLI the same through prior context.
+var notes = map[string]struct {
+	note func(*conversation.Conversations, context.Context, string) error
+	says string
+}{
+	"lineage": {func(c *conversation.Conversations, ctx context.Context, chatID string) error {
+		return c.NoteThreadLineage(ctx, chatID, []string{"parent-1"})
+	}, "parent-1"},
+	"promotion": {(*conversation.Conversations).NotePromotion, "promoted"},
 }
 
-func TestNoteThreadLineage_AppendsTheNoteToAChatAlreadyUnderWay(t *testing.T) {
-	t.Parallel()
+func TestNotes_WriteNothingIntoAChatThatHasNotSpoken(t *testing.T) {
+	for name, n := range notes {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t, stubLineage{})
+			chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
+			require.NoError(t, err)
 
-	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
-	require.NoError(t, err)
-	say(t, f, chatID, "hello")
-
-	require.NoError(t, f.conversations.NoteThreadLineage(t.Context(), chatID, []string{"parent-1"}))
-	f.settle()
-
-	turns, err := f.conversations.ChatTurns(t.Context(), chatID)
-	require.NoError(t, err)
-	require.Len(t, turns, 2)
-	assert.Contains(t, turns[1].Text, "parent-1",
-		"the note names what the thread reads, in the thread's own log")
+			require.NoError(t, n.note(f.conversations, t.Context(), chatID))
+			f.settle()
+			turns, err := f.conversations.ChatTurns(t.Context(), chatID)
+			require.NoError(t, err)
+			assert.Empty(t, turns)
+		})
+	}
 }
 
-func TestNotePromotion_WritesNothingIntoAChatThatHasNotSpoken(t *testing.T) {
-	t.Parallel()
+func TestNotes_AppendToAChatAlreadyUnderWay(t *testing.T) {
+	for name, n := range notes {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t, stubLineage{})
+			chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
+			require.NoError(t, err)
+			say(t, f, chatID, "hello")
 
-	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
-	require.NoError(t, err)
-
-	require.NoError(t, f.conversations.NotePromotion(t.Context(), chatID))
-	f.settle()
-
-	turns, err := f.conversations.ChatTurns(t.Context(), chatID)
-	require.NoError(t, err)
-	assert.Empty(t, turns)
+			require.NoError(t, n.note(f.conversations, t.Context(), chatID))
+			f.settle()
+			turns, err := f.conversations.ChatTurns(t.Context(), chatID)
+			require.NoError(t, err)
+			require.Len(t, turns, 2)
+			assert.Contains(t, turns[1].Text, n.says, "the note is in the chat's own log")
+		})
+	}
 }
 
-func TestNotePromotion_AppendsTheNoteToAChatAlreadyUnderWay(t *testing.T) {
-	t.Parallel()
+// unreadable is a transcript whose record cannot be read.
+type unreadable struct{ conversation.Transcript }
 
-	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
-	require.NoError(t, err)
-	say(t, f, chatID, "hello")
+func (unreadable) ChatTurns(context.Context, string) ([]domain.LedgerTurn, error) {
+	return nil, errors.New("record unreadable")
+}
 
-	require.NoError(t, f.conversations.NotePromotion(t.Context(), chatID))
-	f.settle()
+// A record that cannot be read is not an empty one: no note is dropped as if
+// the chat had said nothing.
+func TestNotes_SurfaceAnUnreadableRecord(t *testing.T) {
+	for name, n := range notes {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t, stubLineage{})
+			chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
+			require.NoError(t, err)
+			f.settle()
 
-	turns, err := f.conversations.ChatTurns(t.Context(), chatID)
-	require.NoError(t, err)
-	require.Len(t, turns, 2)
-	assert.Contains(t, turns[1].Text, "promoted",
-		"the note describes the promotion, in the chat's own log")
+			c := conversation.New(conversation.Deps{Chats: f.chats, Transcript: unreadable{}})
+			require.ErrorContains(t, n.note(c, t.Context(), chatID), "record unreadable")
+		})
+	}
 }
 
 func TestMintChat_SeedsThePermissionLevelFromTheCurrentGlobalDefault(t *testing.T) {
