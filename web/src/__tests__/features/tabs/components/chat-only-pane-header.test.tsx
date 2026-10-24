@@ -12,7 +12,7 @@ import {
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import type { Chat, Repo } from '@/lib/store/sidebar'
+import type { Chat, Repo, Workspace } from '@/lib/store/sidebar'
 
 const { openBranchReviewMock } = vi.hoisted(() => ({ openBranchReviewMock: vi.fn() }))
 vi.mock('@/features/panes/utils/pane-command-actions', () => ({
@@ -137,6 +137,24 @@ describe('ChatOnlyPaneHeader', () => {
   it("renders the chat's own identity header", () => {
     renderHeader(makePane())
     expect(screen.getByTestId('chat-branch-header')).toHaveTextContent('My Chat')
+  })
+
+  it('shows the workspace route under the title', () => {
+    useSidebarStore.setState({
+      repos: [
+        {
+          id: 'repo-1',
+          name: 'crowbar',
+          workspaces: [
+            { id: 'w1', branch: 'fix/refactor-chats', parentBranch: 'develop' } as Workspace,
+          ],
+        } as Repo,
+      ],
+    })
+    renderHeader(makePane())
+    expect(screen.getByTestId('chat-branch-header-route')).toHaveTextContent(
+      /^crowbar \/ develop \/ fix\/refactor-chats$/,
+    )
   })
 
   it("the branch-review shortcut opens branch review for THIS pane's own workspace and pane", () => {

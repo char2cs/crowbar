@@ -44,6 +44,7 @@ function makeRepo(workspaces: Workspace[], chats?: Chat[]): Repo {
   return {
     id: 'repo-1',
     projectId: 'proj-1',
+    name: 'crowbar',
     localPath: '',
     defaultBranch: 'main',
     defaultWorkspaceId: 'w1',
@@ -153,10 +154,37 @@ describe('ChatBranchHeader', () => {
     expect(screen.getByText('-2')).toBeInTheDocument()
   })
 
+  it('routes the workspace as repo / parent / branch on one line, branch last', () => {
+    renderHeader({
+      repos: [makeRepo([makeWorkspace({ parentId: 'w0', parentBranch: 'develop' })])],
+    })
+    const route = screen.getByTestId('chat-branch-header-route')
+    expect(route).toHaveTextContent(/^crowbar \/ develop \/ feature\/pricing-rounding$/)
+    expect(route.lastElementChild).toHaveTextContent(/^feature\/pricing-rounding$/)
+    expect(route).not.toContainElement(screen.getByTestId('chat-branch-header-title'))
+  })
+
+  it('omits the parent segment for a branch with no parent', () => {
+    renderHeader()
+    expect(screen.getByTestId('chat-branch-header-route')).toHaveTextContent(
+      /^crowbar \/ feature\/pricing-rounding$/,
+    )
+  })
+
+  it('omits a parent segment that names the branch itself', () => {
+    renderHeader({
+      repos: [makeRepo([makeWorkspace({ parentBranch: 'feature/pricing-rounding' })])],
+    })
+    expect(screen.getByTestId('chat-branch-header-route')).toHaveTextContent(
+      /^crowbar \/ feature\/pricing-rounding$/,
+    )
+  })
+
   it('renders only the title when the workspace has no branch to show', () => {
     renderHeader({ wsId: null })
     expect(screen.getByText('Seeding test')).toBeInTheDocument()
     expect(screen.queryByText('feature/pricing-rounding')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('chat-branch-header-route')).not.toBeInTheDocument()
   })
 
   it('shows a working spinner in place of the branch glyph while the chat is working', () => {

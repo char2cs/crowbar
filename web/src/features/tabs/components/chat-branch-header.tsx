@@ -47,14 +47,10 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
   // title to edit from).
   const title = useChatTitle(chatId)
   const working = useWorkspaceStoreContext((s) => s.agentChats.working[chatId] ?? false)
-  const workspace = useSidebarStore((s) => {
-    if (!wsId) return null
-    for (const repo of s.repos) {
-      const ws = repo.workspaces.find((w) => w.id === wsId)
-      if (ws) return ws
-    }
-    return null
-  })
+  const repo = useSidebarStore((s) =>
+    wsId ? (s.repos.find((r) => r.workspaces.some((w) => w.id === wsId)) ?? null) : null,
+  )
+  const workspace = repo?.workspaces.find((w) => w.id === wsId) ?? null
   // A thread owns no branch — it runs on the one its parent owns — so it gets
   // the bubble, never the branch mark, exactly as `RowGlyph` (sidebar-row.tsx)
   // already draws it in the tree. `wsId` above cannot answer this: a thread
@@ -102,18 +98,62 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
       ) : workspace?.branch ? (
         <span className="flex min-w-0 flex-1 flex-col justify-center">
           <ChatTitle title={title} className="truncate" />
-          <span className={ROW_SUBLABEL}>
-            {workspace.branch}
-            {(added > 0 || deleted > 0) && ' -- '}
-            {added > 0 && <span className={ROW_SUBLABEL_ADD}>+{formatChangeCount(added)}</span>}
-            {added > 0 && deleted > 0 && ' '}
-            {deleted > 0 && <span className={ROW_SUBLABEL_DEL}>-{formatChangeCount(deleted)}</span>}
+          <span className={cn(ROW_SUBLABEL, 'flex items-center')}>
+            <WorkspaceRoute
+              repoName={repo?.name}
+              parentBranch={workspace.parentBranch}
+              branch={workspace.branch}
+            />
+            {(added > 0 || deleted > 0) && (
+              <span className="shrink-0 whitespace-pre">
+                {' -- '}
+                {added > 0 && <span className={ROW_SUBLABEL_ADD}>+{formatChangeCount(added)}</span>}
+                {added > 0 && deleted > 0 && ' '}
+                {deleted > 0 && (
+                  <span className={ROW_SUBLABEL_DEL}>-{formatChangeCount(deleted)}</span>
+                )}
+              </span>
+            )}
           </span>
         </span>
       ) : (
         <ChatTitle title={title} className="min-w-0 flex-1 truncate" />
       )}
     </div>
+  )
+}
+
+const ROUTE_SEPARATOR = <span className="shrink-0 whitespace-pre"> / </span>
+
+/** `repo / parent / branch` on one line. The parent is the daemon-resolved fork
+ *  parent's branch (`Workspace.parentBranch`); the leading segments give up
+ *  their width first so the branch, the one that names this chat, stays legible. */
+function WorkspaceRoute({
+  repoName,
+  parentBranch,
+  branch,
+}: {
+  repoName: string | undefined
+  parentBranch: string | undefined
+  branch: string
+}) {
+  const parent = parentBranch && parentBranch !== branch ? parentBranch : null
+  return (
+    <span data-testid="chat-branch-header-route" className="flex min-w-0 items-center">
+      {repoName && (
+        <>
+          <span className="min-w-0 shrink-[1000] truncate">{repoName}</span>
+          {ROUTE_SEPARATOR}
+        </>
+      )}
+      {parent && (
+        <>
+          <span className="min-w-0 shrink-[1000] truncate">{parent}</span>
+          {ROUTE_SEPARATOR}
+        </>
+      )}
+      <span className="min-w-0 truncate">{branch}</span>
+    </span>
   )
 }
 
