@@ -3,6 +3,7 @@ package v0
 import (
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/browser"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/console"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor"
@@ -70,6 +71,7 @@ func (c *Container) Register(
 	if c.logs != nil {
 		console.Register(rg, c.logs)
 	}
+	browser.Register(rg, c.app.Browser)
 
 	projects := rg.Group("/projects")
 	projectScoped := projects.Group("/:projectId")

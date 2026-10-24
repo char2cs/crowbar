@@ -27,6 +27,8 @@ type Deps struct {
 	// is a dependency rather than something a tool creates for itself because it
 	// must outlive the per-request ToolSet — see Idempotency.
 	Idempotency *Idempotency
+	// Browser routes the browser_* tools to the desktop app; nil withdraws them.
+	Browser BrowserBridge
 	// ThreadBroadcast fans an agent-written review thread out to connected
 	// clients. Without it an agent's finding is stored but invisible to a user
 	// watching the review pane — see ThreadBroadcast.
@@ -99,6 +101,8 @@ type toolDef struct {
 	description string
 	schema      json.RawMessage
 	run         func(ctx context.Context, c Caller, args json.RawMessage) (string, error)
+	// runImage replaces run for a tool that answers with an image as well.
+	runImage func(ctx context.Context, c Caller, args json.RawMessage) (string, []mcp.Image, error)
 }
 
 // ToolSet is built PER REQUEST around one caller's credentials, which is what
@@ -117,6 +121,7 @@ func NewToolSet(deps Deps, runnerID, token string) *ToolSet {
 	ts.defs = append(ts.defs, branchNameTools(deps)...)
 	ts.defs = append(ts.defs, reviewTools(deps)...)
 	ts.defs = append(ts.defs, contextTools(deps)...)
+	ts.defs = append(ts.defs, browserTools(deps)...)
 	return ts
 }
 
@@ -154,17 +159,27 @@ const UnknownToolMetric = "<unknown>"
 // tool access forever after the user turned it off — a permission the UI
 // promises and nothing enforced. The check runs after Resolve because the
 // provider comes off the RESOLVED caller, never off anything the relay said.
-func (t *ToolSet) Call(ctx context.Context, name string, args json.RawMessage) (result string, err error) {
+func (t *ToolSet) Call(ctx context.Context, name string, args json.RawMessage) (string, error) {
+	text, _, err := t.CallWithImages(ctx, name, args)
+	return text, err
+}
+
+// CallWithImages is Call for tools that may answer with images too.
+func (t *ToolSet) CallWithImages(
+	ctx context.Context,
+	name string,
+	args json.RawMessage,
+) (result string, images []mcp.Image, err error) {
 	defer func() { t.deps.Metrics.Record(t.metricName(name), err == nil) }()
 
 	caller, err := t.deps.Resolver.Resolve(ctx, t.runnerID, t.token)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	// `=`, not `:=`: a shadowed err here would leave the deferred Record above
 	// counting a refused call as a success.
 	if err = t.deps.refuseDisabledTools(ctx, caller.ProviderID); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	for _, d := range t.defs {
 		if d.name != name {
@@ -173,9 +188,13 @@ func (t *ToolSet) Call(ctx context.Context, name string, args json.RawMessage) (
 		if len(args) == 0 {
 			args = json.RawMessage(`{}`)
 		}
-		return d.run(ctx, caller, args)
+		if d.runImage != nil {
+			return d.runImage(ctx, caller, args)
+		}
+		text, err := d.run(ctx, caller, args)
+		return text, nil, err
 	}
-	return "", fmt.Errorf("agenttools: unknown tool %q", name)
+	return "", nil, fmt.Errorf("agenttools: unknown tool %q", name)
 }
 
 // metricName is the Metrics key a call to name is counted under: name itself

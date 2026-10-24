@@ -232,7 +232,7 @@ func New(
 		engines.Git,
 		nowFunc,
 	)
-	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast, workspaceUsecase, announceRepo, o.chatSnapshots, o.choiceWatch)
+	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast, workspaceUsecase, announceRepo, o.chatSnapshots, o.choiceWatch, o.browser)
 	if err != nil {
 		return nil, err
 	}
@@ -339,6 +339,7 @@ type Option func(*options)
 type options struct {
 	chatSnapshots *agentusecase.ChatSnapshots
 	choiceWatch   *agentusecase.ChoiceWatch
+	browser       agentusecase.ToolBrowserBridge
 }
 
 // WithChoiceWatch hands the chat usecase the watch the composition root also gave
@@ -346,6 +347,12 @@ type options struct {
 // feed.
 func WithChoiceWatch(w *agentusecase.ChoiceWatch) Option {
 	return func(o *options) { o.choiceWatch = w }
+}
+
+// WithBrowserBridge gives agents the browser tools. Without it they are not
+// registered, like any tool whose dependency is absent.
+func WithBrowserBridge(b agentusecase.ToolBrowserBridge) Option {
+	return func(o *options) { o.browser = b }
 }
 
 // WithChatSnapshots hands the chat usecase the snapshot owner the composition
@@ -366,6 +373,7 @@ func newAgentWiring(
 	announceRepo agentusecase.TreeRepoAnnouncer,
 	chatSnapshots *agentusecase.ChatSnapshots,
 	choiceWatch *agentusecase.ChoiceWatch,
+	browser agentusecase.ToolBrowserBridge,
 ) (agentWiring, error) {
 	wsReader := &agentWorkspaceReader{
 		workspaces:  repos.Workspace,
@@ -395,7 +403,7 @@ func newAgentWiring(
 	lineage := agentusecase.NewChatLineage(agentusecase.NewHomeCorrectedTreeChats(
 		repos.AgentChat, repos.Node, gormStores.Folders,
 	))
-	toolDeps, err := newAgentToolDeps(minter, repos, review, threadBroadcast, workspaceUsecase)
+	toolDeps, err := newAgentToolDeps(minter, repos, review, threadBroadcast, workspaceUsecase, browser)
 	if err != nil {
 		return agentWiring{}, err
 	}
@@ -537,6 +545,7 @@ func newAgentToolDeps(
 	review agentusecase.ToolReviewReader,
 	threadBroadcast agentusecase.ToolThreadBroadcast,
 	workspaces agentusecase.ToolWorkspaceBranchRenamer,
+	browser agentusecase.ToolBrowserBridge,
 ) (agentusecase.ToolDeps, error) {
 	switch {
 	case minter == nil:
@@ -571,6 +580,7 @@ func newAgentToolDeps(
 		Idempotency:     agentusecase.NewToolIdempotency(),
 		ThreadBroadcast: threadBroadcast,
 		ChatReads:       chatReader,
+		Browser:         browser,
 		Metrics:         agentusecase.NewToolMetrics(),
 	}, nil
 }

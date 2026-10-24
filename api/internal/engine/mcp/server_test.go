@@ -154,3 +154,17 @@ func TestServer_ToolsListEmitsAnArrayWhenThereAreNoTools(t *testing.T) {
 		[]byte(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`))
 	require.Contains(t, string(out), `"tools":[]`)
 }
+
+type imageTools struct{ fakeTools }
+
+func (imageTools) CallWithImages(context.Context, string, json.RawMessage) (string, []mcp.Image, error) {
+	return "shot", []mcp.Image{{MIMEType: "image/png", Data: "iVBOR"}}, nil
+}
+
+func TestServer_ImageToolSetAnswersWithImageContent(t *testing.T) {
+	out, _ := mcp.NewServer("crowbar", "test", &imageTools{}).Handle(context.Background(),
+		[]byte(`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"x","arguments":{}}}`))
+	require.JSONEq(t, `{"jsonrpc":"2.0","id":7,"result":{"isError":false,"content":[
+		{"type":"text","text":"shot"},
+		{"type":"image","data":"iVBOR","mimeType":"image/png"}]}}`, string(out))
+}

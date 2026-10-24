@@ -17,6 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/app/browserbridge"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/realtime"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
@@ -39,6 +40,8 @@ type Container struct {
 	GORM         *GORMStores
 	Usecases     *usecases.Container
 	Realtime     *realtime.Service
+	// Browser carries browser tool calls to the desktop app's tabs.
+	Browser *browserbridge.Bridge
 
 	// engines is retained for ONE reason: Shutdown must quiesce the terminal engine
 	// (kill every PTY and JOIN the exit callbacks those deaths fire) BEFORE it drains
@@ -134,6 +137,7 @@ func New(
 	}
 
 	h := hub.NewHub()
+	browser := browserbridge.New()
 	chatSnapshots := newChatSnapshots(h)
 	choiceWatch := agentusecase.NewChoiceWatch()
 	repos, err := newRepositoriesContainer(
@@ -164,6 +168,7 @@ func New(
 		announceRepoPlacement(h, gormStores.Repositories),
 		usecases.WithChatSnapshots(chatSnapshots),
 		usecases.WithChoiceWatch(choiceWatch),
+		usecases.WithBrowserBridge(browser),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("app: usecases: %w", err)
@@ -209,6 +214,7 @@ func New(
 
 	return &Container{
 		Hub:             h,
+		Browser:         browser,
 		Repositories:    repos,
 		GORM:            gormStores,
 		Usecases:        ucs,
