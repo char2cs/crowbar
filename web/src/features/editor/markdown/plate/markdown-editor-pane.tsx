@@ -4,13 +4,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 // (see markdown-serialization.ts for the same note).
 import type { Value } from 'platejs'
 import { Plate, PlateContent, usePlateEditor } from 'platejs/react'
+import type { DocumentRef } from '@/lib/api/documents'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { useBufferById } from '@/features/workspace/stores/hooks/use-buffer-store'
-import { setBufferContent } from '@/features/editor/lib/buffer-save'
 import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { MarkdownAssetContext, type MarkdownAssetInfo } from './markdown-asset'
-import { hasTextContent, isEditorContent } from '@/features/panes/types/pane-content'
+import { isEditorContent } from '@/features/panes/types/pane-content'
 import { documentRefOf, documentUri, refFromUri } from '@/features/editor/documents/document-ref'
+import {
+  documentText,
+  onExternalText,
+  registerPendingWriter,
+  replaceDocumentText,
+} from '@/features/editor/documents/document-text'
+import { useDocumentText } from '@/features/editor/documents/use-document-text'
 import { toast } from '@/features/window/stores/toast-store'
 import { useMarkdownViewStore } from './markdown-view-store'
 import { joinFrontmatter, splitFrontmatter } from './markdown-frontmatter'
@@ -46,12 +53,15 @@ export function MarkdownEditorPane({
   // buffer). Accepted now so the call site doesn't need to change later.
   void paneId
 
-  // `null` (rather than `''`) when the buffer is gone or holds no text: the
-  // child treats that as "nothing to sync" instead of adopting an empty
-  // document, so a buffer disappearing out from under a mounted editor can
-  // never blank what's on screen.
+  // `null` (rather than `''`) when the document is not open: the child treats
+  // that as "nothing to sync" instead of adopting an empty document, so a
+  // buffer disappearing out from under a mounted editor can never blank what's
+  // on screen.
   const buffer = useBufferById(bufferId)
-  const content = buffer && hasTextContent(buffer) ? buffer.content : null
+  const uri =
+    buffer && isEditorContent(buffer) && buffer.path ? documentUri(documentRefOf(buffer)) : null
+  const doc = useMemo(() => (uri ? refFromUri(uri) : null), [uri])
+  const content = useDocumentText(doc)
 
   const fallbackToSource = useCallback(() => {
     useMarkdownViewStore.getState().setView(bufferId, 'source')
@@ -89,6 +99,7 @@ export function MarkdownEditorPane({
       <ErrorBoundary key={bufferId} fallback={<FallbackToSource onMount={fallbackToSource} />}>
         <MarkdownRichEditor
           bufferId={bufferId}
+          doc={doc}
           content={content}
           isPreview={isPreview}
           onPromote={onPromote}
@@ -100,11 +111,13 @@ export function MarkdownEditorPane({
 
 function MarkdownRichEditor({
   bufferId,
+  doc,
   content,
   isPreview,
   onPromote,
 }: {
   bufferId: string
+  doc: DocumentRef | null
   content: string | null
   isPreview?: boolean
   onPromote?: () => void
@@ -117,9 +130,9 @@ function MarkdownRichEditor({
   // verbatim in `flush()`.
   //
   // Deserialize ONCE for the initial value: re-parsing on every render would
-  // fight the user's cursor. A buffer whose content is REPLACED underneath a
-  // mounted editor is handled by the resync effect below, and a change of
-  // `bufferId` remounts this component (see the key in the parent).
+  // fight the user's cursor. A document whose text is REPLACED underneath a
+  // mounted editor is handled by the resync below, and a change of `bufferId`
+  // remounts this component (see the key in the parent).
   const initial = useMemo<{ frontmatter: string; initialValue: Value }>(
     () => {
       const { frontmatter, body } = splitFrontmatter(content ?? '')
@@ -176,21 +189,21 @@ function MarkdownRichEditor({
     )
   }
 
-  // Trailing-debounce serialize -> buffer store, mirroring Monaco's ContentSink.
+  // Trailing-debounce serialize -> document text, mirroring Monaco's ContentSink.
   // `flush` always reads the editor's CURRENT value (not just a value captured
-  // at the last onChange) so a flush triggered by the window event or unmount
+  // at the last onChange) so a flush run by a reader of the text or by unmount
   // persists whatever is on screen even if no debounce is in flight — the same
   // contract Cmd+S relies on for Monaco.
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // The buffer content this editor believes it is in sync with: what it last
-  // adopted from the store AND what it last wrote. Used by the resync effect to
-  // recognise its own write echoing back (see below).
+  // The document text this editor believes it is in sync with: what it last
+  // adopted AND what it last wrote. Used by the resync to recognise its own
+  // write echoing back (see below).
   const syncedContentRef = useRef<string | null>(content)
 
   // Preview promotion mirrors Monaco (editor-surface's `writeContent`): the
   // first edit that actually persists promotes the tab. Held in refs so
-  // `flush`'s identity — and therefore the debounce and the window listener —
+  // `flush`'s identity — and therefore the debounce and the pending writer —
   // doesn't churn on every preview/promote prop change.
   const isPreviewRef = useRef(isPreview)
   isPreviewRef.current = isPreview
@@ -202,6 +215,7 @@ function MarkdownRichEditor({
       clearTimeout(timerRef.current)
       timerRef.current = null
     }
+    if (!doc) return // the buffer is gone: nothing to write into
     const md = joinFrontmatter(
       frontmatterRef.current,
       plateValueToMarkdown(editor.children as Value),
@@ -210,19 +224,19 @@ function MarkdownRichEditor({
       // No real edit since mount (or since the last write): writing here would
       // silently dirty — and with autoSave on, rewrite to disk — a file the
       // user never touched. See the baseline comment above for why we can't
-      // compare against the buffer's raw content instead.
+      // compare against the document's raw text instead.
       return
     }
     if (isPreviewRef.current) onPromoteRef.current?.()
-    // Pin the write to THIS pane's buffer rather than the active buffer — this
-    // pane may not be active when a flush lands (tab-switch race).
-    setBufferContent(bufferId, md)
+    // Pin the write to THIS pane's document rather than the active buffer —
+    // this pane may not be active when a flush lands (tab-switch race).
+    replaceDocumentText(doc, md)
     baselineRef.current = md
-    // The store is about to hand this exact text back as `content`; record it
-    // so the resync effect recognises the echo instead of re-parsing it (which
+    // The document is about to hand this exact text back as `content`; record
+    // it so the resync recognises the echo instead of re-parsing it (which
     // would reset the caret mid-typing).
     syncedContentRef.current = md
-  }, [bufferId, editor])
+  }, [doc, editor])
 
   const onChange = useCallback(() => {
     // Selection-only events (a click, an arrow key) can never change the
@@ -236,11 +250,11 @@ function MarkdownRichEditor({
     timerRef.current = setTimeout(flush, SINK_DELAY_MS)
   }, [editor, flush])
 
-  // I1/I2: the buffer's content can be replaced underneath a MOUNTED editor —
+  // I1/I2: the document's text can be replaced underneath a MOUNTED editor —
   // a second pane split on the SAME file flushing its own edit, or
   // external-buffer-sync reloading the file after a git checkout. Plate holds a
   // parsed copy, so without this the editor keeps showing (and, on the next
-  // keystroke, writes back) the stale document over the new content.
+  // keystroke, writes back) the stale document over the new text.
   //
   // Adoption is gated on THIS editor being pristine — its current serialization
   // still equals its baseline, i.e. it holds no unsaved local edits. A dirty
@@ -253,24 +267,41 @@ function MarkdownRichEditor({
   // adoption itself re-derives the baseline from the resulting `editor.children`,
   // so the `onChange` that `setValue` fires ends in a flush that compares equal
   // and writes nothing.
-  useEffect(() => {
-    if (content === null || content === syncedContentRef.current) return
-    const current = joinFrontmatter(
-      frontmatterRef.current,
-      plateValueToMarkdown(editor.children as Value),
-    )
-    if (current !== baselineRef.current) return // unsaved local edits — never clobber
+  const adopt = useCallback(
+    (text: string) => {
+      if (text === syncedContentRef.current) return
+      const current = joinFrontmatter(
+        frontmatterRef.current,
+        plateValueToMarkdown(editor.children as Value),
+      )
+      if (current !== baselineRef.current) return // unsaved local edits — never clobber
 
-    syncedContentRef.current = content
-    const { frontmatter, body } = splitFrontmatter(content)
-    frontmatterRef.current = frontmatter
-    setFrontmatterText(frontmatter)
-    editor.tf.setValue(markdownToPlateValue(body))
-    baselineRef.current = joinFrontmatter(
-      frontmatter,
-      plateValueToMarkdown(editor.children as Value),
-    )
-  }, [content, editor])
+      syncedContentRef.current = text
+      const { frontmatter, body } = splitFrontmatter(text)
+      frontmatterRef.current = frontmatter
+      setFrontmatterText(frontmatter)
+      editor.tf.setValue(markdownToPlateValue(body))
+      baselineRef.current = joinFrontmatter(
+        frontmatter,
+        plateValueToMarkdown(editor.children as Value),
+      )
+    },
+    [editor],
+  )
+
+  // External text lands at once, before a keystroke can dirty the editor; a
+  // second pane's edits arrive through `content`, at most every 150 ms.
+  useEffect(() => {
+    if (!doc) return
+    return onExternalText(doc, () => {
+      const text = documentText(doc)
+      if (text !== null) adopt(text)
+    })
+  }, [doc, adopt])
+
+  useEffect(() => {
+    if (content !== null) adopt(content)
+  }, [content, adopt])
 
   // A tab switch UNMOUNTS this pane — PaneContainer renders only the active
   // buffer, and EditorPane keys the rich editor by buffer id — so the reading
@@ -288,16 +319,16 @@ function MarkdownRichEditor({
   const scrollRef = useRef<HTMLDivElement>(null)
   usePreservedScroll(scrollRef, bufferId, content !== null)
 
-  // Flush on the app-wide flush event (save / switch-away) and on unmount, so a
-  // Cmd+S or a tab switch never races a stale in-memory value.
+  // Every reader of the document's text (a save, a view toggle) runs the
+  // pending write first, and unmount flushes, so a Cmd+S or a tab switch never
+  // races a stale in-memory value.
   useEffect(() => {
-    const onFlush = () => flush()
-    window.addEventListener('flush-editor-content', onFlush)
+    const stop = doc ? registerPendingWriter(doc, flush) : null
     return () => {
-      window.removeEventListener('flush-editor-content', onFlush)
+      stop?.()
       flush()
     }
-  }, [flush])
+  }, [doc, flush])
 
   return (
     <MarkdownAssetContext.Provider value={assetInfo}>

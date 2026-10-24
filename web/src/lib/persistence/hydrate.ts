@@ -16,7 +16,11 @@ import {
   validateLoadedBuffers,
 } from '@/features/panes/utils/persisted-layout'
 import { getFirstLeafId } from '@/features/panes/utils/pane-layout'
-import { isPersistableContent, type PaneContent } from '@/features/panes/types/pane-content'
+import {
+  hasUnsavedEdits,
+  isPersistableContent,
+  type PaneContent,
+} from '@/features/panes/types/pane-content'
 import { reconcileBuffersWithDisk } from '@/features/workspace/lib/external-buffer-sync'
 import { fetchHomeChats, fetchRepoChats, fetchRepos, isNotFoundError } from '@/lib/api'
 import { loadSidebarUI } from './sidebar-ui'
@@ -207,14 +211,12 @@ export async function reconcileWorkspaceBuffersWithDisk(workspaceId: string): Pr
 }
 
 /**
- * Recompute the dirty flag for a restored editor buffer. Persistence stores
- * the full buffer (content + savedContent + isDirty), but a buffer whose
- * content diverges from savedContent must always show as dirty after a
- * reload — even if the persisted snapshot raced and saved isDirty=false.
+ * A restored buffer holding edits disk lacks is dirty, even if the persisted
+ * snapshot raced and saved isDirty=false.
  */
 function restoreBufferDirtyState(buffer: PaneContent): PaneContent {
   if (!isPersistableContent(buffer)) return buffer
-  return { ...buffer, isDirty: buffer.isDirty || buffer.content !== buffer.savedContent }
+  return { ...buffer, isDirty: hasUnsavedEdits(buffer) }
 }
 
 export async function hydrateSidebar(): Promise<void> {

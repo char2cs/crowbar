@@ -139,7 +139,7 @@
     "src/features/panes/lib/view-integrity.ts": ["exports"],
     "src/features/panes/lib/view-state.ts": ["exports"],
     "src/features/panes/stores/slices/pane-slice.ts": ["types"],
-    "src/features/panes/types/pane-content.ts": ["exports", "types"],
+    "src/features/panes/types/pane-content.ts": ["types"],
     "src/features/panes/utils/pane-border.ts": ["exports"],
     "src/features/panes/utils/pane-command-actions.ts": ["exports"],
     "src/features/panes/utils/pane-drop-actions.ts": ["exports"],

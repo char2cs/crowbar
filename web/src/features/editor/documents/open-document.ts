@@ -11,11 +11,7 @@ import { isTauri } from '@/lib/crowbar-bridge'
 import { openNativeDialog } from '@/lib/native-dialog'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { homeOf } from '@/features/panes/lib/view-state'
-import {
-  isEditorContent,
-  type EditorContent,
-  type PaneContent,
-} from '@/features/panes/types/pane-content'
+import { isEditorContent, type EditorContent } from '@/features/panes/types/pane-content'
 import { toast } from '@/features/window/stores/toast-store'
 import { documentName, documentRefOf, sameDocument } from './document-ref'
 
@@ -27,20 +23,12 @@ export interface OpenDocumentOptions {
   beforeShow?: (bufferId: string) => void
 }
 
-/** The editor buffer in `buffers` holding `ref`, if any. */
-export function documentBufferIn(
-  buffers: readonly PaneContent[],
-  ref: DocumentRef,
-): EditorContent | null {
-  const found = buffers.find(
-    (b) => isEditorContent(b) && !b.isVirtual && sameDocument(documentRefOf(b), ref),
-  )
-  return found && isEditorContent(found) ? found : null
-}
-
 /** The open editor buffer holding `ref`, if any. */
 export function findDocumentBuffer(ref: DocumentRef): EditorContent | null {
-  return documentBufferIn(windowPaneStore.getState().buffers, ref)
+  const found = windowPaneStore
+    .getState()
+    .buffers.find((b) => isEditorContent(b) && !b.isVirtual && sameDocument(documentRefOf(b), ref))
+  return found && isEditorContent(found) ? found : null
 }
 
 /** The view, stage or bottom tray `paneId` lives in, as one comparable key. */

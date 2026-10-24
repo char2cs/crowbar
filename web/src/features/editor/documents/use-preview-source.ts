@@ -3,15 +3,15 @@ import { useStore } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 import type { DocumentRef } from '@/lib/api/documents'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { hasTextContent, isEditorContent } from '@/features/panes/types/pane-content'
+import { isEditorContent } from '@/features/panes/types/pane-content'
 import { documentRefOf, documentUri, refFromUri } from './document-ref'
-import { documentBufferIn } from './open-document'
+import { useDocumentText } from './use-document-text'
 
 export interface PreviewSource {
   /** A buffer is shown at all. */
   shown: boolean
   doc: DocumentRef | null
-  /** The open source buffer's live text, so the preview follows unsaved edits. */
+  /** The open document's live text, so the preview follows unsaved edits; else the preview's snapshot. */
   content: string
 }
 
@@ -21,7 +21,7 @@ export interface PreviewSource {
  * preview's own buffer names its source; an editor buffer is its own source.
  */
 export function usePreviewSource(bufferId?: string): PreviewSource {
-  const { shown, uri, content } = useStore(
+  const { shown, uri, snapshot } = useStore(
     windowPaneStore,
     useShallow((state) => {
       const id = bufferId ?? state.panes[state.activePaneId]?.activeEditorTabId
@@ -32,14 +32,14 @@ export function usePreviewSource(bufferId?: string): PreviewSource {
         : buffer && isEditorContent(buffer)
           ? documentRefOf(buffer)
           : null
-      const source = isPreview ? (documentBufferIn(state.buffers, buffer.source) ?? buffer) : buffer
       return {
-        shown: Boolean(source),
+        shown: Boolean(buffer),
         uri: doc ? documentUri(doc) : null,
-        content: source && hasTextContent(source) ? source.content : '',
+        snapshot: isPreview ? buffer.content : '',
       }
     }),
   )
   const doc = useMemo(() => (uri ? refFromUri(uri) : null), [uri])
+  const content = useDocumentText(doc) ?? snapshot
   return { shown, doc, content }
 }

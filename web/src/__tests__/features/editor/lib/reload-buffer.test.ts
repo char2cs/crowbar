@@ -7,14 +7,21 @@ vi.mock('@/lib/api/documents', async (importOriginal) => ({
   readDocument: async (ref: DocumentRef) => ({ ref, text: await readDisk(ref) }),
 }))
 
+import {
+  documentText,
+  replaceDocumentText,
+  savedDocumentText,
+} from '@/features/editor/documents/document-text'
+import { findDocumentBuffer } from '@/features/editor/documents/open-document'
 import { reloadBufferFromDisk } from '@/features/editor/lib/reload-buffer'
 import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
-import type { EditorContent } from '@/features/panes/types/pane-content'
 
-function openBuffer(content: string, doc: DocumentRef = workspaceRef('ws-1', 'src/a.ts')): string {
+const A = workspaceRef('ws-1', 'src/a.ts')
+
+function openBuffer(content: string, doc: DocumentRef = A): string {
   return windowPaneStore.getState().bufferActions.openContent({
     type: 'editor',
     doc,
@@ -23,18 +30,12 @@ function openBuffer(content: string, doc: DocumentRef = workspaceRef('ws-1', 'sr
   })
 }
 
-function edit(id: string, content: string) {
-  windowPaneStore.setState((s) => ({
-    buffers: s.buffers.map((b) =>
-      b.id === id && b.type === 'editor'
-        ? { ...b, content, isDirty: content !== b.savedContent }
-        : b,
-    ),
-  }))
-}
-
-function buffer(id: string): EditorContent {
-  return windowPaneStore.getState().buffers.find((b) => b.id === id) as EditorContent
+function state(ref: DocumentRef = A) {
+  return {
+    text: documentText(ref),
+    saved: savedDocumentText(ref),
+    dirty: findDocumentBuffer(ref)?.isDirty,
+  }
 }
 
 beforeEach(() => {
@@ -52,7 +53,7 @@ describe('reloadBufferFromDisk (P0-9)', () => {
 
     expect(confirm).not.toHaveBeenCalled()
     expect(readDisk).toHaveBeenCalledWith(workspaceRef('ws-1', 'src/a.ts'))
-    expect(buffer(id)).toMatchObject({ content: 'disk', savedContent: 'disk', isDirty: false })
+    expect(state()).toEqual({ text: 'disk', saved: 'disk', dirty: false })
   })
 
   it('reloads a document outside every workspace from its own path', async () => {
@@ -66,27 +67,23 @@ describe('reloadBufferFromDisk (P0-9)', () => {
 
   it('never marks unsaved edits as saved: a declined prompt keeps them dirty', async () => {
     const id = openBuffer('old')
-    edit(id, 'unsaved edit')
+    replaceDocumentText(A, 'unsaved edit')
     readDisk.mockResolvedValue('disk')
 
     expect(await reloadBufferFromDisk(id, () => false)).toBe('kept')
 
     expect(readDisk).not.toHaveBeenCalled()
-    expect(buffer(id)).toMatchObject({
-      content: 'unsaved edit',
-      savedContent: 'old',
-      isDirty: true,
-    })
+    expect(state()).toEqual({ text: 'unsaved edit', saved: 'old', dirty: true })
   })
 
   it('a confirmed reload of a dirty buffer takes the disk content', async () => {
     const id = openBuffer('old')
-    edit(id, 'unsaved edit')
+    replaceDocumentText(A, 'unsaved edit')
     readDisk.mockResolvedValue('disk')
 
     expect(await reloadBufferFromDisk(id, () => true)).toBe('reloaded')
 
-    expect(buffer(id)).toMatchObject({ content: 'disk', savedContent: 'disk', isDirty: false })
+    expect(state()).toEqual({ text: 'disk', saved: 'disk', dirty: false })
   })
 
   it('does not overwrite edits typed while the disk read was in flight', async () => {
@@ -95,10 +92,10 @@ describe('reloadBufferFromDisk (P0-9)', () => {
     readDisk.mockImplementation(() => new Promise<string>((r) => (finish = r)))
 
     const pending = reloadBufferFromDisk(id, () => true)
-    edit(id, 'typed meanwhile')
+    replaceDocumentText(A, 'typed meanwhile')
     finish('disk')
 
     expect(await pending).toBe('kept')
-    expect(buffer(id)).toMatchObject({ content: 'typed meanwhile', isDirty: true })
+    expect(state()).toEqual({ text: 'typed meanwhile', saved: 'old', dirty: true })
   })
 })

@@ -6,6 +6,7 @@ import { EditorStatusActions } from '@/features/editor/components/toolbar/editor
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { documentRefOf } from '@/features/editor/documents/document-ref'
+import { documentText } from '@/features/editor/documents/document-text'
 import { useExtensionActions } from '@/extensions/ui/hooks/use-extension-actions'
 import { ExtensionToolbarAction } from '@/extensions/ui/components/extension-toolbar-action'
 import { useSettingsStore } from '@/features/settings/store'
@@ -89,10 +90,11 @@ export default function Breadcrumb({
     if (!fullActiveBuffer || !isEditorContent(fullActiveBuffer) || !fullActiveBuffer.path) return
 
     // The preview belongs to the source document, whichever workspace is active.
+    const source = documentRefOf(fullActiveBuffer)
     const preview = {
       name: `${fullActiveBuffer.name} (Preview)`,
-      content: fullActiveBuffer.content,
-      source: documentRefOf(fullActiveBuffer),
+      content: documentText(source) ?? '',
+      source,
     }
     const { openContent } = windowPaneStore.getState().bufferActions
     if (isMarkdownFile()) openContent({ type: 'markdownPreview', ...preview }, { paneId })

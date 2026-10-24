@@ -29,6 +29,8 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 
 const { ApiError } = await import('@/lib/api')
 const { HOST_DOCUMENT_TRANSPORT_CODE, workspaceRef } = await import('@/lib/api/documents')
+const { documentText, replaceDocumentText, savedDocumentText } =
+  await import('@/features/editor/documents/document-text')
 const { reconcileHostBuffersWithDisk, syncBufferWithDisk } =
   await import('@/features/workspace/lib/external-buffer-sync')
 const { useFileWatcherStore } =
@@ -67,6 +69,8 @@ function getBuffer(id = 'buf-1'): EditorContent {
   return windowPaneStore.getState().buffers.find((b) => b.id === id) as EditorContent
 }
 
+const README = workspaceRef('ws-1', 'README.md')
+
 beforeEach(() => {
   readDiskMock.mockReset()
   readDocumentMock.mockReset()
@@ -87,8 +91,8 @@ describe('syncBufferWithDisk', () => {
     // an active-workspace read would load a sibling worktree's file after a
     // mid-flight workspace switch.
     expect(readDiskMock).toHaveBeenCalledWith('ws-1', 'README.md')
-    expect(buf.content).toBe('restored content')
-    expect(buf.savedContent).toBe('restored content')
+    expect(documentText(README)).toBe('restored content')
+    expect(savedDocumentText(README)).toBe('restored content')
     expect(buf.isDirty).toBe(false)
     expect(buf.hasExternalChange).toBe(false)
     expect(toastWarning).not.toHaveBeenCalled()
@@ -103,7 +107,7 @@ describe('syncBufferWithDisk', () => {
 
     const buf = getBuffer()
     expect(readDiskMock).toHaveBeenCalledWith('ws-1', 'README.md')
-    expect(buf.content).toBe('user edits')
+    expect(documentText(README)).toBe('user edits')
     expect(buf.isDirty).toBe(true)
     expect(buf.hasExternalChange).toBe(true)
     expect(toastWarning).toHaveBeenCalledTimes(1)
@@ -138,7 +142,7 @@ describe('syncBufferWithDisk', () => {
     expect(toastWarning).not.toHaveBeenCalled()
     expect(buf.hasExternalChange).toBeFalsy()
     // The in-flight unsaved edits are left untouched.
-    expect(buf.content).toBe('newer unsaved keystrokes')
+    expect(documentText(README)).toBe('newer unsaved keystrokes')
     expect(buf.isDirty).toBe(true)
   })
 
@@ -149,13 +153,13 @@ describe('syncBufferWithDisk', () => {
     await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
 
     expect(readDiskMock).not.toHaveBeenCalled()
-    expect(getBuffer().content).toBe('old content')
+    expect(documentText(README)).toBe('old content')
     expect(useFileWatcherStore.getState().pendingSaves.has('README.md')).toBe(false)
 
     // The next external event for the same path is no longer suppressed.
     readDiskMock.mockResolvedValue('external write')
     await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
-    expect(getBuffer().content).toBe('external write')
+    expect(documentText(README)).toBe('external write')
   })
 
   it('does nothing when no open buffer matches the path', async () => {
@@ -178,16 +182,12 @@ describe('syncBufferWithDisk', () => {
 
     const sync = syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
     // User types while the read is pending.
-    windowPaneStore.setState((s) => {
-      s.buffers = [makeBuffer({ content: 'typed meanwhile', isDirty: true })]
-      return s
-    })
+    replaceDocumentText(README, 'typed meanwhile')
     resolveRead('disk content')
     await sync
 
-    const buf = getBuffer()
-    expect(buf.content).toBe('typed meanwhile')
-    expect(buf.isDirty).toBe(true)
+    expect(documentText(README)).toBe('typed meanwhile')
+    expect(getBuffer().isDirty).toBe(true)
   })
 
   it('survives a failed disk read without touching the buffer', async () => {
@@ -196,7 +196,7 @@ describe('syncBufferWithDisk', () => {
 
     await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
 
-    expect(getBuffer().content).toBe('old content')
+    expect(documentText(README)).toBe('old content')
   })
 })
 
@@ -213,7 +213,7 @@ describe('reconcileHostBuffersWithDisk', () => {
 
     expect(readDocumentMock).toHaveBeenCalledTimes(1)
     expect(readDocumentMock).toHaveBeenCalledWith({ authority: 'host', path: '/tmp/a.md' })
-    expect(getBuffer('h-1').content).toBe('on disk')
+    expect(documentText({ authority: 'host', path: '/tmp/a.md' })).toBe('on disk')
   })
 
   it('a restored host document the daemon refuses keeps its tab and says why once', async () => {
@@ -223,7 +223,7 @@ describe('reconcileHostBuffersWithDisk', () => {
     await reconcileHostBuffersWithDisk()
 
     expect(windowPaneStore.getState().buffers.map((b) => b.id)).toEqual(['h-1', 'h-2'])
-    expect(getBuffer('h-1').content).toBe('old content')
+    expect(documentText({ authority: 'host', path: '/tmp/a.md' })).toBe('old content')
     expect(getBuffer('h-1').fileMissing).toBeFalsy()
     expect(toastError).toHaveBeenCalledTimes(1)
     expect(toastError).toHaveBeenCalledWith(

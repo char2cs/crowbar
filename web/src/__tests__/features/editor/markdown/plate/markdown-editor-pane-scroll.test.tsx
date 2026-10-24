@@ -1,8 +1,13 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { StrictMode } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { clearPreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { MarkdownEditorPane } from '@/features/editor/markdown/plate/markdown-editor-pane'
+import {
+  resetWindowPaneStoreForTests,
+  windowPaneStore,
+} from '@/features/panes/stores/window-pane-store'
+import type { EditorContent } from '@/features/panes/types/pane-content'
 
 // Deliberately small. jsdom has no layout engine, so the document's height is
 // irrelevant here — `scrollTop` is a plain property that never clamps, and what
@@ -17,22 +22,24 @@ const BUFFER_CONTENT: Record<string, string> = {
   b2: `# Doc two\n\n${BODY}`,
 }
 
-vi.mock('@/features/workspace/stores/hooks/use-buffer-store', () => ({
-  useBufferById: (bufferId: string) => {
-    const content = BUFFER_CONTENT[bufferId] ?? ''
-    return {
-      id: bufferId,
+function openFixtures(): void {
+  resetWindowPaneStoreForTests()
+  windowPaneStore.setState({
+    buffers: Object.entries(BUFFER_CONTENT).map(([id, content]): EditorContent => ({
+      id,
       type: 'editor',
-      path: `/repo/${bufferId}.md`,
-      name: `${bufferId}.md`,
+      authority: 'workspace',
+      workspaceId: 'ws-1',
+      path: `${id}.md`,
+      name: `${id}.md`,
       content,
       savedContent: content,
       isDirty: false,
-    }
-  },
-}))
-vi.mock('@/features/editor/lib/buffer-save', () => ({ setBufferContent: vi.fn() }))
-vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: vi.fn() } }))
+      isVirtual: false,
+      tokens: [],
+    })),
+  })
+}
 
 // StrictMode like the real app root: its double-invoked effects (setup →
 // cleanup → setup) are what broke the first cut of the preview's retained
@@ -50,6 +57,7 @@ const scrollerOf = (view: ReturnType<typeof render>) =>
 describe('MarkdownEditorPane scroll retention', () => {
   beforeEach(() => {
     clearPreservedScroll()
+    openFixtures()
   })
 
   // Regression: switching the pane to another tab unmounts the rich editor

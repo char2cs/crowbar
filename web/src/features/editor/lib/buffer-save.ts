@@ -14,8 +14,14 @@
  *    own-write echo suppression).
  */
 import { useFileWatcherStore } from '@/features/file-system/controllers/file-watcher-store'
-import { workspaceRef, writeDocument } from '@/lib/api/documents'
+import { workspaceRef, writeDocument, type DocumentRef } from '@/lib/api/documents'
 import { documentRefOf } from '@/features/editor/documents/document-ref'
+import {
+  applyExternalText,
+  documentText,
+  markDocumentSaved,
+  readDocumentText,
+} from '@/features/editor/documents/document-text'
 import { clearBlame } from '@/features/git/stores/git-blame-store'
 import { requestGitRefresh } from '@/features/git/stores/git-refresh'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -93,95 +99,78 @@ export function setBufferContent(bufferId: string, content: string): void {
   }
 }
 
-/** Pull any keystrokes Monaco's content sink is still coalescing into the store. */
-function flushPendingEditorContent(): void {
-  if (typeof window !== 'undefined') window.dispatchEvent(new Event('flush-editor-content'))
+/** The text to save once formatted; null when the document closed meanwhile. */
+async function formatBeforeSave(ref: DocumentRef, text: string): Promise<string | null> {
+  const { formatDocumentWithLsp } = await import('@/features/editor/lsp/format-buffer')
+  const formatted = await formatDocumentWithLsp(ref, text)
+  // An edit made while the formatter ran would be dropped by its stale result.
+  if (formatted !== null && documentText(ref) === text) {
+    applyExternalText(ref, formatted, { saved: false })
+  }
+  return documentText(ref)
 }
 
-async function formatBeforeSave(buffer: PathedBuffer): Promise<void> {
-  const { formatBufferWithLsp } = await import('@/features/editor/lsp/format-buffer')
-  const formatted = await formatBufferWithLsp(buffer)
-  if (formatted === null) return
-  // Only apply if nothing changed while the formatter ran — otherwise the
-  // formatted text is based on stale input and would drop those edits.
-  const current = findEditorBuffer(buffer.id)
-  if (!current || current.content !== buffer.content) return
-  patchEditorBuffer(buffer.id, (b) => ({
-    ...b,
-    content: formatted,
-    isDirty: formatted !== b.savedContent,
-  }))
-}
-
-async function saveAsUntitled(buffer: PathedBuffer): Promise<boolean> {
+async function saveAsUntitled(buffer: PathedBuffer, content: string): Promise<boolean> {
   const target = window.prompt('Save as:', buffer.name)
   if (!target) return false
-  const content = buffer.content
   // Buffers are window-level — write to THIS buffer's own workspace, never the
   // merely-active one.
   await writeDocument(workspaceRef(buffer.workspaceId, target), content)
+  // Marked under its untitled name: the target may already be open in another tab.
+  markDocumentSaved(documentRefOf(buffer), content)
   patchEditorBuffer(buffer.id, (b) => ({
     ...b,
     path: target,
     name: target.split('/').pop() || target,
     isVirtual: false,
-    savedContent: content,
-    isDirty: b.content !== content,
   }))
   return true
 }
 
-async function saveVirtual(buffer: PathedBuffer): Promise<boolean> {
+function saveVirtual(buffer: PathedBuffer, content: string): boolean {
+  const ref = documentRefOf(buffer)
   if (buffer.path === 'settings://user-settings.json') {
-    const ok = useSettingsStore.getState().updateSettingsFromJSON(buffer.content)
-    if (ok) markSaved(buffer.id, buffer.content)
+    const ok = useSettingsStore.getState().updateSettingsFromJSON(content)
+    if (ok) markDocumentSaved(ref, content)
     return ok
   }
-  markSaved(buffer.id, buffer.content)
+  markDocumentSaved(ref, content)
   return true
-}
-
-/** The buffer is clean only if it still holds exactly what was written. */
-function markSaved(bufferId: string, written: string): void {
-  patchEditorBuffer(bufferId, (b) => ({
-    ...b,
-    savedContent: written,
-    isDirty: b.content !== written,
-    hasExternalChange: b.content === written ? false : b.hasExternalChange,
-  }))
 }
 
 async function writeToDisk(
   bufferId: string,
   { reason }: { reason: 'manual' | 'auto' },
 ): Promise<boolean> {
-  flushPendingEditorContent()
-  let buffer = findEditorBuffer(bufferId)
+  const opened = findEditorBuffer(bufferId)
+  if (!opened) return false
+  const ref = documentRefOf(opened)
+  const text = await readDocumentText(ref)
+  const buffer = findEditorBuffer(bufferId)
   if (!buffer) return false
-  if (buffer.path.startsWith('untitled:')) return reason === 'manual' && saveAsUntitled(buffer)
-  if (buffer.isVirtual) return saveVirtual(buffer)
+  if (buffer.path.startsWith('untitled:'))
+    return reason === 'manual' && saveAsUntitled(buffer, text)
+  if (buffer.isVirtual) return saveVirtual(buffer, text)
   // An autosave for a buffer a previous save already caught up is a no-op.
   if (reason === 'auto' && !buffer.isDirty) return true
 
   // A host document has no language server, watcher, git status or blame.
-  const inWorkspace = buffer.authority === 'workspace'
-  if (inWorkspace && reason === 'manual' && useSettingsStore.getState().settings.formatOnSave) {
-    await formatBeforeSave(buffer)
-    buffer = findEditorBuffer(bufferId)
-    if (!buffer) return false
-  }
+  const inWorkspace = ref.authority === 'workspace'
+  const formats =
+    inWorkspace && reason === 'manual' && useSettingsStore.getState().settings.formatOnSave
+  const written = formats ? await formatBeforeSave(ref, text) : text
+  if (written === null) return false
 
   const { path, workspaceId } = buffer
-  const written = buffer.content
   try {
     if (inWorkspace) useFileWatcherStore.getState().markPendingSave(path)
-    await writeDocument(documentRefOf(buffer), written)
+    await writeDocument(ref, written)
   } catch (error) {
     console.error('Error saving file:', error)
     reportSaveError(error)
     return false
   }
-  markSaved(bufferId, written)
+  markDocumentSaved(ref, written)
   if (inWorkspace) {
     const { LspClient } = await import('@/features/editor/lsp/lsp-client')
     void LspClient.getInstance().documentSave(workspaceId, path)

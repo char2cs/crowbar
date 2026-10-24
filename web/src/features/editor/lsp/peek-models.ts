@@ -8,7 +8,7 @@ import type * as Monaco from 'monaco-editor'
 import { readDocumentFromDisk, workspaceRef } from '@/lib/api/documents'
 import { getEditorHost } from '@/features/editor/host/editor-host'
 import { documentUri, refFromUri } from '../documents/document-ref'
-import { findDocumentBuffer } from '../documents/open-document'
+import { documentText } from '../documents/document-text'
 import { langForUri } from '../lib/monaco-adapters'
 import { toMonacoRange, type DaemonLocation } from './lsp-to-monaco'
 
@@ -54,7 +54,7 @@ export async function ensurePreviewModels(locations: Monaco.languages.Location[]
     [...uris].map(async (raw) => {
       const ref = refFromUri(raw)
       if (!ref || monacoEditor.getModel(Uri.parse(raw))) return
-      const text = findDocumentBuffer(ref)?.content ?? (await readDocumentFromDisk(ref))
+      const text = documentText(ref) ?? (await readDocumentFromDisk(ref))
       if (text === null || monacoEditor.getModel(Uri.parse(raw))) return
       const uri = documentUri(ref)
       peekModels.add(monacoEditor.createModel(text, langForUri(uri), Uri.parse(uri)))

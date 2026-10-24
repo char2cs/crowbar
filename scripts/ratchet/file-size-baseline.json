@@ -145,7 +145,7 @@
   "web/src/__tests__/features/terminal/hooks/use-terminal-connection.test.ts": 669,
   "web/src/__tests__/features/workspace/stores/hooks/use-workspace-agent-chats-stream.test.ts": 1771,
   "web/src/__tests__/features/workspace/stores/slices/agent-chats-slice.test.ts": 817,
-  "web/src/__tests__/lib/persistence/hydrate.test.ts": 997,
+  "web/src/__tests__/lib/persistence/hydrate.test.ts": 995,
   "web/src/components/app-sync-engine.ts": 625,
   "web/src/components/layout/removal-plan.ts": 503,
   "web/src/components/sidebar/hooks/use-sidebar-drag.ts": 751,

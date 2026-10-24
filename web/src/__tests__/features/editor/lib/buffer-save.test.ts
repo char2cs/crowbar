@@ -18,14 +18,22 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOri
   return { ...actual, getActiveWorkspaceId: () => 'ws-active' }
 })
 
+const { formatDocumentWithLsp } = vi.hoisted(() => ({ formatDocumentWithLsp: vi.fn() }))
+vi.mock('@/features/editor/lsp/format-buffer', () => ({ formatDocumentWithLsp }))
+
 import { apiFetch } from '@/lib/api'
 import {
   AUTOSAVE_DELAY_MS,
   saveActiveBuffer,
   saveAllDirtyBuffers,
   saveBuffer,
-  setBufferContent,
 } from '@/features/editor/lib/buffer-save'
+import {
+  documentText,
+  registerPendingWriter,
+  replaceDocumentText,
+  savedDocumentText,
+} from '@/features/editor/documents/document-text'
 import { useSettingsStore } from '@/features/settings/store'
 import {
   windowPaneStore,
@@ -162,6 +170,13 @@ function writesFor(path: string): string[] {
     .map((body) => body.content)
 }
 
+const A = workspaceRef('ws-owner', 'a.ts')
+const B = workspaceRef('ws-owner', 'b.ts')
+
+function textOf(ref: DocumentRef) {
+  return { text: documentText(ref), saved: savedDocumentText(ref) }
+}
+
 function openCleanBuffer(workspaceId: string, path: string, content: string): string {
   return windowPaneStore.getState().bufferActions.openContent({
     type: 'editor',
@@ -185,8 +200,8 @@ describe('buffer-save — P0-10: autosave is per buffer and never mislabels edit
     const a = openCleanBuffer('ws-owner', 'a.ts', 'a0')
     const b = openCleanBuffer('ws-owner', 'b.ts', 'b0')
 
-    setBufferContent(a, 'a1')
-    setBufferContent(b, 'b1')
+    replaceDocumentText(A, 'a1')
+    replaceDocumentText(B, 'b1')
     await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
 
     expect(writesFor('a.ts')).toEqual(['a1'])
@@ -202,14 +217,15 @@ describe('buffer-save — P0-10: autosave is per buffer and never mislabels edit
       () => new Promise((resolve) => (finishWrite = () => resolve({}))),
     )
 
-    setBufferContent(id, 'v1')
+    replaceDocumentText(A, 'v1')
     const save = saveBuffer(id)
     await vi.advanceTimersByTimeAsync(0)
-    setBufferContent(id, 'v2')
+    replaceDocumentText(A, 'v2')
     finishWrite()
     await save
 
-    expect(bufferById(id)).toMatchObject({ content: 'v2', savedContent: 'v1', isDirty: true })
+    expect(textOf(A)).toEqual({ text: 'v2', saved: 'v1' })
+    expect(bufferById(id).isDirty).toBe(true)
     // ...and autosave catches the late edit up.
     await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
     expect(writesFor('a.ts')).toEqual(['v1', 'v2'])
@@ -220,10 +236,11 @@ describe('buffer-save — P0-10: autosave is per buffer and never mislabels edit
     const id = openCleanBuffer('ws-owner', 'a.ts', 'v0')
     mockFetch.mockRejectedValueOnce(new Error('disk full'))
 
-    setBufferContent(id, 'v1')
+    replaceDocumentText(A, 'v1')
     expect(await saveBuffer(id)).toBe(false)
 
-    expect(bufferById(id)).toMatchObject({ content: 'v1', savedContent: 'v0', isDirty: true })
+    expect(textOf(A)).toEqual({ text: 'v1', saved: 'v0' })
+    expect(bufferById(id).isDirty).toBe(true)
   })
 
   it('saves of one buffer are serialized, newest content last', async () => {
@@ -231,10 +248,10 @@ describe('buffer-save — P0-10: autosave is per buffer and never mislabels edit
     const resolvers: Array<() => void> = []
     mockFetch.mockImplementation(() => new Promise((r) => resolvers.push(() => r({}))))
 
-    setBufferContent(id, 'v1')
+    replaceDocumentText(A, 'v1')
     const first = saveBuffer(id)
     await vi.advanceTimersByTimeAsync(0)
-    setBufferContent(id, 'v2')
+    replaceDocumentText(A, 'v2')
     const second = saveBuffer(id)
     await vi.advanceTimersByTimeAsync(0)
     // Only the first write is in flight until it settles.
@@ -246,6 +263,51 @@ describe('buffer-save — P0-10: autosave is per buffer and never mislabels edit
     await second
 
     expect(writesFor('a.ts')).toEqual(['v1', 'v2'])
-    expect(bufferById(id)).toMatchObject({ savedContent: 'v2', isDirty: false })
+    expect(savedDocumentText(A)).toBe('v2')
+    expect(bufferById(id).isDirty).toBe(false)
+  })
+})
+
+describe('buffer-save — the text a save writes', () => {
+  afterEach(() => {
+    useSettingsStore.setState((s) => ({ settings: { ...s.settings, formatOnSave: false } }))
+  })
+
+  it('writes edits a pending writer has not flushed yet', async () => {
+    const id = openCleanBuffer('ws-owner', 'a.ts', 'saved')
+    const stop = registerPendingWriter(A, () => replaceDocumentText(A, 'typed, not flushed'))
+
+    expect(await saveBuffer(id)).toBe(true)
+
+    expect(writesFor('a.ts')).toEqual(['typed, not flushed'])
+    expect(bufferById(id).isDirty).toBe(false)
+    stop()
+  })
+
+  it('format on save writes the formatted text and leaves the buffer clean', async () => {
+    useSettingsStore.setState((s) => ({ settings: { ...s.settings, formatOnSave: true } }))
+    const id = openDirtyBuffer('ws-owner', 'a.ts', 'const a=1')
+    formatDocumentWithLsp.mockResolvedValue('const a = 1\n')
+
+    expect(await saveBuffer(id)).toBe(true)
+
+    expect(formatDocumentWithLsp).toHaveBeenCalledWith(A, 'const a=1')
+    expect(writesFor('a.ts')).toEqual(['const a = 1\n'])
+    expect(textOf(A)).toEqual({ text: 'const a = 1\n', saved: 'const a = 1\n' })
+    expect(bufferById(id).isDirty).toBe(false)
+  })
+
+  it('drops a format result when an edit lands while the formatter runs', async () => {
+    useSettingsStore.setState((s) => ({ settings: { ...s.settings, formatOnSave: true } }))
+    const id = openDirtyBuffer('ws-owner', 'a.ts', 'const a=1')
+    formatDocumentWithLsp.mockImplementation(() => {
+      replaceDocumentText(A, 'const a=12')
+      return Promise.resolve('const a = 1\n')
+    })
+
+    expect(await saveBuffer(id)).toBe(true)
+
+    expect(writesFor('a.ts')).toEqual(['const a=12'])
+    expect(textOf(A)).toEqual({ text: 'const a=12', saved: 'const a=12' })
   })
 })

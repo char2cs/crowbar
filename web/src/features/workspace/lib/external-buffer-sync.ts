@@ -1,6 +1,7 @@
 import { isNotFoundError } from '@/lib/api'
 import { readDocument, readDocumentFromDisk, type DocumentRef } from '@/lib/api/documents'
 import { documentRefOf, sameDocument } from '@/features/editor/documents/document-ref'
+import { applyExternalText, savedDocumentText } from '@/features/editor/documents/document-text'
 import { documentRefusal } from '@/features/editor/documents/open-document'
 import { useFileWatcherStore } from '@/features/file-system/controllers/file-watcher-store'
 import {
@@ -18,8 +19,8 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
  *
  * - Own-save echoes (paths marked via markPendingSave) are consumed and
  *   ignored — the buffer already holds what was written.
- * - A clean buffer is silently reloaded from disk (content + savedContent),
- *   so a discarded file can never be resurrected by a later save.
+ * - A clean buffer is silently reloaded from disk as saved text, so a
+ *   discarded file can never be resurrected by a later save.
  * - A dirty buffer is never clobbered: it is flagged with hasExternalChange
  *   and a toast tells the user the file changed underneath them.
  */
@@ -49,7 +50,7 @@ export async function syncBufferWithDisk(ref: DocumentRef): Promise<void> {
     // the consumed marker. Before warning, confirm the on-disk bytes actually
     // diverged from the baseline we last wrote; if they match, this is our own
     // write echoing back, not an external edit. Mirrors the restore-path guard
-    // in hydrate.ts (diskContent === savedContent).
+    // in reconcileBuffer below (disk === saved text).
     const disk = await readDocumentFromDisk(ref)
     if (disk === null) return
 
@@ -59,7 +60,7 @@ export async function syncBufferWithDisk(ref: DocumentRef): Promise<void> {
     if (!current || !isEditorContent(current) || !current.isDirty || current.hasExternalChange) {
       return
     }
-    if (disk === current.savedContent) return // own-write echo — nothing diverged
+    if (disk === savedDocumentText(ref)) return // own-write echo — nothing diverged
 
     windowPaneStore.setState((state) => ({
       buffers: state.buffers.map((b) =>
@@ -78,26 +79,16 @@ export async function syncBufferWithDisk(ref: DocumentRef): Promise<void> {
 
   // Re-check at apply time: the user may have started editing (or closed the
   // buffer) while the read was in flight — never clobber fresh edits.
-  windowPaneStore.setState((state) => ({
-    buffers: state.buffers.map((b) =>
-      holds(b) && isEditorContent(b) && !b.isDirty
-        ? {
-            ...b,
-            content,
-            savedContent: content,
-            isDirty: false,
-            hasExternalChange: false,
-            fileMissing: false,
-          }
-        : b,
-    ),
-  }))
+  const current = windowPaneStore.getState().buffers.find(holds)
+  if (current && isEditorContent(current) && !current.isDirty) {
+    applyExternalText(ref, content, { saved: true })
+  }
 }
 
 /**
  * Restored buffers may be stale: the file can change on disk while the app is
  * closed. Each is reconciled with the policy of a live external change, but
- * only when disk diverges from `savedContent` — otherwise every dirty buffer
+ * only when disk diverges from the saved text — otherwise every dirty buffer
  * would get a false "changed on disk" toast on every reload.
  *
  * A file gone from disk marks a clean buffer missing (a dirty one keeps the
@@ -129,7 +120,7 @@ async function reconcileBuffer(
     return
   }
   if (buffer.fileMissing) setBufferFileMissing(ref, false)
-  if (disk !== buffer.savedContent) await syncBufferWithDisk(ref)
+  if (disk !== savedDocumentText(ref)) await syncBufferWithDisk(ref)
 }
 
 /** Host documents restored with the window: no workspace activation reconciles them. */

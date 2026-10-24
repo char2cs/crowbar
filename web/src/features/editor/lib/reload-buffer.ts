@@ -1,7 +1,6 @@
 import { readDocument } from '@/lib/api/documents'
 import { documentRefOf } from '@/features/editor/documents/document-ref'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { isEditorContent } from '@/features/panes/types/pane-content'
+import { applyExternalText, documentText } from '@/features/editor/documents/document-text'
 import { cancelAutosave, findEditorBuffer, type PathedBuffer } from './buffer-save'
 
 export type ReloadOutcome = 'reloaded' | 'kept' | 'failed'
@@ -18,35 +17,23 @@ export async function reloadBufferFromDisk(
   bufferId: string,
   confirmDiscard: (buffer: PathedBuffer) => boolean,
 ): Promise<ReloadOutcome> {
-  if (typeof window !== 'undefined') window.dispatchEvent(new Event('flush-editor-content'))
+  const opened = findEditorBuffer(bufferId)
+  if (!opened || opened.isVirtual || opened.path.startsWith('untitled:')) return 'failed'
+  const ref = documentRefOf(opened)
+  const seen = documentText(ref)
   const buffer = findEditorBuffer(bufferId)
-  if (!buffer || buffer.isVirtual || buffer.path.startsWith('untitled:')) return 'failed'
+  if (seen === null || !buffer) return 'failed'
   if (buffer.isDirty && !confirmDiscard(buffer)) return 'kept'
   cancelAutosave(bufferId)
 
-  const seen = buffer.content
   let disk: string
   try {
-    disk = (await readDocument(documentRefOf(buffer))).text
+    disk = (await readDocument(ref)).text
   } catch {
     return 'failed'
   }
 
-  const current = findEditorBuffer(bufferId)
-  if (!current || current.content !== seen) return 'kept'
-  windowPaneStore.setState((state) => ({
-    buffers: state.buffers.map((b) =>
-      b.id === bufferId && isEditorContent(b)
-        ? {
-            ...b,
-            content: disk,
-            savedContent: disk,
-            isDirty: false,
-            hasExternalChange: false,
-            fileMissing: false,
-          }
-        : b,
-    ),
-  }))
+  if (documentText(ref) !== seen) return 'kept'
+  applyExternalText(ref, disk, { saved: true })
   return 'reloaded'
 }

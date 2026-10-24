@@ -146,62 +146,23 @@ export function collectWorkspaceTextEdits(edit: WorkspaceEdit): Map<string, LspT
   return editsByFile
 }
 
-async function readEditableSource(
-  filePath: string,
-  workspaceId: string,
-): Promise<{ bufferId: string | null; content: string }> {
-  const [{ windowPaneStore }, { readDocument, workspaceRef }] = await Promise.all([
-    import('@/features/panes/stores/window-pane-store'),
-    import('@/lib/api/documents'),
-  ])
-  const buffers = windowPaneStore.getState().buffers
-  // Task 26: buffers are window-level — a sibling worktree can hold a
-  // DIFFERENT file at this same relative path, so the lookup must be scoped
-  // to the workspace this edit actually belongs to, not just the path.
-  const openBuffer = buffers.find(
-    (buffer) =>
-      buffer.type === 'editor' &&
-      !buffer.isVirtual &&
-      buffer.path === filePath &&
-      buffer.workspaceId === workspaceId,
-  )
-
-  if (openBuffer?.type === 'editor') {
-    return { bufferId: openBuffer.id, content: openBuffer.content }
-  }
-
-  const { text } = await readDocument(workspaceRef(workspaceId, filePath))
-  return { bufferId: null, content: text }
-}
-
-async function writeEditableSource(
-  filePath: string,
-  bufferId: string | null,
-  content: string,
-  workspaceId: string,
-) {
-  const [{ windowPaneStore }, { isEditorContent }, { writeDocument, workspaceRef }] =
+/** Apply `edits` to one file: its open document as a user edit, else straight to disk. */
+async function editFile(workspaceId: string, filePath: string, edits: LspTextEdit[]) {
+  const [{ readDocument, workspaceRef, writeDocument }, { documentText, replaceDocumentText }] =
     await Promise.all([
-      import('@/features/panes/stores/window-pane-store'),
-      import('@/features/panes/types/pane-content'),
       import('@/lib/api/documents'),
+      import('@/features/editor/documents/document-text'),
     ])
-
-  if (bufferId) {
-    windowPaneStore.setState((state) => ({
-      buffers: state.buffers.map((b) =>
-        b.id === bufferId && isEditorContent(b)
-          ? { ...b, content, isDirty: content !== b.savedContent }
-          : b,
-      ),
-    }))
+  // Buffers are window-level: the edit belongs to ITS OWN workspace's file, never
+  // a sibling worktree's file at the same relative path.
+  const ref = workspaceRef(workspaceId, filePath)
+  const open = documentText(ref)
+  if (open !== null) {
+    replaceDocumentText(ref, applyTextEditsToContent(open, edits))
     return
   }
-
-  // Write to the edit's OWN workspace, never whichever one is merely active
-  // — a rename triggered from a background/hidden pane must not land in the
-  // wrong worktree.
-  await writeDocument(workspaceRef(workspaceId, filePath), content)
+  const { text } = await readDocument(ref)
+  await writeDocument(ref, applyTextEditsToContent(text, edits))
 }
 
 export async function applyWorkspaceEdit(
@@ -214,11 +175,7 @@ export async function applyWorkspaceEdit(
   // file's (distinct paths, distinct buffer ids), so run them concurrently
   // instead of one file at a time — a rename can touch many files.
   await Promise.all(
-    Array.from(editsByFile, async ([filePath, edits]) => {
-      const source = await readEditableSource(filePath, workspaceId)
-      const nextContent = applyTextEditsToContent(source.content, edits)
-      await writeEditableSource(filePath, source.bufferId, nextContent, workspaceId)
-    }),
+    Array.from(editsByFile, ([filePath, edits]) => editFile(workspaceId, filePath, edits)),
   )
 
   return { editedFiles: editsByFile.size }

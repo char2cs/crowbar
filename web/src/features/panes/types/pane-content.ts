@@ -133,14 +133,6 @@ export function isEditorContent(c: PaneContent): c is EditorContent {
   return c.type === 'editor'
 }
 
-export function isBranchReviewContent(c: PaneContent): c is BranchReviewContent {
-  return c.type === 'branchReview'
-}
-
-export function isCommitDiffContent(c: PaneContent): c is CommitDiffContent {
-  return c.type === 'commitDiff'
-}
-
 // ── Helpers ─────────────────────────────────────────────────────────
 
 /** Content types that represent real files on disk and should be persisted to session. */
@@ -164,13 +156,6 @@ export function isVirtualContent(c: PaneContent): boolean {
   if (VIRTUAL_TYPES.has(c.type)) return true
   if (c.type === 'editor') return c.isVirtual
   return false
-}
-
-/** Whether this content has text content (for search, etc.) */
-export function hasTextContent(
-  c: PaneContent,
-): c is EditorContent | MarkdownPreviewContent | HtmlPreviewContent {
-  return c.type === 'editor' || c.type === 'markdownPreview' || c.type === 'htmlPreview'
 }
 
 // ── Open spec (input to openContent) ────────────────────────────────

@@ -42,6 +42,8 @@ import {
   upgradeWindowPaneLayout,
 } from '@/lib/persistence/hydrate'
 import { ApiError } from '@/lib/api'
+import { workspaceRef } from '@/lib/api/documents'
+import { documentText, savedDocumentText } from '@/features/editor/documents/document-text'
 import { getDB, resetDB } from '@/lib/persistence/idb'
 import {
   WINDOW_LAYOUT_VERSION,
@@ -659,14 +661,8 @@ describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)'
     }
   }
 
-  // Task 26: buffers are window-level now, restored from the one
-  // WINDOW_SESSION_ID-keyed IDB row by hydrateWindowPaneLayout() (once at
-  // boot) — not the per-workspace `hydrateWorkspace` under test here, which
-  // only reconciles whatever hydrateWindowPaneLayout already restored against
-  // disk. Route through the real restore path (IDB write + a real
-  // hydrateWindowPaneLayout() call) rather than poking `windowPaneStore`
-  // directly, so restoreBufferDirtyState's persisted-isDirty correction is
-  // still genuinely exercised, not bypassed.
+  // Seeded through the real restore path (IDB row + hydrateWindowPaneLayout),
+  // so the persisted-isDirty correction on restore is exercised, not bypassed.
   async function seedLayoutWithBuffers(buffers: EditorContent[]) {
     resetWindowPaneStoreForTests()
     const db = await getDB()
@@ -701,6 +697,7 @@ describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)'
     return windowPaneStore.getState().buffers[0] as EditorContent
   }
 
+  const README = workspaceRef(WS, '/repo/README.md')
   beforeEach(() => {
     resetDB()
     globalThis.indexedDB = new IDBFactory()
@@ -722,8 +719,8 @@ describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)'
     const buf = getRestoredBuffer()
     // Reads must target the hydrating workspace explicitly, not the active one.
     expect(readFileMock).toHaveBeenCalledWith(WS, '/repo/README.md')
-    expect(buf.content).toBe('disk content changed while closed')
-    expect(buf.savedContent).toBe('disk content changed while closed')
+    expect(documentText(README)).toBe('disk content changed while closed')
+    expect(savedDocumentText(README)).toBe('disk content changed while closed')
     expect(buf.isDirty).toBe(false)
     expect(buf.hasExternalChange).toBe(false)
     expect(toastWarning).not.toHaveBeenCalled()
@@ -738,7 +735,7 @@ describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)'
     await hydrateWorkspace(WS)
 
     const buf = getRestoredBuffer()
-    expect(buf.content).toBe('unsaved user edits')
+    expect(documentText(README)).toBe('unsaved user edits')
     expect(buf.isDirty).toBe(true)
     expect(buf.hasExternalChange).toBe(true)
     expect(toastWarning).toHaveBeenCalledTimes(1)
@@ -754,7 +751,7 @@ describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)'
     await hydrateWorkspace(WS)
 
     const buf = getRestoredBuffer()
-    expect(buf.content).toBe('unsaved user edits')
+    expect(documentText(README)).toBe('unsaved user edits')
     expect(buf.isDirty).toBe(true)
     expect(toastWarning).not.toHaveBeenCalled()
   })
@@ -766,7 +763,7 @@ describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)'
     await hydrateWorkspace(WS)
 
     const buf = getRestoredBuffer()
-    expect(buf.content).toBe('saved content')
+    expect(documentText(README)).toBe('saved content')
     expect(buf.isDirty).toBe(false)
     expect(buf.hasExternalChange).toBeUndefined()
     expect(toastWarning).not.toHaveBeenCalled()
@@ -781,7 +778,7 @@ describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)'
     await hydrateWorkspace(WS)
 
     expect(readFileMock).not.toHaveBeenCalled()
-    expect(getRestoredBuffer().content).toBe('saved content')
+    expect(documentText(workspaceRef(WS, 'untitled:1'))).toBe('saved content')
     expect(toastWarning).not.toHaveBeenCalled()
   })
 
@@ -797,7 +794,7 @@ describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)'
     expect(readFileMock).toHaveBeenCalledTimes(1)
     expect(buf.fileMissing).toBe(true)
     // Content untouched — closing the tab or restoring the file is the way out.
-    expect(buf.content).toBe('saved content')
+    expect(documentText(README)).toBe('saved content')
   })
 
   it('keeps the editor (no fileMissing) for a dirty buffer whose file 404s', async () => {
@@ -811,7 +808,7 @@ describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)'
     const buf = getRestoredBuffer()
     // The unsaved edits are the only copy left; saving recreates the file.
     expect(buf.fileMissing).toBeUndefined()
-    expect(buf.content).toBe('unsaved user edits')
+    expect(documentText(README)).toBe('unsaved user edits')
   })
 
   it('does not flag fileMissing on non-404 errors (transient failures)', async () => {
@@ -858,6 +855,7 @@ describe('reconcileWorkspaceBuffersWithDisk (keep-alive warm return)', () => {
     }
   }
 
+  const EDITED = workspaceRef(WS, '/repo/agent-edited.ts')
   beforeEach(() => {
     resetDB()
     globalThis.indexedDB = new IDBFactory()
@@ -883,8 +881,8 @@ describe('reconcileWorkspaceBuffersWithDisk (keep-alive warm return)', () => {
 
     const buf = windowPaneStore.getState().buffers[0] as EditorContent
     expect(readFileMock).toHaveBeenCalledWith(WS, '/repo/agent-edited.ts')
-    expect(buf.content).toBe('agent rewrote this while you were away')
-    expect(buf.savedContent).toBe('agent rewrote this while you were away')
+    expect(documentText(EDITED)).toBe('agent rewrote this while you were away')
+    expect(savedDocumentText(EDITED)).toBe('agent rewrote this while you were away')
     expect(buf.isDirty).toBe(false)
   })
 
@@ -899,7 +897,7 @@ describe('reconcileWorkspaceBuffersWithDisk (keep-alive warm return)', () => {
     await reconcileWorkspaceBuffersWithDisk(WS)
 
     const buf = windowPaneStore.getState().buffers[0] as EditorContent
-    expect(buf.content).toBe('unsaved user edits')
+    expect(documentText(EDITED)).toBe('unsaved user edits')
     expect(buf.isDirty).toBe(true)
     expect(buf.hasExternalChange).toBe(true)
   })
@@ -915,7 +913,7 @@ describe('reconcileWorkspaceBuffersWithDisk (keep-alive warm return)', () => {
     await reconcileWorkspaceBuffersWithDisk(WS)
 
     const buf = windowPaneStore.getState().buffers[0] as EditorContent
-    expect(buf.content).toBe('content when hidden')
+    expect(documentText(EDITED)).toBe('content when hidden')
     expect(buf.hasExternalChange).toBeUndefined()
     expect(toastWarning).not.toHaveBeenCalled()
   })
