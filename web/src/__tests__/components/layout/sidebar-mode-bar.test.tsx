@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { SidebarModeBar } from '@/components/layout/sidebar-mode-bar'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
@@ -44,6 +44,12 @@ describe('SidebarModeBar', () => {
     ])
   })
 
+  it('renders the segments inside one labelled tablist', () => {
+    render(<SidebarModeBar />)
+    const list = screen.getByRole('tablist', { name: 'Sidebar mode' })
+    expect(within(list).getAllByRole('tab')).toHaveLength(3)
+  })
+
   it('selects Chats by default', () => {
     render(<SidebarModeBar />)
     expect(segment('Chats')).toHaveAttribute('aria-selected', 'true')
@@ -63,8 +69,8 @@ describe('SidebarModeBar', () => {
     it('Git is disabled for a workspace with no repo, and cannot be selected', () => {
       publishFocusedWorkspaceContext(HOME_CTX)
       render(<SidebarModeBar />)
-      expect(segment('Git')).toBeDisabled()
-      expect(segment('Files')).toBeEnabled()
+      expect(segment('Git')).toHaveAttribute('aria-disabled', 'true')
+      expect(segment('Files')).toHaveAttribute('aria-disabled', 'false')
       fireEvent.click(segment('Git'))
       expect(useSidebarStore.getState().activeTab).toBe('chats')
     })
@@ -72,9 +78,9 @@ describe('SidebarModeBar', () => {
     it('with no focused workspace, Files and Git are disabled and Chats stays usable', () => {
       publishFocusedWorkspaceContext(EMPTY_FOCUSED_WORKSPACE_CONTEXT)
       render(<SidebarModeBar />)
-      expect(segment('Chats')).toBeEnabled()
-      expect(segment('Files')).toBeDisabled()
-      expect(segment('Git')).toBeDisabled()
+      expect(segment('Chats')).toHaveAttribute('aria-disabled', 'false')
+      expect(segment('Files')).toHaveAttribute('aria-disabled', 'true')
+      expect(segment('Git')).toHaveAttribute('aria-disabled', 'true')
     })
 
     it('shows Chats as selected once the chosen mode becomes unavailable', () => {

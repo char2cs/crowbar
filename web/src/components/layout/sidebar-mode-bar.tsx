@@ -1,4 +1,4 @@
-import { Tab } from '@/components/ui/tabs'
+import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'
@@ -9,9 +9,8 @@ import {
 } from './sidebar-panel-tabs'
 
 /**
- * The sidebar's mode switch: Chats / Files / Git as one segmented control.
- * The active segment shows a filled icon and its label; the rest show their
- * icon, and their label too once the sidebar is wide enough.
+ * The sidebar's mode switch: Chats / Files / Git as a segmented control with a sliding pill.
+ * The active segment shows a filled icon and its label; the rest show their label once wide enough.
  */
 export function SidebarModeBar({ className }: { className?: string }) {
   const shown = useShownSidebarTab()
@@ -20,32 +19,42 @@ export function SidebarModeBar({ className }: { className?: string }) {
   const available = new Set(availableKey.split(','))
 
   return (
-    // @container so the labels follow the sidebar's own width, not the window's.
-    <div className={cn('@container min-w-0 flex-1', className)}>
-      <div
-        role="tablist"
-        aria-label="Sidebar mode"
-        className="flex w-full items-center gap-0.5 rounded-lg bg-muted p-0.5"
-      >
-        {SIDEBAR_PANEL_TABS.map(({ tab, label, Icon }) => {
-          const isActive = shown === tab
-          return (
-            <Tab
-              key={tab}
-              role="tab"
-              aria-selected={isActive}
-              aria-label={label}
-              isActive={isActive}
-              disabled={!available.has(tab)}
-              onClick={() => setActiveTab(tab)}
-              className="h-7 min-w-0 flex-1 justify-center gap-1 rounded-md px-2 text-xs"
-            >
-              <Icon size={14} weight={isActive ? 'fill' : 'regular'} />
-              <span className={cn('truncate', !isActive && 'hidden @[420px]:inline')}>{label}</span>
-            </Tab>
-          )
-        })}
-      </div>
+    // @container so child labels can respond to the sidebar's actual width
+    <div className={cn('@container flex shrink-0 items-center px-2 py-1.5', className)}>
+      <Tabs value={shown} onValueChange={(v) => setActiveTab(v as typeof shown)} className="w-full">
+        <TabsList
+          variant="default"
+          aria-label="Sidebar mode"
+          className="w-full bg-sidebar-element-idle text-foreground/70"
+        >
+          {SIDEBAR_PANEL_TABS.map(({ tab, label, Icon }) => {
+            const isActive = shown === tab
+            return (
+              <TabsTab
+                key={tab}
+                value={tab}
+                aria-label={label}
+                disabled={!available.has(tab)}
+                className="flex flex-1 items-center justify-center gap-1"
+              >
+                <Icon size={14} weight={isActive ? 'fill' : 'regular'} />
+                <span
+                  className={cn(
+                    // < 280px: no labels for anyone
+                    'hidden',
+                    // 280–420px: label only for the active tab
+                    isActive && '@[280px]:inline',
+                    // ≥ 420px: labels for all tabs
+                    '@[420px]:inline',
+                  )}
+                >
+                  {label}
+                </span>
+              </TabsTab>
+            )
+          })}
+        </TabsList>
+      </Tabs>
     </div>
   )
 }

@@ -33,9 +33,7 @@ export function SidebarBody({ chatsPanel, projectSwitcher }: SidebarBodyProps) {
   return (
     <NavStack>
       {projectSwitcher}
-      <div className="flex shrink-0 items-center px-2 py-1.5">
-        <SidebarModeBar />
-      </div>
+      <SidebarModeBar />
       {panel('chats', chatsPanel)}
       {panel('files', <SidebarFilesPanel />)}
       {panel(

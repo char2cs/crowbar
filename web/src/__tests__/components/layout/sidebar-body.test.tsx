@@ -137,7 +137,7 @@ describe('SidebarBody', () => {
     renderBody()
     expect(screen.getByRole('tablist', { name: 'Sidebar mode' })).toBeInTheDocument()
     expect(screen.getByTestId('panel-chats')).toBeVisible()
-    expect(screen.getByRole('tab', { name: 'Files' })).toBeDisabled()
+    expect(screen.getByRole('tab', { name: 'Files' })).toHaveAttribute('aria-disabled', 'true')
   })
 
   it('puts the project switcher on the first line, above the mode bar', () => {
