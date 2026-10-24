@@ -71,7 +71,9 @@ export function TreeFoot({
 
   return (
     <div data-testid="tree-foot">
-      <div data-testid="tree-foot-divider" className="mx-3 my-1 h-px bg-border" />
+      {/* Foreground at 15%, like view-row.tsx's separator: `--border` vanishes
+          on the translucent sidebar. */}
+      <div data-testid="tree-foot-divider" className="mx-3 my-1 h-px bg-foreground/15" />
       <FootRow
         icon={<PlusIcon aria-hidden="true" className="size-4" />}
         label="New thread"
