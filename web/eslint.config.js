@@ -9,7 +9,6 @@ import globals from 'globals'
 // the backlog: split a file, then delete its entry. Never add to it.
 const MAX_LINES_BASELINE = [
   'src/__tests__/components/app-sync-provider-folders.test.tsx',
-  'src/__tests__/components/layout/sidebar-carousel.test.tsx',
   'src/__tests__/components/sidebar/hooks/use-sidebar-drag.test.ts',
   'src/__tests__/components/sidebar/lib/drop-actions.test.ts',
   'src/__tests__/components/sidebar/lib/row-actions.test.ts',

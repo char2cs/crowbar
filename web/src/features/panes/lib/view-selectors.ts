@@ -1,5 +1,4 @@
-import type { LayoutNode, PaneGroup, ViewRecord } from '@/features/panes/types/pane'
-import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
+import type { PaneGroup, ViewRecord } from '@/features/panes/types/pane'
 
 const chatIndexCache = new WeakMap<Record<string, PaneGroup>, Map<string, string>>()
 
@@ -55,17 +54,6 @@ function sameIds(a: readonly string[], b: readonly string[]): boolean {
 export function isPaneEmpty(pane: Pick<PaneGroup, 'chatId' | 'editorTabIds'> | undefined): boolean {
   if (!pane) return false
   return pane.chatId === null && pane.editorTabIds.length === 0
-}
-
-/** The stage is on screen with nothing in it — the "nothing is open" screen. */
-export function selectIsShowingEmptyStage(state: {
-  activeViewId: string | null
-  stage: LayoutNode
-  panes: Record<string, PaneGroup>
-}): boolean {
-  if (state.activeViewId !== null) return false
-  const leaves = getAllLeafIds(state.stage)
-  return leaves.length === 1 && isPaneEmpty(state.panes[leaves[0]])
 }
 
 /** Whether some pane holds `chatId`, off the memoized index. Subscribe per row. */

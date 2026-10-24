@@ -100,8 +100,8 @@ export function GitPanel() {
           fallback: a workspace-scoped git store with no wsId to key its
           "which workspace is this?" question against just keeps whatever
           OTHER workspace's status/branch/changed-files it last fetched,
-          cross-chat and cross-project. "Git has no meaning without a repo"
-          (sidebar-carousel.tsx) — so it shows nothing instead of stale data. */}
+          cross-chat and cross-project. Git has no meaning without a repo,
+          so it shows nothing instead of stale data. */}
       {!wsId && (
         <div className="flex flex-1 items-center justify-center px-4 text-center text-[13px] text-muted-foreground">
           No repository open

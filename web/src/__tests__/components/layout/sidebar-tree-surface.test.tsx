@@ -139,10 +139,8 @@ describe('SidebarTreeSurface', () => {
     expect(panels[1]).not.toHaveTextContent('repo-a')
   })
 
-  // RemovalTray no longer mounts here — the drag-to-trash addendum (§2) moved
-  // it into SidebarCarousel, rendered at the top of the file explorer card.
-  // "Mounts once, not once per project" is now covered there
-  // (sidebar-carousel.test.tsx), not at this component's level.
+  // RemovalTray no longer mounts here: it mounts once in the IDE shell
+  // (ide-shell.test.tsx covers that).
 
   // Explicit product request: an X on a row transforms it IN PLACE (its
   // countdown + Keep/undo control) instead of hiding it while a separate

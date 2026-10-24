@@ -360,46 +360,6 @@ describe('SpaceScroller', () => {
     expect(onCreate).toHaveBeenCalledWith('row-1', 'thread')
   })
 
-  // Spec §6: "the tree keeps a bottom inset the height of the card." An
-  // OUTER, non-scrolling spacer now carries this — not padding on the
-  // scrollable content, which counted straight toward `scrollHeight` and
-  // could show a scrollbar for a list that visually didn't need one (the
-  // card's default open height is a third of the whole sidebar rail). Reads
-  // `--card-bottom-inset` off the CSS cascade (written directly onto the
-  // shared rail ancestor by sidebar-carousel.tsx — see ide-shell.tsx's
-  // `railRef`) rather than a React prop threaded through every layer: a
-  // prop here would re-render this panel (and every row in it) on every
-  // frame of a resize drag. See sidebar-carousel.test.tsx's "does not
-  // re-render the tree during a live drag" for the live end-to-end proof.
-  it("reserves the card's bottom inset as an outer spacer, not scroll-content padding", () => {
-    const projects = [makeProject('p1'), makeProject('p2')]
-    render(
-      <SpaceScroller
-        projects={projects}
-        activeProjectId="p1"
-        onActiveProjectChange={vi.fn()}
-        rowsForProject={() => []}
-        onOpen={vi.fn()}
-        onTrash={vi.fn()}
-        onCreate={vi.fn()}
-        onDrop={onDrop}
-        onPaneDrop={onPaneDrop}
-        onTrashProject={vi.fn()}
-      />,
-    )
-    const spacers = screen.getAllByTestId('space-scroll-bottom-spacer')
-    expect(spacers).toHaveLength(2)
-    for (const spacer of spacers) {
-      expect(spacer).toHaveStyle({ height: 'var(--card-bottom-inset, 0px)' })
-      expect(spacer).toHaveClass('shrink-0')
-    }
-    // The scroll content itself carries no padding for this any more — the
-    // whole point is keeping it out of `scrollHeight`.
-    for (const content of screen.getAllByTestId('space-scroll-content')) {
-      expect(content).not.toHaveStyle({ paddingBottom: 'var(--card-bottom-inset, 0px)' })
-    }
-  })
-
   // Spec §4: the space header IS the panel's first element, and it is what
   // says which project this space is. Built in Task 10 and left with zero
   // importers until the final fix wave.

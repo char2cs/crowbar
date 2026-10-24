@@ -194,18 +194,18 @@ html[data-row-dragging] * {
   cursor: grabbing !important;
 }
 
-/* Pin the sidebar's panel carousel while a row is in the air.
-   The carousel (sidebar-carousel.tsx) is the tree's nearest scrollable
-   ancestor: `overflow-x: scroll` with `scroll-snap-type: x mandatory`, four
-   min-w-full panels. Carrying a row rightwards out of it — which is exactly the
-   drag that removes one — leaves a captured pointer travelling past the edge of
-   a horizontally scrollable box, and WebKit answers that by scrolling it. With
-   MANDATORY snapping there is no small version of that: any nudge lands a whole
-   panel away, so the sidebar jumps to Chats or Files mid-drag and the rows the
-   drag came from are gone.
+/* Pin the sidebar's space carousel while a row is in the air.
+   The carousel (space-scroller.tsx) is the tree's nearest scrollable
+   ancestor: `overflow-x: scroll` with `scroll-snap-type: x mandatory`, one
+   min-w-full panel per space. Carrying a row rightwards out of it — which is
+   exactly the drag that removes one — leaves a captured pointer travelling past
+   the edge of a horizontally scrollable box, and WebKit answers that by
+   scrolling it. With MANDATORY snapping there is no small version of that: any
+   nudge lands a whole panel away, so the sidebar jumps to another space
+   mid-drag and the rows the drag came from are gone.
    `hidden` rather than `clip`: it stops USER and native scrolling while leaving
    the box programmatically scrollable, so the carousel's own re-align
-   (ResizeObserver) and its activeTab `scrollTo` keep working through a drag.
+   (ResizeObserver) and its `scrollTo` keep working through a drag.
    The scrollbar is already display:none, so there is no gutter to shift.
 
    `will-change: transform` is NOT a speculative hint here, it is what makes this

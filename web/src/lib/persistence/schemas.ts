@@ -79,6 +79,9 @@ export interface SidebarUI {
    * as "nothing folded", which is the product default.
    */
   collapsedChatRows?: string[]
+  /** The sidebar's last mode. Untyped on disk: an older build wrote modes that
+   *  no longer exist, so hydrate parses it (`parseSidebarTab`). */
+  activeTab?: string
   updatedAt: number
 }
 

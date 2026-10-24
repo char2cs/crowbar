@@ -5,8 +5,7 @@
  * tree-foot row; Task 5 relocated it to a trailing `+` mark in
  * `SidebarProjectHeader`'s window-chrome row (spec §4.1) and lifted its
  * modal state up to `IDEShell` — this component no longer owns any of that.
- * `RemovalTray` doesn't either any more: addendum §2 step 4 moved it into
- * `SidebarCarousel`, at the top of the file explorer card. Neither does
+ * `RemovalTray` doesn't either: it mounts once in the IDE shell. Neither does
  * `RenameDialog`: the right-click menu's Rename item now starts the same
  * inline editor double-click does, so there is no modal left to hoist.
  */

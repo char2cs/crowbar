@@ -29,11 +29,6 @@ const THEME_MODE_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: 'dark', label: 'Dark' },
 ]
 
-const SIDEBAR_MODE_OPTIONS: { value: 'docked' | 'auto-hide'; label: string }[] = [
-  { value: 'docked', label: 'Docked' },
-  { value: 'auto-hide', label: 'Auto-hide' },
-]
-
 const SIDEBAR_POSITION_OPTIONS: { value: 'left' | 'right'; label: string }[] = [
   { value: 'left', label: 'Left' },
   { value: 'right', label: 'Right' },
@@ -233,30 +228,6 @@ export const AppearanceSettings = () => {
             </SelectTrigger>
             <SelectContent>
               {SIDEBAR_POSITION_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </SettingRow>
-        <SettingRow
-          label="File Explorer"
-          description="Auto-hide keeps a sliver at the window edge and slides the explorer in on hover"
-          onReset={() => updateSetting('sidebarMode', getDefaultSetting('sidebarMode'))}
-          canReset={settings.sidebarMode !== getDefaultSetting('sidebarMode')}
-        >
-          <Select
-            value={settings.sidebarMode}
-            onValueChange={(value) => {
-              if (value) updateSetting('sidebarMode', value as 'docked' | 'auto-hide')
-            }}
-          >
-            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.compact}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SIDEBAR_MODE_OPTIONS.map((opt) => (
                 <SelectItem key={opt.value} value={opt.value}>
                   {opt.label}
                 </SelectItem>

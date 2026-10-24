@@ -19,9 +19,8 @@
  * hold/cancel/drain/commit behavior, not about where the shell mounts it.
  *
  * That hand-mount is exactly why this suite stayed green through a live bug
- * where no row could be deleted at all: the tray was gated behind
- * `SidebarCarousel`, which is unmounted on an empty stage, so the real app
- * had no commit clock. `ide-shell.test.tsx` owns the mount point now.
+ * where no row could be deleted at all: the tray was gated behind a panel
+ * the shell unmounted on an empty stage, so the real app had no commit clock. `ide-shell.test.tsx` owns the mount point now.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, act, fireEvent } from '@testing-library/react'

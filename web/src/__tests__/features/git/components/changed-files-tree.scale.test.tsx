@@ -7,9 +7,9 @@ import type { GitDiff } from '@/features/git/types/git-types'
  * Scale gate for the sidebar changed-files tree, backing
  * docs/superpowers/specs/2026-07-27-diff-subsystem-at-scale-design.md.
  *
- * Cause 1 in that spec: `sidebar-carousel.tsx` mounts all four panels
- * permanently — confirmed live, all four report `display: flex` /
- * `visibility: visible`, none dormant — so `GitPanel` renders on every tab.
+ * Cause 1 in that spec: the sidebar mounts every panel permanently
+ * (sidebar-body.tsx hides the inactive ones, it never unmounts them), so
+ * `GitPanel` renders on every mode.
  * Before Phase 1 `ChangedFilesTree` was unvirtualised, so its DOM cost was
  * O(changed files) whether or not the user could see it: 500 files produced
  * 500 rows and 6,292 DOM nodes.

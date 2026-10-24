@@ -930,8 +930,30 @@ describe('hydrateSidebar', () => {
     useSidebarStore.setState({
       repos: HYDRATE_TEST_REPOS.map((r) => ({ ...r, workspaces: [...r.workspaces] })),
       collapsedChatRows: new Set<string>(),
-      activeTab: 'workspaces',
+      activeTab: 'chats',
     })
+  })
+
+  it('restores the persisted sidebar mode', async () => {
+    await saveSidebarUI({ collapsedChatRows: [], activeTab: 'files' })
+    await hydrateSidebar()
+    expect(useSidebarStore.getState().activeTab).toBe('files')
+  })
+
+  // A mode an older build wrote ('workspaces') or a corrupt value must not
+  // leave the sidebar on a panel that does not exist.
+  it('replays an unknown persisted mode as chats', async () => {
+    useSidebarStore.setState({ activeTab: 'git' })
+    await saveSidebarUI({ collapsedChatRows: [], activeTab: 'workspaces' })
+    await hydrateSidebar()
+    expect(useSidebarStore.getState().activeTab).toBe('chats')
+  })
+
+  it('replays a record written before the mode was persisted as chats', async () => {
+    useSidebarStore.setState({ activeTab: 'git' })
+    await saveSidebarUI({ collapsedChatRows: ['f1'] })
+    await hydrateSidebar()
+    expect(useSidebarStore.getState().activeTab).toBe('chats')
   })
 
   it('does nothing when IDB is empty', async () => {

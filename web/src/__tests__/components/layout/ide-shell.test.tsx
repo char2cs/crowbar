@@ -31,16 +31,13 @@ vi.mock('@/features/workspace/components/workspace-view', () => ({
     return <div data-testid="workspace-view" />
   },
 }))
-const { sidebarCarouselMock } = vi.hoisted(() => ({
-  sidebarCarouselMock: vi.fn(),
+// The mode bar and its panels; sidebar-body.test.tsx owns what they do.
+vi.mock('@/components/layout/sidebar-body', () => ({
+  SidebarBody: ({ chatsPanel }: { chatsPanel: React.ReactNode }) => (
+    <div data-testid="sidebar-body">{chatsPanel}</div>
+  ),
 }))
-vi.mock('@/components/layout/sidebar-carousel', () => ({
-  SidebarCarousel: (props: Record<string, unknown>) => {
-    sidebarCarouselMock(props)
-    return <div data-testid="sidebar-carousel" />
-  },
-}))
-// The removal service. Stubbed for the same reason SidebarCarousel is — this
+// The removal service. Stubbed for the same reason SidebarBody is — this
 // suite is about WHERE the shell mounts it, not what it does once mounted
 // (removal-tray.test.tsx owns that).
 vi.mock('@/components/layout/removal-tray', () => ({
@@ -86,7 +83,9 @@ vi.mock('@/components/layout/sidebar-project-header', () => ({
   },
 }))
 vi.mock('@/components/layout/sidebar-tree-surface', () => ({
-  SidebarTreeSurface: () => <div data-testid="sidebar-tree-surface" />,
+  SidebarTreeSurface: ({ creatingSpace }: { creatingSpace: boolean }) => (
+    <div data-testid="sidebar-tree-surface" data-creating-space={String(creatingSpace)} />
+  ),
 }))
 vi.mock('@/features/settings/components/settings-dialog', () => ({
   default: () => null,
@@ -98,6 +97,7 @@ const { sidebarState } = vi.hoisted(() => ({
   sidebarState: {
     repos: [] as unknown[],
     deleteWorkspace: vi.fn(),
+    setActiveTab: vi.fn(),
   },
 }))
 vi.mock('@/lib/store/sidebar', () => {
@@ -154,7 +154,7 @@ describe('IDEShell', () => {
     useProjectDataStore.setState({ data: idle() })
     sidebarState.repos = []
     workspaceViewMock.mockClear()
-    sidebarCarouselMock.mockClear()
+    sidebarState.setActiveTab.mockClear()
     activePaneWorkspaceIdOverride.current = undefined
     // ide-shell.tsx now kicks off `ensureHomeWorkspaceResolved` for the active
     // project on EVERY route, not just the home one — the resolver's cache is
@@ -163,9 +163,7 @@ describe('IDEShell', () => {
     __resetHomeWorkspaceResolverForTest()
     fetchHomeWorkspaceMock.mockReset().mockRejectedValue(new Error('not mocked for this test'))
     // A fresh windowPaneStore starts on the empty-stage fallback pane (no
-    // chat, no editor tabs) — which now hides SidebarCarousel (see "hiding
-    // with nothing open" below). Every OTHER test here is about chrome that
-    // only makes sense alongside a real view, so it needs one seeded in.
+    // chat, no editor tabs); most tests here want a real view seeded in.
     resetWindowPaneStoreForTests()
     windowPaneStore.getState().paneActions.openChat('test-chat')
   })
@@ -175,14 +173,16 @@ describe('IDEShell', () => {
     expect(screen.getByTestId('sidebar-project-header')).toBeInTheDocument()
   })
 
-  it('renders SidebarCarousel', () => {
+  it('renders the sidebar body', () => {
     render(<IDEShell />)
-    expect(screen.getByTestId('sidebar-carousel')).toBeInTheDocument()
+    expect(screen.getByTestId('sidebar-body')).toBeInTheDocument()
   })
 
-  it("renders SidebarTreeSurface (SpaceScroller's real mount point) between the header and the carousel", () => {
+  it("renders SidebarTreeSurface (SpaceScroller's real mount point) as the body's Chats panel", () => {
     render(<IDEShell />)
-    expect(screen.getByTestId('sidebar-tree-surface')).toBeInTheDocument()
+    expect(screen.getByTestId('sidebar-body')).toContainElement(
+      screen.getByTestId('sidebar-tree-surface'),
+    )
   })
 
   it('renders Outlet when no workspace is active', () => {
@@ -207,10 +207,7 @@ describe('IDEShell', () => {
     )
   })
 
-  // Regression: SidebarCarousel floats absolutely over whatever
-  // SidebarTreeSurface renders (its own doc comment) — over the create-space
-  // form that meant it covered the Cancel button. Hidden entirely while
-  // creating a space, not just made to respect a z-index of its own.
+  // The create-space form lives in the Chats panel (SidebarTreeSurface).
   describe('creating a space', () => {
     function lastHeaderProps() {
       const calls = sidebarProjectHeaderMock.mock.calls
@@ -220,12 +217,14 @@ describe('IDEShell', () => {
       }
     }
 
-    it('hides SidebarCarousel while the create-space form is open, restores it on cancel', () => {
+    it('switches the sidebar to Chats so the form is on screen', () => {
       render(<IDEShell />)
-      expect(screen.getByTestId('sidebar-carousel')).toBeInTheDocument()
-
       act(() => lastHeaderProps().onAddProject())
-      expect(screen.queryByTestId('sidebar-carousel')).not.toBeInTheDocument()
+      expect(sidebarState.setActiveTab).toHaveBeenCalledWith('chats')
+      expect(screen.getByTestId('sidebar-tree-surface')).toHaveAttribute(
+        'data-creating-space',
+        'true',
+      )
     })
 
     // Picking an existing space while the create form is open has to replace
@@ -233,10 +232,11 @@ describe('IDEShell', () => {
     it('selecting an existing space closes the create-space form', () => {
       render(<IDEShell />)
       act(() => lastHeaderProps().onAddProject())
-      expect(screen.queryByTestId('sidebar-carousel')).not.toBeInTheDocument()
-
       act(() => lastHeaderProps().onSelectProject('p1'))
-      expect(screen.getByTestId('sidebar-carousel')).toBeInTheDocument()
+      expect(screen.getByTestId('sidebar-tree-surface')).toHaveAttribute(
+        'data-creating-space',
+        'false',
+      )
     })
   })
 
@@ -271,7 +271,7 @@ describe('IDEShell', () => {
     it('moves the panels rather than destroying and rebuilding their subtrees', () => {
       setSide('left')
       render(<IDEShell />)
-      const sidebarBefore = screen.getByTestId('sidebar-carousel')
+      const sidebarBefore = screen.getByTestId('sidebar-body')
       const contentBefore = screen.getByTestId('outlet')
 
       setSide('right')
@@ -279,7 +279,7 @@ describe('IDEShell', () => {
       // Same DOM nodes, reordered. A positional reconcile would have unmounted
       // both subtrees — WorkspaceHost, its terminals and Monaco models included —
       // and built fresh ones.
-      expect(screen.getByTestId('sidebar-carousel')).toBe(sidebarBefore)
+      expect(screen.getByTestId('sidebar-body')).toBe(sidebarBefore)
       expect(screen.getByTestId('outlet')).toBe(contentBefore)
     })
   })
@@ -327,26 +327,13 @@ describe('IDEShell', () => {
     })
   })
 
-  // The Files/Git card only makes sense alongside a real view — with nothing
-  // open (the empty-stage fallback pane, spec §5.4's tumbling wordmark) there
-  // is no workspace in particular it would be showing.
-  describe('hiding with nothing open', () => {
-    it('hides SidebarCarousel while the showing tree is only the empty-stage pane', () => {
-      resetWindowPaneStoreForTests()
+  // The mode bar and its Chats panel stay usable with nothing open.
+  it('renders the sidebar body on the empty stage', () => {
+    resetWindowPaneStoreForTests()
 
-      render(<IDEShell />)
+    render(<IDEShell />)
 
-      expect(screen.queryByTestId('sidebar-carousel')).not.toBeInTheDocument()
-    })
-
-    it('shows SidebarCarousel once a real chat is open', () => {
-      resetWindowPaneStoreForTests()
-      windowPaneStore.getState().paneActions.openChat('test-chat')
-
-      render(<IDEShell />)
-
-      expect(screen.getByTestId('sidebar-carousel')).toBeInTheDocument()
-    })
+    expect(screen.getByTestId('sidebar-body')).toBeInTheDocument()
   })
 
   /**
@@ -356,10 +343,9 @@ describe('IDEShell', () => {
    * `RemovalTray` draws no held row — every kind transforms in place in the
    * tree (sidebar-row.tsx), and the hairline is a CSS animation. What the
    * tray owns is the only 8s commit clock, the seconds numerals, the
-   * pagehide flush and `RemovalConfirmDialog`. It was mounted INSIDE
-   * `SidebarCarousel`, so on an empty stage (and while creating a space) the
-   * card's gate took the clock with it: measured in the running app, the
-   * numerals sat at 8 for eleven seconds and no DELETE was ever issued.
+   * pagehide flush and `RemovalConfirmDialog`. It was once mounted inside a
+   * panel the shell gated on an empty stage and while creating a space, and
+   * the gate took the clock with it: no DELETE was ever issued.
    *
    * removal-tray.test.tsx could never catch this — its harness mounts
    * `<RemovalTray />` as a sibling by hand. This asserts the REAL mount
@@ -371,7 +357,6 @@ describe('IDEShell', () => {
 
       render(<IDEShell />)
 
-      expect(screen.queryByTestId('sidebar-carousel')).not.toBeInTheDocument()
       expect(screen.getByTestId('removal-tray')).toBeInTheDocument()
     })
 
@@ -382,7 +367,6 @@ describe('IDEShell', () => {
 
       act(() => onAddProject())
 
-      expect(screen.queryByTestId('sidebar-carousel')).not.toBeInTheDocument()
       expect(screen.getByTestId('removal-tray')).toBeInTheDocument()
     })
   })

@@ -3,8 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // @base-ui/react ships pure ESM and gets its own React copy in the
-// vitest/jsdom process (same trap as Tabs — see sidebar-carousel.test.tsx's
-// own doc on this). Popover/Avatar are mocked to plain, always-"open"
+// vitest/jsdom process. Popover/Avatar are mocked to plain, always-"open"
 // markup so this file can exercise IconPopover's own logic — which button
 // calls onStage vs. the network — without fighting Base UI's real
 // open/close mechanics.

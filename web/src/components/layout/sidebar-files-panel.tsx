@@ -14,12 +14,10 @@ import { resolveOnscreenPaneForWorkspace } from '@/features/panes/lib/pane-chat-
 import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
 
 /**
- * The carousel's Files panel — every file-system-store binding and the
- * `FileExplorerTree` they drive, split out of `sidebar-carousel.tsx` because
- * this is its own whole store surface (selection, create/rename/delete/
- * upload) that none of the carousel's own tab/fold/resize machinery touches.
+ * The sidebar's Files panel — every file-system-store binding and the
+ * `FileExplorerTree` they drive (selection, create/rename/delete/upload).
  */
-export function SidebarCarouselFilesPanel() {
+export function SidebarFilesPanel() {
   const workspaceId = useFocusedWorkspaceContextStore((s) => s.workspaceId)
   const rootPath = useFocusedWorkspaceContextStore((s) => s.rootPath)
   // The focused workspace's own tree: switching focus selects another store's
@@ -43,41 +41,36 @@ export function SidebarCarouselFilesPanel() {
   )
 
   return (
-    <div
-      data-testid="carousel-panel"
-      className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden"
-    >
-      <ErrorBoundary>
-        <Suspense fallback={<SidebarSkeleton />}>
-          <FileExplorerTree
-            files={files}
-            isLoading={isLoading}
-            workspaceId={workspaceId}
-            rootFolderPath={rootPath}
-            onFileSelect={(path, isDir) => {
-              if (isDir) {
-                useFileTreeStore.getState().toggleFolder(workspaceId ?? '', path)
-              } else {
-                handlers.handleFileSelect(path, false, fileOpenTarget())
-              }
-            }}
-            onFileOpen={(path: string, isDir: boolean) => {
-              if (!isDir) {
-                void handlers.handleFileOpen(path, false, fileOpenTarget())
-              }
-            }}
-            onUpdateFiles={setFiles}
-            onCreateNewFileInDirectory={handlers.handleCreateNewFileInDirectory}
-            onCreateNewFolderInDirectory={handlers.handleCreateNewFolderInDirectory}
-            onRenamePath={handlers.handleRenamePath}
-            onDeletePath={handlers.handleDeletePath}
-            onDuplicatePath={handlers.handleDuplicatePath}
-            onRevealInFinder={revealInFolder}
-            onUploadFile={handleUploadFile}
-            onRefreshDirectory={handlers.refreshDirectory}
-          />
-        </Suspense>
-      </ErrorBoundary>
-    </div>
+    <ErrorBoundary>
+      <Suspense fallback={<SidebarSkeleton />}>
+        <FileExplorerTree
+          files={files}
+          isLoading={isLoading}
+          workspaceId={workspaceId}
+          rootFolderPath={rootPath}
+          onFileSelect={(path, isDir) => {
+            if (isDir) {
+              useFileTreeStore.getState().toggleFolder(workspaceId ?? '', path)
+            } else {
+              handlers.handleFileSelect(path, false, fileOpenTarget())
+            }
+          }}
+          onFileOpen={(path: string, isDir: boolean) => {
+            if (!isDir) {
+              void handlers.handleFileOpen(path, false, fileOpenTarget())
+            }
+          }}
+          onUpdateFiles={setFiles}
+          onCreateNewFileInDirectory={handlers.handleCreateNewFileInDirectory}
+          onCreateNewFolderInDirectory={handlers.handleCreateNewFolderInDirectory}
+          onRenamePath={handlers.handleRenamePath}
+          onDeletePath={handlers.handleDeletePath}
+          onDuplicatePath={handlers.handleDuplicatePath}
+          onRevealInFinder={revealInFolder}
+          onUploadFile={handleUploadFile}
+          onRefreshDirectory={handlers.refreshDirectory}
+        />
+      </Suspense>
+    </ErrorBoundary>
   )
 }

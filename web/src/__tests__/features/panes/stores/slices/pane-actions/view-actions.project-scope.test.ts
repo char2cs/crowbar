@@ -2,7 +2,7 @@
 // "I shouldn't be able to still see a chat that is inside another project
 // when moving into a different one."
 import { describe, it, expect, vi } from 'vitest'
-import { chatPaneIndex, selectIsShowingEmptyStage } from '@/features/panes/lib/view-selectors'
+import { chatPaneIndex, isPaneEmpty } from '@/features/panes/lib/view-selectors'
 import { showingLayout, viewChatIds } from '@/features/panes/lib/view-state'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { makePaneOnlyStore } from '@/__tests__/__fixtures__/view-state'
@@ -10,6 +10,15 @@ import { makePaneOnlyStore } from '@/__tests__/__fixtures__/view-state'
 vi.mock('@/features/panes/lib/release-closed-chat', () => ({
   releaseClosedChat: vi.fn(async () => {}),
 }))
+
+/** The stage is on screen with nothing in it — the "nothing is open" screen. */
+function expectEmptyStage(store: ReturnType<typeof makePaneOnlyStore>): void {
+  const state = store.getState()
+  expect(state.activeViewId).toBeNull()
+  const leaves = getAllLeafIds(state.stage)
+  expect(leaves).toHaveLength(1)
+  expect(isPaneEmpty(state.panes[leaves[0]])).toBe(true)
+}
 
 type Store = ReturnType<typeof makePaneOnlyStore>
 
@@ -64,7 +73,7 @@ describe("law 2 — the screen shows one project's view", () => {
     store.getState().paneActions.setActiveProject('project-a')
     const a = open(store, 'chat-a')
     store.getState().paneActions.setActiveProject('project-b')
-    expect(selectIsShowingEmptyStage(store.getState())).toBe(true)
+    expectEmptyStage(store)
     expect(getAllLeafIds(showingLayout(store.getState()))).not.toContain(a.paneId)
   })
 

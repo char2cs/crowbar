@@ -3,7 +3,6 @@ import { useNavigate } from '@tanstack/react-router'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SidebarTree } from './sidebar-tree'
 import { SpaceHeader } from './space-header'
-import { CARD_BOTTOM_INSET_VAR } from '@/components/layout/sidebar-card-height'
 import { findScrollParent } from '@/components/layout/edge-scroll'
 import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
 import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
@@ -266,37 +265,12 @@ function SpacePanel({
           )}
         </div>
       </ScrollArea>
-      {/* The clearance itself (spec §6: "the tree keeps a bottom inset the
-          height of the card") — now an outer, non-scrolling spacer instead of
-          padding on the scrollable content. Padding there counted straight
-          toward `scrollHeight`: the card's default open height is a THIRD of
-          the whole sidebar rail (`DEFAULT_CARD_HEIGHT_FRACTION`), so that
-          padding alone could tip an otherwise short, non-overflowing list
-          into "overflowing," showing a scrollbar nothing about the visible
-          rows justified. A `shrink-0` sibling shrinks the ScrollArea's own
-          box instead, so the browser's real overflow check only ever sees
-          genuine row content — same visual clearance, correct
-          overflow math. Reads `--card-bottom-inset` straight off the CSS
-          cascade rather than a prop for the same reason the content div
-          used to: that variable is written directly onto the shared rail
-          ancestor by sidebar-carousel.tsx, including once per animation
-          frame during a resize drag, and a prop here would re-render this
-          panel (and every row in it) on every one of those frames. */}
-      <div
-        data-testid="space-scroll-bottom-spacer"
-        className="shrink-0"
-        style={{ height: `var(${CARD_BOTTOM_INSET_VAR}, 0px)` }}
-      />
     </div>
   )
 }
 
 /**
- * One horizontal, x-mandatory-snap panel per project (spec §4). Copies
- * sidebar-carousel.tsx's scroll mechanics rather than importing it - that
- * carousel's scope is narrowing to Files/Git only (D.1), and mixing "which
- * project" with "which card tab" into one component would conflate two
- * different numbers.
+ * One horizontal, x-mandatory-snap panel per project (spec §4).
  *
  * Each panel is ONE scroll region holding a project's `SidebarTree`.
  */
@@ -314,7 +288,7 @@ export function SpaceScroller({
 }: SpaceScrollerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // Armed only by an actual scroll gesture over the scroller. Everything else
-  // that moves scrollLeft is reflow, not intent - see sidebar-carousel.tsx.
+  // that moves scrollLeft is reflow (a sidebar resize, a hide/show), not intent.
   const isUserGesture = useRef(false)
   const armUserGesture = () => {
     isUserGesture.current = true
@@ -412,13 +386,12 @@ export function SpaceScroller({
       onWheel={armUserGestureFromWheel}
       onTouchStart={armUserGesture}
       data-testid="space-scroll-region"
-      // Same geometry, same failure mode, same fix as sidebar-carousel.tsx's
-      // own `[data-sidebar-carousel]`: `overflow-x: scroll` + mandatory x
+      // `overflow-x: scroll` + mandatory x
       // snapping + min-w-full panels means a captured pointer travelling
       // past this box's edge during a row drag gets scrolled a whole panel
       // away by WebKit — the exact gesture Part G exists for (dragging a row
       // rightward onto a pane). `index.css`'s `html[data-row-dragging]
-      // [data-sidebar-carousel]` rule pins BOTH carousels by this one
+      // [data-sidebar-carousel]` rule pins it by this
       // attribute; see drag-carousel-pin.test.ts for its own measured
       // rationale (pin without `will-change` costs 4x the frame budget).
       data-sidebar-carousel=""

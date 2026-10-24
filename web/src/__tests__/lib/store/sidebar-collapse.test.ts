@@ -17,11 +17,11 @@ vi.mock('@/lib/persistence/sidebar-ui', () => ({
   loadSidebarUI: vi.fn().mockResolvedValue(null),
 }))
 
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarStore.setState({ collapsedChatRows: new Set<string>() })
+  useSidebarStore.setState({ collapsedChatRows: new Set<string>(), activeTab: 'chats' })
 })
 
 /**
@@ -70,11 +70,35 @@ describe('collapsedChatRows', () => {
   it('never writes a retired key back into the record', () => {
     useSidebarStore.getState().toggleChatRow('f1')
     const record = saveSidebarUI.mock.calls[0][0] as Record<string, unknown>
-    expect(Object.keys(record)).toEqual(['collapsedChatRows'])
+    expect(Object.keys(record).sort()).toEqual(['activeTab', 'collapsedChatRows'])
   })
 
-  it('persists the fold', () => {
+  it('persists the fold without dropping the mode from the record', () => {
+    useSidebarStore.setState({ activeTab: 'git' })
     useSidebarStore.getState().toggleChatRow('f1')
-    expect(saveSidebarUI).toHaveBeenLastCalledWith({ collapsedChatRows: ['f1'] })
+    expect(saveSidebarUI).toHaveBeenLastCalledWith({ collapsedChatRows: ['f1'], activeTab: 'git' })
+  })
+})
+
+// The sidebar's mode (Chats / Files / Git) is saved in the same record as the
+// folds, so either write must carry the other or it would erase it.
+describe('activeTab', () => {
+  it('defaults to chats', () => {
+    expect(getInitialState().activeTab).toBe('chats')
+  })
+
+  it('setActiveTab persists the mode alongside the folds', () => {
+    useSidebarStore.getState().toggleChatRow('f1')
+    useSidebarStore.getState().setActiveTab('files')
+    expect(useSidebarStore.getState().activeTab).toBe('files')
+    expect(saveSidebarUI).toHaveBeenLastCalledWith({
+      collapsedChatRows: ['f1'],
+      activeTab: 'files',
+    })
+  })
+
+  it('selecting the mode already showing writes nothing', () => {
+    useSidebarStore.getState().setActiveTab('chats')
+    expect(saveSidebarUI).not.toHaveBeenCalled()
   })
 })
