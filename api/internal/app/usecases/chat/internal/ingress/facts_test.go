@@ -286,21 +286,48 @@ func TestMap_AnAskCrowbarCannotHoldIsNotAnswerable(t *testing.T) {
 	assert.Len(t, c.st.PendingAsks(), 1, "it is still asked, of the CLI's own surface")
 }
 
-// An ask nothing waits on is recorded closed: one of a runner past its exit,
-// or raised outside any turn.
-func TestMap_AnAskNothingWaitsOnIsRecordedClosed(t *testing.T) {
-	outside := liveChatRows(t)
-	rows, fx := outside.mapped(permission(engineagents.ChoicePrompt{Kind: "tool_permission", ToolName: "Bash"}), hooksSource())
-	assert.Equal(t, []ledger.Kind{ledger.KindAsk, ledger.KindAskResolved}, kinds(rows))
-	assert.NotEmpty(t, fx.HoldAsk, "its CLI is held as any is")
+// Held ⇔ answerable: wherever a held ask was raised, its CLI blocks on it.
+func TestMap_AnAskIsOpenAndAnswerableExactlyWhenItIsHeld(t *testing.T) {
+	ask := permission(engineagents.ChoicePrompt{Kind: "tool_permission", ToolName: "Bash"})
+	inA := func(ev engineagents.CanonicalEvent) engineagents.CanonicalEvent {
+		ev.Subagent = &engineagents.SubagentEvent{ID: "A"}
+		return ev
+	}
+	outlived := func(t *testing.T) *chatRows {
+		t.Helper()
+		c := liveChatRows(t)
+		c.typed("go")
+		c.mapped(inA(engineagents.CanonicalEvent{Kind: engineagents.HookSubagentPre}), hooksSource())
+		c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, TurnID: "pt-1"}, hooksSource())
+		return c
+	}
+	gone := hooksSource()
+	gone.RunnerID = "run-gone"
+	unheld := hooksSource()
+	unheld.Answerable = false
+	for name, tc := range map[string]struct {
+		chat func(*testing.T) *chatRows
+		ev   engineagents.CanonicalEvent
+		src  Source
+		held bool
+	}{
+		"held outside a turn":         {chat: liveChatRows, ev: ask, src: hooksSource(), held: true},
+		"held in an outlived scope":   {chat: outlived, ev: inA(ask), src: hooksSource(), held: true},
+		"of a runner past its exit":   {chat: liveChatRows, ev: ask, src: gone},
+		"unheld outside a turn":       {chat: liveChatRows, ev: ask, src: unheld},
+		"unheld in an outlived scope": {chat: outlived, ev: inA(ask), src: unheld},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := tc.chat(t)
 
-	exited := liveChatRows(t)
-	exited.typed("go")
-	s := hooksSource()
-	s.RunnerID = "run-gone"
-	rows, fx = exited.mapped(permission(engineagents.ChoicePrompt{Kind: "tool_permission", ToolName: "Bash"}), s)
-	assert.Equal(t, []ledger.Kind{ledger.KindAsk, ledger.KindAskResolved}, kinds(rows))
-	assert.Empty(t, fx.HoldAsk)
+			rows, fx := c.mapped(tc.ev, tc.src)
+
+			a := bodyOf[ledger.Ask](t, rows[0])
+			assert.Equal(t, tc.held, a.Answerable)
+			assert.Equal(t, tc.held, fx.HoldAsk == a.AskID)
+			assert.Equal(t, tc.held, len(c.st.PendingAsks()) == 1, "held, it stays open; unheld, nothing waits on it")
+		})
+	}
 }
 
 func TestMap_ARepeatedAskJoinsTheFirst(t *testing.T) {

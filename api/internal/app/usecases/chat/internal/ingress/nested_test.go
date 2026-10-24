@@ -60,14 +60,16 @@ func TestMap_ANestedConversationsEndIsItsReplyAndItsStop(t *testing.T) {
 	assert.Empty(t, rows, "it stops once")
 }
 
-// An ask in a conversation a turn end outlived is recorded closed.
-func TestMap_ANestedAskAfterTheTurnClosedIsNotWaitedOn(t *testing.T) {
+// A conversation a turn end outlived still blocks on what it asks.
+func TestMap_ANestedAskAfterTheTurnClosedIsHeldOpen(t *testing.T) {
 	c, _ := nestedChat(t)
 	c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, Message: "delegated"}, hooksSource())
 
-	rows, _ := c.mapped(permission(engineagents.ChoicePrompt{Kind: "tool_permission", ToolName: "Bash"}), nestedSource())
+	rows, fx := c.mapped(permission(engineagents.ChoicePrompt{Kind: "tool_permission", ToolName: "Bash"}), nestedSource())
 
-	assert.Equal(t, []ledger.Kind{ledger.KindAsk, ledger.KindAskResolved}, kinds(rows))
+	require.Equal(t, []ledger.Kind{ledger.KindAsk}, kinds(rows))
+	assert.True(t, bodyOf[ledger.Ask](t, rows[0]).Answerable)
+	assert.NotEmpty(t, fx.HoldAsk)
 }
 
 func TestMap_ANestedEventItDoesNotRecordWritesNothing(t *testing.T) {

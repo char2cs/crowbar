@@ -1372,17 +1372,14 @@ func TestObservation_APendingChoiceDoesNotSurviveItsTurn(t *testing.T) {
 	assert.Equal(t, domain.ChoiceResolutionAbandoned, all.Choices[0].Resolution)
 }
 
-func TestObservation_APermissionWithNoTurnOpenIsNotPending(t *testing.T) {
+// Its CLI blocks on a held ask whether or not a turn runs: it is there to answer.
+func TestObservation_APermissionWithNoTurnOpenIsPending(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 
 	hook(t, f, runnerID, "claude", engineagents.HookPermission, permissionPayload())
 
-	assert.Empty(t, pendingChoices(t, f, chatID))
-	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
-	require.NoError(t, err)
-	require.Len(t, all.Choices, 1, "it is still recorded — just not as something to answer")
-	assert.False(t, all.Choices[0].Pending())
+	assert.Len(t, pendingChoices(t, f, chatID), 1)
 }
 
 func TestObservation_AskUserQuestionIsRecordedWithItsLabelledOptions(t *testing.T) {

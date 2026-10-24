@@ -218,31 +218,27 @@ func mapAsk(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope s
 		return nil, Effects{HoldAsk: heldAgain(st, id, src)}, nil
 	}
 	live := startsOn(st, src.RunnerID)
-	waited := live && waitedOn(st, scope)
+	held := src.Answerable && a.Kind != "" && live
 	a.AskID = "choice-" + uuid.NewString()
-	a.Answerable = src.Answerable && a.Kind != "" && waited
+	a.Answerable = held
 	turnID, _ := turnFor(st, src, scope, ev.TurnID)
 	row, err := ledger.NewRow(ledger.KindAsk, turnID, scope, a)
 	if err != nil {
 		return nil, Effects{}, err
 	}
-	rows := []ledger.Row{row}
-	if !waited {
-		// A runner past its exit asks nobody, and no end closes an ask raised
-		// outside what is running: neither is waited on.
-		closed, err := ledger.NewRow(ledger.KindAskResolved, turnID, scope,
-			ledger.AskResolved{AskID: a.AskID, Resolution: ledger.ResolutionAbandoned})
-		if err != nil {
-			return nil, Effects{}, err
-		}
-		rows = append(rows, closed)
+	if held {
+		return []ledger.Row{row}, Effects{HoldAsk: a.AskID}, nil
 	}
-	fx := Effects{}
-	if src.Answerable && a.Kind != "" && live {
-		// Its CLI blocks on the hold either way; one nobody waits on runs out.
-		fx.HoldAsk = a.AskID
+	if live && waitedOn(st, scope) {
+		return []ledger.Row{row}, Effects{}, nil
 	}
-	return rows, fx, nil
+	// Unheld, a past runner's or one no end closes: nothing waits on it.
+	closed, err := ledger.NewRow(ledger.KindAskResolved, turnID, scope,
+		ledger.AskResolved{AskID: a.AskID, Resolution: ledger.ResolutionAbandoned})
+	if err != nil {
+		return nil, Effects{}, err
+	}
+	return []ledger.Row{row, closed}, Effects{}, nil
 }
 
 // waitedOn reports whether an ask in scope is waited on: the chat's agent's
