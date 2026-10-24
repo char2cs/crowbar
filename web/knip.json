@@ -13,7 +13,6 @@
     "src/components/editor/plugins/block-selection-kit.tsx": ["exports"],
     "src/components/editor/plugins/link-kit.tsx": ["exports"],
     "src/components/editor/transforms.ts": ["exports"],
-    "src/components/layout/context-pill-model.ts": ["files"],
     "src/components/layout/drag-ghost.tsx": ["exports"],
     "src/components/layout/edge-scroll.ts": ["exports"],
     "src/components/layout/keep-set.ts": ["exports"],
