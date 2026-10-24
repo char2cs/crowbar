@@ -237,7 +237,7 @@ export const AppearanceSettings = () => {
         </SettingRow>
         <SettingRow
           label="Build readout"
-          description="Show the build channel, time and frame rate in the sidebar header"
+          description="Show the build channel, time and frame rate at the foot of the sidebar, or in the tab strip while it is hidden"
           onReset={() => updateSetting('showBuildReadout', getDefaultSetting('showBuildReadout'))}
           canReset={settings.showBuildReadout !== getDefaultSetting('showBuildReadout')}
         >

@@ -12,16 +12,18 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { useSettingsStore } from '@/features/settings/store'
 import type { Chat, Repo } from '@/lib/store/sidebar'
 
 // TabBar reaches useSidebar() only for the fallback sidebar-reopen toggle,
 // irrelevant here — stub it so the suite needn't stand up a SidebarProvider
 // (same stub tab-bar-rerender.test.tsx uses).
+const sidebar = vi.hoisted(() => ({ open: true }))
 vi.mock('@/components/ui/sidebar', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/components/ui/sidebar')>()
   return {
     ...actual,
-    useSidebar: () => ({ open: true, toggleSidebar: () => {} }),
+    useSidebar: () => ({ open: sidebar.open, toggleSidebar: () => {} }),
   }
 })
 
@@ -513,5 +515,50 @@ describe('TabBar — chat as a tab (showChatTab)', () => {
     })
 
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.activeEditorTabId).toBe('buf-0')
+  })
+})
+
+// With the sidebar hidden, whoever draws the reopen toggle also carries the
+// build readout: this row when no view strip exists, the strip otherwise.
+describe('TabBar — build readout beside the reopen toggle', () => {
+  afterEach(() => {
+    sidebar.open = true
+    vi.restoreAllMocks()
+  })
+
+  function renderHiddenAtEdge(side: 'left' | 'right') {
+    sidebar.open = false
+    useSettingsStore.setState((state) => {
+      state.settings.buildBadgeOverride = 'beta'
+      state.settings.sidebarPosition = side
+    })
+    // jsdom has no layout: report a row flush against the window's top-left and right edges.
+    const rect = { left: 0, top: 0, width: window.innerWidth, height: 32, right: window.innerWidth }
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(rect as DOMRect)
+    const store = setupPaneStore({ buffers: [makeEditorBuffer(0)] })
+    act(() => {
+      renderTabBar(store)
+    })
+  }
+
+  it.each(['left', 'right'] as const)(
+    'shows the readout with the toggle when no view strip exists (sidebar %s)',
+    (side) => {
+      resetWindowPaneStoreForTests()
+      renderHiddenAtEdge(side)
+      expect(screen.getByRole('button', { name: 'Show sidebar' })).toBeInTheDocument()
+      expect(screen.getAllByText(/beta - /)).toHaveLength(1)
+    },
+  )
+
+  it('leaves the readout to the view strip once a view exists', () => {
+    renderHiddenAtEdge('left')
+    expect(screen.getAllByText(/beta - /)).toHaveLength(1)
+    act(() => {
+      const { paneActions } = windowPaneStore.getState()
+      paneActions.setActiveProject('p1')
+      paneActions.openChat('chat-1', { workspaceId: 'w1' })
+    })
+    expect(screen.queryByText(/beta - /)).toBeNull()
   })
 })

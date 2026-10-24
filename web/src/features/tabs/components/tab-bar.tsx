@@ -15,6 +15,8 @@ import {
   ensurePaneChatThenOpen,
 } from '@/features/panes/utils/pane-command-actions'
 import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
+import { useHasViewStrip } from '@/features/panes/hooks/use-project-view-ids'
+import { BuildReadout } from '@/components/layout/build-readout'
 import { useSettingsStore } from '@/features/settings/store'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { saveBuffer } from '@/features/editor/lib/buffer-save'
@@ -370,6 +372,11 @@ const TabBar = ({
   const showReopenToggleRight =
     !sidebarOpen && !isBottomPane && sidebarPosition === 'right' && isAtRightEdge && isAtTopEdge
 
+  // The readout travels with the toggle; the view strip carries both once it exists.
+  const hasViewStrip = useHasViewStrip()
+  const showReadoutLeft = showReopenToggleLeft && !hasViewStrip
+  const showReadoutRight = showReopenToggleRight && !hasViewStrip
+
   const getBufferDisplayName = useBufferDisplayName({ buffers, rootFolderPath })
 
   // The max-open-tabs cap is NOT enforced here any more. It lives in
@@ -586,6 +593,11 @@ const TabBar = ({
               onToggleSidebar={toggleSidebar}
             />
           )}
+          {showReadoutLeft && (
+            <div className="relative w-0 shrink-0 self-stretch">
+              <BuildReadout className="left-2" />
+            </div>
+          )}
 
           {/* A pane holding only its chat draws no tab-strip scroller at all
               (spec §7.1) — the second view is reached through open files or
@@ -688,6 +700,11 @@ const TabBar = ({
             />
           )}
 
+          {showReadoutRight && (
+            <div className="relative w-0 shrink-0 self-stretch">
+              <BuildReadout className="right-2" />
+            </div>
+          )}
           {showReopenToggleRight && (
             <TabNavigationButtons
               isBottomPane={isBottomPane}
