@@ -64,19 +64,9 @@ func (rs *Runners) commitStagedSelection(
 	return rs.setChatSelectionLocked(ctx, chatID, selection.Model, selection.Effort)
 }
 
-// SetChatSelection is the standalone PATCH .../selection route's entry
-// point — under the SAME hold of the chat every other mutating path on this
-// interface takes (SwitchProvider, StopChat, SwitchToTerminal, SwitchToNative,
-// SubmitPromptWithSwitch), so it can never interleave its own read-before /
-// write / record-diff trio with one of THEIRS. Before this existed, the
-// Usecase called conversation.Conversations.SetChatSelection directly, with
-// no lock at all: a standalone selection change racing a SubmitPrompt call
-// that staged its own model/effort could each read a "before" snapshot the
-// other's write had not landed yet, so the durable interruption log ended up
-// narrating a transition to a value a concurrent write immediately
-// superseded. See
-// TestRegression_SetChatSelection_ConcurrentStandaloneAndStagedNeverLogAStaleChange
-// (chat_test.go) for the property this closes off.
+// SetChatSelection is the PATCH .../selection route. It takes the chat's hold so
+// its read, write and dividers never interleave with a send staging its own
+// pick; unlocked, a divider records a change a concurrent write already undid.
 func (rs *Runners) SetChatSelection(ctx context.Context, chatID, model, effort string) error {
 	h, err := rs.acquire(ctx, chatID)
 	if err != nil {
@@ -168,15 +158,9 @@ func (rs *Runners) setChatSelectionLocked(
 	return nil
 }
 
-// validateStagedSelection refuses a staged model/effort BEFORE the switch
-// commits — the same "refuse before anything is torn down" rule
-// switchProviderLocked's own disabled-provider guard follows. Checked against
-// the provider this call is ABOUT to switch to, not the one SetChatSelection
-// would resolve AFTER the switch already ran: validating there is what let a
-// bad pick strand the chat on a freshly switched-to provider with nothing
-// delivered and no way back but another switch.
-//
-// A nil selection is "nothing staged" and validates trivially.
+// validateStagedSelection checks a staged pick against the provider the send is
+// about to launch, before anything changes: checked after a switch, a bad pick
+// strands the chat on the new provider with nothing delivered.
 func (rs *Runners) validateStagedSelection(
 	ctx context.Context,
 	chatID, provider string,
