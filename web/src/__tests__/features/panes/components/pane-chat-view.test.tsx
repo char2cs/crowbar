@@ -1,5 +1,5 @@
 import { createElement } from 'react'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
@@ -76,31 +76,27 @@ describe('PaneChatView chat surface loading', () => {
 describe('PaneChatView sidebar surface', () => {
   function FocusMode() {
     useSidebarFocusMode()
-    return createElement(
-      'div',
-      { 'data-sidebar-surface': 'files' },
-      createElement('textarea', { 'aria-label': 'editor' }),
-    )
+    return null
   }
 
-  async function renderFromEditor() {
+  async function renderChatColumn() {
     const mod = await freshModule()
     await mod.preloadAgentChatPane()
     useSidebarStore.setState({ ...getInitialState(), activeTab: 'files' })
     render(createElement(FocusMode))
     renderView(mod)
-    // The first surface focus only seeds the hook; the test crosses from here.
-    act(() => screen.getByLabelText('editor').focus())
   }
 
   it('focus in the chat column shows Chats', async () => {
-    await renderFromEditor()
+    await renderChatColumn()
+    // Focus only moves the mode once the user has pressed something.
+    fireEvent.pointerDown(document.body)
     act(() => screen.getByTestId('chat-surface').focus())
     expect(useSidebarStore.getState().activeTab).toBe('chats')
   })
 
   it('a click on transcript text with nothing focusable under the pointer shows Chats', async () => {
-    await renderFromEditor()
+    await renderChatColumn()
     await userEvent.click(screen.getByText('transcript message'))
     expect(useSidebarStore.getState().activeTab).toBe('chats')
   })

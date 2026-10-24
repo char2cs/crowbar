@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PaneEditorViewContent } from '@/features/panes/components/pane-editor-view-content'
@@ -65,15 +65,10 @@ function Host({ activeTab }: { activeTab: string }) {
 
 const mode = () => useSidebarStore.getState().activeTab
 
-// The first surface focus only seeds the hook; a test crosses from another kind.
-function focusTerminal() {
-  act(() => screen.getByLabelText('terminal input').focus())
-}
-
-function focusEditorWidget() {
-  const widget = document.createElement('textarea')
-  getEditorPortalEntry('p1')!.node.appendChild(widget)
-  act(() => widget.focus())
+// Focus only moves the mode once the user has pressed something.
+function renderHost(activeTab: string) {
+  render(<Host activeTab={activeTab} />)
+  fireEvent.pointerDown(document.body)
 }
 
 describe('PaneEditorViewContent sidebar surfaces', () => {
@@ -95,33 +90,30 @@ describe('PaneEditorViewContent sidebar surfaces', () => {
   })
 
   it('focus in the editor widget shows Files', () => {
-    render(<Host activeTab="ed" />)
-    focusTerminal()
-    focusEditorWidget()
+    renderHost('ed')
+    const widget = document.createElement('textarea')
+    getEditorPortalEntry('p1')!.node.appendChild(widget)
+    act(() => widget.focus())
     expect(mode()).toBe('files')
   })
 
   it('focus in a review diff shows Git', async () => {
-    render(<Host activeTab="rev" />)
+    renderHost('rev')
     const diff = await screen.findByRole('button', { name: 'review file' })
-    focusTerminal()
     act(() => diff.focus())
     expect(mode()).toBe('git')
   })
 
   it('a click on a preview with nothing focusable under the pointer shows Files', async () => {
     render(<Host activeTab="md" />)
-    const prose = await screen.findByText('rendered markdown')
-    focusTerminal()
-    await userEvent.click(prose)
+    await userEvent.click(await screen.findByText('rendered markdown'))
     expect(mode()).toBe('files')
   })
 
   it('focus in a terminal shows Chats', () => {
     useSidebarStore.getState().setActiveTab('files')
-    render(<Host activeTab="term" />)
-    focusEditorWidget()
-    focusTerminal()
+    renderHost('term')
+    act(() => screen.getByLabelText('terminal input').focus())
     expect(mode()).toBe('chats')
   })
 })

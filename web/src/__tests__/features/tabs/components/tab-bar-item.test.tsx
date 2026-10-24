@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, it, expect, vi } from 'vitest'
 import TabBarItem from '@/features/tabs/components/tab-bar-item'
 import type { CommitDiffContent, EditorContent } from '@/features/panes/types/pane-content'
@@ -179,8 +179,8 @@ describe('TabBarItem sidebar surface', () => {
       </>,
     )
     const [editorTab, diffTab] = screen.getAllByRole('tab')
-    // The first surface focus only seeds the hook; the crossings below write.
-    act(() => diffTab.focus())
+    // Focus only moves the mode once the user has pressed something.
+    fireEvent.pointerDown(document.body)
     act(() => editorTab.focus())
     expect(useSidebarStore.getState().activeTab).toBe('files')
     act(() => diffTab.focus())

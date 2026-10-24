@@ -1,5 +1,5 @@
-import { act, render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSidebarFocusMode } from '@/components/layout/use-sidebar-focus-mode'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import {
@@ -60,46 +60,65 @@ function focusDiff() {
 
 const mode = () => useSidebarStore.getState().activeTab
 
+// The user's first press: until one lands, focus is startup's, not the user's.
+function press() {
+  fireEvent.pointerDown(document.body)
+}
+
+function renderShell() {
+  const view = render(<Shell />)
+  press()
+  return view
+}
+
 describe('useSidebarFocusMode', () => {
   beforeEach(() => {
     useSidebarStore.setState(getInitialState())
     publishFocusedWorkspaceContext(REPO_CTX)
   })
 
-  it('the first surface focus, like a terminal auto-focusing at startup, keeps the persisted mode', () => {
+  it('startup focus across surfaces, before the user presses anything, keeps the persisted mode', () => {
+    act(() => useSidebarStore.getState().setActiveTab('git'))
+    render(<Shell />)
+    focus('editor')
+    focus('chat composer')
+    expect(mode()).toBe('git')
+    press()
+    focus('editor')
+    expect(mode()).toBe('files')
+  })
+
+  it('a key press also hands focus to the user', () => {
     act(() => useSidebarStore.getState().setActiveTab('git'))
     render(<Shell />)
     focus('chat composer')
-    expect(mode()).toBe('git')
+    fireEvent.keyDown(document.body, { key: 'Tab' })
     focus('editor')
     expect(mode()).toBe('files')
   })
 
   it('focusing an editor surface shows Files', () => {
-    render(<Shell />)
-    focus('chat composer')
+    renderShell()
     focus('editor')
     expect(mode()).toBe('files')
   })
 
   it('focusing a diff surface shows Git when the workspace has a repo', () => {
-    render(<Shell />)
-    focus('editor')
+    renderShell()
     focusDiff()
     expect(mode()).toBe('git')
   })
 
   it('a diff surface leaves the mode alone when the workspace has no repo', () => {
     publishFocusedWorkspaceContext(HOME_CTX)
-    render(<Shell />)
-    focus('chat composer')
+    renderShell()
     focus('editor')
     focusDiff()
     expect(mode()).toBe('files')
   })
 
   it('the chat column and a terminal inside the editor view both show Chats', () => {
-    render(<Shell />)
+    renderShell()
     focus('editor')
     focus('chat composer')
     expect(mode()).toBe('chats')
@@ -109,8 +128,7 @@ describe('useSidebarFocusMode', () => {
   })
 
   it('with panes of different kinds on screen, the focused one decides', () => {
-    render(<Shell />)
-    focus('chat composer')
+    renderShell()
     focus('editor')
     expect(mode()).toBe('files')
     focusDiff()
@@ -122,7 +140,7 @@ describe('useSidebarFocusMode', () => {
   })
 
   it('a manual choice holds while focus stays in the same kind, until it crosses kinds', () => {
-    render(<Shell />)
+    renderShell()
     focus('editor')
     act(() => useSidebarStore.getState().setActiveTab('git'))
     focus('second editor')
@@ -133,7 +151,7 @@ describe('useSidebarFocusMode', () => {
   })
 
   it('focus entering an unmarked element, like a dialog, changes nothing', () => {
-    render(<Shell />)
+    renderShell()
     focus('editor')
     act(() => useSidebarStore.getState().setActiveTab('git'))
     focus('settings field')
@@ -143,11 +161,15 @@ describe('useSidebarFocusMode', () => {
     expect(mode()).toBe('git')
   })
 
-  it('stops listening once unmounted', () => {
-    const { unmount } = render(<Shell />)
+  it('removes its focus and interaction listeners once unmounted', () => {
+    const removed = vi.spyOn(document, 'removeEventListener')
+    const { unmount } = renderShell()
     const editor = screen.getByLabelText('editor')
     const surface = editor.parentElement!
     unmount()
+    const types = removed.mock.calls.map(([type]) => type)
+    expect(types).toEqual(expect.arrayContaining(['focusin', 'pointerdown', 'keydown']))
+    removed.mockRestore()
     document.body.appendChild(surface)
     act(() => editor.focus())
     expect(mode()).toBe('chats')

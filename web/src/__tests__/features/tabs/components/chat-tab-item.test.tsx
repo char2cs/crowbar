@@ -130,16 +130,13 @@ describe('ChatTabItem sidebar surface', () => {
     useSidebarStore.setState({ ...getInitialState(), activeTab: 'files' })
     function FocusMode() {
       useSidebarFocusMode()
-      return createElement(
-        'div',
-        { 'data-sidebar-surface': 'files' },
-        createElement('textarea', { 'aria-label': 'editor' }),
-      )
+      return null
     }
     render(createElement(FocusMode))
     renderChatTab({ isActive: true })
 
-    act(() => screen.getByLabelText('editor').focus())
+    // Focus only moves the mode once the user has pressed something.
+    fireEvent.pointerDown(document.body)
     act(() => screen.getByRole('tab').focus())
 
     expect(useSidebarStore.getState().activeTab).toBe('chats')
