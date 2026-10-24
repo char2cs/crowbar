@@ -193,10 +193,10 @@ func (rs *Runners) spawnRunner(
 	attachArgv, refused := rs.apiTransportForSurface(
 		ctx, runnerID, providerID, descriptor, tctx, resumeContextFor(in.resuming, inject, tctx), pre.surface,
 	)
-	if refused != nil && in.promptMessage != "" {
+	if refused != nil {
 		// The plan resumes the session the provider just refused.
 		rs.abandonUnforked(runnerID)
-		return "", fmt.Errorf("%w: %w", ErrSpawnPromptUndeliverable, refused)
+		return "", fmt.Errorf("%w: %w", ErrSpawnSessionRefused, refused)
 	}
 	steps := buildSpawnSteps(
 		descriptor, in.resuming, inject, sel, sessionSteps, in.finalSteps,

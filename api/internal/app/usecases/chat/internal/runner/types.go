@@ -30,10 +30,7 @@ type Conversations interface {
 		create bool,
 	) (engineagents.Selection, error)
 	// SetChatSelection pins the model and effort the chat's next CLI launches
-	// with, refusing a value the resolved provider does not declare. Reached
-	// from SubmitPromptWithSwitch (promptswitch.go) so a staged model/effort
-	// commits under the SAME spawn-gate hold as the staged provider switch and
-	// the delivery that follows it — see that file's own doc for why.
+	// with, refusing a value the resolved provider does not declare.
 	SetChatSelection(
 		ctx context.Context,
 		chatID string,

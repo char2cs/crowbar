@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -348,21 +349,6 @@ func askedCalls(t *testing.T, path string) []string {
 	return strings.Split(strings.TrimSpace(string(calls)), "\n")
 }
 
-// refusedResumeSpawn spawns a runner whose api resume the provider refuses:
-// the session is lost and the spawn goes on over its PTY.
-func refusedResumeSpawn(t *testing.T) (*spawnHarness, string) {
-	t.Helper()
-	h := helperServeSpawn(t, "refuse", false)
-
-	runnerID, err := h.rs.spawnRunner(t.Context(), h.chatID, "ws-1", "carrier-test",
-		spawnInput{runnerID: "runner-refused-resume"}, false)
-	require.NoError(t, err)
-	c, _ := chatState(t, h.rs.ledger).Conversation("carrier-test")
-	require.Equal(t, ledger.ConversationLost, c.State, "the provider refused the resume")
-	require.Len(t, h.term.created, 1, "the spawn went on over its PTY")
-	return h, runnerID
-}
-
 const helperServeMode = "CROWBAR_TEST_SERVE"
 
 // helperServeSpawn readies h to spawn a runner on a turned carrier-test chat
@@ -393,31 +379,30 @@ func endedAs(t *testing.T, h *spawnHarness) string {
 	return exit.Reason
 }
 
-// The runner a refused resume leaves is healthy: nothing waits it out, and
-// the refusal is not why it ends when the user stops it.
-func TestSpawnRunner_ARefusedAPIResumeLeavesAHealthyRunner(t *testing.T) {
-	h, runnerID := refusedResumeSpawn(t)
-
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+// A resume whose session the connection refuses fails as a conflict, carrying no
+// prompt or not: its plan resumes the lost session, so nothing forks.
+func TestResumeChat_ASessionTheConnectionRefusesFailsTheResume(t *testing.T) {
+	h := helperServeSpawn(t, "refuse", false)
+	asked := filepath.Join(t.TempDir(), "asked")
+	t.Setenv(helperServeAsked, asked)
+	h.rs.chats = stubChatsForSpawn{chat: domain.Chat{
+		ID: h.chatID, WorkspaceID: "ws-1", ProviderID: "carrier-test", Surface: engineagents.SurfaceChat,
+	}}
+	h.rs.conversations, h.rs.activity = reviveConversations{provider: "carrier-test"}, reviveActivity{}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	resumed, err := h.rs.ResumeChat(ctx, h.chatID)
-	require.NoError(t, err, "a healthy runner is not waited out")
-	assert.Equal(t, runnerID, resumed)
-	v, _ := h.rs.live.view(h.chatID)
-	assert.False(t, v.exiting)
 
-	require.NoError(t, h.rs.StopChat(ctx, h.chatID))
-	assert.Equal(t, domain.AgentExitStopped, endedAs(t, h))
-}
+	_, err := h.rs.ResumeChat(ctx, h.chatID)
 
-// A daemon shutdown ends the runner a refused resume left as a daemon_restart.
-func TestSpawnRunner_ARefusedAPIResumesRunnerEndsAtShutdownAsADaemonRestart(t *testing.T) {
-	h, _ := refusedResumeSpawn(t)
-
-	h.rs.Shutdown()
-	require.NoError(t, h.term.TerminateGraceful(t.Context(), h.term.lastCall().termSessID))
-
-	assert.Equal(t, domain.AgentExitDaemonRestart, endedAs(t, h))
+	require.ErrorIs(t, err, engineagents.ErrAPISessionLost)
+	require.ErrorIs(t, err, apperr.ErrConflict, "the chat's session is gone, not the daemon")
+	assert.Empty(t, h.term.created, "no PTY resumes the lost session")
+	assert.Equal(t, []string{"initialize", "thread/resume"}, askedCalls(t, asked))
+	c, _ := chatState(t, h.rs.ledger).Conversation("carrier-test")
+	assert.Equal(t, ledger.ConversationLost, c.State)
+	assert.Equal(t, domain.AgentExitResumeFailed, endedAs(t, h))
+	_, live := h.rs.live.byChat(h.chatID)
+	assert.False(t, live, "no runner is left on the chat")
 }
 
 // touches counts the snapshot republishes a chat is given.

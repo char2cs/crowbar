@@ -41,6 +41,12 @@ var ErrProviderExitedDuringStartup = fmt.Errorf(
 	"agent: spawn runner: provider process exited during startup: %w", apperr.ErrFailedDependency,
 )
 
+// ErrSpawnSessionRefused is a spawn whose provider refused the session it
+// resumes. That session is lost, and the chat's next launch starts a fresh one.
+var ErrSpawnSessionRefused = fmt.Errorf(
+	"agent: spawn runner: the provider refused the session this chat resumes: %w", apperr.ErrConflict,
+)
+
 // ErrNoLiveRunner is a chat with no CLI on it: dormant, the normal state
 // between runs, so a reader treats it as an answer rather than a failure.
 var ErrNoLiveRunner = errors.New("agent: chat has no live runner")

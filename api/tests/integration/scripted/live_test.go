@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
-	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -240,14 +239,11 @@ func TestLive_LostSessionStartsFresh(t *testing.T) {
 			r.dormantSaying(chatID, domain.AgentExitStopped)
 			r.removeSessionFiles()
 
-			require.NoError(t, r.send(chatID, "still there?"))
-			r.eventually(func() bool {
-				c, ok := r.snapshot(chatID).Conversation()
-				return ok && c.State == ledger.ConversationLost && !r.working(chatID)
-			}, "the CLI never refused the pruned session")
+			r.sendToALostSession(chatID, provider, "still there?")
 			require.NoError(t, r.send(chatID, "start again"))
 			r.eventually(r.replied(chatID, 2), "a lost session stranded the chat")
 			assert.Len(t, r.sessions(chatID), 2, "a new vendor session carries the chat on: %v\nhooks:\n%s", r.said(chatID), r.d.hooks)
+			assert.Equal(t, 1, r.lostSessions(chatID), "the new session is not lost")
 		})
 	}
 }

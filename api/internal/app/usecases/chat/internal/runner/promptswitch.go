@@ -55,8 +55,7 @@ func (rs *Runners) commitStagedSelection(
 	}
 	// The composer re-posts its picker on every send. A pick the chat already
 	// holds changes nothing, so it must not turn a deliverable send away as busy.
-	if current, err := rs.conversations.ChatSelection(ctx, chatID, false); err == nil &&
-		current.Model == selection.Model && current.Effort == selection.Effort {
+	if rs.holdsSelection(ctx, chatID, *selection) {
 		return nil
 	}
 	if err := rs.requireChatAcceptingPrompt(ctx, chatID); err != nil {
@@ -130,11 +129,15 @@ func (rs *Runners) validateSelectionForProvider(
 	return nil
 }
 
-// setChatSelectionLocked commits model/effort and records whichever of the
-// two actually changed — mirrors Usecase.recordSelectionChange (turn.go),
-// duplicated rather than shared because that method hangs off the Usecase,
-// not anything Runners can reach: same reasoning as MergedSeparator
-// (spawnsteps.go)'s own duplicated literal.
+// holdsSelection reports whether the chat's pick already is selection.
+func (rs *Runners) holdsSelection(ctx context.Context, chatID string, selection domain.ChatSelection) bool {
+	current, err := rs.conversations.ChatSelection(ctx, chatID, false)
+	return err == nil && current.Model == selection.Model && current.Effort == selection.Effort
+}
+
+// setChatSelectionLocked commits model/effort and records a divider for each
+// half that changed. It repeats Usecase.recordSelectionChange (turn.go), which
+// hangs off the Usecase, where Runners cannot reach it.
 func (rs *Runners) setChatSelectionLocked(
 	ctx context.Context,
 	chatID, model, effort string,

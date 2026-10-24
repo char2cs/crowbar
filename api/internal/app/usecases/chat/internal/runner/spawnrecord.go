@@ -133,7 +133,7 @@ func (rs *Runners) recordChatProvider(
 // commitCarriedSelection makes the pick a launch carried the chat's own, with
 // its dividers, once its runner_started committed; nil means it carried none.
 func (rs *Runners) commitCarriedSelection(ctx context.Context, chatID string, staged *domain.ChatSelection) {
-	if staged == nil {
+	if staged == nil || rs.holdsSelection(ctx, chatID, *staged) {
 		return
 	}
 	if err := rs.setChatSelectionLocked(ctx, chatID, staged.Model, staged.Effort); err != nil {

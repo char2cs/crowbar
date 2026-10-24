@@ -4,6 +4,7 @@ package scripted_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,11 +12,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -228,7 +231,7 @@ func TestScripted_MissingSessionFileIsLost(t *testing.T) {
 			r.dormantSaying(chatID, domain.AgentExitStopped)
 			r.removeSessionFiles()
 
-			r.lostThenFresh(chatID, "do you remember?")
+			r.lostThenFresh(chatID, provider, "do you remember?")
 		})
 	}
 }
@@ -245,7 +248,7 @@ func TestScripted_RefusedResumeIsLost(t *testing.T) {
 			r.dormantSaying(chatID, domain.AgentExitStopped)
 			r.setScript("resume: refuse\n" + healthy)
 
-			r.lostThenFresh(chatID, "carry on please")
+			r.lostThenFresh(chatID, provider, "carry on please")
 		})
 	}
 }
@@ -253,18 +256,64 @@ func TestScripted_RefusedResumeIsLost(t *testing.T) {
 // lostThenFresh sends text to chatID, whose session its CLI refuses: the
 // message is not taken, and the next one starts a fresh session handed no
 // transcript of the conversation.
-func (r *rig) lostThenFresh(chatID, text string) {
+func (r *rig) lostThenFresh(chatID, provider, text string) {
 	r.t.Helper()
 	first := r.logged("prompt")[0]["session"]
-	require.NoError(r.t, r.send(chatID, text))
-	r.eventually(func() bool { return len(r.logged("refused")) > 0 && !r.working(chatID) },
-		"the CLI never refused the session")
+	r.sendToALostSession(chatID, provider, text)
+	assert.NotEmpty(r.t, r.logged("refused"), "the CLI refused the session")
 
 	r.continues(chatID, "start again")
 
 	prompts := r.logged("prompt")
 	assert.NotEqual(r.t, first, prompts[len(prompts)-1]["session"], "the refused session is never resumed again")
 	assert.False(r.t, r.transcriptReached("PELICAN"), "a lost session's replacement is handed no transcript\n%s", r.dump())
+	assert.Equal(r.t, 1, r.lostSessions(chatID), "the fresh session is not lost")
+}
+
+// sendToALostSession sends text to chatID, whose session its CLI refuses: the
+// prompt is settled session_lost and the session is lost once. Codex's chat
+// runs over its api connection, which refuses before the send answers.
+func (r *rig) sendToALostSession(chatID, provider, text string) {
+	r.t.Helper()
+	requestID := uuid.NewString()
+	_, err := r.runners().SubmitPrompt(context.Background(), chatID, text, requestID, "", nil)
+	if provider == "codex" || err != nil {
+		require.ErrorIs(r.t, err, agentusecase.ErrPromptOutcomeUnknown)
+	}
+	r.eventually(func() bool {
+		c, ok := r.snapshot(chatID).Conversation()
+		return ok && c.State == ledger.ConversationLost && !r.working(chatID) && len(r.settled(chatID, requestID)) > 0
+	}, "the CLI never refused the session")
+	assert.Equal(r.t, []string{ledger.ReasonSessionLost}, r.settled(chatID, requestID), "the refused prompt was not taken")
+	assert.Equal(r.t, 1, r.lostSessions(chatID))
+}
+
+// settled is every reason chatID's ledger settled requestID's prompt with.
+func (r *rig) settled(chatID, requestID string) []string {
+	r.t.Helper()
+	var bodies []string
+	require.NoError(r.t, r.d.adapters.ChatLedgerDB().Raw(
+		"SELECT body FROM chat_ledger WHERE chat_id = ? AND kind = ? ORDER BY seq",
+		chatID, string(ledger.KindPromptSettled)).Scan(&bodies).Error)
+	var reasons []string
+	for _, body := range bodies {
+		var s ledger.PromptSettled
+		require.NoError(r.t, json.Unmarshal([]byte(body), &s))
+		if s.RequestID == requestID {
+			reasons = append(reasons, s.Reason)
+		}
+	}
+	return reasons
+}
+
+// lostSessions counts chatID's session_lost rows.
+func (r *rig) lostSessions(chatID string) int {
+	r.t.Helper()
+	var n int
+	require.NoError(r.t, r.d.adapters.ChatLedgerDB().Raw(
+		"SELECT count(*) FROM chat_ledger WHERE chat_id = ? AND kind = ?",
+		chatID, string(ledger.KindSessionLost)).Scan(&n).Error)
+	return n
 }
 
 // transcriptReached reports whether a CLI after the first turn was handed

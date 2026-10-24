@@ -69,10 +69,16 @@ func TestValidateSelectionForProvider_AStaticEmptyCatalogueStillRejects(t *testi
 	require.Error(t, err, "no catalogue at all (not discovery-backed) must keep rejecting, same as before")
 }
 
-// stagedConversations is reviveConversations keeping the picks a send commits.
+// stagedConversations is reviveConversations holding the chat's pick and
+// keeping the picks a send commits.
 type stagedConversations struct {
 	reviveConversations
 	committed *[]string
+	held      engineagents.Selection
+}
+
+func (c stagedConversations) ChatSelection(context.Context, string, bool) (engineagents.Selection, error) {
+	return c.held, nil
 }
 
 func (c stagedConversations) SetChatSelection(_ context.Context, _, model, effort string) error {
@@ -90,7 +96,7 @@ func TestSubmitPromptWithSwitch_AStagedPickIsTheChatsOnceItsLaunchRuns(t *testin
 			var committed, switched []string
 			h.rs.turns, h.rs.activity = recordedSwitches{to: &switched}, reviveActivity{}
 			h.rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: h.chatID, WorkspaceID: "ws-1", ProviderID: "claude"}}
-			h.rs.conversations = stagedConversations{reviveConversations{provider: "claude"}, &committed}
+			h.rs.conversations = stagedConversations{reviveConversations: reviveConversations{provider: "claude"}, committed: &committed}
 			if !runs {
 				h.rs.term = unforkable{}
 			}
@@ -112,4 +118,26 @@ func TestSubmitPromptWithSwitch_AStagedPickIsTheChatsOnceItsLaunchRuns(t *testin
 			}, switched)
 		})
 	}
+}
+
+// A revive whose pick is the chat's own writes nothing: the composer re-posts
+// its pick with every send.
+func TestSubmitPromptWithSwitch_ARevivesUnchangedPickCommitsNothing(t *testing.T) {
+	h := newSpawnHarness(t, "")
+	installDescriptor(t, h.home, selectionCarrierDescriptor)
+	var committed, switched []string
+	h.rs.turns, h.rs.activity = recordedSwitches{to: &switched}, reviveActivity{}
+	h.rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: h.chatID, WorkspaceID: "ws-1", ProviderID: "carrier-test"}}
+	h.rs.conversations = stagedConversations{
+		reviveConversations: reviveConversations{provider: "carrier-test"}, committed: &committed,
+		held: engineagents.Selection{Model: "deep"},
+	}
+
+	_, err := h.rs.SubmitPromptWithSwitch(t.Context(), h.chatID, "hello", uuid.NewString(), "",
+		&domain.ChatSelection{Model: "deep"})
+
+	require.NoError(t, err)
+	assert.Contains(t, h.term.lastCall().argv, "deep", "the revive runs the chat's pick")
+	assert.Empty(t, committed, "an unchanged pick is not written again")
+	assert.Empty(t, switched)
 }
