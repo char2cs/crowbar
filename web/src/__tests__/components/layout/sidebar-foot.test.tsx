@@ -18,12 +18,12 @@ beforeEach(() => {
 describe('SidebarFoot', () => {
   it('carries the build readout while the sidebar is open', () => {
     render(<SidebarFoot />)
-    expect(screen.getByText(/beta - /)).toBeInTheDocument()
+    expect(screen.getByText(/beta 0\.0\.0-beta\.1/)).toBeInTheDocument()
   })
 
   it('leaves the readout to the tab strip while the sidebar is hidden', () => {
     sidebar.open = false
     render(<SidebarFoot />)
-    expect(screen.queryByText(/beta - /)).toBeNull()
+    expect(screen.queryByText(/beta 0\.0\.0-beta\.1/)).toBeNull()
   })
 })

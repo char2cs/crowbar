@@ -117,12 +117,12 @@ describe('ViewTabsRow', () => {
   it('carries the build readout only while the sidebar is hidden', () => {
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
     const { unmount } = render(<ViewTabsRow />)
-    expect(screen.queryByText(/beta - /)).toBeNull()
+    expect(screen.queryByText(/beta 0\.0\.0-beta\.1/)).toBeNull()
     unmount()
 
     sidebar.open = false
     render(<ViewTabsRow />)
-    expect(screen.getByText(/beta - /)).toBeInTheDocument()
+    expect(screen.getByText(/beta 0\.0\.0-beta\.1/)).toBeInTheDocument()
   })
 
   it('places the readout before the reopen toggle so they never overlap', () => {
@@ -138,7 +138,7 @@ describe('ViewTabsRow', () => {
       .mockReturnValue(rect as DOMRect)
     render(<ViewTabsRow />)
     measure.mockRestore()
-    const readout = screen.getByText(/beta - /)
+    const readout = screen.getByText(/beta 0\.0\.0-beta\.1/)
     const toggle = screen.getByRole('button', { name: 'Show sidebar' })
     expect(readout.compareDocumentPosition(toggle)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   })

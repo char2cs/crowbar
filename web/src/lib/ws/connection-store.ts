@@ -8,10 +8,14 @@ export type ConnectionStatus = 'idle' | 'connected' | 'disconnected'
 
 interface ConnectionState {
   status: ConnectionStatus
+  /** Connected, but some channel is closed and retrying. */
+  degraded: boolean
+  /** Times every channel was lost and the backend came back; the first connect is not one. */
+  reconnects: number
 }
 
 // Per-endpoint open/closed flags live outside the store so the store holds a
-// single primitive — components subscribe with a narrow selector on `status`.
+// few primitives — components subscribe with a narrow selector on each.
 const channelStates = new Map<string, boolean>()
 
 function deriveStatus(): ConnectionStatus {
@@ -22,15 +26,31 @@ function deriveStatus(): ConnectionStatus {
   return 'disconnected'
 }
 
+function deriveDegraded(status: ConnectionStatus): boolean {
+  if (status !== 'connected') return false
+  for (const open of channelStates.values()) {
+    if (!open) return true
+  }
+  return false
+}
+
 export const useConnectionStore = create<ConnectionState>(() => ({
   status: 'idle',
+  degraded: false,
+  reconnects: 0,
 }))
 
 function publish(): void {
   const status = deriveStatus()
-  if (useConnectionStore.getState().status !== status) {
-    useConnectionStore.setState({ status })
-  }
+  const degraded = deriveDegraded(status)
+  const prev = useConnectionStore.getState()
+  if (prev.status === status && prev.degraded === degraded) return
+  const recovered = prev.status === 'disconnected' && status === 'connected'
+  useConnectionStore.setState({
+    status,
+    degraded,
+    reconnects: recovered ? prev.reconnects + 1 : prev.reconnects,
+  })
 }
 
 /** Called by the wsManager when a channel's socket opens or closes. */
@@ -48,5 +68,5 @@ export function reportChannelGone(endpoint: string): void {
 /** Test helper: clear all tracked channels. */
 export function resetConnectionState(): void {
   channelStates.clear()
-  useConnectionStore.setState({ status: 'idle' })
+  useConnectionStore.setState({ status: 'idle', degraded: false, reconnects: 0 })
 }

@@ -547,18 +547,18 @@ describe('TabBar — build readout beside the reopen toggle', () => {
       resetWindowPaneStoreForTests()
       renderHiddenAtEdge(side)
       expect(screen.getByRole('button', { name: 'Show sidebar' })).toBeInTheDocument()
-      expect(screen.getAllByText(/beta - /)).toHaveLength(1)
+      expect(screen.getAllByText(/beta 0\.0\.0-beta\.1/)).toHaveLength(1)
     },
   )
 
   it('leaves the readout to the view strip once a view exists', () => {
     renderHiddenAtEdge('left')
-    expect(screen.getAllByText(/beta - /)).toHaveLength(1)
+    expect(screen.getAllByText(/beta 0\.0\.0-beta\.1/)).toHaveLength(1)
     act(() => {
       const { paneActions } = windowPaneStore.getState()
       paneActions.setActiveProject('p1')
       paneActions.openChat('chat-1', { workspaceId: 'w1' })
     })
-    expect(screen.queryByText(/beta - /)).toBeNull()
+    expect(screen.queryByText(/beta 0\.0\.0-beta\.1/)).toBeNull()
   })
 })

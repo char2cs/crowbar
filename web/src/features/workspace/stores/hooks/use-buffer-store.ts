@@ -25,3 +25,7 @@ export const useBuffersByIds = (ids: string[]): PaneContent[] =>
       })
     }),
   )
+
+/** Open terminal tabs, each holding one PTY session. */
+export const useTerminalBufferCount = (): number =>
+  useBufferStore((s) => s.buffers.filter((b) => b.type === 'terminal').length)

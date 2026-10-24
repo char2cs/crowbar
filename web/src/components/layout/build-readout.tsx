@@ -2,7 +2,14 @@ import { getBuildInfo } from '@/lib/build-info'
 import type { BuildChannel, BuildInfo } from '@/lib/build-info'
 import { useSettingsStore } from '@/features/settings/store'
 import { cn } from '@/utils/cn'
-import { useFrameStats } from '@/lib/frame-stats'
+import { useFrameStats, type FrameStats } from '@/lib/frame-stats'
+import { useConnectionStore } from '@/lib/ws/connection-store'
+import { useTerminalBufferCount } from '@/features/workspace/stores/hooks/use-buffer-store'
+import {
+  useOpenWorkspaceCount,
+  useWorkingChatCount,
+} from '@/features/workspace/stores/hooks/use-open-workspace-counts'
+import { formatReadout, netStateOf, type NetState } from '@/components/layout/build-readout-lines'
 
 function previewInfo(channel: BuildChannel): BuildInfo {
   const timestamp = new Date().toISOString()
@@ -20,59 +27,64 @@ function useResolvedBuildInfo(): BuildInfo | null {
   return previewInfo(override)
 }
 
-function formatTimestamp(iso?: string): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+const READOUT_INK = '#E0E0D0'
+const SEP = '  '
+
+const NET_INK: Record<NetState, string | undefined> = {
+  ok: undefined,
+  idle: undefined,
+  reconnecting: 'text-warning',
+  down: 'text-destructive',
 }
 
-const READOUT_INK = '#E0E0D0'
+function Lines({ info, frame }: { info: BuildInfo; frame: FrameStats }) {
+  const status = useConnectionStore((s) => s.status)
+  const degraded = useConnectionStore((s) => s.degraded)
+  const reconnects = useConnectionStore((s) => s.reconnects)
+  const pty = useTerminalBufferCount()
+  const ag = useWorkingChatCount()
+  const ws = useOpenWorkspaceCount()
+  const net = netStateOf(status, degraded)
+  const lines = formatReadout({ info, net, reconnects, frame, counts: { pty, ag, ws } })
 
-function Stat({ name, value }: { name: string; value: string }) {
   return (
-    <span>
-      {name}: {value}
-    </span>
+    <>
+      <span>
+        {lines.build}
+        {SEP}
+        <span data-net-state={net} className={cn(lines.netWarn && NET_INK[net])}>
+          {lines.net}
+        </span>
+        {lines.reconnects && SEP + lines.reconnects}
+      </span>
+      <span>{lines.stats}</span>
+    </>
   )
 }
 
 /**
- * `channel - time` (or version) over the frame stats, set like a net-graph:
- * pale yellow monospace with a dark outline, straight on the chrome. Purely
- * visual: it takes no layout space and no pointer events, so a tab under it
- * stays clickable. The frame stats need a per-frame loop, which runs only while
- * this is shown (Settings → Appearance → Build readout).
+ * Build, daemon connection and frame stats, set like a net-graph: pale yellow
+ * monospace with a dark outline, straight on the chrome. Purely visual: it
+ * takes no layout space and no pointer events, so a tab under it stays
+ * clickable. The frame loop and the store watchers run only while this is
+ * shown (Settings → Appearance → Build readout).
  */
 export function BuildReadout({ className }: { className?: string }) {
   const info = useResolvedBuildInfo()
   const visible = useSettingsStore((s) => s.settings.showBuildReadout)
-  const { fps, maxDt, drops } = useFrameStats(visible)
+  const frame = useFrameStats(visible)
   if (!visible || !info) return null
-
-  const build = [
-    info.channel === 'release' ? '' : info.channel,
-    info.version ?? formatTimestamp(info.timestamp),
-  ]
-    .filter(Boolean)
-    .join(' - ')
 
   return (
     <div
       aria-hidden="true"
       style={{ color: READOUT_INK }}
       className={cn(
-        'pointer-events-none absolute inset-y-0 z-50 flex select-none flex-col items-start justify-center whitespace-nowrap font-mono text-[10px] leading-3 tabular-nums [text-shadow:0_0_2px_#000,0_1px_1px_#000,1px_0_1px_#000]',
+        'pointer-events-none absolute inset-y-0 z-50 flex select-none flex-col items-start justify-center whitespace-pre font-mono text-[10px] leading-3 tabular-nums [text-shadow:0_0_2px_#000,0_1px_1px_#000,1px_0_1px_#000]',
         className,
       )}
     >
-      <span>{build}</span>
-      <span className="flex gap-3">
-        <Stat name="fps" value={fps > 0 ? String(fps) : '--'} />
-        <Stat name="max" value={maxDt > 0 ? `${maxDt} ms` : '--'} />
-        <Stat name="drops" value={String(drops)} />
-      </span>
+      <Lines info={info} frame={frame} />
     </div>
   )
 }
