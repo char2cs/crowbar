@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -142,7 +143,7 @@ func mapTool(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope 
 	body := ledger.ToolCall{
 		ToolID: id, Phase: phase, Name: tool.Name, Kind: tool.Kind, Target: tool.Target,
 		Locations: toolLocations(tool), InputRef: refs.Input, ResultRef: refs.Result,
-		Error: tool.Error, DurationMS: tool.DurationMS, SpawnsScope: tool.NestedSessionID,
+		Error: caption(tool.Error), DurationMS: tool.DurationMS, SpawnsScope: tool.NestedSessionID,
 	}
 	if phase == ledger.ToolPre {
 		body.Diff = toolStartDiff(tool)
@@ -162,6 +163,31 @@ func mapTool(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope 
 		rows = append(rows, resolved...)
 	}
 	return rows, nil
+}
+
+// maxCaption is how much of a failed call's error its row keeps; the whole
+// text is the call's result payload.
+const maxCaption = 2 << 10
+
+// caption is s cut to maxCaption bytes, never inside a character.
+func caption(s string) string {
+	if len(s) <= maxCaption {
+		return s
+	}
+	cut := maxCaption
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
+}
+
+// resultPayload is what a call's result blob holds: its result, else the
+// whole error its caption cuts.
+func resultPayload(tool *engineagents.ToolEvent) []byte {
+	if len(tool.Result) == 0 && len(tool.Error) > maxCaption {
+		return []byte(tool.Error)
+	}
+	return tool.Result
 }
 
 func toolLocations(tool *engineagents.ToolEvent) []ledger.ToolLocation {

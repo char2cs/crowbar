@@ -171,11 +171,7 @@ func (r *Recorder) Dispatch(
 		return nil, "", fmt.Errorf("agent: hook: %s: %w", ev.Kind, seam.ErrHookNotRecorded)
 	}
 	capability := r.prepare(ctx, chat, runner, agent, ev, raw, &src)
-	refs, err := r.putBlobs(ev)
-	if err != nil {
-		return nil, "", err
-	}
-	fx, err := r.commit(ctx, chat, runner.ID, ev, src, refs)
+	fx, err := r.commit(ctx, chat, runner.ID, ev, src, r.putBlobs(ctx, ev))
 	if err != nil {
 		return nil, "", fmt.Errorf("agent: hook: %s: %w", ev.Kind, err)
 	}
@@ -264,24 +260,25 @@ func harnessSaid(agent engineagents.Agent, text string) bool {
 }
 
 // putBlobs writes a tool call's payloads before its rows: they are
-// content-addressed, so a retry or a refused commit leaves nothing wrong.
-func (r *Recorder) putBlobs(ev engineagents.CanonicalEvent) (BlobRefs, error) {
-	var refs BlobRefs
-	if ev.Tool == nil || r.blobs == nil {
-		return refs, nil
+// content-addressed, so a retry or a refused commit leaves nothing wrong. A
+// payload the store refuses leaves the call recorded without it.
+func (r *Recorder) putBlobs(ctx context.Context, ev engineagents.CanonicalEvent) BlobRefs {
+	if ev.Tool == nil {
+		return BlobRefs{}
 	}
-	var err error
-	if len(ev.Tool.Input) > 0 {
-		if refs.Input, err = r.blobs.Put(ev.Tool.Input); err != nil {
-			return refs, fmt.Errorf("agent: hook: tool input: %w", err)
-		}
+	return BlobRefs{Input: r.putBlob(ctx, "input", ev.Tool.Input), Result: r.putBlob(ctx, "result", resultPayload(ev.Tool))}
+}
+
+func (r *Recorder) putBlob(ctx context.Context, payload string, data []byte) string {
+	if len(data) == 0 {
+		return ""
 	}
-	if len(ev.Tool.Result) > 0 {
-		if refs.Result, err = r.blobs.Put(ev.Tool.Result); err != nil {
-			return refs, fmt.Errorf("agent: hook: tool result: %w", err)
-		}
+	ref, err := r.blobs.Put(data)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: hook: tool payload not stored", "payload", payload, "err", err)
+		return ""
 	}
-	return refs, nil
+	return ref
 }
 
 // commit decides and commits ev's rows. A turn opens only on a runner held
