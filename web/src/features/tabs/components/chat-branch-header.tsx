@@ -73,7 +73,7 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
     >
       {routed && repo ? (
         <span data-testid="chat-branch-header-repo-icon" className="flex shrink-0 items-center">
-          <RepoIconMark repo={repo} size="lg" />
+          <RepoIconMark repo={repo} size="xl" />
         </span>
       ) : (
         <KindGlyph
@@ -164,7 +164,7 @@ function KindGlyph({
   )
 }
 
-const ROUTE_SEPARATOR = <span className="shrink-0 whitespace-pre"> / </span>
+const ROUTE_SEPARATOR = <span className="shrink-0">/</span>
 
 /** `repo / parent / branch` on one line. The parent is the daemon-resolved fork
  *  parent's branch (`Workspace.parentBranch`); the leading segments give up

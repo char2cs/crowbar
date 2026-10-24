@@ -159,7 +159,7 @@ describe('ChatBranchHeader', () => {
       repos: [makeRepo([makeWorkspace({ parentId: 'w0', parentBranch: 'develop' })])],
     })
     const route = screen.getByTestId('chat-branch-header-route')
-    expect(route).toHaveTextContent(/^crowbar \/ develop \/ feature\/pricing-rounding$/)
+    expect(route).toHaveTextContent(/^crowbar\/develop\/feature\/pricing-rounding$/)
     expect(route.lastElementChild).toHaveTextContent(/^feature\/pricing-rounding$/)
     expect(route).not.toContainElement(screen.getByTestId('chat-branch-header-title'))
   })
@@ -183,13 +183,13 @@ describe('ChatBranchHeader', () => {
     expect(glyph.parentElement).not.toContainElement(screen.getByTestId('chat-branch-header-title'))
     expect(screen.getByTestId('chat-branch-header-title').querySelector('svg')).toBeNull()
     expect(route.querySelector('svg')).toBeNull()
-    expect(route).toHaveTextContent(/^crowbar \/ feature\/pricing-rounding$/)
+    expect(route).toHaveTextContent(/^crowbar\/feature\/pricing-rounding$/)
   })
 
   it('omits the parent segment for a branch with no parent', () => {
     renderHeader()
     expect(screen.getByTestId('chat-branch-header-route')).toHaveTextContent(
-      /^crowbar \/ feature\/pricing-rounding$/,
+      /^crowbar\/feature\/pricing-rounding$/,
     )
   })
 
@@ -198,7 +198,7 @@ describe('ChatBranchHeader', () => {
       repos: [makeRepo([makeWorkspace({ parentBranch: 'feature/pricing-rounding' })])],
     })
     expect(screen.getByTestId('chat-branch-header-route')).toHaveTextContent(
-      /^crowbar \/ feature\/pricing-rounding$/,
+      /^crowbar\/feature\/pricing-rounding$/,
     )
   })
 
