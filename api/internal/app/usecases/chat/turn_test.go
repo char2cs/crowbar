@@ -255,18 +255,8 @@ func TestObservation_AnonymousSubagentStopsDoNotCreatePhantomRows(t *testing.T) 
 	assert.Empty(t, subs)
 }
 
-// TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded drives the
-// FULL nested-subagent mechanism end to end, through the real descriptor
-// (codex.yaml) and the real event-sourced activity store — not a mocked
-// port. codex's own collabAgentToolCall(spawnAgent) completion is what OPENS
-// the subagent (item.receiverThreadIds[0], the mapping's dynamic-key
-// selector's own motivating field — see mapping.go and codex.yaml's
-// nested_session_id note); the spawned agent's own child thread then runs
-// its own tool calls and its own turn_stop, all carrying the CHILD's session
-// id, which routeNestedSubagentEvent must route into the subagent's own
-// nested activity rather than drop (namesAnotherConversation's own job) or
-// bleed into the chat's top-level turn (the bug
-// TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn guards).
+// A spawned agent's child thread, opened by its spawn's completion, records its
+// own tool calls and reply under its scope: never dropped, never the chat's turn.
 func TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -2567,8 +2557,10 @@ func TestRegression_RealClaudeSubagentSession_SubagentToolCallsAreItsOwn(t *test
 		names[c.SubagentID] = append(names[c.SubagentID], c.Name)
 	}
 	assert.Equal(t, []string{"Agent", "Agent"}, names[""], "the main agent's own tool calls")
-	assert.Equal(t, []string{"Read", "Bash", "SubagentHandback"}, names["a3edc502687d15840"],
-		"a subagent's tool calls are recorded under its scope, never the main agent's")
+	for _, sub := range []string{"a3edc502687d15840", "a6fec6ffa95979d56"} {
+		assert.Equal(t, []string{"Read", "Bash", "SubagentHandback"}, names[sub],
+			"a subagent's tool calls are recorded under its scope, never the main agent's")
+	}
 
 	subs, err := f.activity.Subagents(f.ctx, chatID)
 	require.NoError(t, err)

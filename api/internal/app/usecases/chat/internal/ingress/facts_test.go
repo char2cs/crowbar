@@ -90,9 +90,12 @@ func TestMap_ANumberedChunkIsRecordedOnce(t *testing.T) {
 
 // A message begun after its turn closed on a reply it reads as joins that
 // reply, so one answer is one message whichever of its reports landed first.
+// A subagent's words are never the chat's reply.
 func TestMap_AChunkAfterTheTurnEndedJoinsItsReply(t *testing.T) {
 	c := liveChatRows(t)
 	turnID := c.typed("go")
+	inA := &engineagents.SubagentEvent{ID: "A"}
+	c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookSubagentPre, Subagent: inA}, hooksSource())
 	c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, Message: "the answer"}, hooksSource())
 
 	rows, fx := c.mapped(delta(engineagents.HookMessageDelta, "m1", true, true, "the answer"), hooksSource())
@@ -100,6 +103,53 @@ func TestMap_AChunkAfterTheTurnEndedJoinsItsReply(t *testing.T) {
 	require.Len(t, rows, 1)
 	assert.Equal(t, ledger.ReplyID(turnID), bodyOf[ledger.AssistantText](t, rows[0]).Reply)
 	assert.Equal(t, ledger.ReplyID(turnID), fx.Live.ShownAs, "the live frame names the message it joins")
+	sub := delta(engineagents.HookMessageDelta, "s1", true, true, "the answer")
+	sub.Subagent = inA
+	rows, _ = c.mapped(sub, hooksSource())
+	require.Len(t, rows, 1)
+	assert.Empty(t, bodyOf[ledger.AssistantText](t, rows[0]).Reply)
+}
+
+// A chunk whose message began earlier unseen joins the reply whatever it says,
+// and every later chunk of a joined message is shown as that reply.
+func TestMap_AJoinedMessageIsShownAsItsReply(t *testing.T) {
+	c := liveChatRows(t)
+	turnID := c.typed("go")
+	c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, Message: "the answer"}, hooksSource())
+	mid := delta(engineagents.HookMessageDelta, "m1", true, false, "unrelated")
+	mid.Delta.Index = 1
+
+	rows, _ := c.mapped(mid, hooksSource())
+	require.Len(t, rows, 1)
+	assert.Equal(t, ledger.ReplyID(turnID), bodyOf[ledger.AssistantText](t, rows[0]).Reply)
+
+	next := delta(engineagents.HookMessageDelta, "m1", true, true, " words")
+	next.Delta.Index = 2
+	_, fx := c.mapped(next, hooksSource())
+	assert.Equal(t, ledger.ReplyID(turnID), fx.Live.ShownAs)
+}
+
+// A message keeps the turn it began in; a new message naming no turn is the
+// running turn's.
+func TestMap_AMessageStaysInTheTurnItBeganIn(t *testing.T) {
+	c := liveChatRows(t)
+	first := c.typed("one")
+	c.mapped(delta(engineagents.HookMessageDelta, "m1", true, false, "hel"), hooksSource())
+	s := hooksSource()
+	s.Prompt = Prompt{Text: "two", Origin: ledger.OriginProvider}
+	c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, TurnID: "pt-2"}, s)
+	second, ok := c.st.RunningTurn()
+	require.True(t, ok)
+
+	late := delta(engineagents.HookMessageDelta, "m1", true, true, "lo")
+	late.Delta.Index = 1
+	rows, _ := c.mapped(late, hooksSource())
+	require.Len(t, rows, 1)
+	assert.Equal(t, first, rows[0].TurnID)
+
+	rows, _ = c.mapped(delta(engineagents.HookMessageDelta, "m2", true, false, "new"), hooksSource())
+	require.Len(t, rows, 1)
+	assert.Equal(t, second.ID, rows[0].TurnID)
 }
 
 func TestMap_AMessageOfNoTurnIsRefused(t *testing.T) {

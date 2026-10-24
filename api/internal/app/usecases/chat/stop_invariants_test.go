@@ -236,7 +236,7 @@ func TestEndingRunner_ASteerItsTurnStopCarriesOpensNoTurn(t *testing.T) {
 			})
 
 			assert.Equal(t, tc.want, receipt(t, f, chatID, requestID).Status,
-				"only a steer its runner took is delivered; the client keeps any other's text")
+				"a turn_stop that ends the turn hands its steer over; one after the exit finds it settled")
 			assertEndedAndResumable(t, f, chatID)
 		})
 	}

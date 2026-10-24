@@ -498,13 +498,8 @@ func TestRegression_ResumeChat_RevivesProviderThatNeverBoundAConversation(t *tes
 			"went dormant — not claude, whose conversation is merely older")
 }
 
-// waitForClockTick blocks until real time.Now() has strictly advanced past its
-// current instant — a real signal (the clock itself), never a guessed sleep
-// duration. Needed wherever a gap boundary is a strict `>` against wall time
-// (TurnsSince): two turns recorded back-to-back against the harness's
-// in-memory sqlite can otherwise land on the identical instant and the second
-// is silently excluded from "since", exactly the false negative this file's
-// own gap tests must not be exposed to.
+// waitForClockTick blocks until the wall clock advances: the gap's cut is a
+// strict After (turnsAfter), and two turns on one instant would drop the second.
 func waitForClockTick(t *testing.T) {
 	t.Helper()
 	start := time.Now()
@@ -524,9 +519,8 @@ func TestSwitchProvider_ClaudeSwitchBack_ResumesAndPointsAtTheGap(t *testing.T) 
 	chatID, claudeRunner := f.spawn(t, "claude")
 	f.announce(t, claudeRunner, "sid-claude-native")
 	exchange(t, f, claudeRunner, "claude", "claude ledger content")
-	// The gap is drawn as started_at > this turn's own timestamp (TurnsSince):
-	// without a real tick between them, codex's turn below can land on the
-	// identical wall-clock instant and be silently excluded from the gap.
+	// The gap's cut is strictly after this turn (turnsAfter): codex's turn
+	// must not land on the same instant.
 	waitForClockTick(t)
 
 	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")

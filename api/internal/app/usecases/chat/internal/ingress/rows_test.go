@@ -176,6 +176,23 @@ func TestMap_TypedWordsOfACrowbarPromptStartItsTurn(t *testing.T) {
 	assert.Equal(t, "req-1", bodyOf[ledger.TurnStarted](t, rows[0]).RequestID)
 }
 
+// Words matching a prompt another runner carries are the live CLI's own: the
+// other runner's prompt is not started here.
+func TestMap_TypedWordsOfAnotherRunnersPromptAreItsOwn(t *testing.T) {
+	c := liveChatRows(t)
+	c.commit(row(t, ledger.KindUserMessage, "T-req-1", "", ledger.UserMessage{
+		RequestID: "req-1", Text: "do it", Origin: ledger.OriginCrowbar, Delivery: ledger.DeliveryRestart, RunnerID: "run-0",
+	}))
+	s := hooksSource()
+	s.Prompt = Prompt{Text: "do it", Origin: ledger.OriginProvider}
+
+	rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt}, s)
+
+	require.Equal(t, []ledger.Kind{ledger.KindUserMessage, ledger.KindTurnStarted}, kinds(rows))
+	assert.NotEqual(t, "T-req-1", rows[1].TurnID)
+	assert.Empty(t, bodyOf[ledger.TurnStarted](t, rows[1]).RequestID)
+}
+
 func TestMap_AnInjectedPromptIsHarnessNotUser(t *testing.T) {
 	c := liveChatRows(t)
 	s := hooksSource()
@@ -345,6 +362,21 @@ func TestMap_AnIdleWithNothingRunningIsRecordedLate(t *testing.T) {
 	rows, _ = c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookIdle}, hooksSource())
 	require.Equal(t, []ledger.Kind{ledger.KindTurnEnded, ledger.KindPromptSettled}, kinds(rows))
 	assert.Equal(t, ledger.ReasonNotAcknowledged, bodyOf[ledger.PromptSettled](t, rows[1]).Reason)
+}
+
+// A late end of a turn already over is written to it, restating the work its
+// CLI still runs in the background.
+func TestMap_ALateTurnStopRestatesTheBackgroundWork(t *testing.T) {
+	c := liveChatRows(t)
+	turnID := c.typed("go")
+	c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, TurnID: "pt-1"}, hooksSource())
+
+	rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, TurnID: "pt-1", AsyncWork: 2}, hooksSource())
+
+	require.Equal(t, []ledger.Kind{ledger.KindTurnEnded}, kinds(rows))
+	assert.Equal(t, turnID, rows[0].TurnID)
+	require.NotNil(t, bodyOf[ledger.TurnEnded](t, rows[0]).AsyncWork)
+	assert.Equal(t, 2, *bodyOf[ledger.TurnEnded](t, rows[0]).AsyncWork)
 }
 
 func TestMap_ANotificationIsAMarker(t *testing.T) {

@@ -45,19 +45,9 @@ runtime:
     format: json
 `
 
-// TestRegression_CompactPreAndPostPushLiveOverTheSocket is the integration
-// counterpart of the chat usecase's TestObservation_CompactionPushesTheLiveEdgeDirectly
-// (white-box): this drives the real compact_pre/compact_post
-// HOOK POST the CLI's own PreCompact/PostCompact fire, over the real WS the
-// transcript's WorkingLine actually subscribes to, and asserts on the wire
-// frame kinds (compaction_started/compaction_stopped) rather than an
-// internal callback being invoked.
-//
-// The ledger's own compaction interruption is a SEPARATE mechanism (drives
-// the retroactive CompactionDivider, not this live edge) and is left
-// untouched by this test — see message.go's compact_pre/compact_post
-// handling and dto.AgentChatKindCompactionStarted/Stopped's own doc comment
-// for why the two had to be decoupled.
+// The compaction hooks posted as the CLI fires them push compaction_started
+// and compaction_stopped over the socket the working line subscribes to. The
+// ledger's compaction markers are a separate record, not this live edge.
 func TestRegression_CompactPreAndPostPushLiveOverTheSocket(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "compactablestub", compactableStubProviderDescriptorYAML)

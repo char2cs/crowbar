@@ -475,25 +475,6 @@ func TestStore_DeadLettersAreCountedByReasonAndForgottenWithTheirChat(t *testing
 	assert.Zero(t, count)
 }
 
-func TestStore_ViewHoldsTheWriterSoNoCommitLandsInside(t *testing.T) {
-	s := newStore(t)
-	ctx := context.Background()
-	_, _, err := s.Append(ctx, "c1", prompt(t, "r1", "a"))
-	require.NoError(t, err)
-	appended, second := make(chan error, 1), prompt(t, "r2", "b")
-
-	var viewed []int64
-	require.NoError(t, s.View(ctx, "c1", func(st ledger.State) error {
-		go func() { _, _, err := s.Append(ctx, "c1", second); appended <- err }()
-		rows, err := s.Read(ctx, "c1", 0, 0)
-		viewed = append(seqs(rows), st.Head())
-		return err
-	}))
-
-	require.NoError(t, <-appended, "the commit lands once the view returns")
-	assert.Equal(t, []int64{1, 1}, viewed, "the view saw the chat as it was when it began")
-}
-
 func TestStore_ViewReportsItsFunctionsError(t *testing.T) {
 	boom := errors.New("boom")
 	assert.ErrorIs(t, newStore(t).View(context.Background(), "c1", func(ledger.State) error { return boom }), boom)

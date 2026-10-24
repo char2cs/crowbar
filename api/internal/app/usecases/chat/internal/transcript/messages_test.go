@@ -120,28 +120,38 @@ func TestProjector_TheTurnsPlanRidesItsLastMessage(t *testing.T) {
 	require.NotNil(t, turns[2].PlanUpdatedAt)
 }
 
-// A late chunk that extends a settled reply folds into it: the reply keeps its
-// place, its start and its turn's plan, and carries the full text.
+// A late chunk that extends a settled reply folds into it, whether it is the
+// reply's own message or one naming it: the reply keeps its place, its start
+// and its turn's plan, and carries the full text.
 func TestProjector_ALateExtensionKeepsTheRepliesPlaceAndPlan(t *testing.T) {
-	b := newBook(t)
-	b.open("T1", "go")
-	b.add(mk(t, ledger.KindPlan, "T1", "", ledger.Plan{Op: ledger.PlanReplace, Items: []ledger.PlanItem{{Text: "step"}}}))
-	b.add(mk(t, ledger.KindAssistantText, "T1", "", ledger.AssistantText{MessageID: "m1", Index: 0, Text: "the ans"}))
-	b.end()
-	before := b.activity().Turns[1]
+	for name, late := range map[string]ledger.AssistantText{
+		"its own message": {MessageID: "m1", Index: 1, Final: true, Text: "wer"},
+		"naming it":       {MessageID: "m2", Index: 0, Final: true, Text: "the answer", Reply: "m1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			b := newBook(t)
+			b.open("T1", "go")
+			b.add(mk(t, ledger.KindPlan, "T1", "", ledger.Plan{Op: ledger.PlanReplace, Items: []ledger.PlanItem{{Text: "step"}}}))
+			b.add(mk(t, ledger.KindAssistantText, "T1", "", ledger.AssistantText{MessageID: "m1", Index: 0, Text: "the ans"}))
+			b.end()
+			before := b.activity().Turns[1]
 
-	b.add(mk(t, ledger.KindAssistantText, "T1", "", ledger.AssistantText{MessageID: "m1", Index: 1, Final: true, Text: "wer"}))
+			b.add(mk(t, ledger.KindAssistantText, "T1", "", late))
 
-	after := b.activity().Turns
-	require.Len(t, after, 2, "it joins its reply")
-	assert.Equal(t, "the answer", after[1].Text)
-	assert.Equal(t, before.DisplayOrder, after[1].DisplayOrder)
-	assert.Equal(t, before.StartedAt, after[1].StartedAt)
-	assert.Equal(t, before.Plan, after[1].Plan)
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	require.NotEmpty(t, b.changed, "the settled change is published")
-	assert.Equal(t, "the answer", b.changed[len(b.changed)-1].Text)
+			after := b.activity().Turns
+			require.Len(t, after, 2, "it joins its reply")
+			assert.Equal(t, "the answer", after[1].Text)
+			assert.Equal(t, before.ID, after[1].ID)
+			assert.Equal(t, before.DisplayOrder, after[1].DisplayOrder)
+			assert.Equal(t, before.StartedAt, after[1].StartedAt)
+			assert.Equal(t, before.Plan, after[1].Plan)
+			b.mu.Lock()
+			defer b.mu.Unlock()
+			require.NotEmpty(t, b.changed, "the settled change is published")
+			assert.Equal(t, "the answer", b.changed[len(b.changed)-1].Text)
+			assert.Equal(t, before.ID, b.changed[len(b.changed)-1].ID)
+		})
+	}
 }
 
 // A subagent's words are its own: they never enter the chat's messages.
