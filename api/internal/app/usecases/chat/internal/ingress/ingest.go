@@ -259,28 +259,6 @@ func harnessSaid(agent engineagents.Agent, text string) bool {
 	return ok
 }
 
-// putBlobs writes a tool call's payloads before its rows: they are
-// content-addressed, so a retry or a refused commit leaves nothing wrong. A
-// payload the store refuses leaves the call recorded without it.
-func (r *Recorder) putBlobs(ctx context.Context, ev engineagents.CanonicalEvent) BlobRefs {
-	if ev.Tool == nil {
-		return BlobRefs{}
-	}
-	return BlobRefs{Input: r.putBlob(ctx, "input", ev.Tool.Input), Result: r.putBlob(ctx, "result", resultPayload(ev.Tool))}
-}
-
-func (r *Recorder) putBlob(ctx context.Context, payload string, data []byte) string {
-	if len(data) == 0 {
-		return ""
-	}
-	ref, err := r.blobs.Put(data)
-	if err != nil {
-		slog.WarnContext(ctx, "agent: hook: tool payload not stored", "payload", payload, "err", err)
-		return ""
-	}
-	return ref
-}
-
 // commit decides and commits ev's rows. A turn opens only on a runner held
 // against its end; one whose end is under way records its event unheld.
 func (r *Recorder) commit(

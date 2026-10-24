@@ -1,9 +1,7 @@
 package ingress
 
 import (
-	"strings"
 	"testing"
-	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -187,18 +185,6 @@ func TestMap_AFailedToolSaysWhy(t *testing.T) {
 		assert.Equal(t, want, body.Status)
 		assert.Equal(t, "no", body.Error)
 	}
-}
-
-func TestMap_AFailedToolsRowKeepsACaptionOfItsError(t *testing.T) {
-	c := liveChatRows(t)
-	ev := toolEvent(engineagents.HookToolFail, "t1", "Bash")
-	ev.Tool.Error = strings.Repeat("é", 40_000)
-
-	rows, _ := c.mapped(ev, hooksSource())
-
-	caption := bodyOf[ledger.ToolCall](t, rows[0]).Error
-	assert.LessOrEqual(t, len(caption), 2<<10)
-	assert.True(t, utf8.ValidString(caption), "a character straddling the cut is dropped whole")
 }
 
 func TestMap_AnIDLessToolStartGetsAnIDOfItsOwn(t *testing.T) {

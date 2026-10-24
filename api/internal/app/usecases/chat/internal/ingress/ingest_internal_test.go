@@ -3,9 +3,7 @@ package ingress
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,7 +21,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 func descriptorFor(t *testing.T, provider string) engineagents.Agent {
@@ -338,62 +335,6 @@ func TestRecorder_AHeldAskIsParkedOnTheDesk(t *testing.T) {
 	require.NotEmpty(t, ask)
 	_, held := f.answers.Pending(ask)
 	assert.True(t, held)
-}
-
-func TestRecorder_AToolsPayloadsAreStoredBeforeItsRows(t *testing.T) {
-	f := newRecorderFixture(t, "claude")
-	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
-	require.NoError(t, err)
-
-	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{
-		Kind: engineagents.HookToolPost,
-		Tool: &engineagents.ToolEvent{ID: "t1", Name: "Bash", Input: []byte(`{"command":"ls"}`), Result: []byte("a.go")},
-	})
-
-	require.NoError(t, err)
-	rows := f.rows(t)
-	call := bodyOf[ledger.ToolCall](t, rows[len(rows)-1])
-	assert.NotEmpty(t, call.InputRef)
-	assert.NotEmpty(t, call.ResultRef)
-	refs, err := f.ledger.BlobRefs(t.Context(), testChat)
-	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{call.InputRef, call.ResultRef}, refs)
-}
-
-func TestRecorder_AFailedToolsWholeErrorIsItsResult(t *testing.T) {
-	f := newRecorderFixture(t, "claude")
-	whole := strings.Repeat("é", 40_000)
-
-	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{
-		Kind: engineagents.HookToolFail, Tool: &engineagents.ToolEvent{ID: "t1", Name: "Bash", Error: whole},
-	})
-
-	require.NoError(t, err)
-	rows := f.rows(t)
-	call := bodyOf[ledger.ToolCall](t, rows[len(rows)-1])
-	assert.Less(t, len(call.Error), len(whole), "its row keeps a caption")
-	got, err := f.blobs.Get(call.ResultRef)
-	require.NoError(t, err)
-	assert.Equal(t, whole, string(got))
-}
-
-func TestRecorder_AToolIsRecordedWithoutThePayloadsItCannotStore(t *testing.T) {
-	testutil.RequirePermissionEnforcement(t)
-	f := newRecorderFixture(t, "claude")
-	require.NoError(t, os.Chmod(f.blobDir, 0o500))
-	t.Cleanup(func() { require.NoError(t, os.Chmod(f.blobDir, 0o700)) })
-
-	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{
-		Kind: engineagents.HookToolPost,
-		Tool: &engineagents.ToolEvent{ID: "t1", Name: "Bash", Input: []byte("args"), Result: []byte("out")},
-	})
-
-	require.NoError(t, err)
-	rows := f.rows(t)
-	call := bodyOf[ledger.ToolCall](t, rows[len(rows)-1])
-	assert.Equal(t, "Bash", call.Name)
-	assert.Empty(t, call.InputRef)
-	assert.Empty(t, call.ResultRef)
 }
 
 // A turn's end on a runner whose own end is under way is recorded unheld: it
