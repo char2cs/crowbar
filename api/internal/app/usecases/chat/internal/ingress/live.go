@@ -5,6 +5,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
 // The kinds of streamed text. The answer's own kind is "": the only one a row
@@ -28,7 +31,39 @@ type LiveDelta struct {
 	Text    string
 	// ShownAs is the id the frame names: the message's own, or the reply it joins.
 	ShownAs string
+	// Floor is the text a row already shows under ShownAs.
+	Floor string
 }
+
+func (r *Recorder) unrecorded(chatID, runnerID string) Unrecorded {
+	return Unrecorded{
+		Answers:   r.live.unrecorded(chatID, runnerID, "", KindAnswer),
+		Reasoning: r.live.unrecorded(chatID, runnerID, "", KindReasoning),
+		Diff:      r.live.unrecorded(chatID, runnerID, "", KindDiff),
+	}
+}
+
+// publishLive shows d once its rows are in, with the stream so far. A frame
+// of a stream shown as a reply never shows less than the reply's own text.
+func (r *Recorder) publishLive(chat domain.Chat, runnerID string, d LiveDelta) {
+	text, startedAt := r.live.observe(chat.ID, runnerID, d, time.Now())
+	if d.Kind != KindAnswer {
+		startedAt = time.Time{}
+	}
+	if d.Floor != "" && !(len(text) > len(d.Floor) && strings.HasPrefix(text, d.Floor)) {
+		text = d.Floor
+	}
+	r.frames.MessageDelta(chat.ID, chat.WorkspaceID, d.ShownAs, text, d.Kind, startedAt)
+}
+
+// ExitRows are what runnerID's exit records of the answers it streamed with no
+// row of their own; the caller commits them with the exit, then calls Retire.
+func (r *Recorder) ExitRows(st ledger.State, chatID, runnerID string) ([]ledger.Row, error) {
+	return Salvage(st, r.live.unrecorded(chatID, runnerID, "", KindAnswer))
+}
+
+// Retire drops runnerID's streamed text on chatID: its exit is recorded.
+func (r *Recorder) Retire(chatID, runnerID string) { r.live.forget(chatID, runnerID, "") }
 
 // liveKey names one stream: whose turn it belongs to, and which block of it.
 type liveKey struct {

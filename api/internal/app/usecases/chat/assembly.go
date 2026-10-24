@@ -219,6 +219,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	u.recorder = ingress.NewRecorder(ingress.RecorderDeps{
 		Chats: d.Chats, Agents: d.Agents, Workspace: d.Workspace, Home: d.Home, Ledger: d.Ledger,
 		Blobs: d.Blobs, Telemetry: sh.telemetry, Answers: sh.answers, Titles: u.conversations,
+		Frames: hubFrames{feed: &u.feed},
 	})
 	u.runners = runner.New(runner.Deps{
 		Chats:         d.Chats,

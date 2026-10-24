@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/transcript"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -101,6 +103,22 @@ func (u *Usecase) announceChoices(chatID string) {
 	})
 	if err != nil {
 		slog.Warn("agent: announce choices", "chat_id", chatID, "err", err)
+	}
+}
+
+// hubFrames carry the recorder's frames on the hub's feed, once
+// StartTerminalWaitSweep wires it.
+type hubFrames struct{ feed *atomic.Pointer[ChatFeed] }
+
+func (h hubFrames) MessageDelta(chatID, workspaceID, messageID, text, kind string, startedAt time.Time) {
+	if feed := h.feed.Load(); feed != nil && feed.MessageDelta != nil {
+		feed.MessageDelta(chatID, workspaceID, messageID, text, kind, startedAt)
+	}
+}
+
+func (h hubFrames) Telemetry(chatID, workspaceID string, report engineagents.Telemetry) {
+	if feed := h.feed.Load(); feed != nil && feed.Telemetry != nil {
+		feed.Telemetry(chatID, workspaceID, report)
 	}
 }
 

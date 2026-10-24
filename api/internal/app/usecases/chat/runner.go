@@ -460,6 +460,5 @@ func (u *Usecase) TerminalWait(chatID string) domain.AgentTerminalWait {
 // the hub owns.
 func (u *Usecase) StartTerminalWaitSweep(ctx context.Context, feed ChatFeed) {
 	u.feed.Store(&feed)
-	u.recorder.SetFeed(feed)
 	u.runners.StartTerminalWaitSweep(ctx)
 }

@@ -81,6 +81,9 @@ func mapChunk(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope
 		TurnID: turnID, Scope: scope, ID: d.MessageID, Kind: KindAnswer,
 		Index: d.Index, Numbered: true, Text: d.Text, ShownAs: shown,
 	}
+	if shown != d.MessageID {
+		_, live.Floor, _ = st.Reply(turnID)
+	}
 	return []ledger.Row{row}, Effects{Live: live}, nil
 }
 

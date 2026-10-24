@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -80,7 +79,5 @@ func (seeingTerminal) Screen(string, uint64) (string, uint64, bool) { return "",
 // noTurns is the hook-ingress port with nothing behind it. SetTurns only has to
 // be able to bind it.
 type noTurns struct{ Turns }
-
-func (noTurns) SetFeed(seam.ChatFeed) {}
 
 func (noTurns) FailTurnOnNotice(context.Context, agents.Runner, agents.TerminalNotice) {}

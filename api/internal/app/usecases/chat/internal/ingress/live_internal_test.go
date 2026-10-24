@@ -4,6 +4,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 func TestLive_EveryFrameCarriesTheWholeStream(t *testing.T) {
@@ -77,4 +81,113 @@ func TestLive_ForgetDropsWhatEnded(t *testing.T) {
 
 	l.forgetChat("chat-2")
 	assert.Empty(t, l.byChat)
+}
+
+func TestRecorder_AFrameIsShownOnlyOnceItsRowsCommit(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
+	require.NoError(t, err)
+	sqlDB, err := f.db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, _, err = f.dispatch(t, delta(engineagents.HookMessageDelta, "m1", true, false, "never recorded"))
+
+	require.Error(t, err)
+	assert.Empty(t, f.feed.frames)
+}
+
+// A late stream shown as the reply its turn closed on never shows less of it.
+func TestRecorder_AJoinedStreamsFrameNeverShowsLessThanItsReply(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	for _, ev := range []engineagents.CanonicalEvent{
+		{Kind: engineagents.HookUserPrompt, Message: "go"},
+		{Kind: engineagents.HookTurnStop, Message: "Hello world"},
+	} {
+		_, _, err := f.dispatch(t, ev)
+		require.NoError(t, err)
+	}
+	turn, _ := f.state(t).LastTurn()
+	chunk := func(index int, text string) {
+		ev := delta(engineagents.HookMessageDelta, "m1", true, false, text)
+		ev.Delta.Index = index
+		_, _, err := f.dispatch(t, ev)
+		require.NoError(t, err)
+	}
+
+	chunk(0, "Hello")
+	chunk(1, " world, and more")
+
+	require.Len(t, f.feed.frames, 2)
+	assert.Equal(t, frame{ledger.ReplyID(turn.ID), "Hello world", "", f.feed.frames[0].startedAt}, f.feed.frames[0])
+	assert.Equal(t, ledger.ReplyID(turn.ID), f.feed.frames[1].messageID, "every chunk is shown as the reply")
+	assert.Equal(t, "Hello world, and more", f.feed.frames[1].text)
+}
+
+// Every frame carries the stream so far; what its turn's end recorded is
+// dropped with it.
+func TestRecorder_StreamedTextIsShownWholeUntilItsTurnEnds(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
+	require.NoError(t, err)
+
+	for _, ev := range []engineagents.CanonicalEvent{
+		delta(engineagents.HookMessageDelta, "m1", false, false, "the "),
+		delta(engineagents.HookMessageDelta, "m1", false, false, "answer"),
+		delta(engineagents.HookReasoningDelta, "r1", false, false, "hm"),
+	} {
+		_, _, err = f.dispatch(t, ev)
+		require.NoError(t, err)
+	}
+	require.Len(t, f.feed.frames, 3)
+	assert.Equal(t, "the answer", f.feed.frames[1].text)
+	assert.False(t, f.feed.frames[1].startedAt.IsZero(), "an answer says when it began")
+	assert.True(t, f.feed.frames[2].startedAt.IsZero())
+	exit, err := f.r.ExitRows(f.state(t), testChat, "run-1")
+	require.NoError(t, err)
+	assert.Len(t, exit, 1, "what no row holds is the exit's to record")
+
+	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop})
+	require.NoError(t, err)
+
+	exit, err = f.r.ExitRows(f.state(t), testChat, "run-1")
+	require.NoError(t, err)
+	assert.Empty(t, exit, "the end recorded it")
+	assert.Equal(t, []string{"the answer"}, said(f.rows(t)))
+}
+
+func TestRecorder_AnIdleThatEndsTheTurnKeepsItsStreamedText(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
+	require.NoError(t, err)
+	_, _, err = f.dispatch(t, delta(engineagents.HookMessageDelta, "m1", false, false, "said"))
+	require.NoError(t, err)
+
+	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookIdle})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"said"}, said(f.rows(t)))
+	exit, err := f.r.ExitRows(f.state(t), testChat, "run-1")
+	require.NoError(t, err)
+	assert.Empty(t, exit, "the end recorded it")
+}
+
+func TestRecorder_RetireAndForgetDropTheStreams(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
+	require.NoError(t, err)
+	_, _, err = f.dispatch(t, delta(engineagents.HookMessageDelta, "m1", false, false, "x"))
+	require.NoError(t, err)
+
+	f.r.Retire(testChat, "run-1")
+	exit, err := f.r.ExitRows(f.state(t), testChat, "run-1")
+	require.NoError(t, err)
+	assert.Empty(t, exit)
+
+	f.r.ArmManualCompaction(testChat)
+	f.r.ForgetChat(testChat)
+	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookCompactPre})
+	require.NoError(t, err)
+	rows := f.rows(t)
+	assert.Empty(t, bodyOf[ledger.Marker](t, rows[len(rows)-1]).Detail, "a forgotten chat's request is gone")
 }

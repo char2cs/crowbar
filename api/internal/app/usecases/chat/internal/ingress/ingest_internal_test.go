@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
@@ -136,19 +137,16 @@ type feedSpy struct {
 	telemetry int
 }
 
-func (f *feedSpy) feed() seam.ChatFeed {
-	return seam.ChatFeed{
-		MessageDelta: func(_, _, messageID, text, kind string, startedAt time.Time) {
-			f.mu.Lock()
-			defer f.mu.Unlock()
-			f.frames = append(f.frames, frame{messageID, text, kind, startedAt})
-		},
-		Telemetry: func(string, string, engineagents.Telemetry) {
-			f.mu.Lock()
-			defer f.mu.Unlock()
-			f.telemetry++
-		},
-	}
+func (f *feedSpy) MessageDelta(_, _, messageID, text, kind string, startedAt time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.frames = append(f.frames, frame{messageID, text, kind, startedAt})
+}
+
+func (f *feedSpy) Telemetry(string, string, engineagents.Telemetry) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.telemetry++
 }
 
 // recorderFixture is a Recorder over a real ledger and the shipped descriptor
@@ -165,6 +163,7 @@ type recorderFixture struct {
 	feed    *feedSpy
 	blobs   *ledgerstore.Blobs
 	blobDir string
+	db      *gorm.DB
 }
 
 func newRecorderFixture(t *testing.T, provider string) *recorderFixture {
@@ -182,16 +181,15 @@ func newRecorderFixture(t *testing.T, provider string) *recorderFixture {
 	require.NoError(t, err)
 	f := &recorderFixture{
 		ledger: store, agents: agents, agent: agent, runners: &recorderRunners{}, titles: &recordedTitles{},
-		answers: answerdesk.New(time.Minute, nil), feed: &feedSpy{}, blobs: blobs, blobDir: blobDir,
+		answers: answerdesk.New(time.Minute, nil), feed: &feedSpy{}, blobs: blobs, blobDir: blobDir, db: db,
 		runner: engineagents.Runner{ID: "run-1", ProviderID: provider, WorkspaceID: "ws-1", CurrentChatID: testChat},
 	}
 	f.r = NewRecorder(RecorderDeps{
 		Chats: fakeChats{}, Agents: agents, Workspace: fakeWorkspace{home: home},
 		Home: func() (string, error) { return home, nil }, Ledger: store, Blobs: blobs,
-		Telemetry: telemetry.New(), Answers: f.answers, Titles: f.titles,
+		Telemetry: telemetry.New(), Answers: f.answers, Titles: f.titles, Frames: f.feed,
 	})
 	f.r.SetRunners(f.runners)
-	f.r.SetFeed(f.feed.feed())
 	_, _, err = store.Append(t.Context(), testChat,
 		row(t, ledger.KindRunnerStarted, "", "", ledger.RunnerStarted{RunnerID: "run-1", Provider: provider}))
 	require.NoError(t, err)
@@ -350,74 +348,6 @@ func TestRecorder_AnEndOnAnEndingRunnerIsRecordedUnheld(t *testing.T) {
 	require.NoError(t, err)
 	_, running := f.state(t).RunningTurn()
 	assert.False(t, running)
-}
-
-// Every frame carries the stream so far; what its turn's end recorded is
-// dropped with it.
-func TestRecorder_StreamedTextIsShownWholeUntilItsTurnEnds(t *testing.T) {
-	f := newRecorderFixture(t, "claude")
-	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
-	require.NoError(t, err)
-
-	for _, ev := range []engineagents.CanonicalEvent{
-		delta(engineagents.HookMessageDelta, "m1", false, false, "the "),
-		delta(engineagents.HookMessageDelta, "m1", false, false, "answer"),
-		delta(engineagents.HookReasoningDelta, "r1", false, false, "hm"),
-	} {
-		_, _, err = f.dispatch(t, ev)
-		require.NoError(t, err)
-	}
-	require.Len(t, f.feed.frames, 3)
-	assert.Equal(t, "the answer", f.feed.frames[1].text)
-	assert.False(t, f.feed.frames[1].startedAt.IsZero(), "an answer says when it began")
-	assert.True(t, f.feed.frames[2].startedAt.IsZero())
-	exit, err := f.r.ExitRows(f.state(t), testChat, "run-1")
-	require.NoError(t, err)
-	assert.Len(t, exit, 1, "what no row holds is the exit's to record")
-
-	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop})
-	require.NoError(t, err)
-
-	exit, err = f.r.ExitRows(f.state(t), testChat, "run-1")
-	require.NoError(t, err)
-	assert.Empty(t, exit, "the end recorded it")
-	assert.Equal(t, []string{"the answer"}, said(f.rows(t)))
-}
-
-func TestRecorder_AnIdleThatEndsTheTurnKeepsItsStreamedText(t *testing.T) {
-	f := newRecorderFixture(t, "claude")
-	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
-	require.NoError(t, err)
-	_, _, err = f.dispatch(t, delta(engineagents.HookMessageDelta, "m1", false, false, "said"))
-	require.NoError(t, err)
-
-	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookIdle})
-
-	require.NoError(t, err)
-	assert.Equal(t, []string{"said"}, said(f.rows(t)))
-	exit, err := f.r.ExitRows(f.state(t), testChat, "run-1")
-	require.NoError(t, err)
-	assert.Empty(t, exit, "the end recorded it")
-}
-
-func TestRecorder_RetireAndForgetDropTheStreams(t *testing.T) {
-	f := newRecorderFixture(t, "claude")
-	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
-	require.NoError(t, err)
-	_, _, err = f.dispatch(t, delta(engineagents.HookMessageDelta, "m1", false, false, "x"))
-	require.NoError(t, err)
-
-	f.r.Retire(testChat, "run-1")
-	exit, err := f.r.ExitRows(f.state(t), testChat, "run-1")
-	require.NoError(t, err)
-	assert.Empty(t, exit)
-
-	f.r.ArmManualCompaction(testChat)
-	f.r.ForgetChat(testChat)
-	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookCompactPre})
-	require.NoError(t, err)
-	rows := f.rows(t)
-	assert.Empty(t, bodyOf[ledger.Marker](t, rows[len(rows)-1]).Detail, "a forgotten chat's request is gone")
 }
 
 func TestRecorder_AManualCompactionIsMarkedAsAsked(t *testing.T) {

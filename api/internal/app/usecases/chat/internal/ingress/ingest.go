@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
@@ -61,6 +60,14 @@ type RecorderDeps struct {
 	Telemetry *telemetry.Store
 	Answers   *answerdesk.Desk
 	Titles    Titles
+	Frames    Frames
+}
+
+// Frames shows a chat's clients what no row says: the text streamed so far
+// and the provider's usage reports.
+type Frames interface {
+	MessageDelta(chatID, workspaceID, messageID, text, kind string, startedAt time.Time)
+	Telemetry(chatID, workspaceID string, report engineagents.Telemetry)
 }
 
 // Recorder records what a CLI's hooks report as rows of its chat's ledger.
@@ -74,28 +81,24 @@ type Recorder struct {
 	telemetry *telemetry.Store
 	answers   *answerdesk.Desk
 	titles    Titles
+	frames    Frames
 	// runners is bound after construction: the two sides call each other.
 	runners RecorderRunners
 	live    *live
 	manual  *manualCompactions
-	// feed is wired at sweep start; until then a frame has nobody to reach.
-	feed atomic.Pointer[seam.ChatFeed]
 }
 
 // NewRecorder builds the Recorder. The runner port is bound by SetRunners.
 func NewRecorder(d RecorderDeps) *Recorder {
 	return &Recorder{
 		chats: d.Chats, agents: d.Agents, ws: d.Workspace, home: d.Home, ledger: d.Ledger,
-		blobs: d.Blobs, telemetry: d.Telemetry, answers: d.Answers, titles: d.Titles,
+		blobs: d.Blobs, telemetry: d.Telemetry, answers: d.Answers, titles: d.Titles, frames: d.Frames,
 		live: newLive(), manual: &manualCompactions{chats: map[string]bool{}},
 	}
 }
 
 // SetRunners binds the runner lifecycle.
 func (r *Recorder) SetRunners(runners RecorderRunners) { r.runners = runners }
-
-// SetFeed wires the live chat feed.
-func (r *Recorder) SetFeed(feed seam.ChatFeed) { r.feed.Store(&feed) }
 
 // ForgetChat drops what the Recorder holds of chatID: the chat is being erased.
 func (r *Recorder) ForgetChat(chatID string) {
@@ -217,14 +220,6 @@ func (r *Recorder) prepare(
 // compactStartEvent is the outbound event a provider asks to compact with.
 const compactStartEvent = "compact_start"
 
-func (r *Recorder) unrecorded(chatID, runnerID string) Unrecorded {
-	return Unrecorded{
-		Answers:   r.live.unrecorded(chatID, runnerID, "", KindAnswer),
-		Reasoning: r.live.unrecorded(chatID, runnerID, "", KindReasoning),
-		Diff:      r.live.unrecorded(chatID, runnerID, "", KindDiff),
-	}
-}
-
 // promptOf reads whose words a user_prompt carries. Crowbar's own injected
 // context is nobody's; the provider's harness speaking is its own; what is
 // left is a person's, restored to the text Crowbar recorded for it.
@@ -269,11 +264,6 @@ func (r *Recorder) commit(
 		_, _, err := r.ledger.Do(ctx, chat.ID, func(st ledger.State) ([]ledger.Row, error) {
 			rows, effects, err := Map(st, ev, src, refs)
 			fx = effects
-			if err == nil && effects.Live != nil {
-				// Shown before its rows commit, so the settled text a commit
-				// publishes is the last word on the message.
-				r.publishLive(chat, runnerID, *effects.Live)
-			}
 			return rows, err
 		})
 		return err
@@ -286,6 +276,9 @@ func (r *Recorder) commit(
 	}
 	if err != nil {
 		return Effects{}, err
+	}
+	if fx.Live != nil {
+		r.publishLive(chat, runnerID, *fx.Live)
 	}
 	if fx.Ended != "" {
 		r.live.forget(chat.ID, runnerID, fx.Ended)
@@ -306,27 +299,6 @@ func (r *Recorder) held(runnerID string, src *Source, do func() error) error {
 	src.Held = false
 	return do()
 }
-
-func (r *Recorder) publishLive(chat domain.Chat, runnerID string, d LiveDelta) {
-	text, startedAt := r.live.observe(chat.ID, runnerID, d, time.Now())
-	feed := r.feed.Load()
-	if feed == nil || feed.MessageDelta == nil {
-		return
-	}
-	if d.Kind != KindAnswer {
-		startedAt = time.Time{}
-	}
-	feed.MessageDelta(chat.ID, chat.WorkspaceID, d.ShownAs, text, d.Kind, startedAt)
-}
-
-// ExitRows are what runnerID's exit records of the answers it streamed with no
-// row of their own; the caller commits them with the exit, then calls Retire.
-func (r *Recorder) ExitRows(st ledger.State, chatID, runnerID string) ([]ledger.Row, error) {
-	return Salvage(st, r.live.unrecorded(chatID, runnerID, "", KindAnswer))
-}
-
-// Retire drops runnerID's streamed text on chatID: its exit is recorded.
-func (r *Recorder) Retire(chatID, runnerID string) { r.live.forget(chatID, runnerID, "") }
 
 // surfaceGated reports whether canonical opts out of the surface in front of
 // the user. An event that declares no surfaces is on every one.
@@ -375,9 +347,8 @@ func (r *Recorder) RecordTelemetry(
 		return nil
 	}
 	r.telemetry.Set(ctx, chat.ID, report)
-	feed := r.feed.Load()
-	if feed != nil && feed.Telemetry != nil && r.runners.TelemetryOnChatSurface(ctx, chat.ID) {
-		feed.Telemetry(chat.ID, chat.WorkspaceID, report)
+	if r.runners.TelemetryOnChatSurface(ctx, chat.ID) {
+		r.frames.Telemetry(chat.ID, chat.WorkspaceID, report)
 	}
 	return nil
 }
