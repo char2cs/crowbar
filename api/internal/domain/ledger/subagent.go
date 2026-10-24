@@ -8,9 +8,8 @@ const (
 
 // Subagent is the body of a subagent row; the row's Scope is the subagent.
 type Subagent struct {
-	Phase       string `json:"phase"`
-	SpawnToolID string `json:"spawnToolId,omitempty"`
-	Type        string `json:"type,omitempty"`
+	Phase string `json:"phase"`
+	Type  string `json:"type,omitempty"`
 }
 
 // scopeKeys is a subagent scope as its rows left it. Outlived: a main-scope

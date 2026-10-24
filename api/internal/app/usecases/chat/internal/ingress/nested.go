@@ -17,18 +17,21 @@ func mapNested(st ledger.State, ev engineagents.CanonicalEvent, src Source, refs
 		rows, err := mapTool(st, ev, src, scope, refs)
 		return rows, Effects{}, err
 	case engineagents.HookTurnStop, engineagents.HookTurnFailed:
-		rows, err := nestedEnd(st, ev, scope)
+		rows, err := nestedEnd(st, ev, src, scope)
 		return rows, Effects{}, err
 	}
 	return nil, Effects{}, nil
 }
 
 // nestedEnd is a nested conversation's turn ending: what it said, and the
-// stop of the scope it ran as.
-func nestedEnd(st ledger.State, ev engineagents.CanonicalEvent, scope string) ([]ledger.Row, error) {
-	turnID, _ := st.ScopeTurn(scope)
+// stop of the scope it ran as, in the turn that opened it or else its runner's.
+func nestedEnd(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope string) ([]ledger.Row, error) {
+	turnID, ok := turnFor(st, src, scope, "")
+	if !ok {
+		return nil, errNoTurn
+	}
 	var rows []ledger.Row
-	if ev.Message != "" && turnID != "" {
+	if ev.Message != "" {
 		row, err := ledger.NewRow(ledger.KindAssistantText, turnID, scope, ledger.AssistantText{
 			MessageID: ledger.ReplyID(scope), Index: ledger.IndexComplete, Text: ev.Message,
 		})

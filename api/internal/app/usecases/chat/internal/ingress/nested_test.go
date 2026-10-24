@@ -60,6 +60,21 @@ func TestMap_ANestedConversationsEndIsItsReplyAndItsStop(t *testing.T) {
 	assert.Empty(t, rows, "it stops once")
 }
 
+// A nested conversation whose opening the ledger no longer holds still has
+// its end recorded, in the turn its runner ran.
+func TestMap_ANestedEndOfAnUnknownScopeIsStillRecorded(t *testing.T) {
+	c := liveChatRows(t)
+	turnID := c.typed("delegate")
+
+	rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, Message: "done"}, nestedSource())
+
+	require.Equal(t, []ledger.Kind{ledger.KindAssistantText, ledger.KindSubagent}, kinds(rows))
+	for _, r := range rows {
+		assert.Equal(t, turnID, r.TurnID)
+		assert.Equal(t, "child", r.Scope)
+	}
+}
+
 // A conversation a turn end outlived still blocks on what it asks.
 func TestMap_ANestedAskAfterTheTurnClosedIsHeldOpen(t *testing.T) {
 	c, _ := nestedChat(t)
