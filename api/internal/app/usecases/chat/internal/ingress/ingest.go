@@ -176,7 +176,9 @@ func (r *Recorder) Dispatch(
 		return nil, "", fmt.Errorf("agent: hook: %s: %w", ev.Kind, seam.ErrHookNotRecorded)
 	}
 	capability := r.prepare(ctx, chat, runner, agent, ev, raw, &src)
+	release := r.blobs.Naming()
 	fx, err := r.commit(ctx, chat, runner.ID, ev, src, r.putBlobs(ctx, ev))
+	release()
 	if err != nil {
 		return nil, "", fmt.Errorf("agent: hook: %s: %w", ev.Kind, err)
 	}

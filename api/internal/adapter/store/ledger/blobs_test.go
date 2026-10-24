@@ -3,6 +3,7 @@ package ledger_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,30 +88,40 @@ func TestBlobsPut_TruncatesBeyondTheCeilingAndSaysSo(t *testing.T) {
 	assert.Contains(t, string(got), "truncated")
 }
 
-func TestBlobsDelete_RemovesTheBlob(t *testing.T) {
+func inUse(used bool) func(string) (bool, error) {
+	return func(string) (bool, error) { return used, nil }
+}
+
+func TestBlobsCollect_RemovesABlobNoRowNames(t *testing.T) {
 	s := newBlobs(t)
 	ref, err := s.Put([]byte("tool output"))
 	require.NoError(t, err)
 
-	require.NoError(t, s.Delete(ref))
+	require.NoError(t, s.Collect(ref, inUse(true)))
+	_, err = s.Get(ref)
+	require.NoError(t, err, "a blob a row names is kept")
 
+	require.NoError(t, s.Collect(ref, inUse(false)))
 	_, err = s.Get(ref)
 	assert.ErrorIs(t, err, ledgerstore.ErrBlobNotFound)
+	assert.NoError(t, s.Collect(ref, inUse(false)), "a missing blob is a no-op")
 }
 
-func TestBlobsDelete_IsANoOpOnAnAlreadyMissingRef(t *testing.T) {
+func TestBlobsCollect_IsANoOpOnAnEmptyOrMalformedRef(t *testing.T) {
+	s := newBlobs(t)
+	assert.NoError(t, s.Collect("", inUse(false)))
+	assert.NoError(t, s.Collect("not-a-ref", inUse(false)))
+}
+
+func TestBlobsCollect_ReportsAFailedCheckAndKeepsTheBlob(t *testing.T) {
 	s := newBlobs(t)
 	ref, err := s.Put([]byte("tool output"))
 	require.NoError(t, err)
-	require.NoError(t, s.Delete(ref))
 
-	assert.NoError(t, s.Delete(ref)) // second delete of the same ref
-}
-
-func TestBlobsDelete_IsANoOpOnAnEmptyOrMalformedRef(t *testing.T) {
-	s := newBlobs(t)
-	assert.NoError(t, s.Delete(""))
-	assert.NoError(t, s.Delete("not-a-ref"))
+	boom := errors.New("boom")
+	require.ErrorIs(t, s.Collect(ref, func(string) (bool, error) { return false, boom }), boom)
+	_, err = s.Get(ref)
+	assert.NoError(t, err)
 }
 
 func TestBlobsGet_MissingOrMalformedRefIsNotFound(t *testing.T) {

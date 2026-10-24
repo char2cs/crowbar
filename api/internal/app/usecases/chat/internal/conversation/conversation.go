@@ -230,11 +230,9 @@ func (c *Conversations) forgetLedger(ctx context.Context, chatID string) {
 		slog.ErrorContext(ctx, "agent: purge chat: forget ledger (best-effort, continuing)", "chat_id", chatID, "err", err)
 	}
 	c.transcript.Forget(chatID)
+	inUse := func(ref string) (bool, error) { return c.ledger.RefInUse(ctx, ref) }
 	for _, ref := range refs {
-		if inUse, err := c.ledger.RefInUse(ctx, ref); err != nil || inUse {
-			continue
-		}
-		if err := c.blobs.Delete(ref); err != nil {
+		if err := c.blobs.Collect(ref, inUse); err != nil {
 			slog.WarnContext(ctx, "agent: purge chat: delete payload (best-effort, continuing)", "chat_id", chatID, "err", err)
 		}
 	}

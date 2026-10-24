@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // MaxPayloadBytes is the most of one payload a blob keeps.
@@ -24,6 +25,9 @@ var ErrBlobNotFound = errors.New("ledger blobs: not found")
 // Blobs stores tool payloads by content: a row carries only a payload's ref.
 type Blobs struct {
 	root string
+	// refs is held shared while payloads are named, from Put until the row
+	// naming them commits, and alone by a collection.
+	refs sync.RWMutex
 }
 
 // OpenBlobs is the blob store under root, created if it is missing.
@@ -81,9 +85,27 @@ func (s *Blobs) Get(ref string) ([]byte, error) {
 	return data, nil
 }
 
-// Delete removes the blob behind ref; an empty, malformed or missing one is a
+// Naming holds collection off until release: Put the payloads and commit the
+// rows naming them before releasing.
+func (s *Blobs) Naming() (release func()) {
+	s.refs.RLock()
+	return s.refs.RUnlock
+}
+
+// Collect deletes the blob behind ref unless inUse says a row names it, with
+// no payload being named meanwhile. An empty, malformed or missing ref is a
 // no-op, so two purges racing over one shared blob both succeed.
-func (s *Blobs) Delete(ref string) error {
+func (s *Blobs) Collect(ref string, inUse func(string) (bool, error)) error {
+	s.refs.Lock()
+	defer s.refs.Unlock()
+	used, err := inUse(ref)
+	if err != nil || used {
+		return err
+	}
+	return s.remove(ref)
+}
+
+func (s *Blobs) remove(ref string) error {
 	path, _ := s.pathFor(ref)
 	if path == "" {
 		return nil
