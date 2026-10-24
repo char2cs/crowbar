@@ -39,7 +39,7 @@
   "api/internal/app/usecases/chat/internal/tree/tree_test.go": 930,
   "api/internal/app/usecases/chat/providers_test.go": 845,
   "api/internal/app/usecases/chat/runner_test.go": 4151,
-  "api/internal/app/usecases/chat/turn_test.go": 2578,
+  "api/internal/app/usecases/chat/turn_test.go": 2565,
   "api/internal/app/usecases/container.go": 1055,
   "api/internal/app/usecases/git/git_write.go": 546,
   "api/internal/app/usecases/mocks/mocks.go": 2271,
