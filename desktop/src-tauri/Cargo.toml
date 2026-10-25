@@ -37,6 +37,8 @@ tauri-plugin-macos-fps = "0.1.0"
 tauri-plugin-mcp-bridge = "0.13"
 # Diagnostics-bundle export (Settings -> Export diagnostics): deflate only.
 zip = { version = "8", default-features = false, features = ["deflate"] }
+# browser_screenshot's PNG travels as base64 JSON; compiled on every target.
+base64 = "0.22"
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
@@ -56,7 +58,6 @@ objc2-foundation = { version = "0.3", features = ["NSData", "NSDictionary", "NSE
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKWebView", "WKContentWorld", "WKFrameInfo", "WKSnapshotConfiguration"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSPasteboard"] }
 block2 = "0.6"
-base64 = "0.22"
 
 [profile.release]
 panic = "abort"

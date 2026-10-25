@@ -4124,6 +4124,8 @@ dependencies = [
 [[package]]
 name = "tauri-plugin-mcp-bridge"
 version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43f1ce740e913f8b1be3f3c0e86ad622a99121f64eb81f4e316fd80110224b15"
 dependencies = [
  "base64 0.22.1",
  "block2 0.5.1",
