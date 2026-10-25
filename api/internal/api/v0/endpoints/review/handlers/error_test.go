@@ -49,6 +49,16 @@ func (e errUsecase) GetPatch(
 	return 0, false, e.err
 }
 
+func (e errUsecase) GetFileSides(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ string,
+) (gitdomain.ReviewFileSides, error) {
+	return gitdomain.ReviewFileSides{}, e.err
+}
+
 func (e errUsecase) SearchDiff(
 	_ context.Context,
 	_ string,

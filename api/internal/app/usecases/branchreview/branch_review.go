@@ -106,6 +106,16 @@ type Usecase interface {
 		maxLines int,
 		w io.Writer,
 	) (int, bool, error)
+	// GetFileSides returns one file's full old and new text for the diff GetPatch
+	// serves, so the reader can reveal the unchanged lines between hunks. An empty
+	// path is an invalid argument; a file past the size ceiling is unprocessable.
+	GetFileSides(
+		ctx context.Context,
+		wsID string,
+		commit string,
+		path string,
+		oldPath string,
+	) (gitdomain.ReviewFileSides, error)
 	// SearchDiff finds query in the content of the workspace's branch diff,
 	// returning one hit per matching line plus whether opts.Limit cut the results
 	// short. It is the server-side find-in-diff the client can no longer do

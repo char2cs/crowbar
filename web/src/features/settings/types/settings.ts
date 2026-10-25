@@ -1,5 +1,6 @@
 import type { CoreFeaturesState } from './feature'
 import type { BuildChannel } from '@/lib/build-info'
+import type { SearchEngine } from '@/features/browser/lib/search-engines'
 
 export type Theme = string
 export type ThemeMode = 'light' | 'dark' | 'system'
@@ -9,6 +10,7 @@ export interface Settings {
   // General
   autoSave: boolean
   sidebarPosition: 'left' | 'right'
+  sidebarFollowsFocus: boolean
   // Editor
   fontFamily: string
   fontSize: number
@@ -32,6 +34,14 @@ export interface Settings {
   terminalCursorStyle: 'block' | 'underline' | 'bar'
   terminalCursorBlink: boolean
   terminalCursorWidth: number
+  // Browser
+  /** URL a new browser tab opens on; empty opens the blank address bar. */
+  browserHomepage: string
+  browserSearchEngine: SearchEngine
+  /** Search URL for the 'custom' engine; `%s` stands for the query. */
+  browserCustomSearchUrl: string
+  /** Page zoom in percent, applied when a browser tab's webview is created. */
+  browserZoom: number
   // UI
   uiFontFamily: string
   uiFontSize: number
@@ -70,7 +80,7 @@ export interface Settings {
   // Features
   coreFeatures: CoreFeaturesState
   // Advanced
-  showFpsOverlay: boolean
+  showBuildReadout: boolean
   /** Sidebar-header build indicator. 'auto' detects dev/nightly/beta/release from the build; any other value forces that state for QA, and 'off' hides it. */
   buildBadgeOverride: 'auto' | 'off' | BuildChannel
   // Other

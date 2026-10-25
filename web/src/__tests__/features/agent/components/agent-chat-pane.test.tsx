@@ -796,7 +796,7 @@ describe('AgentChatPane', () => {
 
       await screen.findByTestId('agent-reviving-banner')
       const section = document.querySelector('.agent-chat.chat') as HTMLElement
-      expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('52px')
+      expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('50px')
     })
 
     it('still clears the header inside AgentChatView once the chat is attached and no banner covers it', async () => {
@@ -809,11 +809,11 @@ describe('AgentChatPane', () => {
       expect(screen.queryByTestId('agent-idle-banner')).not.toBeInTheDocument()
       expect(screen.queryByTestId('agent-reviving-banner')).not.toBeInTheDocument()
       const section = document.querySelector('.agent-chat.chat') as HTMLElement
-      expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('52px')
+      expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('50px')
     })
 
     // The transcript needs to clear the header's FULL EdgeDissolve zone
-    // (ROW_HEIGHT_PX + CHAT_BLUR_EXTRA_PX = 100px Mac), not just the 52px
+    // (ROW_HEIGHT_PX + CHAT_BLUR_EXTRA_PX = 98px Mac), not just the 50px
     // click-target the banners above clear — text left resting between the
     // two still renders visibly blurred by the dissolve's own mask layers.
     // See CHAT_BLUR_ZONE_PX in agent-chat-pane.tsx.
@@ -825,7 +825,7 @@ describe('AgentChatPane', () => {
 
       await screen.findByTestId('agent-empty-document')
       const section = document.querySelector('.agent-chat.chat') as HTMLElement
-      expect(section.style.getPropertyValue('--agent-transcript-header-clearance')).toBe('100px')
+      expect(section.style.getPropertyValue('--agent-transcript-header-clearance')).toBe('98px')
     })
 
     it('gives the transcript no extra clearance with no overlay header above', async () => {

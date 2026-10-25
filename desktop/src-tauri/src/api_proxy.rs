@@ -151,6 +151,7 @@ pub fn handle_request<R: Runtime>(
     responder: UriSchemeResponder,
 ) {
     let app = ctx.app_handle().clone();
+    let label = ctx.webview_label().to_string();
     let state_app = app.clone();
     let remote_host = remote_host_id(request.uri()).map(str::to_string);
     let origin = request.headers().get(http::header::ORIGIN).cloned();
@@ -158,7 +159,7 @@ pub fn handle_request<R: Runtime>(
     tauri::async_runtime::spawn(async move {
         // Dropping the timed-out future drops the request sender, which is what
         // tells hyper's connection task to close and hand the descriptor back.
-        let forwarded = async {
+        let routed = async {
             match remote_host {
                 None => {
                     forward(
@@ -179,6 +180,7 @@ pub fn handle_request<R: Runtime>(
                 }
             }
         };
+        let forwarded = serve(&label, routed);
         let resp = match tokio::time::timeout(PROXY_TIMEOUT, forwarded).await {
             Ok(resp) => resp,
             Err(_) => error_response(504, "crowbar daemon did not answer in time"),
@@ -191,6 +193,18 @@ pub fn handle_request<R: Runtime>(
         // NSException that cannot unwind through the ObjC bridge -> abort().
         let _ = app.run_on_main_thread(move || responder.respond(resp));
     });
+}
+
+/// Remote pages in browser tabs must never reach a daemon API, local or remote:
+/// `routed` is never polled for them, so no connection is ever opened.
+async fn serve<F>(webview_label: &str, routed: F) -> http::Response<Vec<u8>>
+where
+    F: Future<Output = http::Response<Vec<u8>>>,
+{
+    if crate::browser::exempt_from_app_guard(webview_label) {
+        return error_response(403, "crowbar api is not available to browser tabs");
+    }
+    routed.await
 }
 
 /// Connects to the daemon — re-reading the socket path each time, since it is
@@ -310,9 +324,11 @@ mod tests {
 
     use tauri::http;
 
+    use tokio::net::UnixListener;
+
     use super::test_support::{serve_once_unix, tempdir};
     use super::{
-        connect_retry_delay, forward, readable_by, remote_host_id, CONNECT_ATTEMPTS,
+        connect_retry_delay, forward, readable_by, remote_host_id, serve, CONNECT_ATTEMPTS,
         DAEMON_UNAVAILABLE, PROXY_HEADER,
     };
 
@@ -369,6 +385,56 @@ mod tests {
         assert_eq!(resp.status(), 200);
         assert_eq!(resp.body(), b"ok");
         assert_eq!(waits.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn browser_webviews_never_reach_the_daemon() {
+        let _serialised = crate::test_support::fd_tests().await;
+        let dir = tempdir::Dir::new("browser-label");
+        let path = socket_in(&dir);
+        let listener = UnixListener::bind(&path).expect("bind");
+        let resp = serve(
+            "browser-abc",
+            forward(
+                || Some(path.clone()),
+                request(http::Method::GET),
+                |_| async {},
+            ),
+        )
+        .await;
+        assert_eq!(resp.status(), 403);
+        // The connect is already complete or never happened by now, so a pending accept means no connection.
+        assert!(
+            futures_util::FutureExt::now_or_never(listener.accept()).is_none(),
+            "a browser tab's request reached the daemon socket"
+        );
+    }
+
+    #[tokio::test]
+    async fn browser_webviews_never_reach_a_remote_host() {
+        let resp = serve("browser-abc", async {
+            panic!("a browser tab's request was routed to a host")
+        })
+        .await;
+        assert_eq!(resp.status(), 403);
+    }
+
+    #[tokio::test]
+    async fn the_main_webview_still_reaches_the_daemon() {
+        let _serialised = crate::test_support::fd_tests().await;
+        let dir = tempdir::Dir::new("main-label");
+        let path = socket_in(&dir);
+        serve_once_unix(path.clone());
+        let resp = serve(
+            "main",
+            forward(
+                || Some(path.clone()),
+                request(http::Method::GET),
+                |_| async {},
+            ),
+        )
+        .await;
+        assert_eq!(resp.status(), 200);
     }
 
     #[tokio::test]

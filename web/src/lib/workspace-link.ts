@@ -17,23 +17,29 @@ function isLoopbackUrl(url: string): boolean {
   }
 }
 
+// No page scheme for a protocol-relative `//host/…` to inherit here: it is a web link.
+function webUrl(link: string): string {
+  return link.startsWith('//') ? `https:${link}` : link
+}
+
 /**
- * Opens a link found in workspace `wsId`'s content (null: content of no workspace). A loopback
- * address from a workspace on another host — or one whose host is not known — is that host's,
- * so it is not opened on this computer.
+ * True, once the user is told why, when a link found in workspace `wsId`'s content (null:
+ * content of no workspace) must not open on this computer: a loopback address from a
+ * workspace on another host — or one whose host is not known — is that host's.
  */
+export function refuseRemoteLoopback(link: string, wsId: string | null): boolean {
+  if (wsId === null || !isLoopbackUrl(webUrl(link))) return false
+  const hostId = resolvedHostOf({ wsId })
+  if (hostId === LOCAL_HOST.id) return false
+  const name = useHostConfigStore.getState().hosts.find((host) => host.id === hostId)?.name
+  toast.info(
+    `This link is on ${name ?? 'its workspace’s host'}, not this computer — forward the port with ssh -L to open it here`,
+  )
+  return true
+}
+
+/** Opens a link found in workspace `wsId`'s content in the OS browser, unless it is refused. */
 export async function openWorkspaceLink(link: string, wsId: string | null): Promise<void> {
-  // No page scheme for a protocol-relative `//host/…` to inherit here: it is a web link.
-  const url = link.startsWith('//') ? `https:${link}` : link
-  if (wsId !== null && isLoopbackUrl(url)) {
-    const hostId = resolvedHostOf({ wsId })
-    if (hostId !== LOCAL_HOST.id) {
-      const name = useHostConfigStore.getState().hosts.find((host) => host.id === hostId)?.name
-      toast.info(
-        `This link is on ${name ?? 'its workspace’s host'}, not this computer — forward the port with ssh -L to open it here`,
-      )
-      return
-    }
-  }
-  await openExternalUrl(url)
+  if (refuseRemoteLoopback(link, wsId)) return
+  await openExternalUrl(webUrl(link))
 }

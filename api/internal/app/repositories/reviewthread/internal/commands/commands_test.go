@@ -312,3 +312,51 @@ func TestCommands_Metadata(t *testing.T) {
 	assert.Contains(t, reopen.EventName(), "reopened")
 	assert.False(t, reopen.ShouldSnapshot())
 }
+
+func TestOpen_Validate_Anchor(t *testing.T) {
+	base := OpenReviewThread{ID: "t1", WsID: "w1", MessageID: "m1"}
+	cases := map[string]struct {
+		mut func(OpenReviewThread) OpenReviewThread
+		ok  bool
+	}{
+		"unanchored": {func(c OpenReviewThread) OpenReviewThread { return c }, true},
+		"single line": {func(c OpenReviewThread) OpenReviewThread {
+			c.FilePath, c.LineNumber = "a.go", 3
+			return c
+		}, true},
+		"range": {func(c OpenReviewThread) OpenReviewThread {
+			c.FilePath, c.LineNumber, c.StartLine, c.EndLine = "a.go", 5, 3, 5
+			return c
+		}, true},
+		"path only": {func(c OpenReviewThread) OpenReviewThread {
+			c.FilePath = "a.go"
+			return c
+		}, false},
+		"line only": {func(c OpenReviewThread) OpenReviewThread {
+			c.LineNumber = 3
+			return c
+		}, false},
+		"range only": {func(c OpenReviewThread) OpenReviewThread {
+			c.StartLine, c.EndLine = 1, 2
+			return c
+		}, false},
+		"end before start": {func(c OpenReviewThread) OpenReviewThread {
+			c.FilePath, c.LineNumber, c.StartLine, c.EndLine = "a.go", 3, 5, 3
+			return c
+		}, false},
+		"negative": {func(c OpenReviewThread) OpenReviewThread {
+			c.FilePath, c.LineNumber = "a.go", -2
+			return c
+		}, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := tc.mut(base).Validate(nil)
+			if tc.ok {
+				assert.NoError(t, err)
+				return
+			}
+			assert.ErrorIs(t, err, asynxModels.ErrValidation)
+		})
+	}
+}

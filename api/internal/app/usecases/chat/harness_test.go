@@ -24,6 +24,7 @@ import (
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
+	"github.com/char2cs/crowbar/api/internal/core/hookserver"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -1289,6 +1290,8 @@ func newFixtureUsing(
 	// home. This mirrors production and is load-bearing now that every agent-path
 	// removal is guarded by worktreepath.RemoveUnderHome (a chats dir NOT under home is refused).
 	home := t.TempDir()
+	// The daemon publishes where hooks are served before it spawns anything.
+	require.NoError(t, hookserver.Publish(home, "http://127.0.0.1:4242"))
 	worktree := filepath.Join(home, "projects", "p1", "slug", "branch", "worktree")
 	ws := &fakeWorkspace{
 		home:      home,
@@ -1388,6 +1391,7 @@ func newFixtureUsing(
 			Review:          fixtureReviewReader{},
 			Threads:         fixtureThreadReader{},
 			ThreadWrites:    fixtureThreadWriter{},
+			ThreadChanges:   reviewthread.NewChanges(),
 			Idempotency:     agenttools.NewIdempotency(),
 			ThreadBroadcast: noopThreadBroadcast,
 		},

@@ -1,16 +1,25 @@
 import { Suspense, useEffect, useMemo, useRef } from 'react'
 import { useBuffersByIds } from '@/features/workspace/stores/hooks/use-buffer-store'
-import type { EditorContent, PaneContent, TerminalContent } from '../types/pane-content'
+import type {
+  BrowserContent,
+  EditorContent,
+  PaneContent,
+  TerminalContent,
+} from '../types/pane-content'
 import { clearEditorPortalEntry, setEditorPortalEntry } from '../lib/editor-portal-registry'
 import { NewTabView } from './new-tab-view'
 import { renderPaneContent } from './pane-content-registry'
+import { sidebarSurfaceOf, sidebarSurfaceRoot } from '../lib/sidebar-surface'
 import { TerminalPane } from './terminal-pane'
+import { BrowserPane } from '@/features/browser/components/browser-pane'
 
 type EditorBufferShell = Pick<EditorContent, 'id' | 'path' | 'name' | 'type' | 'isPreview'>
 type PaneRenderBuffer = Exclude<PaneContent, EditorContent> | EditorBufferShell
 
 interface PaneEditorViewContentProps {
   paneId: string
+  /** The pane's own workspace; null until it resolves. */
+  wsId: string | null
   editorTabIds: string[]
   activeEditorTabId: string | null | undefined
   /** The editor view is hidden (the chat fills the pane, or a tabs-mode chat tab is up). */
@@ -18,6 +27,8 @@ interface PaneEditorViewContentProps {
   isActivePane: boolean
   /** Whether this pane's view is on screen at all. */
   showing: boolean
+  /** A drag is over this pane and its drop overlay is drawn above the editor view. */
+  dropTargeted?: boolean
 }
 
 /**
@@ -26,11 +37,13 @@ interface PaneEditorViewContentProps {
  */
 export function PaneEditorViewContent({
   paneId,
+  wsId,
   editorTabIds,
   activeEditorTabId,
   editorViewHidden,
   isActivePane,
   showing,
+  dropTargeted = false,
 }: PaneEditorViewContentProps) {
   const rawPaneBuffers = useBuffersByIds(editorTabIds)
   const paneBuffers = useMemo(
@@ -83,9 +96,7 @@ export function PaneEditorViewContent({
 
   return (
     <>
-      {/* A fallback for a pane holding nothing — deliberately inert; see
-          new-tab-view.tsx. */}
-      {!activeBuffer && <NewTabView paneId={paneId} />}
+      {!activeBuffer && <NewTabView paneId={paneId} wsId={wsId} />}
 
       {/* Terminals stay mounted to keep their PTYs, outside the Suspense
           boundary so a cold chunk load never unmounts them. Visible only as
@@ -97,7 +108,8 @@ export function PaneEditorViewContent({
           return (
             <div
               key={b.id}
-              className="absolute inset-0"
+              {...sidebarSurfaceRoot(sidebarSurfaceOf(b.type))}
+              className="absolute inset-0 outline-none"
               style={isActive ? undefined : { visibility: 'hidden' }}
             >
               <TerminalPane
@@ -122,16 +134,46 @@ export function PaneEditorViewContent({
       {hasOpenEditorBuffer && (
         <div
           ref={editorPortalTargetRef}
-          className="absolute inset-0"
+          {...sidebarSurfaceRoot(sidebarSurfaceOf('editor'))}
+          className="absolute inset-0 outline-none"
           style={isEditorTabActive ? undefined : { visibility: 'hidden' }}
         />
       )}
 
+      {/* Browsers stay mounted for the same reason: a tab switch must not
+          rebuild the page. Hidden, the native webview is told to hide too. */}
+      {paneBuffers
+        .filter((b): b is BrowserContent => b.type === 'browser')
+        .map((b) => {
+          const isActive = b.id === activeBuffer?.id && !editorViewHidden
+          return (
+            <div
+              key={b.id}
+              {...sidebarSurfaceRoot(sidebarSurfaceOf(b.type))}
+              className="absolute inset-0 outline-none"
+              style={isActive ? undefined : { visibility: 'hidden' }}
+            >
+              <BrowserPane
+                paneId={paneId}
+                bufferId={b.id}
+                visible={isActive && showing && !dropTargeted}
+              />
+            </div>
+          )
+        })}
+
       <Suspense fallback={null}>
         {activeBuffer &&
           activeBuffer.type !== 'terminal' &&
-          activeBuffer.type !== 'editor' &&
-          renderPaneContent(activeBuffer, { isActivePane })}
+          activeBuffer.type !== 'browser' &&
+          activeBuffer.type !== 'editor' && (
+            <div
+              {...sidebarSurfaceRoot(sidebarSurfaceOf(activeBuffer.type))}
+              className="absolute inset-0 outline-none"
+            >
+              {renderPaneContent(activeBuffer, { isActivePane, paneId, wsId })}
+            </div>
+          )}
       </Suspense>
     </>
   )

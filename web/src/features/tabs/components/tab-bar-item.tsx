@@ -1,7 +1,9 @@
 import {
   GitBranch,
+  Globe,
   GitPullRequest,
   Package,
+  Plus,
   PushPin as Pin,
   TerminalWindow as Terminal,
   X,
@@ -10,9 +12,11 @@ import { memo, useCallback } from 'react'
 import type { RefCallback } from 'react'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
 import type { PaneContent } from '@/features/panes/types/pane-content'
+import { sidebarSurfaceOf } from '@/features/panes/lib/sidebar-surface'
 import { sameRenderedBuffer } from './tab-bar-item-utils'
 import { Button } from '@/components/ui/button'
 import { Tab } from '@/components/ui/tabs'
+import { WithTooltip } from '@/components/ui/tooltip'
 import { cn } from '@/utils/cn'
 
 interface TabBarItemProps {
@@ -98,83 +102,101 @@ const TabBarItem = memo(function TabBarItem({
      * close button and called handleDragStart → handleTabSelect before the
      * close button's own onClick could run.
      */
-    <div ref={tabRef} className="group/tab relative">
+    <div
+      ref={tabRef}
+      data-sidebar-surface={sidebarSurfaceOf(buffer.type)}
+      className="group/tab relative max-w-[200px]"
+    >
       {showDropIndicatorBefore ? (
         <div className="drop-indicator absolute top-1 bottom-1 left-0 z-20 w-0.5 bg-secondary" />
       ) : null}
-      <Tab
-        role="tab"
-        aria-selected={isActive}
-        aria-label={`${buffer.name}${buffer.type === 'editor' && buffer.isDirty ? ' (unsaved)' : ''}${buffer.isPinned ? ' (pinned)' : ''}${buffer.isPreview ? ' (preview)' : ''}`}
-        tabIndex={isActive ? 0 : -1}
-        isActive={isActive}
-        isDragged={isDraggedTab}
-        variant="ghost"
-        className={cn(
-          'h-8',
-          'gap-1.5 pl-2.5 pr-8',
-          // Unsaved+active keeps its own distinct signal, but ONLY via a blue
-          // border — the fill and text stay whatever the ghost variant's
-          // normal active state already renders (`bg-sidebar-element-hover`/
-          // `text-foreground`, set by `Tab` itself above via `isActive`).
-          // Every attempt to tint the FILL blue too (a translucent
-          // `bg-primary/12`, several `color-mix` blends, then a plain solid
-          // `bg-primary`) read as wrong once compared side-by-side with the
-          // rest of the tab strip — the muted active fill was correct all
-          // along. `shadow-xs`/`inset-shadow-[...]` is copied verbatim from
-          // ROW_ACTIVE (workspace-row-base.ts) — the same CossUI top-highlight
-          // every other active/hovered row gets — layered on top of the
-          // border-only blue signal, not replacing it.
-          isActive &&
-            isDirtyEditor &&
-            'rounded-sm border-primary shadow-xs shadow-black/10 ' +
-              'not-disabled:inset-shadow-[0_1px_var(--elevated-highlight)] ' +
-              'active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none',
-        )}
-        onClick={handleClick}
-        onMouseDown={onMouseDown}
-        onDoubleClick={handleDoubleClick}
-        onContextMenu={handleContextMenu}
-        onKeyDown={handleKeyDown}
-        onAuxClick={handleAuxClick}
-      >
-        <div className="grid size-3.5 shrink-0 place-content-center">
-          {buffer.path === 'extensions://marketplace' ? (
-            <Package className="text-muted-foreground" />
-          ) : buffer.type === 'branchReview' ? (
-            <GitPullRequest className="text-muted-foreground" />
-          ) : buffer.type === 'commitDiff' ? (
-            <GitBranch className="text-muted-foreground" />
-          ) : buffer.type === 'terminal' ? (
-            <Terminal className="text-muted-foreground" />
-          ) : (
-            <FileExplorerIcon
-              fileName={buffer.name}
-              isDir={false}
-              className="text-muted-foreground"
-              size={14}
-            />
-          )}
-        </div>
-        <span
-          className={cn(
-            'ui-font text-[13px] min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap',
-            !isActive && 'text-muted-foreground',
-            buffer.isPreview && 'italic',
-          )}
-          title={buffer.path}
-        >
-          {displayName}
-        </span>
-        {isDirtyEditor && !isActive && (
-          <div
-            className="size-2 shrink-0 rounded-full bg-primary"
-            title="Unsaved changes"
-            role="img"
-            aria-label="Unsaved changes"
-          />
-        )}
-      </Tab>
+      <WithTooltip
+        side="bottom"
+        content={
+          <>
+            <div>{displayName}</div>
+            {buffer.type === 'editor' && <div className="text-muted-foreground">{buffer.path}</div>}
+          </>
+        }
+        trigger={
+          <Tab
+            role="tab"
+            aria-selected={isActive}
+            aria-label={`${buffer.name}${buffer.type === 'editor' && buffer.isDirty ? ' (unsaved)' : ''}${buffer.isPinned ? ' (pinned)' : ''}${buffer.isPreview ? ' (preview)' : ''}`}
+            tabIndex={isActive ? 0 : -1}
+            isActive={isActive}
+            isDragged={isDraggedTab}
+            variant="ghost"
+            className={cn(
+              'h-8 max-w-full',
+              'gap-1.5 pl-2.5 pr-8',
+              // Unsaved+active keeps its own distinct signal, but ONLY via a blue
+              // border — the fill and text stay whatever the ghost variant's
+              // normal active state already renders (`bg-sidebar-element-hover`/
+              // `text-foreground`, set by `Tab` itself above via `isActive`).
+              // Every attempt to tint the FILL blue too (a translucent
+              // `bg-primary/12`, several `color-mix` blends, then a plain solid
+              // `bg-primary`) read as wrong once compared side-by-side with the
+              // rest of the tab strip — the muted active fill was correct all
+              // along. `shadow-xs`/`inset-shadow-[...]` is copied verbatim from
+              // ROW_ACTIVE (workspace-row-base.ts) — the same CossUI top-highlight
+              // every other active/hovered row gets — layered on top of the
+              // border-only blue signal, not replacing it.
+              isActive &&
+                isDirtyEditor &&
+                'rounded-sm border-primary shadow-xs shadow-black/10 ' +
+                  'not-disabled:inset-shadow-[0_1px_var(--elevated-highlight)] ' +
+                  'active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none',
+            )}
+            onClick={handleClick}
+            onMouseDown={onMouseDown}
+            onDoubleClick={handleDoubleClick}
+            onContextMenu={handleContextMenu}
+            onKeyDown={handleKeyDown}
+            onAuxClick={handleAuxClick}
+          >
+            <div className="grid size-3.5 shrink-0 place-content-center">
+              {buffer.path === 'extensions://marketplace' ? (
+                <Package className="text-muted-foreground" />
+              ) : buffer.type === 'branchReview' ? (
+                <GitPullRequest className="text-muted-foreground" />
+              ) : buffer.type === 'commitDiff' ? (
+                <GitBranch className="text-muted-foreground" />
+              ) : buffer.type === 'terminal' ? (
+                <Terminal className="text-muted-foreground" />
+              ) : buffer.type === 'browser' ? (
+                <Globe className="text-muted-foreground" />
+              ) : buffer.type === 'newTabPage' ? (
+                <Plus className="text-muted-foreground" />
+              ) : (
+                <FileExplorerIcon
+                  fileName={buffer.name}
+                  isDir={false}
+                  className="text-muted-foreground"
+                  size={14}
+                />
+              )}
+            </div>
+            <span
+              className={cn(
+                'ui-font text-[13px] min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap',
+                !isActive && 'text-muted-foreground',
+                buffer.isPreview && 'italic',
+              )}
+            >
+              {displayName}
+            </span>
+            {isDirtyEditor && !isActive && (
+              <div
+                className="size-2 shrink-0 rounded-full bg-primary"
+                title="Unsaved changes"
+                role="img"
+                aria-label="Unsaved changes"
+              />
+            )}
+          </Tab>
+        }
+      />
 
       {/* Close / pin button — rendered OUTSIDE the Tab <button> to avoid
           invalid nested-button HTML that breaks event propagation. */}

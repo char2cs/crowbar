@@ -127,6 +127,7 @@ describe('focused workspace context — published where the active workspace is 
 
   it('no split, repo route: context is the routed workspace (repo known from the route alone)', () => {
     useSidebarStore.getState().setRepos([])
+    windowPaneStore.getState().paneActions.openChat('routed-chat', { workspaceId: 'ws-routed' })
     renderHook(() =>
       useIdeShellWorkspaceRetention(
         'ws-routed',
@@ -143,6 +144,21 @@ describe('focused workspace context — published where the active workspace is 
       isProjectHome: false,
       repoId: 'r9',
     })
+  })
+
+  it('repo route, empty stage: no workspace is focused', () => {
+    renderHook(() =>
+      useIdeShellWorkspaceRetention(
+        'ws-default',
+        'ws-home',
+        'p1',
+        'r1',
+        false,
+        HOME_PATH,
+        HOME_PATH,
+      ),
+    )
+    expect(getFocusedWorkspaceContext()).toMatchObject({ workspaceId: null, repoId: null })
   })
 
   it('home route, nothing focused and home unresolved: still project home, no repo', () => {

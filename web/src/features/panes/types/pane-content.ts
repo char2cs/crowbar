@@ -11,7 +11,8 @@ export interface TokenEntry {
 //
 // A pane's chat is PaneGroup.chatId, never a member of this union: 'agentChat'
 // and 'newTab' left it entirely when the pane gained a dedicated chat slot —
-// see pane.ts.
+// see pane.ts. 'newTabPage' is a different, real tab; old layouts still carry
+// the retired 'newTab' placeholder, which must keep being dropped.
 
 export type EditorTabContentType =
   | 'editor'
@@ -21,12 +22,15 @@ export type EditorTabContentType =
   | 'htmlPreview'
   | 'csvPreview'
   | 'branchReview'
+  | 'browser'
+  | 'newTabPage'
 
 /** Every content type this build can render.
  *
  *  A saved layout outlives the code that wrote it, so the restore path checks
  *  a persisted buffer's type against this set and drops what it no longer
- *  knows — see validateLoadedBuffers in persisted-layout.ts. */
+ *  knows — see validateLoadedBuffers in persisted-layout.ts.
+ */
 export const PANE_CONTENT_TYPES: ReadonlySet<EditorTabContentType> = new Set<EditorTabContentType>([
   'editor',
   'terminal',
@@ -35,6 +39,8 @@ export const PANE_CONTENT_TYPES: ReadonlySet<EditorTabContentType> = new Set<Edi
   'htmlPreview',
   'csvPreview',
   'branchReview',
+  'browser',
+  'newTabPage',
 ])
 
 // ── Base fields shared by every editor-tab content type ─────────────
@@ -121,9 +127,29 @@ export interface CsvPreviewContent extends EditorTabBase {
   sourceFilePath: string
 }
 
+export type BranchReviewView = 'conversation' | 'files'
+
 export interface BranchReviewContent extends EditorTabBase {
   type: 'branchReview'
   wsId: string
+  /** Which tab of the review is showing; absent until the user picks one. */
+  view?: BranchReviewView
+}
+
+/** A native webview tab. The buffer id is the Rust webview id; `url` is ''
+ *  until the first navigation, and the webview is not created before then. */
+export interface BrowserContent extends EditorTabBase {
+  type: 'browser'
+  url: string
+  title?: string
+  /** A page load is in flight, as the webview reports it. */
+  loading?: boolean
+}
+
+/** A browser-style New Tab: the empty editor area's actions as a tab of its
+ *  own, which the content chosen on it replaces. At most one per pane. */
+export interface NewTabPageContent extends EditorTabBase {
+  type: 'newTabPage'
 }
 
 // ── Discriminated union ─────────────────────────────────────────────
@@ -136,6 +162,8 @@ export type PaneContent =
   | HtmlPreviewContent
   | CsvPreviewContent
   | BranchReviewContent
+  | BrowserContent
+  | NewTabPageContent
 
 // ── Type guards ─────────────────────────────────────────────────────
 
@@ -168,6 +196,8 @@ const VIRTUAL_TYPES: ReadonlySet<EditorTabContentType> = new Set([
   'terminal',
   'branchReview',
   'commitDiff',
+  'browser',
+  'newTabPage',
 ])
 
 export function isVirtualContent(c: PaneContent): boolean {
@@ -250,6 +280,16 @@ export type OpenEditorTabSpec =
       type: 'branchReview'
       wsId: string
       name: string
+    }
+  | {
+      type: 'browser'
+      /** Opens on this page; omitted for the blank address bar. */
+      url?: string
+      workspaceId: string
+    }
+  | {
+      type: 'newTabPage'
+      workspaceId: string
     }
 
 // ── Buffer history / dialog state (used by workspace store) ─────────

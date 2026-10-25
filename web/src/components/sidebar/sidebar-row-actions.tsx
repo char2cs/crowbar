@@ -139,7 +139,7 @@ export function SidebarRowActions({
           are the two `handleTrash` itself refuses (trash-actions.ts's
           own doc) — surfacing a toast rather than pretending to succeed —
           so those are excluded here rather than offered a dead click. Same
-          token+glyph Recents' own close button uses (recents-band.tsx),
+          token+glyph Recents' own close button uses (view-row.tsx),
           not a hard-coded destructive-red trash icon. Calls the identical
           `handleTrash` the (removed) drag-to-trash gesture used to.
 

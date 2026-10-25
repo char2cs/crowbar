@@ -427,6 +427,10 @@ type ProviderUsecase interface {
 		message []byte,
 	) ([]byte, bool, error)
 
+	// VerifyRunnerToken reports whether token is the one minted for runnerID: the
+	// credential a vendor CLI's HTTP hook proves itself with.
+	VerifyRunnerToken(runnerID, token string) bool
+
 	// DefaultPermissionLevel and SetDefaultPermissionLevel back
 	// GET/PUT /v0/settings/chat/permission-level.
 	DefaultPermissionLevel(

@@ -25,7 +25,7 @@ interface Origin {
  * instead of two competing stacks.
  *
  * Only `editor` buffers are recorded: going back to a file whose tab was closed
- * can be satisfied by reopening it from disk (see `navigateToJumpEntry`), which
+ * can be satisfied by reopening it from disk, which
  * is not true of terminals or agent chats.
  */
 export function useNavigationHistory(): void {

@@ -70,9 +70,6 @@ function renderScroller(rowsForProject: (projectId: string) => SidebarRow[] = ()
       onOpen={vi.fn()}
       onTrash={vi.fn()}
       onCreate={vi.fn()}
-      onFocusRecent={vi.fn()}
-      onCloseRecent={vi.fn()}
-      onCloseChatRecent={vi.fn()}
       onDrop={vi.fn()}
       onPaneDrop={vi.fn()}
       onTrashProject={vi.fn()}
@@ -144,7 +141,9 @@ describe('a create in flight, before its POST has answered', () => {
     renderScroller(() => rowsFromPending(usePendingCreatesStore.getState().entries))
 
     expect(screen.getByText('Older thread')).toBeInTheDocument()
-    expect(screen.getByText('New thread')).toBeInTheDocument()
+    // The tree foot's own "New thread" row is not a stand-in.
+    const foot = screen.getByTestId('tree-foot')
+    expect(screen.getAllByText('New thread').filter((el) => !foot.contains(el))).toHaveLength(1)
     // The real row for THIS create must not be drawn until its pending entry clears.
     expect(screen.queryByText(UNTITLED_CHAT_LABEL)).not.toBeInTheDocument()
   })

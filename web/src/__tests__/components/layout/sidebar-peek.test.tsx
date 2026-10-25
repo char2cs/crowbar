@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { SidebarPeek } from '@/components/layout/sidebar-peek'
+import { useSidebarPeekStore } from '@/features/window/stores/sidebar-peek-store'
 
 vi.mock('@/utils/platform', () => ({ IS_MAC: true, IS_WINDOWS: false, IS_LINUX: false }))
 
@@ -38,6 +39,50 @@ function renderPeek(props: Partial<React.ComponentProps<typeof SidebarPeek>> = {
 }
 
 describe('SidebarPeek', () => {
+  it('keeps the card occupying the screen through its slide-out, until transitionend', () => {
+    renderPeek()
+    card().style.transitionDuration = '0.2s, 0.2s, 0s'
+    expect(useSidebarPeekStore.getState().occupied).toBe(false)
+
+    movePointer(2)
+    expect(useSidebarPeekStore.getState().occupied).toBe(true)
+
+    movePointer(900)
+    expect(host()).toHaveAttribute('data-state', 'closed')
+    expect(useSidebarPeekStore.getState().occupied).toBe(true)
+
+    const end = (propertyName: string) =>
+      act(() => {
+        card().dispatchEvent(
+          Object.assign(new Event('transitionend', { bubbles: true }), { propertyName }),
+        )
+      })
+    end('opacity')
+    end('box-shadow')
+    expect(useSidebarPeekStore.getState().occupied).toBe(true)
+
+    end('translate')
+    expect(useSidebarPeekStore.getState().occupied).toBe(false)
+  })
+
+  it('clears at once when the card has no transition to wait for', () => {
+    renderPeek()
+    movePointer(2)
+    expect(useSidebarPeekStore.getState().occupied).toBe(true)
+
+    movePointer(900)
+    expect(useSidebarPeekStore.getState().occupied).toBe(false)
+  })
+
+  it('clears on unmount mid-slide', () => {
+    const { unmount } = renderPeek()
+    card().style.transitionDuration = '200ms'
+    movePointer(2)
+    movePointer(900)
+    unmount()
+    expect(useSidebarPeekStore.getState().occupied).toBe(false)
+  })
+
   it('is an inert pass-through while the sidebar is docked', () => {
     renderPeek({ hidden: false })
     expect(host()).toHaveAttribute('data-state', 'docked')

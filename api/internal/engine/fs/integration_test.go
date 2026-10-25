@@ -161,7 +161,7 @@ func TestGate1_WatcherFiresFanOut(
 	w := watch.NewWatcher("ws-gate1", dir, fork, gitProv, d)
 	require.NoError(t, w.Start(ctx))
 	t.Cleanup(w.Stop)
-	// No settle sleep: Start arms the fsnotify watch synchronously before it
+	// No settle sleep: Start arms the watch backend synchronously before it
 	// returns, so the write below is delivered; we wait on the real dispatched event.
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "newfile.txt"), []byte("new content\n"), 0o600))
@@ -290,10 +290,18 @@ func (g *gitProvider) ComputeStatus(
 	return g.engine.Status(ctx, repoPath)
 }
 
-func (g *gitProvider) ComputeWorkingTreeSummary(
+func (g *gitProvider) ResolveDiffBase(
 	ctx context.Context,
 	repoPath string,
-	forkPointSha string,
-) (int, int, bool, bool, error) {
-	return g.engine.WorkingTreeSummary(ctx, repoPath, forkPointSha)
+	base string,
+) gitdomain.DiffBase {
+	return g.engine.ResolveDiffBase(ctx, repoPath, base)
+}
+
+func (g *gitProvider) DiffStat(
+	ctx context.Context,
+	repoPath string,
+	commit string,
+) (int, int, error) {
+	return g.engine.DiffStat(ctx, repoPath, commit)
 }

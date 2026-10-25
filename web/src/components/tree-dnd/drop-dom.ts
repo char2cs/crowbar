@@ -69,6 +69,8 @@ export interface RowHit<Row> {
   kind: 'row'
   row: Resolved<Row>
   rect: RowRect
+  /** 'x' inside a `data-drop-axis="x"` strip (tabs side by side), else 'y'. */
+  axis: 'x' | 'y'
 }
 
 /** The read/write pair for one tree's rows. */
@@ -207,9 +209,11 @@ export function createDropHitTest<
       const allowed = policy.allowedModes(subjects, row)
       if (!anyModeAllowed(allowed)) return null
       const rect = el.getBoundingClientRect()
-      if (rect.height <= 0) return null
-      const mode = dropModeAt((y - rect.top) / rect.height, allowed, policy.edgeBandFor(row.kind))
-      return mode === null ? null : { kind: 'row', row: { ...row, mode }, rect }
+      if (rect.height <= 0 || rect.width <= 0) return null
+      const axis = el.closest('[data-drop-axis="x"]') ? 'x' : 'y'
+      const ratio = axis === 'x' ? (x - rect.left) / rect.width : (y - rect.top) / rect.height
+      const mode = dropModeAt(ratio, allowed, policy.edgeBandFor(row.kind))
+      return mode === null ? null : { kind: 'row', row: { ...row, mode }, rect, axis }
     }
     return null
   }

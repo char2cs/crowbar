@@ -12,16 +12,16 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { useSettingsStore } from '@/features/settings/store'
 import type { Chat, Repo } from '@/lib/store/sidebar'
 
-// TabBar reaches useSidebar() only for the fallback sidebar-reopen toggle,
-// irrelevant here — stub it so the suite needn't stand up a SidebarProvider
-// (same stub tab-bar-rerender.test.tsx uses).
+// useSidebar() only feeds the reopen toggle; stubbed so no SidebarProvider is needed.
+const sidebar = vi.hoisted(() => ({ open: true }))
 vi.mock('@/components/ui/sidebar', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/components/ui/sidebar')>()
   return {
     ...actual,
-    useSidebar: () => ({ open: true, toggleSidebar: () => {} }),
+    useSidebar: () => ({ open: sidebar.open, toggleSidebar: () => {} }),
   }
 })
 
@@ -81,11 +81,8 @@ function makeChat(overrides: Partial<AgentChat> = {}): AgentChat {
   } as AgentChat
 }
 
-/** Seeds a single pane (ROOT_PANE_ID) with the given editor tabs and, when
- *  `chatId` is set, a matching `agentChats.chats` fixture. */
-// Task 26: panes/buffers moved off the per-workspace store onto the
-// window-level singleton — seed `windowPaneStore` for those; `agentChats`
-// stays on the workspace store returned here.
+/** Seeds ROOT_PANE_ID on the window pane store with the given tabs and, when `chatId`
+ *  is set, a matching chat on the returned workspace store. */
 function setupPaneStore({
   buffers = [],
   chatId = null,
@@ -143,19 +140,16 @@ describe('TabBar "+" placement', () => {
     const buffers = [makeEditorBuffer(0), makeEditorBuffer(1), makeEditorBuffer(2)]
     const store = setupStore(buffers)
 
-    let container!: HTMLElement
     act(() => {
-      ;({ container } = renderTabBar(store))
+      renderTabBar(store)
     })
 
     const addButton = screen.getByRole('button', { name: 'New tab' })
     const scrollContainer = screen.getByTestId('editor-tab-scroller')
     expect(scrollContainer).not.toBeNull()
 
-    // Directly inside the scroll container (same element the tabs live in) —
-    // not merely a descendant somewhere, and not a sibling rendered after it.
+    // Inside the tabs' own scroller, after every tab.
     expect(addButton.parentElement).toBe(scrollContainer)
-    // ...and specifically AFTER every tab: the last child of that container.
     expect(scrollContainer.lastElementChild).toBe(addButton)
 
     const tabs = screen.getAllByRole('tab')
@@ -163,7 +157,6 @@ describe('TabBar "+" placement', () => {
     for (const tab of tabs) {
       expect(scrollContainer.contains(tab)).toBe(true)
     }
-    void container
   })
 
   it('flows to stay the last child as tabs are added', () => {
@@ -198,21 +191,7 @@ describe('TabBar "+" click behaviour', () => {
     setActiveWorkspaceId(null)
   })
 
-  it('opens a dropdown offering New File and New Terminal', async () => {
-    const user = userEvent.setup()
-    const buffers = [makeEditorBuffer(0)]
-    const store = setupStore(buffers)
-    act(() => {
-      renderTabBar(store, { wsId: 'w1' })
-    })
-
-    await user.click(screen.getByRole('button', { name: 'New tab' }))
-
-    expect(await screen.findByRole('menuitem', { name: /New File/ })).toBeDefined()
-    expect(screen.getByRole('menuitem', { name: /New Terminal/ })).toBeDefined()
-  })
-
-  it('"New File" focuses this pane and opens a new blank editor tab in it', async () => {
+  it('focuses this pane and opens a New Tab page in it, with no menu', async () => {
     const user = userEvent.setup()
     const buffers = [makeEditorBuffer(0)]
     const store = setupPaneStore({ buffers, chatId: 'chat-1' })
@@ -224,42 +203,38 @@ describe('TabBar "+" click behaviour', () => {
     })
 
     await user.click(screen.getByRole('button', { name: 'New tab' }))
-    await user.click(await screen.findByRole('menuitem', { name: /New File/ }))
 
+    expect(screen.queryByRole('menuitem')).toBeNull()
     expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
-    const editorTabIds = windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds ?? []
-    expect(editorTabIds).toHaveLength(2)
-    const newBuf = windowPaneStore.getState().buffers.find((b) => b.id === editorTabIds[1])
-    expect(newBuf?.type).toBe('editor')
-    expect((newBuf as EditorContent)?.isVirtual).toBe(true)
+    const pane = windowPaneStore.getState().panes[ROOT_PANE_ID]
+    expect(pane?.editorTabIds).toHaveLength(2)
+    const page = windowPaneStore.getState().buffers.find((b) => b.id === pane?.editorTabIds[1])
     // The pane's own workspace, not the one in view.
-    expect(newBuf?.workspaceId).toBe('w-pane')
+    expect(page).toMatchObject({ type: 'newTabPage', name: 'New Tab', workspaceId: 'w-pane' })
+    expect(pane?.activeEditorTabId).toBe(page?.id)
+    expect(screen.getByRole('tab', { name: 'New Tab' })).toHaveAttribute('aria-selected', 'true')
   })
 
-  it('"New Terminal" opens a new terminal tab in this pane', async () => {
+  it('a second + focuses the open New Tab instead of stacking another', async () => {
     const user = userEvent.setup()
-    const buffers = [makeEditorBuffer(0)]
-    const store = setupPaneStore({ buffers, chatId: 'chat-1' })
+    const store = setupPaneStore({ buffers: [makeEditorBuffer(0)], chatId: 'chat-1' })
     act(() => {
       renderTabBar(store, { wsId: 'w-pane' })
     })
 
     await user.click(screen.getByRole('button', { name: 'New tab' }))
-    await user.click(await screen.findByRole('menuitem', { name: /New Terminal/ }))
+    await user.click(screen.getByRole('tab', { name: 'file-0.ts' }))
+    await user.click(screen.getByRole('button', { name: 'New tab' }))
 
-    const editorTabIds = windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds ?? []
-    const newBuf = windowPaneStore.getState().buffers.find((b) => b.id === editorTabIds[1])
-    expect(newBuf?.type).toBe('terminal')
-    expect(newBuf?.workspaceId).toBe('w-pane')
+    expect(screen.getAllByRole('tab', { name: 'New Tab' })).toHaveLength(1)
+    const pane = windowPaneStore.getState().panes[ROOT_PANE_ID]
+    expect(pane?.editorTabIds).toHaveLength(2)
+    expect(pane?.activeEditorTabId).toBe(pane?.editorTabIds[1])
   })
 })
 
-// Spec §7.1 (revised by the chats/pane redesign): tab-bar.tsx is now the
-// IDE SECTOR's own row only — split toggle, the editor tab strip in its own
-// scroller, then the branch-review shortcut. The chat is no
-// longer part of this row at all: it draws its own identity header
-// (`ChatBranchHeader`) at the top of the chat view instead
-// (pane-container.test.tsx / chat-branch-header.test.tsx cover that).
+// The IDE sector's own row: split toggle, the tab scroller, the branch-review shortcut.
+// The chat draws its own header in the chat view.
 describe('TabBar pane-top-row anatomy', () => {
   afterEach(() => {
     vi.clearAllMocks()
@@ -316,11 +291,8 @@ describe('TabBar pane-top-row anatomy', () => {
   })
 })
 
-// The second surface the live-reported thread bug showed up on: the IDE
-// sector's own row pinned the same "Review this branch" shortcut regardless
-// of whether the pane's chat owns a branch at all. A thread runs on the
-// worktree its PARENT owns (`Chat.workspaceId` is inherited, and so can
-// never gate this) — only the owning chat gets branch chrome.
+// A thread runs on its parent's worktree (`Chat.workspaceId` is inherited, so it can't
+// gate this): only the worktree's owning chat gets branch chrome.
 describe('TabBar — branch-review shortcut is for worktree-OWNING chats only', () => {
   afterEach(() => {
     useSidebarStore.setState({ repos: [] })
@@ -398,17 +370,8 @@ describe('TabBar — branch-review shortcut is for worktree-OWNING chats only', 
   })
 })
 
-/**
- * "The empty case is treated as a normal view. It shouldn't be treated like
- * that — it should only appear when NO VIEW is opened. It's just a fallback
- * when nothing is found, not a normal view."
- *
- * An emptied pane in a split now leaves the layout outright
- * (`dropEmptiedPanes`, pane-slice.ts), so the only pane that reaches TabBar
- * holding nothing is the last one in the window — the "nothing is open here"
- * screen. It has no name to show, nothing to close, and no second view to
- * toggle beside a chat that isn't there.
- */
+// An emptied split pane leaves the layout, so an empty pane here is the window's last:
+// the "nothing is open" fallback, with no name, nothing to close and nothing to toggle.
 describe('TabBar — a pane holding nothing draws no chrome for it', () => {
   afterEach(() => {
     vi.clearAllMocks()
@@ -446,11 +409,8 @@ describe('TabBar — a pane holding nothing draws no chrome for it', () => {
   })
 })
 
-// Chats/pane redesign: in the collapsed presentation, the chat is "just
-// another tab" in the strip — `showChatTab` is pane-container.tsx's own
-// signal for exactly that state (chat + real editor tabs + narrow/toggled
-// off). TabBar itself doesn't know about `presentation`; it only draws
-// what it's told to.
+// Collapsed, the chat is just another tab in the strip; pane-container decides when
+// (`showChatTab`), TabBar only draws it.
 describe('TabBar — chat as a tab (showChatTab)', () => {
   afterEach(() => {
     vi.clearAllMocks()
@@ -588,5 +548,50 @@ describe('TabBar context menu', () => {
 
     expect(menu.onRevealInFinder).toBeUndefined()
     resetHostWorld()
+  })
+})
+
+// With the sidebar hidden, whoever draws the reopen toggle also carries the
+// build readout: this row when no view strip exists, the strip otherwise.
+describe('TabBar — build readout beside the reopen toggle', () => {
+  afterEach(() => {
+    sidebar.open = true
+    vi.restoreAllMocks()
+  })
+
+  function renderHiddenAtEdge(side: 'left' | 'right') {
+    sidebar.open = false
+    useSettingsStore.setState((state) => {
+      state.settings.buildBadgeOverride = 'beta'
+      state.settings.sidebarPosition = side
+    })
+    // jsdom has no layout: report a row flush against the window's top-left and right edges.
+    const rect = { left: 0, top: 0, width: window.innerWidth, height: 32, right: window.innerWidth }
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(rect as DOMRect)
+    const store = setupPaneStore({ buffers: [makeEditorBuffer(0)] })
+    act(() => {
+      renderTabBar(store)
+    })
+  }
+
+  it.each(['left', 'right'] as const)(
+    'shows the readout with the toggle when no view strip exists (sidebar %s)',
+    (side) => {
+      resetWindowPaneStoreForTests()
+      renderHiddenAtEdge(side)
+      expect(screen.getByRole('button', { name: 'Show sidebar' })).toBeInTheDocument()
+      expect(screen.getAllByText(/beta 0\.0\.0-beta\.1/)).toHaveLength(1)
+    },
+  )
+
+  it('leaves the readout to the view strip once a view exists', () => {
+    renderHiddenAtEdge('left')
+    expect(screen.getAllByText(/beta 0\.0\.0-beta\.1/)).toHaveLength(1)
+    act(() => {
+      const { paneActions } = windowPaneStore.getState()
+      paneActions.setActiveProject('p1')
+      paneActions.openChat('chat-1', { workspaceId: 'w1' })
+    })
+    expect(screen.queryByText(/beta 0\.0\.0-beta\.1/)).toBeNull()
   })
 })

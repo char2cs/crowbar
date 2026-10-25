@@ -2,15 +2,19 @@ package internal_test
 
 import (
 	"context"
+	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal"
+	"github.com/char2cs/crowbar/api/internal/core/hookserver"
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
 )
 
@@ -152,4 +156,39 @@ func TestRun_CancelledContext_Returns(t *testing.T) {
 
 	err = c.Run(ctx)
 	assert.NoError(t, err)
+}
+
+// A vendor CLI's HTTP hook reaches the real router over loopback TCP, and nothing
+// else of the API is served on that port.
+func TestRun_ServesOnlyTheRunnerHookRouteOnALoopbackPort(t *testing.T) {
+	home := t.TempDir()
+	c, err := internal.New(context.Background(), "tcp://127.0.0.1:0", nil, internal.WithHomeDir(home))
+	require.NoError(t, err)
+	t.Cleanup(c.Close)
+	url, err := hookserver.Read(home)
+	require.NoError(t, err, "the daemon publishes where hooks are served")
+	require.True(t, strings.HasPrefix(url, "http://127.0.0.1:"), url)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+
+	fetch := func(method, target string, payload io.Reader) string {
+		req, err := http.NewRequestWithContext(ctx, method, target, payload)
+		require.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		b, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		return string(b)
+	}
+	assert.Contains(t, fetch(http.MethodPost, url+"/v0/projects/p/repos/r/chats/runners/seg/hooks/claude/tool_pre", strings.NewReader("{}")),
+		"repository not found", "the real router, not the gate, answered")
+	assert.Equal(t, "404 page not found\n", fetch(http.MethodGet, url+"/v0/projects", nil),
+		"the gate refuses the rest of the API")
 }

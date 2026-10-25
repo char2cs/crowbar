@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/core/hookserver"
 )
 
 // TestRun_ServeError_SurfacesNotHangs proves H16: when Serve fails (the listener
@@ -28,6 +30,7 @@ func TestRun_ServeError_SurfacesNotHangs(t *testing.T) {
 	c := &Container{
 		server:    &http.Server{Handler: http.NewServeMux()},
 		listeners: []net.Listener{ln},
+		hooks:     newHooks(t),
 	}
 
 	// Block on Run's own return — the real signal. A 2-second deadline here would
@@ -59,6 +62,7 @@ func TestRun_ServesEveryListener(t *testing.T) {
 			_, _ = io.WriteString(w, "ok")
 		})},
 		listeners: []net.Listener{unixLn, tcpLn},
+		hooks:     newHooks(t),
 	}
 	done := make(chan error, 1)
 	go func() { done <- c.Run(context.Background()) }()
@@ -86,7 +90,11 @@ func TestRun_ServesEveryListener(t *testing.T) {
 func TestRun_ClosesAnIdleKeepAliveConnection(t *testing.T) {
 	tcpLn, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	c := &Container{server: newHTTPServer(http.HandlerFunc(echoOrOK), 50*time.Millisecond), listeners: []net.Listener{tcpLn}}
+	c := &Container{
+		server:    newHTTPServer(http.HandlerFunc(echoOrOK), 50*time.Millisecond),
+		listeners: []net.Listener{tcpLn},
+		hooks:     newHooks(t),
+	}
 	done := make(chan error, 1)
 	go func() { done <- c.Run(context.Background()) }()
 	t.Cleanup(func() {
@@ -116,6 +124,16 @@ func TestRun_ClosesAnIdleKeepAliveConnection(t *testing.T) {
 	line, err = hijackedReader.ReadString('\n')
 	require.NoError(t, err, "a hijacked connection must outlive the idle timeout")
 	assert.Equal(t, "still here\n", line)
+}
+
+func newHooks(
+	t *testing.T,
+) *hookserver.Server {
+	t.Helper()
+	hooks, err := hookserver.Listen(context.Background(), http.NewServeMux())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = hooks.Close() })
+	return hooks
 }
 
 // echoOrOK answers "ok", or on /hijack takes the connection over and echoes

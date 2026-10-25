@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -39,6 +41,7 @@ func withWaitDelay(
 type DetectResult struct {
 	Kind    string // "github" | "gitlab" | "none"
 	Enabled bool   // true if CLI present and authenticated
+	Remote  string // the origin URL the kind was read from
 }
 
 // DefaultProtectedBranches is the fallback when the provider CLI is unavailable.
@@ -52,19 +55,10 @@ func FallbackProtectedBranches() []string {
 	return out
 }
 
-// Detect returns the provider kind and whether the CLI is available+authed.
-// On any detection error the function degrades gracefully: it returns
-// kind="none"/enabled=false rather than propagating the error.
-func Detect(
-	ctx context.Context,
-	repoPath string,
-) (DetectResult, error) {
-	return DetectWithExec(ctx, repoPath, withWaitDelay(exec.CommandContext))
-}
-
-// DetectWithExec is like Detect but accepts an injectable exec function.
-// Intended for tests.
-func DetectWithExec(
+// detectWithExec returns the provider kind and whether the CLI is available and
+// authed. On any detection error it degrades to kind="none"/enabled=false
+// rather than propagating the error.
+func detectWithExec(
 	ctx context.Context,
 	repoPath string,
 	execFn DetectExecFn,
@@ -80,7 +74,48 @@ func DetectWithExec(
 	}
 
 	enabled := cliAuthed(ctx, kind, execFn)
-	return DetectResult{Kind: kind, Enabled: enabled}, nil
+	return DetectResult{Kind: kind, Enabled: enabled, Remote: origin}, nil
+}
+
+// repoKey names the repository a worktree belongs to: its common git dir, which
+// every linked worktree shares and where origin is configured. Any other path
+// keys as itself.
+func repoKey(
+	path string,
+) string {
+	gitDir := filepath.Join(path, ".git")
+	if fi, err := os.Lstat(gitDir); err == nil && !fi.IsDir() {
+		gitDir = linkedCommonDir(path, gitDir)
+	}
+	if real, err := filepath.EvalSymlinks(gitDir); err == nil {
+		return real
+	}
+	return filepath.Clean(path)
+}
+
+// linkedCommonDir follows a linked worktree's ".git" file ("gitdir: <dir>") and
+// that dir's "commondir" back to the main repository's git dir.
+func linkedCommonDir(
+	path string,
+	dotGit string,
+) string {
+	raw, err := os.ReadFile(dotGit) //nolint:gosec // G304: reads the .git pointer of a worktree the daemon manages
+	if err != nil {
+		return dotGit
+	}
+	gitDir := strings.TrimSpace(strings.TrimPrefix(string(raw), "gitdir:"))
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(path, gitDir)
+	}
+	common, err := os.ReadFile(filepath.Join(gitDir, "commondir")) //nolint:gosec // G304: inside the worktree's own git dir
+	if err != nil {
+		return gitDir
+	}
+	dir := strings.TrimSpace(string(common))
+	if filepath.IsAbs(dir) {
+		return dir
+	}
+	return filepath.Join(gitDir, dir)
 }
 
 // detectRemoteOrigin returns the URL of the "origin" remote for repoPath.
@@ -89,7 +124,7 @@ func detectRemoteOrigin(
 	repoPath string,
 	execFn DetectExecFn,
 ) (string, error) {
-	cmd := execFn(ctx, "git", "remote", "get-url", "origin")
+	cmd := execFn(ctx, binpath.Git(), "remote", "get-url", "origin")
 	cmd.Dir = repoPath
 
 	var out, errBuf bytes.Buffer

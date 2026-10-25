@@ -11,6 +11,10 @@ export type ConnectionStatus = 'idle' | 'connected' | 'disconnected'
 interface ConnectionState {
   /** The local daemon's channels only. */
   status: ConnectionStatus
+  /** Connected, but some local channel is closed and retrying. */
+  degraded: boolean
+  /** Times every local channel was lost and the daemon came back; the first connect is not one. */
+  reconnects: number
   /** The same derivation per remote host, from that host's own channels: whether what the
    *  app shows of it is kept live — not whether it is up, which its status says. */
   hostStreams: Record<string, ConnectionStatus>
@@ -19,8 +23,8 @@ interface ConnectionState {
   failures: Record<string, ApiError>
 }
 
-// Per-endpoint open/closed flags live outside the store so the store holds
-// primitives — components subscribe with a narrow selector on `status`.
+// Per-endpoint open/closed flags live outside the store so the store holds a
+// few primitives — components subscribe with a narrow selector on each.
 const channelStates = new Map<string, { hostId: string; open: boolean }>()
 
 function deriveStatus(hostId: string): ConnectionStatus {
@@ -33,24 +37,41 @@ function deriveStatus(hostId: string): ConnectionStatus {
   return seen ? 'disconnected' : 'idle'
 }
 
+function deriveDegraded(status: ConnectionStatus): boolean {
+  if (status !== 'connected') return false
+  for (const channel of channelStates.values()) {
+    if (channel.hostId === LOCAL_HOST.id && !channel.open) return true
+  }
+  return false
+}
+
 export const useConnectionStore = create<ConnectionState>(() => ({
   status: 'idle',
+  degraded: false,
+  reconnects: 0,
   hostStreams: {},
   failures: {},
 }))
 
 function publish(): void {
-  const state = useConnectionStore.getState()
+  const prev = useConnectionStore.getState()
   const status = deriveStatus(LOCAL_HOST.id)
+  const degraded = deriveDegraded(status)
   const hostStreams: Record<string, ConnectionStatus> = {}
   for (const { hostId } of channelStates.values()) {
     if (hostId !== LOCAL_HOST.id) hostStreams[hostId] = deriveStatus(hostId)
   }
   const sameHosts =
-    Object.keys(hostStreams).length === Object.keys(state.hostStreams).length &&
-    Object.entries(hostStreams).every(([hostId, next]) => state.hostStreams[hostId] === next)
-  if (state.status === status && sameHosts) return
-  useConnectionStore.setState({ status, hostStreams })
+    Object.keys(hostStreams).length === Object.keys(prev.hostStreams).length &&
+    Object.entries(hostStreams).every(([hostId, next]) => prev.hostStreams[hostId] === next)
+  if (prev.status === status && prev.degraded === degraded && sameHosts) return
+  const recovered = prev.status === 'disconnected' && status === 'connected'
+  useConnectionStore.setState({
+    status,
+    degraded,
+    reconnects: recovered ? prev.reconnects + 1 : prev.reconnects,
+    hostStreams,
+  })
 }
 
 function setFailure(endpoint: string, failure: ApiError | undefined): void {
@@ -86,5 +107,11 @@ export function reportChannelGone(endpoint: string): void {
 /** Test helper: clear all tracked channels. */
 export function resetConnectionState(): void {
   channelStates.clear()
-  useConnectionStore.setState({ status: 'idle', hostStreams: {}, failures: {} })
+  useConnectionStore.setState({
+    status: 'idle',
+    degraded: false,
+    reconnects: 0,
+    hostStreams: {},
+    failures: {},
+  })
 }

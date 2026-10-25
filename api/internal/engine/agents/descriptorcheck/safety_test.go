@@ -44,6 +44,21 @@ func TestValidate_TheHookCommandPlaceholdersAreAccepted(t *testing.T) {
 	assert.True(t, rep.OK(), "%+v", rep.Findings)
 }
 
+// A curl hook command is a hook command too: it runs through the CLI's shell.
+func TestValidate_AUserValueInACurlHookCommandIsAnError(t *testing.T) {
+	rep := descriptorcheck.Validate(complete(
+		"mcp_injection:\n  - pass_arg: { arg: -c, value: 'x=\"{hook_curl} {hook_url}/a?cwd={cwd}\"' }\n"))
+	f := findingFor(t, rep, "hooks.unsafe_placeholder")
+	assert.Equal(t, "mcp_injection[0].pass_arg.value", f.Path)
+	assert.Contains(t, f.Message, "{cwd}")
+}
+
+func TestValidate_TheCurlHookPlaceholdersAreAccepted(t *testing.T) {
+	rep := descriptorcheck.Validate(complete(
+		"mcp_injection:\n  - pass_arg: { arg: -c, value: 'x=\"{hook_curl} {hook_url}/a\" y={cwd_json}' }\n"))
+	assert.True(t, rep.OK(), "%+v", rep.Findings)
+}
+
 func TestValidate_ShellSyntaxInAnArgvIsAWarning(t *testing.T) {
 	rep := descriptorcheck.Validate([]byte(strings.Replace(string(complete("")),
 		"interactive_required: true", "interactive_required: true\n  args: [\"--dir=$(pwd)\"]", 1)))

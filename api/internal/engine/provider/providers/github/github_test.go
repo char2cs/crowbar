@@ -49,6 +49,8 @@ func fakeCmd(
 	}
 }
 
+const testRemote = "https://github.com/owner/repo.git"
+
 type fakeResponse struct {
 	output string
 	code   int
@@ -76,18 +78,17 @@ func sequentialFake(
 
 func TestProtectedBranches_Success(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(sequentialFake([]fakeResponse{
-		{output: "https://github.com/owner/repo.git", code: 0}, // git remote get-url
-		{output: "main\ndevelop\n", code: 0},                   // gh api
+	g := New(testRemote, sequentialFake([]fakeResponse{
+		{output: "main\ndevelop\n", code: 0}, // gh api
 	}))
 	branches, err := g.ProtectedBranches(context.Background(), dir)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"main", "develop"}, branches)
 }
 
-func TestProtectedBranches_RemoteError(t *testing.T) {
+func TestProtectedBranches_UnparseableRemote(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(fakeCmd("", 1))
+	g := New("/srv/remotes/github.com/owner/repo.git", sequentialFake(nil))
 	_, err := g.ProtectedBranches(context.Background(), dir)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "github: protected-branches")
@@ -95,8 +96,7 @@ func TestProtectedBranches_RemoteError(t *testing.T) {
 
 func TestProtectedBranches_GHError(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(sequentialFake([]fakeResponse{
-		{output: "https://github.com/owner/repo.git", code: 0},
+	g := New(testRemote, sequentialFake([]fakeResponse{
 		{output: "authentication error", code: 1},
 	}))
 	_, err := g.ProtectedBranches(context.Background(), dir)
@@ -112,7 +112,7 @@ func TestProtectedBranches_GHError(t *testing.T) {
 func TestRegression_PullRequestForBranch_MergedAfterRemoteBranchDeleted(t *testing.T) {
 	dir := t.TempDir()
 	prJSON := `[{"number":54,"state":"MERGED","url":"https://github.com/o/r/pull/54","title":"Done","baseRefName":"develop","headRefOid":"3d06bd4"}]`
-	g := NewWithExec(sequentialFake([]fakeResponse{
+	g := New(testRemote, sequentialFake([]fakeResponse{
 		{output: prJSON, code: 0}, // gh pr list
 		{output: "", code: 0},     // git merge-base --is-ancestor → branch contains the PR head
 	}))
@@ -132,7 +132,7 @@ func TestRegression_PullRequestForBranch_MergedAfterRemoteBranchDeleted(t *testi
 func TestPullRequestForBranch_IgnoresStalePRAfterBranchNameReuse(t *testing.T) {
 	dir := t.TempDir()
 	prJSON := `[{"number":54,"state":"MERGED","url":"https://github.com/o/r/pull/54","title":"Old","baseRefName":"develop","headRefOid":"3d06bd4"}]`
-	g := NewWithExec(sequentialFake([]fakeResponse{
+	g := New(testRemote, sequentialFake([]fakeResponse{
 		{output: prJSON, code: 0}, // gh pr list
 		{output: "", code: 1},     // git merge-base --is-ancestor → branch does NOT contain it
 	}))
@@ -147,7 +147,7 @@ func TestPullRequestForBranch_IgnoresStalePRAfterBranchNameReuse(t *testing.T) {
 func TestPullRequestForBranch_OpenPRSkipsContainmentCheck(t *testing.T) {
 	dir := t.TempDir()
 	prJSON := `[{"number":42,"state":"OPEN","url":"https://github.com/o/r/pull/42","title":"My PR","baseRefName":"main","headRefOid":"deadbee"}]`
-	g := NewWithExec(sequentialFake([]fakeResponse{
+	g := New(testRemote, sequentialFake([]fakeResponse{
 		{output: prJSON, code: 0}, // gh pr list, and nothing else
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
@@ -165,7 +165,7 @@ func TestPullRequestForBranch_OpenPRSkipsContainmentCheck(t *testing.T) {
 func TestPullRequestForBranch_MergedWithoutHeadRefOid(t *testing.T) {
 	dir := t.TempDir()
 	prJSON := `[{"number":5,"state":"MERGED","url":"https://github.com/o/r/pull/5","title":"Done","baseRefName":"main"}]`
-	g := NewWithExec(sequentialFake([]fakeResponse{
+	g := New(testRemote, sequentialFake([]fakeResponse{
 		{output: prJSON, code: 0}, // gh pr list, and nothing else
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
@@ -180,7 +180,7 @@ func TestPullRequestForBranch_PreferOpen(t *testing.T) {
 		{"number":10,"state":"MERGED","url":"https://github.com/o/r/pull/10","title":"Old","baseRefName":"main"},
 		{"number":20,"state":"OPEN","url":"https://github.com/o/r/pull/20","title":"New","baseRefName":"main"}
 	]`
-	g := NewWithExec(sequentialFake([]fakeResponse{
+	g := New(testRemote, sequentialFake([]fakeResponse{
 		{output: prJSON, code: 0},
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
@@ -192,7 +192,7 @@ func TestPullRequestForBranch_PreferOpen(t *testing.T) {
 
 func TestPullRequestForBranch_NoPRs(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(sequentialFake([]fakeResponse{
+	g := New(testRemote, sequentialFake([]fakeResponse{
 		{output: "[]", code: 0},
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
@@ -208,7 +208,7 @@ func TestOpenPullRequests_ParsesHeadBaseGraph(t *testing.T) {
 		{"number":9324,"state":"OPEN","url":"u1","title":"t1","headRefName":"feat/9324","baseRefName":"feat/base"},
 		{"number":10,"state":"OPEN","url":"u2","title":"t2","headRefName":"feat/base","baseRefName":"dev"}
 	]`
-	g := NewWithExec(sequentialFake([]fakeResponse{
+	g := New(testRemote, sequentialFake([]fakeResponse{
 		{output: out, code: 0}, // gh pr list --state open, and nothing else
 	}))
 	links, err := g.OpenPullRequests(context.Background(), dir)
@@ -223,7 +223,7 @@ func TestOpenPullRequests_ParsesHeadBaseGraph(t *testing.T) {
 
 func TestOpenPullRequests_Empty(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(sequentialFake([]fakeResponse{
+	g := New(testRemote, sequentialFake([]fakeResponse{
 		{output: "[]", code: 0},
 	}))
 	links, err := g.OpenPullRequests(context.Background(), dir)
@@ -233,7 +233,7 @@ func TestOpenPullRequests_Empty(t *testing.T) {
 
 func TestPullRequestForBranch_GHError(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(sequentialFake([]fakeResponse{
+	g := New(testRemote, sequentialFake([]fakeResponse{
 		{output: "not authenticated", code: 1},
 	}))
 	_, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
@@ -303,8 +303,7 @@ func TestParseLines(t *testing.T) {
 
 func TestGHProvider_OwnerAvatarURL(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(sequentialFake([]fakeResponse{
-		{output: "https://github.com/owner/repo.git", code: 0},           // git remote get-url
+	g := New(testRemote, sequentialFake([]fakeResponse{
 		{output: "https://avatars.githubusercontent.com/u/123", code: 0}, // gh api
 	}))
 	got, err := g.OwnerAvatarURL(context.Background(), dir)
@@ -314,8 +313,7 @@ func TestGHProvider_OwnerAvatarURL(t *testing.T) {
 
 func TestGHProvider_OwnerAvatarURL_CliError_ReturnsEmpty(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(sequentialFake([]fakeResponse{
-		{output: "https://github.com/owner/repo.git", code: 0},
+	g := New(testRemote, sequentialFake([]fakeResponse{
 		{output: "authentication error", code: 1}, // gh api fails
 	}))
 	got, err := g.OwnerAvatarURL(context.Background(), dir)
@@ -329,7 +327,7 @@ func TestGHProvider_OwnerAvatarURL_CliError_ReturnsEmpty(t *testing.T) {
 // silently report no PR.
 func TestPullRequestForBranch_MalformedJSON(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(sequentialFake([]fakeResponse{
+	g := New(testRemote, sequentialFake([]fakeResponse{
 		{output: "not json at all", code: 0},
 	}))
 	_, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
@@ -341,7 +339,7 @@ func TestPullRequestForBranch_MalformedJSON(t *testing.T) {
 // failing `gh pr list` must surface as a wrapped "open-prs" error.
 func TestOpenPullRequests_GHError(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(sequentialFake([]fakeResponse{
+	g := New(testRemote, sequentialFake([]fakeResponse{
 		{output: "not authenticated", code: 1},
 	}))
 	_, err := g.OpenPullRequests(context.Background(), dir)
@@ -355,7 +353,7 @@ func TestOpenPullRequests_GHError(t *testing.T) {
 // "list-prs: parse"), so each needs its own proof.
 func TestOpenPullRequests_MalformedJSON(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(sequentialFake([]fakeResponse{
+	g := New(testRemote, sequentialFake([]fakeResponse{
 		{output: "not json at all", code: 0},
 	}))
 	_, err := g.OpenPullRequests(context.Background(), dir)
@@ -373,27 +371,9 @@ func TestBetterPR_OpenBeatsClosedRegardlessOfNumber(t *testing.T) {
 	assert.Equal(t, a, betterPR(a, b), "the open PR must win even with a lower number")
 }
 
-// TestWithWaitDelay_SetsWaitDelayOnConstructedCmd covers the wrapper New()
-// actually uses in production (NewWithExec's fakes bypass it entirely): every
-// *exec.Cmd it builds must carry WaitDelay, so a killed subprocess whose pipes
-// are held open by a grandchild still releases instead of leaking.
-func TestWithWaitDelay_SetsWaitDelayOnConstructedCmd(t *testing.T) {
-	var gotName string
-	inner := func(ctx context.Context, name string, args ...string) *exec.Cmd {
-		gotName = name
-		return exec.CommandContext(ctx, name, args...)
-	}
-
-	wrapped := withWaitDelay(inner)
-	cmd := wrapped(context.Background(), "echo", "hi")
-
-	assert.Equal(t, "echo", gotName, "the inner execFn must still be invoked with the same args")
-	assert.Equal(t, waitDelay, cmd.WaitDelay, "every constructed Cmd must carry the wait delay")
-}
-
 func TestGHProvider_OwnerAvatarURL_SlugError_ReturnsEmpty(t *testing.T) {
 	dir := t.TempDir()
-	g := NewWithExec(fakeCmd("", 1)) // git remote fails
+	g := New("totally-invalid", sequentialFake(nil))
 	got, err := g.OwnerAvatarURL(context.Background(), dir)
 	require.NoError(t, err) // soft failure
 	assert.Empty(t, got)

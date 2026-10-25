@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react'
-import { IS_MAC } from '@/utils/platform'
 import type { PanePosition } from '../types/pane'
+import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
 
 type Edge = 'left' | 'top' | 'right' | 'bottom'
 
@@ -69,7 +69,7 @@ export function buildPaneContentStyle(
   // edge, not that row's full height. Those icon-sm buttons render 28px
   // (button-variants.ts `sm:size-7`) centered in the 44px/34px row
   // (SidebarProjectHeader), so half the leftover height is that inset.
-  const HEADER_ROW_HEIGHT = IS_MAC ? 44 : 34
+  const HEADER_ROW_HEIGHT = CHROME_ROW_HEIGHT_PX
   const HEADER_ICON_HEIGHT = 28
   const TOP_GUTTER = position.atTop ? `${(HEADER_ROW_HEIGHT - HEADER_ICON_HEIGHT) / 2}px` : GUTTER
 

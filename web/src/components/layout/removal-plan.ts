@@ -475,7 +475,7 @@ export function renderedHiddenIds(
  * IS the rendered row's own id, no translation needed. 'repo'/'project'
  * entries never match anything here — a removal that takes a whole repo or
  * project has no single row of its own in this tree to transform (its own
- * gesture is the space header's trash, not a row).
+ * gesture is the tree foot's Delete space, not a row).
  */
 export function attachRemovalState(
   rows: readonly SidebarRow[],

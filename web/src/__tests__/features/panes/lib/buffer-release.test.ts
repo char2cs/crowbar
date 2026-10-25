@@ -9,6 +9,12 @@ vi.mock('@/lib/crowbar-bridge', async (importOriginal) => ({
   terminalKill,
 }))
 
+const browserClose = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+vi.mock('@/lib/browser-bridge', () => ({
+  browserApi: { close: browserClose },
+}))
+
+import { registerWebview } from '@/features/browser/lib/webview-registry'
 import {
   createWindowPaneStore,
   type WindowPaneStore,
@@ -55,8 +61,31 @@ describe('buffer ownership (invariant C2)', () => {
   let store: WindowPaneStore
   beforeEach(() => {
     terminalKill.mockClear()
+    browserClose.mockClear()
     store = createWindowPaneStore()
     store.getState().paneActions.setActiveProject('p1')
+  })
+
+  it('closing a view closes the native webview of a browser tab that has one', async () => {
+    const { paneActions, bufferActions } = store.getState()
+    paneActions.openChat('chat-a')
+    const id = bufferActions.openContent({ type: 'browser', workspaceId: 'ws-test' })
+    registerWebview(id, Promise.resolve())
+
+    paneActions.closeView(store.getState().activeViewId!)
+
+    await vi.waitFor(() => expect(browserClose).toHaveBeenCalledWith(id))
+  })
+
+  it('closing a browser tab that never got a webview closes nothing native', async () => {
+    const { paneActions, bufferActions } = store.getState()
+    paneActions.openChat('chat-a')
+    bufferActions.openContent({ type: 'browser', workspaceId: 'ws-test' })
+
+    paneActions.closeView(store.getState().activeViewId!)
+
+    await Promise.resolve()
+    expect(browserClose).not.toHaveBeenCalled()
   })
 
   it('closing a view kills the terminal its pane held, in the same set', async () => {

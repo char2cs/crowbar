@@ -38,6 +38,9 @@ DEST="${BINARIES_DIR}/${BINARY_NAME}"
 echo "Building crowbar-api for ${PLATFORM} (${TAURI_TARGET_TRIPLE})..."
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "${REPO_ROOT}/api"
-go build -tags noEmbed -o "$DEST" ./cmd/crowbar
+# The darwin watcher is an FSEvents stream and needs cgo.
+CGO=0
+[ "$OS" = darwin ] && CGO=1
+CGO_ENABLED=$CGO go build -tags noEmbed -o "$DEST" ./cmd/crowbar
 
 echo "Sidecar ready at: $DEST"

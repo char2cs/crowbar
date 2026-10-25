@@ -14,7 +14,7 @@ vi.mock('@/features/terminal/utils/resolve-font', () => ({
 import { useXtermInstance } from '@/features/terminal/hooks/use-xterm-instance'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import type { TerminalFileLinksOptions } from '@/features/terminal/lib/terminal-file-links'
+import type { TerminalLinksOptions } from '@/features/terminal/lib/terminal-links'
 import { toast } from '@/features/window/stores/toast-store'
 import { proxyMarkerError } from '@/lib/api/errors'
 import { getHostRuntime, destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
@@ -53,7 +53,7 @@ describe('useXtermInstance file links', () => {
     resetHostWorld()
   })
 
-  async function fileLinks(): Promise<TerminalFileLinksOptions> {
+  async function fileLinks(): Promise<TerminalLinksOptions> {
     const container = document.createElement('div')
     container.getBoundingClientRect = () => ({ width: 100, height: 100 }) as DOMRect
     renderHook(() =>
@@ -67,12 +67,8 @@ describe('useXtermInstance file links', () => {
     )
     await waitFor(() => expect(mountXterm).toHaveBeenCalled())
     return (
-      mountXterm.mock.calls[0] as unknown as [
-        unknown,
-        unknown,
-        { fileLinks: TerminalFileLinksOptions },
-      ]
-    )[2].fileLinks
+      mountXterm.mock.calls[0] as unknown as [unknown, unknown, { links: TerminalLinksOptions }]
+    )[2].links
   }
 
   it('opens a linked file in the terminal’s own workspace', async () => {
@@ -80,7 +76,9 @@ describe('useXtermInstance file links', () => {
 
     links.openFile('/disk/worktrees/a/src/index.ts')
 
-    expect(openWorkspaceFile).toHaveBeenCalledExactlyOnceWith('ws-terminal', 'src/index.ts')
+    expect(openWorkspaceFile).toHaveBeenCalledExactlyOnceWith('ws-terminal', 'src/index.ts', {
+      paneId: undefined,
+    })
   })
 
   it('names the remote host a linked file could not be opened from, and records it', async () => {

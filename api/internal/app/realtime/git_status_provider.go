@@ -21,10 +21,18 @@ func (p *gitStatusProvider) ComputeStatus(
 	return p.engine.Status(ctx, repoPath)
 }
 
-func (p *gitStatusProvider) ComputeWorkingTreeSummary(
+func (p *gitStatusProvider) ResolveDiffBase(
 	ctx context.Context,
 	repoPath string,
 	base string,
-) (int, int, bool, bool, error) {
-	return p.engine.WorkingTreeSummary(ctx, repoPath, base)
+) gitdomain.DiffBase {
+	return p.engine.ResolveDiffBase(ctx, repoPath, base)
+}
+
+func (p *gitStatusProvider) DiffStat(
+	ctx context.Context,
+	repoPath string,
+	commit string,
+) (int, int, error) {
+	return p.engine.DiffStat(ctx, repoPath, commit)
 }

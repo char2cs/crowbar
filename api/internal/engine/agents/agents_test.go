@@ -549,23 +549,90 @@ func TestShippedAgents_RenderParseableMCPRegistration(t *testing.T) {
 	assert.Contains(t, strings.Join(codex.Argv, " "), "mcp_servers.crowbar.command")
 }
 
-func TestShippedAgents_RenderHookCommandsThatSurviveAnEmptyRepoID(t *testing.T) {
-	for _, id := range []string{"claude", "codex"} {
-		t.Run(id, func(t *testing.T) {
-			tmp := t.TempDir()
-			plan, err := get(t, id).SpawnPlan(agents.TemplateCtx{
-				Tmp: tmp, Cwd: t.TempDir(), Segid: "SEG", Provider: id,
-				ProjectID: "P", RepoID: "", WorkspaceID: "W", CrowbarHook: "/bin/crowbar",
-			}, nil, nil)
-			require.NoError(t, err)
-
-			rendered := strings.Join(plan.Argv, " ") + " " + readAll(t, tmp)
-			assert.Contains(t, rendered, "--project=P")
-			assert.Contains(t, rendered, "--workspace=W")
-			assert.NotContains(t, rendered, "--repo=",
-				"an absent repo id must omit the flag, never leave a danging one")
-		})
+func hookCtx(tmp, provider, repo string) agents.TemplateCtx {
+	return agents.TemplateCtx{
+		Tmp: tmp, Cwd: filepath.Join(tmp, "cwd"), Segid: "SEG", RunnerToken: "TOK", Provider: provider,
+		ProjectID: "P", RepoID: repo, WorkspaceID: "W", CrowbarHook: "/bin/crowbar",
+		HookBase: "http://127.0.0.1:4242",
 	}
+}
+
+// A project home has no repo id: its hooks must take the home route, never a
+// dangling /repos//.
+func TestShippedAgents_RenderHookURLsThatSurviveAnEmptyRepoID(t *testing.T) {
+	for _, id := range []string{"claude", "codex"} {
+		for repo, scope := range map[string]string{"": "/v0/projects/P/home", "R": "/v0/projects/P/repos/R"} {
+			t.Run(id+"/repo="+repo, func(t *testing.T) {
+				tmp := t.TempDir()
+				plan, err := get(t, id).SpawnPlan(hookCtx(tmp, id, repo), nil, nil)
+				require.NoError(t, err)
+
+				rendered := strings.Join(plan.Argv, " ") + " " + readAll(t, tmp)
+				assert.Contains(t, rendered, "http://127.0.0.1:4242"+scope+"/chats/runners/SEG/hooks/"+id+"/tool_pre")
+				assert.NotContains(t, rendered, "/repos//")
+				assert.NotContains(t, rendered, "crowbar hook", "no relay process is launched per event")
+			})
+		}
+	}
+}
+
+// Claude posts its hooks itself, authenticated by the runner token. Only the status
+// line, which claude can only run as a command, goes through curl.
+func TestShippedClaude_HooksAreNativeHTTPHooksCarryingTheRunnerToken(t *testing.T) {
+	tmp := t.TempDir()
+	_, err := get(t, "claude").SpawnPlan(hookCtx(tmp, "claude", "R"), nil, nil)
+	require.NoError(t, err)
+
+	var settings struct {
+		Hooks      map[string][]struct{ Hooks []map[string]any } `json:"hooks"`
+		StatusLine map[string]any                                `json:"statusLine"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(readFile(t, filepath.Join(tmp, "settings.json"))), &settings))
+	require.NotEmpty(t, settings.Hooks)
+	for event, groups := range settings.Hooks {
+		for _, group := range groups {
+			for _, hook := range group.Hooks {
+				assert.Equal(t, "http", hook["type"], event)
+				assert.Contains(t, hook["url"], "/chats/runners/SEG/hooks/claude/", event)
+				assert.Equal(t, map[string]any{"X-Crowbar-Runner-Token": "TOK"}, hook["headers"], event)
+			}
+		}
+	}
+	assert.Equal(t, "command", settings.StatusLine["type"], "claude's status line can only run a command")
+	command, _ := settings.StatusLine["command"].(string)
+	assert.True(t, strings.HasPrefix(command, "curl "), command)
+	assert.Contains(t, command, "/hooks/claude/telemetry")
+	assert.NotContains(t, command, "TOK", "the token must not appear in argv")
+}
+
+// Codex has no HTTP hooks; its command hooks post through curl instead of exec'ing a
+// 50 MB relay, with the token in a private file rather than argv.
+func TestShippedCodex_HooksPostThroughCurlReadingTheTokenFromAFile(t *testing.T) {
+	tmp := t.TempDir()
+	plan, err := get(t, "codex").SpawnPlan(hookCtx(tmp, "codex", "R"), nil, nil)
+	require.NoError(t, err)
+
+	argv := strings.Join(plan.Argv, " ")
+	assert.Contains(t, argv, `hooks.PreToolUse=[{hooks=[{type="command",command="curl --silent --show-error --config `)
+	assert.Contains(t, argv, "/chats/runners/SEG/hooks/codex/tool_pre")
+	for _, arg := range plan.Argv {
+		if strings.HasPrefix(arg, "hooks.") {
+			assert.NotContains(t, arg, "TOK", "a hook's command line must not carry the token")
+		}
+	}
+
+	cfg := filepath.Join(tmp, "hook.curl")
+	assert.Contains(t, readFile(t, cfg), `header = "X-Crowbar-Runner-Token: TOK"`)
+	info, err := os.Stat(cfg)
+	require.NoError(t, err)
+	assert.Zero(t, info.Mode().Perm()&0o077, "the credential file is for the owner only")
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return string(b)
 }
 
 func readAll(t *testing.T, dir string) string {

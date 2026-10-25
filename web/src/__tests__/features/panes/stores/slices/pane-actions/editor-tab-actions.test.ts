@@ -42,6 +42,29 @@ describe('editor tabs in a pane', () => {
     expect(pane?.editorOpen).toBe(false)
   })
 
+  it('revealEditorTab shows a held tab and opens a toggled-off editor without moving focus', () => {
+    const store = makePaneOnlyStore()
+    const actions = store.getState().paneActions
+    actions.addEditorTabToPane(ROOT_PANE_ID, editorTab('tab-1'))
+    actions.addEditorTabToPane(ROOT_PANE_ID, editorTab('tab-2'))
+    actions.activateChatInPane(ROOT_PANE_ID)
+    store.setState((s) => {
+      s.panes[ROOT_PANE_ID].editorOpen = false
+    })
+    const focused = store.getState().activePaneId
+
+    actions.revealEditorTab(ROOT_PANE_ID, 'tab-1')
+    actions.revealEditorTab(ROOT_PANE_ID, 'not-held')
+
+    const pane = actions.getPaneById(ROOT_PANE_ID)
+    expect(pane).toMatchObject({
+      activeEditorTabId: 'tab-1',
+      chatSelected: false,
+      editorOpen: true,
+    })
+    expect(store.getState().activePaneId).toBe(focused)
+  })
+
   it('activateChatInPane selects the chat without clearing activeEditorTabId', () => {
     const store = makePaneOnlyStore()
     const actions = store.getState().paneActions

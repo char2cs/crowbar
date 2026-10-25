@@ -656,6 +656,8 @@ func (c *configurableListGetUsecase) SetChatSelection(
 	return c.selectionErr
 }
 
+func (configurableListGetUsecase) VerifyRunnerToken(string, string) bool { return false }
+
 func (configurableListGetUsecase) DispatchMCP(
 	_ context.Context,
 	_, _ string,

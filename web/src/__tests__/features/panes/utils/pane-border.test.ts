@@ -218,7 +218,7 @@ describe('buildPaneContentStyle — gutter (§7.4)', () => {
   it('single pane: header-icon inset above (atTop), flush against the (open) sidebar and the window', () => {
     const s = buildPaneContentStyle(full, sidebar, false)
     expect(s.marginLeft).toBe('0') // chrome side — sits flush against the sidebar, no gap
-    expect(s.marginTop).toBe('8px') // atTop — matches the header row's icon inset (macOS: (44-28)/2)
+    expect(s.marginTop).toBe('7px') // atTop — matches the header row's icon inset (macOS: (42-28)/2)
     expect(s.marginRight).toBe('0') // window edge — gives it up
     expect(s.marginBottom).toBe('0') // window edge — gives it up
   })

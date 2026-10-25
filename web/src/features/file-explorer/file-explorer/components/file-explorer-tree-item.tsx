@@ -1,35 +1,24 @@
 import { CaretRight } from '@phosphor-icons/react'
 import type React from 'react'
 import { memo, useEffect, useRef } from 'react'
-import {
-  FILE_TREE_DENSITY_CONFIG,
-  type FileTreeDensity,
-} from '@/features/file-explorer/lib/file-tree-density'
 import type { FileTreeGitStatusDecoration } from '@/features/file-explorer/lib/file-tree-git-status'
 import { useFileClipboardStore } from '@/features/file-explorer/stores/file-explorer-clipboard-store'
 import type { FileEntry } from '@/features/file-system/types/app'
 import { Input } from '@/components/ui/input'
-import { TreeRow } from '@/components/ui/tree-row'
+import {
+  SIDEBAR_FILE_ROW_BASE_INDENT,
+  SIDEBAR_FILE_ROW_ICON_SIZE,
+  SidebarFileRow,
+  TreeGuides,
+  type TreeGuideTarget,
+} from '@/components/sidebar/sidebar-file-row'
 import { cn } from '@/utils/cn'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
-import { SIDEBAR_TREE_ICON_SIZE } from '@/components/ui/sidebar-tree'
-
-// Matches the sidebar's own row content inset (`ROW_BASE`'s `px-1.5`) — a
-// depth-0 row's label starts exactly where a sidebar row's does, given the
-// container itself now supplies the matching `mx-1.5`-equivalent gutter
-// (file-explorer-tree.tsx's own `px-1.5`).
-export const FILE_TREE_BASE_INDENT = 6
-
-interface FileTreeGuideTarget {
-  path: string
-  name: string
-  isDir: boolean
-  isActive: boolean
-}
+import { GitStatusLetter } from './git-status-letter'
 
 function areGuideTargetsEqual(
-  previous: Array<FileTreeGuideTarget | null>,
-  next: Array<FileTreeGuideTarget | null>,
+  previous: Array<TreeGuideTarget | null>,
+  next: Array<TreeGuideTarget | null>,
 ): boolean {
   if (previous.length !== next.length) return false
 
@@ -51,11 +40,11 @@ interface FileExplorerTreeItemProps {
   file: FileEntry
   depth: number
   displayName?: string
-  guideTargets: Array<FileTreeGuideTarget | null>
+  guideTargets: Array<TreeGuideTarget | null>
   previousDepth: number
   nextDepth: number
   indentSize: number
-  density: FileTreeDensity
+  rowHeight: number
   isExpanded: boolean
   isActive: boolean
   dragOverPath: string | null
@@ -72,9 +61,8 @@ interface FileExplorerTreeItemProps {
 }
 
 // Reserves the same leading slot on every row (file or folder) so icons line
-// up in one column — only directories draw a caret into it, rotated 90° open
-// (a rotated caret is the disclosure convention).
-function DirectoryChevron({ isDir, isExpanded }: { isDir: boolean; isExpanded: boolean }) {
+// up in one column — only directories draw a caret into it, rotated 90° open.
+export function DirectoryChevron({ isDir, isExpanded }: { isDir: boolean; isExpanded: boolean }) {
   return (
     <span
       aria-hidden="true"
@@ -124,7 +112,7 @@ function FileExplorerTreeItemComponent({
   previousDepth,
   nextDepth,
   indentSize,
-  density,
+  rowHeight,
   isExpanded,
   isActive,
   dragOverPath,
@@ -143,37 +131,18 @@ function FileExplorerTreeItemComponent({
     (s) =>
       s.clipboard?.operation === 'cut' && s.clipboard.entries.some((e) => e.path === file.path),
   )
-  const paddingLeft = FILE_TREE_BASE_INDENT + depth * indentSize
-  const densityConfig = FILE_TREE_DENSITY_CONFIG[density]
   const gitStatusDecoration = getGitStatusDecoration(file)
-  const guideLevels = Array.from({ length: depth }, (_, level) => level)
-  const renderTreeGuides = () => (
-    <div className="file-tree-guides">
-      {guideLevels.map((level) => {
-        const target = guideTargets[level]
-        const startsHere = previousDepth <= level
-        const endsHere = nextDepth <= level
-        return (
-          <span
-            key={level}
-            className="file-tree-guide"
-            data-file-path={target?.path}
-            data-is-dir={target?.isDir}
-            data-path={target?.path}
-            data-active={target?.isActive ? 'true' : undefined}
-            title={target?.name}
-            style={
-              {
-                left: `calc(${FILE_TREE_BASE_INDENT + level * indentSize}px + var(--file-tree-guide-icon-offset, 7px))`,
-                top: startsHere ? '4px' : '0',
-                bottom: endsHere ? '4px' : '0',
-              } as React.CSSProperties
-            }
-          />
-        )
-      })}
-    </div>
+  const guides = (
+    <TreeGuides
+      depth={depth}
+      baseIndent={SIDEBAR_FILE_ROW_BASE_INDENT}
+      indentSize={indentSize}
+      previousDepth={previousDepth}
+      nextDepth={nextDepth}
+      targets={guideTargets}
+    />
   )
+  const rowGeometry = { depth, indentSize, height: rowHeight, guides }
 
   const inputRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -195,25 +164,19 @@ function FileExplorerTreeItemComponent({
 
   if (file.isEditing || file.isRenaming) {
     return (
-      <div className="file-tree-item w-full" data-depth={depth}>
-        {renderTreeGuides()}
-        <div
-          className={cn(
-            'file-tree-row flex w-full items-center rounded-md',
-            densityConfig.rowClassName,
-          )}
-          style={{
-            paddingLeft: `${paddingLeft}px`,
-          }}
-        >
-          <DirectoryChevron isDir={file.isDir ?? false} isExpanded={false} />
+      <SidebarFileRow
+        {...rowGeometry}
+        leading={<DirectoryChevron isDir={file.isDir ?? false} isExpanded={false} />}
+        icon={
           <FileExplorerIcon
             fileName={file.isDir ? 'folder' : 'file'}
             isDir={file.isDir ?? false}
             isExpanded={false}
-            className="relative z-[1] shrink-0 text-muted-foreground"
-            size={SIDEBAR_TREE_ICON_SIZE}
+            className="shrink-0 text-muted-foreground"
+            size={SIDEBAR_FILE_ROW_ICON_SIZE}
           />
+        }
+        editor={
           <Input
             ref={inputRef}
             type="text"
@@ -230,92 +193,68 @@ function FileExplorerTreeItemComponent({
             onChange={(e) => onEditingValueChange(e.target.value)}
             onKeyDown={(e) => onKeyDown(e, file)}
             onBlur={() => onBlur(file)}
-            className="ui-font relative z-1 flex-1 border-foreground border-b px-0 focus:border-muted-foreground"
+            className="ui-font flex-1 border-foreground border-b px-0 focus:border-muted-foreground"
             placeholder={file.isDir ? 'folder name' : 'file name'}
           />
-        </div>
-      </div>
+        }
+      />
     )
   }
 
+  const feedback = fileFeedback?.get(file.path)
+
   return (
-    <div
-      className="file-tree-item w-full"
-      data-active={isActive ? 'true' : undefined}
+    <SidebarFileRow
+      {...rowGeometry}
+      id={rowId}
+      role="treeitem"
+      aria-level={depth + 1}
+      aria-selected={isActive}
+      aria-expanded={file.isDir ? isExpanded : undefined}
+      data-file-path={file.path}
+      data-is-dir={file.isDir}
+      data-path={file.path}
       data-depth={depth}
-    >
-      {renderTreeGuides()}
-      <TreeRow
-        id={rowId}
-        role="treeitem"
-        aria-level={depth + 1}
-        aria-selected={isActive}
-        aria-expanded={file.isDir ? isExpanded : undefined}
-        data-file-path={file.path}
-        data-is-dir={file.isDir}
-        data-path={file.path}
-        data-depth={depth}
-        title={
-          file.isSymlink && file.symlinkTarget ? `Symlink to: ${file.symlinkTarget}` : undefined
-        }
-        className={cn(
-          densityConfig.rowClassName,
-          dragOverPath === file.path &&
-            '!border-2 !border-dashed !border-secondary !bg-secondary !bg-opacity-20',
-          isDragging && 'cursor-move',
-          file.ignored && 'opacity-50',
-          isCut && 'italic opacity-40',
-          isSearchMatch && 'file-tree-search-match',
-        )}
-        active={isActive}
-        baseIndent={FILE_TREE_BASE_INDENT}
-        depth={depth}
-        indentSize={indentSize}
-      >
-        <DirectoryChevron isDir={file.isDir ?? false} isExpanded={isExpanded} />
+      title={file.isSymlink && file.symlinkTarget ? `Symlink to: ${file.symlinkTarget}` : undefined}
+      selected={isActive}
+      dropTarget={dragOverPath === file.path}
+      className={cn(
+        isDragging && 'cursor-move',
+        file.ignored && 'opacity-50',
+        isCut && 'italic opacity-40',
+        isSearchMatch && 'file-tree-search-match',
+      )}
+      leading={<DirectoryChevron isDir={file.isDir ?? false} isExpanded={isExpanded} />}
+      icon={
         <FileExplorerIcon
           fileName={file.name}
           isDir={file.isDir ?? false}
           isExpanded={isExpanded}
           isSymlink={file.isSymlink}
-          className="relative z-1 shrink-0 text-muted-foreground"
-          size={SIDEBAR_TREE_ICON_SIZE}
+          className="shrink-0 text-muted-foreground"
+          size={SIDEBAR_FILE_ROW_ICON_SIZE}
         />
-        <span className="relative z-1 flex min-w-0 items-baseline gap-1.5">
-          <span
-            className={cn(
-              'select-none truncate whitespace-nowrap',
-              gitStatusDecoration?.colorClassName,
-            )}
-          >
-            {renderHighlightedLabel(displayName ?? file.name, searchQuery)}
-          </span>
-          {gitStatusDecoration && (
-            <span
-              className={cn(
-                'shrink-0 select-none font-mono text-[10px] leading-none opacity-80',
-                gitStatusDecoration.colorClassName,
-              )}
-              aria-label={gitStatusDecoration.label}
-            >
-              {gitStatusDecoration.statusLetter}
-            </span>
-          )}
-        </span>
-        {fileFeedback?.get(file.path) === 'copied-path' && (
-          <span className="ml-auto text-xs text-green-500 shrink-0">✓ path copied</span>
-        )}
-        {fileFeedback?.get(file.path) === 'copied-rel' && (
-          <span className="ml-auto text-xs text-green-500 shrink-0">✓ rel copied</span>
-        )}
-        {fileFeedback?.get(file.path) === 'created' && (
-          <span className="ml-auto text-xs text-green-500 shrink-0">✓ created</span>
-        )}
-        {fileFeedback?.get(file.path) === 'err' && (
-          <span className="ml-auto text-xs text-destructive shrink-0">✕ failed</span>
-        )}
-      </TreeRow>
-    </div>
+      }
+      label={renderHighlightedLabel(displayName ?? file.name, searchQuery)}
+      labelClassName={gitStatusDecoration?.colorClassName}
+      badge={gitStatusDecoration && <GitStatusLetter decoration={gitStatusDecoration} />}
+      trailing={feedback && <FileFeedback feedback={feedback} />}
+    />
+  )
+}
+
+const FEEDBACK_LABEL = {
+  'copied-path': '✓ path copied',
+  'copied-rel': '✓ rel copied',
+  created: '✓ created',
+  err: '✕ failed',
+} as const
+
+function FileFeedback({ feedback }: { feedback: keyof typeof FEEDBACK_LABEL }) {
+  return (
+    <span className={cn('text-xs', feedback === 'err' ? 'text-destructive' : 'text-green-500')}>
+      {FEEDBACK_LABEL[feedback]}
+    </span>
   )
 }
 
@@ -329,7 +268,7 @@ export const FileExplorerTreeItem = memo(
     prev.previousDepth === next.previousDepth &&
     prev.nextDepth === next.nextDepth &&
     prev.indentSize === next.indentSize &&
-    prev.density === next.density &&
+    prev.rowHeight === next.rowHeight &&
     prev.isExpanded === next.isExpanded &&
     prev.isActive === next.isActive &&
     prev.dragOverPath === next.dragOverPath &&

@@ -105,7 +105,7 @@ pub async fn ws_open(
     on_message: Channel<InvokeResponseBody>,
     idle_timeout_ms: Option<u64>,
     manager: State<'_, WsBridgeManager>,
-    window: tauri::WebviewWindow,
+    window: tauri::Window,
 ) -> Result<(), String> {
     let window_label = window.label().to_string();
     let read_idle_timeout = idle_timeout_ms.map(Duration::from_millis);

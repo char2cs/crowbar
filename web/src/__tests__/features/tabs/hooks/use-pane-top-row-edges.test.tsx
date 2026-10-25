@@ -1,5 +1,9 @@
 import { act, render } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
+import {
+  resetWindowPaneStoreForTests,
+  windowPaneStore,
+} from '@/features/panes/stores/window-pane-store'
 import { usePaneTopRowEdges } from '@/features/tabs/hooks/use-pane-top-row-edges'
 
 class FakeResizeObserver {
@@ -18,6 +22,11 @@ vi.stubGlobal('ResizeObserver', FakeResizeObserver)
 
 const BOX = { left: 300, right: 700, top: 100, width: 400, height: 44 }
 const NO_BOX = { left: 0, right: 0, top: 0, width: 0, height: 0 }
+
+beforeEach(() => {
+  resetWindowPaneStoreForTests()
+  windowPaneStore.getState().paneActions.setActiveProject('p1')
+})
 
 function mountRow(initial: typeof BOX) {
   FakeResizeObserver.instances = []
@@ -39,6 +48,9 @@ function mountRow(initial: typeof BOX) {
   render(<Probe />)
   return {
     edges,
+    moveRow(next: typeof BOX) {
+      rect = next
+    },
     setRect(next: typeof BOX) {
       rect = next
       act(() => FakeResizeObserver.instances[0]!.trigger())
@@ -63,5 +75,15 @@ describe('usePaneTopRowEdges', () => {
     row.setRect({ ...BOX, left: 4, top: 4 })
 
     expect(row.edges).toEqual({ left: true, top: true })
+  })
+
+  it('re-measures when the view strip opens above it and moves it without resizing it', () => {
+    const row = mountRow({ ...BOX, left: 4, top: 4 })
+    expect(row.edges).toEqual({ left: true, top: true })
+
+    row.moveRow({ ...BOX, left: 4, top: 48 })
+    act(() => windowPaneStore.getState().paneActions.openChat('chat-1', { workspaceId: 'ws-1' }))
+
+    expect(row.edges).toEqual({ left: true, top: false })
   })
 })

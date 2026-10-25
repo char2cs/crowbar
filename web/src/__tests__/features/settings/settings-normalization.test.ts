@@ -110,4 +110,42 @@ describe('settings normalization', () => {
       expect(normalizeSettingValue('themeMode', 'invalid' as ThemeMode)).toBe('system')
     })
   })
+
+  describe('browser settings', () => {
+    it('clamps the page zoom to a range the webview can render', () => {
+      expect(normalizeSettingValue('browserZoom', 10)).toBe(50)
+      expect(normalizeSettingValue('browserZoom', 900)).toBe(300)
+      expect(normalizeSettingValue('browserZoom', 125.4)).toBe(125)
+      expect(normalizeSettingValue('browserZoom', Number.NaN)).toBe(100)
+    })
+
+    it('resolves a persisted unknown search engine or zoom to the defaults', () => {
+      const normalized = normalizeSettings({
+        ...getDefaultSettingsSnapshot(),
+        browserSearchEngine: 'altavista' as never,
+        browserZoom: 'big' as never,
+      })
+      expect(normalized.browserSearchEngine).toBe('duckduckgo')
+      expect(normalized.browserZoom).toBe(100)
+    })
+  })
+
+  describe('sidebar follows focus', () => {
+    it('is off by default and when a profile carries no value', () => {
+      const snapshot = getDefaultSettingsSnapshot()
+      expect(snapshot.sidebarFollowsFocus).toBe(false)
+      const { sidebarFollowsFocus: _omitted, ...older } = snapshot
+      expect(normalizeSettings(older as typeof snapshot).sidebarFollowsFocus).toBe(false)
+      expect(normalizeSettingValue('sidebarFollowsFocus', 'yes' as never)).toBe(false)
+    })
+
+    it('keeps an explicit true', () => {
+      const normalized = normalizeSettings({
+        ...getDefaultSettingsSnapshot(),
+        sidebarFollowsFocus: true,
+      })
+      expect(normalized.sidebarFollowsFocus).toBe(true)
+      expect(normalizeSettingValue('sidebarFollowsFocus', true)).toBe(true)
+    })
+  })
 })

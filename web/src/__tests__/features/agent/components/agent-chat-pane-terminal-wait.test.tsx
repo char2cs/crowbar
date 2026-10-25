@@ -1,3 +1,5 @@
+import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
+import { useSettingsStore } from '@/features/settings/store'
 import { createElement } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -208,6 +210,10 @@ const surfaceToggle = () => screen.getByRole('tab', { name: 'Terminal' })
 
 beforeEach(() => {
   resetChatPresentationMemoryForTests()
+  // The wait banner is about a chat that is on the Chat surface.
+  useSettingsStore.setState({
+    settings: { ...getDefaultSettingsSnapshot(), chatIsDefaultPresentation: true },
+  })
   getChatFn.mockReset()
   listMessagesFn.mockReset()
   slashCatalogFn.mockReset()
@@ -470,7 +476,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
     // 44px header (IS_MAC forced true above) plus the pane's own original
     // 8px breathing room.
     const section = document.querySelector('.agent-chat.chat') as HTMLElement
-    expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('52px')
+    expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('50px')
   })
 
   it('keeps its original offset with no overlay header above (default)', async () => {

@@ -1,7 +1,12 @@
-import { render, screen } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import TabBarItem from '@/features/tabs/components/tab-bar-item'
-import type { EditorContent } from '@/features/panes/types/pane-content'
+import type { CommitDiffContent, EditorContent } from '@/features/panes/types/pane-content'
+import { useSidebarFocusMode } from '@/components/layout/use-sidebar-focus-mode'
+import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
+import { useSettingsStore } from '@/features/settings/store'
+import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import { publishFocusedWorkspaceContext } from '@/features/window/stores/focused-workspace-context-store'
 
 vi.mock('@/features/file-explorer/components/file-explorer-icon', () => ({
   FileExplorerIcon: () => <span data-testid="file-icon" />,
@@ -137,5 +142,82 @@ describe('TabBarItem ghost restyle', () => {
     expect(tab).not.toHaveClass('rounded-full')
     expect(tab.className).not.toContain('color-mix')
     expect(screen.getByLabelText('Unsaved changes')).toBeInTheDocument()
+  })
+})
+
+describe('TabBarItem sidebar surface', () => {
+  // The mode follows focus only with the opt-in setting on.
+  beforeEach(() => {
+    useSettingsStore.setState({
+      settings: { ...getDefaultSettingsSnapshot(), sidebarFollowsFocus: true },
+    })
+  })
+  function FocusMode() {
+    useSidebarFocusMode()
+    return null
+  }
+  const commitBuffer: CommitDiffContent = {
+    id: 'diff-1',
+    type: 'commitDiff',
+    name: 'abc1234',
+    sha: 'abc1234',
+    wsId: 'w1',
+    isPinned: false,
+    workspaceId: 'w1',
+  }
+
+  beforeEach(() => {
+    useSidebarStore.setState(getInitialState())
+    publishFocusedWorkspaceContext({
+      projectId: 'p1',
+      workspaceId: 'w1',
+      isProjectHome: false,
+      repoId: 'r1',
+      repoPath: '/repo',
+      rootPath: '/repo',
+    })
+  })
+
+  it('focusing an editor tab shows Files, and a diff tab shows Git', () => {
+    render(
+      <>
+        <FocusMode />
+        <TabBarItem buffer={editorBuffer} isActive {...shared} />
+        <TabBarItem buffer={commitBuffer} isActive {...shared} displayName="abc1234" />
+      </>,
+    )
+    const [editorTab, diffTab] = screen.getAllByRole('tab')
+    // Focus only moves the mode once the user has pressed something.
+    fireEvent.pointerDown(document.body)
+    act(() => editorTab.focus())
+    expect(useSidebarStore.getState().activeTab).toBe('files')
+    act(() => diffTab.focus())
+    expect(useSidebarStore.getState().activeTab).toBe('git')
+  })
+
+  it('exposes the full title of a long tab to assistive tech and the hover tooltip', async () => {
+    const title = 'Crowbar - Bring your own agent. Keep your own context. Always.'
+    const browserBuffer = {
+      id: 'b-1',
+      type: 'browser',
+      url: 'https://crowbar.test',
+      name: title,
+      path: 'browser://b-1',
+      isPinned: false,
+      isPreview: false,
+      workspaceId: 'w1',
+    } as const
+    render(<TabBarItem buffer={browserBuffer} isActive {...shared} displayName={title} />)
+
+    const tab = screen.getByRole('tab', { name: title })
+    expect(tab.textContent).toBe(title)
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+
+    fireEvent.pointerEnter(tab)
+    fireEvent.mouseEnter(tab)
+    fireEvent.focus(tab)
+    expect(
+      await screen.findByText(title, { selector: '[data-slot="tooltip-content"] *' }),
+    ).toBeTruthy()
   })
 })

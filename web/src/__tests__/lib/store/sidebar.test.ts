@@ -102,7 +102,7 @@ const FIXTURE_REPOS: Repo[] = [
 beforeEach(() => {
   useSidebarStore.setState({
     repos: FIXTURE_REPOS.map((r) => ({ ...r, workspaces: [...r.workspaces] })),
-    activeTab: 'workspaces',
+    activeTab: 'chats',
   })
 })
 

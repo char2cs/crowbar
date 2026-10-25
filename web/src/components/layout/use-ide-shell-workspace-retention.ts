@@ -1,4 +1,7 @@
+import { useStore } from 'zustand'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { selectIsFocusedPaneEmpty } from '@/features/panes/lib/view-selectors'
 import {
   useActivePaneWorkspaceId,
   usePaneEditorWorkspaceIds,
@@ -106,9 +109,12 @@ export function useIdeShellWorkspaceRetention(
     )
   })
 
+  // The empty stage shows no workspace, so the panel has none to scope to —
+  // even though WorkspaceHost keeps the routed workspace active behind it.
+  const isFocusedPaneEmpty = useStore(windowPaneStore, selectIsFocusedPaneEmpty)
   // The sidebar panel's one scope authority — see focused-workspace-context-store.ts.
   usePublishFocusedWorkspaceContext({
-    workspaceId: effectiveActiveWorkspaceId,
+    workspaceId: isFocusedPaneEmpty ? null : effectiveActiveWorkspaceId,
     homeWorkspaceId,
     projectId: activeProjectIdFromRoute ?? null,
     routeWorkspaceId: activeWorkspaceId,

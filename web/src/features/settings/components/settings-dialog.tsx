@@ -18,6 +18,7 @@ import { EditorSettings } from './tabs/editor-settings'
 import { GitSettings } from './tabs/git-settings'
 import { FileTreeSettings } from './tabs/file-tree-settings'
 import { TerminalSettings } from './tabs/terminal-settings'
+import { BrowserSettings } from './tabs/browser-settings'
 import { ProvidersSettings } from './tabs/providers-settings'
 import { DeveloperSettings } from './tabs/developer-settings'
 import { KeybindingsSettings } from './tabs/keybindings-settings'
@@ -78,6 +79,8 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
         return <GitSettings />
       case 'terminal':
         return <TerminalSettings />
+      case 'browser':
+        return <BrowserSettings />
       case 'providers':
         return <ProvidersSettings />
       case 'keybindings':

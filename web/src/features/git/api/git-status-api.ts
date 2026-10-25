@@ -39,9 +39,6 @@ export const getGitStatus = async (wsId: string): Promise<GitStatus | null> => {
   }
 }
 
-export const stagePaths = (wsId: string, paths: string[]): Promise<boolean> =>
-  gitPost(wsId, 'stage', { paths })
-
 export const unstagePaths = (wsId: string, paths: string[]): Promise<boolean> =>
   gitPost(wsId, 'unstage', { paths })
 

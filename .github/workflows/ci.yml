@@ -136,10 +136,36 @@ jobs:
         run: cd api && go build -tags noEmbed ./cmd/crowbar
       - name: Cross-compile (Linux arm64)
         run: cd api && GOOS=linux GOARCH=arm64 go build -tags noEmbed ./cmd/crowbar
-      - name: Cross-compile (macOS arm64)
-        run: cd api && GOOS=darwin GOARCH=arm64 go build -tags noEmbed ./cmd/crowbar
-      - name: Cross-compile (macOS amd64)
-        run: cd api && GOOS=darwin GOARCH=amd64 go build -tags noEmbed ./cmd/crowbar
+
+  # The darwin file watcher is an FSEvents stream (cgo), so darwin builds and its
+  # tests need a macOS runner; a CGO_ENABLED=0 darwin build fails by design.
+  go-macos:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.2'
+          cache-dependency-path: api/go.sum
+      - name: Build (macOS arm64 + amd64, cgo)
+        run: |
+          cd api
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags noEmbed ./cmd/crowbar
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 go build -tags noEmbed ./cmd/crowbar
+      - name: No kqueue watcher in the darwin daemon
+        run: |
+          cd api
+          if go list -tags noEmbed -deps ./cmd/crowbar | grep -qx 'github.com/fsnotify/fsnotify'; then
+            echo "fsnotify (kqueue) is linked into the darwin daemon; the watcher must use FSEvents"
+            exit 1
+          fi
+      - name: Vet + watcher tests (darwin backend)
+        run: |
+          cd api
+          go vet -tags noEmbed ./internal/engine/fs/... ./internal/app/realtime/...
+          go test -tags noEmbed -race -count=1 ./internal/engine/fs/... ./internal/app/realtime/...
 
   go-lint:
     needs: changes
@@ -277,9 +303,9 @@ jobs:
         run: |
           mkdir -p desktop/src-tauri/binaries
           cd api
-          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -tags noEmbed \
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags noEmbed \
             -o ../desktop/src-tauri/binaries/crowbar-api-aarch64-apple-darwin ./cmd/crowbar
-          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -tags noEmbed \
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 go build -tags noEmbed \
             -o ../desktop/src-tauri/binaries/crowbar-api-x86_64-apple-darwin ./cmd/crowbar
       - name: Cargo build --release (macOS)
         run: cd desktop/src-tauri && cargo build --release

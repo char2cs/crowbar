@@ -75,7 +75,8 @@ function toastIconFailure(hostId: string, err: unknown): void {
   else toast.error('Failed to set icon', err instanceof Error ? err.message : String(err))
 }
 
-/** The "Create a Space" sheet, replacing SpaceScroller so a swipe never lands on it. Its icon
+/** The "Create a Space" sheet, reached from the switcher's `+`, replacing SpaceScroller so a
+ *  swipe never lands on it. Its icon
  *  pick is staged (no project id yet) and applied right after the create answers, before
  *  `onCreate`: the new space arrives with its icon already set. */
 export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) {

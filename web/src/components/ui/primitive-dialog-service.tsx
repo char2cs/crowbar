@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 
-// Promise-based alert/confirm/prompt in the app's own Dialog, shown one at a time. Closing one
+// Promise-based confirm/prompt in the app's own Dialog, shown one at a time. Closing one
 // by any route (Cancel, Escape, the backdrop) settles its promise: none is left pending.
 
 interface DialogLabels {
@@ -30,7 +30,6 @@ interface PromptOptions extends DialogLabels {
 }
 
 type DialogRequest = { id: number; title: string; message: ReactNode } & (
-  | { kind: 'alert'; confirmLabel: string; onConfirm: () => void; onDismiss: () => void }
   | {
       kind: 'confirm'
       confirmLabel: string
@@ -63,22 +62,7 @@ function enqueue(request: DialogRequest) {
   }
 }
 
-// react-doctor-disable-next-line only-export-components -- imperative dialog API sharing this module's dialog queue state (enqueue/nextId) with PrimitiveDialogProvider below; the API and the provider that renders its queue are one unit.
-export function primitiveAlert(message: ReactNode, title = 'Notice'): Promise<void> {
-  return new Promise((resolve) => {
-    enqueue({
-      id: nextId++,
-      kind: 'alert',
-      title,
-      message,
-      confirmLabel: 'OK',
-      onConfirm: () => resolve(),
-      onDismiss: () => resolve(),
-    })
-  })
-}
-
-// react-doctor-disable-next-line only-export-components -- imperative dialog API backed by this module's shared queue (see primitiveAlert).
+// react-doctor-disable-next-line only-export-components -- imperative dialog API backed by this module's shared queue.
 export function primitiveConfirm(
   message: ReactNode,
   options: ConfirmOptions = {},
@@ -98,7 +82,7 @@ export function primitiveConfirm(
   })
 }
 
-// react-doctor-disable-next-line only-export-components -- imperative dialog API backed by this module's shared queue (see primitiveAlert).
+// react-doctor-disable-next-line only-export-components -- imperative dialog API backed by this module's shared queue (see primitiveConfirm).
 export function primitivePrompt(
   message: ReactNode,
   options: PromptOptions = {},
@@ -205,11 +189,9 @@ function DialogHost({ request, onSettled }: { request: DialogRequest; onSettled:
         )}
 
         <DialogFooter>
-          {request.kind !== 'alert' && (
-            <Button ref={cancelRef} variant="outline" onClick={dismiss}>
-              {request.cancelLabel}
-            </Button>
-          )}
+          <Button ref={cancelRef} variant="outline" onClick={dismiss}>
+            {request.cancelLabel}
+          </Button>
           <Button
             variant={request.kind === 'confirm' && request.destructive ? 'destructive' : 'default'}
             onClick={confirm}

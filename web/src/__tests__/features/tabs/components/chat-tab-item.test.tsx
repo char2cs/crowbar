@@ -1,6 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { useSidebarFocusMode } from '@/components/layout/use-sidebar-focus-mode'
+import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
+import { useSettingsStore } from '@/features/settings/store'
+import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChat } from '@/features/agent/api/agent-api'
 import { CHAT_TITLE_PENDING_LABEL } from '@/features/agent/hooks/use-chat-title'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
@@ -120,5 +124,29 @@ describe('ChatTabItem', () => {
       ),
     )
     expect(screen.getByTestId('chat-tab-item')).not.toHaveClass('bg-sidebar-element-hover')
+  })
+})
+
+describe('ChatTabItem sidebar surface', () => {
+  // The mode follows focus only with the opt-in setting on.
+  beforeEach(() => {
+    useSettingsStore.setState({
+      settings: { ...getDefaultSettingsSnapshot(), sidebarFollowsFocus: true },
+    })
+  })
+  it('focusing the chat tab shows Chats', () => {
+    useSidebarStore.setState({ ...getInitialState(), activeTab: 'files' })
+    function FocusMode() {
+      useSidebarFocusMode()
+      return null
+    }
+    render(createElement(FocusMode))
+    renderChatTab({ isActive: true })
+
+    // Focus only moves the mode once the user has pressed something.
+    fireEvent.pointerDown(document.body)
+    act(() => screen.getByRole('tab').focus())
+
+    expect(useSidebarStore.getState().activeTab).toBe('chats')
   })
 })

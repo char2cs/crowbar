@@ -100,3 +100,61 @@ func TestThreads_AuthorAndIsAgent(t *testing.T) {
 	assert.Equal(t, "claude", replied.Replies[0].Author)
 	assert.True(t, replied.Replies[0].IsAgent, "agent reply must carry isAgent")
 }
+
+// TestRegression_GeneralComment_OpensRepliesResolvesAndLists proves a thread
+// with no anchor (the Conversation tab's general comment) works end to end.
+func TestRegression_GeneralComment_OpensRepliesResolvesAndLists(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	base := threadsBase(imported)
+
+	var opened threadWithReplies
+	h.post(base+"/threads", map[string]any{
+		"filePath": "", "line": 0, "startLine": 0, "endLine": 0,
+		"side": "new", "body": "overall this needs a changelog entry",
+	}, http.StatusCreated, &opened)
+	assert.Empty(t, opened.FilePath)
+	assert.Zero(t, opened.Line)
+	assert.Zero(t, opened.StartLine)
+	assert.Zero(t, opened.EndLine)
+
+	var replied threadWithReplies
+	h.post(base+"/threads/"+opened.ID+"/replies", map[string]any{
+		"body": "added",
+	}, http.StatusOK, &replied)
+	require.Len(t, replied.Replies, 1)
+
+	var resolved struct {
+		Resolved bool `json:"resolved"`
+	}
+	h.patch(base+"/threads/"+opened.ID, map[string]any{"isResolved": true}, &resolved)
+	assert.True(t, resolved.Resolved)
+
+	var listed []threadDTO
+	h.get(base+"/threads", &listed)
+	require.Len(t, listed, 1)
+	assert.Equal(t, opened.ID, listed[0].ID)
+	assert.Empty(t, listed[0].FilePath)
+}
+
+// TestRegression_HalfAnchoredThread_IsRejected proves a partial anchor is
+// refused rather than stored as a thread no diff line can show.
+func TestRegression_HalfAnchoredThread_IsRejected(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	base := threadsBase(imported)
+
+	for name, body := range map[string]map[string]any{
+		"path without a line":  {"filePath": "README.md", "side": "right", "body": "x"},
+		"line without a path":  {"line": 4, "side": "right", "body": "x"},
+		"range without a path": {"startLine": 2, "endLine": 3, "side": "right", "body": "x"},
+		"end before start": {
+			"filePath": "README.md", "line": 3, "startLine": 5, "endLine": 3, "side": "right", "body": "x",
+		},
+		"negative line": {"filePath": "README.md", "line": -1, "side": "right", "body": "x"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h.postError(base+"/threads", body, http.StatusBadRequest)
+		})
+	}
+}

@@ -48,6 +48,14 @@ type ReviewUsecase interface {
 		maxLines int,
 		w io.Writer,
 	) (int, bool, error)
+	// GetFileSides returns one file's full old and new text for the diff.
+	GetFileSides(
+		ctx context.Context,
+		wsID string,
+		commit string,
+		path string,
+		oldPath string,
+	) (gitdomain.ReviewFileSides, error)
 	// SearchDiff finds query in the content of the workspace's branch diff.
 	SearchDiff(
 		ctx context.Context,

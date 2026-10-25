@@ -31,6 +31,12 @@ describe('sidebar-ui persistence', () => {
     expect(result?.collapsedChatRows).toEqual(['folder-1', 'chat-9'])
   })
 
+  it('saves and loads the sidebar mode round-trip', async () => {
+    await saveSidebarUI({ collapsedChatRows: [], activeTab: 'git' })
+    const result = await loadSidebarUI()
+    expect(result?.activeTab).toBe('git')
+  })
+
   it('overwrites previous record on second save', async () => {
     await saveSidebarUI({ collapsedRepos: ['crowbar'], collapsedWorkspaces: [] })
     await saveSidebarUI({ collapsedRepos: ['quiver-core'], collapsedWorkspaces: ['ws1'] })

@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 )
 
@@ -27,6 +28,10 @@ type TemplateCtx struct {
 	Segid       string
 
 	RunnerToken string
+
+	// HookBase is the daemon's loopback hook server (hookserver.Server.URL), empty
+	// when none is published. {hook_url} is built from it.
+	HookBase string
 
 	Provider    string
 	ProjectID   string
@@ -64,6 +69,29 @@ type TemplateCtx struct {
 	// spawn-time behavior is a request field, not an argv flag Apply's
 	// pass_arg can reach.
 	PermissionVars map[string]string
+}
+
+// HookURL is where this runner's hooks are posted by a CLI that posts them itself:
+// the runner-keyed route on the hook server, under the project/repo scope the relay
+// built its path from — a project home has no repo and takes the home branch. The
+// descriptor appends the event name.
+func (c TemplateCtx) HookURL() string {
+	if c.HookBase == "" {
+		return ""
+	}
+	scope := "/v0/projects/" + c.ProjectID + "/home"
+	if c.RepoID != "" {
+		scope = "/v0/projects/" + c.ProjectID + "/repos/" + c.RepoID
+	}
+	return c.HookBase + scope + "/chats/runners/" + c.Segid + "/hooks/" + c.Provider
+}
+
+// HookCurl is the curl command a CLI that can only run a command (Claude's status
+// line, Codex's hooks) posts its stdin through. The runner token is in the config
+// file the descriptor writes there, not on the command line: argv is visible to
+// every process of the user.
+func (c TemplateCtx) HookCurl() string {
+	return "curl --silent --show-error --config " + shellWord(filepath.Join(c.Tmp, "hook.curl"))
 }
 
 func (c TemplateCtx) ScopeFlags() string {
@@ -126,6 +154,8 @@ func (c TemplateCtx) pairs() []string {
 		"{cwd_json}", jsonString(c.Cwd),
 		"{crowbar_hook}", shellWord(c.CrowbarHook),
 		"{crowbar_home}", c.CrowbarHome,
+		"{hook_url}", c.HookURL(),
+		"{hook_curl}", c.HookCurl(),
 
 		"{crowbar}", c.CrowbarHook,
 		"{segid}", c.Segid,

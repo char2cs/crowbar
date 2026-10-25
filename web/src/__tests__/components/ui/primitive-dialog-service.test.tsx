@@ -3,7 +3,6 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import {
   PrimitiveDialogProvider,
-  primitiveAlert,
   primitiveConfirm,
   primitivePrompt,
 } from '@/components/ui/primitive-dialog-service'
@@ -110,16 +109,6 @@ describe('primitive dialog service', () => {
       name: 'Revoke docker lab?',
       description: message,
     })
-
-    expect(within(dialog).getByText(message).closest('[data-slot="dialog-header"]')).not.toBeNull()
-  })
-
-  it('an alert shows its message as the dialog description, inside the header', async () => {
-    renderProvider()
-    const message = 'Failed to open file a.txt: ENOENT'
-    void primitiveAlert(message, 'Open File')
-
-    const dialog = await screen.findByRole('dialog', { name: 'Open File', description: message })
 
     expect(within(dialog).getByText(message).closest('[data-slot="dialog-header"]')).not.toBeNull()
   })

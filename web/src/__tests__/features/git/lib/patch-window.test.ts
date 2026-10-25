@@ -381,3 +381,41 @@ describe('planWindow — a file larger than the entire budget', () => {
     expect(plan.fetch).toEqual(expect.arrayContaining(['m1.ts', 'm2.ts', 's1.ts', 's2.ts']))
   })
 })
+
+describe('planWindow with viewed files', () => {
+  it('never fetches a viewed file, even one on screen, and still fetches its neighbours', () => {
+    const paths = makePaths(5)
+    const plan = planWindow(
+      input({ paths, visible: { first: 0, last: 2 }, viewed: new Set(['f1']) }),
+    )
+
+    expect(plan.fetch).toEqual(['f0', 'f2', 'f3', 'f4'])
+  })
+
+  it('evicts a viewed file that is held, wherever it is', () => {
+    const paths = makePaths(5)
+    const plan = planWindow(
+      input({
+        paths,
+        visible: { first: 0, last: 0 },
+        materialized: ['f0', 'f1'],
+        viewed: new Set(['f0']),
+      }),
+    )
+
+    expect(plan.evict).toEqual(['f0'])
+    expect(plan.fetch).not.toContain('f0')
+  })
+
+  it('converges: applying the plan and re-planning changes nothing', () => {
+    const paths = makePaths(30)
+    const viewed = new Set(['f2', 'f9'])
+    const first = planWindow(input({ paths, materialized: ['f2'], viewed }))
+    const held = applyPlan(['f2'], first)
+    expect(held).not.toContain('f2')
+    expect(planWindow(input({ paths, materialized: held, viewed }))).toEqual({
+      fetch: [],
+      evict: [],
+    })
+  })
+})

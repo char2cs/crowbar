@@ -2303,6 +2303,24 @@ describe('performSidebarDrop — targetInRecents', () => {
     expect(windowPaneStore.getState().viewOrder).toEqual([otherPane, ROOT_PANE_ID].map(viewOfPane))
   })
 
+  it('a drag carrying every chat of a split moves the split whole instead of breaking it up', async () => {
+    const store = getOrCreateWorkspaceStore('ws-x')
+    seedChats(store, [chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x'), chat('chat-c', 'ws-x')])
+    const { paneActions } = windowPaneStore.getState()
+    paneActions.openChat('chat-a', { runnerId: 'runner-1' })
+    paneActions.dropChatOnPane('chat-b', paneOfChat('chat-a'), 'right', 'ws-x')
+    paneActions.openChat('chat-c', { runnerId: 'runner-3' })
+
+    await performSidebarDrop(
+      [chatRow('chat-a', 'ws-x'), chatRow('chat-b', 'ws-x')],
+      chatRow('chat-c', 'ws-x'),
+      'after',
+      true,
+    )
+
+    expect(liveRecents()).toEqual([['chat-c'], ['chat-a', 'chat-b']])
+  })
+
   it('a second reorder only moves the dragged entry, leaving every other tracked id in place', async () => {
     const store = getOrCreateWorkspaceStore('ws-x')
     seedChats(store, [chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x'), chat('chat-c', 'ws-x')])

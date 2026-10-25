@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { ensurePaneChatThenOpen } from '../utils/pane-command-actions'
+import { ensurePaneChatThenOpen, openNewTabPage } from '../utils/pane-command-actions'
 import { getPaneScopeForPaneId } from '../utils/pane-routing'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -30,11 +30,17 @@ import {
   TAB_REOPEN_CLOSED,
 } from '@/features/keymaps/registry'
 
+/** The pane whose editor area (pane-container.tsx's `data-editor-view`) holds focus. */
+function focusedEditorPaneId(): string | null {
+  const view = document.activeElement?.closest('[data-editor-view]')
+  return view?.closest('[data-pane-id]')?.getAttribute('data-pane-id') ?? null
+}
+
 /**
  * Pane/tab keyboard shortcuts. All chords are resolved from the keymap registry
  * (the single source of truth surfaced in the Keybindings settings tab), so
  * switching presets or rebinding a command updates these live. `mod+t` opens a
- * New Tab (not a terminal, and not the previous hardcoded literal it replaced).
+ * New Tab page in the active pane (not a terminal).
  */
 export function usePaneKeyboard() {
   const workspaceStore = useWorkspaceStore()
@@ -57,15 +63,14 @@ export function usePaneKeyboard() {
         return
       }
 
-      if (matches(TAB_NEW)) {
-        // A New Tab is no longer a mintable placeholder tab (Task 1 removed it
-        // from the model) — a pane already shows its own empty stage for free
-        // whenever it holds no editor tabs. There is currently no primitive for
-        // "detach the active tab without closing it" to reproduce the old "add
-        // a blank scratch tab beside my real ones" gesture, so this chord is
-        // inert until one exists. Still prevented, so ⌘T never falls through to
-        // a browser/OS default.
+      // Over an editor area ⌘N (New Chat's chord) means New Tab there instead.
+      const editorPaneId = matches(AGENT_NEW_CHAT) ? focusedEditorPaneId() : null
+      if (matches(TAB_NEW) || editorPaneId) {
         e.preventDefault()
+        openNewTabPage(
+          workspaceStore.getState().workspaceId,
+          editorPaneId ?? windowPaneStore.getState().activePaneId,
+        )
         return
       }
 

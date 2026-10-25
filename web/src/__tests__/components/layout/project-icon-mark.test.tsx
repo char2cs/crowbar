@@ -90,7 +90,7 @@ describe('ProjectIconMark', () => {
 })
 
 /**
- * The space header's click-to-edit icon — mirrors EditableRepoIcon's own
+ * The project switcher's click-to-edit icon — mirrors EditableRepoIcon's own
  * test suite (repo-icon-mark.test.tsx). Built in cf422bc5 as
  * `project-icon-popover.tsx`, deleted in the tree retirement along with the
  * row that hosted it (project-home-row.tsx); this is a fresh, thin wrapper

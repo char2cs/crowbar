@@ -27,6 +27,9 @@ func reviewErrorStatus(
 	if errors.Is(err, apperr.ErrInvalidArgument) {
 		return http.StatusBadRequest
 	}
+	if errors.Is(err, apperr.ErrUnprocessable) {
+		return http.StatusUnprocessableEntity
+	}
 	return http.StatusInternalServerError
 }
 

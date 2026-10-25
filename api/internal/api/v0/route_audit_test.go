@@ -310,6 +310,9 @@ func extraRoutes() []string {
 		"GET " + chat + "/review/outline",
 		"GET " + chat + "/review/patch",
 		"GET " + chat + "/review/search",
+		// One file's full old and new text, fetched only when a reader expands
+		// the unchanged lines a patch leaves out.
+		"GET " + chat + "/review/contents",
 		// The three document-sync notifications, chat-scoped only (spec §4.2's
 		// OWNED bucket, §8 step 6) — their .../workspaces/:wsId/lsp/... twins
 		// are gone.
@@ -415,6 +418,7 @@ func extraRoutes() []string {
 		//   It existed for a shell command the agent was asked to retype; titling is a
 		//   tool on this MCP surface now, and a second path competed with it.
 		"POST " + repo + "/chats/runners/:segid/mcp",
+		"POST " + repo + "/chats/runners/:segid/hooks/:provider/:event",
 		//   stop: closing a chat TAB is not deleting the chat. The CLI is quit and
 		//   the chat left DORMANT with its bound vendor conversation intact, which
 		//   is exactly the state resume above exists to pick back up.
@@ -544,6 +548,7 @@ func extraRoutes() []string {
 		// MCP seam is mounted here too — and, like the ws block, WITHOUT the retired
 		// runner-keyed rename route beside it.
 		"POST " + home + "/chats/runners/:segid/mcp",
+		"POST " + home + "/chats/runners/:segid/hooks/:provider/:event",
 		// And the same close-is-not-delete stop, for the same reason: a home chat's
 		// tab closes exactly like any other chat's.
 		"POST " + home + "/chats/:id/stop",
@@ -597,6 +602,9 @@ func extraRoutes() []string {
 		"POST /v0/pair",
 		"GET /v0/clients",
 		"DELETE /v0/clients/:id",
+		// The desktop app's browser-peer socket: process-wide like /system,
+		// it carries tab inventories up and agent browser_* requests down.
+		"GET /v0/browser/peer",
 	}
 }
 

@@ -1,12 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useStore } from 'zustand'
 import { useNavigate } from '@tanstack/react-router'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SidebarTree } from './sidebar-tree'
-import { SpaceHeader } from './space-header'
 import { SpaceHostScope } from './space-host-scope'
-import { RecentsBand } from './recents-band'
-import { CARD_BOTTOM_INSET_VAR } from '@/components/layout/sidebar-card-height'
+import { TreeFoot } from './tree-foot'
 import { findScrollParent } from '@/components/layout/edge-scroll'
 import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
 import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
@@ -24,8 +21,6 @@ import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { attachRemovalState, renderedHiddenIds } from '@/components/layout/removal-plan'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { selectProjectViewIds } from '@/features/panes/lib/view-selectors'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarPaneZone } from '@/components/sidebar/hooks/use-sidebar-drag'
@@ -42,14 +37,10 @@ interface SpaceScrollerProps {
   onOpen: (id: string) => void
   onTrash: (id: string) => void
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
-  onFocusRecent: (viewId: string) => void
-  onCloseRecent: (viewId: string) => void
-  /** A group member's own ×: closes that one chat, never the group. */
-  onCloseChatRecent: (chatId: string) => void
   onDrop: (subjects: SidebarRow[], target: SidebarRow, mode: DropMode) => void
   onPaneDrop: (subjects: SidebarRow[], paneId: string, zone: SidebarPaneZone) => void
-  /** Spec §9's project-level trash, the one verb the space header's overflow
-   *  carries. Threaded as a prop like every other verb here rather than
+  /** Spec §9's project-level trash, behind the tree foot's Delete space.
+   *  Threaded as a prop like every other verb here rather than
    *  called directly, so this file stays presentational. */
   onTrashProject: (projectId: string) => void
 }
@@ -60,9 +51,6 @@ interface SpacePanelProps {
   onOpen: (id: string) => void
   onTrash: (id: string) => void
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
-  onFocusRecent: (viewId: string) => void
-  onCloseRecent: (viewId: string) => void
-  onCloseChatRecent: (chatId: string) => void
   onDrop: (subjects: SidebarRow[], target: SidebarRow, mode: DropMode) => void
   onPaneDrop: (subjects: SidebarRow[], paneId: string, zone: SidebarPaneZone) => void
   onTrashProject: (projectId: string) => void
@@ -74,9 +62,6 @@ function SpacePanel({
   onOpen,
   onTrash,
   onCreate,
-  onFocusRecent,
-  onCloseRecent,
-  onCloseChatRecent,
   onDrop,
   onPaneDrop,
   onTrashProject,
@@ -96,8 +81,8 @@ function SpacePanel({
   )
   // The REAL project-home workspace — project-scoped, not repo-scoped
   // (home-workspace-resolver.ts: "home is a project-level concept, not a
-  // repo workspace"). Target for the header's Thread button and the
-  // add-menu's "Create a folder" item — NOT a repo's own home row (a
+  // repo workspace"). Target for the tree foot's New thread and
+  // Create a new folder — NOT a repo's own home row (a
   // different workspace entirely; conflating the two was a real bug, a
   // "New thread on the project" button that silently created the thread
   // under a REPO instead, caught live).
@@ -170,144 +155,61 @@ function SpacePanel({
     rowRepoId,
   )
   const navigate = useNavigate()
-  // The tree and Recents sit in ONE shared scroll region (spec §2) and both
-  // take `useSidebarDrag` (Task 21) — each resolves its own edge-scroll
-  // target off this ref, which points at the actual overflow element
-  // (`ScrollAreaPrimitive.Viewport`), not the plain content div a naive ref
-  // here would otherwise land on.
+  // `useSidebarDrag` resolves its edge-scroll target off this ref, which
+  // points at the actual overflow element (`ScrollAreaPrimitive.Viewport`),
+  // not the plain content div a naive ref here would otherwise land on.
   const contentRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<HTMLElement | null>(null)
   useEffect(() => {
     viewportRef.current = findScrollParent(contentRef.current)
   })
-  const viewIds = useStore(windowPaneStore, (s) => selectProjectViewIds(s, projectId))
-
-  // Spec §4: "clicking the header folds the space: the tree goes, Recents
-  // stays. That is the point of folding — to see nothing but what is up in
-  // this project. They share one scroller, so the fold hides the ROWS, not
-  // the scroller." Local per-panel state, not persisted: nothing in the spec
-  // asks a fold to survive a reload, and each project's panel is its own
-  // component instance (keyed by project id), so "per space" is free.
-  const [folded, setFolded] = useState(false)
 
   const [addRepoOpen, setAddRepoOpen] = useState(false)
+  // Not `onCreate`/`handleCreate`: that resolves against the repo-scoped
+  // store, which has no project home. A click before home resolves says so.
+  const createHomeThread = () => {
+    if (!homeWorkspaceId) {
+      toast.error("Can't start a new thread yet")
+      return
+    }
+    void handleCreateHomeThread(projectId, homeWorkspaceId, navigate)
+  }
 
   return (
     <div
       data-testid="space-panel"
       className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden"
     >
-      {/* flex: none, above the scroller — spec §2's own layout diagram. */}
-      <div className="shrink-0">
-        <SpaceHeader
-          project={project}
-          folded={folded}
-          onToggleFold={() => setFolded((f) => !f)}
-          onCreateThread={() => {
-            // Not `onCreate`/`handleCreate`: that pipe resolves parentId
-            // against the REPO-scoped sidebar store (resolveRow), which has
-            // no notion of the project-home workspace at all — this calls
-            // the project-home-aware sibling instead, which also owns
-            // opening/navigating to the new chat (mirrors handleCreate's own
-            // open/navigate handling, just scoped to the home workspace).
-            //
-            // Reported live as "can't create a thread from the project
-            // home": a freshly-opened (or just-created) project's home
-            // workspace resolves asynchronously (`ensureHomeWorkspaceResolved`
-            // above) — clicking during that window used to silently do
-            // nothing, with no error and no visible reason, since
-            // `homeWorkspaceId` was still null. A row's own refusals (a
-            // locked branch, a working chat) all surface a toast instead —
-            // this one now matches.
-            if (!homeWorkspaceId) {
-              toast.error("Can't start a new thread yet")
-              return
-            }
-            void handleCreateHomeThread(projectId, homeWorkspaceId, navigate)
-          }}
-          // Same create as `onCreateThread` above, landed on Terminal — "start
-          // THIS chat on the CLI" without flipping chatIsDefaultPresentation
-          // (Settings → Chat) for every project-home thread after it. Same
-          // not-yet-resolved refusal as the plain button, same reason.
-          onCreateThreadTerminal={() => {
-            if (!homeWorkspaceId) {
-              toast.error("Can't start a new thread yet")
-              return
-            }
-            void handleCreateHomeThread(projectId, homeWorkspaceId, navigate, 'terminal')
-          }}
-          // Imports another repo into this project — opens the same modal
-          // the standalone Add-menu button used to.
-          onImportRepo={() => setAddRepoOpen(true)}
-          // Starts a folder on the project's OWN home workspace (the
-          // backend's `/home/chats/folders` mount — folders were once
-          // thought repo-internal only; they are not).
-          onCreateFolder={() => void performCreateHomeFolder(projectId)}
-          onDeleteSpace={() => onTrashProject(project.id)}
-        />
-      </div>
       <AddRepositoryModal open={addRepoOpen} onOpenChange={setAddRepoOpen} projectId={project.id} />
       <ScrollArea className="flex-1">
         <div ref={contentRef} data-testid="space-scroll-content">
           <SpaceHostScope hostId={project.hostId}>
-            {!folded && (
-              <SidebarTree
-                rows={rows}
-                onOpen={onOpen}
-                onTrash={onTrash}
-                onCreate={onCreate}
-                scrollRef={viewportRef}
-                onDrop={onDrop}
-                onPaneDrop={onPaneDrop}
-              />
-            )}
-            <RecentsBand
-              viewIds={viewIds}
-              onFocus={onFocusRecent}
-              onClose={onCloseRecent}
-              onCloseChat={onCloseChatRecent}
+            <SidebarTree
+              rows={rows}
+              onOpen={onOpen}
+              onTrash={onTrash}
+              onCreate={onCreate}
               scrollRef={viewportRef}
               onDrop={onDrop}
               onPaneDrop={onPaneDrop}
             />
+            <TreeFoot
+              onNewThread={createHomeThread}
+              onImportRepo={() => setAddRepoOpen(true)}
+              onCreateFolder={() => void performCreateHomeFolder(projectId)}
+              onDeleteSpace={() => onTrashProject(projectId)}
+            />
           </SpaceHostScope>
         </div>
       </ScrollArea>
-      {/* The clearance itself (spec §6: "the tree keeps a bottom inset the
-          height of the card") — now an outer, non-scrolling spacer instead of
-          padding on the scrollable content. Padding there counted straight
-          toward `scrollHeight`: the card's default open height is a THIRD of
-          the whole sidebar rail (`DEFAULT_CARD_HEIGHT_FRACTION`), so that
-          padding alone could tip an otherwise short, non-overflowing list
-          into "overflowing," showing a scrollbar nothing about the visible
-          rows justified. A `shrink-0` sibling shrinks the ScrollArea's own
-          box instead, so the browser's real overflow check only ever sees
-          genuine row/Recents content — same visual clearance, correct
-          overflow math. Reads `--card-bottom-inset` straight off the CSS
-          cascade rather than a prop for the same reason the content div
-          used to: that variable is written directly onto the shared rail
-          ancestor by sidebar-carousel.tsx, including once per animation
-          frame during a resize drag, and a prop here would re-render this
-          panel (and every row in it) on every one of those frames. */}
-      <div
-        data-testid="space-scroll-bottom-spacer"
-        className="shrink-0"
-        style={{ height: `var(${CARD_BOTTOM_INSET_VAR}, 0px)` }}
-      />
     </div>
   )
 }
 
 /**
- * One horizontal, x-mandatory-snap panel per project (spec §4). Copies
- * sidebar-carousel.tsx's scroll mechanics rather than importing it - that
- * carousel's scope is narrowing to Files/Git only (D.1), and mixing "which
- * project" with "which card tab" into one component would conflate two
- * different numbers.
+ * One horizontal, x-mandatory-snap panel per project (spec §4).
  *
- * Each panel is ONE scroll region (spec §2's "the tree and Recents are one
- * scrolling group, not two stacked panels") holding a project's `SidebarTree`
- * followed by its own `RecentsBand`.
+ * Each panel is ONE scroll region holding a project's `SidebarTree`.
  */
 export function SpaceScroller({
   projects,
@@ -317,16 +219,13 @@ export function SpaceScroller({
   onOpen,
   onTrash,
   onCreate,
-  onFocusRecent,
-  onCloseRecent,
-  onCloseChatRecent,
   onDrop,
   onPaneDrop,
   onTrashProject,
 }: SpaceScrollerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // Armed only by an actual scroll gesture over the scroller. Everything else
-  // that moves scrollLeft is reflow, not intent - see sidebar-carousel.tsx.
+  // that moves scrollLeft is reflow (a sidebar resize, a hide/show), not intent.
   const isUserGesture = useRef(false)
   const armUserGesture = () => {
     isUserGesture.current = true
@@ -424,13 +323,12 @@ export function SpaceScroller({
       onWheel={armUserGestureFromWheel}
       onTouchStart={armUserGesture}
       data-testid="space-scroll-region"
-      // Same geometry, same failure mode, same fix as sidebar-carousel.tsx's
-      // own `[data-sidebar-carousel]`: `overflow-x: scroll` + mandatory x
+      // `overflow-x: scroll` + mandatory x
       // snapping + min-w-full panels means a captured pointer travelling
       // past this box's edge during a row drag gets scrolled a whole panel
       // away by WebKit — the exact gesture Part G exists for (dragging a row
       // rightward onto a pane). `index.css`'s `html[data-row-dragging]
-      // [data-sidebar-carousel]` rule pins BOTH carousels by this one
+      // [data-sidebar-carousel]` rule pins it by this
       // attribute; see drag-carousel-pin.test.ts for its own measured
       // rationale (pin without `will-change` costs 4x the frame budget).
       data-sidebar-carousel=""
@@ -444,9 +342,6 @@ export function SpaceScroller({
           onOpen={onOpen}
           onTrash={onTrash}
           onCreate={onCreate}
-          onFocusRecent={onFocusRecent}
-          onCloseRecent={onCloseRecent}
-          onCloseChatRecent={onCloseChatRecent}
           onDrop={onDrop}
           onPaneDrop={onPaneDrop}
           onTrashProject={onTrashProject}

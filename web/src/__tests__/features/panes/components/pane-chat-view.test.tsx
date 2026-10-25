@@ -1,10 +1,21 @@
 import { createElement } from 'react'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { useSidebarFocusMode } from '@/components/layout/use-sidebar-focus-mode'
+import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
+import { useSettingsStore } from '@/features/settings/store'
+import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 
 vi.mock('@/features/agent/components/agent-chat-pane-gate', () => ({
-  AgentChatPaneGate: () => createElement('div', { 'data-testid': 'chat-surface' }),
+  AgentChatPaneGate: () =>
+    createElement(
+      'div',
+      null,
+      createElement('p', null, 'transcript message'),
+      createElement('textarea', { 'data-testid': 'chat-surface' }),
+    ),
 }))
 
 type Module = typeof import('@/features/panes/components/pane-chat-view') &
@@ -70,5 +81,40 @@ describe('PaneChatView chat surface loading', () => {
     renderView(mod)
 
     expect(screen.getByTestId('chat-surface')).toBeTruthy()
+  })
+})
+
+describe('PaneChatView sidebar surface', () => {
+  // The mode follows focus only with the opt-in setting on.
+  beforeEach(() => {
+    useSettingsStore.setState({
+      settings: { ...getDefaultSettingsSnapshot(), sidebarFollowsFocus: true },
+    })
+  })
+  function FocusMode() {
+    useSidebarFocusMode()
+    return null
+  }
+
+  async function renderChatColumn() {
+    const mod = await freshModule()
+    await mod.preloadAgentChatPane()
+    useSidebarStore.setState({ ...getInitialState(), activeTab: 'files' })
+    render(createElement(FocusMode))
+    renderView(mod)
+  }
+
+  it('focus in the chat column shows Chats', async () => {
+    await renderChatColumn()
+    // Focus only moves the mode once the user has pressed something.
+    fireEvent.pointerDown(document.body)
+    act(() => screen.getByTestId('chat-surface').focus())
+    expect(useSidebarStore.getState().activeTab).toBe('chats')
+  })
+
+  it('a click on transcript text with nothing focusable under the pointer shows Chats', async () => {
+    await renderChatColumn()
+    await userEvent.click(screen.getByText('transcript message'))
+    expect(useSidebarStore.getState().activeTab).toBe('chats')
   })
 })

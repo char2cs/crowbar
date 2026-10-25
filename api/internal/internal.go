@@ -15,6 +15,7 @@ import (
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/core/gateway"
+	"github.com/char2cs/crowbar/api/internal/core/hookserver"
 	"github.com/char2cs/crowbar/api/internal/core/logring"
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
 	"github.com/char2cs/crowbar/api/internal/core/selfinstall"
@@ -28,10 +29,13 @@ import (
 type Container struct {
 	server    *http.Server
 	listeners []net.Listener
-	engines   *engine.Container
-	adapter   *adapter.Container
-	app       *app.Container
-	api       *crowbarapi.Container
+	// hooks is the loopback listener for vendor CLIs' own HTTP hooks. It serves
+	// the hook route of the same router and nothing else of it.
+	hooks   *hookserver.Server
+	engines *engine.Container
+	adapter *adapter.Container
+	app     *app.Container
+	api     *crowbarapi.Container
 }
 
 type rootOpts struct {
@@ -116,9 +120,21 @@ func New(
 		_ = p // path is re-derived by the agent engine when rendering descriptors
 	}
 
+	// Published before anything can spawn a CLI: the spawner reads it to point the
+	// CLI's hooks here.
+	hooks, err := hookserver.Listen(ctx, apiContainer.Handler())
+	if err != nil {
+		return nil, fmt.Errorf("internal: hooks: %w", err)
+	}
+	if err := hookserver.Publish(homeDir, hooks.URL()); err != nil {
+		_ = hooks.Close()
+		return nil, fmt.Errorf("internal: hooks: %w", err)
+	}
+
 	return &Container{
 		server:    newHTTPServer(apiContainer.Handler(), idleConnTimeout),
 		listeners: listeners,
+		hooks:     hooks,
 		engines:   engines,
 		adapter:   adapters,
 		app:       appContainer,
@@ -180,10 +196,11 @@ func (c *Container) Run(
 	ctx context.Context,
 ) error {
 	// Buffered per listener so every Serve goroutine can exit once Run returns.
-	serveErr := make(chan error, len(c.listeners))
+	serveErr := make(chan error, len(c.listeners)+1)
 	for _, ln := range c.listeners {
 		go func() { serveErr <- c.server.Serve(ln) }()
 	}
+	go func() { serveErr <- c.hooks.Serve() }()
 	select {
 	case <-ctx.Done():
 		// Ordered, bounded graceful shutdown (spec §3.8): stop accepting new requests +
@@ -214,9 +231,9 @@ func (c *Container) Run(
 			httpDrainGrace   = 1 * time.Second
 			writerDrainGrace = 4 * time.Second
 		)
-		httpCtx, cancelHTTP := context.WithTimeout(context.Background(), httpDrainGrace)
+		httpCtx, cancelHTTP := context.WithTimeout(context.WithoutCancel(ctx), httpDrainGrace)
 		defer cancelHTTP()
-		httpErr := c.server.Shutdown(httpCtx)
+		httpErr := errors.Join(c.server.Shutdown(httpCtx), c.hooks.Shutdown(httpCtx))
 
 		drainCtx, cancelDrain := context.WithTimeout(context.Background(), writerDrainGrace)
 		defer cancelDrain()
@@ -258,4 +275,5 @@ func (c *Container) Close() {
 	for _, ln := range c.listeners {
 		_ = ln.Close()
 	}
+	_ = c.hooks.Close()
 }

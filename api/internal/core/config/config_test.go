@@ -77,6 +77,14 @@ func TestGetPrompts_FromEmbeddedDefaults(t *testing.T) {
 	assert.NotContains(t, p.CapabilitiesInstruction, "GitHub")
 	assert.NotContains(t, p.CapabilitiesInstruction, "gh pr")
 	assert.NotContains(t, p.CapabilitiesInstruction, "only")
+
+	// Informational: it tells the agent how review comments can be picked up and
+	// leaves when (or whether) to call the tools to the agent.
+	assert.Contains(t, p.CapabilitiesInstruction, "wait_for_review_comments")
+	assert.Contains(t, p.CapabilitiesInstruction, "list_review_threads")
+	for _, imperative := range []string{"must", "always", "loop", "poll"} {
+		assert.NotContains(t, p.CapabilitiesInstruction, imperative)
+	}
 }
 
 func TestGetPrompts_UserConfigOverlays(t *testing.T) {

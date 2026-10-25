@@ -28,16 +28,6 @@ export async function reparentWorkspace(wsId: string, newParentId: string): Prom
 }
 
 /**
- * User-initiated "finish the move": rebase a moved-but-conflicting workspace onto
- * its current parent (§3, 202 Accepted). A clean rebase integrates it; a
- * conflicting one is kept for the standard resolve flow. The outcome rides the WS
- * broadcast.
- */
-export async function rebaseOntoParent(wsId: string): Promise<void> {
-  await apiFetch(`${worktreeVerbBaseForWorkspace(wsId)}/rebase-onto-parent`, { method: 'POST' })
-}
-
-/**
  * Retry provisioning a placeholder workspace in place (§3.3, 202 Accepted). On
  * success the backend attaches the worktree and the WS broadcast reflects the
  * now-managed row; a failure (branch still held) surfaces as LastError.

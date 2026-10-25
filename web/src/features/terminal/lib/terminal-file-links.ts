@@ -1,9 +1,7 @@
 // File-reference links in terminal output: makes path-like tokens (as printed
 // by compilers, test runners, Claude Code, git, ...) clickable and opens them
-// inside Crowbar's editor. URLs are handled separately by the web-links addon;
-// this provider deliberately skips anything that is part of a URL.
-import type { IBufferLine, IDisposable, ILink, Terminal } from '@xterm/xterm'
-
+// inside Crowbar's editor. Registration lives in terminal-links.ts; URLs are
+// matched there too, so this parser skips anything that is part of a URL.
 export interface FileLinkCandidate {
   /** The full matched text, including any trailing :line[:col] suffix. */
   text: string
@@ -23,7 +21,7 @@ const FILE_LINK_RE =
   /(?:^|[\s"'`([<])((?:~\/|\.{1,2}\/|\/)?[\w.@+~-]+(?:\/[\w.@+~-]+)+\/?|\/[\w.@+~-]+)((?::\d+){1,2})?/g
 
 // Matched text whose immediate left context ends with "://" or is preceded by
-// a URL scheme belongs to a URL — the web-links addon owns those.
+// a URL scheme belongs to a URL — terminal-links.ts owns those.
 const URL_PREFIX_RE = /(?:[a-zA-Z][a-zA-Z0-9+.-]*:\/\/|www\.)[^\s]*$/
 
 // "." is a valid path character (extensions, dotfiles), so prose that runs
@@ -80,47 +78,4 @@ export function workspaceRelativePath(
   if (!absolutePath.startsWith(prefix)) return null
   const rel = absolutePath.slice(prefix.length)
   return rel === '' ? null : rel
-}
-
-export interface TerminalFileLinksOptions {
-  /** The directory relative paths resolve against (terminal cwd / worktree). */
-  getRoot: () => string | undefined
-  /** Opens the resolved absolute path in Crowbar's editor. */
-  openFile: (absolutePath: string, line?: number) => void
-  /** Called when a clicked candidate cannot be resolved to an absolute path. */
-  onUnresolved?: (candidateText: string) => void
-}
-
-// Registers an xterm link provider for file references. The provider is owned
-// by the terminal instance and is disposed with it.
-export function registerTerminalFileLinks(
-  terminal: Terminal,
-  options: TerminalFileLinksOptions,
-): IDisposable {
-  return terminal.registerLinkProvider({
-    provideLinks(bufferLineNumber: number, callback: (links: ILink[] | undefined) => void) {
-      const bufferLine: IBufferLine | undefined = terminal.buffer.active.getLine(
-        bufferLineNumber - 1,
-      )
-      if (!bufferLine) {
-        callback(undefined)
-        return
-      }
-      const rowText = bufferLine.translateToString(true)
-      const links: ILink[] = parseFileLinkCandidates(rowText).map((candidate) => ({
-        text: candidate.text,
-        // xterm ranges are 1-based and inclusive.
-        range: {
-          start: { x: candidate.startIndex + 1, y: bufferLineNumber },
-          end: { x: candidate.startIndex + candidate.text.length, y: bufferLineNumber },
-        },
-        activate: () => {
-          const resolved = resolveFileLinkPath(candidate.path, options.getRoot())
-          if (resolved) options.openFile(resolved, candidate.line)
-          else options.onUnresolved?.(candidate.text)
-        },
-      }))
-      callback(links.length > 0 ? links : undefined)
-    },
-  })
 }

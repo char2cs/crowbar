@@ -18,6 +18,8 @@ import { PANE_DROP_ATTR } from '@/components/sidebar/hooks/use-sidebar-drag'
 import { SplitDropOverlay } from './split-drop-overlay'
 import { PaneSash } from './pane-sash'
 import { PaneAccentRing } from './pane-accent-ring'
+import { PaneHandle } from './pane-handle'
+import { ChatHeaderSlotProvider } from '@/features/agent/hooks/chat-header-slot'
 import { PaneChatView } from './pane-chat-view'
 import { PaneEditorViewContent } from './pane-editor-view-content'
 import {
@@ -175,109 +177,117 @@ export function PaneContainer({
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <PaneEditorViewContent
           paneId={pane.id}
+          wsId={chatWsId}
           editorTabIds={pane.editorTabIds}
           activeEditorTabId={pane.activeEditorTabId}
           editorViewHidden={editorViewHidden}
           isActivePane={isActivePane}
           showing={showing}
+          dropTargeted={drop.isDragOver || drop.isTabDragOver || !!drop.internalHoverZone}
         />
       </div>
     </div>
   )
 
   return (
-    <WorkspaceStoreContext.Provider value={chatStore}>
-      <div
-        ref={containerRef}
-        data-pane-container
-        data-pane-id={pane.id}
-        // Which view this pane belongs to — otherwise invisible from outside.
-        data-view-id={pane.viewId ?? undefined}
-        // The sidebar's drag arm hit-tests this to find the drop target (§8.1).
-        {...{ [PANE_DROP_ATTR]: pane.id }}
-        // Layout chrome: clicking anywhere just focuses the pane; every real
-        // control inside keeps its own role.
-        role="presentation"
-        className={cn(
-          'relative flex h-full w-full flex-col overflow-hidden',
-          // File drags only: tab drags get the SplitDropOverlay zone instead.
-          drop.isDragOver &&
-            !drop.isTabDragOver &&
-            !drop.internalHoverZone &&
-            'ring-2 ring-secondary',
-          // A sidebar-row drag hovering this pane (§8.2), unless the overlay
-          // is already drawing its zone.
-          !drop.internalHoverZone && 'data-[pane-hit]:ring-2 data-[pane-hit]:ring-secondary',
-        )}
-        // Mousedown activation is a native listener (usePaneActivation); this
-        // catches a keyboard-triggered click, which has no mousedown.
-        onClick={handlePaneClick}
-        onDragOver={drop.handleDragOver}
-        onDragLeave={drop.handleDragLeave}
-        onDrop={drop.handleDrop}
-      >
-        {drop.isDragOver && !drop.isTabDragOver && !drop.internalHoverZone && (
-          <div className="pointer-events-none absolute inset-0 z-40 bg-secondary/10" />
-        )}
-        <SplitDropOverlay
-          visible={drop.isTabDragOver || !!drop.internalHoverZone}
-          onDrop={drop.handleSplitDrop}
-          activeZoneOverride={drop.internalHoverZone}
-        />
+    <ChatHeaderSlotProvider>
+      <WorkspaceStoreContext.Provider value={chatStore}>
         <div
-          // ONE rounded, bordered box around the identity row and the content,
-          // painting the translucent chat fill (the editor paints its own
-          // opaque one over it). `data-pane-content` is also the hook for the
-          // drag-time flattening rule in index.css.
-          data-pane-content=""
-          className="relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden bg-pane-chrome-bg transition-colors duration-150"
-          style={paneContentStyle}
-        >
-          {/* A header spans the whole pane only when one surface fills it; it
-            reads the chat's own workspace (a no-op wrap for a chatless pane). */}
-          {showTopLevelHeader && (
-            <WorkspaceStoreContext.Provider value={chatStore}>
-              {chatFillsPane ? (
-                <ChatOnlyPaneHeader pane={pane} wsId={chatWsId} />
-              ) : (
-                <TabBar
-                  paneId={pane.id}
-                  wsId={chatWsId}
-                  onTabClick={handleTabClick}
-                  showChatTab={showChatTab}
-                />
-              )}
-            </WorkspaceStoreContext.Provider>
+          ref={containerRef}
+          data-pane-container
+          data-pane-id={pane.id}
+          // Which view this pane belongs to — otherwise invisible from outside.
+          data-view-id={pane.viewId ?? undefined}
+          // The sidebar's drag arm hit-tests this to find the drop target (§8.1).
+          {...{ [PANE_DROP_ATTR]: pane.id }}
+          // Layout chrome: clicking anywhere just focuses the pane; every real
+          // control inside keeps its own role.
+          role="presentation"
+          className={cn(
+            'group/pane relative flex h-full w-full flex-col overflow-hidden',
+            // File drags only: tab drags get the SplitDropOverlay zone instead.
+            drop.isDragOver &&
+              !drop.isTabDragOver &&
+              !drop.internalHoverZone &&
+              'ring-2 ring-secondary',
+            // A sidebar-row drag hovering this pane (§8.2), unless the overlay
+            // is already drawing its zone.
+            !drop.internalHoverZone && 'data-[pane-hit]:ring-2 data-[pane-hit]:ring-secondary',
           )}
-          {/* One stable parent with keyed children, never a `chatId ? A : B`
+          // Mousedown activation is a native listener (usePaneActivation); this
+          // catches a keyboard-triggered click, which has no mousedown.
+          onClick={handlePaneClick}
+          onDragOver={drop.handleDragOver}
+          onDragLeave={drop.handleDragLeave}
+          onDrop={drop.handleDrop}
+        >
+          {drop.isDragOver && !drop.isTabDragOver && !drop.internalHoverZone && (
+            <div className="pointer-events-none absolute inset-0 z-40 bg-secondary/10" />
+          )}
+          <SplitDropOverlay
+            visible={drop.isTabDragOver || !!drop.internalHoverZone}
+            onDrop={drop.handleSplitDrop}
+            activeZoneOverride={drop.internalHoverZone}
+          />
+          <div
+            // ONE rounded, bordered box around the identity row and the content,
+            // painting the translucent chat fill (the editor paints its own
+            // opaque one over it). `data-pane-content` is also the hook for the
+            // drag-time flattening rule in index.css.
+            data-pane-content=""
+            className="relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden bg-pane-chrome-bg transition-colors duration-150"
+            style={paneContentStyle}
+          >
+            <PaneHandle pane={pane} />
+            {/* A header spans the whole pane only when one surface fills it; it
+            reads the chat's own workspace (a no-op wrap for a chatless pane). */}
+            {showTopLevelHeader && (
+              <WorkspaceStoreContext.Provider value={chatStore}>
+                {chatFillsPane ? (
+                  <ChatOnlyPaneHeader pane={pane} wsId={chatWsId} />
+                ) : (
+                  <TabBar
+                    paneId={pane.id}
+                    wsId={chatWsId}
+                    onTabClick={handleTabClick}
+                    showChatTab={showChatTab}
+                  />
+                )}
+              </WorkspaceStoreContext.Provider>
+            )}
+            {/* One stable parent with keyed children, never a `chatId ? A : B`
             branch: a ternary reindexed the editor view on a chat landing and
             remounted it, live terminals included. */}
-          <div
-            ref={viewsContainerRef}
-            className={cn('relative flex min-h-0 flex-1 overflow-hidden', isStacked && 'flex-col')}
-          >
-            {chatIsFirst ? (
-              <>
-                {chatViewNode}
-                {sashNode}
-                {editorViewNode}
-              </>
-            ) : (
-              <>
-                {editorViewNode}
-                {sashNode}
-                {chatViewNode}
-              </>
-            )}
+            <div
+              ref={viewsContainerRef}
+              className={cn(
+                'relative flex min-h-0 flex-1 overflow-hidden',
+                isStacked && 'flex-col',
+              )}
+            >
+              {chatIsFirst ? (
+                <>
+                  {chatViewNode}
+                  {sashNode}
+                  {editorViewNode}
+                </>
+              ) : (
+                <>
+                  {editorViewNode}
+                  {sashNode}
+                  {chatViewNode}
+                </>
+              )}
+            </div>
           </div>
+          <PaneAccentRing
+            position={position}
+            sidebarPosition={sidebarPosition}
+            sidebarOpen={sidebarOpen}
+            visible={showActiveBorder}
+          />
         </div>
-        <PaneAccentRing
-          position={position}
-          sidebarPosition={sidebarPosition}
-          sidebarOpen={sidebarOpen}
-          visible={showActiveBorder}
-        />
-      </div>
-    </WorkspaceStoreContext.Provider>
+      </WorkspaceStoreContext.Provider>
+    </ChatHeaderSlotProvider>
   )
 }

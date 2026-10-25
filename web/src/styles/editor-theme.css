@@ -25,6 +25,25 @@
   --diffs-header-font-family: var(--app-font-family, 'CalSansUI', sans-serif);
 }
 
+/* The renderer's theme stylesheet sets --diffs-bg/--diffs-fg on its :host from a
+   fixed palette (#0a0a0a / #ffffff), so the diff read as a different surface from
+   the pane around it. Declared from the document side these win over :host, and
+   every other tone the renderer draws (separators, gutters, annotations, buffers)
+   is mixed from --diffs-bg, so they follow. */
+diffs-container {
+  --diffs-bg: var(--background);
+  --diffs-fg: var(--foreground);
+}
+
+/* Each reviewed file is a card like the thread cards: a ring (box-shadow, so the
+   measured item height is untouched) clipped to the radius. `clip` rather than
+   `hidden` so the sticky file header keeps scrolling against the review scroller. */
+[data-review-code-view-scroller] diffs-container {
+  border-radius: var(--radius-lg);
+  box-shadow: 0 0 0 1px var(--border);
+  overflow: clip;
+}
+
 /*
  * Pane-resize GPU layer pre-promotion.
  *

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
@@ -17,43 +16,18 @@ import (
 // ExecFn matches exec.CommandContext so callers can inject a test stub.
 type ExecFn func(ctx context.Context, name string, args ...string) *exec.Cmd
 
-// waitDelay bounds how long Cmd.Wait blocks for I/O to drain after the context
-// is cancelled (e.g. on poll timeout). Without it a subprocess whose stdout pipe
-// is inherited by a still-running grandchild keeps the goroutine and the process
-// entry alive indefinitely, leaking on every hung poll.
-const waitDelay = 10 * time.Second
-
-// withWaitDelay wraps an ExecFn so every constructed Cmd carries a WaitDelay,
-// guaranteeing a killed subprocess releases even when its pipes are held open.
-func withWaitDelay(
-	execFn ExecFn,
-) ExecFn {
-	return func(
-		ctx context.Context,
-		name string,
-		args ...string,
-	) *exec.Cmd {
-		cmd := execFn(ctx, name, args...)
-		cmd.WaitDelay = waitDelay
-		return cmd
-	}
-}
-
 type ghProvider struct {
 	execFn ExecFn
+	remote string
 }
 
-// New returns a ghProvider backed by the gh CLI.
-func New() *ghProvider {
-	return &ghProvider{execFn: withWaitDelay(exec.CommandContext)}
-}
-
-// NewWithExec returns a ghProvider that uses execFn for subprocess invocation.
-// Intended for tests.
-func NewWithExec(
+// New returns a ghProvider for the repo whose origin URL is remote, running
+// every subprocess through execFn.
+func New(
+	remote string,
 	execFn ExecFn,
 ) *ghProvider {
-	return &ghProvider{execFn: execFn}
+	return &ghProvider{execFn: execFn, remote: remote}
 }
 
 // ProtectedBranches returns the list of protected branch names for the repo.
@@ -62,7 +36,7 @@ func (g *ghProvider) ProtectedBranches(
 	ctx context.Context,
 	repoPath string,
 ) ([]string, error) {
-	s, err := slug(ctx, repoPath, g.execFn)
+	s, err := slugFromURL(g.remote)
 	if err != nil {
 		return nil, fmt.Errorf("github: protected-branches: %w", err)
 	}
@@ -212,7 +186,7 @@ func (g *ghProvider) branchContains(
 	branch string,
 	sha string,
 ) bool {
-	cmd := g.execFn(ctx, "git", "merge-base", "--is-ancestor", sha, branch)
+	cmd := g.execFn(ctx, binpath.Git(), "merge-base", "--is-ancestor", sha, branch)
 	cmd.Dir = repoPath
 	return cmd.Run() == nil
 }
@@ -310,7 +284,7 @@ func (g *ghProvider) OwnerAvatarURL(
 	ctx context.Context,
 	repoPath string,
 ) (string, error) {
-	s, err := slug(ctx, repoPath, g.execFn)
+	s, err := slugFromURL(g.remote)
 	if err != nil {
 		return "", nil
 	}

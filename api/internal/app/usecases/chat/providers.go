@@ -51,6 +51,10 @@ type ProviderUsecase interface {
 		message []byte,
 	) ([]byte, bool, error)
 
+	// VerifyRunnerToken reports whether token is the one minted for runnerID: what
+	// a vendor CLI's HTTP hook proves itself with.
+	VerifyRunnerToken(runnerID, token string) bool
+
 	// DefaultPermissionLevel is the level a newly created chat is seeded with.
 	DefaultPermissionLevel(
 		ctx context.Context,
@@ -135,6 +139,14 @@ func (u *Usecase) DispatchMCP(
 	message []byte,
 ) ([]byte, bool, error) {
 	return u.providers.DispatchMCP(ctx, runnerID, token, message)
+}
+
+// VerifyRunnerToken reports whether token was minted for runnerID.
+func (u *Usecase) VerifyRunnerToken(
+	runnerID string,
+	token string,
+) bool {
+	return u.providers.VerifyRunnerToken(runnerID, token)
 }
 
 // providerMCPEnabled reports whether a provider may use the tool surface at all.

@@ -34,7 +34,7 @@ function addPaneTopRow(rect: Partial<DOMRect>): HTMLElement {
 }
 
 // rAF is stubbed and driven by hand — no timers, no real waiting (same
-// pattern as ascii-crowbar.test.tsx's rAF stub).
+// pattern as the other rAF-driven tests).
 let pendingFrames: Map<number, FrameRequestCallback>
 let nextFrameId: number
 
