@@ -160,4 +160,22 @@ describe('windowPaneStore — persistence subscription', () => {
 
     expect(mockSave).toHaveBeenCalledTimes(1)
   })
+
+  it('saves a tab without the reason its document failed to load: the boot reads it again', () => {
+    const { bufferActions } = windowPaneStore.getState()
+    const id = bufferActions.openContent({
+      type: 'editor',
+      doc: workspaceRef('ws-1', 'a.ts'),
+      name: 'a.ts',
+    })
+    const unavailable = { title: 'Failed to open file', message: 'a.ts' }
+    windowPaneStore.setState((s) => ({
+      buffers: s.buffers.map((b) => (b.id === id ? { ...b, unavailable } : b)),
+    }))
+    vi.advanceTimersByTime(300)
+
+    const saved = mockSave.mock.lastCall![0] as { buffers: { id: string }[] }
+    expect(saved.buffers.find((b) => b.id === id)).not.toHaveProperty('unavailable')
+    expect(windowPaneStore.getState().buffers[0]).toMatchObject({ unavailable })
+  })
 })
