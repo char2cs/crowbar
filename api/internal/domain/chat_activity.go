@@ -174,6 +174,8 @@ const (
 
 	ChoiceResolutionProceeded = "proceeded"
 
+	ChoiceResolutionRefused = "refused"
+
 	ChoiceResolutionAbandoned = "abandoned"
 )
 

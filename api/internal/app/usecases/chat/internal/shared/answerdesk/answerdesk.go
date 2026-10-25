@@ -121,9 +121,9 @@ func (d *Desk) Pending(askID string) (PendingAnswer, bool) {
 }
 
 // Await blocks the relay held on askID until a person answers, claimed by exactly
-// one relay; until its budget runs out, when its CLI asks itself and the question
-// closes as proceeded; or until ctx ends, leaving the ask to Abandon.
-func (d *Desk) Await(ctx context.Context, askID string) (HookAnswer, error) {
+// one relay; until its budget runs out, closing the question as onExpiry, what the
+// relay's channel then hands its CLI; or until ctx ends, leaving the ask to Abandon.
+func (d *Desk) Await(ctx context.Context, askID, onExpiry string) (HookAnswer, error) {
 	slot, held := d.held(askID)
 	if !held {
 		return HookAnswer{}, nil
@@ -144,7 +144,7 @@ func (d *Desk) Await(ctx context.Context, askID string) (HookAnswer, error) {
 			return HookAnswer{Stdout: stdout}, nil
 		}
 		if d.release(slot) {
-			d.record(context.WithoutCancel(ctx), slot, domain.ChoiceResolutionProceeded, "agent: answer: budget ran out")
+			d.record(context.WithoutCancel(ctx), slot, onExpiry, "agent: answer: budget ran out")
 		}
 		return HookAnswer{}, nil
 	case <-ctx.Done():

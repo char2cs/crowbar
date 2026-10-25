@@ -481,13 +481,12 @@ describe('describeResolvedChoice', () => {
     expect(describeResolvedChoice(answered)).toBe('Bash · Answered')
   })
 
-  it('tells apart a terminal answer from one nobody ever gave', () => {
-    expect(describeResolvedChoice(choice({ pending: false, resolution: 'proceeded' }))).toBe(
-      'Bash · answered at the terminal',
-    )
-    expect(describeResolvedChoice(choice({ pending: false, resolution: 'abandoned' }))).toBe(
-      'Bash · left unanswered',
-    )
+  it.each([
+    ['proceeded', 'Bash · answered at the terminal'],
+    ['refused', 'Bash · refused, no answer in time'],
+    ['abandoned', 'Bash · left unanswered'],
+  ])('tells a terminal answer, a refusal and no answer at all apart: %s', (resolution, line) => {
+    expect(describeResolvedChoice(choice({ pending: false, resolution }))).toBe(line)
   })
 
   it('falls back to the prompt’s own headline when there is no gated tool', () => {

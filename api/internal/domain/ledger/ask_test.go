@@ -117,9 +117,15 @@ func TestState_AHeldAskOutlivesAnEndThatDeclaredBackgroundWork(t *testing.T) {
 	assert.Equal(t, []string{"held"}, open(), "A's ask closes with A")
 }
 
-func TestCheck_AnAskNeedsAnIDAndAnEvent(t *testing.T) {
+func TestCheck_AnAskNeedsAnIDAndAnEventAndClosesAsAKnownResolution(t *testing.T) {
 	require.NoError(t, ledger.Check(ledger.State{}, ask(t, ledger.Ask{AskID: "a"})))
 	require.ErrorIs(t, ledger.Check(ledger.State{}, ask(t, ledger.Ask{})), ledger.ErrMalformedRow)
 	resolved := row(t, ledger.KindAskResolved, "T1", ledger.AskResolved{AskID: "a", Resolution: "maybe"})
 	require.ErrorIs(t, ledger.Check(ledger.State{}, resolved), ledger.ErrMalformedRow)
+	for _, how := range []string{
+		ledger.ResolutionAnswered, ledger.ResolutionProceeded, ledger.ResolutionRefused, ledger.ResolutionAbandoned,
+	} {
+		resolved := row(t, ledger.KindAskResolved, "T1", ledger.AskResolved{AskID: "a", Resolution: how})
+		require.NoError(t, ledger.Check(ledger.State{}, resolved), how)
+	}
 }

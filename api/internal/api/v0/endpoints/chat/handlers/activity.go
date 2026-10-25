@@ -120,6 +120,9 @@ func choiceComponentStatus(choice dto.AgentChoiceDTO) string {
 	if choice.Resolution == domain.ChoiceResolutionAbandoned {
 		return "abandoned"
 	}
+	if choice.Resolution == domain.ChoiceResolutionRefused {
+		return "declined"
+	}
 	if choice.Kind == domain.ChoiceKindPermission &&
 		choice.Resolution == domain.ChoiceResolutionAnswered && choiceDenied(choice) {
 		return "declined"

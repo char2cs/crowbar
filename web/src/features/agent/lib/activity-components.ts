@@ -62,6 +62,7 @@ function toolStatus(tool: AgentToolCall): ActivityComponentStatus {
 function choiceStatus(choice: AgentChoice): ActivityComponentStatus {
   if (choice.pending) return 'pending'
   if (choice.resolution === 'abandoned') return 'abandoned'
+  if (choice.resolution === 'refused') return 'declined'
   const options = [
     ...(choice.options ?? []),
     ...(choice.questions ?? []).flatMap((question) => question.options ?? []),

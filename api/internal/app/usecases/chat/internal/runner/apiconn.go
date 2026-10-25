@@ -21,6 +21,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -333,11 +334,11 @@ func (rs *Runners) HasLiveAPIConnection(runnerID string) bool {
 // answer desk and writes the verdict back. Every ask gets a reply — an api
 // provider has no TUI of its own to fall back to, so an ask left unanswered
 // would hold its turn open forever. On an expired budget the descriptor's own
-// refusal is sent instead.
+// refusal is sent instead, and the desk closes the question as refused.
 func (rs *Runners) awaitAndReply(
 	ctx context.Context, runnerID string, agent engineagents.Agent, ev engineagents.APIEvent, conn *apiconn, ask string,
 ) {
-	answer, err := rs.answers.Await(ctx, ask)
+	answer, err := rs.answers.Await(ctx, ask, domain.ChoiceResolutionRefused)
 	if err != nil {
 		return // the connection is closing: the provider's ask dies with it
 	}

@@ -11,6 +11,7 @@ import (
 const (
 	ResolutionAnswered  = "answered"  // a person answered it through Crowbar
 	ResolutionProceeded = "proceeded" // the CLI went on without Crowbar's answer
+	ResolutionRefused   = "refused"   // nobody answered in time, so the CLI was sent a refusal
 	ResolutionAbandoned = "abandoned" // nothing will answer it any more
 )
 

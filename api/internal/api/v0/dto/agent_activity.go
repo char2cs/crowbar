@@ -202,8 +202,9 @@ type AgentChoiceDTO struct {
 	Answerable bool       `json:"answerable"`
 	At         time.Time  `json:"at"`
 	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
-	// Resolution says HOW it stopped pending — answered through Crowbar, observed to
-	// have proceeded (someone answered at the terminal), or abandoned with the turn.
+	// Resolution says HOW it stopped pending — answered through Crowbar, proceeded
+	// (the CLI asked it at its own terminal), refused (nobody answered in time, so
+	// the CLI was sent a refusal), or abandoned with the turn.
 	Resolution string `json:"resolution,omitempty"`
 	// AutoApproved says WHO answered it when Resolution is "answered": policy
 	// (true) or a human's own click (false) — currently always false, since

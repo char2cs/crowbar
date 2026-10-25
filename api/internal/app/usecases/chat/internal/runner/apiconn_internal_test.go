@@ -256,12 +256,25 @@ func apiTransportTestAgent(t *testing.T) engineagents.Agent {
 	return a
 }
 
+// dialAPI opens the api-test descriptor's connection over stdio, for the test.
+func dialAPI(t *testing.T, stdio engineagents.APIStdio) (engineagents.Agent, *engineagents.APIConn, context.Context) {
+	t.Helper()
+	agent := apiTransportTestAgent(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = apiConn.Close() })
+	return agent, apiConn, ctx
+}
+
 // spyTurns records every event the pump places. Like the real ingress, it
-// holds a permission's ask before Hook returns, so the test's Resolve cannot
-// race awaitAndReply's Await; failFirst refuses the first event placed.
+// holds a permission's ask (for wait) before Hook returns, so the test's Resolve
+// cannot race awaitAndReply's Await; failFirst refuses the first event placed.
 type spyTurns struct {
 	noopTurns
 	answers   *answerdesk.Desk
+	wait      time.Duration
 	failFirst bool
 
 	mu    sync.Mutex
@@ -281,7 +294,9 @@ func (s *spyTurns) Hook(
 	call := spyCall{runnerID: runnerID, provider: provider, canonical: canonical, raw: raw}
 	if canonical == engineagents.HookPermission && s.answers != nil {
 		call.ask = fmt.Sprintf("ask-%d", len(s.calls))
-		s.answers.Hold(answerdesk.Prompt{ChoiceID: call.ask, ChatID: "chat-1", RunnerID: runnerID})
+		s.answers.Hold(answerdesk.Prompt{
+			ChoiceID: call.ask, ChatID: "chat-1", RunnerID: runnerID, Keys: engineagents.AnswerCapability{Wait: s.wait},
+		})
 	}
 	s.calls = append(s.calls, call)
 	if s.failFirst && len(s.calls) == 1 {
@@ -309,12 +324,7 @@ func TestPumpAPIConn_RoutesOnlyAPITransportEventsAndDropsHooksDeclaredOnes(t *te
 		_, _ = conn.Read() // block until the client closes
 	})
 
-	agent := apiTransportTestAgent(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
-	require.NoError(t, err)
-	defer func() { _ = apiConn.Close() }()
+	agent, apiConn, ctx := dialAPI(t, stdio)
 
 	// SubagentStart isn't in this descriptor's `in:`/`ask:` table for the API
 	// transport at all (it's hooks-only), so dispatch.Resolve never surfaces it —
@@ -352,12 +362,7 @@ func TestPumpAPIConn_AnAskIsAnsweredOverTheConnection(t *testing.T) {
 		replySeen <- string(reply.Result)
 	})
 
-	agent := apiTransportTestAgent(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
-	require.NoError(t, err)
-	defer func() { _ = apiConn.Close() }()
+	agent, apiConn, ctx := dialAPI(t, stdio)
 
 	answers := answerdesk.New(answerdesk.DefaultRetention, nil)
 	spy := &spyTurns{answers: answers}
@@ -383,16 +388,26 @@ func TestPumpAPIConn_AnAskIsAnsweredOverTheConnection(t *testing.T) {
 	}
 }
 
+// closeLedger tells which resolution the desk closes each ask with.
+type closeLedger chan<- string
+
+func (c closeLedger) ResolveAsk(_ context.Context, _, _, resolution string) error {
+	c <- resolution
+	return nil
+}
+
 // An api provider has no TUI to fall back to: an ask nobody answers from
 // Crowbar, or one the ingress refused, gets the descriptor's refusal, never
-// silence that holds its turn.
+// silence that holds its turn; a held one closes as the refusal it was sent.
 func TestPumpAPIConn_AnAskNobodyAnswersIsRefused(t *testing.T) {
 	for name, tc := range map[string]struct {
-		turns  *spyTurns
-		reason string
+		turns    *spyTurns
+		reason   string
+		closedAs string
 	}{
 		"held by nobody":         {turns: &spyTurns{}, reason: "No answer from Crowbar in time."},
 		"refused by the ingress": {turns: &spyTurns{failFirst: true}, reason: "Crowbar could not record this request."},
+		"held past its budget":   {turns: &spyTurns{wait: time.Millisecond}, reason: "No answer from Crowbar in time.", closedAs: "refused"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			replySeen := make(chan string, 1)
@@ -412,19 +427,23 @@ func TestPumpAPIConn_AnAskNobodyAnswersIsRefused(t *testing.T) {
 				replySeen <- string(reply.Result)
 				_, _ = conn.Read()
 			})
-			agent := apiTransportTestAgent(t)
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
-			require.NoError(t, err)
-			defer func() { _ = apiConn.Close() }()
+			agent, apiConn, ctx := dialAPI(t, stdio)
 
-			rs := &Runners{turns: tc.turns, answers: answerdesk.New(answerdesk.DefaultRetention, nil), live: newLiveTable()}
+			closes := make(chan string, 1)
+			desk := answerdesk.New(answerdesk.DefaultRetention, closeLedger(closes))
+			if tc.turns.wait > 0 {
+				tc.turns.answers = desk
+			}
+			rs := &Runners{turns: tc.turns, answers: desk, live: newLiveTable()}
 			rs.pumpAPIConn("runner-1", "api-test", agent, &apiconn{driver: apiConn, ctx: ctx})
 
 			select {
 			case reply := <-replySeen:
 				assert.JSONEq(t, fmt.Sprintf(`{"decision":"denied","message":%q}`, tc.reason), reply)
+				if tc.closedAs != "" {
+					assert.Equal(t, tc.closedAs, <-closes, "its question closes as what the CLI was sent")
+				}
+				assert.Empty(t, closes)
 			case <-ctx.Done():
 				t.Fatal("an unanswered ask must be refused, not left open")
 			}
@@ -447,12 +466,7 @@ func TestPumpAPIConn_AnUnansweredAskDoesNotBlockLaterEvents(t *testing.T) {
 		_, _ = conn.Read()
 	})
 
-	agent := apiTransportTestAgent(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
-	require.NoError(t, err)
-	defer func() { _ = apiConn.Close() }()
+	agent, apiConn, ctx := dialAPI(t, stdio)
 
 	answers := answerdesk.New(answerdesk.DefaultRetention, nil)
 	spy := &spyTurns{answers: answers}
@@ -474,12 +488,7 @@ func TestPumpAPIConn_KeepsPlacingAfterAnEventIsRefused(t *testing.T) {
 		_, _ = conn.Read()
 	})
 
-	agent := apiTransportTestAgent(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
-	require.NoError(t, err)
-	defer func() { _ = apiConn.Close() }()
+	agent, apiConn, ctx := dialAPI(t, stdio)
 
 	spy := &spyTurns{failFirst: true}
 	rs := &Runners{turns: spy, live: newLiveTable()}

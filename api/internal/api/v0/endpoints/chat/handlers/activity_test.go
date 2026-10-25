@@ -183,22 +183,20 @@ func TestActivity_EmptyListsRenderAsEmptyNotNull(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), `"components":[]`)
 }
 
-func TestActivity_ProjectsPermissionDenialAsDeclinedAndNoticeAsStatus(t *testing.T) {
+func TestActivity_ProjectsADenialOrARefusalAsDeclinedAndNoticeAsStatus(t *testing.T) {
 	ended := activityAt.Add(time.Second)
 	uc := &fakeAgentUsecase{activity: agentusecase.ChatActivity{
 		Turns: []domain.ActivityTurn{
 			{ID: "notice-1", Seq: 3, Role: domain.TurnRoleNotice, Text: "The provider refused the request.", StartedAt: activityAt, EndedAt: &ended},
 		},
 		Choices: []domain.ActivityChoice{{
-			ID: "permission-1", TurnID: "turn-1", Seq: 2,
-			Kind: domain.ChoiceKindPermission,
-			Options: []domain.ActivityChoiceOption{
-				{ID: "allow", Kind: domain.ChoiceOptionAllow},
-				{ID: "deny", Kind: domain.ChoiceOptionDeny},
-			},
-			At: activityAt, ResolvedAt: &ended,
-			Resolution:        domain.ChoiceResolutionAnswered,
-			AnsweredOptionIDs: []string{"deny"},
+			ID: "permission-1", TurnID: "turn-1", Seq: 2, Kind: domain.ChoiceKindPermission,
+			Options: []domain.ActivityChoiceOption{{ID: "allow", Kind: domain.ChoiceOptionAllow}, {ID: "deny", Kind: domain.ChoiceOptionDeny}},
+			At:      activityAt, ResolvedAt: &ended,
+			Resolution: domain.ChoiceResolutionAnswered, AnsweredOptionIDs: []string{"deny"},
+		}, {
+			ID: "elicitation-1", TurnID: "turn-1", Seq: 4, Kind: domain.ChoiceKindElicitation,
+			At: activityAt, ResolvedAt: &ended, Resolution: domain.ChoiceResolutionRefused,
 		}},
 	}}
 	ctx, rec := scoped(t, "/activity")
@@ -209,12 +207,13 @@ func TestActivity_ProjectsPermissionDenialAsDeclinedAndNoticeAsStatus(t *testing
 		Data dto.AgentActivityDTO `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	require.Len(t, body.Data.Components, 2)
+	require.Len(t, body.Data.Components, 3)
 	assert.Equal(t, "declined", body.Data.Components[0].Status)
 	assert.Equal(t, "permission_request", body.Data.Components[0].Kind)
 	require.Len(t, body.Data.Components[0].Updates, 2)
 	assert.Equal(t, "declined", body.Data.Components[0].Updates[1].Status)
 	assert.Equal(t, "status_notice", body.Data.Components[1].Kind)
+	assert.Equal(t, "declined", body.Data.Components[2].Status, "a refusal sent for want of an answer is a decline")
 }
 
 func TestActivity_ProjectsCompactionAsItsOwnComponentKind(t *testing.T) {

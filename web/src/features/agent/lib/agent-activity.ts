@@ -177,14 +177,15 @@ export function pickedOptionLabels(choice: AgentChoice): string[] {
  *  `Bash · Allow` reads the same way a tool row's own `name · target` does:
  *  what it was about, then what happened.
  *
- *  `proceeded` (decided at the CLI's own terminal) and `abandoned` (never
- *  decided) are told apart from `answered` because they are different facts —
- *  and from each other, because "the terminal handled it" and "nobody
- *  answered" call for different reactions from a reader scanning back. */
+ *  `proceeded` (decided at the CLI's own terminal), `refused` (nobody answered
+ *  in time, so the CLI was told no) and `abandoned` (never decided) are told
+ *  apart from `answered` because they are different facts — and from each
+ *  other, because each calls for a different reaction from a reader scanning back. */
 export function describeResolvedChoice(choice: AgentChoice): string {
   const subject = choice.toolName || describeChoice(choice)
   if (choice.pending) return `${subject} · waiting for answer`
   if (choice.resolution === 'proceeded') return `${subject} · answered at the terminal`
+  if (choice.resolution === 'refused') return `${subject} · refused, no answer in time`
   if (choice.resolution === 'abandoned') return `${subject} · left unanswered`
   const picked = pickedOptionLabels(choice)
   const verb = picked.length > 0 ? picked.join(', ') : 'Answered'

@@ -664,8 +664,8 @@ export interface AgentChoice {
   answerable: boolean
   at: string
   resolvedAt?: string
-  /** How it stopped pending: `answered` here, `proceeded` at the terminal, or
-   *  `abandoned` with the turn. */
+  /** How it stopped pending: `answered` here, `proceeded` at the terminal,
+   *  `refused` for want of an answer in time, or `abandoned` with the turn. */
   resolution?: string
   /** Who answered it when `resolution` is `answered`: policy (`true`) or a
    *  human's own click (`false`). */

@@ -122,6 +122,30 @@ describe('activityComponents', () => {
     expect(components[0]).toMatchObject({ kind: 'permission_request', status: 'declined' })
   })
 
+  it('shows a prompt refused for want of an answer as declined', () => {
+    const components = activityComponents({
+      toolCalls: [],
+      subagents: [],
+      interruptions: [],
+      choices: [
+        {
+          id: 'permission',
+          turnId: 'turn',
+          seq: 1,
+          kind: 'tool_permission',
+          options: [],
+          pending: false,
+          answerable: false,
+          resolution: 'refused',
+          at: '2026-01-01T00:00:00Z',
+          resolvedAt: '2026-01-01T00:00:01Z',
+        },
+      ],
+    } as never)
+
+    expect(components[0]).toMatchObject({ kind: 'permission_request', status: 'declined' })
+  })
+
   it('projects compaction as its own canonical component kind', () => {
     const components = activityComponents({
       toolCalls: [],

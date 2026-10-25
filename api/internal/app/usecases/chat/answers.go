@@ -106,12 +106,12 @@ func (u *Usecase) PendingAnswer(
 
 // AwaitAnswer blocks the relay held on askID until a person answers, its declared
 // budget expires, or ctx is cancelled. A verdict is claimed by exactly one relay,
-// and a relay that hangs up abandons its ask: its CLI is asking it itself.
+// and a relay that hangs up or runs out prints nothing: its CLI asks it itself.
 func (u *Usecase) AwaitAnswer(
 	ctx context.Context,
 	askID string,
 ) (HookAnswer, error) {
-	answer, err := u.answers.Await(ctx, askID)
+	answer, err := u.answers.Await(ctx, askID, domain.ChoiceResolutionProceeded)
 	if err != nil && ctx.Err() != nil {
 		u.answers.Abandon(context.WithoutCancel(ctx), askID)
 	}

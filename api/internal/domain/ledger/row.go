@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -98,8 +99,9 @@ var checks = map[Kind]func(Row) error{
 	KindAsk: func(r Row) error { return checkNamed(r, func(b Ask) bool { return b.AskID != "" && b.Event != "" }) },
 	KindAskResolved: func(r Row) error {
 		return checkNamed(r, func(b AskResolved) bool {
-			return b.AskID != "" && (b.Resolution == ResolutionAnswered ||
-				b.Resolution == ResolutionProceeded || b.Resolution == ResolutionAbandoned)
+			return b.AskID != "" && slices.Contains([]string{
+				ResolutionAnswered, ResolutionProceeded, ResolutionRefused, ResolutionAbandoned,
+			}, b.Resolution)
 		})
 	},
 	KindSubagent: func(r Row) error {
