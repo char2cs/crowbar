@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -353,6 +354,32 @@ func TestRecorder_AHeldAskIsParkedOnTheDesk(t *testing.T) {
 	require.NotEmpty(t, ask)
 	_, held := f.answers.Pending(ask)
 	assert.True(t, held)
+}
+
+// An api ask too big for the desk is refused to its CLI at once, so it is
+// recorded refused, never left a card nobody can answer; its input is kept cut.
+func TestRegression_AnOversizeAPIAskIsRecordedRefusedNotLeftPending(t *testing.T) {
+	f := newRecorderFixture(t, "codex")
+	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
+	require.NoError(t, err)
+	input := `{"command":"` + strings.Repeat("x", answerdesk.MaxPayloadBytes) + `"}`
+	ev := engineagents.CanonicalEvent{Kind: engineagents.HookPermission, Choice: &engineagents.ChoicePrompt{
+		Kind: "tool_permission", ToolName: "commandExecution", ToolInput: []byte(input),
+	}}
+
+	_, ask, err := f.r.Dispatch(t.Context(), f.runner, f.agent, ev, []byte(input), engineagents.ChannelAPI)
+
+	require.NoError(t, err)
+	assert.Empty(t, ask, "nothing holds it")
+	var open []string
+	for _, p := range f.state(t).PendingAsks() {
+		open = append(open, p.AskID)
+	}
+	assert.Empty(t, open, "no card waits on an answer its CLI was refused")
+	rows := f.rows(t)
+	require.Equal(t, []ledger.Kind{ledger.KindAsk, ledger.KindAskResolved}, kinds(rows[len(rows)-2:]))
+	assert.Equal(t, ledger.ResolutionRefused, bodyOf[ledger.AskResolved](t, rows[len(rows)-1]).Resolution)
+	assert.True(t, bodyOf[ledger.Ask](t, rows[len(rows)-2]).ToolInputTruncated, "its input is cut, not dropped")
 }
 
 // A turn's end on a runner whose own end is under way is recorded unheld: it

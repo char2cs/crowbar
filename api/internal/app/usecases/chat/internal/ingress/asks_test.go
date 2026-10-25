@@ -217,3 +217,35 @@ func TestMap_AnAskKeepsItsCallsInputUpToABound(t *testing.T) {
 		})
 	}
 }
+
+// An api CLI is refused every ask Crowbar does not hold, so that is how the
+// ask closes: never a pending card nobody can answer.
+func TestMap_AnAPIAskCrowbarDoesNotHoldIsClosedAsRefused(t *testing.T) {
+	api := func(edit func(*Source)) Source {
+		s := hooksSource()
+		s.Channel = engineagents.ChannelAPI
+		edit(&s)
+		return s
+	}
+	bash := permission(engineagents.ChoicePrompt{Kind: "tool_permission", ToolName: "Bash"})
+	for name, tc := range map[string]struct {
+		ev  engineagents.CanonicalEvent
+		src Source
+	}{
+		"one it cannot hold":        {bash, api(func(s *Source) { s.Answerable = false })},
+		"one offering no choice":    {engineagents.CanonicalEvent{Kind: engineagents.HookPermission}, api(func(*Source) {})},
+		"of a runner past its exit": {bash, api(func(s *Source) { s.RunnerID = "run-gone" })},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := liveChatRows(t)
+			c.typed("go")
+
+			rows, fx := c.mapped(tc.ev, tc.src)
+
+			require.Equal(t, []ledger.Kind{ledger.KindAsk, ledger.KindAskResolved}, kinds(rows))
+			assert.Equal(t, ledger.ResolutionRefused, bodyOf[ledger.AskResolved](t, rows[1]).Resolution)
+			assert.Empty(t, fx.HoldAsk)
+			assert.Empty(t, c.st.PendingAsks())
+		})
+	}
+}

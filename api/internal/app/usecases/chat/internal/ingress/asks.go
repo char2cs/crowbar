@@ -36,15 +36,21 @@ func mapAsk(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope s
 	if err != nil {
 		return nil, Effects{}, err
 	}
-	if held {
+	var closing string
+	switch {
+	case held:
 		return []ledger.Row{row}, Effects{HoldAsk: a.AskID}, nil
-	}
-	if live && waitedOn(st, scope) {
+	case src.Channel == engineagents.ChannelAPI:
+		// Its connection refuses every ask Crowbar does not hold.
+		closing = ledger.ResolutionRefused
+	case live && waitedOn(st, scope):
 		return []ledger.Row{row}, Effects{}, nil
+	default:
+		// A past runner's, or one no end closes: nothing waits on it.
+		closing = ledger.ResolutionAbandoned
 	}
-	// Unheld, a past runner's or one no end closes: nothing waits on it.
 	closed, err := ledger.NewRow(ledger.KindAskResolved, turnID, scope,
-		ledger.AskResolved{AskID: a.AskID, Resolution: ledger.ResolutionAbandoned})
+		ledger.AskResolved{AskID: a.AskID, Resolution: closing})
 	if err != nil {
 		return nil, Effects{}, err
 	}
