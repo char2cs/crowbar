@@ -178,14 +178,15 @@ func (u *Usecase) AnswerChoice(
 		return fmt.Errorf("agent: answer choice: render: %w", err)
 	}
 
-	answered, err := u.asks.resolve(ctx, chatID, choiceID, ledger.ResolutionAnswered, optionIDs)
+	answered, err := u.answers.Answer(ctx, slot, stdout, func(ctx context.Context) (bool, error) {
+		return u.asks.resolve(ctx, chatID, choiceID, ledger.ResolutionAnswered, optionIDs)
+	})
 	if err != nil {
 		return fmt.Errorf("agent: answer choice: %w", err)
 	}
 	if !answered {
 		return fmt.Errorf("%w: this prompt is no longer pending", apperr.ErrConflict)
 	}
-	u.answers.Resolve(slot, stdout)
 	return nil
 }
 

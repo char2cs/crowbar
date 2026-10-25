@@ -269,7 +269,7 @@ func dialAPI(t *testing.T, stdio engineagents.APIStdio) (engineagents.Agent, *en
 }
 
 // spyTurns records every event the pump places. Like the real ingress, it
-// holds a permission's ask (for wait) before Hook returns, so the test's Resolve
+// holds a permission's ask (for wait) before Hook returns, so the test's answer
 // cannot race awaitAndReply's Await; failFirst refuses the first event placed.
 type spyTurns struct {
 	noopTurns
@@ -378,7 +378,8 @@ func TestPumpAPIConn_AnAskIsAnsweredOverTheConnection(t *testing.T) {
 	// Held inside Hook (spyTurns), as the real ingress does: a human decides it.
 	slot, held := answers.ByChoiceID(call.ask)
 	require.True(t, held)
-	answers.Resolve(slot, []byte(`{"decision":"approved"}`))
+	_, err := answers.Answer(ctx, slot, []byte(`{"decision":"approved"}`), func(context.Context) (bool, error) { return true, nil })
+	require.NoError(t, err)
 
 	select {
 	case reply := <-replySeen:
