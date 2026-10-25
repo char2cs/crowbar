@@ -190,9 +190,8 @@ type AgentChoiceDTO struct {
 	ToolName   string `json:"toolName,omitempty"`
 	ToolTarget string `json:"toolTarget,omitempty"`
 	MCPServer  string `json:"mcpServer,omitempty"`
-
-	Title    string `json:"title,omitempty"`
-	Question string `json:"question,omitempty"`
+	Title      string `json:"title,omitempty"`
+	Question   string `json:"question,omitempty"`
 	// Mode is the provider's own word for how it expects to be answered, carried
 	// verbatim and never interpreted.
 	Mode string `json:"mode,omitempty"`
