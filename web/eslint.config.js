@@ -9,14 +9,12 @@ import globals from 'globals'
 // the backlog: split a file, then delete its entry. Never add to it.
 const MAX_LINES_BASELINE = [
   'src/__tests__/components/app-sync-provider-folders.test.tsx',
-  'src/__tests__/components/layout/sidebar-carousel.test.tsx',
   'src/__tests__/components/sidebar/hooks/use-sidebar-drag.test.ts',
   'src/__tests__/components/sidebar/lib/drop-actions.test.ts',
   'src/__tests__/components/sidebar/lib/row-actions.test.ts',
   'src/__tests__/components/sidebar/lib/rows-from-repo.test.ts',
   'src/__tests__/components/sidebar/lib/sidebar-drop-policy.test.ts',
   'src/__tests__/components/sidebar/sidebar-row.test.tsx',
-  'src/__tests__/components/sidebar/space-header.test.tsx',
   'src/__tests__/components/sidebar/space-scroller.test.tsx',
   'src/__tests__/features/agent/api/agent-api.test.ts',
   'src/__tests__/features/agent/chat/agent-chat-view.test.tsx',
@@ -180,6 +178,7 @@ export default tseslint.config(
       'src/lib/ws/tauri-transport.ts',
       'src/lib/native-dialog.ts',
       'src/lib/external-open.ts',
+      'src/lib/browser-bridge.ts',
     ],
     rules: {
       'no-restricted-imports': 'off',

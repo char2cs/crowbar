@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { validateLoadedBuffers, type Snapshot } from '@/features/panes/utils/persisted-layout'
+import {
+  toPersistedBuffers,
+  validateLoadedBuffers,
+  type Snapshot,
+} from '@/features/panes/utils/persisted-layout'
 
 describe('validateLoadedBuffers', () => {
   const ROOT = { adoptInto: 'root' }
@@ -41,6 +45,64 @@ describe('validateLoadedBuffers', () => {
     expect(out.buffers.map((b) => b.id)).toEqual([])
     expect(out.panes.root.editorTabIds).toEqual([])
     expect(out.panes.root.activeEditorTabId).toBeNull()
+  })
+
+  describe('browser tabs', () => {
+    const browser = (id: string, extra: object = {}) => ({
+      id,
+      type: 'browser',
+      path: `browser://${id}`,
+      name: 'Example',
+      url: 'https://a.com',
+      title: 'Example Domain',
+      workspaceId: 'w1',
+      ...extra,
+    })
+    const layoutOf = (...ids: string[]) =>
+      ({
+        buffers: [...ids.map((id) => browser(id)), { id: 'e-1', type: 'editor', path: '/a.ts' }],
+        panes: {
+          root: { id: 'root', editorTabIds: [...ids, 'e-1'], activeEditorTabId: ids[0] },
+        },
+      }) as unknown as Snapshot
+
+    it('round-trips url and title, and never carries a page load across a restart', () => {
+      const live = {
+        ...layoutOf('b-1'),
+        buffers: [browser('b-1', { loading: true }), { id: 'e-1', type: 'editor', path: '/a.ts' }],
+      } as unknown as Snapshot
+
+      const saved = toPersistedBuffers(live.buffers)
+      expect(saved[0]).not.toHaveProperty('loading')
+
+      const out = validateLoadedBuffers({ ...live, buffers: saved }, ROOT)
+      expect(out.buffers[0]).toMatchObject({
+        id: 'b-1',
+        url: 'https://a.com',
+        title: 'Example Domain',
+      })
+      expect(out.panes.root.editorTabIds).toEqual(['b-1', 'e-1'])
+    })
+
+    it('restores as not loading even from a record that stored loading: true', () => {
+      const stored = {
+        ...layoutOf('b-1'),
+        buffers: [browser('b-1', { loading: true })],
+      } as unknown as Snapshot
+      expect(validateLoadedBuffers(stored, ROOT).buffers[0]).not.toHaveProperty('loading')
+    })
+
+    it('drops a tab whose id could not name a native webview, repairing its pane', () => {
+      const out = validateLoadedBuffers(layoutOf('good_id-1', 'bad id!', 'a.b'), ROOT)
+      expect(out.buffers.map((b) => b.id)).toEqual(['good_id-1', 'e-1'])
+      expect(out.panes.root.editorTabIds).toEqual(['good_id-1', 'e-1'])
+    })
+
+    it('drops a tab with no usable url field', () => {
+      const broken = { ...layoutOf('b-1'), buffers: [browser('b-1', { url: undefined })] }
+      const out = validateLoadedBuffers(broken as unknown as Snapshot, ROOT)
+      expect(out.buffers).toEqual([])
+    })
   })
 
   it('heals a pre-existing stranded id even when nothing was dropped (Finding 1)', () => {
@@ -138,7 +200,13 @@ describe('validateLoadedBuffers', () => {
     const current = {
       buffers: [
         { id: 'c-1', type: 'commitDiff', wsId: 'w1', sha: 'abc1234', name: 'Commit abc1234' },
-        { id: 'br-1', type: 'branchReview', wsId: 'w1', name: 'Branch Review' },
+        {
+          id: 'br-1',
+          type: 'branchReview',
+          wsId: 'w1',
+          name: 'Branch Review',
+          view: 'conversation',
+        },
       ],
       panes: {
         root: { id: 'root', editorTabIds: ['c-1', 'br-1'], activeEditorTabId: 'c-1' },
@@ -146,5 +214,33 @@ describe('validateLoadedBuffers', () => {
     } as unknown as Snapshot
 
     expect(validateLoadedBuffers(current, ROOT)).toEqual(current)
+  })
+
+  // Distinct from the retired `newTab` placeholder above, which old layouts
+  // still carry and must keep dropping.
+  it('restores a New Tab page where it was, beside the layouts that predate it', () => {
+    const live = {
+      buffers: [
+        {
+          id: 'p-1',
+          type: 'newTabPage',
+          path: 'new-tab://p-1',
+          name: 'New Tab',
+          workspaceId: 'w1',
+        },
+        { id: 'nt-1', type: 'newTab', path: '', name: 'New Tab' },
+        { id: 'e-1', type: 'editor', path: '/a.ts', name: 'a.ts' },
+      ],
+      panes: {
+        root: { id: 'root', editorTabIds: ['e-1', 'p-1', 'nt-1'], activeEditorTabId: 'p-1' },
+      },
+    } as unknown as Snapshot
+
+    const out = validateLoadedBuffers({ ...live, buffers: toPersistedBuffers(live.buffers) }, ROOT)
+
+    expect(out.buffers.map((b) => b.id)).toEqual(['p-1', 'e-1'])
+    expect(out.buffers[0]).toEqual(live.buffers[0])
+    expect(out.panes.root.editorTabIds).toEqual(['e-1', 'p-1'])
+    expect(out.panes.root.activeEditorTabId).toBe('p-1')
   })
 })

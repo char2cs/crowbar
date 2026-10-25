@@ -258,3 +258,13 @@ func TestRenderWorkspaces_FoldsEachWorkspacesChatsIn(t *testing.T) {
 func TestRenderWorkspaces_EmptyIsExplicit(t *testing.T) {
 	require.Contains(t, render.RenderWorkspaces(domain.Workspace{}, nil, nil), "No visible workspaces")
 }
+
+func TestRenderThreads_GeneralCommentHasNoCoordinates(t *testing.T) {
+	out := render.RenderThreads([]domain.ReviewThread{{
+		ID: "t9", Side: "new", Status: domain.ReviewThreadStatusOpen,
+		Messages: []domain.ReviewMessage{{ID: "m1", Author: "mateo", Body: "add a changelog"}},
+	}})
+
+	require.Contains(t, out, "t9  general comment  -  unresolved  1\n")
+	require.NotContains(t, out, ":0-0")
+}

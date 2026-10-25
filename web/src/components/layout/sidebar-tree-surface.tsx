@@ -203,7 +203,7 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
     },
     [allRows],
   )
-  // Spec §9's project-level trash, reached from the space header's overflow.
+  // Spec §9's project-level trash, reached from the tree foot's More… menu.
   // Says so rather than doing nothing when the tray refuses to hold the
   // project (a project id no loaded project claims) — the same posture the
   // row trash's own confirm takes.

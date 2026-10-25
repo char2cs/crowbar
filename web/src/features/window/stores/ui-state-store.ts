@@ -14,6 +14,7 @@ export type SettingsTab =
   | 'editor'
   | 'appearance'
   | 'terminal'
+  | 'browser'
   | 'git'
   | 'file-explorer'
   | 'providers'

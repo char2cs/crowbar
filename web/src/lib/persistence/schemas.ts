@@ -1,18 +1,12 @@
 import type { DBSchema } from 'idb'
 import type { PaneGroup, LayoutNode, ViewRecord } from '@/features/panes/types/pane'
 import type { PaneContent } from '@/features/panes/types/pane-content'
-import type {
-  ReviewThread,
-  MergeStrategy,
-} from '@/features/workspace/stores/slices/branch-review-slice'
 import type { ChatDTO, ProjectDTO, RepoDTO, WorkspaceDTO, ThreadDTO, FolderDTO } from '@/lib/types'
 
 export interface BranchReviewPersistedState {
   wsId: string
-  description: string
-  mergeStrategy: MergeStrategy
-  threads: ReviewThread[]
-  updatedAt: number
+  /** Reviewed files: path -> the signature the file had when it was marked. */
+  viewed: Record<string, string>
 }
 
 export interface WorkspaceLayout {
@@ -61,7 +55,7 @@ export interface SidebarUI {
   /**
    * RETIRED. Written by the pre-restyle tree's repo/branch chevrons and its
    * project-row fold; the restyled tree folds through `collapsedChatRows` only
-   * (the SpaceHeader fold is panel-local). A record still carrying any of them
+   * (no project fold exists). A record still carrying any of them
    * never gates visibility (project-visibility.ts) — no migration.
    */
   collapsedRepos?: string[]
@@ -79,6 +73,9 @@ export interface SidebarUI {
    * as "nothing folded", which is the product default.
    */
   collapsedChatRows?: string[]
+  /** The sidebar's last mode. Untyped on disk: an older build wrote modes that
+   *  no longer exist, so hydrate parses it (`parseSidebarTab`). */
+  activeTab?: string
   updatedAt: number
 }
 

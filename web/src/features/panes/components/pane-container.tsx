@@ -177,11 +177,13 @@ export function PaneContainer({
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <PaneEditorViewContent
           paneId={pane.id}
+          wsId={chatWsId}
           editorTabIds={pane.editorTabIds}
           activeEditorTabId={pane.activeEditorTabId}
           editorViewHidden={editorViewHidden}
           isActivePane={isActivePane}
           showing={showing}
+          dropTargeted={drop.isDragOver || drop.isTabDragOver || !!drop.internalHoverZone}
         />
       </div>
     </div>

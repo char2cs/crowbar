@@ -39,6 +39,8 @@ export interface AgentTerminalSurfaceProps {
    * worktree it runs in, which sibling chats share.
    */
   chatId: string
+  /** The pane this chat lives in. */
+  paneId: string
   attachment: TerminalAttachment
   presentation: ChatPresentation
   splitting: boolean
@@ -85,6 +87,7 @@ export interface AgentTerminalSurfaceProps {
 export function AgentTerminalSurface({
   wsId,
   chatId,
+  paneId,
   attachment,
   presentation,
   splitting,
@@ -167,6 +170,7 @@ export function AgentTerminalSurface({
           sessionId={attachment.sessionId}
           workspaceId={wsId}
           chatId={chatId}
+          paneId={paneId}
           isActive={
             isActivePane && isVisible && (presentation === 'terminal' || (splitting && focused))
           }

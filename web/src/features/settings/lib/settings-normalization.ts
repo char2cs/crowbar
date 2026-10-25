@@ -9,12 +9,15 @@ import {
 import { normalizeConfiguredFontFamily } from '@/features/settings/lib/font-family-resolution'
 import { normalizeMarkdownFontSize } from '@/features/settings/lib/markdown-font-size'
 import { normalizeUiFontSize } from '@/features/settings/lib/ui-font-size'
+import { SEARCH_ENGINE_OPTIONS } from '@/features/browser/lib/search-engines'
 import type { Settings } from '@/features/settings/types/settings'
 
 const LEGACY_TERMINAL_LINE_HEIGHT_DEFAULT = 1.2
 const TERMINAL_LINE_HEIGHT_DEFAULT = 1
 const EDITOR_LINE_HEIGHT_MIN = 1
 const EDITOR_LINE_HEIGHT_MAX = 2
+export const BROWSER_ZOOM_MIN = 50
+export const BROWSER_ZOOM_MAX = 300
 const FILE_TREE_INDENT_SIZE_MIN = 8
 const FILE_TREE_INDENT_SIZE_MAX = 32
 const RENDER_WHITESPACE_MODES = new Set<Settings['renderWhitespace']>([
@@ -85,6 +88,20 @@ function normalizeChatSplitPresentationEnabled(value: unknown): boolean {
   return typeof value === 'boolean' ? value : getDefaultSetting('chatSplitPresentationEnabled')
 }
 
+function normalizeSidebarFollowsFocus(value: unknown): boolean {
+  return typeof value === 'boolean' ? value : getDefaultSetting('sidebarFollowsFocus')
+}
+
+function normalizeBrowserZoom(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return getDefaultSetting('browserZoom')
+  return Math.min(BROWSER_ZOOM_MAX, Math.max(BROWSER_ZOOM_MIN, Math.round(value)))
+}
+
+function normalizeBrowserSearchEngine(value: unknown): Settings['browserSearchEngine'] {
+  const known = SEARCH_ENGINE_OPTIONS.find((option) => option.value === value)
+  return known ? known.value : getDefaultSetting('browserSearchEngine')
+}
+
 function isRenderWhitespaceMode(value: unknown): value is Settings['renderWhitespace'] {
   return (
     typeof value === 'string' && RENDER_WHITESPACE_MODES.has(value as Settings['renderWhitespace'])
@@ -130,12 +147,19 @@ export function normalizeSettings(settings: Settings): Settings {
     normalizedSettings.fileTreeIndentSize,
   )
   normalizedSettings.fileTreeDensity = normalizeFileTreeDensity(normalizedSettings.fileTreeDensity)
+  normalizedSettings.browserZoom = normalizeBrowserZoom(normalizedSettings.browserZoom)
+  normalizedSettings.browserSearchEngine = normalizeBrowserSearchEngine(
+    normalizedSettings.browserSearchEngine,
+  )
   normalizedSettings.theme = normalizeTheme((normalizedSettings as { theme?: unknown }).theme)
   normalizedSettings.chatIsDefaultPresentation = normalizeChatIsDefaultPresentation(
     (normalizedSettings as { chatIsDefaultPresentation?: unknown }).chatIsDefaultPresentation,
   )
   normalizedSettings.chatSplitPresentationEnabled = normalizeChatSplitPresentationEnabled(
     (normalizedSettings as { chatSplitPresentationEnabled?: unknown }).chatSplitPresentationEnabled,
+  )
+  normalizedSettings.sidebarFollowsFocus = normalizeSidebarFollowsFocus(
+    (normalizedSettings as { sidebarFollowsFocus?: unknown }).sidebarFollowsFocus,
   )
 
   if (!normalizedSettings.themeMode) {
@@ -192,6 +216,14 @@ export function normalizeSettingValue<K extends keyof Settings>(
     return normalizeFileTreeDensity(value as string) as Settings[K]
   }
 
+  if (key === 'browserZoom') {
+    return normalizeBrowserZoom(value) as Settings[K]
+  }
+
+  if (key === 'browserSearchEngine') {
+    return normalizeBrowserSearchEngine(value) as Settings[K]
+  }
+
   if (key === 'theme') {
     return normalizeTheme(value) as Settings[K]
   }
@@ -202,6 +234,10 @@ export function normalizeSettingValue<K extends keyof Settings>(
 
   if (key === 'chatSplitPresentationEnabled') {
     return normalizeChatSplitPresentationEnabled(value) as Settings[K]
+  }
+
+  if (key === 'sidebarFollowsFocus') {
+    return normalizeSidebarFollowsFocus(value) as Settings[K]
   }
 
   if (key === 'themeMode') {

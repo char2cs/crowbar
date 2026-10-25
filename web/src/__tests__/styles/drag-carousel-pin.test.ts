@@ -26,15 +26,11 @@
  *
  * The rule is an ATTRIBUTE selector, not scoped to one component — it pins
  * whichever elements carry `data-sidebar-carousel`, however many there are.
- * Task 21 added a second one: `SpaceScroller` (space-scroller.tsx) is the
- * exact same geometry (`overflow-x: scroll` + mandatory x snapping over
- * `min-w-full` panels) as `sidebar-carousel.tsx`, sits as a SIBLING of it in
- * ide-shell.tsx (not a descendant, so it needs its own attribute to be
- * reachable at all), and is the surface Part G's own drag gesture — carrying
- * a row rightward onto a pane — runs on. A carousel-shaped surface added
- * without this attribute is invisible to the CSS rule above and silently
- * reintroduces the exact bug it exists to prevent; the checks below guard
- * that both known carousels still carry it.
+ * `SpaceScroller` (space-scroller.tsx) is the surface Part G's own drag
+ * gesture — carrying a row rightward onto a pane — runs on. A carousel-shaped
+ * surface added without this attribute is invisible to the CSS rule above and
+ * silently reintroduces the exact bug it exists to prevent; the check below
+ * guards that the known carousel still carries it.
  */
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -70,14 +66,6 @@ describe('drag-time carousel pin', () => {
 
 describe('every carousel-shaped scroller carries the attribute the pin rule targets', () => {
   const CAROUSEL_SOURCES = {
-    'sidebar-carousel.tsx (Files/Git)': resolve(
-      HERE,
-      '..',
-      '..',
-      'components',
-      'layout',
-      'sidebar-carousel.tsx',
-    ),
     'space-scroller.tsx (the unified sidebar, Task 21)': resolve(
       HERE,
       '..',

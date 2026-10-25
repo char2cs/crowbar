@@ -18,10 +18,14 @@
 // containing block. With it: 1/199 frames over 16.7ms, max 18ms, same
 // numbers as reserving the buttons' space outright — but without that
 // approach's already-documented cost (permanently truncating the label).
-export const ROW_BASE =
+// The capsule every sidebar row shares, minus its pitch: ROW_BASE adds the
+// chat tree's 36px, SidebarFileRow the file lists' denser one.
+export const ROW_SHAPE =
   'flex cursor-pointer select-none items-center gap-1.5 rounded-lg border contain-layout ' +
-  'h-9 px-1.5 mx-1.5 my-0.5 text-[13px] font-medium outline-none [touch-action:pan-x_pan-y] ' +
+  'px-1.5 text-[13px] font-medium outline-none [touch-action:pan-x_pan-y] ' +
   'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background'
+
+export const ROW_BASE = `${ROW_SHAPE} h-9 mx-1.5 my-0.5`
 
 // Shared selected/idle row variants so every sidebar row (workspaces, the repo
 // header) renders an identical active state — a raised, inset-lit surface when

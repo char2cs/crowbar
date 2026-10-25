@@ -584,6 +584,12 @@ describe('SidebarRow', () => {
       expect(screen.getByText(/feature\/parser-fix/)).toBeInTheDocument()
     })
 
+    it('separates the branch name from the counts with a space, not a dash', () => {
+      const { container } = render(<SidebarRow row={forkRow} depth={0} onOpen={vi.fn()} />)
+      expect(container.textContent).toContain('feature/parser-fix +42 -7')
+      expect(container.textContent).not.toContain('--')
+    })
+
     it('omits the counts when there is no diff yet, but still shows the branch name', () => {
       render(<SidebarRow row={{ ...forkRow, added: 0, deleted: 0 }} depth={0} onOpen={vi.fn()} />)
       expect(screen.getByText('feature/parser-fix')).toBeInTheDocument()
@@ -596,8 +602,31 @@ describe('SidebarRow', () => {
     })
 
     it('does not draw a second line for the project-home row', () => {
-      render(<SidebarRow row={{ ...forkRow, parentId: null }} depth={0} onOpen={vi.fn()} />)
+      render(
+        <SidebarRow
+          row={{
+            ...forkRow,
+            parentId: null,
+            repoIcon: {
+              repoId: 'r1',
+              projectId: 'p1',
+              name: 'crowbar',
+              avatarLabel: 'C',
+              avatarColor: 'bg-indigo-700',
+            },
+          }}
+          depth={0}
+          onOpen={vi.fn()}
+        />,
+      )
       expect(screen.queryByText('feature/parser-fix')).not.toBeInTheDocument()
+    })
+
+    it('does not draw a second line for a row drawn as a view tab', () => {
+      render(<SidebarRow row={forkRow} depth={0} onOpen={vi.fn()} tab="tab" />)
+      expect(screen.getByText('Fix the parser')).toBeInTheDocument()
+      expect(screen.queryByText(/feature\/parser-fix/)).not.toBeInTheDocument()
+      expect(screen.queryByText('+42')).not.toBeInTheDocument()
     })
 
     it('does not draw a second line for a chat bubble row', () => {

@@ -59,10 +59,12 @@ export function toggleActiveEditorGroupLock(): boolean {
 // `paneId` names the pane the review lands in (C8) — an INACTIVE pane's own
 // review button opens it in that pane, not in whichever one has focus. Omit
 // it only for a caller with no pane of its own (see
-// `openBranchReviewForActiveWorkspace`).
+// `openBranchReviewForActiveWorkspace`). `replaceTabId` is a New Tab page the
+// review takes the place of.
 export function openBranchReviewForWorkspace(
   wsId: string | null | undefined,
   paneId?: string,
+  replaceTabId?: string,
 ): string | null {
   if (!wsId) {
     return null
@@ -70,7 +72,10 @@ export function openBranchReviewForWorkspace(
 
   return windowPaneStore
     .getState()
-    .bufferActions.openContent({ type: 'branchReview', wsId, name: 'Branch Review' }, { paneId })
+    .bufferActions.openContent(
+      { type: 'branchReview', wsId, name: 'Branch Review' },
+      { paneId, replaceTabId },
+    )
 }
 
 // Opens the Branch Review surface for the globally active workspace — for
@@ -126,6 +131,17 @@ export function ensurePaneChatThenOpen(
 
   paneActions.dropChatOnPane(owningChatId, paneId, 'center', wsId)
   openIn(paneId)
+}
+
+/** A browser-style New Tab in `paneId`'s editor area: the `+`, ⌘T, and ⌘N over
+ *  the editor. Nothing without the pane's workspace (see above). */
+export function openNewTabPage(wsId: string | null | undefined, paneId: string): void {
+  if (!wsId) return
+  ensurePaneChatThenOpen(wsId, paneId, (target) => {
+    windowPaneStore
+      .getState()
+      .bufferActions.openContent({ type: 'newTabPage', workspaceId: wsId }, { paneId: target })
+  })
 }
 
 export function splitActiveEditorGroup(direction: 'horizontal' | 'vertical'): boolean {
@@ -251,4 +267,13 @@ export function moveActiveEditorToAdjacentGroup(direction: 'next' | 'previous'):
   // since Task 1's editorTabIds rename — real name is moveEditorTabToPane.
   state.paneActions.moveEditorTabToPane(activePane.activeEditorTabId, activePane.id, targetPane.id)
   return true
+}
+
+/** Show or hide the editor area beside a pane's chat (`PaneGroup.editorOpen`). */
+export function togglePaneEditor(paneId: string): void {
+  windowPaneStore.setState((state) => {
+    const p = state.panes[paneId]
+    if (!p) return {}
+    return { panes: { ...state.panes, [paneId]: { ...p, editorOpen: !p.editorOpen } } }
+  })
 }

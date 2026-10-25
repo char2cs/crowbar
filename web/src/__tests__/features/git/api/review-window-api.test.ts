@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  getReviewFileSides,
   getReviewOutline,
   getReviewPatch,
   searchReviewDiff,
@@ -233,6 +234,29 @@ describe('getReviewPatch', () => {
     expect(err).toBeInstanceOf(ApiError)
     expect((err as ApiError).status).toBe(400)
     expect((err as ApiError).message).toBe('path query parameter is required')
+  })
+})
+
+describe('getReviewFileSides', () => {
+  it('GETs /review/contents scoped to the path, commit and rename source', async () => {
+    const fetchMock = mockEnvelope({ old: 'a\n', new: null })
+
+    const sides = await getReviewFileSides({ wsId: 'ws-1', commit: 'abc123' }, 'new.ts', 'old.ts')
+
+    const url = new URL(urlOf(fetchMock), 'http://x')
+    expect(url.pathname).toBe(`${CHAT_BASE}/chat-of-ws-1/review/contents`)
+    expect(url.searchParams.get('path')).toBe('new.ts')
+    expect(url.searchParams.get('oldPath')).toBe('old.ts')
+    expect(url.searchParams.get('sha')).toBe('abc123')
+    expect(sides).toEqual({ old: 'a\n', new: null })
+  })
+
+  it('omits oldPath when the file was not renamed', async () => {
+    const fetchMock = mockEnvelope({ old: '', new: '' })
+
+    await getReviewFileSides({ wsId: 'ws-1' }, 'a.ts', 'a.ts')
+
+    expect(new URL(urlOf(fetchMock), 'http://x').searchParams.has('oldPath')).toBe(false)
   })
 })
 

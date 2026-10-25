@@ -31,11 +31,11 @@ vi.mock('@/features/git/components/diff/review-code-view', () => ({
   ReviewCodeView: () => null,
 }))
 
-function renderTab() {
+function renderTab(toolbarHost?: HTMLElement) {
   const store = createWorkspaceStore('ws-1')
   return render(
     <WorkspaceStoreContext.Provider value={store}>
-      <ReviewDiffTab onRetry={vi.fn()} wsId="ws-1" />
+      <ReviewDiffTab onRetry={vi.fn()} wsId="ws-1" toolbarHost={toolbarHost} />
     </WorkspaceStoreContext.Provider>,
   )
 }
@@ -84,5 +84,19 @@ describe('ReviewDiffTab — diff view mode persistence', () => {
       'aria-pressed',
       'false',
     )
+  })
+
+  it('renders the view controls into a provided toolbar host', async () => {
+    const user = userEvent.setup()
+    const host = document.body.appendChild(document.createElement('div'))
+    renderTab(host)
+
+    const inline = screen.getByRole('button', { name: 'Inline diff' })
+    expect(host.contains(inline)).toBe(true)
+    expect(host.contains(screen.getByRole('button', { name: 'Find in diff' }))).toBe(true)
+
+    await user.click(inline)
+    expect(useSettingsStore.getState().settings.diffViewMode).toBe('unified')
+    host.remove()
   })
 })

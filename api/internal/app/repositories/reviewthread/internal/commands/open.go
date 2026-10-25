@@ -9,8 +9,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// OpenReviewThread creates a ReviewThread anchored to a diff line, with its first
-// message (09 §3).
+// OpenReviewThread creates a ReviewThread anchored to a diff line (or, with no anchor, a
+// general comment), with its first message (09 §3).
 //
 // ProviderID and ChatID attribute the first message to the agent that wrote it;
 // a human open leaves both empty. They are not validated: attribution is
@@ -53,6 +53,26 @@ func (c OpenReviewThread) Validate(
 	}
 	if c.ID == "" || c.WsID == "" || c.MessageID == "" {
 		return fmt.Errorf("open review thread: missing ids: %w", asynxModels.ErrValidation)
+	}
+	return c.validateAnchor()
+}
+
+// validateAnchor accepts either no anchor at all (a general comment: empty path,
+// every line 0) or a complete one; a half anchor would be a thread no diff line
+// can ever show.
+func (c OpenReviewThread) validateAnchor() error {
+	if c.FilePath == "" && c.LineNumber == 0 && c.StartLine == 0 && c.EndLine == 0 {
+		return nil
+	}
+	start, end := c.StartLine, c.EndLine
+	if start == 0 {
+		start = c.LineNumber
+	}
+	if end == 0 {
+		end = c.LineNumber
+	}
+	if c.FilePath == "" || c.LineNumber < 0 || start < 1 || end < start {
+		return fmt.Errorf("open review thread: incomplete anchor: %w", asynxModels.ErrValidation)
 	}
 	return nil
 }

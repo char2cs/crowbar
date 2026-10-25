@@ -29,11 +29,6 @@ const THEME_MODE_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: 'dark', label: 'Dark' },
 ]
 
-const SIDEBAR_MODE_OPTIONS: { value: 'docked' | 'auto-hide'; label: string }[] = [
-  { value: 'docked', label: 'Docked' },
-  { value: 'auto-hide', label: 'Auto-hide' },
-]
-
 const SIDEBAR_POSITION_OPTIONS: { value: 'left' | 'right'; label: string }[] = [
   { value: 'left', label: 'Left' },
   { value: 'right', label: 'Right' },
@@ -241,32 +236,22 @@ export const AppearanceSettings = () => {
           </Select>
         </SettingRow>
         <SettingRow
-          label="File Explorer"
-          description="Auto-hide keeps a sliver at the window edge and slides the explorer in on hover"
-          onReset={() => updateSetting('sidebarMode', getDefaultSetting('sidebarMode'))}
-          canReset={settings.sidebarMode !== getDefaultSetting('sidebarMode')}
+          label="Sidebar follows focus"
+          description="Switch the sidebar between Chats, Files and Git as focus moves between chats, editors and diffs."
+          onReset={() =>
+            updateSetting('sidebarFollowsFocus', getDefaultSetting('sidebarFollowsFocus'))
+          }
+          canReset={settings.sidebarFollowsFocus !== getDefaultSetting('sidebarFollowsFocus')}
         >
-          <Select
-            value={settings.sidebarMode}
-            onValueChange={(value) => {
-              if (value) updateSetting('sidebarMode', value as 'docked' | 'auto-hide')
-            }}
-          >
-            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.compact}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SIDEBAR_MODE_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Switch
+            checked={settings.sidebarFollowsFocus}
+            onChange={(checked) => updateSetting('sidebarFollowsFocus', checked)}
+            size="sm"
+          />
         </SettingRow>
         <SettingRow
           label="Build readout"
-          description="Show the build channel, time and frame rate in the sidebar header"
+          description="Show the build, daemon connection, frame rate and open terminal, agent and workspace counts at the foot of the sidebar, or in the tab strip while it is hidden"
           onReset={() => updateSetting('showBuildReadout', getDefaultSetting('showBuildReadout'))}
           canReset={settings.showBuildReadout !== getDefaultSetting('showBuildReadout')}
         >

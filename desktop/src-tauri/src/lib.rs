@@ -1,4 +1,5 @@
 mod api_proxy;
+mod browser;
 mod console_menu;
 mod diagnostics;
 mod fdlimit;
@@ -304,7 +305,7 @@ fn apply_dev_window_title(app: &tauri::App) {
         return;
     };
 
-    let Some(window) = app.get_webview_window("main") else {
+    let Some(window) = app.get_window("main") else {
         return;
     };
 
@@ -491,7 +492,7 @@ async fn reveal_in_finder(path: String) -> Result<(), String> {
 /// VIEW (falls back to the NSWindow), never NSApp, so the WKWebView's own
 /// prefers-color-scheme is untouched.
 #[tauri::command]
-fn set_vibrancy_appearance(window: tauri::WebviewWindow, dark: bool) -> Result<(), String> {
+fn set_vibrancy_appearance(window: tauri::Window, dark: bool) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         use objc2::msg_send;
@@ -620,7 +621,7 @@ fn traffic_light_container_frame(
 /// value and as `getBoundingClientRect()` on whichever frontend row computes
 /// them; no DPI scaling happens here.
 #[tauri::command]
-fn set_traffic_light_position(window: tauri::WebviewWindow, x: f64, y: f64) -> Result<(), String> {
+fn set_traffic_light_position(window: tauri::Window, x: f64, y: f64) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         use objc2::msg_send;
@@ -759,7 +760,8 @@ async fn popup_native_context_menu(
 /// since the window is transparent with translucent chrome tokens on top, that reads as
 /// the blur vanishing the instant the window stops being key.
 #[cfg(target_os = "macos")]
-fn decorate_window(window: &tauri::WebviewWindow) {
+fn decorate_window(webview: &tauri::Webview) {
+    let window = webview.window();
     use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
 
     if let Err(e) = apply_vibrancy(
@@ -772,7 +774,7 @@ fn decorate_window(window: &tauri::WebviewWindow) {
     }
 
     // Step 2: post-creation setter, guarded by respondsToSelector:.
-    let _ = window.with_webview(|wv| {
+    let _ = webview.with_webview(|wv| {
         use objc2::runtime::AnyObject;
         let ptr = wv.inner() as *mut AnyObject;
         unsafe { disable_webkit_60fps_cap_post(ptr) };
@@ -780,7 +782,7 @@ fn decorate_window(window: &tauri::WebviewWindow) {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn decorate_window(_window: &tauri::WebviewWindow) {}
+fn decorate_window(_webview: &tauri::Webview) {}
 
 /// Builds the `initialization_script` that seeds `location.hash` to `route` on a new
 /// window's first paint (see the guard rationale on `open_window`, which is the only
@@ -903,12 +905,18 @@ async fn open_window(app: tauri::AppHandle, route: String) -> Result<(), String>
     // on main is simpler than splitting them.
     let decorated = window.clone();
     window
-        .run_on_main_thread(move || decorate_window(&decorated))
+        .run_on_main_thread(move || decorate_window(decorated.as_ref()))
         .map_err(|e| {
             log::error!("open_window: could not decorate on the main thread: {e}");
             format!("decorate window: {e}")
         })?;
     Ok(())
+}
+
+/// Window-level labels: `webview_windows()` omits a window once it hosts a child
+/// webview (a browser tab), which would make the last-window check see none.
+fn live_window_labels<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Vec<String> {
+    tauri::Manager::windows(app).into_keys().collect()
 }
 
 /// Does any window OTHER than `closing` still exist?
@@ -986,6 +994,9 @@ pub fn run() {
         .plugin(
             tauri::plugin::Builder::<tauri::Wry, ()>::new("navigation-guard")
                 .on_navigation(|webview, url| {
+                    if browser::exempt_from_app_guard(webview.label()) {
+                        return true;
+                    }
                     let dev_url = webview.app_handle().config().build.dev_url.clone();
                     navigation::guard(url, dev_url.as_ref())
                 })
@@ -1075,8 +1086,8 @@ pub fn run() {
             // Native macOS blur + WebKit 60fps un-cap. See decorate_window — applied
             // here for `main`, and again for every window `open_window` creates.
             #[cfg(target_os = "macos")]
-            if let Some(window) = app.get_webview_window("main") {
-                decorate_window(&window);
+            if let Some(webview) = app.get_webview("main") {
+                decorate_window(&webview);
             }
 
             // Say which worktree this instance came out of. See
@@ -1126,8 +1137,8 @@ pub fn run() {
                 if !matches!(event, tauri::WindowEvent::Destroyed) {
                     return;
                 }
-                let windows = app.webview_windows();
-                if another_window_survives(windows.keys().map(String::as_str), label) {
+                let windows = live_window_labels(app);
+                if another_window_survives(windows.iter().map(String::as_str), label) {
                     return;
                 }
 
@@ -1145,6 +1156,19 @@ pub fn run() {
             popup_native_context_menu,
             open_window,
             console_menu::set_console_menu_chord,
+            browser::browser_open,
+            browser::browser_set_bounds,
+            browser::browser_set_visible,
+            browser::browser_navigate,
+            browser::browser_back,
+            browser::browser_forward,
+            browser::browser_reload,
+            browser::browser_close,
+            browser::browser_eval,
+            browser::browser_screenshot,
+            browser::browser_capabilities,
+            browser::browser_clear_data,
+            browser::browser_copy_text,
         ])
         .build(tauri::generate_context!())
         .expect("error building Tauri app")
@@ -1220,7 +1244,35 @@ mod reveal_in_finder_tests {
 
 #[cfg(test)]
 mod last_window_tests {
-    use super::another_window_survives;
+    use super::{another_window_survives, live_window_labels};
+    use tauri::test::mock_app;
+    use tauri::webview::WebviewBuilder;
+    use tauri::{LogicalPosition, LogicalSize, WebviewUrl, WebviewWindowBuilder};
+
+    /// A window hosting a browser child webview is no longer a "webview window"
+    /// to tauri, so `webview_windows()` drops it; it must still count as alive.
+    #[test]
+    fn a_window_hosting_a_browser_child_still_counts_as_a_window() {
+        let app = mock_app();
+        let main = WebviewWindowBuilder::new(&app, "main", WebviewUrl::default())
+            .build()
+            .unwrap();
+        main.as_ref()
+            .window()
+            .add_child(
+                WebviewBuilder::new("browser-a", WebviewUrl::default()),
+                LogicalPosition::new(0.0, 0.0),
+                LogicalSize::new(10.0, 10.0),
+            )
+            .unwrap();
+
+        let labels = live_window_labels(app.handle());
+        assert_eq!(labels, ["main"]);
+        assert!(another_window_survives(
+            labels.iter().map(String::as_str),
+            "w2"
+        ));
+    }
 
     /// The two shapes the SAME close produces, because `on_window_event` matches both
     /// `CloseRequested` and `Destroyed` and tauri prunes its window map between them.

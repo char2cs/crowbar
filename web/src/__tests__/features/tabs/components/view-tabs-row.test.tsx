@@ -8,12 +8,14 @@ import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
+import { useSettingsStore } from '@/features/settings/store'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 
+const sidebar = vi.hoisted(() => ({ open: true }))
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => vi.fn() }))
 vi.mock('@/components/ui/sidebar', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/components/ui/sidebar')>()),
-  useSidebar: () => ({ open: true, toggleSidebar: vi.fn() }),
+  useSidebar: () => ({ open: sidebar.open, toggleSidebar: vi.fn() }),
 }))
 vi.mock('@/features/panes/lib/release-closed-chat', () => ({
   releaseClosedChat: vi.fn(async () => {}),
@@ -24,6 +26,11 @@ const paneOf = (chatId: string) => chatPaneIndex(windowPaneStore.getState().pane
 const viewOf = (chatId: string) => windowPaneStore.getState().panes[paneOf(chatId)].viewId!
 
 beforeEach(() => {
+  sidebar.open = true
+  useSettingsStore.setState((state) => {
+    state.settings.buildBadgeOverride = 'beta'
+    state.settings.sidebarPosition = 'left'
+  })
   useSidebarStore.setState({
     ...getInitialState(),
     repos: [
@@ -104,5 +111,35 @@ describe('ViewTabsRow', () => {
     act(() => actions().reorderView(second, first, 'before'))
 
     expect(order()).toEqual(['recents-row-chat-2', 'recents-row-chat-1'])
+  })
+
+  // The sidebar's foot shows the build readout while it is open.
+  it('carries the build readout only while the sidebar is hidden', () => {
+    actions().openChat('chat-1', { workspaceId: 'ws-1' })
+    const { unmount } = render(<ViewTabsRow />)
+    expect(screen.queryByText(/beta 0\.0\.0-beta\.1/)).toBeNull()
+    unmount()
+
+    sidebar.open = false
+    render(<ViewTabsRow />)
+    expect(screen.getByText(/beta 0\.0\.0-beta\.1/)).toBeInTheDocument()
+  })
+
+  it('places the readout before the reopen toggle so they never overlap', () => {
+    sidebar.open = false
+    useSettingsStore.setState((state) => {
+      state.settings.sidebarPosition = 'right'
+    })
+    actions().openChat('chat-1', { workspaceId: 'ws-1' })
+    // jsdom has no layout: report a row flush against the window's right edge.
+    const rect = { left: 0, top: 0, width: window.innerWidth, height: 32, right: window.innerWidth }
+    const measure = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue(rect as DOMRect)
+    render(<ViewTabsRow />)
+    measure.mockRestore()
+    const readout = screen.getByText(/beta 0\.0\.0-beta\.1/)
+    const toggle = screen.getByRole('button', { name: 'Show sidebar' })
+    expect(readout.compareDocumentPosition(toggle)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   })
 })

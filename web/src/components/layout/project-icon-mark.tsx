@@ -87,17 +87,15 @@ export function ProjectIconMark({ project, size, version }: ProjectIconMarkProps
 interface EditableProjectIconProps {
   project: ProjectIconSource & { id: string }
   size: keyof typeof SIZES
-  /** Forwarded to IconPopover — see its own doc. */
-  onOpenChange?: (open: boolean) => void
 }
 
 /**
- * The space header's own icon, click-to-edit — mirrors EditableRepoIcon
+ * The active project's icon in the sidebar switcher, click-to-edit — mirrors EditableRepoIcon
  * (repo-icon-mark.tsx). The daemon's four icon routes are identical under a
  * project, minus the GitHub owner-avatar button: a project has no origin
  * remote to read one from.
  */
-export function EditableProjectIcon({ project, size, onOpenChange }: EditableProjectIconProps) {
+export function EditableProjectIcon({ project, size }: EditableProjectIconProps) {
   return (
     <IconPopover
       base={`/v0/projects/${project.id}`}
@@ -107,7 +105,6 @@ export function EditableProjectIcon({ project, size, onOpenChange }: EditablePro
       fallback={<ProjectIconMark project={project} size={size} />}
       fallbackLarge={<ProjectIconMark project={project} size="xl" />}
       trigger={(version) => <ProjectIconMark project={project} size={size} version={version} />}
-      onOpenChange={onOpenChange}
     />
   )
 }

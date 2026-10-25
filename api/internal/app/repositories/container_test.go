@@ -498,7 +498,7 @@ func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 
 	// A review thread anchored to the workspace: the cascade must forget it.
 	_, err = c.ReviewThread.Open(ctx, reviewthread.OpenInput{
-		ID: "t1", WsID: "w1", FilePath: "a.go", MessageID: "m1", Author: "u", Body: "hi",
+		ID: "t1", WsID: "w1", FilePath: "a.go", LineNumber: 1, MessageID: "m1", Author: "u", Body: "hi",
 	}, time.Unix(2, 0).UTC())
 	require.NoError(t, err)
 

@@ -17,7 +17,7 @@ export const defaultSettings: Settings = {
   // General
   autoSave: false,
   sidebarPosition: 'left',
-  sidebarMode: 'docked',
+  sidebarFollowsFocus: false,
   // Editor
   fontFamily: DEFAULT_MONO_FONT_FAMILY,
   fontSize: DEFAULT_CODE_FONT_SIZE,
@@ -40,6 +40,11 @@ export const defaultSettings: Settings = {
   terminalCursorStyle: 'block',
   terminalCursorBlink: true,
   terminalCursorWidth: 2,
+  // Browser
+  browserHomepage: '',
+  browserSearchEngine: 'duckduckgo',
+  browserCustomSearchUrl: '',
+  browserZoom: 100,
   // UI
   uiFontFamily: DEFAULT_UI_FONT_FAMILY,
   uiFontSize: UI_FONT_SIZE_DEFAULT,

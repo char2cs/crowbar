@@ -129,6 +129,96 @@ describe('buffer-slice', () => {
     ).toBeUndefined()
   })
 
+  it('openContent opens a New Tab page as a real, virtual tab named New Tab', () => {
+    const id = store.getState().bufferActions.openContent({ type: 'newTabPage', workspaceId: 'w1' })
+    expect(store.getState().buffers).toEqual([
+      expect.objectContaining({ id, type: 'newTabPage', name: 'New Tab', workspaceId: 'w1' }),
+    ])
+    expect(store.getState().panes[ROOT_PANE_ID].activeEditorTabId).toBe(id)
+  })
+
+  it('a second New Tab in the same pane focuses the first instead of stacking', () => {
+    const { bufferActions } = store.getState()
+    const first = bufferActions.openContent({ type: 'newTabPage' })
+    const other = bufferActions.openContent(editor('/a.ts'))
+    expect(store.getState().panes[ROOT_PANE_ID].activeEditorTabId).toBe(other)
+
+    expect(bufferActions.openContent({ type: 'newTabPage' })).toBe(first)
+    expect(store.getState().panes[ROOT_PANE_ID].editorTabIds).toEqual([first, other])
+    expect(store.getState().panes[ROOT_PANE_ID].activeEditorTabId).toBe(first)
+  })
+
+  it('each pane gets its own New Tab', () => {
+    const { bufferActions } = store.getState()
+    const root = bufferActions.openContent({ type: 'newTabPage' })
+    const bottom = bufferActions.openContent({ type: 'newTabPage' }, { paneId: BOTTOM_PANE_ID })
+    expect(bottom).not.toBe(root)
+    expect(store.getState().panes[BOTTOM_PANE_ID].editorTabIds).toEqual([bottom])
+  })
+
+  it('content chosen on a New Tab takes its place in the strip and the tab is released', () => {
+    const { bufferActions } = store.getState()
+    const before = bufferActions.openContent(editor('/a.ts'))
+    const page = bufferActions.openContent({ type: 'newTabPage' })
+    const after = bufferActions.openContent(editor('/b.ts'))
+    store.getState().paneActions.activateEditorTabInPane(ROOT_PANE_ID, page)
+
+    const term = bufferActions.openContent(
+      { type: 'terminal' },
+      { paneId: ROOT_PANE_ID, replaceTabId: page },
+    )
+
+    expect(store.getState().panes[ROOT_PANE_ID].editorTabIds).toEqual([before, term, after])
+    expect(store.getState().panes[ROOT_PANE_ID].activeEditorTabId).toBe(term)
+    expect(store.getState().buffers.some((b) => b.id === page)).toBe(false)
+  })
+
+  it('choosing something already open on a New Tab focuses it and drops the New Tab', () => {
+    const { bufferActions } = store.getState()
+    const file = bufferActions.openContent(editor('/a.ts'))
+    const page = bufferActions.openContent({ type: 'newTabPage' })
+
+    expect(bufferActions.openContent(editor('/a.ts'), { replaceTabId: page })).toBe(file)
+    expect(store.getState().panes[ROOT_PANE_ID].editorTabIds).toEqual([file])
+    expect(store.getState().panes[ROOT_PANE_ID].activeEditorTabId).toBe(file)
+    expect(store.getState().buffers.map((b) => b.id)).toEqual([file])
+  })
+
+  it('openContent creates an empty browser tab per call and never dedups', () => {
+    const { bufferActions } = store.getState()
+    const a = bufferActions.openContent({ type: 'browser' })
+    const b = bufferActions.openContent({ type: 'browser' })
+    expect(a).not.toBe(b)
+    expect(a).toMatch(/^[A-Za-z0-9_-]+$/)
+    expect(store.getState().buffers[0]).toMatchObject({ type: 'browser', url: '', name: 'Browser' })
+  })
+
+  it('openContent opens a browser tab on the given page, named for its host', () => {
+    const { bufferActions } = store.getState()
+    bufferActions.openContent({ type: 'browser', url: 'https://example.com/home' })
+    expect(store.getState().buffers[0]).toMatchObject({
+      type: 'browser',
+      url: 'https://example.com/home',
+      name: 'example.com',
+    })
+  })
+
+  it('setBrowserLocation keeps the stored url and the tab name in step', () => {
+    const { bufferActions } = store.getState()
+    const id = bufferActions.openContent({ type: 'browser' })
+    bufferActions.setBrowserLocation(id, { url: 'https://example.com/a' })
+    expect(store.getState().buffers[0]).toMatchObject({
+      url: 'https://example.com/a',
+      name: 'example.com',
+    })
+    bufferActions.setBrowserLocation(id, { title: 'Example Domain' })
+    expect(store.getState().buffers[0]).toMatchObject({
+      url: 'https://example.com/a',
+      title: 'Example Domain',
+      name: 'Example Domain',
+    })
+  })
+
   it('closing a tab removes its buffer from the list', () => {
     const id = store.getState().bufferActions.openContent(editor('/a.ts'))
     closeTab(store, ROOT_PANE_ID, id)
@@ -213,6 +303,27 @@ describe('buffer-slice', () => {
     expect(store.getState().bufferActions.getBufferById(id)?.isPinned).toBe(true)
     store.getState().bufferActions.setPinned(id, false)
     expect(store.getState().bufferActions.getBufferById(id)?.isPinned).toBe(false)
+  })
+
+  describe('setBranchReviewView', () => {
+    it('stores the chosen view on the review buffer and survives re-opening it', () => {
+      const { bufferActions } = store.getState()
+      const spec = { type: 'branchReview' as const, wsId: 'w1', name: 'Branch Review' }
+      const id = bufferActions.openContent(spec)
+      expect(bufferActions.getBufferById(id)).not.toHaveProperty('view')
+
+      bufferActions.setBranchReviewView(id, 'conversation')
+
+      expect(bufferActions.openContent(spec)).toBe(id)
+      expect(bufferActions.getBufferById(id)).toMatchObject({ view: 'conversation' })
+    })
+
+    it('ignores buffers that are not a branch review', () => {
+      const { bufferActions } = store.getState()
+      const id = bufferActions.openContent(editor('/src/a.ts'))
+      bufferActions.setBranchReviewView(id, 'files')
+      expect(bufferActions.getBufferById(id)).not.toHaveProperty('view')
+    })
   })
 
   describe('promotePreview', () => {

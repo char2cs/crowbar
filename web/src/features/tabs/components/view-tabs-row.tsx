@@ -95,8 +95,13 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
           </ViewTabSlot>
         ))}
       </div>
+      {/* A zero-width anchor in flow: the readout hangs off its right edge, so it sits left of the reopen toggle that follows. */}
+      {!sidebarOpen && (
+        <div className="relative w-0 shrink-0 self-stretch">
+          <BuildReadout className="right-2" />
+        </div>
+      )}
       {!sidebarOpen && sidebarPosition === 'right' && isAtRightEdge && toggle}
-      {(sidebarPosition === 'left' || !sidebarOpen) && <BuildReadout className="right-3" />}
       {drag.dragging && <DropIndicator ref={drag.attachDropLine} />}
       {drag.ghostRows && (
         <DragGhost ref={drag.ghostRef} origin={drag.ghostOrigin}>

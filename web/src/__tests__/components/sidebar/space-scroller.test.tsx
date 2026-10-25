@@ -4,10 +4,7 @@ import { SpaceScroller } from '@/components/sidebar/space-scroller'
 import { handleCreateHomeThread } from '@/components/layout/home-actions'
 import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
 import { getWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import type { Project } from '@/lib/types'
@@ -360,68 +357,19 @@ describe('SpaceScroller', () => {
     expect(onCreate).toHaveBeenCalledWith('row-1', 'thread')
   })
 
-  // Spec §6: "the tree keeps a bottom inset the height of the card." An
-  // OUTER, non-scrolling spacer now carries this — not padding on the
-  // scrollable content, which counted straight toward `scrollHeight` and
-  // could show a scrollbar for a list that visually didn't need one (the
-  // card's default open height is a third of the whole sidebar rail). Reads
-  // `--card-bottom-inset` off the CSS cascade (written directly onto the
-  // shared rail ancestor by sidebar-carousel.tsx — see ide-shell.tsx's
-  // `railRef`) rather than a React prop threaded through every layer: a
-  // prop here would re-render this panel (and every row in it) on every
-  // frame of a resize drag. See sidebar-carousel.test.tsx's "does not
-  // re-render the tree during a live drag" for the live end-to-end proof.
-  it("reserves the card's bottom inset as an outer spacer, not scroll-content padding", () => {
-    const projects = [makeProject('p1'), makeProject('p2')]
-    render(
-      <SpaceScroller
-        projects={projects}
-        activeProjectId="p1"
-        onActiveProjectChange={vi.fn()}
-        rowsForProject={() => []}
-        onOpen={vi.fn()}
-        onTrash={vi.fn()}
-        onCreate={vi.fn()}
-        onDrop={onDrop}
-        onPaneDrop={onPaneDrop}
-        onTrashProject={vi.fn()}
-      />,
-    )
-    const spacers = screen.getAllByTestId('space-scroll-bottom-spacer')
-    expect(spacers).toHaveLength(2)
-    for (const spacer of spacers) {
-      expect(spacer).toHaveStyle({ height: 'var(--card-bottom-inset, 0px)' })
-      expect(spacer).toHaveClass('shrink-0')
-    }
-    // The scroll content itself carries no padding for this any more — the
-    // whole point is keeping it out of `scrollHeight`.
-    for (const content of screen.getAllByTestId('space-scroll-content')) {
-      expect(content).not.toHaveStyle({ paddingBottom: 'var(--card-bottom-inset, 0px)' })
-    }
-  })
-
-  // Spec §4: the space header IS the panel's first element, and it is what
-  // says which project this space is. Built in Task 10 and left with zero
-  // importers until the final fix wave.
-  describe('space header (spec §4)', () => {
-    // The fold toggle (aria-expanded, the click that folds/unfolds) lives on
-    // its own button INSIDE the row now, not on the row itself (space-header.tsx's
-    // own doc: "the outer div being one big role=button" was un-nested from the
-    // overflow/thread controls it used to swallow) — this file's own testid
-    // still names the outer row, so tests reach the real control through it.
-    const foldToggle = (header: HTMLElement) =>
-      within(header).getByRole('button', { name: /^(Expand|Collapse) / })
-
-    const renderScroller = (overrides: Partial<{ onTrashProject: () => void }> = {}) => {
+  // The project row is gone (the switcher above names the space); its verbs
+  // live in the foot under the tree instead.
+  describe('tree foot', () => {
+    const renderScroller = (
+      overrides: Partial<{ onTrashProject: (id: string) => void; rows: SidebarRow[] }> = {},
+    ) => {
       const projects = [makeProject('p1'), makeProject('p2')]
-      windowPaneStore.getState().paneActions.openChat('chat-1', { projectId: 'p1' })
-      windowPaneStore.getState().paneActions.adoptBackgroundChat('chat-2', 'p2')
       render(
         <SpaceScroller
           projects={projects}
           activeProjectId="p1"
           onActiveProjectChange={vi.fn()}
-          rowsForProject={() => [makeRow('row-1', 'Fix the thing')]}
+          rowsForProject={() => overrides.rows ?? [makeRow('row-1', 'Fix the thing')]}
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={vi.fn()}
@@ -430,87 +378,54 @@ describe('SpaceScroller', () => {
           onTrashProject={overrides.onTrashProject ?? vi.fn()}
         />,
       )
+      return within(screen.getAllByTestId('space-panel')[0])
+    }
+    const openMore = (panel: ReturnType<typeof renderScroller>) => {
+      fireEvent.click(panel.getByRole('button', { name: 'More…' }))
+      return screen.getAllByRole('menuitem')
     }
 
-    it('renders one header per space, above that space\u2019s scroller', () => {
-      renderScroller()
-      const headers = screen.getAllByTestId('space-header-row')
-      expect(headers).toHaveLength(2)
-      const panel = screen.getAllByTestId('space-panel')[0]
-      const content = screen.getAllByTestId('space-scroll-content')[0]
-      expect(panel.contains(headers[0])).toBe(true)
-      // The header is NOT inside the scroll region — spec §2 draws it
-      // `flex: none` above the scroller, so it never scrolls away.
-      expect(content.contains(headers[0])).toBe(false)
+    it('draws no project row, and the tree still starts with its own rows', () => {
+      const panel = renderScroller()
+      expect(panel.queryByText('p1')).not.toBeInTheDocument()
+      expect(panel.queryByRole('button', { name: /^(Expand|Collapse) p1$/ })).toBeNull()
+      expect(panel.getByText('Fix the thing')).toBeInTheDocument()
+    })
+
+    it('puts a divider, then New thread and More…, after the last tree row inside the scroller', () => {
+      const panel = renderScroller()
+      const content = panel.getByTestId('space-scroll-content')
+      const lastRow = panel.getByText('Fix the thing')
+      const divider = panel.getByTestId('tree-foot-divider')
+      const newThread = panel.getByRole('button', { name: 'New thread' })
+      const more = panel.getByRole('button', { name: 'More…' })
+      for (const el of [divider, newThread, more]) expect(content.contains(el)).toBe(true)
       expect(
-        headers[0].compareDocumentPosition(content) & Node.DOCUMENT_POSITION_FOLLOWING,
+        lastRow.compareDocumentPosition(divider) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+      expect(
+        divider.compareDocumentPosition(newThread) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+      expect(
+        newThread.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy()
     })
 
-    it('folding hides the tree', () => {
-      renderScroller()
-      expect(screen.getAllByText('Fix the thing')).toHaveLength(2)
-
-      fireEvent.click(foldToggle(screen.getAllByTestId('space-header-row')[0]))
-
-      // p1's tree is gone; p2's header was not clicked, so its own tree stays.
-      expect(screen.queryAllByText('Fix the thing')).toHaveLength(1)
+    it('an empty space still shows the divider and both rows', () => {
+      const panel = renderScroller({ rows: [] })
+      expect(panel.queryAllByRole('treeitem')).toHaveLength(0)
+      expect(panel.getByTestId('tree-foot-divider')).toBeInTheDocument()
+      expect(panel.getByRole('button', { name: 'New thread' })).toBeInTheDocument()
+      expect(panel.getByRole('button', { name: 'More…' })).toBeInTheDocument()
     })
 
-    it('folds only the space whose header was clicked', () => {
-      renderScroller()
-      const headers = screen.getAllByTestId('space-header-row')
-      expect(foldToggle(headers[0])).toHaveAttribute('aria-expanded', 'true')
-
-      fireEvent.click(foldToggle(headers[0]))
-
-      expect(foldToggle(screen.getAllByTestId('space-header-row')[0])).toHaveAttribute(
-        'aria-expanded',
-        'false',
-      )
-      expect(foldToggle(screen.getAllByTestId('space-header-row')[1])).toHaveAttribute(
-        'aria-expanded',
-        'true',
-      )
-    })
-
-    // Addendum §4: "the dropdown never carries a Delete item" -- deletion's
-    // only path is drag-to-trash now (addendum §2), superseding spec §9's
-    // "every row that owns something carries a trash" for the project
-    // header the same way it superseded it for a row's own trash button.
-    it('the overflow opens with Import a repo / Create a folder / Delete Space, never a Delete "name" item', () => {
-      const onTrashProject = vi.fn()
-      renderScroller({ onTrashProject })
-      const header = screen.getAllByTestId('space-header-row')[0]
-
-      fireEvent.mouseEnter(header) // the overflow trigger only exists while active
-      fireEvent.click(screen.getByTestId('delete-menu'))
-
-      expect(screen.getByText('Import a repo')).toBeInTheDocument()
-      expect(screen.getByText('Create a folder')).toBeInTheDocument()
-      expect(screen.getByText('Delete Space')).toBeInTheDocument()
-
-      expect(screen.queryByText('Delete \u201Cp1\u201D')).not.toBeInTheDocument()
-      expect(onTrashProject).not.toHaveBeenCalled()
-      // Opening the overflow must not fold the space either way (SpaceHeader
-      // stops propagation; this pins that the mount relies on it).
-      expect(foldToggle(screen.getAllByTestId('space-header-row')[0])).toHaveAttribute(
-        'aria-expanded',
-        'true',
-      )
-    })
-
-    // Not `onCreate('row-1', 'thread')`: that pipe resolves against the
-    // REPO-scoped sidebar store, which has no notion of project home at all
-    // — the button must reach the project-home-aware sibling instead (the
-    // exact bug this test guards against: threads landing on a repo's own
-    // home row rather than the project's).
-    it("the header's thread button starts a thread on the project's home workspace, not a repo's", () => {
+    // Not `onCreate(row, 'thread')`: that pipe resolves against the repo-scoped
+    // store, which has no notion of project home at all.
+    it("New thread starts a thread on the project's home workspace, not a repo's", () => {
       const onCreate = vi.fn()
-      const projects = [makeProject('p1')]
       render(
         <SpaceScroller
-          projects={projects}
+          projects={[makeProject('p1')]}
           activeProjectId="p1"
           onActiveProjectChange={vi.fn()}
           rowsForProject={() => [makeRow('row-1', 'Fix the thing', { kind: 'branch' })]}
@@ -522,101 +437,51 @@ describe('SpaceScroller', () => {
           onTrashProject={vi.fn()}
         />,
       )
-      const header = screen.getAllByTestId('space-header-row')[0]
-
-      fireEvent.mouseEnter(header)
-      fireEvent.click(screen.getByTestId('new-thread'))
-
+      fireEvent.click(screen.getByRole('button', { name: 'New thread' }))
       expect(handleCreateHomeThread).toHaveBeenCalledWith('p1', 'home-ws-1', expect.any(Function))
       expect(onCreate).not.toHaveBeenCalled()
     })
 
-    // Reported live as "can't create a thread from the project home": a
-    // freshly-opened (or just-created) project's home workspace resolves
-    // asynchronously, and clicking the thread button during that window used
-    // to silently do nothing — no error, no visible reason, `handleCreateHomeThread`
-    // never even called. A row's own refusals all surface a toast instead of
-    // a dead click; this pins the header's thread button doing the same.
-    it('clicking the thread button before the home workspace has resolved refuses with a toast, not silently', async () => {
+    it('New thread before the home workspace has resolved refuses with a toast, not silently', async () => {
       useHomeWorkspaceStateMock.mockReturnValue({ wsId: null, owningChatId: null, error: false })
       const { toast } = await import('@/features/window/stores/toast-store')
-      const projects = [makeProject('p1')]
-      render(
-        <SpaceScroller
-          projects={projects}
-          activeProjectId="p1"
-          onActiveProjectChange={vi.fn()}
-          rowsForProject={() => []}
-          onOpen={vi.fn()}
-          onTrash={vi.fn()}
-          onCreate={vi.fn()}
-          onDrop={onDrop}
-          onPaneDrop={onPaneDrop}
-          onTrashProject={vi.fn()}
-        />,
-      )
-      const header = screen.getAllByTestId('space-header-row')[0]
-      // This file's mocks are never cleared between tests (an earlier test
-      // above already calls `handleCreateHomeThread` once for real) — a call
-      // COUNT taken right before the click, not `.not.toHaveBeenCalled()`,
-      // is what actually proves THIS click added no new call.
+      const panel = renderScroller()
+      // Mocks are never cleared between tests here: count, don't assert "never".
       const callsBefore = vi.mocked(handleCreateHomeThread).mock.calls.length
-
-      fireEvent.mouseEnter(header)
-      fireEvent.click(screen.getByTestId('new-thread'))
-
+      fireEvent.click(panel.getByRole('button', { name: 'New thread' }))
       expect(handleCreateHomeThread).toHaveBeenCalledTimes(callsBefore)
       expect(toast.error).toHaveBeenCalledWith("Can't start a new thread yet")
     })
 
-    // "Create a folder" used to target the FIRST repo's own home row — folders
-    // were once thought repo-internal only. The backend's `/home/chats/folders`
-    // mount says otherwise, so the project-level overflow item has to reach it.
-    it("the overflow's Create a folder starts a folder on the project's home workspace", () => {
-      renderScroller()
-      const header = screen.getAllByTestId('space-header-row')[0]
+    it('More… opens a menu of exactly Import a repo, Create a new folder, Delete space', () => {
+      const onTrashProject = vi.fn()
+      const panel = renderScroller({ onTrashProject })
+      const items = openMore(panel)
+      expect(items.map((i) => i.textContent)).toEqual([
+        'Import a repo',
+        'Create a new folder',
+        'Delete space',
+      ])
+      expect(onTrashProject).not.toHaveBeenCalled()
+    })
 
-      fireEvent.mouseEnter(header)
-      fireEvent.click(screen.getByTestId('delete-menu'))
-      fireEvent.click(screen.getByText('Create a folder'))
+    it("More…'s Import a repo opens the add-repository dialog", () => {
+      const panel = renderScroller()
+      fireEvent.click(openMore(panel)[0])
+      expect(screen.getByRole('dialog', { name: 'Add repository' })).toBeInTheDocument()
+    })
 
+    it("More…'s Create a new folder starts a folder on the project's home workspace", () => {
+      const panel = renderScroller()
+      fireEvent.click(openMore(panel)[1])
       expect(performCreateHomeFolder).toHaveBeenCalledWith('p1')
     })
 
-    // THE BUG: "can't start chats directly on a CLI, it always obligates me
-    // to use the native chat" — same "start THIS chat on the CLI" affordance
-    // as the sidebar row's own context-menu item, at the project-home level:
-    // the SAME handleCreateHomeThread the plain thread button calls, with
-    // the optional 4th (presentation) argument the fix added.
-    it("the overflow's New thread in Terminal presets the project-home thread onto Terminal", () => {
-      renderScroller()
-      const header = screen.getAllByTestId('space-header-row')[0]
-
-      fireEvent.mouseEnter(header)
-      fireEvent.click(screen.getByTestId('delete-menu'))
-      fireEvent.click(screen.getByText('New thread in Terminal'))
-
-      expect(handleCreateHomeThread).toHaveBeenCalledWith(
-        'p1',
-        'home-ws-1',
-        expect.any(Function),
-        'terminal',
-      )
-    })
-
-    it('the overflow’s New thread in Terminal also refuses with a toast, not silently, before the home workspace resolves', async () => {
-      useHomeWorkspaceStateMock.mockReturnValue({ wsId: null, owningChatId: null, error: false })
-      const { toast } = await import('@/features/window/stores/toast-store')
-      renderScroller()
-      const header = screen.getAllByTestId('space-header-row')[0]
-      const callsBefore = vi.mocked(handleCreateHomeThread).mock.calls.length
-
-      fireEvent.mouseEnter(header)
-      fireEvent.click(screen.getByTestId('delete-menu'))
-      fireEvent.click(screen.getByText('New thread in Terminal'))
-
-      expect(handleCreateHomeThread).toHaveBeenCalledTimes(callsBefore)
-      expect(toast.error).toHaveBeenCalledWith("Can't start a new thread yet")
+    it("More…'s Delete space trashes this space, not another", () => {
+      const onTrashProject = vi.fn()
+      const panel = renderScroller({ onTrashProject })
+      fireEvent.click(openMore(panel)[2])
+      expect(onTrashProject).toHaveBeenCalledExactlyOnceWith('p1')
     })
   })
 
@@ -627,7 +492,7 @@ describe('SpaceScroller', () => {
     const HOME_ROW_ID = 'home-branch-row'
 
     // Explicit user correction: a first version drew a container "Home" row
-    // (labelled with the project's own name, duplicating the SpaceHeader
+    // (labelled with the project's own name, duplicating the project switcher
     // right above it) for these to nest under — rejected outright. Home's
     // chats/folders are FLAT TOP-LEVEL rows, exactly like a repo itself.
     it("renders the project's home chats and folders as flat top-level rows, not nested under anything", () => {
@@ -671,12 +536,11 @@ describe('SpaceScroller', () => {
         />,
       )
 
-      // 'p1' exactly once now — the SpaceHeader alone. No second row repeats
-      // it (the rejected "container" row this test used to also assert).
-      // Structural parentId:null / indent-depth coverage lives at the unit
+      // No row names the project (the rejected "container" row, and the
+      // retired project row, both did). Structural parentId:null / indent-depth coverage lives at the unit
       // level in rows-from-home.test.ts, which isn't tangled up in DOM
       // traversal the way an assertion here would be.
-      expect(screen.getAllByText('p1')).toHaveLength(1)
+      expect(screen.queryByText('p1')).not.toBeInTheDocument()
       expect(screen.getByText('Fix the thing')).toBeInTheDocument()
       expect(screen.getByText('Notes')).toBeInTheDocument()
       expect(screen.getByText('Repo thread')).toBeInTheDocument()
@@ -702,7 +566,7 @@ describe('SpaceScroller', () => {
                 id: 'real-1',
                 repoId: '',
                 workspaceId: 'home-ws-1',
-                title: 'New thread',
+                title: 'Fresh thread',
                 order: 0,
                 // Still parented at root — its placement write has not
                 // landed yet, exactly the frame that must never reach the
@@ -747,7 +611,7 @@ describe('SpaceScroller', () => {
 
       // The real row is hidden — its title never reaches the screen while
       // unconfirmed, even though it already exists in the store.
-      expect(screen.queryByText('New thread')).not.toBeInTheDocument()
+      expect(screen.queryByText('Fresh thread')).not.toBeInTheDocument()
 
       // The create confirms (waitForHomeChat's own clear, elsewhere) — the
       // pending entry is gone, and the (now definitely correctly placed)
@@ -756,7 +620,7 @@ describe('SpaceScroller', () => {
         usePendingCreatesStore.setState({ entries: [] })
       })
 
-      expect(screen.getByText('New thread')).toBeInTheDocument()
+      expect(screen.getByText('Fresh thread')).toBeInTheDocument()
     })
 
     // Caught live: a repo's own row kept its raw backend `order` while a home

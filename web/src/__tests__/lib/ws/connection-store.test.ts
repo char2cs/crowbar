@@ -34,6 +34,8 @@ const { createWSManager } = await import('@/lib/ws/manager')
 const { useConnectionStore, resetConnectionState } = await import('@/lib/ws/connection-store')
 
 const status = () => useConnectionStore.getState().status
+const reconnects = () => useConnectionStore.getState().reconnects
+const degraded = () => useConnectionStore.getState().degraded
 
 beforeEach(() => {
   MockWebSocket.instances = []
@@ -105,6 +107,51 @@ describe('connection store', () => {
       // Late close event from the replaced socket must be ignored.
       MockWebSocket.instances[0].simulateClose()
       expect(status()).toBe('connected')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('counts a reconnect only when the backend comes back after being lost', () => {
+    vi.useFakeTimers()
+    try {
+      const mgr = createWSManager()
+      mgr.subscribe('/v0/ws/git', vi.fn())
+      MockWebSocket.instances[0].simulateOpen()
+      expect(reconnects()).toBe(0) // the first connect is not a reconnect
+
+      MockWebSocket.instances[0].simulateClose()
+      vi.advanceTimersByTime(1000)
+      MockWebSocket.instances[1].simulateOpen()
+      expect(reconnects()).toBe(1)
+
+      MockWebSocket.instances[1].simulateClose()
+      vi.advanceTimersByTime(2000)
+      MockWebSocket.instances[2].simulateOpen()
+      expect(reconnects()).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a channel dropping while another stays open is degraded, not a lost backend', () => {
+    vi.useFakeTimers()
+    try {
+      const mgr = createWSManager()
+      mgr.subscribe('/v0/ws/git', vi.fn())
+      mgr.subscribe('/v0/ws/files', vi.fn())
+      MockWebSocket.instances[0].simulateOpen()
+      MockWebSocket.instances[1].simulateOpen()
+      expect(degraded()).toBe(false)
+
+      MockWebSocket.instances[0].simulateClose()
+      expect(degraded()).toBe(true)
+      expect(status()).toBe('connected')
+
+      vi.advanceTimersByTime(1000)
+      MockWebSocket.instances[2].simulateOpen()
+      expect(degraded()).toBe(false)
+      expect(reconnects()).toBe(0) // the backend was never lost
     } finally {
       vi.useRealTimers()
     }

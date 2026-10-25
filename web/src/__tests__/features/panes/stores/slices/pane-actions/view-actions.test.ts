@@ -1,13 +1,22 @@
 import { describe, it, expect, vi } from 'vitest'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { showingLayout, viewChatIds } from '@/features/panes/lib/view-state'
-import { chatPaneIndex, selectIsShowingEmptyStage } from '@/features/panes/lib/view-selectors'
+import { chatPaneIndex, isPaneEmpty } from '@/features/panes/lib/view-selectors'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { buildViewState, editorTab, makePaneOnlyStore } from '@/__tests__/__fixtures__/view-state'
 
 vi.mock('@/features/panes/lib/release-closed-chat', () => ({
   releaseClosedChat: vi.fn(async () => {}),
 }))
+
+/** The stage is on screen with nothing in it — the "nothing is open" screen. */
+function expectEmptyStage(store: ReturnType<typeof makePaneOnlyStore>): void {
+  const state = store.getState()
+  expect(state.activeViewId).toBeNull()
+  const leaves = getAllLeafIds(state.stage)
+  expect(leaves).toHaveLength(1)
+  expect(isPaneEmpty(state.panes[leaves[0]])).toBe(true)
+}
 
 type Store = ReturnType<typeof makePaneOnlyStore>
 
@@ -80,7 +89,7 @@ describe('closePane / closeView', () => {
     const { paneId } = open(store, 'chat-1')
     store.getState().paneActions.closePane(paneId)
     expect(store.getState().viewOrder).toEqual([])
-    expect(selectIsShowingEmptyStage(store.getState())).toBe(true)
+    expectEmptyStage(store)
   })
 
   it('closing the showing view REVEALS the one behind it', () => {

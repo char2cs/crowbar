@@ -23,6 +23,7 @@ import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
 import { fetchHomeChats, fetchRepoChats, fetchRepos, isNotFoundError } from '@/lib/api'
 import { loadSidebarUI } from './sidebar-ui'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { parseSidebarTab } from '@/lib/store/sidebar-ui'
 
 export interface WorkspaceHydrationResult {
   editorStates: EditorState[]
@@ -282,5 +283,6 @@ export async function hydrateSidebar(): Promise<void> {
     // Absent on a record written before the Chats panel was collapsible —
     // replays as "nothing folded", the product default (see schemas.ts).
     collapsedChatRows: new Set(sidebarUI.collapsedChatRows ?? []),
+    activeTab: parseSidebarTab(sidebarUI.activeTab),
   })
 }

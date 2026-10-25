@@ -89,37 +89,6 @@ export function buildPaneContentStyle(
   }
 }
 
-/** Gap between the sidebar card and the sidebar's own top and inner edges. */
-export const SIDEBAR_CARD_GAP = 6
-
-/**
- * The file/git card, drawn as a pane: bordered, rounded and inset only on the
- * side that faces the panes. The side against the window frame stays flat and
- * flush, as does the bottom, which is the window's own edge.
- */
-export function buildSidebarCardStyle(side: 'left' | 'right'): CSSProperties {
-  const BORDER = '1px solid var(--border)'
-  const NONE = 'none'
-  const R = 'var(--radius-lg)'
-  const ZERO = '0'
-  const GAP = `${SIDEBAR_CARD_GAP}px`
-  const facesLeft = side === 'right'
-  return {
-    borderTop: BORDER,
-    borderLeft: facesLeft ? BORDER : NONE,
-    borderRight: facesLeft ? NONE : BORDER,
-    borderBottom: NONE,
-    borderTopLeftRadius: facesLeft ? R : ZERO,
-    borderTopRightRadius: facesLeft ? ZERO : R,
-    borderBottomLeftRadius: ZERO,
-    borderBottomRightRadius: ZERO,
-    marginTop: GAP,
-    marginLeft: facesLeft ? GAP : ZERO,
-    marginRight: facesLeft ? ZERO : GAP,
-    marginBottom: ZERO,
-  }
-}
-
 /**
  * The IDE shell's own border. Only the FACING edge — the one genuine
  * internal seam, between this ONE pane's own chat/editor halves — ever

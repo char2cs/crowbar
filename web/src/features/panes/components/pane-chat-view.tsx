@@ -1,6 +1,7 @@
 import { lazy, Suspense, useLayoutEffect, type ContextType, type Ref } from 'react'
 import { loadedAgentChatPane, preloadAgentChatPane } from '@/features/panes/lib/chat-surface-loader'
 import { pendingChatSurfaces } from '@/features/panes/stores/pending-chat-surfaces'
+import { sidebarSurfaceRoot } from '@/features/panes/lib/sidebar-surface'
 import { ChatColumnHeader } from '@/features/tabs/components/chat-column-header'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { cn } from '@/lib/utils'
@@ -54,10 +55,11 @@ export function PaneChatView({
     <div
       ref={ref}
       data-chat-view=""
+      {...sidebarSurfaceRoot('chats')}
       hidden={hidden}
       className={cn(
         // No fill: the shared `data-pane-content` box already paints it.
-        'relative flex min-h-0 min-w-0 flex-col overflow-hidden',
+        'relative flex min-h-0 min-w-0 flex-col overflow-hidden outline-none',
         basis === null ? 'h-full w-full flex-1' : 'shrink grow-0',
       )}
       // The sash maps the split onto whichever view is visually first.

@@ -578,6 +578,18 @@ type Engine interface {
 		w io.Writer,
 	) (int, bool, error)
 
+	// ReviewFileSides returns one file's full old and new text for the diff
+	// against ref, so a reader can reveal the unchanged lines a patch omits.
+	// oldPath names the old side's file (a rename source); empty means path. A
+	// side past a fixed size ceiling fails with ErrFileTooLarge.
+	ReviewFileSides(
+		ctx context.Context,
+		repoPath string,
+		ref string,
+		path string,
+		oldPath string,
+	) (gitdomain.ReviewFileSides, error)
+
 	// ReviewOutline returns the hunk geometry of ReviewFiles' file set against
 	// ref: per file the `@@` shapes of its diff and no content at all. The diff
 	// is streamed and discarded as it is read, so the result is O(hunks) where

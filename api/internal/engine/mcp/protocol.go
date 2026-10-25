@@ -28,6 +28,19 @@ type ToolSet interface {
 	Call(ctx context.Context, name string, args json.RawMessage) (string, error)
 }
 
+// Image is one image a tool answers with; Data is base64 with no data: prefix.
+type Image struct {
+	MIMEType string
+	Data     string
+}
+
+// ImageToolSet is a ToolSet whose tools may also answer with an image. The
+// server prefers it when present; plain ToolSets keep answering text only.
+type ImageToolSet interface {
+	ToolSet
+	CallWithImages(ctx context.Context, name string, args json.RawMessage) (string, []Image, error)
+}
+
 type initializeResult struct {
 	ProtocolVersion string         `json:"protocolVersion"`
 	Capabilities    map[string]any `json:"capabilities"`
@@ -48,9 +61,15 @@ type textContent struct {
 	Text string `json:"text"`
 }
 
+type imageContent struct {
+	Type     string `json:"type"`
+	Data     string `json:"data"`
+	MIMEType string `json:"mimeType"`
+}
+
 type callToolResult struct {
-	Content []textContent `json:"content"`
-	IsError bool          `json:"isError"`
+	Content []any `json:"content"`
+	IsError bool  `json:"isError"`
 }
 
 type callToolParams struct {

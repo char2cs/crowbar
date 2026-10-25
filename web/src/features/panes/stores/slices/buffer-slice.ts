@@ -5,7 +5,10 @@ import type {
   OpenEditorTabSpec,
   EditorContent,
   BranchReviewContent,
+  BranchReviewView,
+  BrowserContent,
   CommitDiffContent,
+  NewTabPageContent,
   TerminalContent,
   MarkdownPreviewContent,
   HtmlPreviewContent,
@@ -17,10 +20,12 @@ import { isEditorContent } from '@/features/panes/types/pane-content'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { disposeBuffers, releaseUnreferencedBuffers } from '@/features/panes/lib/buffer-release'
 import { placeTab } from './pane-actions/editor-tab-actions'
+import { findOpenBuffer } from './find-open-buffer'
 import { useSettingsStore } from '@/features/settings/store'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { nanoid } from 'nanoid'
 import { bestEffort } from '@/lib/best-effort'
+import { browserTabName } from '@/features/browser/lib/browser-tab-name'
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -35,12 +40,16 @@ interface OpenContentOptions {
   /** The pane the tab lands in (C8). Defaults to the focused pane; focus is
    *  never a precondition. */
   paneId?: string
+  /** A tab in that pane this one takes the place of: a New Tab page's choice. */
+  replaceTabId?: string
 }
 
 export interface BufferActions {
   openContent(spec: OpenEditorTabSpec, opts?: OpenContentOptions): string
   closeBuffer(id: string): void
   renameBuffer(id: string, name: string): void
+  setBranchReviewView(id: string, view: BranchReviewView): void
+  setBrowserLocation(id: string, patch: { url?: string; title?: string; loading?: boolean }): void
   setPinned(id: string, pinned: boolean): void
   setPreview(id: string, preview: boolean): void
   promotePreview(id: string): void
@@ -117,57 +126,23 @@ export const createBufferSlice: StateCreator<
           getActiveWorkspaceId() ??
           ''
 
-        // Deduplicate: return existing buffer id if already open
-        const existing = (() => {
-          if (spec.type === 'editor') {
-            return get().buffers.find(
-              (b) => b.type === 'editor' && b.path === spec.path && b.workspaceId === workspaceId,
-            )
-          }
-          if (spec.type === 'branchReview') {
-            return get().buffers.find(
-              (b) =>
-                b.type === 'branchReview' &&
-                (b as BranchReviewContent).wsId === spec.wsId &&
-                b.workspaceId === workspaceId,
-            )
-          }
-          if (spec.type === 'commitDiff') {
-            return get().buffers.find(
-              (b) =>
-                b.type === 'commitDiff' &&
-                b.wsId === spec.wsId &&
-                b.sha === spec.sha &&
-                b.workspaceId === workspaceId,
-            )
-          }
-          if (spec.type === 'terminal' && spec.sessionId) {
-            return get().buffers.find(
-              (b) => b.type === 'terminal' && (b as TerminalContent).sessionId === spec.sessionId,
-            )
-          }
-          if (spec.type === 'markdownPreview') {
-            return get().buffers.find(
-              (b) =>
-                b.type === 'markdownPreview' &&
-                b.path === spec.path &&
-                b.workspaceId === workspaceId,
-            )
-          }
-          if (spec.type === 'htmlPreview') {
-            return get().buffers.find(
-              (b) =>
-                b.type === 'htmlPreview' && b.path === spec.path && b.workspaceId === workspaceId,
-            )
-          }
-          if (spec.type === 'csvPreview') {
-            return get().buffers.find(
-              (b) =>
-                b.type === 'csvPreview' && b.path === spec.path && b.workspaceId === workspaceId,
-            )
-          }
-          return undefined
-        })()
+        const existing = findOpenBuffer(
+          get().buffers,
+          spec,
+          workspaceId,
+          get().panes[paneId]?.editorTabIds ?? [],
+        )
+
+        // A terminal is never seated in a second pane; see below.
+        if (existing && opts.replaceTabId && existing.type !== 'terminal') {
+          let released: PaneContent[] = []
+          set((state) => {
+            placeTab(state, paneId, existing.id, false, opts.replaceTabId)
+            released = releaseUnreferencedBuffers(state)
+          })
+          disposeBuffers(released)
+          return existing.id
+        }
 
         if (existing) {
           // A terminal buffer IS a live view onto ONE PTY. Opening it again must
@@ -292,6 +267,27 @@ export const createBufferSlice: StateCreator<
             isPreview: false,
             workspaceId,
           } satisfies TerminalContent
+        } else if (spec.type === 'browser') {
+          buf = {
+            id,
+            type: 'browser',
+            url: spec.url ?? '',
+            name: browserTabName(undefined, spec.url ?? ''),
+            path: `browser://${id}`,
+            isPinned: false,
+            isPreview: false,
+            workspaceId,
+          } satisfies BrowserContent
+        } else if (spec.type === 'newTabPage') {
+          buf = {
+            id,
+            type: 'newTabPage',
+            name: 'New Tab',
+            path: `new-tab://${id}`,
+            isPinned: false,
+            isPreview: false,
+            workspaceId,
+          } satisfies NewTabPageContent
         } else if (spec.type === 'markdownPreview') {
           buf = {
             id,
@@ -334,11 +330,15 @@ export const createBufferSlice: StateCreator<
         // Created and seated in one write: a buffer never exists without a
         // pane listing it (invariant C2). No pane, no buffer.
         let placed = false
+        let released: PaneContent[] = []
         set((state) => {
           state.buffers.push(buf)
-          placed = placeTab(state, paneId, id, spec.type === 'editor' && !!spec.isPreview)
+          const preview = spec.type === 'editor' && !!spec.isPreview
+          placed = placeTab(state, paneId, id, preview, opts.replaceTabId)
           if (!placed) state.buffers.pop()
+          else if (opts.replaceTabId) released = releaseUnreferencedBuffers(state)
         })
+        disposeBuffers(released)
         if (!placed) return ''
 
         return id
@@ -366,6 +366,29 @@ export const createBufferSlice: StateCreator<
         set((state) => {
           const buf = state.buffers.find((b) => b.id === id)
           if (buf) buf.name = name
+        })
+      },
+
+      setBranchReviewView(id, view) {
+        set((state) => {
+          const buf = state.buffers.find((b) => b.id === id)
+          if (buf?.type === 'branchReview') buf.view = view
+        })
+      },
+
+      // The webview is the source of truth for where it is; this stores what it
+      // reports so the tab strip and a re-mounted pane agree with it.
+      setBrowserLocation(id, patch) {
+        set((state) => {
+          const buf = state.buffers.find((b) => b.id === id)
+          if (!buf || buf.type !== 'browser') return
+          if (patch.url !== undefined && patch.url !== buf.url) {
+            buf.url = patch.url
+            buf.title = undefined
+          }
+          if (patch.title !== undefined) buf.title = patch.title
+          if (patch.loading !== undefined) buf.loading = patch.loading
+          buf.name = browserTabName(buf.title, buf.url)
         })
       },
 

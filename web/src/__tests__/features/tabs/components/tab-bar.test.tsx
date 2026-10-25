@@ -12,16 +12,18 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { useSettingsStore } from '@/features/settings/store'
 import type { Chat, Repo } from '@/lib/store/sidebar'
 
 // TabBar reaches useSidebar() only for the fallback sidebar-reopen toggle,
 // irrelevant here — stub it so the suite needn't stand up a SidebarProvider
 // (same stub tab-bar-rerender.test.tsx uses).
+const sidebar = vi.hoisted(() => ({ open: true }))
 vi.mock('@/components/ui/sidebar', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/components/ui/sidebar')>()
   return {
     ...actual,
-    useSidebar: () => ({ open: true, toggleSidebar: () => {} }),
+    useSidebar: () => ({ open: sidebar.open, toggleSidebar: () => {} }),
   }
 })
 
@@ -178,21 +180,7 @@ describe('TabBar "+" click behaviour', () => {
     vi.clearAllMocks()
   })
 
-  it('opens a dropdown offering New File and New Terminal', async () => {
-    const user = userEvent.setup()
-    const buffers = [makeEditorBuffer(0)]
-    const store = setupStore(buffers)
-    act(() => {
-      renderTabBar(store, { wsId: 'w1' })
-    })
-
-    await user.click(screen.getByRole('button', { name: 'New tab' }))
-
-    expect(await screen.findByRole('menuitem', { name: /New File/ })).toBeDefined()
-    expect(screen.getByRole('menuitem', { name: /New Terminal/ })).toBeDefined()
-  })
-
-  it('"New File" focuses this pane and opens a new blank editor tab in it', async () => {
+  it('focuses this pane and opens a New Tab page in it, with no menu', async () => {
     const user = userEvent.setup()
     const buffers = [makeEditorBuffer(0)]
     const store = setupPaneStore({ buffers, chatId: 'chat-1' })
@@ -204,30 +192,32 @@ describe('TabBar "+" click behaviour', () => {
     })
 
     await user.click(screen.getByRole('button', { name: 'New tab' }))
-    await user.click(await screen.findByRole('menuitem', { name: /New File/ }))
 
+    expect(screen.queryByRole('menuitem')).toBeNull()
     expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
-    const editorTabIds = windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds ?? []
-    expect(editorTabIds).toHaveLength(2)
-    const newBuf = windowPaneStore.getState().buffers.find((b) => b.id === editorTabIds[1])
-    expect(newBuf?.type).toBe('editor')
-    expect((newBuf as EditorContent)?.isVirtual).toBe(true)
+    const pane = windowPaneStore.getState().panes[ROOT_PANE_ID]
+    expect(pane?.editorTabIds).toHaveLength(2)
+    const page = windowPaneStore.getState().buffers.find((b) => b.id === pane?.editorTabIds[1])
+    expect(page).toMatchObject({ type: 'newTabPage', name: 'New Tab', workspaceId: 'w1' })
+    expect(pane?.activeEditorTabId).toBe(page?.id)
+    expect(screen.getByRole('tab', { name: 'New Tab' })).toHaveAttribute('aria-selected', 'true')
   })
 
-  it('"New Terminal" opens a new terminal tab in this pane', async () => {
+  it('a second + focuses the open New Tab instead of stacking another', async () => {
     const user = userEvent.setup()
-    const buffers = [makeEditorBuffer(0)]
-    const store = setupPaneStore({ buffers, chatId: 'chat-1' })
+    const store = setupPaneStore({ buffers: [makeEditorBuffer(0)], chatId: 'chat-1' })
     act(() => {
       renderTabBar(store, { wsId: 'w1' })
     })
 
     await user.click(screen.getByRole('button', { name: 'New tab' }))
-    await user.click(await screen.findByRole('menuitem', { name: /New Terminal/ }))
+    await user.click(screen.getByRole('tab', { name: 'file-0.ts' }))
+    await user.click(screen.getByRole('button', { name: 'New tab' }))
 
-    const editorTabIds = windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds ?? []
-    const newBuf = windowPaneStore.getState().buffers.find((b) => b.id === editorTabIds[1])
-    expect(newBuf?.type).toBe('terminal')
+    expect(screen.getAllByRole('tab', { name: 'New Tab' })).toHaveLength(1)
+    const pane = windowPaneStore.getState().panes[ROOT_PANE_ID]
+    expect(pane?.editorTabIds).toHaveLength(2)
+    expect(pane?.activeEditorTabId).toBe(pane?.editorTabIds[1])
   })
 })
 
@@ -513,5 +503,50 @@ describe('TabBar — chat as a tab (showChatTab)', () => {
     })
 
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.activeEditorTabId).toBe('buf-0')
+  })
+})
+
+// With the sidebar hidden, whoever draws the reopen toggle also carries the
+// build readout: this row when no view strip exists, the strip otherwise.
+describe('TabBar — build readout beside the reopen toggle', () => {
+  afterEach(() => {
+    sidebar.open = true
+    vi.restoreAllMocks()
+  })
+
+  function renderHiddenAtEdge(side: 'left' | 'right') {
+    sidebar.open = false
+    useSettingsStore.setState((state) => {
+      state.settings.buildBadgeOverride = 'beta'
+      state.settings.sidebarPosition = side
+    })
+    // jsdom has no layout: report a row flush against the window's top-left and right edges.
+    const rect = { left: 0, top: 0, width: window.innerWidth, height: 32, right: window.innerWidth }
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(rect as DOMRect)
+    const store = setupPaneStore({ buffers: [makeEditorBuffer(0)] })
+    act(() => {
+      renderTabBar(store)
+    })
+  }
+
+  it.each(['left', 'right'] as const)(
+    'shows the readout with the toggle when no view strip exists (sidebar %s)',
+    (side) => {
+      resetWindowPaneStoreForTests()
+      renderHiddenAtEdge(side)
+      expect(screen.getByRole('button', { name: 'Show sidebar' })).toBeInTheDocument()
+      expect(screen.getAllByText(/beta 0\.0\.0-beta\.1/)).toHaveLength(1)
+    },
+  )
+
+  it('leaves the readout to the view strip once a view exists', () => {
+    renderHiddenAtEdge('left')
+    expect(screen.getAllByText(/beta 0\.0\.0-beta\.1/)).toHaveLength(1)
+    act(() => {
+      const { paneActions } = windowPaneStore.getState()
+      paneActions.setActiveProject('p1')
+      paneActions.openChat('chat-1', { workspaceId: 'w1' })
+    })
+    expect(screen.queryByText(/beta 0\.0\.0-beta\.1/)).toBeNull()
   })
 })

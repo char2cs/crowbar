@@ -67,6 +67,8 @@ type (
 	// tool is withdrawn silently when it is nil, so the root has to be able to
 	// name the port it must refuse to start without.
 	ToolWorkspaceBranchRenamer = tools.WorkspaceBranchRenamer
+	// ToolBrowserBridge is the browser tools' route to the desktop app.
+	ToolBrowserBridge = tools.BrowserBridge
 )
 
 // The sidebar forest's tree, re-exported.

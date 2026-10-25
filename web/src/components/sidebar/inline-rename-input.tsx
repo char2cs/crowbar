@@ -11,6 +11,8 @@ interface InlineRenameInputProps {
    *  create-only affordance: what an unlabeled, empty row would otherwise
    *  give no hint it even wants (see `CREATE_ROW_PLACEHOLDER`'s own doc). */
   placeholder?: string
+  /** Replaces the row-label text style (size, weight, family). */
+  className?: string
   onConfirm: (value: string) => void
   onCancel: () => void
 }
@@ -27,6 +29,7 @@ export function InlineRenameInput({
   defaultValue,
   mono,
   placeholder,
+  className,
   onConfirm,
   onCancel,
 }: InlineRenameInputProps) {
@@ -80,6 +83,7 @@ export function InlineRenameInput({
       className={cn(
         'min-w-0 flex-1 truncate bg-transparent text-left text-[13px] font-medium outline-none',
         mono && 'font-mono',
+        className,
       )}
     />
   )

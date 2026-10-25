@@ -134,6 +134,32 @@ export async function getReviewPatch(
   return { patch, truncated: res.headers.get(DIFF_TRUNCATED_HEADER) === 'true' }
 }
 
+// ── File contents ───────────────────────────────────────────────────
+
+/** Both sides of one file in full (gitdomain.ReviewFileSides); null where the
+ *  file does not exist on that side. */
+interface ReviewFileSides {
+  old: string | null
+  new: string | null
+}
+
+/**
+ * GET one file's full old and new text, for revealing the unchanged lines a
+ * patch omits. Fetched only when the reader clicks an expand control, and one
+ * file at a time; the daemon refuses a file past its size ceiling (422).
+ *
+ * `oldPath` is the rename source and is sent only when it differs from `path`.
+ */
+export async function getReviewFileSides(
+  scope: DiffScope,
+  path: string,
+  oldPath?: string,
+): Promise<ReviewFileSides> {
+  const params = scopeParams(scope, { path })
+  if (oldPath !== undefined && oldPath !== path) params.set('oldPath', oldPath)
+  return apiFetch<ReviewFileSides>(`${reviewBase(scope.wsId)}/contents?${params.toString()}`)
+}
+
 // ── Search ──────────────────────────────────────────────────────────
 
 /** One match against the CONTENT of the branch diff (gitdomain.SearchHit).

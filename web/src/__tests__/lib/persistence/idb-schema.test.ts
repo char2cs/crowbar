@@ -2,6 +2,10 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { openDB, type IDBPDatabase } from 'idb'
 import { IDBFactory } from 'fake-indexeddb'
 import { getDB, resetDB } from '@/lib/persistence/idb'
+import {
+  loadBranchReviewViewed,
+  saveBranchReviewViewed,
+} from '@/lib/persistence/branch-review-viewed'
 
 beforeEach(() => {
   globalThis.indexedDB = new IDBFactory()
@@ -112,6 +116,26 @@ describe('idb schema v10', () => {
       expect(await raw.get(name, id), name).toEqual(name === 'editor-state' ? editorState : value)
     }
     expect(await db.getAllFromIndex('editor-state', 'workspaceId', 'w1')).toEqual([editorState])
+  })
+})
+
+describe('branch-review viewed state', () => {
+  it('round-trips a workspace viewed map and keeps workspaces apart', async () => {
+    await saveBranchReviewViewed('ws1', { 'a.ts': 'M|3|1' })
+    await saveBranchReviewViewed('ws2', {})
+    expect(await loadBranchReviewViewed('ws1')).toEqual({ 'a.ts': 'M|3|1' })
+    expect(await loadBranchReviewViewed('ws2')).toEqual({})
+    expect(await loadBranchReviewViewed('ws3')).toBeNull()
+  })
+
+  it('treats a row from before the reshape as having nothing viewed', async () => {
+    const db = await getDB()
+    await (db as unknown as IDBPDatabase).put('branch-review', {
+      wsId: 'ws1',
+      description: 'old',
+      threads: [],
+    })
+    expect(await loadBranchReviewViewed('ws1')).toBeNull()
   })
 })
 

@@ -141,8 +141,12 @@ vi.mock('@/features/git/components/branch-review-pane', () => ({
 }))
 
 vi.mock('@/features/panes/components/new-tab-view', () => ({
-  NewTabView: ({ paneId }: { paneId?: string }) =>
-    createElement('div', { 'data-testid': 'new-tab-marker', 'data-pane-id': paneId ?? '' }),
+  NewTabView: ({ paneId, wsId }: { paneId?: string; wsId?: string | null }) =>
+    createElement('div', {
+      'data-testid': 'new-tab-marker',
+      'data-pane-id': paneId ?? '',
+      'data-ws-id': wsId ?? '',
+    }),
 }))
 
 // TabBar drags in SidebarProvider/dnd-kit machinery irrelevant to hosting.
@@ -374,11 +378,9 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     expect(screen.getByTestId('chat-branch-header')).toBeInTheDocument()
   })
 
-  // A user CAN toggle the split on with zero editor tabs (nothing gates
-  // `editorOpen` on tab count) — this must not resurrect a side-by-side
-  // split against an empty NewTabView. `chatFillsPane` overrides
-  // `presentation` for exactly this case.
-  it('still hides the editor view when editorOpen is on but there are zero editor tabs', async () => {
+  // The header's Open editor turns `editorOpen` on with zero tabs: the editor
+  // area then shows (empty), so the chat no longer fills the pane.
+  it('shows the empty editor view when editorOpen is on with zero editor tabs', async () => {
     const store = createWorkspaceStore('w1')
     windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
     windowPaneStore.setState((state) => {
@@ -390,9 +392,8 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     await renderPane(store)
 
     const chat = await screen.findByTestId('chat-chat-1')
-    expect(screen.getByTestId('new-tab-marker').closest('[hidden]')).not.toBeNull()
+    expect(screen.getByTestId('new-tab-marker').closest('[hidden]')).toBeNull()
     expect(chat.closest('[hidden]')).toBeNull()
-    expect(screen.queryByTestId('tab-bar-marker')).not.toBeInTheDocument()
   })
 
   // The exact regression class this file's own render-tree comments obsess
@@ -1664,13 +1665,10 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
     expect(await screen.findByTestId('chat-branch-header')).toHaveTextContent('chat-1')
   })
 
-  // Live-reported: clicking "Review this branch" on an INACTIVE pane opened a
-  // DIFFERENT chat's branch review — root cause was this exact ambient-vs-
-  // owner confusion, but for a DATA-CREATING action (a persisted branchReview
-  // buffer) rather than a display value. Unlike the header/title cases above,
-  // a wrong answer here doesn't just render wrong and self-correct next
-  // frame: it permanently tags a buffer with the wrong workspace.
-  it("opens branch review for the CHAT's own workspace, not whichever one is ambient", async () => {
+  // Live-reported: "Review this branch" on an INACTIVE pane opened a DIFFERENT
+  // chat's review. The editor area's actions (Review Branch among them) create
+  // data, so they must be handed the chat's own workspace, never the ambient one.
+  it("hands the editor area's actions the CHAT's own workspace, not the ambient one", async () => {
     seedChats(getOrCreateWorkspaceStore('w-owner'), [chatRecord('chat-1', 'w-owner')])
     windowPaneStore
       .getState()
@@ -1680,28 +1678,20 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
     // pane, or whichever WorkspaceView happens to be on screen.
     await renderPane(createWorkspaceStore('w-onscreen'))
 
-    fireEvent.click(await screen.findByTestId('branch-review-shortcut'))
+    fireEvent.click(await screen.findByTestId('open-editor'))
 
-    const buffers = windowPaneStore.getState().buffers
-    const review = buffers.find((b) => b.type === 'branchReview')
-    expect(review).toBeDefined()
-    expect((review as { wsId?: string }).wsId).toBe('w-owner')
+    expect(await screen.findByTestId('new-tab-marker')).toHaveAttribute('data-ws-id', 'w-owner')
   })
 
-  // The "skip rather than guess" half of the same fix (pane-chat-workspace.ts's
-  // own documented principle): while nothing can yet name the chat's real
-  // workspace, the action must no-op — never fall back to the ambient one and
-  // silently create a buffer tagged with a workspace the chat doesn't belong
-  // to at all.
-  it("does not open branch review for the ambient workspace while the chat's own owner is still unresolved", async () => {
+  // Skip rather than guess: while nothing names the chat's real workspace the
+  // editor cannot be opened and its actions get no workspace to act on.
+  it("offers no editor actions while the chat's own owner is still unresolved", async () => {
     windowPaneStore.getState().paneActions.openChat('chat-unknown')
 
     await renderPane(createWorkspaceStore('w-onscreen'))
 
-    fireEvent.click(await screen.findByTestId('branch-review-shortcut'))
-
-    expect(
-      windowPaneStore.getState().buffers.find((b) => b.type === 'branchReview'),
-    ).toBeUndefined()
+    await screen.findByTestId('chat-branch-header')
+    expect(screen.queryByTestId('open-editor')).not.toBeInTheDocument()
+    expect(screen.getByTestId('new-tab-marker')).toHaveAttribute('data-ws-id', '')
   })
 })

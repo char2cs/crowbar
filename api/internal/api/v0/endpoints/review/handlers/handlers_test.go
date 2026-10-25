@@ -33,6 +33,7 @@ type stubUsecase struct {
 	files     func(ctx context.Context, wsID, commit string) ([]gitdomain.ReviewFileSummary, error)
 	outline   func(ctx context.Context, wsID, commit string) ([]gitdomain.FileOutline, error)
 	patch     func(ctx context.Context, wsID, commit, path string, maxLines int, w io.Writer) (int, bool, error)
+	sides     func(ctx context.Context, wsID, commit, path, oldPath string) (gitdomain.ReviewFileSides, error)
 	searchFn  func(ctx context.Context, wsID, commit, query string, opts gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error)
 	searchErr error
 }
@@ -95,6 +96,19 @@ func (s stubUsecase) GetPatch(
 	return n, false, err
 }
 
+func (s stubUsecase) GetFileSides(
+	ctx context.Context,
+	wsID string,
+	commit string,
+	path string,
+	oldPath string,
+) (gitdomain.ReviewFileSides, error) {
+	if s.sides != nil {
+		return s.sides(ctx, wsID, commit, path, oldPath)
+	}
+	return gitdomain.ReviewFileSides{}, nil
+}
+
 func (s stubUsecase) SearchDiff(
 	ctx context.Context,
 	wsID string,
@@ -130,6 +144,7 @@ func routerFor(uc handlers.ReviewUsecase) *gin.Engine {
 	rg.GET("/review/outline", h.GetOutline)
 	rg.GET("/review/patch", h.GetPatch)
 	rg.GET("/review/search", h.SearchDiff)
+	rg.GET("/review/contents", h.GetFileSides)
 	rg.PATCH("/review", h.SetMergeStrategy)
 	return r
 }

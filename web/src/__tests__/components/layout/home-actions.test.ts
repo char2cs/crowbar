@@ -204,7 +204,7 @@ describe('a project-home chat row resolves Thread through its home workspace, an
   })
 })
 
-// The sidebar header's Thread button (space-header.tsx) — NOT `handleCreate`,
+// The tree foot's New thread (tree-foot.tsx) — NOT `handleCreate`,
 // which resolves its parentId against the repo-scoped sidebar store and has
 // no notion of project home at all. This is the fix for the regression where
 // that button landed threads on a REPO's home row instead of the project's.
@@ -225,17 +225,6 @@ describe('handleCreateHomeThread', () => {
     await handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
 
     expect(createChat).toHaveBeenCalledExactlyOnceWith('home-ws-1', 'claude', '', undefined)
-  })
-
-  it('presets the new chat onto Terminal when asked for one', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
-
-    await handleCreateHomeThread('p1', 'home-ws-1', vi.fn(), 'terminal')
-
-    expect(presetChatLandingPresentation).toHaveBeenCalledExactlyOnceWith('chat-1', 'terminal')
   })
 
   it('opens straight into a pane when the home workspace is already active', async () => {
@@ -278,7 +267,7 @@ describe('handleCreateHomeThread', () => {
     expect(navigate).not.toHaveBeenCalled()
   })
 
-  // The space header's Thread button is the ONE create path with no
+  // The tree foot's New thread is the ONE create path with no
   // `createInFlight` key and no pending row: nothing on screen changes until
   // the round trip lands, so a second click mints a second chat — the exact
   // double-mint `handleCreate`'s own guard exists to stop (its doc: "a user

@@ -55,7 +55,7 @@ describe('reviewFilesSummaryToChangedFiles', () => {
     expect(renamed.file_path).toBe('new.ts')
   })
 
-  it('preserves the -1 binary counts (GitFileItem hides counts <= 0)', () => {
+  it('preserves the -1 binary counts (SidebarFileRowCounts hides counts <= 0)', () => {
     const [bin] = reviewFilesSummaryToChangedFiles([
       summaryFile('logo.png', 'modified', { additions: -1, deletions: -1 }),
     ])

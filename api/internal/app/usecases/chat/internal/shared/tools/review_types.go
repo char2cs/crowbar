@@ -77,3 +77,10 @@ type ThreadWriter interface {
 	) (domain.ReviewThread, error)
 	Resolve(ctx context.Context, id string) (domain.ReviewThread, error)
 }
+
+// ThreadChanges wakes a waiter when a review thread of one workspace changes. The
+// channel carries the thread aggregate as the event left it; cancel must be called
+// once the waiter is done.
+type ThreadChanges interface {
+	Watch(wsID string) (<-chan domain.ReviewThread, func())
+}

@@ -1,6 +1,7 @@
 import { DndContext, DragOverlay, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useStore } from 'zustand'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
@@ -12,9 +13,11 @@ import { BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import {
   splitEditorGroup,
   openBranchReviewForWorkspace,
-  ensurePaneChatThenOpen,
+  togglePaneEditor,
 } from '@/features/panes/utils/pane-command-actions'
 import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
+import { useHasViewStrip } from '@/features/panes/hooks/use-project-view-ids'
+import { BuildReadout } from '@/components/layout/build-readout'
 import { useSettingsStore } from '@/features/settings/store'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { saveBuffer } from '@/features/editor/lib/buffer-save'
@@ -33,6 +36,7 @@ import { SplitToggleButton } from './split-toggle-button'
 import { BranchReviewShortcutButton } from './branch-review-shortcut-button'
 import { ChatTabItem } from './chat-tab-item'
 import { PaneTopRow } from './pane-top-row'
+import { usePaneNewTabActions } from '../hooks/use-pane-new-tab-actions'
 import { useBufferDisplayName } from '../hooks/use-buffer-display-name'
 import { useTabKeyboardNav } from '../hooks/use-tab-keyboard-nav'
 import { useTabDrag } from '../hooks/use-tab-drag'
@@ -129,7 +133,6 @@ const TabBar = ({
   } = usePaneActions()
   const {
     closeBuffer,
-    openContent,
     promotePreview: promotePreviewBuffer,
     setPinned,
     confirmPendingClose,
@@ -345,21 +348,11 @@ const TabBar = ({
       draggedBufferId,
     })
 
-  // Spec §7.1/§7.2: `PaneGroup.editorOpen` is the split-toggle's own state —
-  // chat-only vs. chat+editor. A plain store write, not a new pane-slice
-  // action: every existing action is already just a wrapper around the same
-  // `set()`, and this field carries no other invariant to protect.
   const handleToggleSplit = useCallback(() => {
-    if (!paneId) return
-    // windowPaneStore's exported type erases the immer producer signature (see
-    // editor-app-store.ts's setState calls) — return a new partial state
-    // rather than mutating the draft in place.
-    windowPaneStore.setState((state) => {
-      const p = state.panes[paneId]
-      if (!p) return {}
-      return { panes: { ...state.panes, [paneId]: { ...p, editorOpen: !p.editorOpen } } }
-    })
+    if (paneId) togglePaneEditor(paneId)
   }, [paneId])
+
+  const { onNewTab } = usePaneNewTabActions(wsId, paneId ?? '')
 
   // The tab-bar sidebar-toggle is only a fallback for reopening a collapsed
   // sidebar (when open, the sidebar header owns the toggle). It appears on the
@@ -369,6 +362,11 @@ const TabBar = ({
     !sidebarOpen && !isBottomPane && sidebarPosition === 'left' && isAtLeftEdge && isAtTopEdge
   const showReopenToggleRight =
     !sidebarOpen && !isBottomPane && sidebarPosition === 'right' && isAtRightEdge && isAtTopEdge
+
+  // The readout travels with the toggle; the view strip carries both once it exists.
+  const hasViewStrip = useHasViewStrip()
+  const showReadoutLeft = showReopenToggleLeft && !hasViewStrip
+  const showReadoutRight = showReopenToggleRight && !hasViewStrip
 
   const getBufferDisplayName = useBufferDisplayName({ buffers, rootFolderPath })
 
@@ -586,6 +584,11 @@ const TabBar = ({
               onToggleSidebar={toggleSidebar}
             />
           )}
+          {showReadoutLeft && (
+            <div className="relative w-0 shrink-0 self-stretch">
+              <BuildReadout className="left-2" />
+            </div>
+          )}
 
           {/* A pane holding only its chat draws no tab-strip scroller at all
               (spec §7.1) — the second view is reached through open files or
@@ -640,36 +643,9 @@ const TabBar = ({
                 {/* Flows immediately after the last tab and shifts as tabs
                     open/close — NOT a SortableEditorTab, so it never joins
                     sortedBufferIds and is never draggable. Last child inside
-                    the scroller (spec §7.1). A dropdown, not a single default
-                    action: the two things that can actually land in this
-                    pane's editor view are a blank file or a terminal, so
-                    both are offered rather than picking one silently. */}
-                {paneId && (
-                  <TabAddButton
-                    isBottomPane={isBottomPane}
-                    onNewFile={() => {
-                      if (!wsId) return
-                      ensurePaneChatThenOpen(wsId, paneId, (target) => {
-                        openContent(
-                          {
-                            type: 'editor',
-                            path: 'untitled:Untitled',
-                            name: 'Untitled',
-                            content: '',
-                            isVirtual: true,
-                          },
-                          { paneId: target },
-                        )
-                      })
-                    }}
-                    onNewTerminal={() => {
-                      if (!wsId) return
-                      ensurePaneChatThenOpen(wsId, paneId, (target) => {
-                        openContent({ type: 'terminal' }, { paneId: target })
-                      })
-                    }}
-                  />
-                )}
+                    the scroller (spec §7.1). Opens a New Tab page, where
+                    what lands in this pane is chosen. */}
+                {paneId && <TabAddButton isBottomPane={isBottomPane} onNewTab={onNewTab} />}
               </div>
             </SortableContext>
           )}
@@ -688,6 +664,11 @@ const TabBar = ({
             />
           )}
 
+          {showReadoutRight && (
+            <div className="relative w-0 shrink-0 self-stretch">
+              <BuildReadout className="right-2" />
+            </div>
+          )}
           {showReopenToggleRight && (
             <TabNavigationButtons
               isBottomPane={isBottomPane}
@@ -698,18 +679,23 @@ const TabBar = ({
           )}
         </PaneTopRow>
 
-        <DragOverlay dropAnimation={null}>
-          {draggedBuffer ? (
-            <div className="tab-drag-preview ui-font flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/95 px-2 py-1 ui-text-xs opacity-95 shadow-sm">
-              <span className="max-w-[200px] truncate text-foreground">
-                {draggedBuffer.name}
-                {draggedBuffer.type === 'editor' && draggedBuffer.isDirty && (
-                  <span className="ml-1 text-muted-foreground">•</span>
-                )}
-              </span>
-            </div>
-          ) : null}
-        </DragOverlay>
+        {/* In the body, so the drag preview sits among the other body-level overlays
+            that hide a browser tab's native webview. */}
+        {createPortal(
+          <DragOverlay dropAnimation={null}>
+            {draggedBuffer ? (
+              <div className="tab-drag-preview ui-font flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/95 px-2 py-1 ui-text-xs opacity-95 shadow-sm">
+                <span className="max-w-[200px] truncate text-foreground">
+                  {draggedBuffer.name}
+                  {draggedBuffer.type === 'editor' && draggedBuffer.isDirty && (
+                    <span className="ml-1 text-muted-foreground">•</span>
+                  )}
+                </span>
+              </div>
+            ) : null}
+          </DragOverlay>,
+          document.body,
+        )}
       </DndContext>
 
       <MemoizedTabContextMenu

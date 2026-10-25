@@ -1,10 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import {
-  reparentWorkspace,
-  rebaseOntoParent,
-  retryProvision,
-  detachHolder,
-} from '@/lib/api/workspace'
+import { reparentWorkspace, retryProvision, detachHolder } from '@/lib/api/workspace'
 import { recordWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 
 // The worktree lifecycle verbs are addressed to the CHAT that holds the
@@ -68,16 +63,6 @@ describe('reparentWorkspace', () => {
       }),
     )
     await expect(reparentWorkspace(WS, 'ws-other')).rejects.toThrow('has children')
-  })
-})
-
-// §3: user-initiated "finish the move" after a reparent left the branch behind.
-describe('rebaseOntoParent', () => {
-  it('POSTs to the rebase-onto-parent verb on the owning chat', async () => {
-    await rebaseOntoParent(WS)
-    const [url, init] = calledWith()
-    expect(url).toBe(`${VERB_BASE}/rebase-onto-parent`)
-    expect(init.method).toBe('POST')
   })
 })
 

@@ -13,6 +13,8 @@ import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 // rich/source preference synchronously.
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 import { bestEffort } from '@/lib/best-effort'
+import { browserApi } from '@/lib/browser-bridge'
+import { unregisterWebview } from '@/features/browser/lib/webview-registry'
 
 /** The slice of window-pane state buffer ownership reads and writes. */
 export interface BufferOwnershipState {
@@ -59,7 +61,8 @@ export function releaseUnreferencedBuffers(state: BufferOwnershipState): PaneCon
 /**
  * Free everything a released buffer held outside the store: a terminal's PTY
  * (terminals never enter the reopen history, so the shell dies here or it
- * leaks), git-blame data and the markdown view preference. Undo history
+ * leaks), a browser tab's native webview, git-blame data and the markdown
+ * view preference. Undo history
  * belongs to the buffer's Monaco model and goes with it.
  */
 export function disposeBuffers(released: readonly PaneContent[]): void {
@@ -79,6 +82,16 @@ export function disposeBuffers(released: readonly PaneContent[]): void {
         ),
         'kill terminal session',
       )
+    }
+    if (buf.type === 'browser') {
+      // A tab that was never shown has no webview to close.
+      const created = unregisterWebview(buf.id)
+      if (created) {
+        bestEffort(
+          created.then(() => browserApi.close(buf.id)),
+          'close browser webview',
+        )
+      }
     }
     if (isEditorContent(buf) && buf.path) {
       const { path: filePath, workspaceId } = buf

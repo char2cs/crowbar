@@ -2,13 +2,24 @@ import type { ReactNode } from 'react'
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useWorkspaceGit } from '@/features/workspace/stores/hooks/use-workspace-git'
-import { requestGitRefresh, useGitRefreshStore } from '@/features/git/stores/git-refresh'
+import { useReviewFilesSummary } from '@/features/git/hooks/use-review-files-summary'
+import { useSidebarChangedFiles } from '@/features/git/hooks/use-sidebar-changed-files'
+import {
+  markGitStatusChanged,
+  requestGitRefresh,
+  useGitRefreshStore,
+} from '@/features/git/stores/git-refresh'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import {
+  destroyWorkspaceStore,
+  getOrCreateWorkspaceStore,
+} from '@/features/workspace/stores/workspace-store-registry'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
 
-const { fetchGitData, subscribe } = vi.hoisted(() => ({
+const { fetchGitData, getReviewFiles, subscribe } = vi.hoisted(() => ({
   fetchGitData: vi.fn(),
+  getReviewFiles: vi.fn(),
   subscribe: vi.fn(() => () => {}),
 }))
 
@@ -16,6 +27,7 @@ vi.mock('@/features/git/api/git-data-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/features/git/api/git-data-api')>()
   return { ...actual, fetchGitData }
 })
+vi.mock('@/features/git/api/review-api', () => ({ getReviewFiles }))
 vi.mock('@/lib/ws/manager', () => ({ wsManager: { subscribe, send: vi.fn() } }))
 
 const status = { branch: 'main', ahead: 0, behind: 0, files: [] }
@@ -163,5 +175,37 @@ describe('useWorkspaceGit', () => {
       await vi.advanceTimersByTimeAsync(500)
       expect(reloadStatusAndLog).toHaveBeenCalledTimes(1)
     })
+  })
+})
+
+describe('files summary ownership', () => {
+  afterEach(() => destroyWorkspaceStore('ws-test'))
+
+  // The sidebar tree and the Files changed tab both read the workspace store's
+  // reviewFiles; the store alone fetches it when the git tick fires.
+  it('fetches the summary once per git tick for every consumer of the workspace', async () => {
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-test', owningChatId: 'chat-test' })
+    fetchGitData.mockResolvedValue({ status, commits: [], reviewFiles: [] })
+    getReviewFiles.mockResolvedValue([])
+    const store = getOrCreateWorkspaceStore('ws-test')
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <WorkspaceStoreContext.Provider value={store}>{children}</WorkspaceStoreContext.Provider>
+    )
+    const { result } = renderHook(
+      () => {
+        useWorkspaceGit('ws-test', true, 'chat-test', false)
+        return { sidebar: useSidebarChangedFiles('ws-test'), tab: useReviewFilesSummary('ws-test') }
+      },
+      { wrapper },
+    )
+    await waitFor(() => expect(result.current.tab.loaded).toBe(true))
+    await waitFor(() => expect(subscribe).toHaveBeenCalled())
+    getReviewFiles.mockClear()
+
+    act(() => markGitStatusChanged('ws-test'))
+
+    await waitFor(() => expect(getReviewFiles).toHaveBeenCalled())
+    await act(async () => {})
+    expect(getReviewFiles).toHaveBeenCalledTimes(1)
   })
 })

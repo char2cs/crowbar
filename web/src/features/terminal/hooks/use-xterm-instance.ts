@@ -3,23 +3,28 @@ import { useEffect, useRef, useState } from 'react'
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { resolveWorkspaceRootPath } from '@/lib/workspace/resolve-root-path'
 import { toast } from '@/features/window/stores/toast-store'
-import { injectLinkStyles, removeLinkStyles, type TerminalAddons } from './use-terminal-addons'
+import type { TerminalAddons } from './use-terminal-addons'
 import { useTerminalTheme } from './use-terminal-theme'
 import { fitToContainer } from './use-pty-size-sync'
 import { mountXterm, type MountedXterm } from '../lib/mount-xterm'
-import { workspaceRelativePath, type TerminalFileLinksOptions } from '../lib/terminal-file-links'
+import { workspaceRelativePath } from '../lib/terminal-file-links'
+import type { TerminalLinksOptions } from '../lib/terminal-links'
+import { showTerminalUrlMenu } from '../lib/terminal-url-menu'
 import { useTerminalStore } from '../stores/terminal-store'
 import { resolveTerminalFont } from '../utils/resolve-font'
 
 /**
- * File references open inside Crowbar: relative paths resolve against the
- * session cwd when known, else the workspace root, then are relativized back
- * onto the workspace root (the files API takes worktree-relative paths).
+ * Links open inside the view this terminal belongs to, never the active one.
+ * File references resolve against the session cwd when known, else the
+ * workspace root, then are relativized back onto it (the files API takes
+ * worktree-relative paths). URLs offer a native menu.
  */
-function fileLinksFor(getSessionId: () => string): TerminalFileLinksOptions {
+function linksFor(
+  getSessionId: () => string,
+  getView: () => { workspaceId?: string; paneId?: string },
+): TerminalLinksOptions {
   return {
     getRoot: () => {
       const cwd = useTerminalStore.getState().getSession(getSessionId())?.currentDirectory
@@ -32,23 +37,31 @@ function fileLinksFor(getSessionId: () => string): TerminalFileLinksOptions {
         toast.error('Cannot open file', `${absolutePath} is outside the current workspace.`)
         return
       }
-      const wsId = getActiveWorkspaceId()
-      if (!wsId) {
+      const { workspaceId, paneId } = getView()
+      if (!workspaceId) {
         toast.error('Cannot open file', 'No editor is available in this view.')
         return
       }
-      void openWorkspaceFile(wsId, rel).catch(() => {
+      void openWorkspaceFile(workspaceId, rel, { paneId }).catch(() => {
         toast.error('Could not open file', absolutePath)
       })
     },
     onUnresolved: (candidateText) => {
       toast.error('Cannot open file', `Could not resolve ${candidateText} to a path.`)
     },
+    onUrl: (url, position) => {
+      const { workspaceId, paneId } = getView()
+      const target = workspaceId && paneId ? { workspaceId, paneId } : null
+      void showTerminalUrlMenu(url, position, target)
+    },
   }
 }
 
 interface UseXtermInstanceOptions {
   sessionId: string
+  /** The workspace and pane this terminal is shown in; links open there. */
+  workspaceId?: string
+  paneId?: string
   container: HTMLDivElement | null
   /** False until the view has been shown once: a never-seen tab builds nothing. */
   enabled: boolean
@@ -68,6 +81,8 @@ export interface XtermInstance {
  */
 export function useXtermInstance({
   sessionId,
+  workspaceId,
+  paneId,
   container,
   enabled,
   write,
@@ -75,10 +90,12 @@ export function useXtermInstance({
   const [instance, setInstance] = useState<XtermInstance>({ terminal: null, addons: null })
   const writeRef = useRef(write)
   const sessionIdRef = useRef(sessionId)
+  const viewRef = useRef({ workspaceId, paneId })
   useEffect(() => {
     writeRef.current = write
     sessionIdRef.current = sessionId
-  }, [write, sessionId])
+    viewRef.current = { workspaceId, paneId }
+  }, [write, sessionId, workspaceId, paneId])
 
   const fontFamily = useSettingsStore((state) => state.settings.terminalFontFamily)
   const baseFontSize = useSettingsStore((state) => state.settings.terminalFontSize)
@@ -150,7 +167,10 @@ export function useXtermInstance({
           },
           {
             write: (data, origin) => writeRef.current(data, origin),
-            fileLinks: fileLinksFor(() => sessionIdRef.current),
+            links: linksFor(
+              () => sessionIdRef.current,
+              () => viewRef.current,
+            ),
           },
         )
         fitToContainer(mounted.addons.fitAddon, container)
@@ -169,14 +189,6 @@ export function useXtermInstance({
   }, [hasBox, container])
 
   const { terminal, addons } = instance
-
-  // Link colouring is scoped to the container, whose id follows the session — so
-  // an attach-only swap re-scopes it along with the PTY.
-  useEffect(() => {
-    if (!terminal || !container) return
-    injectLinkStyles(sessionId, container.id || `terminal-${sessionId}`)
-    return () => removeLinkStyles(sessionId)
-  }, [terminal, container, sessionId])
 
   // Keep a live xterm's options in step with the settings.
   useEffect(() => {
