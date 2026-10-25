@@ -100,38 +100,3 @@ func chainEnd(
 	}
 	return y
 }
-
-// scrollbackBatch returns how many committed lines from base go out in one write-then-scroll batch
-// of at most rows: it ends where a chain does, and keeps a row spare when the viewport's top row
-// continues the last line. A chain taller than the viewport is cut there, losing one wrap bit.
-func scrollbackBatch(
-	emu emulator,
-	base int,
-	sbLen int,
-	rows int,
-) int {
-	n := min(rows, sbLen-base)
-	for k := n; k > 0; k-- {
-		if batchEndsChain(emu, base+k, sbLen, k < rows) {
-			return k
-		}
-	}
-	if base+n == sbLen && n > 1 {
-		return n - 1 // cut a committed line rather than the top row, whose flag no later write sets
-	}
-	return n
-}
-
-// batchEndsChain reports whether a batch may stop before line p: p heads a line of its own, or p is
-// the viewport's top row and the batch has a spare row to write it on as a continuation.
-func batchEndsChain(
-	emu emulator,
-	p int,
-	sbLen int,
-	spare bool,
-) bool {
-	if p < sbLen {
-		return !emu.ScrollbackRowWrapped(p)
-	}
-	return spare || !emu.RowWrapped(0)
-}

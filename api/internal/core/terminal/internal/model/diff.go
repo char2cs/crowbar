@@ -264,19 +264,18 @@ func EmitterGridBytes(cols, rows int) int64 {
 }
 
 // writeScrollbackDelta replays every scrollback line the model committed since
-// the last emit INTO the client's own scrollback. Technique (write-then-scroll,
-// chunked by screen height): paint each batch of committed lines onto the top
-// rows, then scroll the batch out with LFs from a parked bottom-row cursor —
-// each scroll flushes a top row we JUST wrote, so the client's scrollback
-// receives exactly the committed content. (Scrolling FIRST would flush the
-// client's stale pre-delta rows instead — the bug this replaced.) The screen is
-// left trashed by design; Emit invalidates the row cache on any scrollback
-// growth, so the screen diff that follows repaints the full viewport. Primary
-// buffer only; the alt screen has no scrollback.
+// the last emit INTO the client's own scrollback. Technique (write-then-scroll):
+// write the committed lines as one flow from the top row, then scroll what is
+// left of them out with LFs from a parked bottom-row cursor, so the client's
+// scrollback receives exactly the committed content. (Scrolling FIRST would
+// flush the client's stale pre-delta rows instead — the bug this replaced.) The
+// screen is left trashed by design; Emit invalidates the row cache on any
+// scrollback growth, so the screen diff that follows repaints the full
+// viewport. Primary buffer only; the alt screen has no scrollback.
 //
-// A batch ends where a chain does (scrollbackBatch), so the client's autowrap rebuilds each wrap
-// bit; a top row continuing the last line is written after it before the scroll, so it stays on
-// the client's top row holding its flag.
+// A continuation follows its padded head with no address, so the client's own autowrap, which
+// scrolls at the bottom row, sets each wrap bit at any height. A top row continuing the last line
+// follows it too and is not scrolled out, keeping its flag.
 func (e *DiffEmitter) writeScrollbackDelta(
 	b *bytes.Buffer,
 	emu emulator,
@@ -292,53 +291,37 @@ func (e *DiffEmitter) writeScrollbackDelta(
 	if wrapOff {
 		b.WriteString(ansi.SetModeAutoWrap)
 	}
-	held, top := e.lastWrapped[0], false
-	for base := start; base < sbLen; {
-		n := scrollbackBatch(emu, base, sbLen, rows)
-		top = base+n == sbLen && n < rows && emu.RowWrapped(0)
-		e.writeBatch(b, emu, base, n, cols, held, top)
-		b.WriteString(cup(rows, 1))
-		for j := 0; j < n; j++ {
+	top := emu.RowWrapped(0)
+	b.WriteString(cup(1, 1))
+	for i := start; i < sbLen; i++ {
+		wrapped := emu.ScrollbackRowWrapped(i) && (i > start || e.lastWrapped[0])
+		if !wrapped && i > start {
 			b.WriteString("\r\n")
 		}
-		base, held = base+n, false
+		if !wrapped {
+			b.WriteString(ansi.EraseLineRight) // at column 0, EL0 also ends the client row's wrap
+		}
+		next := chainNextOf(top, emu.CellAt(0, 0))
+		if i+1 < sbLen {
+			next = chainNextOf(emu.ScrollbackRowWrapped(i+1), emu.ScrollbackLine(i+1).At(0))
+		}
+		b.Write(appendChainRow(b.AvailableBuffer(), emu.ScrollbackLine(i), cols, wrapped, next, ""))
+	}
+	k := min(sbLen-start, rows)
+	if top {
+		row := snapshotRowInto(emu, e.lastGrid[0], cols, 0)
+		b.Write(appendChainRow(b.AvailableBuffer(), row, cols, true, nextBreaks, ""))
+		e.lastGrid[0] = row[:0] // still the forced-rewrite marker Emit set
+		k = min(sbLen-start, rows-1)
+	}
+	b.WriteString(cup(rows, 1))
+	for range k {
+		b.WriteString("\r\n")
 	}
 	if wrapOff {
 		b.WriteString(ansi.ResetModeAutoWrap)
 	}
 	e.lastWrapped[0] = top
-}
-
-// writeBatch paints committed lines base..base+n-1 from the top row. A line that continues the one
-// above it follows that padded head with no address; the first line keeps the flag its client row
-// holds only when held says so. With top, the viewport's top row follows the last line.
-func (e *DiffEmitter) writeBatch(
-	b *bytes.Buffer,
-	emu emulator,
-	base, n, cols int,
-	held, top bool,
-) {
-	for j := 0; j < n; j++ {
-		i := base + j
-		wrapped := emu.ScrollbackRowWrapped(i) && (j > 0 || held)
-		if j == 0 || !wrapped {
-			b.WriteString(cup(j+1, 1))
-		}
-		if !wrapped {
-			b.WriteString(ansi.EraseLineRight)
-		}
-		next := chainNextOf(j+1 < n && emu.ScrollbackRowWrapped(i+1), emu.ScrollbackLine(i+1).At(0))
-		if j+1 == n {
-			next = chainNextOf(top, emu.CellAt(0, 0))
-		}
-		b.Write(appendChainRow(b.AvailableBuffer(), emu.ScrollbackLine(i), cols, wrapped, next, ""))
-	}
-	if !top {
-		return
-	}
-	row := snapshotRowInto(emu, e.lastGrid[0], cols, 0)
-	b.Write(appendChainRow(b.AvailableBuffer(), row, cols, true, nextBreaks, ""))
-	e.lastGrid[0] = row[:0] // still the forced-rewrite marker Emit set
 }
 
 // writeScreenDiff rewrites every chain of grid rows holding a changed row or
