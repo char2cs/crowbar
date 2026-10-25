@@ -17,18 +17,13 @@ type LinkToken =
 // on punctuation or a bracket, so "(https://x.dev/a)." links only the URL.
 const URL_RE = /(https?|HTTPS?):[/]{2}[^\s"'!*(){}|\\^<>`]*[^\s"':,.!?{}|\\^~[\]`()<>]/g
 
-// A candidate must look like a real path: either rooted (/, ./, ../, ~/) or
-// containing at least one internal slash (web/src/foo.ts). A :line[:col]
-// suffix is captured so "foo.go:12:3" links as a whole. Bare filenames
-// without a slash are NOT matched — too many false positives (domains,
-// package names) without filesystem validation.
+// A path is rooted or has an inner slash, plus an optional :line[:col]. Bare
+// filenames are skipped: with no filesystem check, most are domains or packages.
 const FILE_LINK_RE =
   /(?:^|[\s"'`([<])((?:~\/|\.{1,2}\/|\/)?[\w.@+~-]+(?:\/[\w.@+~-]+)+\/?|\/[\w.@+~-]+)((?::\d+){1,2})?/g
 
-// "." is a valid path character (extensions, dotfiles), so prose that runs
-// straight into a path with no space ("...design.md. Please review") has its
-// sentence-ending period swallowed into the match. Trim trailing dots the
-// path can't legitimately end with.
+// "." is a path character, so a sentence ending on a path ("see design.md.")
+// would link its period; a real path never ends in a dot.
 const TRAILING_DOTS_RE = /\.+$/
 
 // How far the logical line is read above and below the hovered row.
