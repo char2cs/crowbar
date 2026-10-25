@@ -145,6 +145,7 @@ vi.mock('@/components/ui/sidebar', () => ({
     <div data-testid="sidebar-provider">{children}</div>
   ),
   useSidebar: () => ({ open: true, toggleSidebar: vi.fn() }),
+  useSidebarOptional: () => ({ open: true, toggleSidebar: vi.fn() }),
 }))
 vi.mock('@/components/error-boundary', () => ({
   ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
