@@ -106,6 +106,7 @@ mod tests {
         unrelated_key, Keychain, HOST_ID,
     };
     use crate::api_proxy::{HOST_IDENTITY_CHANGED, HOST_UNREACHABLE};
+    use crate::hosts::endpoint::parse_endpoint;
     use crate::hosts::HostRegistry;
     use crate::ws_bridge::test_support::{silent_sink, spawn_wedged_daemon, test_socket};
     use crate::ws_bridge::{open_bridge, Frame, FrameSink, WsBridgeManager};
@@ -263,9 +264,8 @@ mod tests {
         let registry = registry(addr.to_string());
         let (other_cert, other_key) = identity();
         let (addr, _reported) = serve_ws_once(other_cert.clone(), other_key).await;
-        registry
-            .insert(OTHER_HOST.into(), addr.to_string())
-            .unwrap();
+        let other_endpoint = parse_endpoint(&addr.to_string()).unwrap();
+        registry.insert(OTHER_HOST.into(), other_endpoint).unwrap();
         let sock = test_socket("host-scope");
         spawn_wedged_daemon(UnixListener::bind(&sock).unwrap());
         let manager = WsBridgeManager::new();

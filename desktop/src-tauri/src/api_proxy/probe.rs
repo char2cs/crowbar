@@ -12,9 +12,9 @@ use rustls::crypto::{
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, Error as TlsError, SignatureScheme};
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 
+use crate::hosts::endpoint::{parse_endpoint, Endpoint};
 use crate::tls_pin::fingerprint_of;
 
 /// Sent as SNI only, the same name the pinned dial sends.
@@ -27,6 +27,7 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 /// confirm before `pair_remote_host` pins it. Takes no host or token state.
 #[tauri::command]
 pub async fn probe_remote_fingerprint(endpoint: String) -> Result<String, String> {
+    let endpoint = parse_endpoint(&endpoint)?;
     tokio::time::timeout(PROBE_TIMEOUT, read_fingerprint(&endpoint))
         .await
         .unwrap_or_else(|_| {
@@ -36,10 +37,8 @@ pub async fn probe_remote_fingerprint(endpoint: String) -> Result<String, String
         })
 }
 
-async fn read_fingerprint(endpoint: &str) -> Result<String, String> {
-    let tcp = TcpStream::connect(endpoint)
-        .await
-        .map_err(|e| format!("cannot reach {endpoint}: {e}"))?;
+async fn read_fingerprint(endpoint: &Endpoint) -> Result<String, String> {
+    let tcp = endpoint.connect().await?;
     let server_name = ServerName::try_from(SERVER_NAME).expect("SERVER_NAME is a DNS name");
     let mut tls = TlsConnector::from(unpinned_probe_config())
         .connect(server_name, tcp)
@@ -137,6 +136,51 @@ mod tests {
         let fingerprint = probe_remote_fingerprint(addr.to_string()).await;
 
         assert_eq!(fingerprint, Ok(fingerprint_of(&cert)));
+    }
+
+    // `localhost` resolves to ::1 first here, where nothing listens: every address is tried.
+    #[tokio::test]
+    async fn probing_a_host_by_name_reaches_it() {
+        let _serialised = crate::test_support::fd_tests().await;
+        let (cert, key) = identity();
+        let (addr, _reported) = serve_once_tls(cert.clone(), key, None).await;
+
+        let fingerprint = probe_remote_fingerprint(format!("localhost:{}", addr.port())).await;
+
+        assert_eq!(fingerprint, Ok(fingerprint_of(&cert)));
+    }
+
+    #[tokio::test]
+    async fn a_name_that_does_not_resolve_is_told_apart_from_a_host_that_does_not_answer() {
+        let _serialised = crate::test_support::fd_tests().await;
+
+        let result = probe_remote_fingerprint("nowhere.invalid:3737".into()).await;
+
+        let err = result.expect_err("no such name");
+        assert!(err.starts_with("cannot resolve nowhere.invalid"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn an_address_that_is_not_host_and_port_is_refused_before_anything_is_dialed() {
+        let _serialised = crate::test_support::fd_tests().await;
+        let (cert, key) = identity();
+        let (addr, mut reported) = serve_once_tls(cert, key, None).await;
+        let port = addr.port();
+        let malformed = [
+            format!("https://127.0.0.1:{port}"),
+            format!("127.0.0.1:{port}/"),
+            format!("localhost:{port}/v0"),
+            format!("me@localhost:{port}"),
+            "localhost".to_string(),
+        ];
+
+        for endpoint in malformed {
+            let err = probe_remote_fingerprint(endpoint.clone())
+                .await
+                .expect_err(&endpoint);
+            assert!(err.contains("is not a host:port address"), "{err}");
+        }
+        assert!(reported.try_recv().is_err(), "the host was dialed");
     }
 
     #[tokio::test]

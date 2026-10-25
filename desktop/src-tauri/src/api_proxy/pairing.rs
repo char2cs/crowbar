@@ -13,6 +13,7 @@ use tokio_rustls::client::TlsStream;
 use super::proxy;
 use super::remote::{dial, RemoteHost, REMOTE_BODY_LIMIT};
 use crate::host_tokens::{Credential, TokenStore};
+use crate::hosts::endpoint::parse_endpoint;
 use crate::hosts::{validate_host_id, HostRegistry};
 use crate::tls_pin::{certificate_digest, CertificateDigest, Pin};
 
@@ -35,7 +36,7 @@ pub async fn pair_remote_host(
     tokens: State<'_, Arc<dyn TokenStore>>,
 ) -> Result<String, String> {
     let host = RemoteHost {
-        endpoint,
+        endpoint: parse_endpoint(&endpoint)?,
         pin: Pin::Confirmed(fingerprint),
     };
     pair(&registry, &tokens, &host_id, host, &code, &name).await
@@ -144,16 +145,25 @@ mod tests {
     use super::pair;
     use crate::api_proxy::remote::RemoteHost;
     use crate::host_tokens::Credential;
+    use crate::hosts::endpoint::parse_endpoint;
     use crate::hosts::HostRegistry;
     use crate::tls_pin::{certificate_digest, fingerprint_of, Pin};
 
     const PAIRED: &str = r#"{"success":true,"data":{"token":"minted-token","clientId":"c1"}}"#;
 
     fn host(addr: SocketAddr, fingerprint: String) -> RemoteHost {
+        host_at(&addr.to_string(), fingerprint)
+    }
+
+    fn host_at(endpoint: &str, fingerprint: String) -> RemoteHost {
         RemoteHost {
-            endpoint: addr.to_string(),
+            endpoint: parse_endpoint(endpoint).unwrap(),
             pin: Pin::Confirmed(fingerprint),
         }
+    }
+
+    fn registered(registry: &HostRegistry) -> Option<String> {
+        registry.get(HOST_ID).map(|endpoint| endpoint.to_string())
     }
 
     #[tokio::test]
@@ -190,7 +200,7 @@ mod tests {
             }),
             "the token must be bound to the whole digest of the certificate it came from"
         );
-        assert_eq!(registry.get(HOST_ID), Some(addr.to_string()));
+        assert_eq!(registered(&registry), Some(addr.to_string()));
         let request = reported
             .await
             .expect("server reported")
@@ -205,6 +215,29 @@ mod tests {
         assert_eq!(body, json!({"code": "123456", "name": "laptop"}));
     }
 
+    // The pinned dial resolves a name as the probe does; trust stays the pinned certificate.
+    #[tokio::test]
+    async fn a_host_paired_by_name_is_dialed_and_registered_by_that_name() {
+        let _serialised = crate::test_support::fd_tests().await;
+        let (cert, key) = identity();
+        let fingerprint = fingerprint_of(&cert);
+        let reply = Some(response("200 OK", PAIRED));
+        let (addr, reported) = serve_once_tls(cert, key, reply).await;
+        let endpoint = format!("localhost:{}", addr.port());
+        let registry = HostRegistry::default();
+        let keychain = Keychain::holding(&[]);
+
+        let host = host_at(&endpoint, fingerprint);
+        pair(&registry, &keychain, HOST_ID, host, "123456", "laptop")
+            .await
+            .expect("pairing by name succeeds");
+
+        assert_eq!(registered(&registry), Some(endpoint));
+        let request = reported.await.unwrap().expect("handshake by name");
+        assert!(request.starts_with("POST /v0/pair "), "{request}");
+    }
+
+    // Dialed by name: wherever a name points, only the confirmed certificate is trusted.
     #[tokio::test]
     async fn pairing_with_a_host_presenting_another_certificate_sends_and_keeps_nothing() {
         let _serialised = crate::test_support::fd_tests().await;
@@ -215,16 +248,13 @@ mod tests {
         let registry = HostRegistry::default();
         let keychain = Keychain::holding(&[]);
 
-        let err = pair(
-            &registry,
-            &keychain,
-            HOST_ID,
-            host(addr, fingerprint_of(&pinned)),
-            "123456",
-            "laptop",
-        )
-        .await
-        .expect_err("an impostor must not be paired");
+        let impostor = host_at(
+            &format!("localhost:{}", addr.port()),
+            fingerprint_of(&pinned),
+        );
+        let err = pair(&registry, &keychain, HOST_ID, impostor, "123456", "laptop")
+            .await
+            .expect_err("an impostor must not be paired");
 
         assert!(err.contains("identity changed"), "{err}");
         let served = reported.await.expect("server reported");
@@ -263,7 +293,7 @@ mod tests {
             keychain.get(HOST_ID).unwrap().as_deref(),
             Some("previous-credential")
         );
-        assert_eq!(registry.get(HOST_ID).as_deref(), Some("10.0.0.1:3737"));
+        assert_eq!(registered(&registry).as_deref(), Some("10.0.0.1:3737"));
     }
 
     #[tokio::test]

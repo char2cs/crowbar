@@ -17,6 +17,7 @@ use tokio_rustls::TlsAcceptor;
 
 use super::PROXY_HEADER;
 use crate::host_tokens::{Credential, TokenStore};
+use crate::hosts::endpoint::parse_endpoint;
 use crate::hosts::HostRegistry;
 use crate::tls_pin::certificate_digest;
 
@@ -95,6 +96,7 @@ pub fn paired(token: &str, cert: &[u8]) -> String {
 
 pub fn registry(endpoint: String) -> HostRegistry {
     let registry = HostRegistry::default();
+    let endpoint = parse_endpoint(&endpoint).unwrap();
     registry.insert(HOST_ID.into(), endpoint).unwrap();
     registry
 }

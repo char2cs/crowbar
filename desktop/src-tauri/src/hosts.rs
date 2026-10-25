@@ -10,6 +10,10 @@ use std::sync::Mutex;
 
 use crate::api_proxy::is_remote_host;
 
+pub(crate) mod endpoint;
+
+use endpoint::{parse_endpoint, Endpoint};
+
 /// A host id is the authority of `crowbar://<hostId>/...`, so it must be one
 /// the router sends to that host: never the local daemon's, and in a form no
 /// URL parser rewrites.
@@ -30,14 +34,14 @@ pub fn validate_host_id(host_id: &str) -> Result<(), String> {
 
 /// Host id → the `host:port` its daemon listens on.
 #[derive(Default)]
-pub struct HostRegistry(Mutex<HashMap<String, String>>);
+pub struct HostRegistry(Mutex<HashMap<String, Endpoint>>);
 
 impl HostRegistry {
-    pub fn get(&self, host_id: &str) -> Option<String> {
+    pub fn get(&self, host_id: &str) -> Option<Endpoint> {
         self.0.lock().unwrap().get(host_id).cloned()
     }
 
-    pub fn insert(&self, host_id: String, endpoint: String) -> Result<(), String> {
+    pub fn insert(&self, host_id: String, endpoint: Endpoint) -> Result<(), String> {
         validate_host_id(&host_id)?;
         self.0.lock().unwrap().insert(host_id, endpoint);
         Ok(())
@@ -54,7 +58,7 @@ pub fn register_remote_host(
     endpoint: String,
     registry: tauri::State<'_, HostRegistry>,
 ) -> Result<(), String> {
-    registry.insert(host_id, endpoint)
+    registry.insert(host_id, parse_endpoint(&endpoint)?)
 }
 
 #[tauri::command]
@@ -72,11 +76,15 @@ pub fn unregister_remote_host(
 mod tests {
     use super::*;
 
+    fn at(endpoint: &str) -> Endpoint {
+        parse_endpoint(endpoint).unwrap()
+    }
+
     #[test]
     fn insert_then_get_roundtrips() {
         let reg = HostRegistry::default();
-        reg.insert("host-1".into(), "1.2.3.4:3737".into()).unwrap();
-        assert_eq!(reg.get("host-1").as_deref(), Some("1.2.3.4:3737"));
+        reg.insert("host-1".into(), at("1.2.3.4:3737")).unwrap();
+        assert_eq!(reg.get("host-1"), Some(at("1.2.3.4:3737")));
     }
 
     #[test]
@@ -89,7 +97,7 @@ mod tests {
     fn remove_makes_it_unreachable() {
         // Review Focus: removing a host must make it immediately un-proxyable.
         let reg = HostRegistry::default();
-        reg.insert("host-1".into(), "1.2.3.4:3737".into()).unwrap();
+        reg.insert("host-1".into(), at("1.2.3.4:3737")).unwrap();
         reg.remove("host-1");
         assert!(reg.get("host-1").is_none());
     }
@@ -109,13 +117,13 @@ mod tests {
         ];
         for host_id in refused {
             let err = reg
-                .insert(host_id.into(), "1.2.3.4:3737".into())
+                .insert(host_id.into(), at("1.2.3.4:3737"))
                 .expect_err(host_id);
             assert!(err.contains("host id"), "{host_id:?}: {err}");
             assert!(reg.get(host_id).is_none(), "{host_id:?} was registered");
         }
         for host_id in ["host-1", "0f3c9a2e-7b1d-4e6a-9c55-2d8f1b0a6e43"] {
-            reg.insert(host_id.into(), "1.2.3.4:3737".into())
+            reg.insert(host_id.into(), at("1.2.3.4:3737"))
                 .expect(host_id);
         }
     }

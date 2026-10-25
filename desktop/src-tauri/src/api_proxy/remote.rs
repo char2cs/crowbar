@@ -17,6 +17,7 @@ use tokio_rustls::TlsConnector;
 
 use super::{error_response, proxy, proxy_error, HOST_IDENTITY_CHANGED, HOST_UNREACHABLE};
 use crate::host_tokens::{Credential, TokenStore};
+use crate::hosts::endpoint::Endpoint;
 use crate::hosts::HostRegistry;
 use crate::tls_pin::{pinned_client_config, Pin};
 
@@ -42,14 +43,14 @@ const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(5);
 /// Where a remote daemon listens, and the one certificate trusted there.
 #[derive(Clone, Debug)]
 pub(crate) struct RemoteHost {
-    pub endpoint: String,
+    pub endpoint: Endpoint,
     pub pin: Pin,
 }
 
 impl RemoteHost {
     /// Pinned to the certificate `credential` was minted by — never to anything
     /// the registry, and so the webview, supplies.
-    pub(crate) fn paired(endpoint: String, credential: &Credential) -> Self {
+    pub(crate) fn paired(endpoint: Endpoint, credential: &Credential) -> Self {
         Self {
             endpoint,
             pin: Pin::Paired(credential.pin),
@@ -101,12 +102,13 @@ pub(crate) async fn dial(host: &RemoteHost) -> Result<TlsStream<TcpStream>, Dial
 }
 
 async fn connect_pinned(host: &RemoteHost) -> Result<TlsStream<TcpStream>, DialError> {
-    let unreachable =
-        |e: io::Error| DialError::Unreachable(format!("cannot reach {}: {e}", host.endpoint));
-    let tcp = TcpStream::connect(&host.endpoint)
+    let tcp = host
+        .endpoint
+        .connect()
         .await
-        .map_err(unreachable)?;
-    probe_when_idle(&tcp).map_err(unreachable)?;
+        .map_err(DialError::Unreachable)?;
+    probe_when_idle(&tcp)
+        .map_err(|e| DialError::Unreachable(format!("cannot reach {}: {e}", host.endpoint)))?;
     let server_name = ServerName::try_from(SERVER_NAME).expect("SERVER_NAME is a DNS name");
     let connector = TlsConnector::from(pinned_client_config(host.pin.clone()));
     connector
@@ -229,6 +231,7 @@ mod tests {
         dial, forward_remote, relay_failure, RemoteHost, KEEPALIVE_IDLE, KEEPALIVE_INTERVAL,
     };
     use crate::host_tokens::TokenStore;
+    use crate::hosts::endpoint::parse_endpoint;
     use crate::hosts::HostRegistry;
     use crate::tls_pin::{certificate_digest, Pin};
 
@@ -430,7 +433,7 @@ mod tests {
         let (cert, key) = identity();
         let (addr, _reported) = serve_once_tls(cert.clone(), key, None).await;
         let host = RemoteHost {
-            endpoint: addr.to_string(),
+            endpoint: parse_endpoint(&addr.to_string()).unwrap(),
             pin: Pin::Paired(certificate_digest(&cert)),
         };
 
