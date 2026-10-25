@@ -103,8 +103,7 @@ func (b *reflowBuf) reflowLarger(oldCols, newCols, newRows int) {
 	b.savedY = max(b.savedY-removed, 0)
 }
 
-// largerLinesToRemove rejoins each chain but the cursor's in place and returns the rows it
-// empties as (index, count) pairs.
+// largerLinesToRemove rejoins each chain but the cursor's; it returns (index, count) pairs to drop.
 func largerLinesToRemove(lines []uv.Line, wrapped []bool, oldCols, newCols, cursorY int) []int {
 	var toRemove []int
 	for y := 0; y < len(lines)-1; y++ {
@@ -118,7 +117,7 @@ func largerLinesToRemove(lines []uv.Line, wrapped []bool, oldCols, newCols, curs
 		if cursorY < y || cursorY >= i {
 			chain := lines[y:i]
 			for k := range chain {
-				chain[k] = fitLine(chain[k], newCols)
+				chain[k] = fitLine(chain[k], oldCols)
 			}
 			if n := rejoinChain(chain, oldCols, newCols); n > 0 {
 				toRemove = append(toRemove, i-n, n)
@@ -132,6 +131,7 @@ func largerLinesToRemove(lines []uv.Line, wrapped []bool, oldCols, newCols, curs
 // rejoinChain moves a chain's cells up to fill rows of newCols, a wide glyph that would end
 // past the last column moving whole to the next row. It returns the rows left empty at its end.
 func rejoinChain(chain []uv.Line, oldCols, newCols int) int {
+	chain[0] = fitLine(chain[0], newCols) // a row widens only once it is written to
 	destLine, destCol := 0, wrappedTrimmedLength(chain, 0, oldCols)
 	srcLine, srcCol := 1, 0
 	for srcLine < len(chain) {
@@ -140,6 +140,7 @@ func rejoinChain(chain []uv.Line, oldCols, newCols int) int {
 		copy(chain[destLine][destCol:destCol+n], chain[srcLine][srcCol:srcCol+n])
 		if destCol += n; destCol == newCols {
 			destLine, destCol = destLine+1, 0
+			chain[destLine] = fitLine(chain[destLine], newCols)
 		}
 		if srcCol += n; srcCol == srcLen {
 			srcLine, srcCol = srcLine+1, 0
@@ -181,8 +182,7 @@ type insertion struct {
 	lines []uv.Line
 }
 
-// reflowSmaller rewraps, bottom up, each line a narrower screen cannot hold but the cursor's,
-// then splices the new rows in with one pass.
+// reflowSmaller rewraps, bottom up, each line too long but the cursor's, then splices rows in.
 func (b *reflowBuf) reflowSmaller(oldCols, newCols, newRows int) {
 	var toInsert []insertion
 	count := 0
@@ -222,8 +222,9 @@ func (b *reflowBuf) rewrapChain(start, end, oldCols, newCols int) []uv.Line {
 	lastLen := trimmedLength(b.lines[end-1])
 	lengths := smallerLineLengths(b.lines[start:end], oldCols, newCols)
 	chain := append(make([]uv.Line, 0, max(len(lengths), end-start)), b.lines[start:end]...)
-	for len(chain) < len(lengths) {
-		chain = append(chain, slices.Repeat(uv.Line{uv.EmptyCell}, newCols))
+	slab := slices.Repeat(uv.Line{uv.EmptyCell}, max(len(lengths)-len(chain), 0)*newCols)
+	for i := 0; len(chain) < len(lengths); i += newCols {
+		chain = append(chain, slab[i:i+newCols:i+newCols])
 	}
 	destLine := len(lengths) - 1
 	destCol := lengths[destLine]
@@ -372,8 +373,7 @@ func replaceCells(line uv.Line, start int) {
 	}
 }
 
-// cellAt reads column x of a line the scrollback trimmed: past its end, a trailing wide
-// glyph's rest, then blanks.
+// cellAt reads a line the scrollback trimmed: past its end, a trailing wide glyph's rest, blanks.
 func cellAt(line uv.Line, x int) uv.Cell {
 	n := len(line)
 	switch {
