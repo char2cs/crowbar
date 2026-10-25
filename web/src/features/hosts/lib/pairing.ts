@@ -21,34 +21,22 @@ export async function redeemPairingCode(
   })
 }
 
-const DEFAULT_PORT = 3737
-
-/** The host and port `endpoint` dials, however it was typed: scheme, case, trailing slash. */
-function dialTarget(endpoint: string): string {
-  const bare = endpoint
-    .trim()
-    .replace(/^[a-z][a-z\d+.-]*:\/\//i, '')
-    .replace(/\/+$/, '')
-    .toLowerCase()
-  return /:\d+$/.test(bare) && !bare.endsWith(']') ? bare : `${bare}:${DEFAULT_PORT}`
-}
-
 /** Why a host at `endpoint` presenting `fingerprint` can't be paired: a configured host is it
- *  already. Null when none is. */
+ *  already. Null when none is. `endpoint` is canonical (`normalizeEndpoint`), as saved ones are. */
 export function alreadyPairedReason(
   hosts: readonly Host[],
   endpoint: string,
   fingerprint: string,
 ): string | null {
   const remedy = 'Remove it in Settings → Hosts to pair it again.'
-  const target = dialTarget(endpoint)
-  const atAddress = hosts.find((host) => dialTarget(host.endpoint) === target)
+  const atAddress = hosts.find((host) => host.endpoint === endpoint)
   if (atAddress) return `This address is already paired as ${atAddress.name}. ${remedy}`
   const same = hosts.find((host) => fingerprint !== '' && host.pairedFingerprint === fingerprint)
   return same ? `This host is already paired as ${same.name}. ${remedy}` : null
 }
 
 const REFUSED = /^the host refused pairing \((\d{3})[^)]*\): (.*)$/s
+const UNRESOLVED = /^cannot resolve ([^\s:]+)/
 const UNREACHABLE = /^cannot reach |did not answer within|did not finish pairing|^pairing with /
 const NOT_CROWBAR = /^TLS handshake with |presented no certificate/
 
@@ -67,6 +55,10 @@ export function pairingFailureText(err: unknown, address: string): string {
   if (refused) return `${address} refused pairing: ${refused[2]}.`
   if (text.includes('identity changed')) {
     return `The host at ${address} no longer presents the fingerprint you confirmed, so nothing was sent to it. Go back and check the address.`
+  }
+  const unresolved = UNRESOLVED.exec(text)
+  if (unresolved) {
+    return `Couldn’t find ${unresolved[1]}. Check the spelling, or use its IP address.`
   }
   if (UNREACHABLE.test(text)) {
     return `Can’t reach ${address}. Check the address and port, and that the host is running.`

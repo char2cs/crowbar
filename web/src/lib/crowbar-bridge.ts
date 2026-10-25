@@ -461,7 +461,7 @@ export async function exportDiagnostics(): Promise<string> {
  *  fingerprint to pass: the certificate a host's token may be sent to is fixed
  *  at pairing, beside the token, where nothing here can change it. Rejects a
  *  `hostId` that is not lowercase letters, digits and hyphens, or is
- *  `localhost`. */
+ *  `localhost`, and an `endpoint` that is not `host:port` (`normalizeEndpoint`). */
 export async function registerRemoteHost(hostId: string, endpoint: string): Promise<void> {
   await tauriInvoke('register_remote_host', { hostId, endpoint })
 }
@@ -476,10 +476,10 @@ export async function forgetHostToken(hostId: string): Promise<void> {
   await tauriInvoke('forget_host_token', { hostId })
 }
 
-/** Dials `endpoint` on first contact (no pinning yet) and returns the presented
- *  certificate's fingerprint. The caller MUST show this to the user and get
- *  explicit confirmation before ever calling `pairRemoteHost` with it — this
- *  is the trust-on-first-connect step, not a background lookup. */
+/** Dials `endpoint` (`host:port`, from `normalizeEndpoint`) on first contact, unpinned, and
+ *  returns the presented certificate's fingerprint. The caller MUST show this to the user and
+ *  get explicit confirmation before ever calling `pairRemoteHost` with it — this is the
+ *  trust-on-first-connect step, not a background lookup. */
 export async function probeRemoteFingerprint(endpoint: string): Promise<string> {
   return tauriInvoke<string>('probe_remote_fingerprint', { endpoint })
 }

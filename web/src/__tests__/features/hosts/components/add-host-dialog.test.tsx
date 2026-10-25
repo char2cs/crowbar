@@ -13,9 +13,9 @@ import { probeRemoteFingerprint } from '@/lib/crowbar-bridge'
 import { AddHostDialog } from '@/features/hosts/components/add-host-dialog'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 
-function fillAddressStage() {
+function fillAddressStage(address = '1.2.3.4:3737') {
   fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'homelab' } })
-  fireEvent.change(screen.getByLabelText(/address/i), { target: { value: '1.2.3.4:3737' } })
+  fireEvent.change(screen.getByLabelText(/address/i), { target: { value: address } })
   fireEvent.click(screen.getByRole('button', { name: /continue|next/i }))
 }
 
@@ -54,6 +54,8 @@ describe('AddHostDialog', () => {
         'Run crowbar pair on the host first: it shows the fingerprint and the code you’ll need.',
       ),
     ).toBeVisible()
+    const address = screen.getByPlaceholderText('homelab.example.com or 1.2.3.4')
+    expect(address).toHaveAccessibleDescription('Uses port 3737 unless you add one, like :4000.')
   })
 
   // The host refuses a longer name with a bare "Couldn’t pair": the field stops short of it.
@@ -200,19 +202,61 @@ describe('AddHostDialog', () => {
   })
 
   // The shell rejects with transport words; the dialog says what to do instead.
-  it('a fingerprint probe failure says what to check and does not advance to the confirm stage', async () => {
-    vi.mocked(probeRemoteFingerprint).mockRejectedValueOnce(
+  it.each([
+    [
+      '1.2.3.4:3737',
       'cannot reach 1.2.3.4:3737: Connection refused (os error 61)',
-    )
+      'Can’t reach 1.2.3.4:3737. Check the address and port, and that the host is running.',
+    ],
+    [
+      'homelab.example.com',
+      'cannot resolve homelab.example.com: failed to lookup address information: nodename nor servname provided, or not known (os error 8)',
+      'Couldn’t find homelab.example.com. Check the spelling, or use its IP address.',
+    ],
+  ])(
+    'a probe of %s that fails says what to check and does not advance',
+    async (typed, raw, text) => {
+      vi.mocked(probeRemoteFingerprint).mockRejectedValueOnce(raw)
+      render(<AddHostDialog open onOpenChange={() => {}} />)
+      fillAddressStage(typed)
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(text)
+      expect(screen.queryByText(/os error|refused|lookup/i)).toBeNull()
+      expect(screen.queryByRole('button', { name: /confirm|looks right/i })).not.toBeInTheDocument()
+      expect(redeemPairingCode).not.toHaveBeenCalled()
+    },
+  )
+
+  // A name dials like an IP: what is probed, paired and saved is its one canonical address.
+  it('probes and pairs a name typed without a port at its canonical address', async () => {
+    vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
+    vi.mocked(redeemPairingCode).mockResolvedValueOnce(undefined)
     render(<AddHostDialog open onOpenChange={() => {}} />)
-    fillAddressStage()
+    fillAddressStage('  HomeLab.Example.com ')
+    fireEvent.click(await screen.findByRole('button', { name: /confirm fingerprint/i }))
+    fireEvent.change(await codeSlot(), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Pair' }))
+
+    await waitFor(() =>
+      expect(redeemPairingCode).toHaveBeenCalledWith(
+        expect.any(String),
+        'homelab.example.com:3737',
+        'SHA256:aaaa',
+        '123456',
+        'homelab',
+      ),
+    )
+    expect(probeRemoteFingerprint).toHaveBeenCalledWith('homelab.example.com:3737')
+  })
+
+  it('says what an address needs, dialing nothing, when what was typed is not one', async () => {
+    render(<AddHostDialog open onOpenChange={() => {}} />)
+    fillAddressStage('me@homelab.example.com/v0')
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Can’t reach 1.2.3.4:3737. Check the address and port, and that the host is running.',
+      'Enter a host name or IP address, optionally with a port, like homelab.example.com:3737.',
     )
-    expect(screen.queryByText(/os error|refused/i)).toBeNull()
-    expect(screen.queryByRole('button', { name: /confirm|looks right/i })).not.toBeInTheDocument()
-    expect(redeemPairingCode).not.toHaveBeenCalled()
+    expect(probeRemoteFingerprint).not.toHaveBeenCalled()
   })
 
   // Two rows for one daemon would make every one of its projects ambiguous.
@@ -222,7 +266,7 @@ describe('AddHostDialog', () => {
         {
           id: 'h1',
           name: 'homelab',
-          endpoint: '1.2.3.4:3737',
+          endpoint: 'lab.example.com:3737',
           pairedFingerprint: 'SHA256:aaaa',
           clientId: 'c1',
         },
@@ -231,7 +275,7 @@ describe('AddHostDialog', () => {
     vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:bbbb')
     render(<AddHostDialog open onOpenChange={() => {}} />)
 
-    fillAddressStage()
+    fillAddressStage('https://Lab.Example.com/')
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'This address is already paired as homelab. Remove it in Settings → Hosts to pair it again.',

@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { OTPField, OTPFieldInput, OTPFieldSeparator } from '@/components/ui/otp-field'
 import { probeRemoteFingerprint } from '@/lib/crowbar-bridge'
+import { DEFAULT_PORT, normalizeEndpoint } from '@/features/hosts/lib/endpoint'
 import {
   alreadyPairedReason,
   pairingFailureText,
@@ -108,9 +109,12 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
   const [error, setError] = useState<string | null>(null)
   // Minted with the probe, so every code tried after one confirm pairs the same host id.
   const hostId = useRef('')
+  // The canonical address that probe dialed: the code is redeemed at, and saved as, exactly it.
+  const dialed = useRef('')
   const probing = pending === 'probe'
   const pairing = pending === 'pair'
   const codeHintId = useId()
+  const addressHintId = useId()
   const fieldRef = useRef<HTMLDivElement>(null)
   const pairRef = useRef<HTMLButtonElement>(null)
   const promptId = useId()
@@ -122,23 +126,29 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
   async function handleProbe(e: React.FormEvent) {
     e.preventDefault()
     const trimmedName = name.trim()
-    const trimmedEndpoint = endpoint.trim()
-    if (!trimmedName || !trimmedEndpoint) return
+    if (!trimmedName || !endpoint.trim()) return
+    const normalized = normalizeEndpoint(endpoint)
+    if ('error' in normalized) {
+      setError(normalized.error)
+      return
+    }
+    const address = normalized.endpoint
     setError(null)
     onPendingChange('probe')
     try {
-      const fp = await probeRemoteFingerprint(trimmedEndpoint)
+      const fp = await probeRemoteFingerprint(address)
       const hosts = useHostConfigStore.getState().hosts
-      const paired = alreadyPairedReason(hosts, trimmedEndpoint, fp)
+      const paired = alreadyPairedReason(hosts, address, fp)
       if (paired) {
         setError(paired)
         return
       }
       hostId.current = makeHostId(trimmedName)
+      dialed.current = address
       setFingerprint(fp)
       setStage('fingerprint')
     } catch (err) {
-      setError(pairingFailureText(err, trimmedEndpoint))
+      setError(pairingFailureText(err, address))
     } finally {
       onPendingChange(null)
     }
@@ -191,10 +201,10 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
     setError(null)
     onPendingChange('pair')
     try {
-      await redeemPairingCode(hostId.current, endpoint.trim(), fingerprint, code, name.trim())
+      await redeemPairingCode(hostId.current, dialed.current, fingerprint, code, name.trim())
       onPaired(hostId.current)
     } catch (err) {
-      setError(pairingFailureText(err, endpoint.trim()))
+      setError(pairingFailureText(err, dialed.current))
       refocusCode()
     } finally {
       onPendingChange(null)
@@ -226,10 +236,17 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
                 id="add-host-address"
                 value={endpoint}
                 onChange={(e) => setEndpoint(e.target.value)}
-                placeholder="1.2.3.4:3737"
+                placeholder="homelab.example.com or 1.2.3.4"
+                aria-describedby={addressHintId}
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
                 className="font-mono text-[12px]"
                 disabled={probing}
               />
+              <p id={addressHintId} className="text-[12px] text-muted-foreground">
+                Uses port {DEFAULT_PORT} unless you add one, like :4000.
+              </p>
             </div>
             {error && (
               <p role="alert" className="text-[12px] text-destructive">

@@ -30,7 +30,11 @@ describe('redeemPairingCode', () => {
       'my-device',
     )
     const saved = useHostConfigStore.getState().hosts.find((h) => h.id === 'h1')
-    expect(saved).toMatchObject({ clientId: 'client-7', pairedFingerprint: 'SHA256:aaaa' })
+    expect(saved).toMatchObject({
+      endpoint: '1.2.3.4:3737',
+      clientId: 'client-7',
+      pairedFingerprint: 'SHA256:aaaa',
+    })
   })
 
   it('on redeem failure: does NOT save the host config', async () => {
@@ -43,27 +47,20 @@ describe('redeemPairingCode', () => {
 })
 
 // Two rows for one daemon make every one of its projects ambiguous, so a second pairing of the
-// same host is refused, however its address was typed.
+// same host is refused. Addresses arrive canonical (normalizeEndpoint), as every saved one is.
 describe('alreadyPairedReason', () => {
   const homelab: Host = {
     id: 'h1',
     name: 'homelab',
-    endpoint: 'Homelab.lan:3737',
+    endpoint: 'homelab.lan:3737',
     pairedFingerprint: 'SHA256:aaaa bbbb',
     clientId: 'c1',
   }
-  const SAME_ADDRESS =
-    'This address is already paired as homelab. Remove it in Settings → Hosts to pair it again.'
 
-  it.each([
-    'Homelab.lan:3737',
-    'homelab.lan:3737',
-    'homelab.lan',
-    ' homelab.lan:3737/ ',
-    'https://HOMELAB.lan:3737/',
-    'tcp://homelab.lan',
-  ])('the address %s is the paired one', (typed) => {
-    expect(alreadyPairedReason([homelab], typed, 'SHA256:cccc')).toBe(SAME_ADDRESS)
+  it('the paired address is the paired host', () => {
+    expect(alreadyPairedReason([homelab], 'homelab.lan:3737', 'SHA256:cccc')).toBe(
+      'This address is already paired as homelab. Remove it in Settings → Hosts to pair it again.',
+    )
   })
 
   it('the paired host’s fingerprint at another address is the same host', () => {
@@ -76,14 +73,8 @@ describe('alreadyPairedReason', () => {
     ['another port', 'homelab.lan:4000'],
     ['another host', 'office.lan:3737'],
     ['a longer name', 'homelab.lan.example:3737'],
-  ])('%s with another fingerprint is a new host', (_, typed) => {
-    expect(alreadyPairedReason([homelab], typed, 'SHA256:cccc')).toBeNull()
-  })
-
-  it('an IPv6 address without a port takes the default one', () => {
-    const v6 = { ...homelab, endpoint: '[fd00::2]:3737' }
-    expect(alreadyPairedReason([v6], '[FD00::2]', 'SHA256:cccc')).toBe(SAME_ADDRESS)
-    expect(alreadyPairedReason([v6], '[fd00::2]:4000', 'SHA256:cccc')).toBeNull()
+  ])('%s with another fingerprint is a new host', (_, endpoint) => {
+    expect(alreadyPairedReason([homelab], endpoint, 'SHA256:cccc')).toBeNull()
   })
 })
 
@@ -105,8 +96,8 @@ describe('pairingFailureText', () => {
     ],
     ['cannot reach 1.2.3.4:3737: Connection refused (os error 61)', UNREACHABLE],
     [
-      'cannot reach homelab: invalid socket address',
-      `Can’t reach ${at}. Check the address and port, and that the host is running.`,
+      'cannot resolve homelab.example.com: failed to lookup address information: nodename nor servname provided, or not known',
+      'Couldn’t find homelab.example.com. Check the spelling, or use its IP address.',
     ],
     ['1.2.3.4:3737 did not answer within 5s', UNREACHABLE],
     ['1.2.3.4:3737 did not finish pairing within 30s', UNREACHABLE],
