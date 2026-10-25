@@ -62,9 +62,16 @@ type Slot struct {
 	// verdict is impossible however the callers race.
 	spent bool
 	reap  *time.Timer
-	// answering is open while an answer that claimed the relay is being recorded:
-	// nothing else may end the relay's wait until it closes.
-	answering chan struct{}
+	// answering is the answer being recorded that claimed the relay: nothing else
+	// may end the relay's wait until it ends.
+	answering *claim
+}
+
+// claim is an answer being recorded. It owns the relay of its ask, whichever
+// slot holds that relay now, until done is closed.
+type claim struct {
+	slot *Slot
+	done chan struct{}
 }
 
 // Settled is closed once the slot has a verdict or has been given up on. A closed

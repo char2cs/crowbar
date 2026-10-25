@@ -69,7 +69,7 @@ func (d *Desk) lapse(slot *Slot) (stdout []byte, answering <-chan struct{}, rele
 		d.forgetLocked(slot)
 		return slot.stdout, nil, false
 	case slot.answering != nil:
-		return nil, slot.answering, false
+		return nil, slot.answering.done, false
 	case slot.spent:
 		return nil, nil, false
 	}
@@ -78,62 +78,75 @@ func (d *Desk) lapse(slot *Slot) (stdout []byte, answering <-chan struct{}, rele
 	return nil, nil, true
 }
 
-// Answer hands stdout to slot's relay if record, run while the relay is claimed
-// for this answer alone, reports it recorded. A relay that stopped waiting first
-// refuses it with ErrNotWaiting before record runs; a failed record hands it back.
-func (d *Desk) Answer(
-	ctx context.Context, slot *Slot, stdout []byte, record func(context.Context) (bool, error),
-) (bool, error) {
-	if !d.claim(slot) {
+// Record writes an answer to the ledger and reports whether it did. It writes
+// only while waiting reports a relay still waiting on the answer.
+type Record func(ctx context.Context, waiting func() bool) (bool, error)
+
+// Answer hands stdout to the relay holding slot's ask if record, run while that
+// relay is claimed for this answer alone, reports it recorded. An answer no relay
+// waits on any more is refused with ErrNotWaiting; a failed record hands it back.
+func (d *Desk) Answer(ctx context.Context, slot *Slot, stdout []byte, record Record) (bool, error) {
+	c, ok := d.claim(slot)
+	if !ok {
 		return false, ErrNotWaiting
 	}
-	recorded, err := record(ctx)
-	if err != nil || !recorded {
-		d.unclaim(slot)
-		return recorded, err
+	recorded, err := record(ctx, func() bool { return d.waiting(c) })
+	if err == nil && recorded {
+		d.resolve(c, stdout)
+		return true, nil
 	}
-	d.resolve(slot, stdout)
-	return true, nil
+	if waited := d.unclaim(c); err == nil && !waited {
+		return false, ErrNotWaiting
+	}
+	return recorded, err
 }
 
-func (d *Desk) claim(slot *Slot) bool {
+func (d *Desk) claim(slot *Slot) (*claim, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if slot.spent || !slot.decidedAt.IsZero() || slot.answering != nil {
-		return false
+		return nil, false
 	}
-	slot.answering = make(chan struct{})
-	return true
+	slot.answering = &claim{slot: slot, done: make(chan struct{})}
+	return slot.answering, true
 }
 
-// unclaim hands slot back to its relay's budget.
-func (d *Desk) unclaim(slot *Slot) {
+// waiting reports whether a relay still waits on c's answer.
+func (d *Desk) waiting(c *claim) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.endClaimLocked(slot)
+	return !c.slot.spent
 }
 
-func (d *Desk) endClaimLocked(slot *Slot) {
-	if slot.answering != nil {
-		close(slot.answering)
-		slot.answering = nil
-	}
-}
-
-// resolve records a verdict and wakes the relay. The prompt stops being
-// answerable at once, but the slot lingers for the desk's retention so a relay
-// that has not asked yet still finds its answer.
-func (d *Desk) resolve(slot *Slot, stdout []byte) {
-	defer d.announce(slot.ChatID)
+// unclaim hands c's relay back to its budget, and reports whether one waits.
+func (d *Desk) unclaim(c *claim) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.endClaimLocked(slot)
-	if slot.spent || !slot.decidedAt.IsZero() {
-		return
+	d.endClaimLocked(c)
+	return !c.slot.spent
+}
+
+func (d *Desk) endClaimLocked(c *claim) {
+	if c.slot.answering == c {
+		c.slot.answering = nil
 	}
-	slot.decidedAt = time.Now()
-	slot.reap = time.AfterFunc(d.retention, d.dropExpired)
-	slot.settle(stdout)
+	close(c.done)
+}
+
+// resolve records c's verdict and wakes the relay holding its ask now. The
+// prompt stops being answerable at once, but the slot lingers for the desk's
+// retention so a relay that has not asked yet still finds its answer.
+func (d *Desk) resolve(c *claim, stdout []byte) {
+	d.mu.Lock()
+	slot := c.slot
+	d.endClaimLocked(c)
+	if !slot.spent && slot.decidedAt.IsZero() {
+		slot.decidedAt = time.Now()
+		slot.reap = time.AfterFunc(d.retention, d.dropExpired)
+		slot.settle(stdout)
+	}
+	d.mu.Unlock()
+	d.announce(slot.ChatID)
 }
 
 // take hands the relay slot's verdict, once.

@@ -133,15 +133,9 @@ func (u *Usecase) AbandonAnswer(
 	u.answers.Abandon(ctx, askID)
 }
 
-// AnswerChoice decides a pending prompt from Crowbar: it renders the picked
-// options into the provider's OWN answer format and hands that to the relay
-// holding the prompt open.
-//
-// The order is load-bearing. Everything that can refuse — the chat, the relay, the
-// question still being pending, the decision being expressible, the provider being
-// resolvable, the render itself — is settled BEFORE the ledger is written, and the
-// ledger is written only while the desk holds the relay for this answer alone, so
-// a recorded answer is one its CLI is handed.
+// AnswerChoice renders the picked options in the CLI's own answer format and
+// hands them to the relay holding the prompt. Everything that can refuse runs
+// first; the answer is written only while that relay is claimed and waiting.
 func (u *Usecase) AnswerChoice(
 	ctx context.Context,
 	chatID string,
@@ -182,8 +176,8 @@ func (u *Usecase) AnswerChoice(
 		return fmt.Errorf("agent: answer choice: render: %w", err)
 	}
 
-	answered, err := u.answers.Answer(ctx, slot, stdout, func(ctx context.Context) (bool, error) {
-		return u.asks.resolve(ctx, chatID, choiceID, ledger.ResolutionAnswered, optionIDs)
+	answered, err := u.answers.Answer(ctx, slot, stdout, func(ctx context.Context, waiting func() bool) (bool, error) {
+		return u.asks.resolve(ctx, chatID, choiceID, ledger.ResolutionAnswered, optionIDs, waiting)
 	})
 	switch {
 	case errors.Is(err, ErrNoLongerWaiting):
@@ -201,15 +195,23 @@ func (u *Usecase) AnswerChoice(
 type askResolver struct{ writes ingress.Writer }
 
 func (r askResolver) ResolveAsk(ctx context.Context, chatID, askID, resolution string) error {
-	if _, err := r.resolve(ctx, chatID, askID, resolution, nil); err != nil {
+	if _, err := r.resolve(ctx, chatID, askID, resolution, nil, always); err != nil {
 		return fmt.Errorf("agent: resolve ask: %w", err)
 	}
 	return nil
 }
 
-// resolve closes askID as resolution, and reports whether it was still open.
-func (r askResolver) resolve(ctx context.Context, chatID, askID, resolution string, optionIDs []string) (bool, error) {
+func always() bool { return true }
+
+// resolve closes askID as resolution if it is still open and, at its turn at
+// the chat's lock, may still be closed, and reports whether it did.
+func (r askResolver) resolve(
+	ctx context.Context, chatID, askID, resolution string, optionIDs []string, may func() bool,
+) (bool, error) {
 	rows, err := r.writes.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		if !may() {
+			return nil, nil
+		}
 		return ledger.ResolveAsk(st, askID, resolution, optionIDs)
 	})
 	return len(rows) > 0, err

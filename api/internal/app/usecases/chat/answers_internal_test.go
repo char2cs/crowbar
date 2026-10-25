@@ -25,12 +25,42 @@ func (l askedLock) Lock(ctx context.Context, chatID string) (func(), error) {
 	return l.Locks.Lock(ctx, chatID)
 }
 
+// openAsk is a ledger holding one open ask, ask-1 of chat-1.
+func openAsk(t *testing.T) *ledgerstore.Store {
+	t.Helper()
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	l, err := ledgerstore.Open(db, time.Now)
+	require.NoError(t, err)
+	asked, err := ledger.NewRow(ledger.KindAsk, "T-1", "", ledger.Ask{AskID: "ask-1", Event: "permission"})
+	require.NoError(t, err)
+	_, _, err = l.Append(t.Context(), "chat-1", asked)
+	require.NoError(t, err)
+	return l
+}
+
+// An answer is written only while its relay still waits on it: one whose relay
+// was gone by its turn at the chat's lock leaves the ask to that relay's close.
+func TestAskResolver_AnAnswerNoRelayWaitsOnIsNotWritten(t *testing.T) {
+	l := openAsk(t)
+	r := askResolver{writes: ingress.NewWriter(l, ingress.NewLocks())}
+
+	written, err := r.resolve(t.Context(), "chat-1", "ask-1", ledger.ResolutionAnswered, []string{"allow"},
+		func() bool { return false })
+
+	require.NoError(t, err)
+	assert.False(t, written)
+	rows, err := l.Read(t.Context(), "chat-1", 0, 0)
+	require.NoError(t, err)
+	assert.Len(t, rows, 1, "the ask stays open")
+}
+
 // An ask resolves after the hook holding its chat: the resolution waits for
 // the chat's lock, so it never lands between that hook's check and its rows.
 func TestAskResolver_ResolvesAfterTheHookHoldingTheChat(t *testing.T) {
 	for name, resolve := range map[string]func(ctx context.Context, r askResolver) error{
 		"a person answers it": func(ctx context.Context, r askResolver) error {
-			_, err := r.resolve(ctx, "chat-1", "ask-1", ledger.ResolutionAnswered, []string{"allow"})
+			_, err := r.resolve(ctx, "chat-1", "ask-1", ledger.ResolutionAnswered, []string{"allow"}, always)
 			return err
 		},
 		"its relay hangs up": func(ctx context.Context, r askResolver) error {
@@ -38,14 +68,7 @@ func TestAskResolver_ResolvesAfterTheHookHoldingTheChat(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			db, err := storesqlite.OpenDB(":memory:")
-			require.NoError(t, err)
-			l, err := ledgerstore.Open(db, time.Now)
-			require.NoError(t, err)
-			asked, err := ledger.NewRow(ledger.KindAsk, "T-1", "", ledger.Ask{AskID: "ask-1", Event: "permission"})
-			require.NoError(t, err)
-			_, _, err = l.Append(t.Context(), "chat-1", asked)
-			require.NoError(t, err)
+			l := openAsk(t)
 			locks, asking := ingress.NewLocks(), make(chan string, 1)
 			r := askResolver{writes: ingress.NewWriter(l, askedLock{Locks: locks, asked: asking})}
 			unlock, err := locks.Lock(t.Context(), "chat-1") // a hook mid-record

@@ -22,7 +22,8 @@ func fixture(wait time.Duration) (*answerdesk.Desk, *answerdesk.Slot) {
 	return fixtureRetaining(wait, answerdesk.DefaultRetention)
 }
 
-// recordingLedger remembers each outcome the desk writes back.
+// recordingLedger remembers each outcome written back, the first one per ask
+// alone, as the ledger keeps it.
 type recordingLedger struct {
 	mu       sync.Mutex
 	resolved []resolution
@@ -32,10 +33,25 @@ type recordingLedger struct {
 type resolution struct{ chatID, choiceID, verdict string }
 
 func (l *recordingLedger) ResolveAsk(_ context.Context, chatID, askID, verdict string) error {
+	l.close(resolution{chatID, askID, verdict})
+	return l.err
+}
+
+// answer writes a person's answer to choice-1, and reports whether it was first.
+func (l *recordingLedger) answer() bool {
+	return l.close(resolution{"chat-1", "choice-1", domain.ChoiceResolutionAnswered})
+}
+
+func (l *recordingLedger) close(r resolution) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.resolved = append(l.resolved, resolution{chatID, askID, verdict})
-	return l.err
+	for _, done := range l.resolved {
+		if done.choiceID == r.choiceID {
+			return false
+		}
+	}
+	l.resolved = append(l.resolved, r)
+	return true
 }
 
 func (l *recordingLedger) all() []resolution {
@@ -58,7 +74,7 @@ func withLedger(wait time.Duration, opts ...answerdesk.Option) (*answerdesk.Desk
 }
 
 // recorded is an answer's record that went through.
-func recorded(context.Context) (bool, error) { return true, nil }
+func recorded(context.Context, func() bool) (bool, error) { return true, nil }
 
 // decide is a person's answer to slot, recorded and handed to its relay.
 func decide(d *answerdesk.Desk, slot *answerdesk.Slot, stdout string) error {

@@ -177,10 +177,10 @@ func TestAnswer_IgnoresASlotThatHasLeftTheDesk(t *testing.T) {
 }
 
 // relay parks a relay on choice-1 and reports what it prints.
-func relay(d *answerdesk.Desk) <-chan string {
+func relay(ctx context.Context, d *answerdesk.Desk) <-chan string {
 	printed := make(chan string, 1)
 	go func() {
-		answer, _ := d.Await(context.Background(), "choice-1", proceeded)
+		answer, _ := d.Await(ctx, "choice-1", proceeded)
 		printed <- string(answer.Stdout)
 	}()
 	return printed
@@ -191,11 +191,11 @@ func relay(d *answerdesk.Desk) <-chan string {
 func TestAnswer_ARelayReleasedFirstRefusesTheAnswerAndRecordsNothing(t *testing.T) {
 	t.Parallel()
 	d, slot, ledger := withLedger(time.Millisecond)
-	printed := relay(d)
+	printed := relay(context.Background(), d)
 	<-slot.Settled()
 
 	asked := false
-	answered, err := d.Answer(context.Background(), slot, []byte("allow"), func(context.Context) (bool, error) {
+	answered, err := d.Answer(context.Background(), slot, []byte("allow"), func(context.Context, func() bool) (bool, error) {
 		asked = true
 		return true, nil
 	})
@@ -208,20 +208,73 @@ func TestAnswer_ARelayReleasedFirstRefusesTheAnswerAndRecordsNothing(t *testing.
 	assert.Equal(t, []resolution{{"chat-1", "choice-1", proceeded}}, ledger.all())
 }
 
-// The answer being recorded owns its relay: the relay hanging up meanwhile
-// writes no outcome of its own.
-func TestAnswer_ARelayHangingUpMidRecordLeavesTheOutcomeToTheAnswer(t *testing.T) {
+// A relay that hangs up before its answer is written closes its ask as
+// proceeded, and the answer, written second, is refused.
+func TestRegression_ARelayHangingUpBeforeItsAnswerIsWrittenLeavesItProceeded(t *testing.T) {
 	t.Parallel()
 	d, slot, ledger := withLedger(time.Minute)
 
-	answered, err := d.Answer(context.Background(), slot, []byte("allow"), func(ctx context.Context) (bool, error) {
+	answered, err := d.Answer(context.Background(), slot, []byte("allow"), func(ctx context.Context, waiting func() bool) (bool, error) {
 		d.Abandon(ctx, "choice-1")
-		return true, nil
+		return waiting() && ledger.answer(), nil
+	})
+
+	require.ErrorIs(t, err, answerdesk.ErrNotWaiting)
+	assert.False(t, answered)
+	assert.Equal(t, []resolution{{"chat-1", "choice-1", proceeded}}, ledger.all(), "exactly one outcome, the first")
+}
+
+// A relay that hangs up after its answer is written leaves that outcome alone.
+func TestAnswer_ARelayHangingUpAfterItsAnswerIsWrittenLeavesItAnswered(t *testing.T) {
+	t.Parallel()
+	d, slot, ledger := withLedger(time.Minute)
+
+	answered, err := d.Answer(context.Background(), slot, []byte("allow"), func(ctx context.Context, waiting func() bool) (bool, error) {
+		first := waiting() && ledger.answer()
+		d.Abandon(ctx, "choice-1")
+		return first, nil
 	})
 
 	require.NoError(t, err)
 	assert.True(t, answered)
-	assert.Empty(t, ledger.all(), "only the answer that claimed the relay records its outcome")
+	assert.Equal(t, []resolution{{"chat-1", "choice-1", domain.ChoiceResolutionAnswered}}, ledger.all())
+}
+
+// An answer whose relay its runner's exit released before the write is refused
+// and records nothing: the exit closes the question.
+func TestRegression_AnAnswerItsRunnersExitReleasedFirstRecordsNothing(t *testing.T) {
+	t.Parallel()
+	d, slot, ledger := withLedger(time.Minute)
+
+	answered, err := d.Answer(context.Background(), slot, []byte("allow"), func(_ context.Context, waiting func() bool) (bool, error) {
+		d.ReleaseRunner("runner-1")
+		return waiting() && ledger.answer(), nil
+	})
+
+	require.ErrorIs(t, err, answerdesk.ErrNotWaiting)
+	assert.False(t, answered)
+	assert.Empty(t, ledger.all())
+}
+
+// An ask asked again while its answer is recorded is answered on its new relay,
+// which waits for that answer past its budget.
+func TestRegression_AnAskAskedAgainMidRecordHandsTheAnswerToItsNewRelay(t *testing.T) {
+	t.Parallel()
+	budget := make(chan time.Time)
+	d, slot, ledger := clocked(budget)
+	var printed <-chan string
+
+	answered, err := d.Answer(context.Background(), slot, []byte("allow"), func(ctx context.Context, waiting func() bool) (bool, error) {
+		d.Hold(slot.Prompt)
+		printed = relay(ctx, d)
+		budget <- time.Now()
+		return waiting() && ledger.answer(), nil
+	})
+
+	require.NoError(t, err)
+	assert.True(t, answered)
+	assert.Equal(t, "allow", <-printed, "the relay now holding the ask is handed its answer")
+	assert.Equal(t, []resolution{{"chat-1", "choice-1", domain.ChoiceResolutionAnswered}}, ledger.all())
 }
 
 // clocked is a desk whose relay budget runs out when the test sends on budget.
@@ -235,9 +288,9 @@ func TestAnswer_ABudgetRunningOutMidRecordWaitsForTheAnswer(t *testing.T) {
 	t.Parallel()
 	budget := make(chan time.Time)
 	d, slot, ledger := clocked(budget)
-	printed := relay(d)
+	printed := relay(context.Background(), d)
 
-	answered, err := d.Answer(context.Background(), slot, []byte("allow"), func(context.Context) (bool, error) {
+	answered, err := d.Answer(context.Background(), slot, []byte("allow"), func(context.Context, func() bool) (bool, error) {
 		budget <- time.Now()
 		return true, nil
 	})
@@ -254,9 +307,9 @@ func TestAnswer_AFailedRecordHandsAnExpiredRelayBackToItsBudget(t *testing.T) {
 	t.Parallel()
 	budget := make(chan time.Time)
 	d, slot, ledger := clocked(budget)
-	printed := relay(d)
+	printed := relay(context.Background(), d)
 
-	answered, err := d.Answer(context.Background(), slot, []byte("allow"), func(context.Context) (bool, error) {
+	answered, err := d.Answer(context.Background(), slot, []byte("allow"), func(context.Context, func() bool) (bool, error) {
 		budget <- time.Now()
 		return false, errors.New("log is full")
 	})

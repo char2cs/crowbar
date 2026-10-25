@@ -378,7 +378,7 @@ func TestPumpAPIConn_AnAskIsAnsweredOverTheConnection(t *testing.T) {
 	// Held inside Hook (spyTurns), as the real ingress does: a human decides it.
 	slot, held := answers.ByChoiceID(call.ask)
 	require.True(t, held)
-	_, err := answers.Answer(ctx, slot, []byte(`{"decision":"approved"}`), func(context.Context) (bool, error) { return true, nil })
+	_, err := answers.Answer(ctx, slot, []byte(`{"decision":"approved"}`), func(context.Context, func() bool) (bool, error) { return true, nil })
 	require.NoError(t, err)
 
 	select {

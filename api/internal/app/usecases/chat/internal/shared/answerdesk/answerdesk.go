@@ -108,6 +108,10 @@ func (d *Desk) Hold(prompt Prompt) *Slot {
 	if stale, held := d.slots[prompt.ChoiceID]; held {
 		d.forgetLocked(stale)
 		stale.settle(nil)
+		if c := stale.answering; c != nil {
+			// An answer being recorded is the ask's, so it goes to its new relay.
+			stale.answering, slot.answering, c.slot = nil, c, slot
+		}
 	}
 	d.slots[prompt.ChoiceID] = slot
 	return slot
@@ -157,13 +161,13 @@ func (d *Desk) held(askID string) (*Slot, bool) {
 }
 
 // Discard retires a relay without printing and reports whether a verdict had
-// already been reached, or claimed by an answer being recorded. A false verdict is
-// the caller's cue to close the question as proceeded: the provider is resolving it.
+// already been reached. A false verdict is the caller's cue to close the question
+// as proceeded: the provider is resolving it.
 func (d *Desk) Discard(slot *Slot) bool {
 	defer d.announce(slot.ChatID)
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	decided := d.claimableLocked(slot) || slot.answering != nil
+	decided := d.claimableLocked(slot)
 	d.forgetLocked(slot)
 	slot.settle(nil)
 	return decided
@@ -254,11 +258,8 @@ func (d *Desk) slotsOfLocked(runnerID string) []*Slot {
 }
 
 // Abandon retires the relay held on askID without printing anything, and
-// closes its ledger question as proceeded: the provider is about to resolve the
-// prompt through its own UI.
-//
-// Nothing is written when the relay had already been answered, or is being — the
-// question was decided, not proceeded past — or when no relay held the ask at all.
+// closes its question as proceeded unless it was answered or never held. An
+// answer still being written then loses to this close, or wins it, in the ledger.
 func (d *Desk) Abandon(ctx context.Context, askID string) {
 	slot, held := d.held(askID)
 	if !held {
