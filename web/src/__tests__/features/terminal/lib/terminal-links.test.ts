@@ -30,8 +30,8 @@ afterEach(() => {
   for (const terminal of terminals.splice(0)) terminal.dispose()
 })
 
-async function terminalWith(data: string, cols = 80): Promise<Terminal> {
-  const terminal = new Terminal({ cols, rows: 6, allowProposedApi: true })
+async function terminalWith(data: string, cols = 80, rows = 6): Promise<Terminal> {
+  const terminal = new Terminal({ cols, rows, allowProposedApi: true })
   terminals.push(terminal)
   await new Promise<void>((resolve) => terminal.write(data, resolve))
   return terminal
@@ -85,6 +85,11 @@ describe('link tokens', () => {
   it('links only http and https URLs that parse', async () => {
     expect(await textsOf('ftp://x or www.x.dev')).toEqual([])
     expect(await textsOf('see https://[oops')).toEqual([])
+  })
+
+  it('does not link a URL whose host the parser rewrites', async () => {
+    expect(await textsOf('see https://0x7f.1/a')).toEqual([])
+    expect(await textsOf('see https://bücher.de/a')).toEqual([])
   })
 
   it('a path inside a URL is part of the URL, never a file link of its own', async () => {
@@ -298,7 +303,7 @@ describe('links over bytes the daemon wrote', () => {
       ['re-attach keyframe', [keyframe]],
     ] as const) {
       it(`${name}, from the ${path}`, async () => {
-        const terminal = await terminalWith(frames.join(''), fixture.cols)
+        const terminal = await terminalWith(frames.join(''), fixture.cols, fixture.rows)
         const buffer = terminal.buffer.active
         const rows = Array.from({ length: buffer.length }, (_, y) => buffer.getLine(y))
         const head = rows.findIndex((row) => row?.translateToString().startsWith('see '))
