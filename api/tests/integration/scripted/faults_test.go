@@ -182,6 +182,27 @@ func TestScripted_UnansweredPermissionAsk(t *testing.T) {
 	}
 }
 
+// An ask over the 128 KiB a held ask may carry is refused on its api
+// connection at once: it never waits on the chat, and nothing approves it.
+func TestScripted_AnAskTooBigToHoldIsRefused(t *testing.T) {
+	r := newRig(t)
+	chatID := r.spawn("codex")
+	r.setScript("turn:\n  - permission: " + strings.Repeat("x", 129<<10) + "\n  - say: carried on\n")
+	require.NoError(t, r.send(chatID, "needs approval"))
+
+	r.eventually(func() bool {
+		assert.Empty(t, r.choices(chatID), "an ask Crowbar cannot hold is never pending")
+		return slices.Contains(r.said(chatID), "assistant: carried on") && !r.working(chatID)
+	}, "the refused ask held the turn open")
+	assert.Empty(t, r.choices(chatID))
+	require.Len(t, r.logged("answer"), 1)
+	assert.NotRegexp(t, `allow|accept`, r.logged("answer")[0]["verdict"])
+	activity, err := r.d.app.Usecases.AgentTurn.ReadActivity(context.Background(), chatID, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, activity.Choices, 1)
+	assert.Equal(t, ledger.ResolutionRefused, activity.Choices[0].Resolution)
+}
+
 // An ask the user answers reaches the CLI as that answer.
 func TestScripted_AnsweredPermissionAsk(t *testing.T) {
 	for _, provider := range providers {
