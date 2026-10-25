@@ -1,7 +1,15 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ActivityComponent } from '@/features/agent/lib/activity-components'
 import { ActivityComponentRow } from '@/features/agent/transcript/activity-component-row'
+import { toast } from '@/features/window/stores/toast-store'
+import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 function component(overrides: Partial<ActivityComponent> = {}): ActivityComponent {
   return {
@@ -73,6 +81,40 @@ describe('ActivityComponentRow', () => {
       'href',
       'https://example.com/protocol',
     )
+  })
+
+  // A provider on another host may cite that host's own localhost.
+  describe('a citation clicked', () => {
+    const citation = component({
+      id: 'citation-local',
+      parentId: undefined,
+      kind: 'citation',
+      payload: { title: 'Dev server', url: 'http://localhost:3000/' },
+    })
+
+    afterEach(() => {
+      vi.restoreAllMocks()
+      resetHostWorld()
+      __resetWorkspaceScopesForTest()
+    })
+
+    it.each([
+      ['is that host’s in a chat on another host', 'w-remote', 0],
+      ['opens here in a chat on this computer', 'w-local', 1],
+    ])('%s', (_, wsId, opened) => {
+      const open = vi.spyOn(window, 'open').mockReturnValue(null)
+      const info = vi.spyOn(toast, 'info').mockReturnValue('')
+      pairRemoteHost('h1', 'Build box')
+      loadProjects(projectOn('p-remote', 'h1'), projectOn('p-local', 'local'))
+      recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r', wsId: 'w-remote' })
+      recordWorkspaceScope({ projectId: 'p-local', repoId: 'r', wsId: 'w-local' })
+      render(<ActivityComponentRow component={citation} wsId={wsId} />)
+
+      fireEvent.click(screen.getByRole('link', { name: 'Dev server' }))
+
+      expect(open).toHaveBeenCalledTimes(opened)
+      expect(info).toHaveBeenCalledTimes(1 - opened)
+    })
   })
 
   it('does not turn an unsafe provider URL into a browser link', () => {

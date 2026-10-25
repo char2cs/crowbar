@@ -40,6 +40,7 @@ vi.mock('@/lib/persistence/workspace-layout', () => ({
 
 const editor = (path: string, extra: { isPreview?: boolean; workspaceId?: string } = {}) => ({
   type: 'editor' as const,
+  workspaceId: 'ws-test',
   path,
   name: path.split('/').pop() ?? path,
   content: '',
@@ -107,12 +108,13 @@ describe('buffer-slice', () => {
   it('opening an already-open terminal reveals its pane instead of adding a copy', () => {
     const { bufferActions } = store.getState()
     const id = bufferActions.openContent(
-      { type: 'terminal', sessionId: 'sess-1', name: 'Terminal 1' },
+      { type: 'terminal', sessionId: 'sess-1', name: 'Terminal 1', workspaceId: 'ws-test' },
       { paneId: BOTTOM_PANE_ID },
     )
 
     const again = bufferActions.openContent({
       type: 'terminal',
+      workspaceId: 'ws-test',
       sessionId: 'sess-1',
       name: 'Terminal 1',
     })
@@ -139,19 +141,22 @@ describe('buffer-slice', () => {
 
   it('a second New Tab in the same pane focuses the first instead of stacking', () => {
     const { bufferActions } = store.getState()
-    const first = bufferActions.openContent({ type: 'newTabPage' })
+    const first = bufferActions.openContent({ type: 'newTabPage', workspaceId: 'ws-test' })
     const other = bufferActions.openContent(editor('/a.ts'))
     expect(store.getState().panes[ROOT_PANE_ID].activeEditorTabId).toBe(other)
 
-    expect(bufferActions.openContent({ type: 'newTabPage' })).toBe(first)
+    expect(bufferActions.openContent({ type: 'newTabPage', workspaceId: 'ws-test' })).toBe(first)
     expect(store.getState().panes[ROOT_PANE_ID].editorTabIds).toEqual([first, other])
     expect(store.getState().panes[ROOT_PANE_ID].activeEditorTabId).toBe(first)
   })
 
   it('each pane gets its own New Tab', () => {
     const { bufferActions } = store.getState()
-    const root = bufferActions.openContent({ type: 'newTabPage' })
-    const bottom = bufferActions.openContent({ type: 'newTabPage' }, { paneId: BOTTOM_PANE_ID })
+    const root = bufferActions.openContent({ type: 'newTabPage', workspaceId: 'ws-test' })
+    const bottom = bufferActions.openContent(
+      { type: 'newTabPage', workspaceId: 'ws-test' },
+      { paneId: BOTTOM_PANE_ID },
+    )
     expect(bottom).not.toBe(root)
     expect(store.getState().panes[BOTTOM_PANE_ID].editorTabIds).toEqual([bottom])
   })
@@ -159,12 +164,12 @@ describe('buffer-slice', () => {
   it('content chosen on a New Tab takes its place in the strip and the tab is released', () => {
     const { bufferActions } = store.getState()
     const before = bufferActions.openContent(editor('/a.ts'))
-    const page = bufferActions.openContent({ type: 'newTabPage' })
+    const page = bufferActions.openContent({ type: 'newTabPage', workspaceId: 'ws-test' })
     const after = bufferActions.openContent(editor('/b.ts'))
     store.getState().paneActions.activateEditorTabInPane(ROOT_PANE_ID, page)
 
     const term = bufferActions.openContent(
-      { type: 'terminal' },
+      { type: 'terminal', workspaceId: 'ws-test' },
       { paneId: ROOT_PANE_ID, replaceTabId: page },
     )
 
@@ -176,7 +181,7 @@ describe('buffer-slice', () => {
   it('choosing something already open on a New Tab focuses it and drops the New Tab', () => {
     const { bufferActions } = store.getState()
     const file = bufferActions.openContent(editor('/a.ts'))
-    const page = bufferActions.openContent({ type: 'newTabPage' })
+    const page = bufferActions.openContent({ type: 'newTabPage', workspaceId: 'ws-test' })
 
     expect(bufferActions.openContent(editor('/a.ts'), { replaceTabId: page })).toBe(file)
     expect(store.getState().panes[ROOT_PANE_ID].editorTabIds).toEqual([file])
@@ -186,8 +191,8 @@ describe('buffer-slice', () => {
 
   it('openContent creates an empty browser tab per call and never dedups', () => {
     const { bufferActions } = store.getState()
-    const a = bufferActions.openContent({ type: 'browser' })
-    const b = bufferActions.openContent({ type: 'browser' })
+    const a = bufferActions.openContent({ type: 'browser', workspaceId: 'ws-test' })
+    const b = bufferActions.openContent({ type: 'browser', workspaceId: 'ws-test' })
     expect(a).not.toBe(b)
     expect(a).toMatch(/^[A-Za-z0-9_-]+$/)
     expect(store.getState().buffers[0]).toMatchObject({ type: 'browser', url: '', name: 'Browser' })
@@ -195,7 +200,11 @@ describe('buffer-slice', () => {
 
   it('openContent opens a browser tab on the given page, named for its host', () => {
     const { bufferActions } = store.getState()
-    bufferActions.openContent({ type: 'browser', url: 'https://example.com/home' })
+    bufferActions.openContent({
+      type: 'browser',
+      url: 'https://example.com/home',
+      workspaceId: 'ws-test',
+    })
     expect(store.getState().buffers[0]).toMatchObject({
       type: 'browser',
       url: 'https://example.com/home',
@@ -205,7 +214,7 @@ describe('buffer-slice', () => {
 
   it('setBrowserLocation keeps the stored url and the tab name in step', () => {
     const { bufferActions } = store.getState()
-    const id = bufferActions.openContent({ type: 'browser' })
+    const id = bufferActions.openContent({ type: 'browser', workspaceId: 'ws-test' })
     bufferActions.setBrowserLocation(id, { url: 'https://example.com/a' })
     expect(store.getState().buffers[0]).toMatchObject({
       url: 'https://example.com/a',
@@ -250,6 +259,7 @@ describe('buffer-slice', () => {
     killTerminalSession.mockClear()
     const id = store.getState().bufferActions.openContent({
       type: 'terminal',
+      workspaceId: 'ws-test',
       sessionId: 'sess-9',
       name: 'Terminal 1',
     })
@@ -284,6 +294,7 @@ describe('buffer-slice', () => {
     closeChat.mockClear()
     const id = store.getState().bufferActions.openContent({
       type: 'terminal',
+      workspaceId: 'ws-test',
       sessionId: 'sess-term',
       name: 'Terminal 1',
     })

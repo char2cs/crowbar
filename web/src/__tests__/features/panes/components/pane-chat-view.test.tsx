@@ -8,8 +8,8 @@ import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-s
 import { useSettingsStore } from '@/features/settings/store'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 
-vi.mock('@/features/agent/components/agent-chat-pane', () => ({
-  AgentChatPane: () =>
+vi.mock('@/features/agent/components/agent-chat-pane-gate', () => ({
+  AgentChatPaneGate: () =>
     createElement(
       'div',
       null,
@@ -20,6 +20,13 @@ vi.mock('@/features/agent/components/agent-chat-pane', () => ({
 
 type Module = typeof import('@/features/panes/components/pane-chat-view') &
   typeof import('@/features/panes/lib/chat-surface-loader')
+
+// Collection has no test timeout: transform the whole graph here, so a test's timer
+// measures its render and act rather than a cold import under a loaded run.
+await Promise.all([
+  import('@/features/panes/components/pane-chat-view'),
+  import('@/features/panes/lib/chat-surface-loader'),
+])
 
 // Each test starts from a module that has not loaded the chat surface yet.
 async function freshModule(): Promise<Module> {
@@ -53,10 +60,13 @@ function renderView({ PaneChatView }: Module) {
 }
 
 describe('PaneChatView chat surface loading', () => {
-  beforeEach(() => vi.useRealTimers())
+  let mod: Module
+  beforeEach(async () => {
+    vi.useRealTimers()
+    mod = await freshModule()
+  })
 
   it('waits for the chat surface chunk when it was not preloaded', async () => {
-    const mod = await freshModule()
     renderView(mod)
     expect(screen.queryByTestId('chat-surface')).toBeNull()
 
@@ -66,7 +76,6 @@ describe('PaneChatView chat surface loading', () => {
   })
 
   it('renders the chat surface in the first commit once it was preloaded', async () => {
-    const mod = await freshModule()
     await mod.preloadAgentChatPane()
 
     renderView(mod)

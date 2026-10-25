@@ -29,7 +29,14 @@ vi.mock('@/lib/store/sidebar-sync', () => ({
 }))
 
 import { useWorkspaceProviderStream } from '@/features/workspace/stores/hooks/use-workspace-provider-stream'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import type { WorkspaceDTO } from '@/lib/types'
 
@@ -198,5 +205,94 @@ describe('useWorkspaceProviderStream', () => {
     const { pruneScope } = optionsOf(0)
     expect(pruneScope!({ id: 'w1' } as WorkspaceDTO)).toBe(true)
     expect(pruneScope!({ id: 'w2' } as WorkspaceDTO)).toBe(false)
+  })
+})
+
+// A paired install cold-boots with the project list unloaded: the viewed
+// workspace's host is unknown, so the lifecycle stream must wait for it.
+describe('on an install that has paired a remote host', () => {
+  beforeEach(() => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    __resetWorkspaceScopesForTest()
+    recordWorkspaceScope({
+      projectId: 'p-remote',
+      repoId: 'r1',
+      wsId: 'w-remote',
+      owningChatId: 'c-remote',
+    })
+    recordWorkspaceScope({
+      projectId: 'p-local',
+      repoId: 'r1',
+      wsId: 'w-local',
+      owningChatId: 'c-local',
+    })
+  })
+
+  afterEach(() => {
+    resetHostWorld()
+    vi.restoreAllMocks()
+  })
+
+  it('waits quietly, opening and seeding nothing, until the project list says whose workspace it is', () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(() =>
+      renderHook(() => useWorkspaceProviderStream('p-remote', 'r1', 'w-remote')),
+    ).not.toThrow()
+    expect(subscribeEntityStream).not.toHaveBeenCalled()
+    expect(logged).not.toHaveBeenCalled()
+
+    act(() => loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local')))
+
+    expect(subscribeEntityStream).toHaveBeenCalledTimes(1)
+    expect(optionsOf(0).endpoint).toBe('crowbar://host-1/v0/chats/c-remote/ws')
+  })
+
+  it('subscribes a local workspace on the bare endpoint', () => {
+    loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
+    renderHook(() => useWorkspaceProviderStream('p-local', 'r1', 'w-local'))
+    expect(optionsOf(0).endpoint).toBe('/v0/chats/c-local/ws')
+  })
+
+  it('switching local to remote closes the old stream and opens the remote one', () => {
+    loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
+    const unsubLocal = vi.fn()
+    subscribeEntityStream.mockReturnValueOnce(unsubLocal)
+    const { rerender } = renderHook(
+      ({ p, w }: { p: string; w: string }) => useWorkspaceProviderStream(p, 'r1', w),
+      { initialProps: { p: 'p-local', w: 'w-local' } },
+    )
+
+    rerender({ p: 'p-remote', w: 'w-remote' })
+
+    expect(unsubLocal).toHaveBeenCalledTimes(1)
+    expect(subscribeEntityStream.mock.calls.map(([o]) => (o as StreamOptions).endpoint)).toEqual([
+      '/v0/chats/c-local/ws',
+      'crowbar://host-1/v0/chats/c-remote/ws',
+    ])
+  })
+
+  it('revoking the host closes its stream and never reopens it against the local daemon', () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    const unsubscribe = vi.fn()
+    subscribeEntityStream.mockReturnValueOnce(unsubscribe)
+    renderHook(() => useWorkspaceProviderStream('p-remote', 'r1', 'w-remote'))
+
+    act(() => useHostConfigStore.getState().removeHost('host-1'))
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+    expect(subscribeEntityStream).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not let a refused stream escape the effect', () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    subscribeEntityStream.mockImplementationOnce(() => {
+      throw new Error('remote hosts need the desktop app')
+    })
+
+    expect(() =>
+      renderHook(() => useWorkspaceProviderStream('p-remote', 'r1', 'w-remote')),
+    ).not.toThrow()
   })
 })

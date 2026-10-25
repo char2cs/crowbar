@@ -175,7 +175,6 @@
     "src/lib/api.ts": ["exports", "types"],
     "src/lib/api/sidebar-placement.ts": ["exports", "types"],
     "src/lib/build-info.ts": ["exports"],
-    "src/lib/crowbar-bridge.ts": ["exports"],
     "src/lib/loadable.ts": ["exports"],
     "src/lib/markdown-link.ts": ["exports"],
     "src/lib/perf/budget.ts": ["files"],

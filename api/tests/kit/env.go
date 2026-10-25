@@ -28,7 +28,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app"
 	wsrepo "github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
-	"github.com/char2cs/crowbar/api/internal/core/gateway"
+	"github.com/char2cs/crowbar/api/internal/core/gateway/transports"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
@@ -192,11 +192,11 @@ func NewEnvWithHome(
 	}
 
 	router := gin.New()
-	apiContainer := v0.New(appContainer, eng)
+	apiContainer := v0.New(appContainer, eng, "")
 	apiContainer.Register(router.Group("/v0"))
 
 	socketPath := kitSocketPath()
-	listener, err := gateway.New("unix://" + socketPath)
+	listener, err := transports.NewSocket("unix://" + socketPath)
 	if err != nil {
 		appContainer.Close()
 		eng.Close()

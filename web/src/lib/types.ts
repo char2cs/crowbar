@@ -35,6 +35,9 @@ export interface Project {
   avatarEmoji?: string
   /** Why the last delete of this project stopped (see RepoDTO.lastError). */
   lastError?: string
+  /** The daemon this project lives on ('local' or a paired host's id). Stamped
+   *  by whoever read it off that host — the wire DTO never carries it. */
+  hostId: string
 }
 
 export interface Prerequisites {

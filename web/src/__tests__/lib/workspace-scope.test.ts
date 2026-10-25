@@ -1,15 +1,24 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
+import type { ReactNode } from 'react'
+import { act, renderHook } from '@testing-library/react'
+import { useHostResolved } from '@/lib/host-resolve'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { useProjectDataStore } from '@/lib/store/projects'
+import { idle, success } from '@/lib/loadable'
+import type { Project } from '@/lib/types'
 import {
   recordWorkspaceScopeFromPath,
   parseWorkspaceScopeFromPath,
   getWorkspaceScope,
   getOwningChatId,
+  getWorkspaceIdOwnedByChat,
   recordWorkspaceScope,
+  forgetWorkspaceScope,
   subscribeToWorkspaceScope,
   __resetWorkspaceScopesForTest,
-  bindActiveWorkspaceId,
 } from '@/lib/workspace-scope'
 import { workspaceBase } from '@/lib/workspace-scope-url'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
 // Regression for the §14 add-repo failure: the workspace scope was recorded
 // only in the `$wsId` route component's post-render `useEffect`, but the IDE
@@ -41,19 +50,17 @@ describe('recordWorkspaceScopeFromPath', () => {
     expect(workspaceBase('w')).toBe('/v0/projects/p/repos/r/workspaces/w')
   })
 
-  // C4: the active workspace is one id, owned by the registry. Recording a
-  // route's scope — which the IDE shell does on every render — never makes
-  // that workspace active; the default-scope read follows the owner alone.
-  it('never decides which workspace is active; the default scope follows the bound owner', () => {
-    let active: string | null = null
-    bindActiveWorkspaceId(() => active)
-    recordWorkspaceScopeFromPath('/ide/p1/r1/ws-routed')
-    expect(getWorkspaceScope()).toBeNull()
-
-    recordWorkspaceScopeFromPath('/ide/p1/r1/ws-pane')
-    active = 'ws-pane'
-    expect(getWorkspaceScope()?.wsId).toBe('ws-pane')
-    bindActiveWorkspaceId(() => null)
+  // The workspace in view is the registry's to name; asking for no workspace ('') must
+  // never hand back its scope.
+  it('answers nothing for an empty id, whichever workspace is in view', () => {
+    recordWorkspaceScopeFromPath('/ide/p1/r1/ws-active')
+    setActiveWorkspaceId('ws-active')
+    try {
+      expect(getWorkspaceScope('ws-active')?.wsId).toBe('ws-active')
+      expect(getWorkspaceScope('')).toBeNull()
+    } finally {
+      setActiveWorkspaceId(null)
+    }
   })
 
   it('returns null and records nothing for a non-ide path', () => {
@@ -133,5 +140,153 @@ describe('subscribeToWorkspaceScope', () => {
 
     expect(onChange3).toHaveBeenCalledTimes(1)
     expect(onChange4).not.toHaveBeenCalled()
+  })
+})
+
+describe('a write that records nothing new', () => {
+  it('notifies no listener', () => {
+    recordWorkspaceScopeFromPath('/ide/p/r/ws1')
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws1', owningChatId: 'chat-1' })
+    const onChange = vi.fn()
+    subscribeToWorkspaceScope('ws1', onChange)
+
+    // The route's write carries no chat, so it keeps the one the sidebar recorded.
+    recordWorkspaceScopeFromPath('/ide/p/r/ws1')
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws1', owningChatId: 'chat-1' })
+    expect(onChange).not.toHaveBeenCalled()
+
+    recordWorkspaceScopeFromPath('/ide/p/r2/ws1')
+    expect(onChange).toHaveBeenCalledTimes(1)
+  })
+})
+
+// IDEShell re-records the routed workspace's scope during every render, and it renders on
+// every project-list change: the change that moves a mounted workspace's host answer.
+describe('re-recording the routed scope while the host answer moves', () => {
+  const project = (id: string, hostId: string): Project => ({
+    id,
+    name: id,
+    path: `/work/${id}`,
+    lastActivity: new Date(0),
+    hostId,
+  })
+  const host = (id: string) => ({
+    id,
+    name: id,
+    endpoint: `${id}.example:3737`,
+    pairedFingerprint: 'SHA256:aaaa',
+    clientId: `client-${id}`,
+  })
+
+  function RoutedShell({ children }: { children: ReactNode }) {
+    useProjectDataStore((s) => s.data)
+    recordWorkspaceScopeFromPath('/ide/p1/r1/ws-1')
+    return children
+  }
+
+  const renderPhaseUpdates = (calls: unknown[][]) =>
+    calls.filter((call) =>
+      call.some((arg) => typeof arg === 'string' && arg.includes('while rendering a different')),
+    )
+
+  beforeEach(() => {
+    useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+    useProjectDataStore.setState({ data: idle() })
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it.each([
+    {
+      name: 'its host is removed',
+      before: () => {
+        useHostConfigStore.setState({ hosts: [host('h1')], remoteEverPaired: true })
+        useProjectDataStore.setState({ data: success([project('p1', 'h1')]) })
+      },
+      change: () => {
+        useHostConfigStore.setState({ hosts: [] })
+        useProjectDataStore.setState({ data: success([]) })
+      },
+    },
+    {
+      name: 'the project list lands on an install that paired a remote',
+      before: () => useHostConfigStore.setState({ hosts: [host('h1')], remoteEverPaired: true }),
+      change: () => useProjectDataStore.setState({ data: success([project('p1', 'local')]) }),
+    },
+    {
+      name: 'a second host lists the same project',
+      before: () => useProjectDataStore.setState({ data: success([project('p1', 'local')]) }),
+      change: () => {
+        useHostConfigStore.setState({ hosts: [host('h2')], remoteEverPaired: true })
+        useProjectDataStore.setState({
+          data: success([project('p1', 'local'), project('p1', 'h2')]),
+        })
+      },
+    },
+  ])('updates no other component mid-render when $name', ({ before, change }) => {
+    before()
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { result } = renderHook(() => useHostResolved({ wsId: 'ws-1' }), {
+      wrapper: RoutedShell,
+    })
+    const resolvedBefore = result.current
+
+    act(change)
+
+    expect(result.current).not.toBe(resolvedBefore)
+    expect(renderPhaseUpdates(errors.mock.calls)).toEqual([])
+  })
+})
+
+describe('a throwing scope listener', () => {
+  it('does not starve the listeners after it, and its error still surfaces from the write', () => {
+    const scope = { projectId: 'p', repoId: 'r', wsId: 'ws-iso' }
+    const after = vi.fn()
+    const lastAfter = vi.fn()
+    subscribeToWorkspaceScope('ws-iso', () => {
+      throw new Error('first listener broke')
+    })
+    subscribeToWorkspaceScope('ws-iso', after)
+    subscribeToWorkspaceScope('ws-iso', () => {
+      throw new Error('second listener broke')
+    })
+    subscribeToWorkspaceScope('ws-iso', lastAfter)
+
+    expect(() => recordWorkspaceScope(scope)).toThrow('first listener broke')
+    expect(after).toHaveBeenCalledTimes(1)
+    expect(lastAfter).toHaveBeenCalledTimes(1)
+    expect(getWorkspaceScope('ws-iso')).toEqual(scope)
+  })
+
+  it('leaves a write with no failing listener unchanged', () => {
+    const onChange = vi.fn()
+    subscribeToWorkspaceScope('ws-ok', onChange)
+    expect(() => recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-ok' })).not.toThrow()
+    expect(onChange).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('getWorkspaceIdOwnedByChat', () => {
+  it('never matches a scope that records no owner for a missing chat id', () => {
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-unowned' })
+    expect(getWorkspaceIdOwnedByChat(undefined as unknown as string)).toBeNull()
+    expect(getWorkspaceIdOwnedByChat('')).toBeNull()
+  })
+
+  it('finds the workspace whose recorded owning chat it is, and no other', () => {
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws1', owningChatId: 'chat-1' })
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws2', owningChatId: 'chat-2' })
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws3' })
+
+    expect(getWorkspaceIdOwnedByChat('chat-2')).toBe('ws2')
+    expect(getWorkspaceIdOwnedByChat('chat-sibling')).toBeNull()
+    expect(getWorkspaceIdOwnedByChat('')).toBeNull()
+  })
+
+  it('stops finding a chat once its workspace scope is forgotten or its owner changes', () => {
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws1', owningChatId: 'chat-1' })
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws1', owningChatId: 'chat-2' })
+    expect(getWorkspaceIdOwnedByChat('chat-1')).toBeNull()
+    forgetWorkspaceScope('ws1')
+    expect(getWorkspaceIdOwnedByChat('chat-2')).toBeNull()
   })
 })

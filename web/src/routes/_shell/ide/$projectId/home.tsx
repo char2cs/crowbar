@@ -1,5 +1,6 @@
 import { createFileRoute, useParams } from '@tanstack/react-router'
 import { useHomeWorkspaceState } from '@/features/workspace/lib/home-workspace-resolver'
+import { useHostUnavailable } from '@/lib/host-unavailability'
 
 /**
  * Project-home route. Renders nothing itself: IDEShell resolves the home
@@ -9,13 +10,15 @@ import { useHomeWorkspaceState } from '@/features/workspace/lib/home-workspace-r
  * instead of a cold fetch+hydrate+mount every visit (see
  * features/workspace/lib/home-workspace-resolver.ts and ide-shell.tsx).
  * This route only surfaces the loading/error state; WorkspaceHost paints the
- * actual content in the same content pane, as an Outlet sibling.
+ * actual content in the same content pane, as an Outlet sibling. The route
+ * stays while the host its project may be on is down, and says so.
  */
 export function HomeRoute() {
   const { projectId } = useParams({ from: '/_shell/ide/$projectId/home' })
   const { error } = useHomeWorkspaceState(projectId)
+  const unavailable = useHostUnavailable({ projectId })
 
-  if (error) {
+  if (error || unavailable) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
         Project Home unavailable

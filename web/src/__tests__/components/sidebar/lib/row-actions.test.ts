@@ -1,11 +1,24 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import {
   performRenameRow,
+  performRenameProject,
   performSetWorkspaceLock,
   performImportBranches,
   performCreateFolder,
 } from '@/components/sidebar/lib/row-actions'
-import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
+import {
+  destroyHostRuntime,
+  getHostRuntime,
+  getOrCreateHostRuntime,
+} from '@/features/hosts/stores/host-runtime-registry'
+import { proxyMarkerError } from '@/lib/api/errors'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
+import { useSidebarStore, getInitialState, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
@@ -853,5 +866,95 @@ describe('performRenameRow — a project-home row', () => {
   it('a no-op home folder rename (same name) sends nothing', async () => {
     await performRenameRow('home-folder-1', 'Old name')
     expect(sidebarPlacement.placeHomeFolder).not.toHaveBeenCalled()
+  })
+})
+
+// A row action on a remote project names the host that failed it (by its name), records what
+// that says of the host, and is never sent again on its own.
+describe('a row action its host fails', () => {
+  const statusOf = (hostId: string) => getHostRuntime(hostId)?.getState().status
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetHostWorld()
+    pairRemoteHost('h1', 'Studio Mac')
+    loadProjects(projectOn('p-remote', 'h1'))
+    getOrCreateHostRuntime('h1').getState().setStatus('up')
+    // The desktop app: the only one that reaches a remote host.
+    Object.assign(window, { __TAURI_INTERNALS__: {} })
+  })
+
+  afterEach(() => {
+    delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
+    vi.unstubAllGlobals()
+    destroyHostRuntime('h1')
+    resetHostWorld()
+  })
+
+  it('names a host an import could not reach, on its rows and in the toast, and records it down', async () => {
+    const repo: Repo = {
+      id: 'repo-r',
+      projectId: 'p-remote',
+      name: 'remote',
+      avatarLabel: 'R',
+      avatarColor: '',
+      defaultWorkspaceId: 'ws-r',
+      defaultBranch: 'main',
+      workspaces: [],
+      folders: [],
+    }
+    useSidebarStore.setState({ ...getInitialState(), repos: [repo] })
+    vi.mocked(api.importBranches).mockRejectedValueOnce(proxyMarkerError('host-unreachable', 'h1'))
+
+    await performImportBranches('repo-r', ['feature-a'])
+
+    expect(usePendingCreatesStore.getState().entries).toMatchObject([
+      { status: 'error', error: 'Couldn’t reach Studio Mac' },
+    ])
+    expect(toast.error).toHaveBeenCalledExactlyOnceWith(
+      'Couldn’t reach Studio Mac',
+      'Check that it is online in Settings → Hosts.',
+    )
+    expect(statusOf('h1')).toBe('down')
+  })
+
+  it.each([
+    [
+      'a changed identity',
+      502,
+      { 'x-crowbar-proxy': 'host-identity-changed' },
+      'Studio Mac is presenting a different identity — confirm it before pairing again',
+    ],
+    ['a refused credential (401)', 401, {}, 'Studio Mac needs to be paired again'],
+  ])(
+    'says %s needs pairing again, marks the host for repair, and asks it once',
+    async (_, status, headers, message) => {
+      const json = async () => ({ error: 'client is not paired' })
+      const fetch = vi
+        .fn()
+        .mockResolvedValue({ ok: false, status, headers: new Headers(headers), json })
+      vi.stubGlobal('fetch', fetch)
+
+      await performRenameProject('p-remote', 'renamed')
+
+      expect(fetch).toHaveBeenCalledOnce()
+      expect(vi.mocked(toast.error).mock.calls[0]?.[0]).toBe(message)
+      expect(statusOf('h1')).toBe('needs-repair')
+    },
+  )
+
+  it('says the projects are still loading, never why the host is unknown inside', async () => {
+    resetHostWorld()
+    pairRemoteHost('h1', 'Studio Mac')
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+
+    await performRenameProject('p-remote', 'renamed')
+
+    expect(toast.error).toHaveBeenCalledExactlyOnceWith(
+      'Still loading your projects',
+      'Try again in a moment.',
+    )
+    expect(fetch).not.toHaveBeenCalled()
   })
 })

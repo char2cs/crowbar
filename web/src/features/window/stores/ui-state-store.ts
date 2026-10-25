@@ -19,6 +19,7 @@ export type SettingsTab =
   | 'file-explorer'
   | 'providers'
   | 'keybindings'
+  | 'hosts'
   | 'developer'
 
 export type BottomPaneTab = 'terminal' | 'buffers'

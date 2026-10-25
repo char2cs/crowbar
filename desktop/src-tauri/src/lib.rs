@@ -3,8 +3,11 @@ mod browser;
 mod console_menu;
 mod diagnostics;
 mod fdlimit;
+mod host_tokens;
+mod hosts;
 mod navigation;
 mod sidecar;
+mod tls_pin;
 mod ws_bridge;
 
 #[cfg(test)]
@@ -975,6 +978,7 @@ pub fn run() {
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
                 .level_for("tokio_tungstenite", log::LevelFilter::Warn)
+                // Never below Warn: its trace of a remote upgrade holds the bearer token.
                 .level_for("tungstenite", log::LevelFilter::Warn)
                 .level_for("hyper", log::LevelFilter::Warn)
                 .level_for("hyper_util", log::LevelFilter::Warn)
@@ -1052,6 +1056,9 @@ pub fn run() {
     builder
         .manage(sidecar::SidecarHandle::new())
         .manage(ws_bridge::WsBridgeManager::new())
+        .manage(std::sync::Arc::new(host_tokens::KeyringTokenStore)
+            as std::sync::Arc<dyn host_tokens::TokenStore>)
+        .manage(hosts::HostRegistry::default())
         // A page load orphans every bridged connection the outgoing page owned: its JS
         // is gone and will never close ids it no longer remembers, and the new page
         // opens its own. Nothing else can notice — a `Channel` keeps working across a
@@ -1150,6 +1157,11 @@ pub fn run() {
             ws_bridge::ws_send,
             ws_bridge::ws_close,
             diagnostics::diagnostics_export,
+            host_tokens::forget_host_token,
+            api_proxy::pairing::pair_remote_host,
+            api_proxy::probe::probe_remote_fingerprint,
+            hosts::register_remote_host,
+            hosts::unregister_remote_host,
             reveal_in_finder,
             set_vibrancy_appearance,
             set_traffic_light_position,

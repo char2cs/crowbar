@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { idle, success } from '@/lib/loadable'
+import { useProjectDataStore } from '@/lib/store/projects'
 import type { ChatDTO, FolderDTO } from '@/lib/types'
 
 // Drive WS frames directly instead of standing up a socket (mirrors
@@ -64,6 +67,13 @@ beforeEach(() => {
   fetchReposSpy.mockResolvedValue([])
   useHomeTreeStore.setState({ trees: {} })
   useSidebarStore.setState(getInitialState())
+  useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+  useProjectDataStore.setState({ data: idle() })
+})
+
+afterEach(() => {
+  useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+  useProjectDataStore.setState({ data: idle() })
 })
 
 describe('subscribeHomeTree', () => {
@@ -112,6 +122,31 @@ describe('subscribeHomeTree', () => {
     const dispose = subscribeHomeTree('p1')
 
     expect(subscribeSpy).toHaveBeenCalledWith('/v0/projects/p1/home/chats/ws', expect.any(Function))
+    dispose()
+  })
+
+  it('listens on the home stream of a remote project’s own host', () => {
+    useHostConfigStore.getState().addHost({
+      id: 'host-2',
+      name: 'host-2',
+      endpoint: 'host-2.example:3737',
+      pairedFingerprint: 'SHA256:aaaa',
+      clientId: 'client-host-2',
+    })
+    useProjectDataStore.setState({
+      data: success([
+        { id: 'p1', name: 'p1', path: '/work/p1', lastActivity: new Date(0), hostId: 'host-2' },
+      ]),
+    })
+    fetchHomeChatsSpy.mockResolvedValue([])
+    fetchHomeFoldersSpy.mockResolvedValue([])
+
+    const dispose = subscribeHomeTree('p1')
+
+    expect(subscribeSpy).toHaveBeenCalledExactlyOnceWith(
+      'crowbar://host-2/v0/projects/p1/home/chats/ws',
+      expect.any(Function),
+    )
     dispose()
   })
 

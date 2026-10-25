@@ -63,8 +63,20 @@ import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar
 import { planRemoval } from '@/components/layout/removal-plan'
 import type { Project } from '@/lib/types'
 
-const projectA: Project = { id: 'p1', name: 'proj-a', path: '/p1', lastActivity: new Date(0) }
-const projectB: Project = { id: 'p2', name: 'proj-b', path: '/p2', lastActivity: new Date(0) }
+const projectA: Project = {
+  id: 'p1',
+  name: 'proj-a',
+  path: '/p1',
+  lastActivity: new Date(0),
+  hostId: 'local',
+}
+const projectB: Project = {
+  id: 'p2',
+  name: 'proj-b',
+  path: '/p2',
+  lastActivity: new Date(0),
+  hostId: 'local',
+}
 
 /**
  * A repo as the tree actually receives one: its home workspace already owns the

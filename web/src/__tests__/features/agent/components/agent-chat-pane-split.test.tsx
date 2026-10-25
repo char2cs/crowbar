@@ -121,7 +121,7 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
 }))
 
 import { ChatHeaderSlot, ChatHeaderSlotProvider } from '@/features/agent/hooks/chat-header-slot'
-import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
+import { AgentChatPaneGate as AgentChatPane } from '@/features/agent/components/agent-chat-pane-gate'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 import { useSettingsStore } from '@/features/settings/store'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'

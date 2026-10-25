@@ -81,7 +81,12 @@ test('posts the path then resolves the real project from the /v0/projects WS pus
 
   await waitFor(() => {
     expect(onImport).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'server-id', name: 'test-proj', path: '/tmp/test-proj' }),
+      expect.objectContaining({
+        id: 'server-id',
+        name: 'test-proj',
+        path: '/tmp/test-proj',
+        hostId: 'local',
+      }),
     )
   })
 })

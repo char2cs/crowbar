@@ -1,10 +1,12 @@
 /** Creates in a project home: a thread under a home row, and the header's thread. */
+import { act } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
 const {
   postWorkspace,
   createChat,
   createChatWithOwnWorktree,
+  listGlobalProviders,
   toastError,
   getHomeWorkspaceId,
   presetChatLandingPresentation,
@@ -12,6 +14,7 @@ const {
   postWorkspace: vi.fn(() => Promise.resolve()),
   createChat: vi.fn(() => Promise.resolve('chat-1')),
   createChatWithOwnWorktree: vi.fn(() => Promise.resolve('chat-1')),
+  listGlobalProviders: vi.fn((): Promise<unknown[]> => new Promise(() => {})),
   toastError: vi.fn(),
   getHomeWorkspaceId: vi.fn(),
   presetChatLandingPresentation: vi.fn(),
@@ -25,15 +28,14 @@ vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/agent/api/agent-api')>()),
   createChat,
   createChatWithOwnWorktree,
+  listGlobalProviders,
 }))
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: toastError, success: vi.fn(), info: vi.fn() },
 }))
 vi.mock('@/features/agent/hooks/use-chat-presentation', () => ({ presetChatLandingPresentation }))
-// `handleOpen`'s home branch reads this directly (see `resolveHomeRow`) —
-// the real resolver needs an async fetch+cache round trip these tests have
-// no reason to exercise; `handleCreateHomeThread`'s own tests never needed
-// this mock since they take `homeWorkspaceId` as a direct argument instead.
+// `handleOpen`'s home branch reads this directly (`resolveHomeRow`); the real resolver's
+// fetch+cache round trip is not what these tests exercise.
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId,
   getHomeOwningChatId: () => null,
@@ -44,6 +46,12 @@ import { handleCreateHomeThread } from '@/components/layout/home-actions'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import { proxyMarkerError } from '@/lib/api/errors'
+import { useProjectDataStore } from '@/lib/store/projects'
+import { failed, idle, success } from '@/lib/loadable'
+import type { Project } from '@/lib/types'
 import { useSettingsStore } from '@/features/settings/store'
 import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
@@ -53,6 +61,12 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 afterEach(() => {
   // A GLOBAL store — a leaked 'terminal' default would silently arm every
@@ -72,17 +86,11 @@ beforeEach(() => {
   // CLI, unlike the old chat-less postWorkspace) — the global provider store
   // (agent-providers-store.ts), not a per-workspace one, since there is no
   // workspace yet to scope a per-workspace read through.
-  useAgentProvidersStore.setState({ status: 'ready', providers: [] })
+  useAgentProvidersStore.setState({ status: 'ready', providers: [], remote: {} })
 })
 
-// Regression, reported live: a project-home chat's Fork was offered with no
-// git repo behind it at all ("why is it letting me create a branch from
-// this where there isn't a git workspace"), and its Thread did nothing.
-// Project home rides no repo (`resolveHomeRowScope`'s own doc) — Thread now
-// resolves through the project's own home workspace (same rule
-// `handleOpen` already follows), and Fork stays a no-op, matching a home
-// FOLDER's own `ownsWorktree: false` — no worktree exists for either to
-// clone.
+// Project home rides no repo: Thread resolves through the project's own home workspace
+// (as `handleOpen` does), and Fork stays a no-op, as there is no worktree to clone.
 describe('a project-home chat row resolves Thread through its home workspace, and refuses Fork', () => {
   it('Thread runs in the project’s home workspace, nested under the bubble itself, and clears once it lands', async () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
@@ -99,7 +107,7 @@ describe('a project-home chat row resolves Thread through its home workspace, an
       providers: [{ id: 'claude', enabled: true }] as never,
     })
 
-    handleCreate('c1', 'thread', vi.fn())
+    await handleCreate('c1', 'thread', vi.fn())
 
     expect(createChat).toHaveBeenCalledExactlyOnceWith('home-ws-1', 'claude', 'c1', undefined)
     expect(usePendingCreatesStore.getState().entries).toMatchObject([
@@ -176,13 +184,13 @@ describe('a project-home chat row resolves Thread through its home workspace, an
       providers: [{ id: 'claude', enabled: true }] as never,
     })
 
-    handleCreate('c1', 'thread', vi.fn(), 'terminal')
+    await handleCreate('c1', 'thread', vi.fn(), 'terminal')
     await Promise.resolve()
 
     expect(presetChatLandingPresentation).toHaveBeenCalledExactlyOnceWith('chat-1', 'terminal')
   })
 
-  it('Fork is a silent no-op — no repo, no worktree to clone', () => {
+  it('Fork is a silent no-op — no repo, no worktree to clone', async () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
     useHomeTreeStore.setState({
       trees: {
@@ -197,7 +205,7 @@ describe('a project-home chat row resolves Thread through its home workspace, an
       providers: [{ id: 'claude', enabled: true }] as never,
     })
 
-    handleCreate('c1', 'workspace', vi.fn())
+    await handleCreate('c1', 'workspace', vi.fn())
 
     expect(createChatWithOwnWorktree).not.toHaveBeenCalled()
     expect(usePendingCreatesStore.getState().entries).toEqual([])
@@ -335,26 +343,153 @@ describe('handleCreateHomeThread', () => {
 
     expect(usePendingCreatesStore.getState().entries).toEqual([])
   })
+})
 
-  it('a refused create leaves the pending row in error carrying the daemon’s reason, and says it', async () => {
+// A provider list belongs to a daemon: a chat started in a remote project's home is
+// started with a provider THAT host offers, never one only the local daemon has.
+describe('a project-home thread on an install that has paired a remote host', () => {
+  const offered = (id: string, enabled = true) => ({ id, enabled }) as never
+  const started = () =>
+    (createChat.mock.calls as unknown as [string, string][]).map(([wsId, providerId]) => [
+      wsId,
+      providerId,
+    ])
+
+  beforeEach(() => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
     useAgentProvidersStore.setState({
       status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
+      providers: [offered('claude')],
+      remote: { 'host-1': [offered('codex-remote')] },
     })
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    createChat.mockRejectedValueOnce(new Error('agent chat: parent ws-1: apperr: not found'))
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+    destroyHostRuntime('host-1')
+    resetHostWorld()
+  })
 
-    await handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
+  it('picks each project’s provider from its own host’s list', async () => {
+    await handleCreateHomeThread('p-local', 'home-local', vi.fn())
+    await handleCreateHomeThread('p-remote', 'home-remote', vi.fn())
 
-    expect(usePendingCreatesStore.getState().entries[0]).toMatchObject({
-      status: 'error',
-      error: 'agent chat: parent ws-1: apperr: not found',
-    })
-    expect(toastError).toHaveBeenCalledWith(
+    expect(started()).toEqual([
+      ['home-local', 'claude'],
+      ['home-remote', 'codex-remote'],
+    ])
+  })
+
+  it('refuses, rather than borrowing the local list, when the remote host has none enabled', async () => {
+    useAgentProvidersStore.setState({ remote: { 'host-1': [offered('codex-remote', false)] } })
+
+    await handleCreateHomeThread('p-remote', 'home-remote', vi.fn())
+
+    expect(createChat).not.toHaveBeenCalled()
+    expect(toastError).toHaveBeenCalledOnce()
+    expect(listGlobalProviders).not.toHaveBeenCalled()
+  })
+
+  it('reads that host’s list on the first click and starts the chat with it', async () => {
+    useAgentProvidersStore.setState({ remote: {} })
+    listGlobalProviders.mockResolvedValueOnce([offered('codex-remote')])
+
+    await handleCreateHomeThread('p-remote', 'home-remote', vi.fn())
+
+    expect(listGlobalProviders).toHaveBeenCalledExactlyOnceWith('host-1')
+    expect(started()).toEqual([['home-remote', 'codex-remote']])
+    expect(toastError).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['could not reach', new Error('offline'), 'Couldn’t reach host-1'],
+    [
+      'found with another identity',
+      proxyMarkerError('host-identity-changed', 'host-1'),
+      'host-1 is presenting a different identity — confirm it before pairing again',
+    ],
+  ])('names the host it %s, once however often the button is clicked', async (_, err, said) => {
+    useAgentProvidersStore.setState({ remote: {} })
+    listGlobalProviders.mockRejectedValueOnce(err)
+
+    await Promise.all([
+      handleCreateHomeThread('p-remote', 'home-remote', vi.fn()),
+      handleCreateHomeThread('p-remote', 'home-remote', vi.fn()),
+    ])
+
+    expect(createChat).not.toHaveBeenCalled()
+    expect(listGlobalProviders).toHaveBeenCalledOnce()
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(said, expect.any(String))
+  })
+
+  // A refused create errors its pending row and goes nowhere, in its own words or its host's.
+  const notFound = 'agent chat: parent ws-1: apperr: not found'
+  it.each([
+    ['local', new Error(notFound), notFound, ['Failed to start chat', notFound]],
+    [
+      'remote',
+      proxyMarkerError('host-unreachable', 'host-1'),
+      'Couldn’t reach host-1',
+      ['Couldn’t reach host-1', 'Check that it is online in Settings → Hosts.'],
+    ],
+  ])(
+    'fails a %s thread the daemon refused, on its row and in a toast',
+    async (where, err, row, toast) => {
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      createChat.mockRejectedValueOnce(err)
+      const navigate = vi.fn()
+
+      await handleCreateHomeThread(`p-${where}`, `home-${where}`, navigate)
+
+      expect(usePendingCreatesStore.getState().entries).toMatchObject([
+        { status: 'error', error: row },
+      ])
+      expect(toastError).toHaveBeenCalledExactlyOnceWith(...toast)
+      expect(navigate).not.toHaveBeenCalled()
+    },
+  )
+
+  it('names the host by its name, never its id, also when it was removed while being asked', async () => {
+    resetHostWorld()
+    pairRemoteHost('host-1', 'Studio Mac')
+    loadProjects(projectOn('p-remote', 'host-1'))
+    useAgentProvidersStore.setState({ remote: {} })
+    let fail!: (reason: Error) => void
+    listGlobalProviders.mockReturnValueOnce(new Promise((_, reject) => (fail = reject)))
+
+    const click = handleCreateHomeThread('p-remote', 'home-remote', vi.fn())
+    act(() => useHostConfigStore.getState().removeHost('host-1'))
+    fail(new Error('gone'))
+    await click
+
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(
+      'Couldn’t reach Studio Mac',
       expect.any(String),
-      'agent chat: parent ws-1: apperr: not found',
     )
-    expect(consoleError).toHaveBeenCalled()
-    consoleError.mockRestore()
+  })
+
+  // Only a loaded list can say a project's host is gone; before that a local project is merely
+  // not known yet, or the read failed, and Hosts would be the wrong advice.
+  it.each([
+    [
+      'sends an unconfigured host’s project to Hosts',
+      success([projectOn('p', 'host-2')]),
+      /^This project’s host is not available \| .*Hosts/,
+    ],
+    ['says a loading list is loading', idle(), /^Still loading your projects \| (?!.*Hosts)/],
+    [
+      'says a failed read failed',
+      failed<Project[]>(new Error('down')),
+      /^Couldn’t load your projects \|/,
+    ],
+  ])('%s, never a retry', async (_, data, said) => {
+    useProjectDataStore.setState({ data })
+
+    await handleCreateHomeThread('p', 'home', vi.fn())
+
+    expect(createChat).not.toHaveBeenCalled()
+    expect(toastError).toHaveBeenCalledOnce()
+    expect(toastError.mock.calls[0]?.join(' | ')).toMatch(said)
   })
 })

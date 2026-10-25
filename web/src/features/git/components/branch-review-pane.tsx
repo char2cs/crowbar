@@ -4,6 +4,7 @@ import {
   useWorkspaceStore,
   useWorkspaceStoreContext,
 } from '@/features/workspace/stores/workspace-context'
+import { useHostResolved } from '@/lib/host-resolve'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 import { Badge } from '@/components/ui/badge'
@@ -118,12 +119,15 @@ export function BranchReviewPane({
     }
   }, [store, wsId])
 
+  // On a paired install the project list says whose daemon holds the review.
+  const hostResolved = useHostResolved({ wsId })
+
   useEffect(() => {
-    // Nothing to fetch yet — wait for owningChatId (dependency below) rather
-    // than firing a call that can only fail and land on the error status.
-    if (owningChatId === null) return
+    // Nothing to fetch yet — wait for owningChatId and the host (dependencies below)
+    // rather than firing a call that can only fail and land on the error status.
+    if (owningChatId === null || !hostResolved) return
     void load()
-  }, [load, owningChatId])
+  }, [load, owningChatId, hostResolved])
 
   return (
     <div className="@container flex h-full flex-col overflow-hidden bg-background">

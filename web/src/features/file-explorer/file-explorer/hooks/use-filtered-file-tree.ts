@@ -78,6 +78,7 @@ export function useFilteredFileTree({
     [files, rootFolderPath],
   )
   const { isGitIgnored } = useFileExplorerGitignore(
+    workspaceId,
     rootFolderPath,
     gitIgnoreFileReferences,
     getWorkspaceRootForPath,

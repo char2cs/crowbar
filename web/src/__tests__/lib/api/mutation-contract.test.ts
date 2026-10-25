@@ -32,7 +32,7 @@ function lastCall(): [string, RequestInit] {
 
 describe('hierarchical mutations are 202-empty (no synchronous entity)', () => {
   test('POST /v0/projects → 202, resolves undefined', async () => {
-    const res = await postProject('my-proj', '/tmp/my-proj')
+    const res = await postProject('my-proj', '/tmp/my-proj', 'local')
     const [url, init] = lastCall()
     expect(url).toBe('/v0/projects')
     expect(init.method).toBe('POST')

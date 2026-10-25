@@ -1,5 +1,7 @@
 import { useEffect } from 'react'
-import { wsManager } from '@/lib/ws/manager'
+import { LOCAL_HOST } from '@/features/hosts/types'
+import { resolvedHostOf, useHostResolved } from '@/lib/host-resolve'
+import { subscribeGuarded } from '@/lib/ws/subscribe-guarded'
 import {
   chatBase,
   listChats,
@@ -37,10 +39,9 @@ import { NON_STRUCTURAL_CHAT_KINDS } from '@/lib/ws/chat-frame-kinds'
 
 type WorkspaceSnapshot = ReturnType<WorkspaceStore['getState']>
 
-/** Whether the "could not load agent providers" toast is already on screen for
- *  the current outage. MODULE scope, not per-hook: the provider list is
- *  machine-level and every mounted workspace's copy of this hook fails at the
- *  same moment for the same reason. Cleared by the next successful read. */
+/** Whether the "could not load agent providers" toast is already on screen for the
+ *  current outage. MODULE scope: every mounted workspace's copy of this hook fails
+ *  at once, with the same sentence. Cleared by the next successful read. */
 let providersUnreachableAnnounced = false
 
 /** Test-only: module state outlives a `renderHook`, so a suite with a
@@ -109,13 +110,12 @@ interface AgentStreamEvent {
  * no pane — and the live views that are not chat state at all.
  */
 export function useWorkspaceAgentChatsStream(wsId: string): void {
-  // `chatBase(wsId)` below (agent-api.ts) throws the instant project/repo scope
-  // is missing entirely. This hook runs for EVERY mounted workspace, so it is
-  // exactly the effect a force-mounted, never-navigated-to workspace hits first.
-  // Wait rather than crash; see useWorkspaceScopeReady's own doc.
+  // `chatBase(wsId)` below throws until the workspace's scope and host are known, and
+  // this runs for EVERY mounted workspace (a force-mounted one hits it first): wait.
   const scopeReady = useWorkspaceScopeReady(wsId)
+  const hostResolved = useHostResolved({ wsId })
   useEffect(() => {
-    if (!scopeReady) return
+    if (!scopeReady || !hostResolved) return
     // The host mounted this store before this workspace's view rendered;
     // held here so a late frame writes to it rather than minting a new one.
     const ownStore = getWorkspaceStore(wsId)
@@ -233,27 +233,22 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           if (cancelled) return
           // A newer read (a reconnect reseed) already owns the list.
           if (seq !== providerSeq) return
-          // A preferences write landed while this was in flight; it is newer
-          // truth and it already published to both copies.
-          if (!isLatestProviderWrite(writes)) return
+          // Providers belong to a daemon: the list is filed under this workspace's host, so
+          // Settings' app-wide list stays the local daemon's.
+          const hostId = resolvedHostOf({ wsId })
+          // A preferences write landed while this was in flight; it is newer truth for the
+          // LOCAL daemon, and it already published to both copies.
+          if (hostId === LOCAL_HOST.id && !isLatestProviderWrite(writes)) return
           ownStore.getState().setAgentProviders(providers)
-          // Providers are machine-level, and the Settings dialog is global: give
-          // the global store the same answer so opening Settings from anywhere
-          // (Project Home, the projects screen) shows the real list instead of
-          // claiming the daemon has none.
-          useAgentProvidersStore.getState().setProviders(providers)
+          if (hostId) useAgentProvidersStore.getState().setHostProviders(hostId, providers)
           providersUnreachableAnnounced = false
           return
         } catch {
           if (cancelled || seq !== providerSeq) return
         }
       }
-      // ONCE PER OUTAGE, NOT ONCE PER WORKSPACE. This hook runs for every
-      // MOUNTED workspace now (WorkspaceView, one per workspace
-      // with a view), and the daemon being unreachable fails all of them at once —
-      // for the same machine-level list, with the same sentence. Its only
-      // previous mount point was a single sidebar panel, so the plain toast
-      // was correct then and would stack six identical copies now.
+      // Once per outage, not once per workspace: this runs for every mounted workspace,
+      // and an unreachable daemon fails all of them at once with the same sentence.
       if (providersUnreachableAnnounced) return
       providersUnreachableAnnounced = true
       toast.error(
@@ -345,7 +340,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     void seedChats()
     void seedProviders()
 
-    const unsubscribe = wsManager.subscribe(`${chatBase(wsId)}/ws`, (frame) => {
+    const onFrame = (frame: unknown) => {
       if (cancelled) return
       // Reconnect sentinel emitted by the manager after a socket drop+reopen —
       // reseed so pushes missed during the outage aren't lost.
@@ -451,12 +446,13 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
         default:
           applyLifecycle(ev)
       }
-    })
+    }
+    const unsubscribe = subscribeGuarded(() => `${chatBase(wsId)}/ws`, onFrame)
 
     return () => {
       cancelled = true
       unsubscribe()
       streamingMessages.dispose()
     }
-  }, [wsId, scopeReady])
+  }, [wsId, scopeReady, hostResolved])
 }

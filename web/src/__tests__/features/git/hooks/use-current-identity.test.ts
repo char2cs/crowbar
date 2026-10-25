@@ -1,5 +1,5 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IdentityDTO } from '@/features/git/api/identity-api'
 
 const mocks = vi.hoisted(() => ({
@@ -15,6 +15,12 @@ import {
   recordWorkspaceScope,
   setWorkspaceScope,
 } from '@/lib/workspace-scope'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 function identity(login: string): IdentityDTO {
   return { login, displayName: login, avatarUrl: `https://x/${login}.png` }
@@ -88,5 +94,33 @@ describe('useCurrentIdentity', () => {
 
     expect(result.current).toBeNull()
     expect(mocks.getIdentity).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useCurrentIdentity on an install that has paired a remote host', () => {
+  beforeEach(() => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    setWorkspaceScope({
+      projectId: 'p-remote',
+      repoId: 'r1',
+      wsId: 'ws-remote-id',
+      owningChatId: 'chat-remote',
+    })
+  })
+  afterEach(() => resetHostWorld())
+
+  // resolveIdentity swallows a failed fetch into null and the hook asks once per
+  // wsId, so asking before the host is known would leave the identity null for good.
+  it('asks nothing until the project list names the host, then resolves the identity', async () => {
+    mocks.getIdentity.mockResolvedValue(identity('mona'))
+    const { result } = renderHook(() => useCurrentIdentity('ws-remote-id'))
+    await act(async () => {})
+    expect(mocks.getIdentity).not.toHaveBeenCalled()
+
+    act(() => loadProjects(projectOn('p-remote', 'host-1')))
+
+    await waitFor(() => expect(result.current).toEqual(identity('mona')))
+    expect(mocks.getIdentity).toHaveBeenCalledWith('ws-remote-id')
   })
 })

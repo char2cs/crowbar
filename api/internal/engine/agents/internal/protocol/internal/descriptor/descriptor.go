@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
+	"github.com/char2cs/crowbar/api/internal/core/svgicon"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor/internal/rules"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
@@ -44,6 +45,11 @@ func Load(data []byte) (*spec.Descriptor, error) {
 	d, err := ParseV3(data)
 	if err != nil {
 		return nil, err
+	}
+	// The webview injects the icon as HTML: one that is not plain SVG is dropped,
+	// never fatal, and descriptorcheck reports it.
+	if d.Icon != "" && svgicon.Validate(d.Icon) != nil {
+		d.Icon = ""
 	}
 	if err := rules.Apply(d); err != nil {
 		return nil, err

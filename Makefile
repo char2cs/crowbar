@@ -127,7 +127,7 @@ ci: lint test build
 docker-up:
 	@$(MAKE) -C web build
 	docker compose -f docker/docker-compose.yml up --build -d
-	@echo "Crowbar running at http://localhost:3737"
+	@echo "Crowbar running at https://localhost:$${CROWBAR_PORT:-3737} (self-signed TLS; pair with: docker compose -f docker/docker-compose.yml exec crowbar crowbar pair)"
 
 docker-down:
 	docker compose -f docker/docker-compose.yml down

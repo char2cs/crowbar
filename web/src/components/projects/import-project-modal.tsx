@@ -16,6 +16,7 @@ import { isTauri } from '@/lib/crowbar-bridge'
 import { postProject } from '@/lib/api'
 import { awaitEntity } from '@/lib/ws/await-entity'
 import { projectFromDTO } from '@/lib/store/project-from-dto'
+import { LOCAL_HOST } from '@/features/hosts/types'
 import type { Project, ProjectDTO } from '@/lib/types'
 
 interface ImportProjectModalProps {
@@ -56,12 +57,14 @@ export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProje
           .split(/[\\/]/)
           .pop() ?? trimmedPath
       const name = projectName.trim() || fallbackName
+      // awaitEntity only hears the local daemon's socket, so the import goes there.
+      const hostId = LOCAL_HOST.id
       const dto = await awaitEntity<ProjectDTO>({
         endpoint: '/v0/projects',
         match: (p) => p.path === trimmedPath && p.status !== 'deleted',
-        action: () => postProject(name, trimmedPath),
+        action: () => postProject(name, trimmedPath, hostId),
       })
-      onImport(projectFromDTO(dto))
+      onImport(projectFromDTO(dto, hostId))
       setSelectedPath('')
       setProjectName('')
     } catch (err) {

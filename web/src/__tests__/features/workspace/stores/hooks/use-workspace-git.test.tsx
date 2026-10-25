@@ -15,7 +15,14 @@ import {
   destroyWorkspaceStore,
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
-import { setWorkspaceScope } from '@/lib/workspace-scope'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { __resetWorkspaceScopesForTest, setWorkspaceScope } from '@/lib/workspace-scope'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const { fetchGitData, getReviewFiles, subscribe } = vi.hoisted(() => ({
   fetchGitData: vi.fn(),
@@ -175,6 +182,126 @@ describe('useWorkspaceGit', () => {
       await vi.advanceTimersByTimeAsync(500)
       expect(reloadStatusAndLog).toHaveBeenCalledTimes(1)
     })
+  })
+})
+
+describe('on an install that has paired a remote host', () => {
+  const REMOTE_STATUS = 'crowbar://host-1/v0/chats/chat-remote/git/status'
+  const LOCAL_STATUS = '/v0/chats/chat-local/git/status'
+  const endpoints = () =>
+    (subscribe.mock.calls as unknown as [string][]).map(([endpoint]) => endpoint)
+
+  function mount(wsId: 'ws-remote' | 'ws-local') {
+    const store = createWorkspaceStore(wsId)
+    const chat = wsId === 'ws-remote' ? 'chat-remote' : 'chat-local'
+    const hook = renderHook(() => useWorkspaceGit(wsId, true, chat, false), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <WorkspaceStoreContext.Provider value={store}>{children}</WorkspaceStoreContext.Provider>
+      ),
+    })
+    return { store, ...hook }
+  }
+
+  beforeEach(() => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    __resetWorkspaceScopesForTest()
+    setWorkspaceScope({
+      projectId: 'p-remote',
+      repoId: 'r1',
+      wsId: 'ws-remote',
+      owningChatId: 'chat-remote',
+    })
+    setWorkspaceScope({
+      projectId: 'p-local',
+      repoId: 'r1',
+      wsId: 'ws-local',
+      owningChatId: 'chat-local',
+    })
+  })
+
+  afterEach(() => resetHostWorld())
+
+  it('loads nothing and opens no channel until the project list says whose workspace it is', async () => {
+    const remote = mount('ws-remote')
+    const local = mount('ws-local')
+    expect(fetchGitData).not.toHaveBeenCalled()
+    expect(subscribe).not.toHaveBeenCalled()
+    expect(remote.store.getState().gitLoad).not.toBe('ready')
+
+    // Each workspace waits for its OWN project's row, not merely for a list.
+    act(() => loadProjects(projectOn('p-remote', 'host-1')))
+    await waitFor(() => expect(remote.store.getState().gitLoad).toBe('ready'))
+    expect(fetchGitData.mock.calls).toEqual([['ws-remote']])
+    expect(local.store.getState().gitLoad).toBe('idle')
+
+    act(() => loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local')))
+    await waitFor(() => expect(local.store.getState().gitLoad).toBe('ready'))
+    await waitFor(() => expect(endpoints().sort()).toEqual([LOCAL_STATUS, REMOTE_STATUS].sort()))
+  })
+
+  it('switching local to remote closes the old channel and a late frame from it reloads nothing', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
+      const unsubLocal = vi.fn()
+      subscribe.mockReturnValueOnce(unsubLocal)
+      const local = mount('ws-local')
+      await vi.waitFor(() => expect(subscribe).toHaveBeenCalledTimes(1))
+      const fromLocalChannel = (
+        subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
+      )[0][1]
+
+      local.unmount()
+      const remote = mount('ws-remote')
+      const reloadRemote = vi.fn(() => Promise.resolve())
+      remote.store.setState({
+        gitActions: { ...remote.store.getState().gitActions, reloadStatusAndLog: reloadRemote },
+      })
+      await vi.waitFor(() => expect(subscribe).toHaveBeenCalledTimes(2))
+
+      expect(unsubLocal).toHaveBeenCalledTimes(1)
+      expect(endpoints()).toEqual([LOCAL_STATUS, REMOTE_STATUS])
+      fromLocalChannel({ ...status, ahead: 9 })
+      await vi.advanceTimersByTimeAsync(500)
+      expect(reloadRemote).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('revoking the host closes its channel and never reopens it against the local daemon', async () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    const unsubscribe = vi.fn()
+    subscribe.mockReturnValueOnce(unsubscribe)
+    const { store } = mount('ws-remote')
+    await waitFor(() => expect(store.getState().gitLoad).toBe('ready'))
+    await waitFor(() => expect(subscribe).toHaveBeenCalledTimes(1))
+    fetchGitData.mockClear()
+
+    act(() => useHostConfigStore.getState().removeHost('host-1'))
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+    expect(subscribe).toHaveBeenCalledTimes(1)
+    expect(fetchGitData).not.toHaveBeenCalled()
+  })
+
+  it('does not let a refused channel escape the effect', async () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    subscribe.mockImplementationOnce(() => {
+      throw new Error('remote hosts need the desktop app')
+    })
+
+    // The effect runs after an async load, so a throw surfaces as an uncaught error.
+    const uncaught = vi.fn()
+    window.addEventListener('error', uncaught)
+
+    const { store } = mount('ws-remote')
+    await waitFor(() => expect(store.getState().gitLoad).toBe('ready'))
+    await waitFor(() => expect(subscribe).toHaveBeenCalled())
+
+    window.removeEventListener('error', uncaught)
+    expect(uncaught).not.toHaveBeenCalled()
   })
 })
 

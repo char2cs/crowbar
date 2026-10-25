@@ -186,7 +186,8 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
     [repos, navigate],
   )
   const createRow = useCallback(
-    (parentId: string, kind: 'workspace' | 'thread') => createSidebarRow(parentId, kind, navigate),
+    (parentId: string, kind: 'workspace' | 'thread') =>
+      void createSidebarRow(parentId, kind, navigate),
     [navigate],
   )
   // The row's own X control (sidebar-row.tsx) — the same `handleTrash` the

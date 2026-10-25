@@ -2,25 +2,27 @@ import type { ContextMenuItem } from '@/components/ui/context-menu'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toast } from '@/features/window/stores/toast-store'
 import { showNativeContextMenu } from '@/lib/crowbar-bridge'
-import { openExternalUrl } from '@/lib/external-open'
+import { openWorkspaceLink, refuseRemoteLoopback } from '@/lib/workspace-link'
 
-/** The view the terminal itself lives in; a browser tab opens there, never in "the active" one. */
-export interface TerminalViewTarget {
+/** The view the terminal itself lives in; a browser tab opens there, never in "the active" one.
+ *  Its workspace's host decides whether a loopback link can open on this computer. */
+export interface TerminalView {
   workspaceId: string
-  paneId: string
+  paneId?: string
 }
 
 export async function showTerminalUrlMenu(
   url: string,
   position: { x: number; y: number },
-  target: TerminalViewTarget | null,
+  view: TerminalView,
 ): Promise<void> {
+  const { workspaceId, paneId } = view
   const items: ContextMenuItem[] = [
     {
       id: 'open-default-browser',
       label: 'Open in Default Browser',
       onClick: () => {
-        openExternalUrl(url).catch((error: unknown) => {
+        openWorkspaceLink(url, workspaceId).catch((error: unknown) => {
           console.error('Failed to open link:', error)
         })
       },
@@ -28,15 +30,12 @@ export async function showTerminalUrlMenu(
     {
       id: 'open-crowbar-browser',
       label: 'Open in Crowbar Browser',
-      disabled: target === null,
+      disabled: paneId === undefined,
       onClick: () => {
-        if (!target) return
+        if (paneId === undefined || refuseRemoteLoopback(url, workspaceId)) return
         windowPaneStore
           .getState()
-          .bufferActions.openContent(
-            { type: 'browser', url, workspaceId: target.workspaceId },
-            { paneId: target.paneId },
-          )
+          .bufferActions.openContent({ type: 'browser', url, workspaceId }, { paneId })
       },
     },
     {

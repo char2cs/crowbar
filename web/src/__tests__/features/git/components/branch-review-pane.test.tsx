@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useStore } from 'zustand'
@@ -20,6 +20,12 @@ import {
 } from '@/lib/workspace-scope'
 import type { ReviewState } from '@/features/git/api/review-api'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const mocks = vi.hoisted(() => ({
   getReview: vi.fn<() => Promise<ReviewState>>(),
@@ -144,6 +150,32 @@ describe('BranchReviewPane — owning-chat-id race', () => {
 
     await waitFor(() => expect(store.getState().branchReview.description).toBe('already scoped'))
     expect(mocks.getReview).toHaveBeenCalledWith('ws-ready-2')
+  })
+})
+
+// The failed fetch below would land on a permanent 'error' status, so a paired
+// install must not ask before the project list says whose daemon holds the review.
+describe('BranchReviewPane — host not yet known', () => {
+  beforeEach(() => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+  })
+  afterEach(() => resetHostWorld())
+
+  it('fetches once the project list names the host, never marking an error before then', async () => {
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-h', owningChatId: 'chat-h' })
+    const store = createWorkspaceStore('ws-h')
+    mocks.getReview.mockResolvedValue(review({ description: 'hello host' }))
+
+    renderPane('ws-h', store)
+    await act(async () => {})
+    expect(mocks.getReview).not.toHaveBeenCalled()
+    expect(store.getState().branchReview.diffStatus).toBe('idle')
+
+    act(() => loadProjects(projectOn('p1', 'local')))
+
+    await waitFor(() => expect(store.getState().branchReview.description).toBe('hello host'))
+    expect(mocks.getReview).toHaveBeenCalledExactlyOnceWith('ws-h')
   })
 })
 

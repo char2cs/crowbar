@@ -2,7 +2,6 @@ import { useCallback, useState, type RefObject } from 'react'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useDragStore } from '@/features/panes/stores/drag-store'
 import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { extractDroppedFilePaths } from '@/features/file-system/utils/file-system-dropped-paths'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import { ensureBufferInPaneDropTarget } from '@/features/panes/utils/pane-drop-actions'
@@ -11,11 +10,6 @@ import type { DropZone } from '@/features/panes/components/split-drop-overlay'
 interface TabDragPayload {
   bufferId?: string
   paneId?: string
-  source?: string
-  terminalId?: string
-  name?: string
-  initialCommand?: string
-  currentDirectory?: string
 }
 
 function readTabPayload(e: React.DragEvent): TabDragPayload | null {
@@ -28,26 +22,11 @@ function readTabPayload(e: React.DragEvent): TabDragPayload | null {
   }
 }
 
-/** A terminal dragged out of the terminal panel becomes a tab of `paneId`. */
-function adoptPanelTerminal(paneId: string, tab: TabDragPayload & { terminalId: string }): void {
-  windowPaneStore.getState().bufferActions.openContent(
-    {
-      type: 'terminal',
-      sessionId: tab.terminalId,
-      name: tab.name,
-      command: tab.initialCommand,
-      workingDirectory: tab.currentDirectory,
-    },
-    { paneId },
-  )
-  window.dispatchEvent(
-    new CustomEvent('terminal-detach-to-buffer', { detail: { terminalId: tab.terminalId } }),
-  )
-}
-
-async function openDroppedFiles(paths: readonly string[], paneId: string): Promise<void> {
-  const wsId = getActiveWorkspaceId()
-  if (!wsId) return
+async function openDroppedFiles(
+  paths: readonly string[],
+  paneId: string,
+  wsId: string,
+): Promise<void> {
   for (const path of paths) {
     // react-doctor-disable-next-line async-await-in-loop -- kept sequential: each open appends to the pane's tab list, so concurrent opens would land tabs out of drop order.
     await openWorkspaceFile(wsId, path, { paneId })
@@ -58,10 +37,14 @@ async function openDroppedFiles(paths: readonly string[], paneId: string): Promi
  * Everything a pane does with drags: the file-drag ring, the tab-drag split
  * overlay, a sidebar/explorer pointer drag hovering it, and what each drop
  * lands. A tab never crosses a pane boundary and never makes a split (a pane
- * group is a group of chats, never of tabs): only a terminal from the
- * terminal panel or this pane's own tab lands here.
+ * group is a group of chats, never of tabs): only this pane's own tab lands here.
  */
-export function usePaneDropHandlers(paneId: string, containerRef: RefObject<HTMLElement | null>) {
+export function usePaneDropHandlers(
+  paneId: string,
+  /** The pane's own workspace: what a file drop opens belongs to it. */
+  wsId: string,
+  containerRef: RefObject<HTMLElement | null>,
+) {
   const [isDragOver, setIsDragOver] = useState(false)
   const [isTabDragOver, setIsTabDragOver] = useState(false)
   // A narrow selector: only the hovered pane re-renders.
@@ -102,10 +85,6 @@ export function usePaneDropHandlers(paneId: string, containerRef: RefObject<HTML
       if (!zone) return
       const tab = readTabPayload(e)
       if (!tab) return
-      if (tab.source === 'terminal-panel' && tab.terminalId) {
-        adoptPanelTerminal(paneId, { ...tab, terminalId: tab.terminalId })
-        return
-      }
       const { bufferId } = tab
       if (!bufferId || (tab.paneId && tab.paneId !== paneId)) return
       const actions = windowPaneStore.getState().paneActions
@@ -128,14 +107,14 @@ export function usePaneDropHandlers(paneId: string, containerRef: RefObject<HTML
       setIsTabDragOver(false)
       // Tab drops are handled by SplitDropOverlay.
       if (e.dataTransfer.types.includes('application/tab-data')) return
-      await openDroppedFiles(extractDroppedFilePaths(e.dataTransfer), paneId)
+      await openDroppedFiles(extractDroppedFilePaths(e.dataTransfer), paneId, wsId)
     },
-    [paneId],
+    [paneId, wsId],
   )
 
   const handleTauriFileDrop = useCallback(
-    (paths: string[]) => openDroppedFiles(paths, paneId),
-    [paneId],
+    (paths: string[]) => openDroppedFiles(paths, paneId, wsId),
+    [paneId, wsId],
   )
   useTauriFileDrop(containerRef, handleTauriFileDrop)
 

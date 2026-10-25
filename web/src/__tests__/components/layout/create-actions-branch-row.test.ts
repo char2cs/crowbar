@@ -32,6 +32,12 @@ import { useAgentProvidersStore } from '@/features/settings/stores/agent-provide
 import { useSettingsStore } from '@/features/settings/store'
 import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
@@ -64,7 +70,7 @@ beforeEach(() => {
   // CLI, unlike the old chat-less postWorkspace) — the global provider store
   // (agent-providers-store.ts), not a per-workspace one, since there is no
   // workspace yet to scope a per-workspace read through.
-  useAgentProvidersStore.setState({ status: 'ready', providers: [] })
+  useAgentProvidersStore.setState({ status: 'ready', providers: [], remote: {} })
 })
 
 /** A 'workspace' create now asks for a name before it fires (the pending
@@ -330,5 +336,40 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
     expect(handleTrash('ws-open')).toBe(true)
     expect(useRemovalTrayStore.getState().entries).toHaveLength(1)
     expect(deleteChat).not.toHaveBeenCalled()
+  })
+})
+
+// A provider list belongs to a daemon: forking a remote workspace starts its first
+// chat with a provider THAT host offers, never one only the local daemon has.
+describe('forking on an install that has paired a remote host', () => {
+  it('starts the fork with a provider its own host offers', async () => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
+    useSidebarStore.setState({
+      repos: [
+        repo({
+          id: 'r-remote',
+          projectId: 'p-remote',
+          workspaces: [{ id: 'ws-remote', branch: 'main', age: '', order: 0 }],
+        }),
+      ],
+    })
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+      remote: { 'host-1': [{ id: 'codex-remote', enabled: true }] as never },
+    })
+
+    handleCreate('ws-remote', 'workspace', vi.fn())
+    confirmArmedBranchName()
+    await Promise.resolve()
+
+    expect(createChatWithOwnWorktree.mock.calls[0]?.slice(0, 3)).toEqual([
+      'p-remote',
+      'r-remote',
+      'codex-remote',
+    ])
+    resetHostWorld()
   })
 })

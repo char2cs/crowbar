@@ -12,6 +12,7 @@ import {
   resolveChatRow,
   resolveRow,
   type NavigateFn,
+  type ResolvedRow,
 } from './open-actions'
 import { startHomeRowThread } from './home-actions'
 import {
@@ -19,6 +20,7 @@ import {
   enabledProvider,
   failCreate,
   panelRowsAtClick,
+  readUnreadHostProviders,
   startThread,
   untilLanded,
 } from './thread-create'
@@ -100,6 +102,107 @@ const armedBranchCreates = new Map<
   }
 >()
 
+/** The fork half of `handleCreate`: takes the row's lock, resolves the provider (a
+ *  remote host's list is read on first use), then opens the naming input. */
+async function armFork(
+  { repo: clicked, subject }: ResolvedRow,
+  parentId: string,
+  projectId: string,
+  navigate: NavigateFn,
+): Promise<void> {
+  const inFlightKey = `workspace:${parentId}`
+  if (createInFlight.has(inFlightKey)) return
+  createInFlight.add(inFlightKey)
+  const release = (): void => {
+    createInFlight.delete(inFlightKey)
+  }
+  // Task 8: mints the workspace AND its first chat in ONE call (POST
+  // .../chats {ownWorktree: true} — backend Task 7) instead of the old
+  // chat-less postWorkspace, which produced a bare branch row now and a
+  // separate child chat row only once something else later started a
+  // conversation in it. The parent named below is the clicked row's own
+  // fork parent, same as the old mapping (a folder is the one exception the
+  // old `placement` distinguished — that split has no counterpart on this
+  // endpoint's single `parentId`, so a folder click also just names
+  // itself here) — resolved to the chat that owns it, see below.
+  const read = readUnreadHostProviders(projectId)
+  const provider = read && !(await read) ? null : enabledProvider(projectId)
+  // The tree may have changed while a remote host's providers were read.
+  const repo = useSidebarStore.getState().repos.find((r) => r.id === clicked.id)
+  if (!provider || !repo) {
+    release()
+    return
+  }
+  // The daemon places by CHAT id, and the clicked row's own id is only that
+  // id for a branch row (a locked branch, the repo home — `rows-from-repo.ts`
+  // draws those AS their owning `branch` chat). A REGULAR fork's row is id'd
+  // from its `Workspace`, because its owner is an ordinary conversation
+  // already drawn beside it, so its owning chat has to be read off the
+  // workspace record instead. Falls back to the clicked row for the ids that
+  // name no workspace of this repo (the repo home, a folder) and for a frame
+  // that carries no owner yet.
+  const owningChatId = repo.workspaces.find((w) => w.id === subject.id)?.owningChatId
+  // `parentId` is only a safe fallback for a DIRECT click on the row itself
+  // (its own rendered id already equals whatever this resolves to). A
+  // bubble's ground workspace can ALSO be the repo home — never in
+  // `repo.workspaces` for `owningChatId` to be read off — so a bubble
+  // forking the home workspace needs the SAME resolution the home row's
+  // own id was rendered with, not the clicked bubble's unrelated id.
+  const placementParentId =
+    owningChatId ||
+    (subject.id === repo.defaultWorkspaceId
+      ? resolveHomeOwnerId(subject.id, repo.defaultOwningChatId, repo.chats ?? [])
+      : parentId)
+  // The new fork's OWN tree position, once real: nested under
+  // `placementParentId`, never `subject.id`. `walkTreeIntoRows` stamps a
+  // REAL child row's own `parentId` with its parent's RENDERED id —
+  // `node.id`, already folded onto the owning chat for any branch row that
+  // resolved one (rows-from-repo.ts) — so a sibling count (and the pending
+  // row's own `parentId`) keyed on `subject.id`'s raw WORKSPACE-id-space
+  // value matches no real row at all whenever an owning chat exists (the
+  // normal case), landing the naming/spinner row at the sidebar ROOT
+  // instead of nested under the clicked branch — caught live: forking
+  // "main" drew its naming input as a top-level row after every other
+  // project's, not under "main" where its real fork lands.
+  // `placementParentId` is exactly `handleCreate`'s own OTHER id — already
+  // the rendered/folded parent id, since it is either the resolved owning
+  // chat or the clicked row's own (already-rendered) id. EVERY sibling
+  // counts here, any kind — folders, branches AND chats interleave on one
+  // dense order (workspace-tree-utils.ts's own doc), and the backend's own
+  // placement write (owning_chat.go's placeOwningRow) appends a new fork by
+  // counting ALL existing rows under the same parent chat id, not just the
+  // branch/folder-kind ones — a narrower count here would produce an order
+  // value real siblings already hold, landing the pending row somewhere
+  // other than the tail slot the real create actually appends to.
+  const siblingRows = rowsFromRepo(repo)
+  const order = siblingRows.filter((r) => r.parentId === placementParentId).length
+  // Only one naming input is ever open at once (matching the old tree's
+  // own single `creatingChildOf`) — replacing rather than stacking a
+  // second one, and releasing whatever the FIRST one held (its
+  // `createInFlight` lock, its `armedBranchCreates` entry) so opening a
+  // second one elsewhere can never orphan the first's.
+  const otherNaming = usePendingCreatesStore.getState().entries.find((e) => e.status === 'naming')
+  if (otherNaming) cancelPendingCreate(otherNaming.tempId)
+  const tempId = `pending-${crypto.randomUUID()}`
+  armedBranchCreates.set(tempId, {
+    projectId,
+    repoId: repo.id,
+    providerId: provider.id,
+    placementParentId,
+    navigate,
+    release,
+  })
+  usePendingCreatesStore.getState().startNaming({
+    tempId,
+    kind: 'branch',
+    projectId,
+    parentId: placementParentId,
+    order,
+    workspaceId: null,
+    ownsWorktree: true,
+  })
+}
+
 /**
  * Creates a fork ('workspace') or a thread under `parentId`, drawing an
  * optimistic row at its final slot the instant it is clicked. A fork asks for
@@ -107,20 +210,18 @@ const armedBranchCreates = new Map<
  * immediately and opens the moment it exists. A project-home row can only
  * thread: home has no worktree to fork.
  */
-export function handleCreate(
+export async function handleCreate(
   parentId: string,
   kind: 'workspace' | 'thread',
   navigate: NavigateFn,
   /** The surface the new thread is created and landed on; undefined takes
    *  the user's default (`createSurfaceFor`). Never applies to a fork. */
   presentation?: LandingChatPresentation,
-): void {
+): Promise<void> {
   const homeRow = resolveHomeRowScope(parentId)
   if (homeRow) {
-    if (kind === 'thread') {
-      startHomeRowThread(homeRow.projectId, homeRow.homeWorkspaceId, parentId, presentation)
-    }
-    return
+    if (kind !== 'thread') return
+    return startHomeRowThread(homeRow.projectId, homeRow.homeWorkspaceId, parentId, presentation)
   }
 
   const currentRepos = useSidebarStore.getState().repos
@@ -135,95 +236,7 @@ export function handleCreate(
   if (!projectId) return
 
   if (kind === 'workspace') {
-    const inFlightKey = `workspace:${parentId}`
-    if (createInFlight.has(inFlightKey)) return
-    createInFlight.add(inFlightKey)
-    const release = (): void => {
-      createInFlight.delete(inFlightKey)
-    }
-    // Task 8: mints the workspace AND its first chat in ONE call (POST
-    // .../chats {ownWorktree: true} — backend Task 7) instead of the old
-    // chat-less postWorkspace, which produced a bare branch row now and a
-    // separate child chat row only once something else later started a
-    // conversation in it. The parent named below is the clicked row's own
-    // fork parent, same as the old mapping (a folder is the one exception the
-    // old `placement` distinguished — that split has no counterpart on this
-    // endpoint's single `parentId`, so a folder click also just names
-    // itself here) — resolved to the chat that owns it, see below.
-    const provider = enabledProvider()
-    if (!provider) {
-      release()
-      return
-    }
-    // The daemon places by CHAT id, and the clicked row's own id is only that
-    // id for a branch row (a locked branch, the repo home — `rows-from-repo.ts`
-    // draws those AS their owning `branch` chat). A REGULAR fork's row is id'd
-    // from its `Workspace`, because its owner is an ordinary conversation
-    // already drawn beside it, so its owning chat has to be read off the
-    // workspace record instead. Falls back to the clicked row for the ids that
-    // name no workspace of this repo (the repo home, a folder) and for a frame
-    // that carries no owner yet.
-    const owningChatId = repo.workspaces.find((w) => w.id === subject.id)?.owningChatId
-    // `parentId` is only a safe fallback for a DIRECT click on the row itself
-    // (its own rendered id already equals whatever this resolves to). A
-    // bubble's ground workspace can ALSO be the repo home — never in
-    // `repo.workspaces` for `owningChatId` to be read off — so a bubble
-    // forking the home workspace needs the SAME resolution the home row's
-    // own id was rendered with, not the clicked bubble's unrelated id.
-    const placementParentId =
-      owningChatId ||
-      (subject.id === repo.defaultWorkspaceId
-        ? resolveHomeOwnerId(subject.id, repo.defaultOwningChatId, repo.chats ?? [])
-        : parentId)
-    // The new fork's OWN tree position, once real: nested under
-    // `placementParentId`, never `subject.id`. `walkTreeIntoRows` stamps a
-    // REAL child row's own `parentId` with its parent's RENDERED id —
-    // `node.id`, already folded onto the owning chat for any branch row that
-    // resolved one (rows-from-repo.ts) — so a sibling count (and the pending
-    // row's own `parentId`) keyed on `subject.id`'s raw WORKSPACE-id-space
-    // value matches no real row at all whenever an owning chat exists (the
-    // normal case), landing the naming/spinner row at the sidebar ROOT
-    // instead of nested under the clicked branch — caught live: forking
-    // "main" drew its naming input as a top-level row after every other
-    // project's, not under "main" where its real fork lands.
-    // `placementParentId` is exactly `handleCreate`'s own OTHER id — already
-    // the rendered/folded parent id, since it is either the resolved owning
-    // chat or the clicked row's own (already-rendered) id. EVERY sibling
-    // counts here, any kind — folders, branches AND chats interleave on one
-    // dense order (workspace-tree-utils.ts's own doc), and the backend's own
-    // placement write (owning_chat.go's placeOwningRow) appends a new fork by
-    // counting ALL existing rows under the same parent chat id, not just the
-    // branch/folder-kind ones — a narrower count here would produce an order
-    // value real siblings already hold, landing the pending row somewhere
-    // other than the tail slot the real create actually appends to.
-    const siblingRows = rowsFromRepo(repo)
-    const order = siblingRows.filter((r) => r.parentId === placementParentId).length
-    // Only one naming input is ever open at once (matching the old tree's
-    // own single `creatingChildOf`) — replacing rather than stacking a
-    // second one, and releasing whatever the FIRST one held (its
-    // `createInFlight` lock, its `armedBranchCreates` entry) so opening a
-    // second one elsewhere can never orphan the first's.
-    const otherNaming = usePendingCreatesStore.getState().entries.find((e) => e.status === 'naming')
-    if (otherNaming) cancelPendingCreate(otherNaming.tempId)
-    const tempId = `pending-${crypto.randomUUID()}`
-    armedBranchCreates.set(tempId, {
-      projectId,
-      repoId: repo.id,
-      providerId: provider.id,
-      placementParentId,
-      navigate,
-      release,
-    })
-    usePendingCreatesStore.getState().startNaming({
-      tempId,
-      kind: 'branch',
-      projectId,
-      parentId: placementParentId,
-      order,
-      workspaceId: null,
-      ownsWorktree: true,
-    })
-    return
+    return armFork(found, parentId, projectId, navigate)
   }
 
   // A thread runs in a real workspace: a `workspace` subject is one; a folder
@@ -237,7 +250,7 @@ export function handleCreate(
     toast.error('Start a thread from a workspace row — a folder has none to run it in')
     return
   }
-  void startThread({
+  return startThread({
     inFlightKey: `thread:${parentId}`,
     projectId,
     workspaceId: wsId,

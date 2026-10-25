@@ -12,6 +12,8 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { apiFetch, getRepoPullRequests } from '@/lib/api'
+import { useHostResolved } from '@/lib/host-resolve'
+import { repoBase } from '@/lib/project-url'
 import { computeImportPlan, type BranchEntry, type PRLink } from '@/lib/import/parent-plan'
 
 const IMPORT_ROW_HEIGHT = 30
@@ -54,7 +56,7 @@ export function RepoImportDialog({
   onOpenChange,
   onImport,
 }: RepoImportDialogProps) {
-  const repoBase = `/v0/projects/${projectId}/repos/${repoId}`
+  const hostResolved = useHostResolved({ projectId })
   const [branches, setBranches] = useState<BranchEntry[]>([])
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'failed'>('loading')
   const [prLinks, setPrLinks] = useState<PRLink[]>([])
@@ -74,7 +76,7 @@ export function RepoImportDialog({
   //
   // react-doctor-disable-next-line no-reset-all-state-on-prop-change -- the harm the rule names ("users briefly see stale state") cannot happen here: `loadState` is reset to 'loading' in this same synchronous body and is what gates the list's render below, so a reopen shows "Fetching branches from the remote…" and never the previous open's branches. The prescribed fix — mount/key the body on `open` — would unmount it during the Dialog's exit animation, leaving an empty popup for the length of the close.
   useEffect(() => {
-    if (!open) return
+    if (!open || !hostResolved) return
     setSelected(new Set())
     setLockedBranches(new Set())
     setFilter('')
@@ -82,7 +84,7 @@ export function RepoImportDialog({
     setBranches([])
     setLoadState('loading')
     let live = true
-    apiFetch<BranchEntry[]>(`${repoBase}/branches`)
+    apiFetch<BranchEntry[]>(`${repoBase(projectId, repoId)}/branches`)
       .then((list) => {
         if (!live) return
         setBranches(list)
@@ -99,7 +101,7 @@ export function RepoImportDialog({
     return () => {
       live = false
     }
-  }, [open, repoBase, projectId, repoId])
+  }, [open, hostResolved, projectId, repoId])
 
   const visible = useMemo(() => {
     const q = filter.toLowerCase()

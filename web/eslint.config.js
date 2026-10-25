@@ -87,6 +87,24 @@ export const BASELINES = [
   { rule: 'vitest/expect-expect', files: NO_ASSERTION_BASELINE },
 ]
 
+// Entity-addressed API paths are built by lib/project-url.ts and lib/workspace-scope-url.ts, which
+// qualify them with the entity's host. Catches whole paths, `+`/template pieces and `/v0` fragments;
+// a path routed through a constant is beyond syntax. `\x2f` is `/`: esquery regexes cannot hold one.
+const ENTITY = '(projects|chats|workspaces)'
+const V0_TAIL = `\\x2fv0(\\x2f(${ENTITY}\\x2f?)?)?$`
+const ENTITY_API_SELECTORS = [
+  `Literal[value=/\\x2fv0\\x2f${ENTITY}\\x2f/]`,
+  `TemplateElement[value.raw=/\\x2fv0\\x2f${ENTITY}\\x2f/]`,
+  `BinaryExpression[operator='+'] > Literal[value=/${V0_TAIL}/]`,
+  `BinaryExpression[operator='+'] > TemplateLiteral > TemplateElement[value.raw=/${V0_TAIL}/]`,
+  `TemplateElement[tail=false][value.raw=/${V0_TAIL}/]`,
+  `TemplateElement[value.raw=/^${ENTITY}\\x2f/]`,
+  'Literal[value=/^\\x2f?v0\\x2f?$/]',
+]
+const ENTITY_API_PATH_MESSAGE =
+  'Build project/repo/workspace/chat URLs with projectBase/repoBase (lib/project-url) or the ' +
+  'lib/workspace-scope-url builders: a hand-written path carries no host and lands on the local daemon.'
+
 const TAURI_IMPORTS = {
   group: ['@tauri-apps/*'],
   message: 'Import Tauri APIs through the bridge modules in src/lib/.',
@@ -147,6 +165,21 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-expressions': [
         'error',
         { allowShortCircuit: true, allowTernary: true },
+      ],
+    },
+  },
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: [
+      'src/__tests__/**',
+      'src/lib/host-path.ts',
+      'src/lib/project-url.ts',
+      'src/lib/workspace-scope-url.ts',
+    ],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        ...ENTITY_API_SELECTORS.map((selector) => ({ selector, message: ENTITY_API_PATH_MESSAGE })),
       ],
     },
   },

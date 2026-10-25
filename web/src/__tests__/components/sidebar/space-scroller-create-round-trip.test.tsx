@@ -51,7 +51,13 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 }))
 
 function makeProject(id: string): Project {
-  return { id, name: id, path: `/repos/${id}`, lastActivity: new Date('2026-08-28T00:00:00Z') }
+  return {
+    id,
+    name: id,
+    path: `/repos/${id}`,
+    lastActivity: new Date('2026-08-28T00:00:00Z'),
+    hostId: 'local',
+  }
 }
 
 function renderScroller(rowsForProject: (projectId: string) => SidebarRow[] = () => []) {

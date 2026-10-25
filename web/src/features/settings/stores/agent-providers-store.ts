@@ -1,6 +1,9 @@
 import { create } from 'zustand'
-import { listProviders } from '@/features/agent/api/agent-api'
+import { listGlobalProviders, listProviders } from '@/features/agent/api/agent-api'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
+import { onHostRemoved, useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { LOCAL_HOST } from '@/features/hosts/types'
+import { resolvedHostOf } from '@/lib/host-resolve'
 
 /**
  * What the app knows about the agent providers RIGHT NOW — kept apart from
@@ -13,21 +16,32 @@ import type { AgentProvider } from '@/features/agent/api/agent-api'
 export type AgentProvidersStatus = 'idle' | 'loading' | 'ready' | 'failed'
 
 interface AgentProvidersState {
+  /** The LOCAL daemon's list and its state — what Settings shows and edits. */
   status: AgentProvidersStatus
   providers: AgentProvider[]
+  /** Remote daemons' lists by host id, absent until read. A provider list belongs
+   *  to the daemon that reports it; one host's must never stand in for another's. */
+  remote: Record<string, AgentProvider[]>
   /**
    * Adopt a list resolved somewhere else — a workspace's own seed, or the
    * response to a preferences PUT (which returns the freshly resolved set).
    */
   setProviders: (providers: AgentProvider[]) => void
+  /** `setProviders` for the daemon of `hostId`: the local list for 'local', else its own entry. */
+  setHostProviders: (hostId: string, providers: AgentProvider[]) => void
   /**
-   * Fetch the list through `wsId` for workspace chat surfaces. The global
-   * settings view can use listGlobalProviders when no workspace is active.
+   * Fetch the local list through `wsId` for workspace chat surfaces. A workspace
+   * on a remote host is not the local daemon's to describe: nothing is asked and
+   * null comes back (see loadHost).
    *
    * Returns the resolved list so the caller can mirror it into the workspace
    * store the chat surfaces read, or null when this load did not win.
    */
   load: (wsId: string) => Promise<AgentProvider[] | null>
+  /** `load` through the global route, which needs no workspace in view (Settings). */
+  loadLocal: () => Promise<AgentProvider[] | null>
+  /** Read a remote host's own list into `remote[hostId]`; null when it did not answer. */
+  loadHost: (hostId: string) => Promise<AgentProvider[] | null>
   /** The daemon could not answer. Say we could not tell — never that there are none. */
   markUnavailable: () => void
 }
@@ -68,24 +82,17 @@ export const providerWriteGeneration = (): number => providerWrites
 export const isLatestProviderWrite = (seq: number): boolean => seq === providerWrites
 
 /**
- * The GLOBAL provider list. Providers are machine-level, but the frontend's only
- * copy used to live inside the per-WORKSPACE store — so every surface that is
- * not workspace-scoped (the Settings dialog, most of all) had to guess. With no
- * active workspace there was nothing to read and the Providers tab said the
- * daemon had none.
+ * The provider lists the app holds outside any one workspace store. A provider
+ * list belongs to a daemon, so the top-level fields are the LOCAL daemon's (the
+ * Settings dialog edits exactly that) and `remote` holds each other host's own.
  *
- * The per-workspace copy still exists and still feeds the chat surfaces; this is
- * the one that survives having no workspace in view. Both are written from the
- * same two events — a workspace seed and a preferences PUT — so they cannot
- * disagree about what the server last said.
+ * The per-workspace copy still feeds the chat surfaces; the local list survives
+ * having no workspace in view. Both are written from the same two events — a
+ * workspace seed and a preferences PUT — so they cannot disagree.
  */
-export const useAgentProvidersStore = create<AgentProvidersState>((set, get) => ({
-  status: 'idle',
-  providers: [],
-
-  setProviders: (providers) => set({ providers, status: 'ready' }),
-
-  load: async (wsId) => {
+export const useAgentProvidersStore = create<AgentProvidersState>((set, get) => {
+  // One read of the LOCAL daemon's list, whichever route reaches it.
+  const readLocal = async (fetchList: () => Promise<AgentProvider[]>) => {
     const seq = ++latestLoad
     // The write generation this read is a snapshot of. Anything written after
     // this line describes a server this answer has not seen.
@@ -96,7 +103,7 @@ export const useAgentProvidersStore = create<AgentProvidersState>((set, get) => 
     // between a spinner and a sentence. A retry after `failed` does show it.
     if (get().status !== 'ready') set({ status: 'loading' })
     try {
-      const providers = await listProviders(wsId)
+      const providers = await fetchList()
       if (seq !== latestLoad) return null
       // A write landed while this was in flight. Its own optimistic state — and
       // the response it reconciles from — are newer than this snapshot, so
@@ -117,10 +124,62 @@ export const useAgentProvidersStore = create<AgentProvidersState>((set, get) => 
       set({ status: get().providers.length > 0 ? 'ready' : 'failed' })
       return null
     }
-  },
+  }
 
-  markUnavailable: () => {
-    if (get().providers.length > 0) return
-    set({ status: 'failed' })
-  },
-}))
+  return {
+    status: 'idle',
+    providers: [],
+    remote: {},
+
+    setProviders: (providers) => set({ providers, status: 'ready' }),
+
+    setHostProviders: (hostId, providers) => {
+      if (hostId === LOCAL_HOST.id) get().setProviders(providers)
+      // A late answer from a host removed meanwhile is nobody's list any more.
+      else if (useHostConfigStore.getState().hosts.some((host) => host.id === hostId)) {
+        set((s) => ({ remote: { ...s.remote, [hostId]: providers } }))
+      }
+    },
+
+    load: async (wsId) =>
+      resolvedHostOf({ wsId }) === LOCAL_HOST.id ? readLocal(() => listProviders(wsId)) : null,
+
+    loadLocal: () => readLocal(() => listGlobalProviders()),
+
+    loadHost: async (hostId) => {
+      try {
+        const providers = await listGlobalProviders(hostId)
+        get().setHostProviders(hostId, providers)
+        return providers
+      } catch {
+        return null
+      }
+    },
+
+    markUnavailable: () => {
+      if (get().providers.length > 0) return
+      set({ status: 'failed' })
+    },
+  }
+})
+
+// A removed host's list goes with it, whichever window removed it.
+onHostRemoved((hostId) => {
+  const { remote } = useAgentProvidersStore.getState()
+  if (!(hostId in remote)) return
+  useAgentProvidersStore.setState({
+    remote: Object.fromEntries(Object.entries(remote).filter(([id]) => id !== hostId)),
+  })
+})
+
+const NO_PROVIDERS: AgentProvider[] = []
+
+/** The providers of `hostId`'s daemon as far as they are known (stable when empty);
+ *  nothing for a null host, which is not yet known. */
+export function providersOf(
+  state: Pick<AgentProvidersState, 'providers' | 'remote'>,
+  hostId: string | null,
+): AgentProvider[] {
+  if (hostId === null) return NO_PROVIDERS
+  return hostId === LOCAL_HOST.id ? state.providers : (state.remote[hostId] ?? NO_PROVIDERS)
+}

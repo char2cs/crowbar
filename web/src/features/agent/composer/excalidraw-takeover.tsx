@@ -16,6 +16,7 @@ import { exceedsInlineSizeCap } from '@/features/agent/composer/lib/inline-attac
 import type { ParsedExcalidrawScene } from '@/features/agent/composer/plate/attachments/excalidraw-scene'
 import { CloseIcon } from '@/features/agent/shared/agent-icons'
 import { toast } from '@/features/window/stores/toast-store'
+import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 
 const ExcalidrawCanvas = lazy(() =>
   import('@/features/agent/composer/excalidraw-canvas').then((m) => ({
@@ -96,7 +97,7 @@ export function ExcalidrawTakeover({
         saveExcalidrawDesign(wsId, chatId, sceneJson)
         onClose()
       } catch (err) {
-        toast.error("Couldn't save this drawing", err instanceof Error ? err.message : String(err))
+        toast.error("Couldn't save this drawing", actionErrorMessage(err, String(err)))
       }
     },
     [wsId, chatId, onInsertMarkdown, onClose],

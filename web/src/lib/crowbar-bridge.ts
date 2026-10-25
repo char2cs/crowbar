@@ -1,9 +1,10 @@
 // Crowbar system operations backed by the Go daemon's /v0 API.
 
 import { convertFileSrc as tauriConvertFileSrc } from '@tauri-apps/api/core'
-import { Menu, MenuItem, PredefinedMenuItem, Submenu } from '@tauri-apps/api/menu'
+import type * as TauriMenu from '@tauri-apps/api/menu'
 
 import { apiFetch } from '@/lib/api'
+import { splitHostPath } from '@/lib/host-path'
 import { wsUrl } from '@/lib/ws/url'
 import { TauriWebSocket } from '@/lib/ws/tauri-transport'
 import type { ContextMenuItem } from '@/components/ui/context-menu'
@@ -179,11 +180,14 @@ export class TerminalConnection {
   }
 }
 
-function openSocket(path: string): TerminalSocket {
+// `qualified` may be host-qualified (`crowbar://<hostId>/v0/...`): the base a
+// remote chat's terminals are built on carries its host.
+function openSocket(qualified: string): TerminalSocket {
+  const { hostId, path } = splitHostPath(qualified)
   if (isTauri()) {
-    return new TauriWebSocket(path, { idleTimeoutMs: TERMINAL_READ_IDLE_TIMEOUT_MS })
+    return new TauriWebSocket(path, { idleTimeoutMs: TERMINAL_READ_IDLE_TIMEOUT_MS, hostId })
   }
-  const ws = new WebSocket(wsUrl(path))
+  const ws = new WebSocket(wsUrl(path, hostId))
   ws.binaryType = 'arraybuffer'
   return ws as unknown as TerminalSocket
 }
@@ -196,8 +200,14 @@ const sessionBases = new Map<string, string>()
 
 /** Open a view's stream to an existing daemon PTY session. */
 export function openTerminal(sessionId: string, base: string): TerminalConnection {
+  // Recorded only once the transport exists: a constructor that throws must not
+  // leave a base behind for terminalKill to act on.
+  const connection = new TerminalConnection(
+    sessionId,
+    `${base}/${encodeURIComponent(sessionId)}/ws`,
+  )
   sessionBases.set(sessionId, base)
-  return new TerminalConnection(sessionId, `${base}/${encodeURIComponent(sessionId)}/ws`)
+  return connection
 }
 
 /** Create a PTY session owned by the base's chat; returns its session id. */
@@ -232,19 +242,6 @@ export async function terminalListLive(base: string): Promise<string[]> {
   const live: string[] = []
   for (const session of list) if (session.status !== 'ended') live.push(session.id)
   return live
-}
-
-// The file clipboard used to live here as an in-memory copy/cut store whose
-// `clipboardPaste` was a `return []` stub — Cmd+X then Cmd+V reported a
-// completed move that never happened. It now lives in the file-explorer
-// clipboard store, where paste drives the daemon's real copy/rename verbs.
-
-// ── Native Dialogs ────────────────────────────────────────────────────────────
-// FUTURE: Tauri plugin-dialog when crowbar desktop wrapper exposes it
-
-export async function openDirectory(): Promise<string | null> {
-  // FUTURE: @tauri-apps/plugin-dialog open({ directory: true, multiple: false })
-  return null
 }
 
 // ── File Manager ──────────────────────────────────────────────────────────────
@@ -294,10 +291,6 @@ export async function setMacOSWindowAppearance(
   await tauriInvoke('set_vibrancy_appearance', { dark: themeType === 'dark' })
 }
 
-export async function toggleMenuBar(_toggle: boolean): Promise<void> {
-  // FUTURE: invoke Tauri menu bar plugin
-}
-
 /** Move the macOS traffic lights to `(x, y)` (logical points, window-relative)
  *  at runtime — the config-time `trafficLightPosition` in tauri.conf.json only
  *  applies once, at window creation. No-op outside Tauri (browser dev). See
@@ -325,7 +318,7 @@ export async function onConsoleMenuToggle(handler: () => void): Promise<() => vo
 
 // ── Native Context Menu ───────────────────────────────────────────────────────
 
-type NativeMenuEntry = MenuItem | Submenu | PredefinedMenuItem
+type NativeMenuEntry = TauriMenu.MenuItem | TauriMenu.Submenu | TauriMenu.PredefinedMenuItem
 
 // Every native resource of the open menu, in creation order. Tauri drops an
 // item's click channel when its Rust wrapper drops, and an item passed inline
@@ -337,7 +330,12 @@ let openNativeMenu: Array<{ close(): Promise<void> }> = []
 // with that id drops, so ids must be unique across menus alive at once.
 let nativeMenuSeq = 0
 
+// Loaded with the first native menu, not statically: nothing before a right-click needs it.
+let menuApi: Promise<typeof TauriMenu> | null = null
+const loadMenuApi = () => (menuApi ??= import('@tauri-apps/api/menu'))
+
 async function toNativeMenuEntries(
+  api: typeof TauriMenu,
   items: ContextMenuItem[],
   menuId: number,
   owned: Array<{ close(): Promise<void> }>,
@@ -347,15 +345,15 @@ async function toNativeMenuEntries(
   for (const item of items) {
     let entry: NativeMenuEntry
     if (item.separator) {
-      entry = await PredefinedMenuItem.new({ item: 'Separator' })
+      entry = await api.PredefinedMenuItem.new({ item: 'Separator' })
     } else if (item.items && item.items.length > 0) {
-      entry = await Submenu.new({
+      entry = await api.Submenu.new({
         text: item.label,
         enabled: !item.disabled,
-        items: await toNativeMenuEntries(item.items, menuId, owned, onChosen),
+        items: await toNativeMenuEntries(api, item.items, menuId, owned, onChosen),
       })
     } else {
-      entry = await MenuItem.new({
+      entry = await api.MenuItem.new({
         id: `${menuId}:${item.id}`,
         text: item.label,
         enabled: !item.disabled,
@@ -399,14 +397,16 @@ export async function showNativeContextMenu(
   isCancelled?: () => boolean,
 ): Promise<void> {
   await closeNativeMenu(openNativeMenu)
+  const api = await loadMenuApi()
   const owned: Array<{ close(): Promise<void> }> = []
   const entries = await toNativeMenuEntries(
+    api,
     items,
     nativeMenuSeq++,
     owned,
     () => void closeNativeMenu(owned),
   )
-  const menu = await Menu.new({ items: entries })
+  const menu = await api.Menu.new({ items: entries })
   owned.push(menu)
   if (isCancelled?.()) {
     await closeNativeMenu(owned)
@@ -452,4 +452,48 @@ async function tauriInvoke<T = void>(cmd: string, args?: Record<string, unknown>
 export async function exportDiagnostics(): Promise<string> {
   if (!isTauri()) throw new Error('Diagnostics export requires the desktop app')
   return tauriInvoke<string>('diagnostics_export')
+}
+
+// ── Remote Hosts ──────────────────────────────────────────────────────────────
+// Pairing and trust-on-first-contact for remote Crowbar daemon instances.
+
+/** Tell the runtime registry where a remote host listens. There is no
+ *  fingerprint to pass: the certificate a host's token may be sent to is fixed
+ *  at pairing, beside the token, where nothing here can change it. Rejects a
+ *  `hostId` that is not lowercase letters, digits and hyphens, or is
+ *  `localhost`, and an `endpoint` that is not `host:port` (`normalizeEndpoint`). */
+export async function registerRemoteHost(hostId: string, endpoint: string): Promise<void> {
+  await tauriInvoke('register_remote_host', { hostId, endpoint })
+}
+
+/** Unregister a remote host and close its streams. */
+export async function unregisterRemoteHost(hostId: string): Promise<void> {
+  await tauriInvoke('unregister_remote_host', { hostId })
+}
+
+/** Delete a remote host's stored bearer token from the OS keychain. */
+export async function forgetHostToken(hostId: string): Promise<void> {
+  await tauriInvoke('forget_host_token', { hostId })
+}
+
+/** Dials `endpoint` (`host:port`, from `normalizeEndpoint`) on first contact, unpinned, and
+ *  returns the presented certificate's fingerprint. The caller MUST show this to the user and
+ *  get explicit confirmation before ever calling `pairRemoteHost` with it — this is the
+ *  trust-on-first-connect step, not a background lookup. */
+export async function probeRemoteFingerprint(endpoint: string): Promise<string> {
+  return tauriInvoke<string>('probe_remote_fingerprint', { endpoint })
+}
+
+/** Redeems a pairing code against a CONFIRMED fingerprint. The bearer token
+ *  this produces is stored directly in the OS keychain by the Rust side and
+ *  never returned here. Resolves to the host's id for this client — not a
+ *  secret; keep it to revoke this pairing server-side later. */
+export async function pairRemoteHost(
+  hostId: string,
+  endpoint: string,
+  fingerprint: string,
+  code: string,
+  name: string,
+): Promise<string> {
+  return tauriInvoke<string>('pair_remote_host', { hostId, endpoint, fingerprint, code, name })
 }

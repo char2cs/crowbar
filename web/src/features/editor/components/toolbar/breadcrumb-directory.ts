@@ -1,4 +1,4 @@
-import { readDirectory } from '@/features/file-system/controllers/platform'
+import { readWorkspaceDirectory } from '@/features/file-system/controllers/platform'
 import type { FileEntry } from '@/features/file-system/types/app'
 
 /**
@@ -16,12 +16,12 @@ export function breadcrumbSegmentPath(segments: string[], index: number): string
 }
 
 /**
- * List `path` for the breadcrumb's segment dropdown: directories first, then
- * case-insensitive by name. Rejects on failure so the caller can report it
- * rather than showing an empty popup.
+ * List `path` of workspace `wsId` for the breadcrumb's segment dropdown: directories
+ * first, then case-insensitive by name. Rejects on failure so the caller can report
+ * it rather than showing an empty popup.
  */
-export async function loadDirectoryEntries(path: string): Promise<FileEntry[]> {
-  const entries = await readDirectory(path)
+export async function loadDirectoryEntries(wsId: string, path: string): Promise<FileEntry[]> {
+  const entries = await readWorkspaceDirectory(wsId, path)
 
   const fileEntries: FileEntry[] = entries.map((entry) => ({
     name: entry.name || 'Unknown',

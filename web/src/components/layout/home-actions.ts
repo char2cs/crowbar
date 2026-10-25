@@ -65,8 +65,8 @@ export function startHomeRowThread(
   homeWorkspaceId: string,
   parentId: string,
   presentation?: LandingChatPresentation,
-): void {
-  void startThread({
+): Promise<void> {
+  return startThread({
     inFlightKey: `thread:${parentId}`,
     projectId,
     workspaceId: homeWorkspaceId,

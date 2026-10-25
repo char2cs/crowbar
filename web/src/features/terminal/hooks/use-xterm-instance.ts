@@ -5,13 +5,14 @@ import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
 import { resolveWorkspaceRootPath } from '@/lib/workspace/resolve-root-path'
 import { toast } from '@/features/window/stores/toast-store'
+import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 import type { TerminalAddons } from './use-terminal-addons'
 import { useTerminalTheme } from './use-terminal-theme'
 import { fitToContainer } from './use-pty-size-sync'
 import { mountXterm, type MountedXterm } from '../lib/mount-xterm'
 import { workspaceRelativePath } from '../lib/terminal-file-links'
 import type { TerminalLinksOptions } from '../lib/terminal-links'
-import { showTerminalUrlMenu } from '../lib/terminal-url-menu'
+import { showTerminalUrlMenu, type TerminalView } from '../lib/terminal-url-menu'
 import { useTerminalStore } from '../stores/terminal-store'
 import { resolveTerminalFont } from '../utils/resolve-font'
 
@@ -21,46 +22,35 @@ import { resolveTerminalFont } from '../utils/resolve-font'
  * workspace root, then are relativized back onto it (the files API takes
  * worktree-relative paths). URLs offer a native menu.
  */
-function linksFor(
-  getSessionId: () => string,
-  getView: () => { workspaceId?: string; paneId?: string },
-): TerminalLinksOptions {
+function linksFor(getSessionId: () => string, getView: () => TerminalView): TerminalLinksOptions {
   return {
     getRoot: () => {
       const cwd = useTerminalStore.getState().getSession(getSessionId())?.currentDirectory
       if (cwd?.startsWith('/')) return cwd
-      return resolveWorkspaceRootPath()
+      return resolveWorkspaceRootPath(getView().workspaceId)
     },
     openFile: (absolutePath) => {
-      const rel = workspaceRelativePath(absolutePath, resolveWorkspaceRootPath())
+      const { workspaceId, paneId } = getView()
+      const rel = workspaceRelativePath(absolutePath, resolveWorkspaceRootPath(workspaceId))
       if (!rel) {
         toast.error('Cannot open file', `${absolutePath} is outside the current workspace.`)
         return
       }
-      const { workspaceId, paneId } = getView()
-      if (!workspaceId) {
-        toast.error('Cannot open file', 'No editor is available in this view.')
-        return
-      }
-      void openWorkspaceFile(workspaceId, rel, { paneId }).catch(() => {
-        toast.error('Could not open file', absolutePath)
+      void openWorkspaceFile(workspaceId, rel, { paneId }).catch((err: unknown) => {
+        if (!toastHostFailure(err)) toast.error('Could not open file', absolutePath)
       })
     },
     onUnresolved: (candidateText) => {
       toast.error('Cannot open file', `Could not resolve ${candidateText} to a path.`)
     },
-    onUrl: (url, position) => {
-      const { workspaceId, paneId } = getView()
-      const target = workspaceId && paneId ? { workspaceId, paneId } : null
-      void showTerminalUrlMenu(url, position, target)
-    },
+    onUrl: (url, position) => void showTerminalUrlMenu(url, position, getView()),
   }
 }
 
 interface UseXtermInstanceOptions {
   sessionId: string
-  /** The workspace and pane this terminal is shown in; links open there. */
-  workspaceId?: string
+  /** The workspace this terminal belongs to and the pane it is shown in; links open there. */
+  workspaceId: string
   paneId?: string
   container: HTMLDivElement | null
   /** False until the view has been shown once: a never-seen tab builds nothing. */
@@ -90,7 +80,7 @@ export function useXtermInstance({
   const [instance, setInstance] = useState<XtermInstance>({ terminal: null, addons: null })
   const writeRef = useRef(write)
   const sessionIdRef = useRef(sessionId)
-  const viewRef = useRef({ workspaceId, paneId })
+  const viewRef = useRef<TerminalView>({ workspaceId, paneId })
   useEffect(() => {
     writeRef.current = write
     sessionIdRef.current = sessionId

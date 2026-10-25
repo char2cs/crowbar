@@ -25,7 +25,7 @@ import (
 
 func main() {
 	host := flag.String("host", "unix://",
-		"daemon address: unix:// for the desktop sidecar, tcp://127.0.0.1:3737 for `make dev-api`")
+		"daemon address: unix:// for the desktop sidecar, tcp://127.0.0.1:3737 for `make dev-api` (plaintext and unauthenticated: dev only)")
 	flag.Parse()
 
 	if err := run(context.Background(), *host, os.Stdout); err != nil {

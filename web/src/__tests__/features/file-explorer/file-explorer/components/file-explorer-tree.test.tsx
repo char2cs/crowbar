@@ -5,8 +5,9 @@ import type { FileEntry } from '@/features/file-system/types/app'
 import { SIDEBAR_FILE_ROW_HEIGHT } from '@/components/sidebar/lib/sidebar-file-row-height'
 
 vi.mock('@/features/file-system/controllers/platform', () => ({
-  readDirectory: vi.fn(async () => []),
-  readFile: vi.fn(async () => ''),
+  readWorkspaceDirectory: vi.fn(async () => []),
+  readWorkspaceFile: vi.fn(async () => ''),
+  moveWorkspaceFile: vi.fn(async () => {}),
 }))
 
 const files: FileEntry[] = [

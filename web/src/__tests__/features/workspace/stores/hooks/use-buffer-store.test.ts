@@ -23,7 +23,7 @@ const openTerminal = (sessionId: string) =>
   windowPaneStore
     .getState()
     .bufferActions.openContent(
-      { type: 'terminal', sessionId, name: sessionId },
+      { type: 'terminal', sessionId, name: sessionId, workspaceId: 'w1' },
       { paneId: BOTTOM_PANE_ID },
     )
 
@@ -43,6 +43,7 @@ describe('useTerminalBufferCount', () => {
         path: '/a.ts',
         name: 'a.ts',
         content: '',
+        workspaceId: 'w1',
       })
     })
     expect(result.current).toBe(2)

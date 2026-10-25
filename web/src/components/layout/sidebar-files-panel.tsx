@@ -12,6 +12,7 @@ import { createFileTreeHandlers, revealInFolder } from '@/features/files/lib/fil
 import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'
 import { resolveOnscreenPaneForWorkspace } from '@/features/panes/lib/pane-chat-workspace'
 import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
+import { useWorkspaceIsLocal } from '@/lib/host-resolve'
 
 /**
  * The sidebar's Files panel — every file-system-store binding and the
@@ -23,14 +24,17 @@ export function SidebarFilesPanel() {
   // The focused workspace's own tree: switching focus selects another store's
   // slice, it never clears or refetches anything.
   const wsId = workspaceId ?? ''
+  const isLocal = useWorkspaceIsLocal(wsId)
   const store = useRegisteredWorkspaceStore(wsId)
   const files = useWorkspaceStoreById(wsId, (s) => s.files)
   const isLoading = useWorkspaceStoreById(wsId, isFileTreeLoading)
   const setFiles = useWorkspaceStoreById(wsId, (s) => s.fileTreeActions.setFiles)
   const handlers = useMemo(() => createFileTreeHandlers(wsId, store), [wsId, store])
   const handleUploadFile = useCallback(
-    (directoryPath: string) => void pickAndUploadFiles(directoryPath),
-    [],
+    (directoryPath: string) => {
+      if (workspaceId) void pickAndUploadFiles(workspaceId, directoryPath)
+    },
+    [workspaceId],
   )
   // The explorer click names the pane it opens into (C8): the on-screen pane
   // of this workspace — never merely whichever pane had focus, which can be a
@@ -66,7 +70,7 @@ export function SidebarFilesPanel() {
           onRenamePath={handlers.handleRenamePath}
           onDeletePath={handlers.handleDeletePath}
           onDuplicatePath={handlers.handleDuplicatePath}
-          onRevealInFinder={revealInFolder}
+          onRevealInFinder={isLocal ? (path) => revealInFolder(wsId, path) : undefined}
           onUploadFile={handleUploadFile}
           onRefreshDirectory={handlers.refreshDirectory}
         />

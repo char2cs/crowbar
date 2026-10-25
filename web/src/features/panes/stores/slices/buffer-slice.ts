@@ -22,7 +22,6 @@ import { disposeBuffers, releaseUnreferencedBuffers } from '@/features/panes/lib
 import { placeTab } from './pane-actions/editor-tab-actions'
 import { findOpenBuffer } from './find-open-buffer'
 import { useSettingsStore } from '@/features/settings/store'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { nanoid } from 'nanoid'
 import { bestEffort } from '@/lib/best-effort'
 import { browserTabName } from '@/features/browser/lib/browser-tab-name'
@@ -112,19 +111,10 @@ export const createBufferSlice: StateCreator<
     bufferActions: {
       openContent(spec, opts = {}) {
         const paneId = opts.paneId ?? get().activePaneId
-        // Resolve the owning workspace once: an explicit spec.workspaceId wins
-        // (the caller already knows — e.g. openFileContent's own wsId param),
-        // commitDiff/branchReview fall back to their own (pre-existing) wsId
-        // field, and everything else defaults to whichever workspace is
-        // currently active. `buffers` is one flat, window-level list now (Task
-        // 26) — every path-keyed lookup below must scope on this, or two
-        // workspaces sharing a relative path (the common case: they're worktrees
-        // of the same repo) would silently share one buffer.
+        // `buffers` is one flat, window-level list: every path-keyed lookup below scopes on
+        // the caller's workspace, or two worktrees of one repo would share a buffer.
         const workspaceId =
-          spec.workspaceId ??
-          (spec.type === 'branchReview' || spec.type === 'commitDiff' ? spec.wsId : undefined) ??
-          getActiveWorkspaceId() ??
-          ''
+          spec.type === 'branchReview' || spec.type === 'commitDiff' ? spec.wsId : spec.workspaceId
 
         const existing = findOpenBuffer(
           get().buffers,

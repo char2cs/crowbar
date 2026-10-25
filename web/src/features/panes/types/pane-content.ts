@@ -234,8 +234,8 @@ export type OpenEditorTabSpec =
       isVirtual?: boolean
       isPreview?: boolean
       language?: string
-      /** Defaults to the active workspace when omitted — see EditorTabBase.workspaceId. */
-      workspaceId?: string
+      /** The workspace the tab belongs to — named by the caller, never the active one. */
+      workspaceId: string
     }
   | {
       type: 'terminal'
@@ -244,14 +244,13 @@ export type OpenEditorTabSpec =
       workingDirectory?: string
       sessionId?: string
       path?: string
-      workspaceId?: string
+      workspaceId: string
     }
   | {
       type: 'commitDiff'
       wsId: string
       sha: string
       name: string
-      workspaceId?: string
     }
   | {
       type: 'markdownPreview'
@@ -259,7 +258,7 @@ export type OpenEditorTabSpec =
       name: string
       content: string
       sourceFilePath: string
-      workspaceId?: string
+      workspaceId: string
     }
   | {
       type: 'htmlPreview'
@@ -267,7 +266,7 @@ export type OpenEditorTabSpec =
       name: string
       content: string
       sourceFilePath: string
-      workspaceId?: string
+      workspaceId: string
     }
   | {
       type: 'csvPreview'
@@ -275,23 +274,22 @@ export type OpenEditorTabSpec =
       name: string
       content: string
       sourceFilePath: string
-      workspaceId?: string
+      workspaceId: string
     }
   | {
       type: 'branchReview'
       wsId: string
       name: string
-      workspaceId?: string
     }
   | {
       type: 'browser'
       /** Opens on this page; omitted for the blank address bar. */
       url?: string
-      workspaceId?: string
+      workspaceId: string
     }
   | {
       type: 'newTabPage'
-      workspaceId?: string
+      workspaceId: string
     }
 
 // ── Buffer history / dialog state (used by workspace store) ─────────

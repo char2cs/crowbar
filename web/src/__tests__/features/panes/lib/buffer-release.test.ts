@@ -52,7 +52,9 @@ function openTerminal(store: WindowPaneStore, sessionId: string): string {
   useTerminalStore.setState((s) => ({
     sessions: new Map(s.sessions).set(sessionId, { connectionId: `conn-${sessionId}` }),
   }))
-  return store.getState().bufferActions.openContent({ type: 'terminal', sessionId })
+  return store
+    .getState()
+    .bufferActions.openContent({ type: 'terminal', sessionId, workspaceId: 'ws-test' })
 }
 
 describe('buffer ownership (invariant C2)', () => {
@@ -67,7 +69,7 @@ describe('buffer ownership (invariant C2)', () => {
   it('closing a view closes the native webview of a browser tab that has one', async () => {
     const { paneActions, bufferActions } = store.getState()
     paneActions.openChat('chat-a')
-    const id = bufferActions.openContent({ type: 'browser' })
+    const id = bufferActions.openContent({ type: 'browser', workspaceId: 'ws-test' })
     registerWebview(id, Promise.resolve())
 
     paneActions.closeView(store.getState().activeViewId!)
@@ -78,7 +80,7 @@ describe('buffer ownership (invariant C2)', () => {
   it('closing a browser tab that never got a webview closes nothing native', async () => {
     const { paneActions, bufferActions } = store.getState()
     paneActions.openChat('chat-a')
-    bufferActions.openContent({ type: 'browser' })
+    bufferActions.openContent({ type: 'browser', workspaceId: 'ws-test' })
 
     paneActions.closeView(store.getState().activeViewId!)
 
@@ -103,7 +105,13 @@ describe('buffer ownership (invariant C2)', () => {
   it('closing the last pane of a view releases its editor tabs into the reopen history', () => {
     const { paneActions, bufferActions } = store.getState()
     paneActions.openChat('chat-a')
-    bufferActions.openContent({ type: 'editor', path: 'a.ts', name: 'a.ts', content: '' })
+    bufferActions.openContent({
+      type: 'editor',
+      path: 'a.ts',
+      name: 'a.ts',
+      content: '',
+      workspaceId: 'ws-test',
+    })
     const paneId = store.getState().activePaneId
 
     paneActions.closePane(paneId)
@@ -132,9 +140,13 @@ describe('buffer ownership (invariant C2)', () => {
     const { paneActions } = store.getState()
     paneActions.openChat('chat-a')
     const left = store.getState().activePaneId
-    const bufferId = store
-      .getState()
-      .bufferActions.openContent({ type: 'editor', path: 'b.ts', name: 'b.ts', content: '' })
+    const bufferId = store.getState().bufferActions.openContent({
+      type: 'editor',
+      path: 'b.ts',
+      name: 'b.ts',
+      content: '',
+      workspaceId: 'ws-test',
+    })
     const right = paneActions.splitPane(left, 'horizontal', bufferId)!
 
     paneActions.removeEditorTabFromPane(left, bufferId)
@@ -178,12 +190,17 @@ describe('buffer ownership (invariant C2)', () => {
           break
         case 1:
           s.paneActions.setActivePane(pane)
-          s.bufferActions.openContent({ type: 'terminal', sessionId: `pty-${step}` })
+          s.bufferActions.openContent({
+            type: 'terminal',
+            sessionId: `pty-${step}`,
+            workspaceId: 'ws-test',
+          })
           break
         case 2:
           s.paneActions.setActivePane(pane)
           s.bufferActions.openContent({
             type: 'editor',
+            workspaceId: 'ws-test',
             path: `f${rand(4)}.ts`,
             name: 'f',
             content: '',

@@ -9,12 +9,13 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FolderOpen } from '@phosphor-icons/react'
-import { toast } from '@/features/window/stores/toast-store'
-import { openNativeDialog as openDialog } from '@/lib/native-dialog'
+import { toastActionFailure } from '@/features/hosts/lib/host-failure-notice'
+import { useDaemonFolderPicker } from '@/features/hosts/hooks/use-daemon-folder-picker'
 import { useNavigate } from '@tanstack/react-router'
 import { isTauri } from '@/lib/crowbar-bridge'
 import { fetchWorkspaces, postRepo, workspaceDTOFromWorktreeFrame } from '@/lib/api'
-import { useProjectStore } from '@/lib/store/projects'
+import { useResolvedHost } from '@/lib/host-resolve'
+import { projectBase, repoBase } from '@/lib/project-url'
 import { awaitEntity } from '@/lib/ws/await-entity'
 import { upsertEntity } from '@/lib/persistence/entity-cache'
 import { syncSidebarFromCache } from '@/lib/store/sidebar-sync'
@@ -23,15 +24,8 @@ import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 interface AddRepositoryModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /**
-   * Which project the repo lands in. Required wherever the caller is not the
-   * active project: the sidebar now shows a row per project, and each of those
-   * rows offers this modal — reading the active project here would silently
-   * import into whichever project happened to be open instead of the one whose
-   * row was clicked. Omitted, it keeps the old behaviour for the callers that
-   * genuinely mean "the current project".
-   */
-  projectId?: string
+  /** The project the repo lands in — the row's own, never whichever one is open. */
+  projectId: string
 }
 
 export function AddRepositoryModal({ open, onOpenChange, projectId }: AddRepositoryModalProps) {
@@ -43,26 +37,25 @@ export function AddRepositoryModal({ open, onOpenChange, projectId }: AddReposit
   const trimmedPath = path.trim()
   const pathLooksAbsolute = trimmedPath.startsWith('/') || /^[A-Za-z]:[\\/]/.test(trimmedPath)
 
-  async function handleBrowse() {
-    const selected = await openDialog({ directory: true, multiple: false })
-    if (typeof selected === 'string') {
-      setPath(selected)
-      if (!name) {
-        setName(
-          selected
-            .replace(/[\\/]+$/, '')
-            .split(/[\\/]/)
-            .pop() ?? '',
-        )
-      }
+  function handlePicked(selected: string) {
+    setPath(selected)
+    if (!name) {
+      setName(
+        selected
+          .replace(/[\\/]+$/, '')
+          .split(/[\\/]/)
+          .pop() ?? '',
+      )
     }
   }
+  // The folder is picked on the daemon the repo is imported by: the project's own host.
+  const folderHost = useResolvedHost({ projectId })
+  const folderPicker = useDaemonFolderPicker(folderHost, handlePicked)
 
   async function handleAdd() {
     if (!pathLooksAbsolute) return
     setLoading(true)
     try {
-      const activeProjectId = projectId || useProjectStore.getState().activeProjectId
       const fallbackName =
         trimmedPath
           .replace(/[\\/]+$/, '')
@@ -80,17 +73,17 @@ export function AddRepositoryModal({ open, onOpenChange, projectId }: AddReposit
       // by matching its path, then resolve its default WorkspaceDTO and navigate
       // into the IDE.
       const repo = await awaitEntity<RepoDTO>({
-        endpoint: `/v0/projects/${activeProjectId}/repos`,
+        endpoint: `${projectBase(projectId)}/repos`,
         match: (r) => r.path === trimmedPath,
-        action: () => postRepo(activeProjectId, repoName, trimmedPath),
+        action: () => postRepo(projectId, repoName, trimmedPath),
       })
 
       const ws = await awaitEntity<WorkspaceDTO>({
-        endpoint: `/v0/projects/${activeProjectId}/repos/${repo.id}/chats/ws`,
+        endpoint: `${repoBase(projectId, repo.id)}/chats/ws`,
         // The frames are chat lifecycle events, not workspace DTOs — pick the
         // owning row's worktree state out and build the DTO from it. Every
         // other kind maps to null and is skipped before `match` ever runs.
-        mapFrame: (raw) => workspaceDTOFromWorktreeFrame(raw, activeProjectId, repo.id),
+        mapFrame: (raw) => workspaceDTOFromWorktreeFrame(raw, projectId, repo.id),
         match: (w) => w.repoId === repo.id && w.status !== 'deleted',
         action: () => Promise.resolve(),
         // The default worktree is created as a side effect of the repo POST in
@@ -105,7 +98,7 @@ export function AddRepositoryModal({ open, onOpenChange, projectId }: AddReposit
         // `worktree_state` frame. acceptExisting keeps that frame eligible: the
         // row is "pre-existing" from this await's point of view, and banking it
         // would strand the caller.
-        seed: () => fetchWorkspaces(activeProjectId, repo.id),
+        seed: () => fetchWorkspaces(projectId, repo.id),
         acceptExisting: true,
       })
 
@@ -124,10 +117,10 @@ export function AddRepositoryModal({ open, onOpenChange, projectId }: AddReposit
       setName('')
       void navigate({
         to: '/ide/$projectId/$repoId/$wsId',
-        params: { projectId: activeProjectId, repoId: repo.id, wsId: ws.id },
+        params: { projectId, repoId: repo.id, wsId: ws.id },
       })
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to add repository')
+      toastActionFailure(err, 'Failed to add repository')
     } finally {
       setLoading(false)
     }
@@ -154,10 +147,17 @@ export function AddRepositoryModal({ open, onOpenChange, projectId }: AddReposit
                 className="font-mono text-[12px]"
               />
               {isTauri() && (
-                <Button variant="outline" size="icon" onClick={handleBrowse} title="Browse…">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={folderPicker.pick}
+                  disabled={folderHost === null}
+                  title="Browse…"
+                >
                   <FolderOpen className="size-4" />
                 </Button>
               )}
+              {folderPicker.picker}
             </div>
             {trimmedPath !== '' && !pathLooksAbsolute && (
               <p className="text-[12px] text-destructive">

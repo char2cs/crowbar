@@ -15,6 +15,8 @@ import { initializeIconThemes } from '@/extensions/icon-themes/icon-theme-initia
 import { installPerfObserver, perfEnabled, pushPerfEntry } from '@/lib/perf/instrumentation'
 import { prefetchEditorChunks } from '@/features/panes/components/prefetch-editor-chunks'
 import { hydrateCriticalStores } from '@/lib/boot'
+import { connectProjectList } from '@/lib/store/projects'
+import { projectListTransport } from '@/lib/api/project-list-transport'
 import './index.css'
 
 // Must run before anything else in boot: markStart/markEnd calls elsewhere
@@ -25,6 +27,9 @@ installPerfObserver()
 
 // Required for Zustand stores that use immer middleware with Set/Map state
 enableMapSet()
+
+// Before anything reads the project list: the root route's guard and the sync engine both do.
+connectProjectList(projectListTransport)
 
 // Wire up daemon event listeners for cache invalidation.
 // Cleanup is registered with Vite HMR so hot-reloading doesn't leak listeners.

@@ -130,12 +130,16 @@ const TabContextMenu = ({
       icon: <Copy />,
       onClick: () => onCopyRelativePath?.(path),
     },
-    {
-      id: 'reveal',
-      label: 'Reveal in Finder',
-      icon: <FolderOpen />,
-      onClick: () => onRevealInFinder?.(path),
-    },
+    ...(onRevealInFinder
+      ? [
+          {
+            id: 'reveal',
+            label: 'Reveal in Finder',
+            icon: <FolderOpen />,
+            onClick: () => onRevealInFinder(path),
+          },
+        ]
+      : []),
     ...(!isVirtualContent(buffer) && !path.includes('://')
       ? [
           {

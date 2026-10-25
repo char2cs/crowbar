@@ -22,6 +22,7 @@ import { BrowserSettings } from './tabs/browser-settings'
 import { ProvidersSettings } from './tabs/providers-settings'
 import { DeveloperSettings } from './tabs/developer-settings'
 import { KeybindingsSettings } from './tabs/keybindings-settings'
+import { HostsSettings } from './tabs/hosts-settings'
 
 interface SettingsDialogProps {
   isOpen: boolean
@@ -84,6 +85,8 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
         return <ProvidersSettings />
       case 'keybindings':
         return <KeybindingsSettings />
+      case 'hosts':
+        return <HostsSettings />
       case 'developer':
         return <DeveloperSettings />
       default:

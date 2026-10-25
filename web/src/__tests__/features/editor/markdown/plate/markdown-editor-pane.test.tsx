@@ -4,12 +4,17 @@ import type { Value } from 'platejs'
 import { MarkdownEditorPane } from '@/features/editor/markdown/plate/markdown-editor-pane'
 import { markdownToPlateValue } from '@/features/editor/markdown/plate/markdown-serialization'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
+import { toast } from '@/features/window/stores/toast-store'
+import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
-// Buffer fixtures keyed by bufferId, so each test can pick the shape it needs
-// (normal prose, a GFM table, or a sentinel that forces a deserialize throw)
-// without any test-order-dependent mutable shared state. Declared via
-// `vi.hoisted` so it's safe to reference from the hoisted `vi.mock` factory
-// below.
+// Buffer fixtures keyed by bufferId, so each test picks the shape it needs with no shared mutable
+// state; hoisted for the `vi.mock` factory below.
 const { BUFFER_CONTENT, THROW_SENTINEL } = vi.hoisted(() => {
   const THROW_SENTINEL = '__THROW_ON_DESERIALIZE__'
   return {
@@ -50,6 +55,8 @@ const { BUFFER_CONTENT, THROW_SENTINEL } = vi.hoisted(() => {
       // markup the editor holds as an opaque string it cannot annotate.
       'b-html':
         '<div align="center">\n  <h1>Crowbar</h1>\n  <a href="https://example.com/docs">Docs</a>\n</div>\n\n# Heading\n',
+      // The same kind of block linking its host's own dev server, in a workspace on another host.
+      'b-remote-html': '<div>\n  <a href="http://localhost:3000/">Preview</a>\n</div>\n',
     } as Record<string, string>,
   }
 })
@@ -100,6 +107,7 @@ vi.mock('@/features/workspace/stores/hooks/use-buffer-store', async () => {
         content,
         savedContent: content,
         isDirty: false,
+        workspaceId: bufferId === 'b-remote-html' ? 'w-remote' : undefined,
       }
     },
   }
@@ -108,7 +116,7 @@ vi.mock('@/features/editor/lib/buffer-save', () => ({
   setBufferContent: (bufferId: string, md: string) => setBufferContent(bufferId, md),
 }))
 vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: vi.fn() },
+  toast: { error: vi.fn(), info: vi.fn() },
 }))
 
 // The single approved shell-opener seam. Mocked here so the raw-HTML anchor
@@ -134,12 +142,8 @@ vi.mock('@/features/editor/markdown/plate/markdown-serialization', async (import
   }
 })
 
-// Capture the live editor instance `usePlateEditor` builds inside the
-// component so tests can apply a REAL content change directly to
-// `editor.children` (the same field `flush()` reads). Slate typing can't be
-// simulated in jsdom (`setSelectionRange` on a contenteditable throws "Not
-// implemented"), so this is the reliable way to exercise the "an actual edit
-// happened" path end-to-end through the real component.
+// The live editor, so a test can make a REAL edit to `editor.children` (what `flush()` reads):
+// Slate typing can't be simulated in jsdom (`setSelectionRange` on a contenteditable throws).
 let capturedEditor: { children: Value } | null = null
 vi.mock('platejs/react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('platejs/react')>()
@@ -441,17 +445,9 @@ describe('MarkdownEditorPane', () => {
   })
 })
 
-// A raw HTML block is the one place anchors appear inside markup the editor
-// holds as an opaque string and cannot annotate, so its links are delegated
-// from the block container rather than wired per-anchor. The container is NOT
-// itself a control: the anchors inside it are, and they are natively focusable,
-// so the delegation is a native listener on the container instead of a React
-// `onClick` prop on a static div.
-//
-// What must hold, whichever way it is wired: a click inside the Tauri WKWebView
-// NEVER navigates the app view (there is no browser chrome to catch it — the
-// whole app would be replaced by the target page), and an external href reaches
-// the OS default browser instead.
+// A raw HTML block's anchors sit in markup the editor holds as one opaque string, so their clicks
+// are delegated from the block. A click must never navigate the WKWebView (it would replace the
+// whole app): an external href reaches the OS default browser instead.
 describe('MarkdownEditorPane raw-HTML anchors', () => {
   it('sends an external raw-HTML link to the OS browser and cancels the webview navigation', async () => {
     render(<MarkdownEditorPane paneId="p1" bufferId="b-html" />)
@@ -467,6 +463,25 @@ describe('MarkdownEditorPane raw-HTML anchors', () => {
     expect(notCancelled).toBe(false)
     expect(event.defaultPrevented).toBe(true)
     expect(openExternalUrl).toHaveBeenCalledWith('https://example.com/docs')
+  })
+
+  // A README on another host that links its own localhost means that host, not this computer.
+  it('does not open a loopback link from a workspace on another host here', async () => {
+    pairRemoteHost('h1', 'Build box')
+    loadProjects(projectOn('p', 'h1'))
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'w-remote' })
+    try {
+      render(<MarkdownEditorPane paneId="p1" bufferId="b-remote-html" />)
+
+      const anchor = await screen.findByText('Preview')
+      anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+
+      expect(vi.mocked(toast.info).mock.calls.at(-1)?.[0]).toMatch(/^This link is on Build box/)
+      expect(openExternalUrl).not.toHaveBeenCalled()
+    } finally {
+      resetHostWorld()
+      __resetWorkspaceScopesForTest()
+    }
   })
 
   it('leaves clicks elsewhere in the block alone', async () => {

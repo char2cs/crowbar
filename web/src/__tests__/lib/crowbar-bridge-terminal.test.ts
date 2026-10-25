@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const tauri = vi.hoisted(() => ({
-  instances: [] as Array<{ path: string; options?: { idleTimeoutMs?: number } }>,
+  instances: [] as Array<{ path: string; options?: { idleTimeoutMs?: number; hostId?: string } }>,
+  refuse: false,
 }))
 
 // The desktop transport: a WebSocket-shaped shim over the Rust bridge.
@@ -12,12 +13,14 @@ vi.mock('@/lib/ws/tauri-transport', () => ({
     onclose: (() => void) | null = null
     send = vi.fn()
     close = vi.fn()
-    constructor(path: string, options?: { idleTimeoutMs?: number }) {
+    constructor(path: string, options?: { idleTimeoutMs?: number; hostId?: string }) {
+      if (tauri.refuse) throw new Error('dial refused')
       tauri.instances.push({ path, options })
     }
   },
 }))
 
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import {
   openTerminal,
   terminalKill,
@@ -162,6 +165,7 @@ describe('openTerminal / terminalKill / terminalListLive', () => {
   beforeEach(() => {
     FakeWebSocket.instances = []
     tauri.instances = []
+    tauri.refuse = false
     vi.stubGlobal('WebSocket', FakeWebSocket as unknown as typeof WebSocket)
   })
   afterEach(() => {
@@ -191,6 +195,68 @@ describe('openTerminal / terminalKill / terminalListLive', () => {
     expect(FakeWebSocket.instances).toHaveLength(0)
     expect(tauri.instances[0].path).toBe('/v0/chats/c1/terminals/s1/ws')
     expect(tauri.instances[0].options?.idleTimeoutMs).toBeGreaterThan(45_000)
+  })
+
+  it('on desktop, a local terminal dials the local daemon', () => {
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+    openTerminal('s1', '/v0/chats/c1/terminals')
+    expect(tauri.instances[0].options?.hostId).toBe('local')
+  })
+
+  describe('on a remote host', () => {
+    beforeEach(() => {
+      ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+      useHostConfigStore.setState({
+        hosts: [
+          {
+            id: 'h1',
+            name: 'Box',
+            endpoint: 'box:3737',
+            pairedFingerprint: 'ff',
+            clientId: 'c1',
+          },
+        ],
+      })
+    })
+    afterEach(() => useHostConfigStore.setState({ hosts: [] }))
+
+    it('dials that host with the prefix stripped, keeping the half-open timeout', () => {
+      openTerminal('s1', 'crowbar://h1/v0/chats/c1/terminals')
+      expect(tauri.instances[0].path).toBe('/v0/chats/c1/terminals/s1/ws')
+      expect(tauri.instances[0].options).toMatchObject({ hostId: 'h1' })
+      expect(tauri.instances[0].options?.idleTimeoutMs).toBeGreaterThan(45_000)
+    })
+
+    it('kills on the same host the session was opened on', async () => {
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 202,
+        json: async () => ({ success: true, error: null, data: { id: 's9' } }),
+      })
+      vi.stubGlobal('fetch', fetchSpy)
+      openTerminal('s9', 'crowbar://h1/v0/chats/c9/terminals')
+      await terminalKill('s9')
+      expect(fetchSpy.mock.calls[0][0]).toBe('crowbar://h1/v0/chats/c9/terminals/s9')
+      expect(fetchSpy.mock.calls[0][1]).toMatchObject({ method: 'DELETE' })
+    })
+
+    it('cannot be opened from the browser', () => {
+      delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+      expect(() => openTerminal('s1', 'crowbar://h1/v0/chats/c1/terminals')).toThrow(/desktop app/)
+      expect(FakeWebSocket.instances).toHaveLength(0)
+    })
+  })
+
+  it('remembers no base for a terminal whose transport could not be built', async () => {
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+    tauri.refuse = true
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    expect(() => openTerminal('s7', '/v0/chats/c7/terminals')).toThrow('dial refused')
+    await terminalKill('s7')
+
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 
   it('kills under the base the session was opened on; an unknown session sends nothing', async () => {

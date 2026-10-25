@@ -116,7 +116,7 @@ func chatScopeEnv(
 	seedWorkspaceAt(t, a, "ws-z", t.TempDir())
 	a.Usecases.Worktree = newRowsResolver(a)
 
-	c := New(a, eng)
+	c := New(a, eng, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
@@ -292,7 +292,7 @@ func placementEnvAt(
 	createRealChat(t, a, "owner-a", "ws-a", "")
 	createRealChat(t, a, "owner-b", "ws-b", "")
 
-	c := New(a, eng)
+	c := New(a, eng, "")
 	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))

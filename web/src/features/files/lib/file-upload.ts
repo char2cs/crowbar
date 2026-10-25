@@ -1,4 +1,3 @@
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { joinPath } from '@/utils/path-helpers'
 import { createFileNode, writeFileContent } from './file-tree-api'
 
@@ -38,14 +37,11 @@ export function readFileAsBase64(file: Blob): Promise<string> {
   })
 }
 
-// Upload picked files into `directoryPath` (workspace-relative; '' is the root)
-// via the daemon's create + write-content endpoints. Files are sent base64
+// Upload picked files into `directoryPath` (workspace-relative; '' is the root) of
+// workspace `wsId` via the daemon's create + write-content endpoints. Files are sent base64
 // (encoding: 'base64') so their exact bytes land on disk — text and binary
 // alike survive intact. Returns the workspace-relative paths that were written.
-export async function pickAndUploadFiles(directoryPath: string): Promise<string[]> {
-  const wsId = getActiveWorkspaceId()
-  if (!wsId) return []
-
+export async function pickAndUploadFiles(wsId: string, directoryPath: string): Promise<string[]> {
   const files = await pickFiles()
   const written: string[] = []
   for (const file of files) {

@@ -21,7 +21,7 @@ import {
 } from '@phosphor-icons/react'
 import { useCallback, useMemo, useState } from 'react'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { readFile as readTextFile, writeFile } from '@/features/file-system/controllers/platform'
+import { readWorkspaceFile, writeWorkspaceFile } from '@/features/file-system/controllers/platform'
 import {
   buildEnvTemplateContent,
   ENV_TEMPLATE_TARGETS,
@@ -138,7 +138,7 @@ export function useFileExplorerContextMenu({
 
   const createEnvTemplateFile = useCallback(
     async (sourcePath: string, targetFileName: string, options?: { overwrite?: boolean }) => {
-      if (!onCreateNewFileInDirectory) return
+      if (!onCreateNewFileInDirectory || !workspaceId) return
 
       const directoryPath = getDirName(sourcePath)
       const targetPath = joinPath(directoryPath, targetFileName)
@@ -151,7 +151,7 @@ export function useFileExplorerContextMenu({
 
         let targetExists = false
         try {
-          await readTextFile(targetPath)
+          await readWorkspaceFile(workspaceId, targetPath)
           targetExists = true
           if (!options?.overwrite) {
             setEnvOverwriteDialog({ sourcePath, targetFileName })
@@ -161,34 +161,29 @@ export function useFileExplorerContextMenu({
           /* intentionally ignored */
         }
 
-        const sourceContent = await readTextFile(sourcePath)
+        const sourceContent = await readWorkspaceFile(workspaceId, sourcePath)
         const templateContent = buildEnvTemplateContent(sourceContent)
         const createdPath = targetExists
           ? targetPath
           : (await Promise.resolve(onCreateNewFileInDirectory(directoryPath, targetFileName))) ||
             targetPath
 
-        await writeFile(createdPath, templateContent)
+        await writeWorkspaceFile(workspaceId, createdPath, templateContent)
 
-        if (workspaceId) {
-          // Task 26: buffers are window-level — scope by workspaceId too, or
-          // a sibling worktree's buffer at the same relative path could get
-          // this content instead.
-          const createdBuffer = windowPaneStore
-            .getState()
-            .buffers.find(
-              (buffer) => buffer.path === createdPath && buffer.workspaceId === workspaceId,
-            )
-          if (createdBuffer) {
-            windowPaneStore.setState((state) => ({
-              ...state,
-              buffers: state.buffers.map((b) =>
-                b.id === createdBuffer.id && 'content' in b
-                  ? { ...b, content: templateContent }
-                  : b,
-              ),
-            }))
-          }
+        // Buffers are window-level — scope by workspaceId too, or a sibling
+        // worktree's buffer at the same relative path could get this content.
+        const createdBuffer = windowPaneStore
+          .getState()
+          .buffers.find(
+            (buffer) => buffer.path === createdPath && buffer.workspaceId === workspaceId,
+          )
+        if (createdBuffer) {
+          windowPaneStore.setState((state) => ({
+            ...state,
+            buffers: state.buffers.map((b) =>
+              b.id === createdBuffer.id && 'content' in b ? { ...b, content: templateContent } : b,
+            ),
+          }))
         }
 
         onRefreshDirectory?.(directoryPath)
@@ -226,6 +221,7 @@ export function useFileExplorerContextMenu({
     if (!contextMenu) return []
 
     const items: ContextMenuItem[] = []
+    const staged = [{ path: contextMenu.path, is_dir: contextMenu.isDir }]
 
     if (contextMenu.isDir) {
       // Empty-space (root) right-click passes the absolute wsId as contextMenu.path,
@@ -300,12 +296,13 @@ export function useFileExplorerContextMenu({
           label: 'Open in Terminal',
           icon: <Terminal />,
           onClick: () => {
+            if (!workspaceId) return
             const folderName = getBaseName(dirTargetPath, 'terminal')
             windowPaneStore.getState().bufferActions.openContent({
               type: 'terminal',
               name: folderName,
               workingDirectory: dirTargetPath,
-              workspaceId: workspaceId ?? undefined,
+              workspaceId,
             })
           },
         },
@@ -463,9 +460,7 @@ export function useFileExplorerContextMenu({
         id: 'copy',
         label: 'Copy',
         icon: <Copy />,
-        onClick: () => {
-          clipboardActions.copy([{ path: contextMenu.path, is_dir: contextMenu.isDir }])
-        },
+        onClick: () => void clipboardActions.copy(staged, workspaceId),
       },
       // Cut stages a move whose completion (paste) deletes from this workspace —
       // a mutation, so hidden when locked. Copy above only reads, so it stays.
@@ -476,9 +471,7 @@ export function useFileExplorerContextMenu({
               id: 'cut',
               label: 'Cut',
               icon: <Scissors />,
-              onClick: () => {
-                clipboardActions.cut([{ path: contextMenu.path, is_dir: contextMenu.isDir }])
-              },
+              onClick: () => void clipboardActions.cut(staged, workspaceId),
             },
           ]),
       ...(onRemoveFolderFromWorkspace && canRemoveWorkspaceRootPath?.(contextMenu.path)

@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useHostResolved } from '@/lib/host-resolve'
 import { subscribeEntityStream } from '@/lib/ws/entity-stream'
 import { fetchWorkspace, workspaceDTOFromWorktreeFrame } from '@/lib/api'
 import { getOwningChatId } from '@/lib/workspace-scope'
@@ -27,9 +28,10 @@ import type { WorkspaceDTO } from '@/lib/types'
  * ones out and builds the DTO; the resulting status arrives over the entity-cache
  * path and the sidebar icon updates.
  *
- * A workspace with no recorded owning chat is skipped rather than thrown on: this
- * runs on every render of the IDE shell, including before the sidebar has recorded
- * the chat the route's workspace belongs to.
+ * A workspace with no recorded owning chat, or whose host the project list has not
+ * named yet, is skipped rather than thrown on: this runs on every render of the IDE
+ * shell, including before the sidebar has recorded the chat the route's workspace
+ * belongs to.
  */
 export function useWorkspaceProviderStream(
   projectId: string | undefined,
@@ -57,19 +59,27 @@ export function useWorkspaceProviderStream(
     return (wsId ? getOwningChatId(wsId) : null) ?? ''
   })
 
+  // '' reads as unresolved on a paired install; the effect needs a wsId anyway.
+  const hostResolved = useHostResolved({ wsId: wsId ?? '' })
+
   useEffect(() => {
-    if (!projectId || !repoId || !wsId || !owningChatId) return
-    return subscribeEntityStream<WorkspaceDTO>({
-      endpoint: `${chatBase(owningChatId)}/ws`,
-      store: 'crowbar_workspaces',
-      seed: () => fetchWorkspace(projectId, repoId, wsId).then((ws) => [ws]),
-      mapFrame: (raw) => workspaceDTOFromWorktreeFrame(raw, projectId, repoId),
-      onChange: () => void syncSidebarFromCache(),
-      // This stream shares crowbar_workspaces with the repo-level LIST stream but
-      // seeds with ONLY the viewed workspace — it is authoritative over that one
-      // id, never its siblings. Without this scope its seed would prune every
-      // other workspace and collapse the sidebar to the active row.
-      pruneScope: (ws) => ws.id === wsId,
-    })
-  }, [projectId, repoId, wsId, owningChatId])
+    if (!projectId || !repoId || !wsId || !owningChatId || !hostResolved) return
+    try {
+      return subscribeEntityStream<WorkspaceDTO>({
+        endpoint: `${chatBase(owningChatId)}/ws`,
+        store: 'crowbar_workspaces',
+        seed: () => fetchWorkspace(projectId, repoId, wsId).then((ws) => [ws]),
+        mapFrame: (raw) => workspaceDTOFromWorktreeFrame(raw, projectId, repoId),
+        onChange: () => void syncSidebarFromCache(),
+        // This stream shares crowbar_workspaces with the repo-level LIST stream but
+        // seeds with ONLY the viewed workspace — it is authoritative over that one
+        // id, never its siblings. Without this scope its seed would prune every
+        // other workspace and collapse the sidebar to the active row.
+        pruneScope: (ws) => ws.id === wsId,
+      })
+    } catch (err) {
+      // A refused channel (remote host in a plain browser) is no live stream, not a crash.
+      console.error('[ws] no live channel:', err)
+    }
+  }, [projectId, repoId, wsId, owningChatId, hostResolved])
 }

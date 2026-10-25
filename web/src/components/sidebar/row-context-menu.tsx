@@ -244,7 +244,7 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
         id: 'new-thread-terminal',
         label: 'New thread in Terminal',
         icon: <Terminal />,
-        onClick: () => handleCreate(row.id, 'thread', navigate, 'terminal'),
+        onClick: () => void handleCreate(row.id, 'thread', navigate, 'terminal'),
       })
     }
   }

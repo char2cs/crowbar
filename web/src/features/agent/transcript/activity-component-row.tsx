@@ -10,6 +10,7 @@ import {
   OfflineIcon,
   RefreshIcon,
 } from '@/features/agent/shared/agent-icons'
+import { handleMarkdownAnchorClick } from '@/lib/markdown-link'
 
 interface PlanStep {
   text: string
@@ -145,7 +146,8 @@ export function ActivityComponentRow({
         <div className="assistant activity-card activity-inline-card">
           <LinkIcon size={14} />
           {url ? (
-            <a href={url} target="_blank" rel="noreferrer">
+            // Opened as any link in the chat: a loopback address is the chat's host's.
+            <a href={url} onClick={(e) => handleMarkdownAnchorClick(e, url, wsId ?? null)}>
               {label}
             </a>
           ) : (

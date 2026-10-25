@@ -1,6 +1,5 @@
-import { idle, loading, success, failed, type Loadable } from '@/lib/loadable'
+import { dataOf, idle, loading, success, failed, type Loadable } from '@/lib/loadable'
 import { saveCache, loadCache, type CacheStoreName } from '@/lib/persistence/cache-store'
-import { wsManager } from '@/lib/ws/manager'
 import { isReconnectSentinel } from '@/lib/ws/types'
 
 export interface LoadableSlice<T, K extends unknown[] = [string]> {
@@ -8,6 +7,10 @@ export interface LoadableSlice<T, K extends unknown[] = [string]> {
   fetch: (...args: K) => Promise<void>
   startSync: (...args: K) => () => void
   applyDelta: (event: unknown, ...args: K) => Promise<void>
+  /** Lands a frame on whatever is held: a published value takes it as `applyDelta` does (one it
+   *  cannot merge is re-read), else each read in flight carries it and the stale value folds it
+   *  in. False when nothing holds it: no published value, no read in flight, no stale value. */
+  holdFrame: (event: unknown, ...args: K) => boolean
   optimisticWrite: (optimistic: T, commit: () => Promise<T | void>) => Promise<void>
 }
 
@@ -15,7 +18,8 @@ interface LoadableConfig<T, K extends unknown[]> {
   store: CacheStoreName
   fetcher: (...args: K) => Promise<T>
   cacheKey?: (...args: K) => string
-  wsEndpoint?: (...args: K) => string
+  /** The value's live stream: calls `onFrame` per frame, returns its unsubscribe. */
+  subscribe?: (onFrame: (frame: unknown) => void, ...args: K) => () => void
   /**
    * For a socket whose frames are complete entities (a snapshot on subscribe,
    * then one whole DTO per change): fold one frame into the held value, or
@@ -94,21 +98,28 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
       try {
         const cached = await loadCache<T>(cfg.store, key)
         if (seq !== latestFetch) return latestRun
-        set({
-          data: loading(cached ? success(cached.data, cached.fetchedAt) : get().data),
-        })
+        // What is held stays on screen while it is re-read: the cache is only a copy,
+        // which another window may have rewritten. It stands in when nothing is held.
+        const held = get().data
+        const shown =
+          dataOf(held) === undefined && cached ? success(cached.data, cached.fetchedAt) : held
+        set({ data: loading(shown) })
         try {
           unsent.delete(key)
           sent = true
           const fresh = replay(await cfg.fetcher(...args), frames)
+          const replayed = frames.length
           if (seq !== latestFetch) return latestRun
           // An unchanged answer is not re-written: a warm boot otherwise
           // re-puts every cached list it just read.
           if (!cached || !sameJson(cached.data, fresh)) await saveCache(cfg.store, key, fresh)
           // Re-checked after the write too: a supersede can land inside it.
           if (seq !== latestFetch) return latestRun
+          // Frames that landed during the write postdate the answer too.
+          const published = replay(fresh, frames.slice(replayed))
+          if (published !== fresh) void saveCache(cfg.store, key, published)
           heldKey = key
-          set({ data: success(fresh) })
+          set({ data: success(published) })
         } catch (err) {
           if (seq !== latestFetch) return latestRun
           set({ data: failed(err as Error, get().data) })
@@ -163,13 +174,16 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
       },
 
       startSync: (...args: K) => {
-        if (!cfg.wsEndpoint) return () => {}
+        if (!cfg.subscribe) return () => {}
         const key = keyOf(...args)
         const merges = cfg.mergeFrame !== undefined
         if (merges) live.set(key, (live.get(key) ?? 0) + 1)
-        const unsubscribe = wsManager.subscribe(cfg.wsEndpoint(...args), (event) => {
-          void get().applyDelta(event, ...(args as unknown[] as K))
-        })
+        const unsubscribe = cfg.subscribe(
+          (event) => {
+            void get().applyDelta(event, ...(args as unknown[] as K))
+          },
+          ...args,
+        )
         return () => {
           unsubscribe()
           if (!merges) return
@@ -201,6 +215,23 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
           }
         }
         scheduleRefetch(key, args)
+      },
+
+      holdFrame: (event: unknown, ...args: K) => {
+        const current = get().data
+        if (!cfg.mergeFrame) return false
+        if (current.status === 'success') {
+          void get().applyDelta(event, ...args)
+          return true
+        }
+        const inFlight = inFlightFrames.get(keyOf(...args)) ?? new Set<unknown[]>()
+        for (const frames of inFlight) frames.push(event)
+        // A read in flight publishes the frame with its answer, stale value or not.
+        if (current.status === 'idle' || current.staleData === null) return inFlight.size > 0
+        const staleData = cfg.mergeFrame(current.staleData, event)
+        if (staleData === undefined) return false
+        if (staleData !== current.staleData) set({ data: { ...current, staleData } })
+        return true
       },
 
       optimisticWrite: async (optimistic: T, commit: () => Promise<T | void>) => {

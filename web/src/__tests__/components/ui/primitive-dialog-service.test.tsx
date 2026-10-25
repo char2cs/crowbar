@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { beforeAll, describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import {
   PrimitiveDialogProvider,
   primitiveConfirm,
@@ -23,6 +24,12 @@ function pressEscape() {
 }
 
 describe('primitive dialog service', () => {
+  // The app shell has the dialog UI loaded before any request; a cold transform of it here
+  // would otherwise race findBy's timeout on the first test.
+  beforeAll(async () => {
+    await import('@/components/ui/primitive-dialog-host')
+  })
+
   it('resolves confirm with the chosen answer', async () => {
     renderProvider()
     const answer = primitiveConfirm('Discard changes?')
@@ -37,6 +44,22 @@ describe('primitive dialog service', () => {
     const answer = primitiveConfirm('Discard changes?')
 
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+
+    await expect(answer).resolves.toBe(false)
+  })
+
+  // The safe answer is the default, whatever the confirm does: a stray Enter never confirms.
+  it('a confirm starts on its cancel button, so Enter cancels', async () => {
+    const user = userEvent.setup()
+    renderProvider()
+    const answer = primitiveConfirm('Revoke it?', {
+      confirmLabel: 'Revoke',
+      cancelLabel: 'Keep it',
+      destructive: true,
+    })
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Keep it' })).toHaveFocus())
+    await user.keyboard('{Enter}')
 
     await expect(answer).resolves.toBe(false)
   })
@@ -82,6 +105,29 @@ describe('primitive dialog service', () => {
     await expect(answered).resolves.toBe('feature')
   })
 
+  // The header carries the dialog's gutter: a message outside it touches the dialog's edge.
+  it('a confirm shows its message as the dialog description, inside the header', async () => {
+    renderProvider()
+    const message = "To use it again you'll need to run crowbar pair on it."
+    void primitiveConfirm(message, { title: 'Revoke docker lab?' })
+
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Revoke docker lab?',
+      description: message,
+    })
+
+    expect(within(dialog).getByText(message).closest('[data-slot="dialog-header"]')).not.toBeNull()
+  })
+
+  it('a prompt labels its input with the message', async () => {
+    renderProvider()
+    void primitivePrompt('Enter a terminal name:', { defaultValue: 'main' })
+
+    expect(await screen.findByRole('textbox', { name: 'Enter a terminal name:' })).toHaveValue(
+      'main',
+    )
+  })
+
   it('shows queued dialogs one at a time, in order', async () => {
     renderProvider()
     const first = primitiveConfirm('First?')
@@ -96,5 +142,29 @@ describe('primitive dialog service', () => {
     await waitFor(() => expect(screen.getByText('Second?')).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     await expect(second).resolves.toBe(true)
+  })
+
+  // The dialog UI loads with the first request, and the provider sits above every error
+  // boundary: a chunk that fails to load must settle the request, not throw or leave it pending.
+  it('settles a request as dismissed when the dialog UI fails to load', async () => {
+    vi.resetModules()
+    vi.doMock('@/components/ui/primitive-dialog-host', () => {
+      throw new Error('chunk load failed')
+    })
+    try {
+      const service = await import('@/components/ui/primitive-dialog-service')
+      render(
+        <service.PrimitiveDialogProvider>
+          <div>app</div>
+        </service.PrimitiveDialogProvider>,
+      )
+
+      await expect(service.primitiveConfirm('Discard changes?')).resolves.toBe(false)
+      await expect(service.primitivePrompt('Name?')).resolves.toBeNull()
+      expect(screen.getByText('app')).toBeInTheDocument()
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    } finally {
+      vi.doUnmock('@/components/ui/primitive-dialog-host')
+    }
   })
 })

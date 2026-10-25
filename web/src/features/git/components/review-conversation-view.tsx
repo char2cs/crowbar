@@ -7,6 +7,7 @@ import { ReviewThreadItem } from '@/features/git/components/review-thread-item'
 import { ReviewThreadSnippet } from '@/features/git/components/review-thread-snippet'
 import { useReviewThreadActions } from '@/features/git/hooks/use-review-thread-actions'
 import { MARKDOWN_PROSE_CLASS } from '@/features/panes/lib/markdown-prose'
+import { LinkWorkspaceContext } from '@/lib/markdown-link'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { ReviewGeneralComposer } from './review-general-composer'
@@ -141,9 +142,11 @@ export function ReviewConversationView({ wsId, onJumpToLine }: ReviewConversatio
             <span className="ui-text-sm font-semibold">Description</span>
           </header>
           <div className="p-4">
-            <MarkdownMessageStatic className={MARKDOWN_PROSE_CLASS}>
-              {description}
-            </MarkdownMessageStatic>
+            <LinkWorkspaceContext value={wsId}>
+              <MarkdownMessageStatic className={MARKDOWN_PROSE_CLASS}>
+                {description}
+              </MarkdownMessageStatic>
+            </LinkWorkspaceContext>
           </div>
         </section>
       )}

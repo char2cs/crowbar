@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
-import { wsManager } from '@/lib/ws/manager'
+import { useHostResolved } from '@/lib/host-resolve'
+import { subscribeGuarded } from '@/lib/ws/subscribe-guarded'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import { useWorkspaceScopeReady } from '@/lib/workspace-scope'
 import { listThreads, mapThread } from '@/features/git/api/review-api'
@@ -20,11 +21,12 @@ import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-r
  */
 export function useWorkspaceThreadsStream(wsId: string): void {
   const scopeReady = useWorkspaceScopeReady(wsId)
+  const hostResolved = useHostResolved({ wsId })
   useEffect(() => {
-    // workspaceBase(wsId) throws without a recorded scope — see
+    // workspaceBase(wsId) throws without a recorded scope or a resolved host — see
     // useWorkspaceScopeReady above. Wait rather than crash; this re-runs the
-    // instant the scope is recorded (scopeReady is a dependency below).
-    if (!scopeReady) return
+    // instant either is known (both are dependencies below).
+    if (!scopeReady || !hostResolved) return
     const store = getWorkspaceStore(wsId)
     if (!store) return
     let cancelled = false
@@ -44,7 +46,7 @@ export function useWorkspaceThreadsStream(wsId: string): void {
 
     void seed()
 
-    const unsubscribe = wsManager.subscribe(`${workspaceBase(wsId)}/threads`, (frame) => {
+    const onFrame = (frame: unknown) => {
       if (cancelled) return
       // Reconnect sentinel emitted by the manager after a socket drop+reopen.
       if (frame && typeof frame === 'object' && 'reconnected' in frame) {
@@ -58,11 +60,12 @@ export function useWorkspaceThreadsStream(wsId: string): void {
         return
       }
       store.getState().upsertReviewThread(mapThread(dto))
-    })
+    }
+    const unsubscribe = subscribeGuarded(() => `${workspaceBase(wsId)}/threads`, onFrame)
 
     return () => {
       cancelled = true
       unsubscribe()
     }
-  }, [wsId, scopeReady])
+  }, [wsId, scopeReady, hostResolved])
 }

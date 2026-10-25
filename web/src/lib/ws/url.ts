@@ -1,4 +1,5 @@
 import { isTauri } from '@/lib/crowbar-bridge'
+import { apiBaseFor } from '@/lib/api'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
 
@@ -7,11 +8,15 @@ const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROW
 // stores keep dialing relative paths (matched by the mock layer and asserted in
 // the contract tests) and the manager resolves them here at connect time.
 // Precedence mirrors API_BASE: the Tauri bridge, then VITE_API_URL, then the
-// page origin.
-export function wsUrl(path: string): string {
+// page origin. A non-'local' hostId resolves through apiBaseFor instead — the
+// same crowbar://<hostId> base apiFetch uses for that host.
+export function wsUrl(path: string, hostId = 'local'): string {
   if (/^wss?:\/\//i.test(path)) return path
 
-  const base = crowbar?.api || import.meta.env.VITE_API_URL || window.location.origin
+  const base =
+    hostId === 'local'
+      ? crowbar?.api || import.meta.env.VITE_API_URL || window.location.origin
+      : apiBaseFor(hostId)
   const resolved = new URL(path, base)
   if (resolved.protocol === 'https:') resolved.protocol = 'wss:'
   else if (resolved.protocol === 'http:') resolved.protocol = 'ws:'

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { wsManager } from '@/lib/ws/manager'
+import { projectBase } from '@/lib/project-url'
 import { fetchHomeChats, fetchHomeFolders, fetchRepos } from '@/lib/api'
 import { toSidebarChat, toSidebarFolder } from '@/lib/store/build-repo-tree'
 import { applyRepoPlacements, type RowPlacement } from '@/lib/store/applied-placement'
@@ -215,7 +216,7 @@ export function subscribeHomeTree(projectId: string): () => void {
   }
 
   void reseed()
-  const unsubscribe = wsManager.subscribe(`/v0/projects/${projectId}/home/chats/ws`, (frame) => {
+  const unsubscribe = wsManager.subscribe(`${projectBase(projectId)}/home/chats/ws`, (frame) => {
     if (disposed) return
     // The reconnect sentinel: structural frames may have been missed while
     // the socket was down, so reseed unconditionally. This subscription is

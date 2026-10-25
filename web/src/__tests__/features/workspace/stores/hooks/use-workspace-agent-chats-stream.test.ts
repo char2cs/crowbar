@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook } from '@testing-library/react'
+import { act, renderHook } from '@testing-library/react'
 
 import type { AgentChat } from '@/features/agent/api/agent-api'
 import {
@@ -169,8 +169,16 @@ import {
   beginProviderWrite,
   useAgentProvidersStore,
 } from '@/features/settings/stores/agent-providers-store'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { setWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
+import { repoChatsBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { ApiError } from '@/lib/api'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 
 type Frame = {
@@ -1768,4 +1776,131 @@ it('records an unproven prompt as abandoned, so the queue keeps the text', () =>
 
   expect(setAgentChatPromptAbandoned).toHaveBeenCalledWith('c1', 'req-1')
   expect(setAgentChatPromptSettled).not.toHaveBeenCalled()
+})
+
+// A user who paired a remote host cold-boots with the project list unloaded, so
+// a workspace's host is unknown until it lands: nothing may be asked or opened
+// before then, and nothing may fall back to the local daemon.
+describe('on an install that has paired a remote host', () => {
+  const REMOTE_FEED = 'crowbar://host-1/v0/projects/p-remote/repos/r1/chats/ws'
+  const LOCAL_FEED = '/v0/projects/p-local/repos/r1/chats/ws'
+
+  beforeEach(() => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    // The real builder: the endpoint under test is the one the app would open.
+    chatBaseFn.mockImplementation(repoChatsBaseForWorkspace)
+    __resetWorkspaceScopesForTest()
+    setWorkspaceScope({ projectId: 'p-remote', repoId: 'r1', wsId: 'w-remote' })
+    setWorkspaceScope({ projectId: 'p-local', repoId: 'r1', wsId: 'w-local' })
+    useAgentProvidersStore.setState({ providers: [], status: 'idle', remote: {} })
+  })
+
+  afterEach(() => resetHostWorld())
+
+  it('asks nothing and opens no channel until the project list says whose workspace it is', async () => {
+    renderHook(() => useWorkspaceAgentChatsStream('w-remote'))
+    renderHook(() => useWorkspaceAgentChatsStream('w-local'))
+    await flush()
+    expect(subscribe).not.toHaveBeenCalled()
+    expect(listChatsFn).not.toHaveBeenCalled()
+    expect(listProvidersFn).not.toHaveBeenCalled()
+    expect(listChatFoldersFn).not.toHaveBeenCalled()
+
+    act(() => loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local')))
+    await flush()
+
+    expect(
+      (subscribe.mock.calls as unknown as [string][]).map(([endpoint]) => endpoint).sort(),
+    ).toEqual([LOCAL_FEED, REMOTE_FEED].sort())
+    expect(listChatsFn.mock.calls.map(([wsId]) => wsId).sort()).toEqual(['w-local', 'w-remote'])
+  })
+
+  it('switching local to remote closes the old channel and no frame from it lands afterwards', async () => {
+    loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
+    const unsubLocal = vi.fn()
+    subscribe.mockReturnValueOnce(unsubLocal)
+    const { rerender } = renderHook(({ w }: { w: string }) => useWorkspaceAgentChatsStream(w), {
+      initialProps: { w: 'w-local' },
+    })
+    const fromLocalChannel = captureCb(0)
+
+    rerender({ w: 'w-remote' })
+    await flush()
+
+    expect(unsubLocal).toHaveBeenCalledTimes(1)
+    expect((subscribe.mock.calls as unknown as [string][]).map(([endpoint]) => endpoint)).toEqual([
+      LOCAL_FEED,
+      REMOTE_FEED,
+    ])
+    fromLocalChannel(live('turn_started', 'c-late'))
+    expect(applyAgentChatFrame).not.toHaveBeenCalled()
+    captureCb(1)(live('turn_started', 'c-remote'))
+    expect(applyAgentChatFrame).toHaveBeenCalledTimes(1)
+  })
+
+  it('revoking the host closes its channel and neither reopens nor reseeds against the local daemon', async () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    const unsubscribe = vi.fn()
+    subscribe.mockReturnValueOnce(unsubscribe)
+    renderHook(() => useWorkspaceAgentChatsStream('w-remote'))
+    await flush()
+    listChatsFn.mockClear()
+    listProvidersFn.mockClear()
+
+    act(() => useHostConfigStore.getState().removeHost('host-1'))
+    await flush()
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+    expect(subscribe).toHaveBeenCalledTimes(1)
+    expect(listChatsFn).not.toHaveBeenCalled()
+    expect(listProvidersFn).not.toHaveBeenCalled()
+  })
+
+  it('does not let a refused channel escape the effect', () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    subscribe.mockImplementationOnce(() => {
+      throw new Error('remote hosts need the desktop app')
+    })
+
+    expect(() => renderHook(() => useWorkspaceAgentChatsStream('w-remote'))).not.toThrow()
+  })
+
+  // The write fence guards the LOCAL list against a stale read undoing a Settings write;
+  // a remote daemon's seed describes a server that write never touched.
+  it('does not let a local preferences write discard a remote workspace’s provider seed', async () => {
+    loadProjects(projectOn('p-remote', 'host-1'))
+    const remoteProviders = [{ id: 'codex', displayName: 'Codex', icon: '<svg/>' }]
+    let answer!: (list: typeof remoteProviders) => void
+    listProvidersFn.mockReturnValue(new Promise((r) => (answer = r)))
+    renderHook(() => useWorkspaceAgentChatsStream('w-remote'))
+    await flush()
+
+    beginProviderWrite()
+    answer(remoteProviders)
+    await flush()
+
+    expect(setAgentProviders).toHaveBeenCalledWith(remoteProviders)
+    expect(useAgentProvidersStore.getState().remote['host-1']).toEqual(remoteProviders)
+  })
+
+  // Providers are per daemon: the app-wide list (Settings) is the local daemon's.
+  it("files a remote daemon's providers under its host, never in the local list", async () => {
+    loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
+    const remoteProviders = [{ id: 'codex', displayName: 'Codex', icon: '<svg/>' }]
+    const localProviders = [{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }]
+
+    listProvidersFn.mockResolvedValue(remoteProviders)
+    renderHook(() => useWorkspaceAgentChatsStream('w-remote'))
+    await flush()
+    expect(setAgentProviders).toHaveBeenCalledWith(remoteProviders)
+    expect(useAgentProvidersStore.getState().providers).toEqual([])
+    expect(useAgentProvidersStore.getState().remote['host-1']).toEqual(remoteProviders)
+
+    listProvidersFn.mockResolvedValue(localProviders)
+    renderHook(() => useWorkspaceAgentChatsStream('w-local'))
+    await flush()
+    expect(useAgentProvidersStore.getState().providers).toEqual(localProviders)
+    expect(useAgentProvidersStore.getState().remote['host-1']).toEqual(remoteProviders)
+  })
 })

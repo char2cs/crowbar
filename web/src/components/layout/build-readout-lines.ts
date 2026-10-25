@@ -1,9 +1,13 @@
+import type { HostDotState } from '@/features/hosts/types'
 import type { BuildInfo } from '@/lib/build-info'
 import type { FrameStats } from '@/lib/frame-stats'
 import type { ConnectionStatus } from '@/lib/ws/connection-store'
 
 /** `idle`: no channel has reported yet, so there is nothing to say. */
 export type NetState = 'ok' | 'reconnecting' | 'down' | 'idle'
+
+/** A remote host's net state: a host can also refuse this client until paired again. */
+export type HostNetState = NetState | 'repair'
 
 export interface ReadoutSnapshot {
   info: BuildInfo
@@ -28,11 +32,35 @@ export function netStateOf(status: ConnectionStatus, degraded: boolean): NetStat
   return degraded ? 'reconnecting' : 'ok'
 }
 
-const NET_LABEL: Record<NetState, string> = {
+const NET_LABEL: Record<HostNetState, string> = {
   ok: 'ok',
   reconnecting: 'reconnecting',
   down: 'DOWN',
+  repair: 'repair',
   idle: '--',
+}
+
+// Answering with every live stream closed is a remote host's form of reconnecting.
+const HOST_NET: Record<HostDotState, HostNetState> = {
+  up: 'ok',
+  'no-live-stream': 'reconnecting',
+  down: 'down',
+  'not-available': 'down',
+  'needs-repair': 'repair',
+  unknown: 'idle',
+  probing: 'idle',
+}
+
+export function hostNetStateOf(state: HostDotState): HostNetState {
+  return HOST_NET[state]
+}
+
+const HOST_NAME_MAX = 14
+
+/** One remote host in the readout's net segment; entries are joined by two spaces by the caller. */
+export function formatHostEntry(name: string, net: HostNetState): string {
+  const short = name.length > HOST_NAME_MAX ? `${name.slice(0, HOST_NAME_MAX - 1)}…` : name
+  return `${short} ${NET_LABEL[net]}`
 }
 
 function formatTimestamp(iso?: string): string {

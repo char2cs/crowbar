@@ -29,6 +29,7 @@ type GORMStores struct {
 	AgentModelManifestFetch  store.Store[domain.AgentModelManifestFetch, string]
 	Folders                  store.ScopedStore[domain.Folder, string]
 	AgentChatTelemetry       store.Store[domain.AgentChatTelemetry, string]
+	Clients                  store.ScopedStore[domain.Client, string]
 }
 
 func newGORMStores(
@@ -66,12 +67,16 @@ func newGORMStores(
 	if err != nil {
 		return nil, fmt.Errorf("app: agent chat telemetry store: %w", err)
 	}
-	// Built last: preserves every earlier store's own fault-injection call
-	// count in gorm_test.go (e.g. TestNewGORMStores_FolderStoreError), which
-	// counts ExecContext calls by construction ORDER.
 	modelManifestFetch, err := storesqlite.NewFromDB[domain.AgentModelManifestFetch, string](db)
 	if err != nil {
 		return nil, fmt.Errorf("app: agent model manifest fetch store: %w", err)
+	}
+	// Built last: preserves every earlier store's own fault-injection call
+	// count in gorm_test.go (e.g. TestNewGORMStores_FolderStoreError), which
+	// counts ExecContext calls by construction ORDER.
+	clients, err := storesqlite.NewFromDB[domain.Client, string](db)
+	if err != nil {
+		return nil, fmt.Errorf("app: client store: %w", err)
 	}
 	return &GORMStores{
 		Projects:                 projects,
@@ -83,5 +88,6 @@ func newGORMStores(
 		AgentModelManifestFetch:  modelManifestFetch,
 		Folders:                  folders,
 		AgentChatTelemetry:       chatTelemetry,
+		Clients:                  clients,
 	}, nil
 }

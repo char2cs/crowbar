@@ -64,7 +64,7 @@ vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(
 
 function openBrowser(url?: string): string {
   const { bufferActions } = windowPaneStore.getState()
-  const id = bufferActions.openContent({ type: 'browser' })
+  const id = bufferActions.openContent({ type: 'browser', workspaceId: 'ws-test' })
   if (url) bufferActions.setBrowserLocation(id, { url })
   return id
 }
@@ -460,9 +460,9 @@ describe('an agent op on a restored tab that was never shown', () => {
   it('reveals it, which creates the webview, and then runs', async () => {
     const { paneActions, bufferActions } = windowPaneStore.getState()
     paneActions.openChat('chat-a', { workspaceId: 'ws-a' })
-    const first = bufferActions.openContent({ type: 'browser' })
+    const first = bufferActions.openContent({ type: 'browser', workspaceId: 'ws-test' })
     bufferActions.setBrowserLocation(first, { url: 'https://a.test/' })
-    const second = bufferActions.openContent({ type: 'browser' })
+    const second = bufferActions.openContent({ type: 'browser', workspaceId: 'ws-test' })
     bufferActions.setBrowserLocation(second, { url: 'https://b.test/' })
 
     function Host() {

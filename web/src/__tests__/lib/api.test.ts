@@ -1,9 +1,15 @@
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
+
+// api.ts imports isTauri from crowbar-bridge, so this mock's factory runs
+// before this file's own top-level statements (ESM evaluates a dependency's
+// dependencies first) — vi.hoisted is required so `isTauri` exists by then.
+const { isTauri } = vi.hoisted(() => ({ isTauri: vi.fn(() => false) }))
+vi.mock('@/lib/crowbar-bridge', () => ({ isTauri }))
+
 import {
   apiFetch,
   ApiError,
   chatDTOFromWire,
-  isDaemonUnavailableError,
   fetchFolders,
   fetchHomeWorkspace,
   fetchRepoChats,
@@ -28,7 +34,11 @@ function envelope(data: unknown) {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  isTauri.mockReturnValue(false)
 })
+
+// apiBaseFor itself (the 'local'/remote/Tauri-gating logic) is covered in its
+// own file: src/__tests__/lib/api/host-base.test.ts.
 
 describe('apiFetch transient-transport retry', () => {
   // Root cause of the cold-start landing bug: at app launch the daemon sidecar's
@@ -147,52 +157,6 @@ describe('apiFetch transient-transport retry', () => {
     expect(err).toBeInstanceOf(ApiError)
     expect(err.status).toBe(500)
     expect(fetchMock).toHaveBeenCalledTimes(1)
-  })
-
-  // The desktop proxy answers a connect-refused with its OWN 503 once its
-  // connect retries are spent (api_proxy.rs, header x-crowbar-proxy:
-  // daemon-unavailable). That is the daemon being absent, not a daemon
-  // answer: named as such so UI copy can say "starting" — and NOT retried
-  // here, since the proxy already spent the idempotent-read budget and a
-  // second layer would compound to ~36s per GET against a dead daemon.
-  it('names a proxy-marked 503 as daemon_unavailable, without retrying it', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 503,
-      statusText: 'Service Unavailable',
-      headers: new Headers({ 'x-crowbar-proxy': 'daemon-unavailable' }),
-      json: async () => {
-        throw new SyntaxError('text/plain')
-      },
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    const err = (await apiFetch('/v0/projects', undefined, fastRetry(8)).catch(
-      (e) => e,
-    )) as ApiError
-    expect(err).toBeInstanceOf(ApiError)
-    expect(err.status).toBe(503)
-    expect(err.code).toBe('daemon_unavailable')
-    expect(isDaemonUnavailableError(err)).toBe(true)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-  })
-
-  it('leaves an unmarked 503 as a plain daemon answer', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 503,
-        statusText: 'Service Unavailable',
-        headers: new Headers(),
-        json: async () => ({ success: false, error: 'busy' }),
-      }),
-    )
-    const err = (await apiFetch('/v0/projects', undefined, fastRetry(8)).catch(
-      (e) => e,
-    )) as ApiError
-    expect(err.code).toBeUndefined()
-    expect(isDaemonUnavailableError(err)).toBe(false)
   })
 })
 

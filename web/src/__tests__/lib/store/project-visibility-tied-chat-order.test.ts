@@ -38,7 +38,13 @@ const repoDTO: RepoDTO = {
   order: 0,
 }
 
-const project: Project = { id: 'p1', name: 'p1', path: '/p/p1', lastActivity: new Date(0) }
+const project: Project = {
+  id: 'p1',
+  name: 'p1',
+  path: '/p/p1',
+  lastActivity: new Date(0),
+  hostId: 'local',
+}
 
 // The wire's AgentChatDTO carries `createdAt`; the cache stores the row as is.
 const chatDTO = (id: string, createdAt: string): ChatDTO & { createdAt: string } => ({

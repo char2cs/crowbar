@@ -10,6 +10,7 @@ import { DISCLOSURE_GLYPH_PATH } from '@/components/layout/workspace-row-base'
 import { cn } from '@/lib/utils'
 import { useDetachModalStore } from '@/features/window/stores/detach-modal-store'
 import { toast } from '@/features/window/stores/toast-store'
+import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 import { retryProvision } from '@/lib/api/workspace'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 
@@ -100,7 +101,7 @@ export function SidebarRowActions({
             void retryProvision(wsId).catch((err: unknown) => {
               toast.show({
                 message: `Couldn't set up ${row.branchName || row.label}`,
-                description: err instanceof Error ? err.message : String(err),
+                description: actionErrorMessage(err, String(err)),
                 type: 'error',
                 key: `retry-provision-${wsId}`,
               })

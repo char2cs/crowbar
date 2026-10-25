@@ -12,6 +12,7 @@ const project = (id: string): Project => ({
   name: id,
   path: `/p/${id}`,
   lastActivity: new Date(0),
+  hostId: 'local',
 })
 
 const repoDTO: RepoDTO = {

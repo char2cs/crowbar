@@ -7,15 +7,23 @@ import { act, render, waitFor } from '@testing-library/react'
 // already name, and nothing re-reads it until an unrelated structural frame.
 // The workspaces seed is the one place that knows an owner is unlisted, so it
 // bumps the repo's tree signal (a real signal, never a timer).
-const { wipe, subscribeEntityStream, fetchRepos, fetchWorkspaces, fetchFolders, fetchRepoChats } =
-  vi.hoisted(() => ({
-    wipe: vi.fn().mockResolvedValue(undefined),
-    subscribeEntityStream: vi.fn(),
-    fetchRepos: vi.fn(),
-    fetchWorkspaces: vi.fn(),
-    fetchFolders: vi.fn(),
-    fetchRepoChats: vi.fn(),
-  }))
+const {
+  wipe,
+  subscribeEntityStream,
+  wsSubscribe,
+  fetchRepos,
+  fetchWorkspaces,
+  fetchFolders,
+  fetchRepoChats,
+} = vi.hoisted(() => ({
+  wipe: vi.fn().mockResolvedValue(undefined),
+  subscribeEntityStream: vi.fn(),
+  wsSubscribe: vi.fn((_endpoint: string) => () => {}),
+  fetchRepos: vi.fn(),
+  fetchWorkspaces: vi.fn(),
+  fetchFolders: vi.fn(),
+  fetchRepoChats: vi.fn(),
+}))
 
 vi.mock('@/lib/persistence/idb', async () => {
   const actual =
@@ -28,7 +36,7 @@ vi.mock('@/lib/ws/entity-stream', () => ({
 }))
 
 vi.mock('@/lib/ws/manager', () => ({
-  wsManager: { subscribe: () => () => {}, send: vi.fn() },
+  wsManager: { subscribe: (endpoint: string) => wsSubscribe(endpoint), send: vi.fn() },
 }))
 
 vi.mock('@/lib/api', async (importOriginal) => ({
@@ -37,13 +45,16 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   fetchWorkspaces: (...args: unknown[]) => fetchWorkspaces(...args),
   fetchFolders: (...args: unknown[]) => fetchFolders(...args),
   fetchRepoChats: (...args: unknown[]) => fetchRepoChats(...args),
-  fetchProjects: vi.fn().mockResolvedValue([]),
   fetchHomeWorkspace: vi.fn().mockResolvedValue(null),
   fetchHomeChats: vi.fn().mockResolvedValue([]),
   fetchHomeFolders: vi.fn().mockResolvedValue([]),
 }))
 
 import { AppSyncProvider } from '@/components/app-sync-provider'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { destroyHostRuntime, getHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import { proxyMarkerError } from '@/lib/api/errors'
+import { reportChannelFailure } from '@/lib/ws/connection-store'
 import { success } from '@/lib/loadable'
 import { upsertEntity } from '@/lib/persistence/entity-cache'
 import { wipeEntityCache } from '@/lib/persistence/idb'
@@ -64,7 +75,13 @@ interface StreamOptions {
 
 const opened: StreamOptions[] = []
 
-const project: Project = { id: 'p1', name: 'p1', path: '/p/p1', lastActivity: new Date(0) }
+const project: Project = {
+  id: 'p1',
+  name: 'p1',
+  path: '/p/p1',
+  lastActivity: new Date(0),
+  hostId: 'local',
+}
 
 const repoDTO: RepoDTO = {
   id: 'r1',
@@ -294,6 +311,118 @@ describe('a repo tombstone', () => {
       expect(opened.filter((s) => s.endpoint === '/v0/projects/p1/repos/r1/chats/ws')).toHaveLength(
         2,
       ),
+    )
+  })
+})
+
+// Visible projects come from the list, so each one's host is known by construction: every
+// stream it opens is qualified with that host, and a remote project is never opened on Local.
+describe('across hosts', () => {
+  const onHost = (id: string, hostId: string): Project => ({ ...project, id, hostId })
+  const pair = (id: string) =>
+    useHostConfigStore.getState().addHost({
+      id,
+      name: id,
+      endpoint: `${id}.example:3737`,
+      pairedFingerprint: 'SHA256:aaaa',
+      clientId: `client-${id}`,
+    })
+  const openedEndpoints = () =>
+    [
+      ...new Set([...opened.map((s) => s.endpoint), ...wsSubscribe.mock.calls.map(([e]) => e)]),
+    ].sort()
+  const mount = () =>
+    render(
+      <AppSyncProvider>
+        <div />
+      </AppSyncProvider>,
+    )
+
+  beforeEach(() => {
+    useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+    pair('host-2')
+  })
+
+  afterEach(() => {
+    useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+  })
+
+  it('qualifies every stream of a remote project and leaves a local one bare', async () => {
+    await upsertEntity('crowbar_repos', { ...repoDTO, id: 'r2', projectId: 'p2' })
+    useProjectDataStore.setState({ data: success([project, onHost('p2', 'host-2')]) })
+    mount()
+    await waitFor(() => expect(openedEndpoints()).toHaveLength(6))
+    expect(openedEndpoints()).toEqual([
+      '/v0/projects/p1/home/chats/ws',
+      '/v0/projects/p1/repos',
+      '/v0/projects/p1/repos/r1/chats/ws',
+      'crowbar://host-2/v0/projects/p2/home/chats/ws',
+      'crowbar://host-2/v0/projects/p2/repos',
+      'crowbar://host-2/v0/projects/p2/repos/r2/chats/ws',
+    ])
+  })
+
+  it('opens nothing for a project whose host is unknown, and everything once its row lands', async () => {
+    // The active project can be ahead of the list: it has no row to name its host yet.
+    useProjectStore.setState({ activeProjectId: 'p-late' })
+    mount()
+    await waitFor(() => expect(openedEndpoints()).toContain('/v0/projects/p1/repos'))
+    expect(openedEndpoints().filter((e) => e.includes('p-late'))).toEqual([])
+
+    act(() =>
+      useProjectDataStore.setState({ data: success([project, onHost('p-late', 'host-2')]) }),
+    )
+    await waitFor(() =>
+      expect(openedEndpoints()).toContain('crowbar://host-2/v0/projects/p-late/repos'),
+    )
+  })
+
+  // The one owner of every host's status: probes, and the streams' failures between them,
+  // for the app's life, not a screen's.
+  it('keeps every configured host’s status for as long as the app is mounted', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = { invoke: async () => {} }
+    const fetchMock = vi.fn(
+      async (_url: string) =>
+        new Response(JSON.stringify({ success: true, data: {} }), { status: 200 }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const probes = () =>
+      fetchMock.mock.calls.filter(([url]) => url === 'crowbar://host-2/v0/health').length
+    try {
+      const status = () => getHostRuntime('host-2')?.getState().status
+      const refused = (endpoint: string) =>
+        reportChannelFailure(endpoint, proxyMarkerError('host-unreachable', 'host-2')!)
+      const { unmount } = mount()
+      await vi.waitFor(() => expect(status()).toBe('up'))
+      act(() => refused('crowbar://host-2/v0/projects'))
+      expect(status()).toBe('down')
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(probes()).toBe(2)
+      expect(status()).toBe('up')
+
+      unmount()
+      await vi.advanceTimersByTimeAsync(45_000)
+      act(() => refused('crowbar://host-2/v0/projects/p2/repos'))
+      expect(probes()).toBe(2)
+      expect(status()).toBe('up')
+    } finally {
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+      delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+      destroyHostRuntime('host-2')
+    }
+  })
+
+  it('opens a row’s streams once the host it names is configured', async () => {
+    useProjectDataStore.setState({ data: success([project, onHost('p2', 'host-3')]) })
+    mount()
+    await waitFor(() => expect(openedEndpoints()).toContain('/v0/projects/p1/repos'))
+    expect(openedEndpoints().filter((e) => e.includes('p2'))).toEqual([])
+
+    act(() => pair('host-3'))
+    await waitFor(() =>
+      expect(openedEndpoints()).toContain('crowbar://host-3/v0/projects/p2/repos'),
     )
   })
 })

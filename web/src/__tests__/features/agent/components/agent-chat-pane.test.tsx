@@ -175,7 +175,7 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
     ),
 }))
 
-import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
+import { AgentChatPaneGate as AgentChatPane } from '@/features/agent/components/agent-chat-pane-gate'
 import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'

@@ -34,7 +34,9 @@ beforeEach(() => {
 
 describe('BrowserEventsListener', () => {
   it('writes webview reports into the store with no BrowserPane mounted', async () => {
-    const id = windowPaneStore.getState().bufferActions.openContent({ type: 'browser' })
+    const id = windowPaneStore
+      .getState()
+      .bufferActions.openContent({ type: 'browser', workspaceId: 'ws-test' })
     render(<BrowserEventsListener />)
     await vi.waitFor(() => expect(handlers.title).toBeDefined())
 

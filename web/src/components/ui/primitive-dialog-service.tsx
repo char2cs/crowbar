@@ -1,52 +1,54 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button } from '@/components/ui/button'
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from 'react'
+import type { DialogHostProps, DialogRequest } from './primitive-dialog-host'
 
-/**
- * Promise-based replacements for window.alert/confirm/prompt, rendered with the app's
- * own Dialog so they inherit theming and cannot block the main thread.
- *
- * Requests queue up and are shown one at a time. Every request carries a `dismiss`
- * outcome, so closing a dialog by any route — Cancel, Escape, or a backdrop click —
- * settles the caller's promise instead of leaving it pending forever.
- */
+// Promise-based confirm/prompt in the app's own Dialog, shown one at a time. Closing one
+// by any route (Cancel, Escape, the backdrop) settles its promise: none is left pending.
 
-interface ConfirmOptions {
+interface DialogLabels {
   title?: string
   confirmLabel?: string
   cancelLabel?: string
 }
 
-interface PromptOptions extends ConfirmOptions {
+interface ConfirmOptions extends DialogLabels {
+  /** The confirm button reads as destructive. Focus starts on cancel whatever this says. */
+  destructive?: boolean
+}
+
+interface PromptOptions extends DialogLabels {
   defaultValue?: string
   placeholder?: string
 }
 
-type DialogRequest = { id: number; title: string; message: ReactNode } & (
-  | {
-      kind: 'confirm'
-      confirmLabel: string
-      cancelLabel: string
-      onConfirm: () => void
-      onDismiss: () => void
-    }
-  | {
-      kind: 'prompt'
-      confirmLabel: string
-      cancelLabel: string
-      defaultValue: string
-      placeholder?: string
-      onConfirm: (value: string) => void
-      onDismiss: () => void
-    }
+// The dialog UI is not needed for first paint, so it loads with the first request.
+const DialogHost = lazy<ComponentType<DialogHostProps>>(() =>
+  import('./primitive-dialog-host').then(
+    (module) => ({ default: module.DialogHost }),
+    () => ({ default: DismissOnMount }),
+  ),
 )
+
+// The host failed to load: this provider sits above every error boundary, so settle the
+// request as dismissed rather than throw or leave it pending.
+function DismissOnMount({ request, onSettled }: DialogHostProps) {
+  const settled = useRef(false)
+  useEffect(() => {
+    if (settled.current) return
+    settled.current = true
+    request.onDismiss()
+    onSettled()
+  }, [request, onSettled])
+  return null
+}
 
 let nextId = 1
 let deliver: ((request: DialogRequest) => void) | null = null
@@ -74,6 +76,7 @@ export function primitiveConfirm(
       message,
       confirmLabel: options.confirmLabel ?? 'Confirm',
       cancelLabel: options.cancelLabel ?? 'Cancel',
+      destructive: options.destructive ?? false,
       onConfirm: () => resolve(true),
       onDismiss: () => resolve(false),
     })
@@ -123,70 +126,11 @@ export function PrimitiveDialogProvider({ children }: { children: ReactNode }) {
   return (
     <>
       {children}
-      {active ? <DialogHost key={active.id} request={active} onSettled={dequeue} /> : null}
+      {active ? (
+        <Suspense fallback={null}>
+          <DialogHost key={active.id} request={active} onSettled={dequeue} />
+        </Suspense>
+      ) : null}
     </>
-  )
-}
-
-function DialogHost({ request, onSettled }: { request: DialogRequest; onSettled: () => void }) {
-  const [value, setValue] = useState(request.kind === 'prompt' ? request.defaultValue : '')
-  // Closing the dialog makes Base UI emit onOpenChange(false) as it unmounts, which would
-  // otherwise settle the request a second time and drop the next one off the queue.
-  const settled = useRef(false)
-
-  const settle = (notifyCaller: () => void) => {
-    if (settled.current) return
-    settled.current = true
-    notifyCaller()
-    onSettled()
-  }
-
-  const dismiss = () => settle(request.onDismiss)
-
-  const confirm = () => {
-    if (request.kind === 'prompt') {
-      settle(() => request.onConfirm(value))
-    } else {
-      settle(request.onConfirm)
-    }
-  }
-
-  return (
-    <Dialog open onOpenChange={(next) => !next && dismiss()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{request.title}</DialogTitle>
-        </DialogHeader>
-
-        {request.kind === 'prompt' ? (
-          <form
-            className="flex flex-col gap-2"
-            onSubmit={(event) => {
-              event.preventDefault()
-              confirm()
-            }}
-          >
-            <label className="flex flex-col gap-2 text-sm text-foreground">
-              {request.message}
-              <Input
-                autoFocus
-                value={value}
-                placeholder={request.placeholder}
-                onChange={(event) => setValue(event.target.value)}
-              />
-            </label>
-          </form>
-        ) : (
-          <div className="whitespace-pre-wrap text-xs text-foreground">{request.message}</div>
-        )}
-
-        <DialogFooter>
-          <Button variant="outline" onClick={dismiss}>
-            {request.cancelLabel}
-          </Button>
-          <Button onClick={confirm}>{request.confirmLabel}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   )
 }

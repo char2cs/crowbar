@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
+  formatHostEntry,
   formatReadout,
+  hostNetStateOf,
   netStateOf,
   type ReadoutSnapshot,
 } from '@/components/layout/build-readout-lines'
@@ -91,5 +93,36 @@ describe('formatReadout', () => {
     })
     expect(line1(wide).length).toBeLessThanOrEqual(40)
     expect(line2(wide).length).toBeLessThanOrEqual(40)
+  })
+})
+
+describe('hostNetStateOf', () => {
+  it('maps a remote host’s state onto the readout states', () => {
+    expect(hostNetStateOf('up')).toBe('ok')
+    expect(hostNetStateOf('no-live-stream')).toBe('reconnecting')
+    expect(hostNetStateOf('down')).toBe('down')
+    expect(hostNetStateOf('not-available')).toBe('down')
+    expect(hostNetStateOf('needs-repair')).toBe('repair')
+    expect(hostNetStateOf('unknown')).toBe('idle')
+    expect(hostNetStateOf('probing')).toBe('idle')
+  })
+})
+
+describe('formatHostEntry', () => {
+  it('names a host and its state in the net segment’s words', () => {
+    expect(formatHostEntry('homelab', 'ok')).toBe('homelab ok')
+    expect(formatHostEntry('homelab', 'reconnecting')).toBe('homelab reconnecting')
+    expect(formatHostEntry('homelab', 'down')).toBe('homelab DOWN')
+    expect(formatHostEntry('homelab', 'repair')).toBe('homelab repair')
+    expect(formatHostEntry('homelab', 'idle')).toBe('homelab --')
+  })
+
+  it('cuts a long name to 14 characters', () => {
+    expect(formatHostEntry('homelab-proxmox', 'ok')).toBe('homelab-proxm… ok')
+    expect(formatHostEntry('homelab-proxmo', 'ok')).toBe('homelab-proxmo ok')
+  })
+
+  it('stays within 27 characters at its widest, so the first line can wrap by entry', () => {
+    expect(formatHostEntry('x'.repeat(80), 'reconnecting')).toHaveLength(27)
   })
 })

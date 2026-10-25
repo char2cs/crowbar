@@ -29,7 +29,7 @@ export function usePaneNewTabActions(
       onNewTab: () => openNewTabPage(wsId, paneId),
       onNewFile: () => {
         if (!wsId) return
-        ensurePaneChatThenOpen(wsId, paneId, (target) => {
+        ensurePaneChatThenOpen(wsId, paneId, (target, tabWsId) => {
           openContent(
             {
               type: 'editor',
@@ -37,6 +37,7 @@ export function usePaneNewTabActions(
               name: 'Untitled',
               content: '',
               isVirtual: true,
+              workspaceId: tabWsId,
             },
             into(target),
           )
@@ -44,15 +45,19 @@ export function usePaneNewTabActions(
       },
       onNewTerminal: () => {
         if (!wsId) return
-        ensurePaneChatThenOpen(wsId, paneId, (target) => {
-          openContent({ type: 'terminal' }, into(target))
+        ensurePaneChatThenOpen(wsId, paneId, (target, tabWsId) => {
+          openContent({ type: 'terminal', workspaceId: tabWsId }, into(target))
         })
       },
       onNewBrowser: () => {
         if (!wsId) return
-        ensurePaneChatThenOpen(wsId, paneId, (target) => {
+        ensurePaneChatThenOpen(wsId, paneId, (target, tabWsId) => {
           openContent(
-            { type: 'browser', url: browserHomepage(useSettingsStore.getState().settings) },
+            {
+              type: 'browser',
+              url: browserHomepage(useSettingsStore.getState().settings),
+              workspaceId: tabWsId,
+            },
             into(target),
           )
         })

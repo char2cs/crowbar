@@ -12,6 +12,7 @@ import { useStore } from 'zustand'
 import { CommentComposer } from '@/features/panes/components/comment-composer'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { MARKDOWN_PROSE_CLASS } from '@/features/panes/lib/markdown-prose'
+import { LinkWorkspaceContext } from '@/lib/markdown-link'
 import { formatRelativeDate } from '@/utils/date'
 import { toast } from '@/features/window/stores/toast-store'
 import { ProviderIcon } from '@/components/ui/provider-icon'
@@ -312,9 +313,11 @@ export function MessageRow({
             />
           </div>
         ) : (
-          <MarkdownMessageStatic className={MARKDOWN_PROSE_CLASS}>
-            {message.body}
-          </MarkdownMessageStatic>
+          <LinkWorkspaceContext value={wsId}>
+            <MarkdownMessageStatic className={MARKDOWN_PROSE_CLASS}>
+              {message.body}
+            </MarkdownMessageStatic>
+          </LinkWorkspaceContext>
         )}
       </div>
     </div>

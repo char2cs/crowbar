@@ -58,10 +58,13 @@ import type { PaneGroup } from '@/features/panes/types/pane'
 import { IDBFactory } from 'fake-indexeddb'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { upsertEntity } from '@/lib/persistence/entity-cache'
-import type { ChatDTO, RepoDTO } from '@/lib/types'
+import type { ChatDTO, Project, RepoDTO } from '@/lib/types'
 import { createLeaf, getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
 import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { failed, idle, loading, success } from '@/lib/loadable'
+import { useProjectDataStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo } from '@/lib/store/sidebar'
 
@@ -551,6 +554,140 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     const state = windowPaneStore.getState()
     expect(state.viewOrder).toEqual(['view-a'])
     expect(state.panes['pane-a'].workspaceId).toBeNull()
+  })
+
+  // Boot places members before the project list loads, when a paired install cannot yet say
+  // which host a project is on: it waits for the list, and gives up only if the list never names it.
+  describe('on an install that paired a remote', () => {
+    const flush = async () => {
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    }
+    const row = (hostId: string): Project => ({
+      id: P,
+      name: P,
+      path: `/work/${P}`,
+      lastActivity: new Date(0),
+      hostId,
+    })
+
+    beforeEach(async () => {
+      useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+      useProjectDataStore.setState({ data: idle() })
+      await seedBaseLayout({
+        panes: {
+          'pane-a': basePane('pane-a', 'view-a', { chatId: 'chat-a' }),
+          'bottom-pane': basePane('bottom-pane', null),
+        },
+        views: { 'view-a': { id: 'view-a', projectId: P, layout: createLeaf('pane-a') } },
+        viewOrder: ['view-a'],
+        activeViewId: 'view-a',
+        activePaneId: 'pane-a',
+      })
+      await hydrateWindowPaneLayout()
+      fetchHomeChatsMock.mockResolvedValue([
+        { id: 'chat-a', repoId: '', projectId: P, workspaceId: 'ws-a', title: 'a' } as ChatDTO,
+      ])
+    })
+
+    afterEach(() => {
+      useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+      useProjectDataStore.setState({ data: idle(), readHosts: new Set() })
+    })
+
+    const pairHost = (id: string) =>
+      useHostConfigStore.getState().addHost({
+        id,
+        name: id,
+        endpoint: `${id}.example:3737`,
+        pairedFingerprint: 'SHA256:aaaa',
+        clientId: `client-${id}`,
+      })
+
+    it('asks at once on a never-paired install, with the list still idle', async () => {
+      await placeRestoredChatMembers()
+      expect(fetchHomeChatsMock).toHaveBeenCalledWith(P)
+      expect(windowPaneStore.getState().panes['pane-a'].workspaceId).toBe('ws-a')
+    })
+
+    it('waits for the project list, then asks and places the member', async () => {
+      pairHost('host-2')
+      const placing = placeRestoredChatMembers()
+      await flush()
+      expect(fetchHomeChatsMock).not.toHaveBeenCalled()
+      expect(windowPaneStore.getState().panes['pane-a'].workspaceId).toBeNull()
+
+      useProjectDataStore.setState({ data: success([row('local')]) })
+      await placing
+
+      expect(fetchHomeChatsMock).toHaveBeenCalledExactlyOnceWith(P)
+      expect(windowPaneStore.getState().panes['pane-a'].workspaceId).toBe('ws-a')
+    })
+
+    it('leaves the member unplaced, without asking or looping, once the list and every host lack its project', async () => {
+      pairHost('host-2')
+      const placing = placeRestoredChatMembers()
+      const settled = vi.fn()
+      void placing.then(settled)
+      useProjectDataStore.setState({ data: success([{ ...row('local'), id: 'other' }]) })
+      await flush()
+      // host-2 has not said what it has: the project may be there.
+      expect(settled).not.toHaveBeenCalled()
+      useProjectDataStore.setState({ readHosts: new Set(['host-2']) })
+      await placing
+
+      useProjectDataStore.setState({ data: success([{ ...row('local'), id: 'another' }]) })
+      await flush()
+      expect(fetchHomeChatsMock).not.toHaveBeenCalled()
+      expect(windowPaneStore.getState().panes['pane-a'].workspaceId).toBeNull()
+      expect(windowPaneStore.getState().viewOrder).toEqual(['view-a'])
+    })
+
+    it('places each project’s members as it answers, while another still waits for its host', async () => {
+      await seedBaseLayout({
+        panes: {
+          'pane-a': basePane('pane-a', 'view-a', { chatId: 'chat-a' }),
+          'pane-b': basePane('pane-b', 'view-b', { chatId: 'chat-b' }),
+          'bottom-pane': basePane('bottom-pane', null),
+        },
+        views: {
+          'view-a': { id: 'view-a', projectId: P, layout: createLeaf('pane-a') },
+          'view-b': { id: 'view-b', projectId: 'p2', layout: createLeaf('pane-b') },
+        },
+        viewOrder: ['view-a', 'view-b'],
+        activeViewId: 'view-a',
+        activePaneId: 'pane-a',
+      })
+      await hydrateWindowPaneLayout()
+      fetchHomeChatsMock.mockImplementation(async (projectId) => [
+        { id: `chat-${projectId === P ? 'a' : 'b'}`, workspaceId: `ws-${projectId}` } as ChatDTO,
+      ])
+      pairHost('host-2')
+      // The cached list places P; p2's row comes only with the list's first read.
+      useProjectDataStore.setState({ data: loading(success([row('local')])) })
+
+      const placing = placeRestoredChatMembers()
+      await flush()
+      expect(windowPaneStore.getState().panes['pane-a'].workspaceId).toBe(`ws-${P}`)
+      expect(windowPaneStore.getState().panes['pane-b'].workspaceId).toBeNull()
+
+      useProjectDataStore.setState({
+        data: success([row('local'), { ...row('host-2'), id: 'p2' }]),
+      })
+      await placing
+      expect(windowPaneStore.getState().panes['pane-b'].workspaceId).toBe('ws-p2')
+    })
+
+    it('keeps waiting while the list read has not succeeded', async () => {
+      pairHost('host-2')
+      const placing = placeRestoredChatMembers()
+      useProjectDataStore.setState({ data: failed(new Error('daemon starting')) })
+      await flush()
+      expect(fetchHomeChatsMock).not.toHaveBeenCalled()
+
+      useProjectDataStore.setState({ data: success([row('host-2')]) })
+      await placing
+      expect(fetchHomeChatsMock).toHaveBeenCalledExactlyOnceWith(P)
+    })
   })
 
   it('stamps the upgraded layout once; a second load does not upgrade again', async () => {

@@ -1,15 +1,25 @@
 use std::future::Future;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
-use http_body_util::{BodyExt, Full};
+use http_body_util::{BodyExt, Full, Limited};
 use hyper::Request as HyperRequest;
 use hyper_util::rt::TokioIo;
 use tauri::http;
 use tauri::{Manager, Runtime, UriSchemeContext, UriSchemeResponder};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UnixStream;
 
+use crate::host_tokens::TokenStore;
+use crate::hosts::HostRegistry;
 use crate::sidecar::SidecarHandle;
+
+pub(crate) mod pairing;
+pub(crate) mod probe;
+pub(crate) mod remote;
+#[cfg(test)]
+pub(crate) mod test_support;
 
 /// Upper bound on one proxied request.
 ///
@@ -43,26 +53,64 @@ const CONNECT_FAST_DELAY: Duration = Duration::from_millis(25);
 const CONNECT_RETRY_BASE: Duration = Duration::from_millis(100);
 const CONNECT_RETRY_CAP: Duration = Duration::from_secs(1);
 
-/// Marks a response that is the PROXY's, not the daemon's: nothing was listening.
+type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
+/// Marks a response that is the PROXY's, not the daemon's; the value says why.
 pub(crate) const PROXY_HEADER: &str = "x-crowbar-proxy";
+/// The local daemon socket: nothing was listening.
 pub(crate) const DAEMON_UNAVAILABLE: &str = "daemon-unavailable";
+/// A remote host did not answer: refused, timed out, or dropped the handshake.
+pub(crate) const HOST_UNREACHABLE: &str = "host-unreachable";
+/// A remote host answered, but not with the identity pinned at pairing.
+pub(crate) const HOST_IDENTITY_CHANGED: &str = "host-identity-changed";
+
+/// Tags an answer the proxy wrote itself rather than relayed from a daemon.
+#[derive(Clone, Copy)]
+struct ProxyAnswer;
 
 /// Build an HTTP error response for the webview when proxying fails.
 fn error_response(status: u16, msg: &str) -> http::Response<Vec<u8>> {
-    http::Response::builder()
+    let mut resp = http::Response::builder()
         .status(status)
         .header(http::header::CONTENT_TYPE, "text/plain")
         .body(msg.as_bytes().to_vec())
-        .unwrap()
+        .unwrap();
+    resp.extensions_mut().insert(ProxyAnswer);
+    resp
+}
+
+fn proxy_error(status: u16, marker: &'static str, msg: &str) -> http::Response<Vec<u8>> {
+    let mut resp = error_response(status, msg);
+    resp.headers_mut()
+        .insert(PROXY_HEADER, http::HeaderValue::from_static(marker));
+    resp
+}
+
+/// The page reaches `crowbar://` cross-origin, so WebKit hides any answer
+/// without CORS headers — status and marker too — and `fetch` rejects opaquely.
+/// A daemon grants its own answers; the proxy's are granted here.
+fn readable_by(
+    origin: Option<http::HeaderValue>,
+    mut resp: http::Response<Vec<u8>>,
+) -> http::Response<Vec<u8>> {
+    let Some(origin) = origin else {
+        return resp;
+    };
+    if resp.extensions().get::<ProxyAnswer>().is_none() {
+        return resp;
+    }
+    let headers = resp.headers_mut();
+    headers.insert(http::header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+    headers.insert(
+        http::header::ACCESS_CONTROL_EXPOSE_HEADERS,
+        http::HeaderValue::from_static(PROXY_HEADER),
+    );
+    headers.append(http::header::VARY, http::HeaderValue::from_static("Origin"));
+    resp
 }
 
 fn daemon_unavailable(msg: &str) -> http::Response<Vec<u8>> {
-    http::Response::builder()
-        .status(503)
-        .header(http::header::CONTENT_TYPE, "text/plain")
-        .header(PROXY_HEADER, DAEMON_UNAVAILABLE)
-        .body(msg.as_bytes().to_vec())
-        .unwrap()
+    proxy_error(503, DAEMON_UNAVAILABLE, msg)
 }
 
 fn connect_retry_delay(attempt: u32) -> Duration {
@@ -78,9 +126,22 @@ fn is_idempotent_read(method: &http::Method) -> bool {
     matches!(*method, http::Method::GET | http::Method::HEAD)
 }
 
+/// `localhost` (or no host at all) is the local daemon; any other name is the id
+/// of a paired remote host. Both transports route by this.
+pub(crate) fn is_remote_host(host: &str) -> bool {
+    !host.is_empty() && host != "localhost"
+}
+
+/// `crowbar://localhost/...` is the local daemon; any other authority is the id
+/// of a paired remote host.
+fn remote_host_id(uri: &http::Uri) -> Option<&str> {
+    uri.host().filter(|host| is_remote_host(host))
+}
+
 /// Async URI-scheme handler for the `crowbar://` scheme. Incoming requests look
 /// like `crowbar://localhost/v0/...`; we forward the method, path+query,
 /// headers and body to the daemon over its unix socket and relay the response.
+/// `crowbar://<hostId>/v0/...` goes to that paired remote host instead.
 ///
 /// Registered on the Tauri builder with
 /// `.register_asynchronous_uri_scheme_protocol("crowbar", handle_request)`.
@@ -92,20 +153,39 @@ pub fn handle_request<R: Runtime>(
     let app = ctx.app_handle().clone();
     let label = ctx.webview_label().to_string();
     let state_app = app.clone();
+    let remote_host = remote_host_id(request.uri()).map(str::to_string);
+    let origin = request.headers().get(http::header::ORIGIN).cloned();
 
     tauri::async_runtime::spawn(async move {
         // Dropping the timed-out future drops the request sender, which is what
         // tells hyper's connection task to close and hand the descriptor back.
-        let forwarded = serve(
-            &label,
-            || state_app.state::<SidecarHandle>().socket_path(),
-            request,
-            |attempt| tokio::time::sleep(connect_retry_delay(attempt)),
-        );
+        let routed = async {
+            match remote_host {
+                None => {
+                    forward(
+                        || state_app.state::<SidecarHandle>().socket_path(),
+                        request,
+                        |attempt| tokio::time::sleep(connect_retry_delay(attempt)),
+                    )
+                    .await
+                }
+                Some(host_id) => {
+                    remote::forward_remote(
+                        &state_app.state::<HostRegistry>(),
+                        &state_app.state::<Arc<dyn TokenStore>>(),
+                        &host_id,
+                        request,
+                    )
+                    .await
+                }
+            }
+        };
+        let forwarded = serve(&label, routed);
         let resp = match tokio::time::timeout(PROXY_TIMEOUT, forwarded).await {
             Ok(resp) => resp,
             Err(_) => error_response(504, "crowbar daemon did not answer in time"),
         };
+        let resp = readable_by(origin, resp);
         // Respond on the main thread: WKURLSchemeTask cancellation
         // (webView:stopURLSchemeTask:) is delivered on the main thread, so
         // responding there serializes with it. Responding from a tokio worker
@@ -115,22 +195,16 @@ pub fn handle_request<R: Runtime>(
     });
 }
 
-/// Remote pages in browser tabs must never reach the daemon API.
-async fn serve<S, W, F>(
-    webview_label: &str,
-    socket: S,
-    request: http::Request<Vec<u8>>,
-    wait: W,
-) -> http::Response<Vec<u8>>
+/// Remote pages in browser tabs must never reach a daemon API, local or remote:
+/// `routed` is never polled for them, so no connection is ever opened.
+async fn serve<F>(webview_label: &str, routed: F) -> http::Response<Vec<u8>>
 where
-    S: Fn() -> Option<PathBuf>,
-    W: FnMut(u32) -> F,
-    F: Future<Output = ()>,
+    F: Future<Output = http::Response<Vec<u8>>>,
 {
     if crate::browser::exempt_from_app_guard(webview_label) {
         return error_response(403, "crowbar api is not available to browser tabs");
     }
-    forward(socket, request, wait).await
+    routed.await
 }
 
 /// Connects to the daemon — re-reading the socket path each time, since it is
@@ -162,18 +236,23 @@ where
         wait(attempt).await;
         attempt += 1;
     };
-    match proxy(stream, request).await {
+    // The local daemon is this app's own: only a remote host's answer is capped.
+    match proxy(stream, request, usize::MAX).await {
         Ok(resp) => resp,
         Err(e) => error_response(502, &format!("crowbar proxy error: {e}")),
     }
 }
 
-async fn proxy(
-    stream: UnixStream,
+async fn proxy<S>(
+    stream: S,
     request: http::Request<Vec<u8>>,
-) -> Result<http::Response<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
-    // The custom-scheme URI is `crowbar://localhost/v0/...`. hyper only needs
-    // the path-and-query portion for the request line over a unix socket.
+    body_limit: usize,
+) -> Result<http::Response<Vec<u8>>, BoxError>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    // The custom-scheme URI is `crowbar://<authority>/v0/...`. hyper only needs
+    // the path-and-query portion for the request line.
     let path_and_query = request
         .uri()
         .path_and_query()
@@ -209,234 +288,32 @@ async fn proxy(
 
     let upstream_resp = sender.send_request(upstream_req).await?;
     let (resp_parts, resp_body) = upstream_resp.into_parts();
-    let collected = resp_body.collect().await?.to_bytes().to_vec();
+    let collected = collect_capped(resp_body, body_limit).await?;
 
     let mut out = http::Response::builder().status(resp_parts.status);
     if let Some(headers) = out.headers_mut() {
-        for (name, value) in resp_parts.headers.iter() {
+        // The marker is the proxy's word alone; a daemon's copy would pass for it.
+        let relayed = resp_parts
+            .headers
+            .iter()
+            .filter(|(name, _)| *name != PROXY_HEADER);
+        for (name, value) in relayed {
             headers.insert(name, value.clone());
         }
     }
     Ok(out.body(collected)?)
 }
 
-#[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::Arc;
-    use std::time::Duration;
-
-    use tauri::http;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::UnixListener;
-
-    use super::{
-        connect_retry_delay, forward, serve, CONNECT_ATTEMPTS, DAEMON_UNAVAILABLE, PROXY_HEADER,
-    };
-
-    fn request(method: http::Method) -> http::Request<Vec<u8>> {
-        http::Request::builder()
-            .method(method)
-            .uri("crowbar://localhost/v0/projects")
-            .body(Vec::new())
-            .unwrap()
-    }
-
-    fn socket_in(dir: &tempdir::Dir) -> PathBuf {
-        dir.path.join("s.sock")
-    }
-
-    /// Binds `path` and answers exactly one HTTP/1.1 request with `200 ok`.
-    fn serve_once(path: PathBuf) {
-        let listener = UnixListener::bind(&path).expect("bind test daemon socket");
-        tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.expect("accept");
-            let mut buf = vec![0u8; 4096];
-            let mut read = 0;
-            loop {
-                let n = stream.read(&mut buf[read..]).await.expect("read request");
-                read += n;
-                if n == 0 || buf[..read].windows(4).any(|w| w == b"\r\n\r\n") {
-                    break;
-                }
-            }
-            stream
-                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok")
-                .await
-                .expect("write response");
-        });
-    }
-
-    #[test]
-    fn connect_retry_delay_polls_fast_then_backs_off_within_the_window() {
-        assert_eq!(connect_retry_delay(1), Duration::from_millis(25));
-        assert_eq!(connect_retry_delay(40), Duration::from_millis(25));
-        assert_eq!(connect_retry_delay(41), Duration::from_millis(100));
-        assert_eq!(connect_retry_delay(44), Duration::from_millis(800));
-        assert_eq!(connect_retry_delay(45), Duration::from_secs(1));
-        let total: Duration = (1..CONNECT_ATTEMPTS).map(connect_retry_delay).sum();
-        assert_eq!(total, Duration::from_millis(4500));
-    }
-
-    // Regression: a GET issued while the daemon is still binding (or mid-respawn)
-    // must reach it once it listens, instead of answering the webview a 502 it
-    // treats as terminal.
-    #[tokio::test]
-    async fn get_retries_the_connect_until_the_daemon_listens() {
-        let dir = tempdir::Dir::new("retry");
-        let path = socket_in(&dir);
-        let waits = Arc::new(AtomicU32::new(0));
-        let resp = {
-            let bind_path = path.clone();
-            let waits = waits.clone();
-            forward(
-                || Some(path.clone()),
-                request(http::Method::GET),
-                move |_attempt| {
-                    // The first retry IS the signal the daemon binds on.
-                    if waits.fetch_add(1, Ordering::SeqCst) == 0 {
-                        serve_once(bind_path.clone());
-                    }
-                    async {}
-                },
-            )
-            .await
-        };
-        assert_eq!(resp.status(), 200);
-        assert_eq!(resp.body(), b"ok");
-        assert_eq!(waits.load(Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn browser_webviews_never_reach_the_daemon() {
-        let dir = tempdir::Dir::new("browser-label");
-        let path = socket_in(&dir);
-        let listener = UnixListener::bind(&path).expect("bind");
-        let resp = serve(
-            "browser-abc",
-            || Some(path.clone()),
-            request(http::Method::GET),
-            |_| async {},
-        )
-        .await;
-        assert_eq!(resp.status(), 403);
-        // The connect is already complete or never happened by now, so a pending accept means no connection.
-        assert!(
-            futures_util::FutureExt::now_or_never(listener.accept()).is_none(),
-            "a browser tab's request reached the daemon socket"
-        );
-    }
-
-    #[tokio::test]
-    async fn the_main_webview_still_reaches_the_daemon() {
-        let dir = tempdir::Dir::new("main-label");
-        let path = socket_in(&dir);
-        serve_once(path.clone());
-        let resp = serve(
-            "main",
-            || Some(path.clone()),
-            request(http::Method::GET),
-            |_| async {},
-        )
-        .await;
-        assert_eq!(resp.status(), 200);
-    }
-
-    #[tokio::test]
-    async fn get_gives_up_after_the_budget_with_a_marked_503() {
-        let dir = tempdir::Dir::new("budget");
-        let path = socket_in(&dir);
-        let waits = Arc::new(AtomicU32::new(0));
-        let resp = {
-            let waits = waits.clone();
-            forward(
-                || Some(path.clone()),
-                request(http::Method::GET),
-                move |_attempt| {
-                    waits.fetch_add(1, Ordering::SeqCst);
-                    async {}
-                },
-            )
-            .await
-        };
-        assert_eq!(resp.status(), 503);
-        assert_eq!(
-            resp.headers()
-                .get(PROXY_HEADER)
-                .map(|v| v.to_str().unwrap()),
-            Some(DAEMON_UNAVAILABLE)
-        );
-        assert_eq!(waits.load(Ordering::SeqCst), CONNECT_ATTEMPTS - 1);
-    }
-
-    #[tokio::test]
-    async fn mutation_is_never_replayed_and_is_marked_unavailable() {
-        let resp = forward(
-            || None,
-            request(http::Method::POST),
-            |_attempt| async { panic!("a POST must not be retried") },
-        )
-        .await;
-        assert_eq!(resp.status(), 503);
-        assert_eq!(
-            resp.headers()
-                .get(PROXY_HEADER)
-                .map(|v| v.to_str().unwrap()),
-            Some(DAEMON_UNAVAILABLE)
-        );
-    }
-
-    #[tokio::test]
-    async fn socket_published_after_the_first_attempt_is_picked_up() {
-        let dir = tempdir::Dir::new("late");
-        let path = socket_in(&dir);
-        let published = Arc::new(std::sync::Mutex::new(None::<PathBuf>));
-        let resp = {
-            let published_reader = published.clone();
-            let bind_path = path.clone();
-            forward(
-                move || published_reader.lock().unwrap().clone(),
-                request(http::Method::GET),
-                move |_attempt| {
-                    serve_once(bind_path.clone());
-                    published.lock().unwrap().replace(bind_path.clone());
-                    async {}
-                },
-            )
-            .await
-        };
-        assert_eq!(resp.status(), 200);
-    }
-
-    mod tempdir {
-        use std::path::PathBuf;
-
-        pub struct Dir {
-            pub path: PathBuf,
-        }
-
-        impl Dir {
-            // Short on purpose: a unix socket path must fit SUN_LEN (104 bytes on
-            // macOS) and the system temp dir already spends half of that.
-            pub fn new(tag: &str) -> Self {
-                let path = std::env::temp_dir().join(format!(
-                    "cb-{tag}-{}-{}",
-                    std::process::id(),
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .subsec_nanos()
-                ));
-                std::fs::create_dir_all(&path).unwrap();
-                Self { path }
-            }
-        }
-
-        impl Drop for Dir {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_dir_all(&self.path);
-            }
-        }
-    }
+/// Buffers `body`, failing with `LengthLimitError` once it passes `limit`:
+/// counted as it streams in, so an endless body never lands in memory.
+async fn collect_capped<B>(body: B, limit: usize) -> Result<Vec<u8>, BoxError>
+where
+    B: hyper::body::Body,
+    B::Error: Into<BoxError>,
+{
+    let collected = Limited::new(body, limit).collect().await?;
+    Ok(collected.to_bytes().to_vec())
 }
+
+#[cfg(test)]
+mod tests;

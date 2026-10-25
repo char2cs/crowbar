@@ -10,10 +10,12 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	pairinghandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/pairing/handlers"
 	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/pairing"
 	"github.com/char2cs/crowbar/api/internal/core/logring"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -43,8 +45,13 @@ type Container struct {
 	// chatScopes answers what each agent-chat frame namespaces under — see
 	// agent_chat_scope.go.
 	chatScopes *agentChatScopes
-	app        *app.Container
-	eng        *engine.Container
+	// pairing serves the pairing/client-registry routes (router.go); its
+	// usecase holds the single outstanding pairing code in memory.
+	pairing *pairinghandlers.Handlers
+	// conns holds the streams each paired client opened, for revoke to end.
+	conns *clientConns
+	app   *app.Container
+	eng   *engine.Container
 	// logs backs GET /console/logs; nil leaves the route unmounted.
 	logs logring.Ring
 	// detached are the Shutdowns of the handlers that hand work off after a 202.
@@ -54,6 +61,8 @@ type Container struct {
 var _ hub.Subscriber = (*Container)(nil)
 
 // New builds the v0 container and registers it as a hub subscriber.
+// serverFingerprint is the daemon's TLS identity fingerprint, passed through
+// to the pairing handlers so a minted code carries it (handlers.mintCodeResponse).
 //
 // The lazy WS resource lifecycles (03 §6) are owned by the app-layer realtime
 // service: the Files∪Git topics' OnSubscribe/OnUnsubscribe hooks drive the
@@ -65,11 +74,13 @@ var _ hub.Subscriber = (*Container)(nil)
 func New(
 	appContainer *app.Container,
 	engContainer *engine.Container,
+	serverFingerprint string,
 	options ...Option,
 ) *Container {
 	if appContainer == nil {
 		panic("v0: appContainer is required")
 	}
+	conns := newClientConns()
 	c := &Container{
 		projects:   ws.NewBroadcaster(projectsDef(appContainer)),
 		repos:      ws.NewBroadcaster(reposDef(appContainer)),
@@ -79,6 +90,8 @@ func New(
 		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(appContainer), appContainer)),
 		lsp:        ws.NewBroadcaster(withLSPLifecycle(lspDef(appContainer, engContainer), appContainer)),
 		chatScopes: newAgentChatScopes(),
+		pairing:    pairinghandlers.New(pairing.New(appContainer.GORM.Clients), appContainer.GORM.Clients, conns, serverFingerprint),
+		conns:      conns,
 		app:        appContainer,
 		eng:        engContainer,
 	}

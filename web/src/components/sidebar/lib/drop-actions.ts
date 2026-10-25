@@ -1,4 +1,5 @@
 import { toast } from '@/features/window/stores/toast-store'
+import { toastActionFailure } from '@/features/hosts/lib/host-failure-notice'
 import { resolvesToFirstChild, type DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarPaneZone } from '@/components/sidebar/hooks/use-sidebar-drag'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
@@ -904,7 +905,7 @@ export async function performSidebarDrop(
       toast.error(chatNotLoadedYet('move', row?.branchName ?? row?.label))
       return
     }
-    toast.error(err instanceof Error ? err.message : 'Failed to move row')
+    toastActionFailure(err, 'Failed to move row')
   }
 }
 
@@ -953,8 +954,7 @@ function paneChatSubject(row: SidebarRow): PaneChatSubject | null {
 
 /**
  * A row dropped onto a pane — spec §8.1/§8.2. Every drop here ADDS; nothing
- * this reaches for can remove a pane or evict a chat that is already showing
- * (the dwell-to-remove gesture this replaced is gone — Task 22).
+ * this reaches for can remove a pane or evict a chat that is already showing.
  */
 export function performSidebarPaneDrop(
   subjects: SidebarRow[],

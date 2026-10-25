@@ -5,6 +5,9 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import { getVisibleProjectIds } from '@/lib/store/project-visibility'
 import { toSidebarRepo } from '@/lib/store/build-repo-tree'
 import { subscribeHomeTree } from '@/lib/store/home-tree'
+import { isHostResolved, subscribeHostResolution } from '@/lib/host-resolve'
+import { startHostStatus } from '@/features/hosts/lib/host-status'
+import { projectBase, repoBase } from '@/lib/project-url'
 import { dataOf } from '@/lib/loadable'
 import {
   fetchFolders,
@@ -378,7 +381,7 @@ export function useAppSyncEngine(): void {
       // agent-api.ts's chatBase → repoChatsBaseForWorkspace), so this reuses
       // the identical multiplexed connection rather than opening a second one.
       const unsubscribeFrames = wsManager.subscribe(
-        `/v0/projects/${projectId}/repos/${repoId}/chats/ws`,
+        `${repoBase(projectId, repoId)}/chats/ws`,
         (frame) => {
           if (disposed || closed) return
           if (frame && typeof frame === 'object' && 'reconnected' in frame) {
@@ -425,7 +428,7 @@ export function useAppSyncEngine(): void {
       const [kind, projectId, repoId] = key.split(KEY_SEP)
       if (kind === 'repos') {
         return subscribeEntityStream<RepoDTO>({
-          endpoint: `/v0/projects/${projectId}/repos`,
+          endpoint: `${projectBase(projectId)}/repos`,
           store: 'crowbar_repos',
           seed: () => fetchRepos(projectId),
           onChange: (change) => {
@@ -460,7 +463,7 @@ export function useAppSyncEngine(): void {
       // provider PR-status poll. That is the per-CHAT stream's job; see
       // use-workspace-provider-stream.ts.
       return subscribeEntityStream<WorkspaceDTO>({
-        endpoint: `/v0/projects/${projectId}/repos/${repoId}/chats/ws`,
+        endpoint: `${repoBase(projectId, repoId)}/chats/ws`,
         store: 'crowbar_workspaces',
         seed: async () => {
           const rows = await fetchWorkspaces(projectId, repoId)
@@ -515,7 +518,9 @@ export function useAppSyncEngine(): void {
     // -- which streams should be open right now ----------------------------
 
     function desiredKeys(): Set<string> {
-      const visibleProjects = getVisibleProjectIds()
+      // The active project can be ahead of the list: no host yet, so no endpoint to open.
+      const resolved = (projectId: string) => isHostResolved({ projectId })
+      const visibleProjects = new Set([...getVisibleProjectIds()].filter(resolved))
       const keys = new Set<string>()
       for (const projectId of visibleProjects) {
         keys.add(reposKey(projectId))
@@ -580,19 +585,17 @@ export function useAppSyncEngine(): void {
       //    is joined rather than repeated (frames replay onto its answer).
       rootUnsubscribes.push(useProjectDataStore.getState().startSync())
       void useProjectDataStore.getState().fetch()
+      // Every paired host's status, for the app's life: a host found up streams into the list.
+      rootUnsubscribes.push(startHostStatus())
 
-      // 3. Per-project / per-repo streams for whatever is visible. The provider
-      //    mounts at the root BEFORE any project exists (fresh start / OOBE), so
-      //    visibility usually arrives AFTER mount — reconcile now, and again on
-      //    every project-, project-list- or sidebar-store change (active project
-      //    switched, the project list landing, a repo seeded into the tree).
-      //    Without this, importing the first project never populates the
-      //    entity cache and the sidebar stays empty.
-      //
-      //    The project-LIST subscription is what makes "open by default" work:
-      //    visibility is "every known project plus the active one", so the set
-      //    only grows when `/v0/projects` delivers. Its own `lastSignature`
-      //    guard keeps the extra wake-ups free.
+      // 3. Per-project / per-repo streams for whatever is visible. The provider mounts
+      //    at the root BEFORE any project exists (fresh start / OOBE), so visibility
+      //    usually arrives AFTER mount: reconcile now, and again on every project-,
+      //    project-list- or sidebar-store change; otherwise importing the first project
+      //    never populates the entity cache and the sidebar stays empty.
+      //    The host-resolution subscription is what makes "open by default" work: a project
+      //    opens once the list (`/v0/projects`) names it and its host, so the set only grows
+      //    when that delivers. reconcile()'s desired-set guard keeps the extra wake-ups free.
       scheduleRebuild()
       reconcile()
       // Narrow: only the fields desiredKeys() reads wake it — not every
@@ -602,11 +605,7 @@ export function useAppSyncEngine(): void {
           if (s.activeProjectId !== prev.activeProjectId) reconcile()
         }),
       )
-      rootUnsubscribes.push(
-        useProjectDataStore.subscribe((s, prev) => {
-          if (s.data !== prev.data) reconcile()
-        }),
-      )
+      rootUnsubscribes.push(subscribeHostResolution(undefined, reconcile))
       rootUnsubscribes.push(
         useSidebarStore.subscribe((s, prev) => {
           if (s.repos !== prev.repos) reconcile()

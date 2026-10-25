@@ -1,4 +1,5 @@
-import { assetURL } from '@/lib/api'
+import { isHostResolved } from '@/lib/host-resolve'
+import { projectAssetURL } from '@/lib/project-url'
 import { createdInstant } from '@/lib/store/created-instant'
 import type { Chat, Folder, Repo, Workspace, WorkspaceStatus } from '@/lib/store/sidebar'
 import type { ChatDTO, FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
@@ -43,14 +44,13 @@ export function toSidebarStatus(ws: WorkspaceDTO): WorkspaceStatus {
   return ws.status as WorkspaceStatus
 }
 
-// repoAvatar resolves the sidebar avatar source from the §5 RepoDTO: a custom
-// emoji takes precedence (rendered as an `emoji:<char>` marker the sidebar
-// understands), otherwise the proxied /icon URL (resolved through assetURL so
-// WKWebView can load it cross-origin), otherwise undefined → initials fallback.
+// A custom emoji wins (an `emoji:<char>` marker), then the repo's /icon URL on its own host so
+// WKWebView can load it; else undefined (initials). An unresolved host gets the initials too:
+// the rebuild that follows once it resolves redraws it.
 function repoAvatarURL(repo: RepoDTO): string | undefined {
   if (repo.avatarEmoji) return `emoji:${repo.avatarEmoji}`
-  if (repo.avatarUrl) return assetURL(repo.avatarUrl)
-  return undefined
+  if (!repo.avatarUrl || !isHostResolved({ projectId: repo.projectId })) return undefined
+  return projectAssetURL(repo.projectId, repo.avatarUrl)
 }
 
 export function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {

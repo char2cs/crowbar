@@ -1,7 +1,18 @@
 import { act, renderHook } from '@testing-library/react'
 import { isValidElement, type ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
+
+const { readWorkspaceFile, writeWorkspaceFile } = vi.hoisted(() => ({
+  readWorkspaceFile: vi.fn(),
+  writeWorkspaceFile: vi.fn(),
+}))
+vi.mock('@/features/file-system/controllers/platform', () => ({
+  readWorkspaceFile,
+  writeWorkspaceFile,
+}))
+
 import { useFileExplorerContextMenu } from '@/features/file-explorer/file-explorer/hooks/use-file-explorer-context-menu'
+import { useFileClipboardStore } from '@/features/file-explorer/stores/file-explorer-clipboard-store'
 import type { ContextMenuItem } from '@/components/ui/context-menu'
 import { joinPath } from '@/utils/path-helpers'
 
@@ -12,7 +23,7 @@ const ROOT = '/root'
 // join that Reveal in Finder and Copy Path perform.
 function baseOptions() {
   return {
-    workspaceId: 'ws-1',
+    workspaceId: 'ws-1' as string | null,
     rootFolderPath: ROOT,
     isLocked: false,
     onFileSelect: vi.fn(),
@@ -141,6 +152,27 @@ describe('useFileExplorerContextMenu — newly-rendered items', () => {
     click(root.items, 'Add Folder to Workspace')
     expect(options.onAddFolderToWorkspace).toHaveBeenCalledTimes(1)
   })
+
+  // Its paths mean something only in the explorer's workspace: a paste anywhere else refuses.
+  it.each([
+    ['Copy', 'copy'],
+    ['Cut', 'cut'],
+  ] as const)('%s records the explorer’s workspace with the entry', (label, operation) => {
+    useFileClipboardStore.setState({ clipboard: null })
+    const { items } = openMenu(
+      { ...baseOptions(), workspaceId: 'ws-explorer' },
+      'api/main.go',
+      false,
+    )
+
+    click(items, label)
+
+    expect(useFileClipboardStore.getState().clipboard).toEqual({
+      entries: [{ path: 'api/main.go', is_dir: false }],
+      operation,
+      wsId: 'ws-explorer',
+    })
+  })
 })
 
 describe('useFileExplorerContextMenu — locked workspace gating', () => {
@@ -205,5 +237,46 @@ describe('useFileExplorerContextMenu — locked workspace gating', () => {
     expect(labels).toContain('Rename')
     expect(labels).toContain('Delete')
     expect(labels).toContain('Cut')
+  })
+})
+
+// "Create .env.example" reads and writes files: those belong to the workspace the tree
+// shows, never to whichever other one is in view.
+describe('useFileExplorerContextMenu — env template', () => {
+  function createEnvExample(workspaceId: string | null) {
+    readWorkspaceFile.mockReset()
+    writeWorkspaceFile.mockReset()
+    readWorkspaceFile.mockImplementation(async (_wsId: string, path: string) => {
+      if (path.endsWith('.env.example')) throw new Error('not found')
+      return 'KEY=secret\n'
+    })
+    const options = {
+      ...baseOptions(),
+      workspaceId,
+      onCreateNewFileInDirectory: vi.fn().mockResolvedValue('.env.example'),
+    }
+    const { items } = openMenu(options, '.env', false)
+    click(items, 'Create .env.example')
+  }
+
+  it('reads the source and writes the template in the explorer’s workspace', async () => {
+    createEnvExample('ws-a')
+
+    await vi.waitFor(() =>
+      expect(writeWorkspaceFile).toHaveBeenCalledExactlyOnceWith(
+        'ws-a',
+        '.env.example',
+        expect.stringContaining('KEY='),
+      ),
+    )
+    expect(readWorkspaceFile.mock.calls.map(([wsId]) => wsId)).toEqual(['ws-a', 'ws-a'])
+  })
+
+  it('touches no file when the tree shows no workspace', async () => {
+    createEnvExample(null)
+
+    await Promise.resolve()
+    expect(readWorkspaceFile).not.toHaveBeenCalled()
+    expect(writeWorkspaceFile).not.toHaveBeenCalled()
   })
 })

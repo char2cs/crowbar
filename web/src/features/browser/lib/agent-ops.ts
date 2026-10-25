@@ -40,7 +40,7 @@ export interface AgentRequest {
   args: Record<string, unknown>
 }
 
-function pane(chatId: string): PaneGroup {
+function pane(chatId: string): PaneGroup & { workspaceId: string } {
   const { panes } = windowPaneStore.getState()
   const found = panes[chatPaneIndex(panes).get(chatId) ?? '']
   if (!found || !found.workspaceId) {
@@ -48,7 +48,7 @@ function pane(chatId: string): PaneGroup {
       'this chat is not open in the Crowbar window, so it has no pane to hold a browser',
     )
   }
-  return found
+  return { ...found, workspaceId: found.workspaceId }
 }
 
 function browserBuffer(id: string): BrowserContent | undefined {
@@ -153,7 +153,7 @@ async function openTab(chatId: string, args: Record<string, unknown>, limits: Ag
   const id = windowPaneStore
     .getState()
     .bufferActions.openContent(
-      { type: 'browser', url, workspaceId: group.workspaceId ?? undefined },
+      { type: 'browser', url, workspaceId: group.workspaceId },
       { paneId: group.id },
     )
   if (url) await bringToFront(chatId, id, limits)

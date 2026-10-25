@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { Project } from '@/lib/types'
 
 const redirectMock = vi.fn((opts: unknown) => {
   const err = new Error('redirect')
@@ -12,17 +13,18 @@ vi.mock('@tanstack/react-router', () => ({
   isRedirect: (e: unknown) => (e as { isRedirect?: boolean })?.isRedirect === true,
 }))
 
-vi.mock('@/lib/api', () => ({
-  fetchProjects: vi.fn(),
-}))
-
 vi.mock('@/lib/store/projects', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/store/projects')>()),
   useProjectStore: { getState: vi.fn(() => ({ activeProjectId: '' })) },
 }))
 
-const { fetchProjects } = await import('@/lib/api')
-const { useProjectStore } = await import('@/lib/store/projects')
+const { connectProjectList, useProjectStore } = await import('@/lib/store/projects')
+// The list's reads, by host; the guard reads nothing else.
+const readLocal = vi.fn<(hostId: string) => Promise<Project[]>>()
+connectProjectList({ read: (hostId) => readLocal(hostId), subscribe: () => () => {} })
+const { useHostConfigStore } = await import('@/features/hosts/stores/host-config-store')
+const { destroyHostRuntime, getOrCreateHostRuntime } =
+  await import('@/features/hosts/stores/host-runtime-registry')
 
 async function runBeforeLoad() {
   // Dynamically import to pick up mocks
@@ -34,14 +36,14 @@ async function runBeforeLoad() {
 describe('_shell/index beforeLoad', () => {
   beforeEach(() => {
     redirectMock.mockClear()
-    vi.mocked(fetchProjects).mockReset()
+    readLocal.mockReset()
     vi.mocked(useProjectStore.getState).mockReturnValue({
       activeProjectId: '',
     } as ReturnType<typeof useProjectStore.getState>)
   })
 
   it('redirects to /oobe when no projects', async () => {
-    vi.mocked(fetchProjects).mockResolvedValueOnce([])
+    readLocal.mockResolvedValueOnce([])
     try {
       await runBeforeLoad()
     } catch (e) {
@@ -53,9 +55,21 @@ describe('_shell/index beforeLoad', () => {
   })
 
   it('redirects to home route of active project', async () => {
-    vi.mocked(fetchProjects).mockResolvedValueOnce([
-      { id: 'p1', name: 'Rabbyte', path: '/a', lastActivity: new Date('2024-01-01') },
-      { id: 'p2', name: 'Other', path: '/b', lastActivity: new Date('2024-01-01') },
+    readLocal.mockResolvedValueOnce([
+      {
+        id: 'p1',
+        name: 'Rabbyte',
+        path: '/a',
+        lastActivity: new Date('2024-01-01'),
+        hostId: 'local',
+      },
+      {
+        id: 'p2',
+        name: 'Other',
+        path: '/b',
+        lastActivity: new Date('2024-01-01'),
+        hostId: 'local',
+      },
     ])
     vi.mocked(useProjectStore.getState).mockReturnValue({
       activeProjectId: 'p1',
@@ -76,7 +90,7 @@ describe('_shell/index beforeLoad', () => {
   // must land on the newer answer, not on the store its own read left unpublished.
   it('redirects to a project when a newer read supersedes its own', async () => {
     const answers: Array<(projects: unknown) => void> = []
-    vi.mocked(fetchProjects).mockImplementation(
+    readLocal.mockImplementation(
       () => new Promise((resolve) => answers.push(resolve as (projects: unknown) => void)),
     )
     const outcome = runBeforeLoad().catch((e: unknown) => e)
@@ -84,7 +98,13 @@ describe('_shell/index beforeLoad', () => {
     const { useProjectDataStore } = await import('@/lib/store/projects')
     const newer = useProjectDataStore.getState().fetch()
     await vi.waitFor(() => expect(answers).toHaveLength(2))
-    const project = { id: 'p3', name: 'Third', path: '/c', lastActivity: new Date('2024-01-01') }
+    const project = {
+      id: 'p3',
+      name: 'Third',
+      path: '/c',
+      lastActivity: new Date('2024-01-01'),
+      hostId: 'local',
+    }
     answers[0]([project])
     answers[1]([project])
     await newer
@@ -96,8 +116,14 @@ describe('_shell/index beforeLoad', () => {
   })
 
   it('falls back to first project when no active project', async () => {
-    vi.mocked(fetchProjects).mockResolvedValueOnce([
-      { id: 'p2', name: 'Other', path: '/b', lastActivity: new Date('2024-01-01') },
+    readLocal.mockResolvedValueOnce([
+      {
+        id: 'p2',
+        name: 'Other',
+        path: '/b',
+        lastActivity: new Date('2024-01-01'),
+        hostId: 'local',
+      },
     ])
     vi.mocked(useProjectStore.getState).mockReturnValue({
       activeProjectId: '',
@@ -112,5 +138,36 @@ describe('_shell/index beforeLoad', () => {
       return
     }
     expect.fail('expected redirect to throw')
+  })
+
+  it('lands as soon as the local list is read, while a paired host that is up never answers', async () => {
+    useHostConfigStore.getState().addHost({
+      id: 'h1',
+      name: 'h1',
+      endpoint: 'h1.lan:9443',
+      pairedFingerprint: 'ff',
+      clientId: 'client-h1',
+    })
+    getOrCreateHostRuntime('h1').getState().setStatus('up')
+    const local = {
+      id: 'p2',
+      name: 'Other',
+      path: '/b',
+      lastActivity: new Date(0),
+      hostId: 'local',
+    }
+    readLocal.mockImplementation((hostId) =>
+      hostId === 'local' ? Promise.resolve([local]) : new Promise<Project[]>(() => {}),
+    )
+    try {
+      await expect(runBeforeLoad()).rejects.toMatchObject({
+        isRedirect: true,
+        options: { to: '/ide/$projectId/home', params: { projectId: 'p2' } },
+      })
+      expect(readLocal).toHaveBeenCalledWith('h1')
+    } finally {
+      useHostConfigStore.getState().removeHost('h1')
+      destroyHostRuntime('h1')
+    }
   })
 })
