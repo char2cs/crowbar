@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { beforeAll, describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
@@ -24,6 +24,12 @@ function pressEscape() {
 }
 
 describe('primitive dialog service', () => {
+  // The app shell has the dialog UI loaded before any request; a cold transform of it here
+  // would otherwise race findBy's timeout on the first test.
+  beforeAll(async () => {
+    await import('@/components/ui/primitive-dialog-host')
+  })
+
   it('resolves confirm with the chosen answer', async () => {
     renderProvider()
     const answer = primitiveConfirm('Discard changes?')
@@ -136,5 +142,29 @@ describe('primitive dialog service', () => {
     await waitFor(() => expect(screen.getByText('Second?')).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     await expect(second).resolves.toBe(true)
+  })
+
+  // The dialog UI loads with the first request, and the provider sits above every error
+  // boundary: a chunk that fails to load must settle the request, not throw or leave it pending.
+  it('settles a request as dismissed when the dialog UI fails to load', async () => {
+    vi.resetModules()
+    vi.doMock('@/components/ui/primitive-dialog-host', () => {
+      throw new Error('chunk load failed')
+    })
+    try {
+      const service = await import('@/components/ui/primitive-dialog-service')
+      render(
+        <service.PrimitiveDialogProvider>
+          <div>app</div>
+        </service.PrimitiveDialogProvider>,
+      )
+
+      await expect(service.primitiveConfirm('Discard changes?')).resolves.toBe(false)
+      await expect(service.primitivePrompt('Name?')).resolves.toBeNull()
+      expect(screen.getByText('app')).toBeInTheDocument()
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    } finally {
+      vi.doUnmock('@/components/ui/primitive-dialog-host')
+    }
   })
 })
