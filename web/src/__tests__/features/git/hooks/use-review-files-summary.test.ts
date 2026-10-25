@@ -175,8 +175,9 @@ describe('useReviewFilesSummary on an install that has paired a remote host', ()
   })
   afterEach(() => resetHostWorld())
 
-  it('asks nothing until the project list names the host, then fetches', async () => {
-    const { result } = renderHook(() => useReviewFilesSummary('ws-remote'))
+  // A commit scope fetches on its own; the workspace scope's files come from the git feed.
+  it('asks nothing for a commit until the project list names the host, then fetches', async () => {
+    const { result } = renderHook(() => useReviewFilesSummary('ws-remote', 'abc'))
     await act(async () => {})
     expect(mocks.getReviewFiles).not.toHaveBeenCalled()
     expect(result.current.loaded).toBe(false)
@@ -184,6 +185,6 @@ describe('useReviewFilesSummary on an install that has paired a remote host', ()
     act(() => loadProjects(projectOn('p-remote', 'host-1')))
 
     await waitFor(() => expect(result.current.loaded).toBe(true))
-    expect(mocks.getReviewFiles).toHaveBeenCalledWith({ wsId: 'ws-remote', commit: undefined })
+    expect(mocks.getReviewFiles).toHaveBeenCalledWith({ wsId: 'ws-remote', commit: 'abc' })
   })
 })
