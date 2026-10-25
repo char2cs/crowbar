@@ -249,7 +249,11 @@ func TestMap_AnAskKeepsItsCallsInputUpToABound(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input string
 		cut   bool
-	}{"small": {small, false}, "too big": {big, true}} {
+	}{
+		"small": {small, false}, "too big": {big, true},
+		"escaped as HTML": {strings.Repeat("<", 20<<10), true}, "escaped by JSON": {strings.Repeat("\x01", 20<<10), true},
+		"JSON its escapes grow past the bound": {`{"content":"` + strings.Repeat("<", 4<<10) + `"}`, true},
+	} {
 		t.Run(name, func(t *testing.T) {
 			c := liveChatRows(t)
 			c.typed("go")
@@ -268,9 +272,10 @@ func TestMap_AnAskKeepsItsCallsInputUpToABound(t *testing.T) {
 			}
 			var lead string
 			require.NoError(t, json.Unmarshal(a.ToolInput, &lead), "a cut input is its leading text")
-			assert.LessOrEqual(t, len(lead), maxAskInput)
+			assert.LessOrEqual(t, len(a.ToolInput), maxAskInput, "the bound is on the bytes kept")
+			assert.NotEmpty(t, lead)
 			assert.True(t, utf8.ValidString(lead), "never cut inside a character")
-			assert.True(t, strings.HasPrefix(big, lead))
+			assert.True(t, strings.HasPrefix(tc.input, lead))
 		})
 	}
 }

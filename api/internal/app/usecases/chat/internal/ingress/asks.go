@@ -11,7 +11,7 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// maxAskInput is how much of its call's input an ask row keeps.
+// maxAskInput bounds the bytes of its call's input an ask row keeps.
 const maxAskInput = 16 << 10
 
 // mapAsk records a question the CLI is blocked on, bound to the open tool of
@@ -130,17 +130,28 @@ func askOf(ev engineagents.CanonicalEvent) (ledger.Ask, error) {
 	return a, nil
 }
 
-// askInput is input as an ask row keeps it: whole while it is JSON of at most
-// maxAskInput bytes, else as its leading text, cut there if it is longer.
+// askInput is input as an ask row keeps it: whole while that is JSON of at
+// most maxAskInput bytes, else as a JSON string of its leading text. Each is
+// measured as the row encodes it, escapes included, so the bound is on the bytes kept.
 func askInput(input []byte) (json.RawMessage, bool, error) {
 	if len(input) == 0 {
 		return nil, false, nil
 	}
-	if len(input) <= maxAskInput && json.Valid(input) {
-		return json.RawMessage(input), false, nil
+	if whole, err := json.Marshal(json.RawMessage(input)); err == nil && len(whole) <= maxAskInput {
+		return whole, false, nil
 	}
-	lead, err := json.Marshal(cut(string(input), maxAskInput))
-	return lead, len(input) > maxAskInput, err
+	text := string(input)
+	for n := min(len(text), maxAskInput); ; {
+		lead, err := json.Marshal(cut(text, n))
+		if err != nil {
+			return nil, false, fmt.Errorf("ingress: quote ask input: %w", err)
+		}
+		if len(lead) <= maxAskInput {
+			return lead, n < len(text), nil
+		}
+		// Escaping grew it past the bound: shrink by as much, and try again.
+		n = n * maxAskInput / len(lead)
+	}
 }
 
 func choiceQuestions(in []engineagents.PromptQuestion) []domain.ActivityChoiceQuestion {
