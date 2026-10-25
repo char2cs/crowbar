@@ -1,9 +1,15 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, it, expect, vi } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import type { Project } from '@/lib/types'
 import { SidebarProjectSwitcher } from '@/components/layout/sidebar-project-switcher'
 import { performRenameProject } from '@/components/sidebar/lib/row-actions'
+import {
+  destroyHostRuntime,
+  getOrCreateHostRuntime,
+} from '@/features/hosts/stores/host-runtime-registry'
+import type { HostStatus } from '@/features/hosts/types'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 vi.mock('@/components/sidebar/lib/row-actions', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/components/sidebar/lib/row-actions')>()),
@@ -149,6 +155,76 @@ describe('SidebarProjectSwitcher', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emoji: '🛰️' }),
       })
+    })
+  })
+
+  // Local is the app itself: only a remote active project has a host to show.
+  describe('the active project’s host', () => {
+    const onHost = (id: string, name: string, hostId: string): Project => ({
+      ...project(id, name),
+      hostId,
+    })
+    const setStatus = (hostId: string, status: HostStatus) =>
+      act(() => getOrCreateHostRuntime(hostId).getState().setStatus(status))
+    const renderSwitcher = (projects: Project[]) =>
+      render(
+        <SidebarProjectSwitcher
+          projects={projects}
+          activeProjectId="p1"
+          onSelectProject={vi.fn()}
+        />,
+      )
+
+    beforeEach(() => {
+      resetHostWorld()
+      pairRemoteHost('h1', 'homelab-prox')
+      pairRemoteHost('h2', 'studio')
+    })
+    afterEach(() => {
+      destroyHostRuntime('h1')
+      destroyHostRuntime('h2')
+      resetHostWorld()
+    })
+
+    it('follows a remote project’s name, quiet while its host is online', () => {
+      setStatus('h1', 'up')
+      renderSwitcher([onHost('p1', 'Alpha', 'h1')])
+
+      const badge = screen.getByRole('button', { name: 'Host settings: homelab-prox, Online' })
+      expect(screen.getByTestId('active-project-name').compareDocumentPosition(badge)).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      )
+      expect(badge).toContainElement(screen.getByTestId('host-status-h1'))
+      expect(badge.textContent).toBe('')
+    })
+
+    it('says its host’s state beside the icon once the host is not online', () => {
+      setStatus('h1', 'up')
+      renderSwitcher([onHost('p1', 'Alpha', 'h1')])
+
+      setStatus('h1', 'down')
+
+      const badge = screen.getByRole('button', { name: 'Host settings: homelab-prox, Offline' })
+      expect(within(badge).getByText('Offline')).toBeVisible()
+    })
+
+    it('shows nothing for a local project, even while a remote host is down', () => {
+      setStatus('h1', 'down')
+      renderSwitcher([project('p1', 'Alpha'), onHost('p2', 'Beta', 'h1')])
+
+      expect(screen.queryByRole('button', { name: /^Host settings/ })).toBeNull()
+      expect(screen.queryByText('Offline')).toBeNull()
+      expect(screen.queryByTestId('host-status-h1')).toBeNull()
+    })
+
+    it('leaves the other projects’ marks undecorated, named for the project alone', () => {
+      setStatus('h1', 'up')
+      setStatus('h2', 'down')
+      renderSwitcher([onHost('p1', 'Alpha', 'h1'), onHost('p2', 'Beta', 'h2')])
+
+      expect(screen.getByRole('button', { name: 'Beta' })).toBeInTheDocument()
+      expect(screen.queryByTestId('host-status-h2')).toBeNull()
+      expect(screen.queryByText('Offline')).toBeNull()
     })
   })
 })

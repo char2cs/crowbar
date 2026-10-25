@@ -3,6 +3,8 @@ import { PlusIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
 import { performRenameProject } from '@/components/sidebar/lib/row-actions'
+import { SpaceHostButton } from '@/components/sidebar/space-host-button'
+import { LOCAL_HOST } from '@/features/hosts/types'
 import { cn } from '@/lib/utils'
 import type { Project } from '@/lib/types'
 import { EditableProjectIcon, ProjectIconMark } from './project-icon-mark'
@@ -25,8 +27,8 @@ interface SidebarProjectSwitcherProps {
 }
 
 /**
- * First line of the sidebar body: the active project's icon and name, then
- * the other projects' icons and a trailing `+`. The name truncates before the
+ * First line of the sidebar body: the active project's icon and name (and its host, when
+ * remote), then the other projects' icons and a trailing `+`. The name truncates before the
  * icons are pushed off. The active mark edits the icon; double-clicking the
  * name renames the project. Memoized: every prop is a primitive or a stable callback.
  */
@@ -73,6 +75,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
                 {active.name}
               </span>
             )}
+            {active.hostId !== LOCAL_HOST.id && <SpaceHostButton hostId={active.hostId} />}
           </>
         )}
       </div>

@@ -32,15 +32,9 @@ export function useHostView(hostId: string): { name: string | undefined; state: 
   return { name, state: name === undefined ? 'not-available' : state }
 }
 
-/** A project's host as the sidebar shows it. Only a remote host is ever unreachable there: Local
- *  is the app itself, and a dropped local socket never greys out a never-paired user's rows. */
-export function useProjectHost(hostId: string): {
-  name: string | undefined
-  state: HostDotState
-  remote: boolean
-  unreachable: boolean
-} {
-  const view = useHostView(hostId)
-  const remote = hostId !== LOCAL_HOST.id
-  return { ...view, remote, unreachable: remote && hostIsUnreachable(view.state) }
+/** Whether the sidebar greys out a project on `hostId`. Only a remote host is ever unreachable
+ *  there: Local is the app itself, and a dropped local socket never greys a never-paired user's rows. */
+export function useProjectHostUnreachable(hostId: string): boolean {
+  const { state } = useHostView(hostId)
+  return hostId !== LOCAL_HOST.id && hostIsUnreachable(state)
 }
