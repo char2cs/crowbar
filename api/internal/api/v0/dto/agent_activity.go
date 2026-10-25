@@ -195,10 +195,12 @@ type AgentChoiceDTO struct {
 	// Answerable reports that a relay is holding the provider's gate open for this
 	// prompt RIGHT NOW, so answering it here will actually reach the CLI.
 	//
-	// It is a separate fact from Pending, and both are needed. A prompt whose relay
-	// has already timed out is still pending and still worth drawing — the CLI is
-	// asking it, at its own terminal — but a button on it would reach nobody, and a
-	// surface that cannot tell the two apart offers controls that silently fail.
+	// It is a separate fact from Pending, and both are needed. A prompt no relay
+	// holds (its provider has no answer channel, its payload is too big to hold, or
+	// it was asked in the provider's own view) is still pending and worth drawing —
+	// the CLI is asking it at its own terminal — but a button on it would reach
+	// nobody, and a surface that cannot tell the two apart offers controls that
+	// silently fail.
 	Answerable bool       `json:"answerable"`
 	At         time.Time  `json:"at"`
 	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`

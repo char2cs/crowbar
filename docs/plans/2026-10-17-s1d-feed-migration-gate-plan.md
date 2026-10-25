@@ -385,7 +385,7 @@ Never run `go test ./...`, `make test-integration`, `make pr-checks`, `make test
   - install a `kit.FakeProvider` (`Base: ""` with the test's `EventsYAML`) and post with `Launch.PostHook`;
   - delete the five helpers (defined in `agent_home_hook_test.go`, `regression_agent_message_stream_test.go`, `agent_working_overlay_test.go`, `agent_internal_session_test.go`) and `stubDescriptor`.
 - Delete: `api/tests/regression_agent_answer_window_test.go` (the relay's ack-await window no longer exists)
-- Modify: `api/tests/regression_agent_choice_frame_test.go` — `TestRegression_AChoiceWhoseRelayExpiredIsPushedAsUnanswerable` (`:149`) becomes `TestRegression_AHeldAskWhoseCLIHungUpIsPushedAsUnanswerable`, over `HTTPHook`
+- Modify: `api/tests/regression_agent_choice_frame_test.go` — `TestRegression_AChoiceWhoseRelayExpiredIsClosedAsProceeded` (`:149`) becomes `TestRegression_AHeldAskWhoseCLIHungUpIsClosedAsProceeded`, over `HTTPHook`
 - Modify: `api/ARCHITECTURE.md` (243 lines; edit on top of the engine's rewrite) — the `cmd/` table, and the "Agent turn" flow: hooks are posted by the CLI to the daemon's loopback hook server
 
 - [ ] **Step 1: Write the replacement test.** In `api/internal/engine/agents/descriptorcheck/rules_test.go`, add `TestRelayHookWiringIsRefusedWithTheReplacement`: a descriptor with `{crowbar_hook} hook tool_pre` → finding `hooks.relay_retired`, severity error.
