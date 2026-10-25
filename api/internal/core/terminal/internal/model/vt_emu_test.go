@@ -322,23 +322,23 @@ func TestResizeReflow(t *testing.T) {
 // TestResize_AllocsDoNotGrowWithHistory guards the cost of a pane drag: a resize that reflows
 // nothing allocates per call, never per history line.
 func TestResize_AllocsDoNotGrowWithHistory(t *testing.T) {
-	allocs := func(history int) float64 {
+	allocs := func(history int) int {
 		vm := newVTModel(120, 40, 10000)
 		t.Cleanup(vm.Close)
 		vm.Write([]byte(strings.Repeat(strings.Repeat("s", 40)+"\r\n", history)))
 		narrow := false
-		return testing.AllocsPerRun(20, func() {
+		return int(testing.AllocsPerRun(20, func() { // an integral average
 			narrow = !narrow
 			if narrow {
 				vm.Resize(90, 40)
 			} else {
 				vm.Resize(120, 40)
 			}
-		})
+		}))
 	}
 	small, large := allocs(100), allocs(10000)
 	require.Equal(t, small, large, "allocations per 120<->90 toggle at 100 and 10,000 history lines")
-	t.Logf("allocations per resize: %.0f at 100 history lines, %.0f at 10,000", small, large)
+	t.Logf("allocations per resize: %d at 100 history lines, %d at 10,000", small, large)
 }
 
 func flagLetter(wrapped bool) string {
