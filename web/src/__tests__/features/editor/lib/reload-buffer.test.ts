@@ -13,10 +13,18 @@ import {
   replaceDocumentText,
   savedDocumentText,
 } from '@/features/editor/documents/document-text'
-import { findDocumentBuffer } from '@/features/editor/documents/open-document'
+import {
+  findDocumentBuffer,
+  setDocumentUnavailable,
+} from '@/features/editor/documents/open-document'
 import { loadEditorHost } from '@/features/editor/host/editor-host'
 import { reloadBufferFromDisk } from '@/features/editor/lib/reload-buffer'
-import { resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  resetWindowPaneStoreForTests,
+  windowPaneStore,
+} from '@/features/panes/stores/window-pane-store'
+import { toast } from '@/features/window/stores/toast-store'
+import { ApiError } from '@/lib/api'
 
 const A = workspaceRef('ws-1', 'src/a.ts')
 
@@ -38,6 +46,26 @@ beforeEach(() => {
 })
 
 describe('reloadBufferFromDisk (P0-9)', () => {
+  it('reads a tab whose document failed to load again, as a reopen does', async () => {
+    const error = vi.spyOn(toast, 'error')
+    const id = windowPaneStore
+      .getState()
+      .bufferActions.openContent({ type: 'editor', doc: A, name: 'a.ts' })
+    setDocumentUnavailable(A, { title: 'Failed to open file', message: 'a.ts' })
+    readDisk.mockRejectedValue(new ApiError('big', 413))
+
+    expect(await reloadBufferFromDisk(id, () => true)).toBe('failed')
+    const tooLarge = { title: 'File too large to open', message: 'a.ts' }
+    expect(findDocumentBuffer(A)?.unavailable).toEqual(tooLarge)
+    expect(error).toHaveBeenCalledWith(tooLarge.title, tooLarge.message)
+
+    readDisk.mockResolvedValue('disk')
+    expect(await reloadBufferFromDisk(id, () => true)).toBe('reloaded')
+    expect(state()).toEqual({ text: 'disk', saved: 'disk', dirty: false })
+    expect(findDocumentBuffer(A)?.unavailable).toBeUndefined()
+    error.mockRestore()
+  })
+
   it('reloads a clean buffer from disk without asking', async () => {
     const id = await openBuffer('old')
     readDisk.mockResolvedValue('disk')

@@ -35,6 +35,7 @@ import { toast } from '@/features/window/stores/toast-store'
 import { reconcileWorkspaceDocuments } from '@/features/workspace/lib/external-buffer-sync'
 
 const A = workspaceRef('ws-restore', 'src/a.ts')
+const B = workspaceRef('ws-restore', 'src/b.ts')
 const UNTITLED = workspaceRef('ws-restore', 'untitled:Untitled')
 const host = (path: string): DocumentRef => ({ authority: 'host', path })
 
@@ -143,6 +144,47 @@ describe('restoreDocuments', () => {
 
     expect(documentText(A)).toBe('disk')
     expect(bufferOf(id).unavailable).toBeUndefined()
+  })
+
+  it('one toast names every file a failure of the same kind hit', async () => {
+    restoredTab(A)
+    restoredTab(B)
+    readDocument.mockRejectedValue(new ApiError('boom', 500))
+
+    await restoreDocuments()
+
+    expect(error).toHaveBeenCalledTimes(1)
+    expect(error).toHaveBeenCalledWith('Failed to open file', 'a.ts, b.ts')
+  })
+
+  it('when the editor cannot load at all, every restored tab says why and retries', async () => {
+    const [a, b] = [restoredTab(A), restoredTab(B)]
+    const untitled = restoredTab(UNTITLED, { isVirtual: true })
+    await putDrafts([draft(B, 'mine', 'disk'), draft(UNTITLED, 'scratch', '')])
+    loadEditorHost.mockRejectedValueOnce(new Error('chunk failed'))
+
+    await restoreDocuments()
+
+    const failed = (message: string) => ({ title: 'Failed to open file', message })
+    expect(bufferOf(a).unavailable).toEqual(failed('a.ts'))
+    expect(bufferOf(b).unavailable).toEqual(failed('b.ts'))
+    expect(bufferOf(untitled).unavailable).toEqual(failed('Untitled'))
+    expect(error).toHaveBeenCalledWith('Failed to open file', 'a.ts, b.ts, Untitled')
+    expect(await saveActiveBuffer()).toBe(false)
+    expect(error).toHaveBeenLastCalledWith('Failed to open file', 'Untitled')
+
+    readDocument.mockResolvedValue({ ref: B, text: 'disk' })
+    expect(await openDocument(B)).toBe(b)
+    expect(documentText(B)).toBe('mine')
+    expect(bufferOf(b)).toMatchObject({ isDirty: true, unavailable: undefined })
+
+    await reconcileWorkspaceDocuments('ws-restore')
+    expect(documentText(A)).toBe('disk')
+    expect(documentText(UNTITLED)).toBe('scratch')
+    expect([bufferOf(a).unavailable, bufferOf(untitled).unavailable]).toEqual([
+      undefined,
+      undefined,
+    ])
   })
 
   it('reopening a document whose restore failed loads it into its tab', async () => {

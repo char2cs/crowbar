@@ -57,6 +57,10 @@ export async function loadDrafts(): Promise<Map<string, EditorDraft>> {
   return new Map(drafts.map((draft) => [draft.uri, draft]))
 }
 
+export async function loadDraft(uri: string): Promise<EditorDraft | undefined> {
+  return (await getDB()).get('editor-drafts', uri)
+}
+
 export async function putDrafts(drafts: readonly EditorDraft[]): Promise<void> {
   if (drafts.length === 0) return
   const db = await getDB()

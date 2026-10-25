@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useEffect, type ReactNode } from 'react'
 
 // Records every MOUNT (not render) of the Plate surface: the pane remounts it per buffer (C1).
@@ -26,6 +26,9 @@ import {
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { workspaceRef } from '@/lib/api/documents'
+import { documentUri } from '@/features/editor/documents/document-ref'
+import { putDrafts } from '@/features/editor/documents/draft-store'
+import { setDocumentUnavailable } from '@/features/editor/documents/open-document'
 
 const open = (path: string, opts: { isPreview?: boolean } = {}) =>
   openTestDocument(workspaceRef('ws-buffer', path), 'A', opts)
@@ -105,6 +108,21 @@ describe('EditorPane', () => {
     expect(screen.getByText('Failed to open file')).toBeInTheDocument()
     expect(screen.getByText('gone.ts')).toBeInTheDocument()
     expect(monacoMounted()).toBe(false)
+  })
+
+  it('a tab whose document failed to load reads it again on request', async () => {
+    const doc = workspaceRef('ws-buffer', 'untitled:Untitled-7')
+    const id = windowPaneStore
+      .getState()
+      .bufferActions.openContent({ type: 'editor', doc, name: 'Untitled-7', isVirtual: true })
+    setDocumentUnavailable(doc, { title: 'Failed to open file', message: 'Untitled-7' })
+    await putDrafts([{ uri: documentUri(doc), text: 'scratch', savedText: '', updatedAt: 0 }])
+    render(inAmbient(pane(id)))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+    await waitFor(() => expect(documentText(doc)).toBe('scratch'))
+    expect(screen.queryByText('Failed to open file')).not.toBeInTheDocument()
   })
 
   // C1: the pane tree renders the active buffer without a key, so a `.md` ->

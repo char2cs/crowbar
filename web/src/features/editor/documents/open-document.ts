@@ -62,7 +62,8 @@ function show(buffer: EditorContent, { paneId, beforeShow }: OpenDocumentOptions
 
 function targetLabel(target: DocumentTarget): { path: string; name: string } {
   const path = 'absolutePath' in target ? target.absolutePath : target.path
-  return { path, name: path.split('/').pop() || path }
+  const name = path.split('/').pop() || path
+  return { path, name: name.replace(/^untitled:/, '') }
 }
 
 /** Why the daemon refuses this client a document; null for any other failure. */
@@ -96,9 +97,14 @@ function reportOpenFailure(target: DocumentTarget, error: unknown): void {
   toast.error(title, message)
 }
 
-/** The tab holding `ref` says why its document could not be loaded; null clears it. */
+/** The tab holding `ref`, untitled or not, says why its document could not be loaded; null clears it. */
 export function setDocumentUnavailable(ref: DocumentRef, reason: DocumentUnavailable | null): void {
-  const holder = findDocumentBuffer(ref)
+  const holder = windowPaneStore
+    .getState()
+    .buffers.find(
+      (b): b is EditorContent =>
+        isEditorContent(b) && !!b.path && sameDocument(documentRefOf(b), ref),
+    )
   const shown = holder?.unavailable
   if (!holder || (shown?.title === reason?.title && shown?.message === reason?.message)) return
   const unavailable = reason ?? undefined
@@ -108,8 +114,27 @@ export function setDocumentUnavailable(ref: DocumentRef, reason: DocumentUnavail
 }
 
 /** A tab whose document failed to load and has no model: opening it again reads it again. */
-function awaitsRetry(buffer: EditorContent): boolean {
+export function awaitsRetry(buffer: EditorContent): boolean {
   return !!buffer.unavailable && !getEditorHost()?.documents.has(documentUri(documentRefOf(buffer)))
+}
+
+/** Reads a tab's document again, as the boot restore would; answers whether it opened. */
+export async function retryLoad(buffer: EditorContent): Promise<boolean> {
+  // Lazy: the restore builds on this module.
+  const { retryDocument } = await import('./restore-documents')
+  const reason = await retryDocument(buffer)
+  if (reason) toast.error(reason.title, reason.message)
+  return !reason
+}
+
+/** Shows an open tab; one whose document failed to load reads it again. */
+async function showAndRetry(
+  buffer: EditorContent,
+  opts: OpenDocumentOptions,
+): Promise<string | null> {
+  const id = show(buffer, opts)
+  if (!awaitsRetry(buffer)) return id
+  return (await retryLoad(buffer)) ? id : null
 }
 
 /** Opens a document's model holding `text`; it is dirty while disk holds other `savedText`. */
@@ -135,25 +160,17 @@ export async function openDocument(
   opts: OpenDocumentOptions = {},
 ): Promise<string | null> {
   const open = 'absolutePath' in target ? null : findDocumentBuffer(target)
-  if (open && !awaitsRetry(open)) return show(open, opts)
+  if (open) return showAndRetry(open, opts)
   let read, openModel
   try {
     ;[read, openModel] = await Promise.all([readDocument(target), documentModelOpener()])
   } catch (error) {
     reportOpenFailure(target, error)
-    if (open) {
-      setDocumentUnavailable(documentRefOf(open), openFailure(target, error))
-      show(open, opts)
-    }
     return null
   }
   // A concurrent open of the same document, or another spelling of it, may have landed.
   const landed = findDocumentBuffer(read.ref)
-  if (landed && awaitsRetry(landed)) {
-    openModel(read.ref, read.text)
-    setDocumentUnavailable(read.ref, null)
-  }
-  if (landed) return show(landed, opts)
+  if (landed) return showAndRetry(landed, opts)
   openModel(read.ref, read.text)
   const id = windowPaneStore
     .getState()

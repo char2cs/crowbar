@@ -1,9 +1,12 @@
 import { lazy, Suspense } from 'react'
 import { ErrorBoundary } from '@/components/error-boundary'
+import { Button } from '@/components/ui/button'
+import { bestEffort } from '@/lib/best-effort'
 import { useBufferById } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { useEditorHost } from '@/features/editor/host/use-editor-host'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
+import { retryLoad } from '@/features/editor/documents/open-document'
 import { useDocumentOpen } from '@/features/editor/documents/use-document-open'
 import { isMarkdownPath } from '@/features/editor/markdown/plate/is-markdown-path'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
@@ -59,9 +62,14 @@ export function EditorPane({
       <div className="flex h-full flex-1 flex-col items-center justify-center gap-1 p-8 text-center">
         <span className="text-sm font-medium text-foreground">{buffer.unavailable.title}</span>
         <span className="text-xs text-muted-foreground">{buffer.unavailable.message}</span>
-        <span className="text-xs text-muted-foreground">
-          Open the file again to retry, or close this tab.
-        </span>
+        <Button
+          variant="outline"
+          size="xs"
+          className="mt-2"
+          onClick={() => bestEffort(retryLoad(buffer), 'retry document')}
+        >
+          Try again
+        </Button>
       </div>
     )
   }

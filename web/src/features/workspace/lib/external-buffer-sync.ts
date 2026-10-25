@@ -3,7 +3,7 @@ import { readDocument, readDocumentFromDisk, type DocumentRef } from '@/lib/api/
 import { documentRefOf, sameDocument } from '@/features/editor/documents/document-ref'
 import { applyExternalText, savedDocumentText } from '@/features/editor/documents/document-text'
 import {
-  documentModelOpener,
+  awaitsRetry,
   documentRefusal,
   openFailure,
   setDocumentUnavailable,
@@ -100,10 +100,14 @@ export async function syncBufferWithDisk(ref: DocumentRef): Promise<void> {
  */
 export async function reconcileWorkspaceDocuments(workspaceId: string): Promise<void> {
   const refusals = new Map<string, string>()
+  // An untitled tab has no file to sync, but one that failed to load retries too.
   const buffers = windowPaneStore
     .getState()
     .buffers.filter(
-      (b): b is EditorContent => isPersistableContent(b) && b.workspaceId === workspaceId,
+      (b): b is EditorContent =>
+        isEditorContent(b) &&
+        b.workspaceId === workspaceId &&
+        (isPersistableContent(b) || awaitsRetry(b)),
     )
   await Promise.allSettled(buffers.map((buffer) => reconcileDocument(buffer, refusals)))
   for (const [title, message] of refusals) toast.error(title, message)
@@ -111,25 +115,25 @@ export async function reconcileWorkspaceDocuments(workspaceId: string): Promise<
 
 async function reconcileDocument(buffer: EditorContent, refusals: Map<string, string>) {
   const ref = documentRefOf(buffer)
-  const open = savedDocumentText(ref) !== null
-  // Neither open nor failed: the restore has not reached it yet.
-  if (!open && !buffer.unavailable) return
+  // A tab that failed to load reads again, silently: it already says why.
+  if (awaitsRetry(buffer)) {
+    // Lazy: the restore builds on this module.
+    const { retryDocument } = await import('@/features/editor/documents/restore-documents')
+    await retryDocument(buffer)
+    return
+  }
+  // Not open yet: the restore has not reached it.
+  if (savedDocumentText(ref) === null) return
   let disk: string
   try {
     disk = (await readDocument(ref)).text
   } catch (err) {
-    // A tab without its document already says why; it only learns the latest reason.
-    if (!open) return setDocumentUnavailable(ref, openFailure(ref, err))
     const refusal = documentRefusal(err)
     if (refusal) refusals.set(refusal.title, refusal.message)
     else if (isNotFoundError(err) && !buffer.isDirty)
       setDocumentUnavailable(ref, openFailure(ref, err))
     return
   }
-  if (!open) {
-    const openModel = await documentModelOpener()
-    if (windowPaneStore.getState().buffers.some(holding(ref))) openModel(ref, disk)
-  }
   setDocumentUnavailable(ref, null)
-  if (open && disk !== savedDocumentText(ref)) await syncBufferWithDisk(ref)
+  if (disk !== savedDocumentText(ref)) await syncBufferWithDisk(ref)
 }
