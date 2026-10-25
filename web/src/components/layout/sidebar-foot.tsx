@@ -8,5 +8,9 @@ import { BuildReadout } from './build-readout'
  */
 export function SidebarFoot() {
   const { open } = useSidebar()
-  return <div className="relative h-10 shrink-0">{open && <BuildReadout className="left-3" />}</div>
+  return (
+    <div className="relative h-10 shrink-0">
+      {open && <BuildReadout className="left-3 right-3 top-auto bottom-0 w-auto" />}
+    </div>
+  )
 }

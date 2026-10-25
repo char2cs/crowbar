@@ -121,4 +121,8 @@ describe('formatHostEntry', () => {
     expect(formatHostEntry('homelab-proxmox', 'ok')).toBe('homelab-proxm… ok')
     expect(formatHostEntry('homelab-proxmo', 'ok')).toBe('homelab-proxmo ok')
   })
+
+  it('stays within 27 characters at its widest, so the first line can wrap by entry', () => {
+    expect(formatHostEntry('x'.repeat(80), 'reconnecting')).toHaveLength(27)
+  })
 })

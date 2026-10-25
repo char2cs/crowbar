@@ -57,7 +57,7 @@ export function hostNetStateOf(state: HostDotState): HostNetState {
 
 const HOST_NAME_MAX = 14
 
-/** One remote host on the readout's host line; entries are joined by two spaces by the caller. */
+/** One remote host in the readout's net segment; entries are joined by two spaces by the caller. */
 export function formatHostEntry(name: string, net: HostNetState): string {
   const short = name.length > HOST_NAME_MAX ? `${name.slice(0, HOST_NAME_MAX - 1)}…` : name
   return `${short} ${NET_LABEL[net]}`

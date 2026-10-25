@@ -75,7 +75,7 @@ describe('BuildReadout', () => {
     expect(lines(container)[0]).toBe('beta 0.0.0-beta.1  net ok  rc1')
   })
 
-  it('adds a line naming each paired remote host and its state', () => {
+  it('folds each paired remote host into the net segment, after the local reading', () => {
     reportChannelState('/v0/ws/git', true, 'local')
     pairRemoteHost('h1', 'homelab-proxmox')
     pairRemoteHost('h2', 'studio')
@@ -84,22 +84,45 @@ describe('BuildReadout', () => {
     const { container } = render(<BuildReadout />)
 
     expect(lines(container)).toEqual([
-      'beta 0.0.0-beta.1  net ok',
+      'beta 0.0.0-beta.1  net ok  homelab-proxm… ok  studio DOWN',
       '--fps --ms  pty0 ag0 ws0',
-      'homelab-proxm… ok  studio DOWN',
     ])
+    expect(netState(container)).toBe('ok')
     expect(hostStates(container)).toEqual(['ok', 'down'])
 
     setStatus('h2', 'needs-repair')
-    expect(lines(container)[2]).toBe('homelab-proxm… ok  studio repair')
+    expect(lines(container)[0]).toBe('beta 0.0.0-beta.1  net ok  homelab-proxm… ok  studio repair')
     expect(hostStates(container)).toEqual(['ok', 'repair'])
   })
 
-  it('keeps a local-only install to its two lines', () => {
+  it('keeps the local reading, reconnect count included, ahead of the hosts', () => {
     reportChannelState('/v0/ws/git', true, 'local')
+    pairRemoteHost('h1', 'lab')
+    setStatus('h1', 'up')
+    const { container } = render(<BuildReadout />)
+    act(() => reportChannelState('/v0/ws/git', false, 'local'))
+    expect(lines(container)).toEqual(['beta 0.0.0-beta.1  net DOWN  lab ok', '--fps --ms'])
+
+    act(() => reportChannelState('/v0/ws/git', true, 'local'))
+    expect(lines(container)[0]).toBe('beta 0.0.0-beta.1  net ok  rc1  lab ok')
+    expect(netState(container)).toBe('ok')
+  })
+
+  it('never adds a line, however many hosts are paired', () => {
+    reportChannelState('/v0/ws/git', true, 'local')
+    pairRemoteHost('h1', 'a-very-long-host-name-indeed')
+    pairRemoteHost('h2', 'studio')
     const { container } = render(<BuildReadout />)
 
     expect(lines(container)).toHaveLength(2)
+    expect(lines(container)[0]).toBe('beta 0.0.0-beta.1  net ok  a-very-long-h… --  studio --')
+  })
+
+  it('keeps a local-only install exactly as it was', () => {
+    reportChannelState('/v0/ws/git', true, 'local')
+    const { container } = render(<BuildReadout />)
+
+    expect(lines(container)).toEqual(['beta 0.0.0-beta.1  net ok', '--fps --ms  pty0 ag0 ws0'])
     expect(hostStates(container)).toEqual([])
   })
 
