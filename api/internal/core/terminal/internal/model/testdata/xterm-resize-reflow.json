@@ -60,8 +60,8 @@
       "toCols": 13,
       "toRows": 6,
       "raw": "ab日ab日ab日ab日ab日ab日ab日ab日ab日ab日\r\nxxxxxxxxxxxxxxxxxxx日本語\r\nab日ab日ab日ab日ab日ab日ab日ab日ab日ab日\r\nxxxxxxxxxxxxxxxxxxx日本語\r\n",
-      "before": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hab日ab日ab日ab日ab ab日ab日ab日ab日ab日\u001b[K\r\nxxxxxxxxxxxxxxxxxxx 本語\u001b[K\r\nab日ab日ab日ab日ab ab日ab日ab日ab日ab日\u001b[K\r\nxxxxxxxxxxxxxxxxxxx 本語\u001b[K\r\n\u001b[6;1H\u001b[?25h\u001b[m",
-      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hab日ab日ab日ab日ab a\r\nb日ab日ab日ab日ab日\r\nxxxxxxxxxxxxxxxxxxx\r\n本語\r\nab日ab日ab日a\r\nb日ab日ab日ab\r\nxxxxxxxxxxxxx\r\n本語\r\n\u001b[6;1H\u001b[?25h\u001b[m",
+      "before": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hab日ab日ab日ab日ab日ab日ab日ab日ab日ab日\r\nxxxxxxxxxxxxxxxxxxx日本語\u001b[K\r\nab日ab日ab日ab日ab日ab日ab日ab日ab日ab日\r\nxxxxxxxxxxxxxxxxxxx日本語\u001b[K\r\n\u001b[6;1H\u001b[?25h\u001b[m",
+      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hab日ab日ab日ab日ab日\r\nab日ab日ab日ab日ab日\r\nxxxxxxxxxxxxxxxxxxx\r\n日本語\r\nab日ab日ab日a\r\nab日ab日ab日a\r\nxxxxxxxxxxxxx\r\n日本語\r\n\u001b[6;1H\u001b[?25h\u001b[m",
       "saturated": false,
       "pendingWrap": false
     },

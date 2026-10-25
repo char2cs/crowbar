@@ -42,7 +42,13 @@ func appendChainRow(
 ) []byte {
 	if next != nextBreaks {
 		head := padToCols(cells, cols)
-		dst, _ = appendLine(dst, head, len(head), false)
+		n := len(head)
+		// The client wraps a wide glyph early and blanks the last cell itself; a printed space
+		// there would count as content to xterm's next reflow.
+		if next == nextWrapsWide && n == cols && noGlyph(&head[n-1]) {
+			n--
+		}
+		dst, _ = appendLine(dst, head, n, false)
 		return dst
 	}
 	dst, end := appendLine(dst, cells, len(cells), true)
@@ -56,6 +62,13 @@ func appendChainRow(
 		dst = append(dst, ansi.EraseLineRight...)
 	}
 	return append(dst, brk...)
+}
+
+// noGlyph reports a one-column cell with no glyph, whatever its pen.
+func noGlyph(
+	c *uv.Cell,
+) bool {
+	return c.Width == 1 && (c.Content == "" || c.Content == " ")
 }
 
 // padToCols extends cells with blanks to cols: x/vt trims a scrollback line's trailing blanks,

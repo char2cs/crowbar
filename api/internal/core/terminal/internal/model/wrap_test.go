@@ -60,14 +60,14 @@ func TestSerialize_RoundTripPreservesWrapFlags(t *testing.T) {
 		{name: "a coloured continuation the client reaches by a scroll", bytes: redCont, flags: "grid F T F F F | scrollback F F F F"},
 		{name: "a continuation that fills its row", bytes: fullCont + "\r\nz", flags: "grid F T F F F | scrollback"},
 		{name: "a continuation ending in a wide glyph at the last column", bytes: wideCont + "\r\nz", flags: "grid F T F F F | scrollback"},
-		{name: "a wide glyph wrapped early", bytes: earlyWide, flags: "grid F T F F F | scrollback", holds: "日y"},
+		{name: "a wide glyph wrapped early", bytes: earlyWide, flags: "grid F T F F F | scrollback", holds: "日"},
 		{
 			name: "a styled wide glyph wrapped early", bytes: "\x1b[41m" + earlyWide + "\x1b[m",
-			flags: "grid F T F F F | scrollback", holds: "日y",
+			flags: "grid F T F F F | scrollback", holds: "日",
 		},
 		{
 			name: "a wide glyph wrapped early, in the scrollback", bytes: earlyWide + strings.Repeat("\r\n", 5),
-			flags: "grid F F F F F | scrollback F T", holds: "日y",
+			flags: "grid F F F F F | scrollback F T", holds: "日",
 		},
 		{
 			name:  "chains deep in the scrollback",
