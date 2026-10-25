@@ -94,9 +94,9 @@ func writeContent(
 	if !alt {
 		n := emu.ScrollbackLen()
 		for i := 0; i < n; i++ {
-			next := emu.ScrollbackRowWrapped(i + 1)
+			next := chainNextOf(emu.ScrollbackRowWrapped(i+1), emu.ScrollbackLine(i+1).At(0))
 			if i == n-1 {
-				next = emu.RowWrapped(0)
+				next = chainNextOf(emu.RowWrapped(0), emu.CellAt(0, 0))
 			}
 			line = appendChainRow(line[:0], emu.ScrollbackLine(i), cols, emu.ScrollbackRowWrapped(i), next, "\r\n")
 			b.Write(line)
@@ -109,7 +109,8 @@ func writeContent(
 			brk = ""
 		}
 		scratch = snapshotRowInto(emu, scratch, cols, y)
-		line = appendChainRow(line[:0], scratch, cols, emu.RowWrapped(y), emu.RowWrapped(y+1), brk)
+		next := chainNextOf(emu.RowWrapped(y+1), emu.CellAt(0, y+1))
+		line = appendChainRow(line[:0], scratch, cols, emu.RowWrapped(y), next, brk)
 		b.Write(line)
 	}
 }

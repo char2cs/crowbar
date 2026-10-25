@@ -5,17 +5,42 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// appendChainRow appends one row so the client rebuilds its wrap bit. A head (nextWrapped) runs
+// chainNext is what follows a row: a line of its own, or a continuation of this one.
+type chainNext uint8
+
+const (
+	nextBreaks    chainNext = iota // the next row starts a line of its own
+	nextWraps                      // the next row continues this one
+	nextWrapsWide                  // the next row continues this one and starts with a wide glyph
+)
+
+// chainNextOf classifies the row after this one from its wrap bit and its first cell.
+func chainNextOf(
+	wraps bool,
+	first *uv.Cell,
+) chainNext {
+	switch {
+	case !wraps:
+		return nextBreaks
+	case first != nil && first.Width > 1:
+		return nextWrapsWide
+	default:
+		return nextWraps
+	}
+}
+
+// appendChainRow appends one row so the client rebuilds its wrap bit. A head (next wraps) runs
 // untrimmed to the last column with no brk, so the client autowraps onto the next row; any other
 // row is trimmed and followed by brk. A writer that addresses rows itself passes brk "".
 func appendChainRow(
 	dst []byte,
 	cells []uv.Cell,
 	cols int,
-	wrapped, nextWrapped bool,
+	wrapped bool,
+	next chainNext,
 	brk string,
 ) []byte {
-	if nextWrapped {
+	if next != nextBreaks {
 		head := padToCols(cells, cols)
 		dst, _ = appendLine(dst, head, len(head), false)
 		return dst

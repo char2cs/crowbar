@@ -107,25 +107,23 @@ func TestConformance_WrappedChainScrollsUnderAutowrapOff(t *testing.T) {
 	require.Equal(t, "grid F F F F F F | scrollback F F T F T", wrapFlags(t, m), "test setup")
 }
 
-// A chain taller than the viewport cannot go out whole in one write-then-scroll batch: it is cut at
-// the viewport's height, a cut line loses its wrap bit, and every cell still arrives.
+// A chain taller than the viewport goes out as one flow: the client's own autowrap scrolls it
+// through, so every wrap bit and every cell arrives.
 func TestConformance_WrappedChainTallerThanViewport(t *testing.T) {
 	m, _, sim, e := newWrapConformance(t)
 
 	steps := []struct {
-		name, chunk, model, client string
+		name, chunk, flags string
 	}{
 		{
-			name:   "fourteen lines of one chain commit at once",
-			chunk:  "\r\n" + strings.Repeat("x", 400),
-			model:  "grid T T T T T T | scrollback F F T T T T T T T T T T T T T",
-			client: "grid T T T T T T | scrollback F F T T T T T F T T T T T F T",
+			name:  "fourteen lines of one chain commit at once",
+			chunk: "\r\n" + strings.Repeat("x", 400),
+			flags: "grid T T T T T T | scrollback F F T T T T T T T T T T T T T",
 		},
 		{
-			name:   "a viewport of lines commits and the top row still continues them",
-			chunk:  strings.Repeat("y", 120),
-			model:  "grid T T T T T T | scrollback F F T T T T T T T T T T T T T T T T T T T",
-			client: "grid T T T T T T | scrollback F F T T T T T F T T T T T F T T T T T T F",
+			name:  "a viewport of lines commits and the top row still continues them",
+			chunk: strings.Repeat("y", 120),
+			flags: "grid T T T T T T | scrollback F F T T T T T T T T T T T T T T T T T T T",
 		},
 	}
 	for _, s := range steps {
@@ -135,13 +133,13 @@ func TestConformance_WrappedChainTallerThanViewport(t *testing.T) {
 		sim.apply(data, false)
 		require.Equal(t, gridString(m), gridString(sim.m), s.name)
 		require.Equal(t, scrollbackStrings(m), scrollbackStrings(sim.m), s.name)
-		require.Equal(t, s.model, wrapFlags(t, m), "test setup: %s", s.name)
-		require.Equal(t, s.client, wrapFlags(t, sim.m), "%s: only the cut lines lose their wrap bit", s.name)
+		require.Equal(t, s.flags, wrapFlags(t, m), "test setup: %s", s.name)
+		require.Equal(t, s.flags, wrapFlags(t, sim.m), "%s: the client's wrap bits", s.name)
 	}
 }
 
-// A one-row viewport has no spare row to carry the top row's flag, so its chains lose their wrap
-// bits; every cell still arrives, and no line the model keeps on screen is scrolled out.
+// A one-row viewport carries the top row's flag too: the top row follows the last committed line
+// and no line the model keeps on screen is scrolled out.
 func TestConformance_WrappedChainOnOneRow(t *testing.T) {
 	m, ser := New(20, 1, 200)
 	t.Cleanup(m.Close)
@@ -157,27 +155,29 @@ func TestConformance_WrappedChainOnOneRow(t *testing.T) {
 	require.Equal(t, gridString(m), gridString(sim.m))
 	require.Equal(t, scrollbackStrings(m), scrollbackStrings(sim.m))
 	require.Equal(t, "grid T | scrollback F F T", wrapFlags(t, m), "test setup")
-	// The client's row 0 never gains its flag, so every Emit rewrites it while it continues a line.
-	require.Equal(t, "grid F | scrollback F F F", wrapFlags(t, sim.m))
+	require.Equal(t, "grid T | scrollback F F T", wrapFlags(t, sim.m))
+	again, _ := e.Emit(m)
+	require.Empty(t, string(again), "the client holds the top row's flag, so nothing is rewritten")
 }
 
-// A seeded random walk on small viewports. After every Emit the client's cells, scrollback and grid
-// wrap bits equal the model's and a second Emit writes nothing; the scrollback's wrap bits equal the
-// model's until a line spans more rows than the viewport, which a batch must cut.
+// A seeded random walk on small viewports. After every Emit the client's cells, scrollback and wrap
+// bits equal the model's and a second Emit writes nothing.
 func TestConformance_RandomizedWrapWalk(t *testing.T) {
 	steps, wrappedChecks := 0, 0
 	for seed := int64(1); seed <= 400; seed++ {
-		n, w := walkWraps(t, seed)
+		n, w := walkWraps(t, seed, false)
 		steps, wrappedChecks = steps+n, wrappedChecks+w
 	}
 	require.NotZero(t, wrappedChecks, "test setup: the walk compares wrap bits while lines wrap")
 	t.Logf("%d steps, %d wrap-bit comparisons with a wrapped line", steps, wrappedChecks)
 }
 
-// walkWraps runs one seed's 60 steps and returns them with how many compared a set wrap bit.
+// walkWraps runs one seed's 60 steps and returns them with how many compared a set wrap bit. With
+// resizes, some steps resize both sides instead, and every step also checks the model is sound.
 func walkWraps(
 	t *testing.T,
 	seed int64,
+	resizes bool,
 ) (steps, wrappedChecks int) {
 	t.Helper()
 	rng := rand.New(rand.NewSource(seed))
@@ -188,11 +188,17 @@ func walkWraps(
 	defer func() { sim.m.Close() }()
 	e := NewDiffEmitter()
 	var chunks []string
-	exactHistory := true
 	for ; steps < 60; steps++ {
-		chunks = append(chunks, wrapWalkChunk(rng, cols, rows))
+		if resizes && rng.Intn(6) == 0 {
+			cols, rows = 2+rng.Intn(19), 1+rng.Intn(8)
+			chunks = append(chunks, fmt.Sprintf("<resize %dx%d>", cols, rows))
+			m.Resize(cols, rows)
+			sim.resize(cols, rows)
+		} else {
+			chunks = append(chunks, wrapWalkChunk(rng, cols, rows))
+			m.Write([]byte(chunks[steps]))
+		}
 		where := fmt.Sprintf("seed %d at %dx%d after %q", seed, cols, rows, chunks)
-		m.Write([]byte(chunks[steps]))
 		data, needKeyframe := e.Emit(m)
 		if needKeyframe {
 			sim.apply(ser.Serialize(m), true)
@@ -205,13 +211,11 @@ func walkWraps(
 		again, needKeyframe := e.Emit(m)
 		require.False(t, needKeyframe, where)
 		require.Empty(t, string(again), "a second Emit rewrites nothing: %s", where)
-		exactHistory = exactHistory && longestLine(t, m) <= rows
-		want, got := wrapFlags(t, m), wrapFlags(t, sim.m)
-		if !exactHistory {
-			want, _, _ = strings.Cut(want, " | ")
-			got, _, _ = strings.Cut(got, " | ")
+		want := wrapFlags(t, m)
+		require.Equal(t, want, wrapFlags(t, sim.m), where)
+		if resizes {
+			assertSound(t, m, where)
 		}
-		require.Equal(t, want, got, where)
 		if strings.Contains(want, "T") {
 			wrappedChecks++
 		}
@@ -272,38 +276,18 @@ func walkText(
 	rng *rand.Rand,
 	n int,
 ) string {
-	text := make([]byte, 1+rng.Intn(n))
+	text := make([]byte, 1+rng.Intn(max(n, 1)))
 	for i := range text {
 		text[i] = "abcdefghijklmnopqrstuvwxyz        "[rng.Intn(30)]
 	}
 	return string(text)
 }
 
-// longestLine returns the most rows one line spans, across the scrollback and the grid.
-func longestLine(
-	t *testing.T,
-	m TerminalModel,
-) int {
-	t.Helper()
-	emu := asVT(t, m).emu
-	sb := emu.ScrollbackLen()
-	longest, run := 0, 0
-	for i := 0; i < sb+emu.Height(); i++ {
-		wrapped := i < sb && emu.ScrollbackRowWrapped(i) || i >= sb && emu.RowWrapped(i-sb)
-		if !wrapped {
-			run = 0
-		}
-		run++
-		longest = max(longest, run)
-	}
-	return longest
-}
-
 // The web link tests replay this fixture through xterm.js, the real client. After an intended
 // wire change: go test -tags noEmbed . -run XtermReplayFixture -update
 const xtermFixturePath = "testdata/xterm-wrapped-links.json"
 
-var updateXtermFixture = flag.Bool("update", false, "rewrite "+xtermFixturePath)
+var updateXtermFixture = flag.Bool("update", false, "rewrite the xterm fixtures in testdata/")
 
 type xtermScenario struct {
 	Name     string   `json:"name"`
