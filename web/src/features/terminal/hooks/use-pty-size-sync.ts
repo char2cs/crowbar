@@ -37,9 +37,9 @@ export function fitToContainer(fitAddon: FitAddon | null, container: HTMLElement
  * changes, and when the view (re)attaches or becomes visible — so a no-op fit on
  * a freshly attached PTY still reconciles it, and a redundant fit sends nothing.
  *
- * A resize also makes the daemon's next frame a keyframe, which replaces the
- * junk xterm's client-side reflow deposits in local scrollback — no separate
- * resync round-trip exists.
+ * A resize also makes the daemon's next frame a keyframe. The daemon reflows as
+ * xterm does, so the keyframe equals xterm's own reflow and changes nothing on
+ * screen; it only re-anchors the client to the daemon's model.
  */
 export function usePtySizeSync({
   terminal,

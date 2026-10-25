@@ -8,6 +8,17 @@ import { shouldScrollScrollback } from '../utils/wheel-routing'
 import { recordInputTape } from '../utils/input-tape'
 import { readTerminalThemePayload } from './use-terminal-theme'
 
+// RIS, xterm's in-band reset. A snapshot goes out as ONE chunk that begins with it: xterm parses
+// a chunk within one task, so no frame can show the reset buffer before the redraw.
+const RIS = new Uint8Array([0x1b, 0x63])
+
+function withReset(data: Uint8Array): Uint8Array {
+  const chunk = new Uint8Array(RIS.length + data.length)
+  chunk.set(RIS)
+  chunk.set(data, RIS.length)
+  return chunk
+}
+
 interface UseTerminalConnectionOptions {
   /** This view's live stream to its PTY (null while (re)attaching). */
   connection: TerminalConnection | null
@@ -70,15 +81,6 @@ export function useTerminalConnection({
   useEffect(() => {
     if (!terminal || !connection) return
 
-    // Frames held while a snapshot's reset + redraw is sequenced through xterm's
-    // async write queue. xterm parses writes in enqueue order, so a frame written
-    // between the barrier and its callback would land on the reset buffer and
-    // then be overwritten by the redraw that follows it.
-    let held: Uint8Array[] = []
-    let snapshotPending = false
-    // Bumped per snapshot, and on teardown: a barrier whose captured generation
-    // no longer matches is inert (a newer snapshot, or a new connection, owns it).
-    let snapshotGen = 0
     // The first frame after an attach is the daemon's redraw of the whole screen:
     // pin to it and repaint once — WKWebView can leave a freshly written WebGL
     // canvas blank until something invalidates it.
@@ -87,10 +89,6 @@ export function useTerminalConnection({
       Boolean(initialCommand) && created && initialCommandSentToRef.current !== connection
 
     const writeFrame = (data: Uint8Array) => {
-      if (snapshotPending) {
-        held.push(data)
-        return
-      }
       const finalize = finalizePending
       finalizePending = false
       terminal.write(data, () => {
@@ -118,27 +116,12 @@ export function useTerminalConnection({
         writeFrame(frame.data)
         return
       }
-      // A snapshot replaces everything held so far with the daemon's ground truth.
-      held = []
+      // A snapshot replaces the screen with the daemon's ground truth. Its reset rides in band,
+      // so the bytes queued before it parse first and the frames after it land on it.
       finalizePending = false
-      snapshotPending = true
-      const gen = ++snapshotGen
-      // Sequence the reset + redraw THROUGH xterm's write queue: a synchronous
-      // reset() would run before bytes already queued are parsed, and they would
-      // then land on the fresh buffer.
-      terminal.write('', () => {
-        if (snapshotGen !== gen) return
-        terminal.reset()
-        terminal.write(frame.data, () => {
-          terminal.scrollToBottom()
-          terminal.refresh(0, terminal.rows - 1)
-        })
-        // Unlatch once the redraw is ENQUEUED: anything written from here on
-        // parses strictly after it.
-        snapshotPending = false
-        const later = held
-        held = []
-        for (const data of later) writeFrame(data)
+      terminal.write(withReset(frame.data), () => {
+        terminal.scrollToBottom()
+        terminal.refresh(0, terminal.rows - 1)
       })
     })
 
@@ -196,7 +179,6 @@ export function useTerminalConnection({
     window.addEventListener('blur', handleWindowBlur)
 
     return () => {
-      snapshotGen++
       window.removeEventListener('focus', handleWindowFocus)
       window.removeEventListener('blur', handleWindowBlur)
       wheelContainer?.removeEventListener('wheel', handleWheel, true)
