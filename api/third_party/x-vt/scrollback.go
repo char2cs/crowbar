@@ -35,19 +35,7 @@ func (s *Scrollback) PushWrapped(line uv.Line, wrapped bool) {
 		return
 	}
 
-	// Find last non-empty cell to trim trailing empty cells.
-	// This helps with wrapping and window resizing.
-	lastNonEmpty := -1
-	for i := len(line) - 1; i >= 0; i-- {
-		c := &line[i]
-		if !c.IsZero() && !c.Equal(&uv.EmptyCell) {
-			lastNonEmpty = i
-			break
-		}
-	}
-
-	// Clone the line content up to and including the last non-empty cell
-	cloned := slices.Clone(line[:lastNonEmpty+1])
+	cloned := slices.Clone(trimLine(line))
 
 	if len(s.lines) >= s.maxLines {
 		// Remove oldest line and append new one
@@ -57,6 +45,31 @@ func (s *Scrollback) PushWrapped(line uv.Line, wrapped bool) {
 	s.lines = append(s.lines, cloned)
 	s.wrapped = append(s.wrapped, wrapped)
 	s.wrapped[0] = false // the oldest line has no head in the buffer
+}
+
+// trimLine drops a line's trailing empty cells, which helps with wrapping and window resizing.
+func trimLine(line uv.Line) uv.Line {
+	n := len(line)
+	for n > 0 && (line[n-1].IsZero() || line[n-1].Equal(&uv.EmptyCell)) {
+		n--
+	}
+	return line[:n]
+}
+
+// replaceLines replaces the buffer's lines, oldest first, as a resize leaves them; wrapped[i]
+// reports that line i continues line i-1. It keeps the newest maxLines.
+func (s *Scrollback) replaceLines(lines []uv.Line, wrapped []bool) {
+	if n := len(lines) - s.maxLines; n > 0 {
+		lines, wrapped = lines[n:], wrapped[n:]
+	}
+	s.lines = s.lines[:0]
+	for _, line := range lines {
+		s.lines = append(s.lines, trimLine(line))
+	}
+	s.wrapped = append(s.wrapped[:0], wrapped...)
+	if len(s.wrapped) > 0 {
+		s.wrapped[0] = false // the oldest line has no head in the buffer
+	}
 }
 
 // Len returns the number of lines in the scrollback buffer.

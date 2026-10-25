@@ -74,23 +74,52 @@ func (s *Screen) Height() int {
 	return s.buf.Height()
 }
 
-// Resize resizes the screen.
+// Resize resizes the screen as xterm.js resizes a buffer; a screen with history reflows its
+// soft-wrapped lines (reflow.go).
 func (s *Screen) Resize(width int, height int) {
-	wrapped := make([]bool, height)
-	if s.buf == nil {
-		s.buf = uv.NewRenderBuffer(width, height)
-	} else {
-		// Rows are not reflowed, so a new width ends every wrap.
-		if width == s.buf.Width() {
-			copy(wrapped, s.wrapped)
-		} else if s.scrollback != nil {
-			clear(s.scrollback.wrapped)
-		}
-		s.buf.Resize(width, height)
-		s.buf.Touched = nil
+	s.resizeLines(width, height, false, s.scrollback != nil)
+}
+
+// combine lists the scrollback and the grid as one buffer. Wider columns need no step of their
+// own: a read past a line's end yields the blank xterm.js's grown lines hold.
+func (s *Screen) combine(pending bool, height int) reflowBuf {
+	var history []uv.Line
+	var wrapped []bool
+	if s.scrollback != nil {
+		history, wrapped = s.scrollback.lines, s.scrollback.wrapped
 	}
-	s.wrapped = wrapped
+	n := len(history) + max(s.buf.Height(), height)
+	b := reflowBuf{x: s.cur.X, y: s.cur.Y, savedX: s.saved.X, savedY: len(history) + s.saved.Y}
+	b.lines = append(append(make([]uv.Line, 0, n), history...), s.buf.Lines...)
+	b.wrapped = append(append(make([]bool, 0, n), wrapped...), s.wrapped...)
+	b.ybase, b.maxLength = len(history), height+s.scrollback.MaxLines()
+	if pending {
+		b.x = s.buf.Width() // xterm.js holds a pending wrap as x == cols
+	}
+	return b
+}
+
+// writeBack stores the resized buffer: the grid at exactly width cells per row, the scrollback,
+// the cursors and the wrap bits. No keyframe carries the oldest line's flag, so it is cleared.
+func (s *Screen) writeBack(b *reflowBuf, width, height int) {
+	for len(b.lines) < b.ybase+height {
+		b.lines, b.wrapped = append(b.lines, uv.Line{}), append(b.wrapped, false)
+	}
+	s.buf.Lines = s.buf.Lines[:0]
+	for _, line := range b.lines[b.ybase : b.ybase+height] {
+		s.buf.Lines = append(s.buf.Lines, fitLine(line, width))
+	}
+	s.wrapped = append(s.wrapped[:0], b.wrapped[b.ybase:b.ybase+height]...)
+	if s.scrollback != nil {
+		s.scrollback.replaceLines(b.lines[:b.ybase], b.wrapped[:b.ybase])
+	}
+	if height > 0 && s.scrollback.Len() == 0 {
+		s.wrapped[0] = false
+	}
+	s.cur.X, s.cur.Y = max(min(b.x, width-1), 0), max(min(b.y, height-1), 0)
+	s.saved.X, s.saved.Y = b.savedX, max(min(b.savedY-b.ybase, height-1), 0)
 	s.scroll = s.buf.Bounds()
+	s.buf.Touched = nil
 }
 
 // Width returns the width of the screen.
