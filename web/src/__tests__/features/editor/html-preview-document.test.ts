@@ -65,7 +65,13 @@ describe('buildHtmlPreviewDocument', () => {
     const HOSTILE_SVG =
       '<svg xmlns="http://www.w3.org/2000/svg"><title>a "q" &amp; \'b\' &lt;c&gt; > d</title></svg>'
     const PNG = '\x89PNG\r\n'
-    const files: Record<string, string> = { 'x.svg': SVG, 'hostile.svg': HOSTILE_SVG, 'y.png': PNG }
+    const ATTACK = '"><img src=x onerror=alert(1)>\' onload=\'x" & <script>alert(2)</script>'
+    const files: Record<string, string> = {
+      'x.svg': SVG,
+      'hostile.svg': HOSTILE_SVG,
+      'attack.svg': ATTACK,
+      'y.png': PNG,
+    }
     const loadFile = async (reference: string) => {
       const mime = mimeForPath(reference)
       const bytes = files[reference]
@@ -96,6 +102,19 @@ describe('buildHtmlPreviewDocument', () => {
       expect(doc.querySelector('img[alt="after"]')?.getAttribute('src')).toBe(
         toDataUrl('image/png', PNG),
       )
+    })
+
+    it('confines a document that tries to break out of the attribute to one srcdoc value', async () => {
+      const built = await buildHtmlPreviewDocument('<iframe src="attack.svg"></iframe>', loadFile)
+
+      expect(built.match(/srcdoc=/g)).toHaveLength(1)
+      const [, value = ''] = /^<iframe srcdoc="([^"]*)"><\/iframe>$/.exec(built) ?? []
+      expect(value).not.toBe('')
+      expect(value).not.toMatch(/["<>]/)
+
+      const doc = parse(built)
+      expect(doc.querySelector('iframe')?.getAttribute('srcdoc')).toBe(ATTACK)
+      expect(doc.querySelectorAll('img, script')).toHaveLength(0)
     })
 
     it('keeps the data: rewrite for a non-frame svg byte-for-byte', async () => {

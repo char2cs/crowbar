@@ -18,6 +18,19 @@ function escapeHtmlAttribute(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
 }
 
+// A whole document rides in one attribute value: a single pass over one entity
+// map, so the quote that would end the attribute is handled by the only step.
+const SRCDOC_ENTITIES = new Map([
+  ['&', '&amp;'],
+  ['"', '&quot;'],
+  ['<', '&lt;'],
+  ['>', '&gt;'],
+])
+
+function escapeSrcdoc(text: string): string {
+  return text.replace(/[&"<>]/g, (char) => SRCDOC_ENTITIES.get(char) ?? char)
+}
+
 /** `href` is a resource only on <link>; on <a> it is navigation and stays. */
 function isResourceAttribute(tag: string, attribute: string): boolean {
   return attribute.toLowerCase() !== 'href' || tag.toLowerCase() === 'link'
@@ -29,9 +42,7 @@ function frameSrcdoc(tagSource: string, tag: string, attribute: string, url: str
   const isFrameSrc = tag.toLowerCase() === 'iframe' && attribute.toLowerCase() === 'src'
   if (!isFrameSrc || SRCDOC_ATTRIBUTE_PATTERN.test(tagSource)) return null
   const text = textFromDataUrl(url)
-  return text === null
-    ? null
-    : `srcdoc="${escapeHtmlAttribute(text).replace(/</g, '&lt;').replace(/>/g, '&gt;')}"`
+  return text === null ? null : `srcdoc="${escapeSrcdoc(text)}"`
 }
 
 function srcsetUrls(value: string): string[] {
