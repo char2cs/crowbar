@@ -1,22 +1,21 @@
-// File-reference links in terminal output: makes path-like tokens (as printed
-// by compilers, test runners, Claude Code, git, ...) clickable and opens them
-// inside Crowbar's editor. URLs are handled separately by the web-links addon;
-// this provider deliberately skips anything that is part of a URL.
-import type { IBufferLine, IDisposable, ILink, Terminal } from '@xterm/xterm'
+// Links in terminal output: URLs open in the browser, path-like tokens (as printed
+// by compilers, test runners, git, ...) open in Crowbar's editor. One tokenizer
+// reads the logical line, so a soft-wrapped link is one link on every row.
+import type { IBuffer, IBufferCell, IBufferLine, IDisposable, ILink, Terminal } from '@xterm/xterm'
 import { revealInEditor } from '@/features/editor/lib/reveal'
+import { openExternalUrl } from '@/lib/external-open'
 import { workspaceRootPath } from '@/lib/workspace/resolve-root-path'
 import { toast } from '@/features/window/stores/toast-store'
 import { useTerminalStore } from '../stores/terminal-store'
 
-export interface FileLinkCandidate {
-  /** The full matched text, including any trailing :line[:col] suffix. */
-  text: string
-  /** The path portion, without the :line[:col] suffix. */
-  path: string
-  line?: number
-  /** 0-based index of the match within the row text. */
-  startIndex: number
-}
+/** `start`/`end` index the logical line's text; `end` is exclusive. */
+type LinkToken =
+  | { kind: 'url'; text: string; start: number; end: number }
+  | { kind: 'file'; text: string; path: string; line?: number; start: number; end: number }
+
+// Ported from xterm.js's web-links addon 0.12.0 (strictUrlRegex): a URL never ends
+// on punctuation or a bracket, so "(https://x.dev/a)." links only the URL.
+const URL_RE = /(https?|HTTPS?):[/]{2}[^\s"'!*(){}|\\^<>`]*[^\s"':,.!?{}|\\^~[\]`()<>]/g
 
 // A candidate must look like a real path: either rooted (/, ./, ../, ~/) or
 // containing at least one internal slash (web/src/foo.ts). A :line[:col]
@@ -26,36 +25,52 @@ export interface FileLinkCandidate {
 const FILE_LINK_RE =
   /(?:^|[\s"'`([<])((?:~\/|\.{1,2}\/|\/)?[\w.@+~-]+(?:\/[\w.@+~-]+)+\/?|\/[\w.@+~-]+)((?::\d+){1,2})?/g
 
-// Matched text whose immediate left context ends with "://" or is preceded by
-// a URL scheme belongs to a URL — the web-links addon owns those.
-const URL_PREFIX_RE = /(?:[a-zA-Z][a-zA-Z0-9+.-]*:\/\/|www\.)[^\s]*$/
-
 // "." is a valid path character (extensions, dotfiles), so prose that runs
 // straight into a path with no space ("...design.md. Please review") has its
 // sentence-ending period swallowed into the match. Trim trailing dots the
 // path can't legitimately end with.
 const TRAILING_DOTS_RE = /\.+$/
 
-export function parseFileLinkCandidates(rowText: string): FileLinkCandidate[] {
-  const out: FileLinkCandidate[] = []
-  FILE_LINK_RE.lastIndex = 0
-  for (let m = FILE_LINK_RE.exec(rowText); m !== null; m = FILE_LINK_RE.exec(rowText)) {
+// How far the logical line is read above and below the hovered row.
+const MAX_WALK_CELLS = 2048
+
+// The web-links addon's isUrl: the match must parse as a URL and start with its
+// own origin, so a mangled authority never becomes a link.
+function isUrl(text: string): boolean {
+  try {
+    const url = new URL(text)
+    const auth = url.username ? `${url.username}${url.password ? `:${url.password}` : ''}@` : ''
+    return text.toLowerCase().startsWith(`${url.protocol}//${auth}${url.host}`.toLowerCase())
+  } catch {
+    return false
+  }
+}
+
+function tokenizeLinks(text: string): LinkToken[] {
+  const urls: LinkToken[] = []
+  for (const m of text.matchAll(URL_RE)) {
+    if (!isUrl(m[0])) continue
+    urls.push({ kind: 'url', text: m[0], start: m.index, end: m.index + m[0].length })
+  }
+  const files: LinkToken[] = []
+  for (const m of text.matchAll(FILE_LINK_RE)) {
     const path = m[1].replace(TRAILING_DOTS_RE, '')
     if (!path) continue
     const suffix = m[2] ?? ''
-    const startIndex = m.index + m[0].indexOf(m[1])
-    // Skip path-looking tails of URLs ("https://github.com/a/b").
-    if (URL_PREFIX_RE.test(rowText.slice(0, startIndex))) continue
+    const start = m.index + m[0].indexOf(m[1])
+    const end = start + path.length + suffix.length
+    // A path-looking tail of a URL ("https://x.dev/q[web/a.ts]") belongs to the URL.
+    if (urls.some((url) => start < url.end && url.start < end)) continue
     const line = suffix ? Number(suffix.slice(1).split(':')[0]) : undefined
-    out.push({ text: path + suffix, path, line, startIndex })
+    files.push({ kind: 'file', text: path + suffix, path, line, start, end })
   }
-  return out
+  return [...urls, ...files]
 }
 
 // Resolves a matched path against the terminal's working root. "~" cannot be
 // expanded client-side, so those candidates resolve only if the root is home
 // — skip them instead of opening a wrong file.
-export function resolveFileLinkPath(path: string, root: string | undefined): string | null {
+function resolveFileLinkPath(path: string, root: string | undefined): string | null {
   if (path.startsWith('~')) return null
   if (path.startsWith('/')) return path
   if (!root || !root.startsWith('/')) return null
@@ -71,44 +86,122 @@ export function resolveFileLinkPath(path: string, root: string | undefined): str
   return parts.join('/')
 }
 
+/** The cell a UTF-16 unit of the logical line came from; `x`/`y` are 0-based. */
+interface CellRef {
+  x: number
+  y: number
+  width: number
+}
+
+interface LogicalLine {
+  text: string
+  cells: CellRef[]
+}
+
+/** Row `y`'s logical line: xterm flags each soft-wrapped continuation `isWrapped`. */
+function logicalRows(buffer: IBuffer, y: number): { top: number; rows: IBufferLine[] } | undefined {
+  const hovered = buffer.getLine(y)
+  if (!hovered) return undefined
+  const rows = [hovered]
+  let top = y
+  for (let walked = 0; rows[0].isWrapped && walked < MAX_WALK_CELLS;) {
+    const above = buffer.getLine(top - 1)
+    if (!above) break
+    rows.unshift(above)
+    top--
+    walked += above.length
+  }
+  for (let walked = 0; walked < MAX_WALK_CELLS;) {
+    const below = buffer.getLine(top + rows.length)
+    if (!below?.isWrapped) break
+    rows.push(below)
+    walked += below.length
+  }
+  return { top, rows }
+}
+
+// Unwritten cells read back as ''. They count as spaces only between content, so
+// trailing blanks and the gap a wide glyph leaves at a wrap never split a token.
+function appendRow(line: LogicalLine, row: IBufferLine, y: number, cell: IBufferCell): void {
+  let blanks: CellRef[] = []
+  for (let x = 0; x < row.length; x++) {
+    if (!row.getCell(x, cell)) break
+    const width = cell.getWidth()
+    if (width === 0) continue
+    const chars = cell.getChars()
+    if (chars === '') {
+      blanks.push({ x, y, width })
+      continue
+    }
+    for (const blank of blanks) {
+      line.text += ' '
+      line.cells.push(blank)
+    }
+    blanks = []
+    line.text += chars
+    for (let unit = 0; unit < chars.length; unit++) line.cells.push({ x, y, width })
+  }
+}
+
+function readLogicalLine(buffer: IBuffer, y: number): LogicalLine | undefined {
+  const found = logicalRows(buffer, y)
+  if (!found) return undefined
+  const line: LogicalLine = { text: '', cells: [] }
+  const cell = buffer.getNullCell()
+  found.rows.forEach((row, i) => appendRow(line, row, found.top + i, cell))
+  return line
+}
+
+// xterm ranges are 1-based and inclusive; a wide glyph's range ends on its last cell.
+function rangeOf(cells: CellRef[], token: LinkToken): ILink['range'] {
+  const first = cells[token.start]
+  const last = cells[token.end - 1]
+  return {
+    start: { x: first.x + 1, y: first.y + 1 },
+    end: { x: last.x + last.width, y: last.y + 1 },
+  }
+}
+
 export interface TerminalLinksOptions {
   /** The directory relative paths resolve against (terminal cwd / worktree). */
   getRoot: () => string | undefined
   /** Opens the resolved absolute path in Crowbar's editor. */
   openFile: (absolutePath: string, line?: number) => void
+  /** Opens a URL outside Crowbar. */
+  openUrl: (uri: string) => void
   /** Called when a clicked candidate cannot be resolved to an absolute path. */
   onUnresolved?: (candidateText: string) => void
 }
 
-// Registers an xterm link provider for file references. The provider is owned
-// by the terminal instance and is disposed with it.
+function activate(token: LinkToken, options: TerminalLinksOptions): void {
+  if (token.kind === 'url') {
+    options.openUrl(token.text)
+    return
+  }
+  const resolved = resolveFileLinkPath(token.path, options.getRoot())
+  if (resolved) options.openFile(resolved, token.line)
+  else options.onUnresolved?.(token.text)
+}
+
+// Registers the terminal's one link provider. It is owned by the terminal
+// instance and is disposed with it.
 export function registerTerminalLinks(
-  terminal: Terminal,
+  terminal: Pick<Terminal, 'buffer' | 'registerLinkProvider'>,
   options: TerminalLinksOptions,
 ): IDisposable {
   return terminal.registerLinkProvider({
     provideLinks(bufferLineNumber: number, callback: (links: ILink[] | undefined) => void) {
-      const bufferLine: IBufferLine | undefined = terminal.buffer.active.getLine(
-        bufferLineNumber - 1,
-      )
-      if (!bufferLine) {
+      const line = readLogicalLine(terminal.buffer.active, bufferLineNumber - 1)
+      if (!line) {
         callback(undefined)
         return
       }
-      const rowText = bufferLine.translateToString(true)
-      const links: ILink[] = parseFileLinkCandidates(rowText).map((candidate) => ({
-        text: candidate.text,
-        // xterm ranges are 1-based and inclusive.
-        range: {
-          start: { x: candidate.startIndex + 1, y: bufferLineNumber },
-          end: { x: candidate.startIndex + candidate.text.length, y: bufferLineNumber },
-        },
-        activate: () => {
-          const resolved = resolveFileLinkPath(candidate.path, options.getRoot())
-          if (resolved) options.openFile(resolved, candidate.line)
-          else options.onUnresolved?.(candidate.text)
-        },
-      }))
+      const links: ILink[] = []
+      for (const token of tokenizeLinks(line.text)) {
+        const range = rangeOf(line.cells, token)
+        if (range.start.y > bufferLineNumber || range.end.y < bufferLineNumber) continue
+        links.push({ text: token.text, range, activate: () => activate(token, options) })
+      }
       callback(links.length > 0 ? links : undefined)
     },
   })
@@ -132,6 +225,10 @@ export function terminalLinksFor(
     openFile: (absolutePath, line) => {
       const position = line ? { line: line - 1, character: 0 } : undefined
       void revealInEditor({ doc: { absolutePath }, position })
+    },
+    // No confirmation step: a click goes straight to the default browser.
+    openUrl: (uri) => {
+      openExternalUrl(uri).catch((error) => console.error('Failed to open link:', error))
     },
     onUnresolved: (candidateText) => {
       toast.error('Cannot open file', `Could not resolve ${candidateText} to a path.`)

@@ -1,9 +1,5 @@
 import { Terminal, type ITerminalOptions } from '@xterm/xterm'
-import {
-  createTerminalAddons,
-  loadWebLinksAddon,
-  type TerminalAddons,
-} from '../hooks/use-terminal-addons'
+import { createTerminalAddons, type TerminalAddons } from '../hooks/use-terminal-addons'
 import { registerTerminalLinks, type TerminalLinksOptions } from './terminal-links'
 import { selectionTextPreservingWraps } from '../utils/selection-text'
 import { resolveKeyOverride } from '../utils/terminal-key-overrides'
@@ -58,7 +54,6 @@ export function mountXterm(
     })
     if (terminal.textarea) releases.push(watchTextarea(terminal.textarea, deps.write))
     releases.push(ownCopy(container, terminal))
-    loadWebLinksAddon(terminal)
     const links = registerTerminalLinks(terminal, deps.links)
     releases.push(() => links.dispose())
     terminal.unicode.activeVersion = '11'

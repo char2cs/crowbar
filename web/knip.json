@@ -156,7 +156,6 @@
     "src/features/settings/types/settings.ts": ["types"],
     "src/features/terminal/hooks/use-terminal-theme.ts": ["exports"],
     "src/features/terminal/lib/host-theme.ts": ["exports"],
-    "src/features/terminal/lib/terminal-links.ts": ["exports", "types"],
     "src/features/terminal/utils/input-tape.ts": ["exports", "types"],
     "src/features/terminal/utils/resolve-font.ts": ["exports"],
     "src/features/terminal/utils/selection-text.ts": ["types"],
