@@ -4,8 +4,8 @@
 // A vendor CLI that needs permission blocks its hook relay and waits for stdout.
 // The desk is where that relay is registered so Crowbar's UI can find it, decide
 // for it, and hand back exactly the bytes the provider expects — and where a
-// relay that nobody answers in time is released so the provider falls back to its
-// own terminal UI.
+// relay that nobody answers in time is released, its question closed as what its
+// channel then hands the provider.
 package answerdesk
 
 import (
@@ -57,6 +57,8 @@ type Desk struct {
 
 	retention time.Duration
 	ledger    Ledger
+	// after is the clock a relay's budget runs out on.
+	after func(time.Duration) <-chan time.Time
 	// changed is told which chat's answerable prompts just moved, always AFTER the
 	// desk's lock is released so it may read the desk back.
 	changed func(chatID string)
@@ -79,6 +81,7 @@ func New(retention time.Duration, ledger Ledger, opts ...Option) *Desk {
 		slots:     map[string]*Slot{},
 		retention: retention,
 		ledger:    ledger,
+		after:     time.After,
 	}
 	for _, opt := range opts {
 		opt(d)
@@ -154,13 +157,13 @@ func (d *Desk) held(askID string) (*Slot, bool) {
 }
 
 // Discard retires a relay without printing and reports whether a verdict had
-// already been reached. A false verdict is the caller's cue to close the ledger's
-// question as proceeded: the provider is about to resolve it through its own UI.
+// already been reached, or claimed by an answer being recorded. A false verdict is
+// the caller's cue to close the question as proceeded: the provider is resolving it.
 func (d *Desk) Discard(slot *Slot) bool {
 	defer d.announce(slot.ChatID)
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	decided := d.claimableLocked(slot)
+	decided := d.claimableLocked(slot) || slot.answering != nil
 	d.forgetLocked(slot)
 	slot.settle(nil)
 	return decided
@@ -254,8 +257,8 @@ func (d *Desk) slotsOfLocked(runnerID string) []*Slot {
 // closes its ledger question as proceeded: the provider is about to resolve the
 // prompt through its own UI.
 //
-// Nothing is written when the relay had already been answered — the question was
-// decided, not proceeded past — or when no relay was holding the ask at all.
+// Nothing is written when the relay had already been answered, or is being — the
+// question was decided, not proceeded past — or when no relay held the ask at all.
 func (d *Desk) Abandon(ctx context.Context, askID string) {
 	slot, held := d.held(askID)
 	if !held {

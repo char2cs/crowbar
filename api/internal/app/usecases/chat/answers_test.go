@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -408,11 +409,9 @@ func TestAnswer_RefusesAnUnknownChatOrPrompt(t *testing.T) {
 	chatID, runnerID := f.spawn(t, "claude")
 	_, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
-	err := f.usecase.AnswerChoice(f.ctx, "no-such-chat", choice.ID, []string{"allow"}, "", nil)
-	require.Error(t, err)
-
-	err = f.usecase.AnswerChoice(f.ctx, chatID, "no-such-choice", []string{"allow"}, "", nil)
-	require.ErrorIs(t, err, apperr.ErrConflict)
+	require.Error(t, f.usecase.AnswerChoice(f.ctx, "no-such-chat", choice.ID, []string{"allow"}, "", nil))
+	err := f.usecase.AnswerChoice(f.ctx, chatID, "no-such-choice", []string{"allow"}, "", nil)
+	require.ErrorIs(t, err, agentusecase.ErrNoLongerWaiting)
 }
 
 func TestAnswer_ASecondAnswerToOnePromptIsRefused(t *testing.T) {
@@ -426,7 +425,7 @@ func TestAnswer_ASecondAnswerToOnePromptIsRefused(t *testing.T) {
 	<-printed
 
 	err := f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"deny"}, "", nil)
-	require.ErrorIs(t, err, apperr.ErrConflict)
+	require.ErrorIs(t, err, agentusecase.ErrNoLongerWaiting)
 }
 
 func TestAnswer_ARelayThatDisconnectsFreesItsPrompt(t *testing.T) {
@@ -444,7 +443,7 @@ func TestAnswer_ARelayThatDisconnectsFreesItsPrompt(t *testing.T) {
 	assert.False(t, waiting)
 	assert.Empty(t, pendingChoices(t, f, chatID), "its CLI asks the prompt itself now")
 	err = f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil)
-	require.ErrorIs(t, err, apperr.ErrConflict)
+	require.ErrorIs(t, err, agentusecase.ErrNoLongerWaiting, "an answer no CLI would get is refused as such")
 }
 
 func TestAnswer_AwaitOnAnUnknownDeliveryReturnsNothingRatherThanFailing(t *testing.T) {

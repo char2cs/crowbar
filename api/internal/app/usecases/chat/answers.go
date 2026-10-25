@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
@@ -47,9 +48,10 @@ type AnswerUsecase interface {
 	// options into the provider's own answer format and hands that to the relay
 	// holding the prompt open.
 	//
-	// Returns apperr.ErrConflict when no relay is still holding the prompt — a
-	// prompt whose CLI has moved on can no longer be answered from Crowbar — and
-	// apperr.ErrInvalidArgument when the provider cannot express the decision.
+	// Returns ErrNoLongerWaiting (an apperr.ErrConflict) when no relay is still
+	// holding the prompt — its CLI has moved on, so it can no longer be answered
+	// from Crowbar — and apperr.ErrInvalidArgument when the provider cannot
+	// express the decision.
 	AnswerChoice(
 		ctx context.Context,
 		chatID string,
@@ -79,6 +81,10 @@ type AnswerUsecase interface {
 }
 
 var _ AnswerUsecase = (*Usecase)(nil)
+
+// ErrNoLongerWaiting refuses an answer to a prompt whose relay stopped waiting
+// first, so the answer would reach no CLI.
+var ErrNoLongerWaiting = answerdesk.ErrNotWaiting
 
 // PendingAnswer is what a blocked hook relay is told: which prompt it is parked
 // on, and how long it may wait for a person before it must print nothing and let
@@ -133,10 +139,9 @@ func (u *Usecase) AbandonAnswer(
 //
 // The order is load-bearing. Everything that can refuse — the chat, the relay, the
 // question still being pending, the decision being expressible, the provider being
-// resolvable, the render itself — is settled BEFORE the ledger is written and
-// before the relay is released. A verdict recorded for an answer the provider
-// could not express would leave the user looking at a decided question and the
-// CLI still waiting on its own prompt.
+// resolvable, the render itself — is settled BEFORE the ledger is written, and the
+// ledger is written only while the desk holds the relay for this answer alone, so
+// a recorded answer is one its CLI is handed.
 func (u *Usecase) AnswerChoice(
 	ctx context.Context,
 	chatID string,
@@ -150,8 +155,7 @@ func (u *Usecase) AnswerChoice(
 	}
 	slot, held := u.answers.ByChoiceID(choiceID)
 	if !held || slot.ChatID != chatID {
-		return fmt.Errorf("%w: this prompt can no longer be answered from Crowbar",
-			apperr.ErrConflict)
+		return ErrNoLongerWaiting
 	}
 	choice, found, err := u.pendingChoice(ctx, chatID, choiceID)
 	if err != nil {
@@ -181,10 +185,12 @@ func (u *Usecase) AnswerChoice(
 	answered, err := u.answers.Answer(ctx, slot, stdout, func(ctx context.Context) (bool, error) {
 		return u.asks.resolve(ctx, chatID, choiceID, ledger.ResolutionAnswered, optionIDs)
 	})
-	if err != nil {
+	switch {
+	case errors.Is(err, ErrNoLongerWaiting):
+		return err
+	case err != nil:
 		return fmt.Errorf("agent: answer choice: %w", err)
-	}
-	if !answered {
+	case !answered:
 		return fmt.Errorf("%w: this prompt is no longer pending", apperr.ErrConflict)
 	}
 	return nil

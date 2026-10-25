@@ -44,9 +44,9 @@ func (l *recordingLedger) all() []resolution {
 	return append([]resolution(nil), l.resolved...)
 }
 
-func withLedger(wait time.Duration) (*answerdesk.Desk, *answerdesk.Slot, *recordingLedger) {
+func withLedger(wait time.Duration, opts ...answerdesk.Option) (*answerdesk.Desk, *answerdesk.Slot, *recordingLedger) {
 	ledger := &recordingLedger{}
-	d := answerdesk.New(answerdesk.DefaultRetention, ledger)
+	d := answerdesk.New(answerdesk.DefaultRetention, ledger, opts...)
 	slot := d.Hold(answerdesk.Prompt{
 		ChoiceID: "choice-1",
 		ChatID:   "chat-1",
@@ -112,7 +112,7 @@ func TestHold_ReopeningAPromptReleasesTheRelayAlreadyHoldingIt(t *testing.T) {
 	held, ok := d.ByChoiceID("choice-1")
 	require.True(t, ok)
 	assert.Same(t, fresh, held)
-	require.NoError(t, decide(d, stale, "allow"))
+	require.ErrorIs(t, decide(d, stale, "allow"), answerdesk.ErrNotWaiting)
 	_, stillOpen := d.ByChoiceID("choice-1")
 	assert.True(t, stillOpen, "a verdict on the displaced relay answers nothing")
 }
