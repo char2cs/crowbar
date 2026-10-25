@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { getBuildInfo } from '@/lib/build-info'
 import type { BuildChannel, BuildInfo } from '@/lib/build-info'
 import { useSettingsStore } from '@/features/settings/store'
@@ -9,7 +10,15 @@ import {
   useOpenWorkspaceCount,
   useWorkingChatCount,
 } from '@/features/workspace/stores/hooks/use-open-workspace-counts'
-import { formatReadout, netStateOf, type NetState } from '@/components/layout/build-readout-lines'
+import { useHostDotState } from '@/features/hosts/hooks/use-host-status'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import {
+  formatHostEntry,
+  formatReadout,
+  hostNetStateOf,
+  netStateOf,
+  type HostNetState,
+} from '@/components/layout/build-readout-lines'
 
 function previewInfo(channel: BuildChannel): BuildInfo {
   const timestamp = new Date().toISOString()
@@ -30,11 +39,37 @@ function useResolvedBuildInfo(): BuildInfo | null {
 const READOUT_INK = '#E0E0D0'
 const SEP = '  '
 
-const NET_INK: Record<NetState, string | undefined> = {
+const NET_INK: Record<HostNetState, string | undefined> = {
   ok: undefined,
   idle: undefined,
   reconnecting: 'text-warning',
+  repair: 'text-warning',
   down: 'text-destructive',
+}
+
+function HostEntry({ hostId, name }: { hostId: string; name: string }) {
+  const net = hostNetStateOf(useHostDotState(hostId))
+  return (
+    <span data-host-net={net} className={NET_INK[net]}>
+      {formatHostEntry(name, net)}
+    </span>
+  )
+}
+
+/** Each paired remote host's state; a local-only install has none, and no line. */
+function HostsLine() {
+  const hosts = useHostConfigStore((s) => s.hosts)
+  if (hosts.length === 0) return null
+  return (
+    <span className="whitespace-pre-wrap">
+      {hosts.map((host, i) => (
+        <Fragment key={host.id}>
+          {i > 0 && SEP}
+          <HostEntry hostId={host.id} name={host.name} />
+        </Fragment>
+      ))}
+    </span>
+  )
 }
 
 function Lines({ info, frame }: { info: BuildInfo; frame: FrameStats }) {
@@ -58,6 +93,7 @@ function Lines({ info, frame }: { info: BuildInfo; frame: FrameStats }) {
         {lines.reconnects && SEP + lines.reconnects}
       </span>
       <span>{lines.stats}</span>
+      <HostsLine />
     </>
   )
 }
