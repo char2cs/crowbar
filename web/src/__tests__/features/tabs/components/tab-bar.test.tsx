@@ -254,9 +254,7 @@ describe('TabBar pane-top-row anatomy', () => {
     expect(children[0]).toBe('split-toggle')
   })
 
-  // Chats/pane redesign: the shared pane box no longer paints a background
-  // of its own (it can't, without blocking the chat view's real vibrancy),
-  // so the IDE sector's own opacity now rides on TabBar's row directly.
+  // The shared pane box paints none (it would block the chat view's vibrancy).
   it('paints its own opaque pane-background — the shared box no longer does', () => {
     const store = setupPaneStore({ chatId: 'chat-1', buffers: [makeEditorBuffer(0)] })
     act(() => {
@@ -358,8 +356,7 @@ describe('TabBar — branch-review shortcut is for worktree-OWNING chats only', 
     expect(screen.getByTestId('branch-review-shortcut')).toBeInTheDocument()
   })
 
-  // An editor-only split names no chat at all, so there is no thread to
-  // suppress — the buffers' own workspace is a real worktree either way.
+  // An editor-only split names no chat, so there is no thread to suppress.
   it('keeps it for an editor-only pane that holds no chat', () => {
     seedRepoChats(false)
     const store = setupPaneStore({ chatId: null, buffers: [makeEditorBuffer(0)] })
@@ -473,9 +470,7 @@ describe('TabBar — chat as a tab (showChatTab)', () => {
       fireEvent.click(screen.getByTestId('chat-tab-item'))
     })
 
-    // Selects the chat WITHOUT clearing activeEditorTabId — that field must
-    // keep naming buf-0 so the editor view doesn't unmount it on switch
-    // (PaneGroup.chatSelected's own doc).
+    // activeEditorTabId keeps naming buf-0, so the editor view doesn't unmount it.
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatSelected).toBe(true)
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.activeEditorTabId).toBe('buf-0')
     expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)

@@ -34,10 +34,8 @@ vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: toastError, success: vi.fn(), info: vi.fn() },
 }))
 vi.mock('@/features/agent/hooks/use-chat-presentation', () => ({ presetChatLandingPresentation }))
-// `handleOpen`'s home branch reads this directly (see `resolveHomeRow`) —
-// the real resolver needs an async fetch+cache round trip these tests have
-// no reason to exercise; `handleCreateHomeThread`'s own tests never needed
-// this mock since they take `homeWorkspaceId` as a direct argument instead.
+// `handleOpen`'s home branch reads this directly (`resolveHomeRow`); the real resolver's
+// fetch+cache round trip is not what these tests exercise.
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId,
   getHomeOwningChatId: () => null,
@@ -91,14 +89,8 @@ beforeEach(() => {
   useAgentProvidersStore.setState({ status: 'ready', providers: [], remote: {} })
 })
 
-// Regression, reported live: a project-home chat's Fork was offered with no
-// git repo behind it at all ("why is it letting me create a branch from
-// this where there isn't a git workspace"), and its Thread did nothing.
-// Project home rides no repo (`resolveHomeRowScope`'s own doc) — Thread now
-// resolves through the project's own home workspace (same rule
-// `handleOpen` already follows), and Fork stays a no-op, matching a home
-// FOLDER's own `ownsWorktree: false` — no worktree exists for either to
-// clone.
+// Project home rides no repo: Thread resolves through the project's own home workspace
+// (as `handleOpen` does), and Fork stays a no-op, as there is no worktree to clone.
 describe('a project-home chat row resolves Thread through its home workspace, and refuses Fork', () => {
   it('Thread runs in the project’s home workspace, nested under the bubble itself, and clears once it lands', async () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
