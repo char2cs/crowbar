@@ -288,6 +288,10 @@ func (r *Recorder) commit(
 	if fx.Ended != "" {
 		r.live.forget(chat.ID, runnerID, fx.Ended)
 	}
+	if fx.Unbound != "" {
+		slog.WarnContext(ctx, "agent: ingest hook: an ask's input names none of its tool's open calls",
+			"chat_id", chat.ID, "tool_name", ev.Choice.ToolName, "ask_id", fx.Unbound)
+	}
 	return fx, nil
 }
 

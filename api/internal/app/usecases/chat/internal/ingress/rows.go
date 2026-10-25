@@ -61,6 +61,9 @@ type Effects struct {
 	Ended string
 	// Title is the words of a prompt that opened a turn: they title the chat.
 	Title string
+	// Unbound is an ask bound to no call: its tool's open calls were each
+	// given another input.
+	Unbound string
 }
 
 // Map decides the rows for one parsed event against the chat's state. It does

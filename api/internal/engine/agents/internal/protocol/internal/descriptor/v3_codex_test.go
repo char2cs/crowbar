@@ -1,6 +1,9 @@
 package descriptor_test
 
 import (
+	"encoding/json"
+	"os"
+	"reflect"
 	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
@@ -49,4 +52,26 @@ func TestCodexDescriptor_ApplyPatchTargetIsItsFirstFilePath(t *testing.T) {
 	patch := parseRecorded(t, d, "tool_pre", "PreToolUse.applyPatch.json", spec.ChannelHooks)
 
 	expectEq(t, "target", patch.Target, "/ws/calc.py")
+}
+
+// A hooks call carries its input, so the ask it raises binds to it by that.
+func TestCodexDescriptor_AHooksToolCallCarriesItsInput(t *testing.T) {
+	d := loadDescriptor(t, "codex")
+	for _, file := range []string{"PreToolUse.json", "PreToolUse.mcp.json", "PreToolUse.spawnAgent.json", "PreToolUse.applyPatch.json"} {
+		raw, err := os.ReadFile(fixtureRoot + "/codex/" + file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload struct {
+			ToolInput json.RawMessage `json:"tool_input"`
+		}
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			t.Fatal(err)
+		}
+		var want, got any
+		tool := parseRecorded(t, d, "tool_pre", file, spec.ChannelHooks)
+		if json.Unmarshal(payload.ToolInput, &want) != nil || json.Unmarshal(tool.Input, &got) != nil || !reflect.DeepEqual(want, got) {
+			t.Errorf("%s: input = %s, want %s", file, tool.Input, payload.ToolInput)
+		}
+	}
 }

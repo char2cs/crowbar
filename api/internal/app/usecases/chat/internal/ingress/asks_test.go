@@ -184,6 +184,63 @@ func TestMap_AnAskBindsByToolNameAndCanonicalInput(t *testing.T) {
 	}
 }
 
+// Two asks with different inputs are two asks, whichever call each binds: the
+// second never joins the first, so never takes its relay.
+func TestRegression_AsksOfDifferentInputsNeverJoin(t *testing.T) {
+	c := liveChatRows(t)
+	c.typed("go")
+	c.mapped(toolEvent(engineagents.HookToolPre, "t1", "Bash"), hooksSource())
+	c.mapped(toolEvent(engineagents.HookToolPre, "t2", "Bash"), hooksSource())
+	ask := func(command string) engineagents.CanonicalEvent {
+		return permission(engineagents.ChoicePrompt{
+			Kind: "tool_permission", ToolName: "Bash", ToolInput: []byte(`{"command":"` + command + `"}`),
+		})
+	}
+
+	_, a := c.mapped(ask("a"), hooksSource())
+	rows, b := c.mapped(ask("b"), hooksSource())
+
+	require.Len(t, rows, 1, "b is an ask of its own")
+	assert.NotEmpty(t, b.HoldAsk)
+	assert.NotEqual(t, a.HoldAsk, b.HoldAsk, "each holds its own relay")
+	assert.Len(t, c.st.PendingAsks(), 2)
+}
+
+// An ask whose input none of its tool's open calls was given binds to none,
+// and says so; one with no such call open, or bound, says nothing.
+func TestMap_AnAskNoOpenCallWasGivenTheInputOfIsReported(t *testing.T) {
+	for name, tc := range map[string]struct {
+		input   string
+		reports bool
+	}{
+		"another input": {`{"command":"ls","description":"list"}`, true},
+		"its input":     {`{"command":"ls"}`, false},
+		"no input":      {"", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := liveChatRows(t)
+			c.typed("go")
+			pre := toolEvent(engineagents.HookToolPre, "t1", "Bash")
+			pre.Tool.Input = []byte(`{"command":"ls"}`)
+			c.mapped(pre, hooksSource())
+
+			rows, fx := c.mapped(permission(engineagents.ChoicePrompt{
+				Kind: "tool_permission", ToolName: "Bash", ToolInput: []byte(tc.input),
+			}), hooksSource())
+
+			a := bodyOf[ledger.Ask](t, rows[0])
+			assert.Equal(t, tc.reports, fx.Unbound == a.AskID)
+			assert.Equal(t, tc.reports, a.ToolID == "")
+		})
+	}
+	c := liveChatRows(t)
+	c.typed("go")
+	_, fx := c.mapped(permission(engineagents.ChoicePrompt{
+		Kind: "tool_permission", ToolName: "Bash", ToolInput: []byte(`{"command":"ls"}`),
+	}), hooksSource())
+	assert.Empty(t, fx.Unbound, "no call of its tool is open")
+}
+
 // An ask says what its call does; an input too big for the row keeps its
 // leading text, marked as cut, never dropped.
 func TestMap_AnAskKeepsItsCallsInputUpToABound(t *testing.T) {

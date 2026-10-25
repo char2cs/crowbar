@@ -21,9 +21,7 @@ func mapAsk(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope s
 	if err != nil {
 		return nil, Effects{}, err
 	}
-	if c := ev.Choice; c != nil && c.ToolName != "" {
-		a.ToolID, _ = st.OpenTool(scope, c.ToolName, ledger.InputKey(c.ToolInput))
-	}
+	unbound := bindTool(st, scope, &a, ev.Choice)
 	if id, ok := st.SameAsk(scope, a); ok {
 		return nil, Effects{HoldAsk: heldAgain(st, id, src)}, nil
 	}
@@ -31,6 +29,10 @@ func mapAsk(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope s
 	held := src.Answerable && a.Kind != "" && live
 	a.AskID = "choice-" + uuid.NewString()
 	a.Answerable = held
+	var fx Effects
+	if unbound {
+		fx.Unbound = a.AskID
+	}
 	turnID, _ := turnFor(st, src, scope, ev.TurnID)
 	row, err := ledger.NewRow(ledger.KindAsk, turnID, scope, a)
 	if err != nil {
@@ -39,12 +41,13 @@ func mapAsk(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope s
 	var closing string
 	switch {
 	case held:
-		return []ledger.Row{row}, Effects{HoldAsk: a.AskID}, nil
+		fx.HoldAsk = a.AskID
+		return []ledger.Row{row}, fx, nil
 	case src.Channel == engineagents.ChannelAPI:
 		// Its connection refuses every ask Crowbar does not hold.
 		closing = ledger.ResolutionRefused
 	case live && waitedOn(st, scope):
-		return []ledger.Row{row}, Effects{}, nil
+		return []ledger.Row{row}, fx, nil
 	default:
 		// A past runner's, or one no end closes: nothing waits on it.
 		closing = ledger.ResolutionAbandoned
@@ -54,7 +57,24 @@ func mapAsk(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope s
 	if err != nil {
 		return nil, Effects{}, err
 	}
-	return []ledger.Row{row, closed}, Effects{}, nil
+	return []ledger.Row{row, closed}, fx, nil
+}
+
+// bindTool keys a by its input and binds it to the open call of scope it asks
+// about. It reports an ask bound to none though calls of its tool are open:
+// each of them was given another input.
+func bindTool(st ledger.State, scope string, a *ledger.Ask, c *engineagents.ChoicePrompt) bool {
+	if c == nil {
+		return false
+	}
+	a.InputKey = ledger.InputKey(c.ToolInput)
+	if c.ToolName == "" {
+		return false
+	}
+	var bound bool
+	a.ToolID, bound = st.OpenTool(scope, c.ToolName, a.InputKey)
+	_, open := st.OpenTool(scope, c.ToolName, "")
+	return !bound && open
 }
 
 // waitedOn reports whether an ask in scope is waited on: the chat's agent's

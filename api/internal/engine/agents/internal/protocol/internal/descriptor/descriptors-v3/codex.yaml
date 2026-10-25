@@ -223,6 +223,7 @@ events:
           tool_input.command, tool_input.file_path ] }
         tool_kind:   { from: tool_name, pattern: '^(?P<v>mcp)__' }
         tool_title:  tool_input.message
+        tool_input:  tool_input
         mcp_tool:    { from: tool_name, pattern: '^mcp__.+?__(?P<v>.+)$' }
       fixtures: [PreToolUse.json, PreToolUse.mcp.json, PreToolUse.spawnAgent.json, PreToolUse.applyPatch.json]
 

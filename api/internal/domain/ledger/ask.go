@@ -37,6 +37,9 @@ type Ask struct {
 	ToolInput          json.RawMessage `json:"toolInput,omitempty"`
 	ToolInputTruncated bool            `json:"toolInputTruncated,omitempty"`
 	MCPServer          string          `json:"mcpServer,omitempty"`
+	// InputKey keys the call's whole input, kept or cut: an ask of another
+	// input never repeats this one.
+	InputKey string `json:"inputKey,omitempty"`
 	// Answerable: Crowbar holds the CLI's reply, so an answer given here reaches it.
 	Answerable bool `json:"answerable"`
 }
@@ -72,11 +75,11 @@ func (s State) PendingAsks() []PendingAsk {
 }
 
 // SameAsk is the open ask a's delivery repeats: raised by the same event in
-// the same scope, on the same tool call; without one, under the same prompt
-// id with the same tool and question. A prompt id alone names a whole turn.
+// the same scope, of no other input, on the same tool call; without one, under
+// the same prompt id, tool and question. A prompt id alone names a whole turn.
 func (s State) SameAsk(scope string, a Ask) (string, bool) {
 	for _, p := range s.PendingAsks() {
-		if p.Scope != scope || p.Event != a.Event {
+		if p.Scope != scope || p.Event != a.Event || otherInput(a, p.Ask) {
 			continue
 		}
 		if a.ToolID != "" || p.ToolID != "" {
@@ -90,6 +93,10 @@ func (s State) SameAsk(scope string, a Ask) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func otherInput(a, b Ask) bool {
+	return a.InputKey != "" && b.InputKey != "" && a.InputKey != b.InputKey
 }
 
 // AsksOfTool are the open asks bound to the tool call toolID of scope.
