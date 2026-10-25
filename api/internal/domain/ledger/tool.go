@@ -88,6 +88,11 @@ func (s State) HasToolPhase(scope, toolID, phase string) bool {
 	return slices.Contains(s.keys.tools[ref(scope, toolID)].phases, phase)
 }
 
+// HasToolInput reports whether the tool call toolID of scope is keyed by an input.
+func (s State) HasToolInput(scope, toolID string) bool {
+	return s.keys.tools[ref(scope, toolID)].input != ""
+}
+
 // OpenTool is the newest tool call of scope named name that has not completed.
 // Given an input, it is the newest such call given that input, else the newest
 // whose input was never recorded.

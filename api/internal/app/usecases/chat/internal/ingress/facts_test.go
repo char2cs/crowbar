@@ -262,7 +262,7 @@ func TestMap_AToolRowCarriesItsTitleInputExitCodeAndInterrupt(t *testing.T) {
 	pre := toolEvent(engineagents.HookToolPre, "t1", "Bash")
 	pre.Tool.Kind, pre.Tool.Title, pre.Tool.Input = "execute", "List the files", []byte(`{"command":"ls"}`)
 	post := toolEvent(engineagents.HookToolPost, "t1", "Bash")
-	post.Tool.ExitCode = new(0)
+	post.Tool.ExitCode, post.Tool.Input = new(0), pre.Tool.Input
 	stopped := toolEvent(engineagents.HookToolFail, "t2", "Bash")
 	stopped.Tool.ExitCode, stopped.Tool.Interrupted = new(130), true
 
@@ -275,6 +275,7 @@ func TestMap_AToolRowCarriesItsTitleInputExitCodeAndInterrupt(t *testing.T) {
 
 	assert.Equal(t, "List the files", started.Title)
 	assert.Equal(t, ledger.InputKey([]byte(`{"command":"ls"}`)), started.InputKey)
+	assert.Empty(t, ran.InputKey, "a call is keyed once, by its first phase")
 	assert.Nil(t, started.ExitCode, "a call still running has no exit code")
 	require.NotNil(t, ran.ExitCode)
 	assert.Equal(t, 0, *ran.ExitCode, "a zero exit is an answer")

@@ -145,7 +145,11 @@ func mapTool(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope 
 		ToolID: id, Phase: phase, Name: tool.Name, Kind: tool.Kind, Title: tool.Title, Target: tool.Target,
 		Locations: toolLocations(tool), InputRef: refs.Input, ResultRef: refs.Result,
 		Error: caption(tool.Error), DurationMS: tool.DurationMS, SpawnsScope: tool.NestedSessionID,
-		ExitCode: tool.ExitCode, Interrupted: tool.Interrupted, InputKey: ledger.InputKey(tool.Input),
+		ExitCode: tool.ExitCode, Interrupted: tool.Interrupted,
+	}
+	if !st.HasToolInput(scope, id) {
+		// A call is keyed once: its first input is the one an ask names it by.
+		body.InputKey = ledger.InputKey(tool.Input)
 	}
 	if tool.Kind == ledger.ToolKindMCP {
 		// Its kind makes a call an MCP one: other kinds name a tool too.
