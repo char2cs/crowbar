@@ -26,6 +26,7 @@ func TestChoices_OnePerAskWithItsAnswerable(t *testing.T) {
 		asked(t, ledger.Ask{
 			AskID: "choice-1", Event: "permission", Kind: domain.ChoiceKindPermission, ToolName: "Bash",
 			Options: options, Schema: json.RawMessage(`{"type":"object"}`), Answerable: true,
+			ToolTarget: "ls -la", MCPServer: "echo",
 		}),
 		asked(t, ledger.Ask{
 			AskID: "choice-2", Event: "permission", Kind: domain.ChoiceKindQuestion,
@@ -39,6 +40,8 @@ func TestChoices_OnePerAskWithItsAnswerable(t *testing.T) {
 	require.Len(t, choices, 2, "one per ask that offers a choice")
 	assert.True(t, choices[0].Answerable)
 	assert.Equal(t, "Bash", choices[0].ToolName)
+	assert.Equal(t, "ls -la", choices[0].ToolTarget)
+	assert.Equal(t, "echo", choices[0].MCPServer)
 	assert.Equal(t, []domain.ActivityChoiceOption{{ID: "allow", Label: "Allow"}}, choices[0].Options)
 	assert.JSONEq(t, `{"type":"object"}`, choices[0].Schema)
 	assert.False(t, choices[1].Answerable)

@@ -3,6 +3,7 @@ package dto
 import (
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -95,7 +96,13 @@ type AgentToolCallDTO struct {
 	// Target is the file, command or URL the tool acted on, when the provider
 	// reports one. Empty is legible; a guess would be wrong.
 	Target string `json:"target,omitempty"`
-	Status string `json:"status"`
+	// Title is the agent's own line for the call; MCPServer and MCPTool name a
+	// call into an MCP server, and ExitCode a command's exit status.
+	Title     string `json:"title,omitempty"`
+	MCPServer string `json:"mcpServer,omitempty"`
+	MCPTool   string `json:"mcpTool,omitempty"`
+	ExitCode  *int   `json:"exitCode,omitempty"`
+	Status    string `json:"status"`
 	// Error is a short caption for a failed call. The full failure text is the
 	// call's result payload, fetched on demand like any other.
 	Error      string `json:"error,omitempty"`
@@ -110,6 +117,21 @@ type AgentToolCallDTO struct {
 	SubagentID string     `json:"subagentId,omitempty"`
 	StartedAt  time.Time  `json:"startedAt"`
 	EndedAt    *time.Time `json:"endedAt,omitempty"`
+}
+
+// AgentToolCallDTOFrom is the wire form of one tool call.
+func AgentToolCallDTOFrom(c domain.ActivityToolCall) AgentToolCallDTO {
+	out := AgentToolCallDTO{
+		ID: c.ID, TurnID: c.TurnID, Seq: c.Seq, Name: c.Name, Kind: c.Kind, Target: c.Target,
+		Title: c.Title, MCPServer: c.MCPServer, MCPTool: c.MCPTool, ExitCode: c.ExitCode,
+		Status: c.Status, Error: c.Error, DurationMS: c.DurationMS,
+		HasRequest: c.RequestRef != "", HasResult: c.ResultRef != "",
+		Diff: c.Diff, SubagentID: c.SubagentID, StartedAt: c.StartedAt, EndedAt: c.EndedAt,
+	}
+	for _, l := range c.Locations {
+		out.Locations = append(out.Locations, AgentToolLocationDTO{Path: l.Path, Line: l.Line})
+	}
+	return out
 }
 
 type AgentToolLocationDTO struct {
@@ -163,8 +185,12 @@ type AgentChoiceDTO struct {
 	TurnID string `json:"turnId"`
 	Seq    int64  `json:"seq"`
 	Kind   string `json:"kind"`
-	// ToolName is the tool a permission is gating, when there is one.
-	ToolName string `json:"toolName,omitempty"`
+	// ToolName is the tool a permission is gating, when there is one;
+	// ToolTarget and MCPServer say what that call acts on.
+	ToolName   string `json:"toolName,omitempty"`
+	ToolTarget string `json:"toolTarget,omitempty"`
+	MCPServer  string `json:"mcpServer,omitempty"`
+
 	Title    string `json:"title,omitempty"`
 	Question string `json:"question,omitempty"`
 	// Mode is the provider's own word for how it expects to be answered, carried

@@ -530,15 +530,14 @@ func TestAnswer_AMultiSelectQuestionCarriesEveryPickedLabel(t *testing.T) {
 func TestAnswer_APromptSweptByItsToolCompletingCanNoLongerBeAnswered(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
+	input := permissionPayload()["tool_input"]
 	hook(t, f, runnerID, "claude", engineagents.HookToolPre, map[string]any{
-		"tool_use_id": "tool-1", "tool_name": "Bash",
-		"tool_input": map[string]any{"command": "touch PROOF"},
+		"tool_use_id": "tool-1", "tool_name": "Bash", "tool_input": input,
 	})
 	_, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
 	hook(t, f, runnerID, "claude", engineagents.HookToolPost, map[string]any{
-		"tool_use_id": "tool-1", "tool_name": "Bash",
-		"tool_input": map[string]any{"command": "touch PROOF"}, "tool_response": "ok",
+		"tool_use_id": "tool-1", "tool_name": "Bash", "tool_input": input, "tool_response": "ok",
 	})
 	require.Empty(t, pendingChoices(t, f, chatID))
 

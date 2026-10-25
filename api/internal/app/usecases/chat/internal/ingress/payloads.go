@@ -34,16 +34,18 @@ func (r *Recorder) putBlob(ctx context.Context, payload string, data []byte) str
 // text is the call's result payload.
 const maxCaption = 2 << 10
 
-// caption is s cut to maxCaption bytes, never inside a character.
-func caption(s string) string {
-	if len(s) <= maxCaption {
+// caption is s cut to maxCaption bytes.
+func caption(s string) string { return cut(s, maxCaption) }
+
+// cut is s cut to at most n bytes, never inside a character.
+func cut(s string, n int) string {
+	if len(s) <= n {
 		return s
 	}
-	cut := maxCaption
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
-	return s[:cut]
+	return s[:n]
 }
 
 // resultPayload is what a call's result blob holds: its result, else the

@@ -67,6 +67,26 @@ func TestProjector_AToolCallMergesItsPhases(t *testing.T) {
 	require.NotNil(t, call.EndedAt)
 }
 
+// A call keeps the title it started with, and takes its exit code from its end.
+func TestProjector_AToolCallKeepsItsStartsTitleAndItsEndsExitCode(t *testing.T) {
+	b := newBook(t)
+	b.open("T1", "go")
+	b.add(tool(t, "", ledger.ToolCall{
+		ToolID: "t1", Phase: ledger.ToolPre, Name: "shout", Kind: ledger.ToolKindMCP, Title: "Shout it",
+		MCPServer: "echo", MCPTool: "shout",
+	}))
+	assert.Nil(t, b.activity().ToolCalls[0].ExitCode, "a running call has no exit code")
+
+	b.add(tool(t, "", ledger.ToolCall{ToolID: "t1", Phase: ledger.ToolFail, Title: "retitled", ExitCode: new(2)}))
+
+	call := b.activity().ToolCalls[0]
+	assert.Equal(t, "Shout it", call.Title)
+	assert.Equal(t, "echo", call.MCPServer)
+	assert.Equal(t, "shout", call.MCPTool)
+	require.NotNil(t, call.ExitCode)
+	assert.Equal(t, 2, *call.ExitCode)
+}
+
 // A call whose provider reports no duration takes the one its rows observed,
 // but only from a start that was seen: none is invented.
 func TestProjector_AnUnreportedDurationIsTheOneItsRowsObserved(t *testing.T) {

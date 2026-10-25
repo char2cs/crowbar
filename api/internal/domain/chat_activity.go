@@ -87,6 +87,12 @@ type ActivityToolCall struct {
 	Locations []ActivityToolLocation `json:"locations,omitempty"`
 
 	Target string `json:"target,omitempty"`
+	// Title is the agent's own line for the call; MCPServer and MCPTool name a
+	// call into an MCP server, and ExitCode a command's exit status.
+	Title     string `json:"title,omitempty"`
+	MCPServer string `json:"mcpServer,omitempty"`
+	MCPTool   string `json:"mcpTool,omitempty"`
+	ExitCode  *int   `json:"exitCode,omitempty"`
 
 	RequestRef string `json:"requestRef,omitempty"`
 	ResultRef  string `json:"resultRef,omitempty"`
@@ -191,6 +197,9 @@ type ActivityChoice struct {
 
 	ToolID   string `json:"toolId,omitempty"`
 	ToolName string `json:"toolName,omitempty"`
+	// ToolTarget and MCPServer say what the call it asks about acts on.
+	ToolTarget string `json:"toolTarget,omitempty"`
+	MCPServer  string `json:"mcpServer,omitempty"`
 
 	Title    string                 `json:"title,omitempty"`
 	Question string                 `json:"question,omitempty"`

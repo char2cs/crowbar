@@ -111,6 +111,7 @@ func choiceOf(chatID string, a *askFact) domain.ActivityChoice {
 	c := domain.ActivityChoice{
 		ID: a.ask.AskID, TurnID: a.turnID, ChatID: chatID, Seq: a.seq, Kind: a.ask.Kind,
 		PromptID: a.ask.PromptID, ToolID: a.ask.ToolID, ToolName: a.ask.ToolName, Title: a.ask.Title,
+		ToolTarget: a.ask.ToolTarget, MCPServer: a.ask.MCPServer,
 		Question: a.ask.Question, Mode: a.ask.Mode, Multi: a.ask.Multi, At: a.at,
 		Options:   decoded[[]domain.ActivityChoiceOption](a.ask.Options),
 		Questions: decoded[[]domain.ActivityChoiceQuestion](a.ask.Questions),

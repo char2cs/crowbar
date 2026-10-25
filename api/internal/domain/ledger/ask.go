@@ -31,6 +31,12 @@ type Ask struct {
 	Questions json.RawMessage `json:"questions,omitempty"`
 	Schema    json.RawMessage `json:"schema,omitempty"`
 	Detail    string          `json:"detail,omitempty"`
+	// ToolTarget, ToolInput and MCPServer say what the call it asks about does.
+	// An input too big to keep is its leading text, as a string, and Truncated.
+	ToolTarget         string          `json:"toolTarget,omitempty"`
+	ToolInput          json.RawMessage `json:"toolInput,omitempty"`
+	ToolInputTruncated bool            `json:"toolInputTruncated,omitempty"`
+	MCPServer          string          `json:"mcpServer,omitempty"`
 	// Answerable: Crowbar holds the CLI's reply, so an answer given here reaches it.
 	Answerable bool `json:"answerable"`
 }

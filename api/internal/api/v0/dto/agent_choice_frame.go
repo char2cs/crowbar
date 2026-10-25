@@ -28,7 +28,7 @@ func AgentChoiceDTOsFrom(in []domain.ActivityChoice, answerable []string) []Agen
 	for _, c := range in {
 		out = append(out, AgentChoiceDTO{
 			ID: c.ID, TurnID: c.TurnID, Seq: c.Seq, Kind: c.Kind,
-			ToolName: c.ToolName, Title: c.Title, Question: c.Question,
+			ToolName: c.ToolName, ToolTarget: c.ToolTarget, MCPServer: c.MCPServer, Title: c.Title, Question: c.Question,
 			Mode: c.Mode, Multi: c.Multi, Options: choiceOptionDTOs(c.Options),
 			Questions:  choiceQuestionDTOs(c.Questions),
 			Schema:     c.Schema,

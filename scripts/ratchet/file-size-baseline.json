@@ -26,7 +26,7 @@
   "api/internal/app/repositories/workspace/workspace.go": 874,
   "api/internal/app/repositories/workspace/workspace_test.go": 937,
   "api/internal/app/usecases/branchreview/branch_review_test.go": 1078,
-  "api/internal/app/usecases/chat/answers_test.go": 826,
+  "api/internal/app/usecases/chat/answers_test.go": 825,
   "api/internal/app/usecases/chat/chat_test.go": 2101,
   "api/internal/app/usecases/chat/harness_test.go": 1295,
   "api/internal/app/usecases/chat/internal/conversation/conversation_test.go": 606,

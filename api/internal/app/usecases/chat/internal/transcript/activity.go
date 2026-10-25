@@ -61,6 +61,8 @@ func (f *facts) applyTool(r ledger.Row) {
 	}
 	c := &t.call
 	c.Name, c.Kind, c.Target = cmp.Or(c.Name, body.Name), cmp.Or(c.Kind, body.Kind), cmp.Or(c.Target, body.Target)
+	c.Title = cmp.Or(c.Title, body.Title)
+	c.MCPServer, c.MCPTool = cmp.Or(c.MCPServer, body.MCPServer), cmp.Or(c.MCPTool, body.MCPTool)
 	c.RequestRef, c.ResultRef = cmp.Or(c.RequestRef, body.InputRef), cmp.Or(body.ResultRef, c.ResultRef)
 	c.Diff = cmp.Or(body.Diff, c.Diff)
 	if len(c.Locations) == 0 {
@@ -72,6 +74,7 @@ func (f *facts) applyTool(r ledger.Row) {
 	if body.Phase != ledger.ToolPre && !t.closed {
 		at := r.At
 		t.closed, c.Status, c.Error, c.DurationMS, c.EndedAt = true, body.Status, body.Error, body.DurationMS, &at
+		c.ExitCode = body.ExitCode
 		if c.DurationMS == 0 && t.started {
 			c.DurationMS = int(at.Sub(c.StartedAt).Milliseconds())
 		}

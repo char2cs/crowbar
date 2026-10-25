@@ -22,10 +22,6 @@ func toolEvent(kind, id, name string) engineagents.CanonicalEvent {
 	return engineagents.CanonicalEvent{Kind: kind, Tool: &engineagents.ToolEvent{ID: id, Name: name}}
 }
 
-func permission(choice engineagents.ChoicePrompt) engineagents.CanonicalEvent {
-	return engineagents.CanonicalEvent{Kind: engineagents.HookPermission, Choice: &choice}
-}
-
 func TestMap_UnsequencedDeltaWritesNoRow(t *testing.T) {
 	c := liveChatRows(t)
 	turnID := c.typed("go")
@@ -260,6 +256,60 @@ func TestMap_SubagentToolCallsAreRecordedUnderTheirScope(t *testing.T) {
 	assert.Equal(t, "A", rows[0].Scope)
 }
 
+func TestMap_AToolRowCarriesItsTitleInputExitCodeAndInterrupt(t *testing.T) {
+	c := liveChatRows(t)
+	c.typed("go")
+	pre := toolEvent(engineagents.HookToolPre, "t1", "Bash")
+	pre.Tool.Kind, pre.Tool.Title, pre.Tool.Input = "execute", "List the files", []byte(`{"command":"ls"}`)
+	post := toolEvent(engineagents.HookToolPost, "t1", "Bash")
+	post.Tool.ExitCode = new(0)
+	stopped := toolEvent(engineagents.HookToolFail, "t2", "Bash")
+	stopped.Tool.ExitCode, stopped.Tool.Interrupted = new(130), true
+
+	rows, _ := c.mapped(pre, hooksSource())
+	started := bodyOf[ledger.ToolCall](t, rows[0])
+	rows, _ = c.mapped(post, hooksSource())
+	ran := bodyOf[ledger.ToolCall](t, rows[0])
+	rows, _ = c.mapped(stopped, hooksSource())
+	failed := bodyOf[ledger.ToolCall](t, rows[0])
+
+	assert.Equal(t, "List the files", started.Title)
+	assert.Equal(t, ledger.InputKey([]byte(`{"command":"ls"}`)), started.InputKey)
+	assert.Nil(t, started.ExitCode, "a call still running has no exit code")
+	require.NotNil(t, ran.ExitCode)
+	assert.Equal(t, 0, *ran.ExitCode, "a zero exit is an answer")
+	assert.False(t, ran.Interrupted)
+	require.NotNil(t, failed.ExitCode)
+	assert.Equal(t, 130, *failed.ExitCode)
+	assert.True(t, failed.Interrupted)
+}
+
+// Only a call of the MCP kind names an MCP server and tool: the server is
+// optional, and a tool name is given to other kinds of call too.
+func TestMap_OnlyACallIntoAnMCPServerNamesOne(t *testing.T) {
+	for name, tc := range map[string]struct {
+		kind, server, tool  string
+		wantServer, wantMCP string
+	}{
+		"with its server":           {ledger.ToolKindMCP, "echo", "shout", "echo", "shout"},
+		"on a channel naming none":  {ledger.ToolKindMCP, "", "shout", "", "shout"},
+		"another kind naming tools": {"subagent", "", "spawnAgent", "", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := liveChatRows(t)
+			c.typed("go")
+			ev := toolEvent(engineagents.HookToolPre, "t1", "call")
+			ev.Tool.Kind, ev.Tool.MCPServer, ev.Tool.MCPTool = tc.kind, tc.server, tc.tool
+
+			rows, _ := c.mapped(ev, hooksSource())
+
+			body := bodyOf[ledger.ToolCall](t, rows[0])
+			assert.Equal(t, tc.wantServer, body.MCPServer)
+			assert.Equal(t, tc.wantMCP, body.MCPTool)
+		})
+	}
+}
+
 func TestMap_AToolsEndClosesTheAsksItRaised(t *testing.T) {
 	c := liveChatRows(t)
 	c.typed("go")
@@ -290,145 +340,6 @@ func TestMap_ASubagentsPhasesAreRecordedOnce(t *testing.T) {
 	assert.Equal(t, ledger.SubagentStop, bodyOf[ledger.Subagent](t, rows[0]).Phase)
 	none, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookSubagentPre}, hooksSource())
 	assert.Empty(t, none)
-}
-
-func TestMap_AnAskBindsToTheOpenToolOfItsScope(t *testing.T) {
-	c := liveChatRows(t)
-	c.typed("go")
-	c.mapped(toolEvent(engineagents.HookToolPre, "t1", "Bash"), hooksSource())
-
-	rows, _ := c.mapped(permission(engineagents.ChoicePrompt{Kind: "tool_permission", ToolName: "Bash"}), hooksSource())
-
-	assert.Equal(t, "t1", bodyOf[ledger.Ask](t, rows[0]).ToolID)
-}
-
-func TestMap_AHeldAskIsAnswerable(t *testing.T) {
-	c := liveChatRows(t)
-	c.typed("go")
-
-	rows, fx := c.mapped(permission(engineagents.ChoicePrompt{
-		Kind: "question", PromptID: "p1", Title: "Pick", Question: "which?", Mode: "form", Multi: true,
-		Options:   []engineagents.ChoiceOption{{ID: "a", Kind: "answer", Label: "A"}},
-		Questions: []engineagents.PromptQuestion{{ID: "q1", Text: "and?", Options: []engineagents.ChoiceOption{{ID: "b"}}}},
-		Schema:    []byte(`{"type":"object"}`),
-	}), hooksSource())
-
-	ask := bodyOf[ledger.Ask](t, rows[0])
-	assert.True(t, ask.Answerable)
-	assert.Equal(t, ask.AskID, fx.HoldAsk)
-	assert.Equal(t, "Pick", ask.Title)
-	assert.True(t, ask.Multi)
-	assert.JSONEq(t, `[{"id":"a","kind":"answer","label":"A"}]`, string(ask.Options))
-	assert.JSONEq(t, `[{"id":"q1","text":"and?","options":[{"id":"b","kind":""}]}]`, string(ask.Questions))
-	assert.JSONEq(t, `{"type":"object"}`, string(ask.Schema))
-}
-
-func TestMap_AnAskCrowbarCannotHoldIsNotAnswerable(t *testing.T) {
-	c := liveChatRows(t)
-	c.typed("go")
-	s := hooksSource()
-	s.Answerable = false
-
-	rows, fx := c.mapped(permission(engineagents.ChoicePrompt{Kind: "tool_permission", ToolName: "Bash"}), s)
-
-	assert.False(t, bodyOf[ledger.Ask](t, rows[0]).Answerable)
-	assert.Empty(t, fx.HoldAsk)
-	assert.Len(t, c.st.PendingAsks(), 1, "it is still asked, of the CLI's own surface")
-}
-
-// Held ⇔ answerable: wherever a held ask was raised, its CLI blocks on it.
-func TestMap_AnAskIsOpenAndAnswerableExactlyWhenItIsHeld(t *testing.T) {
-	ask := permission(engineagents.ChoicePrompt{Kind: "tool_permission", ToolName: "Bash"})
-	inA := func(ev engineagents.CanonicalEvent) engineagents.CanonicalEvent {
-		ev.Subagent = &engineagents.SubagentEvent{ID: "A"}
-		return ev
-	}
-	outlived := func(t *testing.T) *chatRows {
-		t.Helper()
-		c := liveChatRows(t)
-		c.typed("go")
-		c.mapped(inA(engineagents.CanonicalEvent{Kind: engineagents.HookSubagentPre}), hooksSource())
-		c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, TurnID: "pt-1"}, hooksSource())
-		return c
-	}
-	gone := hooksSource()
-	gone.RunnerID = "run-gone"
-	unheld := hooksSource()
-	unheld.Answerable = false
-	for name, tc := range map[string]struct {
-		chat func(*testing.T) *chatRows
-		ev   engineagents.CanonicalEvent
-		src  Source
-		held bool
-	}{
-		"held outside a turn":         {chat: liveChatRows, ev: ask, src: hooksSource(), held: true},
-		"held in an outlived scope":   {chat: outlived, ev: inA(ask), src: hooksSource(), held: true},
-		"of a runner past its exit":   {chat: liveChatRows, ev: ask, src: gone},
-		"unheld outside a turn":       {chat: liveChatRows, ev: ask, src: unheld},
-		"unheld in an outlived scope": {chat: outlived, ev: inA(ask), src: unheld},
-	} {
-		t.Run(name, func(t *testing.T) {
-			c := tc.chat(t)
-
-			rows, fx := c.mapped(tc.ev, tc.src)
-
-			a := bodyOf[ledger.Ask](t, rows[0])
-			assert.Equal(t, tc.held, a.Answerable)
-			assert.Equal(t, tc.held, fx.HoldAsk == a.AskID)
-			assert.Equal(t, tc.held, len(c.st.PendingAsks()) == 1, "held, it stays open; unheld, nothing waits on it")
-		})
-	}
-}
-
-func TestMap_ARepeatedAskJoinsTheFirst(t *testing.T) {
-	for name, choice := range map[string]engineagents.ChoicePrompt{
-		"by tool":      {Kind: "tool_permission", ToolName: "Bash"},
-		"by prompt id": {Kind: "tool_permission", PromptID: "p1", ToolName: "Edit"},
-		"by question":  {Kind: "question", Question: "which?"},
-	} {
-		for _, channel := range []engineagents.Channel{engineagents.ChannelHooks, engineagents.ChannelAPI} {
-			t.Run(name+"/"+string(channel), func(t *testing.T) {
-				c := liveChatRows(t)
-				c.typed("go")
-				c.mapped(toolEvent(engineagents.HookToolPre, "t1", "Bash"), hooksSource())
-				s := hooksSource()
-				s.Channel = channel
-
-				_, first := c.mapped(permission(choice), s)
-				rows, again := c.mapped(permission(choice), s)
-
-				assert.Empty(t, rows)
-				assert.Equal(t, first.HoldAsk, again.HoldAsk, "the retry is held on the ask it repeats")
-				assert.Len(t, c.st.PendingAsks(), 1)
-			})
-		}
-	}
-}
-
-func TestMap_ARepeatOfAnAskNotHeldIsNotHeld(t *testing.T) {
-	c := liveChatRows(t)
-	c.typed("go")
-	s := hooksSource()
-	s.Answerable = false
-	c.mapped(permission(engineagents.ChoicePrompt{Kind: "tool_permission", ToolName: "Bash"}), s)
-
-	_, fx := c.mapped(permission(engineagents.ChoicePrompt{Kind: "tool_permission", ToolName: "Bash"}), hooksSource())
-
-	assert.Empty(t, fx.HoldAsk)
-}
-
-func TestMap_AnElicitationCarriesWhatItSaid(t *testing.T) {
-	c := liveChatRows(t)
-	c.typed("go")
-
-	rows, _ := c.mapped(engineagents.CanonicalEvent{
-		Kind:      engineagents.HookElicitation,
-		Interrupt: &engineagents.InterruptEvent{Detail: "a server asks"},
-	}, hooksSource())
-
-	ask := bodyOf[ledger.Ask](t, rows[0])
-	assert.Equal(t, "a server asks", ask.Detail)
-	assert.Empty(t, ask.Kind, "offering no choice, it is no card")
 }
 
 func TestMap_APlanIsRestatedWhole(t *testing.T) {

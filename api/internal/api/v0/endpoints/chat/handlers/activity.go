@@ -41,16 +41,7 @@ func (h *Handlers) Activity(ctx *gin.Context) {
 		Choices:       h.choiceDTOs(chat.ID, activity.Choices),
 	}
 	for _, c := range activity.ToolCalls {
-		out.ToolCalls = append(out.ToolCalls, dto.AgentToolCallDTO{
-			ID: c.ID, TurnID: c.TurnID, Seq: c.Seq, Name: c.Name, Kind: c.Kind, Target: c.Target,
-			Locations: toolLocationDTOs(c.Locations),
-			Status:    c.Status, Error: c.Error, DurationMS: c.DurationMS,
-
-			HasRequest: c.RequestRef != "", HasResult: c.ResultRef != "",
-			Diff:       c.Diff,
-			SubagentID: c.SubagentID,
-			StartedAt:  c.StartedAt, EndedAt: c.EndedAt,
-		})
+		out.ToolCalls = append(out.ToolCalls, dto.AgentToolCallDTOFrom(c))
 	}
 	for _, s := range activity.Subagents {
 		out.Subagents = append(out.Subagents, dto.AgentSubagentDTO{
@@ -151,17 +142,6 @@ func choiceDenied(choice dto.AgentChoiceDTO) bool {
 		}
 	}
 	return false
-}
-
-func toolLocationDTOs(in []domain.ActivityToolLocation) []dto.AgentToolLocationDTO {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]dto.AgentToolLocationDTO, 0, len(in))
-	for _, location := range in {
-		out = append(out, dto.AgentToolLocationDTO{Path: location.Path, Line: location.Line})
-	}
-	return out
 }
 
 func subagentMessageDTOs(in []domain.ActivitySubagentMessage) []dto.AgentSubagentMessageDTO {

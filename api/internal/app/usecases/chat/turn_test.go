@@ -1280,7 +1280,7 @@ func TestObservation_APermissionAdoptsTheInFlightCallItGates(t *testing.T) {
 	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
 	hook(t, f, runnerID, "claude", engineagents.HookToolPre, map[string]any{
 		"tool_use_id": "tool-1", "tool_name": "Bash",
-		"tool_input": map[string]any{"command": "touch PROOF"},
+		"tool_input": permissionPayload()["tool_input"],
 	})
 	hook(t, f, runnerID, "claude", engineagents.HookPermission, permissionPayload())
 
