@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { useSidebarFocusMode } from '@/components/layout/use-sidebar-focus-mode'
+import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
+import { useSettingsStore } from '@/features/settings/store'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 
 vi.mock('@/features/agent/components/agent-chat-pane', () => ({
@@ -74,6 +76,12 @@ describe('PaneChatView chat surface loading', () => {
 })
 
 describe('PaneChatView sidebar surface', () => {
+  // The mode follows focus only with the opt-in setting on.
+  beforeEach(() => {
+    useSettingsStore.setState({
+      settings: { ...getDefaultSettingsSnapshot(), sidebarFollowsFocus: true },
+    })
+  })
   function FocusMode() {
     useSidebarFocusMode()
     return null

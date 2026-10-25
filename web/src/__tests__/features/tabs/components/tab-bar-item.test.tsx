@@ -3,6 +3,8 @@ import { beforeEach, describe, it, expect, vi } from 'vitest'
 import TabBarItem from '@/features/tabs/components/tab-bar-item'
 import type { CommitDiffContent, EditorContent } from '@/features/panes/types/pane-content'
 import { useSidebarFocusMode } from '@/components/layout/use-sidebar-focus-mode'
+import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
+import { useSettingsStore } from '@/features/settings/store'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import { publishFocusedWorkspaceContext } from '@/features/window/stores/focused-workspace-context-store'
 
@@ -144,6 +146,12 @@ describe('TabBarItem ghost restyle', () => {
 })
 
 describe('TabBarItem sidebar surface', () => {
+  // The mode follows focus only with the opt-in setting on.
+  beforeEach(() => {
+    useSettingsStore.setState({
+      settings: { ...getDefaultSettingsSnapshot(), sidebarFollowsFocus: true },
+    })
+  })
   function FocusMode() {
     useSidebarFocusMode()
     return null
