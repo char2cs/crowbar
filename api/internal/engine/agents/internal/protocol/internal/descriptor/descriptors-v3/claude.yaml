@@ -252,6 +252,8 @@ events:
   permission:
     required: [session_id, tool_name]
     fixtures: [PermissionRequest.mcp.json, PermissionRequest.Edit.json]
+    # No recorded PermissionRequest is an AskUserQuestion one yet.
+    unverified_fields: [questions]
     ask: PermissionRequest
     timeout_seconds: 270
     answers_into: answers

@@ -104,6 +104,8 @@ type EventSpec struct {
 	// form: an explicit, greppable "this event genuinely has no recorded
 	// payload yet" opt-out from the fixtures: hard rule.
 	Unverified bool `yaml:"unverified"`
+	// UnverifiedFields is ChannelBlock.UnverifiedFields's counterpart for it.
+	UnverifiedFields []string `yaml:"unverified_fields"`
 
 	// API/Hooks are this event's own per-CHANNEL blocks: the same canonical
 	// event can arrive shaped differently depending on which wire actually

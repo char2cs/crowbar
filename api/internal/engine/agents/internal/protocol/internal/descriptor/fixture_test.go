@@ -65,7 +65,7 @@ func TestV3Descriptors_ResolveAgainstRecordedTraffic(t *testing.T) {
 					channel = spec.ChannelHooks
 				}
 				checkedEvents += checkEventAgainstFixtures(
-					t, d.ID, channel, name, wire, ev.When, ev.Map, ev.Unverified, nil, nil)
+					t, d.ID, channel, name, wire, ev.When, ev.Map, ev.Unverified, ev.UnverifiedFields, nil)
 			}
 		})
 	}
@@ -206,7 +206,7 @@ func assertFieldsResolve(
 // suggestion, a question, an option) or are literal labels, which no whole payload can
 // satisfy; choice_test.go proves them against those sub-objects.
 func isSubObjectField(field string) bool {
-	return strings.HasPrefix(field, "suggestion_") || strings.HasPrefix(field, "question") ||
+	return strings.HasPrefix(field, "suggestion_") || strings.HasPrefix(field, "question_") ||
 		strings.HasPrefix(field, "option_")
 }
 
