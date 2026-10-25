@@ -5,6 +5,12 @@ import {
   type TerminalLinksOptions,
 } from '@/features/terminal/lib/terminal-links'
 
+// The gestures below are macOS's (Cmd); pin the platform so Linux CI runs them too.
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  IS_MAC: true,
+}))
+
 const cleanup: Array<() => void> = []
 afterEach(() => {
   for (const fn of cleanup.splice(0)) fn()
