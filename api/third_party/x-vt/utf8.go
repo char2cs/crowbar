@@ -87,10 +87,7 @@ func (e *Emulator) handleGrapheme(content string, width int) {
 	}
 
 	cols := e.scr.Width()
-	if awm && x > 0 && x+cell.Width > cols {
-		x, y = e.wrapEarly(x, y, &cell)
-	}
-
+	x, y = e.wrapEarly(awm, x, y, &cell)
 	e.scr.SetCell(x, y, &cell)
 
 	// A glyph reaching the last column leaves a pending wrap, as in xterm.js; the cursor rests
@@ -109,7 +106,10 @@ func (e *Emulator) handleGrapheme(content string, width int) {
 // wrapEarly moves a glyph that does not fit the rest of row y to the start of the next row, as
 // xterm.js does (InputHandler.print): the cells it skips are blanked in its pen, and the new row
 // continues row y. It returns where the glyph goes.
-func (e *Emulator) wrapEarly(x, y int, cell *uv.Cell) (int, int) {
+func (e *Emulator) wrapEarly(awm bool, x, y int, cell *uv.Cell) (int, int) {
+	if !awm || x == 0 || x+cell.Width <= e.scr.Width() {
+		return x, y
+	}
 	blank := uv.Cell{Content: " ", Width: 1, Style: cell.Style, Link: cell.Link}
 	for ; x < e.scr.Width(); x++ {
 		e.scr.SetCell(x, y, &blank)
