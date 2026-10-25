@@ -49,10 +49,10 @@ type TerminalModel interface {
 		p []byte,
 	)
 
-	// Resize changes the grid dimensions to cols x rows. It reshapes the live grid
-	// only; it does not reflow stored scrollback. The session calls Resize and
-	// pty.Setsize under one lock hold with no intervening Write, preserving the
-	// model==PTY size invariant.
+	// Resize changes the grid dimensions to cols x rows, reflowing the primary
+	// screen and its scrollback as the client's xterm.js reflows its own. The
+	// session calls Resize and pty.Setsize under one lock hold with no intervening
+	// Write, preserving the model==PTY size invariant.
 	Resize(
 		cols int,
 		rows int,

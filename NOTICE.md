@@ -39,3 +39,12 @@ Licensed under the MIT License. Vendored from `github.com/charmbracelet/x/vt` at
 in `api/go.mod` points the module at this directory.
 The copy is locally patched; details in `api/internal/core/terminal/internal/model/UPSTREAM.md`.
 Full license text: [`api/third_party/x-vt/LICENSE`](api/third_party/x-vt/LICENSE)
+
+### xterm.js — `api/third_party/x-vt/reflow.go`, `web/src/features/terminal/lib/terminal-links.ts`
+
+Copyright (c) 2017-2019, The xterm.js authors (https://github.com/xtermjs/xterm.js)
+
+Licensed under the MIT License. `reflow.go` ports the resize reflow of `@xterm/xterm` 6.0.0
+(`src/common/buffer/Buffer.ts`, `BufferReflow.ts`) to Go. `terminal-links.ts` ports the URL
+regex and URL check of `@xterm/addon-web-links` 0.12.0.
+Full license text: [`licenses/xtermjs-MIT.txt`](licenses/xtermjs-MIT.txt)
