@@ -35,6 +35,8 @@ jobs:
               - '.github/workflows/ci.yml'
             web:
               - 'web/**'
+              # The Go-owned wire fixture the web link tests replay through xterm.
+              - 'api/internal/core/terminal/internal/model/testdata/**'
             tauri:
               - 'desktop/**'
               # The Go-owned health fixtures the Rust health tests parse.
