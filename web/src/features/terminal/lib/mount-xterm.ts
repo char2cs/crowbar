@@ -1,7 +1,6 @@
 import { Terminal, type ITerminalOptions } from '@xterm/xterm'
 import { createTerminalAddons, type TerminalAddons } from '../hooks/use-terminal-addons'
 import { registerTerminalLinks, type TerminalLinksOptions } from './terminal-links'
-import { selectionTextPreservingWraps } from '../utils/selection-text'
 import { resolveKeyOverride } from '../utils/terminal-key-overrides'
 import { installInputTapeGlobal, observeInputEvents } from '../utils/input-tape'
 
@@ -53,7 +52,6 @@ export function mountXterm(
       return !event.metaKey
     })
     if (terminal.textarea) releases.push(watchTextarea(terminal.textarea, deps.write))
-    releases.push(ownCopy(container, terminal))
     const links = registerTerminalLinks(terminal, deps.links)
     releases.push(() => links.dispose())
     terminal.unicode.activeVersion = '11'
@@ -81,37 +79,5 @@ function watchTextarea(textarea: HTMLTextAreaElement, write: MountXtermDeps['wri
   return () => {
     textarea.removeEventListener('beforeinput', onBeforeInput)
     stopObserving()
-  }
-}
-
-/**
- * PASTE IS xterm's JOB: its own handler brackets the payload when the program
- * asked for bracketed paste. Copy is ours: the daemon repaints row by row, so
- * xterm never records an auto-wrap (see selection-text.ts). Alt-drag is COLUMN
- * selection, where rows are slices, and is left to xterm.
- */
-function ownCopy(container: HTMLElement, terminal: Terminal): () => void {
-  let columnSelect = false
-  const onMouseDown = (event: MouseEvent) => {
-    columnSelect = event.altKey
-  }
-  const onCopy = (event: ClipboardEvent) => {
-    if (columnSelect) return
-    const range = terminal.getSelectionPosition()
-    if (!range) return
-    const text = selectionTextPreservingWraps(
-      { cols: terminal.cols, getLine: (y) => terminal.buffer.active.getLine(y) },
-      range,
-    )
-    if (!text) return
-    event.clipboardData?.setData('text/plain', text)
-    event.preventDefault()
-    event.stopPropagation()
-  }
-  container.addEventListener('mousedown', onMouseDown, true)
-  container.addEventListener('copy', onCopy, true)
-  return () => {
-    container.removeEventListener('mousedown', onMouseDown, true)
-    container.removeEventListener('copy', onCopy, true)
   }
 }

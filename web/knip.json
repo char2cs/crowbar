@@ -158,7 +158,6 @@
     "src/features/terminal/lib/host-theme.ts": ["exports"],
     "src/features/terminal/utils/input-tape.ts": ["exports", "types"],
     "src/features/terminal/utils/resolve-font.ts": ["exports"],
-    "src/features/terminal/utils/selection-text.ts": ["types"],
     "src/features/window/components/unsaved-changes-dialog.tsx": ["duplicates", "exports"],
     "src/features/window/stores/detach-modal-store.ts": ["types"],
     "src/features/window/stores/focused-workspace-context-store.ts": ["exports"],
