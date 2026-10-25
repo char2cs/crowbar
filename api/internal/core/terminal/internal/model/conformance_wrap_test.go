@@ -1,8 +1,11 @@
 package model
 
 import (
+	"encoding/json"
+	"flag"
 	"fmt"
 	"math/rand"
+	"os"
 	"strings"
 	"testing"
 
@@ -294,4 +297,57 @@ func longestLine(
 		longest = max(longest, run)
 	}
 	return longest
+}
+
+// The web link tests replay this fixture through xterm.js, the real client. After an intended
+// wire change: go test -tags noEmbed . -run XtermReplayFixture -update
+const xtermFixturePath = "testdata/xterm-wrapped-links.json"
+
+var updateXtermFixture = flag.Bool("update", false, "rewrite "+xtermFixturePath)
+
+type xtermScenario struct {
+	Name     string   `json:"name"`
+	Live     []string `json:"live"`     // the attach keyframe of the blank screen, then each Emit
+	Keyframe string   `json:"keyframe"` // a re-attach redraw of the final state
+}
+
+func TestConformance_XtermReplayFixture(t *testing.T) {
+	head := "\r\n\r\n\r\n\r\nsee " + wrapTestURL // fills the bottom two of six rows
+	scenarios := []struct {
+		name   string
+		chunks []string
+	}{
+		{name: "softWrap", chunks: []string{"see " + wrapTestURL}},
+		{name: "hardBreak", chunks: []string{"see " + wrapTestURL[:36] + "\r\n" + wrapTestURL[36:]}},
+		{name: "headInScrollback", chunks: []string{head, strings.Repeat("\r\n", 5)}},
+		{name: "chainInScrollback", chunks: []string{head, strings.Repeat("\r\n", 5), "\r\n"}},
+	}
+	fixture := struct {
+		Cols      int             `json:"cols"`
+		Rows      int             `json:"rows"`
+		Scenarios []xtermScenario `json:"scenarios"`
+	}{Cols: 40, Rows: 6}
+	for _, sc := range scenarios {
+		m, ser := newTestModel(t, fixture.Cols, fixture.Rows)
+		e := NewDiffEmitter()
+		got := xtermScenario{Name: sc.name, Live: []string{string(ser.Serialize(m))}}
+		e.Prime(m)
+		for _, chunk := range sc.chunks {
+			m.Write([]byte(chunk))
+			data, needKeyframe := e.Emit(m)
+			require.False(t, needKeyframe, "%s: %q takes the diff path", sc.name, chunk)
+			got.Live = append(got.Live, string(data))
+		}
+		got.Keyframe = string(ser.Serialize(m))
+		fixture.Scenarios = append(fixture.Scenarios, got)
+	}
+	encoded, err := json.MarshalIndent(fixture, "", "  ")
+	require.NoError(t, err)
+	encoded = append(encoded, '\n')
+	if *updateXtermFixture {
+		require.NoError(t, os.WriteFile(xtermFixturePath, encoded, 0o600))
+	}
+	want, err := os.ReadFile(xtermFixturePath)
+	require.NoError(t, err)
+	require.Equal(t, string(want), string(encoded), "the wire changed: rerun with -update, then the web link tests")
 }
