@@ -9,7 +9,7 @@
       "toRows": 6,
       "raw": "see https://example.com/docs/guide/getting-started?ref=crowbar\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\nshort\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\r\n",
       "before": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hsee https://example.com/docs/guide/getting-started?ref=crowbar\u001b[K\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[K\r\nshort\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[K\r\n\u001b[6;1H\u001b[?25h\u001b[m",
-      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hsee https://example.\r\ncom/docs/guide/getti\r\nng-started?ref=crowb\r\nar\r\nab\r\naaaaaaaaaaaaaaaaaaaa\r\naaaaaaaaaaaaa\r\naaaaa\r\nshort\r\nbbbbbbbbbbbbb\r\nbbbbbbbbbb\r\n\u001b[6;1H\u001b[?25h\u001b[m",
+      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hsee https://example.com/docs/guide/getting-started?ref=crowbar\u001b[K\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[K\r\nshort\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[K\r\n\u001b[6;1H\u001b[?25h\u001b[m",
       "saturated": false,
       "pendingWrap": false
     },
@@ -22,7 +22,7 @@
       "toRows": 6,
       "raw": "see https://example.com/docs/guide/getting-started?ref=crowbar\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\nshort\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\r\n",
       "before": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hsee https://example.com/docs/guide/getting-started?ref=crowbar\u001b[K\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[K\r\nshort\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[K\r\n\u001b[6;1H\u001b[?25h\u001b[m",
-      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hsee https://example.\r\ncom/docs/guide/getti\r\nng-started?ref=crowb\r\nar\r\nab\r\naaaaaaaaaaaaaaaaaaaa\r\naaaaaaaaaaaaaaaaaaaa\r\naaaaa\r\nshort\r\nbbbbbbbbbbbbbbbbbbbb\r\nbbbbbbbbbb\r\n\u001b[6;1H\u001b[?25h\u001b[m",
+      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hsee https://example.com/docs/guide/getting-started?ref=crowbar\u001b[K\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[K\r\nshort\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\r\n\u001b[6;1H\u001b[?25h\u001b[m",
       "saturated": false,
       "pendingWrap": false
     },
@@ -35,7 +35,7 @@
       "toRows": 6,
       "raw": "see https://example.com/docs/guide/getting-started?ref=crowbar\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\nshort\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\r\n\r\n\r\n\r\n\r\n\r\n\r\n",
       "before": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hsee https://example.com/docs/guide/getting-started?ref=crowbar\u001b[K\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[K\r\nshort\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[K\r\n\r\n\r\n\r\n\r\n\r\n\r\n\u001b[6;1H\u001b[?25h\u001b[m",
-      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hsee https://example.\r\ncom/docs/guide/getti\r\nng-started?ref=crowb\r\nar\r\nab\r\naaaaaaaaaaaaaaaaaaaa\r\naaaaaaaaaaaaaaaaaaaa\r\naaaaa\r\nshort\r\nbbbbbbbbbbbbbbbbbbbb\r\nbbbbbbbbbb\r\n\r\n\r\n\r\n\r\n\r\n\r\n\u001b[6;1H\u001b[?25h\u001b[m",
+      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hsee https://example.com/docs/guide/getting-started?ref=crowbar\u001b[K\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[K\r\nshort\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[K\r\n\r\n\r\n\r\n\r\n\r\n\r\n\u001b[6;1H\u001b[?25h\u001b[m",
       "saturated": false,
       "pendingWrap": false
     },
@@ -48,7 +48,7 @@
       "toRows": 6,
       "raw": "see https://example.com/docs/guide/getting-started?ref=crowbar\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\nshort\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\r\n\r\n\r\n\r\n\r\n\r\n\r\n",
       "before": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hsee https://example.com/docs/guide/getting-started?ref=crowbar\u001b[K\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[K\r\nshort\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[K\r\n\r\n\r\n\r\n\r\n\r\n\r\n\u001b[6;1H\u001b[?25h\u001b[m",
-      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hsee https://example.\r\ncom/docs/guide/getti\r\nng-started?ref=crowb\r\nar\r\nab\r\naaaaaaaaaaaaaaaaaaaa\r\naaaaaaaaaaaaaaaaaaaa\r\naaaaa\r\nshort\r\nbbbbbbbbbbbbbbbbbbbb\r\nbbbbbbbbbb\r\n\r\n\r\n\r\n\r\n\r\n\r\n\u001b[6;1H\u001b[?25h\u001b[m",
+      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hsee https://example.com/docs/guide/getting-started?ref=crowbar\u001b[K\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[K\r\nshort\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\r\n\r\n\r\n\r\n\r\n\r\n\r\n\u001b[6;1H\u001b[?25h\u001b[m",
       "saturated": false,
       "pendingWrap": false
     },
@@ -61,7 +61,7 @@
       "toRows": 6,
       "raw": "ab日ab日ab日ab日ab日ab日ab日ab日ab日ab日\r\nxxxxxxxxxxxxxxxxxxx日本語\r\nab日ab日ab日ab日ab日ab日ab日ab日ab日ab日\r\nxxxxxxxxxxxxxxxxxxx日本語\r\n",
       "before": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hab日ab日ab日ab日ab日ab日ab日ab日ab日ab日\r\nxxxxxxxxxxxxxxxxxxx日本語\u001b[K\r\nab日ab日ab日ab日ab日ab日ab日ab日ab日ab日\r\nxxxxxxxxxxxxxxxxxxx日本語\u001b[K\r\n\u001b[6;1H\u001b[?25h\u001b[m",
-      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hab日ab日ab日ab日ab日\r\nab日ab日ab日ab日ab日\r\nxxxxxxxxxxxxxxxxxxx\r\n日本語\r\nab日ab日ab日a\r\nab日ab日ab日a\r\nxxxxxxxxxxxxx\r\n日本語\r\n\u001b[6;1H\u001b[?25h\u001b[m",
+      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hab日ab日ab日ab日ab日ab日ab日ab日ab日ab日\u001b[K\r\nxxxxxxxxxxxxxxxxxxx日本語\u001b[K\r\nab日ab日ab日ab日ab日ab日ab日ab日ab日ab日\u001b[K\r\nxxxxxxxxxxxxxxxxxxx日本語\u001b[K\r\n\u001b[6;1H\u001b[?25h\u001b[m",
       "saturated": false,
       "pendingWrap": false
     },
@@ -74,7 +74,7 @@
       "toRows": 6,
       "raw": "short\r\nzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
       "before": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hshort\r\nzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\u001b[K\r\n\r\n\u001b[4;6H\u001b[?25h\u001b[m",
-      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hshort\r\nzzzzzzzzzzzzz\r\nzzzzzzzzzzzzz\r\nzzzzz\r\n\r\n\u001b[4;6H\u001b[?25h\u001b[m",
+      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hshort\r\nzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\u001b[K\r\n\r\n\u001b[4;6H\u001b[?25h\u001b[m",
       "saturated": false,
       "pendingWrap": false
     },
@@ -87,7 +87,7 @@
       "toRows": 4,
       "raw": "see https://example.com/docs/guide/getting-started?ref=crowbar\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\nshort\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\r\n",
       "before": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hsee https://example.com/docs/guide/getting-started?ref=crowbar\u001b[K\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[K\r\nshort\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[K\r\n\u001b[6;1H\u001b[?25h\u001b[m",
-      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hsee https://example.com/docs/guide/getting-started?ref=crowbar\u001b[K\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[K\r\nshort\r\nbbbbbbbbbbbbbbbbbbbb\u001b[4;1H\u001b[?25h\u001b[m",
+      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hsee https://example.com/docs/guide/getting-started?ref=crowbar\u001b[K\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[K\r\nshort\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[K\r\n\u001b[4;1H\u001b[?25h\u001b[m",
       "saturated": false,
       "pendingWrap": false
     },
@@ -100,7 +100,7 @@
       "toRows": 9,
       "raw": "see https://example.com/docs/guide/getting-started?ref=crowbar\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\nshort\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\r\n\r\n\r\n\r\n\r\n\r\n\r\n",
       "before": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hsee https://example.com/docs/guide/getting-started?ref=crowbar\u001b[K\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[K\r\nshort\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[K\r\n\r\n\r\n\r\n\r\n\r\n\r\n\u001b[6;1H\u001b[?25h\u001b[m",
-      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hsee https://example.com/docs/guide/getting-started?ref=crowbar\u001b[K\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[K\r\nshort\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[K\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\u001b[6;1H\u001b[?25h\u001b[m",
+      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hsee https://example.com/docs/guide/getting-started?ref=crowbar\u001b[K\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[K\r\nshort\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[K\r\n\r\n\r\n\r\n\r\n\r\n\r\n\u001b[9;1H\u001b[?25h\u001b[m",
       "saturated": false,
       "pendingWrap": false
     },
@@ -113,7 +113,7 @@
       "toRows": 6,
       "raw": "see https://example.com/docs/guide/getting-started?ref=crowbar\r\nab\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\nshort\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\r\n\u001b[?1049h\u001b[HAAAAAAAAAAAAAAAAAAAAAAAAA\r\nalt",
       "before": "\u001b[!p\u001b[?7h\u001b[?1049h\u001b[2J\u001b[HAAAAAAAAAAAAAAAAAAAAAAAAA\u001b[K\r\nalt\r\n\r\n\r\n\u001b[3;4H\u001b[?25h\u001b[m",
-      "after": "\u001b[!p\u001b[?7h\u001b[?1049h\u001b[2J\u001b[HAAAAAAAAAAAAA\r\nAAAAA\r\nalt\r\n\r\n\r\n\u001b[3;4H\u001b[?25h\u001b[m",
+      "after": "\u001b[!p\u001b[?7h\u001b[?1049h\u001b[2J\u001b[HAAAAAAAAAAAAAAAAAA\u001b[K\r\nalt\r\n\r\n\r\n\u001b[3;4H\u001b[?25h\u001b[m",
       "saturated": false,
       "pendingWrap": false
     },
@@ -126,7 +126,7 @@
       "toRows": 6,
       "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\r\nccccccccccccccccccccccccccccccccccccccccccccc\r\nddddddddddddddddddddddddddddddddddddddddddddd\r\neeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\r\nfffffffffffffffffffffffffffffffffffffffffffff\r\nggggggggggggggggggggggggggggggggggggggggggggg\r\nhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh\r\niiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii\r\njjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj\r\nkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\r\nlllllllllllllllllllllllllllllllllllllllllllll\r\nmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm\r\nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn\r\nooooooooooooooooooooooooooooooooooooooooooooo\r\nppppppppppppppppppppppppppppppppppppppppppppp\r\nqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq\r\nrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\r\nsssssssssssssssssssssssssssssssssssssssssssss\r\nttttttttttttttttttttttttttttttttttttttttttttt\r\nuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu\r\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\r\nwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\r\nyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\r\nzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\r\nccccccccccccccccccccccccccccccccccccccccccccc\r\nddddddddddddddddddddddddddddddddddddddddddddd\r\n",
       "before": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hlllll\r\nmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm\u001b[K\r\nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn\u001b[K\r\nooooooooooooooooooooooooooooooooooooooooooooo\u001b[K\r\nppppppppppppppppppppppppppppppppppppppppppppp\u001b[K\r\nqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq\u001b[K\r\nrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\u001b[K\r\nsssssssssssssssssssssssssssssssssssssssssssss\u001b[K\r\nttttttttttttttttttttttttttttttttttttttttttttt\u001b[K\r\nuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu\u001b[K\r\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\u001b[K\r\nwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\u001b[K\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u001b[K\r\nyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\u001b[K\r\nzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\u001b[K\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[K\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[K\r\nccccccccccccccccccccccccccccccccccccccccccccc\u001b[K\r\nddddddddddddddddddddddddddddddddddddddddddddd\u001b[K\r\n\u001b[6;1H\u001b[?25h\u001b[m",
-      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hlllll\r\nmmmmmmmmmmmmmmmmmmmm\r\nmmmmmmmmmmmmmmmmmmmm\r\nmmmmm\r\nnnnnnnnnnnnnnnnnnnnn\r\nnnnnnnnnnnnnnnnnnnnn\r\nnnnnn\r\noooooooooooooooooooo\r\noooooooooooooooooooo\r\nooooo\r\npppppppppppppppppppp\r\npppppppppppppppppppp\r\nppppp\r\nqqqqqqqqqqqqqqqqqqqq\r\nqqqqqqqqqqqqqqqqqqqq\r\nqqqqq\r\nrrrrrrrrrrrrrrrrrrrr\r\nrrrrrrrrrrrrrrrrrrrr\r\nrrrrr\r\nssssssssssssssssssss\r\nssssssssssssssssssss\r\nsssss\r\ntttttttttttttttttttt\r\ntttttttttttttttttttt\r\nttttt\r\nuuuuuuuuuuuuuuuuuuuu\r\nuuuuuuuuuuuuuuuuuuuu\r\nuuuuu\r\nvvvvvvvvvvvvvvvvvvvv\r\nvvvvvvvvvvvvvvvvvvvv\r\nvvvvv\r\nwwwwwwwwwwwwwwwwwwww\r\nwwwwwwwwwwwwwwwwwwww\r\nwwwww\r\nxxxxxxxxxxxxxxxxxxxx\r\nxxxxxxxxxxxxxxxxxxxx\r\nxxxxx\r\nyyyyyyyyyyyyyyyyyyyy\r\nyyyyyyyyyyyyyyyyyyyy\r\nyyyyy\r\nzzzzzzzzzzzzzzzzzzzz\r\nzzzzzzzzzzzzzzzzzzzz\r\nzzzzz\r\naaaaaaaaaaaaaaaaaaaa\r\naaaaaaaaaaaaaaaaaaaa\r\naaaaa\r\nbbbbbbbbbbbbbbbbbbbb\r\nbbbbbbbbbbbbbbbbbbbb\r\nbbbbb\r\ncccccccccccccccccccc\r\nccccccccccccc\r\nccccc\r\nddddddddddddd\r\nddddddddddddd\r\nddddd\r\n\u001b[6;1H\u001b[?25h\u001b[m",
+      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq\u001b[K\r\nrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\u001b[K\r\nsssssssssssssssssssssssssssssssssssssssssssss\u001b[K\r\nttttttttttttttttttttttttttttttttttttttttttttt\u001b[K\r\nuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu\u001b[K\r\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\u001b[K\r\nwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\u001b[K\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u001b[K\r\nyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\u001b[K\r\nzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\u001b[K\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[K\r\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[K\r\nccccccccccccccccccccccccccccccccccccccccccccc\u001b[K\r\nddddddddddddddddddddddddddddddddddddddddddddd\u001b[K\r\n\u001b[6;1H\u001b[?25h\u001b[m",
       "saturated": true,
       "pendingWrap": false
     },
@@ -152,7 +152,7 @@
       "toRows": 6,
       "raw": "xxxxxxxxxxxxxxxxxxxx   \r\nnext",
       "before": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hxxxxxxxxxxxxxxxxxxxx \u001b[K\r\nnext\r\n\r\n\r\n\u001b[3;5H\u001b[?25h\u001b[m",
-      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hxxxxxxxxxx\r\n\r\nnext\r\n\r\n\r\n\u001b[3;5H\u001b[?25h\u001b[m",
+      "after": "\u001b[!p\u001b[?7h\u001b[2J\u001b[Hxxxxxxxxxxxxxxxxxxxx\r\nnext\r\n\r\n\r\n\u001b[3;5H\u001b[?25h\u001b[m",
       "saturated": false,
       "pendingWrap": false
     }

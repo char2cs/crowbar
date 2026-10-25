@@ -216,31 +216,15 @@ func (e *Emulator) CursorPosition() uv.Position {
 	return uv.Pos(x, y)
 }
 
-// Resize resizes the terminal.
+// Resize resizes the terminal as xterm.js does: the primary screen reflows its soft-wrapped
+// lines, the alternate screen is never reflowed, and no wrap stays pending (reflow.go).
 func (e *Emulator) Resize(width int, height int) {
-	x, y := e.scr.CursorPosition()
-	if e.atPhantom {
-		if x < width-1 {
-			e.atPhantom = false
-			x++
-		}
+	alt := e.scr == &e.scrs[1]
+	x, y := e.scrs[0].resizeLines(width, height, e.atPhantom && !alt, true)
+	altX, altY := e.scrs[1].resizeLines(width, height, e.atPhantom && alt, false)
+	if alt {
+		x, y = altX, altY
 	}
-
-	if y < 0 {
-		y = 0
-	}
-	if y >= height {
-		y = height - 1
-	}
-	if x < 0 {
-		x = 0
-	}
-	if x >= width {
-		x = width - 1
-	}
-
-	e.scrs[0].Resize(width, height)
-	e.scrs[1].Resize(width, height)
 	e.tabstops = uv.DefaultTabStops(width)
 
 	e.setCursor(x, y)
