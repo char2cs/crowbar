@@ -15,7 +15,7 @@ const EMPTY: GitDiff[] = []
  *
  * `lines` is left empty on purpose: the summary has no line content (that is the
  * whole point — the sidebar never pays for the line-level diff). Binary files
- * carry -1 counts, which `GitFileItem` already hides (it only renders counts > 0).
+ * carry -1 counts, which `SidebarFileRowCounts` already hides (it only renders counts > 0).
  */
 export function reviewFilesSummaryToChangedFiles(
   files: ReviewFileSummary[] | undefined | null,

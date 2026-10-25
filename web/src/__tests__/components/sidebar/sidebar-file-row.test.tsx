@@ -76,6 +76,28 @@ describe('SidebarFileRow', () => {
     expect(guides[0].getAttribute('title')).toBe('src')
     expect(guides[1].getAttribute('data-file-path')).toBeNull()
   })
+
+  it('keeps a control out of the button and indents the label past it', async () => {
+    const user = userEvent.setup()
+    const onClick = vi.fn()
+    const onToggle = vi.fn()
+    render(
+      <SidebarFileRow
+        label="a.ts"
+        depth={1}
+        indentSize={14}
+        baseIndent={6}
+        onClick={onClick}
+        control={<input type="checkbox" aria-label="viewed" onChange={onToggle} />}
+      />,
+    )
+    const box = screen.getByLabelText('viewed')
+    expect(box.closest('button')).toBeNull()
+    expect(screen.getByRole('button').style.paddingLeft).toBe('42px')
+    await user.click(box)
+    expect(onToggle).toHaveBeenCalledTimes(1)
+    expect(onClick).not.toHaveBeenCalled()
+  })
 })
 
 describe('SidebarFileRowCounts', () => {

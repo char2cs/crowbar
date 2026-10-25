@@ -430,6 +430,7 @@ describe('a browser tab hosted by its pane', () => {
   const hosted = (id: string, dropTargeted: boolean) => (
     <PaneEditorViewContent
       paneId="p-this"
+      wsId="ws-a"
       editorTabIds={[id]}
       activeEditorTabId={id}
       editorViewHidden={false}

@@ -18,6 +18,8 @@ export const SIDEBAR_FILE_ROW_HEIGHT = 26
 export const SIDEBAR_FILE_ROW_ICON_SIZE = 14
 /** ROW_SHAPE's own `px-1.5`, so a depth-0 label starts where a chat row's does. */
 export const SIDEBAR_FILE_ROW_BASE_INDENT = 6
+/** ROW_GLYPH_BOX's 16px plus ROW_SHAPE's `gap-1.5`: the room a `control` takes. */
+const CONTROL_SLOT = 22
 
 export interface TreeGuideTarget {
   path: string
@@ -84,6 +86,8 @@ type SidebarFileRowProps = Omit<React.ComponentProps<'button'>, 'children'> & {
   dropTarget?: boolean
   /** Slot before the icon column, e.g. a disclosure caret. */
   leading?: React.ReactNode
+  /** An interactive control (a checkbox) over the leading edge, outside the button. */
+  control?: React.ReactNode
   icon?: React.ReactNode
   label?: React.ReactNode
   labelClassName?: string
@@ -112,6 +116,7 @@ export function SidebarFileRow({
   selected = false,
   dropTarget = false,
   leading,
+  control,
   icon,
   label,
   labelClassName,
@@ -133,12 +138,24 @@ export function SidebarFileRow({
     editor !== undefined && 'cursor-default',
     className,
   )
-  const rowStyle = { height, paddingLeft: baseIndent + depth * indentSize, ...style }
+  const indent = baseIndent + depth * indentSize
+  const hasControl = control !== undefined
+  const rowStyle = {
+    height,
+    paddingLeft: indent + (hasControl ? CONTROL_SLOT : 0),
+    ...style,
+  }
   const iconColumn = icon !== undefined && <span className={ROW_GLYPH_BOX}>{icon}</span>
 
   return (
     <div className={cn('file-tree-item w-full', containerClassName)} data-depth={depth}>
       {guides}
+      {hasControl && (
+        // A sibling, not a child: interactive content may not nest in a button.
+        <span className="absolute inset-y-0 z-3 flex items-center" style={{ left: indent }}>
+          <span className={ROW_GLYPH_BOX}>{control}</span>
+        </span>
+      )}
       {editor !== undefined ? (
         <div className={rowClassName} style={rowStyle}>
           {leading}

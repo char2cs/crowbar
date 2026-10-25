@@ -1,7 +1,17 @@
 import { useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
-import { SIDEBAR_TREE_ICON_SIZE, SidebarTreeRow } from '@/components/ui/sidebar-tree'
+import { GitStatusLetter } from '@/features/file-explorer/file-explorer/components/git-status-letter'
+import { getFileTreeGitStatusDecoration } from '@/features/file-explorer/lib/file-tree-git-status'
+import { ROW_INDENT_STEP } from '@/components/layout/workspace-row-base'
+import {
+  SIDEBAR_FILE_ROW_BASE_INDENT,
+  SIDEBAR_FILE_ROW_HEIGHT,
+  SIDEBAR_FILE_ROW_ICON_SIZE,
+  SidebarFileRow,
+  SidebarFileRowCounts,
+  TreeGuides,
+} from '@/components/sidebar/sidebar-file-row'
 import {
   aggregateFolders,
   buildGitFolderTree,
@@ -12,12 +22,10 @@ import {
 } from '@/features/git/utils/build-git-folder-tree'
 import type { GitFolderNode } from '@/features/git/utils/build-git-folder-tree'
 import type { GitDiff, GitFile } from '@/features/git/types/git-types'
-import { GitFileItem } from '@/features/git/components/status/git-status-file-item'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { isFileViewed } from '@/features/git/lib/review-viewed'
 import { useSettingsStore } from '@/features/settings/store'
-import '@/features/file-explorer/styles/file-explorer-tree.css'
 
 interface ChangedFilesTreeProps {
   files: GitDiff[]
@@ -30,9 +38,6 @@ interface ChangedFilesTreeProps {
   /** Unresolved anchored threads per file path. */
   openThreadCounts: ReadonlyMap<string, number>
 }
-
-/** Pitch of a single row — `SidebarTreeRow` renders a fixed `h-6` button. */
-const ROW_HEIGHT = 24
 
 /** A tree entry: the git file shape the folder builder wants, plus its diff. */
 interface ChangedFileEntry extends GitFile {
@@ -112,8 +117,7 @@ export function ChangedFilesTree({
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => new Set())
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Subscribed ONCE here rather than per row: `GitFileItem` used to read this
-  // itself, which meant one store subscription per changed file.
+  // Subscribed once here rather than per row: hundreds of rows, one subscription.
   const compactGitStatusBadges = useSettingsStore((state) => state.settings.compactGitStatusBadges)
 
   // Adapting the diff + rebuilding the nested folder tree is O(files) and only
@@ -139,7 +143,7 @@ export function ChangedFilesTree({
 
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => SIDEBAR_FILE_ROW_HEIGHT,
     getScrollElement: () => scrollRef.current,
     overscan: 8,
     // Mirror useFileExplorerVisibleRows: while a sidebar/pane drag is in progress
@@ -197,23 +201,33 @@ export function ChangedFilesTree({
       : 0
 
   return (
-    <div ref={scrollRef} className="h-full min-h-0 select-none overflow-y-auto">
+    <div ref={scrollRef} className="h-full min-h-0 select-none overflow-y-auto px-1.5">
       <div className="flex flex-col">
         <div style={{ height: paddingTop }} />
         {virtualRows.map((virtualRow) => {
           const row = rows[virtualRow.index]
           if (!row) return null
+          const guides = (
+            <TreeGuides
+              depth={row.depth}
+              baseIndent={SIDEBAR_FILE_ROW_BASE_INDENT}
+              indentSize={ROW_INDENT_STEP}
+              previousDepth={rows[virtualRow.index - 1]?.depth ?? 0}
+              nextDepth={rows[virtualRow.index + 1]?.depth ?? 0}
+            />
+          )
 
           if (row.kind === 'folder') {
             const agg = aggregates.get(row.node.fullPath) ?? { total: 0, viewed: 0 }
             const all = agg.total > 0 && agg.viewed === agg.total
             return (
-              <SidebarTreeRow
+              <SidebarFileRow
                 key={row.key}
                 depth={row.depth}
+                guides={guides}
                 onClick={() => toggleFolder(row.node.fullPath)}
-                className="min-w-0 leading-[1.35]"
-                leading={
+                aria-expanded={!row.collapsed}
+                control={
                   <Checkbox
                     ariaLabel={`Mark ${row.label} as viewed`}
                     checked={all}
@@ -226,62 +240,84 @@ export function ChangedFilesTree({
                     }
                   />
                 }
-              >
-                <FileExplorerIcon
-                  fileName={row.node.name}
-                  isDir
-                  isExpanded={!row.collapsed}
-                  className="relative z-1 shrink-0 text-muted-foreground"
-                  size={SIDEBAR_TREE_ICON_SIZE}
-                />
-                <span className="relative z-1 min-w-0 flex-1 truncate leading-[1.35]">
-                  {row.label}
-                </span>
-                <span className="ui-text-sm relative z-1 shrink-0 text-muted-foreground">
-                  {agg.viewed}/{agg.total}
-                </span>
-              </SidebarTreeRow>
+                icon={
+                  <FileExplorerIcon
+                    fileName={row.node.name}
+                    isDir
+                    isExpanded={!row.collapsed}
+                    className="shrink-0 text-muted-foreground"
+                    size={SIDEBAR_FILE_ROW_ICON_SIZE}
+                  />
+                }
+                label={row.label}
+                trailing={
+                  <span className="ui-text-sm text-muted-foreground">
+                    {agg.viewed}/{agg.total}
+                  </span>
+                }
+              />
             )
           }
 
           const { diff } = row.entry
+          const fileName = row.entry.path.split('/').pop() || row.entry.path
           const isViewed = isFileViewed(viewed, diff)
           const threads = openThreadCounts.get(diff.file_path) ?? 0
-          const diffStats =
-            diff.additions !== undefined || diff.deletions !== undefined
-              ? { additions: diff.additions ?? 0, deletions: diff.deletions ?? 0 }
-              : undefined
+          const additions = diff.additions ?? 0
+          const deletions = diff.deletions ?? 0
+          const decoration = getFileTreeGitStatusDecoration(row.entry)
+          const hasTrailing = diff.uncommitted || additions > 0 || deletions > 0 || threads > 0
 
           return (
-            <GitFileItem
+            <SidebarFileRow
               key={row.key}
-              file={row.entry}
-              diffStats={diffStats}
+              depth={row.depth}
+              guides={guides}
+              title={row.entry.path}
               onClick={() => onFileOpen(diff.file_path)}
-              showDirectory={false}
-              showFileIcon
-              indentLevel={row.depth}
-              repoPath={repoPath}
-              uncommitted={diff.uncommitted}
-              compactGitStatusBadges={compactGitStatusBadges}
-              dimmed={isViewed}
-              leading={
+              draggable={!!repoPath}
+              control={
                 <Checkbox
-                  ariaLabel={`Mark ${row.entry.path.split('/').pop()} as viewed`}
+                  ariaLabel={`Mark ${fileName} as viewed`}
                   checked={isViewed}
                   onChange={(next: boolean) => onSetViewed([diff], next)}
                 />
               }
+              icon={
+                <FileExplorerIcon
+                  fileName={fileName}
+                  isDir={false}
+                  className="shrink-0 text-muted-foreground"
+                  size={SIDEBAR_FILE_ROW_ICON_SIZE}
+                />
+              }
+              label={fileName}
+              labelClassName={isViewed ? 'text-muted-foreground' : decoration?.colorClassName}
+              badge={decoration && <GitStatusLetter decoration={decoration} />}
               trailing={
-                threads > 0 ? (
-                  <Badge
-                    variant="info"
-                    size="sm"
-                    aria-label={`${threads} open thread${threads === 1 ? '' : 's'}`}
-                  >
-                    {threads}
-                  </Badge>
-                ) : null
+                hasTrailing && (
+                  <>
+                    {diff.uncommitted && (
+                      <Badge variant="warning" size="sm">
+                        uncommitted
+                      </Badge>
+                    )}
+                    <SidebarFileRowCounts
+                      additions={additions}
+                      deletions={deletions}
+                      compact={compactGitStatusBadges}
+                    />
+                    {threads > 0 && (
+                      <Badge
+                        variant="info"
+                        size="sm"
+                        aria-label={`${threads} open thread${threads === 1 ? '' : 's'}`}
+                      >
+                        {threads}
+                      </Badge>
+                    )}
+                  </>
+                )
               }
             />
           )
