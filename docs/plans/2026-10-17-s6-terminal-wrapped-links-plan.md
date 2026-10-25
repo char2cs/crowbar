@@ -27,7 +27,7 @@ Failure modes the spec implies but a happy-path test would miss. Each is pinned 
 
 1. A URL ends exactly on the last column and the program prints CRLF; the next row starts a different token. Must stay two links (T1 Go + web, T4, T5, T6).
 2. A chain whose head scrolls into history in one frame and whose tail in the next. Must stay joined in the client's scrollback (T5).
-3. Pane resize after wrapping: the wrap bit is dropped on any width change, nothing panics, nothing stale is joined (T3, T7).
+3. Pane resize after wrapping: chains reflow as xterm.js reflows them and stay one logical line; nothing panics, nothing stale is joined, and the post-resize keyframe changes nothing on screen (T3, T6c, T7).
 4. App turns autowrap off (`?7l`), or an alt-screen TUI repaints with CUP+EL2: no flags appear, no extra bytes are emitted (T3, T5).
 5. Wide glyphs before the URL: link ranges land on the right cells (T6).
 
@@ -50,7 +50,7 @@ Root cause in one line: the daemon addresses every row with CUP, so the client x
 
 1. **Bit source:** patch x/vt in-tree. A nested module `api/third_party/x-vt` (verbatim copy of the pin, then a small patch) wired by `replace` in `api/go.mod`; delete it when upstream exposes the bit. Rejected: inferring wrap from cursor callbacks (a wrap and `LF`+`CHA` are indistinguishable; bottom-row scroll fires no callback), feeding the emulator byte by byte (re-implements the parser), swapping to midterm (same gap, rewrites three adapters), a client-side side channel (second copy of state).
 2. **Convention:** the flag lives on the continuation row, as xterm's `isWrapped`. `RowWrapped(y)` / `ScrollbackRowWrapped(i)`.
-3. **Lifecycle:** set only by autowrap overflow; moves with its row; cleared by an erase that covers a whole row from column 0 and by any width change (grid and scrollback; no reflow); row 0 is never flagged unless the line above it is in the scrollback ring.
+3. **Lifecycle:** set only by autowrap overflow; moves with its row; cleared by an erase that covers a whole row from column 0; a width change reflows as xterm.js does (Task 6c; this originally said "cleared, no reflow"); row 0 is never flagged unless the line above it is in the scrollback ring.
 4. **Wire contract:** a continuation is never separated from its head. Heads are written at full width untrimmed; the next row follows with no CUP, CR or LF. The diff unit is the chain. No new keyframe triggers.
 5. **Client:** one tokenizer in `terminal-links.ts` over the logical line (walk `isWrapped`, ≤ 2048 chars each way). `@xterm/addon-web-links` and its dependency are deleted.
 6. **Deleted residual:** `model.go:34-51`, UPSTREAM.md D1 and its checklist item, the old residual test. D1a (panic-recovery history loss) and D2 (xterm oracle) stay; D1a's "resolves WITH D1" wording becomes standalone.
@@ -232,6 +232,120 @@ git commit -m "build(api): vendor charmbracelet/x/vt at the pinned commit"
 
 ---
 
+### Task 6c: The model keeps logical lines across a resize (reflow, xterm.js 6.0.0 as the oracle)
+
+**Goal:** A width change (sidebar toggle, split, sash drag) keeps every soft-wrapped line one logical line. The daemon reflows the primary screen and its scrollback as xterm.js 6.0.0 reflows the client's buffer. The post-resize keyframe replays every wrap bit and repaints exactly what the client's own reflow already shows: one reflow per side, no visible change, no blank frame. Closes T6-I1 (copy and links split after a resize, and after an R5 cut) and R5.
+
+**Base:** the branch tip at dispatch (T6 is on the branch since `feeff357a`). xterm source for every port and oracle: `web/node_modules/@xterm/xterm/src` (6.0.0, `package.json:4`).
+
+**Decisions:**
+1. **Vendored layer, not the model.** New `api/third_party/x-vt/reflow.go`. Everything it rewrites is unexported in package `vt`: `Screen.buf`, `cur`, `saved`, `wrapped` and `Scrollback.lines`, `wrapped`, `maxLines`. A model-layer reflow would need exported mutators over all of it plus a second line list, and xterm also reflows inside its own `Buffer`. The model seam (`emulator.Resize`) and `session.Resize` (`internal/session/control.go:163-184`, already invalidates for a keyframe) stay unchanged. Cost: the patched copy becomes a fork (upstream x/vt has no reflow). UPSTREAM.md records it.
+2. **Port all of `Buffer.resize` for the primary screen.** That covers the column grow (`Buffer.ts:170-177`) and the row step (`:179-219`): a grow pulls history down when the cursor is on the last line and otherwise appends blank rows; a shrink pops rows below the cursor and otherwise scrolls the top into history. Then the cap at rows + scrollback (`:223-233`), the cursor clamps (`:236-241`), the reflow (`:248-258`; `_reflowLarger`/`_reflowSmaller` `:317-523`; `BufferReflow.ts:25-226`) and the shrink truncation of every line. The alternate screen gets the column change and the row step only, keeps its flags, and is never reflowed (`_isReflowEnabled`, `Buffer.ts:296-302`). The row step is included because uv's `Buffer.Resize` drops the *bottom* rows on a height shrink while xterm scrolls the top ones into history, so today every height change repaints a different screen than the client shows.
+3. **Cursor.** A resize leaves no pending wrap. The cursor column becomes `min(oldCols, newCols-1)` when a wrap was pending (xterm holds `x = cols`), otherwise `min(x, newCols-1)`. The cursor's own chain is never reflowed, only truncated (`reflowCursorLine` defaults to false, `OptionsService.ts:48`; the web sets no override). The saved cursor follows xterm's `savedY` arithmetic: absolute while the port runs, back to grid-relative and clamped at the end.
+4. **Wide glyph at the edge** (closes UPSTREAM.md D2 items 1-2, needed so the reflow input equals xterm's cells). In `utf8.go`, a wide glyph that does not fit the last column wraps early and leaves that cell blank in the current pen (`InputHandler.ts:557-590`). A wide glyph whose second cell lands on the last column leaves a pending wrap, with the cursor resting on the last column. The shared encoder (R14) writes a head whose last cell is blank and whose continuation starts with a width-2 cell at `cols-1` cells, so the client early-wraps into the same layout. A printed space there would count as content to xterm's next reflow.
+5. **"Content"** for a trimmed length is a cell whose `Content` is neither `""` nor `" "`. x/vt cannot tell a printed space from an erased cell; xterm counts printed spaces. Recorded in D2. No fixture scenario ends a line in printed spaces.
+6. **R5 is fixable, and the fix adds no trigger.** The scrollback delta becomes one flow from `CUP(1,1)`:
+   - A continuation follows its padded head with no separator. At the bottom row, the client's own autowrap scrolls and sets `isWrapped` (`InputHandler.ts:557-580`).
+   - Any other line starts with `\r\n` + `EL0`. The first line keeps the client row's flag only when `lastWrapped[0]`, as today.
+   - When `RowWrapped(0)`, the viewport's top row follows the last committed line.
+   - Then `CUP(rows,1)` + k × `\r\n`, with k = min(n, rows), or min(n, rows−1) when the top row followed.
+   
+   Every flag arrives at any height, including one row. This deletes `scrollbackBatch`, `batchEndsChain` and `writeBatch`.
+7. **Client.** One reflow per side: xterm reflows on `terminal.resize` (fit), the daemon reflows its own copy, and the keyframe lands on an xterm that is already at the new size. Once 2-4 hold the two results are equal, and a Go-generated fixture replayed through xterm pins that. The snapshot path can paint a blank frame today: the barrier callback runs `reset()`, and if xterm's 12 ms slice has expired the redraw parses in a later task (`WriteBuffer.ts:222-228`). Fix: send each snapshot as one `terminal.write(RIS + frame.data)` chunk. A chunk parses synchronously, and xterm documents RIS as its in-band reset (`CoreBrowserTerminal.ts:1260-1266`). This deletes `held`, `snapshotPending`, `snapshotGen` and the barrier.
+
+**Files:**
+- Create: `api/third_party/x-vt/reflow.go` (≤ 400 lines; header credits the xterm.js port, MIT); `licenses/xtermjs-MIT.txt` (copy of `web/node_modules/@xterm/xterm/LICENSE`)
+- Modify (patch): `api/third_party/x-vt/screen.go` (`Resize` `:77-94` delegates; the "rows are not reflowed" branch goes), `scrollback.go` (the trim inside `PushWrapped` `:33-61` becomes `trimLine`; add `replaceLines`), `emulator.go` (`Resize` `:220-251`; the file is 508 lines upstream and may not grow), `utf8.go` (`handleGrapheme` `:44-99`)
+- Modify under `api/internal/core/terminal/internal/model/`: `wrap.go` (`appendChainRow` `:11-34` takes the next-row kind; delete `scrollbackBatch` `:66-85`, `batchEndsChain` `:87-99`), `diff.go` (`writeScrollbackDelta` doc and body `:266-310`; delete `writeBatch` `:312-339`), `vt_serializer.go` (`writeContent` `:85-115` passes the next-row kind), `model.go` (`Resize` doc `:52-55`), `UPSTREAM.md` (patched list `:70-85`, D2 `:134-143`); `api/internal/core/terminal/transport.go:264-266` (comment)
+- Tests: `vt_emu_test.go` (TestRowWrapped `:45-52`, `:89-103`; new `TestResizeReflow`; alloc guard), `wrap_test.go` (round-trip and `TestAppendChainRow` rows), `conformance_test.go` (`clientSim.resize`), `conformance_wrap_test.go` (`:110-165` expectations; walk `:164-221`; delete `longestLine` `:282-300`; `-update` flag `:302-306`). Create `conformance_resize_test.go` (R11 precedent: `conformance_wrap_test.go` is 353 and would pass 500), `vt_model_bench_test.go` and the fixture `testdata/xterm-resize-reflow.json` (CI's web filter already matches `testdata/**`, `ci.yml:38-39`). Extend `api/tests/terminal_test.go` (84) with the black-box test.
+- Web: `web/src/features/terminal/hooks/use-terminal-connection.ts` (`:73-81`, `:89-92`, `:121-142`, `:199`), `use-pty-size-sync.ts` (comment `:40-42`); `web/src/__tests__/features/terminal/hooks/use-terminal-connection.test.ts` (669, may not grow: rewrite the barrier describes `:197-539` shorter), `use-pty-size-sync.test.ts` (113)
+- Docs: `NOTICE.md` (an xterm.js port entry under "Go source", `:31-41`; it also covers T6's URL regex from `@xterm/addon-web-links@0.12.0`, which has no entry yet)
+
+**Interfaces:**
+- `reflow.go` (unexported): `type reflowBuf struct { lines []uv.Line; wrapped []bool; ybase, x, y, savedX, savedY int }`, whose steps are named after xterm's: `growCols`, `stepRows`, `capLength`, `clampCursor`, `reflowLarger`, `reflowSmaller`, `truncateCols`. Ported 1:1: `wrappedTrimmedLength(lines []uv.Line, i, cols int) int` (`getWrappedLineTrimmedLength`), `smallerLineLengths(lines []uv.Line, oldCols, newCols int) []int`, `largerLinesToRemove(...)`, `trimmedLength(uv.Line) int`, `hasContent(*uv.Cell) bool`. A read past a trimmed scrollback line yields `uv.EmptyCell`; only the rows of a reflowed chain are materialised at full width. `func (s *Screen) resizeLines(width, height int, pending, reflow bool) (x, y int)` combines the scrollback and the grid into one list, runs the steps, and writes back the grid (every row exactly `width` cells), the cursor, the saved cursor and the flags. Reflow runs only on the screen with history, when both widths are ≥ 2 (xterm's minimum, `BufferService.ts:13`).
+- `Scrollback.replaceLines(lines []uv.Line, wrapped []bool)`: trims each line with `trimLine`, keeps the newest `maxLines`, clears `wrapped[0]` (R6; xterm keeps that flag, but no keyframe can carry it).
+- `Emulator.Resize(width, height int)`: unchanged signature. It clears `atPhantom`, resizes both screens through `resizeLines`, then sets the active cursor.
+- `wrap.go`: `type chainNext uint8` (`nextBreaks`, `nextWraps`, `nextWrapsWide`); `chainNextOf(wraps bool, first *uv.Cell) chainNext`; `appendChainRow(dst []byte, cells []uv.Cell, cols int, wrapped bool, next chainNext, brk string) []byte`.
+- Invariant after any resize: every scrollback line is ≤ cols. The T4 "line wider than cols" carry is gone.
+- Fixture: `{"scenarios":[{"name","cols","rows","scrollback","toCols","toRows","raw","before","after","saturated","pendingWrap"}]}`. `before` and `after` are keyframes at the two sizes; `raw` is the PTY bytes.
+
+- [ ] **Step 1: Emulator tables (red)** in `vt_emu_test.go`. Every expectation comes from xterm's code, never from Go output. When unsure, add the bytes to the fixture (Step 2) and let xterm decide.
+  - TestRowWrapped `:45-52` becomes three rows (`thirty + crlf(3)` at 10x4, cursor `0,3`): `Resize(15, 4)` → grid `T F F F`, scrollback `F`, history `0123456789ABCDE`. `Resize(6, 4)` → grid `T F F F`, scrollback `F T T T`, history `012345|6789AB|CDEFGH|IJKLMN`. `Resize(10, 5)` pulls history down → grid `T T F F F`, scrollback `F`, history `0123456789`.
+  - The three parked rows `:89-103` keep their no-panic purpose with xterm's row step: alt exit after a shrink → screen `"\nprompt"`, history `hist|top|`; both DECSC rows → screen `"\n"`, history `hist|top|`. Row `:115-119` is unchanged (pops blank rows below the cursor).
+  - New D2 rows: `012345678日x` → grid `F T F F`, screen `"012345678\n日x\n\n"`; `01234567日x` → grid `F T F F`, screen `"01234567日\nx\n\n"`.
+  - New `TestResizeReflow` (fields: bytes, size, maxLines, resize list, `wrapFlags` text, history, ScreenText, cursor; `vm.Degraded()` false on every row). Required rows:
+    - shrink, grow and toggle-back to the original model;
+    - the cursor's chain `thirty` at `Resize(6,4)` → screen `"012345\nABCDEF\nKLMNOP\n"`, grid `F T T F`, cursor `5,2`;
+    - wide glyphs crossing the new edge on shrink (`01234日本語\r\nx` at `Resize(6,4)` → `"01234\n日本語\nx\n"`, grid `F T F F`) and on grow (`BufferReflow.ts:78-85`);
+    - a blank continuation that vanishes on grow (`:91-99`);
+    - a chain taller than the viewport;
+    - the cap: `thirty + crlf(3)`, maxLines 3, `Resize(6,4)` → scrollback `F T T`, history `6789AB|CDEFGH|IJKLMN`;
+    - alt screen: `?1049h` + 20 chars at `Resize(6,4)` → grid `F T F F`, `"012345\nABCDEF\n\n"`, cursor `5,1`; the main screen underneath is reflowed;
+    - DECSC across a reflow;
+    - same-width and 1-column resizes (no reflow, no panic);
+    - every scrollback line ≤ cols after each resize.
+- [ ] **Step 2: Conformance, R5 and fixture (red).** Add `clientSim.resize(cols, rows)` (the next keyframe resets the sim at that size, as xterm resizes before the keyframe). In `conformance_resize_test.go`:
+  - `TestConformance_ResizeKeyframeRebuildsReflowedChains`: chains in the grid and the scrollback; per size in A→B→A plus a height change: `Resize`, assert `needKeyframe`, apply `Serialize`, then grid, `scrollbackStrings`, `wrapFlags` and `assertSameCells` are equal. More output then stays on the diff path.
+  - `TestConformance_WidthToggleRestoresTheModel`, `TestConformance_TallChainSurvivesResize` (400 chars at 20x6, to 7 and 33 columns, the keyframe holds the chain contiguous), `TestConformance_WideGlyphAtTheEdgeAcrossResize`, `TestConformance_AltScreenIsNotReflowed`.
+  - `TestConformance_RandomizedResizeWalk`: 400 seeds over `wrapWalkChunk` plus a resize step (cols 2-20, rows 1-8). Every step checks the `walkWraps` assertions plus `Degraded() == false` and every line ≤ cols.
+  - `TestConformance_XtermResizeFixture`: the `TestConformance_XtermReplayFixture` pattern, writing `testdata/xterm-resize-reflow.json`, with ~8 scenarios at 20x6 and scrollback 50: shrink, grow, chain in history, wide at the edge, the cursor's chain, height shrink and grow, alt screen, cap reached (`saturated`), cursor at a pending wrap (`pendingWrap`). It reuses the `-update` flag; its usage text becomes "rewrite the xterm fixtures in testdata/".
+  - R5 in `conformance_wrap_test.go`: `TestConformance_WrappedChainTallerThanViewport` and `TestConformance_WrappedChainOnOneRow` expect the client's flags to equal the model's (`grid T | scrollback F F T` on one row). The walk drops `exactHistory` and `longestLine` and compares the scrollback flags at every step.
+  - In `wrap_test.go`: round-trip rows for an early-wrapped wide glyph in the grid and in the scrollback, and `TestAppendChainRow` rows for `nextWrapsWide` (blank last cell → `cols-1` cells; non-blank → all `cols`).
+- [ ] **Step 3: Black-box (red)** in `api/tests/terminal_test.go`: `TestRegression_TerminalResizeKeepsWrappedLines`. Create a session, dial it, send `{"type":"resize","cols":80,"rows":24}`, then `printf 'https://example.com/%0100d\n' 0 | tr 0 a; M=RSZ; echo "${M}_7d1c"` and wait for `RSZ_7d1c`. Then, for 50 columns and back to 80: send the resize and one marker command (`M=R50; echo "${M}_ok"`; output is what schedules the keyframe, `session/pump.go:30-47`). Read with a new `readSnapshotUntil` (snapshot frames only, `kit.ParseTerminalFrame`) and assert that the first snapshot after the resize contains `"https://example.com/" + strings.Repeat("a", 100)` contiguous. End with the kill.
+- [ ] **Step 4: Web (red).**
+  - `use-terminal-connection.test.ts`: a real `Terminal` with `vi.useFakeTimers()` and `performance.now` spied to advance 13 ms per call (every write slice expires). Deliver a live frame `old`, then a snapshot `new`, then step `vi.advanceTimersToNextTimer()` until no timer is left, recording row 0 after each step. Once `old` shows, row 0 reads `old` until it reads `new`, and never `''`. Rewrite `:197-539` against the new contract: one write per snapshot that begins with `ESC c`; later live frames are written after it in order; of two snapshots, the second wins; a torn-down connection's snapshot never lands after the new one's. The file must end below 669.
+  - `use-pty-size-sync.test.ts`: per fixture scenario, a real `Terminal` fed `before`. The hook's `fit` calls `terminal.resize(toCols, toRows)`, and the connection is told `(toCols, toRows)`. The terminal must equal a fresh `Terminal` at the new size fed `after` (buffer length, `baseY`, cursor, and per line `translateToString(true)`, `isWrapped` and cell widths). Exempt line 0's `isWrapped` when `saturated` (R6) and the cursor column when `pendingWrap` (a CUP cannot carry a pending wrap). A second case runs xterm over `raw` and resizes it, with no cursor exemption.
+- [ ] **Step 5: Run red, confirm the reasons.**
+  - `cd api && go test -tags noEmbed ./internal/core/terminal/internal/model -run XtermResizeFixture -update -count=1` writes the fixture from today's daemon.
+  - `go test -tags noEmbed ./internal/core/terminal/internal/model -run 'TestRowWrapped|TestResizeReflow|TestConformance_(ResizeKeyframe|WidthToggle|TallChainSurvives|WideGlyphAtTheEdge|AltScreenIsNot|RandomizedResize|WrappedChainTallerThanViewport|WrappedChainOnOneRow|RandomizedWrapWalk)|TestAppendChainRow|TestSerialize_RoundTripPreservesWrapFlags' -count=1` → fails on cleared flags, truncated rows, bottom-dropped rows, dropped wide glyphs and the R5 cuts. `undefined: nextWrapsWide` is acceptable only until the stub signature compiles.
+  - The black box, isolated: `cd api && H=$(mktemp -d) && mkdir -p $H/home $H/crowbar && GOMODCACHE=$(go env GOMODCACHE) GOCACHE=$(go env GOCACHE) HOME=$H/home CROWBAR_HOME=$H/crowbar go test -tags 'integration noEmbed' ./tests/ -run 'TestRegression_TerminalResizeKeepsWrappedLines' -count=1` → fails on the contiguous URL.
+  - `cd web && node_modules/.bin/vitest run src/__tests__/features/terminal/hooks/use-terminal-connection.test.ts src/__tests__/features/terminal/hooks/use-pty-size-sync.test.ts` → the blank-row case and every `before`/`raw` case fail.
+  - Commit `test(terminal): pin resize reflow and snapshot atomicity against xterm.js (red)`.
+- [ ] **Step 6: Wide glyph at the edge** (`utf8.go`, Decision 4) and the encoder's `nextWrapsWide` (`wrap.go`, `vt_serializer.go:96-114`, `diff.go:405`). The D2 rows, `TestAppendChainRow` and the round trip pass. Commit `fix(terminal): x/vt wraps a wide glyph at the last column as xterm.js does`.
+- [ ] **Step 7: Reflow** (`reflow.go`, `screen.go`, `scrollback.go`, `emulator.go`; Decisions 1-3, 5). `TestRowWrapped`, `TestResizeReflow` and `conformance_resize_test.go` pass, then `go test -tags noEmbed -race ./internal/core/terminal/... -count=1` is green. Re-run the fixture with `-update` and diff it (only `after` changes). The web `before`/`raw` cases pass. Commit `feat(terminal): the screen model reflows on a resize as xterm.js does`.
+- [ ] **Step 8: R5 flow** (`diff.go`, `wrap.go`; Decision 6). The tightened `conformance_wrap_test.go` tests and the walk pass. `diff_test.go` passes unchanged (the flow still opens with `CUP(1,1)`). `TestEmit_NoChangeWithChainsAllocatesNoMore` and `BenchmarkDiffScrollBurst` stay within ±10% of base; report both. Commit `fix(terminal): the scrollback delta flows chains of any height whole`.
+- [ ] **Step 9: Snapshot in band** (`use-terminal-connection.ts`, Decision 7; a local `withReset(data: Uint8Array): Uint8Array`, not exported). Update the `use-pty-size-sync.ts:40-42` comment: the keyframe equals xterm's own reflow, so it changes nothing on screen. Targeted vitest green. Commit `fix(web): apply a snapshot in band so no blank frame shows between reset and redraw`.
+- [ ] **Step 10: Perf** (`vt_model_bench_test.go`). Write `BenchmarkResize` with sub-benchmarks: `short-lines-10k` (10,000 lines of 40 cells, 120x40 ↔ 90x40), `one-chain-10k` (one line filling 10,000 rows, 200 ↔ 80) and `height-only` (120x40 ↔ 120x30); each iteration toggles. Pair it with `BenchmarkSerialize` over the same models.
+  - Budget: per case, Resize ns/op ≤ the same model's Serialize ns/op (the resize already pays for that keyframe), and B/op ≤ `ModelBytes()`.
+  - Deterministic guard in `vt_emu_test.go`, `TestResize_AllocsDoNotGrowWithHistory`: `testing.AllocsPerRun` of a 120↔90 toggle over short lines is equal at 100 and at 10,000 history lines. Height-only and same-width resizes reflow nothing. `go test -run '^$' -bench 'BenchmarkResize|BenchmarkSerialize' -benchmem -count=5 ./internal/core/terminal/internal/model` → report the numbers. xterm also reflows synchronously in `resize`, and a pane drag already yields one resize per drag (`use-pty-size-sync.ts:32-34`).
+- [ ] **Step 11: Docs.**
+  - UPSTREAM.md patched list: reflow as xterm.js 6.0.0 `Buffer.resize` (ported, MIT); the alt screen is not reflowed and keeps its flags; a resize leaves no pending wrap; the wide-glyph early wrap. The delete trigger now needs upstream reflow too.
+  - D2: drop items 1-2. Add printed spaces not being content, and the client's one-column cursor offset between its own resize and the keyframe after a widening resize at a pending wrap.
+  - `model.go:52-55` Resize doc, the `transport.go:264-266` comment, the `NOTICE.md` entry and `licenses/xtermjs-MIT.txt`.
+  - Commit `docs(terminal): record the reflow port and its licence`.
+- [ ] **Step 12: Mutation check.** Each mutant must turn a named test red; report killed/total:
+  - drop the cursor-chain skip;
+  - drop `endsWithWide` (`newCols-1`);
+  - drop the `endsInNull && startsWithWide` length;
+  - drop the wide fix-up in `reflowLarger`;
+  - no blank-row removal on grow;
+  - no history pull on a row grow;
+  - pop instead of scroll on a shrink at the cursor row;
+  - skip the R6 clear in `replaceLines`;
+  - skip the `savedY` adjust;
+  - keep `atPhantom` across a resize;
+  - reflow the alt screen;
+  - clear alt flags on a width change;
+  - add a separator before a continuation in the flow;
+  - park `rows` instead of `rows-1` with the top row;
+  - EL0 the held first line;
+  - `cols` instead of `cols-1` before a wide continuation;
+  - drop the early wrap;
+  - drop the pending wrap after a wide glyph;
+  - web: write RIS and the frame as two chunks.
+- [ ] **Step 13: Gates.**
+  - `cd api && go build -tags noEmbed ./... && go test -tags noEmbed -race ./internal/core/terminal/... -count=1`
+  - `go vet -tags 'integration noEmbed' ./tests/integration/... ./tests/kit/...` (R12: vet only there)
+  - the Step 5 black-box command → green (plus `TestTerminal_CreateStreamKill`)
+  - `GOLANGCI_LINT_CACHE=$(mktemp -d) TMPDIR=$(mktemp -d) make -C api lint` → `0 issues`, then `make -C api deadcode` → baseline unchanged
+  - `gofmt -l api/third_party/x-vt` prints nothing. Lint skips `third_party` (`api/.golangci.yml:103,131`), so check `reflow.go` by hand: no function over 100 lines / 50 statements, cyclomatic ≤ 15, at most two nested `if` levels.
+  - `grep -rniE 'codex|claude' api/third_party/x-vt api/internal/core/terminal --include='*.go' | grep -v _test.go` and `grep -rn 'time.Sleep' <changed test files>` print nothing.
+  - `wc -l` on every touched file: all ≤ 500, except `emulator.go` and `vt_serializer_test.go` (not grown) and `use-terminal-connection.test.ts` (shrunk).
+  - Web: the targeted vitest files plus `terminal-links.test.ts`, `bun tsc --noEmit`, `bunx eslint <changed> --max-warnings 0`, `bunx prettier --check <changed>`, `bun run knip`, `bun run lint:doctor`.
+  - `make ratchet`: report the numbers (R1: never edit a baseline).
+
+---
+
 ### Task 7: Live check in Tauri
 
 **Goal:** Prove the symptom is gone in the real app, on the real daemon, in the isolated home.
@@ -245,7 +359,7 @@ git commit -m "build(api): vendor charmbracelet/x/vt at the pinned commit"
   2. Exact-fit hard-broken pair (80 `x`, newline, `yyyyyyyyyy`): no pointer join; nothing opens a partial URL.
   3. A file path wrapped by a narrow pane: click opens the file in the editor tab at the line.
   4. URL, then 60 lines of output; scroll back; hover both rows of the URL (and once with the head scrolled off and the tail at the viewport top).
-  5. Switch workspace away and back (re-attach keyframe), then drag the sash narrower and wider: scenario 1 still links, no console errors, no stuck blank rows.
+  5. Switch workspace away and back (re-attach keyframe), then drag the sash narrower and wider and toggle the sidebar: scenario 1 still links and copies as one line from every row (including with the head in scrollback), the screen does not visibly change when the post-resize keyframe lands, no console errors, no stuck blank rows.
   6. Stream `yes "$(printf 'https://example.com/%0100d' 0 | tr 0 a)" | head -3000`: scroll position and CPU stay sane (a keyframe storm would reset scroll and spike the daemon).
 - [ ] **Step 4: Last gates.** `cd api && go test -tags noEmbed -race ./internal/core/terminal/... -count=1 && make lint && make deadcode`; web targeted files, `bun tsc --noEmit`, `bun run knip`. Record the outcome of each scenario in the final report (not in the repo). If any scenario fails, write the failing test first (Task 1 style) and fix at its owner; do not patch with a timer or a resync.
 
@@ -254,5 +368,5 @@ git commit -m "build(api): vendor charmbracelet/x/vt at the pinned commit"
 ## Out of scope (tracked, not planned)
 
 - `selection-text.ts` keeps its edge heuristic until a follow-up retires it in favour of xterm's native `getSelection()` now that `isWrapped` is real; it is not in S6's Deletes column and changes copy behaviour.
-- Reflow on width change (the bit is dropped; the next `Emit` keyframes), a wide glyph straddling the last column (x/vt does not early-wrap), joining wrapped rows in `ScreenText()`.
+- Joining wrapped rows in `ScreenText()`. (Reflow on a width change and the wide glyph at the last column moved into Task 6c.)
 - Upstreaming `RowWrapped` to charmbracelet/x so `api/third_party/x-vt` can be deleted.
