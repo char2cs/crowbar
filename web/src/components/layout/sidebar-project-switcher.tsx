@@ -1,10 +1,10 @@
-import { memo, useState } from 'react'
+import { memo, useState, type ReactNode } from 'react'
 import { PlusIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
 import { performRenameProject } from '@/components/sidebar/lib/row-actions'
 import { WithTooltip } from '@/components/ui/tooltip'
-import { HostStatusIcon } from '@/features/hosts/components/host-status-icon'
+import { HostStatusDot, HostStatusIcon } from '@/features/hosts/components/host-status-icon'
 import { useHostView } from '@/features/hosts/hooks/use-host-status'
 import { hostDotLabel, hostTone, hostToneText } from '@/features/hosts/lib/host-tone'
 import { LOCAL_HOST } from '@/features/hosts/types'
@@ -72,11 +72,65 @@ interface SidebarProjectSwitcherProps {
   onAddProject?: () => void
 }
 
+function ProjectMark({
+  label,
+  onSelect,
+  children,
+}: {
+  label: string
+  onSelect: () => void
+  children: ReactNode
+}) {
+  return (
+    <Button
+      onClick={onSelect}
+      variant="ghost"
+      size="icon-sm"
+      data-testid="space-mark"
+      className={cn(TILE, 'group/mark p-0 hover:bg-sidebar-element-hover')}
+      tooltip={label}
+      tooltipSide="bottom"
+      aria-label={label}
+    >
+      {children}
+    </Button>
+  )
+}
+
+// Dimmed by its icon, not its button: a host's dot keeps its full 3:1 on the sidebar.
+function MarkIcon({ project }: { project: Project }) {
+  return (
+    <span className="flex opacity-80 group-hover/mark:opacity-100">
+      <ProjectIconMark project={project} size="lg" />
+    </span>
+  )
+}
+
+/** Another project on a remote host: its mark wears the host's dot, which its label says. */
+function RemoteProjectMark({
+  project,
+  onSelect,
+}: {
+  project: Project
+  onSelect: (id: string) => void
+}) {
+  const { name, state } = useHostView(project.hostId)
+  const host = `${name === undefined ? '' : `${name} `}${hostDotLabel(state)}`
+  return (
+    <ProjectMark label={`${project.name}, ${host}`} onSelect={() => onSelect(project.id)}>
+      <HostStatusDot hostId={project.hostId} state={state}>
+        <MarkIcon project={project} />
+      </HostStatusDot>
+    </ProjectMark>
+  )
+}
+
 /**
  * First line of the sidebar body: the active project's icon and name (its host under it, when
- * remote), then the other projects' icons and a trailing `+`. The name truncates before the
- * icons are pushed off. The active mark edits the icon; double-clicking the
- * name renames the project. Memoized: every prop is a primitive or a stable callback.
+ * remote), then the other projects' icons, a remote one dotted with its host's state, and a
+ * trailing `+`. The name truncates before the icons are pushed off. The active mark edits the
+ * icon; double-clicking the name renames the project. Memoized: every prop is a primitive or
+ * a stable callback.
  */
 export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
   projects,
@@ -127,21 +181,19 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
           </>
         )}
       </div>
-      {others.map((project) => (
-        <Button
-          key={project.id}
-          onClick={() => onSelectProject(project.id)}
-          variant="ghost"
-          size="icon-sm"
-          data-testid="space-mark"
-          className={cn(TILE, 'p-0 opacity-80 hover:bg-sidebar-element-hover hover:opacity-100')}
-          tooltip={project.name}
-          tooltipSide="bottom"
-          aria-label={project.name}
-        >
-          <ProjectIconMark project={project} size="lg" />
-        </Button>
-      ))}
+      {others.map((project) =>
+        project.hostId === LOCAL_HOST.id ? (
+          <ProjectMark
+            key={project.id}
+            label={project.name}
+            onSelect={() => onSelectProject(project.id)}
+          >
+            <MarkIcon project={project} />
+          </ProjectMark>
+        ) : (
+          <RemoteProjectMark key={project.id} project={project} onSelect={onSelectProject} />
+        ),
+      )}
       {onAddProject && (
         <Button
           onClick={onAddProject}

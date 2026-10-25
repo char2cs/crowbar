@@ -296,4 +296,80 @@ describe('SidebarProjectSwitcher', () => {
       expect(name().parentElement?.children).toHaveLength(1)
     })
   })
+
+  // The other projects' marks: a remote one wears its host's dot, whichever project is active.
+  describe('another project’s host', () => {
+    const onHost = (id: string, name: string, hostId: string): Project => ({
+      ...project(id, name),
+      hostId,
+    })
+    const setStatus = (status: HostStatus) =>
+      act(() => getOrCreateHostRuntime('h1').getState().setStatus(status))
+    const renderSwitcher = (projects: Project[]) =>
+      render(
+        <SidebarProjectSwitcher
+          projects={projects}
+          activeProjectId="p1"
+          onSelectProject={vi.fn()}
+        />,
+      )
+    const mark = (name: string | RegExp) => screen.getByRole('button', { name })
+    const dotIn = (el: HTMLElement) => within(el).queryByTestId(/^host-status-/)
+
+    beforeEach(() => {
+      resetHostWorld()
+      pairRemoteHost('h1', 'homelab-prox')
+    })
+    afterEach(() => {
+      destroyHostRuntime('h1')
+      resetHostWorld()
+    })
+
+    it.each([
+      ['up', 'online', 'Online'],
+      ['down', 'offline', 'Offline'],
+      ['needs-repair', 'needs-attention', 'Needs pairing again'],
+      ['probing', 'unsettled', 'Checking…'],
+    ] as const)(
+      'a remote mark whose host is %s wears an %s dot, said once',
+      (status, tone, word) => {
+        setStatus(status)
+        renderSwitcher([project('p1', 'Alpha'), onHost('p2', 'Beta', 'h1')])
+
+        const beta = mark(`Beta, homelab-prox ${word}`)
+        expect(dotIn(beta)).toHaveAttribute('data-host-tone', tone)
+        expect(dotIn(beta)).toHaveAttribute('aria-hidden', 'true')
+        expect(within(beta).queryByRole('img')).toBeNull()
+      },
+    )
+
+    it('retints the dot and relabels the mark as the host changes', () => {
+      setStatus('up')
+      renderSwitcher([project('p1', 'Alpha'), onHost('p2', 'Beta', 'h1')])
+
+      setStatus('down')
+
+      expect(dotIn(mark('Beta, homelab-prox Offline'))).toHaveAttribute('data-host-state', 'down')
+    })
+
+    it('names a mark whose host is no longer configured for that', () => {
+      renderSwitcher([project('p1', 'Alpha'), onHost('p2', 'Beta', 'h9')])
+
+      expect(dotIn(mark('Beta, Host not available'))).toHaveAttribute('data-host-tone', 'offline')
+    })
+
+    it('leaves a local mark plain, and the active project’s own mark undotted', () => {
+      setStatus('down')
+      loadProjects(onHost('p1', 'Alpha', 'h1'))
+      renderSwitcher([
+        onHost('p1', 'Alpha', 'h1'),
+        project('p2', 'Gamma'),
+        onHost('p3', 'Beta', 'h1'),
+      ])
+
+      expect(dotIn(mark('Gamma'))).toBeNull()
+      expect(dotIn(mark(/edit alpha icon/i))).toBeNull()
+      expect(dotIn(mark('Beta, homelab-prox Offline'))).toHaveAttribute('data-host-tone', 'offline')
+    })
+  })
 })

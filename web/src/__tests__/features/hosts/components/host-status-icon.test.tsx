@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { HostStatusIcon } from '@/features/hosts/components/host-status-icon'
+import { HostStatusDot, HostStatusIcon } from '@/features/hosts/components/host-status-icon'
 
 describe('HostStatusIcon', () => {
   // One tone per state, said in words too: a host that can't be reached is red, not grey.
@@ -33,5 +33,39 @@ describe('HostStatusIcon', () => {
     render(<HostStatusIcon hostId="h1" state="down" showTitle={false} />)
 
     expect(screen.getByRole('img', { name: 'Offline' })).not.toHaveAttribute('title')
+  })
+})
+
+describe('HostStatusDot', () => {
+  // The icon draws this same dot: a state can't read one way on a computer and another on a mark.
+  it.each([
+    ['up', 'online'],
+    ['down', 'offline'],
+    ['needs-repair', 'needs-attention'],
+    ['probing', 'unsettled'],
+  ] as const)('a host that is %s marks what it sits on with an %s dot', (state, tone) => {
+    render(
+      <HostStatusDot hostId="h1" state={state}>
+        <span>mark</span>
+      </HostStatusDot>,
+    )
+    const dot = screen.getByTestId('host-status-h1')
+
+    expect(screen.getByText('mark')).toBeVisible()
+    expect(dot).toHaveAttribute('data-host-tone', tone)
+    render(<HostStatusIcon hostId="h2" state={state} />)
+    expect(screen.getByTestId('host-status-h2')).toHaveAttribute('data-host-tone', tone)
+  })
+
+  // Where the surface's own label says the state, the dot is not read out a second time.
+  it('is silent unless labelled', () => {
+    render(
+      <HostStatusDot hostId="h1" state="down">
+        <span>mark</span>
+      </HostStatusDot>,
+    )
+
+    expect(screen.queryByRole('img')).toBeNull()
+    expect(screen.getByTestId('host-status-h1')).toHaveAttribute('aria-hidden', 'true')
   })
 })
