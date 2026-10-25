@@ -9,7 +9,9 @@ import {
   getOrCreateHostRuntime,
 } from '@/features/hosts/stores/host-runtime-registry'
 import type { HostStatus } from '@/features/hosts/types'
-import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
+import { useUIState } from '@/features/window/stores/ui-state-store'
+import { reportChannelState, resetConnectionState } from '@/lib/ws/connection-store'
+import { loadProjects, pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 vi.mock('@/components/sidebar/lib/row-actions', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/components/sidebar/lib/row-actions')>()),
@@ -174,38 +176,114 @@ describe('SidebarProjectSwitcher', () => {
           onSelectProject={vi.fn()}
         />,
       )
+    const hostLine = () => screen.getByRole('button', { name: /^Host settings/ })
+    const name = () => screen.getByTestId('active-project-name')
 
     beforeEach(() => {
       resetHostWorld()
       pairRemoteHost('h1', 'homelab-prox')
-      pairRemoteHost('h2', 'studio')
+      useUIState.setState({ isSettingsOpen: false, settingsInitialTab: 'appearance' })
     })
     afterEach(() => {
       destroyHostRuntime('h1')
-      destroyHostRuntime('h2')
+      resetConnectionState()
       resetHostWorld()
     })
 
-    it('follows a remote project’s name, quiet while its host is online', () => {
+    it('names a remote project’s host under its name, quiet while it is online', () => {
       setStatus('h1', 'up')
+      loadProjects(onHost('p1', 'Alpha', 'h1'))
       renderSwitcher([onHost('p1', 'Alpha', 'h1')])
 
-      const badge = screen.getByRole('button', { name: 'Host settings: homelab-prox, Online' })
-      expect(screen.getByTestId('active-project-name').compareDocumentPosition(badge)).toBe(
-        Node.DOCUMENT_POSITION_FOLLOWING,
+      expect(hostLine()).toHaveAccessibleName('Host settings: homelab-prox, Online')
+      expect(hostLine()).toHaveTextContent(/^homelab-prox$/)
+      expect(hostLine()).toContainElement(screen.getByTestId('host-status-h1'))
+      expect(hostLine()).not.toHaveAttribute('data-host-tone')
+      // Its own line under the name, apart from the active mark: not a badge beside it.
+      expect(hostLine().parentElement).toBe(name().parentElement)
+      expect(name().compareDocumentPosition(hostLine())).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+      expect(name().parentElement).not.toContainElement(
+        screen.getByRole('button', { name: /edit alpha icon/i }),
       )
-      expect(badge).toContainElement(screen.getByTestId('host-status-h1'))
-      expect(badge.textContent).toBe('')
     })
 
-    it('says its host’s state beside the icon once the host is not online', () => {
+    it.each([
+      ['down', 'offline', 'Offline'],
+      ['needs-repair', 'needs-attention', 'Needs pairing again'],
+      ['probing', 'unsettled', 'Checking…'],
+    ] as const)('a host that is %s tints the line %s and adds %j', (status, tone, word) => {
       setStatus('h1', 'up')
       renderSwitcher([onHost('p1', 'Alpha', 'h1')])
 
-      setStatus('h1', 'down')
+      setStatus('h1', status)
 
-      const badge = screen.getByRole('button', { name: 'Host settings: homelab-prox, Offline' })
-      expect(within(badge).getByText('Offline')).toBeVisible()
+      expect(hostLine()).toHaveAccessibleName(`Host settings: homelab-prox, ${word}`)
+      expect(hostLine()).toHaveTextContent(`homelab-prox · ${word}`)
+      expect(hostLine()).toHaveAttribute('data-host-tone', tone)
+    })
+
+    it('stays quiet for a host that answers while its live streams are closed', () => {
+      setStatus('h1', 'up')
+      renderSwitcher([onHost('p1', 'Alpha', 'h1')])
+
+      act(() => reportChannelState('crowbar://h1/v0/ws/git', false, 'h1'))
+
+      expect(hostLine()).toHaveAccessibleName(
+        'Host settings: homelab-prox, Online — no live stream',
+      )
+      expect(hostLine()).toHaveTextContent(/^homelab-prox$/)
+      expect(hostLine()).not.toHaveAttribute('data-host-tone')
+    })
+
+    it('reads a host no longer configured as not available, in red', () => {
+      renderSwitcher([onHost('p1', 'Alpha', 'h9')])
+
+      expect(hostLine()).toHaveAccessibleName('Host settings: Host not available')
+      expect(hostLine()).toHaveTextContent(/^Host not available$/)
+      expect(hostLine()).toHaveAttribute('data-host-tone', 'offline')
+    })
+
+    it('opens Settings on the Hosts tab', async () => {
+      setStatus('h1', 'down')
+      renderSwitcher([onHost('p1', 'Alpha', 'h1')])
+
+      await userEvent.setup().click(hostLine())
+
+      expect(useUIState.getState()).toMatchObject({
+        isSettingsOpen: true,
+        settingsInitialTab: 'hosts',
+      })
+    })
+
+    it('says the same on hover as it reads out', async () => {
+      setStatus('h1', 'down')
+      renderSwitcher([onHost('p1', 'Alpha', 'h1')])
+
+      await userEvent.setup().hover(hostLine())
+
+      expect(await screen.findByText('Host settings: homelab-prox, Offline')).toBeVisible()
+    })
+
+    it('keeps the host line under the rename input', () => {
+      setStatus('h1', 'up')
+      renderSwitcher([onHost('p1', 'Alpha', 'h1')])
+      const block = name().parentElement
+
+      fireEvent.doubleClick(name())
+
+      expect(screen.getByRole('textbox').parentElement).toBe(block)
+      expect(hostLine().parentElement).toBe(block)
+    })
+
+    // Truncation is layout jsdom does not run: this pins the structure it relies on.
+    it('keeps a long host name whole on its own line, apart from the project name', () => {
+      const long = 'homelab-prox-in-the-basement-rack-behind-the-old-nas-and-the-ups'
+      pairRemoteHost('h1', long)
+      setStatus('h1', 'up')
+      renderSwitcher([onHost('p1', 'Alpha', 'h1')])
+
+      expect(hostLine()).toHaveTextContent(long)
+      expect(name()).toHaveTextContent(/^Alpha$/)
     })
 
     it('shows nothing for a local project, even while a remote host is down', () => {
@@ -213,18 +291,9 @@ describe('SidebarProjectSwitcher', () => {
       renderSwitcher([project('p1', 'Alpha'), onHost('p2', 'Beta', 'h1')])
 
       expect(screen.queryByRole('button', { name: /^Host settings/ })).toBeNull()
-      expect(screen.queryByText('Offline')).toBeNull()
-      expect(screen.queryByTestId('host-status-h1')).toBeNull()
-    })
-
-    it('leaves the other projects’ marks undecorated, named for the project alone', () => {
-      setStatus('h1', 'up')
-      setStatus('h2', 'down')
-      renderSwitcher([onHost('p1', 'Alpha', 'h1'), onHost('p2', 'Beta', 'h2')])
-
-      expect(screen.getByRole('button', { name: 'Beta' })).toBeInTheDocument()
-      expect(screen.queryByTestId('host-status-h2')).toBeNull()
-      expect(screen.queryByText('Offline')).toBeNull()
+      expect(screen.queryByText(/Offline/)).toBeNull()
+      // One line, with no room kept for a host line.
+      expect(name().parentElement?.children).toHaveLength(1)
     })
   })
 })
