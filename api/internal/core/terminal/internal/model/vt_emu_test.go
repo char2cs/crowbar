@@ -213,6 +213,10 @@ func TestResizeReflow(t *testing.T) {
 			flags: "grid F T T F | scrollback", screen: "012345\nABCDEF\nKLMNOP\n", cursor: "5,2",
 		},
 		{
+			name: "the cursor's chain is not rejoined on a grow", bytes: thirty[:24], resizes: [][2]int{{15, 4}},
+			flags: "grid F T T F | scrollback", screen: "0123456789\nABCDEFGHIJ\nKLMN\n", cursor: "4,2",
+		},
+		{
 			name: "wide glyphs crossing the new edge move whole on a shrink", bytes: "01234日本語\r\nx", resizes: [][2]int{{6, 4}},
 			flags: "grid F T F F | scrollback", screen: "01234\n日本語\nx\n", cursor: "1,2",
 		},
@@ -251,6 +255,11 @@ func TestResizeReflow(t *testing.T) {
 			name: "DECSC below a chain restores to its line", bytes: thirty + "\r\n\x1b7", resizes: [][2]int{{6, 4}},
 			after: "\x1b8X", flags: "grid T T T F | scrollback F T", history: "012345|6789AB",
 			screen: "CDEFGH\nIJKLMN\nOPQRST\nX", cursor: "1,3",
+		},
+		{
+			name: "DECSC below a chain moves up by the rows a grow removes", bytes: thirty + "\r\n\x1b7",
+			resizes: [][2]int{{15, 4}}, after: "\x1b8X", flags: "grid F T F F | scrollback",
+			screen: "0123456789ABCDE\nFGHIJKLMNOPQRST\nX\n", cursor: "1,2",
 		},
 		{
 			name: "DECSC above a chain moves by the rows it adds", bytes: "\x1b7\r\n" + thirty + "\r\n", resizes: [][2]int{{6, 4}},
