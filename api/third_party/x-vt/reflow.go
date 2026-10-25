@@ -187,8 +187,8 @@ func (b *reflowBuf) reflowSmaller(oldCols, newCols, newRows int) {
 	var toInsert []insertion
 	count := 0
 	for y := len(b.lines) - 1; y >= 0; y-- {
-		if !b.wrapped[y] && trimmedLength(b.lines[y]) <= newCols {
-			continue
+		if y >= len(b.lines) || !b.wrapped[y] && trimmedLength(b.lines[y]) <= newCols {
+			continue // pops can leave y past the end, where xterm.js reads an undefined line
 		}
 		end := y + 1
 		for b.wrapped[y] && y > 0 {
