@@ -19,13 +19,22 @@ import { EditorPane } from '@/features/panes/components/editor-pane'
 import { getEditorHost, loadEditorHost } from '@/features/editor/host/editor-host'
 import { documentText, replaceDocumentText } from '@/features/editor/documents/document-text'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
+// The read a retry makes; every other caller reads through to the real one.
+const { readDocument } = vi.hoisted(() => ({ readDocument: vi.fn() }))
+vi.mock('@/lib/api/documents', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/documents')>()
+  readDocument.mockImplementation(actual.readDocument)
+  return { ...actual, readDocument }
+})
+
 import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { workspaceRef } from '@/lib/api/documents'
+import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
+import { toast } from '@/features/window/stores/toast-store'
 import { documentUri } from '@/features/editor/documents/document-ref'
 import { putDrafts } from '@/features/editor/documents/draft-store'
 import { setDocumentUnavailable } from '@/features/editor/documents/open-document'
@@ -55,6 +64,7 @@ function monacoMounted(): boolean {
 beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
 
 beforeEach(() => {
+  readDocument.mockClear()
   plateMounts.length = 0
   resetWindowPaneStoreForTests()
   useMarkdownViewStore.setState({ views: {} })
@@ -123,6 +133,43 @@ describe('EditorPane', () => {
 
     await waitFor(() => expect(documentText(doc)).toBe('scratch'))
     expect(screen.queryByText('Failed to open file')).not.toBeInTheDocument()
+  })
+
+  it('Try again on a tab whose file is back shows the file, with no error', async () => {
+    const doc = workspaceRef('ws-buffer', 'src/back.ts')
+    const id = await open('src/back.ts')
+    setDocumentUnavailable(doc, { title: 'File not found', message: 'src/back.ts' })
+    readDocument.mockResolvedValueOnce({ ref: doc, text: 'back' })
+    const error = vi.spyOn(toast, 'error')
+    render(inAmbient(pane(id)))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+    await waitFor(() => expect(screen.queryByText('File not found')).not.toBeInTheDocument())
+    expect(documentText(doc)).toBe('back')
+    expect(error).not.toHaveBeenCalled()
+    error.mockRestore()
+  })
+
+  it('Try again is busy while it reads, so a second click starts no second read', async () => {
+    const doc = workspaceRef('ws-buffer', 'src/slow.ts')
+    const id = windowPaneStore
+      .getState()
+      .bufferActions.openContent({ type: 'editor', doc, name: 'slow.ts' })
+    setDocumentUnavailable(doc, { title: 'Failed to open file', message: 'slow.ts' })
+    let finish!: (read: { ref: DocumentRef; text: string }) => void
+    readDocument.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)))
+    render(inAmbient(pane(id)))
+    const button = screen.getByRole('button', { name: 'Try again' })
+
+    fireEvent.click(button)
+    await waitFor(() => expect(readDocument).toHaveBeenCalledTimes(1))
+    fireEvent.click(button)
+    finish({ ref: doc, text: 'slow' })
+
+    await waitFor(() => expect(documentText(doc)).toBe('slow'))
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument()
+    expect(readDocument).toHaveBeenCalledTimes(1)
   })
 
   // C1: the pane tree renders the active buffer without a key, so a `.md` ->

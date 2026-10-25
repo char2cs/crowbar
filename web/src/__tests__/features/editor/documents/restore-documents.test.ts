@@ -23,7 +23,9 @@ import {
   documentModelOpener,
   findDocumentBuffer,
   openDocument,
+  retryLoad,
 } from '@/features/editor/documents/open-document'
+import { getEditorHost } from '@/features/editor/host/editor-host'
 import { restoreDocuments } from '@/features/editor/documents/restore-documents'
 import { saveActiveBuffer } from '@/features/editor/lib/buffer-save'
 import {
@@ -155,6 +157,33 @@ describe('restoreDocuments', () => {
 
     expect(error).toHaveBeenCalledTimes(1)
     expect(error).toHaveBeenCalledWith('Failed to open file', 'a.ts, b.ts')
+  })
+
+  it('names files that share a name by enough of their path to tell them apart', async () => {
+    restoredTab(workspaceRef('ws-restore', 'a/x.ts'))
+    restoredTab(workspaceRef('ws-restore', 'b/x.ts'))
+    readDocument.mockRejectedValue(new ApiError('boom', 500))
+
+    await restoreDocuments()
+
+    expect(error).toHaveBeenCalledWith('Failed to open file', 'a/x.ts, b/x.ts')
+  })
+
+  it('a tab whose restore fails after its read says why, and retries', async () => {
+    const id = restoredTab(A)
+    readDocument.mockResolvedValue({ ref: A, text: 'disk' })
+    vi.spyOn(getEditorHost()!.documents, 'open').mockImplementationOnce(() => {
+      throw new Error('no model')
+    })
+
+    await restoreDocuments()
+
+    expect(bufferOf(id).unavailable).toEqual({ title: 'Failed to open file', message: 'a.ts' })
+    expect(error).toHaveBeenCalledWith('Failed to open file', 'a.ts')
+
+    expect(await retryLoad(bufferOf(id))).toBe(true)
+    expect(documentText(A)).toBe('disk')
+    expect(bufferOf(id).unavailable).toBeUndefined()
   })
 
   it('when the editor cannot load at all, every restored tab says why and retries', async () => {

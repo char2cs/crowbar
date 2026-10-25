@@ -1,10 +1,14 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { Button } from '@/components/ui/button'
 import { bestEffort } from '@/lib/best-effort'
 import { useBufferById } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { useEditorHost } from '@/features/editor/host/use-editor-host'
-import { isEditorContent } from '@/features/panes/types/pane-content'
+import {
+  isEditorContent,
+  type DocumentUnavailable,
+  type EditorContent,
+} from '@/features/panes/types/pane-content'
 import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
 import { retryLoad } from '@/features/editor/documents/open-document'
 import { useDocumentOpen } from '@/features/editor/documents/use-document-open'
@@ -58,20 +62,7 @@ export function EditorPane({
 
   // The document could not be loaded: an empty editor would read as an empty file.
   if (buffer && isEditorContent(buffer) && buffer.unavailable) {
-    return (
-      <div className="flex h-full flex-1 flex-col items-center justify-center gap-1 p-8 text-center">
-        <span className="text-sm font-medium text-foreground">{buffer.unavailable.title}</span>
-        <span className="text-xs text-muted-foreground">{buffer.unavailable.message}</span>
-        <Button
-          variant="outline"
-          size="xs"
-          className="mt-2"
-          onClick={() => bestEffort(retryLoad(buffer), 'retry document')}
-        >
-          Try again
-        </Button>
-      </div>
-    )
+    return <UnavailableDocument buffer={buffer} reason={buffer.unavailable} />
   }
 
   // Markdown buffers in rich view route to Plate instead of Monaco's editor.
@@ -135,5 +126,32 @@ export function EditorPane({
         />
       </Suspense>
     </ErrorBoundary>
+  )
+}
+
+/** Why a tab's document could not be loaded, with a retry that runs one at a time. */
+function UnavailableDocument({
+  buffer,
+  reason,
+}: {
+  buffer: EditorContent
+  reason: DocumentUnavailable
+}) {
+  const [retrying, setRetrying] = useState(false)
+  const retry = () => {
+    setRetrying(true)
+    bestEffort(
+      retryLoad(buffer).finally(() => setRetrying(false)),
+      'retry document',
+    )
+  }
+  return (
+    <div className="flex h-full flex-1 flex-col items-center justify-center gap-1 p-8 text-center">
+      <span className="text-sm font-medium text-foreground">{reason.title}</span>
+      <span className="text-xs text-muted-foreground">{reason.message}</span>
+      <Button variant="outline" size="xs" className="mt-2" loading={retrying} onClick={retry}>
+        Try again
+      </Button>
+    </div>
   )
 }
