@@ -277,6 +277,21 @@ func TestRegression_AnAskAskedAgainMidRecordHandsTheAnswerToItsNewRelay(t *testi
 	assert.Equal(t, []resolution{{"chat-1", "choice-1", domain.ChoiceResolutionAnswered}}, ledger.all())
 }
 
+// An answer that looked its relay up just before a re-ask displaced it is
+// handed to the relay now holding the ask, not refused.
+func TestRegression_AnAnswerLookedUpBeforeAReAskReachesItsNewRelay(t *testing.T) {
+	t.Parallel()
+	d, looked := fixture(time.Minute)
+	d.Hold(looked.Prompt)
+	printed := relay(context.Background(), d)
+
+	answered, err := d.Answer(context.Background(), looked, []byte("allow"), recorded)
+
+	require.NoError(t, err)
+	assert.True(t, answered)
+	assert.Equal(t, "allow", <-printed)
+}
+
 // clocked is a desk whose relay budget runs out when the test sends on budget.
 func clocked(budget chan time.Time) (*answerdesk.Desk, *answerdesk.Slot, *recordingLedger) {
 	return withLedger(time.Minute, answerdesk.WithBudgetClock(func(time.Duration) <-chan time.Time { return budget }))

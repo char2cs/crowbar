@@ -3,6 +3,7 @@ package answerdesk
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
@@ -92,7 +93,7 @@ func (d *Desk) Answer(ctx context.Context, slot *Slot, stdout []byte, record Rec
 	}
 	recorded, err := record(ctx, func() bool { return d.waiting(c) })
 	if err == nil && recorded {
-		d.resolve(c, stdout)
+		d.resolve(ctx, c, stdout)
 		return true, nil
 	}
 	if waited := d.unclaim(c); err == nil && !waited {
@@ -101,9 +102,14 @@ func (d *Desk) Answer(ctx context.Context, slot *Slot, stdout []byte, record Rec
 	return recorded, err
 }
 
+// claim claims the relay holding slot's ask now: a re-ask may have displaced
+// slot since the answer looked it up.
 func (d *Desk) claim(slot *Slot) (*claim, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if current, held := d.slots[slot.ChoiceID]; held {
+		slot = current
+	}
 	if slot.spent || !slot.decidedAt.IsZero() || slot.answering != nil {
 		return nil, false
 	}
@@ -136,16 +142,22 @@ func (d *Desk) endClaimLocked(c *claim) {
 // resolve records c's verdict and wakes the relay holding its ask now. The
 // prompt stops being answerable at once, but the slot lingers for the desk's
 // retention so a relay that has not asked yet still finds its answer.
-func (d *Desk) resolve(c *claim, stdout []byte) {
+func (d *Desk) resolve(ctx context.Context, c *claim, stdout []byte) {
 	d.mu.Lock()
 	slot := c.slot
 	d.endClaimLocked(c)
-	if !slot.spent && slot.decidedAt.IsZero() {
+	handed := !slot.spent && slot.decidedAt.IsZero()
+	if handed {
 		slot.decidedAt = time.Now()
 		slot.reap = time.AfterFunc(d.retention, d.dropExpired)
 		slot.settle(stdout)
 	}
 	d.mu.Unlock()
+	if !handed {
+		// Its relay was released after the record checked it waited.
+		slog.WarnContext(ctx, "agent: answer: recorded, but no relay waits on it",
+			"chat_id", slot.ChatID, "choice_id", slot.ChoiceID)
+	}
 	d.announce(slot.ChatID)
 }
 

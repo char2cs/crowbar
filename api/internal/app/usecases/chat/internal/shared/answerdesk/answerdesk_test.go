@@ -128,9 +128,6 @@ func TestHold_ReopeningAPromptReleasesTheRelayAlreadyHoldingIt(t *testing.T) {
 	held, ok := d.ByChoiceID("choice-1")
 	require.True(t, ok)
 	assert.Same(t, fresh, held)
-	require.ErrorIs(t, decide(d, stale, "allow"), answerdesk.ErrNotWaiting)
-	_, stillOpen := d.ByChoiceID("choice-1")
-	assert.True(t, stillOpen, "a verdict on the displaced relay answers nothing")
 }
 
 func TestReleaseRunner_FreesOnlyThatRunnersRelays(t *testing.T) {
