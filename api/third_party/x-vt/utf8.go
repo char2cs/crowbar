@@ -86,14 +86,36 @@ func (e *Emulator) handleGrapheme(content string, width int) {
 		e.lastChar, _ = utf8.DecodeRuneInString(content)
 	}
 
+	cols := e.scr.Width()
+	if awm && x > 0 && x+cell.Width > cols {
+		x, y = e.wrapEarly(x, y, &cell)
+	}
+
 	e.scr.SetCell(x, y, &cell)
 
-	// Handle phantom state at the end of the line
-	e.atPhantom = awm && x >= e.scr.Width()-1
-	if !e.atPhantom {
+	// A glyph reaching the last column leaves a pending wrap, as in xterm.js; the cursor rests
+	// on the last column.
+	e.atPhantom = awm && x+cell.Width >= cols
+	if e.atPhantom {
+		x = cols - 1
+	} else {
 		x += cell.Width
 	}
 
 	// NOTE: We don't reset the phantom state here, we handle it up above.
 	e.scr.setCursor(x, y, false)
+}
+
+// wrapEarly moves a glyph that does not fit the rest of row y to the start of the next row, as
+// xterm.js does (InputHandler.print): the cells it skips are blanked in its pen, and the new row
+// continues row y. It returns where the glyph goes.
+func (e *Emulator) wrapEarly(x, y int, cell *uv.Cell) (int, int) {
+	blank := uv.Cell{Content: " ", Width: 1, Style: cell.Style, Link: cell.Link}
+	for ; x < e.scr.Width(); x++ {
+		e.scr.SetCell(x, y, &blank)
+	}
+	e.index()
+	_, y = e.scr.CursorPosition()
+	e.scr.setWrapped(y, true)
+	return 0, y
 }
