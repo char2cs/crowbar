@@ -10,6 +10,7 @@ export interface Settings {
   // General
   autoSave: boolean
   sidebarPosition: 'left' | 'right'
+  sidebarFollowsFocus: boolean
   // Editor
   fontFamily: string
   fontSize: number

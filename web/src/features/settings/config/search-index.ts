@@ -230,6 +230,14 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     description: 'Choose where to position the sidebar',
     keywords: ['sidebar', 'position', 'left', 'right', 'layout'],
   },
+  {
+    id: 'appearance-sidebar-follows-focus',
+    tab: 'appearance',
+    section: 'Layout',
+    label: 'Sidebar follows focus',
+    description: 'Switch the sidebar between Chats, Files and Git as focus moves',
+    keywords: ['sidebar', 'focus', 'follow', 'files', 'git', 'chats', 'mode'],
+  },
   // Language Settings
   {
     id: 'language-format-on-save',

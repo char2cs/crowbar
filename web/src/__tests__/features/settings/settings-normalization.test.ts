@@ -129,4 +129,23 @@ describe('settings normalization', () => {
       expect(normalized.browserZoom).toBe(100)
     })
   })
+
+  describe('sidebar follows focus', () => {
+    it('is off by default and when a profile carries no value', () => {
+      const snapshot = getDefaultSettingsSnapshot()
+      expect(snapshot.sidebarFollowsFocus).toBe(false)
+      const { sidebarFollowsFocus: _omitted, ...older } = snapshot
+      expect(normalizeSettings(older as typeof snapshot).sidebarFollowsFocus).toBe(false)
+      expect(normalizeSettingValue('sidebarFollowsFocus', 'yes' as never)).toBe(false)
+    })
+
+    it('keeps an explicit true', () => {
+      const normalized = normalizeSettings({
+        ...getDefaultSettingsSnapshot(),
+        sidebarFollowsFocus: true,
+      })
+      expect(normalized.sidebarFollowsFocus).toBe(true)
+      expect(normalizeSettingValue('sidebarFollowsFocus', true)).toBe(true)
+    })
+  })
 })

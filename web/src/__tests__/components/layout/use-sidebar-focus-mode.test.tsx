@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSidebarFocusMode } from '@/components/layout/use-sidebar-focus-mode'
+import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
+import { useSettingsStore } from '@/features/settings/store'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import {
   publishFocusedWorkspaceContext,
@@ -71,9 +73,18 @@ function renderShell() {
   return view
 }
 
+function setFollowsFocus(sidebarFollowsFocus: boolean) {
+  act(() => {
+    useSettingsStore.setState({
+      settings: { ...getDefaultSettingsSnapshot(), sidebarFollowsFocus },
+    })
+  })
+}
+
 describe('useSidebarFocusMode', () => {
   beforeEach(() => {
     useSidebarStore.setState(getInitialState())
+    setFollowsFocus(true)
     publishFocusedWorkspaceContext(REPO_CTX)
   })
 
@@ -174,5 +185,32 @@ describe('useSidebarFocusMode', () => {
     act(() => editor.focus())
     expect(mode()).toBe('chats')
     surface.remove()
+  })
+
+  it('with the setting off, focus crossing surfaces never changes the mode', () => {
+    setFollowsFocus(false)
+    act(() => useSidebarStore.getState().setActiveTab('git'))
+    renderShell()
+    focus('editor')
+    focus('chat composer')
+    focusDiff()
+    expect(mode()).toBe('git')
+    act(() => useSidebarStore.getState().setActiveTab('files'))
+    focus('terminal')
+    expect(mode()).toBe('files')
+  })
+
+  it('turning the setting on makes the next focus crossing act, and off stops it', () => {
+    setFollowsFocus(false)
+    renderShell()
+    focus('editor')
+    expect(mode()).toBe('chats')
+    setFollowsFocus(true)
+    focus('chat composer')
+    focus('editor')
+    expect(mode()).toBe('files')
+    setFollowsFocus(false)
+    focus('chat composer')
+    expect(mode()).toBe('files')
   })
 })

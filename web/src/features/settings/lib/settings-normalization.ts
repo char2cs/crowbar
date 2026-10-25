@@ -88,6 +88,10 @@ function normalizeChatSplitPresentationEnabled(value: unknown): boolean {
   return typeof value === 'boolean' ? value : getDefaultSetting('chatSplitPresentationEnabled')
 }
 
+function normalizeSidebarFollowsFocus(value: unknown): boolean {
+  return typeof value === 'boolean' ? value : getDefaultSetting('sidebarFollowsFocus')
+}
+
 function normalizeBrowserZoom(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return getDefaultSetting('browserZoom')
   return Math.min(BROWSER_ZOOM_MAX, Math.max(BROWSER_ZOOM_MIN, Math.round(value)))
@@ -153,6 +157,9 @@ export function normalizeSettings(settings: Settings): Settings {
   )
   normalizedSettings.chatSplitPresentationEnabled = normalizeChatSplitPresentationEnabled(
     (normalizedSettings as { chatSplitPresentationEnabled?: unknown }).chatSplitPresentationEnabled,
+  )
+  normalizedSettings.sidebarFollowsFocus = normalizeSidebarFollowsFocus(
+    (normalizedSettings as { sidebarFollowsFocus?: unknown }).sidebarFollowsFocus,
   )
 
   if (!normalizedSettings.themeMode) {
@@ -227,6 +234,10 @@ export function normalizeSettingValue<K extends keyof Settings>(
 
   if (key === 'chatSplitPresentationEnabled') {
     return normalizeChatSplitPresentationEnabled(value) as Settings[K]
+  }
+
+  if (key === 'sidebarFollowsFocus') {
+    return normalizeSidebarFollowsFocus(value) as Settings[K]
   }
 
   if (key === 'themeMode') {
