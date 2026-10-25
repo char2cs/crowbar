@@ -115,6 +115,12 @@ describe('link tokens', () => {
     ])
   })
 
+  it('a path in a run that starts with any scheme or www. is not a file link', async () => {
+    expect(await textsOf('see ftp://h/(a/b.ts)')).toEqual([])
+    expect(await textsOf('see www.x.dev/web/src/a.ts')).toEqual([])
+    expect(await textsOf('see xwww.dev/a/b.ts')).toEqual(['xwww.dev/a/b.ts'])
+  })
+
   it('links a repo-relative path with its line suffix', async () => {
     const [link] =
       (await linksAt(linkProvider(await terminalWith('error in web/src/foo/bar.ts:12 x')), 1)) ?? []

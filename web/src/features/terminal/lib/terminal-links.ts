@@ -41,21 +41,20 @@ function isUrl(text: string): boolean {
   }
 }
 
-// The non-space run a URL starts: a URL stops before brackets and quotes, but a path
-// after them ("?q=(web/a.ts)") is still the URL's text, not a file reference.
-function runEnd(text: string, start: number): number {
-  const space = text.slice(start).search(/\s/)
-  return space === -1 ? text.length : start + space
-}
+// A non-space run from any scheme or "www." on is address text: a path in it
+// ("?q=(web/a.ts)", "ftp://h/a/b") is never a file reference, even past the URL token.
+const ADDRESS_RUN_RE = /(?:[a-zA-Z][a-zA-Z0-9+.-]*:\/\/|\bwww\.)\S*/g
 
 function tokenizeLinks(text: string): LinkToken[] {
   const urls: LinkToken[] = []
-  const urlRuns: Array<{ start: number; end: number }> = []
   for (const m of text.matchAll(URL_RE)) {
     if (!isUrl(m[0])) continue
     urls.push({ kind: 'url', text: m[0], start: m.index, end: m.index + m[0].length })
-    urlRuns.push({ start: m.index, end: runEnd(text, m.index) })
   }
+  const addressRuns = [...text.matchAll(ADDRESS_RUN_RE)].map((m) => ({
+    start: m.index,
+    end: m.index + m[0].length,
+  }))
   const files: LinkToken[] = []
   for (const m of text.matchAll(FILE_LINK_RE)) {
     const path = m[1].replace(TRAILING_DOTS_RE, '')
@@ -63,7 +62,7 @@ function tokenizeLinks(text: string): LinkToken[] {
     const suffix = m[2] ?? ''
     const start = m.index + m[0].indexOf(m[1])
     const end = start + path.length + suffix.length
-    if (urlRuns.some((run) => start < run.end && run.start < end)) continue
+    if (addressRuns.some((run) => start < run.end && run.start < end)) continue
     const line = suffix ? Number(suffix.slice(1).split(':')[0]) : undefined
     files.push({ kind: 'file', text: path + suffix, path, line, start, end })
   }
