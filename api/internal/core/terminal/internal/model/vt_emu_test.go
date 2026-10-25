@@ -258,6 +258,11 @@ func TestResizeReflow(t *testing.T) {
 			screen: "XDEFGH\nIJKLMN\nOPQRST\n", cursor: "1,0",
 		},
 		{
+			// xterm.js pops a row per row it adds while the cursor is above, losing the chain's head.
+			name: "a chain below the cursor pops the rows it adds", bytes: "\x1b[3;1Habcdefghijklmnopqrst\x1b[H",
+			resizes: [][2]int{{4, 4}}, flags: "grid F T T T | scrollback", screen: "\nijkl\nmnop\nqrst", cursor: "0,3",
+		},
+		{
 			name: "a pending wrap resumes past the old edge on a grow", bytes: "0123456789", resizes: [][2]int{{15, 4}},
 			after: "X", flags: "grid F F F F | scrollback", screen: "0123456789X\n\n\n", cursor: "11,0",
 		},
