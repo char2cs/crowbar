@@ -71,7 +71,7 @@ export function resolveFileLinkPath(path: string, root: string | undefined): str
   return parts.join('/')
 }
 
-export interface TerminalFileLinksOptions {
+export interface TerminalLinksOptions {
   /** The directory relative paths resolve against (terminal cwd / worktree). */
   getRoot: () => string | undefined
   /** Opens the resolved absolute path in Crowbar's editor. */
@@ -82,9 +82,9 @@ export interface TerminalFileLinksOptions {
 
 // Registers an xterm link provider for file references. The provider is owned
 // by the terminal instance and is disposed with it.
-export function registerTerminalFileLinks(
+export function registerTerminalLinks(
   terminal: Terminal,
-  options: TerminalFileLinksOptions,
+  options: TerminalLinksOptions,
 ): IDisposable {
   return terminal.registerLinkProvider({
     provideLinks(bufferLineNumber: number, callback: (links: ILink[] | undefined) => void) {
@@ -118,10 +118,10 @@ export function registerTerminalFileLinks(
  * Links open in Crowbar. A relative path resolves against the session cwd, else
  * the terminal's own workspace root; a terminal of no workspace opens absolute paths only.
  */
-export function terminalFileLinksFor(
+export function terminalLinksFor(
   getSessionId: () => string,
   getWorkspaceId: () => string | undefined,
-): TerminalFileLinksOptions {
+): TerminalLinksOptions {
   return {
     getRoot: () => {
       const cwd = useTerminalStore.getState().getSession(getSessionId())?.currentDirectory

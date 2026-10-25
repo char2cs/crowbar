@@ -10,10 +10,10 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOri
 
 import {
   parseFileLinkCandidates,
-  registerTerminalFileLinks,
+  registerTerminalLinks,
   resolveFileLinkPath,
-  terminalFileLinksFor,
-} from '@/features/terminal/lib/terminal-file-links'
+  terminalLinksFor,
+} from '@/features/terminal/lib/terminal-links'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 
 describe('parseFileLinkCandidates', () => {
@@ -100,7 +100,7 @@ describe('resolveFileLinkPath', () => {
   })
 })
 
-describe('terminalFileLinksFor', () => {
+describe('terminalLinksFor', () => {
   beforeEach(() => {
     revealInEditor.mockReset()
     const ws = (id: string, localPath: string) => ({ id, branch: id, localPath })
@@ -123,9 +123,9 @@ describe('terminalFileLinksFor', () => {
       registerLinkProvider: (p: ILinkProvider) => ((provider = p), { dispose: () => {} }),
       buffer: { active: { getLine: () => ({ translateToString: () => text }) } },
     } as unknown as Terminal
-    registerTerminalFileLinks(
+    registerTerminalLinks(
       terminal,
-      terminalFileLinksFor(
+      terminalLinksFor(
         () => 'tab-1',
         () => workspaceId,
       ),

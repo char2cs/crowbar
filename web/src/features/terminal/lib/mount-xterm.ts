@@ -4,7 +4,7 @@ import {
   loadWebLinksAddon,
   type TerminalAddons,
 } from '../hooks/use-terminal-addons'
-import { registerTerminalFileLinks, type TerminalFileLinksOptions } from './terminal-file-links'
+import { registerTerminalLinks, type TerminalLinksOptions } from './terminal-links'
 import { selectionTextPreservingWraps } from '../utils/selection-text'
 import { resolveKeyOverride } from '../utils/terminal-key-overrides'
 import { installInputTapeGlobal, observeInputEvents } from '../utils/input-tape'
@@ -19,7 +19,7 @@ export interface MountedXterm {
 interface MountXtermDeps {
   /** Sends input the terminal itself produces (key overrides, drops, IME replacements). */
   write: (data: string, origin: string) => void
-  fileLinks: TerminalFileLinksOptions
+  links: TerminalLinksOptions
 }
 
 /**
@@ -59,8 +59,8 @@ export function mountXterm(
     if (terminal.textarea) releases.push(watchTextarea(terminal.textarea, deps.write))
     releases.push(ownCopy(container, terminal))
     loadWebLinksAddon(terminal)
-    const fileLinks = registerTerminalFileLinks(terminal, deps.fileLinks)
-    releases.push(() => fileLinks.dispose())
+    const links = registerTerminalLinks(terminal, deps.links)
+    releases.push(() => links.dispose())
     terminal.unicode.activeVersion = '11'
     return { terminal, addons, dispose }
   } catch (error) {

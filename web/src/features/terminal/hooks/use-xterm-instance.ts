@@ -6,7 +6,7 @@ import { injectLinkStyles, removeLinkStyles, type TerminalAddons } from './use-t
 import { useTerminalTheme } from './use-terminal-theme'
 import { fitToContainer } from './use-pty-size-sync'
 import { mountXterm, type MountedXterm } from '../lib/mount-xterm'
-import { terminalFileLinksFor } from '../lib/terminal-file-links'
+import { terminalLinksFor } from '../lib/terminal-links'
 import { resolveTerminalFont } from '../utils/resolve-font'
 
 interface UseXtermInstanceOptions {
@@ -117,7 +117,7 @@ export function useXtermInstance({
           },
           {
             write: (data, origin) => writeRef.current(data, origin),
-            fileLinks: terminalFileLinksFor(
+            links: terminalLinksFor(
               () => sessionIdRef.current,
               () => workspaceIdRef.current,
             ),
