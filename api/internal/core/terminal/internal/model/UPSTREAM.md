@@ -72,9 +72,16 @@ foundation ships, and which gates are deferred vs. accepted, with eyes open.*
 `api/third_party/x-vt` is the pinned commit plus a small local patch:
 
 - Each screen row and scrollback line carries xterm's `isWrapped` (`Emulator.RowWrapped` /
-  `ScrollbackRowWrapped`): set by autowrap, moved with its row, cleared where xterm clears it, on a
-  width change and on ring eviction; a row off the grid is ignored. The serializer writes a
-  soft-wrapped row unbroken, so the client's xterm sets the same bit.
+  `ScrollbackRowWrapped`): set by autowrap, moved with its row, cleared where xterm clears it and
+  on ring eviction; a row off the grid is ignored. The serializer writes a soft-wrapped row
+  unbroken, so the client's xterm sets the same bit.
+- A resize reflows the primary screen and its scrollback as xterm.js 6.0.0's `Buffer.resize` does
+  (`reflow.go`, ported under the MIT License, see `NOTICE.md`): chains rejoin or rewrap, rows
+  scroll into and out of history as xterm's do, and a resize leaves no pending wrap. The alternate
+  screen is not reflowed and keeps its wrap bits; its lines are cut to the new width, where xterm
+  keeps the cells past it, and a wide glyph the cut would split is blanked.
+- A wide glyph that does not fit the last column wraps early and leaves that cell blank in the
+  current pen; one whose second half lands on the last column leaves a pending wrap.
 - ED 1 also clears the next row when it erases the cursor row whole, as xterm's comment intends;
   xterm's code (`InputHandler.ts:1218`) indexes that row without `ybase`, a bug deliberately not
   copied.
@@ -82,7 +89,7 @@ foundation ships, and which gates are deferred vs. accepted, with eyes open.*
   screen, as xterm does.
 
 Delete the copy (and the `replace` in `api/go.mod`) once a tagged upstream has every behaviour
-listed above.
+listed above, the reflow included.
 
 ### D1a — parse-panic recovery discards scrollback CONTENT **ACCEPTED RESIDUAL**
 
@@ -134,13 +141,15 @@ P1/P3 deliverable.
 Known `x/vt`-vs-`xterm.js` divergences the self-fixpoint cannot see (found with the wrap bit, not
 patched):
 
-- A wide glyph that exactly fills the last two columns leaves no pending wrap in `x/vt` (`utf8.go`
-  sets `atPhantom` only from the last column), so the next character overwrites its second half;
-  `xterm.js` wraps that character onto the next row.
-- A wide glyph that does not fit the last column is dropped by `x/vt`; `xterm.js` wraps it early
-  and leaves the last cell empty.
 - EL 0 at a pending wrap erases the last cell and cancels the wrap in `x/vt`; `xterm.js` erases
   nothing and keeps the wrap. The serializer never sends EL 0 there.
+- `x/vt` cannot tell a printed space from an erased cell: an erase fills with a space cell, and an
+  empty cell collapses its column when rendered. A reflow counts a chain's trailing printed spaces
+  as blanks where `xterm.js` counts them as content, so the chain rewraps that much shorter. The
+  resize fixture pins it as the `printedSpacesKnownDivergence` scenario.
+- A keyframe parks the cursor with a CUP, so the client is never at a pending wrap. After a
+  widening resize at one, the client's own reflow leaves its cursor one column left of the
+  daemon's until the keyframe of the same resize lands.
 
 ## Blocking exit checklist before this package is wired or shipped
 
