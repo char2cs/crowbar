@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { SIDEBAR_FILE_ROW_HEIGHT } from '@/components/sidebar/sidebar-file-row'
+import { SIDEBAR_FILE_ROW_HEIGHT } from '@/components/sidebar/lib/sidebar-file-row-height'
 import { FileExplorerTreeItem } from '@/features/file-explorer/file-explorer/components/file-explorer-tree-item'
 import { FILE_TREE_DENSITY_CONFIG } from '@/features/file-explorer/lib/file-tree-density'
 import type { FileTreeGitStatusDecoration } from '@/features/file-explorer/lib/file-tree-git-status'

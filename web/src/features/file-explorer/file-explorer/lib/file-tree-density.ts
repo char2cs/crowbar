@@ -1,4 +1,4 @@
-import { SIDEBAR_FILE_ROW_HEIGHT } from '@/components/sidebar/sidebar-file-row'
+import { SIDEBAR_FILE_ROW_HEIGHT } from '@/components/sidebar/lib/sidebar-file-row-height'
 
 export type FileTreeDensity = 'compact' | 'default' | 'comfortable'
 

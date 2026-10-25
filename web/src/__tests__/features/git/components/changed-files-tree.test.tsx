@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChangedFilesTree } from '@/features/git/components/changed-files-tree'
-import { SIDEBAR_FILE_ROW_HEIGHT } from '@/components/sidebar/sidebar-file-row'
+import { SIDEBAR_FILE_ROW_HEIGHT } from '@/components/sidebar/lib/sidebar-file-row-height'
 import { viewedMapOf } from '@/__tests__/__fixtures__/viewed'
 import type { GitDiff } from '@/features/git/types/git-types'
 

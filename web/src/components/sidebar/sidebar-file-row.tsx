@@ -12,9 +12,8 @@ import {
   ROW_SUBLABEL_DEL,
 } from '@/components/layout/workspace-row-base'
 import { cn } from '@/lib/utils'
+import { SIDEBAR_FILE_ROW_HEIGHT } from '@/components/sidebar/lib/sidebar-file-row-height'
 
-/** Pitch of every file-list row in the sidebar; virtualisers estimate with it. */
-export const SIDEBAR_FILE_ROW_HEIGHT = 26
 export const SIDEBAR_FILE_ROW_ICON_SIZE = 14
 /** ROW_SHAPE's own `px-1.5`, so a depth-0 label starts where a chat row's does. */
 export const SIDEBAR_FILE_ROW_BASE_INDENT = 6

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FileExplorerTree } from '@/features/file-explorer/file-explorer/components/file-explorer-tree'
 import type { FileEntry } from '@/features/file-system/types/app'
-import { SIDEBAR_FILE_ROW_HEIGHT } from '@/components/sidebar/sidebar-file-row'
+import { SIDEBAR_FILE_ROW_HEIGHT } from '@/components/sidebar/lib/sidebar-file-row-height'
 
 vi.mock('@/features/file-system/controllers/platform', () => ({
   readDirectory: vi.fn(async () => []),

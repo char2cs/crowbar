@@ -6,12 +6,12 @@ import { getFileTreeGitStatusDecoration } from '@/features/file-explorer/lib/fil
 import { ROW_INDENT_STEP } from '@/components/layout/workspace-row-base'
 import {
   SIDEBAR_FILE_ROW_BASE_INDENT,
-  SIDEBAR_FILE_ROW_HEIGHT,
   SIDEBAR_FILE_ROW_ICON_SIZE,
   SidebarFileRow,
   SidebarFileRowCounts,
   TreeGuides,
 } from '@/components/sidebar/sidebar-file-row'
+import { SIDEBAR_FILE_ROW_HEIGHT } from '@/components/sidebar/lib/sidebar-file-row-height'
 import {
   aggregateFolders,
   buildGitFolderTree,

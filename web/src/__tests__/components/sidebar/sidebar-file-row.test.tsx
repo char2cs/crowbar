@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
-  SIDEBAR_FILE_ROW_HEIGHT,
   SidebarFileRow,
   SidebarFileRowCounts,
   TreeGuides,
 } from '@/components/sidebar/sidebar-file-row'
+import { SIDEBAR_FILE_ROW_HEIGHT } from '@/components/sidebar/lib/sidebar-file-row-height'
 
 describe('SidebarFileRow', () => {
   it('is a 26px button carrying icon, label, dimmed detail, badge and trailing slot', () => {
