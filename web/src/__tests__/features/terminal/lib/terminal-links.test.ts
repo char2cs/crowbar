@@ -118,7 +118,28 @@ describe('link tokens', () => {
   it('a path in a run that starts with any scheme or www. is not a file link', async () => {
     expect(await textsOf('see ftp://h/(a/b.ts)')).toEqual([])
     expect(await textsOf('see www.x.dev/web/src/a.ts')).toEqual([])
+    expect(await textsOf('www.x.dev/web/src/a.ts')).toEqual([])
+    const opened = await Promise.all(
+      ['(', '[', '<', '"', "'", '`'].map((o) => textsOf(`see ${o}www.x.dev/a/b.ts`)),
+    )
+    expect(opened).toEqual([[], [], [], [], [], []])
     expect(await textsOf('see xwww.dev/a/b.ts')).toEqual(['xwww.dev/a/b.ts'])
+  })
+
+  it('only a path that starts inside an address run is dropped', async () => {
+    expect(await textsOf('see out/https://x.dev/a')).toEqual(['https://x.dev/a', 'out/https'])
+  })
+
+  it('a www. inside a path never starts an address run', async () => {
+    const paths = [
+      'bin/www.js:12',
+      './www.ts:5',
+      'src/my-www.config.ts',
+      'docs/www.example.com/index.html',
+    ]
+    const found = await Promise.all(paths.map((path) => textsOf('see ' + path)))
+    expect(found).toEqual(paths.map((path) => [path]))
+    expect(await textsOf('see ["bin/www.js","lib/a.ts"]')).toEqual(['bin/www.js', 'lib/a.ts'])
   })
 
   it('links a repo-relative path with its line suffix', async () => {

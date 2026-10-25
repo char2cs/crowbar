@@ -41,9 +41,9 @@ function isUrl(text: string): boolean {
   }
 }
 
-// A non-space run from any scheme or "www." on is address text: a path in it
-// ("?q=(web/a.ts)", "ftp://h/a/b") is never a file reference, even past the URL token.
-const ADDRESS_RUN_RE = /(?:[a-zA-Z][a-zA-Z0-9+.-]*:\/\/|\bwww\.)\S*/g
+// A non-space run from a scheme or a free-standing "www." on is address text: a path
+// that starts in it ("?q=(web/a.ts)", "ftp://h/a/b") is no file link; "bin/www.js" is.
+const ADDRESS_RUN_RE = /(?:[a-zA-Z][a-zA-Z0-9+.-]*:\/\/|(?<=^|[\s"'`([<])www\.)\S*/g
 
 function tokenizeLinks(text: string): LinkToken[] {
   const urls: LinkToken[] = []
@@ -62,7 +62,7 @@ function tokenizeLinks(text: string): LinkToken[] {
     const suffix = m[2] ?? ''
     const start = m.index + m[0].indexOf(m[1])
     const end = start + path.length + suffix.length
-    if (addressRuns.some((run) => start < run.end && run.start < end)) continue
+    if (addressRuns.some((run) => run.start <= start && start < run.end)) continue
     const line = suffix ? Number(suffix.slice(1).split(':')[0]) : undefined
     files.push({ kind: 'file', text: path + suffix, path, line, start, end })
   }
