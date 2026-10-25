@@ -309,6 +309,9 @@ func extraRoutes() []string {
 		"GET " + chat + "/review/outline",
 		"GET " + chat + "/review/patch",
 		"GET " + chat + "/review/search",
+		// One file's full old and new text, fetched only when a reader expands
+		// the unchanged lines a patch leaves out.
+		"GET " + chat + "/review/contents",
 		// The three document-sync notifications, chat-scoped only (spec §4.2's
 		// OWNED bucket, §8 step 6) — their .../workspaces/:wsId/lsp/... twins
 		// are gone.
@@ -592,6 +595,9 @@ func extraRoutes() []string {
 		// /system/prerequisites rather than inside the entity hierarchy.
 		"GET /v0/system/perf",
 		"POST /v0/system/perf",
+		// The desktop app's browser-peer socket: process-wide like /system,
+		// it carries tab inventories up and agent browser_* requests down.
+		"GET /v0/browser/peer",
 	}
 }
 
