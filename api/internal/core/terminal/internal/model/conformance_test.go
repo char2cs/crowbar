@@ -37,6 +37,12 @@ func (c *clientSim) reset() {
 	c.m = m
 }
 
+// resize takes the client to cols x rows: the keyframe that follows a resize resets the sim at that
+// size, as xterm resizes before the keyframe lands.
+func (c *clientSim) resize(cols, rows int) {
+	c.cols, c.rows = cols, rows
+}
+
 func (c *clientSim) apply(data []byte, keyframe bool) {
 	if keyframe {
 		c.reset()

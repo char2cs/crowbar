@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,9 +43,11 @@ func TestSerialize_RoundTripPreservesWrapFlags(t *testing.T) {
 	redCont := "1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n8\r\n9\x1b[H" + strings.Repeat("x", 20) + "\x1b[41mAB\x1b[m"
 	fullCont := strings.Repeat("x", 20) + strings.Repeat("y", 20) // the continuation ends at the last column
 	wideCont := strings.Repeat("x", 20) + strings.Repeat("y", 18) + "日"
+	earlyWide := strings.Repeat("x", 19) + "日y" // the glyph does not fit the last column, so it wraps early
 	tests := []struct {
 		name, bytes string
 		flags       string
+		holds       string // text a logical line of the model holds; empty means not checked
 	}{
 		{name: "a soft-wrapped URL", bytes: url, flags: "grid F T T T F | scrollback"},
 		{name: "an exact-fit hard break", bytes: hardBreak, flags: "grid F F T T F | scrollback"},
@@ -57,6 +60,15 @@ func TestSerialize_RoundTripPreservesWrapFlags(t *testing.T) {
 		{name: "a coloured continuation the client reaches by a scroll", bytes: redCont, flags: "grid F T F F F | scrollback F F F F"},
 		{name: "a continuation that fills its row", bytes: fullCont + "\r\nz", flags: "grid F T F F F | scrollback"},
 		{name: "a continuation ending in a wide glyph at the last column", bytes: wideCont + "\r\nz", flags: "grid F T F F F | scrollback"},
+		{name: "a wide glyph wrapped early", bytes: earlyWide, flags: "grid F T F F F | scrollback", holds: "日y"},
+		{
+			name: "a styled wide glyph wrapped early", bytes: "\x1b[41m" + earlyWide + "\x1b[m",
+			flags: "grid F T F F F | scrollback", holds: "日y",
+		},
+		{
+			name: "a wide glyph wrapped early, in the scrollback", bytes: earlyWide + strings.Repeat("\r\n", 5),
+			flags: "grid F F F F F | scrollback F T", holds: "日y",
+		},
 		{
 			name:  "chains deep in the scrollback",
 			bytes: strings.Join([]string{url, hardBreak, chain3, blankCont, spaceHead, url}, "\r\n"),
@@ -69,6 +81,9 @@ func TestSerialize_RoundTripPreservesWrapFlags(t *testing.T) {
 			t.Cleanup(m.Close)
 			m.Write([]byte(tc.bytes))
 			require.Equal(t, tc.flags, wrapFlags(t, m), "test setup: the model's wrap bits")
+			if tc.holds != "" {
+				require.Contains(t, strings.Join(logicalLines(t, m), "\n"), tc.holds, "test setup: the model's text")
+			}
 
 			fresh, _ := New(cols, rows, 100)
 			t.Cleanup(fresh.Close)
@@ -119,14 +134,27 @@ func TestAppendChainRow(t *testing.T) {
 	ab := []uv.Cell{{Content: "a", Width: 1}, {Content: "b", Width: 1}}
 	blank := []uv.Cell{uv.EmptyCell, uv.EmptyCell}
 	wide := []uv.Cell{{Content: "a", Width: 1}, {Content: "b", Width: 1}, {Content: "日", Width: 2}, {}}
+	red := uv.EmptyCell
+	red.Style.Bg = ansi.Red
 	tests := []struct {
-		name                 string
-		cells                []uv.Cell
-		wrapped, nextWrapped bool
-		want                 string
+		name    string
+		cells   []uv.Cell
+		wrapped bool
+		next    chainNext
+		want    string
 	}{
-		{name: "a head is padded and unbroken", cells: ab, nextWrapped: true, want: "ab  "},
-		{name: "a blank head is padded", cells: nil, nextWrapped: true, want: "    "},
+		{name: "a head is padded and unbroken", cells: ab, next: nextWraps, want: "ab  "},
+		{name: "a blank head is padded", cells: nil, next: nextWraps, want: "    "},
+		{
+			name: "a head before a wide glyph stops short of its blank last cell", cells: append(ab, ab[0], uv.EmptyCell),
+			next: nextWrapsWide, want: "aba",
+		},
+		{
+			name: "a head before a wide glyph stops short of a styled blank too", cells: append(ab, ab[0], red),
+			next: nextWrapsWide, want: "aba",
+		},
+		{name: "a trimmed head before a wide glyph stops short too", cells: ab, next: nextWrapsWide, want: "ab "},
+		{name: "a head before a wide glyph keeps a glyph in its last cell", cells: append(ab, ab...), next: nextWrapsWide, want: "abab"},
 		{name: "a row is trimmed and broken", cells: append(ab, blank...), want: "ab|"},
 		{name: "a blank row is only the break", cells: blank, want: "|"},
 		{name: "a short continuation erases the rest", cells: append(ab, blank...), wrapped: true, want: "ab\x1b[K|"},
@@ -136,12 +164,12 @@ func TestAppendChainRow(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, string(appendChainRow(nil, tc.cells, 4, tc.wrapped, tc.nextWrapped, "|")))
+			require.Equal(t, tc.want, string(appendChainRow(nil, tc.cells, 4, tc.wrapped, tc.next, "|")))
 		})
 	}
 
 	t.Run("appends to what dst holds", func(t *testing.T) {
-		require.Equal(t, "\x1b[1;1Hab", string(appendChainRow([]byte("\x1b[1;1H"), ab, 4, false, false, "")))
+		require.Equal(t, "\x1b[1;1Hab", string(appendChainRow([]byte("\x1b[1;1H"), ab, 4, false, nextBreaks, "")))
 	})
 }
 

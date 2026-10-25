@@ -327,14 +327,17 @@ func (e *DiffEmitter) writeBatch(
 		if !wrapped {
 			b.WriteString(ansi.EraseLineRight)
 		}
-		next := j+1 < n && emu.ScrollbackRowWrapped(i+1) || j+1 == n && top
+		next := chainNextOf(j+1 < n && emu.ScrollbackRowWrapped(i+1), emu.ScrollbackLine(i+1).At(0))
+		if j+1 == n {
+			next = chainNextOf(top, emu.CellAt(0, 0))
+		}
 		b.Write(appendChainRow(b.AvailableBuffer(), emu.ScrollbackLine(i), cols, wrapped, next, ""))
 	}
 	if !top {
 		return
 	}
 	row := snapshotRowInto(emu, e.lastGrid[0], cols, 0)
-	b.Write(appendChainRow(b.AvailableBuffer(), row, cols, true, false, ""))
+	b.Write(appendChainRow(b.AvailableBuffer(), row, cols, true, nextBreaks, ""))
 	e.lastGrid[0] = row[:0] // still the forced-rewrite marker Emit set
 }
 
@@ -402,7 +405,8 @@ func (e *DiffEmitter) writeChain(
 	for y := y0; y <= end; y++ {
 		// Snapshot first, then encode the snapshot: one materialisation serves the wire and the base.
 		e.lastGrid[y] = snapshotRowInto(emu, e.lastGrid[y], cols, y)
-		b.Write(appendChainRow(b.AvailableBuffer(), e.lastGrid[y], cols, emu.RowWrapped(y), emu.RowWrapped(y+1), ""))
+		next := chainNextOf(emu.RowWrapped(y+1), emu.CellAt(0, y+1))
+		b.Write(appendChainRow(b.AvailableBuffer(), e.lastGrid[y], cols, emu.RowWrapped(y), next, ""))
 		e.lastWrapped[y] = emu.RowWrapped(y) && (y > y0 || e.lastWrapped[y])
 	}
 	if lift {
