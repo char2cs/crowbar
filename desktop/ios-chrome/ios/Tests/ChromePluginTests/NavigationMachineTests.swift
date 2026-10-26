@@ -244,6 +244,30 @@ final class NavigationMachineTests: XCTestCase {
     XCTAssertEqual(frames.chatHeaderAlpha, 0, accuracy: 1e-9)
   }
 
+  func testShadowStaysOnTheSlidAsideCardWhenADrawerRestsOpen() {
+    XCTAssertEqual(machine.frames.shadow, 0)
+    swipe(.rightward, distance: 400, velocity: 900)
+    settleFully()
+    XCTAssertEqual(machine.position, 0)
+    var frames = machine.frames
+    XCTAssertEqual(frames.gap, 0)
+    XCTAssertEqual(frames.shadow, 0.18, accuracy: 1e-9)
+    XCTAssertEqual(frames.amount, 1)
+  }
+
+  func testShadowStaysWhenTheFilesDrawerRestsOpen() {
+    swipe(.leftward, distance: 400, velocity: 900)
+    settleFully()
+    report()
+    swipe(.leftward, distance: 400, velocity: 900)
+    settleFully()
+    report()
+    XCTAssertEqual(machine.position, 3)
+    let frames = machine.frames
+    XCTAssertEqual(frames.gap, 2)
+    XCTAssertEqual(frames.shadow, 0.18, accuracy: 1e-9)
+  }
+
   func testFramesSlideTheIDEAwayFromTheFilesWithItsHeader() {
     swipe(.leftward, distance: 400, velocity: 900)
     settleFully()
