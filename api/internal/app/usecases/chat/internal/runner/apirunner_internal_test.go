@@ -88,6 +88,13 @@ func (s *spyRunnerStoreForSpawn) Start(
 	return s.runner, nil
 }
 
+func (s *spyRunnerStoreForSpawn) BindSession(
+	_ context.Context, _, sessionID string, _ bool, _ time.Time, _, _ string,
+) (engineagents.Runner, error) {
+	s.runner.CurrentSession = sessionID
+	return s.runner, nil
+}
+
 func (s *spyRunnerStoreForSpawn) LiveRunnersForChat(
 	context.Context, string,
 ) ([]engineagents.Runner, error) {

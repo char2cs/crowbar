@@ -19,6 +19,7 @@ func TestValidate_TheSessionRulesRefuseAnUnusableLadder(t *testing.T) {
 	cases := map[string]struct {
 		yaml, rule, path string
 	}{
+		"assign without id": {"session:\n  assign: { arg: \"--session-id\" }\n", "session.assign_id", "session.assign.arg"},
 		"resume without id": {"session:\n  resume: { arg: \"--resume\" }\n", "session.resume_id", "session.resume.arg"},
 		"no root":           {locate("", "", `["{id}.jsonl"]`), "session.locate_root", "session.locate"},
 		"relative root":     {locate("sessions", "", `["{id}.jsonl"]`), "session.locate_root", "session.locate.root"},

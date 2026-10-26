@@ -49,7 +49,12 @@ vi.mock('@/features/agent/api/agent-api', async () => {
 vi.mock('@/features/agent/lib/spawn-error', () => ({ toastSpawnFailure }))
 vi.mock('@/features/agent/hooks/use-chat-presentation', () => ({ presetChatLandingPresentation }))
 
-type FakePane = { activeEditorTabId: string | null; editorTabIds: string[]; chatId?: string | null }
+type FakePane = {
+  activeEditorTabId: string | null
+  editorTabIds: string[]
+  chatId?: string | null
+  workspaceId?: string | null
+}
 type FakeLayout =
   | { type: 'pane'; id: string }
   | {
@@ -166,7 +171,13 @@ vi.mock('@/lib/workspace-scope', () => ({
 
 import { usePaneKeyboard } from '@/features/panes/hooks/use-pane-keyboard'
 import { useSettingsStore } from '@/features/settings/store'
-import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { cancelCloseRequest } from '@/features/panes/lib/guarded-close'
+import { closeRequestStore } from '@/features/panes/stores/close-request-store'
+import {
+  destroyWorkspaceStore,
+  getOrCreateWorkspaceStore,
+  setActiveWorkspaceId,
+} from '@/features/workspace/stores/workspace-store-registry'
 
 afterEach(() => setActiveWorkspaceId(null))
 
@@ -304,6 +315,28 @@ describe('usePaneKeyboard — mod+w on a pane with no tabs', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', metaKey: true }))
     expect(closePane).toHaveBeenCalledWith(ROOT_PANE_ID)
     expect(removeEditorTabFromPane).not.toHaveBeenCalled()
+  })
+
+  it('mod+w on a split pane whose chat is mid-turn asks instead of closing it', () => {
+    setPaneState({ activeEditorTabId: null, editorTabIds: [], paneCount: 2 })
+    fakeState.panes[ROOT_PANE_ID] = {
+      ...fakeState.panes[ROOT_PANE_ID],
+      chatId: 'busy-chat',
+      workspaceId: 'ws-1',
+    } as FakePane
+    getOrCreateWorkspaceStore('ws-1').setState((s) => ({
+      agentChats: { ...s.agentChats, working: { ...s.agentChats.working, 'busy-chat': true } },
+    }))
+    renderHook(() => usePaneKeyboard())
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', metaKey: true }))
+    expect(closePane).not.toHaveBeenCalled()
+    expect(closeRequestStore.getState().request).toEqual({
+      kind: 'pane',
+      id: ROOT_PANE_ID,
+      working: 1,
+    })
+    cancelCloseRequest()
+    destroyWorkspaceStore('ws-1')
   })
 
   // C1 regression: `state.panes` ALSO holds BOTTOM_PANE_ID here (this is the

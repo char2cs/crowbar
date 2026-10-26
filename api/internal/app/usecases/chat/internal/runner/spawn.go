@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -107,6 +108,8 @@ func (rs *Runners) spawnRunner(
 	if err != nil {
 		return "", fmt.Errorf("agent: spawn runner: resolve descriptor: %w", err)
 	}
+	assignedSessionID, assignSteps := assignSession(descriptor, launchSessionID)
+	resumeSteps = append(resumeSteps[:len(resumeSteps):len(resumeSteps)], assignSteps...)
 
 	// Copies of promptMessage and conversation for dispatch — the durable ledger
 	// text is never mutated. conversation (AssembleConversation's rendering of
@@ -253,6 +256,7 @@ func (rs *Runners) spawnRunner(
 		rs.agents.ForgetRunner(runnerID)
 		return "", err
 	}
+	rs.bindAssignedSession(ctx, runnerID, assignedSessionID)
 	rs.noteLaunch(ctx, chatID, rs.spawnRung(runnerID, launchSessionID != "", conversation))
 	if termSessID != "" {
 		rs.watchResume(runnerID, chatID, launchSessionID, promptMessage)
@@ -308,6 +312,34 @@ func (rs *Runners) forkCLI(
 		return "", fmt.Errorf("%w: %s", engineterminal.ErrCommandNotFound, req.providerID)
 	}
 	return "", fmt.Errorf("agent: spawn runner: create command: %w", err)
+}
+
+// assignSession picks the conversation id a fresh CLI is launched on, when its
+// descriptor lets Crowbar choose one. A resume already names its session.
+func assignSession(d engineagents.Agent, launchSessionID string) (string, []engineagents.InjectStep) {
+	if launchSessionID != "" {
+		return "", nil
+	}
+	id := uuid.NewString()
+	steps := assignInjectionSteps(d, id)
+	if steps == nil {
+		return "", nil
+	}
+	return id, steps
+}
+
+// bindAssignedSession records the conversation Crowbar chose for runnerID. The
+// CLI's own session hook is not reliably delivered, and a chat whose
+// conversation is never recorded cannot be resumed once its CLI is gone.
+func (rs *Runners) bindAssignedSession(ctx context.Context, runnerID, sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	rs.sessions.assign(runnerID, sessionID)
+	if _, err := rs.runnerStore.BindSession(ctx, runnerID, sessionID, false, time.Now(), "", ""); err != nil {
+		slog.WarnContext(ctx, "agent: bind the assigned session (the CLI's own hook may still announce it)",
+			"runner_id", runnerID, "session_id", sessionID, "err", err)
+	}
 }
 
 func newRunnerID(

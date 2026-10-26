@@ -577,7 +577,7 @@ func TestShippedAgents_RenderHookURLsThatSurviveAnEmptyRepoID(t *testing.T) {
 }
 
 // Claude posts its hooks itself, authenticated by the runner token. Only the status
-// line, which claude can only run as a command, goes through curl.
+// line and SessionStart, which claude can only run as commands, go through curl.
 func TestShippedClaude_HooksAreNativeHTTPHooksCarryingTheRunnerToken(t *testing.T) {
 	tmp := t.TempDir()
 	_, err := get(t, "claude").SpawnPlan(hookCtx(tmp, "claude", "R"), nil, nil)
@@ -592,6 +592,12 @@ func TestShippedClaude_HooksAreNativeHTTPHooksCarryingTheRunnerToken(t *testing.
 	for event, groups := range settings.Hooks {
 		for _, group := range groups {
 			for _, hook := range group.Hooks {
+				if event == "SessionStart" {
+					assert.Equal(t, "command", hook["type"], "claude never delivers SessionStart to an http hook")
+					assert.Contains(t, hook["command"], "/hooks/claude/session_start")
+					assert.NotContains(t, hook["command"], "TOK", "the token must not appear in argv")
+					continue
+				}
 				assert.Equal(t, "http", hook["type"], event)
 				assert.Contains(t, hook["url"], "/chats/runners/SEG/hooks/claude/", event)
 				assert.Equal(t, map[string]any{"X-Crowbar-Runner-Token": "TOK"}, hook["headers"], event)
