@@ -428,6 +428,9 @@ func extraRoutes() []string {
 		//   close: the last view of the chat went away. Unlike stop it never
 		//   interrupts in place; the CLI is retired and the chat stays dormant.
 		"POST " + repo + "/chats/:id/kill",
+		//   terminal-wait/answer: answers the provider's own prompt (trust, login,
+		//   permission) from the chat instead of the terminal.
+		"POST " + repo + "/chats/:id/terminal-wait/answer",
 		"POST " + repo + "/chats/:id/compact",
 		// Two more ways a session on a chat can end without the chat itself
 		// going anywhere: forcing the CLI into (or back out of) the host
@@ -555,6 +558,7 @@ func extraRoutes() []string {
 		// tab closes exactly like any other chat's.
 		"POST " + home + "/chats/:id/stop",
 		"POST " + home + "/chats/:id/kill",
+		"POST " + home + "/chats/:id/terminal-wait/answer",
 		"POST " + home + "/chats/:id/compact",
 		// Placement and chat FOLDERS re-mounted on the home group. This is the
 		// mount that matters most: the project home accumulates more chats than any
