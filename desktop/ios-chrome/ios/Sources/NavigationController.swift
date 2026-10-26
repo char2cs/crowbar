@@ -32,6 +32,8 @@ final class NavigationController: NSObject {
   var ideHeader: [UIView] = []
   /// Whether the chat has an IDE to swipe to.
   var canOpenIde: () -> Bool = { false }
+  /// False while a full-screen first-run page stands in for the app: no card has a drawer to open.
+  var swipesEnabled: () -> Bool = { true }
 
   init(
     host: UIView, webview: WKWebView, list: UIView, files: UIView,
@@ -106,7 +108,7 @@ final class NavigationController: NSObject {
   /// Where a touch may start a swipe, by the screen at rest. A card already moving is grabbed
   /// from anywhere, and either way.
   private func claim(at start: CGPoint) -> DrawerSwipe.Claim? {
-    guard let host else { return nil }
+    guard let host, swipesEnabled() else { return nil }
     let width = host.bounds.width
     if machine.isMoving { return .init(motion: .either, overridesScrollers: true) }
     switch Int(machine.position.rounded()) {
@@ -224,12 +226,16 @@ final class NavigationController: NSObject {
 
   // MARK: layout
 
+  /// Where the welcome button sits: over the web card (which would otherwise hide it), under headers.
+  static let welcomeZ = Z.welcome
+
   private enum Z {
     static let underlay: CGFloat = 1
     static let scrim: CGFloat = 2
     static let shadow: CGFloat = 2.5
     static let web: CGFloat = 3
     static let ideHeader: CGFloat = 3.5
+    static let welcome: CGFloat = 3.7
     static let scrimOverIde: CGFloat = 4
     static let shadowOverIde: CGFloat = 4.5
     static let snapshot: CGFloat = 5

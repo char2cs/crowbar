@@ -108,6 +108,7 @@ final class ChromeOverlays {
       navigation.canOpenIde = { [model] in
         model.headers.chat.first { $0.id == "ide" }?.enabled ?? false
       }
+      navigation.swipesEnabled = { [model] in model.welcome == nil }
       self.navigation = navigation
     }
     model.send = { [weak self] intent in
@@ -219,6 +220,7 @@ final class ChromeOverlays {
     model.welcome = state.welcome
     if let connect = state.connect { model.connect = connect }
     model.headers = state.headers ?? ChromeHeaders(chat: [], ide: [])
+    welcome?.layer.zPosition = NavigationController.welcomeZ
     show(welcome, state.welcome?.visible ?? false)
     let reveal = state.reveal ?? .none
     // A drawer or the IDE over the chat leaves no keyboard up for the composer beneath.
