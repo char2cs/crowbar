@@ -594,6 +594,24 @@
   width: 17px;
   height: 17px;
 }
+/* Wrapped, the plus stacks directly above send in the same right-hand column. The handle is
+   anchored to the pill's bottom (not riding the last line), and the pill is never shorter than
+   the two circles, so a two-line draft still has room for both. The inline translateY of the
+   desktop's last-line rule is what the !important unseats. */
+.agent-chat .pill[data-touch].multi {
+  min-height: calc(2 * var(--touch-circle) + 2px + 2 * var(--touch-inset));
+}
+.agent-chat .pill[data-touch].multi .handle {
+  top: auto;
+  bottom: var(--touch-inset);
+  height: var(--touch-circle);
+  transform: none !important;
+}
+.agent-chat .pill[data-touch].multi .plusbtn {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 2px); /* HANDLE_GAP, handle-geometry.ts */
+}
 /* 44pt to the finger, 32pt to the eye. */
 .agent-chat :is(.pill, .dochandle)[data-touch] :is(.send, .plusbtn)::after {
   content: '';
