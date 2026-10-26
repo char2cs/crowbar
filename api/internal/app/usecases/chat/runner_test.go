@@ -563,6 +563,35 @@ func TestRegression_ResumeChat_RevivesProviderThatNeverBoundAConversation(t *tes
 			"all LastConversation alone can see")
 }
 
+// A chat whose conversation was lost is relaunched on a stand-in session carrying
+// its transcript. A /resume typed there must land the picked conversation in that
+// chat, not move the CLI to whichever chat owns it.
+func TestRegression_ResumeInARelaunchedChat_BindsTheConversationInPlace(t *testing.T) {
+	f := newFixture(t)
+
+	chatA, r1 := f.spawn(t, "claude")
+	f.announce(t, r1, "sA")
+	turn(t, f, r1, "claude", "the conversation the user wants back")
+
+	chatB, lost := f.spawn(t, "claude")
+	f.announce(t, lost, "sLost")
+	turn(t, f, lost, "claude", "history Crowbar kept but claude lost")
+	f.term.exit(t, f.runner(t, lost).TerminalSession)
+	f.wait()
+	require.NoError(t, os.Remove(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "fixture", "sLost.jsonl")))
+
+	r2, err := f.usecase.ResumeChat(f.ctx, chatB)
+	require.NoError(t, err)
+	f.wait()
+	f.announce(t, r2, "sStandIn")
+
+	f.announce(t, r2, "sA")
+	moved := f.runner(t, r2)
+	assert.Equal(t, chatB, moved.CurrentChatID, "the pane the user typed /resume in keeps its CLI")
+	assert.Equal(t, "sA", moved.CurrentSession)
+	assert.NotEqual(t, chatA, moved.CurrentChatID)
+}
+
 // waitForClockTick blocks until real time.Now() has strictly advanced past its
 // current instant — a real signal (the clock itself), never a guessed sleep
 // duration. Needed wherever a gap boundary is a strict `>` against wall time
