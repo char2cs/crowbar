@@ -2,6 +2,7 @@ import type { AgentProvider } from '@/features/agent/api/agent-api'
 import { AgentSelectionPicker } from '@/features/agent/controls/agent-selection-picker'
 import { ViewSwitcher } from '@/features/agent/controls/view-switcher'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
+import { IS_MOBILE } from '@/utils/platform'
 
 export interface SelectionClusterProps {
   provider?: AgentProvider
@@ -45,6 +46,8 @@ export function SelectionCluster({
   onSelectionChange,
   onSelectPresentation,
 }: SelectionClusterProps) {
+  // The phone has one surface, the transcript (useChatPresentation pins it there).
+  const switcher = showSwitcher && !IS_MOBILE
   return (
     <span className="selpos">
       {/* Provider + model + effort as one merged control — picking a model
@@ -67,8 +70,8 @@ export function SelectionCluster({
         // own doc on `unsetLabel`.
         unsetLabel="Default"
       />
-      {showSwitcher && <span className="sep" />}
-      {showSwitcher && (
+      {switcher && <span className="sep" />}
+      {switcher && (
         <ViewSwitcher
           presentation={presentation}
           splitEnabled={splitEnabled}

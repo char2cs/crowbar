@@ -43,6 +43,31 @@
   --tree-guide-color: color-mix(in srgb, var(--muted-foreground) 18%, transparent);
 }
 
+/* The phone's file drawer: the chat list's touch type, caret and glyph column (row pitch
+   and icon size come from TOUCH_ROW_METRICS). */
+.file-tree-touch .file-tree-item {
+  --file-tree-guide-icon-offset: 8px;
+}
+.file-tree-touch .file-tree-row {
+  gap: 8px;
+  font-size: 15px;
+}
+.file-tree-touch .file-tree-chevron {
+  width: 16px;
+  height: 16px;
+}
+.file-tree-touch .file-tree-chevron svg {
+  width: 11px;
+  height: 11px;
+}
+.file-tree-touch .file-tree-glyph {
+  width: 16px;
+  height: 16px;
+}
+.file-tree-touch .file-tree-git-letter {
+  font-size: 12px;
+}
+
 /* Rows sit above their indent guides; the guides show through the row's wash. */
 .file-tree-row {
   position: relative;

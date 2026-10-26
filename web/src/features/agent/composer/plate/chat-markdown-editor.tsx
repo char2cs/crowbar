@@ -22,6 +22,7 @@ import {
 } from '@/features/agent/composer/plate/chat-composer-serialization'
 import { createChatPastePlugin } from '@/features/agent/composer/plate/chat-paste-plugin'
 import { cn } from '@/lib/utils'
+import { IS_MOBILE } from '@/utils/platform'
 
 /** Whether the caret has anywhere left to go WITHIN the text — the box's own
  *  arrow-key history recall only fires at these edges, so moving through a
@@ -508,7 +509,8 @@ export function ChatMarkdownEditor({
     <Plate editor={editor} onChange={handleChange}>
       <PlateContent
         ref={reportHeightFrom}
-        autoFocus={autoFocus}
+        // On the phone focus raises the keyboard over the chat just opened; a tap asks for it.
+        autoFocus={autoFocus && !IS_MOBILE}
         placeholder={placeholder}
         aria-label={ariaLabel}
         aria-expanded={expanded}

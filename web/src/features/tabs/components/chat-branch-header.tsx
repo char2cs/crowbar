@@ -1,4 +1,5 @@
 import { ChatsCircle, GitBranch } from '@phosphor-icons/react'
+import { CHAT_TITLE_TEXT } from '@/components/ui/chat-title-text'
 import { useState } from 'react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { performRenameChat } from '@/components/sidebar/lib/row-actions'
@@ -230,9 +231,6 @@ function WorkspaceRoute({
     </span>
   )
 }
-
-// Shared with the rename input so entering edit mode never changes the text.
-const CHAT_TITLE_TEXT = 'font-heading text-[17px] leading-5 font-normal tracking-normal'
 
 /** The name line. A `null` title is the store's gap, drawn as the pending mark
  *  and marked as such, never as a chat that happens to be untitled. */

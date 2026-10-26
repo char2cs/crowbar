@@ -15,25 +15,9 @@ import { ImportProjectModal } from '@/components/projects/import-project-modal'
 import { importProjectAndSync, useProjectStore } from '@/lib/store/projects'
 import { fetchPrerequisites } from '@/lib/api'
 import type { Project, Prerequisites } from '@/lib/types'
-import './oobe-gradient.css'
+import { OOBE_TAGLINE, OobeGradient } from './oobe-frame'
 
 type OobeStep = 'presentation' | 'prerequisites' | 'add-project'
-
-// ─── Gradient (extracted so JSX stays readable) ─────────────────────────────
-
-// A CSS stand-in for the WebGL shader gradient this screen used to render
-// (three.js + react-three-fiber, ~280 KB gzip for one backdrop): the same three
-// colors drifting under a grain, animated by the compositor alone.
-function GradientBackground() {
-  return (
-    <div aria-hidden className="oobe-gradient pointer-events-none absolute inset-0 overflow-hidden">
-      <div className="oobe-gradient__blob oobe-gradient__blob--teal" />
-      <div className="oobe-gradient__blob oobe-gradient__blob--orange" />
-      <div className="oobe-gradient__blob oobe-gradient__blob--lavender" />
-      <div className="oobe-gradient__grain" />
-    </div>
-  )
-}
 
 // ─── Prerequisite check row ──────────────────────────────────────────────────
 
@@ -295,13 +279,13 @@ export function OobeScreen() {
   }
 
   return (
-    // Single LazyMotion boundary for the whole screen: it covers GradientBackground,
+    // Single LazyMotion boundary for the whole screen: it covers OobeGradient,
     // CheckRow, and PrerequisitesStep's m.* usage too, since they all render as
     // descendants here. Only enter/exit animations are used -> domAnimation.
     <LazyMotion features={domAnimation}>
       <div className="relative flex h-screen items-center justify-center overflow-hidden">
         <div data-tauri-drag-region className="absolute inset-x-0 top-0 z-20 h-8" />
-        <GradientBackground />
+        <OobeGradient />
 
         <>
           {/* ── Step 1: Presentation (full-screen, no card) ── */}
@@ -321,7 +305,7 @@ export function OobeScreen() {
                   transition={{ delay: 0.15 }}
                   className="max-w-xs text-base text-white/70"
                 >
-                  The IDE where agents do the heavy lifting.
+                  {OOBE_TAGLINE}
                 </m.p>
                 <m.div
                   initial={{ opacity: 0, y: 6 }}

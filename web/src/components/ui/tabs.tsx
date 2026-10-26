@@ -3,6 +3,7 @@
 import { Tabs as TabsPrimitive } from '@base-ui/react/tabs'
 import * as React from 'react'
 import { cn } from '@/lib/utils'
+import { SELECTED_PILL } from './selected-pill'
 
 export function Tabs({ className, ...props }: TabsPrimitive.Root.Props): React.ReactElement {
   return (
@@ -30,7 +31,10 @@ export function TabsList({
     >
       {children}
       <TabsPrimitive.Indicator
-        className="absolute bottom-0 left-0 -z-1 h-(--active-tab-height) w-(--active-tab-width) translate-x-(--active-tab-left) -translate-y-(--active-tab-bottom) rounded-lg border border-background bg-background shadow-xs shadow-black/10 inset-shadow-[0_1px_var(--elevated-highlight)] transition-[width,translate] duration-200 ease-in-out"
+        className={cn(
+          'absolute bottom-0 left-0 -z-1 h-(--active-tab-height) w-(--active-tab-width) translate-x-(--active-tab-left) -translate-y-(--active-tab-bottom) transition-[width,translate] duration-200 ease-in-out',
+          SELECTED_PILL,
+        )}
         data-slot="tab-indicator"
       />
     </TabsPrimitive.List>

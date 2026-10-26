@@ -8,7 +8,7 @@ import { useSettingsStore, getDefaultSetting } from '@/features/settings/store'
 import type { Settings } from '@/features/settings/types/settings'
 import { downloadSettingsFile } from '@/features/settings/lib/settings-download'
 import { exportDiagnostics } from '@/lib/crowbar-bridge'
-import { isTauri } from '@/lib/crowbar-bridge'
+import { isDesktopApp } from '@/lib/crowbar-bridge'
 import { primitiveConfirm } from '@/components/ui/primitive-dialog-service'
 import { toast } from '@/features/window/stores/toast-store'
 import {
@@ -147,7 +147,7 @@ export function DeveloperSettings() {
 
       <ChatSplitViewSetting />
 
-      {isTauri() && (
+      {isDesktopApp() && (
         <Section
           title="Diagnostics"
           description="For bug reports: collect the backend and app logs plus a live backend snapshot into a single zip."

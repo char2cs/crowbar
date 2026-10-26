@@ -39,8 +39,45 @@ vi.mock('platejs/react', async (importOriginal) => {
   }
 })
 
-afterEach(cleanup)
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  get IS_MOBILE() {
+    return platform.mobile
+  },
+}))
+
+afterEach(() => {
+  cleanup()
+  platform.mobile = false
+})
 beforeEach(() => createPlatePluginSpy.mockClear())
+
+describe('ChatMarkdownEditor — autoFocus', () => {
+  const renderEditor = () =>
+    render(
+      <ChatMarkdownEditor
+        initialValue=""
+        placeholder=""
+        ariaLabel="Message the agent"
+        autoFocus
+        onChange={vi.fn()}
+        onKeyDown={vi.fn()}
+      />,
+    )
+
+  it('takes focus on mount', () => {
+    const { getByRole } = renderEditor()
+    expect(getByRole('textbox', { name: 'Message the agent' })).toHaveFocus()
+  })
+
+  // On the phone a focused field raises the keyboard over the chat just opened.
+  it('leaves focus alone on the phone', () => {
+    platform.mobile = true
+    const { getByRole } = renderEditor()
+    expect(getByRole('textbox', { name: 'Message the agent' })).not.toHaveFocus()
+  })
+})
 
 type KeyDownHandler = (ctx: { editor: PlateEditor; event: KeyboardEvent<HTMLDivElement> }) => void
 

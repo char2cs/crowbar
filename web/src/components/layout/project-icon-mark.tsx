@@ -101,6 +101,10 @@ function ProjectIconImage({
   fallback,
 }: ProjectIconImageProps) {
   const hostResolved = useHostResolved({ projectId })
+  // Handed over already read (the phone's chat list, which cannot reach the daemon).
+  if (avatarUrl.startsWith('data:')) {
+    return <RepoAvatarImg src={avatarUrl} alt={name} className={className} fallback={fallback} />
+  }
   if (!hostResolved) return fallback
 
   // Resolved for the BROWSER, not for apiFetch: a ProjectDTO's icon URL is a

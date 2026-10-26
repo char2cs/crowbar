@@ -6,7 +6,7 @@ export function GitStatusLetter({ decoration }: { decoration: FileTreeGitStatusD
   return (
     <span
       className={cn(
-        'shrink-0 select-none font-mono text-[10px] leading-none opacity-80',
+        'file-tree-git-letter shrink-0 select-none font-mono text-[10px] leading-none opacity-80',
         decoration.colorClassName,
       )}
       aria-label={decoration.label}

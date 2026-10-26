@@ -1,7 +1,23 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
-import { AgentSelectionPicker } from '@/features/agent/controls/agent-selection-picker'
+import type { NativeChromeIntent, NativeModelPicker } from '@/lib/native-chrome'
+
+const chrome = vi.hoisted(() => ({
+  on: false,
+  pushed: [] as NativeModelPicker[],
+  listeners: new Set<(intent: NativeChromeIntent) => void>(),
+}))
+vi.mock('@/lib/native-chrome', () => ({
+  hasNativeChrome: () => chrome.on,
+  setNativeModelPicker: (picker: NativeModelPicker) => chrome.pushed.push(picker),
+  onNativeChromeIntent: (cb: (intent: NativeChromeIntent) => void) => {
+    chrome.listeners.add(cb)
+    return () => chrome.listeners.delete(cb)
+  },
+}))
+
+const { AgentSelectionPicker } = await import('@/features/agent/controls/agent-selection-picker')
 
 const claude: AgentProvider = {
   id: 'claude',
@@ -471,5 +487,64 @@ describe('AgentSelectionPicker', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Medium' }))
     expect(onSelectionChange).toHaveBeenCalledWith('claude', '', 'medium')
+  })
+
+  describe('on the phone', () => {
+    const send = (intent: NativeChromeIntent) =>
+      act(() => chrome.listeners.forEach((listener) => listener(intent)))
+    const last = () => chrome.pushed.at(-1)!
+    afterEach(() => {
+      chrome.on = false
+      chrome.pushed.length = 0
+      chrome.listeners.clear()
+    })
+    const renderPhone = (onSelectionChange = vi.fn()) => {
+      chrome.on = true
+      render(
+        <AgentSelectionPicker
+          provider={claude}
+          providers={[claude, codex]}
+          model="sonnet"
+          effort="medium"
+          onSelectionChange={onSelectionChange}
+        />,
+      )
+      return onSelectionChange
+    }
+
+    // The menu is a native sheet there: the page hands it the catalogue and draws no popover.
+    it('opens the native picker with the catalogue, and no menu of its own', async () => {
+      renderPhone()
+      openMenu()
+      await waitFor(() => expect(last().open).toBe(true))
+      expect(screen.queryByRole('menuitem')).not.toBeInTheDocument()
+      expect(last()).toMatchObject({
+        selected: { providerId: 'claude', modelId: 'sonnet' },
+        efforts: ['low', 'medium', 'high'],
+        effort: 'medium',
+      })
+      expect(last().providers.map((p) => [p.name, p.models.map((m) => m.id)])).toEqual([
+        ['Claude', ['sonnet', 'opus', 'haiku']],
+        ['Codex', ['gpt-5.6-sol', 'gpt-5.6-luna']],
+      ])
+    })
+
+    it('stages a model picked natively, under its own provider, and closes', async () => {
+      const onSelectionChange = renderPhone()
+      openMenu()
+      await waitFor(() => expect(last().open).toBe(true))
+      send({ type: 'selectModel', providerId: 'codex', modelId: 'gpt-5.6-sol' })
+      expect(onSelectionChange).toHaveBeenCalledWith('codex', 'gpt-5.6-sol', 'medium')
+      await waitFor(() => expect(last().open).toBe(false))
+    })
+
+    it('stages an effort picked natively and stays open', async () => {
+      const onSelectionChange = renderPhone()
+      openMenu()
+      await waitFor(() => expect(last().open).toBe(true))
+      send({ type: 'setEffort', effort: 'high' })
+      expect(onSelectionChange).toHaveBeenCalledWith('claude', 'sonnet', 'high')
+      expect(last().open).toBe(true)
+    })
   })
 })

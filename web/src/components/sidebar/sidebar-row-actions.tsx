@@ -13,6 +13,8 @@ import { toast } from '@/features/window/stores/toast-store'
 import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 import { retryProvision } from '@/lib/api/workspace'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
+import { rowButtonVerbs } from '@/components/sidebar/lib/row-menu'
+import { rowHitStyle, useRowMetrics } from '@/components/sidebar/lib/row-metrics'
 
 interface SidebarRowActionsProps {
   row: SidebarRowType
@@ -49,11 +51,14 @@ export function SidebarRowActions({
   // threaded as two more handler props through every tree that draws a row —
   // neither verb needs anything the tree knows.
   const openDetach = useDetachModalStore((s) => s.open)
+  const metrics = useRowMetrics()
   // Single source of truth for "does this row get the tree-dots menu" — used
   // both to gate that button and to gate Remove's fold-into-it below, so the
   // two can never drift apart the way two separately-written copies of
   // `isProjectHome && row.repoIcon` could.
   const showRepoMenu = isProjectHome && Boolean(row.repoIcon)
+  // Which verbs the row earns is decided once, in row-menu.ts, for the phone's menu too.
+  const verbs = new Set(rowButtonVerbs(row, isProjectHome))
   return (
     <>
       {/* A holder means Detach… is the only verb that works: RetryProvision
@@ -62,7 +67,7 @@ export function SidebarRowActions({
           Gated on `heldByPath` rather than `needsProvisioning`: the repo's OWN
           checkout holding its own default branch raises no alarm, but it is
           detachable all the same, with consent (spec §3.5). */}
-      {row.kind === 'branch' && row.workspaceId && row.heldByPath && (
+      {verbs.has('detach') && (
         <button
           type="button"
           data-control="detach"
@@ -86,7 +91,7 @@ export function SidebarRowActions({
 
       {/* No holder and still no worktree: the provision itself failed, and
           Retry is the verb the copy names for exactly this case. */}
-      {row.kind === 'branch' && row.workspaceId && row.isPlaceholder && !row.heldByPath && (
+      {verbs.has('retry') && (
         <button
           type="button"
           data-control="retry-provision"
@@ -147,26 +152,22 @@ export function SidebarRowActions({
           tree-dots menu gets its removal verb IN that menu ("Delete Repo",
           row-context-menu.tsx) instead of a second, standalone button — one
           delete affordance per row, never two. */}
-      {onTrash &&
-        !showRepoMenu &&
-        (row.kind === 'chat' ||
-          row.kind === 'folder' ||
-          (row.kind === 'branch' && !row.locked)) && (
-          <button
-            type="button"
-            data-control="remove"
-            className={subActionClass}
-            aria-label={`Remove ${row.label}`}
-            onClick={(e) => {
-              e.stopPropagation()
-              e.currentTarget.blur()
-              onTrash(row.id)
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <X aria-hidden="true" className="size-3" weight="bold" />
-          </button>
-        )}
+      {onTrash && verbs.has('remove') && (
+        <button
+          type="button"
+          data-control="remove"
+          className={subActionClass}
+          aria-label={`Remove ${row.label}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            e.currentTarget.blur()
+            onTrash(row.id)
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <X aria-hidden="true" className="size-3" weight="bold" />
+        </button>
+      )}
 
       {/* Trailing cluster order, explicit product spec: repo-menu (tree
           dots), Remove, Thread, Branch (Fork), Dropdown (fold) — left to
@@ -203,7 +204,7 @@ export function SidebarRowActions({
           no verb that needs one, the same way the trash button below excludes
           the kinds `handleTrash` refuses rather than offering a dead click.
           Detach/Retry above are the verbs such a row does get. */}
-      {onCreate && !row.isPlaceholder && (
+      {onCreate && verbs.has('new-thread') && (
         <button
           type="button"
           data-control="thread"
@@ -226,31 +227,29 @@ export function SidebarRowActions({
         </button>
       )}
 
-      {onCreate &&
-        !row.isPlaceholder &&
-        (row.kind === 'folder' ? row.ownsWorktree : row.kind === 'branch') && (
-          <button
-            type="button"
-            data-control="fork"
-            className={subActionClass}
-            aria-label={`Fork ${row.label}`}
-            onClick={(e) => {
-              e.stopPropagation()
-              // See the Thread button's own comment above — same stuck-focus fix.
-              e.currentTarget.blur()
-              onCreate(row.id, 'workspace')
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            {/* Rule 8: mints a CHILD chat session with its OWN workspace
+      {onCreate && verbs.has('fork') && (
+        <button
+          type="button"
+          data-control="fork"
+          className={subActionClass}
+          aria-label={`Fork ${row.label}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            // See the Thread button's own comment above — same stuck-focus fix.
+            e.currentTarget.blur()
+            onCreate(row.id, 'workspace')
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {/* Rule 8: mints a CHILD chat session with its OWN workspace
               forked from this row's branch — a git operation, not a generic
               "+" — so it draws the same `GitBranch` mark `RowGlyph` already
               uses for a row that owns a worktree (`weight="bold"`, matching
               the thread button's own weight rather than `"fill"`, which
               reads too heavy at this size next to it). */}
-            <GitBranch aria-hidden="true" className="size-3" weight="bold" />
-          </button>
-        )}
+          <GitBranch aria-hidden="true" className="size-3" weight="bold" />
+        </button>
+      )}
 
       {onClose && (
         <button
@@ -273,8 +272,15 @@ export function SidebarRowActions({
         <button
           type="button"
           data-control="fold"
-          className={subActionClass}
+          // No hover on a phone: the disclosure stays drawn, with a full-size tap target.
+          className={
+            metrics
+              ? 'relative inline-flex shrink-0 items-center justify-center text-muted-foreground focus-visible:outline-none'
+              : subActionClass
+          }
+          style={rowHitStyle(metrics)}
           aria-label={`${expanded ? 'Collapse' : 'Expand'} ${row.label}`}
+          aria-expanded={expanded}
           onClick={(e) => {
             e.stopPropagation()
             // See the Fork button's own comment above — same stuck-focus fix.

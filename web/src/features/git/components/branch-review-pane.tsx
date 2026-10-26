@@ -11,7 +11,6 @@ import { Badge } from '@/components/ui/badge'
 import { SegmentedControl, SegmentedControlItem } from '@/components/ui/segmented-control'
 import { Tabs as TabsPrimitive } from '@base-ui/react/tabs'
 import { Tabs } from '@/components/ui/tabs'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { BranchReviewView } from '@/features/panes/types/pane-content'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 import { getReview } from '../api/review-api'
@@ -21,16 +20,16 @@ import { ReviewConversationView } from './review-conversation-view'
 import { ReviewDiffTab, type LineRequest } from './review-diff-tab'
 
 interface BranchReviewPaneProps {
-  /** The buffer this pane renders; the chosen tab is persisted on it. */
-  bufferId: string
   view?: BranchReviewView
+  /** The tab the user picked; its owner keeps it (a pane persists it on the tab's buffer). */
+  onViewChange: (view: BranchReviewView) => void
   wsId: string
   isActivePane?: boolean
 }
 
 export function BranchReviewPane({
-  bufferId,
   view = 'conversation',
+  onViewChange,
   wsId,
   isActivePane,
 }: BranchReviewPaneProps) {
@@ -83,7 +82,7 @@ export function BranchReviewPane({
     // A pending line request belongs to the surface it was raised for; keeping
     // it would replay the scroll the next time Files changed mounts.
     if (next === 'conversation') setLineRequest(undefined)
-    windowPaneStore.getState().bufferActions.setBranchReviewView(bufferId, next)
+    onViewChange(next)
   }
 
   const jumpToLine = (thread: ReviewThread) => {
