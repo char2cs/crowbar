@@ -1,9 +1,10 @@
 import '@/features/file-explorer/file-explorer/styles/file-explorer-tree.css'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { MagnifyingGlassIcon, XCircleIcon } from '@phosphor-icons/react'
+import { FolderSimpleIcon, MagnifyingGlassIcon, XCircleIcon } from '@phosphor-icons/react'
 import { SidebarFileRow, TreeGuides } from '@/components/sidebar/sidebar-file-row'
 import { TOUCH_ROW_METRICS } from '@/components/sidebar/lib/row-metrics'
+import { ChatBranchHeaderView } from '@/features/tabs/components/chat-branch-header-view'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
 import { DirectoryChevron } from '@/features/file-explorer/file-explorer/components/file-explorer-tree-item'
 import { GitStatusLetter } from '@/features/file-explorer/file-explorer/components/git-status-letter'
@@ -46,37 +47,51 @@ export function MobileFilesPage() {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-chrome-bg pt-[env(safe-area-inset-top)] text-foreground">
-      <header className="flex shrink-0 flex-col gap-2 px-4 pt-1 pb-2">
-        <h1 className="truncate font-heading text-[19px] leading-6 tracking-tight">
-          {snapshot?.rootName || 'Files'}
-        </h1>
-        <label className="flex h-9 items-center gap-2 rounded-[10px] bg-sidebar-element-idle px-2.5 text-muted-foreground">
-          <MagnifyingGlassIcon aria-hidden="true" size={17} />
-          <input
-            type="search"
-            aria-label="Search files"
-            placeholder="Search"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            enterKeyHint="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="min-w-0 flex-1 bg-transparent text-[17px] text-foreground outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden"
-          />
-          {query && (
-            <button
-              type="button"
-              aria-label="Clear search"
-              className="-mr-2.5 flex size-9 items-center justify-center"
-              onClick={() => setQuery('')}
-            >
-              <XCircleIcon aria-hidden="true" size={17} weight="fill" />
-            </button>
-          )}
-        </label>
-      </header>
-      {snapshot && <FilesList snapshot={snapshot} query={query} />}
+      {snapshot?.header ? (
+        <>
+          <header className="flex shrink-0 flex-col gap-2 px-4 pt-1 pb-2">
+            <ChatBranchHeaderView model={snapshot.header} />
+            <label className="flex h-9 items-center gap-2 rounded-[10px] bg-sidebar-element-idle px-2.5 text-muted-foreground">
+              <MagnifyingGlassIcon aria-hidden="true" size={17} />
+              <input
+                type="search"
+                aria-label="Search files"
+                placeholder="Search"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="min-w-0 flex-1 bg-transparent text-[17px] text-foreground outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden"
+              />
+              {query && (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  className="-mr-2.5 flex size-9 items-center justify-center"
+                  onClick={() => setQuery('')}
+                >
+                  <XCircleIcon aria-hidden="true" size={17} weight="fill" />
+                </button>
+              )}
+            </label>
+          </header>
+          <FilesList snapshot={snapshot} query={query} />
+        </>
+      ) : (
+        snapshot && <NoWorkspace />
+      )}
+    </div>
+  )
+}
+
+function NoWorkspace() {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-2 px-8 pb-24 text-center">
+      <FolderSimpleIcon aria-hidden="true" size={32} className="text-muted-foreground" />
+      <p className="font-heading text-[19px] leading-6 tracking-tight">No workspace selected</p>
+      <p className="text-[15px] text-muted-foreground">Open a chat to browse its files.</p>
     </div>
   )
 }

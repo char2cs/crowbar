@@ -9,7 +9,13 @@ type Receiver = { __crowbarFiles?: (snapshot: NativeFiles) => void }
 const posted = vi.fn()
 const modified = { colorClassName: 'text-git-modified', label: 'Modified', statusLetter: 'M' }
 const snapshot: NativeFiles = {
-  rootName: 'checkout',
+  header: {
+    title: 'Quiver nightly resolution bug',
+    working: false,
+    isThread: true,
+    lead: { kind: 'project', project: { id: 'p1', name: 'Rabbyte Local' } },
+    route: { kind: 'project', name: 'Rabbyte Local' },
+  },
   loading: false,
   compactFolders: false,
   activePath: '/r/README.md',
@@ -50,13 +56,32 @@ describe('MobileFilesPage', () => {
   it('draws the expanded tree with its git marks and the open file selected', () => {
     render(<MobileFilesPage />)
     push(snapshot)
-    expect(screen.getByRole('heading', { name: 'checkout' })).toBeVisible()
+    expect(screen.getByTestId('chat-branch-header-title')).toHaveTextContent(
+      'Quiver nightly resolution bug',
+    )
     expect(names()).toEqual(['srcM', 'pricing.tsM', 'docs', 'README.md'])
     expect(screen.getByRole('treeitem', { name: 'README.md' })).toHaveAttribute(
       'aria-selected',
       'true',
     )
     expect(screen.getAllByLabelText('Modified')).toHaveLength(2)
+  })
+
+  it('heads the tree with the desktop chat header: project mark, title, chat mark and project', () => {
+    render(<MobileFilesPage />)
+    push(snapshot)
+    expect(screen.getByTestId('chat-branch-header-project-icon')).toBeVisible()
+    expect(screen.getByTestId('chat-branch-header-route')).toHaveTextContent('Rabbyte Local')
+    expect(screen.getByTestId('chat-branch-header-chat-icon')).toBeVisible()
+  })
+
+  it('explains itself, and offers no search, when no chat is open', () => {
+    render(<MobileFilesPage />)
+    push({ ...snapshot, header: null, files: [] })
+    expect(screen.getByText('No workspace selected')).toBeVisible()
+    expect(screen.getByText('Open a chat to browse its files.')).toBeVisible()
+    expect(screen.queryByRole('searchbox')).toBeNull()
+    expect(screen.queryByText('No files')).toBeNull()
   })
 
   it('draws every row at the chat list’s touch height', () => {

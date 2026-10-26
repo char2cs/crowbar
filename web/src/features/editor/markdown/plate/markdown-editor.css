@@ -249,6 +249,10 @@
 .crowbar-markdown-editor .slate-code_block {
   margin-block: 1.2em;
   padding: 0;
+  /* Wide code scrolls inside its own box; the box never outgrows the reading column, or it
+     is clipped by the pane and slides under the view toggle in the gutter. */
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* The element's only child is the code chrome (see CodeBlockElement); the
@@ -264,6 +268,9 @@
      clearance — that is where the absolutely-positioned language + copy
      controls sit (24px tall at a 4px offset). */
   padding: 1.9rem 1rem 1rem;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
   font-family: var(--font-mono);
   font-size: 0.85em;
   line-height: 1.6;

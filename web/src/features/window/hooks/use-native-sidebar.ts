@@ -133,9 +133,10 @@ function useActiveProjectRows(projectId: string | null): SidebarRow[] {
   }, [projectId, repos, seeded, seededWorkspaces, homeTree, home.wsId, home.owningChatId])
 }
 
-const isImageUrl = (url: string | undefined): url is string => !!url && !url.startsWith('emoji:')
+export const isImageUrl = (url: string | undefined): url is string =>
+  !!url && !url.startsWith('emoji:')
 
-function projectIconUrl(project: Project): string | undefined {
+export function projectIconUrl(project: Pick<Project, 'id' | 'avatarUrl'>): string | undefined {
   if (!project.avatarUrl || !isHostResolved({ projectId: project.id })) return undefined
   return projectAssetURL(project.id, project.avatarUrl)
 }
