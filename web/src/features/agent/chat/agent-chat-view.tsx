@@ -1027,12 +1027,14 @@ export function AgentChatView({
   // watches be replaced. The transcript's own loading state stands alone until
   // the answer arrives — one transition instead of two.
   const settling = ledger.loading && nothingYet
+  // The one model name every selection control shows; the pick wins, then what the runner confirmed.
+  const shownModel = model || (live ? launchModel : lastConfirmedModel)
 
   const selectionCluster = (
     <SelectionCluster
       provider={effectiveProvider}
       providers={providers}
-      model={model}
+      model={shownModel}
       effort={effectiveEffort}
       reportedModel={reportedModel}
       presentation={presentation}
@@ -1255,7 +1257,7 @@ export function AgentChatView({
               // launchModel goes with it (see `lastConfirmedModel` above).
               // Neither fallback guesses from catalogue order, and neither
               // bakes in the "Default" label — see `model`'s own comment.
-              model={model || (live ? launchModel : lastConfirmedModel)}
+              model={shownModel}
               effort={effectiveEffort}
               reportedModel={reportedModel}
               telemetry={telemetry}

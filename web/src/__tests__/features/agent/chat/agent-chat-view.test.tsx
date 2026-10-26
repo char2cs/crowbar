@@ -1780,6 +1780,18 @@ describe('AgentChatView model + effort selection', () => {
     )
   })
 
+  // One chat, one name: the blank document's handle and the composer's underbar
+  // are the same control and must say the same model for the same state.
+  it('names the launch model on the blank document handle too', async () => {
+    initialMessages = []
+    setup({ providers: selectable, model: '', effort: '', live: true, launchModel: 'gpt-5.6-luna' })
+    await composer()
+
+    expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
+      'Agent: Codex, model gpt-5.6-luna, effort Default',
+    )
+  })
+
   // A parallel change makes codex's model list DYNAMICALLY discovered, so
   // `models` can be legitimately empty even with `modelSelect` declared —
   // still discovering, not "this provider has no catalogue". Must render

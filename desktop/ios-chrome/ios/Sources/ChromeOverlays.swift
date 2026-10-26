@@ -31,7 +31,7 @@ final class ChromeOverlays {
   } onUserDismiss: { [model] in
     model.send(.of("closeSettings"))
   }
-  private lazy var pickerSheet = SheetPresenter(undimmed: false) { [picker, model] in
+  private lazy var pickerSheet = SheetPresenter(undimmed: false, detents: [.large()]) { [picker, model] in
     UIHostingController(rootView: ModelPickerSheet(model: picker, chrome: model))
   } onUserDismiss: { [picker] in
     picker.send(.of("closeModelPicker"))
