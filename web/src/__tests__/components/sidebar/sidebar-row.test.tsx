@@ -1203,8 +1203,8 @@ describe('a row drawn at a given scale', () => {
       </RowMetricsContext>,
     )
     const glyph = screen.getByRole('treeitem').firstElementChild as HTMLElement
-    expect(glyph.style.width).toBe(`${metrics.headerGlyph}px`)
-    expect(glyph.style.height).toBe(`${metrics.headerGlyph}px`)
+    expect(glyph.style.width).toBe(`${metrics.glyph}px`)
+    expect(glyph.style.height).toBe(`${metrics.glyph}px`)
   })
 
   // No hover on a phone: the disclosure is always there, and it alone folds the row.

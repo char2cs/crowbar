@@ -8,6 +8,7 @@ import { HostStatusDot, HostStatusIcon } from '@/features/hosts/components/host-
 import { useHostView } from '@/features/hosts/hooks/use-host-status'
 import { hostDotLabel, hostTone, hostToneText } from '@/features/hosts/lib/host-tone'
 import { LOCAL_HOST } from '@/features/hosts/types'
+import { useRowMetrics } from '@/components/sidebar/lib/row-metrics'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { cn } from '@/lib/utils'
 import type { Project } from '@/lib/types'
@@ -76,6 +77,18 @@ interface SidebarProjectSwitcherProps {
 
 const openHostSettings = () => useUIState.getState().openSettingsDialog('hosts')
 
+// The phone's header scale (row-metrics.ts); null keeps the desktop's own classes.
+function useHeaderScale() {
+  const metrics = useRowMetrics()
+  if (!metrics) return null
+  const tile = { width: metrics.projectTile, height: metrics.projectTile }
+  return {
+    tile,
+    bar: { height: metrics.projectHeight },
+    name: { fontSize: metrics.projectTitleSize, lineHeight: `${metrics.projectTitleSize + 6}px` },
+  }
+}
+
 function ProjectMark({
   label,
   onSelect,
@@ -85,8 +98,10 @@ function ProjectMark({
   onSelect: () => void
   children: ReactNode
 }) {
+  const scale = useHeaderScale()
   return (
     <Button
+      style={scale?.tile}
       onClick={onSelect}
       variant="ghost"
       size="icon-sm"
@@ -145,6 +160,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
 }: SidebarProjectSwitcherProps) {
   // Holds the project id, so switching spaces mid-edit drops the editor.
   const [renamingId, setRenamingId] = useState<string | null>(null)
+  const scale = useHeaderScale()
   if (projects.length === 0 && !onAddProject) return null
 
   const active = projects.find((p) => p.id === activeProjectId)
@@ -153,12 +169,13 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
   return (
     <div
       data-testid="sidebar-project-switcher"
-      className="flex h-11 shrink-0 items-center gap-2 overflow-hidden px-3"
+      style={scale?.bar}
+      className={cn('flex shrink-0 items-center gap-2 overflow-hidden px-3', !scale && 'h-11')}
     >
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {active && (
           <>
-            <span className={TILE}>
+            <span className={TILE} style={scale?.tile}>
               <EditableProjectIcon project={active} size="lg" />
             </span>
             <div className="flex min-w-0 flex-1 flex-col">
@@ -175,6 +192,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
               ) : (
                 <span
                   data-testid="active-project-name"
+                  style={scale?.name}
                   className={cn('min-w-0 truncate', PROJECT_NAME_TEXT)}
                   onDoubleClick={() => setRenamingId(active.id)}
                 >

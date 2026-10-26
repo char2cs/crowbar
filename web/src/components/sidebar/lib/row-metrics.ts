@@ -7,27 +7,32 @@ export interface RowMetrics {
   titleSize: number
   /** The second line under a title: a branch name and its counts. */
   subSize: number
+  /** Every row's mark: a repo's logo, a branch's, a thread's and a folder's alike. */
   glyph: number
-  /** A repo header's icon tile. */
-  headerGlyph: number
   /** The least a control's tap target may be, however small its mark. */
   hitTarget: number
   indent: number
   gap: number
   padX: number
+  /** The project header above the list: its height, mark tile and name size. */
+  projectHeight: number
+  projectTile: number
+  projectTitleSize: number
 }
 
-/** The phone's list scale: 34pt rows, 15px titles, one 12px secondary size. */
+/** The phone's list scale: 40pt rows, 16px titles, one 12px secondary size, 20px marks. */
 export const TOUCH_ROW_METRICS: RowMetrics = {
-  height: 34,
-  titleSize: 15,
+  height: 40,
+  titleSize: 16,
   subSize: 12,
-  glyph: 16,
-  headerGlyph: 24,
+  glyph: 20,
   hitTarget: 44,
-  indent: 14,
-  gap: 8,
-  padX: 8,
+  indent: 16,
+  gap: 10,
+  padX: 10,
+  projectHeight: 56,
+  projectTile: 36,
+  projectTitleSize: 22,
 }
 
 /** Null keeps the desktop's own scale, which lives in the row-base classes. */
@@ -55,10 +60,6 @@ export function rowGlyphStyle(metrics: RowMetrics | null): CSSProperties | undef
   return metrics ? { width: metrics.glyph, height: metrics.glyph } : undefined
 }
 
-export function rowHeaderGlyphStyle(metrics: RowMetrics | null): CSSProperties | undefined {
-  return metrics ? { width: metrics.headerGlyph, height: metrics.headerGlyph } : undefined
-}
-
 /** A tap target taller than the row, bled into its neighbours so the row keeps its height. */
 export function rowHitStyle(metrics: RowMetrics | null): CSSProperties | undefined {
   if (!metrics) return undefined
@@ -73,4 +74,9 @@ export function rowHitStyle(metrics: RowMetrics | null): CSSProperties | undefin
 
 export function rowSubStyle(metrics: RowMetrics | null): CSSProperties | undefined {
   return metrics ? { fontSize: metrics.subSize, lineHeight: `${metrics.subSize + 3}px` } : undefined
+}
+
+/** A row's title line when a second line sits under it: both must fit the row's own height. */
+export function rowTitleStyle(metrics: RowMetrics | null): CSSProperties | undefined {
+  return metrics ? { lineHeight: `${metrics.titleSize + 4}px` } : undefined
 }

@@ -1,6 +1,11 @@
 import { useEffect, useEffectEvent, useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useStore } from 'zustand'
+import {
+  applyPendingRemovals,
+  attachRemovalState,
+  renderedHiddenIds,
+} from '@/components/layout/removal-plan'
 import { rowsForProject } from '@/components/sidebar/lib/rows-for-project'
 import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
@@ -39,6 +44,7 @@ import {
   type NativeRowAction,
   type NativeSidebar,
 } from '@/lib/native-chrome'
+import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { useSidebarStore } from '@/lib/store/sidebar'
@@ -91,17 +97,33 @@ async function forkNatively(row: SidebarRow, navigate: RowMenuHandlers['navigate
   if (trimmed) await handleCreate(row.id, 'workspace', navigate, undefined, trimmed)
 }
 
+const NOUN: Record<SidebarRow['kind'], string> = {
+  chat: 'thread',
+  folder: 'folder',
+  branch: 'branch',
+  workflow: 'workflow',
+}
+
 // Remove holds the row in the removal tray; the phone asks first, where the desktop's X doesn't.
+// The name sits in the message, not between quotes in the title, which a name may contain.
 // Delete Repo's question is the tray's own, asked natively there.
 function confirmFor(id: RowMenuActionId, row: SidebarRow): NativeRowAction['confirm'] {
   if (id !== 'remove') return null
-  return { title: `Remove “${row.label}”?`, message: 'You can still keep it for a few seconds.' }
+  return {
+    title: `Remove ${NOUN[row.kind]}?`,
+    message: `${row.label}\n\nIt stays in the list with a Keep button for a few seconds.`,
+  }
 }
 
 function nativeRowActions(rows: SidebarRow[], canStartOnTerminal: boolean) {
   const actions: Record<string, NativeRowAction[]> = {}
   for (const row of rows) {
     const locked = row.kind === 'branch' && rowIsLocked(row.id)
+    // A row on its way out offers Keep on the row itself, not a menu.
+    if (row.removal) {
+      actions[row.id] = []
+      continue
+    }
     actions[row.id] = rowVerbs(row, { locked, canStartOnTerminal }).map((action) => ({
       id: action.id,
       title: action.label,
@@ -117,7 +139,16 @@ const closeChatList = () => useMobileScreenStore.getState().setChatListOpen(fals
 
 /** The active project's rows, from the same derivers the desktop tree draws. */
 function useActiveProjectRows(projectId: string | null): SidebarRow[] {
-  const repos = useSidebarStore((s) => s.repos)
+  const allRepos = useSidebarStore((s) => s.repos)
+  // The desktop tree's own removal view (sidebar-tree-surface.tsx): what a held row takes with
+  // it is hidden, and the row itself stays, marked, to draw its countdown and Keep.
+  const removalEntries = useRemovalTrayStore((s) => s.entries)
+  const trayHiddenIds = useRemovalTrayStore((s) => s.hiddenIds)
+  const hiddenIds = useMemo(
+    () => renderedHiddenIds(trayHiddenIds, removalEntries),
+    [trayHiddenIds, removalEntries],
+  )
+  const repos = useMemo(() => applyPendingRemovals(allRepos, hiddenIds), [allRepos, hiddenIds])
   const seeded = useFolderSignalStore((s) => s.seededRepoIds)
   const seededWorkspaces = useFolderSignalStore((s) => s.seededWorkspaceRepoIds)
   const homeTree = useHomeTreeStore((s) => (projectId ? s.trees[projectId] : undefined))
@@ -127,10 +158,28 @@ function useActiveProjectRows(projectId: string | null): SidebarRow[] {
     const treeRepos = repos.filter((r) => seeded.has(r.id) || seededWorkspaces.has(r.id))
     const homeRows =
       home.wsId && homeTree
-        ? rowsFromHome(home.wsId, homeTree.chats, homeTree.folders, home.owningChatId ?? undefined)
+        ? rowsFromHome(
+            home.wsId,
+            homeTree.chats.filter((c) => !hiddenIds.has(c.id)),
+            homeTree.folders.filter((f) => !hiddenIds.has(f.id)),
+            home.owningChatId ?? undefined,
+          )
         : []
-    return [...homeRows, ...rowsForProject(treeRepos, projectId)]
-  }, [projectId, repos, seeded, seededWorkspaces, homeTree, home.wsId, home.owningChatId])
+    return attachRemovalState(
+      [...homeRows, ...rowsForProject(treeRepos, projectId)],
+      removalEntries,
+    )
+  }, [
+    projectId,
+    repos,
+    seeded,
+    seededWorkspaces,
+    homeTree,
+    home.wsId,
+    home.owningChatId,
+    hiddenIds,
+    removalEntries,
+  ])
 }
 
 const isImageUrl = (url: string | undefined): url is string => !!url && !url.startsWith('emoji:')
@@ -298,6 +347,9 @@ export function useNativeSidebar({
         runRowMenuAction(actionId, row, handlers)
         return
       }
+      case 'keepRemoval':
+        useRemovalTrayStore.getState().cancel(intent.entryId)
+        return
       case 'dragRow':
         setDragSubjectId(intent.rowId)
         return

@@ -25,9 +25,9 @@ import { RowGlyph } from './row-glyph'
 import {
   rowBoxStyle,
   rowGlyphStyle,
-  rowHeaderGlyphStyle,
   rowIndent,
   rowSubStyle,
+  rowTitleStyle,
   useRowMetrics,
   type RowMetrics,
 } from './lib/row-metrics'
@@ -45,6 +45,9 @@ interface SidebarRowProps {
    *  already did (`sidebar-tree-surface.tsx`'s `onTrash`) — a refusal (a
    *  locked branch, a repo home) surfaces the same toast either way. */
   onTrash?: (id: string) => void
+  /** Keeps a row that is on its way out; the desktop's store answers it, the phone's list
+   *  page asks the shell, which owns the store. */
+  onKeepRemoval?: (entryId: string) => void
   /** Recents' own "end this view" control (view-row.tsx) — the opposite
    *  of `onTrash`'s destroy-the-chat verb, so never wired alongside it on the
    *  same row (view-row.tsx never sets `onTrash`). Same trailing-action
@@ -141,6 +144,7 @@ export function SidebarRow({
   depth,
   onOpen,
   onTrash,
+  onKeepRemoval,
   onClose,
   onCreate,
   onToggleFold,
@@ -189,7 +193,9 @@ export function SidebarRow({
   // above; the two never coexist (a pending row's id is a synthetic tempId
   // no removal entry could ever name).
   if (row.removal) {
-    return <RemovingSidebarRow row={row} depth={depth} removal={row.removal} />
+    return (
+      <RemovingSidebarRow row={row} depth={depth} removal={row.removal} onKeep={onKeepRemoval} />
+    )
   }
   // The project-home (repo header) row is the `branch` row that carries the
   // repo's own icon — the sidebar's one 20px glyph exception outside the
@@ -223,7 +229,7 @@ export function SidebarRow({
   const showBranchSecondLine =
     !tab &&
     row.kind === 'branch' &&
-    !isProjectHome &&
+    row.repoIcon === undefined &&
     !row.locked &&
     !!row.branchName &&
     row.label !== row.branchName
@@ -302,11 +308,7 @@ export function SidebarRow({
               metrics && '[&_svg]:size-full',
               metrics && isReadOnlyHeader && '[&>*]:size-full',
             )}
-            style={
-              isReadOnlyHeader && !row.working
-                ? rowHeaderGlyphStyle(metrics)
-                : rowGlyphStyle(metrics)
-            }
+            style={rowGlyphStyle(metrics)}
           >
             {row.working ? (
               <FlickerSpinner className="size-3.5" />
@@ -325,7 +327,7 @@ export function SidebarRow({
                   color: row.repoIcon.avatarColor,
                 }}
                 name={row.repoIcon.name}
-                size={metrics ? 'xl' : 'lg'}
+                size="lg"
               />
             ) : (
               <RowGlyph
@@ -371,7 +373,12 @@ export function SidebarRow({
               row.hasView && !hasViewIdle && !activeGround && 'text-muted-foreground',
             )}
           >
-            <span className={cn('truncate', row.labelProvisional && 'italic')}>{row.label}</span>
+            <span
+              className={cn('truncate', row.labelProvisional && 'italic')}
+              style={rowTitleStyle(metrics)}
+            >
+              {row.label}
+            </span>
             <BranchSecondLine row={row} activeGround={activeGround} metrics={metrics} />
           </span>
         ) : (

@@ -1,10 +1,21 @@
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { useRemovalTrayStore, type RemovalDraft } from '@/lib/store/sidebar-removal'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { dataOf } from '@/lib/loadable'
 import { planRemoval, type DragSubject } from './removal-plan'
 import { resolveHomeRowScope } from '@/lib/store/home-tree'
 import { resolveChatRow, resolveRow } from './open-actions'
+
+/** Closes the panes showing a chat that was just held, so the window is already elsewhere
+ *  when the delete lands instead of being pulled out of it. */
+function leaveHeldChats(drafts: readonly RemovalDraft[]): void {
+  const held = new Set(drafts.flatMap((draft) => draft.hiddenIds))
+  const { panes, paneActions } = windowPaneStore.getState()
+  for (const [paneId, pane] of Object.entries(panes)) {
+    if (pane.chatId && held.has(pane.chatId)) paneActions.closePane(paneId)
+  }
+}
 
 /**
  * Trashes a row — a chat, workspace, folder, or repo — through the SAME
@@ -61,6 +72,7 @@ export function handleTrash(id: string): boolean {
   const drafts = planRemoval([subject], currentRepos, projects)
   if (drafts.length === 0) return false
   useRemovalTrayStore.getState().hold(drafts)
+  leaveHeldChats(drafts)
   return true
 }
 

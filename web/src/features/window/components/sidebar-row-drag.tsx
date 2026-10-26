@@ -35,8 +35,12 @@ function pointerY(event: DragMoveEvent): number | null {
   return y === null || y === undefined ? null : y + event.delta.y
 }
 
+// The lifted copy is under the finger, so it is skipped: the row beneath it is the target.
 function hitAt(x: number, y: number, drop: NativeRowDrop | null): Hit | null {
-  const el = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-sidebar-row-id]')
+  const el = document
+    .elementsFromPoint(x, y)
+    .find((at) => !at.closest('[data-drag-overlay]'))
+    ?.closest<HTMLElement>('[data-sidebar-row-id]')
   const id = el?.getAttribute('data-sidebar-row-id')
   const target = id ? drop?.targets[id] : undefined
   if (!el || !id || !target) return null
@@ -107,7 +111,10 @@ export function RowDragScope({
       <DragContext value={state}>{children}</DragContext>
       <DragOverlay dropAnimation={null}>
         {dragged && claimed && (
-          <div className="rounded-lg bg-chrome-bg shadow-lg ring-1 ring-border">
+          <div
+            data-drag-overlay=""
+            className="rounded-lg bg-chrome-bg shadow-lg ring-1 ring-border"
+          >
             {overlay(dragged)}
           </div>
         )}
@@ -117,8 +124,17 @@ export function RowDragScope({
 }
 
 /** A row the user can hold and move, with the drop indicator drawn on it while it is the target. */
-export function DraggableRow({ id, children }: { id: string; children: ReactNode }) {
-  const { setNodeRef, listeners, attributes, isDragging } = useDraggable({ id })
+export function DraggableRow({
+  id,
+  disabled,
+  children,
+}: {
+  id: string
+  /** A row on its way out is held still: it is not something to move. */
+  disabled?: boolean
+  children: ReactNode
+}) {
+  const { setNodeRef, listeners, attributes, isDragging } = useDraggable({ id, disabled })
   const { hit, claimed } = use(DragContext)
   const mode = hit?.id === id ? hit.mode : null
   // dnd-kit's role and tab stop would shadow the treeitem the row already is.

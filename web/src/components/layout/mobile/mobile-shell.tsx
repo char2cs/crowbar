@@ -12,6 +12,7 @@ import { useNativeSidebar } from '@/features/window/hooks/use-native-sidebar'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { hasNativeChrome } from '@/lib/native-chrome'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { NativeAgentsSettingsFeed } from '@/features/settings/components/native-agents-settings-feed'
 import { NativeHostsSettingsFeed } from '@/features/settings/components/native-hosts-settings-feed'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
@@ -102,9 +103,14 @@ function useCloseChatListOnNavigation() {
   const chatId = useStore(windowPaneStore, (s) => s.panes[s.activePaneId]?.chatId ?? null)
   const shown = `${pathname}\n${chatId}`
   const lastShown = useRef(shown)
+  const lastChat = useRef(chatId)
   useEffect(() => {
     if (lastShown.current === shown) return
+    const left = lastChat.current
     lastShown.current = shown
+    lastChat.current = chatId
+    // Leaving a chat that is being removed is not opening another: the list stays up.
+    if (left && useRemovalTrayStore.getState().hiddenIds.has(left)) return
     useMobileScreenStore.getState().setChatListOpen(false)
-  }, [shown])
+  }, [shown, chatId])
 }
