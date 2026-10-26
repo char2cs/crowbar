@@ -1031,8 +1031,6 @@ export function AgentChatView({
   // watches be replaced. The transcript's own loading state stands alone until
   // the answer arrives — one transition instead of two.
   const settling = ledger.loading && nothingYet
-  // The one model name every selection control shows; the pick wins, then what the runner confirmed.
-  const shownModel = model || (live ? launchModel : lastConfirmedModel)
 
   const selectionCluster = (
     <SelectionCluster
