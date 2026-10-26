@@ -18,6 +18,7 @@ import {
   type AgentInterruption,
   type AgentPromptResult,
   type AgentProvider,
+  type AgentTerminalAnswer,
   type SlashCatalogItem,
 } from '@/features/agent/api/agent-api'
 import { markEnd, markStart } from '@/lib/perf/instrumentation'
@@ -141,6 +142,7 @@ export interface AgentChatViewProps {
    *  blocked on a prompt Crowbar cannot answer. */
   terminalWaiting?: boolean
   terminalWaitKind?: string
+  terminalWaitAnswers?: AgentTerminalAnswer[]
   /** How far pinned-near-top content in this view must clear the pane's
    *  floating overlay header (PaneTopRow's `chat-blur overlay` variant,
    *  ChatOnlyPaneHeader/ChatColumnHeader) — the SAME value
@@ -360,6 +362,7 @@ export function AgentChatView({
   onOpenTerminal,
   terminalWaiting = false,
   terminalWaitKind,
+  terminalWaitAnswers,
   headerClearancePx = 0,
   transcriptHeaderClearancePx = 0,
   settledPrompts,
@@ -983,7 +986,9 @@ export function AgentChatView({
       live: canSend,
       revival,
       submitUnavailable,
-      terminalWait: terminalWaiting ? { kind: terminalWaitKind ?? '' } : undefined,
+      terminalWait: terminalWaiting
+        ? { kind: terminalWaitKind ?? '', answers: terminalWaitAnswers }
+        : undefined,
       compacting,
       activity,
       haltedMessage: halted?.text,
@@ -1227,7 +1232,11 @@ export function AgentChatView({
               compacting={compacting}
               sending={prompts.deliveryPending}
               submitUnavailable={submitUnavailable}
-              terminalWait={terminalWaiting ? { kind: terminalWaitKind ?? '' } : undefined}
+              terminalWait={
+                terminalWaiting
+                  ? { kind: terminalWaitKind ?? '', answers: terminalWaitAnswers }
+                  : undefined
+              }
               haltedMessage={halted?.text}
               haltedResetsAt={limitResetsAt(telemetry)}
               canStop={live}

@@ -1507,6 +1507,10 @@ func (configurableListGetUsecase) ReadPendingChoices(
 	return nil, nil
 }
 
+func (configurableListGetUsecase) AnswerTerminalWait(context.Context, string, string) error {
+	return nil
+}
+
 func (configurableListGetUsecase) AnswerableChoiceIDs(
 	string, []domain.ActivityChoice,
 ) []string {

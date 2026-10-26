@@ -1173,3 +1173,15 @@ func TestApply_RejectsAnUnknownPerEventSurface(t *testing.T) {
 	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
 	assert.Contains(t, err.Error(), "unknown surface")
 }
+
+func TestApply_RejectsAnIncompleteOrDuplicateTerminalPromptAnswer(t *testing.T) {
+	for name, answers := range map[string][]spec.TerminalPromptAnswerSpec{
+		"missing keys": {{ID: "accept", Label: "Trust"}},
+		"duplicate id": {{ID: "a", Label: "A", Keys: "\r"}, {ID: "a", Label: "B", Keys: "\r"}},
+	} {
+		d := valid()
+		d.TerminalPrompts = []spec.TerminalPromptSpec{{Needle: "x", Answers: answers}}
+
+		require.ErrorIs(t, rules.Apply(d), rules.ErrInvalidDescriptor, name)
+	}
+}

@@ -14,6 +14,7 @@ import {
   switchToNative,
   switchToTerminal,
 } from '@/features/agent/api/agent-api'
+import { useAnswerTerminalWait } from '@/features/agent/hooks/use-answer-terminal-wait'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { AGENT_CYCLE_PROVIDER, AGENT_TOGGLE_VIEW_MODE } from '@/features/keymaps/registry'
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
@@ -233,6 +234,8 @@ export function AgentChatPaneBody({
   // every reseed that rebuilt it, for a value that had not changed.
   const waitKind = useStore(store, (s) => s.agentChats.terminalWaits[shownChatId]?.kind)
   const waiting = waitKind !== undefined
+  const waitAnswers = useStore(store, (s) => s.agentChats.terminalWaits[shownChatId]?.answers)
+  const answerTerminalWait = useAnswerTerminalWait(wsId, shownChatId)
 
   // Prompts the daemon has reported as delivered-and-over without a turn. The
   // composer resolves a pending item when its text turns up in the ledger, and for
@@ -767,6 +770,8 @@ export function AgentChatPaneBody({
       kind={waitKind ?? ''}
       providerLabel={providers.find((p) => p.id === activeProviderId)?.displayName ?? ''}
       onOpenTerminal={openTerminalFromBanner}
+      answers={waitAnswers}
+      onAnswer={answerTerminalWait}
     />
   ) : revivingBannerShown && revival ? (
     <div data-testid="agent-reviving-banner">
@@ -1006,6 +1011,7 @@ export function AgentChatPaneBody({
               }}
               terminalWaiting={waiting}
               terminalWaitKind={waitKind ?? ''}
+              terminalWaitAnswers={waitAnswers}
               headerClearancePx={headerClearancePx}
               transcriptHeaderClearancePx={transcriptHeaderClearancePx}
               blankSignpost={blankSignpost}

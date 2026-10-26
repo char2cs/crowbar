@@ -6,6 +6,7 @@ import type {
   AgentTerminalWait,
   PermissionLevel,
 } from '@/features/agent/api/agent-api'
+import { useAnswerTerminalWait } from '@/features/agent/hooks/use-answer-terminal-wait'
 import { AttachFileModal } from '@/features/agent/composer/attach-file-modal'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
 import { ComposerField } from '@/features/agent/composer/composer-field'
@@ -109,6 +110,7 @@ export function AgentComposer(props: AgentComposerProps) {
   const [dropTarget, setDropTarget] = useState(false)
   // Sending clears the box by remounting it; the new box inherits the keyboard.
   const [typing, setTyping] = useState(false)
+  const answerTerminalWait = useAnswerTerminalWait(props.wsId, props.chatId)
 
   const insertAttachmentMarkdown = useCallback((md: string) => {
     editorRef.current?.insertAttachmentMarkdown(md)
@@ -210,6 +212,8 @@ export function AgentComposer(props: AgentComposerProps) {
           reason={state.reason}
           message={state.message}
           onOpenTerminal={props.onOpenTerminal}
+          answers={props.terminalWait?.answers}
+          onAnswer={answerTerminalWait}
         />
       )
     case 'choices':

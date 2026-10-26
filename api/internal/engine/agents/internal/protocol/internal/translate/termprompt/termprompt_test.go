@@ -130,3 +130,16 @@ func TestMatch_CodexPromptReportsGenericBlock(t *testing.T) {
 	assert.True(t, ok)
 	assert.Empty(t, got.Kind)
 }
+
+func TestMatch_CarriesTheDeclaredAnswers(t *testing.T) {
+	d := declaring()
+	d.TerminalPrompts[0].Answers = []spec.TerminalPromptAnswerSpec{
+		{ID: "accept", Label: "Trust workspace", Keys: "\r"},
+	}
+
+	got, ok := termprompt.Match(d, claudeTrustScreen)
+
+	assert.True(t, ok)
+	assert.Equal(t, "accept", got.Answers[0].ID)
+	assert.Equal(t, "\r", got.Answers[0].Keys)
+}

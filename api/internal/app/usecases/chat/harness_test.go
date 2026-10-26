@@ -155,6 +155,8 @@ func (f *fakeCommander) CreateCommand(
 	return id, nil
 }
 
+func (f *fakeCommander) Write(_ context.Context, _ string, _ []byte) error { return nil }
+
 func (f *fakeCommander) TerminateGraceful(
 	_ context.Context,
 	sessionID string,
