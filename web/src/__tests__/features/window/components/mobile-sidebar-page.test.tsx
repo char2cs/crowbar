@@ -109,12 +109,13 @@ describe('MobileSidebarPage', () => {
     )
   })
 
-  it('pins the running chats above the tree, each with who is attached', () => {
+  it('pins the running chats above the tree, with a divider before the tree', () => {
     render(<MobileSidebarPage />)
-    push({ ...snapshot, active: [{ id: 'c-thread', attached: 2 }] })
+    push({ ...snapshot, active: [{ id: 'c-thread' }] })
     const section = screen.getByRole('region', { name: 'Active' })
     expect(within(section).getByText('Ask about tax')).toBeVisible()
-    expect(within(section).getByText('2 viewers')).toBeVisible()
+    expect(within(section).queryByText(/viewer/i)).not.toBeInTheDocument()
+    expect(within(section).getByRole('separator')).toBeInTheDocument()
   })
 
   it('draws no Active section while nothing runs', () => {

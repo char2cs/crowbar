@@ -7,7 +7,7 @@ import { RowMetricsContext, TOUCH_ROW_METRICS } from '@/components/sidebar/lib/r
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { HostViewsContext } from '@/features/hosts/hooks/use-host-status'
 import type { NativeSidebar } from '@/lib/native-chrome'
-import { viewersLabel } from '@/lib/store/active-sessions'
+import { Separator } from '@/components/ui/separator'
 import { postToShell, receiveShellSnapshots } from '@/lib/shell-page-bridge'
 import { useSurfaceThemeColor } from '@/features/window/hooks/use-surface-theme-color'
 import { DraggableRow, RowDragScope } from './sidebar-row-drag'
@@ -93,22 +93,22 @@ export function MobileSidebarPage() {
 /** The agents running now, above the tree: the ordinary rows of chats already in it. */
 function ActiveSection({ rows, active }: Pick<NativeSidebar, 'rows' | 'active'>) {
   const byId = new Map(rows.map((r) => [r.id, r]))
-  const running = active.flatMap(({ id, attached }) => {
-    const row = byId.get(id)
-    return row ? [{ row, attached }] : []
-  })
+  const running = active.flatMap(({ id }) => byId.get(id) ?? [])
   if (running.length === 0) return null
   return (
-    <section aria-label="Active" className="pb-1">
+    <section aria-label="Active">
       <h2 className="ui-font ui-text-sm px-3 py-1 text-muted-foreground">Active</h2>
-      {running.map(({ row, attached }) => (
-        <div key={row.id}>
-          <SidebarRow row={row} depth={0} onOpen={selectRow} inlineRenameDisabled hasViewIdle />
-          <p className="ui-font ui-text-sm truncate pr-3 pl-9 text-muted-foreground">
-            {viewersLabel(attached)}
-          </p>
-        </div>
+      {running.map((row) => (
+        <SidebarRow
+          key={row.id}
+          row={row}
+          depth={0}
+          onOpen={selectRow}
+          inlineRenameDisabled
+          hasViewIdle
+        />
       ))}
+      <Separator className="my-1" />
     </section>
   )
 }
