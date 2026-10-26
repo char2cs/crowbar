@@ -64,12 +64,12 @@ export function AgentTerminalWaitBanner({
 
   return (
     <div
-      className="flex h-[38px] items-center gap-3 rounded-full pointer-coarse:h-auto pointer-coarse:min-h-[38px] pointer-coarse:rounded-2xl pointer-coarse:py-1.5 border border-warning/40 bg-warning/10 px-3.5 text-sm"
+      className="flex h-[38px] items-center gap-3 rounded-full pointer-coarse:h-auto pointer-coarse:min-h-[38px] pointer-coarse:flex-wrap pointer-coarse:justify-end pointer-coarse:gap-y-2 pointer-coarse:rounded-[22px] pointer-coarse:py-2.5 border border-warning/40 bg-warning/10 px-3.5 text-sm"
       role="alert"
       data-testid="agent-terminal-wait"
       data-wait-kind={kind}
     >
-      <p className="min-w-0 truncate text-warning-foreground pointer-coarse:whitespace-normal pointer-coarse:overflow-visible">
+      <p className="min-w-0 truncate text-warning-foreground pointer-coarse:flex-[1_1_14rem] pointer-coarse:whitespace-normal pointer-coarse:overflow-visible">
         {what} <span className="text-muted-foreground">Crowbar can’t answer this one.</span>
       </p>
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
