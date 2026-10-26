@@ -190,14 +190,13 @@ describe('useNativeSidebar', () => {
     expect(useMobileScreenStore.getState().chatListOpen).toBe(false)
   })
   // The long-press menu holds every desktop verb, the row menu's and its hover buttons'.
-  it('gives each row every desktop verb, Remove last and asked first', () => {
+  it('gives each row every desktop verb but terminal threads, Remove last and asked first', () => {
     mount()
     const alpha = last().rows.find((r) => r.label === 'Alpha')!
     expect(last().actions[alpha.id].map((a) => a.id)).toEqual([
       'rename',
       'lock',
       'new-folder',
-      'new-thread-terminal',
       'new-thread',
       'fork',
       'remove',

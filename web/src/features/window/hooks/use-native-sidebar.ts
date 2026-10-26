@@ -24,8 +24,6 @@ import {
 import { performRenameRow } from '@/components/sidebar/lib/row-actions'
 import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { dropTargetRow, rowDropTargets } from '@/components/sidebar/lib/row-drop-targets'
-import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
-import { providerCanStartOnTerminal } from '@/features/agent/api/agent-api'
 import { killAgent, killAgentConfirmation } from '@/features/agent/lib/kill-agent'
 import { handleCreateHomeThread } from '@/components/layout/home-actions'
 import { handleCreate } from '@/components/layout/create-actions'
@@ -135,7 +133,6 @@ function activeRows(rows: readonly SidebarRow[], sessions: Record<string, LiveSe
 
 function nativeRowActions(
   rows: SidebarRow[],
-  canStartOnTerminal: boolean,
   sessions: Record<string, LiveSession>,
   attached: Attached,
 ) {
@@ -147,13 +144,14 @@ function nativeRowActions(
       actions[row.id] = []
       continue
     }
-    actions[row.id] = rowVerbs(row, { locked, canStartOnTerminal }).map((action) => ({
-      id: action.id,
-      title: action.label,
-      symbol: action.symbol,
-      destructive: action.destructive,
-      confirm: confirmFor(action.id, row),
-    }))
+    actions[row.id] = // The phone has no terminal threads.
+      rowVerbs(row, { locked, canStartOnTerminal: false }).map((action) => ({
+        id: action.id,
+        title: action.label,
+        symbol: action.symbol,
+        destructive: action.destructive,
+        confirm: confirmFor(action.id, row),
+      }))
     const session = sessions[row.id]
     if (row.kind !== 'folder' && session) {
       actions[row.id].push({
@@ -305,9 +303,6 @@ export function useNativeSidebar({
     () => [...new Set(rows.flatMap((r) => (r.workspaceId ? [r.workspaceId] : [])))],
     [rows],
   )
-  const canStartOnTerminal = useAgentProvidersStore((s) =>
-    providerCanStartOnTerminal(s.providers.find((p) => p.enabled)),
-  )
   const [importRepoRowId, setImportRepoRowId] = useState<string | null>(null)
   const [dragSubjectId, setDragSubjectId] = useState<string | null>(null)
   const drop = useMemo(
@@ -341,7 +336,7 @@ export function useNativeSidebar({
       })),
       active: activeRows(rows, sessions).map((r) => ({ id: r.id })),
       collapsed: [...collapsed],
-      actions: nativeRowActions(rows, canStartOnTerminal, sessions, attached),
+      actions: nativeRowActions(rows, sessions, attached),
       drop,
     })
   }, [
@@ -354,7 +349,6 @@ export function useNativeSidebar({
     hostConfigs,
     hostStreams,
     live,
-    canStartOnTerminal,
     icons,
     sessions,
     attached,
