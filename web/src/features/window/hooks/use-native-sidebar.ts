@@ -8,6 +8,11 @@ import {
 } from '@/components/layout/removal-plan'
 import { rowsForProject } from '@/components/sidebar/lib/rows-for-project'
 import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
+import { rowRepoScope } from '@/components/sidebar/lib/rows-from-repo'
+import {
+  hideRowsForInFlightCreates,
+  rowsFromPending,
+} from '@/components/sidebar/lib/rows-from-pending'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import {
   rowIsLocked,
@@ -44,6 +49,7 @@ import {
   type NativeRowAction,
   type NativeSidebar,
 } from '@/lib/native-chrome'
+import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
@@ -119,8 +125,8 @@ function nativeRowActions(rows: SidebarRow[], canStartOnTerminal: boolean) {
   const actions: Record<string, NativeRowAction[]> = {}
   for (const row of rows) {
     const locked = row.kind === 'branch' && rowIsLocked(row.id)
-    // A row on its way out offers Keep on the row itself, not a menu.
-    if (row.removal) {
+    // A row on its way out offers Keep on the row itself, not a menu; one not yet created has none.
+    if (row.removal || row.pending) {
       actions[row.id] = []
       continue
     }
@@ -153,6 +159,10 @@ function useActiveProjectRows(projectId: string | null): SidebarRow[] {
   const seededWorkspaces = useFolderSignalStore((s) => s.seededWorkspaceRepoIds)
   const homeTree = useHomeTreeStore((s) => (projectId ? s.trees[projectId] : undefined))
   const home = useHomeWorkspaceState(projectId)
+  // The desktop tree's own view of a create in flight (space-scroller.tsx): the pending row
+  // stands in for the real one. A failed create is toasted in the shell, and its row's Dismiss
+  // would act on the list page's own empty store, so only a create still running is drawn.
+  const pendingEntries = usePendingCreatesStore((s) => s.entries)
   return useMemo(() => {
     if (!projectId) return []
     const treeRepos = repos.filter((r) => seeded.has(r.id) || seededWorkspaces.has(r.id))
@@ -165,11 +175,21 @@ function useActiveProjectRows(projectId: string | null): SidebarRow[] {
             home.owningChatId ?? undefined,
           )
         : []
-    return attachRemovalState(
-      [...homeRows, ...rowsForProject(treeRepos, projectId)],
-      removalEntries,
+    const projectRows = rowsForProject(treeRepos, projectId)
+    const rowRepoId = rowRepoScope(allRepos.filter((r) => r.projectId === projectId))
+    const real = hideRowsForInFlightCreates(
+      attachRemovalState([...homeRows, ...projectRows], removalEntries),
+      pendingEntries,
+      projectId,
+      rowRepoId,
     )
+    const inFlight = pendingEntries.filter(
+      (e) => e.projectId === projectId && e.status === 'creating',
+    )
+    return [...real, ...rowsFromPending(inFlight)]
   }, [
+    allRepos,
+    pendingEntries,
     projectId,
     repos,
     seeded,

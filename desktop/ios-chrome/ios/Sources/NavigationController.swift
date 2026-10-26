@@ -268,7 +268,7 @@ final class NavigationController: NSObject {
     shadow.layer.cornerRadius = radius
     shadow.layer.shadowPath =
       UIBezierPath(roundedRect: shadow.bounds, cornerRadius: radius).cgPath
-    shadow.layer.shadowOpacity = frames.gap == nil ? 0 : 0.18
+    shadow.layer.shadowOpacity = Float(frames.shadow)
     shadow.isHidden = frames.gap == nil
     dim.alpha = CGFloat(frames.dim)
     let overIde = frames.gap == 1

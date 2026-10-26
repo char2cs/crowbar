@@ -21,13 +21,16 @@ enum NavigationCommand: Equatable {
 
 /// Where every layer stands at a position.
 struct Frames: Equatable {
-  /// Which gap the position is in (0 chat list, 1 chat/IDE, 2 IDE/files); nil at rest.
+  /// Which gap the position is in (0 chat list, 1 chat/IDE, 2 IDE/files); nil only on the chat
+  /// and IDE screens, where no card is slid aside. A drawer resting open is still in its gap.
   var gap: Int?
   var chatOffset: Double
   var ideOffset: Double
   /// How far the moving card is from its closed place, 0...1.
   var amount: Double
   var dim: Double
+  /// Opacity of the shadow on the slid card's edge: a function of `amount`, so it cannot disagree.
+  var shadow: Double
   var chatHeaderAlpha: Double
   var ideHeaderAlpha: Double
 }
@@ -256,7 +259,7 @@ struct NavigationMachine {
     default: chatOffset = -width
     }
     let ideOffset = x <= 2 ? 0 : -(x - 2) * (width - strip)
-    let gap = atScreen ? nil : (x < 1 ? 0 : x < 2 ? 1 : 2)
+    let gap = atScreen && (1...2).contains(x.rounded()) ? nil : (x < 1 ? 0 : x < 2 ? 1 : 2)
     let amount: Double
     let dim: Double
     switch gap {
@@ -267,6 +270,7 @@ struct NavigationMachine {
     }
     return Frames(
       gap: gap, chatOffset: chatOffset, ideOffset: ideOffset, amount: amount, dim: dim,
+      shadow: 0.18 * min(1, amount * 4),
       chatHeaderAlpha: x >= 2 ? 0 : min(1, x),
       ideHeaderAlpha: x <= 1 ? 0 : x <= 2 ? 1 : 3 - x)
   }

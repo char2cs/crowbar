@@ -11,6 +11,7 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import type { Project } from '@/lib/types'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { getInitialPendingCreatesState, usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
 
 const chrome = vi.hoisted(() => ({
@@ -70,6 +71,7 @@ beforeEach(() => {
   vi.mocked(api.apiFetch).mockClear()
   resetWindowPaneStoreForTests()
   useRemovalTrayStore.setState(getInitialRemovalState())
+  usePendingCreatesStore.setState(getInitialPendingCreatesState())
   useSidebarStore.setState({ ...getInitialState(), repos: [repo] })
   useFolderSignalStore.setState({ seededRepoIds: new Set(['r1']) })
   useMobileScreenStore.setState({ screen: 'chat', chatListOpen: true })
@@ -112,6 +114,32 @@ describe('useNativeSidebar', () => {
         .rows.filter((r) => r.hasView)
         .map((r) => r.id),
     ).toEqual(['c-a'])
+  })
+
+  it('draws a create in flight as a spinning row with no menu, until it clears or fails', () => {
+    mount()
+    act(() =>
+      usePendingCreatesStore.getState().addCreating({
+        tempId: 'tmp-1',
+        kind: 'branch',
+        projectId: 'p1',
+        parentId: 'r1',
+        order: 3,
+        workspaceId: null,
+        ownsWorktree: true,
+        label: 'gamma',
+      }),
+    )
+    const pending = last().rows.find((r) => r.id === 'tmp-1')
+    expect(pending?.pending?.status).toBe('creating')
+    expect(pending?.working).toBe(true)
+    expect(last().actions['tmp-1']).toEqual([])
+
+    act(() => usePendingCreatesStore.getState().setError('tmp-1', 'boom'))
+    expect(last().rows.some((r) => r.id === 'tmp-1')).toBe(false)
+
+    act(() => usePendingCreatesStore.getState().clear('tmp-1'))
+    expect(last().rows.some((r) => r.pending)).toBe(false)
   })
 
   it('folds a row the page asks to fold, and says so in the next push', () => {
