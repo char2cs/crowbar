@@ -37,7 +37,8 @@ interface AgentTerminalWaitBannerProps {
  *  moved when this wrapped to more lines — measured as a real, worsening
  *  overlap with the composer as the pane narrowed.
  *
- *  ONE LINE, ALWAYS — `truncate` on the message rather than letting it wrap —
+ *  ONE LINE on a pointer that can hover, wrapped on touch (nothing there can
+ *  reveal an ellipsis) — `truncate` on the message rather than letting it wrap —
  *  for the same reason: a fixed, single-line height is what let the pane's own
  *  wrapper reserve exactly enough room for this without measuring it, where a
  *  message that wrapped to two or three lines as the pane narrowed used to grow
@@ -58,12 +59,12 @@ export function AgentTerminalWaitBanner({
 
   return (
     <div
-      className="flex h-[38px] items-center gap-3 rounded-full border border-warning/40 bg-warning/10 px-3.5 text-sm"
+      className="flex h-[38px] items-center gap-3 rounded-full pointer-coarse:h-auto pointer-coarse:min-h-[38px] pointer-coarse:rounded-2xl pointer-coarse:py-1.5 border border-warning/40 bg-warning/10 px-3.5 text-sm"
       role="alert"
       data-testid="agent-terminal-wait"
       data-wait-kind={kind}
     >
-      <p className="min-w-0 truncate text-warning-foreground">
+      <p className="min-w-0 truncate text-warning-foreground pointer-coarse:whitespace-normal pointer-coarse:overflow-visible">
         {what} <span className="text-muted-foreground">Crowbar can’t answer this one.</span>
       </p>
       <Button className="ml-auto shrink-0" size="xs" variant="secondary" onClick={onOpenTerminal}>

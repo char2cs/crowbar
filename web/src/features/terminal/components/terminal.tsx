@@ -204,7 +204,10 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   // Focus follows the active pane. The effect runs after React commits the
   // visibility change, so the textarea is focusable: one call, no retries.
   useEffect(() => {
-    if (isActive && isVisible && terminal) terminal.focus()
+    if (!isActive || !isVisible || !terminal) return
+    terminal.focus()
+    // Arriving from a banner means the live prompt, not wherever it was scrolled.
+    terminal.scrollToBottom()
   }, [isActive, isVisible, terminal])
 
   useImperativeHandle(
