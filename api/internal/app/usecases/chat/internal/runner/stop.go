@@ -87,8 +87,7 @@ func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Ru
 	}
 	if !gentle || !open || !rs.interruptTurn(ctx, live) || !rs.turnEndedAfterInterrupt(ctx, chatID) {
 		rs.inflightTurns.Complete(ctx, live.ID, domain.AgentExitStopped)
-		rs.retire(ctx, live)
-		rs.noteChatExit(ctx, chatID, domain.AgentExitStopped)
+		rs.retireAs(ctx, live, chatID, domain.AgentExitStopped)
 	}
 	if !open {
 		return

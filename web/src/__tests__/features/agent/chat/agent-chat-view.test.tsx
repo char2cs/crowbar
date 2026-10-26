@@ -936,6 +936,53 @@ describe('AgentChatView durable FIFO', () => {
     expect(screen.getByTestId('queued-prompt')).toHaveTextContent('/compact')
   })
 
+  it('treats Return as a newline on a phone: only the send button sends', async () => {
+    // The platform is read once at load: load the view afresh under an iPhone's agent.
+    const agent = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (iPhone)')
+    vi.resetModules()
+    const [{ AgentChatView: PhoneView }, context, store] = await Promise.all([
+      import('@/features/agent/chat/agent-chat-view'),
+      import('@/features/workspace/stores/workspace-context'),
+      import('@/features/workspace/stores/workspace-store'),
+    ])
+    agent.mockRestore()
+    initialMessages = [message(1, 'assistant', 'earlier turn')]
+    const props = baseProps()
+    render(
+      <context.WorkspaceStoreContext.Provider value={store.createWorkspaceStore(props.wsId)}>
+        <PhoneView {...props} working={false} />
+      </context.WorkspaceStoreContext.Provider>,
+    )
+    const input = await composer()
+    fireEvent.change(input, { target: { value: 'hello' } })
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false })
+    expect(screen.queryByTestId('queued-prompt')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
+    expect(screen.getByTestId('queued-prompt')).toHaveTextContent('hello')
+  })
+
+  it('shows a prompt already handed to the daemon as working, not as queued', async () => {
+    initialMessages = [message(1, 'assistant', 'earlier turn')]
+    localStorage.setItem(
+      promptQueueStorageKey('w1', 'c1'),
+      JSON.stringify({
+        version: 1,
+        items: [
+          {
+            clientRequestId: 'dd068894-7cf0-4a2c-aa7c-c08531805bb0',
+            text: 'on its way',
+            state: 'awaiting_turn',
+            createdAt: '2026-08-16T00:00:00.000Z',
+            baselineSequence: 1,
+          },
+        ],
+      }),
+    )
+    setup()
+    expect(await screen.findByTestId('agent-activity-strip')).toBeInTheDocument()
+    expect(screen.queryByText(/\bqueued\b/)).not.toBeInTheDocument()
+  })
+
   it('keeps Shift+Enter multiline content in the composer and sends it as one prompt', async () => {
     initialMessages = [message(1, 'assistant', 'earlier turn')]
     setup({ working: true })
@@ -1913,6 +1960,32 @@ describe('AgentChatView model + effort selection', () => {
       model: { id: 'claude-sonnet-4-5', displayName: 'Claude Sonnet 4.5' },
     } satisfies AgentTelemetry)
     setup({ providers: selectable, model: '', effort: '' })
+    await composer()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-selection-picker')).toHaveTextContent('Claude Sonnet 4.5'),
+    )
+    expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
+      'Agent: Codex, model Default (reported Claude Sonnet 4.5), effort Default',
+    )
+  })
+
+  // One chat, one name for the model: the raw launch id replaced the report's
+  // display name the moment a runner went live, so the chip flickered between two.
+  it('keeps the reported display name when a live runner reports its raw launch id', async () => {
+    initialMessages = [message(1, 'assistant', 'reply')]
+    telemetryFn.mockResolvedValue({
+      observedAt: '2026-09-23T00:00:00Z',
+      source: 'callback',
+      model: { id: 'claude-sonnet-4-5', displayName: 'Claude Sonnet 4.5' },
+    } satisfies AgentTelemetry)
+    setup({
+      providers: selectable,
+      model: '',
+      effort: '',
+      live: true,
+      launchModel: 'claude-sonnet-4-5',
+    })
     await composer()
 
     await waitFor(() =>

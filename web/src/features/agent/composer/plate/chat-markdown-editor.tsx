@@ -94,6 +94,8 @@ export interface ChatMarkdownEditorProps {
   /** The editable's measured height, for a control that rides its last line. */
   onHeightChange?: (height: number) => void
   autoFocus?: boolean
+  /** Focus on mount even on a phone: this box replaced one the person was typing in. */
+  focusOnMount?: boolean
   /** Combobox wiring for the chat's skill picker. */
   expanded?: boolean
   controls?: string
@@ -275,6 +277,7 @@ export function ChatMarkdownEditor({
   onKeyDown,
   onHeightChange,
   autoFocus,
+  focusOnMount,
   expanded,
   controls,
   className,
@@ -510,7 +513,7 @@ export function ChatMarkdownEditor({
       <PlateContent
         ref={reportHeightFrom}
         // On the phone focus raises the keyboard over the chat just opened; a tap asks for it.
-        autoFocus={autoFocus && !IS_MOBILE}
+        autoFocus={(autoFocus && !IS_MOBILE) || focusOnMount}
         placeholder={placeholder}
         aria-label={ariaLabel}
         aria-expanded={expanded}

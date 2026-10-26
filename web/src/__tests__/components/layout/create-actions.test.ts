@@ -37,6 +37,7 @@ import {
   confirmPendingCreateName,
   cancelPendingCreate,
 } from '@/components/layout/create-actions'
+import { createThread } from '@/__tests__/__fixtures__/draft-thread'
 import { handleTrash } from '@/components/layout/trash-actions'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
@@ -439,14 +440,14 @@ describe('creating a workspace off a REGULAR fork row', () => {
   // the workspace store was itself the shape of the bug: only a MOUNTED
   // workspace ever fills that copy, so on a row the user has never opened the
   // real click found `providers: []` and returned with no request at all.
-  it('its thread "+" still runs in the workspace, not in the owning chat', () => {
+  it('its thread "+" still runs in the workspace, not in the owning chat', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
     useSidebarStore.setState({ repos: [forkRepo()] })
 
-    handleCreate('ws-a', 'thread', vi.fn())
+    await createThread('ws-a', vi.fn())
 
     expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a', undefined)
   })
@@ -455,14 +456,14 @@ describe('creating a workspace off a REGULAR fork row', () => {
   // with NO store of its own (never mounted — exactly what a sidebar row for an
   // unopened workspace is) must still start a thread, because the provider list
   // is machine-level and has nothing to do with which workspace is on screen.
-  it('starts a thread on a workspace that has never been mounted', () => {
+  it('starts a thread on a workspace that has never been mounted', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
     useSidebarStore.setState({ repos: [forkRepo()] })
 
-    handleCreate('ws-a', 'thread', vi.fn())
+    await createThread('ws-a', vi.fn())
 
     expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a', undefined)
   })
@@ -470,14 +471,14 @@ describe('creating a workspace off a REGULAR fork row', () => {
   // A precondition that stops the click has to SAY so. Silence here is
   // indistinguishable from a dead button, which is how both create affordances
   // came to be reported as doing nothing.
-  it('says why instead of silently doing nothing when no provider is enabled', () => {
+  it('says why instead of silently doing nothing when no provider is enabled', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: false }] as never,
     })
     useSidebarStore.setState({ repos: [forkRepo()] })
 
-    handleCreate('ws-a', 'thread', vi.fn())
+    await createThread('ws-a', vi.fn())
 
     expect(createChat).not.toHaveBeenCalled()
     expect(toastError).toHaveBeenCalledOnce()
@@ -529,7 +530,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
     useSidebarStore.setState({ repos: [forkRepo()] })
     const before = useFolderSignalStore.getState().generations['r1'] ?? 0
 
-    handleCreate('ws-a', 'thread', vi.fn())
+    await createThread('ws-a', vi.fn())
     await Promise.resolve()
     await Promise.resolve()
 

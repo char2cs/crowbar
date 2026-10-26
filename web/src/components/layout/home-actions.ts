@@ -4,6 +4,8 @@ import { getHomeTree, useHomeTreeStore } from '@/lib/store/home-tree'
 import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
 import { getHomeOwningChatId } from '@/features/workspace/lib/home-workspace-resolver'
 import { openHomeChat, type NavigateFn } from './open-actions'
+import { newDraftChatId } from '@/features/agent/lib/draft-chat'
+import { finishDraftThread, type DraftPrompt, type DraftSpec } from './draft-thread'
 import { startThread, untilLanded } from './thread-create'
 
 // Creates in a project's home: it rides no repo, so its rows live in
@@ -94,12 +96,18 @@ export function handleCreateHomeThread(
   homeWorkspaceId: string,
   navigate: NavigateFn,
 ): Promise<void> {
+  return openHomeChat(projectId, homeWorkspaceId, newDraftChatId(), navigate)
+}
+
+/** Creates the chat a project-home draft was waiting to become, with its first prompt. */
+export function promoteHomeDraft(draft: DraftSpec, prompt: DraftPrompt): Promise<void> {
+  const { projectId, workspaceId } = draft
   return startThread({
-    inFlightKey: `thread:home:${projectId}`,
+    inFlightKey: `draft:${draft.draftId}`,
     projectId,
-    workspaceId: homeWorkspaceId,
+    workspaceId,
     parentId: '',
-    landed: (chatId) => waitForRootHomeChat(projectId, homeWorkspaceId, chatId),
-    onCreated: (chatId) => openHomeChat(projectId, homeWorkspaceId, chatId, navigate),
+    landed: (chatId) => waitForRootHomeChat(projectId, workspaceId, chatId),
+    onCreated: (chatId) => finishDraftThread(draft, chatId, prompt),
   })
 }

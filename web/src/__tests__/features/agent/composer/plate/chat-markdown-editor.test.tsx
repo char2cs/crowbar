@@ -77,6 +77,23 @@ describe('ChatMarkdownEditor — autoFocus', () => {
     const { getByRole } = renderEditor()
     expect(getByRole('textbox', { name: 'Message the agent' })).not.toHaveFocus()
   })
+
+  // Sending remounts the box; the keyboard must not drop and come back.
+  it('keeps the keyboard up on the phone when it replaces a box being typed in', () => {
+    platform.mobile = true
+    const { getByRole } = render(
+      <ChatMarkdownEditor
+        initialValue=""
+        placeholder=""
+        ariaLabel="Message the agent"
+        autoFocus
+        focusOnMount
+        onChange={vi.fn()}
+        onKeyDown={vi.fn()}
+      />,
+    )
+    expect(getByRole('textbox', { name: 'Message the agent' })).toHaveFocus()
+  })
 })
 
 type KeyDownHandler = (ctx: { editor: PlateEditor; event: KeyboardEvent<HTMLDivElement> }) => void

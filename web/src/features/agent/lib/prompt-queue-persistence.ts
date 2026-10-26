@@ -207,3 +207,39 @@ export function clearPersistedPromptQueue(wsId: string, chatId: string): void {
     // Queue cleanup must never turn a successful server deletion into a UI error.
   }
 }
+
+export function newRequestId(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID()
+  if (typeof globalThis.crypto?.getRandomValues !== 'function') {
+    throw new Error('Secure request identity is unavailable in this webview.')
+  }
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80
+  const hex = [...bytes].map((value) => value.toString(16).padStart(2, '0'))
+  return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex
+    .slice(6, 8)
+    .join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10).join('')}`
+}
+
+/** A prompt waiting its turn, carrying its own submission's selection. */
+export function newQueuedPrompt(
+  text: string,
+  baselineSequence: number,
+  provider?: string,
+  model?: string,
+  effort?: string,
+): PromptQueueItem {
+  return {
+    clientRequestId: newRequestId(),
+    text,
+    state: 'queued',
+    createdAt: new Date().toISOString(),
+    baselineSequence,
+    // '' is KEPT for model/effort (a pick of the provider's default); only
+    // `undefined` (nothing staged) is dropped.
+    ...(provider ? { provider } : {}),
+    ...(model !== undefined ? { model } : {}),
+    ...(effort !== undefined ? { effort } : {}),
+  }
+}
