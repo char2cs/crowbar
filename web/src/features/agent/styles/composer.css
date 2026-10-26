@@ -703,9 +703,14 @@
    is the only clue to WHICH prompt the provider is stuck on. */
 @media (pointer: coarse) {
   .agent-chat .pill.halted {
-    padding-block: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: 8px;
+    padding: 10px 10px 10px 16px;
+    border-radius: 22px;
   }
   .agent-chat .pill.halted .msg {
+    flex: 1 1 14rem;
     overflow: visible;
     text-overflow: clip;
     white-space: normal;
