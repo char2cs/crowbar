@@ -115,11 +115,9 @@ function FilesList({ snapshot, query }: { snapshot: NativeFiles; query: string }
   if (empty) {
     const text = snapshot.loading
       ? 'Loading files…'
-      : snapshot.rootName === ''
-        ? 'No workspace is open. Open a chat in a workspace to browse its files.'
-        : query.trim()
-          ? `No files match “${query.trim()}”`
-          : 'No files'
+      : query.trim()
+        ? `No files match “${query.trim()}”`
+        : 'No files'
     return <p className="px-4 pt-6 text-center text-[15px] text-muted-foreground">{text}</p>
   }
 
