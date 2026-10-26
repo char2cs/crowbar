@@ -41,11 +41,9 @@ func (rs *Runners) HandleSessionStart(
 	// it reads as a /clear and takes the user's message into a chat of its own.
 	originated := rs.OriginatedSession(runner.ID, ev.SessionID)
 
-	// A session Crowbar assigned at launch is only a placeholder until the CLI itself
-	// announces one: that announcement binds (and records the model), whatever it names.
-	current := runner.CurrentSession
-	if rs.sessions.settleAssigned(runner.ID) {
-		current = ""
+	current, err := rs.heldConversation(ctx, runner)
+	if err != nil {
+		return err
 	}
 
 	switch d := engineagents.Decide(
@@ -100,6 +98,27 @@ func (rs *Runners) HandleSessionStart(
 		return rs.moveToKnownChat(ctx, runner, d.ChatID, ev.SessionID, ev.Model, ev.Effort)
 	}
 	return nil
+}
+
+// heldConversation is the conversation runner would leave behind by moving to another.
+// One Crowbar assigned that the CLI has not yet announced holds nothing, and neither
+// does the stand-in a chat's lost conversation was relaunched on until it has a turn:
+// the conversation the user picks lands in this chat instead.
+func (rs *Runners) heldConversation(ctx context.Context, runner engineagents.Runner) (string, error) {
+	if rs.sessions.settleAssigned(runner.ID) || runner.CurrentSession == "" {
+		return "", nil
+	}
+	if rs.sessions.get(runner.CurrentChatID).Rung != domain.AgentRungTranscript {
+		return runner.CurrentSession, nil
+	}
+	_, turned, err := rs.activity.LastTurnForSession(ctx, runner.CurrentChatID, runner.ProviderID, runner.CurrentSession)
+	if err != nil {
+		return "", fmt.Errorf("agent: ingest hook: last turn for session: %w", err)
+	}
+	if !turned {
+		return "", nil
+	}
+	return runner.CurrentSession, nil
 }
 
 func (rs *Runners) moveToNewChat(
