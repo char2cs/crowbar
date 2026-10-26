@@ -1,4 +1,3 @@
-import { DotsThreeIcon } from '@phosphor-icons/react'
 import { useEffect, useMemo, useState } from 'react'
 import { startRemovalSecondsClock } from '@/components/layout/removal-clock'
 import { SidebarProjectSwitcher } from '@/components/layout/sidebar-project-switcher'
@@ -7,7 +6,7 @@ import { SidebarRow } from '@/components/sidebar/sidebar-row'
 import { RowMetricsContext, TOUCH_ROW_METRICS } from '@/components/sidebar/lib/row-metrics'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { HostViewsContext } from '@/features/hosts/hooks/use-host-status'
-import type { NativeRowAction, NativeSidebar } from '@/lib/native-chrome'
+import type { NativeSidebar } from '@/lib/native-chrome'
 import { Separator } from '@/components/ui/separator'
 import { postToShell, receiveShellSnapshots } from '@/lib/shell-page-bridge'
 import { useSurfaceThemeColor } from '@/features/window/hooks/use-surface-theme-color'
@@ -19,9 +18,19 @@ const selectProject = (id: string) => postToShell('sidebar', { type: 'selectProj
 const keepRemoval = (entryId: string) => postToShell('sidebar', { type: 'keepRemoval', entryId })
 const openSettings = () => postToShell('sidebar', { type: 'openSettings' })
 
-function openRowMenu(e: React.MouseEvent<HTMLElement>, rowId: string, actions: NativeRowAction[]) {
-  const { x, y, width, height } = e.currentTarget.getBoundingClientRect()
-  postToShell('sidebar', { type: 'rowMenu', rowId, rect: { x, y, width, height }, actions })
+// On touch start, not after a delay: Swift's own long-press then has the row and its menu ready.
+function pressRow(e: React.PointerEvent, actions: NativeSidebar['actions']) {
+  if (!(e.target instanceof Element)) return
+  const el = e.target.closest<HTMLElement>('[role="treeitem"]')
+  const rowId = el?.getAttribute('data-sidebar-row-id')
+  if (!el || !rowId) return
+  const { x, y, width, height } = el.getBoundingClientRect()
+  postToShell('sidebar', {
+    type: 'rowPress',
+    rowId,
+    rect: { x, y, width, height },
+    actions: actions[rowId] ?? [],
+  })
 }
 
 /**
@@ -59,10 +68,11 @@ export function MobileSidebarPage() {
               onOpenHostSettings={openSettings}
             />
           </RowMetricsContext>
-          {/* No callout or text selection: a hold lifts the row for reordering. */}
+          {/* No callout or text selection, so a long press is left to the native menu. */}
           <nav
             aria-label="Chats"
             className="min-h-0 flex-1 overflow-y-auto pb-[calc(env(safe-area-inset-bottom)+84px)] select-none [-webkit-touch-callout:none]"
+            onPointerDown={(e) => pressRow(e, snapshot.actions)}
           >
             <RowMetricsContext value={TOUCH_ROW_METRICS}>
               <ActiveSection rows={snapshot.rows} active={snapshot.active} />
@@ -70,11 +80,7 @@ export function MobileSidebarPage() {
                 drop={snapshot.drop}
                 overlay={(id) => <DragOverlayRow rows={snapshot.rows} id={id} />}
               >
-                <SnapshotTree
-                  rows={snapshot.rows}
-                  collapsed={snapshot.collapsed}
-                  actions={snapshot.actions}
-                />
+                <SnapshotTree rows={snapshot.rows} collapsed={snapshot.collapsed} />
               </RowDragScope>
             </RowMetricsContext>
           </nav>
@@ -108,11 +114,7 @@ function ActiveSection({ rows, active }: Pick<NativeSidebar, 'rows' | 'active'>)
 }
 
 /** The desktop tree's walk (sidebar-tree.tsx) over rows whose live facts arrive resolved. */
-function SnapshotTree({
-  rows,
-  collapsed,
-  actions,
-}: Pick<NativeSidebar, 'rows' | 'collapsed' | 'actions'>) {
+function SnapshotTree({ rows, collapsed }: { rows: SidebarRowType[]; collapsed: string[] }) {
   const { roots, childrenByParent } = sidebarRowTree(rows)
   const folded = new Set(collapsed)
   const renderRow = (row: SidebarRowType, depth: number) => {
@@ -120,22 +122,7 @@ function SnapshotTree({
     const isFolded = folded.has(row.id)
     return (
       <div key={row.id}>
-        <DraggableRow
-          id={row.id}
-          disabled={!!row.removal}
-          trailing={
-            actions[row.id]?.length ? (
-              <button
-                type="button"
-                aria-label={`Actions for ${row.label}`}
-                onClick={(e) => openRowMenu(e, row.id, actions[row.id])}
-                className="absolute top-1/2 right-1 flex size-9 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground"
-              >
-                <DotsThreeIcon className="size-5" weight="bold" />
-              </button>
-            ) : null
-          }
-        >
+        <DraggableRow id={row.id} disabled={!!row.removal}>
           <SidebarRow
             row={row}
             depth={depth}
