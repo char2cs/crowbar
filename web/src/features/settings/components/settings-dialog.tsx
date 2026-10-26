@@ -40,11 +40,9 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
     setSettingsInitialTab(tab)
   }
 
-  // Clear search when dialog closes
+  // Clear search when the dialog closes or unmounts (the shell mounts it only while open)
   useEffect(() => {
-    if (!isOpen) {
-      clearSearch()
-    }
+    if (isOpen) return clearSearch
   }, [isOpen, clearSearch])
 
   if (!isOpen) return null

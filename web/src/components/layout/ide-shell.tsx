@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { lazy, Suspense, useCallback } from 'react'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { SidebarProjectHeader } from './sidebar-project-header'
 import { useNavigationHistory } from '@/features/tabs/hooks/use-navigation-history'
@@ -8,7 +8,6 @@ import { SidebarProjectSwitcher } from './sidebar-project-switcher'
 import { RemovalTray } from './removal-tray'
 import { SidebarTreeSurface } from './sidebar-tree-surface'
 import { useSpaceSwitcherKeyboard } from '@/features/keymaps/hooks/use-space-switcher-keyboard'
-import SettingsDialog from '@/features/settings/components/settings-dialog'
 import { useSettingsStore } from '@/features/settings/store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
@@ -25,6 +24,9 @@ import { IdeShellWorkspaceContent } from './ide-shell-workspace-content'
 import { useShellRouteState } from './use-shell-route-state'
 import { ConsoleDock } from '@/features/console/components/console-dock'
 import { useMacTrafficLightSync } from '@/features/tabs/hooks/use-mac-traffic-light-sync'
+
+// Opened on demand: the dialog and every settings tab stay out of the boot bundle.
+const SettingsDialog = lazy(() => import('@/features/settings/components/settings-dialog'))
 
 /** The shell inside the console's frame, so the console can cover or shrink the whole window. */
 export function IDEShell() {
@@ -148,10 +150,14 @@ function IdeShellBody() {
       >
         {contentEl}
       </SidebarSplitPane>
-      <SettingsDialog
-        isOpen={isSettingsOpen}
-        onClose={() => useUIState.getState().setIsSettingsDialogVisible(false)}
-      />
+      {isSettingsOpen && (
+        <Suspense fallback={null}>
+          <SettingsDialog
+            isOpen
+            onClose={() => useUIState.getState().setIsSettingsDialogVisible(false)}
+          />
+        </Suspense>
+      )}
       <FontStyleInjector />
       <ConnectionIndicator />
       <DetachHolderModal />

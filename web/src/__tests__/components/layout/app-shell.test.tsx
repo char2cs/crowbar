@@ -25,9 +25,9 @@ describe('AppShell', () => {
     expect(screen.getByText('ide shell')).toBeInTheDocument()
   })
 
-  it('lays the phone app out as the single-pane mobile shell', () => {
+  it('lays the phone app out as the single-pane mobile shell', async () => {
     platform.mobile = true
     render(<AppShell />)
-    expect(screen.getByText('mobile shell')).toBeInTheDocument()
+    expect(await screen.findByText('mobile shell')).toBeInTheDocument()
   })
 })
