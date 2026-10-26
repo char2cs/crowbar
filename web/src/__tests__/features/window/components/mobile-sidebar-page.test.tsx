@@ -178,8 +178,8 @@ describe('MobileSidebarPage', () => {
     )
   })
 
-  // The menu opens from the row's own button; a hold on the row is the drag's alone.
-  it('opens a row’s native menu from its ⋯ button, with that row’s verbs', () => {
+  // Swift's own long-press shows the menu; the page only says which row, where, and its verbs.
+  it('tells the shell which row a touch lands on, with that row’s menu', () => {
     const rename = {
       id: 'rename',
       title: 'Rename',
@@ -189,19 +189,13 @@ describe('MobileSidebarPage', () => {
     }
     render(<MobileSidebarPage />)
     push({ ...snapshot, actions: { 'c-thread': [rename] } })
-    fireEvent.click(screen.getAllByRole('button', { name: /^Actions for/ })[0])
+    fireEvent.pointerDown(screen.getByText('Ask about tax'))
     expect(posted).toHaveBeenCalledWith({
-      type: 'rowMenu',
+      type: 'rowPress',
       rowId: 'c-thread',
       rect: { x: 0, y: 0, width: 0, height: 0 },
       actions: [rename],
     })
-  })
-
-  it('draws no ⋯ button on a row with no verbs', () => {
-    render(<MobileSidebarPage />)
-    push({ ...snapshot, actions: {} })
-    expect(screen.queryByRole('button', { name: /^Actions for/ })).toBeNull()
   })
 
   // Icons arrive as data: this page cannot reach the daemon their URLs point at.
@@ -303,20 +297,17 @@ describe('MobileSidebarPage', () => {
       })
     })
 
-    // The hold claims the touch for the drag, so the native side stands aside before any move.
-    it('lifts a held, unmoved row and hands nothing to the menu', () => {
+    // A finger held still is the native long-press menu's, so the page never claims it.
+    it('leaves a held, unmoved row to the shell’s menu', () => {
       render(<MobileSidebarPage />)
       push(snapshot)
       const held = rowEl('Ask about tax')
       fireEvent.touchStart(held, touch(10))
+      act(() => vi.advanceTimersByTime(600))
+      fireEvent.touchMove(held, touch(13))
+      fireEvent.touchEnd(held, { changedTouches: [{ clientX: 40, clientY: 13 }] })
       expect(posted).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'rowDrag' }))
-      act(() => vi.advanceTimersByTime(260))
-      expect(posted).toHaveBeenCalledWith({ type: 'rowDrag', active: true })
-      expect(posted).toHaveBeenCalledWith({ type: 'dragRow', rowId: 'c-thread' })
-      fireEvent.touchEnd(held, { changedTouches: [{ clientX: 40, clientY: 10 }] })
-      expect(posted).toHaveBeenCalledWith({ type: 'rowDrag', active: false })
-      expect(posted).toHaveBeenCalledWith({ type: 'dragRow', rowId: null })
-      expect(posted).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'moveRow' }))
+      expect(posted).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'dragRow' }))
     })
 
     // The lifted copy sits under the finger, so a hit test finds it first; the row beneath is the target.

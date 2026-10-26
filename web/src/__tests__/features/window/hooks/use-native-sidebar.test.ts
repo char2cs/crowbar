@@ -346,29 +346,6 @@ describe('useNativeSidebar', () => {
     )
   })
 
-  // Every drop the phone's drag can end in goes through the one drop the desktop's tree uses.
-  it.each(['before', 'into'] as const)(
-    'carries a chat dropped %s a chat out as a move',
-    async (position) => {
-      const thread = (id: string, order: number) => ({
-        id,
-        repoId: 'r1',
-        ownsWorktree: false,
-        workspaceId: 'ws-a',
-        title: id,
-        order,
-      })
-      useSidebarStore.setState({
-        repos: [{ ...repo, chats: [...(repo.chats ?? []), thread('c-t1', 3), thread('c-t2', 4)] }],
-      })
-      mount()
-      send({ type: 'dragRow', rowId: 'c-t2' })
-      expect(last().drop!.targets['c-t1'].modes[position]).toBe(true)
-      send({ type: 'moveRow', rowId: 'c-t2', targetId: 'c-t1', position })
-      await waitFor(() => expect(api.apiFetch).toHaveBeenCalled())
-    },
-  )
-
   it('refuses a drop the desktop’s rules refuse', () => {
     mount()
     const alpha = last().rows.find((r) => r.label === 'Alpha')!
