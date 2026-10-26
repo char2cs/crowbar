@@ -12,6 +12,7 @@ import {
 import type { Project } from '@/lib/types'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { getInitialPendingCreatesState, usePendingCreatesStore } from '@/lib/store/pending-creates'
+import { useActiveSessionsStore } from '@/lib/store/active-sessions'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
 
 const chrome = vi.hoisted(() => ({
@@ -26,6 +27,11 @@ vi.mock('@/lib/native-chrome', () => ({
     return () => chrome.listeners.delete(cb)
   },
   nativePrompt: chrome.prompt,
+}))
+const kill = vi.hoisted(() => vi.fn(async () => true))
+vi.mock('@/features/agent/lib/kill-agent', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/agent/lib/kill-agent')>()),
+  killAgent: kill,
 }))
 const navigate = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock('@/lib/api', async (importOriginal) => ({
@@ -76,6 +82,8 @@ beforeEach(() => {
   useFolderSignalStore.setState({ seededRepoIds: new Set(['r1']) })
   useMobileScreenStore.setState({ screen: 'chat', chatListOpen: true })
   useUIState.setState({ isSettingsOpen: false })
+  useActiveSessionsStore.setState({ sessions: {}, attached: {} })
+  kill.mockClear()
 })
 
 const mount = (onSelectProject = vi.fn()) =>
@@ -94,6 +102,7 @@ describe('useNativeSidebar', () => {
       projects: [],
       hosts: [],
       rows: [],
+      active: [],
       collapsed: [],
       actions: {},
       drop: null,
@@ -273,6 +282,37 @@ describe('useNativeSidebar', () => {
     await waitFor(() =>
       expect(chrome.prompt).toHaveBeenCalledWith(expect.objectContaining({ title: 'New branch' })),
     )
+  })
+
+  describe('running agents', () => {
+    const run = () =>
+      act(() => {
+        useActiveSessionsStore.setState({
+          sessions: { 'c-a': { chatId: 'c-a', workspaceId: 'ws-a', title: 'Alpha', scope: 'r1' } },
+          attached: { 'c-a': { scope: 'r1', count: 2 } },
+        })
+      })
+
+    it('lists a running chat in the Active section with its viewers, and offers Kill agent', () => {
+      mount()
+      expect(last().active).toEqual([])
+      expect(last().actions['c-a'].some((a) => a.id === 'kill-agent')).toBe(false)
+      run()
+      expect(last().active).toEqual([{ id: 'c-a', attached: 2 }])
+      const kill = last().actions['c-a'].find((a) => a.id === 'kill-agent')
+      expect(kill).toMatchObject({ destructive: true })
+      expect(kill?.confirm?.message).toContain('2 clients are attached')
+      expect(last().actions['c-b'].some((a) => a.id === 'kill-agent')).toBe(false)
+    })
+
+    it('kills the agent the menu entry names', () => {
+      mount()
+      run()
+      send({ type: 'rowAction', rowId: 'c-a', actionId: 'kill-agent' })
+      expect(kill).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ chatId: 'c-a', workspaceId: 'ws-a', attached: 2 }),
+      )
+    })
   })
 
   // The page draws the drag; where a row may land is the desktop's rule, answered here.

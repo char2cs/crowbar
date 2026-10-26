@@ -52,6 +52,7 @@ const snapshot: NativeSidebar = {
     }),
     row({ id: 'c-thread', parentId: 'c-branch', label: 'Ask about tax' }),
   ],
+  active: [],
   collapsed: [],
   actions: {},
   drop: null,
@@ -106,6 +107,20 @@ describe('MobileSidebarPage', () => {
     expect(parseInt(header.style.height)).toBeGreaterThan(
       parseInt(screen.getAllByRole('treeitem')[0].style.height),
     )
+  })
+
+  it('pins the running chats above the tree, each with who is attached', () => {
+    render(<MobileSidebarPage />)
+    push({ ...snapshot, active: [{ id: 'c-thread', attached: 2 }] })
+    const section = screen.getByRole('region', { name: 'Active' })
+    expect(within(section).getByText('Ask about tax')).toBeVisible()
+    expect(within(section).getByText('2 viewers')).toBeVisible()
+  })
+
+  it('draws no Active section while nothing runs', () => {
+    render(<MobileSidebarPage />)
+    push(snapshot)
+    expect(screen.queryByRole('region', { name: 'Active' })).not.toBeInTheDocument()
   })
 
   it('asks the shell for the sidebar once it can draw it', () => {

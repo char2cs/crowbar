@@ -3,28 +3,22 @@ import { primitiveConfirm } from '@/components/ui/primitive-dialog-service'
 import { toast } from '@/features/window/stores/toast-store'
 import type { ActiveSession } from '@/lib/store/active-sessions'
 
-/**
- * The one way a client ends a running agent: ask first, then force-kill. Any
- * paired client may do this to any chat, whoever else is attached. Resolves to
- * whether the kill went through.
- */
-export async function confirmAndKillAgent(
-  session: Pick<ActiveSession, 'chatId' | 'workspaceId' | 'title' | 'attached'>,
-): Promise<boolean> {
+type KillableAgent = Pick<ActiveSession, 'chatId' | 'workspaceId' | 'title' | 'attached'>
+
+/** What to ask before ending `session`'s agent; the phone asks it in a native alert. */
+export function killAgentConfirmation(session: KillableAgent): { title: string; message: string } {
   const viewers =
     session.attached > 0
       ? ` ${session.attached === 1 ? 'One client is' : `${session.attached} clients are`} attached to it.`
       : ''
-  const confirmed = await primitiveConfirm(
-    `It stops now, even mid-turn.${viewers} The conversation is kept and resumes when reopened.`,
-    {
-      title: `Kill the agent on “${session.title}”?`,
-      confirmLabel: 'Kill agent',
-      cancelLabel: 'Keep running',
-      destructive: true,
-    },
-  )
-  if (!confirmed) return false
+  return {
+    title: `Kill the agent on “${session.title}”?`,
+    message: `It stops now, even mid-turn.${viewers} The conversation is kept and resumes when reopened.`,
+  }
+}
+
+/** Force-kills `session`'s agent, toasting a refusal. Resolves to whether it went through. */
+export async function killAgent(session: KillableAgent): Promise<boolean> {
   try {
     await killChat(session.workspaceId, session.chatId)
     return true
@@ -35,4 +29,20 @@ export async function confirmAndKillAgent(
     )
     return false
   }
+}
+
+/**
+ * The one way a client ends a running agent: ask first, then force-kill. Any
+ * paired client may do this to any chat, whoever else is attached. Resolves to
+ * whether the kill went through.
+ */
+export async function confirmAndKillAgent(session: KillableAgent): Promise<boolean> {
+  const { title, message } = killAgentConfirmation(session)
+  const confirmed = await primitiveConfirm(message, {
+    title,
+    confirmLabel: 'Kill agent',
+    cancelLabel: 'Keep running',
+    destructive: true,
+  })
+  return confirmed && killAgent(session)
 }

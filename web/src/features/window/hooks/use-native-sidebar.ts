@@ -26,6 +26,7 @@ import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { dropTargetRow, rowDropTargets } from '@/components/sidebar/lib/row-drop-targets'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { providerCanStartOnTerminal } from '@/features/agent/api/agent-api'
+import { killAgent, killAgentConfirmation } from '@/features/agent/lib/kill-agent'
 import { handleCreateHomeThread } from '@/components/layout/home-actions'
 import { handleCreate } from '@/components/layout/create-actions'
 import { handleOpen } from '@/components/layout/open-actions'
@@ -49,6 +50,7 @@ import {
   type NativeRowAction,
   type NativeSidebar,
 } from '@/lib/native-chrome'
+import { useActiveSessionsStore, type LiveSession } from '@/lib/store/active-sessions'
 import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
@@ -72,6 +74,7 @@ const EMPTY: NativeSidebar = {
   projects: [],
   hosts: [],
   rows: [],
+  active: [],
   collapsed: [],
   actions: {},
   drop: null,
@@ -121,7 +124,21 @@ function confirmFor(id: RowMenuActionId, row: SidebarRow): NativeRowAction['conf
   }
 }
 
-function nativeRowActions(rows: SidebarRow[], canStartOnTerminal: boolean) {
+const KILL_AGENT = 'kill-agent'
+
+type Attached = Record<string, { count: number }>
+
+/** The rows with an agent running, as the desktop's Active section picks them. */
+function activeRows(rows: readonly SidebarRow[], sessions: Record<string, LiveSession>) {
+  return rows.filter((r) => r.kind !== 'folder' && !r.pending && !r.removal && sessions[r.id])
+}
+
+function nativeRowActions(
+  rows: SidebarRow[],
+  canStartOnTerminal: boolean,
+  sessions: Record<string, LiveSession>,
+  attached: Attached,
+) {
   const actions: Record<string, NativeRowAction[]> = {}
   for (const row of rows) {
     const locked = row.kind === 'branch' && rowIsLocked(row.id)
@@ -137,6 +154,16 @@ function nativeRowActions(rows: SidebarRow[], canStartOnTerminal: boolean) {
       destructive: action.destructive,
       confirm: confirmFor(action.id, row),
     }))
+    const session = sessions[row.id]
+    if (row.kind !== 'folder' && session) {
+      actions[row.id].push({
+        id: KILL_AGENT,
+        title: 'Kill agent',
+        symbol: 'xmark.octagon',
+        destructive: true,
+        confirm: killAgentConfirmation({ ...session, attached: attached[row.id]?.count ?? 0 }),
+      })
+    }
   }
   return actions
 }
@@ -269,6 +296,8 @@ export function useNativeSidebar({
   const rows = useActiveProjectRows(projectId)
   const collapsed = useSidebarStore((s) => s.collapsedChatRows)
   const focusedChatId = useStore(windowPaneStore, (s) => s.panes[s.activePaneId]?.chatId ?? null)
+  const sessions = useActiveSessionsStore((s) => s.sessions)
+  const attached = useActiveSessionsStore((s) => s.attached)
   const hostConfigs = useHostConfigStore((s) => s.hosts)
   const hostStreams = useConnectionStore((s) => s.hostStreams)
   const homeWsId = useHomeWorkspaceState(projectId).wsId
@@ -310,8 +339,12 @@ export function useNativeSidebar({
         working: row.working || chatWorking(row),
         hasView: row.id === focusedChatId,
       })),
+      active: activeRows(rows, sessions).map((r) => ({
+        id: r.id,
+        attached: attached[r.id]?.count ?? 0,
+      })),
       collapsed: [...collapsed],
-      actions: nativeRowActions(rows, canStartOnTerminal),
+      actions: nativeRowActions(rows, canStartOnTerminal, sessions, attached),
       drop,
     })
   }, [
@@ -326,6 +359,8 @@ export function useNativeSidebar({
     live,
     canStartOnTerminal,
     icons,
+    sessions,
+    attached,
   ])
 
   useEffect(() => () => setNativeSidebar(EMPTY), [])
@@ -361,6 +396,12 @@ export function useNativeSidebar({
             setImportRepoRowId(target.id)
           },
           fork: (target) => void forkNatively(target, navigate),
+        }
+        if (intent.actionId === KILL_AGENT) {
+          const { sessions: live, attached: counts } = useActiveSessionsStore.getState()
+          const session = live[row.id]
+          if (session) void killAgent({ ...session, attached: counts[row.id]?.count ?? 0 })
+          return
         }
         const actionId = intent.actionId as RowMenuActionId
         // Detach opens its sheet over the chat, not under the list.

@@ -84,6 +84,7 @@ describe('setNativeSidebar', () => {
       activeProjectId: null,
       projects: [],
       rows: [],
+      active: [],
       collapsed: [],
       actions: {},
       drop: null,

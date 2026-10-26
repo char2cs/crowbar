@@ -4,7 +4,7 @@ vi.mock('@/features/agent/api/agent-api', () => ({ killChat: vi.fn() }))
 vi.mock('@/components/ui/primitive-dialog-service', () => ({ primitiveConfirm: vi.fn() }))
 vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: vi.fn() } }))
 
-import { confirmAndKillAgent } from '@/features/agent/lib/kill-agent'
+import { confirmAndKillAgent, killAgentConfirmation } from '@/features/agent/lib/kill-agent'
 import { killChat } from '@/features/agent/api/agent-api'
 import { primitiveConfirm } from '@/components/ui/primitive-dialog-service'
 import { toast } from '@/features/window/stores/toast-store'
@@ -54,5 +54,14 @@ describe('confirmAndKillAgent', () => {
       expect.stringContaining('Fix login'),
       'daemon unreachable',
     )
+  })
+})
+
+describe('killAgentConfirmation', () => {
+  it('names the chat and who is attached', () => {
+    expect(killAgentConfirmation({ ...session, attached: 1 })).toEqual({
+      title: 'Kill the agent on \u201cFix login\u201d?',
+      message: expect.stringContaining('One client is attached'),
+    })
   })
 })
