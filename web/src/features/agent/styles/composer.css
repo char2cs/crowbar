@@ -719,6 +719,12 @@
 .agent-chat .pill.halted > button:last-child {
   margin-left: auto;
 }
+/* Wrapped below the message, the buttons sit together at the end, not split across the row. */
+@media (pointer: coarse) {
+  .agent-chat .pill.halted > button:last-child {
+    margin-left: 0;
+  }
+}
 .agent-chat .pill.halted .when {
   margin-left: auto;
   flex: none;
