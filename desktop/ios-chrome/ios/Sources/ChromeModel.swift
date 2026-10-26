@@ -31,14 +31,22 @@ struct ChromeButton: Decodable, Identifiable, Equatable {
   let intent: String?
 }
 
+/// Each screen's own header buttons; both always come, so a header stays with its screen.
+struct ChromeHeaders: Decodable, Equatable {
+  let chat: [ChromeButton]
+  let ide: [ChromeButton]
+}
+
 /// The whole view-model `set_chrome` hands over; a part it leaves out is hidden.
 struct ChromeState: Decodable {
   let accent: String?
   let brandGround: String?
   let welcome: WelcomeState?
   let connect: ConnectState?
-  let buttons: [ChromeButton]?
+  let headers: ChromeHeaders?
   let reveal: Reveal?
+  /// The newest navigation intent (its `seq`) this state already reflects.
+  let ack: Int?
   let settings: SettingsState?
   let appearance: String?
   let palette: PaletteState?
@@ -110,7 +118,7 @@ final class ChromeModel: ObservableObject {
   @Published var welcome: WelcomeState?
   // Kept after the web closes the sheet, so it slides away showing what it showed.
   @Published var connect: ConnectState?
-  @Published var buttons: [ChromeButton] = []
+  @Published var headers = ChromeHeaders(chat: [], ide: [])
   @Published var context: ContextState?
   var send: (ChromeIntent) -> Void = { _ in }
   /// Shows a native dialog over whatever is up.

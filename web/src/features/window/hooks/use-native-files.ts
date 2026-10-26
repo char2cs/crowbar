@@ -112,9 +112,7 @@ export function useNativeFiles(wsId: string) {
     const handlers = createFileTreeHandlers(wsId, store)
     const close = () => useMobileScreenStore.getState().setFilesOpen(false)
     return onNativeChromeIntent((intent) => {
-      if (intent.type === 'closeFiles') close()
-      else if (intent.type === 'toggleDir')
-        useFileTreeStore.getState().toggleFolder(wsId, intent.path)
+      if (intent.type === 'toggleDir') useFileTreeStore.getState().toggleFolder(wsId, intent.path)
       else if (intent.type === 'openFile') {
         const paneId = resolveOnscreenPaneForWorkspace(wsId) ?? undefined
         handlers.handleFileSelect(intent.path, false, { paneId })

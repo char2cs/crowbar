@@ -4,11 +4,10 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { PaneGroup } from '@/features/panes/types/pane'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { useRegisteredWorkspaceStore } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
-import { useEffect } from 'react'
 import { CaretLeftIcon, FolderSimpleIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { useMobileScreenStore } from '@/features/window/stores/mobile-screen-store'
-import { hasNativeChrome, onNativeChromeIntent } from '@/lib/native-chrome'
+import { hasNativeChrome } from '@/lib/native-chrome'
 import { MobileFilesScreen } from './mobile-files-screen'
 import { useNativeFiles } from '@/features/window/hooks/use-native-files'
 import { useNativeTabs } from '@/features/window/hooks/use-native-tabs'
@@ -32,13 +31,6 @@ export function MobileIdeScreen({ hidden }: { hidden: boolean }) {
 function PaneIde({ pane, wsId, hidden }: { pane: PaneGroup; wsId: string; hidden: boolean }) {
   const store = useRegisteredWorkspaceStore(wsId)
   const filesOpen = useMobileScreenStore((s) => s.filesOpen)
-  useEffect(
-    () =>
-      onNativeChromeIntent((intent) => {
-        if (intent.type === 'openFiles') openFiles()
-      }),
-    [],
-  )
   return (
     <section
       aria-label="IDE"

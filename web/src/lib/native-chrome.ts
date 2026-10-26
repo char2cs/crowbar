@@ -37,6 +37,11 @@ export interface ChromeButton {
   intent?: string
 }
 
+export interface ChromeHeaders {
+  chat: ChromeButton[]
+  ide: ChromeButton[]
+}
+
 /** Which layer the shell's front card is slid aside to reveal. */
 export type ChromeReveal = 'none' | 'chatList' | 'ide' | 'files'
 
@@ -47,8 +52,11 @@ export interface NativeChrome {
   /** `--brand-ground` as CSS gives it for the current theme: the New thread pill's fill. */
   brandGround: string
   connect: ConnectSheet
-  buttons: ChromeButton[]
+  /** Each screen's own header buttons, always both: a header stays with its screen as it slides. */
+  headers: ChromeHeaders
   reveal: ChromeReveal
+  /** The newest navigation intent (its `seq`) this model already reflects. */
+  ack: number
   /** The app's theme mode; `system` lets native views follow the device like the web does. */
   appearance: 'light' | 'dark' | 'system'
   /** The Settings sheet, whose one page is the web's own settings at `#/mobile-settings`. */
@@ -206,10 +214,10 @@ export type NativeChromeIntent =
   | { type: 'submitAddress'; name: string; address: string }
   | { type: 'submitCode'; code: string }
   | { type: 'tap'; id: string }
-  | { type: 'openChatList' }
-  | { type: 'closeChatList' }
-  | { type: 'openIde' }
-  | { type: 'closeIde' }
+  | { type: 'openChatList'; seq?: number }
+  | { type: 'closeChatList'; seq?: number }
+  | { type: 'openIde'; seq?: number }
+  | { type: 'closeIde'; seq?: number }
   | { type: 'selectRow'; id: string }
   | { type: 'newThread' }
   | { type: 'selectProject'; id: string }
@@ -220,8 +228,8 @@ export type NativeChromeIntent =
   | { type: 'setDefaultPermission'; level: PermissionLevel }
   | { type: 'openSettings' }
   | { type: 'closeSettings' }
-  | { type: 'openFiles' }
-  | { type: 'closeFiles' }
+  | { type: 'openFiles'; seq?: number }
+  | { type: 'closeFiles'; seq?: number }
   | { type: 'toggleDir'; path: string }
   | { type: 'openFile'; path: string }
   | { type: 'selectTab'; id: string }

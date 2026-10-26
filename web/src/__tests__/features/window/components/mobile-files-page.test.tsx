@@ -87,6 +87,14 @@ describe('MobileFilesPage', () => {
     expect(names()).toEqual(['srcM', 'docs', 'README.md'])
   })
 
+  // No workspace has no root, which is not the same as a workspace with nothing in it.
+  it('says why there are no files when no workspace is selected', () => {
+    render(<MobileFilesPage />)
+    push({ ...snapshot, rootName: '', files: [], expanded: [] })
+    expect(screen.getByText(/open a chat in a workspace/i)).toBeVisible()
+    expect(screen.queryByText('No files')).not.toBeInTheDocument()
+  })
+
   it('says it is loading before the first listing lands', () => {
     render(<MobileFilesPage />)
     push({ ...snapshot, files: [], loading: true })

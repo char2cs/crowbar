@@ -79,10 +79,4 @@ describe('useNativeFiles', () => {
     expect(selected).toHaveBeenCalledWith('/repos/checkout/README.md', false, expect.anything())
     expect(useMobileScreenStore.getState().filesOpen).toBe(false)
   })
-
-  it('closes when the strip beside it is tapped', () => {
-    renderHook(() => useNativeFiles(WS))
-    send({ type: 'closeFiles' })
-    expect(useMobileScreenStore.getState().filesOpen).toBe(false)
-  })
 })
