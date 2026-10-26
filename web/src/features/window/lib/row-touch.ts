@@ -11,7 +11,8 @@ export type RowTouchEvent =
   | { type: 'dwell' }
   | { type: 'release' }
 
-const CLAIM_PX = 8
+// Small enough that a slow, deliberate drag claims the touch well before the dwell elapses.
+const CLAIM_PX = 4
 
 /** How long an armed, resting finger waits before the menu opens. */
 export const MENU_DWELL_MS = 250

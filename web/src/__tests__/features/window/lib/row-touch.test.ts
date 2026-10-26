@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { rowTouch } from '@/features/window/lib/row-touch'
 
 describe('rowTouch', () => {
-  it('arms on the hold and stays armed while the finger rests within 8px', () => {
+  it('arms on the hold and stays armed while the finger rests within 4px', () => {
     const armed = rowTouch('idle', { type: 'hold' })
     expect(armed).toBe('armed')
-    expect(rowTouch(armed, { type: 'move', dx: 5, dy: 6 })).toBe('armed')
+    expect(rowTouch(armed, { type: 'move', dx: 2, dy: 3 })).toBe('armed')
   })
 
-  it('hands the touch to the drag once the finger moves past 8px, and keeps it there', () => {
-    const drag = rowTouch('armed', { type: 'move', dx: 0, dy: 9 })
+  it('hands the touch to the drag once the finger moves past 4px, and keeps it there', () => {
+    const drag = rowTouch('armed', { type: 'move', dx: 0, dy: 5 })
     expect(drag).toBe('drag')
     expect(rowTouch(drag, { type: 'move', dx: 0, dy: 0 })).toBe('drag')
     expect(rowTouch(drag, { type: 'hold' })).toBe('drag')

@@ -352,7 +352,9 @@ describe('MobileSidebarPage', () => {
       const lifted = document
         .querySelector('[data-drag-overlay]')!
         .querySelector<HTMLElement>('[data-sidebar-row-id]')!
-      document.elementsFromPoint = () => [lifted, target]
+      // dnd-kit positions the copy inside a wrapper of its own, which is also over the finger.
+      const wrapper = document.querySelector('[data-drag-overlay]')!.parentElement!
+      document.elementsFromPoint = () => [wrapper, lifted, target]
       fireEvent.touchMove(held, touch(132))
       fireEvent.touchEnd(held, { changedTouches: [{ clientX: 40, clientY: 132 }] })
       expect(posted).toHaveBeenCalledWith(

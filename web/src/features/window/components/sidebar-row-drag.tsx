@@ -45,12 +45,13 @@ function pointerY(event: DragMoveEvent): number | null {
   return y === null || y === undefined ? null : y + event.delta.y
 }
 
-// The lifted copy is under the finger, so it is skipped: the row beneath it is the target.
+// The lifted copy and dnd-kit's wrapper around it are under the finger: the row beneath is the target.
 function hitAt(x: number, y: number, drop: NativeRowDrop | null): Hit | null {
   const el = document
     .elementsFromPoint(x, y)
-    .find((at) => !at.closest('[data-drag-overlay]'))
-    ?.closest<HTMLElement>('[data-sidebar-row-id]')
+    .filter((at) => !at.closest('[data-drag-overlay]'))
+    .map((at) => at.closest<HTMLElement>('[data-sidebar-row-id]'))
+    .find(Boolean)
   const id = el?.getAttribute('data-sidebar-row-id')
   const target = id ? drop?.targets[id] : undefined
   if (!el || !id || !target) return null
