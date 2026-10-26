@@ -1,4 +1,4 @@
-import { createContext, use, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, use, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -9,6 +9,7 @@ import {
   type DragMoveEvent,
   type DragStartEvent,
 } from '@dnd-kit/core'
+import { ROW_NEST_TARGET } from '@/components/layout/workspace-row-base'
 import { dropModeAt, type DropMode } from '@/components/tree-dnd/drop-core'
 import type { NativeRowDrop } from '@/lib/native-chrome'
 import { postToShell } from '@/lib/shell-page-bridge'
@@ -68,12 +69,20 @@ export function RowDragScope({
   const [claimed, setClaimed] = useState(false)
   const [hit, setHit] = useState<Hit | null>(null)
   const startX = useRef(0)
+  // The shell's answer lands after the finger has moved on, or while it rests: the target is
+  // read again from where the finger is when the answer arrives.
+  const finger = useRef<{ x: number; y: number } | null>(null)
   const state = useMemo(() => ({ hit, claimed }), [hit, claimed])
+
+  useEffect(() => {
+    if (claimed && finger.current) setHit(hitAt(finger.current.x, finger.current.y, drop))
+  }, [drop, claimed])
 
   const end = (move: boolean) => {
     setDragged(null)
     setClaimed(false)
     setHit(null)
+    finger.current = null
     if (!claimed) return
     if (move && dragged && hit) {
       postToShell('sidebar', {
@@ -103,7 +112,8 @@ export function RowDragScope({
           postToShell('sidebar', { type: 'dragRow', rowId: String(event.active.id) })
         }
         const y = pointerY(event)
-        setHit(y === null ? null : hitAt(startX.current + event.delta.x, y, drop))
+        finger.current = y === null ? null : { x: startX.current + event.delta.x, y }
+        setHit(finger.current && hitAt(finger.current.x, finger.current.y, drop))
       }}
       onDragEnd={() => end(true)}
       onDragCancel={() => end(false)}
@@ -148,12 +158,20 @@ export function DraggableRow({
     >
       {children}
       {mode === 'into' && (
-        <div className="pointer-events-none absolute inset-0 rounded-lg ring-2 ring-primary" />
+        <div
+          className={cn(
+            'pointer-events-none absolute inset-0 rounded-lg border opacity-100',
+            ROW_NEST_TARGET,
+          )}
+        />
       )}
       {(mode === 'before' || mode === 'after') && (
         <div
+          data-drop-indicator={mode}
           className={cn(
-            'pointer-events-none absolute inset-x-2 h-0.5 rounded-full bg-primary',
+            // The desktop's hairline and end-cap (components/layout/drop-indicator.tsx).
+            'pointer-events-none absolute right-0.5 left-2 h-0.5 rounded-full bg-sidebar-drop-line',
+            "before:absolute before:top-1/2 before:-left-1.5 before:size-1 before:-translate-x-0.5 before:-translate-y-1/2 before:rounded-full before:border-2 before:border-sidebar-drop-line before:content-['']",
             mode === 'before' ? 'top-0' : 'bottom-0',
           )}
         />

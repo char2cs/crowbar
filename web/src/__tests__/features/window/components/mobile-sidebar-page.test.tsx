@@ -321,6 +321,47 @@ describe('MobileSidebarPage', () => {
       )
     })
 
+    // Two chats under one workspace: the held one lands above or below its sibling.
+    it.each([
+      ['above', 104, 'before'],
+      ['below', 136, 'after'],
+    ])('reorders a chat %s its sibling', (_, finger, position) => {
+      const siblings = {
+        ...snapshot,
+        rows: [
+          ...snapshot.rows,
+          row({ id: 'c-other', parentId: 'c-branch', label: 'Looking around', order: 1 }),
+        ],
+      }
+      render(<MobileSidebarPage />)
+      push(siblings)
+      const held = rowEl('Looking around')
+      const target = rowEl('Ask about tax')
+      vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(
+        DOMRect.fromRect({ x: 0, y: 100, width: 300, height: 40 }),
+      )
+      document.elementsFromPoint = () => [target]
+      fireEvent.touchStart(held, touch(300))
+      act(() => vi.advanceTimersByTime(260))
+      fireEvent.touchMove(held, touch(280))
+      // The finger reaches the sibling before the shell has answered, then rests there.
+      fireEvent.touchMove(held, touch(finger))
+      push({
+        ...siblings,
+        drop: {
+          subjectId: 'c-other',
+          targets: { 'c-thread': { modes: { before: true, after: true, into: true }, band: 0.3 } },
+        },
+      })
+      fireEvent.touchEnd(held, { changedTouches: [{ clientX: 40, clientY: finger }] })
+      expect(posted).toHaveBeenCalledWith({
+        type: 'moveRow',
+        rowId: 'c-other',
+        targetId: 'c-thread',
+        position,
+      })
+    })
+
     it('moves nothing where the drop rules refuse it', () => {
       render(<MobileSidebarPage />)
       push(snapshot)
