@@ -608,7 +608,7 @@ func (configurableListGetUsecase) StopChat(
 	return nil
 }
 
-func (configurableListGetUsecase) CloseChat(
+func (configurableListGetUsecase) KillChat(
 	_ context.Context,
 	_ string,
 ) error {
@@ -1505,6 +1505,10 @@ func (configurableListGetUsecase) ReadPendingChoices(
 	context.Context, string,
 ) ([]domain.ActivityChoice, error) {
 	return nil, nil
+}
+
+func (configurableListGetUsecase) AnswerTerminalWait(context.Context, string, string) error {
+	return nil
 }
 
 func (configurableListGetUsecase) AnswerableChoiceIDs(

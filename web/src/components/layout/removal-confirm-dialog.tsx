@@ -6,7 +6,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { useEffect, useEffectEvent } from 'react'
 import { Button } from '@/components/ui/button'
+import { hasNativeChrome, nativeConfirm } from '@/lib/native-chrome'
 import type { WorkAtRisk } from '@/lib/api'
 import type { RemovalEntry } from '@/lib/store/sidebar-removal'
 
@@ -37,8 +39,10 @@ export function RemovalConfirmDialog({
   onConfirm: (entry: RemovalEntry) => void
 }) {
   if (!entry) return null
+  if (hasNativeChrome()) {
+    return <NativeRemovalConfirm entry={entry} onCancel={onCancel} onConfirm={onConfirm} />
+  }
 
-  const noun = NOUNS[entry.kind]
   const atRisk = entry.atRisk
   return (
     <AlertDialog
@@ -49,13 +53,13 @@ export function RemovalConfirmDialog({
     >
       <AlertDialogContent className="max-w-md">
         <AlertDialogHeader>
-          <AlertDialogTitle>
-            {atRisk
-              ? `Delete ${noun} “${entry.label}” and lose work?`
-              : `Delete ${noun} “${entry.label}”?`}
-          </AlertDialogTitle>
+          <AlertDialogTitle>{titleOf(entry)}</AlertDialogTitle>
           <AlertDialogDescription>
-            {atRisk ? <WorkAtRiskText /> : <CascadeText isProject={entry.kind === 'project'} />}
+            <Lead
+              text={
+                atRisk ? WORK_AT_RISK : entry.kind === 'project' ? PROJECT_CASCADE : REPO_CASCADE
+              }
+            />
           </AlertDialogDescription>
         </AlertDialogHeader>
         {atRisk && <WorkAtRiskList atRisk={atRisk} />}
@@ -66,12 +70,72 @@ export function RemovalConfirmDialog({
             Cancel
           </Button>
           <Button variant="destructive" onClick={() => onConfirm(entry)}>
-            {atRisk ? 'Delete anyway' : `Delete ${noun}`}
+            {confirmLabelOf(entry)}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
   )
+}
+
+function titleOf(entry: RemovalEntry): string {
+  const noun = NOUNS[entry.kind]
+  return entry.atRisk
+    ? `Delete ${noun} “${entry.label}” and lose work?`
+    : `Delete ${noun} “${entry.label}”?`
+}
+
+function confirmLabelOf(entry: RemovalEntry): string {
+  return entry.atRisk ? 'Delete anyway' : `Delete ${NOUNS[entry.kind]}`
+}
+
+// One alert per held entry, however often the effect asking for it re-runs while it is up.
+const asked = new Map<string, Promise<boolean>>()
+
+function askNatively(entry: RemovalEntry): Promise<boolean> {
+  const pending = asked.get(entry.entryId)
+  if (pending) return pending
+  const lost = entry.atRisk?.map((w) => `${w.branch}: ${lossSummary(w)}`) ?? []
+  const lead = entry.atRisk
+    ? WORK_AT_RISK
+    : entry.kind === 'project'
+      ? PROJECT_CASCADE
+      : REPO_CASCADE
+  const answer = nativeConfirm({
+    title: titleOf(entry),
+    message: [lead.strong, lead.rest, ...lost].join('\n'),
+    confirmLabel: confirmLabelOf(entry),
+    cancelLabel: 'Cancel',
+    destructive: true,
+  }).finally(() => asked.delete(entry.entryId))
+  asked.set(entry.entryId, answer)
+  return answer
+}
+
+// The phone asks the same question in a native alert, over whichever sheet is on screen.
+function NativeRemovalConfirm({
+  entry,
+  onCancel,
+  onConfirm,
+}: {
+  entry: RemovalEntry
+  onCancel: () => void
+  onConfirm: (entry: RemovalEntry) => void
+}) {
+  const answer = useEffectEvent((yes: boolean) => {
+    if (yes) onConfirm(entry)
+    else onCancel()
+  })
+  useEffect(() => {
+    let live = true
+    void askNatively(entry).then((yes) => {
+      if (live) answer(yes)
+    })
+    return () => {
+      live = false
+    }
+  }, [entry])
+  return null
 }
 
 const NOUNS: Record<RemovalEntry['kind'], string> = {
@@ -82,36 +146,23 @@ const NOUNS: Record<RemovalEntry['kind'], string> = {
   folder: 'folder',
 }
 
-function CascadeText({ isProject }: { isProject: boolean }) {
-  if (isProject) {
-    return (
-      <>
-        <strong className="text-foreground">
-          All repositories and workspaces inside it will be deleted.
-        </strong>{' '}
-        Every worktree Crowbar created for them is removed from disk. Repositories you imported are
-        unregistered — the folders you originally pointed Crowbar at are left where they are.
-      </>
-    )
-  }
-  return (
-    <>
-      <strong className="text-foreground">
-        All workspaces in this repository will be deleted.
-      </strong>{' '}
-      Every worktree Crowbar created for them is removed from disk. The folder you originally
-      imported is left where it is.
-    </>
-  )
+const PROJECT_CASCADE = {
+  strong: 'All repositories and workspaces inside it will be deleted.',
+  rest: 'Every worktree Crowbar created for them is removed from disk. Repositories you imported are unregistered — the folders you originally pointed Crowbar at are left where they are.',
+}
+const REPO_CASCADE = {
+  strong: 'All workspaces in this repository will be deleted.',
+  rest: 'Every worktree Crowbar created for them is removed from disk. The folder you originally imported is left where it is.',
+}
+const WORK_AT_RISK = {
+  strong: 'This work exists nowhere else — not on another branch, a remote or a tag.',
+  rest: 'Deleting removes it for good. Your own checkout is never touched.',
 }
 
-function WorkAtRiskText() {
+function Lead({ text }: { text: { strong: string; rest: string } }) {
   return (
     <>
-      <strong className="text-foreground">
-        This work exists nowhere else — not on another branch, a remote or a tag.
-      </strong>{' '}
-      Deleting removes it for good. Your own checkout is never touched.
+      <strong className="text-foreground">{text.strong}</strong> {text.rest}
     </>
   )
 }

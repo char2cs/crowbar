@@ -111,11 +111,6 @@ vi.mock('@/features/agent/transcript/plate/markdown-message', () => ({
   MarkdownMessage: ({ children }: { children: string }) => createElement('div', null, children),
 }))
 
-vi.mock('@/features/agent/transcript/plate/markdown-message-static', () => ({
-  MarkdownMessageStatic: ({ children }: { children: string }) =>
-    createElement('div', null, children),
-}))
-
 import { AgentChatView, type AgentChatViewHandle } from '@/features/agent/chat/agent-chat-view'
 
 const providers: AgentProvider[] = [
@@ -446,6 +441,30 @@ describe('AgentChatView message ledger', () => {
       },
       { timeout: 4_000 },
     )
+  })
+
+  // The phone keeps the empty document, its bar at the capsule's touch metrics with the
+  // model picker inside it, beside + and send.
+  it('draws the empty document with the phone composer’s metrics', async () => {
+    // The platform is read once at load: load the view afresh under an iPhone's agent.
+    const agent = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (iPhone)')
+    vi.resetModules()
+    const [{ AgentChatView: PhoneView }, context, store] = await Promise.all([
+      import('@/features/agent/chat/agent-chat-view'),
+      import('@/features/workspace/stores/workspace-context'),
+      import('@/features/workspace/stores/workspace-store'),
+    ])
+    agent.mockRestore()
+    const props = baseProps()
+    render(
+      <context.WorkspaceStoreContext.Provider value={store.createWorkspaceStore(props.wsId)}>
+        <PhoneView {...props} working={false} />
+      </context.WorkspaceStoreContext.Provider>,
+    )
+    const doc = await screen.findByTestId('agent-empty-document')
+    const bar = doc.querySelector('.dochandle')
+    expect(bar).toHaveAttribute('data-touch')
+    expect(bar!.querySelector('.grp .selpos')).not.toBeNull()
   })
 
   it('fetches after a batched start/stop pair even when working renders idle both times', async () => {
@@ -915,6 +934,53 @@ describe('AgentChatView durable FIFO', () => {
     view.rerenderProps({ settledPrompts: ['11111111-2222-3333-4444-555555555555'] })
 
     expect(screen.getByTestId('queued-prompt')).toHaveTextContent('/compact')
+  })
+
+  it('treats Return as a newline on a phone: only the send button sends', async () => {
+    // The platform is read once at load: load the view afresh under an iPhone's agent.
+    const agent = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (iPhone)')
+    vi.resetModules()
+    const [{ AgentChatView: PhoneView }, context, store] = await Promise.all([
+      import('@/features/agent/chat/agent-chat-view'),
+      import('@/features/workspace/stores/workspace-context'),
+      import('@/features/workspace/stores/workspace-store'),
+    ])
+    agent.mockRestore()
+    initialMessages = [message(1, 'assistant', 'earlier turn')]
+    const props = baseProps()
+    render(
+      <context.WorkspaceStoreContext.Provider value={store.createWorkspaceStore(props.wsId)}>
+        <PhoneView {...props} working={false} />
+      </context.WorkspaceStoreContext.Provider>,
+    )
+    const input = await composer()
+    fireEvent.change(input, { target: { value: 'hello' } })
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false })
+    expect(screen.queryByTestId('queued-prompt')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
+    expect(screen.getByTestId('queued-prompt')).toHaveTextContent('hello')
+  })
+
+  it('shows a prompt already handed to the daemon as working, not as queued', async () => {
+    initialMessages = [message(1, 'assistant', 'earlier turn')]
+    localStorage.setItem(
+      promptQueueStorageKey('w1', 'c1'),
+      JSON.stringify({
+        version: 1,
+        items: [
+          {
+            clientRequestId: 'dd068894-7cf0-4a2c-aa7c-c08531805bb0',
+            text: 'on its way',
+            state: 'awaiting_turn',
+            createdAt: '2026-08-16T00:00:00.000Z',
+            baselineSequence: 1,
+          },
+        ],
+      }),
+    )
+    setup()
+    expect(await screen.findByTestId('agent-activity-strip')).toBeInTheDocument()
+    expect(screen.queryByText(/\bqueued\b/)).not.toBeInTheDocument()
   })
 
   it('keeps Shift+Enter multiline content in the composer and sends it as one prompt', async () => {
@@ -1761,6 +1827,18 @@ describe('AgentChatView model + effort selection', () => {
     )
   })
 
+  // One chat, one name: the blank document's handle and the composer's underbar
+  // are the same control and must say the same model for the same state.
+  it('names the launch model on the blank document handle too', async () => {
+    initialMessages = []
+    setup({ providers: selectable, model: '', effort: '', live: true, launchModel: 'gpt-5.6-luna' })
+    await composer()
+
+    expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
+      'Agent: Codex, model gpt-5.6-luna, effort Default',
+    )
+  })
+
   // A parallel change makes codex's model list DYNAMICALLY discovered, so
   // `models` can be legitimately empty even with `modelSelect` declared —
   // still discovering, not "this provider has no catalogue". Must render
@@ -1894,6 +1972,32 @@ describe('AgentChatView model + effort selection', () => {
       model: { id: 'claude-sonnet-4-5', displayName: 'Claude Sonnet 4.5' },
     } satisfies AgentTelemetry)
     setup({ providers: selectable, model: '', effort: '' })
+    await composer()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-selection-picker')).toHaveTextContent('Claude Sonnet 4.5'),
+    )
+    expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
+      'Agent: Codex, model Default (reported Claude Sonnet 4.5), effort Default',
+    )
+  })
+
+  // One chat, one name for the model: the raw launch id replaced the report's
+  // display name the moment a runner went live, so the chip flickered between two.
+  it('keeps the reported display name when a live runner reports its raw launch id', async () => {
+    initialMessages = [message(1, 'assistant', 'reply')]
+    telemetryFn.mockResolvedValue({
+      observedAt: '2026-09-23T00:00:00Z',
+      source: 'callback',
+      model: { id: 'claude-sonnet-4-5', displayName: 'Claude Sonnet 4.5' },
+    } satisfies AgentTelemetry)
+    setup({
+      providers: selectable,
+      model: '',
+      effort: '',
+      live: true,
+      launchModel: 'claude-sonnet-4-5',
+    })
     await composer()
 
     await waitFor(() =>

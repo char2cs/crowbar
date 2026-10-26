@@ -144,6 +144,8 @@ func (f *fakeTermForAttach) CreateCommand(
 	return id, nil
 }
 
+func (f *fakeTermForAttach) Write(context.Context, string, []byte) error { return nil }
+
 func (f *fakeTermForAttach) TerminateGraceful(_ context.Context, sessionID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

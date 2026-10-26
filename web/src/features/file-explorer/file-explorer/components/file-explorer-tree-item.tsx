@@ -67,7 +67,7 @@ export function DirectoryChevron({ isDir, isExpanded }: { isDir: boolean; isExpa
     <span
       aria-hidden="true"
       data-testid="file-tree-chevron"
-      className="flex size-3.5 shrink-0 items-center justify-center"
+      className="file-tree-chevron flex size-3.5 shrink-0 items-center justify-center"
     >
       {isDir && (
         <CaretRight

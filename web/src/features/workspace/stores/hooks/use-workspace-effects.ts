@@ -1,20 +1,8 @@
-import { useSyncExternalStore } from 'react'
 import { isHomeWorkspace } from '@/lib/workspace-scope-url'
-import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
+import { useOwningChatId } from '@/lib/workspace-scope'
 import { useWorkspaceThreadsStream } from './use-workspace-threads-stream'
 import { useWorkspaceFileTree } from './use-workspace-file-tree'
 import { useWorkspaceGit } from './use-workspace-git'
-
-/**
- * `getOwningChatId(wsId)` as React state: the sidebar records it asynchronously,
- * and the chat-scoped routes throw without it, so effects must re-run once it lands.
- */
-function useOwningChatId(wsId: string): string | null {
-  return useSyncExternalStore(
-    (onChange) => subscribeToWorkspaceScope(wsId, onChange),
-    () => getOwningChatId(wsId),
-  )
-}
 
 /**
  * A workspace's data feeds: its file tree, git status and review threads, each

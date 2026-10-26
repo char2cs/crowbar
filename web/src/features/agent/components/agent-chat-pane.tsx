@@ -14,6 +14,7 @@ import {
   switchToNative,
   switchToTerminal,
 } from '@/features/agent/api/agent-api'
+import { useAnswerTerminalWait } from '@/features/agent/hooks/use-answer-terminal-wait'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { AGENT_CYCLE_PROVIDER, AGENT_TOGGLE_VIEW_MODE } from '@/features/keymaps/registry'
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
@@ -24,6 +25,7 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { usePaneProviders } from '@/features/agent/hooks/use-pane-providers'
 import { usePaneSession } from '@/features/agent/hooks/use-pane-session'
+import { useChatAttachment } from '@/features/agent/hooks/use-chat-attachment'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import {
   SPLIT_MIN_HALF_PX,
@@ -40,6 +42,7 @@ import {
 import { AgentChatView, type AgentChatViewHandle } from '@/features/agent/chat/agent-chat-view'
 import { AgentTerminalSurface } from '@/features/agent/terminal/agent-terminal-surface'
 import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
+import { IS_MOBILE } from '@/utils/platform'
 
 // ── The split view's geometry ─────────────────────────────────────────────
 //
@@ -170,6 +173,7 @@ export function AgentChatPaneBody({
   // The chat this pane is SHOWING: my runner's chat if it still has one (it moved, and
   // the tab follows), else the chat the tab was pointed at (which may be dormant).
   const shownChatId = runnerChatId || chatId
+  useChatAttachment(wsId, shownChatId)
 
   // Has an authoritative list ever landed? That is what turns `!known` from
   // "not yet" into "not in it" — see the resolve effect below.
@@ -230,6 +234,8 @@ export function AgentChatPaneBody({
   // every reseed that rebuilt it, for a value that had not changed.
   const waitKind = useStore(store, (s) => s.agentChats.terminalWaits[shownChatId]?.kind)
   const waiting = waitKind !== undefined
+  const waitAnswers = useStore(store, (s) => s.agentChats.terminalWaits[shownChatId]?.answers)
+  const answerTerminalWait = useAnswerTerminalWait(wsId, shownChatId)
 
   // Prompts the daemon has reported as delivered-and-over without a turn. The
   // composer resolves a pending item when its text turns up in the ledger, and for
@@ -310,7 +316,7 @@ export function AgentChatPaneBody({
   // The two layout divs whose empty space belongs to the terminal, and the terminal's
   // own imperative handle — see focusTerminalFromEmptySpace.
   const rootRef = useRef<HTMLDivElement>(null)
-  const terminalApiRef = useRef<{ focus: () => void } | null>(null)
+  const terminalApiRef = useRef<{ focus: () => void; send: (data: string) => void } | null>(null)
 
   // The split's own three boxes: the container that defines 100%, and the two
   // halves PaneSash mutates imperatively during a drag. They are the SAME divs
@@ -764,6 +770,8 @@ export function AgentChatPaneBody({
       kind={waitKind ?? ''}
       providerLabel={providers.find((p) => p.id === activeProviderId)?.displayName ?? ''}
       onOpenTerminal={openTerminalFromBanner}
+      answers={waitAnswers}
+      onAnswer={answerTerminalWait}
     />
   ) : revivingBannerShown && revival ? (
     <div data-testid="agent-reviving-banner">
@@ -865,6 +873,8 @@ export function AgentChatPaneBody({
           terminal keeps the full wrapped width and all four gutters. */}
       <div
         ref={columnRef}
+        // The phone's sidebar is native: no neighbour to keep the left gutter from.
+        data-touch={IS_MOBILE || undefined}
         className={cn(
           // The scope shared controls are styled under. The chat's own stylesheet
           // is scoped to `.agent-chat`, which the TERMINAL surface is not inside —
@@ -876,7 +886,7 @@ export function AgentChatPaneBody({
           // Pure chat keeps only its LEFT gutter — see above — dropping the
           // top and right ones this presentation would otherwise share with
           // terminal/split.
-          splitting || presentation !== 'chat' ? 'px-4 pt-4' : 'pl-4',
+          splitting || presentation !== 'chat' ? 'px-4 pt-4' : 'pl-4 data-touch:pl-0',
         )}
       >
         <div
@@ -1001,6 +1011,7 @@ export function AgentChatPaneBody({
               }}
               terminalWaiting={waiting}
               terminalWaitKind={waitKind ?? ''}
+              terminalWaitAnswers={waitAnswers}
               headerClearancePx={headerClearancePx}
               transcriptHeaderClearancePx={transcriptHeaderClearancePx}
               blankSignpost={blankSignpost}

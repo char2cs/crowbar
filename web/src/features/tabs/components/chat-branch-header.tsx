@@ -1,25 +1,9 @@
-import { ChatsCircle, GitBranch } from '@phosphor-icons/react'
 import { useState } from 'react'
-import { FlickerSpinner } from '@/components/ui/flicker-spinner'
+import { CHAT_TITLE_TEXT } from '@/components/ui/chat-title-text'
 import { performRenameChat } from '@/components/sidebar/lib/row-actions'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
-import { ProjectIconMark } from '@/components/layout/project-icon-mark'
-import { RepoIconMark } from '@/components/layout/repo-icon-mark'
-import { formatChangeCount } from '@/components/layout/format-change-count'
-import {
-  ROW_GLYPH_BOX,
-  ROW_SUBLABEL,
-  ROW_SUBLABEL_ADD,
-  ROW_SUBLABEL_DEL,
-} from '@/components/layout/workspace-row-base'
-import { CHAT_TITLE_PENDING_LABEL, useChatTitle } from '@/features/agent/hooks/use-chat-title'
-import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
-import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
-import { dataOf } from '@/lib/loadable'
-import { useHomeTreeStore, type HomeTree } from '@/lib/store/home-tree'
-import { useProjectDataStore } from '@/lib/store/projects'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import { cn } from '@/lib/utils'
+import { useChatBranchHeaderModel } from '@/features/tabs/hooks/use-chat-branch-header-model'
+import { ChatBranchHeaderView } from './chat-branch-header-view'
 
 interface ChatBranchHeaderProps {
   chatId: string
@@ -47,59 +31,20 @@ interface ChatBranchHeaderProps {
  * a chat's name has one write path regardless of which surface edits it.
  */
 export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderProps) {
-  // `null` = this store has no record for the chat — a gap, not a name, so the
-  // header shows the pending mark and offers no rename (there is no current
-  // title to edit from).
-  const title = useChatTitle(chatId)
-  const working = useWorkspaceStoreContext((s) => s.agentChats.working[chatId] ?? false)
-  const repo = useSidebarStore((s) =>
-    wsId ? (s.repos.find((r) => r.workspaces.some((w) => w.id === wsId)) ?? null) : null,
-  )
-  const workspace = repo?.workspaces.find((w) => w.id === wsId) ?? null
-  // A project-home chat rides no repo (home-tree.ts), so the chat's own
-  // project id comes from the home tree that lists it, never from `wsId`.
-  const homeProjectId = useHomeTreeStore((s) => homeProjectIdOf(s.trees, chatId))
-  const project = useProjectDataStore((s) =>
-    homeProjectId ? (dataOf(s.data)?.find((p) => p.id === homeProjectId) ?? null) : null,
-  )
-  // A thread owns no branch — it runs on the one its parent owns — so it gets
-  // the bubble, never the branch mark, exactly as `RowGlyph` (sidebar-row.tsx)
-  // already draws it in the tree. `wsId` above cannot answer this: a thread
-  // inherits its parent's workspace id.
-  const isThread = useChatIsThread(chatId)
+  const model = useChatBranchHeaderModel(chatId, wsId)
   const [renaming, setRenaming] = useState(false)
-
-  const routed = workspace?.branch ? workspace : null
-  const added = workspace?.added ?? 0
-  const deleted = workspace?.deleted ?? 0
+  // A null title is a gap with nothing to edit from, so it offers no rename.
+  const title = model.title
 
   return (
-    <div
-      data-testid="chat-branch-header"
-      className={cn('flex items-center gap-2 text-[13px]', className)}
+    <ChatBranchHeaderView
+      model={model}
+      className={className}
       onDoubleClick={() => {
         if (title !== null) setRenaming(true)
       }}
-    >
-      {routed && repo ? (
-        <span data-testid="chat-branch-header-repo-icon" className="flex shrink-0 items-center">
-          <RepoIconMark repo={repo} size="xl" />
-        </span>
-      ) : project && !routed ? (
-        <span data-testid="chat-branch-header-project-icon" className="flex shrink-0 items-center">
-          <ProjectIconMark project={project} size="xl" />
-        </span>
-      ) : (
-        <KindGlyph
-          working={working}
-          isThread={isThread}
-          className="size-5"
-          iconClassName="size-[18px]"
-        />
-      )}
-
-      <span className="flex min-w-0 flex-1 flex-col justify-center">
-        {renaming && title !== null ? (
+      titleSlot={
+        renaming && title !== null ? (
           <InlineRenameInput
             defaultValue={title}
             className={CHAT_TITLE_TEXT}
@@ -109,141 +54,8 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
             }}
             onCancel={() => setRenaming(false)}
           />
-        ) : (
-          <ChatTitle title={title} className="truncate" />
-        )}
-        {project && !routed && (
-          <span className={cn(ROW_SUBLABEL, 'flex items-center gap-1')}>
-            <KindGlyph
-              working={working}
-              isThread={isThread}
-              className="size-[13px]"
-              iconClassName="size-[13px]"
-            />
-            <span data-testid="chat-branch-header-route" className="min-w-0 truncate">
-              {project.name}
-            </span>
-          </span>
-        )}
-        {routed && (
-          <span className={cn(ROW_SUBLABEL, 'flex items-center gap-1')}>
-            {repo && (
-              <KindGlyph
-                working={working}
-                isThread={isThread}
-                className="size-[13px]"
-                iconClassName="size-[13px]"
-              />
-            )}
-            <WorkspaceRoute
-              repoName={repo?.name}
-              parentBranch={routed.parentBranch}
-              branch={routed.branch}
-            />
-            {(added > 0 || deleted > 0) && (
-              <span className="shrink-0 whitespace-pre">
-                {' '}
-                {added > 0 && <span className={ROW_SUBLABEL_ADD}>+{formatChangeCount(added)}</span>}
-                {added > 0 && deleted > 0 && ' '}
-                {deleted > 0 && (
-                  <span className={ROW_SUBLABEL_DEL}>-{formatChangeCount(deleted)}</span>
-                )}
-              </span>
-            )}
-          </span>
-        )}
-      </span>
-    </div>
-  )
-}
-
-/** The chat-kind mark (or the working spinner). Where it sits is the caller's
- *  call: left slot when there is no repo to show, else leading the route. */
-function KindGlyph({
-  working,
-  isThread,
-  className,
-  iconClassName,
-}: {
-  working: boolean
-  isThread: boolean
-  className: string
-  iconClassName: string
-}) {
-  return (
-    <span data-testid="chat-branch-header-glyph" className={cn(ROW_GLYPH_BOX, className)}>
-      {working ? (
-        <FlickerSpinner className={iconClassName} />
-      ) : isThread ? (
-        <ChatsCircle
-          data-testid="chat-branch-header-chat-icon"
-          className={cn(iconClassName, 'text-muted-foreground')}
-          weight="regular"
-        />
-      ) : (
-        <GitBranch
-          data-testid="chat-branch-header-branch-icon"
-          className={cn(iconClassName, 'text-muted-foreground')}
-        />
-      )}
-    </span>
-  )
-}
-
-function homeProjectIdOf(trees: Record<string, HomeTree>, chatId: string): string | null {
-  for (const projectId of Object.keys(trees)) {
-    if (trees[projectId].chats.some((c) => c.id === chatId)) return projectId
-  }
-  return null
-}
-
-const ROUTE_SEPARATOR = <span className="shrink-0">/</span>
-
-/** `repo / parent / branch` on one line. The parent is the daemon-resolved fork
- *  parent's branch (`Workspace.parentBranch`); the leading segments give up
- *  their width first so the branch, the one that names this chat, stays legible. */
-function WorkspaceRoute({
-  repoName,
-  parentBranch,
-  branch,
-}: {
-  repoName: string | undefined
-  parentBranch: string | undefined
-  branch: string
-}) {
-  const parent = parentBranch && parentBranch !== branch ? parentBranch : null
-  return (
-    <span data-testid="chat-branch-header-route" className="flex min-w-0 items-center">
-      {repoName && (
-        <>
-          <span className="min-w-0 shrink-[1000] truncate">{repoName}</span>
-          {ROUTE_SEPARATOR}
-        </>
-      )}
-      {parent && (
-        <>
-          <span className="min-w-0 shrink-[1000] truncate">{parent}</span>
-          {ROUTE_SEPARATOR}
-        </>
-      )}
-      <span className="min-w-0 truncate">{branch}</span>
-    </span>
-  )
-}
-
-// Shared with the rename input so entering edit mode never changes the text.
-const CHAT_TITLE_TEXT = 'font-heading text-[17px] leading-5 font-normal tracking-normal'
-
-/** The name line. A `null` title is the store's gap, drawn as the pending mark
- *  and marked as such, never as a chat that happens to be untitled. */
-function ChatTitle({ title, className }: { title: string | null; className: string }) {
-  return (
-    <span
-      data-testid="chat-branch-header-title"
-      data-title-pending={title === null ? 'true' : undefined}
-      className={cn(CHAT_TITLE_TEXT, className)}
-    >
-      {title ?? CHAT_TITLE_PENDING_LABEL}
-    </span>
+        ) : undefined
+      }
+    />
   )
 }

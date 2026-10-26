@@ -11,7 +11,7 @@ import type { PanePosition } from '@/features/panes/types/pane'
 // are written against the macOS value, so force it regardless of whatever OS
 // the test happens to run on (jsdom's UA bakes in the CI runner's own host
 // platform, which is Linux on GitHub Actions).
-vi.mock('@/utils/platform', () => ({ IS_MAC: true }))
+vi.mock('@/utils/platform', () => ({ IS_MAC: true, IS_MOBILE: false, APPLE_KEYBOARD: true }))
 
 const full: PanePosition = { atLeft: true, atTop: true, atRight: true, atBottom: true }
 const notAtEdge: PanePosition = { atLeft: false, atTop: false, atRight: false, atBottom: false }

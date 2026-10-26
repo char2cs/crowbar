@@ -10,16 +10,22 @@ import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-
 
 let buildBadgeOverride: string = 'auto'
 let showBuildReadout = true
+const chrome = vi.hoisted(() => ({ phone: false }))
+vi.mock('@/lib/native-chrome', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/native-chrome')>()),
+  hasNativeChrome: () => chrome.phone,
+}))
 vi.mock('@/features/settings/store', () => ({
   useSettingsStore: (sel: (s: unknown) => unknown) =>
     sel({ settings: { buildBadgeOverride, showBuildReadout } }),
 }))
 
-import { BuildReadout } from '@/components/layout/build-readout'
+import { BuildReadout, NativeReadoutView } from '@/components/layout/build-readout'
 
 beforeEach(() => {
   buildBadgeOverride = 'beta'
   showBuildReadout = true
+  chrome.phone = false
   resetConnectionState()
   resetHostWorld()
 })
@@ -52,6 +58,12 @@ describe('BuildReadout', () => {
 
   it('renders nothing when the build readout is turned off', () => {
     showBuildReadout = false
+    const { container } = render(<BuildReadout />)
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('leaves the phone’s readout to its sidebar page', () => {
+    chrome.phone = true
     const { container } = render(<BuildReadout />)
     expect(container).toBeEmptyDOMElement()
   })
@@ -130,5 +142,28 @@ describe('BuildReadout', () => {
     const { container } = render(<BuildReadout />)
     const readout = container.firstElementChild as HTMLElement
     expect(readout).toHaveAttribute('aria-hidden', 'true')
+  })
+})
+
+describe('NativeReadoutView', () => {
+  it('sets the shell’s resolved readout the way the desktop sets its own', () => {
+    const { container } = render(
+      <NativeReadoutView
+        readout={{
+          lines: {
+            build: 'beta 0.0.0',
+            net: 'net DOWN',
+            reconnects: 'rc1',
+            stats: '60fps 8ms',
+            netWarn: true,
+          },
+          net: 'down',
+          hosts: [{ name: 'lab', net: 'repair' }],
+        }}
+      />,
+    )
+    expect(lines(container)).toEqual(['beta 0.0.0  net DOWN  rc1  lab repair', '60fps 8ms'])
+    expect(netState(container)).toBe('down')
+    expect(hostStates(container)).toEqual(['repair'])
   })
 })

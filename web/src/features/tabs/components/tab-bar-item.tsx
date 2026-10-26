@@ -1,19 +1,10 @@
-import {
-  GitBranch,
-  Globe,
-  GitPullRequest,
-  Package,
-  Plus,
-  PushPin as Pin,
-  TerminalWindow as Terminal,
-  X,
-} from '@phosphor-icons/react'
+import { PushPin as Pin, X } from '@phosphor-icons/react'
 import { memo, useCallback } from 'react'
 import type { RefCallback } from 'react'
-import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { sidebarSurfaceOf } from '@/features/panes/lib/sidebar-surface'
 import { sameRenderedBuffer } from './tab-bar-item-utils'
+import { TabBufferIcon } from './tab-buffer-icon'
 import { Button } from '@/components/ui/button'
 import { Tab } from '@/components/ui/tabs'
 import { WithTooltip } from '@/components/ui/tooltip'
@@ -156,26 +147,7 @@ const TabBarItem = memo(function TabBarItem({
             onAuxClick={handleAuxClick}
           >
             <div className="grid size-3.5 shrink-0 place-content-center">
-              {buffer.path === 'extensions://marketplace' ? (
-                <Package className="text-muted-foreground" />
-              ) : buffer.type === 'branchReview' ? (
-                <GitPullRequest className="text-muted-foreground" />
-              ) : buffer.type === 'commitDiff' ? (
-                <GitBranch className="text-muted-foreground" />
-              ) : buffer.type === 'terminal' ? (
-                <Terminal className="text-muted-foreground" />
-              ) : buffer.type === 'browser' ? (
-                <Globe className="text-muted-foreground" />
-              ) : buffer.type === 'newTabPage' ? (
-                <Plus className="text-muted-foreground" />
-              ) : (
-                <FileExplorerIcon
-                  fileName={buffer.name}
-                  isDir={false}
-                  className="text-muted-foreground"
-                  size={14}
-                />
-              )}
+              <TabBufferIcon buffer={buffer} />
             </div>
             <span
               className={cn(

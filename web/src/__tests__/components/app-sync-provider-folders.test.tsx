@@ -460,7 +460,7 @@ describe('chat rows on the same reseed loop', () => {
     })
     await settle()
 
-    expect(fetchRepoChats).toHaveBeenCalledWith('p1', 'r1')
+    expect(fetchRepoChats).toHaveBeenCalledWith('p1', 'r1', expect.any(Function))
     expect(useSidebarStore.getState().repos.find((r) => r.id === 'r1')?.chats).toEqual([
       {
         id: 'c1',

@@ -94,11 +94,13 @@ func (h *Handlers) Stop(
 	libs.WriteAccepted(ctx)
 }
 
-// Close handles POST .../repos/:repoId/chats/:id/close: the last view of the
-// chat closed, so its CLI is retired even mid-turn (Stop interrupts in place and
-// may leave it running). The chat entry stays, dormant and resumable. 404s (via
+// Kill handles POST .../repos/:repoId/chats/:id/kill: the explicit force-kill of
+// the chat's CLI, even mid-turn (Stop interrupts in place and may leave it
+// running). The chat entry stays, dormant and resumable. 404s (via
 // requireChatInWorkspace) on an unknown id.
-func (h *Handlers) Close(
+//
+// Permission: any paired client may kill any chat's agent, viewers or not.
+func (h *Handlers) Kill(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
@@ -108,7 +110,7 @@ func (h *Handlers) Close(
 		return
 	}
 
-	if err := h.runners.CloseChat(rctx, id); err != nil {
+	if err := h.runners.KillChat(rctx, id); err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
 		return

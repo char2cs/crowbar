@@ -13,7 +13,7 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { selectChatHasView } from '@/features/panes/lib/view-selectors'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
-import { compareSidebarRows } from '@/components/sidebar/lib/row-order'
+import { sidebarRowTree } from '@/components/sidebar/lib/row-tree'
 
 interface SidebarTreeProps {
   /** One project's rows, flat, parentId-linked. */
@@ -62,7 +62,7 @@ interface SidebarTreeProps {
  * `readChatWorking` are the watch-don't-create pair: no store is created, and
  * the row re-binds to the real one the moment that workspace mounts.
  */
-function SidebarTreeRow({
+export function SidebarTreeRow({
   row,
   ...rest
 }: { row: SidebarRowType } & Omit<React.ComponentProps<typeof SidebarRow>, 'row'>) {
@@ -132,23 +132,7 @@ export function SidebarTree({
 }: SidebarTreeProps) {
   const collapsed = useSidebarStore((s) => s.collapsedChatRows)
 
-  const ids = new Set(rows.map((r) => r.id))
-  const childrenByParent = new Map<string, SidebarRowType[]>()
-  const roots: SidebarRowType[] = []
-  for (const row of rows) {
-    // A row whose parent isn't in this project's own set is a root too —
-    // defensive against a dangling edge rather than silently dropping it.
-    const parentId = row.parentId !== null && ids.has(row.parentId) ? row.parentId : null
-    if (parentId === null) {
-      roots.push(row)
-      continue
-    }
-    const siblings = childrenByParent.get(parentId)
-    if (siblings) siblings.push(row)
-    else childrenByParent.set(parentId, [row])
-  }
-  roots.sort(compareSidebarRows)
-  for (const siblings of childrenByParent.values()) siblings.sort(compareSidebarRows)
+  const { roots, childrenByParent } = sidebarRowTree(rows)
 
   // Single-row drags only — the new unified tree has no multiselect yet
   // (Task 8 left `sidebar-selection.ts` orphaned), so a drag always carries

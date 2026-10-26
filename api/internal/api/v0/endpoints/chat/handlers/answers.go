@@ -57,6 +57,26 @@ func (h *Handlers) AnswerChoice(ctx *gin.Context) {
 	libs.WriteMutationOK(ctx, http.StatusOK, ctx.Param("choiceId"))
 }
 
+func (h *Handlers) AnswerTerminalWait(ctx *gin.Context) {
+	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
+	if !ok {
+		return
+	}
+	var body struct {
+		AnswerID string `json:"answerId"`
+	}
+	if err := ctx.ShouldBindJSON(&body); err != nil || body.AnswerID == "" {
+		libs.WriteErr(ctx, http.StatusBadRequest, "answerId is required")
+		return
+	}
+	if err := h.answers.AnswerTerminalWait(ctx.Request.Context(), chat.ID, body.AnswerID); err != nil {
+		status, message := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, message)
+		return
+	}
+	libs.WriteMutationOK(ctx, http.StatusOK, chat.ID)
+}
+
 func (h *Handlers) AwaitHookAnswer(ctx *gin.Context) {
 	var body struct {
 		DeliveryID string `json:"delivery_id"`

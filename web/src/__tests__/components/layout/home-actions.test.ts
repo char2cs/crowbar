@@ -42,7 +42,10 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 }))
 
 import { handleCreate } from '@/components/layout/create-actions'
-import { handleCreateHomeThread } from '@/components/layout/home-actions'
+import { handleCreateHomeThread as openHomeDraft } from '@/components/layout/home-actions'
+import { promoteDraftThread } from '@/components/layout/draft-promote'
+import { FIRST_PROMPT, draftPaneId } from '@/__tests__/__fixtures__/draft-thread'
+import { loadPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
@@ -78,6 +81,7 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  resetWindowPaneStoreForTests()
   useSidebarStore.setState(getInitialState())
   useRemovalTrayStore.setState(getInitialRemovalState())
   useHomeTreeStore.setState({ trees: {} })
@@ -216,6 +220,31 @@ describe('a project-home chat row resolves Thread through its home workspace, an
 // which resolves its parentId against the repo-scoped sidebar store and has
 // no notion of project home at all. This is the fix for the regression where
 // that button landed threads on a REPO's home row instead of the project's.
+/** New thread: opens the blank draft pane. No chat exists yet. */
+async function openThreadDraft(
+  projectId: string,
+  homeWorkspaceId: string,
+  navigate: Parameters<typeof openHomeDraft>[2],
+): Promise<void> {
+  windowPaneStore.setState({ activeProjectId: projectId })
+  await openHomeDraft(projectId, homeWorkspaceId, navigate)
+}
+
+/** The first send from the open draft. */
+function sendDraft(): Promise<void> {
+  return promoteDraftThread(draftPaneId()!, FIRST_PROMPT)
+}
+
+/** What a person does: open the New thread draft, then send its first message. */
+async function handleCreateHomeThread(
+  projectId: string,
+  homeWorkspaceId: string,
+  navigate: Parameters<typeof openHomeDraft>[2],
+): Promise<void> {
+  await openThreadDraft(projectId, homeWorkspaceId, navigate)
+  await sendDraft()
+}
+
 describe('handleCreateHomeThread', () => {
   beforeEach(() => {
     resetWindowPaneStoreForTests()
@@ -275,21 +304,59 @@ describe('handleCreateHomeThread', () => {
     expect(navigate).not.toHaveBeenCalled()
   })
 
-  // The tree foot's New thread is the ONE create path with no
-  // `createInFlight` key and no pending row: nothing on screen changes until
-  // the round trip lands, so a second click mints a second chat — the exact
-  // double-mint `handleCreate`'s own guard exists to stop (its doc: "a user
-  // who saw nothing happen clicked again").
-  it('a second click while the first create is still in flight mints nothing extra', async () => {
+  // New thread opens a blank draft and creates nothing: the chat, its sidebar
+  // row and its backend record all wait for the first send.
+  it('opens a draft pane on New thread without creating a chat or a sidebar row', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+
+    await openThreadDraft('p1', 'home-ws-1', vi.fn())
+
+    expect(draftPaneId()).toBeDefined()
+    expect(createChat).not.toHaveBeenCalled()
+    expect(usePendingCreatesStore.getState().entries).toEqual([])
+  })
+
+  it('leaves nothing behind when the draft is abandoned', async () => {
+    await openThreadDraft('p1', 'home-ws-1', vi.fn())
+
+    windowPaneStore.getState().paneActions.closePane(draftPaneId()!)
+
+    expect(createChat).not.toHaveBeenCalled()
+    expect(usePendingCreatesStore.getState().entries).toEqual([])
+    expect(draftPaneId()).toBeUndefined()
+  })
+
+  it('turns the draft into the chat in the same pane and queues its first prompt', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    await openThreadDraft('p1', 'home-ws-1', vi.fn())
+    const paneId = draftPaneId()!
+
+    await sendDraft()
+
+    expect(windowPaneStore.getState().panes[paneId]?.chatId).toBe('chat-1')
+    expect(loadPromptQueue('home-ws-1', 'chat-1')).toMatchObject([
+      { text: FIRST_PROMPT.text, state: 'queued' },
+    ])
+  })
+
+  // A person who saw nothing happen taps send again: one chat, not two.
+  it('a second send while the first create is still in flight mints nothing extra', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
     let settle!: (id: string) => void
     createChat.mockImplementationOnce(() => new Promise<string>((r) => (settle = r)))
+    await openThreadDraft('p1', 'home-ws-1', vi.fn())
 
-    const first = handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
-    const second = handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
+    const first = sendDraft()
+    const second = sendDraft()
     settle('chat-1')
     await Promise.all([first, second])
 
@@ -312,7 +379,8 @@ describe('handleCreateHomeThread', () => {
     let settle!: (id: string) => void
     createChat.mockImplementationOnce(() => new Promise<string>((r) => (settle = r)))
 
-    const done = handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
+    await openThreadDraft('p1', 'home-ws-1', vi.fn())
+    const done = sendDraft()
 
     const [entry] = usePendingCreatesStore.getState().entries
     expect(entry).toMatchObject({
@@ -446,7 +514,7 @@ describe('a project-home thread on an install that has paired a remote host', ()
         { status: 'error', error: row },
       ])
       expect(toastError).toHaveBeenCalledExactlyOnceWith(...toast)
-      expect(navigate).not.toHaveBeenCalled()
+      expect(draftPaneId()).toBeDefined()
     },
   )
 
@@ -458,7 +526,8 @@ describe('a project-home thread on an install that has paired a remote host', ()
     let fail!: (reason: Error) => void
     listGlobalProviders.mockReturnValueOnce(new Promise((_, reject) => (fail = reject)))
 
-    const click = handleCreateHomeThread('p-remote', 'home-remote', vi.fn())
+    await openThreadDraft('p-remote', 'home-remote', vi.fn())
+    const click = sendDraft()
     act(() => useHostConfigStore.getState().removeHost('host-1'))
     fail(new Error('gone'))
     await click

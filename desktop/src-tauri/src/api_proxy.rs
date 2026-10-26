@@ -1,4 +1,5 @@
 use std::future::Future;
+#[cfg(desktop)]
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,10 +10,12 @@ use hyper_util::rt::TokioIo;
 use tauri::http;
 use tauri::{Manager, Runtime, UriSchemeContext, UriSchemeResponder};
 use tokio::io::{AsyncRead, AsyncWrite};
+#[cfg(desktop)]
 use tokio::net::UnixStream;
 
 use crate::host_tokens::TokenStore;
 use crate::hosts::HostRegistry;
+#[cfg(desktop)]
 use crate::sidecar::SidecarHandle;
 
 pub(crate) mod pairing;
@@ -47,10 +50,15 @@ const PROXY_TIMEOUT: Duration = Duration::from_secs(300);
 ///
 /// The first second polls every 25ms so a daemon that binds within a few
 /// hundred ms is reached promptly; the exponential tail covers a slow start.
+#[cfg(desktop)]
 const CONNECT_ATTEMPTS: u32 = CONNECT_FAST_STEPS + 7;
+#[cfg(desktop)]
 const CONNECT_FAST_STEPS: u32 = 40;
+#[cfg(desktop)]
 const CONNECT_FAST_DELAY: Duration = Duration::from_millis(25);
+#[cfg(desktop)]
 const CONNECT_RETRY_BASE: Duration = Duration::from_millis(100);
+#[cfg(desktop)]
 const CONNECT_RETRY_CAP: Duration = Duration::from_secs(1);
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -58,6 +66,7 @@ type BoxError = Box<dyn std::error::Error + Send + Sync>;
 /// Marks a response that is the PROXY's, not the daemon's; the value says why.
 pub(crate) const PROXY_HEADER: &str = "x-crowbar-proxy";
 /// The local daemon socket: nothing was listening.
+#[cfg(desktop)]
 pub(crate) const DAEMON_UNAVAILABLE: &str = "daemon-unavailable";
 /// A remote host did not answer: refused, timed out, or dropped the handshake.
 pub(crate) const HOST_UNREACHABLE: &str = "host-unreachable";
@@ -109,10 +118,12 @@ fn readable_by(
     resp
 }
 
+#[cfg(desktop)]
 fn daemon_unavailable(msg: &str) -> http::Response<Vec<u8>> {
     proxy_error(503, DAEMON_UNAVAILABLE, msg)
 }
 
+#[cfg(desktop)]
 fn connect_retry_delay(attempt: u32) -> Duration {
     if attempt <= CONNECT_FAST_STEPS {
         return CONNECT_FAST_DELAY;
@@ -122,6 +133,7 @@ fn connect_retry_delay(attempt: u32) -> Duration {
 }
 
 /// Mirrors api.ts `isIdempotentRead`: mutations are never replayed.
+#[cfg(desktop)]
 fn is_idempotent_read(method: &http::Method) -> bool {
     matches!(*method, http::Method::GET | http::Method::HEAD)
 }
@@ -161,14 +173,7 @@ pub fn handle_request<R: Runtime>(
         // tells hyper's connection task to close and hand the descriptor back.
         let routed = async {
             match remote_host {
-                None => {
-                    forward(
-                        || state_app.state::<SidecarHandle>().socket_path(),
-                        request,
-                        |attempt| tokio::time::sleep(connect_retry_delay(attempt)),
-                    )
-                    .await
-                }
+                None => forward_local(&state_app, request).await,
                 Some(host_id) => {
                     remote::forward_remote(
                         &state_app.state::<HostRegistry>(),
@@ -195,12 +200,36 @@ pub fn handle_request<R: Runtime>(
     });
 }
 
+#[cfg(desktop)]
+async fn forward_local<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    request: http::Request<Vec<u8>>,
+) -> http::Response<Vec<u8>> {
+    forward(
+        || app.state::<SidecarHandle>().socket_path(),
+        request,
+        |attempt| tokio::time::sleep(connect_retry_delay(attempt)),
+    )
+    .await
+}
+
+/// The phone runs no daemon: only paired remote hosts answer.
+#[cfg(mobile)]
+async fn forward_local<R: Runtime>(
+    _app: &tauri::AppHandle<R>,
+    _request: http::Request<Vec<u8>>,
+) -> http::Response<Vec<u8>> {
+    error_response(503, "no local daemon on this device")
+}
+
 /// Remote pages in browser tabs must never reach a daemon API, local or remote:
 /// `routed` is never polled for them, so no connection is ever opened.
+#[cfg_attr(mobile, allow(unused_variables))] // reason: only the desktop browser pane is exempt
 async fn serve<F>(webview_label: &str, routed: F) -> http::Response<Vec<u8>>
 where
     F: Future<Output = http::Response<Vec<u8>>>,
 {
+    #[cfg(desktop)]
     if crate::browser::exempt_from_app_guard(webview_label) {
         return error_response(403, "crowbar api is not available to browser tabs");
     }
@@ -210,6 +239,7 @@ where
 /// Connects to the daemon — re-reading the socket path each time, since it is
 /// published asynchronously — and relays the request. Only the CONNECT can be
 /// retried: a failure there proves the request never reached the daemon.
+#[cfg(desktop)]
 async fn forward<S, W, F>(
     socket: S,
     request: http::Request<Vec<u8>>,

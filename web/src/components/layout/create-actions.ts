@@ -14,6 +14,9 @@ import {
   type NavigateFn,
   type ResolvedRow,
 } from './open-actions'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { newDraftChatId } from '@/features/agent/lib/draft-chat'
+import { finishDraftThread, type DraftPrompt, type DraftSpec } from './draft-thread'
 import { startHomeRowThread } from './home-actions'
 import {
   createInFlight,
@@ -109,6 +112,7 @@ async function armFork(
   parentId: string,
   projectId: string,
   navigate: NavigateFn,
+  branchName?: string,
 ): Promise<void> {
   const inFlightKey = `workspace:${parentId}`
   if (createInFlight.has(inFlightKey)) return
@@ -201,6 +205,7 @@ async function armFork(
     workspaceId: null,
     ownsWorktree: true,
   })
+  if (branchName) confirmPendingCreateName(tempId, branchName)
 }
 
 /**
@@ -217,6 +222,8 @@ export async function handleCreate(
   /** The surface the new thread is created and landed on; undefined takes
    *  the user's default (`createSurfaceFor`). Never applies to a fork. */
   presentation?: LandingChatPresentation,
+  /** A fork's branch name, already asked for (the phone); otherwise it is named inline. */
+  branchName?: string,
 ): Promise<void> {
   const homeRow = resolveHomeRowScope(parentId)
   if (homeRow) {
@@ -236,7 +243,7 @@ export async function handleCreate(
   if (!projectId) return
 
   if (kind === 'workspace') {
-    return armFork(found, parentId, projectId, navigate)
+    return armFork(found, parentId, projectId, navigate, branchName)
   }
 
   // A thread runs in a real workspace: a `workspace` subject is one; a folder
@@ -248,6 +255,15 @@ export async function handleCreate(
       : (siblingRows.find((r) => r.id === subject.id)?.workspaceId ?? null)
   if (!wsId) {
     toast.error('Start a thread from a workspace row — a folder has none to run it in')
+    return
+  }
+  // A plain new thread on a workspace is a draft: no chat exists until its first send.
+  if (!chatRow && subject.kind === 'workspace' && presentation === undefined) {
+    const draftId = newDraftChatId()
+    if (!openChatInOwnView(draftId, wsId)) {
+      await navigateThenOpenChat(navigate, { projectId, repoId: repo.id, wsId }, draftId)
+    }
+    windowPaneStore.getState().paneActions.tagDraftThread(draftId, parentId)
     return
   }
   return startThread({
@@ -357,4 +373,22 @@ export function cancelPendingCreate(tempId: string): void {
  */
 function announceTreeChange(repoId: string): void {
   if (repoId) useFolderSignalStore.getState().bump(repoId)
+}
+
+/** Creates the chat a repo-workspace draft was waiting to become, with its first prompt. */
+export function promoteRepoDraft(draft: DraftSpec, prompt: DraftPrompt): Promise<void> {
+  const { projectId, workspaceId } = draft
+  const repoId = resolveRow(useSidebarStore.getState().repos, workspaceId)?.repo.id
+  const parentId = draft.parentId || workspaceId
+  return startThread({
+    inFlightKey: `draft:${draft.draftId}`,
+    projectId,
+    workspaceId,
+    parentId,
+    landed: (chatId) => waitForRow(chatHasLanded(chatId, parentId)),
+    onCreated: (chatId) => {
+      if (repoId) announceTreeChange(repoId)
+      finishDraftThread(draft, chatId, prompt)
+    },
+  })
 }

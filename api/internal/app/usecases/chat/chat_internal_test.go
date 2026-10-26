@@ -51,6 +51,8 @@ func (screenReadingCommander) CreateCommand(
 
 func (screenReadingCommander) TerminateGraceful(context.Context, string) error { return nil }
 
+func (screenReadingCommander) Write(context.Context, string, []byte) error { return nil }
+
 func (screenReadingCommander) SessionLive(context.Context, string) bool { return false }
 
 func (screenReadingCommander) Screen(string, uint64) (string, uint64, bool) {
@@ -468,6 +470,8 @@ func (terminalCommanderShape) CreateCommand(
 func (terminalCommanderShape) TerminateGraceful(_ context.Context, _ string) error {
 	return nil
 }
+
+func (terminalCommanderShape) Write(_ context.Context, _ string, _ []byte) error { return nil }
 
 func (terminalCommanderShape) SessionLive(_ context.Context, _ string) bool { return false }
 

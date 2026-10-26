@@ -9,7 +9,12 @@ import type { PaneSet } from './context'
 
 type RunnerActions = Pick<
   PaneActions,
-  'setPaneRunner' | 'retargetPane' | 'forgetChat' | 'placeRestoredMembers' | 'adoptBackgroundChat'
+  | 'setPaneRunner'
+  | 'tagDraftThread'
+  | 'retargetPane'
+  | 'forgetChat'
+  | 'placeRestoredMembers'
+  | 'adoptBackgroundChat'
 >
 
 /** What the daemon's chat and runner frames do to panes. */
@@ -19,6 +24,13 @@ export function createRunnerActions(set: PaneSet): RunnerActions {
       set((state) => {
         const pane = state.panes[paneId]
         if (pane && pane.runnerId !== runnerId) pane.runnerId = runnerId
+      })
+    },
+
+    tagDraftThread(chatId, parentId) {
+      set((state) => {
+        const paneId = chatPaneIndex(state.panes).get(chatId)
+        if (paneId) state.panes[paneId].draftParentId = parentId
       })
     },
 
@@ -34,6 +46,7 @@ export function createRunnerActions(set: PaneSet): RunnerActions {
         // The runner moved within its workspace; the pane's workspace was
         // fixed when its chat was opened (C3).
         taker.chatId = chatId
+        delete taker.draftParentId
         taker.runnerId = runnerId
       })
     },

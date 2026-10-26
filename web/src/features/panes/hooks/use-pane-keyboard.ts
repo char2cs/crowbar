@@ -29,7 +29,6 @@ import {
   TAB_NEW_TERMINAL,
   TAB_REOPEN_CLOSED,
 } from '@/features/keymaps/registry'
-import { requestClosePane } from '@/features/panes/lib/guarded-close'
 
 /** The pane whose editor area (pane-container.tsx's `data-editor-view`) holds focus. */
 function focusedEditorPaneId(): string | null {
@@ -205,7 +204,7 @@ export function usePaneKeyboard() {
             paneId,
           )
           if (scope.length > 1) {
-            requestClosePane(paneId)
+            state.paneActions.closePane(paneId)
           }
           return
         }

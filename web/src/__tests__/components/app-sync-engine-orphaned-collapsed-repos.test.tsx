@@ -178,7 +178,7 @@ describe('a repo the OLD build persisted as collapsed', () => {
     expect(endpoints).toContain('/v0/projects/p1/repos/r1/chats/ws')
     // The tree rows the SAME expanded repo draws are read too: no persisted
     // entry from the previous build can hide a repo's threads for good.
-    expect(fetchRepoChats).toHaveBeenCalledWith('p1', 'r1')
+    expect(fetchRepoChats).toHaveBeenCalledWith('p1', 'r1', expect.any(Function))
     expect(fetchFolders).toHaveBeenCalledWith('p1', 'r1')
   })
 })

@@ -164,6 +164,15 @@ export interface ChatSession {
  *  something wrong. */
 export interface AgentTerminalWait {
   kind: string
+  /** One-tap replies the provider's descriptor declares for this prompt. Absent
+   *  or empty means the terminal is the only way past it. */
+  answers?: AgentTerminalAnswer[]
+}
+
+export interface AgentTerminalAnswer {
+  id: string
+  /** The button text, from the descriptor. */
+  label: string
 }
 
 /** Crowbar's names for the prompts it recognises specifically. Anything else —
@@ -440,7 +449,9 @@ export function mapChat(c: AgentChat): AgentChat {
     // this chat), so it stays undefined rather than becoming a falsy object that
     // every reader would then have to interrogate. `kind` inside it IS grounded,
     // because an identified prompt and an unidentified one are both real answers.
-    terminalWait: c.terminalWait ? { kind: c.terminalWait.kind ?? '' } : undefined,
+    terminalWait: c.terminalWait
+      ? { kind: c.terminalWait.kind ?? '', answers: c.terminalWait.answers }
+      : undefined,
   }
 }
 
@@ -808,6 +819,21 @@ export async function answerChoice(
   )
 }
 
+/** Type the descriptor-declared reply into the prompt a chat's CLI is parked on.
+ *  Resolves once the keystrokes are written; the wait itself clears when the
+ *  daemon next sees the prompt gone. A 409 means it already has. */
+export async function answerTerminalWait(
+  wsId: string,
+  chatId: string,
+  answerId: string,
+): Promise<void> {
+  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(chatId)}/terminal-wait/answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answerId }),
+  })
+}
+
 /** Fetch one tool call's arguments or output. Returns null when retention has
  *  swept it, which is an ordinary outcome to render rather than an error. */
 export async function getToolPayload(
@@ -985,14 +1011,21 @@ export function createSurfaceFor(
 // provider priority/enabled is machine-level). The response is the freshly resolved
 // list (same enrichment + order as listProviders), so the caller reconciles from
 // server truth with no second fetch.
+// Given `hostId`, that remote host's daemon's set instead of the local one's.
 export async function updateProviderPreferences(
   prefs: ProviderPreference[],
+  hostId?: string,
 ): Promise<AgentProvider[]> {
-  const raw = await apiFetch<AgentProvider[]>(`/v0/settings/chat/providers`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ providers: prefs }),
-  })
+  const raw = await apiFetch<AgentProvider[]>(
+    `/v0/settings/chat/providers`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providers: prefs }),
+    },
+    undefined,
+    hostId,
+  )
   return (raw ?? []).map(mapProvider)
 }
 
@@ -1058,19 +1091,31 @@ export async function uploadDescriptor(file: File): Promise<DescriptorReport> {
   })
 }
 
-export async function getDefaultPermissionLevel(): Promise<PermissionLevel> {
-  const res = await apiFetch<{ level: PermissionLevel }>(`/v0/settings/chat/permission-level`)
+/** The default permission level of the local daemon, or of `hostId`'s. */
+export async function getDefaultPermissionLevel(hostId?: string): Promise<PermissionLevel> {
+  const res = await apiFetch<{ level: PermissionLevel }>(
+    `/v0/settings/chat/permission-level`,
+    undefined,
+    undefined,
+    hostId,
+  )
   return res.level
 }
 
 export async function updateDefaultPermissionLevel(
   level: PermissionLevel,
+  hostId?: string,
 ): Promise<PermissionLevel> {
-  const res = await apiFetch<{ level: PermissionLevel }>(`/v0/settings/chat/permission-level`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ level }),
-  })
+  const res = await apiFetch<{ level: PermissionLevel }>(
+    `/v0/settings/chat/permission-level`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level }),
+    },
+    undefined,
+    hostId,
+  )
   return res.level
 }
 
@@ -1222,12 +1267,12 @@ export async function stopChat(wsId: string, id: string): Promise<void> {
   })
 }
 
-// closeChat ends the chat's live vendor CLI because no view displays the chat
-// any more, mid-turn included — unlike stopChat, which interrupts a turn in
-// place and may leave the CLI running. The chat entry stays, dormant and
-// resumable.
-export async function closeChat(wsId: string, id: string): Promise<void> {
-  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/close`, {
+// killChat force-ends the chat's live vendor CLI, mid-turn included — unlike
+// stopChat, which interrupts a turn in place and may leave the CLI running. It
+// is the only client action that ends a running agent: closing a view only
+// detaches. The chat entry stays, dormant and resumable.
+export async function killChat(wsId: string, id: string): Promise<void> {
+  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/kill`, {
     method: 'POST',
   })
 }

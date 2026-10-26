@@ -1,17 +1,13 @@
-import { ChatsCircle, Folder, FolderOpen, GitBranch, Lock } from '@phosphor-icons/react'
+import { RepoAvatar } from '@/components/layout/repo-avatar'
 import { cn } from '@/lib/utils'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
-import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import {
-  CREATE_ROW_PLACEHOLDER,
   ROW_BASE,
   ROW_GLYPH_BOX,
   ROW_HAS_VIEW_IDLE,
   ROW_INACTIVE,
-  ROW_INDENT_STEP,
   ROW_INDENT_TRANSITION,
   ROW_NEST_TARGET,
-  ROW_SUB_ACTION,
   ROW_SUB_ACTION_HOVER,
   ROW_SUB_ACTION_INVERTED,
   ROW_SUBLABEL,
@@ -21,12 +17,21 @@ import {
 import { formatChangeCount } from '@/components/layout/format-change-count'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { performRenameRow } from '@/components/sidebar/lib/row-actions'
-import { confirmPendingCreateName, cancelPendingCreate } from '@/components/layout/create-actions'
 import { EditableRepoIcon } from '@/components/layout/repo-icon-mark'
-import { WorkspaceBranchIcon } from '@/components/layout/workspace-branch-icon'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
 import { useSidebarInlineRenameStore } from '@/lib/store/sidebar-inline-rename'
 import { SidebarRowActions } from '@/components/sidebar/sidebar-row-actions'
+import { RowGlyph } from './row-glyph'
+import {
+  rowBoxStyle,
+  rowGlyphStyle,
+  rowIndent,
+  rowSubStyle,
+  rowTitleStyle,
+  useRowMetrics,
+  type RowMetrics,
+} from './lib/row-metrics'
+import { PendingSidebarRow, RemovingSidebarRow } from './sidebar-row-transient'
 
 interface SidebarRowProps {
   row: SidebarRowType
@@ -162,6 +167,7 @@ export function SidebarRow({
   // per-caller flag — decided this is the one that draws the editor; see
   // `inlineRenameDisabled`'s own doc below for why a shared id can resolve to
   // either this instance or its tree/Recents counterpart.
+  const metrics = useRowMetrics()
   const isThisRowRenaming = useSidebarInlineRenameStore(
     (s) =>
       s.renamingRowId === row.id &&
@@ -217,7 +223,7 @@ export function SidebarRow({
   const showBranchSecondLine =
     !tab &&
     row.kind === 'branch' &&
-    !isProjectHome &&
+    row.repoIcon === undefined &&
     !row.locked &&
     !!row.branchName &&
     row.label !== row.branchName
@@ -226,14 +232,17 @@ export function SidebarRow({
   // `ROW_ACTIVE` ground needs its buttons re-keyed the same way its label/icon
   // already are.
   const subActionClass = cn(ROW_SUB_ACTION_HOVER, activeGround && ROW_SUB_ACTION_INVERTED)
+  // A header drawn where its icon can't be edited (the phone's list).
+  const isReadOnlyHeader = !isProjectHome && row.kind === 'branch' && !!row.repoIcon
 
   return (
-    <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: depth * ROW_INDENT_STEP }}>
+    <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: rowIndent(depth, metrics) }}>
       <div
         role="treeitem"
         tabIndex={0}
         data-sidebar-row-id={row.id}
         {...dragProps}
+        style={rowBoxStyle(metrics)}
         className={cn(
           ROW_BASE,
           isNestTarget ? ROW_NEST_TARGET : ROW_INACTIVE,
@@ -286,7 +295,15 @@ export function SidebarRow({
             case this falls back to the plain glyph rather than guessing at
             a REST base it can't build. */}
         {(tab !== 'tab-member' || row.working) && (
-          <span className={cn(ROW_GLYPH_BOX, isProjectHome && 'size-5')}>
+          <span
+            className={cn(
+              ROW_GLYPH_BOX,
+              isProjectHome && 'size-5',
+              metrics && '[&_svg]:size-full',
+              metrics && isReadOnlyHeader && '[&>*]:size-full',
+            )}
+            style={rowGlyphStyle(metrics)}
+          >
             {row.working ? (
               <FlickerSpinner className="size-3.5" />
             ) : isProjectHome && row.repoIcon ? (
@@ -294,6 +311,16 @@ export function SidebarRow({
                 repo={row.repoIcon}
                 projectId={row.repoIcon.projectId}
                 repoId={row.repoIcon.repoId}
+                size="lg"
+              />
+            ) : isReadOnlyHeader && row.repoIcon ? (
+              <RepoAvatar
+                avatar={{
+                  url: row.repoIcon.avatarURL,
+                  label: row.repoIcon.avatarLabel,
+                  color: row.repoIcon.avatarColor,
+                }}
+                name={row.repoIcon.name}
                 size="lg"
               />
             ) : (
@@ -340,8 +367,13 @@ export function SidebarRow({
               row.hasView && !hasViewIdle && !activeGround && 'text-muted-foreground',
             )}
           >
-            <span className={cn('truncate', row.labelProvisional && 'italic')}>{row.label}</span>
-            <BranchSecondLine row={row} activeGround={activeGround} />
+            <span
+              className={cn('truncate', row.labelProvisional && 'italic')}
+              style={rowTitleStyle(metrics)}
+            >
+              {row.label}
+            </span>
+            <BranchSecondLine row={row} activeGround={activeGround} metrics={metrics} />
           </span>
         ) : (
           <span
@@ -382,204 +414,6 @@ export function SidebarRow({
 }
 
 /**
- * A create still in flight, drawn at the exact tree slot the finished create
- * lands in (pending-creates.ts) — a naming input, a spinner, or an inline
- * error with a dismiss, matching the pre-migration tree's own
- * `PendingCreateRow` (workspace-tree-context.tsx/pending-create-row.tsx,
- * since deleted) in spirit: dimmed and non-interactive except while naming,
- * which needs a real focused input.
- */
-function PendingSidebarRow({
-  row,
-  depth,
-  pending,
-}: {
-  row: SidebarRowType
-  depth: number
-  pending: NonNullable<SidebarRowType['pending']>
-}) {
-  const isNaming = pending.status === 'naming'
-  const isError = pending.status === 'error'
-  return (
-    <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: depth * ROW_INDENT_STEP }}>
-      <div
-        className={cn(
-          ROW_BASE,
-          'border-transparent',
-          !isNaming && 'pointer-events-none opacity-60',
-        )}
-      >
-        <span className={ROW_GLYPH_BOX}>
-          {isError ? (
-            <span
-              aria-hidden="true"
-              className="flex size-4 shrink-0 items-center justify-center text-xs text-destructive"
-            >
-              ✕
-            </span>
-          ) : pending.status === 'creating' ? (
-            <FlickerSpinner className="size-3.5" />
-          ) : (
-            <RowGlyph row={row} large={false} expanded={false} />
-          )}
-        </span>
-
-        {isNaming ? (
-          <InlineRenameInput
-            defaultValue=""
-            mono={row.kind === 'branch'}
-            // Naming is reached ONLY for a fork (pending-creates.ts's own
-            // doc: a thread has nothing to name, so it skips straight to
-            // 'creating') — an unlabeled empty input read as a chat box to
-            // type INTO rather than a name to give something, so what was
-            // typed there became the branch's name — caught live.
-            placeholder={CREATE_ROW_PLACEHOLDER}
-            onConfirm={(name) => confirmPendingCreateName(pending.tempId, name)}
-            onCancel={() => cancelPendingCreate(pending.tempId)}
-          />
-        ) : (
-          <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-muted-foreground">
-            {row.kind === 'branch' ? row.label || 'New workspace' : 'New thread'}
-          </span>
-        )}
-
-        {isError && (
-          <>
-            <span
-              className="pointer-events-auto shrink-0 text-xs text-destructive"
-              title={pending.error}
-            >
-              failed
-            </span>
-            {pending.error && (
-              <span
-                className="pointer-events-auto min-w-0 max-w-[50%] truncate text-xs text-muted-foreground"
-                title={pending.error}
-              >
-                {pending.error}
-              </span>
-            )}
-            <button
-              type="button"
-              aria-label="Dismiss"
-              className="pointer-events-auto ml-1 text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => cancelPendingCreate(pending.tempId)}
-            >
-              ✕
-            </button>
-          </>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/** Whole seconds left on a deadline, never below zero — same formula
- *  `removal-tray.tsx` draws its own figures from. */
-function secondsLeft(deadlineAt: number | null): number {
-  if (deadlineAt === null) return 0
-  return Math.max(0, Math.ceil((deadlineAt - Date.now()) / 1000))
-}
-
-/**
- * A REAL row currently held in the removal tray, transformed in place —
- * explicit product request: an X on the row starts this instead of hiding
- * the row while a separate `RemovalTray` shows the same thing elsewhere.
- *
- * Same glyph and label the row wears at rest (a held row has not become a
- * different kind of thing — `removal-tray.tsx`'s own module doc, still true
- * here), with the trailing cluster replaced by the countdown, an undo
- * ("Keep") control, and the "+N" count of what goes with it. The seconds
- * figure and the drain hairline are the exact same DOM contract
- * `removal-tray.tsx` already draws from (`data-removal-secs`,
- * `data-removal-drain`) — that file's own shared clock ticks BOTH, now
- * scoped to the whole document rather than one tray, so N rows scattered
- * across the tree still cost exactly one timer.
- */
-function RemovingSidebarRow({
-  row,
-  depth,
-  removal,
-}: {
-  row: SidebarRowType
-  depth: number
-  removal: NonNullable<SidebarRowType['removal']>
-}) {
-  return (
-    <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: depth * ROW_INDENT_STEP }}>
-      {/* `data-sidebar-row-id` is the row's identity, not one of its
-          affordances, and a held row is still on screen with its children
-          still drawn under it — dropping the attribute made a held FOLDER
-          read as a row that does not exist, leaving its children parented to
-          an id nothing published (and taking the right-click menu with it:
-          `row-context-menu.tsx` resolves a row by this attribute alone). The
-          drag attributes stay off: a row on its way out is deliberately not a
-          drop target. */}
-      <div data-sidebar-row-id={row.id} className={cn(ROW_BASE, ROW_INACTIVE, 'relative')}>
-        <span className={ROW_GLYPH_BOX}>
-          <RowGlyph row={row} large={false} expanded={false} />
-        </span>
-        <span
-          className={cn(
-            'min-w-0 flex-1 truncate',
-            row.kind === 'branch' && 'font-mono',
-            row.labelProvisional && 'italic',
-          )}
-        >
-          {row.label}
-        </span>
-        {removal.extra > 0 && (
-          <span className="shrink-0 rounded-full bg-sidebar-element-idle px-1.5 py-px text-[11px] tabular-nums text-muted-foreground">
-            +{removal.extra}
-          </span>
-        )}
-        {/* Rendered from the deadline, not from a tick — a row that
-            re-renders for some other reason still shows the truth; the
-            counting itself happens in `removal-tray.tsx`'s shared clock and
-            never comes back through React (see this function's own doc). */}
-        <span
-          data-removal-secs={removal.entryId}
-          className="shrink-0 text-[11px] tabular-nums text-muted-foreground"
-        >
-          {secondsLeft(removal.deadlineAt)}
-        </span>
-        <button
-          type="button"
-          className={ROW_SUB_ACTION}
-          aria-label={`Keep ${row.label}`}
-          title="Keep"
-          onClick={(e) => {
-            e.stopPropagation()
-            useRemovalTrayStore.getState().cancel(removal.entryId)
-          }}
-        >
-          <svg
-            aria-hidden="true"
-            className="size-3"
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M6 3L2.5 6.5 6 10M2.5 6.5H10a3.5 3.5 0 0 1 0 7H7" />
-          </svg>
-        </button>
-        {/* `data-essential-motion` keeps this under prefers-reduced-motion:
-            not decoration, it is how long is left before something is
-            deleted — same reasoning as `removal-tray.tsx`'s own hairline. */}
-        <span
-          data-removal-drain=""
-          data-essential-motion=""
-          className="pointer-events-none absolute inset-x-2 bottom-[3px] h-0.5 origin-left rounded-full bg-destructive animate-tray-drain"
-        />
-      </div>
-    </div>
-  )
-}
-
-/**
  * A `branch` row's second line: `branchName -- +added -deleted` (rule 6).
  * Muted TOKEN throughout except the counts themselves, which keep the
  * green/red they've always had — see `ROW_SUBLABEL`'s own doc on why the line
@@ -588,8 +422,10 @@ function RemovingSidebarRow({
 function BranchSecondLine({
   row,
   activeGround,
+  metrics,
 }: {
   row: SidebarRowType
+  metrics: RowMetrics | null
   /** See `SidebarRowProps.activeGround` — `ROW_SUBLABEL`'s own hardcoded
    *  `text-muted-foreground` tracks the ambient theme same as `ROW_INACTIVE`
    *  does, and needs the identical swap on an inverted ground. */
@@ -598,7 +434,10 @@ function BranchSecondLine({
   const added = row.added ?? 0
   const deleted = row.deleted ?? 0
   return (
-    <span className={cn(ROW_SUBLABEL, activeGround && 'text-foreground-inverse')}>
+    <span
+      className={cn(ROW_SUBLABEL, activeGround && 'text-foreground-inverse')}
+      style={rowSubStyle(metrics)}
+    >
       {row.branchName}
       {(added > 0 || deleted > 0) && ' '}
       {added > 0 && <span className={ROW_SUBLABEL_ADD}>+{formatChangeCount(added)}</span>}
@@ -606,67 +445,4 @@ function BranchSecondLine({
       {deleted > 0 && <span className={ROW_SUBLABEL_DEL}>-{formatChangeCount(deleted)}</span>}
     </span>
   )
-}
-
-function RowGlyph({
-  row,
-  large,
-  expanded,
-  activeGround,
-}: {
-  row: SidebarRowType
-  large: boolean
-  expanded: boolean
-  /** See `SidebarRowProps.activeGround`'s own doc — forwarded to
-   *  `WorkspaceBranchIcon`, the one glyph here with hardcoded ambient colors
-   *  (`text-foreground`) instead of inheriting from this row's own treeitem
-   *  the way every other glyph below already does. */
-  activeGround?: boolean
-}) {
-  const size = large ? 'size-5' : 'size-4'
-  if (row.kind === 'folder') {
-    return expanded ? (
-      <FolderOpen aria-hidden="true" className={size} weight="duotone" />
-    ) : (
-      <Folder aria-hidden="true" className={size} weight="duotone" />
-    )
-  }
-  // A branch row with a real `Workspace` record behind it (`row.status` —
-  // stamped under the identical condition as `locked`, rows-from-repo.ts)
-  // draws the SAME icon the workspace switcher already does: locked, a PR
-  // state (open/merged/closed/conflicts), deleted — or, ahead of all of
-  // those, the amber warning glyph for a branch Crowbar could not provision
-  // (`needsProvisioning`, the identical test
-  // `placeholder-toast-watcher.tsx` fires its "Couldn't set up ..." toast
-  // from — NOT `isPlaceholder`, which is also true for the repo's own
-  // checkout holding its own default branch and would alarm forever). A row whose Workspace half has not landed yet (`walkTreeIntoRows`'s
-  // "no Workspace record" push — see that push's own comment) carries no
-  // `status` and falls through to the locked/plain-branch guess below,
-  // exactly as every row did before this delegated anywhere.
-  if (row.kind === 'branch' && row.status) {
-    return (
-      <WorkspaceBranchIcon
-        status={row.status}
-        isPlaceholder={row.needsProvisioning}
-        reason={row.placeholderReason}
-        size={size}
-        invertedGround={activeGround}
-      />
-    )
-  }
-  // A locked/protected branch (the repo/project home, or any other locked
-  // branch `rows-from-repo.ts`'s `walk()` mints) draws the Lock mark instead
-  // of the plain GitBranch every other worktree-owning row gets, for the rare
-  // row above that reached here with no `status` to delegate on.
-  // `row.locked` is `rows-from-repo.ts`'s own `Workspace.status === 'locked'`
-  // read straight onto the row — every workspace-owning row is now id'd from
-  // its owning chat, locked or not, so the id/workspaceId mismatch this used
-  // to read off is no longer a signal unique to the locked case.
-  if (row.kind === 'branch' && row.locked) {
-    return <Lock aria-hidden="true" className={size} weight="fill" />
-  }
-  if (row.ownsWorktree) {
-    return <GitBranch aria-hidden="true" className={size} weight="fill" />
-  }
-  return <ChatsCircle aria-hidden="true" className={size} weight="regular" />
 }

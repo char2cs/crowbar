@@ -2,7 +2,6 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChat } from '@/features/agent/api/agent-api'
-import { CHAT_TITLE_PENDING_LABEL } from '@/features/agent/hooks/use-chat-title'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { ChatBranchHeader } from '@/features/tabs/components/chat-branch-header'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
@@ -136,12 +135,27 @@ describe('ChatBranchHeader', () => {
   // header's `?.title || UNTITLED_CHAT_LABEL` made "this store has not got the
   // record" indistinguishable from "this chat has no name". A gap must look
   // like a gap.
-  it('shows the pending mark, not UNTITLED_CHAT_LABEL, for a chat the store has no record of', () => {
+  it('shows no title, not UNTITLED_CHAT_LABEL, for a chat the store has no record of', () => {
     renderHeaderWithoutChatRecord()
     const title = screen.getByTestId('chat-branch-header-title')
     expect(title).toHaveAttribute('data-title-pending', 'true')
-    expect(title).toHaveTextContent(CHAT_TITLE_PENDING_LABEL)
+    expect(title).toBeEmptyDOMElement()
+    expect(screen.getByTestId('chat-branch-header')).not.toHaveTextContent('—')
     expect(screen.queryByText(UNTITLED_CHAT_LABEL)).not.toBeInTheDocument()
+  })
+
+  it('draws no branch mark and no dash for a draft with no workspace yet', () => {
+    const store = createWorkspaceStore('w1')
+    useSidebarStore.setState({ repos: [] })
+    render(
+      createElement(
+        WorkspaceStoreContext.Provider,
+        { value: store },
+        createElement(ChatBranchHeader, { chatId: 'draft', wsId: null }),
+      ),
+    )
+    expect(screen.queryByTestId('chat-branch-header-glyph')).not.toBeInTheDocument()
+    expect(screen.getByTestId('chat-branch-header')).not.toHaveTextContent('—')
   })
 
   it('offers no rename for a chat the store has no record of — there is no title to edit', () => {

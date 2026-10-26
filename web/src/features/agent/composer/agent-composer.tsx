@@ -6,6 +6,7 @@ import type {
   AgentTerminalWait,
   PermissionLevel,
 } from '@/features/agent/api/agent-api'
+import { useAnswerTerminalWait } from '@/features/agent/hooks/use-answer-terminal-wait'
 import { AttachFileModal } from '@/features/agent/composer/attach-file-modal'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
 import { ComposerField } from '@/features/agent/composer/composer-field'
@@ -27,6 +28,7 @@ import {
   type ComposerRevival,
 } from '@/features/agent/composer/lib/composer-state'
 import { isMultiline } from '@/features/agent/composer/lib/handle-geometry'
+import { IS_MOBILE } from '@/utils/platform'
 import { useAttachmentUpload } from '@/features/agent/composer/lib/use-attachment-upload'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
@@ -106,6 +108,9 @@ export function AgentComposer(props: AgentComposerProps) {
   const editorRef = useRef<ChatMarkdownEditorHandle>(null)
   const pillRef = useRef<HTMLDivElement>(null)
   const [dropTarget, setDropTarget] = useState(false)
+  // Sending clears the box by remounting it; the new box inherits the keyboard.
+  const [typing, setTyping] = useState(false)
+  const answerTerminalWait = useAnswerTerminalWait(props.wsId, props.chatId)
 
   const insertAttachmentMarkdown = useCallback((md: string) => {
     editorRef.current?.insertAttachmentMarkdown(md)
@@ -207,6 +212,8 @@ export function AgentComposer(props: AgentComposerProps) {
           reason={state.reason}
           message={state.message}
           onOpenTerminal={props.onOpenTerminal}
+          answers={props.terminalWait?.answers}
+          onAnswer={answerTerminalWait}
         />
       )
     case 'choices':
@@ -250,12 +257,16 @@ export function AgentComposer(props: AgentComposerProps) {
               isMultiline(props.fieldHeight) && 'multi',
               dropTarget && 'drop-target',
             )}
+            data-touch={IS_MOBILE || undefined}
+            onFocus={() => setTyping(true)}
+            onBlur={(e) => setTyping(e.currentTarget.contains(e.relatedTarget))}
             onDragOver={handlePillDragOver}
             onDragLeave={handlePillDragLeave}
             onDrop={handlePillDrop}
           >
             <ComposerField
               key={props.draftSeed}
+              focusOnMount={typing && props.draftSeed > 0}
               ref={editorRef}
               wsId={props.wsId}
               chatId={props.chatId}

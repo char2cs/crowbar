@@ -22,6 +22,7 @@ import {
 } from '@/features/agent/composer/plate/chat-composer-serialization'
 import { createChatPastePlugin } from '@/features/agent/composer/plate/chat-paste-plugin'
 import { cn } from '@/lib/utils'
+import { IS_MOBILE } from '@/utils/platform'
 
 /** Whether the caret has anywhere left to go WITHIN the text — the box's own
  *  arrow-key history recall only fires at these edges, so moving through a
@@ -93,6 +94,8 @@ export interface ChatMarkdownEditorProps {
   /** The editable's measured height, for a control that rides its last line. */
   onHeightChange?: (height: number) => void
   autoFocus?: boolean
+  /** Focus on mount even on a phone: this box replaced one the person was typing in. */
+  focusOnMount?: boolean
   /** Combobox wiring for the chat's skill picker. */
   expanded?: boolean
   controls?: string
@@ -274,6 +277,7 @@ export function ChatMarkdownEditor({
   onKeyDown,
   onHeightChange,
   autoFocus,
+  focusOnMount,
   expanded,
   controls,
   className,
@@ -508,7 +512,8 @@ export function ChatMarkdownEditor({
     <Plate editor={editor} onChange={handleChange}>
       <PlateContent
         ref={reportHeightFrom}
-        autoFocus={autoFocus}
+        // On the phone focus raises the keyboard over the chat just opened; a tap asks for it.
+        autoFocus={(autoFocus && !IS_MOBILE) || focusOnMount}
         placeholder={placeholder}
         aria-label={ariaLabel}
         aria-expanded={expanded}

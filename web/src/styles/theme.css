@@ -39,6 +39,8 @@
   --editor-selection: color-mix(in oklch, #606c38 20%, transparent);
 
   --brand: #606c38;
+  /* The phone's first-run ground: the brand's light green by day, the app icon's dark green by night. */
+  --brand-ground: #98a86a;
   --destructive: #b8422c;
   --destructive-foreground: #7c2717;
   --info: oklch(0.574 0.083 250.5);
@@ -201,6 +203,7 @@
   --editor-selection: color-mix(in oklch, #98a86a 32%, transparent);
 
   --brand: #98a86a;
+  --brand-ground: color(display-p3 0.15686 0.21176 0.09412);
   --destructive: #f1a493;
   --destructive-foreground: #3b211c;
   --info: oklch(0.713 0.088 252.2);
@@ -315,7 +318,7 @@
   }
 }
 
-/* Linux has no native window vibrancy (see zen.css for the full explanation
+/* Linux and iOS have no native window vibrancy (see zen.css for the full explanation
    and tauri.linux.conf.json, which turns off window transparency itself).
    --chrome-bg/--pane-chrome-bg are the default "Crowbar" theme's own wash
    over the vibrancy blur, translucent for the same reason Zen's surfaces
@@ -328,12 +331,14 @@
    rule only when that file doesn't also gate on `[data-platform='linux']`
    (equal specificity falls back to source order); zen.css already does, so
    its own --chrome-bg override still wins there. */
-:root[data-platform='linux'] {
+:root[data-platform='linux'],
+:root[data-platform='ios'] {
   --chrome-bg: oklch(0.989 0 0);
   --pane-chrome-bg: oklch(0.986 0 0);
 }
 
-.dark[data-platform='linux'] {
+.dark[data-platform='linux'],
+.dark[data-platform='ios'] {
   /* Same L/C as before (the flattened-opaque equivalent), hue only —
      264.5deg/266.8deg (old blue system) to ~107deg (ink), matching the
      macOS values above. */

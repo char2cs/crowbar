@@ -14,6 +14,8 @@ import { daemonChanges, noteDaemonChange } from '@/lib/transport/daemon-changes'
 import { OwningChatNotRecordedError, worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { isTauri } from '@/lib/crowbar-bridge'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { hasLocalDaemon } from '@/features/hosts/lib/local-daemon'
+import { LOCAL_HOST } from '@/features/hosts/types'
 import {
   ApiError,
   DAEMON_UNAVAILABLE_CODE,
@@ -151,6 +153,15 @@ export async function apiFetchRaw(
   hostId?: string,
 ): Promise<Response> {
   const target = routeToHost(path, hostId)
+  if (target.hostId === LOCAL_HOST.id && !hasLocalDaemon()) {
+    throw new ApiError(
+      'this install has no local daemon',
+      503,
+      DAEMON_UNAVAILABLE_CODE,
+      undefined,
+      target.hostId,
+    )
+  }
   const read = isIdempotentRead(init)
   if (!read) noteDaemonChange()
   const maxAttempts = read ? Math.max(1, retry.attempts) : 1
@@ -360,10 +371,12 @@ export async function fetchFolders(projectId: string, repoId: string): Promise<F
  * on that DTO (liveRunnerId, terminalSessionId, activeProviderId, telemetry) is
  * about a PROCESS, and the tree answers "does this exist", not "what is up right
  * now" (design spec §5.7 — the live half is Recents' question, off the workspace
- * store's own live chat list).
+ * store's own live chat list). `liveRunnerId` is declared only so the list can
+ * seed the active-sessions store; it never reaches a tree row.
  */
 export interface RepoChatWireDTO {
   id: string
+  liveRunnerId?: string
   workspaceId: string
   parentId: string
   title: string
@@ -548,8 +561,13 @@ export function chatDTOFromWire(row: RepoChatWireDTO, projectId: string, repoId:
  * signal, because chats and folders are ONE aggregate (`domain.Chat`) and one
  * tree.
  */
-export async function fetchRepoChats(projectId: string, repoId: string): Promise<ChatDTO[]> {
+export async function fetchRepoChats(
+  projectId: string,
+  repoId: string,
+  onRows?: (rows: readonly RepoChatWireDTO[]) => void,
+): Promise<ChatDTO[]> {
   const rows = await apiFetch<RepoChatWireDTO[]>(`${repoBase(projectId, repoId)}/chats`)
+  onRows?.(rows ?? [])
   return (rows ?? []).map((row) => chatDTOFromWire(row, projectId, repoId))
 }
 
@@ -589,8 +607,12 @@ export async function fetchHomeWorkspace(projectId: string): Promise<WorkspaceDT
  * stamp: `''` is the sentinel every home-scoped `ChatDTO`/`FolderDTO` carries,
  * matching `WorkspaceDTO.repoId` for the home workspace itself.
  */
-export async function fetchHomeChats(projectId: string): Promise<ChatDTO[]> {
+export async function fetchHomeChats(
+  projectId: string,
+  onRows?: (rows: readonly RepoChatWireDTO[]) => void,
+): Promise<ChatDTO[]> {
   const rows = await apiFetch<RepoChatWireDTO[]>(`${projectBase(projectId)}/home/chats`)
+  onRows?.(rows ?? [])
   return (rows ?? []).map((row) => chatDTOFromWire(row, projectId, ''))
 }
 

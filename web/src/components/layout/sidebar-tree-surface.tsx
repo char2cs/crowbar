@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef } from 'react'
+import { lazy, memo, Suspense, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { SpaceScroller } from '@/components/sidebar/space-scroller'
@@ -22,8 +22,12 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { toast } from '@/features/window/stores/toast-store'
 import { SidebarTreeChrome } from './sidebar-tree-chrome'
-import { CreateSpacePanel } from './create-space-panel'
 import type { Project } from '@/lib/types'
+
+// Shown only while the `+` mark is open: its host pairing and folder picker stay out of boot.
+const CreateSpacePanel = lazy(() =>
+  import('./create-space-panel').then((m) => ({ default: m.CreateSpacePanel })),
+)
 
 interface SidebarTreeSurfaceProps {
   projects: Project[]
@@ -220,7 +224,9 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <ErrorBoundary>
         {creatingSpace ? (
-          <CreateSpacePanel onCreate={onCreateSpace} onCancel={onCancelCreateSpace} />
+          <Suspense fallback={null}>
+            <CreateSpacePanel onCreate={onCreateSpace} onCancel={onCancelCreateSpace} />
+          </Suspense>
         ) : (
           <SpaceScroller
             projects={projects}

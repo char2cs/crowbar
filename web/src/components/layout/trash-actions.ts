@@ -1,10 +1,21 @@
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { useRemovalTrayStore, type RemovalDraft } from '@/lib/store/sidebar-removal'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { dataOf } from '@/lib/loadable'
 import { planRemoval, type DragSubject } from './removal-plan'
 import { resolveHomeRowScope } from '@/lib/store/home-tree'
 import { resolveChatRow, resolveRow } from './open-actions'
+
+/** Closes the panes showing a chat that was just held, so the window is already elsewhere
+ *  when the delete lands instead of being pulled out of it. */
+function leaveHeldChats(drafts: readonly RemovalDraft[]): void {
+  const held = new Set(drafts.flatMap((draft) => draft.hiddenIds))
+  const { panes, paneActions } = windowPaneStore.getState()
+  for (const [paneId, pane] of Object.entries(panes)) {
+    if (pane.chatId && held.has(pane.chatId)) paneActions.closePane(paneId)
+  }
+}
 
 /**
  * Trashes a row — a chat, workspace, folder, or repo — through the SAME
@@ -45,7 +56,7 @@ import { resolveChatRow, resolveRow } from './open-actions'
  * through to `resolveRow`'s repo-scoped (and bleed-prone) folder lookup for
  * one.
  */
-export function handleTrash(id: string): boolean {
+export function handleTrash(id: string, drainMs?: number): boolean {
   const currentRepos = useSidebarStore.getState().repos
   const homeRow = resolveHomeRowScope(id)
   // Checked BEFORE resolveChatRow/resolveRow, which cannot see a home row at
@@ -60,7 +71,8 @@ export function handleTrash(id: string): boolean {
   const projects = dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS
   const drafts = planRemoval([subject], currentRepos, projects)
   if (drafts.length === 0) return false
-  useRemovalTrayStore.getState().hold(drafts)
+  useRemovalTrayStore.getState().hold(drafts, drainMs)
+  leaveHeldChats(drafts)
   return true
 }
 

@@ -106,6 +106,15 @@ func AgentSessionDTOFrom(s domain.AgentSession) *AgentSessionDTO {
 // new kind never makes an older client say something wrong.
 type AgentTerminalWaitDTO struct {
 	Kind string `json:"kind,omitempty"`
+
+	// Answers are one-tap replies the provider's descriptor declares for this
+	// prompt; empty means the terminal is the only way past it.
+	Answers []AgentTerminalAnswerDTO `json:"answers,omitempty"`
+}
+
+type AgentTerminalAnswerDTO struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
 }
 
 // AgentChatDTO is the wire shape of a Crowbar-owned agentic chat: the workspace it
@@ -289,7 +298,11 @@ func TerminalWaitDTOFrom(
 	if !w.Waiting {
 		return nil
 	}
-	return &AgentTerminalWaitDTO{Kind: w.Kind}
+	out := &AgentTerminalWaitDTO{Kind: w.Kind}
+	for _, a := range w.Answers {
+		out.Answers = append(out.Answers, AgentTerminalAnswerDTO{ID: a.ID, Label: a.Label})
+	}
+	return out
 }
 
 // AgentMessageDTO is one complete hook-derived message in a chat. Sequence is
@@ -935,6 +948,11 @@ type AgentChatEvent struct {
 
 	// Choices is every prompt the chat is blocked on, on the `choice` kind.
 	Choices []AgentChoiceDTO `json:"choices,omitempty"`
+
+	// Attached is how many clients are attached to the chat right now, on the
+	// `attached` kind: a pointer so the 0 that means orphaned still rides, and
+	// no other kind carries the field.
+	Attached *int `json:"attached,omitempty"`
 }
 
 // AgentPlanStepDTO is one entry of the agent's running plan.
@@ -969,6 +987,11 @@ type AgentStreamingMessageDTO struct {
 	// client already parses.
 	Kind string `json:"kind,omitempty"`
 }
+
+// AgentChatKindAttached announces that the number of clients attached to a chat
+// changed. Attaching is holding the chat's attach socket open; it says nothing
+// about the agent, which keeps running with zero viewers.
+const AgentChatKindAttached = "attached"
 
 // AgentChatKindPromptSettled announces that a prompt Crowbar delivered is OVER
 // without having produced a turn, so nothing is still owed on it.

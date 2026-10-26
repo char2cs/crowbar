@@ -5,6 +5,7 @@ import { useSidebarTabKeyboard } from '@/features/keymaps/hooks/use-sidebar-tab-
 vi.mock('@/utils/platform', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/utils/platform')>()),
   IS_MAC: false,
+  APPLE_KEYBOARD: false,
 }))
 
 // Mirrors the registry defaults on purpose: the digit is the mode's position

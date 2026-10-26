@@ -25,6 +25,7 @@ import {
   confirmPendingCreateName,
   cancelPendingCreate,
 } from '@/components/layout/create-actions'
+import { createThread } from '@/__tests__/__fixtures__/draft-thread'
 import { handleTrash } from '@/components/layout/trash-actions'
 import { getInitialState, useSidebarStore, type Chat, type Repo } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
@@ -151,14 +152,14 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
     )
   })
 
-  it('its thread "+" runs in the WORKSPACE, not in the row id', () => {
+  it('its thread "+" runs in the WORKSPACE, not in the row id', async () => {
     useSidebarStore.setState({ repos: [lockedRepo()] })
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
 
-    handleCreate('develop-row', 'thread', vi.fn())
+    await createThread('develop-row', vi.fn())
 
     expect(createChat).toHaveBeenCalledExactlyOnceWith(
       'ws-locked',
@@ -287,7 +288,7 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
         ],
       })
 
-      handleCreate('ws-a', 'thread', vi.fn())
+      await createThread('ws-a', vi.fn())
 
       const armed = usePendingCreatesStore.getState().entries
       expect(armed).toHaveLength(1)

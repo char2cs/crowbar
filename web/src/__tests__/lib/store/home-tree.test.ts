@@ -26,8 +26,13 @@ vi.mock('@/lib/ws/manager', () => ({
 const fetchHomeChatsSpy = vi.fn()
 const fetchHomeFoldersSpy = vi.fn()
 const fetchReposSpy = vi.fn()
+/** The wire rows the chat list reports to whoever tapped them. */
+let tapRows: ((rows: readonly unknown[]) => void) | undefined
 vi.mock('@/lib/api', () => ({
-  fetchHomeChats: (projectId: string) => fetchHomeChatsSpy(projectId) as unknown,
+  fetchHomeChats: (projectId: string, onRows?: (rows: readonly unknown[]) => void) => {
+    tapRows = onRows
+    return fetchHomeChatsSpy(projectId) as unknown
+  },
   fetchHomeFolders: (projectId: string) => fetchHomeFoldersSpy(projectId) as unknown,
   fetchRepos: (projectId: string) => fetchReposSpy(projectId) as unknown,
   fetchHomeWorkspace: vi.fn().mockResolvedValue({ id: 'ws-home', owningChatId: 'c-home' }),
@@ -37,6 +42,7 @@ vi.mock('@/lib/api', () => ({
 const { useHomeTreeStore, getHomeTree, subscribeHomeTree, applyHomeFolders, removeHomeFolder } =
   await import('@/lib/store/home-tree')
 const { useSidebarStore, getInitialState } = await import('@/lib/store/sidebar')
+const { useActiveSessionsStore } = await import('@/lib/store/active-sessions')
 
 function emit(data: unknown): void {
   subscribers.forEach((cb) => cb(data))
@@ -388,5 +394,51 @@ describe('removeHomeFolder', () => {
     expect(getHomeTree('p1').chats).toHaveLength(1)
     expect(getHomeTree('p1').folders).toEqual([])
     dispose()
+  })
+})
+
+describe('subscribeHomeTree — running agents', () => {
+  beforeEach(() => {
+    tapRows = undefined
+    useActiveSessionsStore.setState({ sessions: {}, attached: {} })
+  })
+
+  it('seeds the active sessions from the chat list, and follows the feed after', async () => {
+    fetchHomeChatsSpy.mockImplementation(() => {
+      tapRows?.([{ id: 'c1', workspaceId: 'ws-home', title: 'Notes', liveRunnerId: 'run-1' }])
+      return Promise.resolve([chatDTO({ id: 'c1', title: 'Notes' })])
+    })
+    fetchHomeFoldersSpy.mockResolvedValue([])
+
+    const dispose = subscribeHomeTree('p1')
+    await whenChatsLength('p1', 1)
+    expect(Object.keys(useActiveSessionsStore.getState().sessions)).toEqual(['c1'])
+
+    emit({ chatId: 'c1', kind: 'attached', attached: 2 })
+    expect(useActiveSessionsStore.getState().attached.c1?.count).toBe(2)
+
+    emit({
+      chatId: 'c1',
+      kind: 'exited',
+      chat: { id: 'c1', workspaceId: 'ws-home', title: 'Notes', liveRunnerId: '' },
+    })
+    expect(useActiveSessionsStore.getState().sessions).toEqual({})
+    dispose()
+  })
+
+  it('forgets its sessions when the subscription ends', async () => {
+    fetchHomeChatsSpy.mockResolvedValue([])
+    fetchHomeFoldersSpy.mockResolvedValue([])
+    const dispose = subscribeHomeTree('p1')
+    emit({
+      chatId: 'c1',
+      kind: 'started',
+      chat: { id: 'c1', workspaceId: 'ws-home', title: 'Notes', liveRunnerId: 'run-1' },
+    })
+    expect(Object.keys(useActiveSessionsStore.getState().sessions)).toEqual(['c1'])
+
+    dispose()
+
+    expect(useActiveSessionsStore.getState().sessions).toEqual({})
   })
 })

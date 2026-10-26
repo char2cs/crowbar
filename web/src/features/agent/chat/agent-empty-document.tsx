@@ -8,6 +8,7 @@ import {
 } from 'react'
 import type { DragEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, Ref } from 'react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
+import { IS_MOBILE } from '@/utils/platform'
 import { AttachFileModal } from '@/features/agent/composer/attach-file-modal'
 import { ComposerPlusButton } from '@/features/agent/composer/composer-plus-button'
 import { ExcalidrawTakeover } from '@/features/agent/composer/excalidraw-takeover'
@@ -86,11 +87,11 @@ export interface AgentEmptyDocumentProps {
   ) => void
   /** The selection chips and the surface switcher, left of the send button. */
   controls: ReactNode
-  working: boolean
-  canStop: boolean
+  working?: boolean
+  canStop?: boolean
   /** A prompt has been dispatched but the ledger has not yet proven it delivered. */
   sending: boolean
-  onStop: () => void
+  onStop?: () => void
   /** `.doc`'s own extra top padding (composer.css's `--agent-header-clearance`,
    *  inherited from the `.agent-chat` ancestor AgentChatView sets it on) — the
    *  overlay chat header's real height, so a truly empty document's fallback
@@ -136,8 +137,8 @@ export function AgentEmptyDocument({
   onSubmit,
   onKeyDown,
   controls,
-  working,
-  canStop,
+  working = false,
+  canStop = false,
   sending,
   onStop,
   headerClearancePx = 0,
@@ -300,7 +301,7 @@ export function AgentEmptyDocument({
           className="blk"
         />
       </div>
-      <div ref={handleRef} className="dochandle">
+      <div ref={handleRef} className="dochandle" data-touch={IS_MOBILE || undefined}>
         <div className="inner">
           {banner ? (
             <div className="banner">{banner}</div>

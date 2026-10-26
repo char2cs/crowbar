@@ -255,7 +255,7 @@ describe('SidebarTreeSurface — creatingSpace swaps SpaceScroller for CreateSpa
     expect(screen.queryByTestId('create-space-panel')).not.toBeInTheDocument()
   })
 
-  it('renders CreateSpacePanel instead of SpaceScroller while creating a space', () => {
+  it('renders CreateSpacePanel instead of SpaceScroller while creating a space', async () => {
     render(
       <SidebarTreeSurface
         projects={[projectA]}
@@ -266,11 +266,11 @@ describe('SidebarTreeSurface — creatingSpace swaps SpaceScroller for CreateSpa
         onCancelCreateSpace={vi.fn()}
       />,
     )
-    expect(screen.getByTestId('create-space-panel')).toBeInTheDocument()
+    expect(await screen.findByTestId('create-space-panel')).toBeInTheDocument()
     expect(screen.queryByTestId('space-scroll-region')).not.toBeInTheDocument()
   })
 
-  it('Cancel calls onCancelCreateSpace', () => {
+  it('Cancel calls onCancelCreateSpace', async () => {
     const onCancelCreateSpace = vi.fn()
     render(
       <SidebarTreeSurface
@@ -282,7 +282,7 @@ describe('SidebarTreeSurface — creatingSpace swaps SpaceScroller for CreateSpa
         onCancelCreateSpace={onCancelCreateSpace}
       />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
     expect(onCancelCreateSpace).toHaveBeenCalledOnce()
   })
 })

@@ -63,6 +63,14 @@ vi.mock('@/features/agent/hooks/use-transcript-anchor', async (importOriginal) =
   }
 })
 
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  get IS_MOBILE() {
+    return platform.mobile
+  },
+}))
+
 // The historical rows are windowed (`@tanstack/react-virtual`), and jsdom has no
 // layout engine: every element measures 0×0, and a virtualiser told its viewport
 // is zero pixels tall windows down to NOTHING — `calculateRange` bails on
@@ -93,6 +101,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  platform.mobile = false
   HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect
 })
 
@@ -1194,6 +1203,55 @@ describe('AgentTranscript: pinning the turn a prompt actually started', () => {
     draw([], { queue: [queueItem('left over from before')] })
 
     expect(pinTurnToTopCalls).toEqual([])
+  })
+
+  it('does not lift a sent prompt to the top on a phone', () => {
+    platform.mobile = true
+    const { rerender } = draw([], { queue: [] })
+    rerender(
+      <AgentTranscript
+        messages={[]}
+        queue={[queueItem('hello')]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+    expect(pinTurnToTopCalls).toEqual([])
+  })
+
+  it('releases the pin when the turn is stopped, so no blank room outlives it', () => {
+    const { rerender } = draw([], { queue: [], working: true })
+    expect(pinTurnToTopCalls).toEqual([])
+    rerender(
+      <AgentTranscript
+        messages={[]}
+        queue={[]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        trailingInterruption={[{ kind: 'interrupted', id: 'i1' }]}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+    expect(pinTurnToTopCalls).toEqual([null])
   })
 
   // REGRESSION: `pinTurnToTop(null)` — the documented release path — was

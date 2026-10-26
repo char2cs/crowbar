@@ -61,7 +61,7 @@ export function EventDivider({
 }) {
   return (
     <div className="divider" role="separator" data-testid="agent-event-divider">
-      <span className="ln" />
+      <span className="wavy-rule" />
       {tags.map((tag) => (
         // Keyed by the tag's own interruption id, not `tag.kind`: two
         // provider switches (or any other same-kind pair) can land before the
@@ -71,7 +71,7 @@ export function EventDivider({
           {tagLabel(tag, providers)}
         </span>
       ))}
-      <span className="ln" />
+      <span className="wavy-rule" />
     </div>
   )
 }

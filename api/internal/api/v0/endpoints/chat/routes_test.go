@@ -299,7 +299,7 @@ func (stubUsecase) StopChat(
 	return nil
 }
 
-func (stubUsecase) CloseChat(
+func (stubUsecase) KillChat(
 	_ context.Context,
 	_ string,
 ) error {
@@ -569,6 +569,8 @@ func (stubUsecase) Interruptions(
 ) ([]domain.ActivityInterruption, error) {
 	return nil, nil
 }
+
+func (stubUsecase) AnswerTerminalWait(context.Context, string, string) error { return nil }
 
 func (stubUsecase) AnswerableChoiceIDs(string, []domain.ActivityChoice) []string { return nil }
 

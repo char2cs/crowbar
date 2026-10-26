@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Folder, FolderOpen, GitBranch, GitPullRequest, Lock, Warning } from '@phosphor-icons/react'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
+import { RowMetricsContext, TOUCH_ROW_METRICS } from '@/components/sidebar/lib/row-metrics'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import * as rowActions from '@/components/sidebar/lib/row-actions'
 import * as createActions from '@/components/layout/create-actions'
@@ -1139,5 +1140,128 @@ describe('a pending row whose create failed', () => {
     expect(screen.getByText('failed')).toBeInTheDocument()
     const reason = /parent ws-1: apperr: not found/
     expect(screen.queryByText(reason) ?? screen.queryByTitle(reason)).not.toBeNull()
+  })
+})
+
+// The phone's one row scale: every kind of row at the same height, title size and glyph box,
+// with one secondary size and one indent step.
+describe('a row drawn at a given scale', () => {
+  const metrics = TOUCH_ROW_METRICS
+  const rows: Array<[string, SidebarRowType, number]> = [
+    ['chat', { ...baseRow, labelProvisional: true }, 0],
+    ['folder', { ...baseRow, id: 'f', kind: 'folder' }, 1],
+    [
+      'branch',
+      { ...baseRow, id: 'b', kind: 'branch', ownsWorktree: true, branchName: 'feature/x' },
+      2,
+    ],
+    [
+      'locked branch',
+      { ...baseRow, id: 'l', kind: 'branch', label: 'main', branchName: 'main', locked: true },
+      1,
+    ],
+  ]
+  for (const [kind, row, depth] of rows) {
+    it(`sizes a ${kind} row from the scale`, () => {
+      const { container } = render(
+        <RowMetricsContext value={metrics}>
+          <SidebarRow row={row} depth={depth} onOpen={vi.fn()} />
+        </RowMetricsContext>,
+      )
+      const item = screen.getByRole('treeitem')
+      expect(item.style.height).toBe(`${metrics.height}px`)
+      expect(item.style.fontSize).toBe(`${metrics.titleSize}px`)
+      const glyph = item.firstElementChild as HTMLElement
+      expect(glyph.style.width).toBe(`${metrics.glyph}px`)
+      const indent = (container.firstElementChild as HTMLElement).style.marginInlineStart
+      expect(indent).toBe(`${depth * metrics.indent}px`)
+    })
+  }
+
+  it('sets a branch name under its title at the one secondary size', () => {
+    render(
+      <RowMetricsContext value={metrics}>
+        <SidebarRow
+          row={{ ...baseRow, kind: 'branch', ownsWorktree: true, branchName: 'feature/x' }}
+          depth={0}
+          onOpen={vi.fn()}
+        />
+      </RowMetricsContext>,
+    )
+    expect(screen.getByText('feature/x').style.fontSize).toBe(`${metrics.subSize}px`)
+  })
+
+  it('draws a repo header icon at the header size', () => {
+    render(
+      <RowMetricsContext value={metrics}>
+        <SidebarRow
+          row={{ ...baseRow, kind: 'branch', label: 'crowbar', repoIcon: headerIcon }}
+          depth={0}
+          onOpen={vi.fn()}
+          inlineRenameDisabled
+        />
+      </RowMetricsContext>,
+    )
+    const glyph = screen.getByRole('treeitem').firstElementChild as HTMLElement
+    expect(glyph.style.width).toBe(`${metrics.glyph}px`)
+    expect(glyph.style.height).toBe(`${metrics.glyph}px`)
+  })
+
+  // No hover on a phone: the disclosure is always there, and it alone folds the row.
+  describe('a foldable row', () => {
+    const folder: SidebarRowType = { ...baseRow, id: 'f', kind: 'folder', label: 'Specs' }
+    const renderFolder = (folded: boolean) => {
+      const onOpen = vi.fn()
+      const onToggleFold = vi.fn()
+      const view = render(
+        <RowMetricsContext value={metrics}>
+          <SidebarRow
+            row={folder}
+            depth={0}
+            onOpen={onOpen}
+            onToggleFold={onToggleFold}
+            folded={folded}
+          />
+        </RowMetricsContext>,
+      )
+      return { ...view, onOpen, onToggleFold }
+    }
+
+    it('shows a disclosure that says whether the row is open', () => {
+      renderFolder(false)
+      expect(screen.getByRole('button', { name: 'Collapse Specs' })).toHaveAttribute(
+        'aria-expanded',
+        'true',
+      )
+    })
+
+    it('shows a collapsed row’s disclosure as closed', () => {
+      renderFolder(true)
+      expect(screen.getByRole('button', { name: 'Expand Specs' })).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      )
+    })
+
+    it('gives the disclosure a touch-sized target', () => {
+      renderFolder(false)
+      const button = screen.getByRole('button', { name: 'Collapse Specs' })
+      expect(button.style.width).toBe(`${metrics.hitTarget}px`)
+      expect(button.style.height).toBe(`${metrics.hitTarget}px`)
+    })
+
+    it('folds from the disclosure without opening the row', () => {
+      const { onOpen, onToggleFold } = renderFolder(false)
+      fireEvent.click(screen.getByRole('button', { name: 'Collapse Specs' }))
+      expect(onToggleFold).toHaveBeenCalledWith('f')
+      expect(onOpen).not.toHaveBeenCalled()
+    })
+
+    it('opens from the rest of the row without folding it', () => {
+      const { onOpen, onToggleFold } = renderFolder(false)
+      fireEvent.click(screen.getByText('Specs'))
+      expect(onOpen).toHaveBeenCalledWith('f')
+      expect(onToggleFold).not.toHaveBeenCalled()
+    })
   })
 })

@@ -22,6 +22,31 @@ import {
 import { useSettingsStore } from '@/features/settings/store'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  get IS_MOBILE() {
+    return platform.mobile
+  },
+}))
+
+// The phone shows the chat transcript only: the provider's TUI is a desktop surface.
+describe('useChatPresentation — on the phone', () => {
+  afterEach(() => {
+    platform.mobile = false
+    resetChatPresentationMemoryForTests()
+  })
+
+  it('lands on the chat and stays there, whatever the default or a pick says', () => {
+    platform.mobile = true
+    presetChatLandingPresentation('chat-t', 'terminal')
+    const { result } = renderHook(() => useChatPresentation('chat-t', { current: null }))
+    expect(result.current.presentation).toBe('chat')
+    act(() => result.current.setPresentation('terminal'))
+    expect(result.current.presentation).toBe('chat')
+  })
+})
+
 function ref(size: { clientWidth?: number; clientHeight?: number }) {
   return { current: size as unknown as HTMLElement }
 }

@@ -51,7 +51,16 @@ export function QueuedRow({
 
   return (
     <article
-      className={firstTurn ? 'frozen firstq' : cn('queued', multi && 'multi', failed && 'bad')}
+      className={
+        firstTurn
+          ? 'frozen firstq'
+          : cn(
+              'queued',
+              multi && 'multi',
+              failed && 'bad',
+              item.state !== 'queued' && !failed && 'sent',
+            )
+      }
       data-client-request-id={item.clientRequestId}
       data-state={item.state}
       data-first-turn={firstTurn ? 'true' : undefined}

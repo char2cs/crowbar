@@ -4,7 +4,7 @@ import { BrowserAgentPeer } from '@/features/browser/components/browser-agent-pe
 
 const peer = vi.hoisted(() => ({ attach: vi.fn(), detach: vi.fn(), tauri: true }))
 vi.mock('@/features/browser/lib/agent-peer', () => ({ attachBrowserAgentPeer: peer.attach }))
-vi.mock('@/lib/crowbar-bridge', () => ({ isTauri: () => peer.tauri }))
+vi.mock('@/lib/crowbar-bridge', () => ({ isDesktopApp: () => peer.tauri }))
 
 beforeEach(() => {
   peer.attach.mockReset().mockReturnValue(peer.detach)
@@ -30,7 +30,7 @@ describe('BrowserAgentPeer', () => {
     expect(peer.attach).not.toHaveBeenCalled()
   })
 
-  it('does not attach outside the desktop app', async () => {
+  it('does not attach outside the desktop app, the phone app included', async () => {
     peer.tauri = false
     render(<BrowserAgentPeer />)
     await settle()

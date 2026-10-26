@@ -18,7 +18,7 @@ import { useWorkspaceIsLocal } from '@/lib/host-resolve'
  * The sidebar's Files panel — every file-system-store binding and the
  * `FileExplorerTree` they drive (selection, create/rename/delete/upload).
  */
-export function SidebarFilesPanel() {
+export function SidebarFilesPanel({ onFileOpened }: { onFileOpened?: () => void } = {}) {
   const workspaceId = useFocusedWorkspaceContextStore((s) => s.workspaceId)
   const rootPath = useFocusedWorkspaceContextStore((s) => s.rootPath)
   // The focused workspace's own tree: switching focus selects another store's
@@ -57,6 +57,7 @@ export function SidebarFilesPanel() {
               useFileTreeStore.getState().toggleFolder(workspaceId ?? '', path)
             } else {
               handlers.handleFileSelect(path, false, fileOpenTarget())
+              onFileOpened?.()
             }
           }}
           onFileOpen={(path: string, isDir: boolean) => {

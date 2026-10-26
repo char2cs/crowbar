@@ -44,12 +44,18 @@ func (rs *Runners) endProcesses(ctx context.Context, runner agents.Runner) error
 // retire takes runner off its chat for good and ends it. Best-effort: a
 // runner still placed after a failed displace is reconciled by its own exit.
 func (rs *Runners) retire(ctx context.Context, runner agents.Runner) {
+	rs.retireAs(ctx, runner, runner.CurrentChatID, domain.AgentExitDisplaced)
+}
+
+// retireAs is retire noting reason on chatID as the chat's one exit, so a
+// caller with a final reason (a Stop) never announces an intermediate one first.
+func (rs *Runners) retireAs(ctx context.Context, runner agents.Runner, chatID, reason string) {
 	if err := rs.displace(ctx, runner); err != nil {
 		slog.ErrorContext(ctx, "agent: retire runner: displace (best-effort, continuing)",
 			"runner_id", runner.ID, "chat_id", runner.CurrentChatID, "err", err)
 	}
-	if runner.CurrentChatID != "" {
-		rs.noteChatExit(ctx, runner.CurrentChatID, domain.AgentExitDisplaced)
+	if chatID != "" {
+		rs.noteChatExit(ctx, chatID, reason)
 	}
 	if err := rs.endProcesses(ctx, runner); err != nil {
 		slog.WarnContext(ctx, "agent: retire runner (best-effort, continuing)",

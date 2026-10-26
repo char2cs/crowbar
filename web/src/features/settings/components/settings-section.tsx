@@ -55,7 +55,9 @@ export default function Section({ title, description, children, className }: Sec
         <div className="settings-section-header mb-2 px-1 py-1.5">
           {/* Label defaults to `sm:text-sm/4`, which always applies here and which
               tailwind-merge won't drop for an unprefixed size — so set `sm:` too. */}
-          <Label className="font-heading text-[32px] sm:text-[32px] text-foreground">{title}</Label>
+          <Label className="font-heading text-[length:var(--settings-section-title,32px)] sm:text-[length:var(--settings-section-title,32px)] text-foreground">
+            {title}
+          </Label>
           {description && <p className="ui-font ui-text-sm text-muted-foreground">{description}</p>}
         </div>
         <div className="space-y-2">{children}</div>
@@ -256,7 +258,7 @@ export function SettingRow({
       </div>
       <div
         ref={controlRef}
-        className="ui-font ui-text-sm shrink-0 select-auto [--app-ui-badge-height:1.5rem] [--app-ui-button-compact-height:1.5rem] [--app-ui-button-compact-min-width:1.5rem] [--app-ui-button-height:1.5rem] [--app-ui-button-min-width:1.5rem] [--app-ui-control-font-size:var(--ui-text-sm)] max-[640px]:w-full max-[640px]:shrink max-[640px]:[&>input]:w-full max-[640px]:[&>textarea]:w-full"
+        className="ui-font ui-text-sm shrink-0 select-auto [--app-ui-badge-height:1.5rem] [--app-ui-button-compact-height:1.5rem] [--app-ui-button-compact-min-width:1.5rem] [--app-ui-button-height:1.5rem] [--app-ui-button-min-width:1.5rem] [--app-ui-control-font-size:var(--ui-text-sm)] max-[640px]:w-full max-[640px]:shrink max-[640px]:[&>input]:w-full max-[640px]:[&>textarea]:w-full max-[640px]:[&_[data-slot=select-trigger]]:w-full"
       >
         {children}
       </div>

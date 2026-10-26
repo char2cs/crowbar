@@ -10,6 +10,7 @@ const { handleSave, handleSaveAll } = vi.hoisted(() => ({
 vi.mock('@/utils/platform', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/utils/platform')>()),
   IS_MAC: false,
+  APPLE_KEYBOARD: false,
 }))
 
 vi.mock('@/features/editor/lib/buffer-save', () => ({

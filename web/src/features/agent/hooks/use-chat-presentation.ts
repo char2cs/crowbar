@@ -5,6 +5,7 @@ import {
   type ChatPresentation,
   type LandingChatPresentation,
 } from '@/features/settings/lib/chat-presentation'
+import { IS_MOBILE } from '@/utils/platform'
 
 export const SPLIT_MIN_HALF_PX = 340
 export const SPLIT_SIDE_BY_SIDE_MIN_PX = 780
@@ -157,7 +158,9 @@ export function useChatPresentation(
   // THE SURFACE ACTUALLY SHOWN. Derived rather than corrected, so switching the
   // dev toggle off cannot strand a chat on a surface whose button has just gone:
   // there is no state to write back, and no frame in which the two disagree.
-  const presentation: ChatPresentation = chosen === 'split' && !splitEnabled ? 'chat' : chosen
+  // The phone has no TUI surface: its chat is the transcript and composer, always.
+  const presentation: ChatPresentation =
+    IS_MOBILE || (chosen === 'split' && !splitEnabled) ? 'chat' : chosen
   const splitting = presentation === 'split'
 
   // Whether the way back to the chat is being OFFERED — what Crowbar shows when

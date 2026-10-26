@@ -1,10 +1,11 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ReviewConversationView } from '@/features/git/components/review-conversation-view'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 
 const mocks = vi.hoisted(() => ({
   openThread: vi.fn(),
@@ -66,12 +67,17 @@ function renderView(threads: ReviewThread[], description = '') {
   return { onJumpToLine }
 }
 
+const SCOPE = { projectId: 'p1', repoId: 'r1', wsId: 'ws-1', owningChatId: 'c1' }
+
 beforeEach(() => {
   vi.clearAllMocks()
+  recordWorkspaceScope(SCOPE)
   mocks.getIdentity.mockResolvedValue({ login: 'me', displayName: 'Me' })
   mocks.openThread.mockResolvedValue(undefined)
   mocks.getReviewPatch.mockResolvedValue({ patch: PATCH, truncated: false })
 })
+
+afterEach(() => __resetWorkspaceScopesForTest())
 
 describe('ReviewConversationView', () => {
   it('renders with no threads and no description (a branch with zero changed files)', () => {
@@ -139,6 +145,22 @@ describe('ReviewConversationView', () => {
     await waitFor(() => expect(screen.getAllByTestId('review-thread-snippet')).toHaveLength(2))
     expect(mocks.getReviewPatch).toHaveBeenCalledTimes(1)
     expect(mocks.getReviewPatch).toHaveBeenCalledWith({ wsId: 'ws-1' }, 'src/a.ts')
+  })
+
+  // The patch is addressed through the owning chat, which the sidebar records after a cold launch.
+  it('reads the anchored code once the workspace’s owning chat is known', async () => {
+    __resetWorkspaceScopesForTest()
+    renderView([thread({ id: 'a', lineNumber: 5, startLine: 5 })])
+    expect(mocks.getReviewPatch).not.toHaveBeenCalled()
+
+    act(() => recordWorkspaceScope(SCOPE))
+    expect(await screen.findByTestId('review-thread-snippet')).toBeDefined()
+  })
+
+  it('says so when the anchored code cannot be read', async () => {
+    mocks.getReviewPatch.mockRejectedValue(new Error('502 Bad Gateway'))
+    renderView([thread({ id: 'a', lineNumber: 5, startLine: 5 })])
+    expect(await screen.findByText('Couldn’t load these lines.')).toBeDefined()
   })
 
   it('orders description, threads, then the composer', () => {

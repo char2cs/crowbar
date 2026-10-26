@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import type { DialogHostProps, DialogRequest } from './primitive-dialog-host'
+import { hasNativeChrome, nativeConfirm } from '@/lib/native-chrome'
 
 // Promise-based confirm/prompt in the app's own Dialog, shown one at a time. Closing one
 // by any route (Cancel, Escape, the backdrop) settles its promise: none is left pending.
@@ -68,6 +69,16 @@ export function primitiveConfirm(
   message: ReactNode,
   options: ConfirmOptions = {},
 ): Promise<boolean> {
+  // The phone's sheets cover this webview; a native alert shows over them.
+  if (hasNativeChrome() && typeof message === 'string') {
+    return nativeConfirm({
+      title: options.title ?? 'Confirm',
+      message,
+      confirmLabel: options.confirmLabel ?? 'Confirm',
+      cancelLabel: options.cancelLabel ?? 'Cancel',
+      destructive: options.destructive ?? false,
+    })
+  }
   return new Promise((resolve) => {
     enqueue({
       id: nextId++,

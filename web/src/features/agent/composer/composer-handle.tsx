@@ -3,6 +3,7 @@ import { ComposerPlusButton } from '@/features/agent/composer/composer-plus-butt
 import { StopIcon, UpIcon } from '@/features/agent/shared/agent-icons'
 import { cn } from '@/lib/utils'
 import { handleOffset } from '@/features/agent/composer/lib/handle-geometry'
+import { IS_MOBILE } from '@/utils/platform'
 
 interface ComposerHandleProps {
   /** The field's measured height, in px. */
@@ -47,7 +48,8 @@ export function ComposerHandle({
   onOpenExcalidraw,
   onOpenAttachFile,
 }: ComposerHandleProps) {
-  const stopping = working && canStop
+  // A phone has no Enter to queue with, so typed text makes the button send.
+  const stopping = working && canStop && !(IS_MOBILE && hasText)
   const sendingVisual = !stopping && !hasText && sending
   const idle = !stopping && !sendingVisual && !hasText
 
@@ -60,6 +62,8 @@ export function ComposerHandle({
         disabled={idle || sendingVisual}
         aria-label={stopping ? 'Stop this turn' : sendingVisual ? 'Sending' : 'Send prompt'}
         title={stopping ? 'Stop this turn — Esc' : sendingVisual ? 'Sending…' : 'Send — Enter'}
+        // Keeps the editor focused, so tapping send does not drop the keyboard.
+        onMouseDown={(e) => e.preventDefault()}
         onClick={stopping ? onStop : onSend}
       >
         {stopping ? (

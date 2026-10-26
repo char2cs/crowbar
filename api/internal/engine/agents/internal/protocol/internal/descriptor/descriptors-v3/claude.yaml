@@ -555,6 +555,11 @@ injected_prompts:
 terminal_prompts:
   - kind: workspace_trust
     needle: "I trust this folder"
+    # The dialog opens with "Yes, I trust this folder" selected; Enter takes it.
+    answers:
+      - id: accept
+        label: "Trust workspace"
+        keys: "\r"
   # Footer every claude selection modal paints. Unkinded: a match only
   # justifies "something is blocking".
   - needle: "Enter to confirm"

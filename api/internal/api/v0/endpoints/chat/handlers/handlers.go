@@ -284,9 +284,9 @@ type RunnerUsecase interface {
 		chatID string,
 	) error
 
-	// CloseChat retires chatID's live vendor CLI because no view displays the chat
-	// any more, mid-turn included, and leaves it dormant and resumable.
-	CloseChat(
+	// KillChat force-ends chatID's live vendor CLI, mid-turn included, and leaves
+	// it dormant and resumable.
+	KillChat(
 		ctx context.Context,
 		chatID string,
 	) error
@@ -341,6 +341,10 @@ type AnswerUsecase interface {
 		chatID string,
 		choices []domain.ActivityChoice,
 	) []string
+
+	// AnswerTerminalWait types a descriptor-declared reply into the terminal
+	// prompt the chat's CLI is parked on; ErrConflict once the prompt has gone.
+	AnswerTerminalWait(ctx context.Context, chatID, answerID string) error
 
 	// AnswerChoice records a human's decision and hands it to the relay blocking the
 	// provider's gate. optionIDs name what was picked; reason and content carry the

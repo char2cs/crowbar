@@ -19,6 +19,12 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 
 import { handleCreate } from '@/components/layout/create-actions'
 import { handleCreateHomeThread } from '@/components/layout/home-actions'
+import { FIRST_PROMPT, draftPaneId } from '@/__tests__/__fixtures__/draft-thread'
+import { promoteDraftThread } from '@/components/layout/draft-promote'
+import {
+  resetWindowPaneStoreForTests,
+  windowPaneStore,
+} from '@/features/panes/stores/window-pane-store'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
@@ -41,6 +47,7 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  resetWindowPaneStoreForTests()
   useSidebarStore.setState(getInitialState())
   useHomeTreeStore.setState({ trees: {} })
   usePendingCreatesStore.setState(getInitialPendingCreatesState())
@@ -60,7 +67,7 @@ beforeEach(() => {
  * the real row lands, then jumps down when it appears.
  */
 describe('a pending thread row is placed where the daemon will append it', () => {
-  it('counts every sibling under a branch row — forks and folders included, not chats alone', () => {
+  it('counts every sibling under a branch row — forks and folders included, not chats alone', async () => {
     useSidebarStore.setState({
       repos: [
         repo({
@@ -106,7 +113,8 @@ describe('a pending thread row is placed where the daemon will append it', () =>
       ],
     })
 
-    handleCreate('c-a', 'thread', vi.fn())
+    await handleCreate('c-a', 'thread', vi.fn())
+    void promoteDraftThread(draftPaneId()!, FIRST_PROMPT)
 
     const [entry] = usePendingCreatesStore.getState().entries
     expect(entry).toMatchObject({ kind: 'chat', parentId: 'c-a' })
@@ -135,8 +143,9 @@ describe('a pending thread row is placed where the daemon will append it', () =>
       },
     })
 
-    void handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
-    await Promise.resolve()
+    windowPaneStore.setState({ activeProjectId: 'p1' })
+    await handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
+    void promoteDraftThread(draftPaneId()!, FIRST_PROMPT)
 
     const [entry] = usePendingCreatesStore.getState().entries
     expect(entry).toMatchObject({ kind: 'chat', parentId: '' })

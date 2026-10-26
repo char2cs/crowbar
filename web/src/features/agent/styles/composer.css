@@ -548,6 +548,143 @@
   width: calc(100% - 18px);
 }
 
+/* The phone's capsule, one set of numbers for the chat's pill and the empty document's bar:
+   20px lines, 11px padding, 32pt circles inset 5px — sendInset/fieldRightPadding in
+   handle-geometry.ts. 16px text: iOS zooms into a smaller focused field. */
+.agent-chat {
+  --touch-line: 20px;
+  --touch-pad-y: 11px;
+  --touch-pad-x: 16px;
+  --touch-circle: 32px;
+  --touch-inset: 5px;
+  --touch-text: 16px;
+}
+.agent-chat .pill[data-touch] {
+  padding: var(--touch-pad-y) var(--touch-pad-x);
+}
+.agent-chat .pill[data-touch].multi {
+  border-radius: 22px;
+}
+.agent-chat .pill[data-touch] .field {
+  min-height: var(--touch-line);
+  line-height: var(--touch-line);
+  font-size: var(--touch-text);
+  padding-right: calc(var(--touch-inset) + 2 * var(--touch-circle) + 2px);
+}
+/* Same text column as one line (the flicker rule above): the width gives back the send
+   circle's reach past the padding, the padding keeps the rest. */
+.agent-chat .pill[data-touch].multi .field {
+  --reach: calc(var(--touch-pad-x) - var(--touch-inset));
+  width: calc(100% - var(--reach));
+  padding-right: calc(var(--touch-inset) + 2 * var(--touch-circle) + 2px - var(--reach));
+}
+.agent-chat .pill[data-touch] .handle {
+  top: var(--touch-pad-y);
+  right: var(--touch-inset);
+  height: var(--touch-line);
+}
+.agent-chat :is(.pill, .dochandle)[data-touch] :is(.send, .plusbtn) {
+  width: var(--touch-circle);
+  height: var(--touch-circle);
+}
+.agent-chat :is(.pill, .dochandle)[data-touch] :is(.send, .plusbtn) {
+  position: relative;
+}
+.agent-chat :is(.pill, .dochandle)[data-touch] :is(.send, .plusbtn) svg:not([class*='size-']) {
+  width: 17px;
+  height: 17px;
+}
+/* Wrapped, the plus stacks directly above send in the same right-hand column. The handle is
+   anchored to the pill's bottom (not riding the last line), and the pill is never shorter than
+   the two circles, so a two-line draft still has room for both. The inline translateY of the
+   desktop's last-line rule is what the !important unseats. */
+.agent-chat .pill[data-touch].multi {
+  min-height: calc(2 * var(--touch-circle) + 2px + 2 * var(--touch-inset));
+}
+.agent-chat .pill[data-touch].multi .handle {
+  top: auto;
+  bottom: var(--touch-inset);
+  height: var(--touch-circle);
+  transform: none !important;
+}
+.agent-chat .pill[data-touch].multi .plusbtn {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 2px); /* HANDLE_GAP, handle-geometry.ts */
+}
+/* 44pt to the finger, 32pt to the eye. */
+.agent-chat :is(.pill, .dochandle)[data-touch] :is(.send, .plusbtn)::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+/* The empty document's bar is the same capsule: as tall as the one-line pill. */
+.agent-chat .dochandle[data-touch] .grp {
+  height: calc(var(--touch-line) + 2 * var(--touch-pad-y) + 2px);
+  padding: 0 calc(var(--touch-inset) - 1px) 0 calc(var(--touch-pad-x) - 7px);
+}
+.agent-chat .dochandle[data-touch] .inner {
+  /* The dock's own side padding (`.center`), so the bar and the chat's capsule are one width. */
+  --pad: 24px;
+}
+.agent-chat .doc:has(+ .dochandle[data-touch]) {
+  --pad: 24px;
+  font-size: var(--touch-text);
+}
+/* Under the model row: half the desktop's foot, the safe area still below it. */
+.agent-chat .dock:has(.pill[data-touch]) {
+  padding-bottom: 7px;
+}
+
+/* The phone's picker row: centred under the capsule, text 1.125x, the provider mark at the
+   label's optical size; the effort truncates first. */
+.agent-chat .underbar[data-touch] {
+  justify-content: center;
+  /* Room for the chip's hit-slop, which `overflow: hidden` would otherwise clip. */
+  padding-bottom: 7px;
+}
+.agent-chat .underbar[data-touch] .left {
+  justify-content: center;
+}
+.agent-chat .underbar[data-touch] .selpos {
+  flex: 0 1 auto;
+}
+.agent-chat .underbar[data-touch] .right {
+  margin-left: 0;
+}
+.agent-chat .underbar[data-touch] .right:empty {
+  display: none;
+}
+.agent-chat .underbar[data-touch] .chip {
+  position: relative;
+  height: auto;
+  max-width: 100%;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: calc(var(--ui-text-sm) * 1.125);
+}
+/* The 44pt touch target, invisible: the chip itself hugs its text. */
+.agent-chat .underbar[data-touch] .chip::before {
+  content: '';
+  position: absolute;
+  inset: -7px 0;
+}
+.agent-chat .underbar[data-touch] .chip svg {
+  width: 0.8em;
+  height: 0.8em;
+}
+.agent-chat .underbar[data-touch] .chip [data-provider-icon],
+.agent-chat .underbar[data-touch] .chip [data-provider-icon] svg {
+  width: 1.15em;
+  height: 1.15em;
+}
+.agent-chat .underbar[data-touch] .chip > b {
+  flex-shrink: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* A stop notice REPLACES the input rather than sitting above it, because the
    fact it reports IS that there is nothing to type into. Same 38px box, same
    stadium — the bar has not gone anywhere, it has stopped being an input. The
@@ -580,8 +717,31 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A finger cannot hover or widen the pane to read an ellipsis, and the message
+   is the only clue to WHICH prompt the provider is stuck on. */
+@media (pointer: coarse) {
+  .agent-chat .pill.halted {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: 8px;
+    padding: 10px 10px 10px 16px;
+    border-radius: 22px;
+  }
+  .agent-chat .pill.halted .msg {
+    flex: 1 1 14rem;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+}
 .agent-chat .pill.halted > button:last-child {
   margin-left: auto;
+}
+/* Wrapped below the message, the buttons sit together at the end, not split across the row. */
+@media (pointer: coarse) {
+  .agent-chat .pill.halted > button:last-child {
+    margin-left: 0;
+  }
 }
 .agent-chat .pill.halted .when {
   margin-left: auto;

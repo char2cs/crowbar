@@ -427,8 +427,8 @@ describe('AppSyncProvider subscribes by visibility', () => {
     await settle()
     expect(fetchFolders).toHaveBeenCalledWith('p1', 'r1')
     expect(fetchFolders).toHaveBeenCalledWith('p2', 'r2')
-    expect(fetchRepoChats).toHaveBeenCalledWith('p1', 'r1')
-    expect(fetchRepoChats).toHaveBeenCalledWith('p2', 'r2')
+    expect(fetchRepoChats).toHaveBeenCalledWith('p1', 'r1', expect.any(Function))
+    expect(fetchRepoChats).toHaveBeenCalledWith('p2', 'r2', expect.any(Function))
 
     act(() => {
       useProjectDataStore.setState({ data: success([project('p1')]) })

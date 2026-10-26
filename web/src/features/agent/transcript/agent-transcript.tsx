@@ -9,6 +9,7 @@ import {
   useState,
 } from 'react'
 import { layoutHeight } from '@/lib/layout-size'
+import { IS_MOBILE } from '@/utils/platform'
 import { markEnd } from '@/lib/perf/instrumentation'
 import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual'
 import { Button } from '@/components/ui/button'
@@ -64,6 +65,8 @@ interface AgentTranscriptProps {
   providers: AgentProvider[]
   activity: AgentActivity
   working: boolean
+  /** A prompt is handed to the daemon but its turn has not begun: still the agent's move. */
+  sending?: boolean
   /** Is this chat LIVE mid-compaction right now — see WorkingLine's own prop
    *  doc for why this cannot come from `activity`. */
   compacting?: boolean
@@ -670,7 +673,8 @@ export function AgentTranscript(props: AgentTranscriptProps) {
       //
       // Reported twice from a screenshot showing an entirely blank transcript
       // with the composer reading "Queue a message…".
-      if (props.working) return
+      // The phone has no room to spare for a reply that has not arrived yet.
+      if (props.working || IS_MOBILE) return
       const row = anchor.scrollRef.current?.querySelector<HTMLElement>(
         `[data-client-request-id="${CSS.escape(newest)}"]`,
       )
@@ -714,6 +718,11 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     // would re-enter the branches above against a `newest` that has not moved.
     // react-doctor-disable-next-line exhaustive-deps -- see comment above, props.working is read not tracked
   }, [queue, messages, anchor.scrollRef, anchor.pinTurnToTop])
+  // A stopped turn will never fill the room reserved for its reply.
+  const stopped = !props.working && (props.trailingInterruption?.length ?? 0) > 0
+  useEffect(() => {
+    if (stopped) anchor.pinTurnToTop(null)
+  }, [stopped, anchor.pinTurnToTop])
   const callsById = useMemo(() => {
     return new Map(props.activity.toolCalls.map((call) => [call.id, call]))
   }, [props.activity.toolCalls])
@@ -1107,7 +1116,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
           // feed the text itself renders from, so a live bubble is proof the
           // chat is working regardless of whether the fold has caught up —
           // observed live as a reply filling in with no spinner above it.
-          working={props.working || (props.streamingBubbles?.length ?? 0) > 0}
+          working={props.working || props.sending || (props.streamingBubbles?.length ?? 0) > 0}
           since={messages.at(-1)?.at}
           compactingLive={props.compacting}
           reasoning={props.reasoning}

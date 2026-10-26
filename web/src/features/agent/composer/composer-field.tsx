@@ -22,6 +22,8 @@ interface ComposerFieldProps {
   ) => void
   /** Reported on every change, so the handle can ride the last line. */
   onHeightChange: (height: number) => void
+  /** The box replaces one the person was typing in: keep the keyboard up. */
+  focusOnMount?: boolean
   /** Forwarded straight through to `ChatMarkdownEditor` — see
    *  `ChatMarkdownEditorHandle` for what a caller outside the field can do
    *  with it. */
@@ -46,6 +48,7 @@ export function ComposerField({
   onChange,
   onKeyDown,
   onHeightChange,
+  focusOnMount,
   ref,
 }: ComposerFieldProps) {
   return (
@@ -59,6 +62,7 @@ export function ComposerField({
       expanded={expanded}
       controls={controls}
       autoFocus
+      focusOnMount={focusOnMount}
       onChange={onChange}
       onKeyDown={onKeyDown}
       onHeightChange={onHeightChange}

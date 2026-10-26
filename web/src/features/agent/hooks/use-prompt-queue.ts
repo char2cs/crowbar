@@ -10,6 +10,8 @@ import {
   isPromptTextWithinLimit,
   loadPromptQueue,
   MAX_PROMPT_QUEUE_ITEMS,
+  newQueuedPrompt,
+  newRequestId,
   savePromptQueue,
   type PromptQueueItem,
 } from '@/features/agent/lib/prompt-queue-persistence'
@@ -18,20 +20,6 @@ import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 
 const BUSY_RECHECK_MS = 1_000
 const AWAITING_TERMINAL_HINT_MS = 6_000
-
-function requestId(): string {
-  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID()
-  if (typeof globalThis.crypto?.getRandomValues !== 'function') {
-    throw new Error('Secure request identity is unavailable in this webview.')
-  }
-  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
-  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40
-  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80
-  const hex = [...bytes].map((value) => value.toString(16).padStart(2, '0'))
-  return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex
-    .slice(6, 8)
-    .join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10).join('')}`
-}
 
 /** True while an image attachment still shows its OWN optimistic local
  *  preview — `insertPendingImageInto`/`settlePendingImageInto` (chat-
@@ -193,6 +181,9 @@ export function usePromptQueue(options: PromptQueueOptions) {
   const cancelableCount = queue.filter(
     (item) => item.state === 'queued' || item.state === 'failed',
   ).length
+
+  // Prompts still waiting their turn; a dispatched one is in flight, not queued.
+  const waitingCount = queue.filter((item) => item.state === 'queued').length
 
   const deliveryPending = queue.some(
     (item) => item.state === 'submitting' || item.state === 'awaiting_turn',
@@ -489,7 +480,7 @@ export function usePromptQueue(options: PromptQueueOptions) {
             // person's explicit Retry, never automatic.
             let freshId: string
             try {
-              freshId = requestId()
+              freshId = newRequestId()
             } catch {
               freshId = item.clientRequestId
             }
@@ -616,28 +607,13 @@ export function usePromptQueue(options: PromptQueueOptions) {
           error: `This chat already has ${MAX_PROMPT_QUEUE_ITEMS} pending prompts.`,
         }
       }
-      let clientRequestId: string
+      let item: PromptQueueItem
       try {
-        clientRequestId = requestId()
+        // Baked in at enqueue time, not read fresh at dispatch: a later pick
+        // must never bleed onto an earlier queued message.
+        item = newQueuedPrompt(text, getBaseline(), provider, model, effort)
       } catch (error) {
         return { ok: false, error: actionErrorMessage(error, String(error)) }
-      }
-      const item: PromptQueueItem = {
-        clientRequestId,
-        text,
-        state: 'queued',
-        createdAt: new Date().toISOString(),
-        baselineSequence: getBaseline(),
-        // Baked in at enqueue time, not read fresh at dispatch: a later pick
-        // must never bleed onto an earlier queued message. See the field's
-        // own doc comment on PromptQueueItem.
-        // '' is KEPT for model/effort — a pick of the provider's own
-        // default — and only `undefined` (nothing staged) is dropped.
-        // Provider has no such reading: a chat always runs SOME provider,
-        // so '' there really is "nothing staged".
-        ...(provider ? { provider } : {}),
-        ...(model !== undefined ? { model } : {}),
-        ...(effort !== undefined ? { effort } : {}),
       }
       const next = [...queueRef.current, item]
       if (!canPersistPromptQueue(wsId, chatId, next)) {
@@ -674,6 +650,7 @@ export function usePromptQueue(options: PromptQueueOptions) {
     queue,
     persistenceLost,
     cancelableCount,
+    waitingCount,
     deliveryPending,
     awaitingHead,
     showAwaitingTerminalHint,

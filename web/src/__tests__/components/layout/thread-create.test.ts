@@ -30,7 +30,7 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 vi.mock('@/features/agent/hooks/use-chat-presentation', () => ({ presetChatLandingPresentation }))
 
 import { handleCreate, confirmPendingCreateName } from '@/components/layout/create-actions'
-import { handleCreateHomeThread } from '@/components/layout/home-actions'
+import { createHomeThread, createThread } from '@/__tests__/__fixtures__/draft-thread'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
@@ -129,7 +129,7 @@ describe('a created row that never arrives', () => {
     useSidebarStore.setState({ repos: [repo({ workspaces: [ws] })] })
     setActiveWorkspaceId('ws-a')
 
-    handleCreate('ws-a', 'thread', vi.fn())
+    await createThread('ws-a', vi.fn())
     await expectFailsAtThirtySeconds()
 
     // The wait unsubscribed: the row landing late does not touch the entry.
@@ -142,7 +142,7 @@ describe('a created row that never arrives', () => {
 
   it('a project-home thread fails after 30 s', async () => {
     setActiveWorkspaceId('home-ws-1')
-    await handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
+    await createHomeThread('p1', 'home-ws-1', vi.fn())
     await expectFailsAtThirtySeconds()
   })
 })
@@ -166,7 +166,7 @@ describe('a refused create says why', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     createChat.mockRejectedValueOnce(new Error('agent chat: parent ws-a: apperr: not found'))
 
-    handleCreate('ws-a', 'thread', vi.fn())
+    await createThread('ws-a', vi.fn())
     await Promise.resolve()
     await Promise.resolve()
 
@@ -236,7 +236,7 @@ describe('starting a thread on a remote host with no provider enabled', () => {
 })
 
 describe('starting a thread on a real workspace', () => {
-  it('creates a chat with the first enabled provider', () => {
+  it('creates a chat with the first enabled provider', async () => {
     useSidebarStore.setState({
       repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
     })
@@ -247,7 +247,7 @@ describe('starting a thread on a real workspace', () => {
       providers: [{ id: 'claude', enabled: true }] as never,
     })
 
-    handleCreate('ws-a', 'thread', vi.fn())
+    await createThread('ws-a', vi.fn())
 
     expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a', undefined)
   })
@@ -263,7 +263,7 @@ describe('starting a thread on a real workspace', () => {
       providers: [{ id: 'claude', enabled: true }] as never,
     })
 
-    handleCreate('ws-a', 'thread', vi.fn(), 'terminal')
+    await createThread('ws-a', vi.fn(), 'terminal')
     await Promise.resolve()
 
     expect(presetChatLandingPresentation).toHaveBeenCalledExactlyOnceWith('chat-1', 'terminal')
@@ -278,7 +278,7 @@ describe('starting a thread on a real workspace', () => {
       providers: [{ id: 'claude', enabled: true }] as never,
     })
 
-    handleCreate('ws-a', 'thread', vi.fn())
+    await createThread('ws-a', vi.fn())
     await Promise.resolve()
 
     expect(presetChatLandingPresentation).not.toHaveBeenCalled()
@@ -295,7 +295,7 @@ describe('starting a thread on a real workspace', () => {
       providers: [{ id: 'claude', enabled: true }] as never,
     })
 
-    handleCreate('ws-a', 'thread', vi.fn())
+    await createThread('ws-a', vi.fn())
     await Promise.resolve()
 
     // Not cleared yet — the create's own promise resolved, but the real
@@ -353,7 +353,7 @@ describe('starting a thread on a real workspace', () => {
     setActiveWorkspaceId('ws-a')
     const navigate = vi.fn()
 
-    handleCreate('ws-a', 'thread', navigate)
+    await createThread('ws-a', navigate)
     await Promise.resolve()
 
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('chat-1')
@@ -384,7 +384,7 @@ describe('starting a thread on a real workspace', () => {
     }))
     const navigate = vi.fn()
 
-    handleCreate('ws-a', 'thread', navigate)
+    await createThread('ws-a', navigate)
     await Promise.resolve()
 
     const newPane = Object.values(windowPaneStore.getState().panes).find(
@@ -416,7 +416,7 @@ describe('starting a thread on a real workspace', () => {
     setActiveWorkspaceId('ws-other')
     const navigate = vi.fn(() => Promise.resolve())
 
-    handleCreate('ws-a', 'thread', navigate)
+    await createThread('ws-a', navigate)
     await Promise.resolve()
     await Promise.resolve()
 
