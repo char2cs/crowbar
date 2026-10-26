@@ -15,12 +15,23 @@ describe('rowTouch', () => {
     expect(rowTouch(drag, { type: 'hold' })).toBe('drag')
   })
 
+  it('opens the menu when the armed finger stays put, and a later move does not take it', () => {
+    const menu = rowTouch('armed', { type: 'dwell' })
+    expect(menu).toBe('menu')
+    expect(rowTouch(menu, { type: 'move', dx: 0, dy: 30 })).toBe('menu')
+  })
+
+  it('does not open a menu from a drag, or before the hold', () => {
+    expect(rowTouch('drag', { type: 'dwell' })).toBe('drag')
+    expect(rowTouch('idle', { type: 'dwell' })).toBe('idle')
+  })
+
   it('ignores movement before the hold', () => {
     expect(rowTouch('idle', { type: 'move', dx: 40, dy: 40 })).toBe('idle')
   })
 
   it('returns to idle on release from any state (menu shown, lift ended, or cancelled)', () => {
-    for (const s of ['idle', 'armed', 'drag'] as const) {
+    for (const s of ['idle', 'armed', 'drag', 'menu'] as const) {
       expect(rowTouch(s, { type: 'release' })).toBe('idle')
     }
   })

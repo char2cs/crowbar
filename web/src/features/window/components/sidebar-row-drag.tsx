@@ -1,4 +1,13 @@
-import { createContext, use, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  use,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -12,7 +21,7 @@ import {
 import { ROW_NEST_TARGET } from '@/components/layout/workspace-row-base'
 import { dropModeAt, type DropMode } from '@/components/tree-dnd/drop-core'
 import type { NativeRowDrop } from '@/lib/native-chrome'
-import { rowTouch, type RowTouch } from '@/features/window/lib/row-touch'
+import { MENU_DWELL_MS, rowTouch, type RowTouch } from '@/features/window/lib/row-touch'
 import { postToShell } from '@/lib/shell-page-bridge'
 import { cn } from '@/lib/utils'
 
@@ -26,8 +35,8 @@ const DragContext = createContext<{ hit: Hit | null; claimed: boolean }>({
   claimed: false,
 })
 
-// The sensor activates after a hold even with a still finger, which is the native long-press
-// menu's gesture; rowTouch decides who owns the touch from there.
+// The sensor activates after a hold even with a still finger, which is the menu's gesture;
+// rowTouch decides from there whether the touch becomes a drag or the row's menu.
 const HOLD = { delay: 250, tolerance: 6 }
 
 function pointerY(event: DragMoveEvent): number | null {
@@ -58,9 +67,12 @@ function hitAt(x: number, y: number, drop: NativeRowDrop | null): Hit | null {
 export function RowDragScope({
   drop,
   overlay,
+  onMenu,
   children,
 }: {
   drop: NativeRowDrop | null
+  /** The hold stayed put: the row's menu is wanted. */
+  onMenu: (rowId: string) => void
   overlay: (rowId: string) => ReactNode
   children: ReactNode
 }) {
@@ -79,7 +91,18 @@ export function RowDragScope({
     if (claimed && finger.current) setHit(hitAt(finger.current.x, finger.current.y, drop))
   }, [drop, claimed])
 
-  // The shell hears of the claim from here, so it drops a menu it has not yet shown.
+  useEffect(() => {
+    if (touch !== 'armed') return
+    const dwell = setTimeout(() => setTouch(rowTouch('armed', { type: 'dwell' })), MENU_DWELL_MS)
+    return () => clearTimeout(dwell)
+  }, [touch])
+
+  const openMenu = useEffectEvent(onMenu)
+  useEffect(() => {
+    if (touch === 'menu' && dragged) openMenu(dragged)
+  }, [touch, dragged])
+
+  // The shell hears of the lift from here, for its haptic.
   useEffect(() => {
     if (!claimed || !dragged) return
     postToShell('sidebar', { type: 'rowDrag', active: true })

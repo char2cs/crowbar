@@ -18,15 +18,15 @@ const selectProject = (id: string) => postToShell('sidebar', { type: 'selectProj
 const keepRemoval = (entryId: string) => postToShell('sidebar', { type: 'keepRemoval', entryId })
 const openSettings = () => postToShell('sidebar', { type: 'openSettings' })
 
-// On touch start, not after a delay: Swift's own long-press then has the row and its menu ready.
-function pressRow(e: React.PointerEvent, actions: NativeSidebar['actions']) {
-  if (!(e.target instanceof Element)) return
-  const el = e.target.closest<HTMLElement>('[role="treeitem"]')
-  const rowId = el?.getAttribute('data-sidebar-row-id')
-  if (!el || !rowId) return
+// The page owns the hold; the shell only presents the menu for the row it is told of.
+function showRowMenu(rowId: string, actions: NativeSidebar['actions']) {
+  const el = document.querySelector<HTMLElement>(
+    `[role="treeitem"][data-sidebar-row-id="${CSS.escape(rowId)}"]`,
+  )
+  if (!el) return
   const { x, y, width, height } = el.getBoundingClientRect()
   postToShell('sidebar', {
-    type: 'rowPress',
+    type: 'rowMenu',
     rowId,
     rect: { x, y, width, height },
     actions: actions[rowId] ?? [],
@@ -68,17 +68,17 @@ export function MobileSidebarPage() {
               onOpenHostSettings={openSettings}
             />
           </RowMetricsContext>
-          {/* No callout or text selection, so a long press is left to the native menu. */}
+          {/* No callout or text selection, so a long press is the page's own gesture. */}
           <nav
             aria-label="Chats"
             className="min-h-0 flex-1 overflow-y-auto pb-[calc(env(safe-area-inset-bottom)+84px)] select-none [-webkit-touch-callout:none]"
-            onPointerDown={(e) => pressRow(e, snapshot.actions)}
           >
             <RowMetricsContext value={TOUCH_ROW_METRICS}>
               <ActiveSection rows={snapshot.rows} active={snapshot.active} />
               <RowDragScope
                 drop={snapshot.drop}
                 overlay={(id) => <DragOverlayRow rows={snapshot.rows} id={id} />}
+                onMenu={(id) => showRowMenu(id, snapshot.actions)}
               >
                 <SnapshotTree rows={snapshot.rows} collapsed={snapshot.collapsed} />
               </RowDragScope>
