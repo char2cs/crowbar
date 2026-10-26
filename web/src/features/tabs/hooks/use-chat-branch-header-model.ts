@@ -8,7 +8,7 @@ import { useProjectDataStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
 
 /** Where a chat runs, as its header names it. */
-type ChatHeaderRoute =
+export type ChatHeaderRoute =
   | { kind: 'project'; name: string }
   | {
       kind: 'branch'
@@ -46,10 +46,18 @@ function homeProjectIdOf(trees: Record<string, HomeTree>, chatId: string): strin
   return null
 }
 
-/** The chat header's content, resolved from the workspace store in context and the sidebar. */
-export function useChatBranchHeaderModel(chatId: string, wsId: string | null): ChatHeaderModel {
-  const title = useChatTitle(chatId)
-  const working = useWorkspaceStoreContext((s) => s.agentChats.working[chatId] ?? false)
+/** `repo/parent/branch` (or the project's name) as one line of text, for surfaces without room for the segmented header. */
+export function routePath(route: ChatHeaderRoute): string {
+  if (route.kind === 'project') return route.name
+  const parent =
+    route.parentBranch && route.parentBranch !== route.branch ? route.parentBranch : null
+  return [route.repoName, parent, route.branch].filter(Boolean).join('/')
+}
+
+type ChatPlace = Pick<ChatHeaderModel, 'lead' | 'route'>
+
+/** Where a chat runs, resolved from the sidebar and home trees; `route` null when no visible project holds it. */
+export function useChatPlace(chatId: string, wsId: string | null): ChatPlace {
   const repo = useSidebarStore((s) =>
     wsId ? (s.repos.find((r) => r.workspaces.some((w) => w.id === wsId)) ?? null) : null,
   )
@@ -60,14 +68,9 @@ export function useChatBranchHeaderModel(chatId: string, wsId: string | null): C
   const project = useProjectDataStore((s) =>
     homeProjectId ? (dataOf(s.data)?.find((p) => p.id === homeProjectId) ?? null) : null,
   )
-  // A thread owns no branch (it runs on its parent's), and inherits its parent's `wsId`.
-  const isThread = useChatIsThread(chatId)
 
-  const routed = workspace?.branch ? workspace : null
-  const base = { title, working, isThread }
-  if (routed && repo) {
+  if (workspace?.branch && repo) {
     return {
-      ...base,
       lead: {
         kind: 'repo',
         repo: {
@@ -80,15 +83,14 @@ export function useChatBranchHeaderModel(chatId: string, wsId: string | null): C
       route: {
         kind: 'branch',
         repoName: repo.name,
-        parentBranch: routed.parentBranch,
-        branch: routed.branch,
-        added: workspace?.added ?? 0,
-        deleted: workspace?.deleted ?? 0,
+        parentBranch: workspace.parentBranch,
+        branch: workspace.branch,
+        added: workspace.added ?? 0,
+        deleted: workspace.deleted ?? 0,
       },
     }
   }
   return {
-    ...base,
     lead: project
       ? {
           kind: 'project',
@@ -102,4 +104,13 @@ export function useChatBranchHeaderModel(chatId: string, wsId: string | null): C
       : null,
     route: project ? { kind: 'project', name: project.name } : null,
   }
+}
+
+/** The chat header's content, resolved from the workspace store in context and the sidebar. */
+export function useChatBranchHeaderModel(chatId: string, wsId: string | null): ChatHeaderModel {
+  const title = useChatTitle(chatId)
+  const working = useWorkspaceStoreContext((s) => s.agentChats.working[chatId] ?? false)
+  // A thread owns no branch (it runs on its parent's), and inherits its parent's `wsId`.
+  const isThread = useChatIsThread(chatId)
+  return { title, working, isThread, ...useChatPlace(chatId, wsId) }
 }

@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { create } from 'zustand'
+import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 
 /**
  * The agents running right now, and how many clients are attached to each.
@@ -56,7 +57,12 @@ export function liveSessionsFromRows(scope: string, rows: readonly LiveRow[]): L
   const live: LiveSession[] = []
   for (const row of rows) {
     if (row.liveRunnerId) {
-      live.push({ chatId: row.id, workspaceId: row.workspaceId, title: row.title, scope })
+      live.push({
+        chatId: row.id,
+        workspaceId: row.workspaceId,
+        title: row.title || UNTITLED_CHAT_LABEL,
+        scope,
+      })
     }
   }
   return live
@@ -93,7 +99,12 @@ export const useActiveSessionsStore = create<ActiveSessionsState>()((set) => ({
     set((s) => {
       const sessions = { ...s.sessions }
       if (chat.liveRunnerId) {
-        sessions[chatId] = { chatId, workspaceId: chat.workspaceId, title: chat.title, scope }
+        sessions[chatId] = {
+          chatId,
+          workspaceId: chat.workspaceId,
+          title: chat.title || UNTITLED_CHAT_LABEL,
+          scope,
+        }
       } else delete sessions[chatId]
       return { sessions }
     })

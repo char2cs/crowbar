@@ -1,11 +1,15 @@
 import { Skull } from '@phosphor-icons/react'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { confirmAndKillAgent } from '@/features/agent/lib/kill-agent'
+import { routePath, useChatPlace } from '@/features/tabs/hooks/use-chat-branch-header-model'
 import { useActiveSessionList, viewersLabel, type ActiveSession } from '@/lib/store/active-sessions'
 
 const SECONDARY = 'ui-font ui-text-sm truncate text-muted-foreground'
 
 function SessionRow({ session }: { session: ActiveSession }) {
+  const { route } = useChatPlace(session.chatId, session.workspaceId)
+  const where = route ? routePath(route) : session.chatId.slice(0, 8)
   return (
     <div
       data-testid="active-session-row"
@@ -13,6 +17,7 @@ function SessionRow({ session }: { session: ActiveSession }) {
     >
       <div className="min-w-0 flex-1">
         <div className="ui-font ui-text-sm truncate text-foreground">{session.title}</div>
+        <div className={cn(SECONDARY, 'font-mono')}>{where}</div>
         <div className={SECONDARY}>{viewersLabel(session.attached)}</div>
       </div>
       <Button
