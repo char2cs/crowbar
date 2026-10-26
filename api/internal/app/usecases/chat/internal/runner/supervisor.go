@@ -26,6 +26,9 @@ type sessionBook struct {
 	// probes are resume launches not yet confirmed by the CLI announcing a
 	// session; one that exits unconfirmed failed its resume (see ladder.go).
 	probes map[string]resumeProbe
+	// assigned is, per runner, the session Crowbar launched it on that its CLI has
+	// not yet announced itself.
+	assigned map[string]string
 	// quarantined is, per chat, the vendor session ids a launch failed to
 	// resume: the ladder never offers them again.
 	quarantined map[string]map[string]struct{}
@@ -101,6 +104,7 @@ func newSessionBook() *sessionBook {
 		chats:       map[string]domain.AgentSession{},
 		causes:      map[string]string{},
 		probes:      map[string]resumeProbe{},
+		assigned:    map[string]string{},
 		quarantined: map[string]map[string]struct{}{},
 	}
 }
@@ -152,6 +156,7 @@ func (b *sessionBook) takeCause(runnerID string) string {
 	defer b.mu.Unlock()
 	reason, noted := b.causes[runnerID]
 	delete(b.causes, runnerID)
+	delete(b.assigned, runnerID)
 	if !noted {
 		return domain.AgentExitExited
 	}
@@ -166,6 +171,38 @@ func (b *sessionBook) forget(chatID string) {
 	defer b.mu.Unlock()
 	delete(b.chats, chatID)
 	delete(b.quarantined, chatID)
+}
+
+func (b *sessionBook) assign(runnerID, sessionID string) {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.assigned[runnerID] = sessionID
+}
+
+// settleAssigned reports whether runnerID still had an unannounced assigned
+// session, and forgets it: the CLI has now spoken for itself.
+func (b *sessionBook) settleAssigned(runnerID string) bool {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	_, ok := b.assigned[runnerID]
+	delete(b.assigned, runnerID)
+	return ok
+}
+
+func (b *sessionBook) assignedPending(runnerID string) bool {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	_, ok := b.assigned[runnerID]
+	return ok
 }
 
 func (b *sessionBook) probe(runnerID string, p resumeProbe) {
@@ -221,6 +258,13 @@ func (b *sessionBook) isQuarantined(chatID, sessionID string) bool {
 // ConfirmLaunch implements turn.Runners: a CLI that reports anything took
 // the session it was launched on, so its exit can never read as a refusal.
 func (rs *Runners) ConfirmLaunch(runnerID string) { rs.sessions.confirm(runnerID) }
+
+// AssignedSessionPending implements turn.Runners: runnerID was launched on a
+// session Crowbar chose and its CLI has not announced one yet, so the id its
+// row names is not yet the CLI's word.
+func (rs *Runners) AssignedSessionPending(runnerID string) bool {
+	return rs.sessions.assignedPending(runnerID)
+}
 
 // Session implements snapshot.Runtime.
 func (rs *Runners) Session(chatID string) domain.AgentSession {

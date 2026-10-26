@@ -14,6 +14,20 @@ func resumeInjectionSteps(d engineagents.Agent, sessionID string) []engineagents
 	if sessionID == "" || !ok {
 		return nil
 	}
+	return sessionArgSteps(arg, sessionID)
+}
+
+// assignInjectionSteps is the argv that gives a fresh CLI the session id
+// Crowbar chose for it; nil for a provider that mints its own.
+func assignInjectionSteps(d engineagents.Agent, sessionID string) []engineagents.InjectStep {
+	arg, ok := d.AssignArg()
+	if !ok {
+		return nil
+	}
+	return sessionArgSteps(arg, sessionID)
+}
+
+func sessionArgSteps(arg, sessionID string) []engineagents.InjectStep {
 	ctx := engineagents.TemplateCtx{ID: sessionID}
 	parts := strings.Fields(engineagents.Expand(arg, ctx))
 	steps := make([]engineagents.InjectStep, 0, len(parts))

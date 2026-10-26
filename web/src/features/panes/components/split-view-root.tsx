@@ -11,6 +11,7 @@ import { useUIState } from '@/features/window/stores/ui-state-store'
 import { PaneContainer } from './pane-container'
 import { PaneNodeRenderer } from './pane-node-renderer'
 import { PaneBoundary } from './pane-boundary'
+import { WorkingChatCloseDialog } from './working-chat-close-dialog'
 import { ROOT_PANE_POSITION } from '../types/pane'
 import { getFirstLeafId } from '../utils/pane-layout'
 import { useMountedViews } from '../hooks/use-mounted-views'
@@ -120,6 +121,7 @@ export function SplitViewRoot() {
           </div>
         </div>
       )}
+      <WorkingChatCloseDialog />
     </>
   )
 }

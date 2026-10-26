@@ -41,8 +41,15 @@ func (rs *Runners) HandleSessionStart(
 	// it reads as a /clear and takes the user's message into a chat of its own.
 	originated := rs.OriginatedSession(runner.ID, ev.SessionID)
 
+	// A session Crowbar assigned at launch is only a placeholder until the CLI itself
+	// announces one: that announcement binds (and records the model), whatever it names.
+	current := runner.CurrentSession
+	if rs.sessions.settleAssigned(runner.ID) {
+		current = ""
+	}
+
 	switch d := engineagents.Decide(
-		runner.CurrentSession, ev.SessionID, knownChatID, known, originated,
+		current, ev.SessionID, knownChatID, known, originated,
 	); d.Kind {
 	case engineagents.MoveNoop:
 		return nil

@@ -17,6 +17,16 @@ func (d document) finding(rule string, sev Severity, path, msg, hint string) Fin
 	return Finding{Rule: rule, Severity: sev, Path: path, Line: d.line(path), Message: msg, Hint: hint}
 }
 
+// assignRules check that an assign argv hands the CLI the id Crowbar chose.
+func assignRules(doc document, d *spec.Descriptor) []Finding {
+	if d.Session.Assign == nil || strings.Contains(d.Session.Assign.Arg, "{id}") {
+		return nil
+	}
+	return []Finding{doc.finding("session.assign_id", SeverityError, "session.assign.arg",
+		"session.assign.arg never names the session ({id})",
+		`write the assign argv with {id}, e.g. "--session-id {id}"`)}
+}
+
 // sessionRules check what the resume ladder needs: a resume argv that names
 // the session, and a way to find the session on disk before trusting it.
 func sessionRules(doc document, d *spec.Descriptor) []Finding {
@@ -27,6 +37,7 @@ func sessionRules(doc document, d *spec.Descriptor) []Finding {
 			"session.resume.arg never names the session ({id})",
 			`write the resume argv with {id}, e.g. "--resume {id}"`))
 	}
+	out = append(out, assignRules(doc, d)...)
 	if s.Resume != nil && s.Locate == nil {
 		out = append(out, doc.finding("session.resume_unverified", SeverityWarning, "session.resume",
 			"resume ids are never verified: a lost session is found only when the CLI exits",
@@ -96,6 +107,9 @@ func argvFields(d *spec.Descriptor) []argvField {
 	list("runtime.api.attach", d.Runtime.API.Attach)
 	if d.Session.Resume != nil {
 		out = append(out, argvField{"session.resume.arg", d.Session.Resume.Arg})
+	}
+	if d.Session.Assign != nil {
+		out = append(out, argvField{"session.assign.arg", d.Session.Assign.Arg})
 	}
 	for name, steps := range injections(d) {
 		for i, step := range steps {

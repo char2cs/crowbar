@@ -847,11 +847,16 @@ type testFixture struct {
 // the id this runner's OWN most recent announce() reported — unless the
 // caller already set one explicitly. See the sessions field's own doc.
 func (f testFixture) withTrackedSession(runnerID string, payload map[string]any) {
-	if _, set := payload["session_id"]; set {
+	if id, ok := f.sessions[runnerID]; ok {
+		if _, set := payload["session_id"]; !set {
+			payload["session_id"] = id
+		}
 		return
 	}
-	if id, ok := f.sessions[runnerID]; ok {
-		payload["session_id"] = id
+	// Never announced: a CLI Crowbar assigned a session id at launch speaks in that id,
+	// whatever placeholder the test wrote.
+	if r, err := f.runners.Get(f.ctx, runnerID); err == nil && r.CurrentSession != "" {
+		payload["session_id"] = r.CurrentSession
 	}
 }
 
@@ -1009,7 +1014,6 @@ func (f testFixture) announce(t *testing.T, runnerID, sessionID string) {
 	t.Helper()
 	if sessionID != "" {
 		f.sessions[runnerID] = sessionID
-		writeVendorSession(t, sessionID)
 	}
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "", "session_start",
 		mustJSON(t, map[string]any{"session_id": sessionID})))
@@ -1017,8 +1021,9 @@ func (f testFixture) announce(t *testing.T, runnerID, sessionID string) {
 }
 
 // writeVendorSession puts sessionID where each shipped provider keeps its
-// sessions (the fixture's isolated CLAUDE_CONFIG_DIR/CODEX_HOME), as a real
-// CLI does once it announces one.
+// sessions (the fixture's isolated CLAUDE_CONFIG_DIR/CODEX_HOME). A real CLI
+// announces a session at startup but only writes it once the first message is
+// taken, so tests call this at that point, never on announce.
 func writeVendorSession(t *testing.T, sessionID string) {
 	t.Helper()
 	for _, path := range []string{
@@ -1046,6 +1051,9 @@ func turn(t *testing.T, f testFixture, runnerID, provider, content string) {
 	t.Helper()
 	payload := map[string]any{"last_assistant_message": content}
 	f.withTrackedSession(runnerID, payload)
+	if id := f.sessions[runnerID]; id != "" {
+		writeVendorSession(t, id)
+	}
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, provider, "turn_stop", mustJSON(t, payload)))
 	f.wait()
 }

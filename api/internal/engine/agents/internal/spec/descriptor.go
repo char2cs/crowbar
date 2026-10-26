@@ -77,6 +77,9 @@ type SpawnSpec struct {
 
 type SessionSpec struct {
 	Resume *ArgSpec `yaml:"resume"`
+	// Assign hands a fresh CLI the session id Crowbar chose for it, so the
+	// conversation is known without waiting for the CLI's session hook.
+	Assign *ArgSpec `yaml:"assign"`
 	// Locate is where the provider keeps a session on disk, so a recorded id
 	// is verified before a resume is attempted (the resume ladder's first rung).
 	Locate *SessionLocateSpec `yaml:"locate"`

@@ -115,7 +115,8 @@ type surfaceRunners struct {
 	native bool
 }
 
-func (surfaceRunners) ConfirmLaunch(string) {}
+func (surfaceRunners) ConfirmLaunch(string)               {}
+func (surfaceRunners) AssignedSessionPending(string) bool { return false }
 
 func (r surfaceRunners) ShowingNativeView(string) bool { return r.native }
 
