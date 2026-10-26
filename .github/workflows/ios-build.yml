@@ -105,10 +105,11 @@ jobs:
       - name: Build simulator app (unsigned)
         if: steps.mode.outputs.signed != 'true'
         working-directory: desktop/src-tauri
-        # tauri-cli rejects an empty team even with --no-sign; the env var wins over the job-level empty secret.
+        # tauri-cli rejects an empty team even with --no-sign, and tries to import a certificate from
+        # any signing var that is merely set (empty secrets are set), so unset those for this step.
         env:
           APPLE_DEVELOPMENT_TEAM: UNSIGNED000
-        run: cargo tauri ios build --ci --debug --target aarch64-sim --no-sign --archive-only --config '{"bundle":{"iOS":{"bundleVersion":"${{ steps.mode.outputs.build }}"}}}'
+        run: env -u IOS_CERTIFICATE -u IOS_CERTIFICATE_PASSWORD -u IOS_MOBILE_PROVISION cargo tauri ios build --ci --debug --target aarch64-sim --no-sign --archive-only --config '{"bundle":{"iOS":{"bundleVersion":"${{ steps.mode.outputs.build }}"}}}'
       - name: Package simulator app
         if: steps.mode.outputs.signed != 'true'
         run: |
