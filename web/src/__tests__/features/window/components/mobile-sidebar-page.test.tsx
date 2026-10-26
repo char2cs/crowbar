@@ -178,26 +178,6 @@ describe('MobileSidebarPage', () => {
     )
   })
 
-  // Swift's own long-press shows the menu; the page only says which row, where, and its verbs.
-  it('tells the shell which row a touch lands on, with that row’s menu', () => {
-    const rename = {
-      id: 'rename',
-      title: 'Rename',
-      symbol: 'pencil',
-      destructive: false,
-      confirm: null,
-    }
-    render(<MobileSidebarPage />)
-    push({ ...snapshot, actions: { 'c-thread': [rename] } })
-    fireEvent.pointerDown(screen.getByText('Ask about tax'))
-    expect(posted).toHaveBeenCalledWith({
-      type: 'rowPress',
-      rowId: 'c-thread',
-      rect: { x: 0, y: 0, width: 0, height: 0 },
-      actions: [rename],
-    })
-  })
-
   // Icons arrive as data: this page cannot reach the daemon their URLs point at.
   it('draws the project and repo icons it is handed', () => {
     const icon = 'data:image/png;base64,iVBORw=='
@@ -297,17 +277,60 @@ describe('MobileSidebarPage', () => {
       })
     })
 
-    // A finger held still is the native long-press menu's, so the page never claims it.
-    it('leaves a held, unmoved row to the shell’s menu', () => {
+    // A finger held still is the menu's: the page asks the shell to show it, once, and drags nothing.
+    it('asks the shell for the row’s menu when the finger is held still', () => {
+      const rename = {
+        id: 'rename',
+        title: 'Rename',
+        symbol: 'pencil',
+        destructive: false,
+        confirm: null,
+      }
+      render(<MobileSidebarPage />)
+      push({ ...snapshot, actions: { 'c-thread': [rename] } })
+      const held = rowEl('Ask about tax')
+      fireEvent.touchStart(held, touch(10))
+      act(() => vi.advanceTimersByTime(260))
+      expect(posted).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'rowMenu' }))
+      act(() => vi.advanceTimersByTime(260))
+      fireEvent.touchMove(held, touch(13))
+      fireEvent.touchEnd(held, { changedTouches: [{ clientX: 40, clientY: 13 }] })
+      const menus = posted.mock.calls.filter(([m]) => m.type === 'rowMenu')
+      expect(menus).toEqual([
+        [
+          {
+            type: 'rowMenu',
+            rowId: 'c-thread',
+            rect: { x: 0, y: 0, width: 0, height: 0 },
+            actions: [rename],
+          },
+        ],
+      ])
+      expect(posted).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'rowDrag' }))
+      expect(posted).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'dragRow' }))
+    })
+
+    it('opens no menu for a hold that moved into a drag', () => {
       render(<MobileSidebarPage />)
       push(snapshot)
       const held = rowEl('Ask about tax')
       fireEvent.touchStart(held, touch(10))
+      act(() => vi.advanceTimersByTime(260))
+      fireEvent.touchMove(held, touch(40))
       act(() => vi.advanceTimersByTime(600))
-      fireEvent.touchMove(held, touch(13))
-      fireEvent.touchEnd(held, { changedTouches: [{ clientX: 40, clientY: 13 }] })
-      expect(posted).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'rowDrag' }))
-      expect(posted).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'dragRow' }))
+      expect(posted).toHaveBeenCalledWith({ type: 'rowDrag', active: true })
+      expect(posted).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'rowMenu' }))
+    })
+
+    it('opens no menu for a tap released before the hold', () => {
+      render(<MobileSidebarPage />)
+      push(snapshot)
+      const held = rowEl('Ask about tax')
+      fireEvent.touchStart(held, touch(10))
+      act(() => vi.advanceTimersByTime(100))
+      fireEvent.touchEnd(held, { changedTouches: [{ clientX: 40, clientY: 10 }] })
+      act(() => vi.advanceTimersByTime(600))
+      expect(posted).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'rowMenu' }))
     })
 
     // The lifted copy sits under the finger, so a hit test finds it first; the row beneath is the target.
