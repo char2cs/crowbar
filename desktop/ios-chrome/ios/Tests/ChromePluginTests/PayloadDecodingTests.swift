@@ -40,7 +40,8 @@ final class PayloadDecodingTests: XCTestCase {
     let state = try decode(ChromeState.self, "{}")
     XCTAssertNil(state.welcome)
     XCTAssertNil(state.connect)
-    XCTAssertNil(state.buttons)
+    XCTAssertNil(state.headers)
+    XCTAssertNil(state.ack)
     XCTAssertNil(state.reveal)
     XCTAssertNil(state.settings)
   }
@@ -52,14 +53,19 @@ final class PayloadDecodingTests: XCTestCase {
       {"accent":"#fff","welcome":{"visible":true,"label":"Connect"},
        "connect":{"open":true,"stage":"fingerprint","name":"n","address":"a","code":"",
          "fingerprint":"ab:cd","busy":false,"error":null},
-       "buttons":[{"id":"files","symbol":"folder","side":"trailing","label":"Files","enabled":true}],
-       "reveal":"chatList","settings":{"open":true},"appearance":"dark",
+       "headers":{"chat":[],"ide":[{"id":"files","symbol":"folder","side":"trailing",
+         "label":"Files","enabled":true}]},
+       "reveal":"chatList","ack":4,"settings":{"open":true},"appearance":"dark",
        "palette":{"surface":"#000","raised":"#111","text":"#fff","secondaryText":"#888"}}
       """)
     XCTAssertEqual(state.connect?.stage, .fingerprint)
     XCTAssertNil(state.connect?.error)
-    XCTAssertEqual(state.buttons?.first?.intent, nil)
+    XCTAssertEqual(state.headers?.chat, [])
+    XCTAssertEqual(state.headers?.ide.first?.intent, nil)
+    XCTAssertEqual(state.ack, 4)
     XCTAssertEqual(state.reveal, .chatList)
+    XCTAssertEqual(Reveal.none.screen, .chat)
+    XCTAssertEqual(Reveal.files.screen, .files)
     XCTAssertEqual(state.settings, SettingsState(open: true))
     XCTAssertNotNil(state.palette.flatMap(ChromePalette.init))
   }

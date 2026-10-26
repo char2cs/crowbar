@@ -73,6 +73,9 @@ func (t *Turns) namesAnotherConversation(
 	if ev.SessionID == "" {
 		return false
 	}
+	if t.runners != nil && t.runners.AssignedSessionPending(runner.ID) {
+		return false
+	}
 	if channelFor(ctx) == engineagents.ChannelAPI && t.hasAPIConnection(runner.ID) {
 		return !t.originatedSession(runner.ID, ev.SessionID)
 	}

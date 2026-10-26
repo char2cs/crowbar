@@ -107,7 +107,7 @@ func (rs *Runners) switchProviderLocked(
 			return "", parkErr(park, err)
 		}
 
-		priorSessionID, leftAt, err := rs.resumableConversation(ctx, chat, targetProviderID)
+		priorSessionID, leftAt, err := rs.resumableConversation(ctx, chat, targetProviderID, d)
 		if err != nil {
 			return "", fmt.Errorf("agent: switch provider: resumable conversation: %w", err)
 		}
@@ -293,6 +293,7 @@ func (rs *Runners) resumableConversation(
 	ctx context.Context,
 	chat domain.Chat,
 	targetProviderID string,
+	d engineagents.Agent,
 ) (sessionID string, leftAt time.Time, err error) {
 	convs, err := rs.runnerStore.ConversationsForChat(ctx, chat.ID)
 	if err != nil {
@@ -317,6 +318,16 @@ func (rs *Runners) resumableConversation(
 	}
 	if found {
 		return sessionID, leftAt, nil
+	}
+	// A turn only lands when it ENDS, so a chat closed mid-first-turn has a
+	// session and no turn. When the provider can say whether it has the session
+	// on disk, that is the authority; the heuristics below are for providers
+	// that cannot.
+	if exists, declared := d.SessionExists(sessionID); declared {
+		if !exists {
+			return "", time.Time{}, nil
+		}
+		return sessionID, chat.LastActivityAt, nil
 	}
 	// No turn is recorded for this session in the activity table. That alone is
 	// ambiguous: it is exactly what a provider that announced a session and then

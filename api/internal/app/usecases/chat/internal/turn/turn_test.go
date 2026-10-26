@@ -43,7 +43,8 @@ type recordingRunners struct {
 	sessions []string
 }
 
-func (r *recordingRunners) ConfirmLaunch(string) {}
+func (r *recordingRunners) ConfirmLaunch(string)               {}
+func (r *recordingRunners) AssignedSessionPending(string) bool { return false }
 
 func (r *recordingRunners) HandleSessionStart(
 	_ context.Context,
@@ -248,7 +249,8 @@ type liveAPIRunners struct {
 	originated map[string]bool
 }
 
-func (liveAPIRunners) ConfirmLaunch(string) {}
+func (liveAPIRunners) ConfirmLaunch(string)               {}
+func (liveAPIRunners) AssignedSessionPending(string) bool { return false }
 
 func (r liveAPIRunners) HasLiveAPIConnection(string) bool { return r.live }
 func (r liveAPIRunners) OriginatedSession(_, sessionID string) bool {
@@ -321,7 +323,8 @@ type nativeViewRunners struct {
 	showing bool
 }
 
-func (nativeViewRunners) ConfirmLaunch(string) {}
+func (nativeViewRunners) ConfirmLaunch(string)               {}
+func (nativeViewRunners) AssignedSessionPending(string) bool { return false }
 
 func (r nativeViewRunners) ShowingNativeView(string) bool { return r.showing }
 

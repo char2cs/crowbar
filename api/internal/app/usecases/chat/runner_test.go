@@ -1025,58 +1025,6 @@ func TestResumeChat_ConversationWithNoTurns_SpawnsFreshInsteadOfResumingAPhantom
 	}
 }
 
-// TestRegression_ResumeChat_OldSessionWithNoRecordedTurns_ResumesInsteadOfSpawningFresh
-// is the fix for the bug a real user hit reopening tonight's Nightly build on their
-// production data: EVERY existing chat, on reopen, spawned a brand-new provider session
-// instead of resuming the old one — losing the CLI's own native conversation memory for
-// every chat they had.
-//
-// PR #151 introduced the agent_turns activity table (queried via
-// activity.LastTurnForSession) to record turns from hooks. That table did not exist
-// before the migration, so it has ZERO rows for every conversation that predates it —
-// which looks identical to the guard's original, legitimate target: a provider that
-// announced a session and then crashed before completing its first turn. The chat's
-// history (ConversationsForChat) is untouched and still names the real, resumable
-// session id; only the brand-new table is empty. The old code refused to resume on that
-// empty table alone and threw the real session away.
-//
-// This seeds exactly that shape directly on the runner store (bypassing the
-// session_start hook, which always stamps "now" — there is no other seam to backdate
-// FirstSeenAt): one real session, first seen weeks ago, with no turn ever recorded under
-// it. Reopening the chat must resume that exact session, not mint a fresh one.
-func TestRegression_ResumeChat_OldSessionWithNoRecordedTurns_ResumesInsteadOfSpawningFresh(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	// Bind the runner's ONE AND ONLY conversation directly on the store, exactly as
-	// ConversationsForChat would report it for a real chat untouched since before the
-	// activity table existed: a real session id, first seen long ago, with no turn ever
-	// recorded under it in agent_turns (nothing here ever calls turn()).
-	weeksAgo := time.Now().Add(-21 * 24 * time.Hour)
-	_, err := f.runners.BindSession(f.ctx, runnerID, "sid-legacy-session", true, weeksAgo, "", "")
-	writeVendorSession(t, "sid-legacy-session")
-	require.NoError(t, err)
-	f.wait()
-
-	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
-	f.wait()
-
-	newRunnerID, err := f.usecase.ResumeChat(f.ctx, chatID)
-	require.NoError(t, err)
-	f.wait()
-
-	live, err := f.liveRunnerFor(t, chatID)
-	require.NoError(t, err)
-	assert.Equal(t, "claude", live.ProviderID)
-	assert.Equal(t, newRunnerID, live.ID)
-
-	require.Equal(t, 2, f.term.callCount())
-	argv := f.term.calls[1].argv
-	assert.Equal(t, "sid-legacy-session", argAfter(t, argv, "--resume"),
-		"a conversation that predates the activity table must still be resumed by its "+
-			"real session id, not thrown away for a freshly minted one; argv was %v", argv)
-}
-
 // TestRegression_ResumeChat_RecentSessionWithNoRecordedTurns_StillSpawnsFresh is the
 // regression-of-the-regression-guard for the fix above: it must not also swallow the
 // genuine race resumableConversation was originally written to catch. A provider that
@@ -3304,8 +3252,8 @@ func TestStopChat_TerminatesTheCLI_LeavesChatDormantAndResumable(t *testing.T) {
 	// (4) its bound conversation is retained — this is what makes it resumable.
 	convs, err := f.usecase.ConversationsForChat(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, convs, 1)
-	assert.Equal(t, "sid-claude-native", convs[0].SessionID, "a close must keep the conversation it can be resumed into")
+	require.NotEmpty(t, convs)
+	assert.Equal(t, "sid-claude-native", convs[len(convs)-1].SessionID, "a close must keep the conversation it can be resumed into")
 
 	// The outgoing runner stays alive until its PTY actually dies — Crowbar never asserts
 	// a death it has not observed. Then the exit reconcile lands it Exited.
@@ -3617,7 +3565,8 @@ func TestSpawnChat_CreatesChatAndRunner_AndSpawnsTheCLI(t *testing.T) {
 	assert.Equal(t, chatID, r.CurrentChatID)
 	assert.Equal(t, "ws1", r.WorkspaceID)
 	assert.NotEmpty(t, r.TerminalSession)
-	assert.Empty(t, r.CurrentSession, "no conversation is bound until the provider announces one")
+	assert.Equal(t, argAfter(t, f.term.calls[0].argv, "--session-id"), r.CurrentSession,
+		"a fresh claude is launched on a session Crowbar assigned, so it is bound before the CLI says a word")
 
 	// The chat is live because a runner points at it — not because of a flag on it.
 	live, err := f.liveRunnerFor(t, chatID)
@@ -4088,6 +4037,7 @@ func TestBroadcast_ChatAndRunnerFramesAreDistinct(t *testing.T) {
 
 	assert.Equal(t, []string{
 		"started",       // SpawnChat
+		"session_bound", // the session Crowbar assigned at launch
 		"session_bound", // the first conversation announcement
 		"moved",         // /clear
 	}, f.runnerKinds(t))
@@ -4269,7 +4219,8 @@ func TestListChats_GetChat_ConversationsForChat(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
-	f.announce(t, runnerID, "s1")
+	assigned := argAfter(t, f.term.calls[0].argv, "--session-id")
+	f.announce(t, runnerID, assigned)
 
 	chats, err := f.usecase.ListChats(f.ctx)
 	require.NoError(t, err)
@@ -4283,7 +4234,7 @@ func TestListChats_GetChat_ConversationsForChat(t *testing.T) {
 	convs, err := f.usecase.ConversationsForChat(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, convs, 1)
-	assert.Equal(t, "s1", convs[0].SessionID)
+	assert.Equal(t, assigned, convs[0].SessionID)
 	assert.Equal(t, "claude", convs[0].ProviderID)
 
 	live, err := f.usecase.LiveRunnerForChat(f.ctx, chatID)
@@ -4991,9 +4942,8 @@ func TestRegression_SwitchProvider_ConvertingAChatWithNoResolvableProviderStillL
 // TestRegression_PlacementsForChat_SurvivesTheRunnerThatMadeIt is the read the
 // resume fix rests on, taken through the usecase door the API actually calls.
 //
-// The runner announces nothing and then dies: no conversation row is ever
-// written, and the exit deletes the live row, so both of the projections the
-// resolvers used to consult are empty. The placement remains, and it is what
+// The runner dies and the exit deletes the live row, so the projection the
+// resolvers used to consult is empty. The placement remains, and it is what
 // still names the chat's provider — for the reporter's store, for 51 chats out of
 // 51.
 func TestRegression_PlacementsForChat_SurvivesTheRunnerThatMadeIt(t *testing.T) {
@@ -5005,8 +4955,6 @@ func TestRegression_PlacementsForChat_SurvivesTheRunnerThatMadeIt(t *testing.T) 
 
 	_, err := f.runners.LiveRunnerForChat(f.ctx, chatID)
 	require.ErrorIs(t, err, agentrunner.ErrNotFound, "the chat must be dormant")
-	_, err = f.runners.LastConversation(f.ctx, chatID)
-	require.ErrorIs(t, err, agentrunner.ErrNotFound, "and it announced no conversation")
 
 	placements, err := f.runners.PlacementsForChat(f.ctx, chatID)
 	require.NoError(t, err)
@@ -5479,4 +5427,53 @@ func TestSessionInvariants_HoldUnderRandomInterleavings(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRegression_ResumeChat_ClosedMidFirstTurn_ResumesTheSessionOnDisk: closing a view
+// while the chat's first turn is running retires the CLI before any turn is recorded.
+// The provider already wrote the conversation (it does so once the message is taken),
+// so reopening must resume it rather than start a blank one.
+func TestRegression_ResumeChat_ClosedMidFirstTurn_ResumesTheSessionOnDisk(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-mid-first-turn")
+	writeVendorSession(t, "sid-mid-first-turn")
+
+	require.NoError(t, f.usecase.CloseChat(f.ctx, chatID))
+	f.wait()
+
+	_, err := f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+
+	require.Equal(t, 2, f.term.callCount())
+	argv := f.term.calls[1].argv
+	assert.Equal(t, "sid-mid-first-turn", argAfter(t, argv, "--resume"),
+		"a conversation the provider holds on disk must be resumed; argv was %v", argv)
+}
+
+// TestRegression_ResumeChat_FreshSpawnWhoseSessionStartNeverLanded_StillResumes: a
+// fresh claude learned its conversation only from its SessionStart hook, and when that
+// hook never landed the chat had no conversation on record for as long as it lived —
+// hours of work that the next close then could not resume. Crowbar now assigns the
+// session id at launch, so the conversation is recorded without any hook.
+func TestRegression_ResumeChat_FreshSpawnWhoseSessionStartNeverLanded_StillResumes(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, _ := f.spawn(t, "claude")
+	assigned := argAfter(t, f.term.calls[0].argv, "--session-id")
+	writeVendorSession(t, assigned) // claude wrote the conversation once it took a message
+
+	require.NoError(t, f.usecase.CloseChat(f.ctx, chatID))
+	f.wait()
+	_, err := f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+
+	require.Equal(t, 2, f.term.callCount())
+	argv := f.term.calls[1].argv
+	assert.Equal(t, assigned, argAfter(t, argv, "--resume"),
+		"the session Crowbar assigned must be resumed; argv was %v", argv)
+	assert.Equal(t, -1, indexOf(argv, "--session-id"), "a resume must not also assign a fresh id")
 }

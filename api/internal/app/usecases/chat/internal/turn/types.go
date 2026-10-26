@@ -53,6 +53,9 @@ type Runners interface {
 	// ConfirmLaunch records that runnerID's CLI reported something: whatever
 	// session it was launched to resume, it accepted.
 	ConfirmLaunch(runnerID string)
+	// AssignedSessionPending reports that runnerID was launched on a session
+	// Crowbar chose and its CLI has not announced one of its own yet.
+	AssignedSessionPending(runnerID string) bool
 	// HandleSessionStart applies the placement a CLI has already performed: a
 	// /clear or /resume inside the TUI moves the runner, and Crowbar is told after
 	// the fact.

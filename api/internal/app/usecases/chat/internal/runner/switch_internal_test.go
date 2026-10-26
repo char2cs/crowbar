@@ -53,7 +53,7 @@ func TestRegression_ResumableConversation_OldConversationWithNoRecordedTurns_Res
 	}
 	chat := domain.Chat{ID: "chat-1", LastActivityAt: lastActivity}
 
-	sessionID, leftAt, err := rs.resumableConversation(context.Background(), chat, "claude")
+	sessionID, leftAt, err := rs.resumableConversation(context.Background(), chat, "claude", undeclaredLocator{})
 
 	require.NoError(t, err)
 	assert.Equal(t, "sid-legacy-session", sessionID,
@@ -81,7 +81,7 @@ func TestRegression_ResumableConversation_RecentConversationWithNoRecordedTurns_
 	}
 	chat := domain.Chat{ID: "chat-1", LastActivityAt: time.Now().Add(-30 * 24 * time.Hour)}
 
-	sessionID, leftAt, err := rs.resumableConversation(context.Background(), chat, "claude")
+	sessionID, leftAt, err := rs.resumableConversation(context.Background(), chat, "claude", undeclaredLocator{})
 
 	require.NoError(t, err)
 	assert.Empty(t, sessionID, "a session announced moments ago with no recorded turn is still the crash race, not an old conversation")
@@ -115,7 +115,7 @@ func TestRegression_ResumableConversation_TurnlessSessionButChatHasOtherTurns_Al
 	}
 	chat := domain.Chat{ID: "chat-1", LastActivityAt: hoursAgo}
 
-	sessionID, leftAt, err := rs.resumableConversation(context.Background(), chat, "claude")
+	sessionID, leftAt, err := rs.resumableConversation(context.Background(), chat, "claude", undeclaredLocator{})
 
 	require.NoError(t, err)
 	assert.Empty(t, sessionID,
@@ -144,7 +144,7 @@ func TestRegression_ResumableConversation_OtherProviderHasTurns_DoesNotBlockThis
 	}
 	chat := domain.Chat{ID: "chat-1", LastActivityAt: lastActivity}
 
-	sessionID, leftAt, err := rs.resumableConversation(context.Background(), chat, "claude")
+	sessionID, leftAt, err := rs.resumableConversation(context.Background(), chat, "claude", undeclaredLocator{})
 
 	require.NoError(t, err)
 	assert.Equal(t, "sid-legacy-claude-session", sessionID,
@@ -152,6 +152,62 @@ func TestRegression_ResumableConversation_OtherProviderHasTurns_DoesNotBlockThis
 	assert.True(t, leftAt.Equal(lastActivity),
 		"with no per-turn record to draw the gap from, chat.LastActivityAt must stand in for it; got %v want %v",
 		leftAt, lastActivity)
+}
+
+// undeclaredLocator is a descriptor with no session.locate: the provider gives
+// Crowbar no way to ask whether a session is on disk.
+type undeclaredLocator struct{ engineagents.Agent }
+
+func (undeclaredLocator) SessionExists(string) (exists, declared bool) { return false, false }
+
+// diskLocator is a descriptor whose session.locate answers from a fixed set.
+type diskLocator struct {
+	engineagents.Agent
+	onDisk map[string]bool
+}
+
+func (d diskLocator) SessionExists(id string) (exists, declared bool) { return d.onDisk[id], true }
+
+// TestRegression_ResumableConversation_SessionClosedMidFirstTurn_ResumesFromDisk
+// pins the lost-conversation bug: a chat closed while its first turn was still
+// running announced a session but never recorded a turn, so the activity-table
+// heuristics threw the id away and the next open started a blank conversation
+// even though the provider had the transcript on disk. The provider's own
+// locator is the authority on whether a session exists.
+func TestRegression_ResumableConversation_SessionClosedMidFirstTurn_ResumesFromDisk(t *testing.T) {
+	lastActivity := time.Now().Add(-time.Minute)
+	for _, age := range []time.Duration{5 * time.Second, 10 * time.Minute, 21 * 24 * time.Hour} {
+		rs := &Runners{
+			runnerStore: stubRunnerStoreForResumable{convs: []engineagents.ChatConversation{
+				{ChatID: "chat-1", ProviderID: "claude", SessionID: "sid-mid-turn", FirstSeenAt: time.Now().Add(-age)},
+			}},
+			activity: stubActivityForAttach{found: false},
+		}
+		chat := domain.Chat{ID: "chat-1", LastActivityAt: lastActivity}
+
+		sessionID, leftAt, err := rs.resumableConversation(
+			context.Background(), chat, "claude", diskLocator{onDisk: map[string]bool{"sid-mid-turn": true}})
+
+		require.NoError(t, err)
+		assert.Equal(t, "sid-mid-turn", sessionID, "a session the provider has on disk must be resumed (announced %v ago)", age)
+		assert.True(t, leftAt.Equal(lastActivity), "the gap is drawn from the chat's last activity")
+	}
+}
+
+// A turnless session the provider never wrote is the startup crash: fresh.
+func TestRegression_ResumableConversation_TurnlessSessionAbsentFromDisk_SpawnsFresh(t *testing.T) {
+	rs := &Runners{
+		runnerStore: stubRunnerStoreForResumable{convs: []engineagents.ChatConversation{
+			{ChatID: "chat-1", ProviderID: "claude", SessionID: "sid-never-written", FirstSeenAt: time.Now().Add(-48 * time.Hour)},
+		}},
+		activity: stubActivityForAttach{found: false},
+	}
+
+	sessionID, _, err := rs.resumableConversation(
+		context.Background(), domain.Chat{ID: "chat-1"}, "claude", diskLocator{})
+
+	require.NoError(t, err)
+	assert.Empty(t, sessionID)
 }
 
 // stubRunnerStoreLiveness answers only LiveRunnerForChat, either with a runner or

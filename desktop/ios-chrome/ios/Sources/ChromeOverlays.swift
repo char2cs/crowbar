@@ -10,11 +10,10 @@ final class ChromeOverlays {
   private let sidebar: PageChannel
   private let settings: PageChannel
   private let files: PageChannel
-  private var filesDrawer: FilesDrawer?
   private let picker = ModelPickerModel()
   private var rowMenu: RowMenu?
   private weak var webview: WKWebView?
-  private var reveal: RevealController?
+  private var navigation: NavigationController?
   private var keyboard: KeyboardFit?
   private lazy var sheets = SheetPresenter(undimmed: true) { [model] in
     let controller = UIHostingController(rootView: ConnectSheet(model: model))
@@ -44,21 +43,21 @@ final class ChromeOverlays {
       view.centerYAnchor.constraint(equalTo: host.centerYAnchor, constant: 84),
     ]
   }
-  private lazy var leading = mount(CornerButtons(model: model, side: "leading")) { view, host in
-    [
-      view.topAnchor.constraint(equalTo: host.safeAreaLayoutGuide.topAnchor),
-      view.leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: GlassCircle.edgeInset),
-    ]
-  }
-  private lazy var trailing = mount(CornerButtons(model: model, side: "trailing")) { view, host in
-    [
-      view.topAnchor.constraint(equalTo: host.safeAreaLayoutGuide.topAnchor),
-      view.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -GlassCircle.edgeInset),
-    ]
+  // Each screen mounts its own header once; the navigation moves and fades it with its card.
+  private func corner(_ header: Header, _ side: String) -> UIView? {
+    mount(CornerButtons(model: model, header: header, side: side), hidden: false) { view, host in
+      [
+        view.topAnchor.constraint(equalTo: host.safeAreaLayoutGuide.topAnchor),
+        side == "leading"
+          ? view.leadingAnchor.constraint(
+            equalTo: host.leadingAnchor, constant: GlassCircle.edgeInset)
+          : view.trailingAnchor.constraint(
+            equalTo: host.trailingAnchor, constant: -GlassCircle.edgeInset),
+      ]
+    }
   }
 
   private let tabs = TabsModel()
-  private var shown: Reveal = .none
   private lazy var tabStrip = mount(TabStrip(model: tabs), sized: false) { view, host in
     // Between the IDE's Back and Files circles, on their row.
     [
@@ -98,18 +97,22 @@ final class ChromeOverlays {
       keyboard = KeyboardFit(webview: webview)
       paintSurface(under: webview, host: host)
       FormAccessory.hide(in: webview)
-      reveal = RevealController(host: host, webview: webview, list: list, send: send)
       let filesPage = SecondaryPage.make(
         like: webview, fragment: "/mobile-files", controller: files.controller())
-      filesDrawer = FilesDrawer(
-        host: host, webview: webview, layer: pageLayer(filesPage, leading: RevealController.strip),
-        send: send)
+      let navigation = NavigationController(
+        host: host, webview: webview, list: list,
+        files: pageLayer(filesPage, leading: NavigationController.strip), send: send)
+      navigation.chatHeader = [corner(.chat, "leading"), corner(.chat, "trailing")].compactMap { $0 }
+      navigation.ideHeader =
+        [corner(.ide, "leading"), corner(.ide, "trailing"), tabStrip].compactMap { $0 }
+      navigation.canOpenIde = { [model] in
+        model.headers.chat.first { $0.id == "ide" }?.enabled ?? false
+      }
+      self.navigation = navigation
     }
-    reveal?.riders = [leading, trailing].compactMap { $0 }
-    filesDrawer?.riders = [leading, trailing, tabStrip].compactMap { $0 }
     model.send = { [weak self] intent in
       // The chat is frozen before the web swaps it for the IDE, so it can slide away.
-      if intent.payload["id"] as? String == "ide" { self?.reveal?.freezeChat() }
+      if intent.payload["id"] as? String == "ide" { self?.navigation?.willOpenIde() }
       send(intent)
     }
   }
@@ -136,11 +139,8 @@ final class ChromeOverlays {
 
   func applyTabs(_ state: TabsState) {
     tabs.state = state
-    showTabs()
-  }
-
-  private func showTabs() {
-    show(tabStrip, shown == .ide && !tabs.state.tabs.isEmpty)
+    // With no tab open the IDE greets with its own page; the strip is the IDE header's alone.
+    tabStrip?.isHidden = state.tabs.isEmpty
   }
 
   func applyModelPicker(_ state: ModelPickerState) {
@@ -150,7 +150,7 @@ final class ChromeOverlays {
 
   /// The chat list: its page clear of the card's strip on the right, under its native foot.
   private func listLayer(_ page: WKWebView) -> UIView {
-    let layer = pageLayer(page, trailing: RevealController.strip)
+    let layer = pageLayer(page, trailing: NavigationController.strip)
     let foot = UIHostingController(rootView: ChatListFoot(model: model))
     foot.view.backgroundColor = .clear
     foot.sizingOptions = .intrinsicContentSize
@@ -218,20 +218,12 @@ final class ChromeOverlays {
     if let palette = state.palette.flatMap(ChromePalette.init) { model.palette = palette }
     model.welcome = state.welcome
     if let connect = state.connect { model.connect = connect }
-    let buttons = state.buttons ?? []
-    model.buttons = buttons
+    model.headers = state.headers ?? ChromeHeaders(chat: [], ide: [])
     show(welcome, state.welcome?.visible ?? false)
-    show(leading, buttons.contains { $0.side == "leading" })
-    show(trailing, buttons.contains { $0.side == "trailing" })
-    // Files are a drawer over the IDE: under it, the IDE stays revealed.
-    shown = state.reveal ?? .none
+    let reveal = state.reveal ?? .none
     // A drawer or the IDE over the chat leaves no keyboard up for the composer beneath.
-    if shown != .none { webview?.endEditing(true) }
-    showTabs()
-    reveal?.locked = shown == .files
-    reveal?.apply(shown == .files ? .ide : shown)
-    filesDrawer?.enabled = shown == .ide || shown == .files
-    filesDrawer?.apply(open: shown == .files)
+    if reveal != .none { webview?.endEditing(true) }
+    navigation?.web(reports: reveal, ack: state.ack ?? 0)
     settingsSheet.update(
       open: state.settings?.open ?? false, busy: false, over: webview?.window?.rootViewController)
     sheets.update(
@@ -263,7 +255,8 @@ final class ChromeOverlays {
   }
 
   private func mount<Content: View>(
-    _ content: Content, sized: Bool = true, place: (UIView, UIView) -> [NSLayoutConstraint]
+    _ content: Content, sized: Bool = true, hidden: Bool = true,
+    place: (UIView, UIView) -> [NSLayoutConstraint]
   ) -> UIView? {
     guard let host = webview?.superview ?? webview else { return nil }
     let controller = UIHostingController(rootView: content)
@@ -271,7 +264,7 @@ final class ChromeOverlays {
     if sized { controller.sizingOptions = .intrinsicContentSize }
     controller.view.translatesAutoresizingMaskIntoConstraints = false
     controller.view.alpha = 0
-    controller.view.isHidden = true
+    controller.view.isHidden = hidden
     host.addSubview(controller.view)
     NSLayoutConstraint.activate(place(controller.view, host))
     hosted.append(controller)

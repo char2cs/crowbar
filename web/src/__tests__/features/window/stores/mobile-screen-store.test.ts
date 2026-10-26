@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { useMobileScreenStore } from '@/features/window/stores/mobile-screen-store'
 
 beforeEach(() => {
-  useMobileScreenStore.setState({ screen: 'chat', chatListOpen: false, filesOpen: false })
+  useMobileScreenStore.setState({ screen: 'chat', chatListOpen: false, filesOpen: false, ack: 0 })
 })
 
 describe('useMobileScreenStore', () => {
@@ -35,5 +35,11 @@ describe('useMobileScreenStore', () => {
     expect(useMobileScreenStore.getState()).toMatchObject({ screen: 'ide', filesOpen: false })
     useMobileScreenStore.getState().back()
     expect(useMobileScreenStore.getState().screen).toBe('chat')
+  })
+
+  it('keeps the highest intent the chrome has been answered for', () => {
+    const screens = useMobileScreenStore.getState()
+    screens.acknowledge(2)
+    expect(useMobileScreenStore.getState().ack).toBe(2)
   })
 })

@@ -3,6 +3,7 @@ import {
   onNativeChromeIntent,
   setNativeChrome,
   type ChromeButton,
+  type ChromeHeaders,
   type ChromeReveal,
   type NativeChromeIntent,
 } from '@/lib/native-chrome'
@@ -55,14 +56,21 @@ function handleTap(id: string) {
   if (id === 'ide') screens.open('ide')
 }
 
+// Navigation intents say where to be, not what to toggle, so a repeated one changes nothing.
 function handleIntent(intent: NativeChromeIntent) {
   const screens = useMobileScreenStore.getState()
   if (intent.type === 'tap') handleTap(intent.id)
   if (intent.type === 'openChatList') screens.setChatListOpen(true)
   if (intent.type === 'closeChatList') screens.setChatListOpen(false)
   if (intent.type === 'openIde') screens.open('ide')
-  if (intent.type === 'closeIde') screens.back()
+  if (intent.type === 'closeIde') {
+    screens.setFilesOpen(false)
+    screens.back()
+  }
+  if (intent.type === 'openFiles') screens.setFilesOpen(true)
+  if (intent.type === 'closeFiles') screens.setFilesOpen(false)
   if (intent.type === 'closeSettings') useUIState.getState().setIsSettingsDialogVisible(false)
+  if ('seq' in intent && intent.seq !== undefined) screens.acknowledge(intent.seq)
 }
 
 /** The phone shell's native chrome: glass corner buttons and the edge-swipe reveals of the chat
@@ -71,6 +79,7 @@ export function useMobileNativeChrome({ ide }: Workspaces) {
   const screen = useMobileScreenStore((s) => s.screen)
   const listOpen = useMobileScreenStore((s) => s.chatListOpen)
   const filesOpen = useMobileScreenStore((s) => s.filesOpen)
+  const ack = useMobileScreenStore((s) => s.ack)
   const settingsOpen = useUIState((s) => s.isSettingsOpen)
   const appearance = useSettingsStore((s) => s.settings.themeMode)
   const theme = useSettingsStore((s) => s.settings.theme)
@@ -83,21 +92,23 @@ export function useMobileNativeChrome({ ide }: Workspaces) {
     let reveal: ChromeReveal = 'none'
     if (screen === 'ide') reveal = filesOpen ? 'files' : 'ide'
     else if (listOpen) reveal = 'chatList'
-    let buttons: ChromeButton[] = []
-    if (reveal === 'ide') buttons = [BACK, FILES]
-    else if (reveal === 'none' && !settingsOpen) buttons = [CHAT_LIST, { ...IDE, enabled: ide }]
+    const headers: ChromeHeaders = {
+      chat: settingsOpen ? [] : [CHAT_LIST, { ...IDE, enabled: ide }],
+      ide: [BACK, FILES],
+    }
     const brandGround = getComputedStyle(document.documentElement)
       .getPropertyValue('--brand-ground')
       .trim()
     setNativeChrome({
-      buttons,
+      headers,
       reveal,
+      ack,
       settings: { open: settingsOpen },
       appearance,
       brandGround,
       palette: readNativePalette(),
     })
-  }, [screen, listOpen, filesOpen, settingsOpen, ide, appearance, themeVersion, theme])
+  }, [screen, listOpen, filesOpen, ack, settingsOpen, ide, appearance, themeVersion, theme])
 
   useEffect(() => {
     const stop = onNativeChromeIntent(handleIntent)

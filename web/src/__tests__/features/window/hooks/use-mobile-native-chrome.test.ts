@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
-import type { NativeChrome, NativeChromeIntent } from '@/lib/native-chrome'
+import type { ChromeButton, NativeChrome, NativeChromeIntent } from '@/lib/native-chrome'
 
 const chrome = vi.hoisted(() => ({
   models: [] as Partial<NativeChrome>[],
@@ -19,7 +19,10 @@ import { useMobileScreenStore } from '@/features/window/stores/mobile-screen-sto
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { useSettingsStore } from '@/features/settings/store'
 
-const buttons = () => chrome.models.at(-1)?.buttons?.map((b) => `${b.side}:${b.id}:${b.enabled}`)
+const describeButtons = (list: ChromeButton[] | undefined) =>
+  list?.map((b) => `${b.side}:${b.id}:${b.enabled}`)
+const chatButtons = () => describeButtons(chrome.models.at(-1)?.headers?.chat)
+const ideButtons = () => describeButtons(chrome.models.at(-1)?.headers?.ide)
 const tap = (id: string) =>
   act(() => chrome.listeners.forEach((listener) => listener({ type: 'tap', id })))
 const workspaces = { ide: true }
@@ -68,7 +71,7 @@ describe('useMobileNativeChrome', () => {
 
   it('puts the chat list on the left and the IDE on the right of the chat', () => {
     renderHook(() => useMobileNativeChrome({ ide: false }))
-    expect(buttons()).toEqual(['leading:chat-list:true', 'trailing:ide:false'])
+    expect(chatButtons()).toEqual(['leading:chat-list:true', 'trailing:ide:false'])
   })
 
   it('drives the shell’s own navigation from the buttons', () => {
@@ -76,7 +79,6 @@ describe('useMobileNativeChrome', () => {
 
     tap('ide')
     expect(useMobileScreenStore.getState().screen).toBe('ide')
-    expect(buttons()).toEqual(['leading:back:true', 'trailing:files:true'])
 
     tap('back')
     expect(useMobileScreenStore.getState().screen).toBe('chat')
@@ -109,31 +111,73 @@ describe('useMobileNativeChrome', () => {
     expect(useMobileScreenStore.getState().screen).toBe('chat')
   })
 
-  // The files drawer is the IDE's: the chrome slides it out and no buttons float over it.
+  // The files drawer is the IDE's: the chrome slides it out over the IDE.
   it('reveals the files drawer over the IDE, from the shell’s own store', () => {
     useMobileScreenStore.setState({ screen: 'ide' })
     renderHook(() => useMobileNativeChrome(workspaces))
     act(() => useMobileScreenStore.getState().setFilesOpen(true))
     expect(reveal()).toBe('files')
-    expect(buttons()).toEqual([])
+  })
+
+  // Each screen owns its header and every push carries both, so the chrome never has to keep
+  // the one a screen left behind while it slides away.
+  it('hands over the header of each screen, whichever is in front', () => {
+    renderHook(() => useMobileNativeChrome(workspaces))
+    const expected = {
+      chat: ['leading:chat-list:true', 'trailing:ide:true'],
+      ide: ['leading:back:true', 'trailing:files:true'],
+    }
+    for (const move of [
+      () => useMobileScreenStore.getState().open('ide'),
+      () => useMobileScreenStore.getState().setFilesOpen(true),
+      () => useMobileScreenStore.getState().back(),
+      () => useMobileScreenStore.getState().back(),
+      () => useMobileScreenStore.getState().setChatListOpen(true),
+    ]) {
+      act(move)
+      expect(chatButtons()).toEqual(expected.chat)
+      expect(ideButtons()).toEqual(expected.ide)
+    }
+  })
+
+  // Fast swipes queue intents; the chrome throws away any state older than its last word.
+  it('acknowledges the last intent it applied, in the same push as the reveal it caused', async () => {
+    renderHook(() => useMobileNativeChrome(workspaces))
+    await send({ type: 'openIde', seq: 1 })
+    await send({ type: 'closeIde', seq: 2 })
+    await send({ type: 'openIde', seq: 3 })
+    expect(chrome.models.at(-1)).toMatchObject({ reveal: 'ide', ack: 3 })
+    expect(chrome.models.every((m) => m.ack === undefined || m.ack <= 3)).toBe(true)
+  })
+
+  it('acknowledges an intent that changes nothing', async () => {
+    renderHook(() => useMobileNativeChrome(workspaces))
+    await send({ type: 'closeChatList', seq: 7 })
+    expect(chrome.models.at(-1)).toMatchObject({ reveal: 'none', ack: 7 })
+  })
+
+  it('takes the files drawer swipes as navigation too', async () => {
+    useMobileScreenStore.setState({ screen: 'ide' })
+    renderHook(() => useMobileNativeChrome(workspaces))
+    await send({ type: 'openFiles', seq: 1 })
+    expect(chrome.models.at(-1)).toMatchObject({ reveal: 'files', ack: 1 })
+    await send({ type: 'closeFiles', seq: 2 })
+    expect(chrome.models.at(-1)).toMatchObject({ reveal: 'ide', ack: 2 })
   })
 
   // The IDE's files button is the web's to handle: the chrome sends its intent as given.
   it('has the IDE’s files button ask for the files', () => {
     useMobileScreenStore.setState({ screen: 'ide' })
     renderHook(() => useMobileNativeChrome(workspaces))
-    const files = chrome.models.at(-1)?.buttons?.find((button) => button.id === 'files')
+    const files = chrome.models.at(-1)?.headers?.ide.find((button) => button.id === 'files')
     expect(files?.intent).toBe('openFiles')
   })
 
-  // The chat list and Settings bring their own headers: no button floats over them.
-  it.each([
-    ['the chat list', () => useMobileScreenStore.setState({ chatListOpen: true })],
-    ['Settings', () => useUIState.setState({ isSettingsOpen: true })],
-  ])('shows no buttons over %s', (_over, show) => {
+  // Settings brings its own header: no chat button floats over it.
+  it('shows no chat buttons over Settings', () => {
     renderHook(() => useMobileNativeChrome(workspaces))
-    act(show)
-    expect(buttons()).toEqual([])
+    act(() => useUIState.setState({ isSettingsOpen: true }))
+    expect(chatButtons()).toEqual([])
   })
 
   // Settings is a native sheet whose pages are the web's own tabs; the store still owns open.

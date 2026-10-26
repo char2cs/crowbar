@@ -1,11 +1,19 @@
 import UIKit
 import WebKit
 
-/// A horizontal pan that opens or closes a drawer from anywhere in a zone, not just the screen
-/// edge, while the page keeps its own gestures: vertical scrolls, a touch held to select text,
-/// and sideways scrollers (unless the touch starts at the very edge).
+/// The one horizontal pan of the app's navigation. It moves cards from anywhere in a zone, not
+/// just the screen edge, while the page keeps its own gestures: vertical scrolls, a touch held
+/// to select text, and sideways scrollers (unless the touch starts at the very edge or its
+/// claim overrides them).
 final class DrawerSwipe: NSObject, UIGestureRecognizerDelegate {
-  enum Motion { case rightward, leftward }
+  enum Motion { case rightward, leftward, either }
+
+  /// What a touch may do, decided where it began.
+  struct Claim {
+    var motion: Motion
+    /// A card's own strip, or a card already moving: no sideways scroller under it matters.
+    var overridesScrollers = false
+  }
 
   /// Within this of the screen edge a swipe wins even over a sideways scroller.
   static let edge: CGFloat = 32
@@ -13,10 +21,9 @@ final class DrawerSwipe: NSObject, UIGestureRecognizerDelegate {
   private static let hold: TimeInterval = 0.35
 
   let pan = UIPanGestureRecognizer()
-  /// The motion a touch starting at this point (in the host) may make; nil leaves it alone.
-  var motion: (CGPoint) -> Motion? = { _ in nil }
-  /// What the current touch may do, decided where it began.
-  private(set) var expected: Motion?
+  /// The claim a touch starting at this point (in the host) may make; nil leaves it alone.
+  var claim: (CGPoint) -> Claim? = { _ in nil }
+  private var expected: Claim?
   private weak var webview: WKWebView?
   private var start: CGPoint = .zero
   private var touched: TimeInterval = 0
@@ -33,7 +40,7 @@ final class DrawerSwipe: NSObject, UIGestureRecognizerDelegate {
     guard let host = pan.view else { return false }
     start = touch.location(in: host)
     touched = touch.timestamp
-    expected = motion(start)
+    expected = claim(start)
     return expected != nil
   }
 
@@ -41,10 +48,13 @@ final class DrawerSwipe: NSObject, UIGestureRecognizerDelegate {
     guard let expected, let host = pan.view else { return false }
     let velocity = pan.velocity(in: host)
     guard abs(velocity.x) > abs(velocity.y) * 1.2 else { return false }
-    guard (velocity.x > 0 ? Motion.rightward : .leftward) == expected else { return false }
-    guard ProcessInfo.processInfo.systemUptime - touched < Self.hold else { return false }
+    let direction: Motion = velocity.x > 0 ? .rightward : .leftward
+    guard expected.motion == .either || expected.motion == direction else { return false }
+    // A card already moving is grabbed at once; a resting page waits to see it is not a hold.
+    guard expected.overridesScrollers || ProcessInfo.processInfo.systemUptime - touched < Self.hold
+    else { return false }
     let atEdge = start.x < Self.edge || start.x > host.bounds.width - Self.edge
-    return atEdge || !scrollsSideways(at: start, in: host)
+    return atEdge || expected.overridesScrollers || !scrollsSideways(at: start, in: host)
   }
 
   // The page's pans wait for this one to fail, which a vertical or held touch does at once.
