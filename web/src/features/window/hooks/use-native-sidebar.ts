@@ -117,7 +117,7 @@ function confirmFor(id: RowMenuActionId, row: SidebarRow): NativeRowAction['conf
   if (id !== 'remove') return null
   return {
     title: `Remove ${NOUN[row.kind]}?`,
-    message: `${row.label}${row.kind === 'folder' ? '\n\nEverything inside it goes too.' : ''}`,
+    message: `${row.label}${row.kind === 'folder' ? '\n\nWhat is inside moves up a level.' : ''}`,
   }
 }
 
