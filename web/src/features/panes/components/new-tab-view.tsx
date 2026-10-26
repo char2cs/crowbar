@@ -1,11 +1,25 @@
 import { FilePlusIcon, GitPullRequest, GlobeIcon, TerminalWindowIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { CrowbarWordmark } from '@/components/ui/crowbar-wordmark'
-import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
-import { usePaneById } from '@/features/workspace/stores/hooks/use-pane-store'
+import { usePaneCanReviewBranch } from '@/features/panes/hooks/use-pane-can-review-branch'
 import { usePaneNewTabActions } from '@/features/tabs/hooks/use-pane-new-tab-actions'
+import { IS_MOBILE } from '@/utils/platform'
 
-const ACTION_CLASS = 'justify-start text-muted-foreground'
+// The phone fills a whole screen with this view: a 1.6x logo over touch-sized (44pt) rows.
+const VARIANTS = {
+  desktop: {
+    action: 'justify-start text-muted-foreground',
+    size: 'sm',
+    logo: 'pointer-events-none h-auto w-[clamp(96px,14cqmin,148px)] text-muted-foreground',
+    logoWidth: undefined,
+  },
+  phone: {
+    action: 'min-h-11 justify-start text-muted-foreground',
+    size: 'xl',
+    logo: 'pointer-events-none h-auto text-muted-foreground',
+    logoWidth: 154,
+  },
+} as const
 
 /**
  * What an editor area shows while it holds no tab, and what a New Tab page
@@ -30,35 +44,38 @@ export function NewTabView({
     paneId,
     replaceTabId,
   )
-  // A thread owns no branch to review (same gate as the header's shortcut).
-  const isThread = useChatIsThread(usePaneById(paneId)?.chatId ?? null)
+  const canReview = usePaneCanReviewBranch(paneId)
+  const v = VARIANTS[IS_MOBILE ? 'phone' : 'desktop']
   return (
     // Focusable so a click on the blank area puts focus in the editor area,
     // where ⌘N opens a New Tab (use-pane-keyboard.ts).
     <div
       tabIndex={-1}
-      className="relative flex h-full w-full flex-col items-center justify-center gap-6 overflow-hidden outline-none"
+      data-variant={IS_MOBILE ? 'phone' : undefined}
+      className="relative flex h-full w-full flex-col items-center justify-center gap-6 overflow-hidden outline-none data-[variant=phone]:gap-8"
     >
-      <CrowbarWordmark
-        aria-hidden="true"
-        className="pointer-events-none h-auto w-[clamp(96px,14cqmin,148px)] text-muted-foreground"
-      />
+      <CrowbarWordmark aria-hidden="true" width={v.logoWidth} className={v.logo} />
       {wsId && (
-        <div className="flex flex-col items-stretch gap-0.5">
-          <Button variant="ghost" size="sm" className={ACTION_CLASS} onClick={onNewTerminal}>
+        <div className="flex flex-col items-stretch gap-0.5 in-data-[variant=phone]:gap-1">
+          <Button variant="ghost" size={v.size} className={v.action} onClick={onNewTerminal}>
             <TerminalWindowIcon />
             New Terminal
           </Button>
-          <Button variant="ghost" size="sm" className={ACTION_CLASS} onClick={onNewBrowser}>
-            <GlobeIcon />
-            New Browser
-          </Button>
-          <Button variant="ghost" size="sm" className={ACTION_CLASS} onClick={onNewFile}>
-            <FilePlusIcon />
-            New File
-          </Button>
-          {!isThread && (
-            <Button variant="ghost" size="sm" className={ACTION_CLASS} onClick={onReviewBranch}>
+          {/* The phone has no browser pane and no file editor yet. */}
+          {!IS_MOBILE && (
+            <>
+              <Button variant="ghost" size={v.size} className={v.action} onClick={onNewBrowser}>
+                <GlobeIcon />
+                New Browser
+              </Button>
+              <Button variant="ghost" size={v.size} className={v.action} onClick={onNewFile}>
+                <FilePlusIcon />
+                New File
+              </Button>
+            </>
+          )}
+          {canReview && (
+            <Button variant="ghost" size={v.size} className={v.action} onClick={onReviewBranch}>
               <GitPullRequest />
               Review Branch
             </Button>

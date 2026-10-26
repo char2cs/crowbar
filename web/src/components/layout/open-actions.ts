@@ -280,20 +280,30 @@ export function openChatRoute(
  *     ancestor (§3.2) — not built yet (see `handleCreate`'s own note on the
  *     same gap) — so this is an honest fold, not a placeholder.
  *
+ * Answers whether a chat was opened (a fold, a refusal or a miss is false).
+ *
  * A project-home row (chat or folder) is resolved FIRST, against every
  * visible project's home tree rather than `repos` — see `resolveHomeRowScope`
  * (lib/store/home-tree.ts), the one shared implementation every caller that
  * needs to tell a home row apart from a repo one reuses.
  */
-export function handleOpen(id: string, repos: readonly Repo[], navigate: NavigateFn): void {
+/** `fold: false` leaves a container row as it is: the phone folds only from its disclosure. */
+export function handleOpen(
+  id: string,
+  repos: readonly Repo[],
+  navigate: NavigateFn,
+  { fold = true }: { fold?: boolean } = {},
+): boolean {
+  const toggle = () => {
+    if (fold) useSidebarStore.getState().toggleChatRow(id)
+  }
   const homeRow = resolveHomeRowScope(id)
   if (homeRow) {
     if (homeRow.kind === 'folder') {
-      useSidebarStore.getState().toggleChatRow(id)
-      return
+      toggle()
+      return false
     }
-    openChatRoute(repos, id, homeRow.homeWorkspaceId, navigate)
-    return
+    return openChatRoute(repos, id, homeRow.homeWorkspaceId, navigate)
   }
 
   const chatRow = resolveChatRow(repos, id)
@@ -309,30 +319,29 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
     const rowWsId = rowsFromRepo(chatRow.repo).find((r) => r.id === id)?.workspaceId ?? null
     const wsId = isOpenableWorkspaceOfRepo(chatRow.repo, rowWsId)
     if (!wsId || !chatRow.repo.projectId) {
-      useSidebarStore.getState().toggleChatRow(id)
-      return
+      toggle()
+      return false
     }
-    openChatRoute(repos, id, wsId, navigate)
-    return
+    return openChatRoute(repos, id, wsId, navigate)
   }
 
   const found = resolveRow(repos, id)
-  if (!found) return
+  if (!found) return false
   // A folder has no destination — the row body toggles it, same as the
   // tree it replaces.
   if (found.subject.kind === 'folder') {
-    useSidebarStore.getState().toggleChatRow(id)
-    return
+    toggle()
+    return false
   }
-  if (!found.repo.projectId) return
+  if (!found.repo.projectId) return false
   // Addendum §3: the repo-home row (no `locked` on its subject at all — see
   // `resolveRow`) and a locked/protected branch never open anything of
   // their own on click; they are containers, not workspaces you check out
   // into. Fold, exactly like a folder.
   const isRepoHome = found.subject.id === found.repo.defaultWorkspaceId
   if (isRepoHome || found.subject.locked) {
-    useSidebarStore.getState().toggleChatRow(id)
-    return
+    toggle()
+    return false
   }
   // A real, unlocked workspace row IS a chat — the one that owns it — so it
   // opens the same way clicking that chat's own bubble would (spec §8.4).
@@ -344,14 +353,14 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
   // `subject.id`, never the row's — a branch row is addressed by its owning
   // chat, and only `resolveRow` knows which workspace that names.
   if (owningChatId) {
-    openChatRoute(repos, owningChatId, found.subject.id, navigate)
-    return
+    return openChatRoute(repos, owningChatId, found.subject.id, navigate)
   }
   // No owner recorded yet: the daemon mints one on the first read of the
   // workspace list, so this is a list still landing, never a row to navigate
   // to — a bare workspace route would spin forever on a chat-keyed explorer.
   const branch = found.repo.workspaces.find((w) => w.id === found.subject.id)?.branch
   toast.error(chatNotLoadedYet('open', branch))
+  return false
 }
 
 /**

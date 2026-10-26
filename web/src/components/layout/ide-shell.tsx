@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
-import { useNavigate, useRouterState } from '@tanstack/react-router'
+import { useCallback } from 'react'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { SidebarProjectHeader } from './sidebar-project-header'
 import { useNavigationHistory } from '@/features/tabs/hooks/use-navigation-history'
@@ -9,13 +8,6 @@ import { SidebarProjectSwitcher } from './sidebar-project-switcher'
 import { RemovalTray } from './removal-tray'
 import { SidebarTreeSurface } from './sidebar-tree-surface'
 import { useSpaceSwitcherKeyboard } from '@/features/keymaps/hooks/use-space-switcher-keyboard'
-import {
-  useProjectStore,
-  useProjectDataStore,
-  EMPTY_PROJECTS,
-  importProjectAndSync,
-} from '@/lib/store/projects'
-import type { Project } from '@/lib/types'
 import SettingsDialog from '@/features/settings/components/settings-dialog'
 import { useSettingsStore } from '@/features/settings/store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
@@ -29,17 +21,8 @@ import { useSidebarPanel, SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from './use-sidebar-p
 import { useSidebarFocusMode } from './use-sidebar-focus-mode'
 import { SidebarSplitPane } from './sidebar-split-pane'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import { recordWorkspaceScopeFromPath } from '@/lib/workspace-scope'
-import { dataOf } from '@/lib/loadable'
-import {
-  ensureHomeWorkspaceResolved,
-  useHomeWorkspaceState,
-} from '@/features/workspace/lib/home-workspace-resolver'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { useIdeShellWorkspaceRetention } from './use-ide-shell-workspace-retention'
 import { IdeShellWorkspaceContent } from './ide-shell-workspace-content'
-import { useRedirectIfProjectMissing } from './use-redirect-if-project-missing'
+import { useShellRouteState } from './use-shell-route-state'
 import { ConsoleDock } from '@/features/console/components/console-dock'
 import { useMacTrafficLightSync } from '@/features/tabs/hooks/use-mac-traffic-light-sync'
 
@@ -53,8 +36,6 @@ export function IDEShell() {
 }
 
 function IdeShellBody() {
-  const pathname = useRouterState({ select: (state) => state.location.pathname })
-  const navigate = useNavigate()
   const isSettingsOpen = useUIState((s) => s.isSettingsOpen)
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
   const sidebarSide = sidebarPosition === 'right' ? 'right' : 'left'
@@ -68,101 +49,20 @@ function IdeShellBody() {
   useMacTrafficLightSync(sidebarSide, `${theme}:${themeMode}`)
   const { sidebarOpen, setSidebarOpen, preferredWidth, commitPreferredWidth } = useSidebarPanel()
   useSidebarFocusMode()
-
-  // §7: the TanStack /ide/:projectId/:repoId/:wsId route params are the
-  // canonical source for the active project/repo/workspace — read them directly
-  // rather than scanning the sidebar store (which lags the route on cold start).
-  // Recording the scope here, SYNCHRONOUSLY during render, is load-bearing: the
-  // WorkspaceView subtree (rendered below) builds workspace-scoped URLs via
-  // workspaceBase() during its own render, so the scope must exist before then —
-  // recording it only in the route component's post-render effect threw on first
-  // paint and tripped the ErrorBoundary (§14 add-repo regression).
-  const routeScope = recordWorkspaceScopeFromPath(pathname)
-  const homeRouteMatch = routeScope ? null : pathname.match(/\/ide\/([^/]+)\/home$/)
-  const activeProjectIdFromRoute = routeScope?.projectId ?? homeRouteMatch?.[1]
-  const activeRepoIdFromRoute = routeScope?.repoId
-  const activeWorkspaceId = routeScope?.wsId
-
-  // Resolve the home workspace id ONCE per project (cached for the session —
-  // see home-workspace-resolver.ts) instead of HomeRoute re-fetching and
-  // cold-mounting a fresh WorkspaceView on every single visit to project
-  // home. Kicking the fetch off here (not in HomeRoute) means WorkspaceHost
-  // below can keep the resulting workspace mounted-but-hidden via its normal
-  // keep-alive retention, so a repeat visit is a warm slot reveal.
-  // Not gated to `homeRouteMatch`: retention's sidebar-path lookup needs this project's home id/path off the home route too (a split can mix a home chat's pane with a repo route), or it falls through to the repo scan and dead-ends on "No folder open".
-  const homeProjectId = activeProjectIdFromRoute
-  // Its scope, owning chat included, is recorded by the resolver before this id arrives.
-  const { wsId: homeWorkspaceId, localPath: homeWorkspacePath } = useHomeWorkspaceState(
-    homeProjectId ?? null,
-  )
-  useEffect(() => {
-    if (homeProjectId) ensureHomeWorkspaceResolved(homeProjectId)
-  }, [homeProjectId])
-  // Every workspace-id fact WorkspaceHost's retention and the sidebar's
-  // file-explorer path need, resolved off the active pane/route — see the
-  // hook's own doc for why this lives outside IDEShell's body.
-  const allProjects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
-  const projectPath = allProjects.find((p) => p.id === activeProjectIdFromRoute)?.path ?? ''
-  const { effectiveActiveWorkspaceId, paneWsIds, viewWsIds } = useIdeShellWorkspaceRetention(
-    activeWorkspaceId,
-    homeWorkspaceId,
-    activeProjectIdFromRoute,
-    activeRepoIdFromRoute,
-    Boolean(homeRouteMatch),
-    homeWorkspacePath,
-    projectPath,
-  )
-  // The tree's only entry point for a SECOND space (spec §3 ruling): a
-  // trailing `+` in SidebarProjectSwitcher. Swaps
-  // SpaceScroller for CreateSpacePanel in place (sidebar-tree-surface.tsx)
-  // rather than opening a modal — Zen's own "Create a Space" sheet lives in
-  // the sidebar itself. Lifted here, alongside `allProjects`, so both the
-  // switcher and the surface below can reach it.
-  const [creatingSpace, setCreatingSpace] = useState(false)
-  const handleCreateSpace = useCallback((project: Project) => {
-    importProjectAndSync(project)
-    setCreatingSpace(false)
-  }, [])
-  // Project switcher (spec §4.1): same navigation the workspace switcher's own
-  // project-home rows already use (workspace-switcher.tsx's `select`).
-  // Shared verbatim with SidebarTreeSurface's SpaceScroller below
-  // (`onActiveProjectChange`) — one "switch to project" action, not two.
-  // Also cancels an in-progress space creation: picking an existing space
-  // while the create form is open has to replace it, not leave it stranded
-  // behind the newly-routed content.
-  //
-  // useCallback'd (stable across renders unless `navigate` itself changes —
-  // TanStack Router's own hook already returns a stable reference) so the
-  // memoized SidebarTreeSurface/SidebarProjectSwitcher below don't see a fresh prop
-  // identity, and therefore don't re-render, on an IDEShell render this
-  // handler had no part in.
-  const handleSelectProject = useCallback(
-    (projectId: string) => {
-      setCreatingSpace(false)
-      void navigate({ to: '/ide/$projectId/home', params: { projectId } })
-    },
-    [navigate],
-  )
-  // Same reason as `handleSelectProject` above — stable identities so
-  // memoized SidebarTreeSurface/SidebarProjectSwitcher can actually skip a render
-  // that doesn't touch space-creation state, instead of always seeing a
-  // fresh inline-arrow prop.
-  const handleCancelCreateSpace = useCallback(() => setCreatingSpace(false), [])
-  // The create-space form lives in the Chats panel, so creating one shows Chats.
-  const handleAddProject = useCallback(() => {
-    useSidebarStore.getState().setActiveTab('chats')
-    setCreatingSpace(true)
-  }, [])
-  // Browser-tab convention: Cmd/Ctrl+1-9 jump straight to a space by
-  // position (9 always the last one) — the same shortcut `develop` wired for
-  // sidebar context switching, now driving spaces instead.
-  //
-  // useCallback'd (same reasoning as `handleSelectProject` above) — this is
-  // the hook's own `onSelect`, an effect dependency INSIDE
-  // useSpaceSwitcherKeyboard: an inline arrow here was a fresh identity every
-  // render, so that effect tore down and re-added its window keydown
-  // listener on every IDEShell render instead of just when `allProjects` or
-  // `handleSelectProject` actually change.
+  const {
+    activeProjectId: activeProjectIdFromRoute,
+    allProjects,
+    effectiveActiveWorkspaceId,
+    paneWsIds,
+    viewWsIds,
+    creatingSpace,
+    handleCreateSpace,
+    handleSelectProject,
+    handleCancelCreateSpace,
+    handleAddProject,
+  } = useShellRouteState()
+  // Browser-tab convention: Cmd/Ctrl+1-9 jump straight to a space by position
+  // (9 always the last one). Stable, as it is the hook's effect dependency.
   const handleSpaceSwitcherSelect = useCallback(
     (index: number) => {
       const project = allProjects[index]
@@ -172,30 +72,6 @@ function IdeShellBody() {
   )
   useSpaceSwitcherKeyboard(allProjects.length, handleSpaceSwitcherSelect)
   const hasNavScreen = useSidebarNavStore((s) => s.stack.length > 0)
-
-  // BUG-003: when landing directly on a workspace route, the header project
-  // button showed "Select project" — the active project was never derived from
-  // the route. Keep the active project in sync with the route's projectId.
-  //
-  // THE ONE WRITER of the pane store's own `activeProjectId` too (the
-  // project-scoped panes design's trap 4): the route is already the one place
-  // a project change becomes state, and a second writer — a click handler
-  // racing this effect — is exactly how the sidebar's own project-switch bugs
-  // happened. `setActiveProject` no-ops on an unchanged id, so calling it
-  // unconditionally here is free; parking the space you left and bringing this
-  // one's own last view forward is all downstream of that single write.
-  const workspaceProjectId = activeProjectIdFromRoute
-  useEffect(() => {
-    if (!workspaceProjectId) return
-    if (useProjectStore.getState().activeProjectId !== workspaceProjectId) {
-      useProjectStore.getState().setActiveProject(workspaceProjectId)
-    }
-    windowPaneStore.getState().paneActions.setActiveProject(workspaceProjectId)
-  }, [workspaceProjectId])
-
-  // See the hook's own doc for the "viewing a project that no longer exists"
-  // invariant this enforces.
-  useRedirectIfProjectMissing(activeProjectIdFromRoute, navigate)
 
   // SidebarPeek is a wrapper, not a branch: it renders in every state and only
   // restyles itself, so hiding the sidebar never rebuilds the subtree below it.

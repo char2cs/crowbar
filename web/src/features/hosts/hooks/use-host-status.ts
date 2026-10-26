@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore } from 'react'
+import { createContext, use, useCallback, useSyncExternalStore } from 'react'
 import { hostStatusOf, subscribeHostStatusOf } from '@/features/hosts/lib/host-status'
 import { hostIsUnreachable } from '@/features/hosts/lib/host-tone'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
@@ -22,13 +22,24 @@ export function useHostDotState(hostId: string): HostDotState {
   return status === 'up' && streamsClosed ? 'no-live-stream' : status
 }
 
+interface HostView {
+  name: string | undefined
+  state: HostDotState
+}
+
+/** Host views handed in whole, for a page that renders a snapshot and watches no host itself
+ *  (the phone's sidebar page). */
+export const HostViewsContext = createContext<ReadonlyMap<string, HostView> | null>(null)
+
 /** `hostId` as a surface names it: its name and dot. A host no longer configured has no name
  *  and is 'not-available' — never Local. */
-export function useHostView(hostId: string): { name: string | undefined; state: HostDotState } {
+export function useHostView(hostId: string): HostView {
+  const given = use(HostViewsContext)
   const name = useHostConfigStore((s) =>
     hostId === LOCAL_HOST.id ? LOCAL_HOST.name : s.hosts.find((h) => h.id === hostId)?.name,
   )
   const state = useHostDotState(hostId)
+  if (given) return given.get(hostId) ?? { name: undefined, state: 'not-available' }
   return { name, state: name === undefined ? 'not-available' : state }
 }
 

@@ -8,7 +8,7 @@ import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 // use-pane-keyboard dispatch that closes the active buffer instead.
 vi.mock('@/utils/platform', async () => {
   const actual = await vi.importActual<typeof import('@/utils/platform')>('@/utils/platform')
-  return { ...actual, IS_MAC: true }
+  return { ...actual, IS_MAC: true, APPLE_KEYBOARD: true }
 })
 
 const closeBuffer = vi.fn()

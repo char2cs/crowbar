@@ -817,7 +817,7 @@ describe('ProvidersSettings', () => {
       render(<ProvidersSettings />)
 
       await waitFor(() =>
-        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('trusted'),
+        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('Trusted'),
       )
     })
 
@@ -830,7 +830,7 @@ describe('ProvidersSettings', () => {
       render(<ProvidersSettings />)
       await waitFor(() =>
         expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent(
-          'full-auto',
+          'Full Auto',
         ),
       )
 
@@ -838,7 +838,7 @@ describe('ProvidersSettings', () => {
 
       expect(updateDefaultPermissionLevelFn).toHaveBeenCalledWith('guarded')
       await waitFor(() =>
-        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('guarded'),
+        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('Guarded'),
       )
     })
 
@@ -850,13 +850,13 @@ describe('ProvidersSettings', () => {
 
       render(<ProvidersSettings />)
       await waitFor(() =>
-        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('guarded'),
+        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('Guarded'),
       )
 
       await selectPermissionLevelOption(user, 'trusted')
 
       await waitFor(() => expect(toastErrorFn).toHaveBeenCalled())
-      expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('guarded')
+      expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('Guarded')
     })
 
     // THE RACE: a user who changes their mind before the first PUT settles.
@@ -875,7 +875,7 @@ describe('ProvidersSettings', () => {
 
       render(<ProvidersSettings />)
       await waitFor(() =>
-        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('guarded'),
+        expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('Guarded'),
       )
 
       // Two picks made before either round trip has answered.
@@ -891,7 +891,7 @@ describe('ProvidersSettings', () => {
         first.reject(new Error('daemon is down'))
       })
 
-      expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('full-auto')
+      expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('Full Auto')
       expect(toastErrorFn).not.toHaveBeenCalled()
     })
   })

@@ -212,6 +212,7 @@ export default tseslint.config(
       'src/lib/native-dialog.ts',
       'src/lib/external-open.ts',
       'src/lib/browser-bridge.ts',
+      'src/lib/native-chrome.ts',
     ],
     rules: {
       'no-restricted-imports': 'off',

@@ -1,7 +1,9 @@
-import { useCallback } from 'react'
+import { useCallback, useRef } from 'react'
+import { IS_MOBILE } from '@/utils/platform'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useTerminalStore } from '../stores/terminal-store'
-import { XtermTerminal } from './terminal'
+import { XtermTerminal, type TerminalFocusHandle } from './terminal'
+import { TerminalKeyBar } from './terminal-key-bar'
 
 interface TerminalTabProps {
   sessionId: string
@@ -41,6 +43,7 @@ export function TerminalTab({
   isActive = true,
   isVisible = true,
 }: TerminalTabProps) {
+  const terminal = useRef<TerminalFocusHandle>(null)
   const handleTerminalExit = useCallback(() => {
     // Forget the exited PTY first, so closing the buffer does not DELETE a
     // session the daemon has already reaped (a 404 on every `exit`).
@@ -84,6 +87,7 @@ export function TerminalTab({
       onMouseDownCapture={handleActivate}
     >
       <XtermTerminal
+        ref={terminal}
         sessionId={sessionId}
         workspaceId={workspaceId}
         paneId={paneId}
@@ -93,6 +97,8 @@ export function TerminalTab({
         initialCommand={initialCommand}
         workingDirectory={workingDirectory}
       />
+      {/* The keys a phone keyboard lacks. */}
+      {IS_MOBILE && <TerminalKeyBar onSend={(bytes) => terminal.current?.send(bytes)} />}
     </div>
   )
 }

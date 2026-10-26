@@ -27,6 +27,7 @@ import {
   type ComposerRevival,
 } from '@/features/agent/composer/lib/composer-state'
 import { isMultiline } from '@/features/agent/composer/lib/handle-geometry'
+import { IS_MOBILE } from '@/utils/platform'
 import { useAttachmentUpload } from '@/features/agent/composer/lib/use-attachment-upload'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
@@ -250,6 +251,7 @@ export function AgentComposer(props: AgentComposerProps) {
               isMultiline(props.fieldHeight) && 'multi',
               dropTarget && 'drop-target',
             )}
+            data-touch={IS_MOBILE || undefined}
             onDragOver={handlePillDragOver}
             onDragLeave={handlePillDragLeave}
             onDrop={handlePillDrop}

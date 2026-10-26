@@ -2,7 +2,7 @@ export PATH := $(HOME)/.bun/bin:$(HOME)/.cargo/bin:$(HOME)/.rustup/toolchains/st
 export RUSTUP_HOME := $(HOME)/.rustup
 export CARGO_HOME := $(HOME)/.cargo
 
-.PHONY: e2e e2e-browser meter dev dev-api dev-web dev-desktop dev-bundle seed seed-chat web-install build test test-coverage lint pr-checks ci docker-up docker-down
+.PHONY: e2e e2e-browser meter dev dev-api dev-web dev-desktop dev-bundle seed seed-chat web-install build test test-coverage lint pr-checks ci docker-up docker-down ios-device ios-sim ios-doctor
 
 # Dev isolation: every dev target roots Crowbar state (projects, store, socket,
 # logs) at <this workspace>/.crowbar instead of ~/.crowbar, so a dev instance
@@ -85,6 +85,10 @@ e2e-browser:
 # make meter ARGS='--only=burst --idle=60 --shims'
 meter:
 	@bun scripts/meter/run.mjs $(ARGS)
+
+# Release iOS app (no dev server). Free Apple ID: see docs/ios-device.md.
+ios-device ios-sim ios-doctor: ios-%:
+	@bash desktop/scripts/ios-install.sh $* $(if $(DRY_RUN),--dry-run)
 
 web-install:
 	$(MAKE) -C web install

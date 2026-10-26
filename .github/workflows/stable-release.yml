@@ -162,6 +162,16 @@ jobs:
           name: desktop-macos
           path: desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
 
+  ios:
+    needs: guard
+    uses: ./.github/workflows/ios-build.yml
+    secrets: inherit
+    with:
+      ref: master
+      version: ${{ needs.guard.outputs.version }}
+      channel: release
+      build-version: ${{ needs.guard.outputs.tag }}
+
   desktop-linux:
     name: desktop-linux (${{ matrix.goarch }})
     needs: guard
@@ -233,7 +243,7 @@ jobs:
             desktop/src-tauri/target/release/bundle/deb/*.deb
 
   release:
-    needs: [guard, daemon, desktop-macos, desktop-linux]
+    needs: [guard, daemon, desktop-macos, desktop-linux, ios]
     # All jobs must succeed — no partial stable releases
     runs-on: ubuntu-latest
     steps:

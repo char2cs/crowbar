@@ -1,6 +1,13 @@
 import { beforeAll, describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+
+const native = vi.hoisted(() => ({ on: false, confirm: vi.fn(async (): Promise<boolean> => true) }))
+vi.mock('@/lib/native-chrome', () => ({
+  hasNativeChrome: () => native.on,
+  nativeConfirm: native.confirm,
+}))
+
 import {
   PrimitiveDialogProvider,
   primitiveConfirm,
@@ -165,6 +172,29 @@ describe('primitive dialog service', () => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     } finally {
       vi.doUnmock('@/components/ui/primitive-dialog-host')
+    }
+  })
+  // On the phone a sheet can cover the app, so the question is asked natively over it.
+  it('asks a plain-text confirm natively on the phone', async () => {
+    native.on = true
+    try {
+      renderProvider()
+      const answer = await primitiveConfirm('It goes for good.', {
+        title: 'Revoke dockerlab?',
+        confirmLabel: 'Revoke',
+        destructive: true,
+      })
+      expect(answer).toBe(true)
+      expect(native.confirm).toHaveBeenCalledWith({
+        title: 'Revoke dockerlab?',
+        message: 'It goes for good.',
+        confirmLabel: 'Revoke',
+        cancelLabel: 'Cancel',
+        destructive: true,
+      })
+      expect(screen.queryByRole('dialog')).toBeNull()
+    } finally {
+      native.on = false
     }
   })
 })

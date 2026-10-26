@@ -11,10 +11,15 @@ import {
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
 
-const shown = vi.hoisted(() => ({ items: [] as ContextMenuItem[], position: null as unknown }))
+const shown = vi.hoisted(() => ({
+  items: [] as ContextMenuItem[],
+  position: null as unknown,
+  desktop: true,
+}))
 const openExternalUrl = vi.hoisted(() => vi.fn(() => Promise.resolve()))
 
 vi.mock('@/lib/crowbar-bridge', () => ({
+  isDesktopApp: () => shown.desktop,
   showNativeContextMenu: vi.fn((items: ContextMenuItem[], position: unknown) => {
     shown.items = items
     shown.position = position
@@ -28,6 +33,8 @@ const at = { x: 12, y: 34 }
 const noPane = { workspaceId: 'ws-1' }
 
 afterEach(() => {
+  shown.desktop = true
+  shown.items = []
   vi.restoreAllMocks()
   openExternalUrl.mockClear()
 })
@@ -48,6 +55,14 @@ describe('showTerminalUrlMenu', () => {
       'Open in Crowbar Browser',
       'Copy Link',
     ])
+  })
+
+  // The phone app (and a plain browser) has no OS menu and no Crowbar browser: a link just opens.
+  it('outside the desktop app opens the link at once, without a menu', async () => {
+    shown.desktop = false
+    await showTerminalUrlMenu(url, at, noPane)
+    await vi.waitFor(() => expect(openExternalUrl).toHaveBeenCalledExactlyOnceWith(url))
+    expect(shown.items).toEqual([])
   })
 
   it('opens the default browser through the external opener', async () => {

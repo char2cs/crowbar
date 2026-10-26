@@ -222,3 +222,14 @@ export function useWorkspaceScopeReady(wsId: string): boolean {
     () => getWorkspaceScope(wsId) !== null,
   )
 }
+
+/**
+ * `getOwningChatId(wsId)` as React state: the sidebar records it asynchronously,
+ * and the chat-scoped routes throw without it, so effects must re-run once it lands.
+ */
+export function useOwningChatId(wsId: string): string | null {
+  return useSyncExternalStore(
+    (onChange) => subscribeToWorkspaceScope(wsId, onChange),
+    () => getOwningChatId(wsId),
+  )
+}

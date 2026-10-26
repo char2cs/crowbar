@@ -9,6 +9,7 @@ import {
 vi.mock('@/utils/platform', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/utils/platform')>()),
   IS_MAC: true,
+  APPLE_KEYBOARD: true,
 }))
 
 const cleanup: Array<() => void> = []

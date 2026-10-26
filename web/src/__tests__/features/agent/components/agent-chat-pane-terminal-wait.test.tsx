@@ -22,7 +22,7 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
 // rather than depend on whatever navigator.userAgent the test happens to run
 // on (jsdom's UA bakes in the CI runner's own host platform, which is Linux
 // on GitHub Actions).
-vi.mock('@/utils/platform', () => ({ IS_MAC: true }))
+vi.mock('@/utils/platform', () => ({ IS_MAC: true, IS_MOBILE: false, APPLE_KEYBOARD: true }))
 
 vi.mock('@/features/agent/api/agent-api', async (importOriginal) => {
   // Partial: the module also exports the TERMINAL_WAIT_* constants the banner

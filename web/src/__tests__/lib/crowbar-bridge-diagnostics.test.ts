@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { exportDiagnostics } from '@/lib/crowbar-bridge'
 
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  get IS_MOBILE() {
+    return platform.mobile
+  },
+}))
+
 type TauriWindow = Window & { __TAURI_INTERNALS__?: { invoke: (cmd: string) => Promise<unknown> } }
 const tauriWindow = window as TauriWindow
 
@@ -9,7 +17,17 @@ describe('exportDiagnostics', () => {
     delete tauriWindow.__TAURI_INTERNALS__
   })
   afterEach(() => {
+    platform.mobile = false
     delete tauriWindow.__TAURI_INTERNALS__
+  })
+
+  // The phone app is Tauri, but the bundle (daemon logs, dumps) is a desktop-host command.
+  it('rejects in the phone app without invoking', async () => {
+    platform.mobile = true
+    const invoke = vi.fn()
+    tauriWindow.__TAURI_INTERNALS__ = { invoke }
+    await expect(exportDiagnostics()).rejects.toThrow(/desktop app/)
+    expect(invoke).not.toHaveBeenCalled()
   })
 
   it('invokes the diagnostics_export command and resolves the bundle path', async () => {

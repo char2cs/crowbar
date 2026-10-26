@@ -119,14 +119,14 @@ describe('handleOpen', () => {
     const navigate = vi.fn()
     const toggle = vi.spyOn(useSidebarStore.getState(), 'toggleChatRow')
     const repos = [repo({ folders: [{ id: 'f1', repoId: 'r1', name: 'spikes', order: 0 }] })]
-    handleOpen('f1', repos, navigate)
+    expect(handleOpen('f1', repos, navigate)).toBe(false)
     expect(toggle).toHaveBeenCalledWith('f1')
     expect(navigate).not.toHaveBeenCalled()
   })
 
   it('is a no-op for a row not in the given (removal-filtered) repos', () => {
     const navigate = vi.fn()
-    handleOpen('ghost', [repo()], navigate)
+    expect(handleOpen('ghost', [repo()], navigate)).toBe(false)
     expect(navigate).not.toHaveBeenCalled()
   })
 
@@ -142,7 +142,8 @@ describe('handleOpen', () => {
 
     it('navigates to the workspace a WORKTREE chat owns, like a branch row', () => {
       const navigate = vi.fn()
-      handleOpen('c1', [withChat({ id: 'c1', workspaceId: 'ws-a' })], navigate)
+      // True: the phone puts its chat list away on exactly this answer.
+      expect(handleOpen('c1', [withChat({ id: 'c1', workspaceId: 'ws-a' })], navigate)).toBe(true)
       expect(navigate).toHaveBeenCalledWith({
         to: '/ide/$projectId/$repoId/$wsId',
         params: { projectId: 'p1', repoId: 'r1', wsId: 'ws-a' },

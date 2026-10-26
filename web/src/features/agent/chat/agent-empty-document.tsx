@@ -8,6 +8,7 @@ import {
 } from 'react'
 import type { DragEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, Ref } from 'react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
+import { IS_MOBILE } from '@/utils/platform'
 import { AttachFileModal } from '@/features/agent/composer/attach-file-modal'
 import { ComposerPlusButton } from '@/features/agent/composer/composer-plus-button'
 import { ExcalidrawTakeover } from '@/features/agent/composer/excalidraw-takeover'
@@ -300,7 +301,7 @@ export function AgentEmptyDocument({
           className="blk"
         />
       </div>
-      <div ref={handleRef} className="dochandle">
+      <div ref={handleRef} className="dochandle" data-touch={IS_MOBILE || undefined}>
         <div className="inner">
           {banner ? (
             <div className="banner">{banner}</div>

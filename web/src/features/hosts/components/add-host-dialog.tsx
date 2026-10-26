@@ -10,37 +10,18 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { OTPField, OTPFieldInput, OTPFieldSeparator } from '@/components/ui/otp-field'
-import { probeRemoteFingerprint } from '@/lib/crowbar-bridge'
-import { DEFAULT_PORT, normalizeEndpoint } from '@/features/hosts/lib/endpoint'
+import { DEFAULT_PORT } from '@/features/hosts/lib/endpoint'
 import {
-  alreadyPairedReason,
-  pairingFailureText,
-  redeemPairingCode,
-} from '@/features/hosts/lib/pairing'
-import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-
-type Stage = 'address' | 'fingerprint' | 'code'
-
-/** The host's answer the dialog is waiting on; it cannot be dismissed meanwhile. */
-type Pending = 'probe' | 'pair' | null
+  CODE_SHAPE_NOTICE,
+  usePairingFlow,
+  type PairingPending,
+} from '@/features/hosts/hooks/use-pairing-flow'
 
 interface AddHostDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** The host just paired, once it is saved; the dialog closes either way. */
   onPaired?: (hostId: string) => void
-}
-
-// Lowercase letters, digits and hyphens only, per register_remote_host's
-// accepted hostId shape — a random suffix keeps two hosts named the same
-// from colliding.
-function makeHostId(name: string): string {
-  const slug = name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-  return `${slug || 'host'}-${crypto.randomUUID().slice(0, 8)}`
 }
 
 const focusOnMount = (element: HTMLElement | null) => element?.focus()
@@ -62,7 +43,7 @@ const replayCommittedText = (event: React.CompositionEvent<HTMLDivElement>) =>
  *  from its `crowbar pair`. The code stage is reached only by that confirm, and pins exactly the
  *  fingerprint shown — never a re-probed one. */
 export function AddHostDialog({ open, onOpenChange, onPaired }: AddHostDialogProps) {
-  const [pending, setPending] = useState<Pending>(null)
+  const [pending, setPending] = useState<PairingPending>(null)
 
   function handleOpenChange(next: boolean) {
     if (!next && pending) return
@@ -77,7 +58,7 @@ export function AddHostDialog({ open, onOpenChange, onPaired }: AddHostDialogPro
         </DialogHeader>
         {/* Lives as long as the popup, which unmounts once closed, and callers key the dialog per
             opening (one during the close too): a confirmed fingerprint never reaches the next. */}
-        <AddHostAttempt
+        <AddHostForm
           pending={pending}
           onPendingChange={setPending}
           onCancel={() => handleOpenChange(false)}
@@ -91,26 +72,17 @@ export function AddHostDialog({ open, onOpenChange, onPaired }: AddHostDialogPro
   )
 }
 
-interface AddHostAttemptProps {
-  pending: Pending
-  onPendingChange: (pending: Pending) => void
+interface AddHostFormProps {
+  pending: PairingPending
+  onPendingChange: (pending: PairingPending) => void
   onCancel: () => void
   onPaired: (hostId: string) => void
 }
 
-function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHostAttemptProps) {
-  const [stage, setStage] = useState<Stage>('address')
-  const [name, setName] = useState('')
-  const [endpoint, setEndpoint] = useState('')
-  const [fingerprint, setFingerprint] = useState('')
-  const [code, setCode] = useState('')
-  // The code was turned away for not being exactly 6 digits; the next change to it ends that.
-  const [turnedAway, setTurnedAway] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  // Minted with the probe, so every code tried after one confirm pairs the same host id.
-  const hostId = useRef('')
-  // The canonical address that probe dialed: the code is redeemed at, and saved as, exactly it.
-  const dialed = useRef('')
+/** The pairing stages as a form. */
+function AddHostForm({ pending, onPendingChange, onCancel, onPaired }: AddHostFormProps) {
+  const flow = usePairingFlow({ onPaired, pending, onPendingChange })
+  const { stage, name, address, fingerprint, code, turnedAway, error } = flow
   const probing = pending === 'probe'
   const pairing = pending === 'pair'
   const codeHintId = useId()
@@ -123,47 +95,9 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
   const shownCode = code.length > 6 ? '' : code
   const codeValid = /^\d{6}$/.test(code)
 
-  async function handleProbe(e: React.FormEvent) {
+  function handleProbe(e: React.FormEvent) {
     e.preventDefault()
-    const trimmedName = name.trim()
-    if (!trimmedName || !endpoint.trim()) return
-    const normalized = normalizeEndpoint(endpoint)
-    if ('error' in normalized) {
-      setError(normalized.error)
-      return
-    }
-    const address = normalized.endpoint
-    setError(null)
-    onPendingChange('probe')
-    try {
-      const fp = await probeRemoteFingerprint(address)
-      const hosts = useHostConfigStore.getState().hosts
-      const paired = alreadyPairedReason(hosts, address, fp)
-      if (paired) {
-        setError(paired)
-        return
-      }
-      hostId.current = makeHostId(trimmedName)
-      dialed.current = address
-      setFingerprint(fp)
-      setStage('fingerprint')
-    } catch (err) {
-      setError(pairingFailureText(err, address))
-    } finally {
-      onPendingChange(null)
-    }
-  }
-
-  function handleConfirmFingerprint() {
-    setError(null)
-    setStage('code')
-  }
-
-  // A failure about the old code is stale the moment the code changes.
-  function handleCodeChange(next: string) {
-    setCode(next)
-    setError(null)
-    setTurnedAway(false)
+    void flow.submitAddress()
   }
 
   const codeSlots = () => Array.from(fieldRef.current?.querySelectorAll('input') ?? [])
@@ -178,9 +112,7 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
     if (at + digits.length <= slots.length) return
     event.preventDefault()
     slots[0].focus()
-    setError(null)
-    setTurnedAway(true)
-    setCode(code.slice(0, at) + digits + code.slice(at + digits.length))
+    flow.refuseCode(code.slice(0, at) + digits + code.slice(at + digits.length))
   }
 
   // A pressed Pair button, or a click that focused nothing, is where focus is when a code fails:
@@ -192,23 +124,9 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
 
   async function handleRedeem(e: React.FormEvent) {
     e.preventDefault()
-    if (pairing) return
-    if (!codeValid) {
-      setTurnedAway(true)
-      codeSlots()[Math.min(shownCode.length, 5)]?.focus()
-      return
-    }
-    setError(null)
-    onPendingChange('pair')
-    try {
-      await redeemPairingCode(hostId.current, dialed.current, fingerprint, code, name.trim())
-      onPaired(hostId.current)
-    } catch (err) {
-      setError(pairingFailureText(err, dialed.current))
-      refocusCode()
-    } finally {
-      onPendingChange(null)
-    }
+    const outcome = await flow.submitCode()
+    if (outcome === 'invalid') codeSlots()[Math.min(shownCode.length, 5)]?.focus()
+    if (outcome === 'failed') refocusCode()
   }
 
   return (
@@ -224,7 +142,7 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
               <Input
                 id="add-host-name"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => flow.setName(e.target.value)}
                 placeholder="homelab"
                 maxLength={64}
                 disabled={probing}
@@ -234,8 +152,8 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
               <Label htmlFor="add-host-address">Address</Label>
               <Input
                 id="add-host-address"
-                value={endpoint}
-                onChange={(e) => setEndpoint(e.target.value)}
+                value={address}
+                onChange={(e) => flow.setAddress(e.target.value)}
                 placeholder="homelab.example.com or 1.2.3.4"
                 aria-describedby={addressHintId}
                 autoCapitalize="off"
@@ -258,7 +176,7 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
             <Button variant="ghost" type="button" disabled={probing} onClick={onCancel}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!name.trim() || !endpoint.trim() || probing}>
+            <Button type="submit" disabled={!name.trim() || !address.trim() || probing}>
               {probing ? 'Connecting…' : 'Continue'}
             </Button>
           </DialogFooter>
@@ -289,10 +207,10 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
             )}
           </div>
           <DialogFooter>
-            <Button variant="ghost" type="button" onClick={() => setStage('address')}>
+            <Button variant="ghost" type="button" onClick={flow.back}>
               Back
             </Button>
-            <Button type="button" onClick={handleConfirmFingerprint}>
+            <Button type="button" onClick={flow.confirmFingerprint}>
               Confirm fingerprint
             </Button>
           </DialogFooter>
@@ -308,7 +226,7 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
               id="add-host-code"
               length={6}
               value={shownCode}
-              onValueChange={handleCodeChange}
+              onValueChange={flow.setCode}
               validationType="none"
               inputMode="numeric"
               normalizeValue={toAsciiDigits}
@@ -335,7 +253,7 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
               {/* Live from the first render, outside aria-describedby: a region inserted with its
                   text may go unannounced, and a described-by change would be read twice. */}
               <p role="status" className="text-destructive">
-                {turnedAway && 'A pairing code is exactly 6 digits.'}
+                {turnedAway && CODE_SHAPE_NOTICE}
               </p>
             </div>
             {error && (
@@ -345,12 +263,7 @@ function AddHostAttempt({ pending, onPendingChange, onCancel, onPaired }: AddHos
             )}
           </div>
           <DialogFooter>
-            <Button
-              variant="ghost"
-              type="button"
-              onClick={() => setStage('fingerprint')}
-              disabled={pairing}
-            >
+            <Button variant="ghost" type="button" onClick={flow.back} disabled={pairing}>
               Back
             </Button>
             {/* aria-disabled, not disabled: it keeps focus while a code is out, and a press before

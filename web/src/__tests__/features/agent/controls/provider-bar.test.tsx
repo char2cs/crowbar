@@ -1,7 +1,18 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentProvider, AgentTelemetry } from '@/features/agent/api/agent-api'
 import { ProviderBar } from '@/features/agent/controls/provider-bar'
+
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  get IS_MOBILE() {
+    return platform.mobile
+  },
+}))
+afterEach(() => {
+  platform.mobile = false
+})
 
 const provider: AgentProvider = {
   id: 'codex',
@@ -53,6 +64,22 @@ describe('ProviderBar', () => {
 
     fireEvent.click(screen.getByTestId('agent-context-gauge'))
     expect(onCompact).toHaveBeenCalledTimes(1)
+  })
+
+  // The phone's meter is native, beside the IDE button; under the composer only the picker stays.
+  it('draws no context gauge on the phone', () => {
+    platform.mobile = true
+    renderBar(vi.fn())
+    expect(screen.queryByTestId('agent-context-gauge')).not.toBeInTheDocument()
+  })
+
+  // The phone's picker is drawn at the composer's touch scale (composer.css `[data-touch]`).
+  it('draws the picker row at the touch scale on the phone only', () => {
+    const desktop = renderBar().container.querySelector('.underbar')
+    expect(desktop).not.toHaveAttribute('data-touch')
+    platform.mobile = true
+    const phone = renderBar().container.querySelector('.underbar')
+    expect(phone).toHaveAttribute('data-touch')
   })
 
   it('leaves the gauge non-interactive when the caller offers no onCompact', () => {
