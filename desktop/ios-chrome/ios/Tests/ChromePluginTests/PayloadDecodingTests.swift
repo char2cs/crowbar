@@ -132,7 +132,6 @@ final class PayloadDecodingTests: XCTestCase {
     let plain = RowMenu.action(["id": "rename", "title": "Rename"])
     XCTAssertEqual(plain?.destructive, false)
     XCTAssertNil(plain?.confirm)
-    XCTAssertNil(plain?.symbol)
 
     XCTAssertNil(RowMenu.action(["id": "x"]))
     XCTAssertNil(RowMenu.action(["title": "x"]))

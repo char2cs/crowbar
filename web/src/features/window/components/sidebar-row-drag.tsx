@@ -20,15 +20,13 @@ interface Hit {
   mode: DropMode
 }
 
-const DragContext = createContext<{ hit: Hit | null; claimed: boolean }>({
+const DragContext = createContext<{ hit: Hit | null; dragged: string | null }>({
   hit: null,
-  claimed: false,
+  dragged: null,
 })
 
-// The sensor activates after a hold even with a still finger, which is the native long-press
-// menu's gesture; the drag is only claimed (and the menu held back) once the row has moved.
+// A hold claims the touch for the drag, still finger or not: the row's menu has its own button.
 const HOLD = { delay: 250, tolerance: 6 }
-const CLAIM_PX = 8
 
 function pointerY(event: DragMoveEvent): number | null {
   const start = event.activatorEvent
@@ -66,24 +64,21 @@ export function RowDragScope({
 }) {
   const sensors = useSensors(useSensor(TouchSensor, { activationConstraint: HOLD }))
   const [dragged, setDragged] = useState<string | null>(null)
-  const [claimed, setClaimed] = useState(false)
   const [hit, setHit] = useState<Hit | null>(null)
   const startX = useRef(0)
   // The shell's answer lands after the finger has moved on, or while it rests: the target is
   // read again from where the finger is when the answer arrives.
   const finger = useRef<{ x: number; y: number } | null>(null)
-  const state = useMemo(() => ({ hit, claimed }), [hit, claimed])
+  const state = useMemo(() => ({ hit, dragged }), [hit, dragged])
 
   useEffect(() => {
-    if (claimed && finger.current) setHit(hitAt(finger.current.x, finger.current.y, drop))
-  }, [drop, claimed])
+    if (dragged && finger.current) setHit(hitAt(finger.current.x, finger.current.y, drop))
+  }, [drop, dragged])
 
   const end = (move: boolean) => {
     setDragged(null)
-    setClaimed(false)
     setHit(null)
     finger.current = null
-    if (!claimed) return
     if (move && dragged && hit) {
       postToShell('sidebar', {
         type: 'moveRow',
@@ -103,14 +98,10 @@ export function RowDragScope({
         const start = event.activatorEvent
         startX.current = 'touches' in start ? ((start as TouchEvent).touches[0]?.clientX ?? 0) : 0
         setDragged(id)
+        postToShell('sidebar', { type: 'rowDrag', active: true })
+        postToShell('sidebar', { type: 'dragRow', rowId: id })
       }}
       onDragMove={(event) => {
-        if (!claimed) {
-          if (Math.hypot(event.delta.x, event.delta.y) < CLAIM_PX) return
-          setClaimed(true)
-          postToShell('sidebar', { type: 'rowDrag', active: true })
-          postToShell('sidebar', { type: 'dragRow', rowId: String(event.active.id) })
-        }
         const y = pointerY(event)
         finger.current = y === null ? null : { x: startX.current + event.delta.x, y }
         setHit(finger.current && hitAt(finger.current.x, finger.current.y, drop))
@@ -120,7 +111,7 @@ export function RowDragScope({
     >
       <DragContext value={state}>{children}</DragContext>
       <DragOverlay dropAnimation={null}>
-        {dragged && claimed && (
+        {dragged && (
           <div
             data-drag-overlay=""
             className="rounded-lg bg-chrome-bg shadow-lg ring-1 ring-border"
@@ -137,15 +128,18 @@ export function RowDragScope({
 export function DraggableRow({
   id,
   disabled,
+  trailing,
   children,
 }: {
   id: string
   /** A row on its way out is held still: it is not something to move. */
   disabled?: boolean
+  /** Laid over the row's right edge, outside its touch-and-hold. */
+  trailing?: ReactNode
   children: ReactNode
 }) {
   const { setNodeRef, listeners, attributes, isDragging } = useDraggable({ id, disabled })
-  const { hit, claimed } = use(DragContext)
+  const { hit, dragged } = use(DragContext)
   const mode = hit?.id === id ? hit.mode : null
   // dnd-kit's role and tab stop would shadow the treeitem the row already is.
   const { role: _role, tabIndex: _tabIndex, ...aria } = attributes
@@ -154,9 +148,10 @@ export function DraggableRow({
       ref={setNodeRef}
       {...listeners}
       {...aria}
-      className={cn('relative', isDragging && claimed && 'opacity-40')}
+      className={cn('relative', isDragging && dragged && 'opacity-40')}
     >
       {children}
+      {trailing}
       {mode === 'into' && (
         <div
           className={cn(

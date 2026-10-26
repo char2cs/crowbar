@@ -161,7 +161,7 @@ export function rowMenuActions(
 
 /**
  * Every verb a row has on the desktop, menu and hover buttons together: what the phone's one
- * long-press menu offers. The destructive verb goes last, as iOS menus put it.
+ * row menu offers. The destructive verb goes last, as iOS menus put it.
  */
 export function rowVerbs(
   row: SidebarRow,
