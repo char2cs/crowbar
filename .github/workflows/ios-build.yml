@@ -4,6 +4,17 @@ name: iOS build
 # a signed .ipa and uploads it to TestFlight; without them it builds an unsigned
 # simulator .app and uploads it as the `ios-simulator` artifact. See docs/ios-release.md.
 on:
+  # Manual runs build the checked-out ref without publishing anything.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Marketing version, e.g. 0.1.0
+        type: string
+        default: 0.0.0
+      channel:
+        description: VITE_BUILD_CHANNEL (nightly | beta | release)
+        type: string
+        default: nightly
   workflow_call:
     inputs:
       ref:
@@ -62,7 +73,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || github.sha }}
       - name: Decide signed vs simulator build
         id: mode
         run: |
@@ -105,10 +116,11 @@ jobs:
       - name: Build simulator app (unsigned)
         if: steps.mode.outputs.signed != 'true'
         working-directory: desktop/src-tauri
-        # tauri-cli rejects an empty team even with --no-sign; the env var wins over the job-level empty secret.
+        # tauri-cli rejects an empty team even with --no-sign, and tries to import a certificate from
+        # any signing var that is merely set (empty secrets are set), so unset those for this step.
         env:
           APPLE_DEVELOPMENT_TEAM: UNSIGNED000
-        run: cargo tauri ios build --ci --debug --target aarch64-sim --no-sign --archive-only --config '{"bundle":{"iOS":{"bundleVersion":"${{ steps.mode.outputs.build }}"}}}'
+        run: env -u IOS_CERTIFICATE -u IOS_CERTIFICATE_PASSWORD -u IOS_MOBILE_PROVISION cargo tauri ios build --ci --debug --target aarch64-sim --no-sign --archive-only --config '{"bundle":{"iOS":{"bundleVersion":"${{ steps.mode.outputs.build }}"}}}'
       - name: Package simulator app
         if: steps.mode.outputs.signed != 'true'
         run: |
