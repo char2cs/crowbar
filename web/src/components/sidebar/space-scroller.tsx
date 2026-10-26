@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { ActiveSessionsSection } from './active-sessions-section'
 import { SidebarTree } from './sidebar-tree'
 import { SpaceHostScope } from './space-host-scope'
 import { TreeFoot } from './tree-foot'
@@ -184,6 +185,12 @@ function SpacePanel({
       <ScrollArea className="flex-1">
         <div ref={contentRef} data-testid="space-scroll-content">
           <SpaceHostScope hostId={project.hostId}>
+            <ActiveSessionsSection
+              rows={rows}
+              onOpen={onOpen}
+              onTrash={onTrash}
+              onCreate={onCreate}
+            />
             <SidebarTree
               rows={rows}
               onOpen={onOpen}

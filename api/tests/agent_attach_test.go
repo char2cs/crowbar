@@ -87,4 +87,30 @@ func TestRegression_KillEndsTheAgentWhileClientsAreStillAttached(t *testing.T) {
 	h.Quiesce()
 
 	assert.Empty(t, getAgentChat(t, h, repoBase(imported), chatID).LiveRunnerID)
+	// The feed says so too: clients learn a chat stopped running from a snapshot
+	// frame whose liveRunnerId is empty, never by asking.
+	for {
+		f := waitForChatFrame(t, feed, chatID, "exited")
+		if snap, ok := f["chat"].(map[string]any); ok && snap["liveRunnerId"] == "" {
+			break
+		}
+	}
+}
+
+// TestAgentAttach_ProjectHomeChatCountsToo: a project-home chat has no repo, and
+// is attached to by the same flat route.
+func TestAgentAttach_ProjectHomeChatCountsToo(t *testing.T) {
+	h := newHarness(t)
+	writeLiveStubProviderDescriptor(t, h)
+	imported := importProject(t, h)
+	home := "/v0/projects/" + imported.projectID + "/home"
+	var chat struct {
+		ID string `json:"id"`
+	}
+	h.post(home+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &chat)
+	feed := dialAgentWS(t, h, home+"/chats/ws")
+
+	_ = h.dial(attachPath(chat.ID))
+
+	waitForAttached(t, feed, chat.ID, 1)
 }

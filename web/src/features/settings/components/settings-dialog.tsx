@@ -22,6 +22,7 @@ import { BrowserSettings } from './tabs/browser-settings'
 import { ProvidersSettings } from './tabs/providers-settings'
 import { DeveloperSettings } from './tabs/developer-settings'
 import { KeybindingsSettings } from './tabs/keybindings-settings'
+import { ActiveSessionsSettings } from './tabs/active-sessions-settings'
 import { HostsSettings } from './tabs/hosts-settings'
 
 interface SettingsDialogProps {
@@ -85,6 +86,8 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
         return <ProvidersSettings />
       case 'keybindings':
         return <KeybindingsSettings />
+      case 'active-sessions':
+        return <ActiveSessionsSettings />
       case 'hosts':
         return <HostsSettings />
       case 'developer':

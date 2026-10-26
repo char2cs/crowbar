@@ -5,6 +5,7 @@ import {
   GitBranch,
   HardDrives,
   Keyboard,
+  Pulse,
   PaintBrush,
   Robot,
   TerminalWindow,
@@ -34,6 +35,7 @@ export const SETTINGS_TAB_ITEMS: SettingsTabItem[] = [
   // USER-FACING RENAME ONLY (spec §11). The tab is called Agents; its id stays
   // `providers` because it is a persisted key and a route into the dialog.
   { id: 'providers', label: 'Agents', icon: Robot },
+  { id: 'active-sessions', label: 'Active sessions', icon: Pulse },
   { id: 'keybindings', label: 'Keybindings', icon: Keyboard },
   // Desktop-only: remote hosts dial through the Tauri bridge, so this surface
   // has nothing to show in a browser tab.

@@ -26,6 +26,7 @@ import { handleTrashRepo } from '@/components/layout/trash-actions'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { providerCanStartOnTerminal } from '@/features/agent/api/agent-api'
 import { toast } from '@/features/window/stores/toast-store'
+import { useKillAgentMenuItems } from '@/features/agent/hooks/use-kill-agent-menu-items'
 
 interface SidebarRowContextMenuProps {
   treeRef: RefObject<HTMLElement | null>
@@ -74,6 +75,8 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
   const enabledProviderCanStartOnTerminal = useAgentProvidersStore((s) =>
     providerCanStartOnTerminal(s.providers.find((p) => p.enabled)),
   )
+
+  const killItems = useKillAgentMenuItems(menu.data?.row.id)
 
   useEffect(() => {
     const tree = treeRef.current
@@ -248,6 +251,8 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
       })
     }
   }
+
+  items.push(...killItems)
 
   // The repo's real delete entry point — `handleTrash` refuses this ONE row
   // (it resolves to just the repo's own default-branch workspace, not the

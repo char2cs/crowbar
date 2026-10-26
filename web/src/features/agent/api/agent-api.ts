@@ -1222,12 +1222,12 @@ export async function stopChat(wsId: string, id: string): Promise<void> {
   })
 }
 
-// closeChat ends the chat's live vendor CLI because no view displays the chat
-// any more, mid-turn included — unlike stopChat, which interrupts a turn in
-// place and may leave the CLI running. The chat entry stays, dormant and
-// resumable.
-export async function closeChat(wsId: string, id: string): Promise<void> {
-  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/close`, {
+// killChat force-ends the chat's live vendor CLI, mid-turn included — unlike
+// stopChat, which interrupts a turn in place and may leave the CLI running. It
+// is the only client action that ends a running agent: closing a view only
+// detaches. The chat entry stays, dormant and resumable.
+export async function killChat(wsId: string, id: string): Promise<void> {
+  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/kill`, {
     method: 'POST',
   })
 }

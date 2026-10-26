@@ -62,7 +62,7 @@ interface SidebarTreeProps {
  * `readChatWorking` are the watch-don't-create pair: no store is created, and
  * the row re-binds to the real one the moment that workspace mounts.
  */
-function SidebarTreeRow({
+export function SidebarTreeRow({
   row,
   ...rest
 }: { row: SidebarRowType } & Omit<React.ComponentProps<typeof SidebarRow>, 'row'>) {

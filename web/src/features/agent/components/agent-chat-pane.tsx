@@ -24,6 +24,7 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { usePaneProviders } from '@/features/agent/hooks/use-pane-providers'
 import { usePaneSession } from '@/features/agent/hooks/use-pane-session'
+import { useChatAttachment } from '@/features/agent/hooks/use-chat-attachment'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import {
   SPLIT_MIN_HALF_PX,
@@ -170,6 +171,7 @@ export function AgentChatPaneBody({
   // The chat this pane is SHOWING: my runner's chat if it still has one (it moved, and
   // the tab follows), else the chat the tab was pointed at (which may be dormant).
   const shownChatId = runnerChatId || chatId
+  useChatAttachment(wsId, shownChatId)
 
   // Has an authoritative list ever landed? That is what turns `!known` from
   // "not yet" into "not in it" — see the resolve effect below.

@@ -442,6 +442,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           else st.setAgentChatPromptAbandoned(ev.chatId, ev.clientRequestId)
           return
         case 'worktree_state':
+        case 'attached':
           return
         default:
           applyLifecycle(ev)

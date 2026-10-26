@@ -360,10 +360,12 @@ export async function fetchFolders(projectId: string, repoId: string): Promise<F
  * on that DTO (liveRunnerId, terminalSessionId, activeProviderId, telemetry) is
  * about a PROCESS, and the tree answers "does this exist", not "what is up right
  * now" (design spec §5.7 — the live half is Recents' question, off the workspace
- * store's own live chat list).
+ * store's own live chat list). `liveRunnerId` is declared only so the list can
+ * seed the active-sessions store; it never reaches a tree row.
  */
 export interface RepoChatWireDTO {
   id: string
+  liveRunnerId?: string
   workspaceId: string
   parentId: string
   title: string
@@ -548,8 +550,13 @@ export function chatDTOFromWire(row: RepoChatWireDTO, projectId: string, repoId:
  * signal, because chats and folders are ONE aggregate (`domain.Chat`) and one
  * tree.
  */
-export async function fetchRepoChats(projectId: string, repoId: string): Promise<ChatDTO[]> {
+export async function fetchRepoChats(
+  projectId: string,
+  repoId: string,
+  onRows?: (rows: readonly RepoChatWireDTO[]) => void,
+): Promise<ChatDTO[]> {
   const rows = await apiFetch<RepoChatWireDTO[]>(`${repoBase(projectId, repoId)}/chats`)
+  onRows?.(rows ?? [])
   return (rows ?? []).map((row) => chatDTOFromWire(row, projectId, repoId))
 }
 
@@ -589,8 +596,12 @@ export async function fetchHomeWorkspace(projectId: string): Promise<WorkspaceDT
  * stamp: `''` is the sentinel every home-scoped `ChatDTO`/`FolderDTO` carries,
  * matching `WorkspaceDTO.repoId` for the home workspace itself.
  */
-export async function fetchHomeChats(projectId: string): Promise<ChatDTO[]> {
+export async function fetchHomeChats(
+  projectId: string,
+  onRows?: (rows: readonly RepoChatWireDTO[]) => void,
+): Promise<ChatDTO[]> {
   const rows = await apiFetch<RepoChatWireDTO[]>(`${projectBase(projectId)}/home/chats`)
+  onRows?.(rows ?? [])
   return (rows ?? []).map((row) => chatDTOFromWire(row, projectId, ''))
 }
 

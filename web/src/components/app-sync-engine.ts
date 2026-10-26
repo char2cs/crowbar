@@ -20,6 +20,11 @@ import { subscribeEntityStream, type EntityChange } from '@/lib/ws/entity-stream
 import { isStructuralChatFolderFrame } from '@/lib/ws/structural-chat-folder-frame'
 import { getAllEntities, removeEntity, upsertEntity } from '@/lib/persistence/entity-cache'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import {
+  liveSessionsFromRows,
+  useActiveSessionsStore,
+  type ActiveSessionFrame,
+} from '@/lib/store/active-sessions'
 import { maybeWipeOnVersionChange } from '@/lib/persistence/idb'
 import { wsManager } from '@/lib/ws/manager'
 import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
@@ -257,6 +262,7 @@ export function useAppSyncEngine(): void {
     // side and serves only this repo's.
     function openRepoTreeSubscription(projectId: string, repoId: string): () => void {
       let closed = false
+      const scope = `repo:${repoId}`
       /** The reseed in flight, if any — a signal arriving mid-read coalesces
        *  into it (and queues one more) instead of superseding it: discarding
        *  the first GET's result only widened the stale window by a round trip. */
@@ -321,7 +327,19 @@ export function useAppSyncEngine(): void {
         const live = () => !disposed && !closed
         const wrote = await Promise.all([
           reseedHalf('folders', 'crowbar_folders', () => fetchFolders(projectId, repoId), live),
-          reseedHalf('chats', 'crowbar_chats', () => fetchRepoChats(projectId, repoId), live),
+          reseedHalf(
+            'chats',
+            'crowbar_chats',
+            () =>
+              fetchRepoChats(projectId, repoId, (rows) => {
+                if (live()) {
+                  useActiveSessionsStore
+                    .getState()
+                    .seedScope(scope, liveSessionsFromRows(scope, rows))
+                }
+              }),
+            live,
+          ),
         ])
         const [, chatsWrote] = wrote
         // Marked once these rows are in the store (see `pendingMarks`). Keyed on
@@ -385,15 +403,18 @@ export function useAppSyncEngine(): void {
         (frame) => {
           if (disposed || closed) return
           if (frame && typeof frame === 'object' && 'reconnected' in frame) {
+            useActiveSessionsStore.getState().resetAttached(scope)
             reseed()
             return
           }
+          useActiveSessionsStore.getState().applyFrame(scope, frame as ActiveSessionFrame)
           if (isStructuralChatFolderFrame(frame)) reseed()
         },
       )
 
       return () => {
         closed = true
+        useActiveSessionsStore.getState().clearScope(scope)
         unsubscribeSignal()
         unsubscribeFrames()
       }
