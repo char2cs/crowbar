@@ -110,15 +110,23 @@ describe('MobileSidebarPage', () => {
     )
   })
 
-  it('appends the running chats below the tree, under a divider and no label', () => {
+  it('appends the running chats below the tree, under a divider that counts them', () => {
     render(<MobileSidebarPage />)
     push({ ...snapshot, active: [{ id: 'c-thread' }] })
     const section = screen.getByRole('region', { name: 'Active' })
     expect(within(section).getByText('Ask about tax')).toBeVisible()
     expect(within(section).queryByRole('heading')).not.toBeInTheDocument()
     expect(section.firstElementChild).toHaveAttribute('role', 'separator')
+    expect(section.firstElementChild).toHaveTextContent('Active · 1')
     const tree = screen.getByText('checkout')
     expect(tree.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('counts every running chat in the divider’s label', () => {
+    render(<MobileSidebarPage />)
+    push({ ...snapshot, active: [{ id: 'c-thread' }, { id: 'c-branch' }] })
+    const section = screen.getByRole('region', { name: 'Active' })
+    expect(section.firstElementChild).toHaveTextContent('Active · 2')
   })
 
   it('draws no Active section while nothing runs', () => {

@@ -9,7 +9,6 @@ import { HostViewsContext } from '@/features/hosts/hooks/use-host-status'
 import type { NativeSidebar } from '@/lib/native-chrome'
 import { cn } from '@/lib/utils'
 import { NativeReadoutView } from '@/components/layout/build-readout'
-import { Separator } from '@/components/ui/separator'
 import { postToShell, receiveShellSnapshots } from '@/lib/shell-page-bridge'
 import { useSurfaceThemeColor } from '@/features/window/hooks/use-surface-theme-color'
 import { DraggableRow, RowDragScope } from './sidebar-row-drag'
@@ -117,7 +116,14 @@ function ActiveSection({ running }: { running: SidebarRowType[] }) {
         CLEAR_FLOATING_BUTTONS_PB,
       )}
     >
-      <Separator className="my-1 shrink-0" />
+      <div
+        role="separator"
+        className="pointer-events-none my-1 flex shrink-0 items-center gap-2 px-3 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+      >
+        <span className="wavy-rule" />
+        <span className="tabular-nums">Active · {running.length}</span>
+        <span className="wavy-rule" />
+      </div>
       <div className="min-h-0 overflow-y-auto">
         {running.map((row) => (
           <DraggableRow key={row.id} id={row.id} menuOnly>
