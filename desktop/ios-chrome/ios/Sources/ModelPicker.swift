@@ -65,24 +65,31 @@ struct ModelPickerSheet: View {
 
   var body: some View {
     NavigationStack {
-      List {
-        if !model.state.efforts.isEmpty { effort }
-        ForEach(matches) { provider in
-          Section {
-            ForEach(provider.models) { item in row(item, of: provider) }
-          } header: {
-            Label { Text(provider.name) } icon: { icon(provider) }
-              .foregroundStyle(secondaryText)
+      ScrollViewReader { scroll in
+        List {
+          if !model.state.efforts.isEmpty { effort.id(Self.top) }
+          ForEach(matches) { provider in
+            Section {
+              ForEach(provider.models) { item in row(item, of: provider) }
+            } header: {
+              Label { Text(provider.name) } icon: { icon(provider) }
+                .foregroundStyle(secondaryText)
+            }
+            .listRowBackground(palette?.raised)
           }
-          .listRowBackground(palette?.raised)
         }
+        .listStyle(.insetGrouped)
+        .defaultScrollAnchor(.top)
+        // The catalogue lands after the sheet is up; it opens on the effort control, not the end.
+        .task(id: model.state.providers.count) { scroll.scrollTo(Self.top, anchor: .top) }
       }
-      .listStyle(.insetGrouped)
       .scrollContentBackground(palette == nil ? .automatic : .hidden)
       .background(palette?.surface.ignoresSafeArea())
       .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always))
       .navigationTitle("Model")
       .navigationBarTitleDisplayMode(.inline)
+      // Rows scroll under the bar and fade through the system's edge effect, not a hard cut.
+      .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button(role: .close) { model.send(.of("closeModelPicker")) }
@@ -90,6 +97,8 @@ struct ModelPickerSheet: View {
       }
     }
   }
+
+  private static let top = "top"
 
   private var matches: [PickerProvider] {
     let needle = query.trimmingCharacters(in: .whitespaces)
@@ -109,19 +118,13 @@ struct ModelPickerSheet: View {
 
   private var effort: some View {
     Section {
-      Picker(
-        "Effort",
-        selection: Binding(
-          get: { model.state.effort ?? "" },
-          set: {
-            Haptics.select()
-            model.send(.of("setEffort", ["effort": $0]))
-          })
-      ) {
-        ForEach(model.state.efforts, id: \.self) { level in Text(Self.label(level)).tag(level) }
+      EffortControl(
+        levels: model.state.efforts, handed: model.state.effort, text: text,
+        pill: text.opacity(0.14)
+      ) { level in
+        model.send(.of("setEffort", ["effort": level]))
       }
-      .pickerStyle(.segmented)
-      .labelsHidden()
+      .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
     } header: {
       Text("Effort").foregroundStyle(secondaryText)
     }
@@ -158,9 +161,5 @@ struct ModelPickerSheet: View {
     } else {
       Image(systemName: provider.symbol).foregroundStyle(text)
     }
-  }
-
-  private static func label(_ level: String) -> String {
-    level == "xhigh" ? "XHigh" : level.prefix(1).uppercased() + level.dropFirst()
   }
 }
