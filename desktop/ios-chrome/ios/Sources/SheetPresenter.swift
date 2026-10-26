@@ -45,6 +45,7 @@ final class SheetPresenter: NSObject, UIAdaptivePresentationControllerDelegate {
   private let undimmed: Bool
   private let detents: [UISheetPresentationController.Detent]
   private var sheet: UIViewController?
+  private var busy = false
   private var plan = SheetPlan()
   private weak var root: UIViewController?
 
