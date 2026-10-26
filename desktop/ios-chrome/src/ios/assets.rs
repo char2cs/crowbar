@@ -15,9 +15,15 @@ struct Frontend {
 
 static FRONTEND: OnceLock<Frontend> = OnceLock::new();
 
-pub fn install(dev_url: Option<Url>, resolve: impl Fn(String) -> Option<Asset> + Send + Sync + 'static) {
+pub fn install(
+    dev_url: Option<Url>,
+    resolve: impl Fn(String) -> Option<Asset> + Send + Sync + 'static,
+) {
     let dev_url = dev_url.and_then(|url| CString::new(url.as_str().trim_end_matches('/')).ok());
-    let _ = FRONTEND.set(Frontend { dev_url, resolve: Box::new(resolve) });
+    let _ = FRONTEND.set(Frontend {
+        dev_url,
+        resolve: Box::new(resolve),
+    });
 }
 
 /// The dev server the frontend is proxied from in dev builds, or null when it is embedded.
@@ -41,9 +47,13 @@ pub unsafe extern "C" fn crowbar_chrome_asset(
     len: *mut usize,
     mime: *mut *mut c_char,
 ) -> *mut u8 {
-    let Some(frontend) = FRONTEND.get() else { return std::ptr::null_mut() };
+    let Some(frontend) = FRONTEND.get() else {
+        return std::ptr::null_mut();
+    };
     let path = CStr::from_ptr(path).to_string_lossy().into_owned();
-    let Some(asset) = (frontend.resolve)(path) else { return std::ptr::null_mut() };
+    let Some(asset) = (frontend.resolve)(path) else {
+        return std::ptr::null_mut();
+    };
     let mime_type = CString::new(asset.mime_type).unwrap_or_default();
     let bytes = asset.bytes.into_boxed_slice();
     *len = bytes.len();
@@ -55,6 +65,8 @@ pub unsafe extern "C" fn crowbar_chrome_asset(
 /// Exactly the values one `crowbar_chrome_asset` call returned, freed once.
 #[no_mangle]
 pub unsafe extern "C" fn crowbar_chrome_asset_free(bytes: *mut u8, len: usize, mime: *mut c_char) {
-    drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(bytes, len)));
+    drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(
+        bytes, len,
+    )));
     drop(CString::from_raw(mime));
 }

@@ -330,7 +330,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - uses: cargo-bins/cargo-binstall@main
       - name: Install tauri-cli
-        run: cargo binstall tauri-cli@^2 --no-confirm --locked
+        run: cargo binstall tauri-cli@^2 --targets aarch64-apple-darwin --no-confirm --locked
       - name: Cargo check (iOS simulator)
         run: cd desktop/src-tauri && cargo check --lib --target aarch64-apple-ios-sim
       - name: Cargo clippy (iOS chrome plugin)

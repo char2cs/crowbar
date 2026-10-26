@@ -1193,86 +1193,84 @@ pub fn run() {
         });
 
     #[cfg(desktop)]
-    let builder = builder
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed = event
-            {
-                let label = window.label();
+    let builder = builder.on_window_event(|window, event| {
+        if let tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed = event {
+            let label = window.label();
 
-                // Retire this window's transports FIRST, whether or not it is the last
-                // window. A closing window orphans its connections exactly as a
-                // reloading one does — its JS is gone and will never call `ws_close` —
-                // and `on_page_load` cannot cover it, because a window that closes never
-                // loads a page again.
-                //
-                // This did not matter while any window's close took the whole app down
-                // with it. Now that a non-last close returns early below, a stranded
-                // connection would park its reader task on a socket for the life of the
-                // process — and this app runs into macOS's 256-descriptor ceiling for
-                // real (see fdlimit). Retiring is idempotent, so the second pass for the
-                // same window (CloseRequested then Destroyed) is a no-op.
-                let app = window.app_handle();
-                app.state::<ws_bridge::WsBridgeManager>()
-                    .close_for_window(label);
+            // Retire this window's transports FIRST, whether or not it is the last
+            // window. A closing window orphans its connections exactly as a
+            // reloading one does — its JS is gone and will never call `ws_close` —
+            // and `on_page_load` cannot cover it, because a window that closes never
+            // loads a page again.
+            //
+            // This did not matter while any window's close took the whole app down
+            // with it. Now that a non-last close returns early below, a stranded
+            // connection would park its reader task on a socket for the life of the
+            // process — and this app runs into macOS's 256-descriptor ceiling for
+            // real (see fdlimit). Retiring is idempotent, so the second pass for the
+            // same window (CloseRequested then Destroyed) is a no-op.
+            let app = window.app_handle();
+            app.state::<ws_bridge::WsBridgeManager>()
+                .close_for_window(label);
 
-                // The sidecar is app-wide, so only the LAST window closing may take it
-                // down — and only once it is actually gone: a CloseRequested can still
-                // be prevented, and stopping the daemon under a window that stays open
-                // strands it. See another_window_survives for why this is a label check
-                // and not `webview_windows().len() > 1`.
-                if !matches!(event, tauri::WindowEvent::Destroyed) {
-                    return;
-                }
-                let windows = live_window_labels(app);
-                if another_window_survives(windows.iter().map(String::as_str), label) {
-                    return;
-                }
-
-                shutdown_sidecar(app, "last window closed");
+            // The sidecar is app-wide, so only the LAST window closing may take it
+            // down — and only once it is actually gone: a CloseRequested can still
+            // be prevented, and stopping the daemon under a window that stays open
+            // strands it. See another_window_survives for why this is a label check
+            // and not `webview_windows().len() > 1`.
+            if !matches!(event, tauri::WindowEvent::Destroyed) {
+                return;
             }
-        });
+            let windows = live_window_labels(app);
+            if another_window_survives(windows.iter().map(String::as_str), label) {
+                return;
+            }
+
+            shutdown_sidecar(app, "last window closed");
+        }
+    });
 
     #[cfg(desktop)]
     let builder = builder.invoke_handler(tauri::generate_handler![
-            ws_bridge::ws_open,
-            ws_bridge::ws_send,
-            ws_bridge::ws_close,
-            diagnostics::diagnostics_export,
-            host_tokens::forget_host_token,
-            api_proxy::pairing::pair_remote_host,
-            api_proxy::probe::probe_remote_fingerprint,
-            hosts::register_remote_host,
-            hosts::unregister_remote_host,
-            reveal_in_finder,
-            set_vibrancy_appearance,
-            set_traffic_light_position,
-            popup_native_context_menu,
-            open_window,
-            console_menu::set_console_menu_chord,
-            browser::browser_open,
-            browser::browser_set_bounds,
-            browser::browser_set_visible,
-            browser::browser_navigate,
-            browser::browser_back,
-            browser::browser_forward,
-            browser::browser_reload,
-            browser::browser_close,
-            browser::browser_eval,
-            browser::browser_screenshot,
-            browser::browser_capabilities,
-            browser::browser_clear_data,
-            browser::browser_copy_text,
+        ws_bridge::ws_open,
+        ws_bridge::ws_send,
+        ws_bridge::ws_close,
+        diagnostics::diagnostics_export,
+        host_tokens::forget_host_token,
+        api_proxy::pairing::pair_remote_host,
+        api_proxy::probe::probe_remote_fingerprint,
+        hosts::register_remote_host,
+        hosts::unregister_remote_host,
+        reveal_in_finder,
+        set_vibrancy_appearance,
+        set_traffic_light_position,
+        popup_native_context_menu,
+        open_window,
+        console_menu::set_console_menu_chord,
+        browser::browser_open,
+        browser::browser_set_bounds,
+        browser::browser_set_visible,
+        browser::browser_navigate,
+        browser::browser_back,
+        browser::browser_forward,
+        browser::browser_reload,
+        browser::browser_close,
+        browser::browser_eval,
+        browser::browser_screenshot,
+        browser::browser_capabilities,
+        browser::browser_clear_data,
+        browser::browser_copy_text,
     ]);
     #[cfg(mobile)]
     let builder = builder.invoke_handler(tauri::generate_handler![
-            ws_bridge::ws_open,
-            ws_bridge::ws_send,
-            ws_bridge::ws_close,
-            host_tokens::forget_host_token,
-            api_proxy::pairing::pair_remote_host,
-            api_proxy::probe::probe_remote_fingerprint,
-            hosts::register_remote_host,
-            hosts::unregister_remote_host,
+        ws_bridge::ws_open,
+        ws_bridge::ws_send,
+        ws_bridge::ws_close,
+        host_tokens::forget_host_token,
+        api_proxy::pairing::pair_remote_host,
+        api_proxy::probe::probe_remote_fingerprint,
+        hosts::register_remote_host,
+        hosts::unregister_remote_host,
     ]);
 
     builder
