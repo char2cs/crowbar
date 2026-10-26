@@ -2,6 +2,7 @@ import type { AgentProvider, AgentTelemetry } from '@/features/agent/api/agent-a
 import { AgentContextGauge } from '@/features/agent/controls/context-gauge'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
+import { IS_MOBILE } from '@/utils/platform'
 
 interface ProviderBarProps {
   provider?: AgentProvider
@@ -68,7 +69,7 @@ export function ProviderBar({
   onCompact,
 }: ProviderBarProps) {
   return (
-    <div className="underbar">
+    <div className="underbar" data-touch={IS_MOBILE || undefined}>
       {/* Left: what this chat RUNS AS — the model, its effort, and which face of
           the provider you are looking at. One cluster, because all three answer
           the same question and the eye should not have to group them. */}
@@ -91,7 +92,8 @@ export function ProviderBar({
       {/* Right: what this chat has SPENT, and the one gesture that spends less. */}
       <div className="right">
         {queued > 0 && <span>{queued} queued</span>}
-        <AgentContextGauge telemetry={telemetry} onCompact={onCompact} />
+        {/* The phone draws its meter natively, beside the IDE button (use-native-context). */}
+        {!IS_MOBILE && <AgentContextGauge telemetry={telemetry} onCompact={onCompact} />}
       </div>
     </div>
   )

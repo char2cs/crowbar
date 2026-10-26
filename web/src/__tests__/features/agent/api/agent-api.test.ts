@@ -655,6 +655,8 @@ describe('agent-api', () => {
           ],
         }),
       }),
+      undefined,
+      undefined,
     )
     expect(out.map((p) => p.id)).toEqual(['codex', 'claude'])
     expect(out[1].enabled).toBe(false)

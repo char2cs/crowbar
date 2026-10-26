@@ -144,7 +144,9 @@ export function SidebarFileRow({
     paddingLeft: indent + (hasControl ? CONTROL_SLOT : 0),
     ...style,
   }
-  const iconColumn = icon !== undefined && <span className={ROW_GLYPH_BOX}>{icon}</span>
+  const iconColumn = icon !== undefined && (
+    <span className={cn(ROW_GLYPH_BOX, 'file-tree-glyph')}>{icon}</span>
+  )
 
   return (
     <div className={cn('file-tree-item w-full', containerClassName)} data-depth={depth}>

@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 // currentPlatform is computed ONCE, at module load, from navigator.userAgent —
 // so each case needs a fresh module evaluation with the UA already stubbed,
 // not a mutation after import.
-async function loadWithUserAgent(userAgent: string) {
-  vi.stubGlobal('navigator', { userAgent })
+async function loadWithUserAgent(userAgent: string, maxTouchPoints = 0) {
+  vi.stubGlobal('navigator', { userAgent, maxTouchPoints })
   vi.resetModules()
   return import('@/utils/platform')
 }
@@ -49,11 +49,47 @@ describe('detectPlatform (webview branch)', () => {
   })
 })
 
+describe('detectPlatform (iOS)', () => {
+  it('detects an iPhone, which is not macOS', async () => {
+    const { currentPlatform, IS_MOBILE, IS_MAC } = await loadWithUserAgent(
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+    )
+    expect(currentPlatform).toBe('ios')
+    expect(IS_MOBILE).toBe(true)
+    expect(IS_MAC).toBe(false)
+  })
+
+  it('detects iPadOS, which sends a Macintosh user agent but has touch', async () => {
+    const { IS_MOBILE, IS_MAC } = await loadWithUserAgent(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)',
+      5,
+    )
+    expect(IS_MOBILE).toBe(true)
+    expect(IS_MAC).toBe(false)
+  })
+
+  it('a Mac is not mobile', async () => {
+    const { IS_MOBILE } = await loadWithUserAgent(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)',
+    )
+    expect(IS_MOBILE).toBe(false)
+  })
+})
+
 describe('normalizeKey', () => {
   it('leaves cmd untouched on macOS', async () => {
     const { normalizeKey } = await loadWithUserAgent(
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)',
     )
+    expect(normalizeKey('cmd+s')).toBe('cmd+s')
+  })
+
+  // An iPhone's hardware keyboard has Command, as a Mac's does.
+  it('leaves cmd untouched on iOS, which keys like a Mac', async () => {
+    const { normalizeKey, APPLE_KEYBOARD } = await loadWithUserAgent(
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+    )
+    expect(APPLE_KEYBOARD).toBe(true)
     expect(normalizeKey('cmd+s')).toBe('cmd+s')
   })
 

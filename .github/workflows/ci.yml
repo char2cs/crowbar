@@ -309,3 +309,43 @@ jobs:
             -o ../desktop/src-tauri/binaries/crowbar-api-x86_64-apple-darwin ./cmd/crowbar
       - name: Cargo build --release (macOS)
         run: cd desktop/src-tauri && cargo build --release
+
+  ios-checks:
+    needs: changes
+    if: needs.changes.outputs.tauri == 'true'
+    # macos-26 (NOT macos-latest): iOS 26 SDK + Icon Composer actool need Xcode 26.5,
+    # and macos-latest may still resolve to macOS 15 / Xcode 26.3.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.90'
+          targets: aarch64-apple-ios-sim
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+          key: ios-sim
+      - uses: oven-sh/setup-bun@v2
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install tauri-cli
+        run: cargo binstall tauri-cli@^2 --targets aarch64-apple-darwin --no-confirm --locked
+      - name: Cargo check (iOS simulator)
+        run: cd desktop/src-tauri && cargo check --lib --target aarch64-apple-ios-sim
+      - name: Cargo clippy (iOS chrome plugin)
+        run: cd desktop/src-tauri && cargo clippy -p tauri-plugin-crowbar-chrome --target aarch64-apple-ios-sim -- -D warnings
+      # The plugin's Package.swift depends on .tauri/tauri-api, which the cargo
+      # build above generates, so this must run after it.
+      - name: Swift unit tests (plugin)
+        run: |
+          UDID=$(xcrun simctl list devices available -j | jq -r '[.devices | to_entries[] | select(.key | contains("iOS")) | .value[] | select(.name | startswith("iPhone"))][0].udid')
+          [ -n "$UDID" ] && [ "$UDID" != "null" ] || (echo "no iPhone simulator available" && exit 1)
+          cd desktop/ios-chrome/ios
+          xcodebuild test -scheme tauri-plugin-crowbar-chrome -destination "id=$UDID"
+      - name: Build frontend
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: cd web && bun install --frozen-lockfile && bun run build
+      - name: Build app for the simulator (unsigned)
+        run: cd desktop/src-tauri && cargo tauri ios build --ci --debug --target aarch64-sim --no-sign --archive-only

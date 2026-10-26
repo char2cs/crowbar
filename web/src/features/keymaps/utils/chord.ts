@@ -11,7 +11,7 @@
  *
  * Examples: `mod+\`, `mod+shift+t`, `mod+alt+arrowleft`.
  */
-import { IS_MAC } from '@/utils/platform'
+import { APPLE_KEYBOARD } from '@/utils/platform'
 
 export interface ParsedChord {
   mod: boolean
@@ -79,7 +79,7 @@ export function chordFromEvent(e: KeyboardEvent): string | null {
   if (key === 'Control' || key === 'Shift' || key === 'Alt' || key === 'Meta') {
     return null
   }
-  const mod = IS_MAC ? e.metaKey : e.ctrlKey
+  const mod = APPLE_KEYBOARD ? e.metaKey : e.ctrlKey
   const parsed: ParsedChord = {
     mod,
     shift: e.shiftKey,
@@ -93,7 +93,7 @@ export function chordFromEvent(e: KeyboardEvent): string | null {
 export function eventMatchesChord(e: KeyboardEvent, chord: string): boolean {
   const parsed = parseChord(chord)
   if (!parsed) return false
-  const mod = IS_MAC ? e.metaKey : e.ctrlKey
+  const mod = APPLE_KEYBOARD ? e.metaKey : e.ctrlKey
   if (parsed.mod !== mod) return false
   if (parsed.shift !== e.shiftKey) return false
   if (parsed.alt !== e.altKey) return false
@@ -113,12 +113,12 @@ export function formatChord(chord: string): string {
   const parsed = parseChord(chord)
   if (!parsed) return ''
   const parts: string[] = []
-  if (parsed.mod) parts.push(IS_MAC ? '⌘' : 'Ctrl')
-  if (parsed.shift) parts.push(IS_MAC ? '⇧' : 'Shift')
-  if (parsed.alt) parts.push(IS_MAC ? '⌥' : 'Alt')
+  if (parsed.mod) parts.push(APPLE_KEYBOARD ? '⌘' : 'Ctrl')
+  if (parsed.shift) parts.push(APPLE_KEYBOARD ? '⇧' : 'Shift')
+  if (parsed.alt) parts.push(APPLE_KEYBOARD ? '⌥' : 'Alt')
   const keyLabel = KEY_LABELS[parsed.key] ?? parsed.key.toUpperCase()
   parts.push(keyLabel)
-  return IS_MAC ? parts.join('') : parts.join('+')
+  return APPLE_KEYBOARD ? parts.join('') : parts.join('+')
 }
 
 export { MOD_ORDER }

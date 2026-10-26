@@ -51,6 +51,7 @@ import {
 } from '@/features/agent/chat/lib/type-to-focus'
 import { useAgentActivity } from '@/features/agent/hooks/use-agent-activity'
 import { useAgentTelemetry, limitResetsAt } from '@/features/agent/hooks/use-agent-telemetry'
+import { useNativeContext } from '@/features/agent/hooks/use-native-context'
 import { useChatMessages } from '@/features/agent/hooks/use-chat-messages'
 import {
   getScrollPosition,
@@ -865,6 +866,10 @@ export function AgentChatView({
     void compactChat(wsId, chatId)
   }
 
+  const offeredCompact =
+    provider?.compaction && live && !compacting && !onTerminalSurface ? handleCompact : undefined
+  useNativeContext({ visible, telemetry, compacting, onCompact: offeredCompact })
+
   const selectSlashItem = (item: SlashCatalogItem) => {
     seedDraft(slash.accept(item))
   }
@@ -1257,11 +1262,7 @@ export function AgentChatView({
               presentation={presentation}
               splitEnabled={splitEnabled && provider?.hotswap === true}
               queued={queue.length}
-              onCompact={
-                provider?.compaction && live && !compacting && !onTerminalSurface
-                  ? handleCompact
-                  : undefined
-              }
+              onCompact={offeredCompact}
               onSelectionChange={onSelectionChange}
               onSelectPresentation={onSelectPresentation}
               showSwitcher={presentation !== 'terminal' && provider?.hasTerminal !== false}

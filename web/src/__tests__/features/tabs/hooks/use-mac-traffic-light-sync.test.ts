@@ -7,7 +7,7 @@ import { useMacTrafficLightSync } from '@/features/tabs/hooks/use-mac-traffic-li
 // exercising macOS-only behavior, so it needs to force that regardless of
 // whatever OS the test happens to run on (jsdom's UA bakes in the CI
 // runner's own host platform, which is Linux on GitHub Actions).
-vi.mock('@/utils/platform', () => ({ IS_MAC: true }))
+vi.mock('@/utils/platform', () => ({ IS_MAC: true, IS_MOBILE: false, APPLE_KEYBOARD: true }))
 
 function stubRect(el: HTMLElement, rect: Partial<DOMRect>) {
   el.getBoundingClientRect = () =>

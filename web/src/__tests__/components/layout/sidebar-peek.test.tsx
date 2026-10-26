@@ -3,7 +3,13 @@ import { describe, it, expect, vi } from 'vitest'
 import { SidebarPeek } from '@/components/layout/sidebar-peek'
 import { useSidebarPeekStore } from '@/features/window/stores/sidebar-peek-store'
 
-vi.mock('@/utils/platform', () => ({ IS_MAC: true, IS_WINDOWS: false, IS_LINUX: false }))
+vi.mock('@/utils/platform', () => ({
+  IS_MAC: true,
+  IS_MOBILE: false,
+  APPLE_KEYBOARD: true,
+  IS_WINDOWS: false,
+  IS_LINUX: false,
+}))
 
 const WIDTH = 320
 // jsdom's viewport is 1024x768. The trigger band is 6px in from the edge,

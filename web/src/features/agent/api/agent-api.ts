@@ -985,14 +985,21 @@ export function createSurfaceFor(
 // provider priority/enabled is machine-level). The response is the freshly resolved
 // list (same enrichment + order as listProviders), so the caller reconciles from
 // server truth with no second fetch.
+// Given `hostId`, that remote host's daemon's set instead of the local one's.
 export async function updateProviderPreferences(
   prefs: ProviderPreference[],
+  hostId?: string,
 ): Promise<AgentProvider[]> {
-  const raw = await apiFetch<AgentProvider[]>(`/v0/settings/chat/providers`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ providers: prefs }),
-  })
+  const raw = await apiFetch<AgentProvider[]>(
+    `/v0/settings/chat/providers`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providers: prefs }),
+    },
+    undefined,
+    hostId,
+  )
   return (raw ?? []).map(mapProvider)
 }
 
@@ -1058,19 +1065,31 @@ export async function uploadDescriptor(file: File): Promise<DescriptorReport> {
   })
 }
 
-export async function getDefaultPermissionLevel(): Promise<PermissionLevel> {
-  const res = await apiFetch<{ level: PermissionLevel }>(`/v0/settings/chat/permission-level`)
+/** The default permission level of the local daemon, or of `hostId`'s. */
+export async function getDefaultPermissionLevel(hostId?: string): Promise<PermissionLevel> {
+  const res = await apiFetch<{ level: PermissionLevel }>(
+    `/v0/settings/chat/permission-level`,
+    undefined,
+    undefined,
+    hostId,
+  )
   return res.level
 }
 
 export async function updateDefaultPermissionLevel(
   level: PermissionLevel,
+  hostId?: string,
 ): Promise<PermissionLevel> {
-  const res = await apiFetch<{ level: PermissionLevel }>(`/v0/settings/chat/permission-level`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ level }),
-  })
+  const res = await apiFetch<{ level: PermissionLevel }>(
+    `/v0/settings/chat/permission-level`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level }),
+    },
+    undefined,
+    hostId,
+  )
   return res.level
 }
 

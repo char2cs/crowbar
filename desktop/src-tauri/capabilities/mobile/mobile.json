@@ -1,0 +1,7 @@
+{
+  "$schema": "../../gen/schemas/mobile-schema.json",
+  "identifier": "mobile",
+  "description": "The phone has no sidecar, secondary windows, or browser pane: only the core webview, dialogs and logging. Every daemon call goes through the remote-host bridge commands.",
+  "windows": ["*"],
+  "permissions": ["core:default", "dialog:allow-open", "log:default", "crowbar-chrome:default"]
+}

@@ -1,0 +1,9 @@
+/* 16px: the size iOS reads without zooming into a focused field. */
+:root[data-platform='ios'] :is(input, textarea, select, [contenteditable='true']) {
+  font-size: 16px;
+}
+
+/* Taps act at once: no double-tap zoom, and no wait to tell a tap from one. */
+:root[data-platform='ios'] {
+  touch-action: manipulation;
+}

@@ -157,6 +157,16 @@ jobs:
           name: desktop-macos
           path: desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
 
+  ios:
+    needs: derive-tag
+    uses: ./.github/workflows/ios-build.yml
+    secrets: inherit
+    with:
+      version: ${{ needs.derive-tag.outputs.version }}
+      channel: beta
+      build-version: ${{ needs.derive-tag.outputs.tag }}
+      timestamp: ${{ needs.derive-tag.outputs.timestamp }}
+
   desktop-linux:
     name: desktop-linux (${{ matrix.goarch }})
     needs: derive-tag
@@ -227,7 +237,7 @@ jobs:
             desktop/src-tauri/target/release/bundle/deb/*.deb
 
   release:
-    needs: [derive-tag, daemon, desktop-macos, desktop-linux]
+    needs: [derive-tag, daemon, desktop-macos, desktop-linux, ios]
     # All jobs must succeed — no partial pre-releases
     runs-on: ubuntu-latest
     steps:

@@ -1,11 +1,11 @@
-import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
+import { useOwningChatId } from '@/lib/workspace-scope'
+import { IS_MOBILE } from '@/utils/platform'
 import React, {
   useCallback,
   useEffect,
   useImperativeHandle,
   useRef,
   useState,
-  useSyncExternalStore,
   type Ref,
 } from 'react'
 import { useTerminalAttachment } from '../hooks/use-terminal-attachment'
@@ -24,6 +24,8 @@ import '../styles/terminal.css'
 
 export interface TerminalFocusHandle {
   focus: () => void
+  /** Types `data` into the session as if from the keyboard (the phone's key bar). */
+  send: (data: string) => void
 }
 
 interface XtermTerminalProps {
@@ -74,18 +76,6 @@ interface XtermTerminalProps {
   flush?: boolean
 }
 
-/**
- * Reactive echo of `getOwningChatId(wsId)`: the sidebar records a workspace's
- * owning chat asynchronously, so a shell tab's terminals base cannot be built
- * until it has.
- */
-function useOwningChatIdFor(wsId: string): string | null {
-  return useSyncExternalStore(
-    (onChange) => subscribeToWorkspaceScope(wsId, onChange),
-    () => getOwningChatId(wsId),
-  )
-}
-
 export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   sessionId,
   workspaceId,
@@ -119,7 +109,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   const [activated, setActivated] = useState(isVisible)
   if (isVisible && !activated) setActivated(true)
 
-  const owningChatId = useOwningChatIdFor(workspaceId)
+  const owningChatId = useOwningChatId(workspaceId)
   const chatScopeReady = Boolean(chatId) || owningChatId !== null
 
   // Where a new shell starts, recorded for the tab label and link resolution.
@@ -199,12 +189,17 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   const search = useTerminalSearch(terminal, addons)
   useTerminalShortcuts({ isActive, container, search })
 
-  useImperativeHandle(ref, () => ({ focus: focusTerminal }), [focusTerminal])
+  useImperativeHandle(
+    ref,
+    () => ({ focus: focusTerminal, send: (data: string) => write(data, 'key-bar') }),
+    [focusTerminal, write],
+  )
 
   // Focus follows the active pane. The effect runs after React commits the
   // visibility change, so the textarea is focusable: one call, no retries.
+  // Not on the phone: focus raises the keyboard there, so only a tap may.
   useEffect(() => {
-    if (isActive && isVisible && terminal) terminal.focus()
+    if (isActive && isVisible && terminal && !IS_MOBILE) terminal.focus()
   }, [isActive, isVisible, terminal])
 
   useImperativeHandle(

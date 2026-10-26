@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ShellRouteImport } from './routes/_shell'
+import { Route as AddHostRouteImport } from './routes/add-host'
 import { Route as OobeRouteImport } from './routes/oobe'
 import { Route as ShellIndexRouteImport } from './routes/_shell/index'
 import { Route as ShellIdeProjectIdHomeRouteImport } from './routes/_shell/ide/$projectId/home'
@@ -18,6 +19,11 @@ import { Route as ShellIdeProjectIdRepoIdWsIdIndexRouteImport } from './routes/_
 
 const ShellRoute = ShellRouteImport.update({
   id: '/_shell',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AddHostRoute = AddHostRouteImport.update({
+  id: '/add-host',
+  path: '/add-host',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OobeRoute = OobeRouteImport.update({
@@ -50,12 +56,14 @@ const ShellIdeProjectIdRepoIdWsIdIndexRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
+  '/add-host': typeof AddHostRoute
   '/oobe': typeof OobeRoute
   '/ide/$projectId/home': typeof ShellIdeProjectIdHomeRoute
   '/ide/$projectId/$repoId/$wsId': typeof ShellIdeProjectIdRepoIdWsIdRouteWithChildren
   '/ide/$projectId/$repoId/$wsId/': typeof ShellIdeProjectIdRepoIdWsIdIndexRoute
 }
 export interface FileRoutesByTo {
+  '/add-host': typeof AddHostRoute
   '/oobe': typeof OobeRoute
   '/': typeof ShellIndexRoute
   '/ide/$projectId/home': typeof ShellIdeProjectIdHomeRoute
@@ -64,6 +72,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_shell': typeof ShellRouteWithChildren
+  '/add-host': typeof AddHostRoute
   '/oobe': typeof OobeRoute
   '/_shell/': typeof ShellIndexRoute
   '/_shell/ide/$projectId/home': typeof ShellIdeProjectIdHomeRoute
@@ -74,15 +83,22 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/add-host'
     | '/oobe'
     | '/ide/$projectId/home'
     | '/ide/$projectId/$repoId/$wsId'
     | '/ide/$projectId/$repoId/$wsId/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/oobe' | '/' | '/ide/$projectId/home' | '/ide/$projectId/$repoId/$wsId'
+  to:
+    | '/add-host'
+    | '/oobe'
+    | '/'
+    | '/ide/$projectId/home'
+    | '/ide/$projectId/$repoId/$wsId'
   id:
     | '__root__'
     | '/_shell'
+    | '/add-host'
     | '/oobe'
     | '/_shell/'
     | '/_shell/ide/$projectId/home'
@@ -92,6 +108,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   ShellRoute: typeof ShellRouteWithChildren
+  AddHostRoute: typeof AddHostRoute
   OobeRoute: typeof OobeRoute
 }
 
@@ -102,6 +119,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof ShellRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/add-host': {
+      id: '/add-host'
+      path: '/add-host'
+      fullPath: '/add-host'
+      preLoaderRoute: typeof AddHostRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/oobe': {
@@ -174,6 +198,7 @@ const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   ShellRoute: ShellRouteWithChildren,
+  AddHostRoute: AddHostRoute,
   OobeRoute: OobeRoute,
 }
 export const routeTree = rootRouteImport

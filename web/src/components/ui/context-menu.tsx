@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CaretRightIcon } from '@phosphor-icons/react'
 
 import { cn } from '@/lib/utils'
-import { isTauri, showNativeContextMenu } from '@/lib/crowbar-bridge'
+import { isDesktopApp, showNativeContextMenu } from '@/lib/crowbar-bridge'
 
 // ── Imperative context-menu API (opened programmatically, not via a trigger) ──
 
@@ -196,8 +196,8 @@ export function useContextMenu<T = unknown>() {
   return { ...state, open, openAt, close }
 }
 
-// `ContextMenu` is native-first: in Tauri it pops the OS's own menu and
-// renders nothing; outside Tauri (plain-browser `bun run dev`) it falls back
+// `ContextMenu` is native-first: in the desktop app it pops the OS's own menu and
+// renders nothing; elsewhere (plain-browser `bun run dev`, the phone app) it falls back
 // to ImperativeContextMenu, the rendered popup this app used everywhere
 // before native menus existed.
 function ContextMenuHost({
@@ -219,7 +219,7 @@ function ContextMenuHost({
   const [nativeFailed, setNativeFailed] = useState(false)
 
   useEffect(() => {
-    if (!isTauri() || !isOpen) return
+    if (!isDesktopApp() || !isOpen) return
     let cancelled = false
     setNativeFailed(false)
     void (async () => {
@@ -244,7 +244,7 @@ function ContextMenuHost({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- items/position are read once when the menu opens
   }, [isOpen])
 
-  if (isTauri() && !nativeFailed) return null
+  if (isDesktopApp() && !nativeFailed) return null
 
   return (
     <ImperativeContextMenu

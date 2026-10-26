@@ -13,6 +13,10 @@ import { defineMonacoTheme } from '../monaco/define-theme'
 import { toMonacoLanguageId } from '../monaco/language'
 import { getLanguageIdFromPath } from '../utils/language-id'
 import { calculateLineHeight } from '../utils/lines'
+import { IS_MOBILE } from '@/utils/platform'
+
+// Under 16px iOS zooms the page into whatever field takes focus, Monaco's input included.
+const MIN_PHONE_FONT_SIZE = 16
 
 type StandaloneEditor = Monaco.editor.IStandaloneCodeEditor
 
@@ -88,7 +92,9 @@ export function useEditorOptions(
   const parameterHints = useSettingsStore((s) => s.settings.parameterHints)
   const zoomLevel = useZoomStore.use.editorZoomLevel()
 
-  const fontSize = baseFontSize * zoomLevel
+  const fontSize = IS_MOBILE
+    ? Math.max(MIN_PHONE_FONT_SIZE, baseFontSize * zoomLevel)
+    : baseFontSize * zoomLevel
   const lineHeight = calculateLineHeight(fontSize, lineHeightSetting)
 
   useEffect(() => {
