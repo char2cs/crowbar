@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useStore } from 'zustand'
-import { useRouterState } from '@tanstack/react-router'
+import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { TerminalWindowIcon } from '@phosphor-icons/react'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import SettingsDialog from '@/features/settings/components/settings-dialog'
@@ -25,6 +25,7 @@ import { SidebarToastOverlay } from '../sidebar-toast-overlay'
 import { useShellRouteState } from '../use-shell-route-state'
 import { MobileIdeScreen } from './mobile-ide-screen'
 import { MobileTopBar } from './mobile-top-bar'
+import { useLaunchDraft } from './use-launch-draft'
 
 const IDE = {
   label: 'Open IDE',
@@ -38,12 +39,14 @@ const IDE = {
  */
 export function MobileShell() {
   const route = useShellRouteState()
+  const navigate = useNavigate()
   const screen = useMobileScreenStore((s) => s.screen)
   const isSettingsOpen = useUIState((s) => s.isSettingsOpen)
   // The native sheet's Agents page shows the active project's host: the phone has no local daemon.
   const agentsHostId = route.allProjects.find((p) => p.id === route.activeProjectId)?.hostId
   const wsId = route.effectiveActiveWorkspaceId
   const hasChat = useStore(windowPaneStore, (s) => Boolean(s.panes[s.activePaneId]?.chatId))
+  useLaunchDraft(route.activeProjectId, route.homeWorkspaceId, navigate)
   useCloseChatListOnNavigation()
   useMobileNativeChrome({ ide: hasChat })
   const { importRepoRowId, closeImport } = useNativeSidebar({
