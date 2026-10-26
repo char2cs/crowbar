@@ -95,7 +95,8 @@ final class RowMenu: NSObject {
     }
     host.addSubview(anchor)
     Haptics.lift()
-    anchor.sendActions(for: .menuActionTriggered)
+    // .menuActionTriggered is an event UIKit sends as the menu presents; it does not present one.
+    anchor.performPrimaryAction()
   }
 
   private func menu(_ actions: [Action], row: String) -> UIMenu {
