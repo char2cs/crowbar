@@ -21,6 +21,7 @@ type PageIntent = Extract<
       | 'toggleDir'
       | 'openFile'
       | 'dragRow'
+      | 'keepRemoval'
       | 'moveRow'
   }
 >

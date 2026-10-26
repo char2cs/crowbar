@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
+import { secondsLeft } from '@/components/layout/removal-clock'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import {
   CREATE_ROW_PLACEHOLDER,
@@ -13,7 +14,13 @@ import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/si
 import { confirmPendingCreateName, cancelPendingCreate } from '@/components/layout/create-actions'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
 import { RowGlyph } from './row-glyph'
-import { rowBoxStyle, rowGlyphStyle, rowIndent, useRowMetrics } from './lib/row-metrics'
+import {
+  rowBoxStyle,
+  rowGlyphStyle,
+  rowHitStyle,
+  rowIndent,
+  useRowMetrics,
+} from './lib/row-metrics'
 
 /**
  * A create still in flight, drawn at the exact tree slot the finished create
@@ -113,13 +120,6 @@ export function PendingSidebarRow({
   )
 }
 
-/** Whole seconds left on a deadline, never below zero — same formula
- *  `removal-tray.tsx` draws its own figures from. */
-function secondsLeft(deadlineAt: number | null): number {
-  if (deadlineAt === null) return 0
-  return Math.max(0, Math.ceil((deadlineAt - Date.now()) / 1000))
-}
-
 /**
  * A REAL row currently held in the removal tray, transformed in place —
  * explicit product request: an X on the row starts this instead of hiding
@@ -139,10 +139,12 @@ export function RemovingSidebarRow({
   row,
   depth,
   removal,
+  onKeep = (entryId) => useRemovalTrayStore.getState().cancel(entryId),
 }: {
   row: SidebarRowType
   depth: number
   removal: NonNullable<SidebarRowType['removal']>
+  onKeep?: (entryId: string) => void
 }) {
   const metrics = useRowMetrics()
   return (
@@ -188,16 +190,17 @@ export function RemovingSidebarRow({
           data-removal-secs={removal.entryId}
           className="shrink-0 text-[11px] tabular-nums text-muted-foreground"
         >
-          {secondsLeft(removal.deadlineAt)}
+          {removal.deadlineAt === null ? 0 : secondsLeft(removal.deadlineAt, Date.now())}
         </span>
         <button
           type="button"
-          className={ROW_SUB_ACTION}
+          className={cn(ROW_SUB_ACTION, metrics && 'items-center justify-center')}
+          style={rowHitStyle(metrics)}
           aria-label={`Keep ${row.label}`}
           title="Keep"
           onClick={(e) => {
             e.stopPropagation()
-            useRemovalTrayStore.getState().cancel(removal.entryId)
+            onKeep(removal.entryId)
           }}
         >
           <svg

@@ -1,3 +1,4 @@
+import { TOUCH_ROW_METRICS } from '@/components/sidebar/lib/row-metrics'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MobileFilesPage } from '@/features/window/components/mobile-files-page'
@@ -63,7 +64,7 @@ describe('MobileFilesPage', () => {
     render(<MobileFilesPage />)
     push(snapshot)
     const heights = screen.getAllByRole('treeitem').map((el) => el.style.height)
-    expect(new Set(heights)).toEqual(new Set(['34px']))
+    expect(new Set(heights)).toEqual(new Set([`${TOUCH_ROW_METRICS.height}px`]))
   })
 
   it('asks to fold a folder and to open a file', () => {
@@ -111,7 +112,9 @@ describe('MobileFilesPage over a long tree', () => {
       git: null,
     }))
     // jsdom lays out and scrolls nothing: give the list its content height and catch the scroll.
-    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(files.length * 34)
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(
+      files.length * TOUCH_ROW_METRICS.height,
+    )
     const scrollTo = vi.fn()
     Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
       value: scrollTo,
@@ -121,7 +124,9 @@ describe('MobileFilesPage over a long tree', () => {
     push({ ...snapshot, files, expanded: [], activePath: '/r/f190.ts' })
     // The row's bottom edge (191 rows down) at the bottom of the 800px viewport.
     await waitFor(() =>
-      expect(scrollTo).toHaveBeenLastCalledWith(expect.objectContaining({ top: 191 * 34 - 800 })),
+      expect(scrollTo).toHaveBeenLastCalledWith(
+        expect.objectContaining({ top: 191 * TOUCH_ROW_METRICS.height - 800 }),
+      ),
     )
     delete (HTMLElement.prototype as Partial<HTMLElement>).scrollTo
   })

@@ -3,6 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMobileScreenStore } from '@/features/window/stores/mobile-screen-store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { useProjectDataStore } from '@/lib/store/projects'
+import {
+  getInitialRemovalState,
+  useRemovalTrayStore,
+  type RemovalDraft,
+} from '@/lib/store/sidebar-removal'
 import { success } from '@/lib/loadable'
 import type { Project } from '@/lib/types'
 import type { AgentChat } from '@/features/agent/api/agent-api'
@@ -38,6 +43,19 @@ vi.mock('@/lib/native-chrome', async (importOriginal) => ({
 }))
 
 const { MobileShell } = await import('@/components/layout/mobile/mobile-shell')
+
+const DOOMED: RemovalDraft = {
+  kind: 'chat',
+  id: 'c-doomed',
+  label: 'Doomed',
+  projectId: 'p1',
+  repoId: 'r1',
+  wsId: 'ws-1',
+  providerIcon: '',
+  hiddenIds: ['c-doomed'],
+  extra: 0,
+  fallbackWsId: null,
+}
 
 const project = { id: 'p1', name: 'crowbar', path: '/c', hostId: 'h1' } as unknown as Project
 
@@ -105,6 +123,27 @@ describe('MobileShell', () => {
     router.pathname = '/ide/p1/r1/ws-2'
     act(() => rerender(<MobileShell />))
     expect(useMobileScreenStore.getState().chatListOpen).toBe(false)
+  })
+
+  // Leaving a chat that is being removed is not opening another: the list stays up.
+  it('keeps the chat list up when the focused chat is held for removal', () => {
+    resetWindowPaneStoreForTests()
+    act(() =>
+      windowPaneStore
+        .getState()
+        .paneActions.openChat('c-doomed', { projectId: 'p1', workspaceId: 'ws-1' }),
+    )
+    useMobileScreenStore.setState({ chatListOpen: true })
+    render(<MobileShell />)
+    act(() => {
+      useRemovalTrayStore.getState().hold([DOOMED])
+      const { panes, paneActions } = windowPaneStore.getState()
+      for (const [id, pane] of Object.entries(panes))
+        if (pane.chatId === 'c-doomed') paneActions.closePane(id)
+    })
+    expect(useMobileScreenStore.getState().chatListOpen).toBe(true)
+    act(() => useRemovalTrayStore.setState(getInitialRemovalState()))
+    resetWindowPaneStoreForTests()
   })
 
   // The phone app's settings are a native sheet; the web dialog is only the fallback.

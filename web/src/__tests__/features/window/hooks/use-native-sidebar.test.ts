@@ -10,7 +10,7 @@ import {
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
 import type { Project } from '@/lib/types'
-import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
 
 const chrome = vi.hoisted(() => ({
@@ -69,6 +69,7 @@ beforeEach(() => {
   navigate.mockClear()
   vi.mocked(api.apiFetch).mockClear()
   resetWindowPaneStoreForTests()
+  useRemovalTrayStore.setState(getInitialRemovalState())
   useSidebarStore.setState({ ...getInitialState(), repos: [repo] })
   useFolderSignalStore.setState({ seededRepoIds: new Set(['r1']) })
   useMobileScreenStore.setState({ screen: 'chat', chatListOpen: true })
@@ -167,7 +168,7 @@ describe('useNativeSidebar', () => {
     expect(last().actions[alpha.id].at(-1)).toMatchObject({
       title: 'Remove',
       destructive: true,
-      confirm: { title: 'Remove “Alpha”?' },
+      confirm: { title: 'Remove branch?', message: expect.stringContaining('Alpha') },
     })
     expect(last().actions[alpha.id][1]).toEqual({
       id: 'lock',
@@ -199,6 +200,42 @@ describe('useNativeSidebar', () => {
     const alpha = last().rows.find((r) => r.label === 'Alpha')!
     send({ type: 'rowAction', rowId: alpha.id, actionId: 'remove' })
     expect(useRemovalTrayStore.getState().entries.map((e) => e.label)).toContain('alpha')
+  })
+
+  // The page draws the countdown and Keep in place: the row stays, marked, until it drains.
+  it('keeps a removed row in the list, marked as on its way out and without a menu', () => {
+    mount()
+    const alpha = last().rows.find((r) => r.label === 'Alpha')!
+    send({ type: 'rowAction', rowId: alpha.id, actionId: 'remove' })
+    const held = last().rows.find((r) => r.id === alpha.id)!
+    expect(held.removal).toMatchObject({ deadlineAt: expect.any(Number) })
+    expect(last().actions[alpha.id]).toEqual([])
+  })
+
+  // Focus leaves the doomed chat at once, so nothing slides into it when the delete lands.
+  it('moves the window off a chat the moment it is held for removal', () => {
+    mount()
+    act(() =>
+      windowPaneStore
+        .getState()
+        .paneActions.openChat('c-a', { projectId: 'p1', workspaceId: 'ws-a' }),
+    )
+    expect(last().focusedChatId).toBe('c-a')
+    const alpha = last().rows.find((r) => r.label === 'Alpha')!
+    send({ type: 'rowAction', rowId: alpha.id, actionId: 'remove' })
+    expect(last().focusedChatId).not.toBe('c-a')
+  })
+
+  it('puts a row back when the page keeps it', () => {
+    mount()
+    const alpha = last().rows.find((r) => r.label === 'Alpha')!
+    send({ type: 'rowAction', rowId: alpha.id, actionId: 'remove' })
+    send({
+      type: 'keepRemoval',
+      entryId: last().rows.find((r) => r.id === alpha.id)!.removal!.entryId,
+    })
+    expect(useRemovalTrayStore.getState().entries).toEqual([])
+    expect(last().rows.find((r) => r.id === alpha.id)!.removal).toBeUndefined()
   })
 
   it('asks for the branch name of a fork before creating it', async () => {

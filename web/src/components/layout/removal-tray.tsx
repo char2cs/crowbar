@@ -2,12 +2,8 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useNavigate, useRouter } from '@tanstack/react-router'
 import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
 import { commitRemoval, flushDrainingRemovals, type RemovalNavigate } from './removal-commit'
+import { startRemovalSecondsClock } from './removal-clock'
 import { RemovalConfirmDialog } from './removal-confirm-dialog'
-
-/** Whole seconds left on a deadline, never below zero. */
-function secondsLeft(deadlineAt: number, now: number): number {
-  return Math.max(0, Math.ceil((deadlineAt - now) / 1000))
-}
 
 /**
  * The background service behind every removal, plus the one piece of chrome
@@ -105,49 +101,13 @@ export function RemovalTray() {
     return () => clearTimeout(timer)
   }, [entries, commit])
 
-  // The seconds numerals, written straight to the DOM.
-  //
-  // One `textContent` write per held row, once a second, on a timer that belongs
-  // to the tray rather than to any row — so the figures count without a single
-  // render. Through state this would repaint every row in the tray to change one
-  // digit, which is the cost the hairline was made a CSS animation to avoid.
-  //
-  // The wake-up is aimed at the next whole second of whichever row crosses one
-  // first, so the numeral changes exactly when its value does and the tray is
-  // asleep in between. Reduced motion has nothing to switch off here: a number
-  // counting down is information, not animation.
+  // The seconds numerals count on a clock that belongs to the tray, not to any row.
   useEffect(() => {
     const deadlines = new Map<string, number>()
     for (const entry of entries) {
       if (entry.deadlineAt !== null) deadlines.set(entry.entryId, entry.deadlineAt)
     }
-    if (deadlines.size === 0) return
-
-    let timer = 0
-    const tick = () => {
-      const now = Date.now()
-      let delay = 1000
-      // The whole DOCUMENT, not a ref scoped to this component: a draining
-      // entry's `[data-removal-secs]` span lives wherever its row actually
-      // renders inline in the tree (sidebar-row.tsx's `RemovingSidebarRow`) —
-      // this component never draws a copy of a draining row.
-      for (const el of document.querySelectorAll<HTMLElement>('[data-removal-secs]')) {
-        const deadlineAt = deadlines.get(el.dataset.removalSecs ?? '')
-        if (deadlineAt === undefined) continue
-        const secs = String(secondsLeft(deadlineAt, now))
-        // Written only where it differs, so many rows on the same deadline is
-        // one comparison each and no DOM work at all until the digit turns.
-        if (el.textContent !== secs) el.textContent = secs
-        const left = deadlineAt - now
-        if (left > 0) delay = Math.min(delay, ((left - 1) % 1000) + 1)
-      }
-      timer = window.setTimeout(tick, delay)
-    }
-    // The figures are already right — this render put them there. Running the
-    // tick now is what aims the first wake-up at a second boundary rather than
-    // an arbitrary offset from whenever the row happened to be held.
-    tick()
-    return () => clearTimeout(timer)
+    return startRemovalSecondsClock(deadlines)
   }, [entries])
 
   return (

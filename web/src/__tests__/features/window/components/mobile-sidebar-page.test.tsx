@@ -73,8 +73,39 @@ describe('MobileSidebarPage', () => {
     render(<MobileSidebarPage />)
     push(snapshot)
     const items = screen.getAllByRole('treeitem')
-    expect(new Set(items.map((el) => el.style.height))).toEqual(new Set(['34px']))
-    expect(new Set(items.map((el) => el.style.fontSize))).toEqual(new Set(['15px']))
+    expect(new Set(items.map((el) => el.style.height))).toEqual(new Set(['40px']))
+    expect(new Set(items.map((el) => el.style.fontSize))).toEqual(new Set(['16px']))
+  })
+
+  // The desktop's repo header carries no branch line; only a workspace under it does.
+  it('draws a repository header without its branch line', () => {
+    render(<MobileSidebarPage />)
+    push({
+      ...snapshot,
+      rows: snapshot.rows.map((r) => (r.id === 'c-repo' ? { ...r, branchName: 'develop' } : r)),
+    })
+    expect(screen.queryByText('develop')).not.toBeInTheDocument()
+    expect(screen.getByText('feature/pricing')).toBeInTheDocument()
+  })
+
+  // One scale: a repo's logo, a branch's mark and a thread's are the same size.
+  it('draws every row’s mark at one size', () => {
+    render(<MobileSidebarPage />)
+    push(snapshot)
+    const marks = screen
+      .getAllByRole('treeitem')
+      .map((el) => el.querySelector<HTMLElement>('span[class*="inline-flex"]')!)
+    expect(new Set(marks.map((el) => el.style.width)).size).toBe(1)
+  })
+
+  it('draws the project header larger than a row, with a touch-sized target', () => {
+    render(<MobileSidebarPage />)
+    push(snapshot)
+    const header = screen.getByTestId('sidebar-project-switcher')
+    expect(parseInt(header.style.height)).toBeGreaterThanOrEqual(44)
+    expect(parseInt(header.style.height)).toBeGreaterThan(
+      parseInt(screen.getAllByRole('treeitem')[0].style.height),
+    )
   })
 
   it('asks the shell for the sidebar once it can draw it', () => {
@@ -166,6 +197,41 @@ describe('MobileSidebarPage', () => {
     expect(images.length).toBe(2)
   })
 
+  describe('a row on its way out', () => {
+    const removing = {
+      ...snapshot,
+      rows: snapshot.rows.map((r) =>
+        r.id === 'c-thread'
+          ? { ...r, removal: { entryId: 'e1', deadlineAt: Date.now() + 8000, extra: 0 } }
+          : r,
+      ),
+    }
+
+    it('shows its countdown and a way to keep it, which goes back to the shell', () => {
+      render(<MobileSidebarPage />)
+      push(removing)
+      expect(document.querySelector('[data-removal-secs="e1"]')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Keep Ask about tax' }))
+      expect(posted).toHaveBeenCalledWith({ type: 'keepRemoval', entryId: 'e1' })
+    })
+
+    it('counts down on the page itself, which the shell’s clock cannot reach', () => {
+      vi.useFakeTimers()
+      render(<MobileSidebarPage />)
+      push({
+        ...removing,
+        rows: removing.rows.map((r) =>
+          r.removal ? { ...r, removal: { ...r.removal, deadlineAt: Date.now() + 5000 } } : r,
+        ),
+      })
+      const secs = document.querySelector('[data-removal-secs="e1"]')!
+      expect(secs).toHaveTextContent('5')
+      act(() => vi.advanceTimersByTime(2000))
+      expect(secs).toHaveTextContent('3')
+      vi.useRealTimers()
+    })
+  })
+
   describe('dragging a row', () => {
     const OPEN = { before: true, after: true, into: true }
     const SHUT = { before: false, after: false, into: false }
@@ -182,7 +248,7 @@ describe('MobileSidebarPage', () => {
       vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(
         DOMRect.fromRect({ x: 0, y: 100, width: 300, height: 34 }),
       )
-      document.elementFromPoint = () => target
+      document.elementsFromPoint = () => [target]
       fireEvent.touchMove(held, touch(y))
       expect(posted).toHaveBeenCalledWith({ type: 'rowDrag', active: true })
       expect(posted).toHaveBeenCalledWith({ type: 'dragRow', rowId: 'c-thread' })
@@ -226,6 +292,33 @@ describe('MobileSidebarPage', () => {
       fireEvent.touchEnd(held, { changedTouches: [{ clientX: 40, clientY: 13 }] })
       expect(posted).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'rowDrag' }))
       expect(posted).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'dragRow' }))
+    })
+
+    // The lifted copy sits under the finger, so a hit test finds it first; the row beneath is the target.
+    it('drops onto the row under the lifted copy, not onto the copy', () => {
+      render(<MobileSidebarPage />)
+      push(snapshot)
+      const held = rowEl('Ask about tax')
+      fireEvent.touchStart(held, touch(10))
+      act(() => vi.advanceTimersByTime(260))
+      const target = rowEl('checkout')
+      vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(
+        DOMRect.fromRect({ x: 0, y: 100, width: 300, height: 34 }),
+      )
+      fireEvent.touchMove(held, touch(131))
+      push({
+        ...snapshot,
+        drop: { subjectId: 'c-thread', targets: { 'c-repo': { modes: OPEN, band: 0.3 } } },
+      })
+      const lifted = document
+        .querySelector('[data-drag-overlay]')!
+        .querySelector<HTMLElement>('[data-sidebar-row-id]')!
+      document.elementsFromPoint = () => [lifted, target]
+      fireEvent.touchMove(held, touch(132))
+      fireEvent.touchEnd(held, { changedTouches: [{ clientX: 40, clientY: 132 }] })
+      expect(posted).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'moveRow', rowId: 'c-thread', targetId: 'c-repo' }),
+      )
     })
 
     it('moves nothing where the drop rules refuse it', () => {
