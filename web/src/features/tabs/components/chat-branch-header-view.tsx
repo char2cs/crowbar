@@ -11,7 +11,6 @@ import {
   ROW_SUBLABEL_ADD,
   ROW_SUBLABEL_DEL,
 } from '@/components/layout/workspace-row-base'
-import { CHAT_TITLE_PENDING_LABEL } from '@/features/agent/hooks/use-chat-title'
 import type { ChatHeaderModel } from '@/features/tabs/hooks/use-chat-branch-header-model'
 import { cn } from '@/lib/utils'
 
@@ -58,7 +57,7 @@ export function ChatBranchHeaderView({
           <ProjectIconMark project={lead.project} size="xl" />
         </span>
       ) : (
-        glyph('lg')
+        title !== null && glyph('lg')
       )}
 
       <span className="flex min-w-0 flex-1 flex-col justify-center">
@@ -165,8 +164,8 @@ function WorkspaceRoute({
   )
 }
 
-/** The name line. A `null` title is the store's gap, drawn as the pending mark
- *  and marked as such, never as a chat that happens to be untitled. */
+/** The name line. A `null` title (a draft, or a store gap) draws nothing, and is
+ *  marked as such, never as a chat that happens to be untitled. */
 function ChatTitle({ title, className }: { title: string | null; className: string }) {
   return (
     <span
@@ -174,7 +173,7 @@ function ChatTitle({ title, className }: { title: string | null; className: stri
       data-title-pending={title === null ? 'true' : undefined}
       className={cn(CHAT_TITLE_TEXT, className)}
     >
-      {title ?? CHAT_TITLE_PENDING_LABEL}
+      {title}
     </span>
   )
 }

@@ -1,5 +1,5 @@
 import { useStore } from 'zustand'
-import { CHAT_TITLE_PENDING_LABEL, chatTitleIn } from '@/features/agent/hooks/use-chat-title'
+import { chatTitleIn } from '@/features/agent/hooks/use-chat-title'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
 
@@ -10,6 +10,6 @@ export function MobileChatTitle({ className }: { className?: string }) {
   const title = useWorkspaceStoreById(wsId, (s) =>
     chatId ? chatTitleIn(s.agentChats.chats, chatId) : null,
   )
-  if (!chatId) return null
-  return <h1 className={className}>{title ?? CHAT_TITLE_PENDING_LABEL}</h1>
+  if (!chatId || title === null) return null
+  return <h1 className={className}>{title}</h1>
 }

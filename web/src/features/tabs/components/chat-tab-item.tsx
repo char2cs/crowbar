@@ -1,5 +1,5 @@
 import { Tab } from '@/components/ui/tabs'
-import { CHAT_TITLE_PENDING_LABEL, useChatTitle } from '@/features/agent/hooks/use-chat-title'
+import { useChatTitle } from '@/features/agent/hooks/use-chat-title'
 import { AgentChatGlyph } from '@/features/agent/shared/agent-chat-glyph'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 
@@ -51,7 +51,7 @@ export function ChatTabItem({ chatId, isActive, onSelect }: ChatTabItemProps) {
         data-title-pending={title === null ? 'true' : undefined}
         className="max-w-[160px] truncate"
       >
-        {title ?? CHAT_TITLE_PENDING_LABEL}
+        {title}
       </span>
     </Tab>
   )
