@@ -50,7 +50,8 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
 
   return (
     <section
-      className="agent-chat chat"
+      // `agent-chat-pane` is the scope the picker's chip and cluster are styled under.
+      className="agent-chat agent-chat-pane chat"
       aria-label="Agent chat"
       style={{ '--agent-header-clearance': `${headerClearancePx}px` } as CSSProperties}
     >

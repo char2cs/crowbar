@@ -443,8 +443,12 @@ export function AgentSelectionPicker({
         {showsReport && (
           <span className="truncate text-[11px] text-muted-foreground">({reportedModel})</span>
         )}
-        <span className="opacity-50">&middot;</span>
-        <span className="truncate">{effortLabel(effortLabelText)}</span>
+        {(model || effort) && (
+          <>
+            <span className="opacity-50">&middot;</span>
+            <span className="truncate">{effortLabel(effortLabelText)}</span>
+          </>
+        )}
         <UpDownIcon size={12} className="opacity-55" />
       </button>
       {hasNativeChrome() ? (

@@ -87,6 +87,36 @@ describe('AgentSelectionPicker', () => {
     expect(trigger).toHaveTextContent('High')
   })
 
+  // A blank draft has neither: "Default · Default" said the same word twice.
+  it('names an unpicked model and effort once', () => {
+    render(
+      <AgentSelectionPicker
+        provider={claude}
+        providers={[claude]}
+        model=""
+        effort=""
+        unsetLabel="Default"
+        onSelectionChange={vi.fn()}
+      />,
+    )
+    const trigger = screen.getByRole('button', { name: /Agent:/ })
+    expect(trigger).toHaveTextContent(/^Default$/)
+  })
+
+  it('still names the effort when only the model is unpicked', () => {
+    render(
+      <AgentSelectionPicker
+        provider={claude}
+        providers={[claude]}
+        model=""
+        effort="low"
+        unsetLabel="Default"
+        onSelectionChange={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('button', { name: /Agent:/ })).toHaveTextContent('Default·Low')
+  })
+
   it('groups models under their own provider section, one section per offered provider', () => {
     render(
       <AgentSelectionPicker
