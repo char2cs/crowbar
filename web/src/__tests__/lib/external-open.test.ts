@@ -2,10 +2,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const { shellOpen } = vi.hoisted(() => ({ shellOpen: vi.fn(async (_url: string) => {}) }))
 vi.mock('@tauri-apps/plugin-shell', () => ({ open: shellOpen }))
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  get IS_MOBILE() {
+    return platform.mobile
+  },
+}))
 
 import { openExternalUrl } from '@/lib/external-open'
 
 afterEach(() => {
+  platform.mobile = false
   vi.restoreAllMocks()
   shellOpen.mockClear()
   delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
@@ -52,5 +60,19 @@ describe('openExternalUrl in the desktop app', () => {
     await openExternalUrl('https://example.com/a')
     await expect(openExternalUrl('file:///etc/passwd')).rejects.toThrow()
     expect(shellOpen.mock.calls).toEqual([['https://example.com/a']])
+  })
+})
+
+// The phone app has no shell plugin, and a link opened in its one webview would replace the app.
+describe('openExternalUrl in the phone app', () => {
+  it('refuses, opening nothing in or over the app', async () => {
+    platform.mobile = true
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = { invoke: vi.fn() }
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+
+    await expect(openExternalUrl('https://example.com/a')).rejects.toThrow(/phone app/)
+
+    expect(shellOpen).not.toHaveBeenCalled()
+    expect(open).not.toHaveBeenCalled()
   })
 })

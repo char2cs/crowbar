@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { Suspense } from 'react'
 import { useStore } from 'zustand'
+import { renderPaneContent } from '@/features/panes/components/pane-content-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { BranchReviewContent } from '@/features/panes/types/pane-content'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
@@ -79,7 +81,7 @@ function review(overrides: Partial<ReviewState> = {}): ReviewState {
 function renderPane(wsId: string, store: ReturnType<typeof createWorkspaceStore>) {
   return render(
     <WorkspaceStoreContext.Provider value={store}>
-      <BranchReviewPane bufferId="buf-1" wsId={wsId} />
+      <BranchReviewPane onViewChange={() => {}} wsId={wsId} />
     </WorkspaceStoreContext.Provider>,
   )
 }
@@ -185,16 +187,22 @@ function openReviewBuffer(wsId: string): string {
     .bufferActions.openContent({ type: 'branchReview', wsId, name: 'Branch Review' })
 }
 
-// Mirrors the registry: the persisted `view` on the buffer is what the pane renders.
+// The registry's own rendering: the persisted `view` on the buffer is what the pane renders,
+// and the tab the user picks is written back to it.
 function PersistedViewPane({ bufferId, wsId }: { bufferId: string; wsId: string }) {
-  const view = useStore(
+  const buffer = useStore(
     windowPaneStore,
-    (s) => (s.buffers.find((b) => b.id === bufferId) as BranchReviewContent | undefined)?.view,
+    (s) => s.buffers.find((b) => b.id === bufferId) as BranchReviewContent | undefined,
   )
-  return <BranchReviewPane bufferId={bufferId} view={view} wsId={wsId} />
+  if (!buffer) return null
+  return (
+    <Suspense fallback={null}>
+      {renderPaneContent(buffer, { isActivePane: true, paneId: 'pane-1', wsId })}
+    </Suspense>
+  )
 }
 
-function renderPersisted(wsId: string, bufferId: string) {
+async function renderPersisted(wsId: string, bufferId: string) {
   setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId, owningChatId: 'chat-1' })
   const store = createWorkspaceStore(wsId)
   const utils = render(
@@ -202,6 +210,8 @@ function renderPersisted(wsId: string, bufferId: string) {
       <PersistedViewPane bufferId={bufferId} wsId={wsId} />
     </WorkspaceStoreContext.Provider>,
   )
+  // The registry loads the pane lazily.
+  await screen.findByRole('tab', { name: /Conversation/ })
   return { ...utils, store }
 }
 
@@ -221,9 +231,9 @@ describe('BranchReviewPane — Conversation / Files changed shell', () => {
   it('opens on Conversation and persists the tab the user picks on the buffer', async () => {
     const user = userEvent.setup()
     const id = openReviewBuffer('ws-tabs')
-    renderPersisted('ws-tabs', id)
+    await renderPersisted('ws-tabs', id)
 
-    expect(screen.getByRole('button', { name: 'jump' })).toBeDefined()
+    expect(await screen.findByRole('button', { name: 'jump' })).toBeDefined()
     expect(screen.queryByTestId('diff-tab')).toBeNull()
 
     await user.click(screen.getByRole('tab', { name: /Files changed/ }))
@@ -238,7 +248,7 @@ describe('BranchReviewPane — Conversation / Files changed shell', () => {
       reviewFiles: [diffFile('a.ts'), diffFile('b.ts')],
     })
     const id = openReviewBuffer('ws-count')
-    renderPersisted('ws-count', id)
+    await renderPersisted('ws-count', id)
 
     expect(await screen.findByRole('tab', { name: /Files changed\s*2/ })).toBeDefined()
     destroyWorkspaceStore('ws-count')
@@ -252,7 +262,7 @@ describe('BranchReviewPane — Conversation / Files changed shell', () => {
       ],
     })
     const id = openReviewBuffer('ws-totals')
-    renderPersisted('ws-totals', id)
+    await renderPersisted('ws-totals', id)
 
     expect(await screen.findByText('+8')).toBeDefined()
     expect(screen.getByText('-2')).toBeDefined()
@@ -264,7 +274,7 @@ describe('BranchReviewPane — Conversation / Files changed shell', () => {
   it('renders no merge card; it lives in the sidebar Changes panel', async () => {
     const user = userEvent.setup()
     const id = openReviewBuffer('ws-merge-head')
-    renderPersisted('ws-merge-head', id)
+    await renderPersisted('ws-merge-head', id)
 
     expect(screen.queryByRole('region', { name: 'Merge' })).toBeNull()
     await user.click(screen.getByRole('tab', { name: /Files changed/ }))
@@ -293,7 +303,7 @@ describe('BranchReviewPane — Conversation / Files changed shell', () => {
       ],
     })
     const id = openReviewBuffer('ws-title')
-    const { store } = renderPersisted('ws-title', id)
+    const { store } = await renderPersisted('ws-title', id)
     store.getState().upsertReviewThread({
       id: 't1',
       filePath: 'a.ts',
@@ -313,7 +323,7 @@ describe('BranchReviewPane — Conversation / Files changed shell', () => {
   it('keeps the header and tab row mounted when switching tabs, and arrows move between them', async () => {
     const user = userEvent.setup()
     const id = openReviewBuffer('ws-stable')
-    renderPersisted('ws-stable', id)
+    await renderPersisted('ws-stable', id)
 
     const heading = screen.getByRole('heading')
     const tablist = screen.getByRole('tablist')
@@ -331,7 +341,7 @@ describe('BranchReviewPane — Conversation / Files changed shell', () => {
     const user = userEvent.setup()
     const id = openReviewBuffer('ws-jump')
     windowPaneStore.getState().bufferActions.setBranchReviewView(id, 'conversation')
-    renderPersisted('ws-jump', id)
+    await renderPersisted('ws-jump', id)
 
     await user.click(screen.getByRole('button', { name: 'jump' }))
 
@@ -345,7 +355,7 @@ describe('BranchReviewPane — Conversation / Files changed shell', () => {
     const user = userEvent.setup()
     const id = openReviewBuffer('ws-replay')
     windowPaneStore.getState().bufferActions.setBranchReviewView(id, 'conversation')
-    renderPersisted('ws-replay', id)
+    await renderPersisted('ws-replay', id)
 
     await user.click(screen.getByRole('button', { name: 'jump' }))
     await user.click(screen.getByRole('tab', { name: /Conversation/ }))

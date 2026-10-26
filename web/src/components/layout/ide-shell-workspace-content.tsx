@@ -14,10 +14,13 @@ export function IdeShellWorkspaceContent({
   effectiveActiveWorkspaceId,
   paneWsIds,
   viewWsIds,
+  showViewTabs = true,
 }: {
   effectiveActiveWorkspaceId: string | null
   paneWsIds: string[]
   viewWsIds: string[]
+  /** Off on the phone, which shows one chat at a time and lists the rest in its chat list. */
+  showViewTabs?: boolean
 }) {
   return (
     // Every pane in here is its OWN drop target now (PaneContainer spreads
@@ -26,7 +29,7 @@ export function IdeShellWorkspaceContent({
     // zone this div used to be (Task 22 deleted that dwell-to-remove gesture
     // along with `editor-removal-overlay.tsx`).
     <div className="relative z-[1] flex h-full min-w-0 flex-col bg-transparent">
-      <ViewTabsRow />
+      {showViewTabs && <ViewTabsRow />}
       <ErrorBoundary>
         {/* WorkspaceHost stays mounted for the whole IDE session — including on
             the project-home route. Unmounting the host on every home visit

@@ -1,6 +1,8 @@
 import { useMemo } from 'react'
 import { GitBranch } from '@phosphor-icons/react'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { SELECTED_PILL } from '@/components/ui/selected-pill'
+import { cn } from '@/lib/utils'
 import { useShownSidebarTab } from '@/components/layout/sidebar-panel-tabs'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { openBranchReviewForWorkspace } from '@/features/panes/utils/pane-command-actions'
@@ -66,7 +68,7 @@ export function GitPanel() {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {wsId && branch && (
-        <div className="mx-1.5 my-0.5 rounded-lg border border-background bg-background text-foreground shadow-xs shadow-black/10 inset-shadow-[0_1px_var(--elevated-highlight)]">
+        <div className={cn('mx-1.5 my-0.5 text-foreground', SELECTED_PILL)}>
           <div className="flex select-none items-center gap-2 h-9 px-2 text-[13px] font-medium">
             <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate font-mono">{branch}</span>

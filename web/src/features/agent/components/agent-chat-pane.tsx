@@ -40,6 +40,7 @@ import {
 import { AgentChatView, type AgentChatViewHandle } from '@/features/agent/chat/agent-chat-view'
 import { AgentTerminalSurface } from '@/features/agent/terminal/agent-terminal-surface'
 import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
+import { IS_MOBILE } from '@/utils/platform'
 
 // ── The split view's geometry ─────────────────────────────────────────────
 //
@@ -310,7 +311,7 @@ export function AgentChatPaneBody({
   // The two layout divs whose empty space belongs to the terminal, and the terminal's
   // own imperative handle — see focusTerminalFromEmptySpace.
   const rootRef = useRef<HTMLDivElement>(null)
-  const terminalApiRef = useRef<{ focus: () => void } | null>(null)
+  const terminalApiRef = useRef<{ focus: () => void; send: (data: string) => void } | null>(null)
 
   // The split's own three boxes: the container that defines 100%, and the two
   // halves PaneSash mutates imperatively during a drag. They are the SAME divs
@@ -865,6 +866,8 @@ export function AgentChatPaneBody({
           terminal keeps the full wrapped width and all four gutters. */}
       <div
         ref={columnRef}
+        // The phone's sidebar is native: no neighbour to keep the left gutter from.
+        data-touch={IS_MOBILE || undefined}
         className={cn(
           // The scope shared controls are styled under. The chat's own stylesheet
           // is scoped to `.agent-chat`, which the TERMINAL surface is not inside —
@@ -876,7 +879,7 @@ export function AgentChatPaneBody({
           // Pure chat keeps only its LEFT gutter — see above — dropping the
           // top and right ones this presentation would otherwise share with
           // terminal/split.
-          splitting || presentation !== 'chat' ? 'px-4 pt-4' : 'pl-4',
+          splitting || presentation !== 'chat' ? 'px-4 pt-4' : 'pl-4 data-touch:pl-0',
         )}
       >
         <div

@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
 // dependencies first) — vi.hoisted is required so `isTauri` exists by then.
 const { isTauri } = vi.hoisted(() => ({ isTauri: vi.fn(() => false) }))
 vi.mock('@/lib/crowbar-bridge', () => ({ isTauri }))
+const install = vi.hoisted(() => ({ localDaemon: true }))
+vi.mock('@/features/hosts/lib/local-daemon', () => ({ hasLocalDaemon: () => install.localDaemon }))
 
 import {
   apiFetch,
@@ -35,6 +37,22 @@ function envelope(data: unknown) {
 afterEach(() => {
   vi.unstubAllGlobals()
   isTauri.mockReturnValue(false)
+  install.localDaemon = true
+})
+
+// The phone app: a request for the local daemon has nothing to reach, so it fails at
+// once as the daemon being unavailable instead of retrying a socket that never exists.
+describe('apiFetch with no local daemon', () => {
+  it('fails a local request at once, without fetching', async () => {
+    install.localDaemon = false
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const read = apiFetch('/v0/projects', undefined, fastRetry(8))
+
+    await expect(read).rejects.toMatchObject({ name: 'ApiError', status: 503, hostId: 'local' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
 })
 
 // apiBaseFor itself (the 'local'/remote/Tauri-gating logic) is covered in its

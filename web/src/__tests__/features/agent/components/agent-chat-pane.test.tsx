@@ -1,5 +1,5 @@
 import { createElement } from 'react'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
 import type { AgentChat, AgentChatDetail, AgentProvider } from '@/features/agent/api/agent-api'
@@ -54,7 +54,14 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
 // Force macOS regardless of whatever OS the test happens to run on (jsdom's
 // UA bakes in the CI runner's own host platform, which is Linux on GitHub
 // Actions).
-vi.mock('@/utils/platform', () => ({ IS_MAC: true }))
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', () => ({
+  IS_MAC: true,
+  get IS_MOBILE() {
+    return platform.mobile
+  },
+  APPLE_KEYBOARD: true,
+}))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
   getPendingPrompt: vi.fn().mockResolvedValue(null),
@@ -415,6 +422,7 @@ const paneOf = (_store: Store, id: string) => windowPaneStore.getState().panes[i
 // the chat back afterwards shows the runner now on it. Tests that are about failure say
 // so explicitly by overriding these — nothing else has to opt in to "it worked".
 beforeEach(() => {
+  platform.mobile = false
   resetWindowPaneStoreForTests()
   chatLedgerStore.setState({ ledgers: {} })
   resetChatPresentationMemoryForTests()
@@ -490,6 +498,20 @@ describe('AgentChatPane', () => {
   // chat the user had to go find. The tab is a VIEWPORT on a moving target: it
   // follows the runner, and because the terminal is keyed by the PTY (which a move
   // does not change), the conversation changes WITHOUT changing the terminal.
+  // The desktop chat keeps a left gutter against the sidebar beside it; the phone's
+  // sidebar is native, so a gutter there only made the left margin wider than the right.
+  it('drops the left-only chat gutter on the phone', async () => {
+    const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+    const paneId = openChatPane(store, 'c1', 'r1')
+    await renderPane(store, paneId)
+    expect(document.querySelector('.agent-chat-pane')).not.toHaveAttribute('data-touch')
+    cleanup()
+
+    platform.mobile = true
+    await renderPane(store, paneId)
+    expect(document.querySelector('.agent-chat-pane')).toHaveAttribute('data-touch')
+  })
+
   it('follows its runner to a new chat without remounting the terminal', async () => {
     const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
     const paneId = openChatPane(store, 'c1', 'r1')

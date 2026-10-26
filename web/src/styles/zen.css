@@ -42,11 +42,13 @@
    separation once translucency is gone, which is expected, not a bug to
    chase. Light's --chrome-bg is already 0% alpha (inert regardless of
    backdrop), so no override is needed for it. */
-[data-theme='zen'][data-platform='linux']:not(.dark) {
+[data-theme='zen'][data-platform='linux']:not(.dark),
+[data-theme='zen'][data-platform='ios']:not(.dark) {
   --pane-background: var(--color-white);
 }
 
-[data-theme='zen'][data-platform='linux'].dark {
+[data-theme='zen'][data-platform='linux'].dark,
+[data-theme='zen'][data-platform='ios'].dark {
   --pane-background: oklch(0.271 0 0);
   --chrome-bg: oklch(0.114 0 0);
 }

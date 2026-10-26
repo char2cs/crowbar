@@ -111,11 +111,6 @@ vi.mock('@/features/agent/transcript/plate/markdown-message', () => ({
   MarkdownMessage: ({ children }: { children: string }) => createElement('div', null, children),
 }))
 
-vi.mock('@/features/agent/transcript/plate/markdown-message-static', () => ({
-  MarkdownMessageStatic: ({ children }: { children: string }) =>
-    createElement('div', null, children),
-}))
-
 import { AgentChatView, type AgentChatViewHandle } from '@/features/agent/chat/agent-chat-view'
 
 const providers: AgentProvider[] = [
@@ -446,6 +441,30 @@ describe('AgentChatView message ledger', () => {
       },
       { timeout: 4_000 },
     )
+  })
+
+  // The phone keeps the empty document, its bar at the capsule's touch metrics with the
+  // model picker inside it, beside + and send.
+  it('draws the empty document with the phone composer’s metrics', async () => {
+    // The platform is read once at load: load the view afresh under an iPhone's agent.
+    const agent = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (iPhone)')
+    vi.resetModules()
+    const [{ AgentChatView: PhoneView }, context, store] = await Promise.all([
+      import('@/features/agent/chat/agent-chat-view'),
+      import('@/features/workspace/stores/workspace-context'),
+      import('@/features/workspace/stores/workspace-store'),
+    ])
+    agent.mockRestore()
+    const props = baseProps()
+    render(
+      <context.WorkspaceStoreContext.Provider value={store.createWorkspaceStore(props.wsId)}>
+        <PhoneView {...props} working={false} />
+      </context.WorkspaceStoreContext.Provider>,
+    )
+    const doc = await screen.findByTestId('agent-empty-document')
+    const bar = doc.querySelector('.dochandle')
+    expect(bar).toHaveAttribute('data-touch')
+    expect(bar!.querySelector('.grp .selpos')).not.toBeNull()
   })
 
   it('fetches after a batched start/stop pair even when working renders idle both times', async () => {

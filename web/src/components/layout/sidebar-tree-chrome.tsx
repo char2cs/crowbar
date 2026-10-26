@@ -1,10 +1,10 @@
 import { useEffect, useState, type RefObject } from 'react'
 import { SidebarRowContextMenu } from '@/components/sidebar/row-context-menu'
-import { performImportBranches } from '@/components/sidebar/lib/row-actions'
 import { useSidebarInlineRenameStore } from '@/lib/store/sidebar-inline-rename'
-import { resolveRow } from './open-actions'
 import type { Repo } from '@/lib/store/sidebar'
+import { performImportBranches } from '@/components/sidebar/lib/row-actions'
 import { RepoImportDialog } from './repo-import-dialog'
+import { resolveRow } from './open-actions'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 interface SidebarTreeChromeProps {
@@ -41,7 +41,6 @@ interface SidebarTreeChromeProps {
  */
 export function SidebarTreeChrome({ treeRef, rows, repos }: SidebarTreeChromeProps) {
   const [importRepoRowId, setImportRepoRowId] = useState<string | null>(null)
-  const importRepo = importRepoRowId != null ? resolveRow(repos, importRepoRowId)?.repo : undefined
 
   // Double-click-to-rename, restored from the deleted tree's per-row inline
   // editors (git history: cf422bc5) — as a REAL inline `<input>` in place of
@@ -85,18 +84,38 @@ export function SidebarTreeChrome({ treeRef, rows, repos }: SidebarTreeChromePro
   return (
     <>
       <SidebarRowContextMenu treeRef={treeRef} rows={rows} onImport={setImportRepoRowId} />
-      <RepoImportDialog
-        projectId={importRepo?.projectId ?? ''}
-        repoId={importRepo?.id ?? ''}
-        defaultBranch={importRepo?.defaultBranch ?? ''}
-        open={importRepoRowId != null}
-        onOpenChange={(open) => {
-          if (!open) setImportRepoRowId(null)
-        }}
-        onImport={(branches, lockedBranches) => {
-          if (importRepo) void performImportBranches(importRepo.id, branches, lockedBranches)
-        }}
+      <RowBranchImportDialog
+        repoRowId={importRepoRowId}
+        repos={repos}
+        onClose={() => setImportRepoRowId(null)}
       />
     </>
+  )
+}
+
+/** The import dialog for the project-home row `repoRowId` (null: closed), importing into its repo. */
+export function RowBranchImportDialog({
+  repoRowId,
+  repos,
+  onClose,
+}: {
+  repoRowId: string | null
+  repos: readonly Repo[]
+  onClose: () => void
+}) {
+  const repo = repoRowId != null ? resolveRow(repos, repoRowId)?.repo : undefined
+  return (
+    <RepoImportDialog
+      projectId={repo?.projectId ?? ''}
+      repoId={repo?.id ?? ''}
+      defaultBranch={repo?.defaultBranch ?? ''}
+      open={repoRowId != null}
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+      onImport={(branches, lockedBranches) => {
+        if (repo) void performImportBranches(repo.id, branches, lockedBranches)
+      }}
+    />
   )
 }

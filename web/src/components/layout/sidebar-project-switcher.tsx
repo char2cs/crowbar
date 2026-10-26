@@ -27,7 +27,7 @@ const HOST_LINE =
 
 /** A remote project's host under its name — its computer and dot, its name and, short of
  *  online, its state in its tone — and the way into Settings → Hosts. */
-function ProjectHostLine({ hostId }: { hostId: string }) {
+function ProjectHostLine({ hostId, onOpen }: { hostId: string; onOpen: () => void }) {
   const { name, state } = useHostView(hostId)
   const stateWord = hostDotLabel(state)
   const online = hostTone(state) === 'online'
@@ -46,7 +46,7 @@ function ProjectHostLine({ hostId }: { hostId: string }) {
           data-control="host-settings"
           {...tone}
           aria-label={label}
-          onClick={() => useUIState.getState().openSettingsDialog('hosts')}
+          onClick={onOpen}
         >
           <HostStatusIcon
             hostId={hostId}
@@ -70,7 +70,11 @@ interface SidebarProjectSwitcherProps {
   onSelectProject: (id: string) => void
   /** The tree's only entry point for a SECOND project. */
   onAddProject?: () => void
+  /** The host line's way into Settings → Hosts. */
+  onOpenHostSettings?: () => void
 }
+
+const openHostSettings = () => useUIState.getState().openSettingsDialog('hosts')
 
 function ProjectMark({
   label,
@@ -137,6 +141,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
   activeProjectId,
   onSelectProject,
   onAddProject,
+  onOpenHostSettings = openHostSettings,
 }: SidebarProjectSwitcherProps) {
   // Holds the project id, so switching spaces mid-edit drops the editor.
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -176,7 +181,9 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
                   {active.name}
                 </span>
               )}
-              {active.hostId !== LOCAL_HOST.id && <ProjectHostLine hostId={active.hostId} />}
+              {active.hostId !== LOCAL_HOST.id && (
+                <ProjectHostLine hostId={active.hostId} onOpen={onOpenHostSettings} />
+              )}
             </div>
           </>
         )}

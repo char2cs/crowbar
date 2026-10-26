@@ -21,6 +21,8 @@ vi.mock('@/utils/platform', () => ({
   IS_MAC: true,
   IS_WINDOWS: false,
   IS_LINUX: false,
+  IS_MOBILE: false,
+  APPLE_KEYBOARD: true,
 }))
 const { workspaceViewMock } = vi.hoisted(() => ({
   workspaceViewMock: vi.fn(),

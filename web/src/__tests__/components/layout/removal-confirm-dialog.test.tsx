@@ -1,5 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+
+const native = vi.hoisted(() => ({ on: false, confirm: vi.fn(async (): Promise<boolean> => true) }))
+vi.mock('@/lib/native-chrome', () => ({
+  hasNativeChrome: () => native.on,
+  nativeConfirm: native.confirm,
+}))
 import { RemovalConfirmDialog } from '@/components/layout/removal-confirm-dialog'
 import type { RemovalEntry } from '@/lib/store/sidebar-removal'
 
@@ -81,5 +87,35 @@ describe('RemovalConfirmDialog', () => {
     expect(screen.getByText('Delete repository “checkout”?')).toBeTruthy()
     expect(screen.queryByRole('list')).toBeNull()
     expect(screen.getByRole('button', { name: 'Delete repository' })).toBeTruthy()
+  })
+  describe('on the phone', () => {
+    afterEach(() => {
+      native.on = false
+      native.confirm.mockClear()
+    })
+
+    it('asks the same question natively, and deletes on yes', async () => {
+      native.on = true
+      const onConfirm = vi.fn()
+      const asked = entry()
+      render(<RemovalConfirmDialog entry={asked} onCancel={vi.fn()} onConfirm={onConfirm} />)
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+      await waitFor(() => expect(onConfirm).toHaveBeenCalledExactlyOnceWith(asked))
+      expect(native.confirm).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Delete repository “checkout”?',
+          confirmLabel: 'Delete repository',
+          destructive: true,
+        }),
+      )
+    })
+
+    it('keeps it on no', async () => {
+      native.on = true
+      native.confirm.mockResolvedValueOnce(false)
+      const onCancel = vi.fn()
+      render(<RemovalConfirmDialog entry={entry()} onCancel={onCancel} onConfirm={vi.fn()} />)
+      await waitFor(() => expect(onCancel).toHaveBeenCalledOnce())
+    })
   })
 })

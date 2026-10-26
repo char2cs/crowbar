@@ -21,6 +21,7 @@
 //! This is the ONE bridge: every WebSocket route, the terminal's PTY stream
 //! included, goes through it. How a connection lives and dies is in `connection`.
 
+#[cfg(desktop)]
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -28,6 +29,7 @@ use std::time::Duration;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{Manager, State};
 use tokio::io::{AsyncRead, AsyncWrite};
+#[cfg(desktop)]
 use tokio::net::UnixStream;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::handshake::client::Request;
@@ -110,6 +112,7 @@ pub async fn ws_open(
     let window_label = window.label().to_string();
     let read_idle_timeout = idle_timeout_ms.map(Duration::from_millis);
     let opened = match remote_host(host_id) {
+        #[cfg(desktop)]
         None => {
             let socket = crate::sidecar::socket_path();
             open_bridge(
@@ -123,6 +126,8 @@ pub async fn ws_open(
             )
             .await
         }
+        #[cfg(mobile)]
+        None => return Err("no local daemon on this device".to_string()),
         Some(host_id) => {
             let registry = window.state::<HostRegistry>();
             let tokens = window.state::<Arc<dyn TokenStore>>();
@@ -155,6 +160,7 @@ fn remote_host(host_id: Option<String>) -> Option<String> {
 /// call — but it is the only honest signal that a retired connection has finished
 /// letting go of its socket, so tests block on it rather than on a peer that may never
 /// react (which is exactly the case cancellation exists for).
+#[cfg(desktop)]
 pub async fn open_bridge<S: FrameSink>(
     socket: &Path,
     conn_id: String,

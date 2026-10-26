@@ -14,6 +14,8 @@ import { daemonChanges, noteDaemonChange } from '@/lib/transport/daemon-changes'
 import { OwningChatNotRecordedError, worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { isTauri } from '@/lib/crowbar-bridge'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { hasLocalDaemon } from '@/features/hosts/lib/local-daemon'
+import { LOCAL_HOST } from '@/features/hosts/types'
 import {
   ApiError,
   DAEMON_UNAVAILABLE_CODE,
@@ -151,6 +153,15 @@ export async function apiFetchRaw(
   hostId?: string,
 ): Promise<Response> {
   const target = routeToHost(path, hostId)
+  if (target.hostId === LOCAL_HOST.id && !hasLocalDaemon()) {
+    throw new ApiError(
+      'this install has no local daemon',
+      503,
+      DAEMON_UNAVAILABLE_CODE,
+      undefined,
+      target.hostId,
+    )
+  }
   const read = isIdempotentRead(init)
   if (!read) noteDaemonChange()
   const maxAttempts = read ? Math.max(1, retry.attempts) : 1
