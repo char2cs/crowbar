@@ -69,6 +69,8 @@ func (blindTerminal) CreateCommand(
 
 func (blindTerminal) TerminateGraceful(context.Context, string) error { return nil }
 
+func (blindTerminal) Write(context.Context, string, []byte) error { return nil }
+
 func (blindTerminal) SessionLive(context.Context, string) bool { return false }
 
 type seeingTerminal struct{ blindTerminal }

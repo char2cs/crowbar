@@ -35,6 +35,8 @@ func (plainCommander) CreateCommand(
 
 func (plainCommander) TerminateGraceful(context.Context, string) error { return nil }
 
+func (plainCommander) Write(context.Context, string, []byte) error { return nil }
+
 func (plainCommander) SessionLive(context.Context, string) bool { return false }
 
 // screenReadingCommander is the same seam WITH a screen, which is what the

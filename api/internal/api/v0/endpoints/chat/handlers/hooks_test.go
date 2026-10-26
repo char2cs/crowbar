@@ -640,6 +640,8 @@ func (f *fakeAgentUsecase) ReadPendingChoices(
 	return f.pending, f.pendingErr
 }
 
+func (f *fakeAgentUsecase) AnswerTerminalWait(context.Context, string, string) error { return nil }
+
 func (f *fakeAgentUsecase) TerminalWait(string) domain.AgentTerminalWait {
 	return f.terminalWait
 }

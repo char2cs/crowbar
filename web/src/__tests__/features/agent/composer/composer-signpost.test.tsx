@@ -46,6 +46,23 @@ describe('ComposerSignpost', () => {
     expect(onOpenTerminal).toHaveBeenCalled()
   })
 
+  it('offers each declared answer next to the terminal, labelled from the descriptor', () => {
+    const onAnswer = vi.fn()
+    render(
+      <ComposerSignpost
+        reason="terminal_wait"
+        message="This provider is waiting for you to trust the workspace"
+        onOpenTerminal={vi.fn()}
+        answers={[{ id: 'accept', label: 'Trust workspace' }]}
+        onAnswer={onAnswer}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Trust workspace' }))
+    expect(onAnswer).toHaveBeenCalledWith('accept')
+    expect(screen.getByRole('button', { name: /Terminal/ })).toBeInTheDocument()
+  })
+
   // Crowbar's own revive is in flight — there is nothing to click, only a
   // spinner saying so isn't stalled.
   it('shows a spinner and no button while reviving', () => {

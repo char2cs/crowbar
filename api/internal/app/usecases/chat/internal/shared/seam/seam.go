@@ -75,6 +75,8 @@ type TerminalCommander interface {
 		ctx context.Context,
 		sessionID string,
 	) error
+	// Write sends raw keystrokes to a live session's PTY.
+	Write(ctx context.Context, sessionID string, data []byte) error
 	// SessionLive reports whether a terminal session id is backed by a LIVE PTY right
 	// now. Its one caller is ReconcileRunnersOnBoot (below): it is the single authority
 	// boot reconciliation asks, Exiting every runner whose PTY did not survive the

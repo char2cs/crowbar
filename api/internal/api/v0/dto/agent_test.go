@@ -274,3 +274,14 @@ func TestRegression_AgentChatDTOFrom_BornOnAProviderThatRecordedNothingIsStillNa
 	assert.Equal(t, "codex", got.ActiveProviderID,
 		"a dormant chat that recorded nothing still knows what it runs; \"\" is what let the UI guess")
 }
+
+// Keys are provider data that never leave the daemon: only id and label reach a client.
+func TestTerminalWaitDTOFrom_AnswersExposeIDAndLabelOnly(t *testing.T) {
+	got := dto.TerminalWaitDTOFrom(domain.AgentTerminalWait{
+		Waiting: true,
+		Answers: []domain.AgentTerminalAnswer{{ID: "accept", Label: "Trust workspace", Keys: "\r"}},
+	})
+
+	require.NotNil(t, got)
+	assert.Equal(t, []dto.AgentTerminalAnswerDTO{{ID: "accept", Label: "Trust workspace"}}, got.Answers)
+}

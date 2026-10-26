@@ -68,7 +68,7 @@ func (d *detector) fold(
 		was := prev[chatID]
 		verdict, screen, stalled := d.evaluate(ctx, runner, was.screen)
 		next[chatID] = chatState{workspaceID: runner.WorkspaceID, screen: screen, published: verdict}
-		if verdict != was.published {
+		if !verdict.Equal(was.published) {
 			changed = append(changed, change{chatID, runner.WorkspaceID, verdict})
 		}
 		if stalled {

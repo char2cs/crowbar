@@ -63,6 +63,15 @@ type AnswerUsecase interface {
 		content []byte,
 	) error
 
+	// AnswerTerminalWait types the descriptor-declared reply answerID into the
+	// terminal prompt chatID's CLI is parked on. Returns apperr.ErrConflict when
+	// the prompt has gone and apperr.ErrInvalidArgument for an unknown answer.
+	AnswerTerminalWait(
+		ctx context.Context,
+		chatID string,
+		answerID string,
+	) error
+
 	// AnswerableChoiceIDs filters choices down to the ones a relay of chatID is
 	// still blocked on, which is what makes a pending question actionable in the
 	// UI rather than merely visible.
@@ -270,4 +279,10 @@ func (u *Usecase) AnswerableChoiceIDs(
 	choices []domain.ActivityChoice,
 ) []string {
 	return u.answers.AnswerableIDs(chatID, choices)
+}
+
+// AnswerTerminalWait types the reply into the chat's terminal prompt; the sweep
+// clears the wait once the prompt leaves the screen.
+func (u *Usecase) AnswerTerminalWait(ctx context.Context, chatID, answerID string) error {
+	return u.runners.AnswerTerminalWait(ctx, chatID, answerID)
 }

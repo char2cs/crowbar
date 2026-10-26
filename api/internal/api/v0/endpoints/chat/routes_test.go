@@ -570,6 +570,8 @@ func (stubUsecase) Interruptions(
 	return nil, nil
 }
 
+func (stubUsecase) AnswerTerminalWait(context.Context, string, string) error { return nil }
+
 func (stubUsecase) AnswerableChoiceIDs(string, []domain.ActivityChoice) []string { return nil }
 
 func (stubUsecase) AnswerChoice(

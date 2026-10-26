@@ -164,6 +164,15 @@ export interface ChatSession {
  *  something wrong. */
 export interface AgentTerminalWait {
   kind: string
+  /** One-tap replies the provider's descriptor declares for this prompt. Absent
+   *  or empty means the terminal is the only way past it. */
+  answers?: AgentTerminalAnswer[]
+}
+
+export interface AgentTerminalAnswer {
+  id: string
+  /** The button text, from the descriptor. */
+  label: string
 }
 
 /** Crowbar's names for the prompts it recognises specifically. Anything else —
@@ -440,7 +449,9 @@ export function mapChat(c: AgentChat): AgentChat {
     // this chat), so it stays undefined rather than becoming a falsy object that
     // every reader would then have to interrogate. `kind` inside it IS grounded,
     // because an identified prompt and an unidentified one are both real answers.
-    terminalWait: c.terminalWait ? { kind: c.terminalWait.kind ?? '' } : undefined,
+    terminalWait: c.terminalWait
+      ? { kind: c.terminalWait.kind ?? '', answers: c.terminalWait.answers }
+      : undefined,
   }
 }
 
@@ -806,6 +817,21 @@ export async function answerChoice(
       }),
     },
   )
+}
+
+/** Type the descriptor-declared reply into the prompt a chat's CLI is parked on.
+ *  Resolves once the keystrokes are written; the wait itself clears when the
+ *  daemon next sees the prompt gone. A 409 means it already has. */
+export async function answerTerminalWait(
+  wsId: string,
+  chatId: string,
+  answerId: string,
+): Promise<void> {
+  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(chatId)}/terminal-wait/answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answerId }),
+  })
 }
 
 /** Fetch one tool call's arguments or output. Returns null when retention has

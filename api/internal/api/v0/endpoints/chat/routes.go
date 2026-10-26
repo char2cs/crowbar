@@ -132,6 +132,7 @@ func Register(
 	repoScoped.HEAD("/chats/:id/attachments/:file", h.Attachment)
 	repoScoped.GET("/chats/:id/choices", h.Choices)
 	repoScoped.POST("/chats/:id/choices/:choiceId/answer", h.AnswerChoice)
+	repoScoped.POST("/chats/:id/terminal-wait/answer", h.AnswerTerminalWait)
 	repoScoped.PUT("/chats/:id/permission-level", h.SetChatPermissionLevel)
 	repoScoped.GET("/chats/:id/telemetry", h.Telemetry)
 	repoScoped.GET("/chats/:id/slash-catalog", h.SlashCatalog)

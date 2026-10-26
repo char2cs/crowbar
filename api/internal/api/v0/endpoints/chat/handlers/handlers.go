@@ -342,6 +342,10 @@ type AnswerUsecase interface {
 		choices []domain.ActivityChoice,
 	) []string
 
+	// AnswerTerminalWait types a descriptor-declared reply into the terminal
+	// prompt the chat's CLI is parked on; ErrConflict once the prompt has gone.
+	AnswerTerminalWait(ctx context.Context, chatID, answerID string) error
+
 	// AnswerChoice records a human's decision and hands it to the relay blocking the
 	// provider's gate. optionIDs name what was picked; reason and content carry the
 	// free-form parts a provider accepts (a deny message, an elicitation's filled-in

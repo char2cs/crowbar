@@ -1,6 +1,6 @@
 import { TerminalIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
-import { TERMINAL_WAIT_TRUST } from '@/features/agent/api/agent-api'
+import { TERMINAL_WAIT_TRUST, type AgentTerminalAnswer } from '@/features/agent/api/agent-api'
 
 interface AgentTerminalWaitBannerProps {
   /** Crowbar's own name for the prompt, or '' when it knows only that one is up. */
@@ -8,6 +8,9 @@ interface AgentTerminalWaitBannerProps {
   /** The provider's display name, or '' when it is not known yet. */
   providerLabel: string
   onOpenTerminal: () => void
+  /** The prompt's declared one-tap replies, when it has any. */
+  answers?: AgentTerminalAnswer[]
+  onAnswer?: (answerId: string) => void
 }
 
 /** What the chat says when its CLI is blocked on something Crowbar CANNOT answer.
@@ -50,6 +53,8 @@ export function AgentTerminalWaitBanner({
   kind,
   providerLabel,
   onOpenTerminal,
+  answers,
+  onAnswer,
 }: AgentTerminalWaitBannerProps) {
   const who = providerLabel || 'The agent'
   const what =
@@ -67,9 +72,16 @@ export function AgentTerminalWaitBanner({
       <p className="min-w-0 truncate text-warning-foreground pointer-coarse:whitespace-normal pointer-coarse:overflow-visible">
         {what} <span className="text-muted-foreground">Crowbar can’t answer this one.</span>
       </p>
-      <Button className="ml-auto shrink-0" size="xs" variant="secondary" onClick={onOpenTerminal}>
-        <TerminalIcon /> Open Terminal
-      </Button>
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        {answers?.map((answer) => (
+          <Button key={answer.id} size="xs" onClick={() => onAnswer?.(answer.id)}>
+            {answer.label}
+          </Button>
+        ))}
+        <Button size="xs" variant="secondary" onClick={onOpenTerminal}>
+          <TerminalIcon /> Open Terminal
+        </Button>
+      </div>
     </div>
   )
 }
