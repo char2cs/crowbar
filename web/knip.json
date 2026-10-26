@@ -167,7 +167,7 @@
     "src/features/workspace/stores/workspace-store-registry.ts": ["exports", "types"],
     "src/features/workspace/stores/workspace-store.ts": ["types"],
     "src/features/workspace/stores/workspace-store.types.ts": ["types"],
-    "src/lib/api.ts": ["exports", "types"],
+    "src/lib/api.ts": ["exports"],
     "src/lib/api/sidebar-placement.ts": ["exports", "types"],
     "src/lib/build-info.ts": ["exports"],
     "src/lib/loadable.ts": ["exports"],

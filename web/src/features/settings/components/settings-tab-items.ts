@@ -5,6 +5,7 @@ import {
   GitBranch,
   HardDrives,
   Keyboard,
+  Pulse,
   PaintBrush,
   Robot,
   TerminalWindow,
@@ -36,6 +37,7 @@ const SHARED_TAB_ITEMS: SettingsTabItem[] = [
   // USER-FACING RENAME ONLY (spec §11). The tab is called Agents; its id stays
   // `providers` because it is a persisted key and a route into the dialog.
   { id: 'providers', label: 'Agents', icon: Robot },
+  { id: 'active-sessions', label: 'Active sessions', icon: Pulse },
   { id: 'keybindings', label: 'Keybindings', icon: Keyboard },
 ]
 

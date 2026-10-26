@@ -60,6 +60,14 @@ export function chatTerminalsBaseForWorkspace(wsId: string, chatId: string): str
 }
 
 /**
+ * The attach socket for a SPECIFIC chat shown in `wsId`: held open for as long
+ * as this window displays the chat, so the daemon can count its viewers.
+ */
+export function chatAttachPathForWorkspace(wsId: string, chatId: string): string {
+  return qualify(hostIdForWorkspace(wsId), `${chatPath(chatId)}/attach`)
+}
+
+/**
  * The terminals base for the chat that owns `wsId`'s worktree.
  *
  * Terminal sessions are owned by a CHAT, not by a worktree: sibling chats

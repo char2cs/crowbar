@@ -8,6 +8,11 @@ import { type Chat, type Folder } from '@/lib/store/sidebar'
 import { EMPTY_CHATS, EMPTY_FOLDERS } from '@/lib/store/repo-tree'
 import { NON_STRUCTURAL_CHAT_KINDS } from '@/lib/ws/chat-frame-kinds'
 import {
+  liveSessionsFromRows,
+  useActiveSessionsStore,
+  type ActiveSessionFrame,
+} from '@/lib/store/active-sessions'
+import {
   ensureHomeWorkspaceResolved,
   getHomeOwningChatId,
   getHomeWorkspaceId,
@@ -187,6 +192,7 @@ export async function refreshRepoPlacements(projectId: string): Promise<void> {
 export function subscribeHomeTree(projectId: string): () => void {
   let disposed = false
   let latestRead = 0
+  const scope = `home:${projectId}`
   // Last-known halves: the two reads settle independently, so one failed GET
   // keeps whatever the other (or an earlier reseed) already landed.
   let chats: Chat[] | undefined
@@ -195,7 +201,11 @@ export function subscribeHomeTree(projectId: string): () => void {
   async function reseed(): Promise<void> {
     const seq = ++latestRead
     const [chatsRead, foldersRead] = await Promise.allSettled([
-      fetchHomeChats(projectId),
+      fetchHomeChats(projectId, (rows) => {
+        if (!disposed && seq === latestRead) {
+          useActiveSessionsStore.getState().seedScope(scope, liveSessionsFromRows(scope, rows))
+        }
+      }),
       fetchHomeFolders(projectId),
     ])
     if (disposed || seq !== latestRead) return
@@ -223,10 +233,12 @@ export function subscribeHomeTree(projectId: string): () => void {
     // held for every VISIBLE project, so it is also where a resolver that
     // lost its first GET /home heals (a no-op once resolved).
     if (frame && typeof frame === 'object' && 'reconnected' in frame) {
+      useActiveSessionsStore.getState().resetAttached(scope)
       ensureHomeWorkspaceResolved(projectId)
       void reseed()
       return
     }
+    useActiveSessionsStore.getState().applyFrame(scope, frame as ActiveSessionFrame)
     const kind = (frame as { kind?: string } | null)?.kind
     if (kind === undefined) return
     if (!NON_STRUCTURAL_CHAT_KINDS.has(kind)) void reseed()
@@ -236,6 +248,7 @@ export function subscribeHomeTree(projectId: string): () => void {
   return () => {
     disposed = true
     unsubscribe()
+    useActiveSessionsStore.getState().clearScope(scope)
     useHomeTreeStore.getState().clearTree(projectId)
   }
 }

@@ -24,13 +24,13 @@ vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
   loadReconnect: vi.fn(() => null),
 }))
 
-const { closeChat, deleteChat } = vi.hoisted(() => ({
-  closeChat: vi.fn(async () => {}),
+const { killChat, deleteChat } = vi.hoisted(() => ({
+  killChat: vi.fn(async () => {}),
   deleteChat: vi.fn(async () => {}),
 }))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
-  closeChat,
+  killChat,
   deleteChat,
 }))
 
@@ -291,7 +291,7 @@ describe('buffer-slice', () => {
   // A chat is no longer a buffer (it is `PaneGroup.chatId`), so closing a
   // terminal never reaches the agent API.
   it('closing a terminal tab does not stop an agent CLI', async () => {
-    closeChat.mockClear()
+    killChat.mockClear()
     const id = store.getState().bufferActions.openContent({
       type: 'terminal',
       workspaceId: 'ws-test',
@@ -300,7 +300,7 @@ describe('buffer-slice', () => {
     })
     closeTab(store, ROOT_PANE_ID, id)
     await vi.waitFor(() => expect(killTerminalSession).toHaveBeenCalledWith('sess-term'))
-    expect(closeChat).not.toHaveBeenCalled()
+    expect(killChat).not.toHaveBeenCalled()
   })
 
   it('preview flag is set when isPreview is true', () => {

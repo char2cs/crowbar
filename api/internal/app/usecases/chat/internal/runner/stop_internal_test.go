@@ -347,11 +347,10 @@ func TestRegression_StopChatRetiresWhenTheInterruptIsAnsweredButTheTurnStaysOpen
 	require.Equal(t, []string{"chat-1"}, activity.recorded())
 }
 
-// Closing a view ends the chat's session, even mid-turn: StopChat's in-place
+// A force-kill ends the chat's session, even mid-turn: StopChat's in-place
 // interrupt (the Stop button) leaves the runner alive on a provider that can
-// interrupt over its api connection, so a closed view kept its CLI running with
-// nothing on screen to watch it.
-func TestRegression_CloseChatRetiresARunnerMidTurnEvenWhenTheProviderCanInterrupt(t *testing.T) {
+// interrupt over its api connection.
+func TestRegression_KillChatRetiresARunnerMidTurnEvenWhenTheProviderCanInterrupt(t *testing.T) {
 	inflightTurns, work := inflight.NewTurns(), inflight.NewWork()
 	inflightTurns.Begin(context.Background(), "runner-1", "chat-1")
 	work.Set("chat-1", true)
@@ -395,15 +394,15 @@ func TestRegression_CloseChatRetiresARunnerMidTurnEvenWhenTheProviderCanInterrup
 	}
 	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})
 
-	require.NoError(t, rs.CloseChat(ctx, "chat-1"))
+	require.NoError(t, rs.KillChat(ctx, "chat-1"))
 
 	require.True(t, store.displaced, "a closed chat's runner must be retired, not interrupted in place")
 	require.Equal(t, []string{"chat-1"}, activity.recorded(), "the turn it cut short still gets its Stopped divider")
 }
 
-// A close whose HTTP request is abandoned (the app quit, the socket dropped)
-// must still retire the runner: nothing else knows the view is gone.
-func TestRegression_CloseChatRetiresEvenWhenTheRequestIsAbandoned(t *testing.T) {
+// A kill whose HTTP request is abandoned (the app quit, the socket dropped)
+// must still retire the runner: nothing re-sends it.
+func TestRegression_KillChatRetiresEvenWhenTheRequestIsAbandoned(t *testing.T) {
 	idleTurns, _ := realStopTurns(inflight.NewTurns(), idleWork())
 	store := &stopRetireRunnerStore{
 		runner:         engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "interrupt-test"},
@@ -423,7 +422,7 @@ func TestRegression_CloseChatRetiresEvenWhenTheRequestIsAbandoned(t *testing.T) 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	require.NoError(t, rs.CloseChat(ctx, "chat-1"))
+	require.NoError(t, rs.KillChat(ctx, "chat-1"))
 	require.True(t, store.displaced, "an abandoned close request must not leave the runner live")
 }
 

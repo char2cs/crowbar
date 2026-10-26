@@ -40,6 +40,8 @@ export const NON_STRUCTURAL_CHAT_KINDS: ReadonlySet<string> = new Set([
   // The prompts a chat is blocked on: the whole set rides the frame and moves no
   // row.
   'choice',
+  // How many clients are attached to a chat: a count, not a row.
+  'attached',
   // `worktree_state` belongs here for exactly the reason the three hot kinds
   // above do. It carries the git state of the worktree a chat owns — diff
   // counts, PR state, lock status — and it is emitted from the same push site

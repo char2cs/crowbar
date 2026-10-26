@@ -299,7 +299,7 @@ func (stubUsecase) StopChat(
 	return nil
 }
 
-func (stubUsecase) CloseChat(
+func (stubUsecase) KillChat(
 	_ context.Context,
 	_ string,
 ) error {

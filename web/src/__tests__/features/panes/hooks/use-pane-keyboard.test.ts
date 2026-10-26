@@ -171,8 +171,6 @@ vi.mock('@/lib/workspace-scope', () => ({
 
 import { usePaneKeyboard } from '@/features/panes/hooks/use-pane-keyboard'
 import { useSettingsStore } from '@/features/settings/store'
-import { cancelCloseRequest } from '@/features/panes/lib/guarded-close'
-import { closeRequestStore } from '@/features/panes/stores/close-request-store'
 import {
   destroyWorkspaceStore,
   getOrCreateWorkspaceStore,
@@ -317,7 +315,7 @@ describe('usePaneKeyboard — mod+w on a pane with no tabs', () => {
     expect(removeEditorTabFromPane).not.toHaveBeenCalled()
   })
 
-  it('mod+w on a split pane whose chat is mid-turn asks instead of closing it', () => {
+  it('mod+w on a split pane whose chat is mid-turn just closes the view of it', () => {
     setPaneState({ activeEditorTabId: null, editorTabIds: [], paneCount: 2 })
     fakeState.panes[ROOT_PANE_ID] = {
       ...fakeState.panes[ROOT_PANE_ID],
@@ -329,13 +327,7 @@ describe('usePaneKeyboard — mod+w on a pane with no tabs', () => {
     }))
     renderHook(() => usePaneKeyboard())
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', metaKey: true }))
-    expect(closePane).not.toHaveBeenCalled()
-    expect(closeRequestStore.getState().request).toEqual({
-      kind: 'pane',
-      id: ROOT_PANE_ID,
-      working: 1,
-    })
-    cancelCloseRequest()
+    expect(closePane).toHaveBeenCalledWith(ROOT_PANE_ID)
     destroyWorkspaceStore('ws-1')
   })
 

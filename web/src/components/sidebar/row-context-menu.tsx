@@ -7,6 +7,7 @@ import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { providerCanStartOnTerminal } from '@/features/agent/api/agent-api'
 import { handleCreate } from '@/components/layout/create-actions'
+import { useKillAgentMenuItems } from '@/features/agent/hooks/use-kill-agent-menu-items'
 
 const DESTRUCTIVE =
   'text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive dark:data-highlighted:bg-destructive/20'
@@ -58,6 +59,8 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
   const enabledProviderCanStartOnTerminal = useAgentProvidersStore((s) =>
     providerCanStartOnTerminal(s.providers.find((p) => p.enabled)),
   )
+
+  const killItems = useKillAgentMenuItems(menu.data?.row.id)
 
   useEffect(() => {
     const tree = treeRef.current
@@ -144,6 +147,9 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
     }
     return [separator, item]
   })
+  // Kill agent sits with the destructive group, ahead of its first separator.
+  const destructiveAt = items.findIndex((i) => i.separator)
+  items.splice(destructiveAt < 0 ? items.length : destructiveAt, 0, ...killItems)
 
   return <ContextMenu isOpen items={items} position={menu.position} onClose={menu.close} />
 }

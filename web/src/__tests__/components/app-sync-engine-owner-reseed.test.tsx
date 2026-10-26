@@ -18,7 +18,7 @@ const {
 } = vi.hoisted(() => ({
   wipe: vi.fn().mockResolvedValue(undefined),
   subscribeEntityStream: vi.fn(),
-  wsSubscribe: vi.fn((_endpoint: string) => () => {}),
+  wsSubscribe: vi.fn((_endpoint: string, _onFrame: (frame: unknown) => void) => () => {}),
   fetchRepos: vi.fn(),
   fetchWorkspaces: vi.fn(),
   fetchFolders: vi.fn(),
@@ -36,7 +36,11 @@ vi.mock('@/lib/ws/entity-stream', () => ({
 }))
 
 vi.mock('@/lib/ws/manager', () => ({
-  wsManager: { subscribe: (endpoint: string) => wsSubscribe(endpoint), send: vi.fn() },
+  wsManager: {
+    subscribe: (endpoint: string, onFrame: (frame: unknown) => void) =>
+      wsSubscribe(endpoint, onFrame),
+    send: vi.fn(),
+  },
 }))
 
 vi.mock('@/lib/api', async (importOriginal) => ({
@@ -58,6 +62,7 @@ import { reportChannelFailure } from '@/lib/ws/connection-store'
 import { success } from '@/lib/loadable'
 import { upsertEntity } from '@/lib/persistence/entity-cache'
 import { wipeEntityCache } from '@/lib/persistence/idb'
+import { useActiveSessionsStore } from '@/lib/store/active-sessions'
 import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
 import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
@@ -424,5 +429,30 @@ describe('across hosts', () => {
     await waitFor(() =>
       expect(openedEndpoints()).toContain('crowbar://host-3/v0/projects/p2/repos'),
     )
+  })
+})
+
+describe('the repo feed vs the active sessions', () => {
+  const repoFeed = () =>
+    wsSubscribe.mock.calls.find(([endpoint]) => endpoint === '/v0/projects/p1/repos/r1/chats/ws')
+
+  it('seeds the running chats from the list and follows the feed', async () => {
+    fetchRepoChats.mockImplementation(
+      (_p: string, _r: string, onRows?: (rows: readonly unknown[]) => void) => {
+        onRows?.([
+          { id: 'owner-locked', workspaceId: 'ws-locked', title: 'Owner', liveRunnerId: 'run' },
+        ])
+        return Promise.resolve([chat('owner-locked')])
+      },
+    )
+    await bootWithWorkspaces([workspace('owner-locked')])
+    expect(Object.keys(useActiveSessionsStore.getState().sessions)).toEqual(['owner-locked'])
+
+    const onFrame = repoFeed()![1]
+    act(() => onFrame({ chatId: 'owner-locked', kind: 'attached', attached: 3 }))
+    expect(useActiveSessionsStore.getState().attached['owner-locked']?.count).toBe(3)
+
+    act(() => onFrame({ reconnected: true }))
+    expect(useActiveSessionsStore.getState().attached).toEqual({})
   })
 })

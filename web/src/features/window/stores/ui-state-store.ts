@@ -20,6 +20,7 @@ export type SettingsTab =
   | 'providers'
   | 'keybindings'
   | 'hosts'
+  | 'active-sessions'
   | 'developer'
 
 export type BottomPaneTab = 'terminal' | 'buffers'
