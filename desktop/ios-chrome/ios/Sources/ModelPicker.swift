@@ -65,24 +65,21 @@ struct ModelPickerSheet: View {
 
   var body: some View {
     NavigationStack {
-      ScrollViewReader { scroll in
-        List {
-          if !model.state.efforts.isEmpty { effort.id(Self.top) }
-          ForEach(matches) { provider in
-            Section {
-              ForEach(provider.models) { item in row(item, of: provider) }
-            } header: {
-              Label { Text(provider.name) } icon: { icon(provider) }
-                .foregroundStyle(secondaryText)
-            }
-            .listRowBackground(palette?.raised)
+      List {
+        if !model.state.efforts.isEmpty { effort }
+        ForEach(matches) { provider in
+          Section {
+            ForEach(provider.models) { item in row(item, of: provider) }
+          } header: {
+            Label { Text(provider.name) } icon: { icon(provider) }
+              .foregroundStyle(secondaryText)
           }
+          .listRowBackground(palette?.raised)
         }
-        .listStyle(.insetGrouped)
-        .defaultScrollAnchor(.top)
-        // The catalogue lands after the sheet is up; it opens on the effort control, not the end.
-        .task(id: model.state.providers.count) { scroll.scrollTo(Self.top, anchor: .top) }
       }
+      .listStyle(.insetGrouped)
+      // Opens on the Effort label, under the bar's inset, even as the catalogue lands later.
+      .defaultScrollAnchor(.top)
       .scrollContentBackground(palette == nil ? .automatic : .hidden)
       .background(palette?.surface.ignoresSafeArea())
       .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always))
@@ -97,8 +94,6 @@ struct ModelPickerSheet: View {
       }
     }
   }
-
-  private static let top = "top"
 
   private var matches: [PickerProvider] {
     let needle = query.trimmingCharacters(in: .whitespaces)
