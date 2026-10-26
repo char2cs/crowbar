@@ -25,14 +25,14 @@ type PageIntent = Extract<
       | 'moveRow'
   }
 >
-/** A touch landed on a row: Swift keeps it for its own long-press menu and forwards nothing. */
-type RowPress = {
-  type: 'rowPress'
+/** A row's ⋯ button was tapped: Swift shows that row's menu at the button. */
+type RowMenuOpen = {
+  type: 'rowMenu'
   rowId: string
   rect: { x: number; y: number; width: number; height: number }
   actions: NativeRowAction[]
 }
-/** A row drag began or ended: Swift holds its long-press menu back while one is on. */
+/** A row drag began or ended: Swift closes an open menu and gives the lift its haptic. */
 type RowDrag = { type: 'rowDrag'; active: boolean }
 type PageMessage =
   | { type: 'sidebarReady' }
@@ -40,7 +40,7 @@ type PageMessage =
   | { type: 'agentsSettingsReady' }
   | { type: 'hostsSettingsReady' }
   | { type: 'filesReady' }
-  | RowPress
+  | RowMenuOpen
   | PageIntent
 
 /** The message handler Swift listens on, and the global it calls with each snapshot. */

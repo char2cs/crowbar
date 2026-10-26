@@ -91,7 +91,7 @@ final class ChromeOverlays {
       let page = SecondaryPage.make(
         like: webview, fragment: "/mobile-sidebar", controller: sidebar.controller())
       let list = listLayer(page)
-      let menu = RowMenu(page: page, on: list, send: send)
+      let menu = RowMenu(page: page, send: send)
       sidebar.intercept = { type, body, _ in menu.take(type, body) }
       rowMenu = menu
       keyboard = KeyboardFit(webview: webview)

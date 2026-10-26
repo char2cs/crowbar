@@ -88,7 +88,7 @@ export type NativeSidebar = {
   /** The rows above that have an agent running, pinned at the top: a view over `rows`. */
   active: { id: string }[]
   collapsed: string[]
-  /** Each row's menu, by row id, for the native long-press menu. */
+  /** Each row's menu, by row id, for the native row menu. */
   actions: Record<string, NativeRowAction[]>
   /** While a row is dragged: where the desktop's drop rules let it land, by target row id. */
   drop: NativeRowDrop | null
