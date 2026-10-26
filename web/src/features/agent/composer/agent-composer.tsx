@@ -107,6 +107,8 @@ export function AgentComposer(props: AgentComposerProps) {
   const editorRef = useRef<ChatMarkdownEditorHandle>(null)
   const pillRef = useRef<HTMLDivElement>(null)
   const [dropTarget, setDropTarget] = useState(false)
+  // Sending clears the box by remounting it; the new box inherits the keyboard.
+  const [typing, setTyping] = useState(false)
 
   const insertAttachmentMarkdown = useCallback((md: string) => {
     editorRef.current?.insertAttachmentMarkdown(md)
@@ -252,12 +254,15 @@ export function AgentComposer(props: AgentComposerProps) {
               dropTarget && 'drop-target',
             )}
             data-touch={IS_MOBILE || undefined}
+            onFocus={() => setTyping(true)}
+            onBlur={(e) => setTyping(e.currentTarget.contains(e.relatedTarget))}
             onDragOver={handlePillDragOver}
             onDragLeave={handlePillDragLeave}
             onDrop={handlePillDrop}
           >
             <ComposerField
               key={props.draftSeed}
+              focusOnMount={typing && props.draftSeed > 0}
               ref={editorRef}
               wsId={props.wsId}
               chatId={props.chatId}

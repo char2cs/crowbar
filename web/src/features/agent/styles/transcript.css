@@ -289,6 +289,9 @@
   white-space: pre-wrap;
   overflow-wrap: break-word;
 }
+.agent-chat .queued.sent .txt {
+  border-style: solid;
+}
 .agent-chat .queued.multi .txt {
   border-radius: 18px;
   padding: 10px 16px;

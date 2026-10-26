@@ -71,6 +71,7 @@ import {
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
+import { isSendKey } from '@/features/agent/chat/lib/send-key'
 import '@/features/agent/styles/composer.css'
 import '@/features/agent/styles/transcript.css'
 import '@/features/agent/styles/activity.css'
@@ -684,6 +685,9 @@ export function AgentChatView({
   // defect that killed the slider before). telemetry, not a turn/message
   // field: AgentChatMessage carries no model, only effort (see its own doc).
   const reportedModel = telemetry?.model?.displayName || telemetry?.model?.id || ''
+  // What the chip says for an unpicked model, on the blank document and the bar alike:
+  // the report's display name wins over the runner's raw launch id.
+  const shownModel = model || (reportedModel ? '' : live ? launchModel : lastConfirmedModel)
   // The provider's stop reason occupies the BAR, so the transcript must not also
   // render it as a row: it is one sentence, and saying it twice reads as the
   // provider having stopped twice.
@@ -916,7 +920,7 @@ export function AgentChatView({
       selectSlashItem(slash.highlighted)
       return
     }
-    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+    if (isSendKey(event)) {
       event.preventDefault()
       // Enter accepts a completion when there IS one, and otherwise sends. It
       // used to be swallowed for as long as the picker was open, which does not
@@ -1060,6 +1064,7 @@ export function AgentChatView({
       // person" check — excluding it here too used to be the only thing
       // silencing it, and would make that carve-out unreachable.
       working={working}
+      sending={prompts.deliveryPending}
       compacting={compacting}
       reasoning={reasoning}
       toolOutput={toolOutput}
@@ -1263,7 +1268,7 @@ export function AgentChatView({
               telemetry={telemetry}
               presentation={presentation}
               splitEnabled={splitEnabled && provider?.hotswap === true}
-              queued={queue.length}
+              queued={prompts.waitingCount}
               onCompact={offeredCompact}
               onSelectionChange={onSelectionChange}
               onSelectPresentation={onSelectPresentation}

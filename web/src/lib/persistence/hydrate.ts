@@ -22,6 +22,7 @@ import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-syn
 import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
 import { fetchHomeChats, fetchRepoChats, fetchRepos, isNotFoundError } from '@/lib/api'
 import { awaitHost } from '@/lib/host-unavailability'
+import { isDraftChatId } from '@/features/agent/lib/draft-chat'
 import { loadSidebarUI } from './sidebar-ui'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { parseSidebarTab } from '@/lib/store/sidebar-ui'
@@ -52,6 +53,10 @@ export async function hydrateWindowPaneLayout(): Promise<void> {
   )
   if (panes[adoptInto].editorTabIds.some((id) => !before.has(id))) {
     panes[adoptInto] = { ...panes[adoptInto], editorOpen: true }
+  }
+  // A draft never outlives its window: left unplaced, the daemon's "no such chat" drops it.
+  for (const [id, pane] of Object.entries(panes)) {
+    if (isDraftChatId(pane.chatId)) panes[id] = { ...pane, workspaceId: null }
   }
   windowPaneStore.setState({
     ...restored,

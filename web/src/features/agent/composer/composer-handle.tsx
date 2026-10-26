@@ -60,6 +60,8 @@ export function ComposerHandle({
         disabled={idle || sendingVisual}
         aria-label={stopping ? 'Stop this turn' : sendingVisual ? 'Sending' : 'Send prompt'}
         title={stopping ? 'Stop this turn — Esc' : sendingVisual ? 'Sending…' : 'Send — Enter'}
+        // Keeps the editor focused, so tapping send does not drop the keyboard.
+        onMouseDown={(e) => e.preventDefault()}
         onClick={stopping ? onStop : onSend}
       >
         {stopping ? (

@@ -58,6 +58,8 @@ export interface PaneActions {
   /** Row: the runner in `paneId` walked into `chatId` (`moved` frame only). */
   retargetPane(paneId: string, chatId: string, runnerId: string | null): void
   setPaneRunner(paneId: string, runnerId: string | null): void
+  /** Row: where the chat a draft thread becomes is placed ('' is the panel root). */
+  tagDraftThread(chatId: string, parentId: string): void
   /** Row: the daemon's answer for restored members saved without a workspace —
    *  `placed` fills it in, `gone` chats leave (their unsaved buffers stay). */
   placeRestoredMembers(placed: ReadonlyMap<string, string>, gone: ReadonlySet<string>): void

@@ -62,15 +62,15 @@ const requested = () => fetchMock.mock.calls.map(([url]) => String(url))
 // The pane's other reads (its daemon's provider list) ride along; the chat's is the one judged.
 const chatReads = () => requested().filter((url) => url.includes('/messages'))
 
-function mount(wsId = 'w1') {
+function mount(wsId = 'w1', chatId = 'c1') {
   const store = createWorkspaceStore(wsId)
-  seedChatPaneRecord(windowPaneStore, 'pane-1', 'c1', null)
+  seedChatPaneRecord(windowPaneStore, 'pane-1', chatId, null)
   return render(
     createElement(
       WorkspaceStoreContext.Provider,
       { value: store },
       createElement(AgentChatPaneGate, {
-        chatId: 'c1',
+        chatId,
         runnerId: '',
         wsId,
         paneId: 'pane-1',
@@ -101,6 +101,21 @@ afterEach(() => {
   destroyHostRuntime('host-1')
   vi.unstubAllGlobals()
   delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+})
+
+describe('AgentChatPaneGate on a draft thread', () => {
+  it('draws the blank composer and asks the daemon for no chat', async () => {
+    await act(async () => loadProjects(projectOn('p-local', 'local')))
+
+    mount('w1', 'draft-1')
+
+    expect(
+      await screen.findByRole('textbox', { name: /message the agent|describe the change/i }),
+    ).toBeInTheDocument()
+    expect(probe.mounts).toBe(0)
+    // The provider list rides along for the picker; no chat is read or created.
+    expect(requested().filter((url) => /\/chats\/(?!providers)/.test(url))).toEqual([])
+  })
 })
 
 describe('AgentChatPaneGate on an install that has paired a remote host', () => {

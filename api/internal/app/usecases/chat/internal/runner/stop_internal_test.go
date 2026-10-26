@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"strings"
 	"sync"
@@ -13,9 +14,11 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
@@ -422,4 +425,55 @@ func TestRegression_CloseChatRetiresEvenWhenTheRequestIsAbandoned(t *testing.T) 
 
 	require.NoError(t, rs.CloseChat(ctx, "chat-1"))
 	require.True(t, store.displaced, "an abandoned close request must not leave the runner live")
+}
+
+// exitReasonSnapshots records the exit reason a chat showed at every
+// announcement, which is what a client renders a banner from.
+type exitReasonSnapshots struct {
+	rs      *Runners
+	mu      sync.Mutex
+	reasons []string
+}
+
+func (s *exitReasonSnapshots) Touch(_ context.Context, chatID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reasons = append(s.reasons, s.rs.Session(chatID).ExitReason)
+}
+
+// goneChats makes a placed runner's chat unreadable, so retire's bookkeeping
+// that reads the chat has nothing to do and the test sees only the exit notes.
+type goneChats struct{ agentchat.EventStore }
+
+func (goneChats) GetChat(context.Context, string) (domain.Chat, error) {
+	return domain.Chat{}, errors.New("chat not readable in this test")
+}
+
+// A Stop that retires the runner announces its end once, as "stopped": the
+// intermediate "displaced" note painted a second, different banner first.
+func TestRegression_StopChatAnnouncesOnlyTheStoppedReason(t *testing.T) {
+	ctx := context.Background()
+	idleTurns, _ := realStopTurns(inflight.NewTurns(), idleWork())
+	store := &stopRetireRunnerStore{
+		runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "interrupt-test", CurrentChatID: "chat-1"},
+	}
+	snaps := &exitReasonSnapshots{}
+	rs := &Runners{
+		apiConns:      newAPIConnRegistry(),
+		attached:      newAttachRegistry(),
+		runnerStore:   store,
+		ws:            stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
+		spawns:        inflight.NewGate(),
+		inflightTurns: inflight.NewTurns(),
+		turns:         idleTurns,
+		term:          &fakeTermForAttach{},
+		sessions:      newSessionBook(),
+		snapshots:     snaps,
+		chats:         goneChats{},
+	}
+	snaps.rs = rs
+
+	require.NoError(t, rs.StopChat(ctx, "chat-1"))
+
+	require.Equal(t, []string{"stopped"}, snaps.reasons)
 }
