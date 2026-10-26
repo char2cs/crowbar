@@ -56,11 +56,12 @@ function pointerY(event: DragMoveEvent): number | null {
 
 // The lifted copy and dnd-kit's wrapper around it are under the finger: the row beneath is the target.
 function hitAt(x: number, y: number, drop: NativeRowDrop | null): Hit | null {
-  const el = document
-    .elementsFromPoint(x, y)
-    .filter((at) => !at.closest('[data-drag-overlay], [data-menu-only]'))
-    .map((at) => at.closest<HTMLElement>('[data-sidebar-row-id]'))
-    .find(Boolean)
+  let el: HTMLElement | null = null
+  for (const at of document.elementsFromPoint(x, y)) {
+    if (at.closest('[data-drag-overlay], [data-menu-only]')) continue
+    el = at.closest<HTMLElement>('[data-sidebar-row-id]')
+    if (el) break
+  }
   const id = el?.getAttribute('data-sidebar-row-id')
   const target = id ? drop?.targets[id] : undefined
   if (!el || !id || !target) return null
@@ -102,16 +103,17 @@ export function RowDragScope({
     if (claimed && finger.current) setHit(hitAt(finger.current.x, finger.current.y, drop))
   }, [drop, claimed])
 
+  const openMenu = useEffectEvent(() => {
+    if (held) onMenu(held.rowId, held.node)
+  })
   useEffect(() => {
     if (touch !== 'armed') return
-    const dwell = setTimeout(() => setTouch(rowTouch('armed', { type: 'dwell' })), MENU_DWELL_MS)
+    const dwell = setTimeout(() => {
+      setTouch(rowTouch('armed', { type: 'dwell' }))
+      openMenu()
+    }, MENU_DWELL_MS)
     return () => clearTimeout(dwell)
   }, [touch])
-
-  const openMenu = useEffectEvent(onMenu)
-  useEffect(() => {
-    if (touch === 'menu' && held) openMenu(held.rowId, held.node)
-  }, [touch, held])
 
   // The shell hears of the lift from here, for its haptic.
   useEffect(() => {
