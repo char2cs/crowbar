@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -564,11 +565,16 @@ func spawnArgvShape(
 		f.setPrefs(t, *pref)
 	}
 	_, runnerID := f.spawn(t, provider)
-	repl := strings.NewReplacer(
+	oldRepl := []string{
 		f.ws.home, "<HOME>",
 		runnerID, "<RUNNER>",
 		f.minter.Mint(runnerID), "<TOKEN>",
-	)
+	}
+	// A session id Crowbar assigned at launch is minted per spawn.
+	if i := slices.Index(f.term.calls[0].argv, "--session-id"); i >= 0 {
+		oldRepl = append(oldRepl, f.term.calls[0].argv[i+1], "<SESSION>")
+	}
+	repl := strings.NewReplacer(oldRepl...)
 	out := make([]string, 0, len(f.term.calls[0].argv))
 	for _, a := range f.term.calls[0].argv {
 		out = append(out, repl.Replace(a))

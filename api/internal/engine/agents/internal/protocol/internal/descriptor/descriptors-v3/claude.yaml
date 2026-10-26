@@ -336,6 +336,10 @@ spawn:
       - CLAUDE_SESSION_INGRESS_TOKEN_FILE
 session:
   resume: { arg: "--resume {id}" }
+  # A fresh claude is told its session id up front: its SessionStart hook is
+  # not reliably delivered, and a chat whose id Crowbar never learned cannot
+  # be resumed (verified on 2.1.310).
+  assign: { arg: "--session-id {id}" }
   # Checked before any resume: a pruned or never-written transcript makes
   # `--resume <id>` exit 1 (verified on 2.1.281).
   locate:
@@ -430,6 +434,9 @@ hooks_injection:
   # is the one place claude only runs a COMMAND, so that goes through curl, which
   # reads the same token from {tmp}/hook.curl rather than argv.
   #
+  # SessionStart is the exception: claude never delivers it to an http hook (verified
+  # on 2.1.310, interactive), only to a command, so it goes through curl.
+  #
   # PermissionRequest/Elicitation carry an explicit timeout: they're the two
   # hooks Crowbar HOLDS OPEN while a human decides, and an overrun is KILLED
   # rather than abandoned. The held request IS the answer channel: the daemon
@@ -443,8 +450,8 @@ hooks_injection:
       path: "{tmp}/settings.json"
       content: |
         {"hooks":{
-          "SessionStart":[{"hooks":[{"type":"http",
-            "url":"{hook_url}/session_start","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
+          "SessionStart":[{"hooks":[{"type":"command",
+            "command":"{hook_curl} {hook_url}/session_start"}]}],
           "UserPromptSubmit":[{"hooks":[{"type":"http",
             "url":"{hook_url}/user_prompt","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
           "Stop":[{"hooks":[{"type":"http",

@@ -29,7 +29,8 @@ type fakeLiveConn struct {
 	originated map[string]bool
 }
 
-func (fakeLiveConn) ConfirmLaunch(string) {}
+func (fakeLiveConn) ConfirmLaunch(string)               {}
+func (fakeLiveConn) AssignedSessionPending(string) bool { return false }
 
 func (f fakeLiveConn) HasLiveAPIConnection(string) bool { return f.live }
 
@@ -54,7 +55,8 @@ type showingRunners struct {
 	showing bool
 }
 
-func (showingRunners) ConfirmLaunch(string) {}
+func (showingRunners) ConfirmLaunch(string)               {}
+func (showingRunners) AssignedSessionPending(string) bool { return false }
 
 func (r showingRunners) ShowingNativeView(string) bool { return r.showing }
 

@@ -122,7 +122,8 @@ type quietRunners struct {
 	originated map[string]bool
 }
 
-func (quietRunners) ConfirmLaunch(string) {}
+func (quietRunners) ConfirmLaunch(string)               {}
+func (quietRunners) AssignedSessionPending(string) bool { return false }
 
 func (r quietRunners) OriginatedSession(_, sessionID string) bool { return r.originated[sessionID] }
 

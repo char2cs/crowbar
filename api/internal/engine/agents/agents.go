@@ -141,6 +141,10 @@ type Agent interface {
 
 	ResumeArg() (string, bool)
 
+	// AssignArg is the argv that gives a fresh CLI a session id of Crowbar's
+	// choosing (session.assign); ok is false for a provider that mints its own.
+	AssignArg() (string, bool)
+
 	// SessionExists reports whether the provider still has sessionID on disk
 	// (session.locate); declared is false when the descriptor gives no way to
 	// check, and the id must then be trusted.
@@ -569,6 +573,13 @@ func (a *agent) ResumeArg() (string, bool) {
 		return "", false
 	}
 	return a.spec.Session.Resume.Arg, true
+}
+
+func (a *agent) AssignArg() (string, bool) {
+	if a.spec.Session.Assign == nil || a.spec.Session.Assign.Arg == "" {
+		return "", false
+	}
+	return a.spec.Session.Assign.Arg, true
 }
 
 func (a *agent) ParseHook(canonical string, raw []byte, channel Channel) (CanonicalEvent, error) {
