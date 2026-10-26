@@ -259,14 +259,15 @@ describe('useNativeSidebar', () => {
     expect(useRemovalTrayStore.getState().entries.map((e) => e.label)).toContain('alpha')
   })
 
-  // The page draws the countdown and Keep in place: the row stays, marked, until it drains.
-  it('keeps a removed row in the list, marked as on its way out and without a menu', () => {
+  // The native confirm already asked, so there is no countdown, no Keep and no pending row.
+  it('drops a confirmed removal from the list at once, due immediately', () => {
     mount()
     const alpha = last().rows.find((r) => r.label === 'Alpha')!
     send({ type: 'rowAction', rowId: alpha.id, actionId: 'remove' })
-    const held = last().rows.find((r) => r.id === alpha.id)!
-    expect(held.removal).toMatchObject({ deadlineAt: expect.any(Number) })
-    expect(last().actions[alpha.id]).toEqual([])
+    expect(last().rows.some((r) => r.id === alpha.id)).toBe(false)
+    expect(last().rows.some((r) => r.removal)).toBe(false)
+    const [entry] = useRemovalTrayStore.getState().entries
+    expect(entry.deadlineAt).toBeLessThanOrEqual(Date.now())
   })
 
   // Focus leaves the doomed chat at once, so nothing slides into it when the delete lands.
@@ -281,18 +282,6 @@ describe('useNativeSidebar', () => {
     const alpha = last().rows.find((r) => r.label === 'Alpha')!
     send({ type: 'rowAction', rowId: alpha.id, actionId: 'remove' })
     expect(last().focusedChatId).not.toBe('c-a')
-  })
-
-  it('puts a row back when the page keeps it', () => {
-    mount()
-    const alpha = last().rows.find((r) => r.label === 'Alpha')!
-    send({ type: 'rowAction', rowId: alpha.id, actionId: 'remove' })
-    send({
-      type: 'keepRemoval',
-      entryId: last().rows.find((r) => r.id === alpha.id)!.removal!.entryId,
-    })
-    expect(useRemovalTrayStore.getState().entries).toEqual([])
-    expect(last().rows.find((r) => r.id === alpha.id)!.removal).toBeUndefined()
   })
 
   it('asks for the branch name of a fork before creating it', async () => {

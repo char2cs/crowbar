@@ -61,6 +61,8 @@ export interface RowMenuHandlers {
   importBranches: (row: SidebarRow) => void
   /** Starts a fork of `row`; the desktop names it inline, the phone asks first. */
   fork: (row: SidebarRow) => void
+  /** The phone confirms natively first, so a removal there commits at once instead of draining. */
+  removeAtOnce?: boolean
 }
 
 const ACTIONS: Record<RowMenuActionId, Omit<RowMenuAction, 'id'>> = {
@@ -242,7 +244,8 @@ export function runRowMenuAction(
     case 'fork':
       return handlers.fork(row)
     case 'remove':
-      if (!handleTrash(row.id)) toast.error(`Can't remove ${row.label}`)
+      if (!handleTrash(row.id, handlers.removeAtOnce ? 0 : undefined))
+        toast.error(`Can't remove ${row.label}`)
       return
   }
 }

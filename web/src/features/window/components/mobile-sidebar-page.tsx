@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import { startRemovalSecondsClock } from '@/components/layout/removal-clock'
 import { SidebarProjectSwitcher } from '@/components/layout/sidebar-project-switcher'
 import { sidebarRowTree } from '@/components/sidebar/lib/row-tree'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
@@ -19,7 +18,6 @@ const CLEAR_FLOATING_BUTTONS_PB = 'pb-[calc(env(safe-area-inset-bottom)+84px)]'
 const selectRow = (id: string) => postToShell('sidebar', { type: 'selectRow', id })
 const toggleFold = (id: string) => postToShell('sidebar', { type: 'toggleFold', id })
 const selectProject = (id: string) => postToShell('sidebar', { type: 'selectProject', id })
-const keepRemoval = (entryId: string) => postToShell('sidebar', { type: 'keepRemoval', entryId })
 const openSettings = () => postToShell('sidebar', { type: 'openSettings' })
 
 // The page owns the hold; the shell only presents the menu for the row it is told of.
@@ -42,15 +40,6 @@ export function MobileSidebarPage() {
   useSurfaceThemeColor()
   const [snapshot, setSnapshot] = useState<NativeSidebar | null>(null)
   useEffect(() => receiveShellSnapshots<NativeSidebar>('sidebar', setSnapshot), [])
-  // This page is its own document, out of reach of the shell's clock for the held rows' seconds.
-  useEffect(() => {
-    const deadlines = new Map<string, number>()
-    for (const row of snapshot?.rows ?? []) {
-      if (row.removal?.deadlineAt != null)
-        deadlines.set(row.removal.entryId, row.removal.deadlineAt)
-    }
-    return startRemovalSecondsClock(deadlines)
-  }, [snapshot?.rows])
   const hostViews = useMemo(
     () => new Map(snapshot?.hosts.map((h) => [h.id, { name: h.name, state: h.state }])),
     [snapshot?.hosts],
@@ -144,12 +133,11 @@ function SnapshotTree({ rows, collapsed }: { rows: SidebarRowType[]; collapsed: 
     const isFolded = folded.has(row.id)
     return (
       <div key={row.id}>
-        <DraggableRow id={row.id} disabled={!!row.removal}>
+        <DraggableRow id={row.id}>
           <SidebarRow
             row={row}
             depth={depth}
             onOpen={selectRow}
-            onKeepRemoval={keepRemoval}
             onToggleFold={children.length > 0 ? toggleFold : undefined}
             folded={isFolded}
             inlineRenameDisabled

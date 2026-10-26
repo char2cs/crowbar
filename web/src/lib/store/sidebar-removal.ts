@@ -110,7 +110,7 @@ interface RemovalTrayState {
   /** Rows the sidebar must not draw while their removal is pending. */
   hiddenIds: ReadonlySet<string>
   /** Hold rows: hide them and put a row in the tray for each. */
-  hold: (drafts: readonly RemovalDraft[]) => void
+  hold: (drafts: readonly RemovalDraft[], drainMs?: number) => void
   /** The user kept it: drop the tray row and show its rows again. */
   cancel: (entryId: string) => void
   /** The removal has been sent: drop the tray row, keep its rows hidden. */
@@ -131,7 +131,7 @@ export function getInitialRemovalState() {
 export const useRemovalTrayStore = create<RemovalTrayState>()((set) => ({
   ...getInitialRemovalState(),
 
-  hold: (drafts) =>
+  hold: (drafts, drainMs = REMOVAL_DRAIN_MS) =>
     set((s) => {
       if (drafts.length === 0) return s
       const now = Date.now()
@@ -142,8 +142,7 @@ export const useRemovalTrayStore = create<RemovalTrayState>()((set) => ({
         // A chat drains too — it cascades to its threads, but a conversation is
         // one row's worth of work, not a project's, and eight seconds of undo is
         // a proportionate net for it.
-        deadlineAt:
-          draft.kind === 'repo' || draft.kind === 'project' ? null : now + REMOVAL_DRAIN_MS,
+        deadlineAt: draft.kind === 'repo' || draft.kind === 'project' ? null : now + drainMs,
       }))
       const hiddenIds = new Set(s.hiddenIds)
       for (const entry of entries) for (const id of entry.hiddenIds) hiddenIds.add(id)

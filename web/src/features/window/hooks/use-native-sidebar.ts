@@ -1,11 +1,7 @@
 import { useEffect, useEffectEvent, useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useStore } from 'zustand'
-import {
-  applyPendingRemovals,
-  attachRemovalState,
-  renderedHiddenIds,
-} from '@/components/layout/removal-plan'
+import { applyPendingRemovals } from '@/components/layout/removal-plan'
 import { rowsForProject } from '@/components/sidebar/lib/rows-for-project'
 import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
 import { rowRepoScope } from '@/components/sidebar/lib/rows-from-repo'
@@ -121,7 +117,7 @@ function confirmFor(id: RowMenuActionId, row: SidebarRow): NativeRowAction['conf
   if (id !== 'remove') return null
   return {
     title: `Remove ${NOUN[row.kind]}?`,
-    message: `${row.label}\n\nIt stays in the list with a Keep button for a few seconds.`,
+    message: `${row.label}${row.kind === 'folder' ? '\n\nEverything inside it goes too.' : ''}`,
   }
 }
 
@@ -131,7 +127,7 @@ type Attached = Record<string, { count: number }>
 
 /** The rows with an agent running, as the desktop's Active section picks them. */
 function activeRows(rows: readonly SidebarRow[], sessions: Record<string, LiveSession>) {
-  return rows.filter((r) => r.kind !== 'folder' && !r.pending && !r.removal && sessions[r.id])
+  return rows.filter((r) => r.kind !== 'folder' && !r.pending && sessions[r.id])
 }
 
 function nativeRowActions(
@@ -142,8 +138,8 @@ function nativeRowActions(
   const actions: Record<string, NativeRowAction[]> = {}
   for (const row of rows) {
     const locked = row.kind === 'branch' && rowIsLocked(row.id)
-    // A row on its way out offers Keep on the row itself, not a menu; one not yet created has none.
-    if (row.removal || row.pending) {
+    // A row not yet created has no menu.
+    if (row.pending) {
       actions[row.id] = []
       continue
     }
@@ -174,14 +170,9 @@ const closeChatList = () => useMobileScreenStore.getState().setChatListOpen(fals
 /** The active project's rows, from the same derivers the desktop tree draws. */
 function useActiveProjectRows(projectId: string | null): SidebarRow[] {
   const allRepos = useSidebarStore((s) => s.repos)
-  // The desktop tree's own removal view (sidebar-tree-surface.tsx): what a held row takes with
-  // it is hidden, and the row itself stays, marked, to draw its countdown and Keep.
-  const removalEntries = useRemovalTrayStore((s) => s.entries)
-  const trayHiddenIds = useRemovalTrayStore((s) => s.hiddenIds)
-  const hiddenIds = useMemo(
-    () => renderedHiddenIds(trayHiddenIds, removalEntries),
-    [trayHiddenIds, removalEntries],
-  )
+  // A removal confirmed on the phone commits at once, so the row goes with what it takes: no
+  // countdown row stays behind the way the desktop tree draws one.
+  const hiddenIds = useRemovalTrayStore((s) => s.hiddenIds)
   const repos = useMemo(() => applyPendingRemovals(allRepos, hiddenIds), [allRepos, hiddenIds])
   const seeded = useFolderSignalStore((s) => s.seededRepoIds)
   const seededWorkspaces = useFolderSignalStore((s) => s.seededWorkspaceRepoIds)
@@ -206,7 +197,7 @@ function useActiveProjectRows(projectId: string | null): SidebarRow[] {
     const projectRows = rowsForProject(treeRepos, projectId)
     const rowRepoId = rowRepoScope(allRepos.filter((r) => r.projectId === projectId))
     const real = hideRowsForInFlightCreates(
-      attachRemovalState([...homeRows, ...projectRows], removalEntries),
+      [...homeRows, ...projectRows],
       pendingEntries,
       projectId,
       rowRepoId,
@@ -226,7 +217,6 @@ function useActiveProjectRows(projectId: string | null): SidebarRow[] {
     home.wsId,
     home.owningChatId,
     hiddenIds,
-    removalEntries,
   ])
 }
 
@@ -396,6 +386,7 @@ export function useNativeSidebar({
             setImportRepoRowId(target.id)
           },
           fork: (target) => void forkNatively(target, navigate),
+          removeAtOnce: true,
         }
         if (intent.actionId === KILL_AGENT) {
           const { sessions: live, attached: counts } = useActiveSessionsStore.getState()
@@ -409,9 +400,6 @@ export function useNativeSidebar({
         runRowMenuAction(actionId, row, handlers)
         return
       }
-      case 'keepRemoval':
-        useRemovalTrayStore.getState().cancel(intent.entryId)
-        return
       case 'dragRow':
         setDragSubjectId(intent.rowId)
         return

@@ -45,9 +45,6 @@ interface SidebarRowProps {
    *  already did (`sidebar-tree-surface.tsx`'s `onTrash`) — a refusal (a
    *  locked branch, a repo home) surfaces the same toast either way. */
   onTrash?: (id: string) => void
-  /** Keeps a row that is on its way out; the desktop's store answers it, the phone's list
-   *  page asks the shell, which owns the store. */
-  onKeepRemoval?: (entryId: string) => void
   /** Recents' own "end this view" control (view-row.tsx) — the opposite
    *  of `onTrash`'s destroy-the-chat verb, so never wired alongside it on the
    *  same row (view-row.tsx never sets `onTrash`). Same trailing-action
@@ -144,7 +141,6 @@ export function SidebarRow({
   depth,
   onOpen,
   onTrash,
-  onKeepRemoval,
   onClose,
   onCreate,
   onToggleFold,
@@ -193,9 +189,7 @@ export function SidebarRow({
   // above; the two never coexist (a pending row's id is a synthetic tempId
   // no removal entry could ever name).
   if (row.removal) {
-    return (
-      <RemovingSidebarRow row={row} depth={depth} removal={row.removal} onKeep={onKeepRemoval} />
-    )
+    return <RemovingSidebarRow row={row} depth={depth} removal={row.removal} />
   }
   // The project-home (repo header) row is the `branch` row that carries the
   // repo's own icon — the sidebar's one 20px glyph exception outside the

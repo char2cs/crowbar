@@ -226,41 +226,6 @@ describe('MobileSidebarPage', () => {
     expect(images.length).toBe(2)
   })
 
-  describe('a row on its way out', () => {
-    const removing = {
-      ...snapshot,
-      rows: snapshot.rows.map((r) =>
-        r.id === 'c-thread'
-          ? { ...r, removal: { entryId: 'e1', deadlineAt: Date.now() + 8000, extra: 0 } }
-          : r,
-      ),
-    }
-
-    it('shows its countdown and a way to keep it, which goes back to the shell', () => {
-      render(<MobileSidebarPage />)
-      push(removing)
-      expect(document.querySelector('[data-removal-secs="e1"]')).toBeInTheDocument()
-      fireEvent.click(screen.getByRole('button', { name: 'Keep Ask about tax' }))
-      expect(posted).toHaveBeenCalledWith({ type: 'keepRemoval', entryId: 'e1' })
-    })
-
-    it('counts down on the page itself, which the shell’s clock cannot reach', () => {
-      vi.useFakeTimers()
-      render(<MobileSidebarPage />)
-      push({
-        ...removing,
-        rows: removing.rows.map((r) =>
-          r.removal ? { ...r, removal: { ...r.removal, deadlineAt: Date.now() + 5000 } } : r,
-        ),
-      })
-      const secs = document.querySelector('[data-removal-secs="e1"]')!
-      expect(secs).toHaveTextContent('5')
-      act(() => vi.advanceTimersByTime(2000))
-      expect(secs).toHaveTextContent('3')
-      vi.useRealTimers()
-    })
-  })
-
   describe('dragging a row', () => {
     const OPEN = { before: true, after: true, into: true }
     const SHUT = { before: false, after: false, into: false }

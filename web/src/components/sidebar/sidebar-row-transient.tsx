@@ -139,12 +139,10 @@ export function RemovingSidebarRow({
   row,
   depth,
   removal,
-  onKeep = (entryId) => useRemovalTrayStore.getState().cancel(entryId),
 }: {
   row: SidebarRowType
   depth: number
   removal: NonNullable<SidebarRowType['removal']>
-  onKeep?: (entryId: string) => void
 }) {
   const metrics = useRowMetrics()
   return (
@@ -200,7 +198,7 @@ export function RemovingSidebarRow({
           title="Keep"
           onClick={(e) => {
             e.stopPropagation()
-            onKeep(removal.entryId)
+            useRemovalTrayStore.getState().cancel(removal.entryId)
           }}
         >
           <svg

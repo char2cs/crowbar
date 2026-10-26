@@ -254,7 +254,6 @@ export type NativeChromeIntent =
   | { type: 'setEffort'; effort: string }
   | { type: 'closeModelPicker' }
   | { type: 'rowAction'; rowId: string; actionId: string }
-  | { type: 'keepRemoval'; entryId: string }
   | { type: 'dragRow'; rowId: string | null }
   | { type: 'moveRow'; rowId: string; targetId: string; position: DropMode }
   | { type: 'addHost' }

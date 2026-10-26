@@ -56,7 +56,7 @@ function leaveHeldChats(drafts: readonly RemovalDraft[]): void {
  * through to `resolveRow`'s repo-scoped (and bleed-prone) folder lookup for
  * one.
  */
-export function handleTrash(id: string): boolean {
+export function handleTrash(id: string, drainMs?: number): boolean {
   const currentRepos = useSidebarStore.getState().repos
   const homeRow = resolveHomeRowScope(id)
   // Checked BEFORE resolveChatRow/resolveRow, which cannot see a home row at
@@ -71,7 +71,7 @@ export function handleTrash(id: string): boolean {
   const projects = dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS
   const drafts = planRemoval([subject], currentRepos, projects)
   if (drafts.length === 0) return false
-  useRemovalTrayStore.getState().hold(drafts)
+  useRemovalTrayStore.getState().hold(drafts, drainMs)
   leaveHeldChats(drafts)
   return true
 }
