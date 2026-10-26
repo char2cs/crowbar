@@ -53,7 +53,7 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
     <Dialog
       onClose={onClose}
       title={<SettingsTitle {...tabs} />}
-      headerActions={<SettingsSearchInput />}
+      headerActions={<SettingsSearchInput className="w-64 max-[720px]:w-44 max-[520px]:w-32" />}
       classNames={{
         modal:
           'h-[74vh] max-h-[820px] w-[90vw] max-w-[1120px] min-w-0 border-0 max-[720px]:h-[86vh] max-[720px]:w-[calc(100vw-32px)] [&>div:first-child]:border-b-0',

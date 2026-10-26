@@ -38,12 +38,12 @@ export function MobileSettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance')
   const tabs = { tabs: PHONE_SETTINGS_TAB_ITEMS, activeTab, onTabChange: setActiveTab }
   return (
-    <main className="flex h-dvh flex-col overflow-hidden bg-background pb-[env(safe-area-inset-bottom)] text-foreground">
-      <header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 pt-2 pb-1">
+    <main className="flex h-dvh flex-col overflow-hidden bg-background pb-[env(safe-area-inset-bottom)] text-foreground [--settings-section-title:var(--ui-text-lg)]">
+      <header className="flex flex-col gap-2 px-3 pt-2 pb-1">
         <div className="font-heading min-w-0 text-lg">
           <SettingsTitle {...tabs} />
         </div>
-        <SettingsSearchInput />
+        <SettingsSearchInput className="w-full" />
       </header>
       <div className="flex min-h-0 flex-1">
         <SettingsPanels {...tabs}>
