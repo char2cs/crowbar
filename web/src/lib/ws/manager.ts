@@ -4,6 +4,7 @@ import { splitHostPath } from '@/lib/host-path'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { getHostRuntime, subscribeHostStatus } from '@/features/hosts/stores/host-runtime-registry'
 import { LOCAL_HOST } from '@/features/hosts/types'
+import { hasLocalDaemon } from '@/features/hosts/lib/local-daemon'
 
 import { wsUrl, isWebSocketCapable } from './url'
 import { reportChannelState, reportChannelFailure, reportChannelGone } from './connection-store'
@@ -65,6 +66,10 @@ export function createTransport(endpoint: string): WSLike {
     return new TauriWebSocket(path, { hostId, idleTimeoutMs: REMOTE_READ_IDLE_TIMEOUT_MS })
   }
   return new WebSocket(wsUrl(path, hostId)) as WSLike
+}
+
+function isLocal(endpoint: string): boolean {
+  return splitHostPath(endpoint).hostId === LOCAL_HOST.id
 }
 
 export interface WSManager {
@@ -212,7 +217,8 @@ export function createWSManager(): WSManager {
       // desktop's crowbar:// unix-socket scheme). Constructing one throws and
       // crashes startup, so skip the live channel entirely — mark it gone so
       // the UI reflects "no live stream" rather than a perpetual "connecting".
-      if (!isWebSocketCapable()) {
+      // Nor is there a stream from a local daemon the install does not have.
+      if (!isWebSocketCapable() || (!hasLocalDaemon() && isLocal(endpoint))) {
         reportChannelGone(endpoint)
         return () => {}
       }

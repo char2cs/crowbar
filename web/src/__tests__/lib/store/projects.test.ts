@@ -25,6 +25,9 @@ import { startHostStatus } from '@/features/hosts/lib/host-status'
 import type { HostStatus } from '@/features/hosts/types'
 import type { Project } from '@/lib/types'
 
+const install = vi.hoisted(() => ({ localDaemon: true }))
+vi.mock('@/features/hosts/lib/local-daemon', () => ({ hasLocalDaemon: () => install.localDaemon }))
+
 const mockProject: Project = {
   id: 'p1',
   name: 'my-app',
@@ -131,6 +134,7 @@ const held = () =>
   (dataOf(useProjectDataStore.getState().data) ?? []).map((p) => `${p.id}@${p.hostId}`)
 
 afterEach(() => {
+  install.localDaemon = true
   delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
   vi.useRealTimers()
   for (const id of paired.splice(0)) destroyHostRuntime(id)
@@ -209,6 +213,55 @@ describe('reading the project list', () => {
     const list = await readList()
     expect(list.status).toBe('error')
     expect(list.status === 'error' && list.error).toMatchObject({ name: 'ApiError', status: 500 })
+  })
+})
+
+// The phone app has no daemon of its own: only paired hosts exist there.
+describe('an install with no local daemon', () => {
+  beforeEach(() => {
+    install.localDaemon = false
+  })
+
+  it('lists its paired hosts and never asks local', async () => {
+    pair('h1', 'up')
+    const fetchMock = serve({ 'crowbar://h1': () => answer([row('p-h1')]) })
+
+    const list = await readList()
+
+    expect(list.status).toBe('success')
+    await vi.waitFor(() => expect(held()).toEqual(['p-h1@h1']))
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['crowbar://h1/v0/projects'])
+  })
+
+  it('lists nothing, without error, before any host is paired', async () => {
+    const fetchMock = serve({})
+
+    const list = await readList()
+
+    expect(list.status).toBe('success')
+    expect(held()).toEqual([])
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('opens no local stream', () => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+    const dialled: string[] = []
+    vi.stubGlobal(
+      'WebSocket',
+      class {
+        static OPEN = 1
+        readyState = 0
+        close = () => {}
+        constructor(url: string) {
+          dialled.push(url)
+        }
+      },
+    )
+
+    const stop = projectListTransport.subscribe('local', () => {})
+    stop()
+
+    expect(dialled).toEqual([])
   })
 })
 

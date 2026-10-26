@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Project } from '@/lib/types'
 
 const redirectMock = vi.fn((opts: unknown) => {
@@ -7,7 +7,8 @@ const redirectMock = vi.fn((opts: unknown) => {
   return err
 })
 
-vi.mock('@tanstack/react-router', () => ({
+vi.mock('@tanstack/react-router', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@tanstack/react-router')>()),
   createFileRoute: () => (config: unknown) => ({ options: config }),
   redirect: redirectMock,
   isRedirect: (e: unknown) => (e as { isRedirect?: boolean })?.isRedirect === true,
@@ -17,6 +18,9 @@ vi.mock('@/lib/store/projects', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/store/projects')>()),
   useProjectStore: { getState: vi.fn(() => ({ activeProjectId: '' })) },
 }))
+
+const install = vi.hoisted(() => ({ localDaemon: true }))
+vi.mock('@/features/hosts/lib/local-daemon', () => ({ hasLocalDaemon: () => install.localDaemon }))
 
 const { connectProjectList, useProjectStore } = await import('@/lib/store/projects')
 // The list's reads, by host; the guard reads nothing else.
@@ -169,5 +173,37 @@ describe('_shell/index beforeLoad', () => {
       useHostConfigStore.getState().removeHost('h1')
       destroyHostRuntime('h1')
     }
+  })
+})
+
+// The phone app has no local daemon, so the local first-run flow (OOBE) does not exist there.
+describe('_shell/index beforeLoad in the phone app', () => {
+  beforeEach(() => {
+    redirectMock.mockClear()
+    readLocal.mockReset()
+    install.localDaemon = false
+  })
+  afterEach(() => {
+    install.localDaemon = true
+    useHostConfigStore.setState({ hosts: [] })
+  })
+
+  it('sends an install with no host to the add-host screen, never to /oobe', async () => {
+    readLocal.mockResolvedValue([])
+    await expect(runBeforeLoad()).rejects.toMatchObject({ options: { to: '/add-host' } })
+    expect(redirectMock).not.toHaveBeenCalledWith({ to: '/oobe' })
+  })
+
+  it('stays on the landing while a paired host has listed no project yet', async () => {
+    useHostConfigStore.getState().addHost({
+      id: 'h1',
+      name: 'h1',
+      endpoint: 'h1.lan:9443',
+      pairedFingerprint: 'ff',
+      clientId: 'client-h1',
+    })
+    readLocal.mockResolvedValue([])
+    await runBeforeLoad()
+    expect(redirectMock).not.toHaveBeenCalled()
   })
 })

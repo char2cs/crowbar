@@ -1,7 +1,7 @@
 import type { ContextMenuItem } from '@/components/ui/context-menu'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toast } from '@/features/window/stores/toast-store'
-import { showNativeContextMenu } from '@/lib/crowbar-bridge'
+import { isDesktopApp, showNativeContextMenu } from '@/lib/crowbar-bridge'
 import { openWorkspaceLink, refuseRemoteLoopback } from '@/lib/workspace-link'
 
 /** The view the terminal itself lives in; a browser tab opens there, never in "the active" one.
@@ -17,15 +17,21 @@ export async function showTerminalUrlMenu(
   view: TerminalView,
 ): Promise<void> {
   const { workspaceId, paneId } = view
+  const openInDefaultBrowser = () => {
+    openWorkspaceLink(url, workspaceId).catch((error: unknown) => {
+      console.error('Failed to open link:', error)
+    })
+  }
+  // No OS menu (nor a Crowbar browser) outside the desktop app: the link just opens.
+  if (!isDesktopApp()) {
+    openInDefaultBrowser()
+    return
+  }
   const items: ContextMenuItem[] = [
     {
       id: 'open-default-browser',
       label: 'Open in Default Browser',
-      onClick: () => {
-        openWorkspaceLink(url, workspaceId).catch((error: unknown) => {
-          console.error('Failed to open link:', error)
-        })
-      },
+      onClick: openInDefaultBrowser,
     },
     {
       id: 'open-crowbar-browser',

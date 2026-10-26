@@ -6,6 +6,7 @@ import type {
   TerminalContent,
 } from '../types/pane-content'
 import { NewTabView } from './new-tab-view'
+import { windowPaneStore } from '../stores/window-pane-store'
 
 // Lazy so each surface's heavy dependencies (git diff, markdown parser, CSV
 // grid) stay out of the main chunk until a tab of that type is opened.
@@ -62,7 +63,14 @@ const RENDERERS: Renderers = {
     <CommitDiffPane sha={c.sha} wsId={c.wsId} isActivePane={isActivePane} />
   ),
   branchReview: (c, { isActivePane }) => (
-    <BranchReviewPane bufferId={c.id} view={c.view} wsId={c.wsId} isActivePane={isActivePane} />
+    <BranchReviewPane
+      view={c.view}
+      onViewChange={(view) =>
+        windowPaneStore.getState().bufferActions.setBranchReviewView(c.id, view)
+      }
+      wsId={c.wsId}
+      isActivePane={isActivePane}
+    />
   ),
   markdownPreview: (c) => <MarkdownPreview bufferId={c.id} />,
   htmlPreview: () => <HtmlPreview />,

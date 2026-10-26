@@ -11,6 +11,7 @@ const bridge = vi.hoisted(() => ({
   unreachable: false,
   /** The host's terminal list never answers: an attach still under way. */
   hung: false,
+  written: [] as string[],
 }))
 
 vi.mock('@/lib/crowbar-bridge', () => ({
@@ -25,7 +26,7 @@ vi.mock('@/lib/crowbar-bridge', () => ({
       listen: () => () => {},
       setTheme: vi.fn(),
       resize: vi.fn(),
-      write: vi.fn(),
+      write: vi.fn((data: string) => bridge.written.push(data)),
     }
   },
   terminalListLive: async () => {
@@ -54,6 +55,7 @@ beforeEach(() => {
   bridge.live = []
   bridge.unreachable = false
   bridge.hung = false
+  bridge.written = []
   localStorage.clear()
   useTerminalStore.setState({ sessions: new Map() })
   __resetWorkspaceScopesForTest()
@@ -136,6 +138,15 @@ describe('XtermTerminal', () => {
     expect(ref.current?.focus).toBeTypeOf('function')
     unmount()
     expect(ref.current).toBeNull()
+  })
+
+  // The phone's key bar types through the handle: Esc, Tab, Ctrl chords and arrows reach the PTY.
+  it('hands its owner a handle that sends input to the session', async () => {
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-1', owningChatId: 'chat-1' })
+    const ref = createRef<TerminalFocusHandle>()
+    await mount({ workspaceId: 'ws-1', ref })
+    await act(async () => ref.current?.send('\x1b[A'))
+    expect(bridge.written).toEqual(['\x1b[A'])
   })
 
   // A detached terminal is a blank xterm: while its host is the reason, it says so.

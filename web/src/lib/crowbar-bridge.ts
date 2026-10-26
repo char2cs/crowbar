@@ -8,6 +8,7 @@ import { splitHostPath } from '@/lib/host-path'
 import { wsUrl } from '@/lib/ws/url'
 import { TauriWebSocket } from '@/lib/ws/tauri-transport'
 import type { ContextMenuItem } from '@/components/ui/context-menu'
+import { IS_MOBILE } from '@/utils/platform'
 
 // ── Terminal PTY ──────────────────────────────────────────────────────────────
 // A terminal VIEW streams one daemon PTY session over its own WebSocket — a
@@ -257,7 +258,7 @@ const REVEAL_IN_FINDER_TIMEOUT_MS = 3_000
 /** Reveal a file or directory in the OS file manager (Finder on macOS) with the
  *  item selected. `path` must be absolute. No-op outside Tauri (browser dev). */
 export async function revealItemInFinder(path: string): Promise<void> {
-  if (!isTauri()) return
+  if (!isDesktopApp()) return
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(
@@ -273,7 +274,6 @@ export async function revealItemInFinder(path: string): Promise<void> {
 }
 
 // ── Window Management ─────────────────────────────────────────────────────────
-// FUTURE: Tauri plugin calls when Crowbar's desktop wrapper exposes them
 
 export async function setWindowTransparency(_enabled: boolean): Promise<void> {
   // FUTURE: invoke Tauri window transparency plugin
@@ -283,35 +283,29 @@ export async function setMacOSWindowAppearance(
   themeType: string,
   _transparencyEnabled: boolean,
 ): Promise<void> {
-  // Pin the window-vibrancy NSVisualEffectView's appearance to the app theme so
-  // the (dark) HUDWindow material renders a LIGHT frost in light mode. Targets the
-  // blur view (NSWindow fallback), NOT the app-level NSApp.appearance that Tauri's
-  // setTheme flips (fragile/inconsistent).
-  if (!isTauri()) return
+  // Pins the vibrancy blur view's appearance to the app theme (a LIGHT frost in light
+  // mode), not NSApp.appearance, which Tauri's setTheme flips inconsistently.
+  if (!isDesktopApp()) return
   await tauriInvoke('set_vibrancy_appearance', { dark: themeType === 'dark' })
 }
 
-/** Move the macOS traffic lights to `(x, y)` (logical points, window-relative)
- *  at runtime — the config-time `trafficLightPosition` in tauri.conf.json only
- *  applies once, at window creation. No-op outside Tauri (browser dev). See
- *  `useMacTrafficLightSync` for who calls this and why. */
+/** Move the macOS traffic lights to `(x, y)` (logical points, window-relative); the
+ *  config-time position applies only at window creation. See `useMacTrafficLightSync`. */
 export async function setTrafficLightPosition(x: number, y: number): Promise<void> {
-  if (!isTauri()) return
+  if (!isDesktopApp()) return
   await tauriInvoke('set_traffic_light_position', { x, y })
 }
 
-/** Mirror the effective Toggle-console chord onto the host's Window-menu item so
- *  macOS cannot consume it first (Cmd+` is the system's window cycle). `null`
- *  clears the accelerator. No-op outside Tauri. */
+/** Mirror the Toggle-console chord onto the Window-menu item so macOS cannot consume it
+ *  first (Cmd+` cycles windows). `null` clears the accelerator. */
 export async function setConsoleMenuChord(chord: string | null): Promise<void> {
-  if (!isTauri()) return
+  if (!isDesktopApp()) return
   await tauriInvoke('set_console_menu_chord', { chord })
 }
 
-/** Subscribe to the host menu item being chosen in THIS window. Resolves to an
- *  unsubscribe; a no-op outside Tauri. */
+/** Subscribe to the host menu item being chosen in THIS window; resolves to an unsubscribe. */
 export async function onConsoleMenuToggle(handler: () => void): Promise<() => void> {
-  if (!isTauri()) return () => {}
+  if (!isDesktopApp()) return () => {}
   const { getCurrentWebview } = await import('@tauri-apps/api/webview')
   return getCurrentWebview().listen('console:toggle', handler)
 }
@@ -427,6 +421,11 @@ export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 }
 
+/** Tauri with a desktop window: the phone app is Tauri too, without window, menu or webview commands. */
+export function isDesktopApp(): boolean {
+  return isTauri() && !IS_MOBILE
+}
+
 /** A Tauri-picked filesystem path -> a URL its own webview can load
  *  (`asset://...`). Re-exported here (not imported directly) so this file
  *  stays the one place non-bridge code reaches `@tauri-apps/*` through. */
@@ -450,7 +449,7 @@ async function tauriInvoke<T = void>(cmd: string, args?: Record<string, unknown>
  * zip in ~/Downloads. Resolves to the bundle's absolute path.
  */
 export async function exportDiagnostics(): Promise<string> {
-  if (!isTauri()) throw new Error('Diagnostics export requires the desktop app')
+  if (!isDesktopApp()) throw new Error('Diagnostics export requires the desktop app')
   return tauriInvoke<string>('diagnostics_export')
 }
 

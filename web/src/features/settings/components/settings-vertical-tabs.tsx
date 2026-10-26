@@ -2,17 +2,19 @@ import * as React from 'react'
 import { useSettingsStore } from '@/features/settings/store'
 import { filterSettingsTabsBySearch } from '@/features/settings/lib/settings-tab-visibility'
 import type { SettingsTab } from '@/features/window/stores/ui-state-store'
-import { SETTINGS_TAB_ITEMS } from './settings-tab-items'
+import type { SettingsTabItem } from './settings-tab-items'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/utils/cn'
 
 interface SettingsVerticalTabsProps {
+  tabs: SettingsTabItem[]
   activeTab: SettingsTab
   onTabChange: (tab: SettingsTab) => void
   panelIdForTab?: (tab: SettingsTab) => string
 }
 
 export const SettingsVerticalTabs = ({
+  tabs,
   activeTab,
   onTabChange,
   panelIdForTab = (tab) => `settings-panel-${tab}`,
@@ -24,7 +26,7 @@ export const SettingsVerticalTabs = ({
 
   const matchingTabs = searchQuery ? new Set(searchResults.map((result) => result.tab)) : null
 
-  const visibleTabs = filterSettingsTabsBySearch(SETTINGS_TAB_ITEMS, matchingTabs)
+  const visibleTabs = filterSettingsTabsBySearch(tabs, matchingTabs)
 
   React.useEffect(() => {
     if (searchQuery && visibleTabs.length > 0) {

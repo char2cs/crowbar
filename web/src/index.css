@@ -4,6 +4,7 @@
 @import './styles/theme-vars.css';
 @import './styles/theme.css';
 @import './styles/zen.css';
+@import './styles/mobile.css';
 @import './styles/editor-theme.css';
 
 @custom-variant dark (&:is(.dark *));

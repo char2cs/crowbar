@@ -3,19 +3,27 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { NewTabView } from '@/features/panes/components/new-tab-view'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import {
+  resetWindowPaneStoreForTests,
+  windowPaneStore,
+} from '@/features/panes/stores/window-pane-store'
+import { useHomeTreeStore, type HomeTree } from '@/lib/store/home-tree'
 
 const ensurePaneChatThenOpen = vi.hoisted(() => vi.fn())
 const openContent = vi.hoisted(() => vi.fn())
 const openBranchReviewForWorkspace = vi.hoisted(() => vi.fn())
-const isThread = vi.hoisted(() => ({ value: false }))
+const platform = vi.hoisted(() => ({ mobile: false }))
 
 vi.mock('@/features/panes/utils/pane-command-actions', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/panes/utils/pane-command-actions')>()),
   ensurePaneChatThenOpen,
   openBranchReviewForWorkspace,
 }))
-vi.mock('@/features/panes/hooks/use-chat-is-thread', () => ({
-  useChatIsThread: () => isThread.value,
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  get IS_MOBILE() {
+    return platform.mobile
+  },
 }))
 vi.mock('@/features/workspace/stores/hooks/use-buffer-store', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/workspace/stores/hooks/use-buffer-store')>()),
@@ -28,7 +36,9 @@ vi.mock('@/features/workspace/stores/hooks/use-buffer-store', async (importOrigi
 describe('NewTabView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    isThread.value = false
+    platform.mobile = false
+    resetWindowPaneStoreForTests()
+    useHomeTreeStore.setState({ trees: {} })
     ensurePaneChatThenOpen.mockImplementation((_ws, _pane, open: (p: string) => void) =>
       open('pane-x'),
     )
@@ -105,9 +115,51 @@ describe('NewTabView', () => {
   })
 
   it('hides Review Branch for a thread', () => {
-    isThread.value = true
-    render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)
+    // A chat in a project home borrows its workspace: a thread.
+    windowPaneStore.getState().paneActions.openChat('thread-1', { projectId: 'p1' })
+    const paneId = windowPaneStore.getState().activePaneId
+    useHomeTreeStore.setState({
+      trees: { p1: { chats: [{ id: 'thread-1' }], folders: [] } as unknown as HomeTree },
+    })
+    render(<NewTabView paneId={paneId} wsId="w1" />)
     expect(screen.queryByRole('button', { name: /review branch/i })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /new file/i })).toBeInTheDocument()
+  })
+
+  // The browser pane is desktop-only and files come later: the phone offers what it can open.
+  it('offers only New Terminal and Review Branch on the phone', () => {
+    platform.mobile = true
+    render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)
+    const names = screen.getAllByRole('button').map((b) => b.textContent)
+    expect(names).toEqual(['New Terminal', 'Review Branch'])
+  })
+
+  // The phone's empty IDE is the whole screen: a bigger logo over touch-sized rows.
+  it('draws the phone variant with a larger logo, and the desktop one without', () => {
+    const { container, unmount } = render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)
+    expect(container.firstElementChild).not.toHaveAttribute('data-variant')
+    expect(container.querySelector('svg[aria-hidden="true"]')).not.toHaveAttribute('width')
+    unmount()
+
+    platform.mobile = true
+    const phone = render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)
+    expect(phone.container.firstElementChild).toHaveAttribute('data-variant', 'phone')
+    expect(phone.container.querySelector('svg[aria-hidden="true"]')).toHaveAttribute('width', '154')
+  })
+
+  // The desktop's gate: a chat on a branch offers its review; a thread or home chat owns none.
+  it('on the phone offers Review Branch only to a chat on a branch', () => {
+    platform.mobile = true
+    const { unmount } = render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)
+    expect(screen.getByRole('button', { name: /review branch/i })).toBeInTheDocument()
+    unmount()
+
+    windowPaneStore.getState().paneActions.openChat('thread-1', { projectId: 'p1' })
+    const paneId = windowPaneStore.getState().activePaneId
+    useHomeTreeStore.setState({
+      trees: { p1: { chats: [{ id: 'thread-1' }], folders: [] } as unknown as HomeTree },
+    })
+    render(<NewTabView paneId={paneId} wsId="w1" />)
+    expect(screen.queryByRole('button', { name: /review branch/i })).not.toBeInTheDocument()
   })
 })

@@ -1,5 +1,6 @@
 import { apiFetch } from '@/lib/api'
 import { hostsRegistered } from '@/features/hosts/lib/host-registration'
+import { hasLocalDaemon } from '@/features/hosts/lib/local-daemon'
 import { LOCAL_HOST } from '@/features/hosts/types'
 import { qualify } from '@/lib/host-path'
 import type { ProjectListTransport } from '@/lib/store/projects'
@@ -17,6 +18,7 @@ type Row = Omit<Project, 'hostId'>
 
 async function read(hostId: string): Promise<Project[]> {
   if (hostId === LOCAL_HOST.id) {
+    if (!hasLocalDaemon()) return []
     return tagged(await apiFetch<Row[]>('/v0/projects', undefined, undefined, hostId), hostId)
   }
   await hostsRegistered()
@@ -40,5 +42,8 @@ function tagged(rows: Row[] | undefined, hostId: string): Project[] {
 export const projectListTransport: ProjectListTransport = {
   read,
   // Called from a host's status change: a channel that cannot open must not throw into it.
-  subscribe: (hostId, onFrame) => subscribeGuarded(() => qualify(hostId, '/v0/projects'), onFrame),
+  subscribe: (hostId, onFrame) =>
+    hostId === LOCAL_HOST.id && !hasLocalDaemon()
+      ? () => {}
+      : subscribeGuarded(() => qualify(hostId, '/v0/projects'), onFrame),
 }

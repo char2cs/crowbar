@@ -1,5 +1,6 @@
-import { invoke } from '@tauri-apps/api/core'
+import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import type { UnlistenFn } from '@tauri-apps/api/event'
+import { isDesktopApp } from '@/lib/crowbar-bridge'
 
 /** Logical px relative to the window content area. */
 export interface BrowserRect {
@@ -29,6 +30,12 @@ export interface BrowserScreenshot {
   png: string
   width: number
   height: number
+}
+
+// The webview commands exist only in the desktop build: elsewhere a call is refused, not sent.
+function invoke<T = void>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (!isDesktopApp()) return Promise.reject(new Error(`${cmd}: needs the desktop app`))
+  return tauriInvoke<T>(cmd, args)
 }
 
 // The event API loads with the first listener, keeping it out of the entry bundle.

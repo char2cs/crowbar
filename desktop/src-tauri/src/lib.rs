@@ -1,11 +1,16 @@
 mod api_proxy;
+#[cfg(desktop)]
 mod browser;
+#[cfg(desktop)]
 mod console_menu;
+#[cfg(desktop)]
 mod diagnostics;
+#[cfg(desktop)]
 mod fdlimit;
 mod host_tokens;
 mod hosts;
 mod navigation;
+#[cfg(desktop)]
 mod sidecar;
 mod tls_pin;
 mod ws_bridge;
@@ -268,6 +273,7 @@ fn apply_dev_app_icon() {
 /// worse than the plain title, because it looks like the answer. So an absent,
 /// empty or whitespace-only label degrades all the way back to the configured
 /// "Crowbar" rather than part of the way.
+#[cfg(desktop)]
 #[cfg(debug_assertions)]
 fn dev_window_title(label: &str) -> Option<String> {
     let label = label.trim();
@@ -299,6 +305,7 @@ fn dev_window_title(label: &str) -> Option<String> {
 ///
 /// Best-effort, like the icon: a window that cannot rename itself is still a
 /// perfectly good window.
+#[cfg(desktop)]
 #[cfg(debug_assertions)]
 fn apply_dev_window_title(app: &tauri::App) {
     let Some(title) = std::env::var("CROWBAR_DEV_LABEL")
@@ -342,6 +349,30 @@ const CROWBAR_BOOTSTRAP: &str = r#"
       api: 'crowbar://localhost',
     });
   }
+})();
+"#;
+
+/// Forwards `console.warn/error`, uncaught errors and rejected promises to the log plugin.
+#[cfg(all(mobile, debug_assertions))]
+const WEBVIEW_CONSOLE_FORWARD: &str = r#"
+(function () {
+  function send(level, parts) {
+    try {
+      var message = parts.map(function (p) {
+        return p instanceof Error ? p.stack || String(p) : typeof p === 'string' ? p : JSON.stringify(p);
+      }).join(' ');
+      window.__TAURI_INTERNALS__.invoke('plugin:log|log', { level: level, message: message, location: 'webview' });
+    } catch (_) {}
+  }
+  ['warn', 'error'].forEach(function (name) {
+    var original = console[name];
+    console[name] = function () {
+      send(name === 'error' ? 5 : 4, Array.prototype.slice.call(arguments));
+      original.apply(console, arguments);
+    };
+  });
+  window.addEventListener('error', function (e) { send(5, ['uncaught', e.message, e.filename + ':' + e.lineno]); });
+  window.addEventListener('unhandledrejection', function (e) { send(5, ['unhandledrejection', e.reason]); });
 })();
 "#;
 
@@ -474,6 +505,7 @@ const CLOSE_WINDOW_MENU_ID: &str = "close_window";
 /// this reason — this one just wasn't (Task 28). `spawn_blocking` moves the
 /// actual blocking call onto a dedicated blocking-pool thread so a slow Finder
 /// round trip no longer holds up the UI.
+#[cfg(desktop)]
 #[tauri::command]
 async fn reveal_in_finder(path: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -494,6 +526,7 @@ async fn reveal_in_finder(path: String) -> Result<(), String> {
 /// SAME HUDWindow material render light/dark by construction. Targets the blur
 /// VIEW (falls back to the NSWindow), never NSApp, so the WKWebView's own
 /// prefers-color-scheme is untouched.
+#[cfg(desktop)]
 #[tauri::command]
 fn set_vibrancy_appearance(window: tauri::Window, dark: bool) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -594,6 +627,7 @@ fn set_vibrancy_appearance(window: tauri::Window, dark: bool) -> Result<(), Stri
 /// (wry-0.55.1 `wkwebview/class/wry_web_view_parent.rs`) exactly. Pulled out
 /// as a pure function — no `AnyObject`, no live window — so the one bit of
 /// real arithmetic here is unit-testable without AppKit.
+#[cfg(desktop)]
 #[cfg_attr(not(test), allow(dead_code))]
 fn traffic_light_container_frame(
     close_button_height: f64,
@@ -623,6 +657,7 @@ fn traffic_light_container_frame(
 /// `x`/`y` are logical points — the same units as `tauri.conf.json`'s static
 /// value and as `getBoundingClientRect()` on whichever frontend row computes
 /// them; no DPI scaling happens here.
+#[cfg(desktop)]
 #[tauri::command]
 fn set_traffic_light_position(window: tauri::Window, x: f64, y: f64) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -720,6 +755,7 @@ fn set_traffic_light_position(window: tauri::Window, x: f64, y: f64) -> Result<(
 /// command runs inline on the thread dispatching the IPC message (the app's main
 /// thread for a WKWebView call), and `popup_at`'s own main-thread dispatch would
 /// deadlock against itself if called from there directly.
+#[cfg(desktop)]
 #[tauri::command]
 async fn popup_native_context_menu(
     webview: tauri::Webview,
@@ -784,7 +820,7 @@ fn decorate_window(webview: &tauri::Webview) {
     });
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(desktop, not(target_os = "macos")))]
 fn decorate_window(_webview: &tauri::Webview) {}
 
 /// Builds the `initialization_script` that seeds `location.hash` to `route` on a new
@@ -807,6 +843,7 @@ fn decorate_window(_webview: &tauri::Webview) {}
 /// back to the picker), not a stand-in for "nothing has happened yet". Matching it too
 /// would re-seed `route` on every reload after the user deliberately returns to the
 /// picker, silently overriding their navigation — the opposite of this guard's job.
+#[cfg(desktop)]
 fn seed_hash_script(route: &str) -> Result<String, String> {
     let encoded = serde_json::to_string(route).map_err(|e| format!("encode route: {e}"))?;
     Ok(format!(
@@ -854,6 +891,7 @@ fn seed_hash_script(route: &str) -> Result<String, String> {
 /// window creation off the main thread on every platform, which is also why the
 /// `on_menu_event` caller `tauri::async_runtime::spawn`s it rather than blocking the
 /// menu event loop.
+#[cfg(desktop)]
 #[tauri::command]
 async fn open_window(app: tauri::AppHandle, route: String) -> Result<(), String> {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -918,6 +956,7 @@ async fn open_window(app: tauri::AppHandle, route: String) -> Result<(), String>
 
 /// Window-level labels: `webview_windows()` omits a window once it hosts a child
 /// webview (a browser tab), which would make the last-window check see none.
+#[cfg(desktop)]
 fn live_window_labels<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Vec<String> {
     tauri::Manager::windows(app).into_keys().collect()
 }
@@ -939,22 +978,26 @@ fn live_window_labels<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Vec<Strin
 /// for one of them — `> 1` kills the daemon on a non-last `Destroyed`. Asking "is
 /// there another label" is immune to the asymmetry, and the tests below pin both
 /// event shapes.
+#[cfg(desktop)]
 fn another_window_survives<'a>(labels: impl Iterator<Item = &'a str>, closing: &str) -> bool {
     labels.into_iter().any(|label| label != closing)
 }
 
 /// Stop the Go daemon sidecar — see `sidecar::shutdown`. Idempotent.
+#[cfg(desktop)]
 fn shutdown_sidecar(app: &tauri::AppHandle, reason: &str) {
     if let Some(state) = app.try_state::<sidecar::SidecarHandle>() {
         sidecar::shutdown(&state, reason);
     }
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Before anything opens a descriptor: this process proxies every frontend
     // request and every WebSocket to the daemon over its own unix sockets, and
     // macOS starts a GUI app at launchd's soft limit of 256. No logger exists this
     // early, so the outcome is reported from setup() below.
+    #[cfg(desktop)]
     let fd_limit = fdlimit::raise();
 
     // Step 1: NSUserDefaults before WKWebView creation (macOS 13-15 path).
@@ -963,11 +1006,8 @@ pub fn run() {
         disable_webkit_60fps_cap_early()
     }
 
+    #[cfg_attr(not(desktop), allow(unused_mut))] // reason: only desktop adds plugins below
     let mut builder = tauri::Builder::default()
-        // tauri-plugin-macos-fps uses the `_features` private selector which was
-        // removed in macOS 26. Keep it for macOS 13-15 compatibility but it is a
-        // no-op (or crash-risk) on macOS 26 — our KVC fix in setup() covers that.
-        .plugin(tauri_plugin_macos_fps::init())
         .plugin(tauri_plugin_dialog::init())
         // Default the log plugin to Info (it defaults to Trace, which drowns the
         // output in the WebSocket stack's per-frame internals). Crowbar's own code
@@ -986,7 +1026,6 @@ pub fn run() {
                 .level_for("mio", log::LevelFilter::Warn)
                 .build(),
         )
-        .plugin(tauri_plugin_shell::init())
         // Inject the desktop API endpoint on every webview load (see CROWBAR_BOOTSTRAP).
         .plugin(
             tauri::plugin::Builder::<tauri::Wry, ()>::new("crowbar-bootstrap")
@@ -998,6 +1037,7 @@ pub fn run() {
         .plugin(
             tauri::plugin::Builder::<tauri::Wry, ()>::new("navigation-guard")
                 .on_navigation(|webview, url| {
+                    #[cfg(desktop)]
                     if browser::exempt_from_app_guard(webview.label()) {
                         return true;
                     }
@@ -1010,9 +1050,34 @@ pub fn run() {
         // socket the daemon listens on (see sidecar + api_proxy).
         .register_asynchronous_uri_scheme_protocol("crowbar", api_proxy::handle_request);
 
+    #[cfg(target_os = "ios")]
+    {
+        builder = builder.plugin(tauri_plugin_crowbar_chrome::init());
+    }
+
+    // WKWebView on a phone has no MCP bridge: route page errors to the native log.
+    #[cfg(all(mobile, debug_assertions))]
+    {
+        builder = builder.plugin(
+            tauri::plugin::Builder::<tauri::Wry, ()>::new("webview-console")
+                .js_init_script(WEBVIEW_CONSOLE_FORWARD.to_string())
+                .build(),
+        );
+    }
+
+    #[cfg(desktop)]
+    {
+        // tauri-plugin-macos-fps uses the `_features` private selector which was
+        // removed in macOS 26. Keep it for macOS 13-15 compatibility but it is a
+        // no-op (or crash-risk) on macOS 26 — our KVC fix in setup() covers that.
+        builder = builder
+            .plugin(tauri_plugin_macos_fps::init())
+            .plugin(tauri_plugin_shell::init());
+    }
+
     // Dev-only: exposes the webview to the Tauri MCP server (WebSocket :9223).
     // Gated to debug builds so it never ships in a release.
-    #[cfg(debug_assertions)]
+    #[cfg(all(desktop, debug_assertions))]
     {
         builder = builder.plugin(tauri_plugin_mcp_bridge::init());
     }
@@ -1053,8 +1118,12 @@ pub fn run() {
         });
     }
 
-    builder
-        .manage(sidecar::SidecarHandle::new())
+    #[cfg(desktop)]
+    {
+        builder = builder.manage(sidecar::SidecarHandle::new());
+    }
+
+    let builder = builder
         .manage(ws_bridge::WsBridgeManager::new())
         .manage(std::sync::Arc::new(host_tokens::KeyringTokenStore)
             as std::sync::Arc<dyn host_tokens::TokenStore>)
@@ -1075,10 +1144,14 @@ pub fn run() {
                 .close_for_window(webview.label());
         })
         .setup(move |app| {
+            #[cfg(mobile)]
+            let _ = app; // reason: only desktop has windows to decorate and a sidecar to start
+            #[cfg(desktop)]
             let app_handle = app.handle().clone();
 
             // Report the descriptor ceiling now that a logger exists. It is the
             // first number to reach for when the app cannot dial the daemon.
+            #[cfg(desktop)]
             match &fd_limit {
                 fdlimit::Outcome::Failed(_) => log::warn!("{fd_limit}"),
                 outcome => log::info!("{outcome}"),
@@ -1088,6 +1161,7 @@ pub fn run() {
             // `crowbar://` custom protocol (bridged by api_proxy). The endpoint
             // is injected into the webview by the crowbar-bootstrap init script
             // above, so nothing to do here for that.
+            #[cfg(desktop)]
             let socket = sidecar::socket_path();
 
             // Native macOS blur + WebKit 60fps un-cap. See decorate_window — applied
@@ -1099,95 +1173,115 @@ pub fn run() {
 
             // Say which worktree this instance came out of. See
             // apply_dev_window_title for why setup is early enough.
-            #[cfg(debug_assertions)]
+            #[cfg(all(desktop, debug_assertions))]
             apply_dev_window_title(app);
 
-            // Spawn the Go daemon sidecar on the unix socket.
-            tauri::async_runtime::spawn(async move {
-                if let Err(e) = sidecar::spawn(&app_handle, socket).await {
-                    log::error!("failed to start crowbar daemon: {e}");
-                }
-            });
-
-            // Supervise it: deep readiness probes, goroutine dump + restart on
-            // a wedge (see sidecar::start_watchdog).
-            sidecar::start_watchdog(app.handle().clone());
+            // Spawn the Go daemon sidecar on the unix socket, then supervise it:
+            // deep readiness probes, goroutine dump + restart on a wedge (see
+            // sidecar::start_watchdog). The phone has no local daemon.
+            #[cfg(desktop)]
+            {
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = sidecar::spawn(&app_handle, socket).await {
+                        log::error!("failed to start crowbar daemon: {e}");
+                    }
+                });
+                sidecar::start_watchdog(app.handle().clone());
+            }
 
             Ok(())
-        })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed = event
-            {
-                let label = window.label();
+        });
 
-                // Retire this window's transports FIRST, whether or not it is the last
-                // window. A closing window orphans its connections exactly as a
-                // reloading one does — its JS is gone and will never call `ws_close` —
-                // and `on_page_load` cannot cover it, because a window that closes never
-                // loads a page again.
-                //
-                // This did not matter while any window's close took the whole app down
-                // with it. Now that a non-last close returns early below, a stranded
-                // connection would park its reader task on a socket for the life of the
-                // process — and this app runs into macOS's 256-descriptor ceiling for
-                // real (see fdlimit). Retiring is idempotent, so the second pass for the
-                // same window (CloseRequested then Destroyed) is a no-op.
-                let app = window.app_handle();
-                app.state::<ws_bridge::WsBridgeManager>()
-                    .close_for_window(label);
+    #[cfg(desktop)]
+    let builder = builder.on_window_event(|window, event| {
+        if let tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed = event {
+            let label = window.label();
 
-                // The sidecar is app-wide, so only the LAST window closing may take it
-                // down — and only once it is actually gone: a CloseRequested can still
-                // be prevented, and stopping the daemon under a window that stays open
-                // strands it. See another_window_survives for why this is a label check
-                // and not `webview_windows().len() > 1`.
-                if !matches!(event, tauri::WindowEvent::Destroyed) {
-                    return;
-                }
-                let windows = live_window_labels(app);
-                if another_window_survives(windows.iter().map(String::as_str), label) {
-                    return;
-                }
+            // Retire this window's transports FIRST, whether or not it is the last
+            // window. A closing window orphans its connections exactly as a
+            // reloading one does — its JS is gone and will never call `ws_close` —
+            // and `on_page_load` cannot cover it, because a window that closes never
+            // loads a page again.
+            //
+            // This did not matter while any window's close took the whole app down
+            // with it. Now that a non-last close returns early below, a stranded
+            // connection would park its reader task on a socket for the life of the
+            // process — and this app runs into macOS's 256-descriptor ceiling for
+            // real (see fdlimit). Retiring is idempotent, so the second pass for the
+            // same window (CloseRequested then Destroyed) is a no-op.
+            let app = window.app_handle();
+            app.state::<ws_bridge::WsBridgeManager>()
+                .close_for_window(label);
 
-                shutdown_sidecar(app, "last window closed");
+            // The sidecar is app-wide, so only the LAST window closing may take it
+            // down — and only once it is actually gone: a CloseRequested can still
+            // be prevented, and stopping the daemon under a window that stays open
+            // strands it. See another_window_survives for why this is a label check
+            // and not `webview_windows().len() > 1`.
+            if !matches!(event, tauri::WindowEvent::Destroyed) {
+                return;
             }
-        })
-        .invoke_handler(tauri::generate_handler![
-            ws_bridge::ws_open,
-            ws_bridge::ws_send,
-            ws_bridge::ws_close,
-            diagnostics::diagnostics_export,
-            host_tokens::forget_host_token,
-            api_proxy::pairing::pair_remote_host,
-            api_proxy::probe::probe_remote_fingerprint,
-            hosts::register_remote_host,
-            hosts::unregister_remote_host,
-            reveal_in_finder,
-            set_vibrancy_appearance,
-            set_traffic_light_position,
-            popup_native_context_menu,
-            open_window,
-            console_menu::set_console_menu_chord,
-            browser::browser_open,
-            browser::browser_set_bounds,
-            browser::browser_set_visible,
-            browser::browser_navigate,
-            browser::browser_back,
-            browser::browser_forward,
-            browser::browser_reload,
-            browser::browser_close,
-            browser::browser_eval,
-            browser::browser_screenshot,
-            browser::browser_capabilities,
-            browser::browser_clear_data,
-            browser::browser_copy_text,
-        ])
+            let windows = live_window_labels(app);
+            if another_window_survives(windows.iter().map(String::as_str), label) {
+                return;
+            }
+
+            shutdown_sidecar(app, "last window closed");
+        }
+    });
+
+    #[cfg(desktop)]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        ws_bridge::ws_open,
+        ws_bridge::ws_send,
+        ws_bridge::ws_close,
+        diagnostics::diagnostics_export,
+        host_tokens::forget_host_token,
+        api_proxy::pairing::pair_remote_host,
+        api_proxy::probe::probe_remote_fingerprint,
+        hosts::register_remote_host,
+        hosts::unregister_remote_host,
+        reveal_in_finder,
+        set_vibrancy_appearance,
+        set_traffic_light_position,
+        popup_native_context_menu,
+        open_window,
+        console_menu::set_console_menu_chord,
+        browser::browser_open,
+        browser::browser_set_bounds,
+        browser::browser_set_visible,
+        browser::browser_navigate,
+        browser::browser_back,
+        browser::browser_forward,
+        browser::browser_reload,
+        browser::browser_close,
+        browser::browser_eval,
+        browser::browser_screenshot,
+        browser::browser_capabilities,
+        browser::browser_clear_data,
+        browser::browser_copy_text,
+    ]);
+    #[cfg(mobile)]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        ws_bridge::ws_open,
+        ws_bridge::ws_send,
+        ws_bridge::ws_close,
+        host_tokens::forget_host_token,
+        api_proxy::pairing::pair_remote_host,
+        api_proxy::probe::probe_remote_fingerprint,
+        hosts::register_remote_host,
+        hosts::unregister_remote_host,
+    ]);
+
+    builder
         .build(tauri::generate_context!())
         .expect("error building Tauri app")
         // Split out of `.run(context)` so we get a run-event callback: the dev
         // icon can only be applied once Ready has been through tauri's own
         // icon-setting arm. See apply_dev_app_icon.
         .run(|app_handle, event| {
+            #[cfg(mobile)]
+            let _ = (app_handle, event); // reason: the dev icon and sidecar exit hook are desktop-only
             #[cfg(all(debug_assertions, target_os = "macos"))]
             if matches!(event, tauri::RunEvent::Ready) {
                 apply_dev_app_icon();
@@ -1198,12 +1292,14 @@ pub fn run() {
             // — holding its socket, which makes the next launch's daemon fail to bind.
             // tauri invokes this callback BEFORE cleanup_before_exit, so the handle is
             // still live here. Idempotent with the last-window path.
+            #[cfg(desktop)]
             if matches!(event, tauri::RunEvent::Exit) {
                 shutdown_sidecar(app_handle, "app exit");
             }
         });
 }
 
+#[cfg(desktop)]
 #[cfg(test)]
 mod traffic_light_container_frame_tests {
     use super::traffic_light_container_frame;
@@ -1229,6 +1325,7 @@ mod traffic_light_container_frame_tests {
     }
 }
 
+#[cfg(desktop)]
 #[cfg(test)]
 mod reveal_in_finder_tests {
     use super::reveal_in_finder;
@@ -1254,6 +1351,7 @@ mod reveal_in_finder_tests {
     }
 }
 
+#[cfg(desktop)]
 #[cfg(test)]
 mod last_window_tests {
     use super::{another_window_survives, live_window_labels};

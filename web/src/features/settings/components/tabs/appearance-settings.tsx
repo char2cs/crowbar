@@ -91,6 +91,7 @@ export const AppearanceSettings = () => {
           canReset={settings.theme !== getDefaultSetting('theme')}
         >
           <Select
+            items={normalizedThemeOptions}
             value={settings.theme}
             onValueChange={(value) => {
               if (value) updateSetting('theme', value as Theme)
@@ -116,6 +117,7 @@ export const AppearanceSettings = () => {
           canReset={settings.themeMode !== getDefaultSetting('themeMode')}
         >
           <Select
+            items={THEME_MODE_OPTIONS}
             value={settings.themeMode}
             onValueChange={(value) => {
               if (value) updateSetting('themeMode', value as ThemeMode)
@@ -143,6 +145,7 @@ export const AppearanceSettings = () => {
           canReset={settings.iconTheme !== getDefaultSetting('iconTheme')}
         >
           <Select
+            items={normalizedIconThemeOptions}
             value={settings.iconTheme}
             onValueChange={(value) => {
               if (value) updateSetting('iconTheme', value)
@@ -218,6 +221,7 @@ export const AppearanceSettings = () => {
           canReset={settings.sidebarPosition !== getDefaultSetting('sidebarPosition')}
         >
           <Select
+            items={SIDEBAR_POSITION_OPTIONS}
             value={settings.sidebarPosition}
             onValueChange={(value) => {
               if (value) updateSetting('sidebarPosition', value as 'left' | 'right')
