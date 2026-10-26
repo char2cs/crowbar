@@ -284,9 +284,9 @@ type RunnerUsecase interface {
 		chatID string,
 	) error
 
-	// CloseChat retires chatID's live vendor CLI because no view displays the chat
-	// any more, mid-turn included, and leaves it dormant and resumable.
-	CloseChat(
+	// KillChat force-ends chatID's live vendor CLI, mid-turn included, and leaves
+	// it dormant and resumable.
+	KillChat(
 		ctx context.Context,
 		chatID string,
 	) error

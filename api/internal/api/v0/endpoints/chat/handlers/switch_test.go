@@ -274,20 +274,20 @@ func TestStop_WrongWorkspace404s(
 	assert.Empty(t, uc.stopCalls, "StopChat must never be called once the scope check 404s")
 }
 
-// TestClose_Success proves Close calls CloseChat (not StopChat) for the path id
+// TestKill_Success proves Kill calls KillChat (not StopChat) for the path id
 // and responds 202.
-func TestClose_Success(
+func TestKill_Success(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{}
 	h := newChatHandlers(uc)
 
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/close", nil)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/kill", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
 
-	h.Close(ctx)
+	h.Kill(ctx)
 
 	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Equal(t, []string{"chat-1"}, uc.closeCalls)
+	assert.Equal(t, []string{"chat-1"}, uc.killCalls)
 	assert.Empty(t, uc.stopCalls)
 }

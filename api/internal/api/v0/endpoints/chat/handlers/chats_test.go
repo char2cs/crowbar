@@ -608,7 +608,7 @@ func (configurableListGetUsecase) StopChat(
 	return nil
 }
 
-func (configurableListGetUsecase) CloseChat(
+func (configurableListGetUsecase) KillChat(
 	_ context.Context,
 	_ string,
 ) error {

@@ -126,6 +126,7 @@ func (c *Container) Register(
 	// for the worktree that chat holds. Without it, a frontend that stopped
 	// watching .../workspaces/:wsId would leave every PR status frozen at `new`.
 	chatScoped.GET("/ws", c.agentChats.Handle)
+	chatScoped.GET("/attach", c.attachChat)
 
 	c.detached = append(c.detached, projectsPkg.Register(
 		rg,

@@ -45,6 +45,8 @@ type Container struct {
 	// chatScopes answers what each agent-chat frame namespaces under — see
 	// agent_chat_scope.go.
 	chatScopes *agentChatScopes
+	// presence counts the clients attached to each chat (chat_presence.go).
+	presence *chatPresence
 	// pairing serves the pairing/client-registry routes (router.go); its
 	// usecase holds the single outstanding pairing code in memory.
 	pairing *pairinghandlers.Handlers
@@ -90,6 +92,7 @@ func New(
 		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(appContainer), appContainer)),
 		lsp:        ws.NewBroadcaster(withLSPLifecycle(lspDef(appContainer, engContainer), appContainer)),
 		chatScopes: newAgentChatScopes(),
+		presence:   newChatPresence(),
 		pairing:    pairinghandlers.New(pairing.New(appContainer.GORM.Clients), appContainer.GORM.Clients, conns, serverFingerprint),
 		conns:      conns,
 		app:        appContainer,
@@ -569,18 +572,19 @@ func (c *Container) PushAgentChatChoices(
 }
 
 // agentChatSnapshot is what a socket is told the moment it connects: the prompts
-// every chat is already blocked on, which no frame will announce again. Each
-// frame is held to the new client's own scope by the stream's filters.
+// every chat is already blocked on and the viewers every chat already has, which
+// no frame will announce again. Each frame is held to the new client's own scope
+// by the stream's filters.
 func (c *Container) agentChatSnapshot(string) []dto.AgentChatEvent {
+	out := c.attachedSnapshot()
 	if c.app.Usecases == nil || c.app.Usecases.AgentTurn == nil {
-		return nil
+		return out
 	}
 	sets, err := c.app.Usecases.AgentTurn.PendingChoiceSets(context.Background())
 	if err != nil {
 		slog.Warn("agent chats: snapshot pending choices", "err", err)
-		return nil
+		return out
 	}
-	out := make([]dto.AgentChatEvent, 0, len(sets))
 	for _, set := range sets {
 		out = append(out, c.choiceEvent(
 			set.ChatID, set.WorkspaceID, dto.AgentChoiceDTOsFrom(set.Choices, set.Answerable),

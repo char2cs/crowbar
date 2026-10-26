@@ -935,6 +935,11 @@ type AgentChatEvent struct {
 
 	// Choices is every prompt the chat is blocked on, on the `choice` kind.
 	Choices []AgentChoiceDTO `json:"choices,omitempty"`
+
+	// Attached is how many clients are attached to the chat right now, on the
+	// `attached` kind: a pointer so the 0 that means orphaned still rides, and
+	// no other kind carries the field.
+	Attached *int `json:"attached,omitempty"`
 }
 
 // AgentPlanStepDTO is one entry of the agent's running plan.
@@ -969,6 +974,11 @@ type AgentStreamingMessageDTO struct {
 	// client already parses.
 	Kind string `json:"kind,omitempty"`
 }
+
+// AgentChatKindAttached announces that the number of clients attached to a chat
+// changed. Attaching is holding the chat's attach socket open; it says nothing
+// about the agent, which keeps running with zero viewers.
+const AgentChatKindAttached = "attached"
 
 // AgentChatKindPromptSettled announces that a prompt Crowbar delivered is OVER
 // without having produced a turn, so nothing is still owed on it.

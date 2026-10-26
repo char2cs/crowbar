@@ -5440,7 +5440,7 @@ func TestRegression_ResumeChat_ClosedMidFirstTurn_ResumesTheSessionOnDisk(t *tes
 	f.announce(t, runnerID, "sid-mid-first-turn")
 	writeVendorSession(t, "sid-mid-first-turn")
 
-	require.NoError(t, f.usecase.CloseChat(f.ctx, chatID))
+	require.NoError(t, f.usecase.KillChat(f.ctx, chatID))
 	f.wait()
 
 	_, err := f.usecase.ResumeChat(f.ctx, chatID)
@@ -5465,7 +5465,7 @@ func TestRegression_ResumeChat_FreshSpawnWhoseSessionStartNeverLanded_StillResum
 	assigned := argAfter(t, f.term.calls[0].argv, "--session-id")
 	writeVendorSession(t, assigned) // claude wrote the conversation once it took a message
 
-	require.NoError(t, f.usecase.CloseChat(f.ctx, chatID))
+	require.NoError(t, f.usecase.KillChat(f.ctx, chatID))
 	f.wait()
 	_, err := f.usecase.ResumeChat(f.ctx, chatID)
 	require.NoError(t, err)
