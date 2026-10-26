@@ -339,10 +339,7 @@ export function useNativeSidebar({
         working: row.working || chatWorking(row),
         hasView: row.id === focusedChatId,
       })),
-      active: activeRows(rows, sessions).map((r) => ({
-        id: r.id,
-        attached: attached[r.id]?.count ?? 0,
-      })),
+      active: activeRows(rows, sessions).map((r) => ({ id: r.id })),
       collapsed: [...collapsed],
       actions: nativeRowActions(rows, canStartOnTerminal, sessions, attached),
       drop,

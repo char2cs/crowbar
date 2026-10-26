@@ -293,12 +293,12 @@ describe('useNativeSidebar', () => {
         })
       })
 
-    it('lists a running chat in the Active section with its viewers, and offers Kill agent', () => {
+    it('lists a running chat in the Active section and offers Kill agent', () => {
       mount()
       expect(last().active).toEqual([])
       expect(last().actions['c-a'].some((a) => a.id === 'kill-agent')).toBe(false)
       run()
-      expect(last().active).toEqual([{ id: 'c-a', attached: 2 }])
+      expect(last().active).toEqual([{ id: 'c-a' }])
       const kill = last().actions['c-a'].find((a) => a.id === 'kill-agent')
       expect(kill).toMatchObject({ destructive: true })
       expect(kill?.confirm?.message).toContain('2 clients are attached')

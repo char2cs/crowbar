@@ -85,9 +85,8 @@ export type NativeSidebar = {
   hosts: { id: string; name: string; state: HostDotState }[]
   /** The active project's rows, flat and parentId-linked, live facts resolved. */
   rows: SidebarRow[]
-  /** The rows above that have an agent running, pinned at the top: a view over `rows`, each
-   *  with the clients attached to it. */
-  active: { id: string; attached: number }[]
+  /** The rows above that have an agent running, pinned at the top: a view over `rows`. */
+  active: { id: string }[]
   collapsed: string[]
   /** Each row's menu, by row id, for the native long-press menu. */
   actions: Record<string, NativeRowAction[]>
