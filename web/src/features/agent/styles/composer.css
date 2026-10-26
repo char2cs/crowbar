@@ -699,6 +699,18 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A finger cannot hover or widen the pane to read an ellipsis, and the message
+   is the only clue to WHICH prompt the provider is stuck on. */
+@media (pointer: coarse) {
+  .agent-chat .pill.halted {
+    padding-block: 6px;
+  }
+  .agent-chat .pill.halted .msg {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+}
 .agent-chat .pill.halted > button:last-child {
   margin-left: auto;
 }
