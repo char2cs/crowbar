@@ -88,6 +88,7 @@ describe('setNativeSidebar', () => {
       collapsed: [],
       actions: {},
       drop: null,
+      readout: null,
     }
     setNativeSidebar(sidebar)
     expect(host.invoke).toHaveBeenCalledWith('plugin:crowbar-chrome|set_sidebar', sidebar)

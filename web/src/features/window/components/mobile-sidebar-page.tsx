@@ -8,6 +8,7 @@ import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/si
 import { HostViewsContext } from '@/features/hosts/hooks/use-host-status'
 import type { NativeSidebar } from '@/lib/native-chrome'
 import { cn } from '@/lib/utils'
+import { NativeReadoutView } from '@/components/layout/build-readout'
 import { Separator } from '@/components/ui/separator'
 import { postToShell, receiveShellSnapshots } from '@/lib/shell-page-bridge'
 import { useSurfaceThemeColor } from '@/features/window/hooks/use-surface-theme-color'
@@ -62,7 +63,7 @@ export function MobileSidebarPage() {
   }, [snapshot?.rows, snapshot?.active])
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-chrome-bg pt-[env(safe-area-inset-top)] text-foreground">
+    <div className="relative flex h-dvh flex-col overflow-hidden bg-chrome-bg pt-[env(safe-area-inset-top)] text-foreground">
       {snapshot && (
         <HostViewsContext value={hostViews}>
           <RowMetricsContext value={TOUCH_ROW_METRICS}>
@@ -94,6 +95,12 @@ export function MobileSidebarPage() {
             </RowDragScope>
           </RowMetricsContext>
         </HostViewsContext>
+      )}
+      {snapshot?.readout && (
+        <NativeReadoutView
+          readout={snapshot.readout}
+          className="absolute right-4 bottom-1 items-end text-right"
+        />
       )}
     </div>
   )

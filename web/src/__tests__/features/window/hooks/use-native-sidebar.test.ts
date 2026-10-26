@@ -13,6 +13,8 @@ import type { Project } from '@/lib/types'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { getInitialPendingCreatesState, usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { useActiveSessionsStore } from '@/lib/store/active-sessions'
+import { useSettingsStore } from '@/features/settings/store'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
 
 const chrome = vi.hoisted(() => ({
@@ -84,6 +86,7 @@ beforeEach(() => {
   useUIState.setState({ isSettingsOpen: false })
   useActiveSessionsStore.setState({ sessions: {}, attached: {} })
   kill.mockClear()
+  resetHostWorld()
 })
 
 const mount = (onSelectProject = vi.fn()) =>
@@ -106,7 +109,25 @@ describe('useNativeSidebar', () => {
       collapsed: [],
       actions: {},
       drop: null,
+      readout: null,
     })
+  })
+
+  it('pushes the build readout with each paired host’s net state, or none while it is off', () => {
+    useSettingsStore.setState((state) => {
+      state.settings.buildBadgeOverride = 'beta'
+      state.settings.showBuildReadout = true
+    })
+    pairRemoteHost('h1', 'lab')
+    const { unmount } = mount()
+    expect(last().readout?.lines.build).toBe('beta 0.0.0-beta.1')
+    expect(last().readout?.hosts).toEqual([{ name: 'lab', net: 'idle' }])
+    unmount()
+    useSettingsStore.setState((state) => {
+      state.settings.showBuildReadout = false
+    })
+    mount()
+    expect(last().readout).toBeNull()
   })
 
   // The page draws the desktop row's own "has a view" ground on the chat on screen.

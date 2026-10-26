@@ -25,6 +25,8 @@ import { performRenameRow } from '@/components/sidebar/lib/row-actions'
 import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { dropTargetRow, rowDropTargets } from '@/components/sidebar/lib/row-drop-targets'
 import { killAgent, killAgentConfirmation } from '@/features/agent/lib/kill-agent'
+import { useNativeReadout } from '@/components/layout/use-readout-lines'
+import { hostNetStateOf } from '@/components/layout/build-readout-lines'
 import { handleCreateHomeThread } from '@/components/layout/home-actions'
 import { handleCreate } from '@/components/layout/create-actions'
 import { handleOpen } from '@/components/layout/open-actions'
@@ -76,6 +78,7 @@ const EMPTY: NativeSidebar = {
   collapsed: [],
   actions: {},
   drop: null,
+  readout: null,
 }
 
 // The desktop renames inline; the phone's list page can't, so it asks natively.
@@ -310,6 +313,7 @@ export function useNativeSidebar({
     [rows, collapsed, dragSubjectId],
   )
   const icons = useIconsAsData(rows, projects)
+  const readout = useNativeReadout()
   const live = useLiveFacts(
     hostConfigs.map((h) => h.id),
     wsIds,
@@ -338,9 +342,14 @@ export function useNativeSidebar({
       collapsed: [...collapsed],
       actions: nativeRowActions(rows, sessions, attached),
       drop,
+      readout: readout && {
+        ...readout,
+        hosts: hostConfigs.map((h) => ({ name: h.name, net: hostNetStateOf(hostState(h.id)) })),
+      },
     })
   }, [
     drop,
+    readout,
     rows,
     collapsed,
     focusedChatId,

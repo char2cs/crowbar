@@ -8,6 +8,7 @@ import { IS_MOBILE } from '@/utils/platform'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import type { AllowedModes, DropMode } from '@/components/tree-dnd/drop-core'
 import type { HostDotState } from '@/features/hosts/types'
+import type { HostNetState, NetState, ReadoutLines } from '@/components/layout/build-readout-lines'
 import type { Project } from '@/lib/types'
 import type { AgentProvider, PermissionLevel } from '@/features/agent/api/agent-api'
 import type { AgentProvidersStatus } from '@/features/settings/stores/agent-providers-store'
@@ -92,6 +93,15 @@ export type NativeSidebar = {
   actions: Record<string, NativeRowAction[]>
   /** While a row is dragged: where the desktop's drop rules let it land, by target row id. */
   drop: NativeRowDrop | null
+  /** The build/net readout, drawn at the page's foot; null while it is turned off. */
+  readout: NativeReadout | null
+}
+
+/** What the readout says, already resolved: the page watches none of its stores. */
+export type NativeReadout = {
+  lines: ReadoutLines
+  net: NetState
+  hosts: { name: string; net: HostNetState }[]
 }
 
 export type NativeRowDrop = {

@@ -56,6 +56,7 @@ const snapshot: NativeSidebar = {
   collapsed: [],
   actions: {},
   drop: null,
+  readout: null,
 }
 
 const push = (next: NativeSidebar) => act(() => (window as Receiver).__crowbarSidebar!(next))
@@ -124,6 +125,28 @@ describe('MobileSidebarPage', () => {
     render(<MobileSidebarPage />)
     push(snapshot)
     expect(screen.queryByRole('region', { name: 'Active' })).not.toBeInTheDocument()
+  })
+
+  it('draws the shell’s build readout on the page', () => {
+    render(<MobileSidebarPage />)
+    push({
+      ...snapshot,
+      readout: {
+        lines: {
+          build: 'nightly 10-26 10:38',
+          net: 'net ok',
+          reconnects: '',
+          stats: '120fps 10ms',
+          netWarn: false,
+        },
+        net: 'ok',
+        hosts: [{ name: 'homelab', net: 'ok' }],
+      },
+    })
+    const readout = screen.getByText('120fps 10ms').parentElement!
+    expect(readout.textContent).toBe('nightly 10-26 10:38  net ok  homelab ok120fps 10ms')
+    push(snapshot)
+    expect(screen.queryByText('120fps 10ms')).not.toBeInTheDocument()
   })
 
   it('asks the shell for the sidebar once it can draw it', () => {
