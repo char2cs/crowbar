@@ -25,10 +25,28 @@ const closeFiles = () => useMobileScreenStore.getState().setFilesOpen(false)
 export function MobileIdeScreen({ hidden }: { hidden: boolean }) {
   const pane = useStore(windowPaneStore, (s) => s.panes[s.activePaneId] ?? null)
   if (!pane?.chatId || !pane.workspaceId) return null
-  return <PaneIde key={pane.id} pane={pane} wsId={pane.workspaceId} hidden={hidden} />
+  return (
+    <PaneIde
+      key={pane.id}
+      pane={pane}
+      wsId={pane.workspaceId}
+      chatId={pane.chatId}
+      hidden={hidden}
+    />
+  )
 }
 
-function PaneIde({ pane, wsId, hidden }: { pane: PaneGroup; wsId: string; hidden: boolean }) {
+function PaneIde({
+  pane,
+  wsId,
+  chatId,
+  hidden,
+}: {
+  pane: PaneGroup
+  wsId: string
+  chatId: string
+  hidden: boolean
+}) {
   const store = useRegisteredWorkspaceStore(wsId)
   const filesOpen = useMobileScreenStore((s) => s.filesOpen)
   return (
@@ -40,7 +58,7 @@ function PaneIde({ pane, wsId, hidden }: { pane: PaneGroup; wsId: string; hidden
     >
       <WorkspaceStoreContext.Provider value={store}>
         {NATIVE_CHROME ? (
-          <NativeIdeFeed paneId={pane.id} wsId={wsId} />
+          <NativeIdeFeed paneId={pane.id} wsId={wsId} chatId={chatId} />
         ) : (
           <header className="flex shrink-0 items-center justify-between border-b px-2 pt-[env(safe-area-inset-top)]">
             <Button variant="ghost" size="icon" aria-label="Back" onClick={back}>
@@ -73,8 +91,8 @@ function PaneIde({ pane, wsId, hidden }: { pane: PaneGroup; wsId: string; hidden
 }
 
 /** The native tab strip's and file drawer's feeds; the drawer is the `#/mobile-files` webview. */
-function NativeIdeFeed({ paneId, wsId }: { paneId: string; wsId: string }) {
+function NativeIdeFeed({ paneId, wsId, chatId }: { paneId: string; wsId: string; chatId: string }) {
   useNativeTabs(paneId, wsId)
-  useNativeFiles(wsId)
+  useNativeFiles(wsId, chatId)
   return null
 }

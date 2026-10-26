@@ -11,6 +11,7 @@ import type { HostDotState } from '@/features/hosts/types'
 import type { Project } from '@/lib/types'
 import type { AgentProvider, PermissionLevel } from '@/features/agent/api/agent-api'
 import type { AgentProvidersStatus } from '@/features/settings/stores/agent-providers-store'
+import type { ChatHeaderModel } from '@/features/tabs/hooks/use-chat-branch-header-model'
 import type { FileTreeGitStatusDecoration } from '@/features/file-explorer/lib/file-tree-git-status'
 
 const PLUGIN = 'crowbar-chrome'
@@ -137,7 +138,8 @@ export type NativeFilesEntry = {
  *  holds it. The page owns only its search box. */
 // A type, not an interface, for invoke's args (see NativeSidebar).
 export type NativeFiles = {
-  rootName: string
+  /** The chat the files belong to, drawn as the desktop's chat header; null with no chat. */
+  header: ChatHeaderModel | null
   loading: boolean
   files: NativeFilesEntry[]
   expanded: string[]
