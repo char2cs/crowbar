@@ -109,13 +109,15 @@ describe('MobileSidebarPage', () => {
     )
   })
 
-  it('pins the running chats above the tree, with a divider before the tree', () => {
+  it('appends the running chats below the tree, under a divider and no label', () => {
     render(<MobileSidebarPage />)
     push({ ...snapshot, active: [{ id: 'c-thread' }] })
     const section = screen.getByRole('region', { name: 'Active' })
     expect(within(section).getByText('Ask about tax')).toBeVisible()
-    expect(within(section).queryByText(/viewer/i)).not.toBeInTheDocument()
-    expect(within(section).getByRole('separator')).toBeInTheDocument()
+    expect(within(section).queryByRole('heading')).not.toBeInTheDocument()
+    expect(section.firstElementChild).toHaveAttribute('role', 'separator')
+    const tree = screen.getByText('checkout')
+    expect(tree.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('draws no Active section while nothing runs', () => {
@@ -308,6 +310,42 @@ describe('MobileSidebarPage', () => {
       ])
       expect(posted).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'rowDrag' }))
       expect(posted).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'dragRow' }))
+    })
+
+    describe('an Active row', () => {
+      const kill = {
+        id: 'kill',
+        title: 'Kill agent',
+        symbol: 'xmark',
+        destructive: true,
+        confirm: null,
+      }
+      const pushActive = () => {
+        render(<MobileSidebarPage />)
+        push({ ...snapshot, active: [{ id: 'c-thread' }], actions: { 'c-thread': [kill] } })
+        return within(screen.getByRole('region', { name: 'Active' })).getByText('Ask about tax')
+      }
+
+      it('asks for the same menu as its tree row when held still', () => {
+        const held = pushActive()
+        fireEvent.touchStart(held, touch(10))
+        act(() => vi.advanceTimersByTime(260))
+        act(() => vi.advanceTimersByTime(260))
+        fireEvent.touchEnd(held, { changedTouches: [{ clientX: 40, clientY: 10 }] })
+        expect(posted).toHaveBeenCalledWith(
+          expect.objectContaining({ type: 'rowMenu', rowId: 'c-thread', actions: [kill] }),
+        )
+      })
+
+      it('never lifts: a moving hold opens no menu and drags nothing', () => {
+        const held = pushActive()
+        fireEvent.touchStart(held, touch(10))
+        act(() => vi.advanceTimersByTime(260))
+        fireEvent.touchMove(held, touch(40))
+        act(() => vi.advanceTimersByTime(600))
+        expect(posted).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'rowMenu' }))
+        expect(posted).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'rowDrag' }))
+      })
     })
 
     it('opens no menu for a hold that moved into a drag', () => {

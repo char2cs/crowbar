@@ -7,10 +7,14 @@ import { RowMetricsContext, TOUCH_ROW_METRICS } from '@/components/sidebar/lib/r
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { HostViewsContext } from '@/features/hosts/hooks/use-host-status'
 import type { NativeSidebar } from '@/lib/native-chrome'
+import { cn } from '@/lib/utils'
 import { Separator } from '@/components/ui/separator'
 import { postToShell, receiveShellSnapshots } from '@/lib/shell-page-bridge'
 import { useSurfaceThemeColor } from '@/features/window/hooks/use-surface-theme-color'
 import { DraggableRow, RowDragScope } from './sidebar-row-drag'
+
+// Gear and New thread float over the foot of the page.
+const CLEAR_FLOATING_BUTTONS_PB = 'pb-[calc(env(safe-area-inset-bottom)+84px)]'
 
 const selectRow = (id: string) => postToShell('sidebar', { type: 'selectRow', id })
 const toggleFold = (id: string) => postToShell('sidebar', { type: 'toggleFold', id })
@@ -19,12 +23,8 @@ const keepRemoval = (entryId: string) => postToShell('sidebar', { type: 'keepRem
 const openSettings = () => postToShell('sidebar', { type: 'openSettings' })
 
 // The page owns the hold; the shell only presents the menu for the row it is told of.
-function showRowMenu(rowId: string, actions: NativeSidebar['actions']) {
-  const el = document.querySelector<HTMLElement>(
-    `[role="treeitem"][data-sidebar-row-id="${CSS.escape(rowId)}"]`,
-  )
-  if (!el) return
-  const { x, y, width, height } = el.getBoundingClientRect()
+function showRowMenu(rowId: string, node: HTMLElement, actions: NativeSidebar['actions']) {
+  const { x, y, width, height } = node.getBoundingClientRect()
   postToShell('sidebar', {
     type: 'rowMenu',
     rowId,
@@ -56,6 +56,11 @@ export function MobileSidebarPage() {
     [snapshot?.hosts],
   )
 
+  const running = useMemo(() => {
+    const byId = new Map(snapshot?.rows.map((r) => [r.id, r]))
+    return snapshot?.active.flatMap(({ id }) => byId.get(id) ?? []) ?? []
+  }, [snapshot?.rows, snapshot?.active])
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-chrome-bg pt-[env(safe-area-inset-top)] text-foreground">
       {snapshot && (
@@ -68,47 +73,51 @@ export function MobileSidebarPage() {
               onOpenHostSettings={openSettings}
             />
           </RowMetricsContext>
-          {/* No callout or text selection, so a long press is the page's own gesture. */}
-          <nav
-            aria-label="Chats"
-            className="min-h-0 flex-1 overflow-y-auto pb-[calc(env(safe-area-inset-bottom)+84px)] select-none [-webkit-touch-callout:none]"
-          >
-            <RowMetricsContext value={TOUCH_ROW_METRICS}>
-              <ActiveSection rows={snapshot.rows} active={snapshot.active} />
-              <RowDragScope
-                drop={snapshot.drop}
-                overlay={(id) => <DragOverlayRow rows={snapshot.rows} id={id} />}
-                onMenu={(id) => showRowMenu(id, snapshot.actions)}
+          <RowMetricsContext value={TOUCH_ROW_METRICS}>
+            <RowDragScope
+              drop={snapshot.drop}
+              overlay={(id) => <DragOverlayRow rows={snapshot.rows} id={id} />}
+              onMenu={(id, node) => showRowMenu(id, node, snapshot.actions)}
+            >
+              {/* No callout or text selection, so a long press is the page's own gesture. */}
+              <nav
+                aria-label="Chats"
+                className={cn(
+                  'min-h-0 flex-1 overflow-y-auto select-none [-webkit-touch-callout:none]',
+                  CLEAR_FLOATING_BUTTONS_PB,
+                  running.length > 0 && 'pb-0',
+                )}
               >
                 <SnapshotTree rows={snapshot.rows} collapsed={snapshot.collapsed} />
-              </RowDragScope>
-            </RowMetricsContext>
-          </nav>
+              </nav>
+              <ActiveSection running={running} />
+            </RowDragScope>
+          </RowMetricsContext>
         </HostViewsContext>
       )}
     </div>
   )
 }
 
-/** The agents running now, above the tree: the ordinary rows of chats already in it. */
-function ActiveSection({ rows, active }: Pick<NativeSidebar, 'rows' | 'active'>) {
-  const byId = new Map(rows.map((r) => [r.id, r]))
-  const running = active.flatMap(({ id }) => byId.get(id) ?? [])
+/** The agents running now, pinned above the floating buttons: the ordinary rows of chats already in it. */
+function ActiveSection({ running }: { running: SidebarRowType[] }) {
   if (running.length === 0) return null
   return (
-    <section aria-label="Active">
-      <h2 className="ui-font ui-text-sm px-3 py-1 text-muted-foreground">Active</h2>
-      {running.map((row) => (
-        <SidebarRow
-          key={row.id}
-          row={row}
-          depth={0}
-          onOpen={selectRow}
-          inlineRenameDisabled
-          hasViewIdle
-        />
-      ))}
-      <Separator className="my-1" />
+    <section
+      aria-label="Active"
+      className={cn(
+        'flex max-h-[40%] shrink-0 flex-col select-none [-webkit-touch-callout:none]',
+        CLEAR_FLOATING_BUTTONS_PB,
+      )}
+    >
+      <Separator className="my-1 shrink-0" />
+      <div className="min-h-0 overflow-y-auto">
+        {running.map((row) => (
+          <DraggableRow key={row.id} id={row.id} menuOnly>
+            <SidebarRow row={row} depth={0} onOpen={selectRow} inlineRenameDisabled hasViewIdle />
+          </DraggableRow>
+        ))}
+      </div>
     </section>
   )
 }

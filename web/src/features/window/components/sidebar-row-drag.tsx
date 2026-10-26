@@ -25,6 +25,15 @@ import { MENU_DWELL_MS, rowTouch, type RowTouch } from '@/features/window/lib/ro
 import { postToShell } from '@/lib/shell-page-bridge'
 import { cn } from '@/lib/utils'
 
+interface Held {
+  /** The draggable's id: a row's own, or the Active section's view of it. */
+  id: string
+  rowId: string
+  /** Only the menu is wanted; the row is not something to move. */
+  menuOnly: boolean
+  node: HTMLElement
+}
+
 interface Hit {
   id: string
   mode: DropMode
@@ -49,7 +58,7 @@ function pointerY(event: DragMoveEvent): number | null {
 function hitAt(x: number, y: number, drop: NativeRowDrop | null): Hit | null {
   const el = document
     .elementsFromPoint(x, y)
-    .filter((at) => !at.closest('[data-drag-overlay]'))
+    .filter((at) => !at.closest('[data-drag-overlay], [data-menu-only]'))
     .map((at) => at.closest<HTMLElement>('[data-sidebar-row-id]'))
     .find(Boolean)
   const id = el?.getAttribute('data-sidebar-row-id')
@@ -72,13 +81,14 @@ export function RowDragScope({
   children,
 }: {
   drop: NativeRowDrop | null
-  /** The hold stayed put: the row's menu is wanted. */
-  onMenu: (rowId: string) => void
+  /** The hold stayed put: the row's menu is wanted, anchored on the held element. */
+  onMenu: (rowId: string, node: HTMLElement) => void
   overlay: (rowId: string) => ReactNode
   children: ReactNode
 }) {
   const sensors = useSensors(useSensor(TouchSensor, { activationConstraint: HOLD }))
-  const [dragged, setDragged] = useState<string | null>(null)
+  const [held, setHeld] = useState<Held | null>(null)
+  const dragged = held?.rowId ?? null
   const [touch, setTouch] = useState<RowTouch>('idle')
   const claimed = touch === 'drag'
   const [hit, setHit] = useState<Hit | null>(null)
@@ -100,8 +110,8 @@ export function RowDragScope({
 
   const openMenu = useEffectEvent(onMenu)
   useEffect(() => {
-    if (touch === 'menu' && dragged) openMenu(dragged)
-  }, [touch, dragged])
+    if (touch === 'menu' && held) openMenu(held.rowId, held.node)
+  }, [touch, held])
 
   // The shell hears of the lift from here, for its haptic.
   useEffect(() => {
@@ -111,7 +121,7 @@ export function RowDragScope({
   }, [claimed, dragged])
 
   const end = (move: boolean) => {
-    setDragged(null)
+    setHeld(null)
     setTouch(rowTouch(touch, { type: 'release' }))
     setHit(null)
     finger.current = null
@@ -131,14 +141,18 @@ export function RowDragScope({
     <DndContext
       sensors={sensors}
       onDragStart={(event: DragStartEvent) => {
-        const id = String(event.active.id)
         const start = event.activatorEvent
+        const node = (start.target as Element | null)?.closest<HTMLElement>('[data-held-row]')
+        if (!node) return
+        const data = event.active.data.current as { rowId: string; menuOnly: boolean }
         startX.current = 'touches' in start ? ((start as TouchEvent).touches[0]?.clientX ?? 0) : 0
-        setDragged(id)
+        setHeld({ id: String(event.active.id), rowId: data.rowId, menuOnly: data.menuOnly, node })
         setTouch(rowTouch('idle', { type: 'hold' }))
       }}
       onDragMove={(event) => {
-        const owner = rowTouch(touch, { type: 'move', dx: event.delta.x, dy: event.delta.y })
+        const moved = rowTouch(touch, { type: 'move', dx: event.delta.x, dy: event.delta.y })
+        // A view row never lifts: a moving finger ends its hold.
+        const owner = held?.menuOnly && moved === 'drag' ? 'idle' : moved
         setTouch(owner)
         if (owner !== 'drag') return
         const y = pointerY(event)
@@ -166,15 +180,22 @@ export function RowDragScope({
 /** A row the user can hold and move, with the drop indicator drawn on it while it is the target. */
 export function DraggableRow({
   id,
+  menuOnly,
   disabled,
   children,
 }: {
   id: string
+  /** A view over a row elsewhere: held for its menu, never lifted or dropped on. */
+  menuOnly?: boolean
   /** A row on its way out is held still: it is not something to move. */
   disabled?: boolean
   children: ReactNode
 }) {
-  const { setNodeRef, listeners, attributes, isDragging } = useDraggable({ id, disabled })
+  const { setNodeRef, listeners, attributes, isDragging } = useDraggable({
+    id: menuOnly ? `menu:${id}` : id,
+    disabled,
+    data: { rowId: id, menuOnly: !!menuOnly },
+  })
   const { hit, claimed } = use(DragContext)
   const mode = hit?.id === id ? hit.mode : null
   // dnd-kit's role and tab stop would shadow the treeitem the row already is.
@@ -184,6 +205,8 @@ export function DraggableRow({
       ref={setNodeRef}
       {...listeners}
       {...aria}
+      data-held-row=""
+      data-menu-only={menuOnly ? '' : undefined}
       className={cn('relative', isDragging && claimed && 'opacity-40')}
     >
       {children}
