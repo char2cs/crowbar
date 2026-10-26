@@ -243,6 +243,15 @@ describe('useNativeSidebar', () => {
     expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-a', true)
   })
 
+  // The draft it opens is the chat behind the list, so the list must go or nothing seems to happen.
+  it('puts the list away when a row menu starts a new thread', () => {
+    mount()
+    act(() => useMobileScreenStore.getState().setChatListOpen(true))
+    const alpha = last().rows.find((r) => r.label === 'Alpha')!
+    send({ type: 'rowAction', rowId: alpha.id, actionId: 'new-thread' })
+    expect(useMobileScreenStore.getState().chatListOpen).toBe(false)
+  })
+
   it('asks for a new name natively, starting from the current one', async () => {
     mount()
     const alpha = last().rows.find((r) => r.label === 'Alpha')!

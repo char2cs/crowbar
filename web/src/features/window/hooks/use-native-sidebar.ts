@@ -395,8 +395,8 @@ export function useNativeSidebar({
           return
         }
         const actionId = intent.actionId as RowMenuActionId
-        // Detach opens its sheet over the chat, not under the list.
-        if (actionId === 'detach') closeChatList()
+        // Detach opens its sheet, and a new thread its draft, over the chat — not under the list.
+        if (actionId === 'detach' || actionId === 'new-thread') closeChatList()
         runRowMenuAction(actionId, row, handlers)
         return
       }
