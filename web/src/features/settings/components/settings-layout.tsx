@@ -65,8 +65,8 @@ export function SettingsTitle({ tabs, activeTab, onTabChange }: TabsProps) {
   )
 }
 
-/** The settings search field. */
-export function SettingsSearchInput() {
+/** The settings search field; `className` sets its width. */
+export function SettingsSearchInput({ className }: { className?: string }) {
   const searchQuery = useSettingsStore((state) => state.search.query)
   const setSearchQuery = useSettingsStore((state) => state.setSearchQuery)
   return (
@@ -79,7 +79,7 @@ export function SettingsSearchInput() {
       onChange={(e) => setSearchQuery(e.target.value)}
       leftIcon={Search}
       size="sm"
-      className="w-64 max-[720px]:w-44 max-[520px]:w-32"
+      className={className}
     />
   )
 }
