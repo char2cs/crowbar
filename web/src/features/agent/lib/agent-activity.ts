@@ -278,7 +278,7 @@ export function tailOf(text: string, limit: number): string {
  * activity aggregate still considers a turn in flight (see interrupt.go's
  * `idle := next.Turn == nil`). A CLI backgrounding a subagent can fire its
  * idle notification in that exact window, while Crowbar's own chat-level
- * `working` (folded from AsyncWork) correctly still says busy — and this set
+ * `working` (busy while a subagent runs) correctly still says busy — and this set
  * deciding the interruption wins would blank a live spinner under a
  * genuinely still-running background agent with a stale "waiting for your
  * input" claim. `working` is the aggregate's own real-time truth; a

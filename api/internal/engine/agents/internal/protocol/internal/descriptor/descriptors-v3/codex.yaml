@@ -47,12 +47,9 @@ runtime:
   spawn:
     cmd: codex
 
-# plan_step/subagent_result: its plan is restated whole (plan_update), and a
-# child thread's result is its own turn_stop.
-# codex exposes no Notification event/hook at all (confirmed against its
-# published hook vocabulary) — genuinely never emitted, not forgotten. Its idle
-# (thread/status/changed) lands IMMEDIATELY BEFORE turn/completed (captured
-# live, 0.149.1); mapped, it would end the turn before its answer and status.
+# No Notification hook exists; its idle (thread/status/changed) lands just before
+# turn/completed (0.149.1), so mapped it would end the turn before its answer. Its
+# plan is restated whole (plan_update); a child's result is its own turn_stop.
 not_emitted: [notification, idle, plan_step, subagent_result]
 
 # Both are launchable, and the CHANNEL is what separates them: a chat born on
@@ -228,10 +225,9 @@ events:
         mcp_tool:    { from: tool_name, pattern: '^mcp__.+?__(?P<v>.+)$' }
       fixtures: [PreToolUse.json, PreToolUse.mcp.json, PreToolUse.spawnAgent.json, PreToolUse.applyPatch.json]
 
-  # tool_result differs per variant: aggregatedOutput (commandExecution), result
-  # (mcpToolCall), changes (fileChange), agentsStates (collabAgentToolCall).
+  # tool_result is per variant: aggregatedOutput, result, changes, agentsStates.
   # receiverThreadIds[0] is the child thread (item_completed.collabAgentToolCall
-  # .json and .wait.json): spawnAgent spawns it, wait/closeAgent address it.
+  # and .wait): spawnAgent spawns it, wait/closeAgent address it.
   tool_post:
     kind_map: { read: read, listFiles: search, search: search, unknown: execute, commandExecution: execute,
       fileChange: edit, mcpToolCall: mcp, webSearch: search, dynamicToolCall: other, collabAgentToolCall: subagent,
