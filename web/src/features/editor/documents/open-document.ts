@@ -2,6 +2,7 @@ import { ApiError } from '@/lib/api'
 import {
   DAEMON_STATE_DOCUMENT_CODE,
   HOST_DOCUMENT_TRANSPORT_CODE,
+  isWatchLimit,
   readDocument,
   workspaceRef,
   type DocumentRead,
@@ -105,15 +106,19 @@ function reportOpenFailure(target: DocumentTarget, error: unknown): void {
 }
 
 /**
- * Why a host document whose watch the daemon refused opens nowhere, as a read of it tells:
- * what the read hit, its path now spelled otherwise (the daemon watches only the canonical
- * spelling), or else a failure to open.
+ * Why a host document whose watch the daemon refused opens nowhere: what a read of it hit,
+ * the OS out of file watches, its path now spelled otherwise (the daemon watches only the
+ * canonical spelling), or else a failure to open.
  */
 export function watchRefusal(
   ref: DocumentRef,
   read: { ref: DocumentRef } | { error: unknown },
+  refusal: unknown,
 ): DocumentUnavailable {
   if ('error' in read) return openFailure(ref, read.error)
+  if (isWatchLimit(refusal)) {
+    return { title: "Can't watch this file: too many file watches", message: documentName(ref) }
+  }
   if (!sameDocument(read.ref, ref)) return { title: 'Failed to open file', message: ref.path }
   return openFailure(ref, null)
 }
@@ -220,9 +225,9 @@ async function openHostDocument(ref: HostRef, opts: OpenDocumentOptions): Promis
   let unwatch: () => void
   try {
     unwatch = await followHostDocument(ref)
-  } catch {
+  } catch (refusal) {
     const read = await readDocument(ref).catch((error: unknown) => ({ error }))
-    const { title, message } = watchRefusal(ref, read)
+    const { title, message } = watchRefusal(ref, read, refusal)
     toast.error(title, message)
     return null
   }

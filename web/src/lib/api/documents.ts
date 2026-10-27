@@ -53,6 +53,11 @@ export function documentWatchEndpoint(path: string): string {
   return `/v0/documents/ws?path=${encodeURIComponent(path)}`
 }
 
+/** The daemon refused a host document's watch because the OS has no file watches left (507). */
+export function isWatchLimit(refusal: unknown): boolean {
+  return refusal instanceof Error && /\b507\b/.test(String(refusal.cause))
+}
+
 /** The document's text as saved on disk, or null when it cannot be read. */
 export function readDocumentFromDisk(target: DocumentTarget): Promise<string | null> {
   return readDocument(target)

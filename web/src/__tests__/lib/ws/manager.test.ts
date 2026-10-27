@@ -12,7 +12,7 @@ class MockWebSocket {
   onmessage: ((e: MessageEvent) => void) | null = null
   onclose: (() => void) | null = null
   onopen: (() => void) | null = null
-  onerror: (() => void) | null = null
+  onerror: ((event: unknown) => void) | null = null
   readyState: number = MockWebSocket.OPEN
   send = vi.fn()
   close = vi.fn()
@@ -209,6 +209,24 @@ describe('WSManager', () => {
         socket.simulateClose()
 
         expect(await waiting).toBe('refused')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('rejects with why the transport failed, as its cause', async () => {
+      vi.useFakeTimers()
+      try {
+        const mgr = createWSManager()
+        const { socket } = connecting(mgr)
+        const waiting = mgr.opened('/v0/documents/ws').catch((error: unknown) => error)
+
+        socket.onerror?.('ws upgrade: HTTP error: 507 Insufficient Storage')
+        socket.simulateClose()
+
+        expect(((await waiting) as Error).cause).toBe(
+          'ws upgrade: HTTP error: 507 Insufficient Storage',
+        )
       } finally {
         vi.useRealTimers()
       }

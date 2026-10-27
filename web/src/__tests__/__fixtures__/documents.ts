@@ -4,6 +4,11 @@ import { setDocumentDirty } from '@/features/editor/lib/buffer-save'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { DocumentRef } from '@/lib/api/documents'
 
+/** A watch socket the daemon refused with 507, as the desktop bridge reports the upgrade failing. */
+export const WATCH_LIMIT_REFUSAL = new Error('closed before it opened', {
+  cause: 'ws upgrade: HTTP error: 507 Insufficient Storage',
+})
+
 /** A ceiling for the first Monaco load, not a wait: the chunk takes seconds on a busy CI box. */
 export const MONACO_LOAD_MS = 120_000
 

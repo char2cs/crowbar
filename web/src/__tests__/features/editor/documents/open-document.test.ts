@@ -15,7 +15,7 @@ vi.mock('@/lib/crowbar-bridge', async (importOriginal) => ({
   isTauri: () => desktop.value,
 }))
 
-import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
+import { MONACO_LOAD_MS, WATCH_LIMIT_REFUSAL } from '@/__tests__/__fixtures__/documents'
 import { ApiError } from '@/lib/api'
 import {
   HOST_DOCUMENT_TRANSPORT_CODE,
@@ -208,6 +208,17 @@ describe('openDocument', () => {
     expect(held).toBe(1)
     resetWindowPaneStoreForTests()
     expect(held).toBe(0)
+  })
+
+  it('a host document the OS has no file watch left for opens nowhere and says so', async () => {
+    vi.spyOn(wsManager, 'opened').mockRejectedValueOnce(WATCH_LIMIT_REFUSAL)
+    readDocument.mockImplementation(readsAsHost)
+
+    expect(await openDocument(NOTES)).toBeNull()
+    expect(toastError).toHaveBeenCalledWith(
+      "Can't watch this file: too many file watches",
+      'notes.md',
+    )
   })
 
   it('a preview open lands as the pane’s preview tab', async () => {

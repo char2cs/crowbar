@@ -14,7 +14,7 @@ vi.mock('@/features/editor/host/editor-host', async (importOriginal) => {
   return { ...actual, loadEditorHost }
 })
 
-import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
+import { MONACO_LOAD_MS, WATCH_LIMIT_REFUSAL } from '@/__tests__/__fixtures__/documents'
 import { ApiError } from '@/lib/api'
 import { HOST_DOCUMENT_TRANSPORT_CODE, workspaceRef, type DocumentRef } from '@/lib/api/documents'
 import { documentUri } from '@/features/editor/documents/document-ref'
@@ -49,14 +49,14 @@ const host = (path: string): DocumentRef => ({ authority: 'host', path })
 const NOTES = { authority: 'host', path: '/tmp/s5/notes.md' } as const
 
 /** Host watch sockets: the calls in order, how many are held, and what an open answers. */
-function watches(opened: () => Promise<void> = () => Promise.resolve()) {
+function watches(opened: (endpoint: string) => Promise<void> = () => Promise.resolve()) {
   const w = { calls: [] as string[], held: 0, opened }
   vi.spyOn(wsManager, 'subscribe').mockImplementation(() => {
     w.calls.push('subscribe')
     w.held++
     return () => void w.held--
   })
-  vi.spyOn(wsManager, 'opened').mockImplementation(() => (w.calls.push('opened'), w.opened()))
+  vi.spyOn(wsManager, 'opened').mockImplementation((e) => (w.calls.push('opened'), w.opened(e)))
   vi.spyOn(wsManager, 'subscribed').mockImplementation(() => w.held > 0)
   return w
 }
@@ -463,20 +463,20 @@ describe('a restored host document and its watch', () => {
   })
 
   it('whose watch is refused opens nowhere and says why', async () => {
-    watches(() => Promise.reject(new Error('refused')))
-    const [id, drifted] = [restoredTab(NOTES), restoredTab(host('/tmp/S5/b.md'))]
+    watches((e) => Promise.reject(e.includes('full') ? WATCH_LIMIT_REFUSAL : new Error('refused')))
+    const ids = [NOTES, host('/tmp/S5/b.md'), host('/tmp/s5/full.md')].map((r) => restoredTab(r))
     readDocument.mockImplementation(async (ref: DocumentRef) => ({
-      ref: ref.path === NOTES.path ? ref : host('/tmp/s5/b.md'),
+      ref: ref.path === '/tmp/S5/b.md' ? host('/tmp/s5/b.md') : ref,
       text: 'disk',
     }))
 
     await restoreDocuments()
 
-    expect(bufferOf(id).unavailable).toEqual({ title: 'Failed to open file', message: 'notes.md' })
-    expect(bufferOf(drifted).unavailable).toEqual({
-      title: 'Failed to open file',
-      message: '/tmp/S5/b.md',
-    })
+    expect(ids.map((id) => bufferOf(id).unavailable)).toEqual([
+      { title: 'Failed to open file', message: 'notes.md' },
+      { title: 'Failed to open file', message: '/tmp/S5/b.md' },
+      { title: "Can't watch this file: too many file watches", message: 'full.md' },
+    ])
     expect(documentText(NOTES)).toBeNull()
   })
 

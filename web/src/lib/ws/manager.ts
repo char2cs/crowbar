@@ -34,6 +34,8 @@ interface Channel {
   /** Waiting on this socket's open; once it has closed, on the reconnect's, which takes them. */
   waiters: Waiter[]
   everOpen: boolean
+  /** What the transport reported failing, handed to the waiters it refuses. */
+  failure?: unknown
 }
 
 // Construct the live transport for the active environment: the native WebSocket
@@ -47,9 +49,10 @@ export interface WSManager {
   subscribe(endpoint: string, cb: Callback): () => void
   send(endpoint: string, data: unknown): void
   /**
-   * Resolves once `endpoint`'s socket is open, at once if it is. Rejects when the
-   * attempt it waits on closes first (the one in flight, or the reconnect a dropped
-   * socket waits to make), or when nothing will open it.
+   * Resolves once `endpoint`'s socket is open, at once if it is. Rejects, with the
+   * transport's failure as its cause, when the one attempt it waits on closes first:
+   * the one in flight, or the reconnect a dropped socket makes after its backoff
+   * (≤30s). A permanent refusal is not told apart; a caller wanting longer awaits again.
    */
   opened(endpoint: string): Promise<void>
   /** `listener` hears each drop of `endpoint`'s open socket while it has subscribers. */
@@ -73,8 +76,8 @@ function closeSocketQuietly(socket: WSLike): void {
   }
 }
 
-function refuse(waiters: Waiter[], endpoint: string, why: string): void {
-  for (const waiter of waiters.splice(0)) waiter.reject(new Error(`${endpoint}: ${why}`))
+function refuse(waiters: Waiter[], endpoint: string, why: string, cause?: unknown): void {
+  for (const waiter of waiters.splice(0)) waiter.reject(new Error(`${endpoint}: ${why}`, { cause }))
 }
 
 export function createWSManager(): WSManager {
@@ -119,12 +122,16 @@ export function createWSManager(): WSManager {
       ch.callbacks.forEach((cb) => cb(parsed))
     }
 
+    ch.socket.onerror = (failure) => {
+      ch.failure = failure
+    }
+
     ch.socket.onclose = () => {
       // Only the live channel for this endpoint reports state — a stale socket
       // closing after a reconnect must not flag the endpoint as down.
       const live = channels.get(endpoint) === ch
       if (live) reportChannelState(endpoint, false)
-      refuse(ch.waiters, endpoint, 'closed before it opened')
+      refuse(ch.waiters, endpoint, 'closed before it opened', ch.failure)
       if (ch.callbacks.size === 0) return
       if (live && ch.everOpen)
         for (const listener of [...(dropListeners.get(endpoint) ?? [])]) listener()

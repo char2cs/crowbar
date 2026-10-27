@@ -52,8 +52,8 @@ const stillOpen = (buffer: EditorContent) =>
 interface RestoreWatch {
   /** Opens a model, which holds the watch from then on. */
   open: OpenDocumentModel
-  /** The daemon refused the watch: only an unsaved draft opens, and unwatched. */
-  refused: boolean
+  /** The daemon refused the watch, and how: only an unsaved draft opens, and unwatched. */
+  refused: { refusal: unknown } | null
   end(): void
 }
 
@@ -62,19 +62,19 @@ async function watchFor(
   openModel: OpenDocumentModel,
 ): Promise<RestoreWatch> {
   const ref = documentRefOf(buffer)
-  const unwatched = { open: openModel, refused: false, end: () => {} }
+  const unwatched = { open: openModel, refused: null, end: () => {} }
   // A workspace file is its files stream's; an open model already holds its own watch.
   if (ref.authority !== 'host' || getEditorHost()?.documents.has(documentUri(ref))) {
     return unwatched
   }
   // Each restored host tab holds its own socket, as an opened one does.
   let unwatch: (() => void) | null = null
-  let refused = false
+  let refused: RestoreWatch['refused'] = null
   try {
     unwatch = await followHostDocument(ref)
-  } catch {
-    // The refusal carries no reason; the read that follows tells it.
-    refused = true
+  } catch (refusal) {
+    // The read that follows tells why, unless the refusal itself does.
+    refused = { refusal }
   }
   return {
     refused,
@@ -140,7 +140,7 @@ async function loadDocument(
   const disk = 'disk' in read ? read.disk : null
   if (watch.refused) {
     if (!unsaved(draft, disk)) {
-      const reason = watchRefusal(ref, read)
+      const reason = watchRefusal(ref, read, watch.refused.refusal)
       failures.push(failure(ref, reason))
       return setDocumentUnavailable(ref, reason)
     }
