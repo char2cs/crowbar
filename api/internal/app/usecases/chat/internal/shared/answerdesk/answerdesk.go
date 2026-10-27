@@ -1,11 +1,11 @@
 // Package answerdesk is the desk of provider prompts currently parked on a human
 // decision.
 //
-// A vendor CLI that needs permission blocks its hook relay and waits for stdout.
-// The desk is where that relay is registered so Crowbar's UI can find it, decide
-// for it, and hand back exactly the bytes the provider expects — and where a
-// relay that nobody answers in time is released, its question closed as what its
-// channel then hands the provider.
+// A vendor CLI that needs permission holds its hook's HTTP request open, and the
+// answer is that request's response body. The desk is where the held hook is
+// registered so Crowbar's UI can find it, decide for it, and hand back exactly the
+// bytes the provider expects — and where one nobody answers in time is released,
+// its question closed as what its channel then hands the provider.
 package answerdesk
 
 import (
@@ -117,7 +117,8 @@ func (d *Desk) Hold(prompt Prompt) *Slot {
 	return slot
 }
 
-// Holds reports whether a relay is parked on askID.
+// Holds reports whether askID is on the desk: still open, or decided with a
+// verdict its hook has not collected yet; either way the hook must be held.
 func (d *Desk) Holds(askID string) bool {
 	_, held := d.held(askID)
 	return held

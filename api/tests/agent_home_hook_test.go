@@ -81,7 +81,7 @@ func TestRegression_AHomeHookFromAnUnknownRunnerIsRefused(t *testing.T) {
 	h.post(homeBase+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
 	h.QuiesceReactors()
 	l := stubLaunch(t, h, "livestub", getAgentChat(t, h, homeBase, created.ID).LiveRunnerID)
-	_ = h.raw(http.MethodDelete, homeBase+"/chats/"+created.ID, nil, http.StatusAccepted).Body.Close()
+	require.NoError(t, h.raw(http.MethodDelete, homeBase+"/chats/"+created.ID, nil, http.StatusAccepted).Body.Close())
 	h.QuiesceReactors()
 	before := chatDeadLetters(t, h)
 

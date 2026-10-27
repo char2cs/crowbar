@@ -19,7 +19,7 @@ import (
 const proceeded = domain.ChoiceResolutionProceeded
 
 func fixture() (*answerdesk.Desk, *answerdesk.Slot) {
-	return fixtureRetaining(time.Minute, answerdesk.DefaultRetention)
+	return fixtureRetaining(answerdesk.DefaultRetention)
 }
 
 // recordingLedger remembers each outcome written back, the first one per ask
@@ -82,14 +82,14 @@ func decide(d *answerdesk.Desk, slot *answerdesk.Slot, stdout string) error {
 	return err
 }
 
-func fixtureRetaining(wait, retention time.Duration) (*answerdesk.Desk, *answerdesk.Slot) {
+func fixtureRetaining(retention time.Duration) (*answerdesk.Desk, *answerdesk.Slot) {
 	d := answerdesk.New(retention, nil)
 	slot := d.Hold(answerdesk.Prompt{
 		ChoiceID: "choice-1",
 		ChatID:   "chat-1",
 		RunnerID: "runner-1",
 		Event:    engineagents.HookPermission,
-		Keys:     engineagents.AnswerCapability{Wait: wait, Keys: []string{"allow"}},
+		Keys:     engineagents.AnswerCapability{Wait: time.Minute, Keys: []string{"allow"}},
 	})
 	return d, slot
 }

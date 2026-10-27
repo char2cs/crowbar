@@ -152,7 +152,7 @@ func TestAnswer_AVerdictIsRetainedForARelayThatHasNotAskedYet(t *testing.T) {
 func TestAnswer_AnUnclaimedVerdictDoesNotOutliveItsRetention(t *testing.T) {
 	t.Parallel()
 
-	d, slot := fixtureRetaining(time.Minute, -time.Second)
+	d, slot := fixtureRetaining(-time.Second)
 
 	require.NoError(t, decide(d, slot, "allow"))
 

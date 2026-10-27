@@ -17,7 +17,8 @@ import (
 // person, and deciding for it. Its state is a desk of live relays; the verdict
 // is recorded in the chat's ledger.
 type AnswerUsecase interface {
-	// HoldsAnswer reports whether a relay is held on askID, waiting for a person.
+	// HoldsAnswer reports whether askID is on the desk: still open, or decided with a
+	// verdict its hook has not collected yet; either way the hook must be held.
 	HoldsAnswer(
 		askID string,
 	) bool
@@ -87,7 +88,8 @@ type HookAnswer = answerdesk.HookAnswer
 // describes a live hook process holding a live provider gate open, so one that
 // survived a restart would be a promise to a process that no longer exists.
 
-// HoldsAnswer reports whether a relay is held on askID, waiting for a person.
+// HoldsAnswer reports whether askID is on the desk: still open, or decided with a
+// verdict its hook has not collected yet; either way the hook must be held.
 func (u *Usecase) HoldsAnswer(
 	askID string,
 ) bool {

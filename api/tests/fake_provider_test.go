@@ -66,7 +66,9 @@ func writeProviderDescriptor(t *testing.T, h *harness, id, body string) {
 			}
 		}
 	}})
-	stubs.Store(h.home+"|"+id, fake)
+	key := h.home + "|" + id
+	stubs.Store(key, fake)
+	t.Cleanup(func() { stubs.Delete(key) })
 }
 
 // stubLaunch is the fake CLI placed as runnerID, of stub provider id.

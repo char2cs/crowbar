@@ -318,8 +318,8 @@ type AnswerUsecase interface {
 		content []byte,
 	) error
 
-	// HoldsAnswer reports whether the hook that opened askID must be held open
-	// waiting for a human.
+	// HoldsAnswer reports whether askID is on the desk: still open, or decided with a
+	// verdict its hook has not collected yet; either way the hook must be held.
 	HoldsAnswer(askID string) bool
 
 	// AwaitAnswer blocks that hook until its prompt is decided, the budget expires,
