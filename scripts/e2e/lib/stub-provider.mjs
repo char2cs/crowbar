@@ -24,7 +24,7 @@ events:
     in: user_prompt
     map:
       message: prompt
-      subagent_id: agent_id
+      scope_id: agent_id
   turn_stop:
     in: turn_stop
     map:
@@ -55,14 +55,14 @@ events:
       tool_id: tool_use_id
       tool_name: tool_name
       tool_target: tool_input.command
-      subagent_id: agent_id
+      scope_id: agent_id
   tool_post:
     in: tool_post
     map:
       session_id: session_id
       tool_id: tool_use_id
       tool_name: tool_name
-      subagent_id: agent_id
+      scope_id: agent_id
   permission:
     ask: permission
     timeout_seconds: 120
@@ -92,6 +92,7 @@ runtime:
     format: json
 session:
   resume: { arg: "--resume {id}" }
+  persists: turn_start
 model:
   available: [sonnet, opus]
   strategy: restart_tui
