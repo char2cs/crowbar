@@ -35,7 +35,6 @@ const MAX_LINES_BASELINE = [
   'src/__tests__/features/panes/components/pane-container.test.tsx',
   'src/__tests__/features/panes/hooks/use-pane-keyboard.test.ts',
   'src/__tests__/features/settings/components/tabs/providers-settings.test.tsx',
-  'src/__tests__/features/terminal/hooks/use-terminal-connection.test.ts',
   'src/__tests__/features/workspace/stores/hooks/use-workspace-agent-chats-stream.test.ts',
   'src/__tests__/features/workspace/stores/slices/agent-chats-slice.test.ts',
   'src/__tests__/lib/persistence/hydrate.test.ts',
