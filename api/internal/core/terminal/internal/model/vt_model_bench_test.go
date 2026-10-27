@@ -3,6 +3,9 @@ package model
 import (
 	"strings"
 	"testing"
+	"unsafe"
+
+	uv "github.com/charmbracelet/ultraviolet"
 )
 
 // resizeBench is a model and the two sizes a benchmark toggles it between.
@@ -32,7 +35,8 @@ func (rb resizeBench) model(b *testing.B) (TerminalModel, Serializer) {
 }
 
 // BenchmarkResize toggles each model between its sizes. Budget: no more time than the keyframe
-// the resize forces (BenchmarkSerialize), and no more bytes than the model holds (modelB).
+// the resize forces (BenchmarkSerialize), and B/op no more than the model's cells really hold
+// (cellB: ModelBytes counts bytesPerCell, not a uv.Cell's size).
 func BenchmarkResize(b *testing.B) {
 	for _, rb := range resizeBenches() {
 		b.Run(rb.name, func(b *testing.B) {
@@ -47,6 +51,7 @@ func BenchmarkResize(b *testing.B) {
 				m.Resize(size[0], size[1])
 			}
 			b.ReportMetric(float64(m.ModelBytes()), "modelB")
+			b.ReportMetric(float64(m.ModelBytes()/bytesPerCell)*float64(unsafe.Sizeof(uv.Cell{})), "cellB")
 		})
 	}
 }

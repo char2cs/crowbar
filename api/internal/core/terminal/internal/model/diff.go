@@ -263,19 +263,9 @@ func EmitterGridBytes(cols, rows int) int64 {
 	return int64(cols) * int64(rows) * 32
 }
 
-// writeScrollbackDelta replays every scrollback line the model committed since
-// the last emit INTO the client's own scrollback. Technique (write-then-scroll):
-// write the committed lines as one flow from the top row, then scroll what is
-// left of them out with LFs from a parked bottom-row cursor, so the client's
-// scrollback receives exactly the committed content. (Scrolling FIRST would
-// flush the client's stale pre-delta rows instead — the bug this replaced.) The
-// screen is left trashed by design; Emit invalidates the row cache on any
-// scrollback growth, so the screen diff that follows repaints the full
-// viewport. Primary buffer only; the alt screen has no scrollback.
-//
-// A continuation follows its padded head with no address, so the client's own autowrap, which
-// scrolls at the bottom row, sets each wrap bit at any height. A top row continuing the last line
-// follows it too and is not scrolled out, keeping its flag.
+// writeScrollbackDelta writes the committed lines as one flow from CUP(1,1), continuations unaddressed
+// so the client's own autowrap sets each wrap bit, then scrolls them out with LFs from the bottom row;
+// the screen diff that follows repaints the viewport.
 func (e *DiffEmitter) writeScrollbackDelta(
 	b *bytes.Buffer,
 	emu emulator,
