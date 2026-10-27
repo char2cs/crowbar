@@ -68,7 +68,7 @@ func TestRegression_AgentChatActiveProviderID_ProviderThatNeverBoundAConversatio
 	imported := importWritableWorkspace(t, h)
 
 	chatID, runnerA := createStubChat(t, h, imported, "streamstub")
-	postProviderHook(t, h, imported, "streamstub", runnerA, "session_start", `{"session_id":"sess-a"}`)
+	postHook(t, h, repoBase(imported), "streamstub", runnerA, "session_start", `{"session_id":"sess-a"}`)
 	h.Quiesce()
 
 	// Switch to quietstub — records the provider_switched marker — but never fire

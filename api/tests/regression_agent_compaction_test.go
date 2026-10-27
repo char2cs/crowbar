@@ -12,9 +12,6 @@ import (
 // mirror claude.yaml's own compact_pre/compact_post exactly (session_id,
 // trigger).
 const compactableStubProviderDescriptorYAML = `id: compactablestub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 events:
   session_start:
     in: session_start
@@ -61,7 +58,7 @@ func TestRegression_CompactPreAndPostPushLiveOverTheSocket(t *testing.T) {
 	readUntil(t, conn, chatFrame("created"))
 
 	post := func(event, payload string) {
-		postProviderHook(t, h, imported, "compactablestub", runnerID, event, payload)
+		postHook(t, h, repoBase(imported), "compactablestub", runnerID, event, payload)
 	}
 	post("session_start", `{"session_id":"sess-1"}`)
 

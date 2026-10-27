@@ -13,12 +13,9 @@ import (
 
 // telemetryStubProviderDescriptorYAML declares a v2-style top-level
 // `telemetry.callback` block (the shape claude.yaml itself uses) so a
-// `POST .../chats/hooks` with event "telemetry" actually maps to a usage
+// a "telemetry" hook posted to the hook route actually maps to a usage
 // report instead of ErrUnsupported.
 const telemetryStubProviderDescriptorYAML = `id: telemetrystub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 events:
   session_start:
     in: session_start
@@ -88,7 +85,7 @@ func TestRegression_TelemetrySurvivesAGracefulDaemonRestart(t *testing.T) {
 	imported := importWritableWorkspace(t, h1)
 	chatID, runnerID := createStubChat(t, h1, imported, "telemetrystub")
 
-	postProviderHook(t, h1, imported, "telemetrystub", runnerID, "telemetry",
+	postHook(t, h1, repoBase(imported), "telemetrystub", runnerID, "telemetry",
 		`{"context":{"usedPercent":42.5,"usedTokens":1000,"capacityTokens":10000}}`)
 
 	before := getTelemetry(t, h1, imported, chatID)
@@ -133,7 +130,7 @@ func TestRegression_TelemetryForgetPurgesTheDurableRowAcrossARestart(t *testing.
 	chatID, runnerID := createStubChat(t, h1, imported, "telemetrystub")
 	waitForChatFrame(t, frames, chatID, "created")
 
-	postProviderHook(t, h1, imported, "telemetrystub", runnerID, "telemetry",
+	postHook(t, h1, repoBase(imported), "telemetrystub", runnerID, "telemetry",
 		`{"context":{"usedPercent":10,"usedTokens":100,"capacityTokens":10000}}`)
 	before := getTelemetry(t, h1, imported, chatID)
 	require.NotNil(t, before.Context, "precondition: the chat has a usage report")

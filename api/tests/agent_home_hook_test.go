@@ -41,24 +41,23 @@ func TestRegression_AgentHomeCallbacksReachDaemon(t *testing.T) {
 	waitForChatFrame(t, frames, created.ID, "created")
 
 	h.Quiesce()
-	// The runner placed on the chat: its id IS the crowbarSegmentID the in-PTY
-	// `crowbar hook` callbacks carry, which is what these hooks post as segment_id.
+	// The runner placed on the chat: its id is what these hooks are posted as.
 	detail := getAgentChat(t, h, homeBase, created.ID)
 	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
 	segID := detail.LiveRunnerID
 
 	// session_start hook → the chat binds the provider session. Proves the
-	// project-home /chats/hooks callback (repo=="" ⇒ home path) reaches the daemon.
-	postHomeHook(t, h, homeBase, segID, "session_start", `{"session_id":"sess-home-1"}`)
+	// project-home hook route (repo=="" ⇒ home path) reaches the daemon.
+	postHook(t, h, homeBase, "livestub", segID, "session_start", `{"session_id":"sess-home-1"}`)
 	waitForConversation(t, frames, created.ID, "sess-home-1")
 
 	// user_prompt hook → the turn opens (turn_started): the working overlay + chat
 	// spinner signal, now proven for a PROJECT-HOME workspace.
-	postHomeHook(t, h, homeBase, segID, "user_prompt", `{"prompt":"hi"}`)
+	postHook(t, h, homeBase, "livestub", segID, "user_prompt", `{"prompt":"hi"}`)
 	waitForChatFrame(t, frames, created.ID, "turn_started")
 
 	// turn_stop hook → the turn closes (turn_stopped).
-	postHomeHook(t, h, homeBase, segID, "turn_stop", `{"last_assistant_message":"done"}`)
+	postHook(t, h, homeBase, "livestub", segID, "turn_stop", `{"last_assistant_message":"done"}`)
 	waitForChatFrame(t, frames, created.ID, "turn_stopped")
 
 	// Agent rename callback (?source=agent) → title_set: the derived-title path,
@@ -69,37 +68,24 @@ func TestRegression_AgentHomeCallbacksReachDaemon(t *testing.T) {
 	waitForChatFrame(t, frames, created.ID, "title_set")
 }
 
-// A relayed hook naming no live runner is refused and dead-lettered on the home
+// A hook whose runner's chat is gone is refused and dead-lettered on the home
 // mount as on the repo one: no hook is acknowledged that nothing recorded.
 func TestRegression_AHomeHookFromAnUnknownRunnerIsRefused(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	imported := importProject(t, h)
 	homeBase := "/v0/projects/" + imported.projectID + "/home"
+	var created struct {
+		ID string `json:"id"`
+	}
+	h.post(homeBase+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
+	h.QuiesceReactors()
+	l := stubLaunch(t, h, "livestub", getAgentChat(t, h, homeBase, created.ID).LiveRunnerID)
+	_ = h.raw(http.MethodDelete, homeBase+"/chats/"+created.ID, nil, http.StatusAccepted).Body.Close()
+	h.QuiesceReactors()
 	before := chatDeadLetters(t, h)
 
-	_ = h.raw(http.MethodPost, homeBase+"/chats/hooks", map[string]string{
-		"segment_id": "no-such-runner", "provider": "livestub", "event": "user_prompt", "payload_raw": `{"prompt":"hi"}`,
-	}, http.StatusNotFound).Body.Close()
+	resp := l.PostHook(t, h.url+homeBase, "livestub", "user_prompt", []byte(`{"prompt":"hi"}`)) //nolint:bodyclose // PostHook closes the body and returns a buffered copy
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	assert.Equal(t, before+1, chatDeadLetters(t, h))
-}
-
-// postHomeHook forwards a raw hook payload to the project-home agent hooks
-// endpoint exactly as the in-PTY `crowbar hook` callback does (body shape from
-// cmd/crowbar/hook.go's runHook), and asserts the daemon accepts it (202). It is
-// the HTTP-level stand-in for the vendor CLI's callback, whose URL scope.go now
-// builds as the home path when the workspace has no repo id.
-func postHomeHook(
-	t *testing.T,
-	h *harness,
-	homeBase, segID, event, payloadRaw string,
-) {
-	t.Helper()
-	resp := h.raw(http.MethodPost, homeBase+"/chats/hooks", map[string]string{
-		"segment_id":  segID,
-		"provider":    "livestub",
-		"event":       event,
-		"payload_raw": payloadRaw,
-	}, http.StatusAccepted)
-	_ = resp.Body.Close()
 }

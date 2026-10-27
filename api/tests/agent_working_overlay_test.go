@@ -4,20 +4,15 @@ package tests
 
 import (
 	"net/http"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-// liveStubProviderDescriptorYAML spawns `cat`, which stays alive on its PTY
+// liveStubProviderDescriptorYAML runs the fake CLI, which stays alive on its PTY
 // (no stdin EOF) so the segment remains active while user_prompt/turn_stop hooks
 // fire — unlike the `true` stub, which exits instantly and ends its segment.
 const liveStubProviderDescriptorYAML = `id: livestub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 events:
   session_start:
     in: session_start
@@ -40,9 +35,7 @@ runtime:
 
 func writeLiveStubProviderDescriptor(t *testing.T, h *harness) {
 	t.Helper()
-	dir := filepath.Join(h.home, "descriptors")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "livestub.yaml"), []byte(stubDescriptor(liveStubProviderDescriptorYAML)), 0o644))
+	writeProviderDescriptor(t, h, "livestub", liveStubProviderDescriptorYAML)
 }
 
 // requireRESTWorking asserts that BOTH REST read paths — the repo-scoped chat
@@ -104,10 +97,7 @@ func TestRegression_WorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 	conn := repoChatsWS(h, imported)
 
 	// user_prompt opens the turn.
-	_ = h.raw(http.MethodPost, repoBase+"/chats/hooks", map[string]string{
-		"segment_id": segID, "provider": "livestub", "event": "user_prompt",
-		"payload_raw": `{"prompt":"hi"}`,
-	}, http.StatusAccepted).Body.Close()
+	postHook(t, h, repoBase, "livestub", segID, "user_prompt", `{"prompt":"hi"}`)
 	readUntilWorktree(t, conn, func(m map[string]any) bool {
 		return m["id"] == imported.workspaceID && m["working"] == true
 	})
@@ -115,10 +105,7 @@ func TestRegression_WorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 	requireRESTWorking(t, h, imported, true)
 
 	// turn_stop closes it.
-	_ = h.raw(http.MethodPost, repoBase+"/chats/hooks", map[string]string{
-		"segment_id": segID, "provider": "livestub", "event": "turn_stop",
-		"payload_raw": `{"last_assistant_message":"done"}`,
-	}, http.StatusAccepted).Body.Close()
+	postHook(t, h, repoBase, "livestub", segID, "turn_stop", `{"last_assistant_message":"done"}`)
 	readUntilWorktree(t, conn, func(m map[string]any) bool {
 		return m["id"] == imported.workspaceID && m["working"] == false
 	})
@@ -128,7 +115,7 @@ func TestRegression_WorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 
 // createLiveStubChat creates a chat on the livestub provider in ws and returns its
 // chat id plus the id of the RUNNER placed on it — the crowbar segment id the
-// in-PTY hook callbacks carry, and the id every `segment_id` hook field below is.
+// CLI's hooks are posted as.
 //
 // It reads that id back as liveRunnerId (there is no segments[] any more: the chat
 // aggregate stores no process facts at all, and the runner placed on it is joined on
@@ -152,19 +139,6 @@ func createLiveStubChat(
 	detail := getAgentChat(t, h, repoBase(imported), created.ID)
 	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
 	return created.ID, detail.LiveRunnerID
-}
-
-// postAgentHook fires one in-PTY hook callback at the repo-scoped agent mount.
-func postAgentHook(
-	t *testing.T,
-	h *harness,
-	imported importedRepo,
-	segID, event, payload string,
-) {
-	t.Helper()
-	_ = h.raw(http.MethodPost, repoBase(imported)+"/chats/hooks", map[string]string{
-		"segment_id": segID, "provider": "livestub", "event": event, "payload_raw": payload,
-	}, http.StatusAccepted).Body.Close()
 }
 
 // TestRegression_WorkspaceWorkingOverlappingChatsBroadcastOnce pins BOTH halves of
@@ -196,7 +170,7 @@ func TestRegression_WorkspaceWorkingOverlappingChatsBroadcastOnce(t *testing.T) 
 	conn := repoChatsWS(h, imported)
 
 	// Chat A opens a turn: idle → working. The ONE legitimate true frame.
-	postAgentHook(t, h, imported, segA, "user_prompt", `{"prompt":"a"}`)
+	postHook(t, h, repoBase(imported), "livestub", segA, "user_prompt", `{"prompt":"a"}`)
 	readUntilWorktree(t, conn, func(m map[string]any) bool {
 		return m["id"] == imported.workspaceID && m["working"] == true
 	})
@@ -205,8 +179,8 @@ func TestRegression_WorkspaceWorkingOverlappingChatsBroadcastOnce(t *testing.T) 
 	// (chat B still working). Neither changes the overlay's value. Quiesce blocks on
 	// the event pipeline draining — a real signal, not a sleep — so the projection
 	// has fully folded both events before the assertion below.
-	postAgentHook(t, h, imported, segB, "user_prompt", `{"prompt":"b"}`)
-	postAgentHook(t, h, imported, segA, "turn_stop", `{"last_assistant_message":"a done"}`)
+	postHook(t, h, repoBase(imported), "livestub", segB, "user_prompt", `{"prompt":"b"}`)
+	postHook(t, h, repoBase(imported), "livestub", segA, "turn_stop", `{"last_assistant_message":"a done"}`)
 	h.Quiesce()
 
 	// The overlay must STILL be true: chat B is mid-turn. A workspace spinner that
@@ -214,7 +188,7 @@ func TestRegression_WorkspaceWorkingOverlappingChatsBroadcastOnce(t *testing.T) 
 	requireRESTWorking(t, h, imported, true)
 
 	// Chat B closes the LAST turn: working → idle, the transition the FE needs.
-	postAgentHook(t, h, imported, segB, "turn_stop", `{"last_assistant_message":"b done"}`)
+	postHook(t, h, repoBase(imported), "livestub", segB, "turn_stop", `{"last_assistant_message":"b done"}`)
 	redundant := 0
 	readUntilWorktree(t, conn, func(m map[string]any) bool {
 		if m["id"] != imported.workspaceID {

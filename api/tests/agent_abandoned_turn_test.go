@@ -61,7 +61,7 @@ func TestRegression_ChatStoppedMidTurn_SpunTheWorkspaceForever(t *testing.T) {
 	chatID, runnerID := createLiveStubChat(t, h, imported)
 
 	// The prompt opens the turn.
-	postAgentHook(t, h, imported, runnerID, "user_prompt", `{"prompt":"a long-running task"}`)
+	postHook(t, h, repoBase(imported), "livestub", runnerID, "user_prompt", `{"prompt":"a long-running task"}`)
 	h.Quiesce()
 	requireRESTWorking(t, h, imported, true)
 

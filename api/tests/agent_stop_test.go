@@ -33,8 +33,8 @@ func TestRegression_AgentStopKeepsChatDormantAndResumable(t *testing.T) {
 
 	// A real, resumable conversation: the CLI announced its native session and wrote a
 	// turn (a session id is not a conversation until something lands in it).
-	postAgentHook(t, h, imported, runnerID, "session_start", `{"session_id":"sess-stop-1"}`)
-	postAgentHook(t, h, imported, runnerID, "turn_stop", `{"session_id":"sess-stop-1","last_assistant_message":"hello"}`)
+	postHook(t, h, repoBase(imported), "livestub", runnerID, "session_start", `{"session_id":"sess-stop-1"}`)
+	postHook(t, h, repoBase(imported), "livestub", runnerID, "turn_stop", `{"session_id":"sess-stop-1","last_assistant_message":"hello"}`)
 	h.Quiesce()
 
 	// Close the tab: stop the CLI, keep the chat.
@@ -73,8 +73,8 @@ func TestRegression_AgentCloseEndsTheLiveRunnerAndKeepsTheChat(t *testing.T) {
 	imported := importWritableWorkspace(t, h)
 
 	chatID, runnerID := createLiveStubChat(t, h, imported)
-	postAgentHook(t, h, imported, runnerID, "session_start", `{"session_id":"sess-close-1"}`)
-	postAgentHook(t, h, imported, runnerID, "turn_stop", `{"session_id":"sess-close-1","last_assistant_message":"hello"}`)
+	postHook(t, h, repoBase(imported), "livestub", runnerID, "session_start", `{"session_id":"sess-close-1"}`)
+	postHook(t, h, repoBase(imported), "livestub", runnerID, "turn_stop", `{"session_id":"sess-close-1","last_assistant_message":"hello"}`)
 	h.Quiesce()
 
 	live := getAgentChat(t, h, repoBase(imported), chatID)

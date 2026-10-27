@@ -143,7 +143,7 @@ func announce(
 	sessionID string,
 ) {
 	t.Helper()
-	postAgentHook(t, h, imported, runnerID, "session_start", `{"session_id":"`+sessionID+`"}`)
+	postHook(t, h, repoBase(imported), "livestub", runnerID, "session_start", `{"session_id":"`+sessionID+`"}`)
 }
 
 // chatHandoff reads a chat's assembled ledger (GET .../chats/:id/handoff): the
@@ -224,12 +224,11 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	// Give the doomed chat a real conversation — Crowbar's own plaintext copy of what
 	// was said, the thing the purge MUST reap (leaving it behind is a privacy bug).
 	const privateText = "something private"
-	postAgentHook(t, h, ws, doomedRunner, "user_prompt", `{"prompt":"`+privateText+`"}`)
+	postHook(t, h, repoBase(ws), "livestub", doomedRunner, "user_prompt", `{"prompt":"`+privateText+`"}`)
 	frames.awaitChat(doomed, "turn_started")
-	// Close the turn before the delete below: invariant 9 (2026-08-28 addendum §2)
-	// refuses to delete a WORKING row unconditionally, and this test is about what
-	// survives a delete, not about that refusal (pinned separately).
-	postAgentHook(t, h, ws, doomedRunner, "turn_stop", `{"last_assistant_message":"noted"}`)
+	// Close the turn first: invariant 9 refuses to delete a WORKING row, and this
+	// test is about what survives a delete, not about that refusal.
+	postHook(t, h, repoBase(ws), "livestub", doomedRunner, "turn_stop", `{"last_assistant_message":"noted"}`)
 	frames.awaitChat(doomed, "turn_stopped")
 	h.Quiesce()
 

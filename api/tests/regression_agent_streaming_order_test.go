@@ -28,7 +28,7 @@ func TestRegression_AStreamingMessageCarriesTheMomentItBeganSoToolsAfterItStayBe
 	readUntil(t, conn, chatFrame("created"))
 
 	post := func(event, payload string) {
-		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
+		postHook(t, h, repoBase(imported), "streamstub", runnerID, event, payload)
 	}
 	post("session_start", `{"session_id":"sess-1"}`)
 	post("user_prompt", `{"session_id":"sess-1","prompt":"speak then work"}`)

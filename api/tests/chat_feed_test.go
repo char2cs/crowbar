@@ -3,26 +3,25 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // unnumberedStubProviderDescriptorYAML streams answers with no index: its
 // deltas are shown while they happen and no row holds them.
 const unnumberedStubProviderDescriptorYAML = `id: unnumberedstub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 events:
   message_delta:
     in: message_delta
@@ -104,7 +103,7 @@ func newFeedChat(t *testing.T, h *harness, provider, yaml string) (importedRepo,
 	imported := importWritableWorkspace(t, h)
 	chatID, runnerID := createStubChat(t, h, imported, provider)
 	return imported, chatID, func(event, payload string) {
-		postProviderHook(t, h, imported, provider, runnerID, event, payload)
+		postHook(t, h, repoBase(imported), provider, runnerID, event, payload)
 	}
 }
 
@@ -143,26 +142,21 @@ func TestChatFeed_ResumeSendsOnlyNewerRows(t *testing.T) {
 	assert.Equal(t, head.Epoch, ready.Epoch, "one daemon, one epoch")
 }
 
-// postHookAsync posts a stub hook from a goroutine, reporting what went wrong.
-func postHookAsync(h *harness, imported importedRepo, provider, runnerID, event, payload string) error {
-	body, err := json.Marshal(map[string]string{
-		"segment_id": runnerID, "provider": provider, "event": event, "payload_raw": payload,
-	})
+// postHookAsync posts a hook as l's CLI from a goroutine, reporting what went wrong.
+func postHookAsync(h *harness, l kit.Launch, base, provider, event, payload string) error {
+	url := fmt.Sprintf("%s%s/chats/runners/%s/hooks/%s/%s", h.url, base, l.RunnerID, provider, event)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, strings.NewReader(payload))
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
-		h.url+repoBase(imported)+"/chats/hooks", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
+	req.Header.Set("X-Crowbar-Runner-Token", l.Token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := h.server.Client().Do(req)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusAccepted {
+	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("%s: status %d", event, resp.StatusCode)
 	}
 	return nil
@@ -173,13 +167,14 @@ func TestChatFeed_RowsCommittedWhileAttachingAreNeitherLostNorDoubled(t *testing
 	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
 	imported := importWritableWorkspace(t, h)
 	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
-	postProviderHook(t, h, imported, "streamstub", runnerID, "session_start", `{"session_id":"sess-1"}`)
-	postProviderHook(t, h, imported, "streamstub", runnerID, "user_prompt", `{"session_id":"sess-1","prompt":"go"}`)
+	postHook(t, h, repoBase(imported), "streamstub", runnerID, "session_start", `{"session_id":"sess-1"}`)
+	postHook(t, h, repoBase(imported), "streamstub", runnerID, "user_prompt", `{"session_id":"sess-1","prompt":"go"}`)
 
 	posted := make(chan error, 1)
+	l := stubLaunch(t, h, "streamstub", runnerID)
 	go func() {
 		for i := range 30 {
-			if err := postHookAsync(h, imported, "streamstub", runnerID, "message_delta",
+			if err := postHookAsync(h, l, repoBase(imported), "streamstub", "message_delta",
 				delta("msg-one", i, false, fmt.Sprintf("part %d ", i))); err != nil {
 				posted <- err
 				return

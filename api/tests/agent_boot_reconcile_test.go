@@ -60,12 +60,12 @@ func bootReconcileFixture(
 	runnerID = spawned.LiveRunnerID
 
 	// Announce a conversation, so the chat has history to be revived from.
-	postHomeHook(t, h, homeBase, runnerID, "session_start", `{"session_id":"sess-before-restart"}`)
+	postHook(t, h, homeBase, "livestub", runnerID, "session_start", `{"session_id":"sess-before-restart"}`)
 	waitForConversation(t, frames, created.ID, "sess-before-restart")
 
 	// Open a turn, so the boot reconcile has a live turn to close — not merely a
 	// runner row to reap (the crash-mid-turn shape the FE spinner depends on).
-	postHomeHook(t, h, homeBase, runnerID, "user_prompt", `{"prompt":"hi"}`)
+	postHook(t, h, homeBase, "livestub", runnerID, "user_prompt", `{"prompt":"hi"}`)
 	waitForChatFrame(t, frames, created.ID, "turn_started")
 	h.Quiesce()
 

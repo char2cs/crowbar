@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { STUB_PROVIDER_ID } from './stub-provider.mjs'
 import { until } from './wait.mjs'
@@ -33,8 +33,8 @@ export function createGitFixture(runDir) {
 
 const repoBase = (f) => `/v0/projects/${f.projectId}/repos/${f.repoId}`
 
-/** Imports the fixture and returns the ids every scenario builds on. */
-export async function importFixture(daemon, { projectDir, repoDir }) {
+/** Imports the fixture and returns the ids every scenario builds on, with the daemon's home. */
+export async function importFixture(daemon, { projectDir, repoDir }, home) {
   await daemon.post('/v0/projects', { name: PROJECT_NAME, path: projectDir })
   const project = await until('the project to be listed', async () =>
     (await daemon.get('/v0/projects')).find((p) => p.name === PROJECT_NAME),
@@ -56,7 +56,7 @@ export async function importFixture(daemon, { projectDir, repoDir }) {
         c.worktree?.branch === 'main' && !c.worktree.isDefault && c.worktree.status !== 'deleted',
     ),
   )
-  return { ...fixture, baseChatId: base.id, base: repoBase(fixture) }
+  return { ...fixture, baseChatId: base.id, base: repoBase(fixture), home }
 }
 
 /** The stub provider must be listed and enabled before a chat can spawn on it. */
@@ -97,28 +97,32 @@ async function awaitRunner(daemon, fx, id) {
 
 export const getChat = (daemon, fx, id) => daemon.get(`${fx.base}/chats/${id}`)
 
-/** Plays one provider hook at the daemon, exactly as the in-PTY hook command would. */
-export async function hook(daemon, fx, chat, event, payload) {
-  const res = await daemon.call('POST', `${fx.base}/chats/hooks`, {
-    segment_id: chat.runnerId,
-    provider: STUB_PROVIDER_ID,
-    event,
-    payload_raw: JSON.stringify(payload),
-  })
-  if (res.status !== 202)
-    throw new Error(`hook ${event} -> ${res.status}: ${res.text.slice(0, 200)}`)
+/** Posts one provider hook to the daemon's hook route, as the stub's CLI would. */
+function postHook(daemon, fx, chat, event, payload) {
+  const token = readFileSync(join(fx.home, 'e2e-tokens', chat.runnerId), 'utf8')
+  return daemon.call(
+    'POST',
+    `${fx.base}/chats/runners/${chat.runnerId}/hooks/${STUB_PROVIDER_ID}/${event}`,
+    payload,
+    { 'x-crowbar-runner-token': token },
+  )
 }
 
-/** Like hook(), with a delivery id; returns the daemon's ack (its `reply` and `await`). */
-export async function hookAck(daemon, fx, chat, event, payload) {
-  const res = await daemon.call('POST', `${fx.base}/chats/hooks`, {
-    segment_id: chat.runnerId,
-    provider: STUB_PROVIDER_ID,
-    event,
-    payload_raw: JSON.stringify(payload),
-    delivery_id: crypto.randomUUID(),
-  })
-  if (res.status !== 202)
+/** Plays one provider hook at the daemon and returns its reply: what the CLI is handed. */
+export async function hook(daemon, fx, chat, event, payload) {
+  const res = await postHook(daemon, fx, chat, event, payload)
+  if (res.status !== 200)
     throw new Error(`hook ${event} -> ${res.status}: ${res.text.slice(0, 200)}`)
-  return res.json?.data ?? {}
+  return res.text
+}
+
+/**
+ * Posts a hook that opens an ask. The daemon holds it open until the ask is
+ * decided, so this resolves with the CLI's answer and is not awaited to see the card.
+ */
+export function askHook(daemon, fx, chat, event, payload) {
+  return postHook(daemon, fx, chat, event, payload).catch((err) => ({
+    status: 0,
+    text: String(err),
+  }))
 }

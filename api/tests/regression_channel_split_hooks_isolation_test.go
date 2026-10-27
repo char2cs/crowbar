@@ -17,9 +17,6 @@ import (
 // same conversational fact. session_start/user_prompt/turn_stop stay
 // flat/hooks-only — only tool_pre is under test here.
 const channelSplitStubProviderDescriptorYAML = `id: channelsplitstub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 runtime:
   transport: hooks
   hooks:
@@ -73,9 +70,8 @@ func channelSplitActivity(t *testing.T, h *harness, ws importedRepo, chatID stri
 // proven at the black-box HTTP level against a descriptor using the SAME
 // api:/hooks: shape codex.yaml itself now ships for tool_pre (that plan's P3).
 //
-// POST /chats/hooks always delivers on the HOOKS channel — the hook handler's
-// choice: "an HTTP hook relay POST marks nothing, so the zero value here
-// is hooks" — regardless of what shape the BODY happens to carry. So a
+// The hook route always delivers on the HOOKS channel — the hook handler's
+// choice — regardless of what shape the BODY happens to carry. So a
 // payload shaped for the OTHER channel (api: threadId/item.*, exactly what a
 // real item/started notification carries) posted to this endpoint is exactly
 // the foreign-shape delivery the channel split exists to refuse: before the
@@ -92,7 +88,7 @@ func TestRegression_HooksDeliveryOfAChannelSplitEventCannotReadAPIShapedFields(t
 	chatID, runnerID := createStubChat(t, h, ws, "channelsplitstub")
 
 	post := func(event, payload string) {
-		postProviderHook(t, h, ws, "channelsplitstub", runnerID, event, payload)
+		postHook(t, h, repoBase(ws), "channelsplitstub", runnerID, event, payload)
 	}
 	post("session_start", `{"session_id":"sess-1"}`)
 	post("user_prompt", `{"session_id":"sess-1","prompt":"do a thing"}`)
@@ -109,8 +105,7 @@ func TestRegression_HooksDeliveryOfAChannelSplitEventCannotReadAPIShapedFields(t
 	assert.Equal(t, "Bash", calls[0].Name, "resolved via the hooks: block's tool_name: tool_name")
 	assert.Equal(t, "echo hi", calls[0].Target, "resolved via the hooks: block's tool_target: tool_input.command")
 
-	// THE ATTACK: an api-SHAPED tool_pre body posted to the SAME /chats/hooks
-	// endpoint. If channel selection degenerated back into reading both
+	// THE ATTACK: an api-SHAPED tool_pre body posted to the SAME hook route. If channel selection degenerated back into reading both
 	// shapes at once — the old || cross-shape fallback this design replaces
 	// — this would resolve the attacker's own id/type/command.
 	//
@@ -121,12 +116,11 @@ func TestRegression_HooksDeliveryOfAChannelSplitEventCannotReadAPIShapedFields(t
 	// delivery is REJECTED outright (RequiredFieldError) rather than
 	// recorded under a fallback identity — strictly stronger than before:
 	// nothing attacker-controlled reaches the ledger AT ALL, not even a
-	// nameless placeholder row. The relay is told so: 422.
-	_ = h.raw(http.MethodPost, repoBase(ws)+"/chats/hooks", map[string]string{
-		"segment_id": runnerID, "provider": "channelsplitstub", "event": "tool_pre",
-		"payload_raw": `{"threadId":"attacker-thread","item":{"type":"commandExecution",` +
-			`"id":"attacker-tool-id","command":"ATTACKER-COMMAND-LEAKED"}}`,
-	}, http.StatusUnprocessableEntity).Body.Close()
+	// nameless placeholder row. The CLI is told so: 422.
+	resp := stubLaunch(t, h, "channelsplitstub", runnerID).PostHook(t, h.url+repoBase(ws), "channelsplitstub", "tool_pre", //nolint:bodyclose // PostHook closes the body and returns a buffered copy
+		[]byte(`{"threadId":"attacker-thread","item":{"type":"commandExecution",`+
+			`"id":"attacker-tool-id","command":"ATTACKER-COMMAND-LEAKED"}}`))
+	require.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
 	h.Quiesce()
 
 	calls = channelSplitActivity(t, h, ws, chatID)

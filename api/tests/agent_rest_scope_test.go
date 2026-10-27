@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -63,9 +62,7 @@ func writeStubProviderDescriptor(
 	h *harness,
 ) {
 	t.Helper()
-	dir := filepath.Join(h.home, "descriptors")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "stub.yaml"), []byte(stubDescriptor(stubProviderDescriptorYAML)), 0o644))
+	writeProviderDescriptor(t, h, "stub", stubProviderDescriptorYAML)
 }
 
 // agentChatDTO mirrors the wire shape of dto.AgentChatDTO.
@@ -84,8 +81,7 @@ type agentChatDTO struct {
 	WorkspaceID string `json:"workspaceId"`
 	Title       string `json:"title"`
 	// LiveRunnerID is the runner placed on this chat, or "" when it is dormant.
-	// It is the id every in-PTY hook callback carries (the crowbarSegmentID), so
-	// it is also what these tests post as `segment_id`.
+	// It is the runner every hook is posted as.
 	LiveRunnerID string `json:"liveRunnerId"`
 	// TerminalSessionID is that runner's PTY — the terminal session a chat pane
 	// attaches to. Empty exactly when LiveRunnerID is.

@@ -4,8 +4,6 @@ package tests
 
 import (
 	"net/http"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,9 +18,6 @@ import (
 // which is also the fixture that proves this guard is opt-in and cannot have
 // changed claude.
 const memStubProviderDescriptorYAML = `id: memstub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 events:
   session_start:
     in: session_start
@@ -46,9 +41,7 @@ runtime:
 
 func writeMemStubProviderDescriptor(t *testing.T, h *harness) {
 	t.Helper()
-	dir := filepath.Join(h.home, "descriptors")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "memstub.yaml"), []byte(stubDescriptor(memStubProviderDescriptorYAML)), 0o644))
+	writeProviderDescriptor(t, h, "memstub", memStubProviderDescriptorYAML)
 }
 
 // createMemStubChat is createLiveStubChat against the memstub provider.
@@ -68,21 +61,8 @@ func createMemStubChat(t *testing.T, h *harness, imported importedRepo) (chatID,
 	return created.ID, detail.LiveRunnerID
 }
 
-// postMemStubHook fires one in-PTY hook callback for the memstub provider.
-func postMemStubHook(
-	t *testing.T,
-	h *harness,
-	imported importedRepo,
-	runnerID, event, payload string,
-) {
-	t.Helper()
-	_ = h.raw(http.MethodPost, repoBase(imported)+"/chats/hooks", map[string]string{
-		"segment_id": runnerID, "provider": "memstub", "event": event, "payload_raw": payload,
-	}, http.StatusAccepted).Body.Close()
-}
-
 // The payloads below are VERBATIM captures from codex 0.146.0 with
-// `[features] memories = true`, recorded by standing in for `crowbar hook` on the
+// `[features] memories = true`, recorded by standing in for the hook relay on the
 // real `-c hooks.*` commands the codex descriptor injects. Only the paths are
 // shortened. All five came out of ONE codex process, six seconds apart.
 const (
@@ -127,8 +107,8 @@ const (
 // rather than against the drop itself — so a regression that finds a NEW way to let
 // an internal session through fails here too.
 //
-// NO TIMING. POST /chats/hooks places the hook synchronously, so a dropped hook has
-// finished being dropped by the time its 202 returns; h.Quiesce is the
+// NO TIMING. The hook route places the hook synchronously, so a dropped hook has
+// finished being dropped by the time its 200 returns; h.Quiesce is the
 // read-your-writes barrier (asynx WaitPublish) before the plain REST reads. The
 // negative assertions are then made STRICT by a real signal: a genuine turn is
 // taken afterwards and its turn_started frame awaited, and WS frames are ordered,
@@ -145,9 +125,9 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 	chat, runner := createMemStubChat(t, h, ws)
 
 	// The user's own conversation announces itself and takes a turn.
-	postMemStubHook(t, h, ws, runner, "session_start", realStart)
+	postHook(t, h, repoBase(ws), "memstub", runner, "session_start", realStart)
 	frames.awaitConversation(chat, realSessionID)
-	postMemStubHook(t, h, ws, runner, "user_prompt", realPrompt)
+	postHook(t, h, repoBase(ws), "memstub", runner, "user_prompt", realPrompt)
 	frames.awaitChat(chat, "turn_started")
 	h.Quiesce()
 
@@ -157,9 +137,9 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 		"precondition: the chat hosts the user's conversation and only that")
 
 	// --- the bug: the provider's INTERNAL session runs the full lifecycle at us ---
-	postMemStubHook(t, h, ws, runner, "session_start", memoryStart)
-	postMemStubHook(t, h, ws, runner, "user_prompt", memoryPrompt)
-	postMemStubHook(t, h, ws, runner, "turn_stop", memoryStop)
+	postHook(t, h, repoBase(ws), "memstub", runner, "session_start", memoryStart)
+	postHook(t, h, repoBase(ws), "memstub", runner, "user_prompt", memoryPrompt)
+	postHook(t, h, repoBase(ws), "memstub", runner, "turn_stop", memoryStop)
 	h.Quiesce()
 
 	// (1) No phantom chat was minted.
@@ -196,7 +176,7 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 	// (4) And the conversation on screen still works: the next real turn lands here,
 	// in this chat, on this runner. This is the ordered signal that makes every
 	// negative above strict rather than merely un-awaited.
-	postMemStubHook(t, h, ws, runner, "turn_stop",
+	postHook(t, h, repoBase(ws), "memstub", runner, "turn_stop",
 		`{"session_id":"`+realSessionID+`","transcript_path":"/h/rollout-019fafae.jsonl","last_assistant_message":"THE-USERS-OWN-ANSWER"}`)
 	frames.awaitChat(chat, "turn_stopped")
 	h.Quiesce()
@@ -246,12 +226,8 @@ func TestRegression_InternalSessionHooksAreDroppedNotFailed(t *testing.T) {
 		{"user_prompt", memoryPrompt},
 		{"turn_stop", memoryStop},
 	} {
-		resp := h.raw(http.MethodPost, repoBase(ws)+"/chats/hooks", map[string]string{
-			"segment_id": runner, "provider": "memstub", "event": ev.event, "payload_raw": ev.payload,
-		}, http.StatusAccepted)
-		_ = resp.Body.Close()
-		require.Equal(t, http.StatusAccepted, resp.StatusCode,
-			"a dropped %s must be answered 202: the hook runs inside the vendor CLI's turn and an "+
-				"error there is the listener breaking the thing it listens to", ev.event)
+		// postHook requires a 200: the hook runs inside the vendor CLI's turn, and an
+		// error there is the listener breaking the thing it listens to.
+		postHook(t, h, repoBase(ws), "memstub", runner, ev.event, ev.payload)
 	}
 }

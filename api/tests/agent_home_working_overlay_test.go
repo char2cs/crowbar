@@ -72,13 +72,13 @@ func TestRegression_HomeWorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 	requireHomeRESTWorking(t, h, projectID, false)
 
 	// user_prompt opens the turn: the home REST read must now report working.
-	postHomeHook(t, h, homeBase, segID, "user_prompt", `{"prompt":"hi"}`)
+	postHook(t, h, homeBase, "livestub", segID, "user_prompt", `{"prompt":"hi"}`)
 	waitForChatFrame(t, frames, created.ID, "turn_started")
 	h.Quiesce()
 	requireHomeRESTWorking(t, h, projectID, true)
 
 	// turn_stop closes it: the home REST read must flip back.
-	postHomeHook(t, h, homeBase, segID, "turn_stop", `{"last_assistant_message":"done"}`)
+	postHook(t, h, homeBase, "livestub", segID, "turn_stop", `{"last_assistant_message":"done"}`)
 	waitForChatFrame(t, frames, created.ID, "turn_stopped")
 	h.Quiesce()
 	requireHomeRESTWorking(t, h, projectID, false)

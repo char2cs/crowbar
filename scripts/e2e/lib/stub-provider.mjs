@@ -5,7 +5,8 @@ export const STUB_PROVIDER_ID = 'e2estub'
 
 // `cat` stays alive on its PTY, so a chat keeps a live runner while the test
 // plays the provider's hooks at the daemon by hand: no login, no network, and
-// the same hook path a real CLI uses. The symlink gives the process a name the
+// the same hook route a real CLI posts to, with the runner token the spawn
+// writes under the home. The symlink gives the process a name the
 // suite can count with `ps` without ever matching the user's own `cat`.
 export const STUB_BIN_NAME = 'e2e-stub-provider'
 
@@ -81,7 +82,10 @@ injected_prompts:
 hooks_injection:
   - set_env:
       name: STUB_HOOK
-      value: "{crowbar_hook} hook any --segment {segid}"
+      value: "{hook_curl} {hook_url}"
+  - write_file:
+      path: "{crowbar_home}/e2e-tokens/{segid}"
+      content: "{runner_token}"
 runtime:
   transport: hooks
   hooks:

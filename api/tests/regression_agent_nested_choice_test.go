@@ -3,7 +3,6 @@
 package tests
 
 import (
-	"net/http"
 	"strings"
 	"testing"
 
@@ -44,7 +43,7 @@ func newNestedChoiceChat(t *testing.T) nestedChoiceChat {
 	t.Helper()
 	c := newChoiceFrameChat(t, nestedChoiceDescriptor())
 	hook := func(event, payload string) {
-		postAnswerStubHook(t, c.h, repoBase(c.imported), c.runnerID, event, payload)
+		postHook(t, c.h, repoBase(c.imported), "answerstub", c.runnerID, event, payload)
 	}
 	hook("session_start", `{"session_id":"main"}`)
 	hook("tool_post", `{"session_id":"main","tool_id":"spawn-1","tool_name":"spawn","spawns_scope":"child"}`)
@@ -54,11 +53,8 @@ func newNestedChoiceChat(t *testing.T) nestedChoiceChat {
 
 func (c nestedChoiceChat) nestedAsk(t *testing.T, promptID string) (choiceID string) {
 	t.Helper()
-	ack := postAnswerStubHook(t, c.h, repoBase(c.imported), c.runnerID, "permission",
-		`{"session_id":"child","prompt_id":"`+promptID+`","tool_name":"Bash",`+
-			`"tool_input":{"command":"touch `+promptID+`"}}`)
-	require.NotNil(t, ack.Await, "a nested ask is held for the person, not left to the provider's terminal")
-	return ack.Await.ChoiceID
+	// A nested ask is held for the person, not left to the provider's terminal.
+	return c.askAs(t.Context(), t, "child", promptID)
 }
 
 func TestRegression_ANestedConversationsPermissionBecomesAnAnswerableCard(t *testing.T) {
@@ -81,21 +77,16 @@ func TestRegression_ANestedConversationsPermissionBecomesAnAnswerableCard(t *tes
 	c.answer(t, choiceID)
 	readUntil(t, conn, c.choiceFrame(func(choices []map[string]any) bool { return len(choices) == 0 }))
 
-	var answer struct {
-		Stdout string `json:"stdout"`
-	}
-	c.h.post(repoBase(c.imported)+"/chats/hooks/await", map[string]string{"ask_id": choiceID},
-		http.StatusOK, &answer)
-	assert.JSONEq(t, `{"decision":{"behavior":"allow"}}`, answer.Stdout,
+	assert.JSONEq(t, `{"decision":{"behavior":"allow"}}`, c.reply(t, choiceID),
 		"the reply returns to the nested request's own ask")
 }
 
 func TestRegression_ANestedAskDoesNotChangeHowNestedToolRowsRender(t *testing.T) {
 	c := newNestedChoiceChat(t)
-	postAnswerStubHook(t, c.h, repoBase(c.imported), c.runnerID, "tool_pre",
+	postHook(t, c.h, repoBase(c.imported), "answerstub", c.runnerID, "tool_pre",
 		`{"session_id":"child","tool_id":"ct1","tool_name":"Bash"}`)
 	c.nestedAsk(t, "np1")
-	postAnswerStubHook(t, c.h, repoBase(c.imported), c.runnerID, "tool_post",
+	postHook(t, c.h, repoBase(c.imported), "answerstub", c.runnerID, "tool_post",
 		`{"session_id":"child","tool_id":"ct1","tool_name":"Bash"}`)
 	c.h.Quiesce()
 
@@ -114,7 +105,7 @@ func TestRegression_ANestedAskDoesNotChangeHowNestedToolRowsRender(t *testing.T)
 func TestRegression_ANestedAskAfterTheTurnClosedIsAnAnswerableCard(t *testing.T) {
 	c := newNestedChoiceChat(t)
 	conn := c.dial()
-	postAnswerStubHook(t, c.h, repoBase(c.imported), c.runnerID, "turn_stop",
+	postHook(t, c.h, repoBase(c.imported), "answerstub", c.runnerID, "turn_stop",
 		`{"session_id":"main","last_assistant_message":"done"}`)
 	c.h.Quiesce()
 
@@ -124,11 +115,6 @@ func TestRegression_ANestedAskAfterTheTurnClosedIsAnAnswerableCard(t *testing.T)
 	}))
 
 	c.answer(t, choiceID)
-	var answer struct {
-		Stdout string `json:"stdout"`
-	}
-	c.h.post(repoBase(c.imported)+"/chats/hooks/await", map[string]string{"ask_id": choiceID},
-		http.StatusOK, &answer)
-	assert.JSONEq(t, `{"decision":{"behavior":"allow"}}`, answer.Stdout,
+	assert.JSONEq(t, `{"decision":{"behavior":"allow"}}`, c.reply(t, choiceID),
 		"the person's answer reaches the held subagent")
 }

@@ -22,22 +22,11 @@ import (
 // (agent_working_overlay_test.go) with the presentation.prompt_submit and
 // session.resume blocks POST .../prompts requires and that shared descriptor
 // never declares — no earlier user of createLiveStubChat submits a real
-// prompt over HTTP, only postAgentHook. Without them SubmitPrompt refuses
-// every text with 422 (runner.ErrPromptUnsupported), so this test carries
-// its own override rather than editing the shared harness file.
-//
-// spawn.cmd is "sh -c cat", not bare "cat": prompt_submit's fresh/resume
-// steps place {message} as a trailing positional argv entry (mirroring
-// descriptors-v3/claude.yaml), and "cat -- <message>" would try to OPEN a
-// file named after the message and exit immediately, breaking the "stays
-// alive on its PTY" property the shared stub relies on. The extra argv lands
-// on $0/$1 of the sh -c script, which the literal script "cat" never
-// references, so /bin/cat still runs bare, reading stdin, alive as before.
+// prompt over HTTP, only hooks. Without them SubmitPrompt refuses every text
+// with 422 (runner.ErrPromptUnsupported), so this test carries its own
+// override rather than editing the shared harness file. The fake CLI ignores
+// the trailing {message} positional prompt_submit places, staying alive.
 const livestubPromptSubmitYAML = `id: livestub
-spawn:
-  cmd: "sh"
-  args: ["-c", "cat"]
-  interactive_required: true
 session: { resume: { arg: "--resume {id}" }, persists: turn_start }
 events:
   session_start:
@@ -73,9 +62,7 @@ func writeLiveStubProviderDescriptorWithPromptSubmit(
 	h *harness,
 ) {
 	t.Helper()
-	dir := filepath.Join(h.home, "descriptors")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "livestub.yaml"), []byte(stubDescriptor(livestubPromptSubmitYAML)), 0o644))
+	writeProviderDescriptor(t, h, "livestub", livestubPromptSubmitYAML)
 }
 
 // TestRegression_PendingPromptSurvivesAFrontendThatForgotItsOwnQueue proves

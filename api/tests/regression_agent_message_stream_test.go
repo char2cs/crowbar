@@ -13,13 +13,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 )
 
 const streamStubProviderDescriptorYAML = `id: streamstub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 events:
   session_start:
     in: session_start
@@ -70,9 +66,6 @@ runtime:
 `
 
 const quietStubProviderDescriptorYAML = `id: quietstub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 events:
   session_start:
     in: session_start
@@ -106,47 +99,6 @@ runtime:
     format: json
 `
 
-func writeProviderDescriptor(t *testing.T, h *harness, id, body string) {
-	t.Helper()
-	dir := filepath.Join(h.home, "descriptors")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, id+".yaml"), []byte(stubDescriptor(body)), 0o644))
-}
-
-// stubDescriptor completes a stub descriptor that declares only what its test
-// exercises with the wired lifecycle Crowbar requires before it enables any
-// descriptor. The wiring is an env var, so a stub like `cat` sees no new argv.
-func stubDescriptor(body string) string {
-	var doc map[string]any
-	if err := yaml.Unmarshal([]byte(body), &doc); err != nil || doc == nil {
-		return body
-	}
-	events, _ := doc["events"].(map[string]any)
-	if events == nil {
-		events = map[string]any{}
-	}
-	for name, spec := range map[string]map[string]any{
-		"session_start": {"in": "session_start", "map": map[string]any{"session_id": "session_id"}},
-		"user_prompt":   {"in": "user_prompt", "map": map[string]any{"message": "prompt"}},
-		"turn_stop":     {"in": "turn_stop", "map": map[string]any{"session_id": "session_id", "message": "last_assistant_message"}},
-	} {
-		if _, ok := events[name]; !ok {
-			events[name] = spec
-		}
-	}
-	doc["events"] = events
-	if _, ok := doc["hooks_injection"]; !ok {
-		doc["hooks_injection"] = []any{map[string]any{"set_env": map[string]any{
-			"name": "STUB_HOOK", "value": "{crowbar_hook} hook any --segment {segid}",
-		}}}
-	}
-	out, err := yaml.Marshal(doc)
-	if err != nil {
-		return body
-	}
-	return string(out)
-}
-
 func createStubChat(t *testing.T, h *harness, imported importedRepo, provider string) (chatID, runnerID string) {
 	t.Helper()
 	var created struct {
@@ -161,18 +113,6 @@ func createStubChat(t *testing.T, h *harness, imported importedRepo, provider st
 	detail := getAgentChat(t, h, repoBase(imported), created.ID)
 	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
 	return created.ID, detail.LiveRunnerID
-}
-
-func postProviderHook(
-	t *testing.T,
-	h *harness,
-	imported importedRepo,
-	provider, segID, event, payload string,
-) {
-	t.Helper()
-	_ = h.raw(http.MethodPost, repoBase(imported)+"/chats/hooks", map[string]string{
-		"segment_id": segID, "provider": provider, "event": event, "payload_raw": payload,
-	}, http.StatusAccepted).Body.Close()
 }
 
 type recordedMessage struct {
@@ -219,7 +159,7 @@ func TestRegression_EveryAssistantMessageOfATurnIsRecorded(t *testing.T) {
 	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
 
 	post := func(event, payload string) {
-		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
+		postHook(t, h, repoBase(imported), "streamstub", runnerID, event, payload)
 	}
 	post("session_start", `{"session_id":"sess-1"}`)
 	post("user_prompt", `{"session_id":"sess-1","prompt":"say one, work, say two"}`)
@@ -268,7 +208,7 @@ func TestRegression_AMessageIsVisibleBEFOREItsTurnEnds(t *testing.T) {
 	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
 
 	post := func(event, payload string) {
-		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
+		postHook(t, h, repoBase(imported), "streamstub", runnerID, event, payload)
 	}
 	post("session_start", `{"session_id":"sess-1"}`)
 	post("user_prompt", `{"session_id":"sess-1","prompt":"speak then work"}`)
@@ -312,7 +252,7 @@ func TestRegression_AGrowingMessageReachesTheChatSocketBeforeTheTurnEnds(t *test
 	readUntil(t, conn, chatFrame("created"))
 
 	post := func(event, payload string) {
-		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
+		postHook(t, h, repoBase(imported), "streamstub", runnerID, event, payload)
 	}
 	post("session_start", `{"session_id":"sess-1"}`)
 	post("user_prompt", `{"session_id":"sess-1","prompt":"narrate while you work"}`)
@@ -351,7 +291,7 @@ func TestRegression_ProviderWithNoStreamingHookRecordsExactlyWhatItAlwaysDid(t *
 	chatID, runnerID := createStubChat(t, h, imported, "quietstub")
 
 	post := func(event, payload string) {
-		postProviderHook(t, h, imported, "quietstub", runnerID, event, payload)
+		postHook(t, h, repoBase(imported), "quietstub", runnerID, event, payload)
 	}
 	post("session_start", `{"session_id":"sess-1"}`)
 	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
@@ -369,7 +309,7 @@ func TestRegression_TheTerminatingHookSupersedesALossyStream(t *testing.T) {
 	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
 
 	post := func(event, payload string) {
-		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
+		postHook(t, h, repoBase(imported), "streamstub", runnerID, event, payload)
 	}
 	post("session_start", `{"session_id":"sess-1"}`)
 	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
@@ -400,7 +340,7 @@ func TestRegression_ALossyTerminatingHookNeverTruncatesTheStream(t *testing.T) {
 	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
 
 	post := func(event, payload string) {
-		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
+		postHook(t, h, repoBase(imported), "streamstub", runnerID, event, payload)
 	}
 	post("session_start", `{"session_id":"sess-1"}`)
 	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
@@ -422,7 +362,7 @@ func TestRegression_AStreamedReplyIsNotRecordedTwice(t *testing.T) {
 	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
 
 	post := func(event, payload string) {
-		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
+		postHook(t, h, repoBase(imported), "streamstub", runnerID, event, payload)
 	}
 	post("session_start", `{"session_id":"sess-1"}`)
 	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
@@ -450,7 +390,7 @@ func TestRegression_AFinalDeltaAfterItsTurnStopJoinsTheReply(t *testing.T) {
 	readUntil(t, conn, frame("created"))
 
 	post := func(event, payload string) {
-		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
+		postHook(t, h, repoBase(imported), "streamstub", runnerID, event, payload)
 	}
 	post("session_start", `{"session_id":"sess-1"}`)
 	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)

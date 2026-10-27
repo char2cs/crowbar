@@ -125,10 +125,7 @@ func TestRegression_SidebarForestMoveAndDelete(t *testing.T) {
 	// now WORKING, and a chat delete refuses it unconditionally (backend
 	// addendum §2, invariant 9) — there is no "delete anyway" the way a
 	// locked-branch delete has.
-	_ = h.raw(http.MethodPost, base+"/chats/hooks", map[string]string{
-		"segment_id": childDetail.LiveRunnerID, "provider": "livestub", "event": "user_prompt",
-		"payload_raw": `{"prompt":"still going"}`,
-	}, http.StatusAccepted).Body.Close()
+	postHook(t, h, base, "livestub", childDetail.LiveRunnerID, "user_prompt", `{"prompt":"still going"}`)
 	h.Quiesce()
 
 	// The FOLDER delete guard, closed by this task's own tree.go fix: deleting
@@ -157,10 +154,7 @@ func TestRegression_SidebarForestMoveAndDelete(t *testing.T) {
 	// Close the turn: the subtree is idle again, and the SAME delete now
 	// succeeds — taking parentChat AND the thread filed under it, the whole
 	// set a move or delete always takes together (invariant 4).
-	_ = h.raw(http.MethodPost, base+"/chats/hooks", map[string]string{
-		"segment_id": childDetail.LiveRunnerID, "provider": "livestub", "event": "turn_stop",
-		"payload_raw": `{"last_assistant_message":"done"}`,
-	}, http.StatusAccepted).Body.Close()
+	postHook(t, h, base, "livestub", childDetail.LiveRunnerID, "turn_stop", `{"last_assistant_message":"done"}`)
 	h.Quiesce()
 
 	resp := h.raw(http.MethodDelete, base+"/chats/"+parentChat, nil, http.StatusAccepted)

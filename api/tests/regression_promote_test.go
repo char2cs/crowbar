@@ -4,8 +4,6 @@ package tests
 
 import (
 	"net/http"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -52,10 +50,7 @@ runtime:
 
 func writePromoteStubProviderDescriptor(t *testing.T, h *harness) {
 	t.Helper()
-	dir := filepath.Join(h.home, "descriptors")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(
-		filepath.Join(dir, "promotestub.yaml"), []byte(stubDescriptor(promoteStubProviderDescriptorYAML)), 0o644))
+	writeProviderDescriptor(t, h, "promotestub", promoteStubProviderDescriptorYAML)
 }
 
 // TestRegression_PromoteFillsABubblesWorkspaceSlotOverHTTP is the route half of

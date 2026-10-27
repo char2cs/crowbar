@@ -4,8 +4,6 @@ package tests
 
 import (
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -68,9 +66,7 @@ runtime:
 
 func writeCwdStubProviderDescriptor(t *testing.T, h *harness) {
 	t.Helper()
-	dir := filepath.Join(h.home, "descriptors")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "cwdstub.yaml"), []byte(stubDescriptor(cwdStubProviderDescriptorYAML)), 0o644))
+	writeProviderDescriptor(t, h, "cwdstub", cwdStubProviderDescriptorYAML)
 }
 
 // createChatWithProvider creates a chat with an explicit provider, optional

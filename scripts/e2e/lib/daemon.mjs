@@ -5,12 +5,12 @@ const BASE = 'http://crowbar.local'
 
 /** A client for one daemon over its unix socket. Bun's fetch takes the socket as an option. */
 export function daemonClient(socket) {
-  async function call(method, path, body) {
+  async function call(method, path, body, headers) {
     const tcp = socket.startsWith('http')
     const res = await fetch((tcp ? socket : BASE) + path, {
       method,
       ...(tcp ? {} : { unix: socket }),
-      headers: body === undefined ? undefined : { 'content-type': 'application/json' },
+      headers: body === undefined ? headers : { 'content-type': 'application/json', ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
     const text = await res.text()

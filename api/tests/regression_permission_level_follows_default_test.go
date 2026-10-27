@@ -23,9 +23,6 @@ import (
 // unrecognised flag exits it instantly with 424 before this test's own
 // assertions ever run — confirmed the hard way writing this test).
 const permissionStubProviderDescriptorYAML = `id: permstub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 events:
   session_start:
     in: session_start

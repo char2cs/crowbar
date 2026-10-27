@@ -39,7 +39,7 @@ import (
 // surface the way a CLI does, rather than reaching past the transport into the
 // usecase.
 
-// threadStubProviderDescriptorYAML spawns `cat`, which holds its PTY open, and
+// threadStubProviderDescriptorYAML runs the fake CLI, which holds its PTY open, and
 // renders the two things this suite has to read back: the runner's MCP token, and
 // the {context} document the spawn injected.
 //
@@ -48,9 +48,6 @@ import (
 // sees; write_file is the same declarative verb every descriptor already uses for
 // its hook config, pointed at the one thing this suite is about.
 const threadStubProviderDescriptorYAML = `id: threadstub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 events:
   session_start:
     in: session_start
@@ -101,10 +98,7 @@ func writeThreadStubProviderDescriptor(
 	h *harness,
 ) {
 	t.Helper()
-	dir := filepath.Join(h.home, "descriptors")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "threadstub.yaml"),
-		[]byte(stubDescriptor(threadStubProviderDescriptorYAML)), 0o644))
+	writeProviderDescriptor(t, h, "threadstub", threadStubProviderDescriptorYAML)
 }
 
 // newThreadChat creates a chat on the thread stub and returns it with the runner
@@ -186,14 +180,8 @@ func say(
 	answer string,
 ) {
 	t.Helper()
-	for _, hook := range []map[string]string{
-		{"event": "user_prompt", "payload_raw": `{"prompt":` + mustQuote(t, prompt) + `}`},
-		{"event": "turn_stop", "payload_raw": `{"last_assistant_message":` + mustQuote(t, answer) + `}`},
-	} {
-		hook["segment_id"] = runnerID
-		hook["provider"] = "threadstub"
-		_ = h.raw(http.MethodPost, repoBase(imported)+"/chats/hooks", hook, http.StatusAccepted).Body.Close()
-	}
+	postHook(t, h, repoBase(imported), "threadstub", runnerID, "user_prompt", `{"prompt":`+mustQuote(t, prompt)+`}`)
+	postHook(t, h, repoBase(imported), "threadstub", runnerID, "turn_stop", `{"last_assistant_message":`+mustQuote(t, answer)+`}`)
 	h.Quiesce()
 }
 

@@ -3,17 +3,144 @@
 package tests
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
+
+// stubs are the stub providers installed per crowbar home, so a hook can be
+// posted with the launch of the runner it names. Keyed "<home>|<id>".
+var stubs sync.Map
+
+// stubLifecycle is what a stub that declares only what its test exercises is
+// completed with: the lifecycle every descriptor needs before it is enabled.
+var stubLifecycle = map[string]map[string]any{
+	"session_start": {"in": "session_start", "map": map[string]any{"session_id": "session_id"}},
+	"user_prompt":   {"in": "user_prompt", "map": map[string]any{"message": "prompt"}},
+	"turn_stop":     {"in": "turn_stop", "map": map[string]any{"session_id": "session_id", "message": "last_assistant_message"}},
+}
+
+// writeProviderDescriptor installs stub provider id over the fake CLI: body's
+// blocks, with its events completed by stubLifecycle. A stub that declares its
+// own spawn keeps it; one that does not runs the fake CLI, which acts as `cat`.
+func writeProviderDescriptor(t *testing.T, h *harness, id, body string) {
+	t.Helper()
+	var stub map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte(body), &stub))
+	events, _ := stub["events"].(map[string]any)
+	if events == nil {
+		events = map[string]any{}
+	}
+	for name, spec := range stubLifecycle {
+		if _, ok := events[name]; !ok {
+			events[name] = spec
+		}
+	}
+	raw, err := yaml.Marshal(events)
+	require.NoError(t, err)
+	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{ID: id, EventsYAML: string(raw), Patch: func(doc map[string]any) {
+		for key := range doc {
+			if key != "spawn" && key != "events" && key != "hooks_injection" {
+				delete(doc, key)
+			}
+		}
+		for key, v := range stub {
+			if key != "id" && key != "events" {
+				doc[key] = v
+			}
+		}
+	}})
+	stubs.Store(h.home+"|"+id, fake)
+}
+
+// stubLaunch is the fake CLI placed as runnerID, of stub provider id.
+func stubLaunch(t *testing.T, h *harness, id, runnerID string) kit.Launch {
+	t.Helper()
+	stored, _ := stubs.Load(h.home + "|" + id)
+	fake, ok := stored.(kit.FakeProvider)
+	require.True(t, ok, "stub provider %q was never installed", id)
+	return fake.AwaitLaunch(t, runnerID)
+}
+
+// postHook posts one hook of runnerID's CLI through the hook route under base
+// (a repo or home route prefix), and requires it accepted.
+func postHook(t *testing.T, h *harness, base, provider, runnerID, event, payload string) []byte {
+	t.Helper()
+	resp := stubLaunch(t, h, provider, runnerID).PostHook(t, h.url+base, provider, event, []byte(payload)) //nolint:bodyclose // PostHook closes the body and returns a buffered copy
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "%s: %s", event, body)
+	return body
+}
+
+// heldHook is how a hook the daemon held open ended: its status and body, or
+// the error its request failed with.
+type heldHook struct {
+	status int
+	body   string
+	err    error
+}
+
+// askHook posts a hook that opens an ask. The daemon holds it open until the
+// ask is decided, so it is answered on the channel; ending ctx hangs it up.
+func askHook(ctx context.Context, t *testing.T, h *harness, base, provider, runnerID, event, payload string) <-chan heldHook {
+	t.Helper()
+	l := stubLaunch(t, h, provider, runnerID)
+	url := fmt.Sprintf("%s%s/chats/runners/%s/hooks/%s/%s", h.url, base, runnerID, provider, event)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader([]byte(payload)))
+	require.NoError(t, err)
+	req.Header.Set("X-Crowbar-Runner-Token", l.Token)
+	req.Header.Set("Content-Type", "application/json")
+	out := make(chan heldHook, 1)
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			out <- heldHook{err: err}
+			return
+		}
+		body, err := io.ReadAll(resp.Body)
+		out <- heldHook{status: resp.StatusCode, body: string(body), err: errors.Join(err, resp.Body.Close())}
+	}()
+	return out
+}
+
+// heldChoice is the id of the ask a held hook opened on chatID: the first
+// answerable one not in seen.
+func heldChoice(t *testing.T, h *harness, base, chatID string, seen ...string) string {
+	t.Helper()
+	var id string
+	require.Eventually(t, func() bool {
+		var choices []struct {
+			ID         string `json:"id"`
+			Answerable bool   `json:"answerable"`
+		}
+		h.get(base+"/chats/"+chatID+"/choices", &choices)
+		for _, c := range choices {
+			if c.Answerable && !slices.Contains(seen, c.ID) {
+				id = c.ID
+				return true
+			}
+		}
+		return false
+	}, 10*time.Second, 10*time.Millisecond, "no held ask opened on chat %s", chatID)
+	return id
+}
 
 // newFakeClaudeChat installs the shipped claude descriptor over the fake CLI,
 // creates a chat on it, and returns the chat, its launch capture and the hook

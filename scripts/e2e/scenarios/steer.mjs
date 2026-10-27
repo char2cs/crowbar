@@ -1,4 +1,4 @@
-import { createWorkspaceChat, getChat, hookAck } from '../lib/fixture.mjs'
+import { createWorkspaceChat, getChat, hook } from '../lib/fixture.mjs'
 import { liveStubProcesses } from '../lib/stub-provider.mjs'
 import { openChat } from '../lib/ui.mjs'
 import { assertEqual, until } from '../lib/wait.mjs'
@@ -17,7 +17,7 @@ export default {
     await openChat(d, chat.id)
     const processes = liveStubProcesses(inst.runDir)
     const send = (event, payload) =>
-      hookAck(daemon, fx, chat, event, { session_id: 's-steer', ...payload })
+      hook(daemon, fx, chat, event, { session_id: 's-steer', ...payload })
 
     await send('session_start', {})
     await send('user_prompt', { prompt: 'first' })
@@ -34,11 +34,11 @@ export default {
     )
     assertEqual(liveStubProcesses(inst.runDir), processes, 'no process was started or stopped')
 
-    const ack = await send('turn_stop', {
+    const reply = await send('turn_stop', {
       last_assistant_message: 'first done',
     })
     assertEqual(
-      JSON.parse(ack.reply),
+      JSON.parse(reply),
       { decision: 'block', reason: 'STEERED: also check the tests' },
       'the turn-end hook answers with the parked message',
     )

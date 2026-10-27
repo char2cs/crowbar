@@ -17,9 +17,6 @@ import (
 // the provider's own available list, and streamstub/quietstub declare none —
 // only the selection-marker tests below need one.
 const switchableStubProviderDescriptorYAML = `id: switchablestub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 events:
   session_start:
     in: session_start
@@ -58,9 +55,6 @@ runtime:
 // still valid. See
 // TestRegression_SwitchingProvidersDropsAModelTheNewProviderDoesNotDeclare.
 const otherSwitchableStubProviderDescriptorYAML = `id: otherswitchablestub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 events:
   session_start:
     in: session_start
@@ -293,7 +287,7 @@ func TestRegression_AFailureFromBeforeTheSwitchSortsBeforeIt(t *testing.T) {
 	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
 
 	post := func(event, payload string) {
-		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
+		postHook(t, h, repoBase(imported), "streamstub", runnerID, event, payload)
 	}
 	post("session_start", `{"session_id":"sess-1"}`)
 	post("user_prompt", `{"session_id":"sess-1","prompt":"pick a model"}`)

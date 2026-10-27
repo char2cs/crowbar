@@ -3,11 +3,12 @@
 package tests
 
 import (
+	"context"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/gorilla/websocket"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,11 +16,47 @@ import (
 // carrying the whole set, so a view that was hidden when it opened needs no read
 // of its own to show it.
 
+const answerStubProviderDescriptorYAML = `id: answerstub
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  user_prompt:
+    in: user_prompt
+    map:
+      message: prompt
+  turn_stop:
+    in: turn_stop
+    map:
+      session_id: session_id
+      message: last_assistant_message
+  permission:
+    ask: permission
+    timeout_seconds: 5
+    map:
+      session_id: session_id
+      prompt_id:  prompt_id
+      message:    tool_name
+      tool_name:  tool_name
+      tool_target: tool_input.command
+      tool_input: tool_input
+    reply:
+      allow: '{"decision":{"behavior":"allow"}}'
+      deny: '{"decision":{"behavior":"deny","message":{reason_json}}}'
+runtime:
+  transport: hooks
+  hooks:
+    format: json
+`
+
 type choiceFrameChat struct {
 	h        *harness
 	imported importedRepo
 	chatID   string
 	runnerID string
+	// held is each ask's held hook, by choice id: its CLI's answer arrives on it.
+	held map[string]<-chan heldHook
 }
 
 func newChoiceFrameChat(t *testing.T, descriptor string) choiceFrameChat {
@@ -28,18 +65,39 @@ func newChoiceFrameChat(t *testing.T, descriptor string) choiceFrameChat {
 	writeProviderDescriptor(t, h, "answerstub", descriptor)
 	imported := importWritableWorkspace(t, h)
 	chatID, runnerID := createStubChat(t, h, imported, "answerstub")
-	postAnswerStubHook(t, h, repoBase(imported), runnerID, "user_prompt", `{"prompt":"go"}`)
+	postHook(t, h, repoBase(imported), "answerstub", runnerID, "user_prompt", `{"prompt":"go"}`)
 	h.Quiesce()
-	return choiceFrameChat{h: h, imported: imported, chatID: chatID, runnerID: runnerID}
+	return choiceFrameChat{h: h, imported: imported, chatID: chatID, runnerID: runnerID, held: map[string]<-chan heldHook{}}
 }
 
 func (c choiceFrameChat) ask(t *testing.T, promptID string) (choiceID string) {
 	t.Helper()
-	ack := postAnswerStubHook(t, c.h, repoBase(c.imported), c.runnerID, "permission",
-		`{"session_id":"s1","prompt_id":"`+promptID+`","tool_name":"Bash",`+
+	return c.askAs(t.Context(), t, "s1", promptID)
+}
+
+// askAs opens a permission ask from session; the daemon holds its hook open
+// until it is decided, or until ctx hangs it up.
+func (c choiceFrameChat) askAs(ctx context.Context, t *testing.T, session, promptID string) (choiceID string) {
+	t.Helper()
+	seen := make([]string, 0, len(c.held))
+	for id := range c.held {
+		seen = append(seen, id)
+	}
+	held := askHook(ctx, t, c.h, repoBase(c.imported), "answerstub", c.runnerID, "permission",
+		`{"session_id":"`+session+`","prompt_id":"`+promptID+`","tool_name":"Bash",`+
 			`"tool_input":{"command":"touch `+promptID+`"}}`)
-	require.NotNil(t, ack.Await)
-	return ack.Await.ChoiceID
+	choiceID = heldChoice(t, c.h, repoBase(c.imported), c.chatID, seen...)
+	c.held[choiceID] = held
+	return choiceID
+}
+
+// reply is what the CLI held on choiceID was answered.
+func (c choiceFrameChat) reply(t *testing.T, choiceID string) string {
+	t.Helper()
+	got := <-c.held[choiceID]
+	require.NoError(t, got.err)
+	require.Equal(t, http.StatusOK, got.status, got.body)
+	return got.body
 }
 
 func (c choiceFrameChat) dial() *websocket.Conn {
@@ -144,21 +202,20 @@ func TestRegression_SeveralChoicesRideOneFrameAndEachAnswerShrinksIt(t *testing.
 	}))
 }
 
-// A relay that waits out its budget prints nothing and its CLI asks the question
-// itself: the choice closes as proceeded, and no card is left.
-func TestRegression_AChoiceWhoseRelayExpiredIsClosedAsProceeded(t *testing.T) {
-	descriptor := strings.Replace(answerStubProviderDescriptorYAML, "timeout_seconds: 5", "timeout_seconds: 1", 1)
-	c := newChoiceFrameChat(t, descriptor)
+// A CLI that hangs up its held ask has asked the question itself: the choice
+// closes as proceeded, and no card is left.
+func TestRegression_AHeldAskWhoseCLIHungUpIsClosedAsProceeded(t *testing.T) {
+	c := newChoiceFrameChat(t, answerStubProviderDescriptorYAML)
 	conn := c.dial()
 
-	choiceID := c.ask(t, "p1")
+	hangUp, cancel := context.WithCancel(t.Context())
+	choiceID := c.askAs(hangUp, t, "s1", "p1")
 	readUntil(t, conn, c.choiceFrame(func(choices []map[string]any) bool {
 		return len(choices) == 1 && choices[0]["answerable"] == true
 	}))
 
-	// The relay waits out its budget and is released with nobody having answered.
-	c.h.post("/v0/projects/"+c.imported.projectID+"/repos/"+c.imported.repoID+"/chats/hooks/await",
-		map[string]string{"ask_id": choiceID}, http.StatusOK, nil)
+	cancel()
+	require.Error(t, (<-c.held[choiceID]).err, "the CLI hung up")
 	readUntil(t, conn, c.choiceFrame(func(choices []map[string]any) bool { return len(choices) == 0 }))
 	var activity struct {
 		Choices []struct{ ID, Resolution string } `json:"choices"`
@@ -167,4 +224,13 @@ func TestRegression_AChoiceWhoseRelayExpiredIsClosedAsProceeded(t *testing.T) {
 	require.Len(t, activity.Choices, 1)
 	require.Equal(t, choiceID, activity.Choices[0].ID)
 	require.Equal(t, "proceeded", activity.Choices[0].Resolution, "its CLI went on without Crowbar's answer")
+}
+
+// The CLI holding an ask receives the bytes Crowbar's record says it was given.
+func TestRegression_AnAnsweredAskRepliesOnItsHeldHook(t *testing.T) {
+	c := newChoiceFrameChat(t, answerStubProviderDescriptorYAML)
+	choiceID := c.ask(t, "p1")
+
+	c.answer(t, choiceID)
+	assert.JSONEq(t, `{"decision":{"behavior":"allow"}}`, c.reply(t, choiceID))
 }

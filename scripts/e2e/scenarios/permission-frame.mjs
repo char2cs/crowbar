@@ -1,4 +1,4 @@
-import { createWorkspaceChat, hook, hookAck } from '../lib/fixture.mjs'
+import { askHook, createWorkspaceChat, hook } from '../lib/fixture.mjs'
 import { focusRecent, openChat } from '../lib/ui.mjs'
 import { assert, until } from '../lib/wait.mjs'
 
@@ -51,16 +51,15 @@ export default {
       session_id: 's-perm',
       prompt: 'touch a file',
     })
-    const ack = await hookAck(daemon, fx, hidden, 'permission', {
+    askHook(daemon, fx, hidden, 'permission', {
       session_id: 's-perm',
       prompt_id: 'p1',
       tool_name: 'Bash',
       tool_input: { command: 'touch e2e-file' },
     })
-    assert(ack.await, 'the permission hook opened an awaited choice')
-    await until('the daemon to hold one pending choice', async () => {
+    await until('the daemon to hold one answerable choice', async () => {
       const choices = await daemon.get(`${fx.base}/chats/${hidden.id}/choices`)
-      return choices.length === 1
+      return choices.length === 1 && choices[0].answerable
     })
 
     await d.eval(withholdActivity, hidden.id)

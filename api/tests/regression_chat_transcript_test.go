@@ -280,14 +280,17 @@ func TestRegression_ARetriedHookDeliveryRecordsItsFactOnce(t *testing.T) {
 	imported := importWritableWorkspace(t, h)
 	chatID, runnerID := createStubChat(t, h, imported, "answerstub")
 	base := repoBase(imported)
-	postAnswerStubHook(t, h, base, runnerID, "user_prompt", `{"prompt":"go"}`)
+	postHook(t, h, base, "answerstub", runnerID, "user_prompt", `{"prompt":"go"}`)
 
 	tool := `{"session_id":"s1","tool_use_id":"tool-1","tool_name":"Bash","tool_input":{"command":"touch X"}}`
 	ask := `{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"touch X"}}`
+	var held []<-chan heldHook
 	for range 2 {
-		postAnswerStubHook(t, h, base, runnerID, "tool_pre", tool)
-		postAnswerStubHook(t, h, base, runnerID, "permission", ask)
+		postHook(t, h, base, "answerstub", runnerID, "tool_pre", tool)
+		held = append(held, askHook(t.Context(), t, h, base, "answerstub", runnerID, "permission", ask))
+		heldChoice(t, h, base, chatID)
 	}
+	require.NoError(t, (<-held[0]).err, "the retry is the same ask, so it takes over the first hold")
 	h.Quiesce()
 
 	var activity struct {
@@ -349,9 +352,6 @@ func TestRegression_Symptom3_AReplyIsOneMessageWhicheverOfItsHooksLandsFirst(t *
 }
 
 const retryStubProviderDescriptorYAML = `id: answerstub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 events:
   user_prompt:
     in: user_prompt

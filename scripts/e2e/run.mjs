@@ -61,7 +61,7 @@ try {
   // shell is shown: a window with no project lands on onboarding.
   if (target === 'tauri') await inst.launchApp({ shell: false })
   await inst.daemon.waitHealthy()
-  const fx = await importFixture(inst.daemon, createGitFixture(inst.runDir))
+  const fx = await importFixture(inst.daemon, createGitFixture(inst.runDir), inst.home)
   await waitStubProviderEnabled(inst.daemon, fx)
   if (target === 'tauri') await reload(inst.driver, { home: true })
   else await inst.launchApp()

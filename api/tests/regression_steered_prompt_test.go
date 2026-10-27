@@ -16,14 +16,17 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // steerStubDescriptorYAML is a hooks-only CLI that appends a line to a launch
-// log every time it starts, so a respawn is countable, and declares steering.
+// log every time it starts, so a respawn is countable, then runs the fake CLI,
+// and declares steering.
 const steerStubDescriptorYAML = `id: %s
 spawn:
   cmd: "sh"
-  args: ["-c", "echo launched >> %s; exec cat"]
+  args: ["-c", "echo launched >> %s; exec '%s'"]
   interactive_required: true
 session: { resume: { arg: "--resume {id}" }, persists: turn_start }
 events:
@@ -83,7 +86,7 @@ func newSteerFixture(t *testing.T) steerFixture {
 	t.Helper()
 	h := newHarness(t)
 	f := steerFixture{h: h, provider: "steerstub", launches: filepath.Join(t.TempDir(), "launches")}
-	writeProviderDescriptor(t, h, f.provider, fmt.Sprintf(steerStubDescriptorYAML, f.provider, f.launches))
+	writeProviderDescriptor(t, h, f.provider, fmt.Sprintf(steerStubDescriptorYAML, f.provider, f.launches, kit.FakeCLIPath(t)))
 	f.imported = importWritableWorkspace(t, h)
 	f.chatID, f.runnerID = createStubChat(t, h, f.imported, f.provider)
 	// The CLI logs its launch on its own schedule; one quit before then never logs.
@@ -101,22 +104,11 @@ func (f steerFixture) launchCount(t *testing.T) int {
 	return strings.Count(string(raw), "launched")
 }
 
-// hook relays one provider hook and returns the daemon's reply directive, the
-// stdout the relay prints for it.
+// hook posts one provider hook and returns the daemon's reply, what the CLI
+// is handed for it.
 func (f steerFixture) hook(t *testing.T, event, payload string) string {
 	t.Helper()
-	resp := f.h.raw(http.MethodPost, repoBase(f.imported)+"/chats/hooks", map[string]string{
-		"segment_id": f.runnerID, "provider": f.provider, "event": event,
-		"payload_raw": payload,
-	}, http.StatusAccepted)
-	defer func() { _ = resp.Body.Close() }()
-	var ack struct {
-		Data struct {
-			Reply string `json:"reply"`
-		} `json:"data"`
-	}
-	_ = json.NewDecoder(resp.Body).Decode(&ack)
-	return ack.Data.Reply
+	return string(postHook(t, f.h, repoBase(f.imported), f.provider, f.runnerID, event, payload))
 }
 
 func (f steerFixture) submit(t *testing.T, text, requestID string, want int) {
