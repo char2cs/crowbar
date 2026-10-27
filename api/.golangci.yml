@@ -43,6 +43,9 @@ linters:
     - unused
     - whitespace
   settings:
+    errcheck:
+      # `_ = f()` discards an error as surely as `f()` does.
+      check-blank: true
     exhaustive:
       default-signifies-exhaustive: false
     godox:
@@ -99,6 +102,12 @@ linters:
       - linters:
           - gosec
         text: 'G404:'
+      # check-blank gates production code: a test's blank is its own setup.
+      - linters:
+          - errcheck
+        path: _test\.go
+        source: '(^|[^\w.])_\s*(,\s*[\w.]+\s*)*:?='
+
     paths:
       - third_party$
       - builtin$
