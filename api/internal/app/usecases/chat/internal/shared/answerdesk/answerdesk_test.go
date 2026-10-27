@@ -18,8 +18,8 @@ import (
 // proceeded is what a hooks relay's expiry hands its CLI: nothing, so it asks itself.
 const proceeded = domain.ChoiceResolutionProceeded
 
-func fixture(wait time.Duration) (*answerdesk.Desk, *answerdesk.Slot) {
-	return fixtureRetaining(wait, answerdesk.DefaultRetention)
+func fixture() (*answerdesk.Desk, *answerdesk.Slot) {
+	return fixtureRetaining(time.Minute, answerdesk.DefaultRetention)
 }
 
 // recordingLedger remembers each outcome written back, the first one per ask
@@ -106,7 +106,7 @@ func TestWait_ClampsAnAbsentOrAbsurdBudget(t *testing.T) {
 func TestHold_ReopeningAPromptReleasesTheRelayAlreadyHoldingIt(t *testing.T) {
 	t.Parallel()
 
-	d, stale := fixture(time.Minute)
+	d, stale := fixture()
 
 	fresh := d.Hold(answerdesk.Prompt{
 		ChoiceID: "choice-1", ChatID: "chat-1", RunnerID: "runner-1",
@@ -121,7 +121,7 @@ func TestHold_ReopeningAPromptReleasesTheRelayAlreadyHoldingIt(t *testing.T) {
 func TestReleaseRunner_FreesOnlyThatRunnersRelays(t *testing.T) {
 	t.Parallel()
 
-	d, mine := fixture(time.Minute)
+	d, mine := fixture()
 	theirs := d.Hold(answerdesk.Prompt{
 		ChoiceID: "choice-2", ChatID: "chat-2", RunnerID: "runner-2",
 	})
@@ -147,7 +147,7 @@ func TestReleaseRunner_FreesOnlyThatRunnersRelays(t *testing.T) {
 func TestReleaseRunner_DoesNotReportAnAlreadyDecidedRelay(t *testing.T) {
 	t.Parallel()
 
-	d, slot := fixture(time.Minute)
+	d, slot := fixture()
 	require.NoError(t, decide(d, slot, "allow"))
 
 	released := d.ReleaseRunner("runner-1")
@@ -160,7 +160,7 @@ func TestReleaseRunner_DoesNotReportAnAlreadyDecidedRelay(t *testing.T) {
 func TestAbandon_ReportsTheQuestionToCloseWhenNobodyDecided(t *testing.T) {
 	t.Parallel()
 
-	d, _ := fixture(time.Minute)
+	d, _ := fixture()
 
 	d.Abandon(context.Background(), "choice-1")
 
@@ -193,7 +193,7 @@ func TestAbandon_IsSilentForAnAskNobodyIsHolding(t *testing.T) {
 func TestAnswerableIDs_KeepsOnlyTheChoicesThisChatStillHolds(t *testing.T) {
 	t.Parallel()
 
-	d, _ := fixture(time.Minute)
+	d, _ := fixture()
 	d.Hold(answerdesk.Prompt{ChoiceID: "choice-2", ChatID: "chat-2", RunnerID: "runner-2"})
 
 	ids := d.AnswerableIDs("chat-1", choices("choice-1", "choice-2", "choice-3"))
@@ -252,7 +252,7 @@ func TestLedger_AFailedWriteStillReleasesTheRelay(t *testing.T) {
 func TestLedger_NilLedgerIsSilent(t *testing.T) {
 	t.Parallel()
 
-	d, _ := fixture(time.Minute)
+	d, _ := fixture()
 
 	d.Abandon(context.Background(), "choice-1")
 	d.ReleaseRunner("runner-1")

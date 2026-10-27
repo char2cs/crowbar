@@ -64,7 +64,7 @@ func TestAwait_AVerdictIsClaimedByExactlyOneOfManyRacingRelays(t *testing.T) {
 	t.Parallel()
 
 	for range 200 {
-		d, slot := fixture(time.Minute)
+		d, slot := fixture()
 		var printed atomic.Int64
 		var relays sync.WaitGroup
 		start := make(chan struct{})
@@ -97,7 +97,7 @@ func TestAwait_AVerdictIsClaimedByExactlyOneOfManyRacingRelays(t *testing.T) {
 func TestAnswer_ReleasesTheRelayHeldOnThatAsk(t *testing.T) {
 	t.Parallel()
 
-	d, slot := fixture(time.Minute)
+	d, slot := fixture()
 	other := d.Hold(answerdesk.Prompt{ChoiceID: "choice-2", ChatID: "chat-1", RunnerID: "runner-1"})
 	relayed := make(chan answerdesk.HookAnswer, 1)
 	go func() {
@@ -119,7 +119,7 @@ func TestAnswer_ReleasesTheRelayHeldOnThatAsk(t *testing.T) {
 func TestAnswer_SettlesOnce(t *testing.T) {
 	t.Parallel()
 
-	d, slot := fixture(time.Minute)
+	d, slot := fixture()
 
 	require.NoError(t, decide(d, slot, "first"))
 	require.ErrorIs(t, decide(d, slot, "second"), answerdesk.ErrNotWaiting)
@@ -133,7 +133,7 @@ func TestAnswer_SettlesOnce(t *testing.T) {
 func TestAnswer_AVerdictIsRetainedForARelayThatHasNotAskedYet(t *testing.T) {
 	t.Parallel()
 
-	d, slot := fixture(time.Minute)
+	d, slot := fixture()
 
 	require.NoError(t, decide(d, slot, "allow"))
 
@@ -167,7 +167,7 @@ func TestAnswer_AnUnclaimedVerdictDoesNotOutliveItsRetention(t *testing.T) {
 func TestAnswer_IgnoresASlotThatHasLeftTheDesk(t *testing.T) {
 	t.Parallel()
 
-	d, slot := fixture(time.Minute)
+	d, slot := fixture()
 	d.Discard(slot)
 
 	require.ErrorIs(t, decide(d, slot, "allow"), answerdesk.ErrNotWaiting)
@@ -281,7 +281,7 @@ func TestRegression_AnAskAskedAgainMidRecordHandsTheAnswerToItsNewRelay(t *testi
 // handed to the relay now holding the ask, not refused.
 func TestRegression_AnAnswerLookedUpBeforeAReAskReachesItsNewRelay(t *testing.T) {
 	t.Parallel()
-	d, looked := fixture(time.Minute)
+	d, looked := fixture()
 	d.Hold(looked.Prompt)
 	printed := relay(context.Background(), d)
 
