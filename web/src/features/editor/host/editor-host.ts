@@ -70,7 +70,7 @@ export function loadEditorHost(): Promise<EditorHost> {
         contentChanged: save.noteDocumentEdited,
         opened: (uri, ref) => {
           const model = monaco.editor.getModel(monaco.Uri.parse(uri))
-          if (model) releaseWithDocument(uri, lsp.attachDocumentLsp(ref, model))
+          if (model) lsp.attachDocumentLsp(ref, model)
         },
         released: (uri) => {
           save.cancelPendingWrites(uri)

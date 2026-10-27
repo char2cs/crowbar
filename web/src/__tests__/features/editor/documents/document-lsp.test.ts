@@ -3,6 +3,10 @@ import { editor as monacoEditor, languages, Uri } from 'monaco-editor/esm/vs/edi
 import { MONACO_LOAD_MS, openTestDocument } from '@/__tests__/__fixtures__/documents'
 import { attachDocumentLsp } from '@/features/editor/documents/document-lsp'
 import { documentUri } from '@/features/editor/documents/document-ref'
+import { clearDraft, putDrafts } from '@/features/editor/documents/draft-store'
+import { documentModelOpener } from '@/features/editor/documents/open-document'
+import { restoreDocuments, retryDocument } from '@/features/editor/documents/restore-documents'
+import { isEditorContent, type EditorContent } from '@/features/panes/types/pane-content'
 import { loadEditorHost, reopenDocument, type EditorHost } from '@/features/editor/host/editor-host'
 import { activeEditors } from '@/features/editor/lib/active-editor-context'
 import { applyActiveBuffer } from '@/features/editor/lib/pane-editor-controller'
@@ -37,6 +41,12 @@ vi.mock('@/features/editor/lsp/lsp-client', () => ({
   LspClient: { getInstance: () => client },
 }))
 
+const { readDocument } = vi.hoisted(() => ({ readDocument: vi.fn() }))
+vi.mock('@/lib/api/documents', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/documents')>()),
+  readDocument,
+}))
+
 const A = workspaceRef('w1', 'src/a.ts')
 const opens = () => client.documentOpen.mock.calls.map((c) => c.slice(0, 2))
 const closes = () => client.documentClose.mock.calls.map((c) => c.slice(0, 2))
@@ -52,6 +62,19 @@ const push = (ws: string, path: string, message: string) => {
 
 // Runs the idle-deferred opens; a mounted editor's caret blink would keep runAll spinning.
 const idle = () => vi.runOnlyPendingTimersAsync()
+
+/** What the language picker does: the buffer's override is the document's language. */
+function pickLanguage(bufferId: string, languageOverride: string) {
+  windowPaneStore.setState((state) => ({
+    buffers: state.buffers.map((b) => (b.id === bufferId ? { ...b, languageOverride } : b)),
+  }))
+}
+
+function bufferOf(id: string): EditorContent {
+  const found = windowPaneStore.getState().buffers.find((b) => b.id === id)
+  if (!found || !isEditorContent(found)) throw new Error(`no editor buffer ${id}`)
+  return found
+}
 
 const mounted: string[] = []
 function show(host: EditorHost, paneId: string, doc: DocumentRef) {
@@ -69,6 +92,7 @@ beforeEach(async () => {
   setActiveWorkspaceId('w1')
   vi.useFakeTimers()
   for (const fn of Object.values(client)) fn.mockClear()
+  readDocument.mockReset()
 }, MONACO_LOAD_MS)
 
 afterEach(() => {
@@ -118,20 +142,46 @@ describe('document language-server sync', () => {
     expect([opens(), closes()]).toEqual([[], []])
   })
 
-  it('reopens with the new language when the model language changes', async () => {
-    languages.register({ id: 'python' })
+  it('reopens with the language the user picks for the document', async () => {
     const id = await openTestDocument(A, 'x = 1')
     await idle()
 
-    // What the pane's model options do when the user picks a language.
-    windowPaneStore.setState((state) => ({
-      buffers: state.buffers.map((b) => (b.id === id ? { ...b, languageOverride: 'python' } : b)),
-    }))
-    monacoEditor.setModelLanguage(modelOf(A), 'python')
+    pickLanguage(id, 'python')
     await idle()
 
     expect(closes()).toEqual([['w1', 'src/a.ts']])
     expect(client.documentOpen.mock.calls.map((c) => c[3])).toEqual(['typescript', 'python'])
+  })
+
+  it('reopens when TSX is picked for a .ts file, though Monaco calls both typescript', async () => {
+    const id = await openTestDocument(A, 'let a = <b />')
+    await idle()
+
+    pickLanguage(id, 'typescriptreact')
+    await idle()
+
+    expect(closes()).toEqual([['w1', 'src/a.ts']])
+    expect(client.documentOpen.mock.calls.map((c) => c[3])).toEqual([
+      'typescript',
+      'typescriptreact',
+    ])
+  })
+
+  it('a restored tab with a picked language opens with it once, and a pane showing it changes nothing', async () => {
+    languages.register({ id: 'python' })
+    const id = windowPaneStore
+      .getState()
+      .bufferActions.openContent({ type: 'editor', doc: A, name: 'a.ts' })
+    pickLanguage(id, 'python')
+    host.documents.open(A, 'typescript', 'x = 1')
+    await idle()
+
+    // What the pane's model options do the first time a pane shows it.
+    monacoEditor.setModelLanguage(modelOf(A), 'python')
+    await idle()
+
+    expect(closes()).toEqual([])
+    expect(client.documentOpen.mock.calls.map((c) => c[3])).toEqual(['python'])
   })
 
   it('a document reopened in place opens again with its new text', async () => {
@@ -145,6 +195,48 @@ describe('document language-server sync', () => {
     expect(closes()).toEqual([['w1', 'src/a.ts']])
     host.documents.release(documentUri(A))
     expect(closes()).toHaveLength(2)
+  })
+
+  it('a restored draft adopted over a model opened during its read opens again, closing once each', async () => {
+    vi.useRealTimers()
+    windowPaneStore.getState().bufferActions.openContent({ type: 'editor', doc: A, name: 'a.ts' })
+    await putDrafts([{ uri: documentUri(A), text: 'mine', savedText: 'disk', updatedAt: 1 }])
+    let finish: () => void = () => {}
+    readDocument.mockReturnValueOnce(
+      new Promise((done) => (finish = () => done({ ref: A, text: 'disk' }))),
+    )
+
+    const restoring = restoreDocuments()
+    await vi.waitFor(() => expect(readDocument).toHaveBeenCalled())
+    ;(await documentModelOpener())(A, 'disk')
+    await vi.waitFor(() => expect(client.documentOpen).toHaveBeenCalledTimes(1))
+    finish()
+    await restoring
+    await vi.waitFor(() => expect(client.documentOpen).toHaveBeenCalledTimes(2))
+    host.documents.release(documentUri(A))
+    clearDraft(documentUri(A))
+
+    expect(client.documentOpen.mock.calls.map((c) => c[2])).toEqual(['disk', 'mine'])
+    expect(closes()).toEqual([
+      ['w1', 'src/a.ts'],
+      ['w1', 'src/a.ts'],
+    ])
+  })
+
+  it('a retried document opens once and closes once', async () => {
+    vi.useRealTimers()
+    const id = windowPaneStore
+      .getState()
+      .bufferActions.openContent({ type: 'editor', doc: A, name: 'a.ts' })
+    readDocument.mockRejectedValueOnce(new Error('daemon down'))
+    await restoreDocuments()
+    readDocument.mockResolvedValueOnce({ ref: A, text: 'disk' })
+
+    await retryDocument(bufferOf(id))
+    await vi.waitFor(() => expect(client.documentOpen).toHaveBeenCalledTimes(1))
+    host.documents.release(documentUri(A))
+
+    expect([opens(), closes()]).toEqual([[['w1', 'src/a.ts']], [['w1', 'src/a.ts']]])
   })
 
   it('never contacts the language server for a host document', async () => {
@@ -169,10 +261,19 @@ describe('document language-server sync', () => {
     setWorkspaceScope({ projectId: 'p', repoId: '', wsId: 'home' })
     const model = monacoEditor.createModel('a', 'typescript')
 
-    attachDocumentLsp(workspaceRef('home', 'notes.ts'), model)()
+    attachDocumentLsp(workspaceRef('home', 'notes.ts'), model)
     model.dispose()
 
     expect(client.onDiagnosticsUpdate).not.toHaveBeenCalled()
+  })
+
+  it('hands back nothing to hold: the model’s dispose is the one teardown', () => {
+    const model = monacoEditor.createModel('a', 'typescript')
+
+    const held: unknown = attachDocumentLsp(workspaceRef('w1', 'src/held.ts'), model)
+    model.dispose()
+
+    expect([held, closes()]).toEqual([undefined, []])
   })
 
   it('addresses its own workspace after another becomes active', async () => {
