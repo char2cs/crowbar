@@ -1,6 +1,7 @@
 package mapping
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -18,6 +19,8 @@ type Branch struct {
 	path  string
 	re    *regexp.Regexp
 	parts []string
+	// inner is the path selected inside the JSON the string at path encodes.
+	inner string
 }
 
 // Path is the branch that reads the dotted path as is.
@@ -55,6 +58,12 @@ func Join(paths ...string) Branch {
 	return Branch{parts: parts}
 }
 
+// Decoded is the branch that decodes the JSON string at path, then selects inner in it; an
+// object at path is selected as it is.
+func Decoded(path, inner string) Branch {
+	return Branch{path: strings.TrimSpace(path), inner: strings.TrimSpace(inner)}
+}
+
 // Literal is the first branch's text as the descriptor wrote it, for a field whose value
 // is a constant rather than a payload path.
 func (e Expr) Literal() string {
@@ -85,6 +94,8 @@ func (b Branch) read(doc map[string]any) (any, bool) {
 		return b.capture(doc)
 	case b.parts != nil:
 		return b.joined(doc)
+	case b.inner != "":
+		return b.decoded(doc)
 	}
 	return walk(doc, b.path)
 }
@@ -100,6 +111,22 @@ func (b Branch) capture(doc map[string]any) (any, bool) {
 		return nil, false
 	}
 	return match[b.re.SubexpIndex(patternGroup)], true
+}
+
+func (b Branch) decoded(doc map[string]any) (any, bool) {
+	v, ok := walk(doc, b.path)
+	if text, isString := v.(string); ok && isString {
+		var inner map[string]any
+		if json.Unmarshal([]byte(text), &inner) != nil {
+			return nil, false
+		}
+		v = inner
+	}
+	obj, isObject := v.(map[string]any)
+	if !ok || !isObject {
+		return nil, false
+	}
+	return walk(obj, b.inner)
 }
 
 func (b Branch) joined(doc map[string]any) (any, bool) {

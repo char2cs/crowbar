@@ -72,7 +72,7 @@ func (t *EventTable) UnmarshalYAML(node *yaml.Node) error {
 
 // FieldMap is an event's map: block: canonical field name to its alternative branches, the
 // first one PRESENT in the payload winning. A branch is a path or a transform
-// (`{from: p, pattern: re}`, `{join: [a, b]}`); `{first_present: [...]}` lists several.
+// (`{from: p, pattern: re}`, `{join: [a, b]}`, `{json: p, path: q}`); `{first_present: [...]}` lists several.
 type FieldMap map[string]mapping.Expr
 
 func (m *FieldMap) UnmarshalYAML(node *yaml.Node) error {
@@ -191,7 +191,7 @@ func decodeBranch(node *yaml.Node, field string) (mapping.Branch, error) {
 	}
 	branch, ok, err := decodeTransform(node, field)
 	if !ok && err == nil {
-		err = errors.New("an alternative is a path, {from, pattern} or {join: [...]}")
+		err = errors.New("an alternative is a path, {from, pattern}, {join: [...]} or {json, path}")
 	}
 	return branch, err
 }
@@ -227,7 +227,7 @@ func rejectGlyph(paths []string, field string) error {
 	return nil
 }
 
-// decodeTransform reads the two spellings that compute a value instead of naming a
+// decodeTransform reads the spellings that compute a value instead of naming a
 // path; ok is false for any other mapping.
 func decodeTransform(node *yaml.Node, field string) (branch mapping.Branch, ok bool, err error) {
 	keys := make(map[string]*yaml.Node, len(node.Content)/2)
@@ -240,6 +240,9 @@ func decodeTransform(node *yaml.Node, field string) (branch mapping.Branch, ok b
 		return branch, true, err
 	case len(keys) == 1 && keys["join"] != nil:
 		branch, err = decodeJoin(keys["join"], field)
+		return branch, true, err
+	case keys["json"] != nil:
+		branch, err = decodeJSON(keys["json"], keys["path"], len(keys), field)
 		return branch, true, err
 	}
 	return mapping.Branch{}, false, nil
@@ -257,6 +260,20 @@ func decodePattern(from, pattern *yaml.Node, field string) (mapping.Branch, erro
 		return mapping.Branch{}, err
 	}
 	return mapping.Pattern(path, re)
+}
+
+func decodeJSON(from, inner *yaml.Node, keys int, field string) (mapping.Branch, error) {
+	var path, sel string
+	if inner == nil || keys != 2 {
+		return mapping.Branch{}, errors.New("json: needs exactly a path: to select in the decoded value")
+	}
+	if err := from.Decode(&path); err != nil {
+		return mapping.Branch{}, fmt.Errorf("json: %w", err)
+	}
+	if err := inner.Decode(&sel); err != nil {
+		return mapping.Branch{}, fmt.Errorf("path: %w", err)
+	}
+	return mapping.Decoded(path, sel), rejectGlyph([]string{path, sel}, field)
 }
 
 func decodeJoin(node *yaml.Node, field string) (mapping.Branch, error) {

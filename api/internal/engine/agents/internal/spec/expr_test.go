@@ -281,3 +281,27 @@ events:
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tool_target")
 }
+
+// A field some payloads carry as a JSON-encoded string is decoded, then selected.
+func TestJSONTransform_DecodesAStringField(t *testing.T) {
+	var d spec.Descriptor
+	require.NoError(t, yaml.Unmarshal([]byte(`
+events:
+  tool_post:
+    in: PostToolUse
+    map:
+      spawns_scope: { json: tool_response, path: agent_id }
+      kind:         { first_present: [ { json: tool_response, path: kind }, tool_name ] }
+`), &d))
+	fields := d.Events["tool_post"].Map
+
+	encoded := map[string]any{"tool_response": `{"agent_id":"a-1"}`, "tool_name": "spawn"}
+	assert.Equal(t, "a-1", mapping.String(encoded, fields["spawns_scope"]))
+	assert.Equal(t, "a-1", mapping.String(map[string]any{"tool_response": map[string]any{"agent_id": "a-1"}}, fields["spawns_scope"]),
+		"an object is selected as it is")
+	assert.Empty(t, mapping.String(map[string]any{"tool_response": "not json"}, fields["spawns_scope"]))
+	assert.Equal(t, "spawn", mapping.String(encoded, fields["kind"]), "an absent selection falls through")
+
+	err := yaml.Unmarshal([]byte("events:\n  tool_post:\n    map: { x: { json: a } }\n"), &d)
+	assert.Error(t, err, "json: needs a path to select")
+}
