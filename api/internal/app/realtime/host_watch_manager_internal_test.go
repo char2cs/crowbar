@@ -3,6 +3,8 @@ package realtime
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -49,6 +51,8 @@ type hostWatchRig struct {
 	events chan domain.FileChangeEvent
 	// prepare, when set, configures each watch before the manager starts it.
 	prepare func(*fakeFileWatch)
+	// during, when set, runs inside each broadcast before it is recorded.
+	during func()
 }
 
 func newHostWatchRig(
@@ -64,7 +68,12 @@ func newHostWatchRig(
 		r.built <- f
 		return f
 	}
-	r.m = newHostWatchManager(t.Context(), factory, func(e domain.FileChangeEvent) { r.events <- e })
+	r.m = newHostWatchManager(t.Context(), factory, func(e domain.FileChangeEvent) {
+		if r.during != nil {
+			r.during()
+		}
+		r.events <- e
+	})
 	t.Cleanup(r.m.StopAll)
 	return r
 }
@@ -90,6 +99,22 @@ func (r *hostWatchRig) assertNoneBuilt(
 	case f := <-r.built:
 		assert.Fail(t, "unexpected watch", f.path)
 	default:
+	}
+}
+
+// within runs fn and answers its error, or that fn is still blocked after the
+// bound: a lock held where it must not be fails the test, never hangs it.
+func within(
+	what string,
+	fn func() error,
+) error {
+	done := make(chan error, 1)
+	go func() { done <- fn() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(hostWaitBound):
+		return fmt.Errorf("%s is still blocked after %s", what, hostWaitBound)
 	}
 }
 
@@ -157,6 +182,9 @@ func TestHostWatchManager_BroadcastsTheHeldPath(t *testing.T) {
 func TestHostWatchManager_StaleWatcherNeverReachesItsSuccessor(t *testing.T) {
 	r := newHostWatchRig(t)
 	stopGate := make(chan struct{})
+	var opened sync.Once
+	openStop := func() { opened.Do(func() { close(stopGate) }) }
+	t.Cleanup(openStop) // before the rig's StopAll, which waits on a stopping watch
 	r.prepare = func(f *fakeFileWatch) { f.stopGate = stopGate }
 	require.NoError(t, r.m.Acquire("/d/a.md"))
 	old := r.next(t)
@@ -167,13 +195,13 @@ func TestHostWatchManager_StaleWatcherNeverReachesItsSuccessor(t *testing.T) {
 	}()
 	require.Eventually(t, func() bool { return old.stops.Load() == 1 }, hostWaitBound, time.Millisecond)
 
-	require.NoError(t, r.m.Acquire("/d/a.md"))
+	require.NoError(t, within("an Acquire while the old watch stops", func() error { return r.m.Acquire("/d/a.md") }))
 	successor := r.next(t)
 	old.emit(domain.FileChangeModified)
 	successor.emit(domain.FileChangeCreated)
 
 	assert.Equal(t, domain.FileChangeCreated, (<-r.events).Type, "only the current watch broadcasts")
-	close(stopGate)
+	openStop()
 	<-released
 }
 
@@ -225,9 +253,34 @@ func TestHostWatchManager_ASlowArmHoldsBackOnlyItsOwnPath(t *testing.T) {
 	go func() { slow <- r.m.Acquire("/d/slow.md") }()
 	r.next(t)
 
-	require.NoError(t, r.m.Acquire("/d/a.md"), "another path arms while the slow one is still arming")
-	r.m.Release("/d/a.md")
+	err := within("another path's Acquire", func() error { return r.m.Acquire("/d/a.md") })
 
 	close(gate)
 	require.NoError(t, <-slow)
+	require.NoError(t, err)
+}
+
+func TestHostWatchManager_ABroadcastHoldsBackNoAcquireOrRelease(t *testing.T) {
+	r := newHostWatchRig(t)
+	require.NoError(t, r.m.Acquire("/d/a.md"))
+	a := r.next(t)
+	gate, inside := make(chan struct{}), make(chan struct{})
+	r.during = func() {
+		close(inside)
+		<-gate
+	}
+	go a.emit(domain.FileChangeModified)
+	select {
+	case <-inside:
+	case <-time.After(hostWaitBound):
+		require.FailNow(t, "the emit never broadcast")
+	}
+
+	acquired := within("an Acquire during a broadcast", func() error { return r.m.Acquire("/d/b.md") })
+	released := within("a Release during a broadcast", func() error { r.m.Release("/d/b.md"); return nil })
+
+	close(gate)
+	require.NoError(t, acquired)
+	require.NoError(t, released)
+	assert.Equal(t, "/d/a.md", (<-r.events).Path)
 }

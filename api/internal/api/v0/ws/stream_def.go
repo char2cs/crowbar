@@ -29,6 +29,7 @@ type StreamDef[T any] struct {
 	// Admit, for a stream without bound filters, holds a client's scope in place
 	// of OnSubscribe and may fail: the request is then refused with 503 before
 	// the upgrade, so a 101 means the scope is held. OnUnsubscribe releases it.
+	// An *AdmitRefusal error names the status instead.
 	Admit func(scope string) error
 	// CoalesceKey opts a stream into latest-wins delivery: when set and it
 	// reports ok for a value, a client's per-key pending slot is OVERWRITTEN
@@ -79,4 +80,19 @@ type FilterDef[T any] struct {
 	Default  string
 	Required bool
 	Resolve  func(params []string) map[string]string
+}
+
+// AdmitRefusal is an Admit error that refuses the upgrade with Status rather
+// than 503, so a client can tell what the refusal was.
+type AdmitRefusal struct {
+	Status int
+	Err    error
+}
+
+func (r *AdmitRefusal) Error() string {
+	return r.Err.Error()
+}
+
+func (r *AdmitRefusal) Unwrap() error {
+	return r.Err
 }

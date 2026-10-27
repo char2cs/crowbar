@@ -4,8 +4,11 @@ package watch
 
 import (
 	"context"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -131,4 +134,17 @@ func TestFsnotifyBackend_FileSpecWatchesOnlyTheParentDirectory(t *testing.T) {
 	be.created(t.Context(), filepath.Join(dir, "later"))
 
 	assert.Equal(t, []string{dir}, watchList(t, be))
+}
+
+// The kernel's inotify limits (instances per user, watches per user, open
+// files) surface as ErrWatchLimit, so a refusal can say what ran out.
+func TestFileBackend_AnExhaustedInotifyLimitIsTheWatchLimit(t *testing.T) {
+	for _, errno := range []syscall.Errno{syscall.EMFILE, syscall.ENFILE, syscall.ENOSPC} {
+		err := watchLimit(fmt.Errorf("new fsnotify watcher: %w", errno))
+
+		require.ErrorIs(t, err, ErrWatchLimit, errno.Error())
+		require.ErrorIs(t, err, errno, "the cause is kept")
+	}
+	require.NotErrorIs(t, watchLimit(fs.ErrPermission), ErrWatchLimit)
+	require.NoError(t, watchLimit(nil))
 }

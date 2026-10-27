@@ -1,6 +1,9 @@
 package v0
 
 import (
+	"errors"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
@@ -12,6 +15,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	enginefs "github.com/char2cs/crowbar/api/internal/engine/fs"
 )
 
 func TestFilesDef_Lambdas(t *testing.T) {
@@ -93,4 +97,16 @@ func TestContainer_PushFile_RoutesHostChangesToDocumentsAndTheRestToFiles(t *tes
 	assert.Equal(t, "host", readJSON(t, document)["authority"], "a workspace change never reaches a document's holder")
 	assert.Equal(t, "w1", readJSON(t, files)["wsId"])
 	assert.Equal(t, "b.go", readJSON(t, files)["path"], "a host change never reaches a worktree's clients")
+}
+
+func TestHostWatchAdmit_AWatchLimitRefusesWithInsufficientStorage(t *testing.T) {
+	limit := hostWatchAdmit(func(string) error { return fmt.Errorf("realtime: %w", enginefs.ErrWatchLimit) })
+	other := hostWatchAdmit(func(string) error { return errors.New("boom") })
+
+	var refusal *ws.AdmitRefusal
+	require.ErrorAs(t, limit("/d/a.md"), &refusal)
+	assert.Equal(t, http.StatusInsufficientStorage, refusal.Status)
+	require.ErrorIs(t, refusal, enginefs.ErrWatchLimit)
+	assert.NotErrorAs(t, other("/d/a.md"), &refusal, "any other arm failure keeps the default refusal")
+	assert.NoError(t, hostWatchAdmit(func(string) error { return nil })("/d/a.md"))
 }

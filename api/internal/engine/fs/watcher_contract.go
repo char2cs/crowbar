@@ -7,6 +7,9 @@ import "github.com/char2cs/crowbar/api/internal/engine/fs/internal/watch"
 // 03 §6).
 type Watcher = watch.Watcher
 
+// ErrWatchLimit is a FileWatcher arm the OS refused for want of watch resources.
+var ErrWatchLimit = watch.ErrWatchLimit
+
 // FileWatcher follows one file for Engine.NewFileWatcher; Start returns once
 // the OS watch is armed.
 type FileWatcher = watch.FileWatcher

@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -146,7 +147,12 @@ func (b *Broadcaster[T]) hold(
 	}
 	if err := b.def.Admit(scope); err != nil {
 		slog.Warn("ws: admit refused", "path", c.Request.URL.Path, "err", err)
-		c.AbortWithStatus(http.StatusServiceUnavailable)
+		status := http.StatusServiceUnavailable
+		var refusal *AdmitRefusal
+		if errors.As(err, &refusal) {
+			status = refusal.Status
+		}
+		c.AbortWithStatus(status)
 		return false
 	}
 	return true

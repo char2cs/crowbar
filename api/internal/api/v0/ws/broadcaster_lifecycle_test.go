@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -79,6 +80,24 @@ func TestBroadcaster_NoHooks_NoRegression(t *testing.T) {
 	assert.Equal(t, "alpha", readItem(t, conn).Name)
 }
 
+// hookBound fails a test whose hook never fires instead of stalling it.
+const hookBound = 10 * time.Second
+
+// hooked is the next scope a hook recorded, failing the test past the bound.
+func hooked(
+	t *testing.T,
+	ch <-chan string,
+) string {
+	t.Helper()
+	select {
+	case scope := <-ch:
+		return scope
+	case <-time.After(hookBound):
+		require.FailNow(t, "the hook never fired")
+		return ""
+	}
+}
+
 // admitDef holds each client's scope through Admit, refusing the scope "refused".
 func admitDef(
 	rec *lifecycleRecorder,
@@ -87,8 +106,11 @@ func admitDef(
 	def.OnSubscribe = nil
 	def.Admit = func(scope string) error {
 		rec.subscribe <- scope
-		if scope == "refused" {
+		switch scope {
+		case "refused":
 			return errors.New("no watch")
+		case "full":
+			return &ws.AdmitRefusal{Status: http.StatusInsufficientStorage, Err: errors.New("no watches left")}
 		}
 		return nil
 	}
@@ -108,7 +130,7 @@ func TestBroadcaster_Admit_HoldsTheScopeBeforeTheUpgradeAndReleasesItOnLeave(t *
 		assert.Fail(t, "the upgrade answered before Admit held the scope")
 	}
 	_ = conn.Close()
-	assert.Equal(t, "w7", <-rec.unsubscribe)
+	assert.Equal(t, "w7", hooked(t, rec.unsubscribe))
 }
 
 func TestBroadcaster_Admit_ErrorRefusesTheUpgradeAndHoldsNothing(t *testing.T) {
@@ -120,8 +142,19 @@ func TestBroadcaster_Admit_ErrorRefusesTheUpgradeAndHoldsNothing(t *testing.T) {
 	require.ErrorIs(t, err, websocket.ErrBadHandshake)
 	require.NoError(t, resp.Body.Close())
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
-	assert.Equal(t, "refused", <-rec.subscribe)
+	assert.Equal(t, "refused", hooked(t, rec.subscribe))
 	_ = dial(t, srv, "/items?wsId=w8").Close()
-	assert.Equal(t, "w8", <-rec.subscribe)
-	assert.Equal(t, "w8", <-rec.unsubscribe, "the refused client released nothing")
+	assert.Equal(t, "w8", hooked(t, rec.subscribe))
+	assert.Equal(t, "w8", hooked(t, rec.unsubscribe), "the refused client released nothing")
+}
+
+func TestBroadcaster_Admit_RefusalNamesItsStatus(t *testing.T) {
+	rec := newLifecycleRecorder()
+	_, srv := setup(t, admitDef(rec))
+
+	_, resp, err := websocket.DefaultDialer.Dial("ws"+srv.URL[len("http"):]+"/items?wsId=full", nil)
+
+	require.ErrorIs(t, err, websocket.ErrBadHandshake)
+	require.NoError(t, resp.Body.Close())
+	assert.Equal(t, http.StatusInsufficientStorage, resp.StatusCode)
 }

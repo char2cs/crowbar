@@ -11,15 +11,14 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 
 	"github.com/fsnotify/fsnotify"
 )
 
-// fileBackend follows one file through an inotify watch on its directory: a
-// watch on the file itself would end at its first atomic replace. Every
-// sibling's change still wakes it and is dropped here. While the directory is
-// missing it watches the nearest existing ancestor and re-arms as the path
-// comes back.
+// fileBackend watches the file's directory, which survives an atomic replace;
+// siblings' events are dropped, and a missing directory watches the nearest
+// existing ancestor until the path comes back.
 type fileBackend struct {
 	fsw    *fsnotify.Watcher
 	path   string
@@ -37,7 +36,7 @@ func newFileBackend(
 ) (backend, error) {
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
-		return nil, fmt.Errorf("new fsnotify watcher: %w", err)
+		return nil, watchLimit(fmt.Errorf("new fsnotify watcher: %w", err))
 	}
 	b := &fileBackend{
 		fsw:    fsw,
@@ -48,7 +47,7 @@ func newFileBackend(
 		exited: make(chan struct{}),
 	}
 	if err := b.arm(); err != nil {
-		return nil, errors.Join(err, fsw.Close())
+		return nil, errors.Join(watchLimit(err), fsw.Close())
 	}
 	go b.relay()
 	return b, nil
@@ -175,4 +174,15 @@ func (b *fileBackend) addNearest() (string, error) {
 		}
 		dir = up
 	}
+}
+
+// watchLimit marks err as ErrWatchLimit when the kernel ran out of inotify
+// instances or watches (EMFILE, ENOSPC) or of open files (ENFILE).
+func watchLimit(
+	err error,
+) error {
+	if errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE) || errors.Is(err, syscall.ENOSPC) {
+		return fmt.Errorf("%w: %w", ErrWatchLimit, err)
+	}
+	return err
 }

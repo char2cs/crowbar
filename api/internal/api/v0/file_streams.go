@@ -2,12 +2,15 @@ package v0
 
 import (
 	"encoding/json"
+	"errors"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	enginefs "github.com/char2cs/crowbar/api/internal/engine/fs"
 )
 
 // withWatcherLifecycle attaches the Files∪Git watcher subscription triggers to a
@@ -69,7 +72,21 @@ func withHostWatchLifecycle(
 	def ws.StreamDef[domain.FileChangeEvent],
 	appContainer *app.Container,
 ) ws.StreamDef[domain.FileChangeEvent] {
-	def.Admit = appContainer.Realtime.AcquireHostWatch
+	def.Admit = hostWatchAdmit(appContainer.Realtime.AcquireHostWatch)
 	def.OnUnsubscribe = appContainer.Realtime.ReleaseHostWatch
 	return def
+}
+
+// hostWatchAdmit refuses an arm the OS has no watches left for with 507, which
+// the client tells the user apart from a daemon that cannot watch the file.
+func hostWatchAdmit(
+	acquire func(path string) error,
+) func(path string) error {
+	return func(path string) error {
+		err := acquire(path)
+		if errors.Is(err, enginefs.ErrWatchLimit) {
+			return &ws.AdmitRefusal{Status: http.StatusInsufficientStorage, Err: err}
+		}
+		return err
+	}
 }

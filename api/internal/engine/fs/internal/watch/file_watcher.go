@@ -2,6 +2,7 @@ package watch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -9,6 +10,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
+
+// ErrWatchLimit is an arm the OS refused for want of watch resources (on
+// Linux, the per-user inotify instance or watch limit, or open files).
+var ErrWatchLimit = errors.New("watch: the OS has no file watches left")
 
 // FileWatcher follows one file, which need not exist yet, and reports each
 // debounced change to it. It is single-use, like Watcher.

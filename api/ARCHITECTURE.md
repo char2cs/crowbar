@@ -240,7 +240,12 @@ them derive one.
   arm answers 503 instead. The watch covers that one file: FSEvents rooted at
   the file, or inotify on its parent directory, whose sibling changes still wake
   the daemon and are dropped. If the directory is deleted, the watch re-arms on
-  the nearest existing ancestor until the path comes back. A path not in its
+  the nearest existing ancestor until the path comes back. On Linux each held
+  path costs its own inotify instance, two files in one directory included, and
+  instances are capped per user across every process
+  (`fs.inotify.max_user_instances`, 128 by default). An arm the kernel refuses
+  for want of instances, watches or open files answers 507, and the tab says the
+  system ran out of file watches rather than failing to open. A path not in its
   canonical spelling is refused before the upgrade (400), as is a non-local
   transport (403). The client retries a dropped socket forever, so a refusal is
   surfaced rather than retried silently: a document opening or restoring with a
