@@ -46,11 +46,12 @@ func TestState_OpenToolIsTheNewestUnfinishedCallOfItsName(t *testing.T) {
 		toolCall(t, "", "new", ledger.ToolFail, "Bash"),
 	))
 
-	id, ok := st.OpenTool("", "Bash", "")
+	id, ok, _ := st.OpenTool("", "Bash", "")
 	require.True(t, ok)
 	assert.Equal(t, "old", id, "a failed call is closed")
-	_, ok = st.OpenTool("A", "Bash", "")
+	_, ok, open := st.OpenTool("A", "Bash", "")
 	assert.False(t, ok)
+	assert.False(t, open)
 }
 
 // Of two open calls of one name, an input names the one it was given to; a
@@ -73,20 +74,21 @@ func TestState_OpenToolOfAnInputIsTheCallGivenThatInput(t *testing.T) {
 		"a call of no recorded input":       {"Read", `{"file_path":"a.go"}`, "unkeyed"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			id, ok := st.OpenTool("", tc.name, ledger.InputKey([]byte(tc.input)))
+			id, ok, _ := st.OpenTool("", tc.name, ledger.InputKey([]byte(tc.input)))
 			require.True(t, ok)
 			assert.Equal(t, tc.want, id)
 		})
 	}
-	_, ok := st.OpenTool("", "Bash", ledger.InputKey([]byte(`{"command":"rm"}`)))
+	_, ok, open := st.OpenTool("", "Bash", ledger.InputKey([]byte(`{"command":"rm"}`)))
 	assert.False(t, ok, "an input no open call of its name was given binds to none")
+	assert.True(t, open, "while calls of its name are open")
 
 	raw := toolCall(t, "", "raw", ledger.ToolPre, "Bash")
 	raw.Seq = st.Head() + 1
 	st.Apply(raw)
-	id, _ := st.OpenTool("", "Bash", ledger.InputKey([]byte(`{"command":"pwd"}`)))
+	id, _, _ := st.OpenTool("", "Bash", ledger.InputKey([]byte(`{"command":"pwd"}`)))
 	assert.Equal(t, "pwd", id, "the call given the input wins over a newer one of no recorded input")
-	id, _ = st.OpenTool("", "Bash", ledger.InputKey([]byte(`{"command":"rm"}`)))
+	id, _, _ = st.OpenTool("", "Bash", ledger.InputKey([]byte(`{"command":"rm"}`)))
 	assert.Equal(t, "raw", id)
 }
 

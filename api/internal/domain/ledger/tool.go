@@ -95,14 +95,16 @@ func (s State) HasToolInput(scope, toolID string) bool {
 
 // OpenTool is the newest tool call of scope named name that has not completed.
 // Given an input, it is the newest such call given that input, else the newest
-// whose input was never recorded.
-func (s State) OpenTool(scope, name, inputKey string) (string, bool) {
+// whose input was never recorded. anyOpen reports whether any call of that name
+// is open, bound or not, from the same scan.
+func (s State) OpenTool(scope, name, inputKey string) (id string, bound, anyOpen bool) {
 	var given, unknown newest
 	for key, t := range s.keys.tools {
 		toolScope, toolID := unref(key)
 		if toolScope != scope || t.name != name || t.closed() {
 			continue
 		}
+		anyOpen = true
 		switch {
 		case inputKey == "" || t.input == "":
 			unknown.offer(t.seq, toolID)
@@ -110,8 +112,8 @@ func (s State) OpenTool(scope, name, inputKey string) (string, bool) {
 			given.offer(t.seq, toolID)
 		}
 	}
-	id := cmp.Or(given.id, unknown.id)
-	return id, id != ""
+	id = cmp.Or(given.id, unknown.id)
+	return id, id != "", anyOpen
 }
 
 // newest keeps the id of the newest call it is offered.

@@ -71,9 +71,8 @@ func bindTool(st ledger.State, scope string, a *ledger.Ask, c *engineagents.Choi
 	if c.ToolName == "" {
 		return false
 	}
-	var bound bool
-	a.ToolID, bound = st.OpenTool(scope, c.ToolName, a.InputKey)
-	_, open := st.OpenTool(scope, c.ToolName, "")
+	var bound, open bool
+	a.ToolID, bound, open = st.OpenTool(scope, c.ToolName, a.InputKey)
 	return !bound && open
 }
 

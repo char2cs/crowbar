@@ -132,7 +132,7 @@ func mapTool(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope 
 	phase := toolPhase(ev.Kind)
 	id := tool.ID
 	if id == "" && phase != ledger.ToolPre {
-		id, _ = st.OpenTool(scope, tool.Name, "")
+		id, _, _ = st.OpenTool(scope, tool.Name, "")
 	}
 	if id == "" {
 		id = "tool-" + uuid.NewString()
