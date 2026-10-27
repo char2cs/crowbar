@@ -1,6 +1,8 @@
 package ingress
 
 import (
+	"slices"
+
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -30,10 +32,11 @@ func awaitsBind(st ledger.State, ev engineagents.CanonicalEvent) bool {
 	if ev.Kind == engineagents.HookPermission || ev.Kind == engineagents.HookElicitation {
 		return false
 	}
-	for _, a := range st.Subagents() {
-		if a.Status == ledger.SubagentStarting {
-			return true
-		}
-	}
-	return false
+	return startingSubagent(st)
+}
+
+// startingSubagent reports whether a subagent of the chat is still starting:
+// spawned, its conversation not yet bound.
+func startingSubagent(st ledger.State) bool {
+	return slices.ContainsFunc(st.Subagents(), func(a ledger.Subagent) bool { return a.Status == ledger.SubagentStarting })
 }

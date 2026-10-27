@@ -2,11 +2,13 @@ package ingress
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -67,6 +69,22 @@ func (h *held) claim(chatID, scope string) []heldFrame {
 	return claimed
 }
 
+// releaseRunner takes chatID's frames runnerID sent.
+func (h *held) releaseRunner(chatID, runnerID string) []heldFrame {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var out, kept []heldFrame
+	for _, f := range h.byChat[chatID] {
+		if f.runner.ID == runnerID {
+			out = append(out, f)
+		} else {
+			kept = append(kept, f)
+		}
+	}
+	h.setLocked(chatID, kept)
+	return out
+}
+
 // release takes every frame chatID holds.
 func (h *held) release(chatID string) []heldFrame {
 	h.mu.Lock()
@@ -115,7 +133,7 @@ func (r *Recorder) drain(ctx context.Context, chatID, scope string) {
 		if _, _, err := r.Dispatch(ctx, f.runner, f.agent, f.ev, f.raw, f.channel); err != nil {
 			slog.WarnContext(ctx, "agent: ingest hook: a held frame of a bound subagent",
 				"chat_id", chatID, "scope", scope, "event", f.ev.Kind, "err", err)
-			r.deadLetter(ctx, chatID, f, reasonNotRecorded)
+			r.deadLetter(ctx, chatID, f, drainReason(err))
 		}
 	}
 }
@@ -135,4 +153,18 @@ func (r *Recorder) deadLetter(ctx context.Context, chatID string, f heldFrame, r
 	if err != nil {
 		slog.ErrorContext(ctx, "agent: ingest hook: dead-letter a held frame", "chat_id", chatID, "err", err)
 	}
+}
+
+// drainReason is why a drained frame could not be recorded, as the ingress
+// would have dead-lettered it on arrival.
+func drainReason(err error) string {
+	switch {
+	case errors.Is(err, errInternalSubagent):
+		return reasonInternal
+	case errors.Is(err, engineagents.ErrForeignConversation):
+		return reasonForeign
+	case errors.Is(err, seam.ErrHookNotRecorded):
+		return reasonNotRecorded
+	}
+	return reasonWriteFailed
 }

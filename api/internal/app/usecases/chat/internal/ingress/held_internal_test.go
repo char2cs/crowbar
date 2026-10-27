@@ -1,12 +1,14 @@
 package ingress
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -21,7 +23,7 @@ func apiChild(t *testing.T) *recorderFixture {
 	_, _, err = f.ledger.Append(t.Context(), testChat, bound...)
 	require.NoError(t, err)
 	f.api(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, SessionID: "main", Message: "delegate", TurnID: "pt-1"})
-	f.api(t, spawnOn("main", engineagents.HookToolPre, ""))
+	f.api(t, spawnOn(engineagents.HookToolPre, ""))
 	return f
 }
 
@@ -31,9 +33,9 @@ func (f *recorderFixture) api(t *testing.T, ev engineagents.CanonicalEvent) {
 	require.NoError(t, err)
 }
 
-func spawnOn(session, kind, scope string) engineagents.CanonicalEvent {
+func spawnOn(kind, scope string) engineagents.CanonicalEvent {
 	ev := spawnCall(kind, scope)
-	ev.SessionID = session
+	ev.SessionID = "main"
 	return ev
 }
 
@@ -56,13 +58,16 @@ func TestIngress_ChildFramesBeforeTheBindAreHeldThenDrained(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "main", conv.SessionID)
 
-	f.api(t, spawnOn("main", engineagents.HookToolPost, "child"))
+	f.api(t, spawnOn(engineagents.HookToolPost, "child"))
 
 	rows := f.rows(t)
 	last := rows[len(rows)-1]
 	assert.Equal(t, ledger.KindToolCall, last.Kind)
 	assert.Equal(t, "child", last.Scope, "the held frame is drained into its scope on the bind")
 	assert.Zero(t, f.unclaimedCount(t))
+	notRecorded, err := f.ledger.DeadLetterCount(t.Context(), reasonNotRecorded)
+	require.NoError(t, err)
+	assert.Zero(t, notRecorded, "a child's thread start says nothing new: acknowledged, no row")
 	assert.True(t, f.state(t).ScopeWaits("child"))
 
 	// C20: the parent's end restates nothing; the child keeps the chat working until its own end.
@@ -97,7 +102,7 @@ func TestIngress_AFullChatDeadLettersItsOldestHeldFrame(t *testing.T) {
 	}
 
 	assert.Equal(t, 1, f.unclaimedCount(t))
-	f.api(t, spawnOn("main", engineagents.HookToolPost, "child"))
+	f.api(t, spawnOn(engineagents.HookToolPost, "child"))
 	var drained []string
 	for _, r := range f.rows(t) {
 		if r.Kind == ledger.KindToolCall && r.Scope == "child" {
@@ -117,4 +122,53 @@ func TestIngress_AnAskOfAnUnboundConversationIsNeverHeld(t *testing.T) {
 	}, []byte(`{}`), engineagents.ChannelAPI)
 
 	require.ErrorIs(t, err, engineagents.ErrForeignConversation, "its sender waits on an answer a hold could never give")
+}
+
+// A late end of another turn closes nothing: the running turn's spawn still
+// starts, so what is held for it stays held for its bind.
+func TestIngress_ALateTurnEndLeavesTheRunningTurnsHeldFrames(t *testing.T) {
+	f := apiChild(t)
+	f.api(t, engineagents.CanonicalEvent{
+		Kind: engineagents.HookToolPre, SessionID: "child", Tool: &engineagents.ToolEvent{ID: "c1", Name: "Bash"},
+	})
+
+	f.api(t, engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, SessionID: "main", TurnID: "pt-0"})
+	_, running := f.state(t).RunningTurn()
+	require.True(t, running, "precondition: the late end closed nothing")
+	assert.Zero(t, f.unclaimedCount(t))
+
+	f.api(t, spawnOn(engineagents.HookToolPost, "child"))
+	var drained int
+	for _, r := range f.rows(t) {
+		if r.Kind == ledger.KindToolCall && r.Scope == "child" {
+			drained++
+		}
+	}
+	assert.Equal(t, 1, drained)
+}
+
+// A runner's exit interrupts what was starting, so nothing can claim its
+// held frames any more.
+func TestIngress_ARunnersExitDeadLettersItsHeldFrames(t *testing.T) {
+	f := apiChild(t)
+	f.api(t, engineagents.CanonicalEvent{
+		Kind: engineagents.HookToolPre, SessionID: "child", Tool: &engineagents.ToolEvent{ID: "c1", Name: "Bash"},
+	})
+
+	f.r.Retire(testChat, "run-1")
+
+	assert.Equal(t, 1, f.unclaimedCount(t))
+}
+
+// A drained frame that cannot be recorded is dead-lettered for the reason it
+// would have been on arrival.
+func TestDrainReason_IsTheIngresssOwn(t *testing.T) {
+	for err, want := range map[error]string{
+		errInternalSubagent: reasonInternal,
+		fmt.Errorf("x: %w", engineagents.ErrForeignConversation): reasonForeign,
+		fmt.Errorf("x: %w", seam.ErrHookNotRecorded):             reasonNotRecorded,
+		errors.New("disk full"):                                  reasonWriteFailed,
+	} {
+		assert.Equal(t, want, drainReason(err), err.Error())
+	}
 }

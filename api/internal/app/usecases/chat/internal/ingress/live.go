@@ -1,6 +1,7 @@
 package ingress
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"slices"
@@ -69,8 +70,12 @@ func (r *Recorder) ExitRows(st ledger.State, chatID, runnerID string) ([]ledger.
 	return Salvage(st, r.live.unrecorded(chatID, runnerID, "", KindAnswer))
 }
 
-// Retire drops runnerID's streamed text on chatID: its exit is recorded.
-func (r *Recorder) Retire(chatID, runnerID string) { r.live.forget(chatID, runnerID, "") }
+// Retire drops runnerID's streamed text on chatID: its exit is recorded. Its
+// exit interrupted what it was spawning, so what it held is dead-lettered.
+func (r *Recorder) Retire(chatID, runnerID string) {
+	r.live.forget(chatID, runnerID, "")
+	r.unclaimed(context.Background(), chatID, r.unbound.releaseRunner(chatID, runnerID))
+}
 
 // liveKey names one stream: whose turn it belongs to, and which block of it.
 type liveKey struct {

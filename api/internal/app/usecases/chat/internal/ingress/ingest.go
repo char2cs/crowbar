@@ -168,8 +168,7 @@ func (r *Recorder) Dispatch(
 		return nil, "", fmt.Errorf("agent: hook: a past runner's session: %w", seam.ErrHookNotRecorded)
 	case src.Scope == "" && ev.Kind == engineagents.HookSessionStart:
 		return nil, "", r.runners.HandleSessionStart(ctx, runner, ev)
-	case ev.Kind == engineagents.HookSessionEnd:
-		// A runner's end is recorded from its process exit, whether or not this fired.
+	case acknowledgedOnly(ev, src):
 		return nil, "", nil
 	case !slices.Contains(mapped, ev.Kind):
 		return nil, "", fmt.Errorf("agent: hook: %s: %w", ev.Kind, seam.ErrHookNotRecorded)
@@ -188,6 +187,13 @@ func (r *Recorder) Dispatch(
 		})
 	}
 	return fx.Reply, fx.HoldAsk, nil
+}
+
+// acknowledgedOnly reports whether ev records nothing: a runner's end is
+// recorded from its process exit, and a child's thread start says nothing its
+// bind did not.
+func acknowledgedOnly(ev engineagents.CanonicalEvent, src Source) bool {
+	return ev.Kind == engineagents.HookSessionEnd || src.Scope != "" && ev.Kind == engineagents.HookSessionStart
 }
 
 // prepare reads into src what the mapper cannot know itself: whose words a
@@ -259,8 +265,10 @@ func (r *Recorder) commit(
 	ctx context.Context, chat domain.Chat, runnerID string, ev engineagents.CanonicalEvent, src Source, refs BlobRefs,
 ) (Effects, error) {
 	var fx Effects
+	var after ledger.State
 	do := func() error {
-		_, _, err := r.ledger.Do(ctx, chat.ID, func(st ledger.State) ([]ledger.Row, error) {
+		var err error
+		_, after, err = r.ledger.Do(ctx, chat.ID, func(st ledger.State) ([]ledger.Row, error) {
 			rows, effects, err := Map(st, ev, src, refs)
 			fx = effects
 			fx.Bound = boundScope(rows)
@@ -287,10 +295,13 @@ func (r *Recorder) commit(
 	}
 	if fx.Ended != "" {
 		r.live.forget(chat.ID, runnerID, fx.Ended)
-		r.unclaimed(ctx, chat.ID, r.unbound.release(chat.ID))
 	}
 	if fx.Bound != "" {
 		r.drain(ctx, chat.ID, fx.Bound)
+	}
+	if !startingSubagent(after) {
+		// Nothing still starting can claim what is held.
+		r.unclaimed(ctx, chat.ID, r.unbound.release(chat.ID))
 	}
 	if fx.Unbound != "" {
 		slog.WarnContext(ctx, "agent: ingest hook: an ask's input names none of its tool's open calls",

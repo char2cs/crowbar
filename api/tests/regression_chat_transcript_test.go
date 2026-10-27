@@ -207,6 +207,41 @@ func TestRegression_ATodoListBecomesPlanRows(t *testing.T) {
 	assert.Equal(t, map[string]string{"Read a.txt": "active", "Run echo": "pending"}, steps)
 }
 
+// A child conversation's frame that precedes its bind is held through a late
+// end of another turn, and recorded under its scope once the spawn binds.
+func TestRegression_AChildsEarlyFrameSurvivesALateTurnEnd(t *testing.T) {
+	c := newTurnChat(t, newHarness(t))
+	c.startTurn(t, c.launch, "A")
+	c.hook(t, c.launch, "tool_pre", map[string]any{
+		"prompt_id": "A", "tool_use_id": "spawn-1", "tool_name": "Agent", "tool_input": map[string]any{"description": "look"},
+	})
+	postSessionHook(t, c.launch, c.h.url+repoBase(c.imported), "claude", "tool_pre", map[string]any{
+		"session_id": "child", "prompt_id": "A", "tool_use_id": "c1", "tool_name": "Bash",
+	})
+	c.hook(t, c.launch, "turn_stop", map[string]any{"prompt_id": "Z", "last_assistant_message": "late"})
+	require.True(t, c.working(t), "precondition: the late end closed nothing")
+
+	c.hook(t, c.launch, "tool_post", map[string]any{
+		"prompt_id": "A", "tool_use_id": "spawn-1", "tool_name": "Agent", "tool_response": map[string]any{"agentId": "child"},
+	})
+	c.h.Quiesce()
+
+	var activity struct {
+		ToolCalls []struct {
+			ID         string `json:"id"`
+			SubagentID string `json:"subagentId"`
+		} `json:"toolCalls"`
+	}
+	c.h.get(repoBase(c.imported)+"/chats/"+c.chatID+"/activity", &activity)
+	var scoped []string
+	for _, call := range activity.ToolCalls {
+		if call.SubagentID == "child" {
+			scoped = append(scoped, call.ID)
+		}
+	}
+	assert.Equal(t, []string{"c1"}, scoped, "the held frame is drained into its scope")
+}
+
 func TestRegression_Symptom3_TextSaidBeforeAProcessExitsIsKept(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 	c.startTurn(t, c.launch, "A")
