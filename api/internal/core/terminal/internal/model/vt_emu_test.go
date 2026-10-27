@@ -248,6 +248,19 @@ func TestResizeReflow(t *testing.T) {
 			flags: "grid F T F F | scrollback F", history: "012345", screen: "012345\nABCDEF\n\n", cursor: "5,1",
 		},
 		{
+			name: "a later row a wide glyph shortens drops its stale cell", bytes: "0123456789a日cdefgh\r\nz", size: [2]int{10, 6},
+			resizes: [][2]int{{6, 6}}, flags: "grid F T T T F F | scrollback", screen: "012345\n6789a\n日cdef\ngh\nz\n", cursor: "1,4",
+		},
+		{
+			// xterm.js keeps the clipped head (BufferLine.resize); x/vt blanks it (UPSTREAM.md D2).
+			name: "the cursor's chain blanks a wide glyph the new edge splits", bytes: "01234日", resizes: [][2]int{{6, 4}},
+			flags: "grid F F F F | scrollback", screen: "01234\n\n\n", cursor: "5,0",
+		},
+		{
+			name: "the alternate screen's top row loses its flag with no history", bytes: "\x1b[?1049h\x1b[2H" + thirty,
+			resizes: [][2]int{{10, 2}}, flags: "grid F T | scrollback", screen: "ABCDEFGHIJ\nKLMNOPQRST", cursor: "9,1",
+		},
+		{
 			name: "the primary screen under it is reflowed", bytes: main, resizes: [][2]int{{6, 4}}, after: "\x1b[?1049l",
 			flags: "grid T T T F | scrollback F", history: "012345", screen: "6789AB\nCDEFGH\nIJ\n", cursor: "0,3",
 		},

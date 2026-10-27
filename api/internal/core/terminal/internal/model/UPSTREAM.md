@@ -78,8 +78,9 @@ foundation ships, and which gates are deferred vs. accepted, with eyes open.*
 - A resize reflows the primary screen and its scrollback as xterm.js 6.0.0's `Buffer.resize` does
   (`reflow.go`, ported under the MIT License, see `NOTICE.md`): chains rejoin or rewrap, rows
   scroll into and out of history as xterm's do, and a resize leaves no pending wrap. The alternate
-  screen is not reflowed and keeps its wrap bits; its lines are cut to the new width, where xterm
-  keeps the cells past it, and a wide glyph the cut would split is blanked.
+  screen is not reflowed and keeps its wrap bits. A line no reflow rewraps (the alternate screen's,
+  and the cursor's own chain on the primary screen) is cut to the new width, where xterm keeps the
+  cells past it, and a wide glyph the cut would split is blanked, where xterm keeps it clipped.
 - A wide glyph that does not fit the last column wraps early and leaves that cell blank in the
   current pen; one whose second half lands on the last column leaves a pending wrap.
 - ED 1 also clears the next row when it erases the cursor row whole, as xterm's comment intends;
@@ -147,6 +148,9 @@ patched):
   empty cell collapses its column when rendered. A reflow counts a chain's trailing printed spaces
   as blanks where `xterm.js` counts them as content, so the chain rewraps that much shorter. The
   resize fixture pins it as the `printedSpacesKnownDivergence` scenario.
+- A wide glyph a shrink splits on a line no reflow rewraps is blanked by `x/vt` and kept clipped
+  by `xterm.js` (`BufferLine.resize`); the keyframe after the resize repaints the blank, and a
+  later grow shows the glyph again only on the client.
 - A keyframe parks the cursor with a CUP, so the client is never at a pending wrap. After a
   widening resize at one, the client's own reflow leaves its cursor one column left of the
   daemon's until the keyframe of the same resize lands.

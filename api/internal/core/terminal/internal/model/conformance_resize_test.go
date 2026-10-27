@@ -205,6 +205,7 @@ func TestConformance_XtermResizeFixture(t *testing.T) {
 		{Name: "chainInHistoryShrink", ToCols: 13, ToRows: 6, Raw: resizeChains + strings.Repeat("\r\n", 6)},
 		{Name: "chainInHistoryGrow", ToCols: 33, ToRows: 6, Raw: resizeChains + strings.Repeat("\r\n", 6)},
 		{Name: "wideAtTheEdge", ToCols: 13, ToRows: 6, Raw: wide + wide},
+		{Name: "wideShortensALaterRow", ToCols: 13, ToRows: 6, Raw: strings.Repeat("w", 25) + "日" + strings.Repeat("v", 10) + "\r\nz"},
 		{Name: "cursorChain", ToCols: 13, ToRows: 6, Raw: "short\r\n" + strings.Repeat("z", 45)},
 		{Name: "heightShrink", ToCols: 20, ToRows: 4, Raw: resizeChains},
 		{Name: "heightGrow", ToCols: 20, ToRows: 9, Raw: resizeChains + strings.Repeat("\r\n", 6)},
