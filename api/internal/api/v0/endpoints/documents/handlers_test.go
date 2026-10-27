@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -57,6 +58,23 @@ func (r *recordingDocuments) WriteDocument(
 	return resolved(target), nil
 }
 
+// HostDocument refuses off the local socket, as the gate does, and otherwise
+// answers err or the path as a host ref.
+func (r *recordingDocuments) HostDocument(
+	_ context.Context,
+	path string,
+	transport domain.Transport,
+) (domain.DocumentRef, error) {
+	r.target, r.transport = domain.DocumentRef{Path: path}, transport
+	if transport != domain.TransportLocal {
+		return domain.DocumentRef{}, apperr.ErrHostDocumentNeedsLocalTransport
+	}
+	if r.err != nil {
+		return domain.DocumentRef{}, r.err
+	}
+	return domain.DocumentRef{Authority: domain.DocumentAuthorityHost, Path: path}, nil
+}
+
 func resolved(
 	target domain.DocumentRef,
 ) domain.DocumentRef {
@@ -69,10 +87,40 @@ func resolved(
 func newRouter(
 	docs documents.Documents,
 ) *gin.Engine {
+	return newWatchRouter(docs, func(*gin.Context) {})
+}
+
+// newWatchRouter mounts the routes with stream as the watch's stream handler.
+func newWatchRouter(
+	docs documents.Documents,
+	stream gin.HandlerFunc,
+) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	documents.Register(r.Group("/v0"), docs)
+	documents.Register(r.Group("/v0"), docs, stream)
 	return r
+}
+
+// serveUnix serves r on a unix socket and answers a client dialing it.
+func serveUnix(
+	t *testing.T,
+	r *gin.Engine,
+) *http.Client {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "doc")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", filepath.Join(dir, "s"))
+	require.NoError(t, err)
+	srv := httptest.NewUnstartedServer(r)
+	srv.Listener = ln
+	srv.Start()
+	t.Cleanup(srv.Close)
+	return &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", ln.Addr().String())
+		},
+	}}
 }
 
 type envelope struct {
@@ -124,21 +172,8 @@ func TestTransport_TCPIsRemote(t *testing.T) {
 }
 
 func TestTransport_UnixSocketIsLocal(t *testing.T) {
-	dir, err := os.MkdirTemp("", "doc")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", filepath.Join(dir, "s"))
-	require.NoError(t, err)
 	docs := &recordingDocuments{}
-	srv := httptest.NewUnstartedServer(newRouter(docs))
-	srv.Listener = ln
-	srv.Start()
-	t.Cleanup(srv.Close)
-	client := &http.Client{Transport: &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", ln.Addr().String())
-		},
-	}}
+	client := serveUnix(t, newRouter(docs))
 
 	status, _ := send(t, client, http.MethodGet, "http://unix/v0/documents/content?path=%2Ftmp%2Fx.md", "")
 
@@ -216,4 +251,47 @@ func TestRefusals_CarryTheirCodes(t *testing.T) {
 		assert.Equal(t, http.StatusForbidden, status, code)
 		assert.Equal(t, code, env.Code)
 	}
+}
+
+func TestWatch_RefusesOffTheLocalSocketBeforeTheStream(t *testing.T) {
+	var reached atomic.Bool
+	srv := httptest.NewServer(newWatchRouter(&recordingDocuments{}, func(*gin.Context) { reached.Store(true) }))
+	t.Cleanup(srv.Close)
+
+	status, env := send(t, srv.Client(), http.MethodGet, srv.URL+"/v0/documents/ws?path=%2Ftmp%2Fa.md", "")
+
+	assert.Equal(t, http.StatusForbidden, status)
+	assert.Equal(t, documents.HostDocumentRequiresLocalTransport, env.Code)
+	assert.False(t, reached.Load(), "a refused watch never reaches the stream")
+}
+
+func TestWatch_OnTheLocalSocketAHostPathReachesTheStream(t *testing.T) {
+	docs := &recordingDocuments{}
+	streamed := make(chan string, 1)
+	client := serveUnix(t, newWatchRouter(docs, func(c *gin.Context) {
+		streamed <- c.Query("path")
+		c.Status(http.StatusNoContent)
+	}))
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://unix/v0/documents/ws?path=%2Ftmp%2Fa.md", nil)
+	require.NoError(t, err)
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+	assert.Equal(t, "/tmp/a.md", <-streamed)
+	assert.Equal(t, domain.DocumentRef{Path: "/tmp/a.md"}, docs.target)
+}
+
+func TestWatch_AWorkspaceOrNonCanonicalPathIsABadRequest(t *testing.T) {
+	var reached atomic.Bool
+	docs := &recordingDocuments{err: apperr.ErrInvalidArgument}
+	client := serveUnix(t, newWatchRouter(docs, func(*gin.Context) { reached.Store(true) }))
+
+	status, _ := send(t, client, http.MethodGet, "http://unix/v0/documents/ws?path=%2Frepo%2Fa.md", "")
+	assert.Equal(t, http.StatusBadRequest, status)
+	status, _ = send(t, client, http.MethodGet, "http://unix/v0/documents/ws", "")
+	assert.Equal(t, http.StatusBadRequest, status, "a watch needs a path")
+	assert.False(t, reached.Load())
 }

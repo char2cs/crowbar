@@ -23,14 +23,18 @@ import {
   type DocumentRef,
   type DocumentTarget,
 } from '@/lib/api/documents'
-import { documentRefOf } from '@/features/editor/documents/document-ref'
+import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
 import { documentText, replaceDocumentText } from '@/features/editor/documents/document-text'
 import {
+  documentModelOpener,
   openDocument,
   openDocumentFromDialog,
   openDocumentsAtPaths,
   openUntitledDocument,
+  retryLoad,
+  setDocumentUnavailable,
 } from '@/features/editor/documents/open-document'
+import { setDocumentDirty } from '@/features/editor/lib/buffer-save'
 import { loadEditorHost } from '@/features/editor/host/editor-host'
 import {
   windowPaneStore,
@@ -39,8 +43,10 @@ import {
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { toast } from '@/features/window/stores/toast-store'
+import { wsManager } from '@/lib/ws/manager'
 
 const host = (path: string): DocumentRef => ({ authority: 'host', path })
+const NOTES = host('/tmp/s5/notes.md')
 
 /** The daemon resolves an absolute path to itself as a host document. */
 function readsAsHost(target: DocumentTarget) {
@@ -49,9 +55,15 @@ function readsAsHost(target: DocumentTarget) {
 }
 
 const editors = () => windowPaneStore.getState().buffers.filter(isEditorContent)
+const bufferOf = (id: string) => editors().find((b) => b.id === id)!
+const A = workspaceRef('ws-a', 'src/a.ts')
+/** A tab whose document is not open yet. */
+const openContent = (doc: DocumentRef) =>
+  windowPaneStore.getState().bufferActions.openContent({ type: 'editor', doc, name: doc.path })
 const pane = () => windowPaneStore.getState().panes[windowPaneStore.getState().activePaneId]
 
 let toastError: ReturnType<typeof vi.spyOn>
+let toastWarning: ReturnType<typeof vi.spyOn>
 
 beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
 
@@ -61,10 +73,12 @@ beforeEach(() => {
   openNativeDialog.mockReset()
   desktop.value = true
   toastError = vi.spyOn(toast, 'error').mockImplementation(() => '')
+  toastWarning = vi.spyOn(toast, 'warning').mockImplementation(() => '')
 })
 
 afterEach(() => {
   toastError.mockRestore()
+  toastWarning.mockRestore()
 })
 
 describe('openDocument', () => {
@@ -173,6 +187,29 @@ describe('openDocument', () => {
     expect(editors()).toEqual([])
   })
 
+  it('a host document holds one watch however many opens race for it, and only while open', async () => {
+    let held = 0
+    vi.spyOn(wsManager, 'subscribe').mockImplementation(() => (held++, () => void held--))
+    vi.spyOn(wsManager, 'subscribed').mockImplementation(() => held > 0)
+    let finish: () => void = () => {}
+    readDocument
+      .mockReturnValueOnce(new Promise((resolve) => (finish = () => resolve(readsAsHost(NOTES)))))
+      .mockImplementation(readsAsHost)
+
+    const first = openDocument(NOTES)
+    await vi.waitFor(() => expect(readDocument).toHaveBeenCalledTimes(1))
+    const second = await openDocument(NOTES)
+    finish()
+
+    expect(await first).toBe(second)
+    expect([editors().length, held]).toEqual([1, 1])
+    readDocument.mockRejectedValueOnce(new ApiError('gone', 404))
+    expect(await openDocument(host('/tmp/s5/gone.md'))).toBeNull()
+    expect(held).toBe(1)
+    resetWindowPaneStoreForTests()
+    expect(held).toBe(0)
+  })
+
   it('a preview open lands as the pane’s preview tab', async () => {
     readDocument.mockImplementation(readsAsHost)
 
@@ -235,5 +272,35 @@ describe('openDocumentFromDialog', () => {
     await openDocumentFromDialog(windowPaneStore.getState().activePaneId)
 
     expect(openNativeDialog).not.toHaveBeenCalled()
+  })
+})
+
+describe('retryLoad', () => {
+  it('a later read failure replaces the reason a clean open document shows; a file back unchanged clears it', async () => {
+    const id = openContent(A)
+    ;(await documentModelOpener())(A, 'disk')
+    setDocumentUnavailable(A, { title: 'File not found', message: 'src/a.ts' })
+    readDocument.mockRejectedValueOnce(new ApiError('boom', 500))
+
+    expect(await retryLoad(bufferOf(id))).toBe(false)
+    expect(bufferOf(id).unavailable).toEqual({ title: 'Failed to open file', message: 'a.ts' })
+    expect(toastError).toHaveBeenLastCalledWith('Failed to open file', 'a.ts')
+
+    readDocument.mockResolvedValue({ ref: A, text: 'disk' })
+    expect(await retryLoad(bufferOf(id))).toBe(true)
+    expect(bufferOf(id).unavailable).toBeUndefined()
+  })
+
+  it('a dirty open document meeting changed disk keeps its text, is flagged, and warns once', async () => {
+    const id = openContent(A)
+    ;(await documentModelOpener())(A, 'mine', 'disk')
+    setDocumentDirty(documentUri(A), true)
+    readDocument.mockResolvedValue({ ref: A, text: 'theirs' })
+
+    await retryLoad(bufferOf(id))
+
+    expect(documentText(A)).toBe('mine')
+    expect(bufferOf(id)).toMatchObject({ isDirty: true, hasExternalChange: true })
+    expect(toastWarning).toHaveBeenCalledTimes(1)
   })
 })

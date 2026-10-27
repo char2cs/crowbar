@@ -89,6 +89,16 @@ export function markDocumentSaved(ref: DocumentRef, text: string): void {
   if (!registry.isDirty(uri)) setDiskFlags(ref, { hasExternalChange: false })
 }
 
+/** Whether the document holds edits disk does not; false when not open. */
+export function isDocumentDirty(ref: DocumentRef): boolean {
+  return documents()?.isDirty(documentUri(ref)) ?? false
+}
+
+/** Moves on with each save and each open, so a read begun before the latest one is told apart. */
+export function documentSaveMark(ref: DocumentRef): number {
+  return documents()?.saveMark(documentUri(ref)) ?? -1
+}
+
 /** What disk held at the last load or save; null when not open. */
 export function savedDocumentText(ref: DocumentRef): string | null {
   return documents()?.savedText(documentUri(ref)) ?? null

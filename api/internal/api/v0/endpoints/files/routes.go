@@ -25,7 +25,7 @@ import (
 // project-level row that has no repo and no worktree, which is why the
 // frontend keeps addressing THAT one by project rather than by chat — there
 // is no chat resolving to it. It reuses the SAME filesWS broadcaster passed to
-// Register here (router.go), which is why filesDef (container.go) still
+// Register here (router.go), which is why filesDef (file_streams.go) still
 // carries a wsId filter alongside chatId: home injects one, this mount never
 // does.
 //

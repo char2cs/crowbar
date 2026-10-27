@@ -19,9 +19,14 @@ func watchList(
 	be backend,
 ) []string {
 	t.Helper()
-	fb, ok := be.(*fsnotifyBackend)
-	require.True(t, ok, "non-darwin builds use the fsnotify backend")
-	return fb.fsw.WatchList()
+	switch fb := be.(type) {
+	case *fsnotifyBackend:
+		return fb.fsw.WatchList()
+	case *fileBackend:
+		return fb.fsw.WatchList()
+	}
+	require.FailNow(t, "non-darwin builds use the fsnotify backends")
+	return nil
 }
 
 func newTestBackend(
@@ -113,4 +118,17 @@ func TestFsnotifyBackend_WalkStopsAtTheNextDirectoryOnceCancelled(t *testing.T) 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Nil(t, be)
 	assert.Equal(t, []string{dir}, visited, "no directory is visited after the cancel")
+}
+
+// One followed file costs one inotify watch, on its directory: nothing below
+// it is walked, and a directory made there later is not followed.
+func TestFsnotifyBackend_FileSpecWatchesOnlyTheParentDirectory(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "sub", "deeper"), 0o700))
+	be := newTestBackend(t, watchSpec{tree: filepath.Join(dir, "a.md"), file: true})
+
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "later"), 0o700))
+	be.created(t.Context(), filepath.Join(dir, "later"))
+
+	assert.Equal(t, []string{dir}, watchList(t, be))
 }

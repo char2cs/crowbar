@@ -259,7 +259,6 @@ func (w *Watcher) Stop() {
 }
 
 // loop is the main event loop. It debounces events and calls handleBurst.
-// The select is kept at exactly one level of nesting via processEvent.
 func (w *Watcher) loop(
 	ctx context.Context,
 ) {
@@ -278,24 +277,21 @@ func (w *Watcher) loop(
 	// change. Live git frames are driven purely by real file changes; the
 	// read-model summary badge is kept fresh by lazy reconcile-on-open and by
 	// file-change recomputes (spec §3.8).
-	timer := time.NewTimer(0)
-	if !timer.Stop() {
-		<-timer.C
-	}
-	var pending []event
+	pending := newBurst()
+	defer pending.stop()
 	events, errs := w.be.events(), w.be.errors()
 
 	for {
 		select {
 		case evt, ok := <-events:
-			if !w.processEvent(evt, ok, &pending, timer) {
+			if !ok {
 				return
 			}
+			pending.add(evt.Name, evt.Op)
 		case <-errs:
 			// swallow individual watch errors
-		case <-timer.C:
-			w.handleBurst(ctx, pending)
-			pending = pending[:0]
+		case <-pending.ready():
+			w.handleBurst(ctx, pending.take())
 		case <-w.gitTimer.Chan():
 			w.runGitRecompute(ctx)
 		case <-ctx.Done():
@@ -304,42 +300,16 @@ func (w *Watcher) loop(
 	}
 }
 
-// processEvent appends an event to pending and resets the debounce timer.
-// Returns false when the events channel is closed (loop should exit).
-func (w *Watcher) processEvent(
-	evt event,
-	ok bool,
-	pending *[]event,
-	debounce *time.Timer,
-) bool {
-	if !ok {
-		return false
-	}
-	*pending = append(*pending, evt)
-	debounce.Reset(debounceDuration)
-	return true
-}
-
-// handleBurst processes all events from a single debounce window.
-// Events for the same path are merged (OR of ops) so that CREATE+WRITE
-// on Linux inotify is reported as a single "created" event, not "modified".
-// The git recompute is scheduled exactly once per burst (not once per event)
-// and further coalesced across bursts by scheduleGitRecompute.
+// handleBurst processes one debounce window's events, already merged per path
+// by burst. The git recompute is scheduled exactly once per burst (not once per
+// event) and further coalesced across bursts by scheduleGitRecompute.
 func (w *Watcher) handleBurst(
 	ctx context.Context,
 	events []event,
 ) {
-	merged := make(map[string]op, len(events))
-	order := make([]string, 0, len(events))
-	for _, evt := range events {
-		if _, seen := merged[evt.Name]; !seen {
-			order = append(order, evt.Name)
-		}
-		merged[evt.Name] |= evt.Op
-	}
 	relevant := false
-	for _, name := range order {
-		if w.handleOne(ctx, event{Name: name, Op: merged[name]}) {
+	for _, evt := range events {
+		if w.handleOne(ctx, evt) {
 			relevant = true
 		}
 	}
@@ -374,9 +344,10 @@ func (w *Watcher) handleOne(
 	}
 
 	w.dispatcher.OnFileChange(ctx, domain.FileChangeEvent{
-		Type: classifyChange(evt.Op),
-		Path: w.relPath(evt.Name),
-		WsID: w.wsID,
+		Type:      classifyChange(evt.Op),
+		Authority: domain.DocumentAuthorityWorkspace,
+		Path:      w.relPath(evt.Name),
+		WsID:      w.wsID,
 	})
 	// The git recompute is intentionally NOT scheduled here; handleBurst
 	// schedules it once for the whole burst (Fix 2).

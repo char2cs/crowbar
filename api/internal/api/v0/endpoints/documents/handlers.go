@@ -38,10 +38,16 @@ type Documents interface {
 		transport domain.Transport,
 		now time.Time,
 	) (domain.DocumentRef, error)
+	HostDocument(
+		ctx context.Context,
+		path string,
+		transport domain.Transport,
+	) (domain.DocumentRef, error)
 }
 
 type handlers struct {
-	docs Documents
+	docs   Documents
+	stream gin.HandlerFunc
 }
 
 // Read handles GET /v0/documents/content?workspace=<id>&path=<rel> and
@@ -88,6 +94,23 @@ func (h *handlers) Write(
 		return
 	}
 	libs.WriteQueryOK(ctx, ref)
+}
+
+// Watch handles GET /v0/documents/ws?path=<canonical abs>: the gate refuses
+// before any upgrade, then the stream holds the path's watch for the socket's life.
+func (h *handlers) Watch(
+	ctx *gin.Context,
+) {
+	path := ctx.Query("path")
+	if path == "" {
+		libs.WriteErr(ctx, http.StatusBadRequest, "path is required")
+		return
+	}
+	if _, err := h.docs.HostDocument(ctx.Request.Context(), path, transportOf(ctx.Request)); err != nil {
+		documentError(ctx, err)
+		return
+	}
+	h.stream(ctx)
 }
 
 // targetOf is a workspace ref when the request names a workspace, else an

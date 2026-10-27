@@ -116,6 +116,14 @@ func (w *WSWatcher) ReadUntil(
 	}
 }
 
+// Close closes the socket before the test ends, as a client letting go does.
+func (w *WSWatcher) Close(
+	t *testing.T,
+) {
+	t.Helper()
+	require.NoError(t, w.conn.Close())
+}
+
 // ReadMsg reads a single message within timeout.
 func (w *WSWatcher) ReadMsg(
 	t *testing.T,

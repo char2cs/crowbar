@@ -4,6 +4,7 @@ import {
   HOST_DOCUMENT_TRANSPORT_CODE,
   readDocument,
   workspaceRef,
+  type DocumentRead,
   type DocumentRef,
   type DocumentTarget,
 } from '@/lib/api/documents'
@@ -17,8 +18,14 @@ import {
   type EditorContent,
 } from '@/features/panes/types/pane-content'
 import { toast } from '@/features/window/stores/toast-store'
-import { getEditorHost, loadEditorHost } from '@/features/editor/host/editor-host'
+import {
+  getEditorHost,
+  loadEditorHost,
+  releaseWithDocument,
+} from '@/features/editor/host/editor-host'
 import { documentName, documentRefOf, documentUri, sameDocument } from './document-ref'
+
+type HostRef = Extract<DocumentRef, { authority: 'host' }>
 
 export interface OpenDocumentOptions {
   preview?: boolean
@@ -97,6 +104,20 @@ function reportOpenFailure(target: DocumentTarget, error: unknown): void {
   toast.error(title, message)
 }
 
+/**
+ * Why a host document whose watch the daemon refused opens nowhere, as a read of it tells:
+ * what the read hit, its path now spelled otherwise (the daemon watches only the canonical
+ * spelling), or else a failure to open.
+ */
+export function watchRefusal(
+  ref: DocumentRef,
+  read: { ref: DocumentRef } | { error: unknown },
+): DocumentUnavailable {
+  if ('error' in read) return openFailure(ref, read.error)
+  if (!sameDocument(read.ref, ref)) return { title: 'Failed to open file', message: ref.path }
+  return openFailure(ref, null)
+}
+
 /** The tab holding `ref`, untitled or not, says why its document could not be loaded; null clears it. */
 export function setDocumentUnavailable(ref: DocumentRef, reason: DocumentUnavailable | null): void {
   const holder = windowPaneStore
@@ -127,14 +148,19 @@ export async function retryLoad(buffer: EditorContent): Promise<boolean> {
   return !reason
 }
 
-/** Shows an open tab; one whose document failed to load reads it again. */
+/** Shows an open tab; one whose document failed to load reads it again, one left unwatched follows again. */
 async function showAndRetry(
   buffer: EditorContent,
   opts: OpenDocumentOptions,
 ): Promise<string | null> {
   const id = show(buffer, opts)
-  if (!awaitsRetry(buffer)) return id
-  return (await retryLoad(buffer)) ? id : null
+  if (awaitsRetry(buffer)) return (await retryLoad(buffer)) ? id : null
+  if (buffer.authority === 'host') {
+    // Lazy: the external-change path builds on this module.
+    const { refollowHostDocument } = await import('@/features/workspace/lib/external-buffer-sync')
+    await refollowHostDocument(buffer)
+  }
+  return id
 }
 
 /** Opens a document's model holding `text`; it is dirty while disk holds other `savedText`. */
@@ -151,26 +177,24 @@ export async function documentModelOpener(): Promise<OpenDocumentModel> {
   }
 }
 
-/**
- * Open a document in an editor tab and answer its buffer id: an open buffer is
- * shown, anything else is read first. A failed read is reported and answers null.
- */
-export async function openDocument(
-  target: DocumentTarget,
-  opts: OpenDocumentOptions = {},
-): Promise<string | null> {
-  const open = 'absolutePath' in target ? null : findDocumentBuffer(target)
-  if (open) return showAndRetry(open, opts)
-  let read, openModel
+interface Loaded {
+  read: DocumentRead
+  openModel: OpenDocumentModel
+}
+
+/** Reads `target` with Monaco ready to take it; a failed read is reported and answers null. */
+async function load(target: DocumentTarget): Promise<Loaded | null> {
   try {
-    ;[read, openModel] = await Promise.all([readDocument(target), documentModelOpener()])
+    const [read, openModel] = await Promise.all([readDocument(target), documentModelOpener()])
+    return { read, openModel }
   } catch (error) {
     reportOpenFailure(target, error)
     return null
   }
-  // A concurrent open of the same document, or another spelling of it, may have landed.
-  const landed = findDocumentBuffer(read.ref)
-  if (landed) return showAndRetry(landed, opts)
+}
+
+/** Opens what was read in a new tab; null when no tab takes it, and then its model goes. */
+function openLoaded({ read, openModel }: Loaded, opts: OpenDocumentOptions): string | null {
   openModel(read.ref, read.text)
   const id = windowPaneStore
     .getState()
@@ -184,6 +208,57 @@ export async function openDocument(
   }
   opts.beforeShow?.(id)
   return id
+}
+
+/**
+ * A host document is read only once the daemon has armed its watch, so no change between
+ * the two is missed, and it never opens unwatched: a refused watch opens nothing.
+ */
+async function openHostDocument(ref: HostRef, opts: OpenDocumentOptions): Promise<string | null> {
+  // Lazy: the external-change path builds on this module.
+  const { followHostDocument } = await import('@/features/workspace/lib/external-buffer-sync')
+  let unwatch: () => void
+  try {
+    unwatch = await followHostDocument(ref)
+  } catch {
+    const read = await readDocument(ref).catch((error: unknown) => ({ error }))
+    const { title, message } = watchRefusal(ref, read)
+    toast.error(title, message)
+    return null
+  }
+  const loaded = await load(ref)
+  // A concurrent open of the same document may have landed, holding its own watch.
+  const landed = loaded && findDocumentBuffer(loaded.read.ref)
+  if (!loaded || landed) {
+    unwatch()
+    return landed ? showAndRetry(landed, opts) : null
+  }
+  const id = openLoaded(loaded, opts)
+  releaseWithDocument(documentUri(loaded.read.ref), unwatch)
+  return id
+}
+
+/**
+ * Open a document in an editor tab and answer its buffer id: an open buffer is
+ * shown, anything else is read first. A failed read is reported and answers null.
+ */
+export async function openDocument(
+  target: DocumentTarget,
+  opts: OpenDocumentOptions = {},
+): Promise<string | null> {
+  const open = 'absolutePath' in target ? null : findDocumentBuffer(target)
+  if (open) return showAndRetry(open, opts)
+  if (!('absolutePath' in target) && target.authority === 'host') {
+    return openHostDocument(target, opts)
+  }
+  const loaded = await load(target)
+  if (!loaded) return null
+  // A concurrent open of the same document, or another spelling of it, may have landed.
+  const landed = findDocumentBuffer(loaded.read.ref)
+  if (landed) return showAndRetry(landed, opts)
+  // The read only resolved a path to its host document, which is read again once watched.
+  if (loaded.read.ref.authority === 'host') return openHostDocument(loaded.read.ref, opts)
+  return openLoaded(loaded, opts)
 }
 
 /** Open each absolute path into `paneId`, one after another, in the order given. */

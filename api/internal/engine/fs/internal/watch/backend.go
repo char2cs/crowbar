@@ -3,9 +3,11 @@ package watch
 import "context"
 
 // watchSpec is what a watcher observes: the working tree minus the directories
-// skip prunes, each git dir one level deep, and the ref trees in full.
+// skip prunes, each git dir one level deep, and the ref trees in full. With
+// file set, tree is one file, which need not exist, and nothing else is watched.
 type watchSpec struct {
 	tree     string
+	file     bool
 	skip     func(dir string) bool
 	gitDirs  []string
 	refTrees []string

@@ -12,8 +12,9 @@ import (
 )
 
 // Service is the app-layer owner of the lazy realtime resource lifecycles
-// (03 §6). It holds the refcounted WatcherManager spanning the Files∪Git topics
-// and the independent LSPManager, rooting every per-workspace goroutine on a
+// (03 §6). It holds the refcounted WatcherManager spanning the Files∪Git topics,
+// the HostWatchManager behind open host documents, and the independent
+// LSPManager, rooting every per-workspace goroutine on a
 // cancelable context derived from the ctx passed to New. The API layer wires its
 // broadcaster OnSubscribe/OnUnsubscribe hooks to the Acquire/Release methods so
 // the watcher starts on the first (Files∪Git) subscriber and stops on the last,
@@ -26,6 +27,7 @@ import (
 // broadcasts originate in app, never in the delivery layer.
 type Service struct {
 	watchers     *WatcherManager
+	hostWatches  *HostWatchManager
 	lsps         *LSPManager
 	providerPoll *ProviderPollManager
 	originSync   *OriginSyncManager
@@ -54,6 +56,7 @@ func New(
 	root, cancel := context.WithCancel(ctx)
 	return &Service{
 		watchers:     NewWatcherManager(root, h, workspace, gitEngine, fsEngine, now),
+		hostWatches:  NewHostWatchManager(root, h, fsEngine),
 		lsps:         NewLSPManager(root, lspLifecycle),
 		providerPoll: NewProviderPollManager(root, perConnPollInterval, providerPoll),
 		originSync:   NewOriginSyncManager(root, originSyncInterval, workspace, gitEngine),
@@ -75,6 +78,21 @@ func (s *Service) ReleaseWatcher(
 	wsID string,
 ) {
 	s.watchers.Release(wsID)
+}
+
+// AcquireHostWatch holds a host document's canonical path for one client and
+// returns once its watch is armed, or why it could not be.
+func (s *Service) AcquireHostWatch(
+	path string,
+) error {
+	return s.hostWatches.Acquire(path)
+}
+
+// ReleaseHostWatch drops one client's hold on path; the last one stops its watch.
+func (s *Service) ReleaseHostWatch(
+	path string,
+) {
+	s.hostWatches.Release(path)
 }
 
 // AcquireLSP records one LSP subscriber for wsID, running the LSP lifecycle
@@ -127,15 +145,16 @@ func (s *Service) ReleaseOriginSync(
 	s.originSync.Release(wsID)
 }
 
-// Close cancels the root context shared by every watcher, LSP, provider-poll,
-// and origin-sync goroutine, then stops and clears every resource still held
-// by the managers so fsnotify file descriptors and LSP subprocesses are
-// released promptly. It is idempotent and safe to call when nothing was ever
-// started.
+// Close cancels the root context shared by every watcher, host watch, LSP,
+// provider-poll, and origin-sync goroutine, then stops and clears every
+// resource still held by the managers so fsnotify file descriptors and LSP
+// subprocesses are released promptly. It is idempotent and safe to call when
+// nothing was ever started.
 func (s *Service) Close() {
 	s.closeOnce.Do(func() {
 		s.cancel()
 		s.watchers.StopAll()
+		s.hostWatches.StopAll()
 		s.lsps.StopAll()
 		s.providerPoll.StopAll()
 		s.originSync.StopAll()

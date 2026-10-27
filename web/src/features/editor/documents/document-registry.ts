@@ -35,6 +35,8 @@ interface OpenDocument {
   /** The model version that holds `savedText`; -1 when no version does. */
   savedVersionId: number
   dirty: boolean
+  /** Moves on with each save and each open, across documents: a read begun before it is older. */
+  saveMark: number
   subscription: Disposable
 }
 
@@ -63,6 +65,7 @@ export class DocumentRegistry {
   private writers: Listeners = new Map()
   private externals: Listeners = new Map()
   private openListeners = new Set<(uri: string) => void>()
+  private saves = 0
 
   constructor(
     private api: MonacoModelApi,
@@ -83,6 +86,7 @@ export class DocumentRegistry {
       savedText,
       savedVersionId: clean ? model.getAlternativeVersionId() : -1,
       dirty: !clean,
+      saveMark: ++this.saves,
       subscription: model.onDidChangeContent(() => this.changed(uri, doc)),
     }
     this.docs.set(uri, doc)
@@ -123,12 +127,18 @@ export class DocumentRegistry {
     return this.docs.get(uri)?.dirty ?? false
   }
 
+  /** Where the document's saves stand; -1 when it is not open. */
+  saveMark(uri: string): number {
+    return this.docs.get(uri)?.saveMark ?? -1
+  }
+
   /** Record `text` as what disk holds; clean only if the model still holds exactly it. */
   markSaved(uri: string, text: string): void {
     const doc = this.docs.get(uri)
     if (!doc) return
     doc.savedText = text
     doc.savedVersionId = doc.model.getValue() === text ? doc.model.getAlternativeVersionId() : -1
+    doc.saveMark = ++this.saves
     this.settleDirty(uri, doc)
   }
 
@@ -142,6 +152,8 @@ export class DocumentRegistry {
   applyExternal(uri: string, text: string, saved: boolean): void {
     const doc = this.docs.get(uri)
     if (!doc) return
+    // Disk holding what the document already shows changes nothing, so nobody is told.
+    if (doc.model.getValue() === text && (!saved || doc.savedText === text)) return
     // Saved text is set first, so the change lands clean instead of flickering dirty.
     if (saved) doc.savedText = text
     if (doc.model.getValue() !== text) doc.model.replaceAll(text, true)

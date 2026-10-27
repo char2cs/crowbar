@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"log/slog"
 	"net/http"
 	"sync"
 
@@ -99,6 +100,9 @@ func (b *Broadcaster[T]) Handle(
 		return
 	}
 
+	if !b.hold(c) {
+		return
+	}
 	snapScope := clientScope(c)
 
 	cl := b.admit(c, snapScope)
@@ -129,6 +133,23 @@ func (b *Broadcaster[T]) scopeKey(
 		return ""
 	}
 	return b.def.ScopeKey(c)
+}
+
+// hold runs Admit outside every broadcaster lock, so a slow hold delays only
+// its own client; it reports whether the client may go on to the upgrade.
+func (b *Broadcaster[T]) hold(
+	c *gin.Context,
+) bool {
+	scope := b.scopeKey(c)
+	if b.def.Admit == nil || scope == "" {
+		return true
+	}
+	if err := b.def.Admit(scope); err != nil {
+		slog.Warn("ws: admit refused", "path", c.Request.URL.Path, "err", err)
+		c.AbortWithStatus(http.StatusServiceUnavailable)
+		return false
+	}
+	return true
 }
 
 // onSubscribe and onUnsubscribe skip "": an unplaced client holds no scope.

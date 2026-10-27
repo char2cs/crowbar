@@ -81,6 +81,27 @@ func (u *fileUsecase) WriteDocument(
 	return ref, nil
 }
 
+// HostDocument answers path's host ref only when path is its canonical
+// spelling, so a held watch is keyed by exactly the path a read answered. Only
+// the local socket may hold one.
+func (u *fileUsecase) HostDocument(
+	ctx context.Context,
+	path string,
+	transport domain.Transport,
+) (domain.DocumentRef, error) {
+	if transport != domain.TransportLocal {
+		return domain.DocumentRef{}, fmt.Errorf("file: host document: %w", apperr.ErrHostDocumentNeedsLocalTransport)
+	}
+	ref, err := u.resolveDocument(ctx, domain.DocumentRef{Path: path}, transport)
+	if err != nil {
+		return domain.DocumentRef{}, err
+	}
+	if ref.Authority != domain.DocumentAuthorityHost || ref.Path != path {
+		return domain.DocumentRef{}, fmt.Errorf("file: host document %q: not a canonical host path: %w", path, apperr.ErrInvalidArgument)
+	}
+	return ref, nil
+}
+
 // resolveDocument names the one authority for target. An absolute path inside
 // a worktree, by file identity, is that workspace's document; anywhere else it
 // is a host document in its canonical spelling, served only over the local

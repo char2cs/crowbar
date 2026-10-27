@@ -116,6 +116,14 @@ type Usecase interface {
 		now time.Time,
 	) (domain.DocumentRef, error)
 
+	// HostDocument is the gate for a client that holds a host document open: it
+	// answers the host ref when path is already its canonical spelling.
+	HostDocument(
+		ctx context.Context,
+		path string,
+		transport domain.Transport,
+	) (domain.DocumentRef, error)
+
 	// CreateFile creates a file and resyncs the working tree.
 	CreateFile(
 		ctx context.Context,

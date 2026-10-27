@@ -17,10 +17,14 @@ const (
 	FileChangeRenamed  FileChangeType = "renamed"
 )
 
-// FileChangeEvent is pushed on the Files topic by the file watcher (05 §5).
+// FileChangeEvent is pushed on the Files topic by the file watcher (05 §5),
+// and on the documents stream for a held host document.
 type FileChangeEvent struct {
-	Type    FileChangeType `json:"type"`
-	Path    string         `json:"path"`
-	NewPath string         `json:"newPath,omitempty"`
-	WsID    string         `json:"wsId"`
+	Type      FileChangeType    `json:"type"`
+	Authority DocumentAuthority `json:"authority"`
+	// Path is workspace-relative, or the held absolute path of a host document.
+	Path    string `json:"path"`
+	NewPath string `json:"newPath,omitempty"`
+	// WsID is "" for a host document.
+	WsID string `json:"wsId"`
 }

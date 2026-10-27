@@ -105,8 +105,9 @@ the usecases they call.
 - **`tree/`**: a sibling-ordered forest planner used by sidebar and chat-panel moves.
 - **`hub/`**: fans domain broadcasts out to WebSocket subscribers.
 - **`realtime/`**: refcounted lazy lifecycles — the file/git watcher starts on
-  the first Files∪Git subscriber of a workspace and stops on the last; the LSP
-  host and provider PR polling likewise.
+  the first Files∪Git subscriber of a workspace and stops on the last; a host
+  document's file watch on the first client holding its path and stops on the
+  last; the LSP host and provider PR polling likewise.
 - `Shutdown` is ordered: kill PTYs and join their exit callbacks (they write
   runner exits), close the drain gate, wait out reactors, drain each asynx
   singleton — all before the adapter closes the DBs.
@@ -232,7 +233,21 @@ them derive one.
   posts to the daemon over the unix socket; the agents engine interprets the
   envelope and the chat usecase records activity and fans it out.
 - **Watchers**: subscribing to a workspace's files/git stream starts its watcher;
-  changes flow back as git-status/file frames.
+  changes flow back as git-status/file frames. A host document (a file outside
+  every worktree, local socket only) is held by one `GET /v0/documents/ws?path=`
+  socket per open document. Its watch is armed before the upgrade answers, per
+  path and outside the manager lock, so a 101 means the watch is armed; a failed
+  arm answers 503 instead. The watch covers that one file: FSEvents rooted at
+  the file, or inotify on its parent directory, whose sibling changes still wake
+  the daemon and are dropped. If the directory is deleted, the watch re-arms on
+  the nearest existing ancestor until the path comes back. A path not in its
+  canonical spelling is refused before the upgrade (400), as is a non-local
+  transport (403). The client retries a dropped socket forever, so a refusal is
+  surfaced rather than retried silently: a document opening or restoring with a
+  refused watch opens nowhere and its tab says why (an unsaved draft opens
+  unwatched and says so), and a followed document whose socket keeps being
+  refused warns once. Boot restore opens one socket per restored host tab at
+  once; tabs of the same path share one armed watch.
 
 ## Tests
 

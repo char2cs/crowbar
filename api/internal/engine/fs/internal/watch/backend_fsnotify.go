@@ -38,6 +38,9 @@ func newBackend(
 	ctx context.Context,
 	spec watchSpec,
 ) (backend, error) {
+	if spec.file {
+		return newFileBackend(spec.tree)
+	}
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("new fsnotify watcher: %w", err)
@@ -92,9 +95,17 @@ func (b *fsnotifyBackend) created(
 func (b *fsnotifyBackend) removed(
 	path string,
 ) {
-	// The kernel drops a deleted directory's watch itself (EINVAL on the explicit
-	// removal), and files were never watched, so a watch already gone is not a failure.
-	err := b.fsw.Remove(path)
+	dropWatch(b.fsw, path)
+}
+
+// dropWatch removes path's watch. The kernel drops a deleted directory's watch
+// itself (EINVAL on the explicit removal), and files were never watched, so a
+// watch already gone is not a failure.
+func dropWatch(
+	fsw *fsnotify.Watcher,
+	path string,
+) {
+	err := fsw.Remove(path)
 	if err != nil && !errors.Is(err, fsnotify.ErrNonExistentWatch) && !errors.Is(err, syscall.EINVAL) {
 		slog.Warn("watch: drop watch", "path", path, "err", err)
 	}

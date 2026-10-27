@@ -38,6 +38,7 @@ type Container struct {
 	terminals  *ws.Broadcaster[dto.TerminalSessionDTO]
 	git        *ws.Broadcaster[gitdomain.GitStatusEvent]
 	files      *ws.Broadcaster[domain.FileChangeEvent]
+	documents  *ws.Broadcaster[domain.FileChangeEvent]
 	lsp        *ws.Broadcaster[lspdomain.DiagnosticsEvent]
 	agentChats *ws.Broadcaster[dto.AgentChatEvent]
 	// chatScopes answers what each agent-chat frame namespaces under — see
@@ -77,6 +78,7 @@ func New(
 		terminals:  ws.NewBroadcaster(terminalsDef(appContainer, engContainer)),
 		git:        ws.NewBroadcaster(withOriginSyncLifecycle(withWatcherLifecycle(gitDef(appContainer), appContainer), appContainer)),
 		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(appContainer), appContainer)),
+		documents:  ws.NewBroadcaster(withHostWatchLifecycle(documentsDef(), appContainer)),
 		lsp:        ws.NewBroadcaster(withLSPLifecycle(lspDef(appContainer, engContainer), appContainer)),
 		chatScopes: newAgentChatScopes(),
 		app:        appContainer,
@@ -178,19 +180,6 @@ func (c *Container) resolveWorkspaceScope(
 		return "", ""
 	}
 	return ws.ProjectID, ws.RepoID
-}
-
-// withWatcherLifecycle attaches the Files∪Git watcher subscription triggers to a
-// StreamDef, scoping the refcount by a chat client's bound workspace or else
-// scopeWsID, and delegating to the app-layer realtime service.
-func withWatcherLifecycle[T any](
-	def ws.StreamDef[T],
-	appContainer *app.Container,
-) ws.StreamDef[T] {
-	def.ScopeKey = scopeWsID
-	def.OnSubscribe = appContainer.Realtime.AcquireWatcher
-	def.OnUnsubscribe = appContainer.Realtime.ReleaseWatcher
-	return def
 }
 
 // withLSPLifecycle attaches the independent LSP subscription triggers to a
@@ -400,10 +389,15 @@ func (c *Container) PushGit(
 	c.git.Push(gitdomain.GitStatusEvent{WsID: wsID, Status: status})
 }
 
-// PushFile implements hub.Subscriber; like PushGit it reads no chat state.
+// PushFile implements hub.Subscriber; like PushGit it reads no chat state. A
+// host document's change goes to the clients holding it, never to a worktree's.
 func (c *Container) PushFile(
 	evt domain.FileChangeEvent,
 ) {
+	if evt.Authority == domain.DocumentAuthorityHost {
+		c.documents.Push(evt)
+		return
+	}
 	c.files.Push(evt)
 }
 
@@ -732,29 +726,6 @@ func gitDef(
 			Required: true,
 			Resolve:  chatWorkspaces(appContainer),
 		}},
-	}
-}
-
-// filesDef serves the home mount (wsId, injected by RequireHomeWorkspace) and
-// the chat mount (a bound chatId) from one broadcaster; each client activates
-// only the filter its route binds, so neither is Required. No snapshot: a
-// file change is news, not state.
-func filesDef(
-	appContainer *app.Container,
-) ws.StreamDef[domain.FileChangeEvent] {
-	return ws.StreamDef[domain.FileChangeEvent]{
-		Namespace:     func(e domain.FileChangeEvent) string { return e.WsID },
-		Serialize:     func(e domain.FileChangeEvent) ([]byte, error) { return json.Marshal(e) },
-		FlatNamespace: true,
-		Filters: []ws.FilterDef[domain.FileChangeEvent]{
-			{Param: "wsId", Extract: func(e domain.FileChangeEvent) string { return e.WsID }, Match: ws.ExactMatch},
-			{
-				Param:   "chatId",
-				Extract: func(e domain.FileChangeEvent) string { return e.WsID },
-				Match:   ws.ExactMatch,
-				Resolve: chatWorkspaces(appContainer),
-			},
-		},
 	}
 }
 

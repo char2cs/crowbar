@@ -12,6 +12,8 @@ export interface EditorHost {
 let host: EditorHost | null = null
 let loading: Promise<EditorHost> | null = null
 const listeners = new Set<() => void>()
+/** What each open document holds outside its model, let go when it is released. */
+const heldWith = new Map<string, (() => void)[]>()
 
 export function getEditorHost(): EditorHost | null {
   return host
@@ -23,6 +25,30 @@ export function subscribeEditorHost(listener: () => void): () => void {
   return () => {
     listeners.delete(listener)
   }
+}
+
+/** `dispose` runs once, when `uri`'s document is released; at once if it is not open. */
+export function releaseWithDocument(uri: string, dispose: () => void): void {
+  if (!host?.documents.has(uri)) return dispose()
+  heldWith.set(uri, [...(heldWith.get(uri) ?? []), dispose])
+}
+
+/** Replaces `uri`'s model through `reopen`; what is released with the document stays with it. */
+export function reopenDocument(uri: string, reopen: () => void): void {
+  const kept = heldWith.get(uri) ?? []
+  heldWith.delete(uri)
+  try {
+    host?.documents.release(uri)
+    reopen()
+  } finally {
+    for (const dispose of kept) releaseWithDocument(uri, dispose)
+  }
+}
+
+function released(uri: string): void {
+  const held = heldWith.get(uri) ?? []
+  heldWith.delete(uri)
+  for (const dispose of held) dispose()
 }
 
 /**
@@ -41,7 +67,10 @@ export function loadEditorHost(): Promise<EditorHost> {
         dirtyChanged: save.setDocumentDirty,
         contentChanged: save.noteDocumentEdited,
         opened: () => {},
-        released: save.cancelPendingWrites,
+        released: (uri) => {
+          save.cancelPendingWrites(uri)
+          released(uri)
+        },
       })
       const editors = adapters.realEditorApi(adapters.EDITOR_CREATE_OPTIONS)
       host = { manager: new EditorManager(editors, documents), documents }

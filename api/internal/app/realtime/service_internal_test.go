@@ -93,6 +93,27 @@ func TestService_FactoryErrorReleaseIsNoop(t *testing.T) {
 	require.NotPanics(t, func() { s.ReleaseWatcher("w1") })
 }
 
+func TestService_HostWatchesFollowAcquireReleaseAndClose(t *testing.T) {
+	s := newTestService(t, &recordingLifecycle{})
+	built := make(chan *fakeFileWatch, 2)
+	s.hostWatches.factory = func(path string, emit func(domain.FileChangeType)) watcherProc {
+		f := &fakeFileWatch{path: path, emit: emit, started: make(chan struct{})}
+		built <- f
+		return f
+	}
+
+	require.NoError(t, s.AcquireHostWatch("/d/a.md"))
+	a := <-built
+	s.ReleaseHostWatch("/d/a.md")
+	assert.Equal(t, int32(1), a.stops.Load())
+
+	require.NoError(t, s.AcquireHostWatch("/d/b.md"))
+	b := <-built
+	s.Close()
+	assert.Equal(t, int32(1), b.stops.Load())
+	require.Error(t, s.AcquireHostWatch("/d/c.md"), "a closed service arms nothing")
+}
+
 func TestService_AcquireReleaseProviderPollDrivesManager(t *testing.T) {
 	p := newFakePoller()
 	s := newTestServiceWithPoller(t, &recordingLifecycle{}, p)
