@@ -70,7 +70,8 @@ func TestValidateAll_AnOverrideCopiedFromAnOldShippedDescriptorFallsBack(t *test
 			}
 			assert.Equal(t, override, rep.Source)
 			assert.True(t, rep.FellBack, "the shipped descriptor runs in its place")
-			findingFor(t, rep, "hooks.in_config_injection")
+			// The old vocabulary no longer loads at all, which is reason enough.
+			assert.False(t, rep.OK(), "the old document is refused")
 			assert.False(t, descriptorcheck.AcceptOverride(old))
 
 			require.NoError(t, descriptorcheck.NewGate().Require(home, id),

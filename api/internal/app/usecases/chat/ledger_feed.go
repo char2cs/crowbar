@@ -32,7 +32,7 @@ func (u *Usecase) publishLedgerRows(chatID string, rows []ledger.Row, st ledger.
 	wsID := snap.Chat.WorkspaceID
 	asked := false
 	for _, r := range rows {
-		publishRow(feed, chatID, wsID, r)
+		publishRow(feed, chatID, wsID, r, st)
 		asked = asked || movesAsks(r.Kind)
 	}
 	for _, m := range settled {
@@ -45,7 +45,7 @@ func (u *Usecase) publishLedgerRows(chatID string, rows []ledger.Row, st ledger.
 	}
 }
 
-func publishRow(feed *ChatFeed, chatID, wsID string, r ledger.Row) {
+func publishRow(feed *ChatFeed, chatID, wsID string, r ledger.Row, st ledger.State) {
 	switch r.Kind {
 	case ledger.KindPromptSettled:
 		if body, err := ledger.DecodeBody[ledger.PromptSettled](r); err == nil && feed.PromptSettled != nil {
@@ -58,12 +58,13 @@ func publishRow(feed *ChatFeed, chatID, wsID string, r ledger.Row) {
 			feed.Compaction(chatID, wsID, body.Kind == ledger.MarkerCompactionStarted)
 		}
 	case ledger.KindPlan:
-		body, err := ledger.DecodeBody[ledger.Plan](r)
-		if err != nil || r.Scope != "" || feed.Plan == nil {
+		if r.Scope != "" || feed.Plan == nil {
 			return
 		}
-		steps := make([]engineagents.PlanStep, 0, len(body.Items))
-		for _, it := range body.Items {
+		// A step changed alone is shown as the whole plan it leaves.
+		items := st.Plan()
+		steps := make([]engineagents.PlanStep, 0, len(items))
+		for _, it := range items {
 			steps = append(steps, engineagents.PlanStep{Text: it.Text, Status: it.Status})
 		}
 		feed.Plan(chatID, wsID, steps)

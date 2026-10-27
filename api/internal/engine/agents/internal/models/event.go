@@ -14,8 +14,6 @@ type CanonicalEvent struct {
 	// event distinguishes completed from interrupted. Descriptors normalize it.
 	TurnStatus string
 
-	AsyncWork int
-
 	Model string
 
 	Effort string
@@ -38,6 +36,9 @@ type CanonicalEvent struct {
 	// Plan is the agent's own running to-do list for this turn, newest state
 	// wholesale. Nil when the event carries none.
 	Plan []PlanStep
+
+	// Step is one step of the plan, changed alone (plan_step).
+	Step *PlanStepEvent
 
 	Raw map[string]any
 }
@@ -111,9 +112,10 @@ type ToolEvent struct {
 	Error      string
 	DurationMS int
 
-	// NestedSessionID names a second conversation this call opened or
-	// addresses, riding the same connection; its events are routed to it.
-	NestedSessionID string
+	// SpawnsScope names the subagent this call spawned, AddressesScope one it
+	// waits on or closes; a subagent's events are recorded in its scope.
+	SpawnsScope    string
+	AddressesScope string
 }
 
 type ToolLocation struct {
@@ -121,9 +123,21 @@ type ToolLocation struct {
 	Line int
 }
 
+// SubagentEvent is what a subagent's own event says of it. Status is
+// Crowbar's word, by the event's status_map.
 type SubagentEvent struct {
-	ID        string
-	AgentType string
+	ID, AgentType, Title, Status, Result string
+	Usage                                *SubagentUsage
+}
+
+// SubagentUsage is what a subagent spent; nil fields were not reported.
+type SubagentUsage struct {
+	Tokens, ToolUses, DurationMs int64
+}
+
+// PlanStepEvent is one step of a plan changed alone, in the scope that keeps it.
+type PlanStepEvent struct {
+	ScopeID, StepID, Text, Detail, Status string
 }
 
 const (
@@ -218,4 +232,6 @@ const (
 	PlanStepPending = "pending"
 	PlanStepActive  = "active"
 	PlanStepDone    = "done"
+	// PlanStepRemoved is a step that leaves the plan.
+	PlanStepRemoved = "removed"
 )

@@ -225,7 +225,7 @@ func TestEndingRunner_ItsLateToolAndSubagentReportsLandInItsOwnTurn(t *testing.T
 	require.NoError(t, err)
 	assert.Equal(t, ledger.ToolPost, call.Phase)
 	assert.Equal(t, turnOf[r1], last[ledger.KindToolCall].TurnID, "the tool's result is its runner's")
-	sub, err := ledger.DecodeBody[ledger.Subagent](last[ledger.KindSubagent])
+	sub, err := ledger.DecodeBody[ledger.SubagentBody](last[ledger.KindSubagent])
 	require.NoError(t, err)
 	assert.Equal(t, ledger.SubagentStop, sub.Phase)
 	assert.Equal(t, turnOf[r1], last[ledger.KindSubagent].TurnID, "the subagent's stop is its runner's")

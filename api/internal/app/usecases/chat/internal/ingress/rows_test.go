@@ -258,15 +258,20 @@ func TestMap_AReplyWithNothingStreamedIsTheTurnsReply(t *testing.T) {
 // leaves a held ask to that work: only it can hold the CLI there now.
 func TestMap_ATurnsEndAbandonsTheAsksNothingElseHolds(t *testing.T) {
 	for name, tc := range map[string]struct {
-		work   int
-		closed []int // of the asks, held then unheld
+		subagent bool
+		closed   []int // of the asks, held then unheld
 	}{
-		"an end with no background work":   {0, []int{0, 1}},
-		"an end declaring background work": {1, []int{1}},
+		"an end nothing runs past":    {false, []int{0, 1}},
+		"an end a subagent runs past": {true, []int{1}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := liveChatRows(t)
 			c.typed("go")
+			if tc.subagent {
+				c.mapped(engineagents.CanonicalEvent{
+					Kind: engineagents.HookSubagentPre, Subagent: &engineagents.SubagentEvent{ID: "A", AgentType: "x"},
+				}, hooksSource())
+			}
 			unheld := hooksSource()
 			unheld.Answerable = false
 			for i, src := range []Source{hooksSource(), unheld} {
@@ -278,7 +283,7 @@ func TestMap_ATurnsEndAbandonsTheAsksNothingElseHolds(t *testing.T) {
 			asks := c.st.PendingAsks()
 			require.Len(t, asks, 2)
 
-			rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, AsyncWork: tc.work}, hooksSource())
+			rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop}, hooksSource())
 
 			var want, got []string
 			for _, i := range tc.closed {
@@ -389,19 +394,16 @@ func TestMap_AnIdleWithNothingRunningIsRecordedLate(t *testing.T) {
 	assert.Equal(t, ledger.ReasonNotAcknowledged, bodyOf[ledger.PromptSettled](t, rows[1]).Reason)
 }
 
-// A late end of a turn already over is written to it, restating the work its
-// CLI still runs in the background.
-func TestMap_ALateTurnStopRestatesTheBackgroundWork(t *testing.T) {
+// A late end of a turn already over is written to it, as a late row.
+func TestMap_ALateTurnStopIsWrittenToItsTurn(t *testing.T) {
 	c := liveChatRows(t)
 	turnID := c.typed("go")
 	c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, TurnID: "pt-1"}, hooksSource())
 
-	rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, TurnID: "pt-1", AsyncWork: 2}, hooksSource())
+	rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, TurnID: "pt-1"}, hooksSource())
 
 	require.Equal(t, []ledger.Kind{ledger.KindTurnEnded}, kinds(rows))
 	assert.Equal(t, turnID, rows[0].TurnID)
-	require.NotNil(t, bodyOf[ledger.TurnEnded](t, rows[0]).AsyncWork)
-	assert.Equal(t, 2, *bodyOf[ledger.TurnEnded](t, rows[0]).AsyncWork)
 }
 
 func TestMap_ANotificationIsAMarker(t *testing.T) {

@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -295,10 +296,9 @@ func (l Launch) PostHook(tb testing.TB, baseURL, provider, event string, payload
 	return resp
 }
 
-// ClaudeHookRoutes maps a recorded payload's hook_event_name to the canonical
-// events the shipped claude descriptor posts it as. Notification is registered
-// twice there, so it goes to both.
-var ClaudeHookRoutes = map[string][]string{
+// claudeHookRoutes are the canonical events the shipped claude descriptor's
+// hook registration posts each hook as. Notification is registered twice.
+var claudeHookRoutes = map[string][]string{
 	"SessionStart":       {"session_start"},
 	"UserPromptSubmit":   {"user_prompt"},
 	"Stop":               {"turn_stop"},
@@ -315,13 +315,26 @@ var ClaudeHookRoutes = map[string][]string{
 	"PostCompact":        {"compact_post"},
 	"SessionEnd":         {"session_end"},
 	"Notification":       {"notification", "idle"},
+	"TaskCreated":        {"plan_step"},
+	"TaskCompleted":      {"plan_step"},
+}
+
+// ClaudeHookRoutes is where the shipped claude descriptor posts a hook named
+// hookEventName for a call of toolName: a TaskUpdate's PostToolUse also goes
+// to plan_step, by its own matcher.
+func ClaudeHookRoutes(hookEventName, toolName string) []string {
+	routes := claudeHookRoutes[hookEventName]
+	if hookEventName == "PostToolUse" && toolName == "TaskUpdate" {
+		routes = append(slices.Clone(routes), "plan_step")
+	}
+	return routes
 }
 
 // ReplayHooks posts each *.json in dir (lexical order) through l once per route of its
 // hook_event_name, after replacing every key of rewrite with its value in the raw bytes.
 // A payload with no route is skipped and its file name returned.
 func (l Launch) ReplayHooks(tb testing.TB, baseURL, provider, dir string,
-	routes map[string][]string, rewrite map[string]string,
+	routes func(hookEventName, toolName string) []string, rewrite map[string]string,
 ) (responses []*http.Response, skipped []string) {
 	tb.Helper()
 	entries, err := os.ReadDir(dir)
@@ -342,9 +355,10 @@ func (l Launch) ReplayHooks(tb testing.TB, baseURL, provider, dir string,
 		}
 		var head struct {
 			Name string `json:"hook_event_name"`
+			Tool string `json:"tool_name"`
 		}
 		require.NoError(tb, json.Unmarshal(raw, &head), entry.Name())
-		events := routes[head.Name]
+		events := routes(head.Name, head.Tool)
 		if len(events) == 0 {
 			skipped = append(skipped, entry.Name())
 			continue

@@ -17,7 +17,7 @@ func (richMappings) Check(d *spec.Descriptor) error {
 	}
 	statuses := map[string]struct{}{
 		"pending": {}, "active": {}, "running": {}, "completed": {}, "ok": {},
-		"failed": {}, "error": {}, "declined": {}, "interrupted": {}, "abandoned": {},
+		"failed": {}, "error": {}, "declined": {}, "interrupted": {}, "abandoned": {}, "done": {}, "removed": {},
 	}
 	names := make([]string, 0, len(d.Events))
 	for name := range d.Events {

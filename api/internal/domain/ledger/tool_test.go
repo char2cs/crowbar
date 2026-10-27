@@ -101,22 +101,6 @@ func TestInputKey_IsTheSameForEqualJSONAndNoneWithoutIt(t *testing.T) {
 	assert.Empty(t, ledger.InputKey([]byte(`{"a":`)), "a truncated input names no call")
 }
 
-func TestState_AToolSpawningAScopeOpensItOnce(t *testing.T) {
-	spawn := scoped(t, ledger.KindToolCall, "T1", "", ledger.ToolCall{
-		ToolID: "spawn", Phase: ledger.ToolPost, Name: "spawnAgent", SpawnsScope: "child",
-	})
-	st := ledger.Fold("c1", sequenced(t,
-		turnStart(t, "T1"), spawn,
-		scoped(t, ledger.KindSubagent, "T1", "child", ledger.Subagent{Phase: ledger.SubagentStop}),
-		spawn,
-	))
-
-	assert.False(t, st.ScopeOpen("child"), "a stopped scope is never reopened")
-	turn, ok := st.ScopeTurn("child")
-	require.True(t, ok)
-	assert.Equal(t, "T1", turn)
-}
-
 func TestCheck_AToolCallNeedsAnIDAndAPhase(t *testing.T) {
 	require.NoError(t, ledger.Check(ledger.State{}, toolCall(t, "", "t", ledger.ToolPre, "Bash")))
 	require.ErrorIs(t, ledger.Check(ledger.State{}, toolCall(t, "", "", ledger.ToolPre, "Bash")), ledger.ErrMalformedRow)

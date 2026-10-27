@@ -8,6 +8,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/promptorigin"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
@@ -124,7 +125,33 @@ func Parse(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channe
 			}
 		}
 	}
-	return build(canonical, fields, d.EventSteps(canonical), d.EventStatusMap(canonical), d.EventKindMap(canonical), d.EventLocations(canonical), d.EventDiffFiles(canonical), d.EventPatch(canonical), decoded), nil
+	ev := build(canonical, fields, d.EventSteps(canonical), d.EventStatusMap(canonical), d.EventKindMap(canonical), d.EventLocations(canonical), d.EventDiffFiles(canonical), d.EventPatch(canonical), decoded)
+	if canonical == spec.HookUserPrompt {
+		ev = handedBack(d, ev)
+	}
+	return ev, nil
+}
+
+// handedBack is a prompt its descriptor declares a subagent's handed-back
+// result as that result: a subagent_result of the scope it names, opening the
+// parent's turn the prompt's own turn id names.
+func handedBack(d *spec.Descriptor, ev models.CanonicalEvent) models.CanonicalEvent {
+	p, ok := promptorigin.Match(d, ev.Message)
+	if !ok || p.Kind != spec.InjectedPromptSubagentResult {
+		return ev
+	}
+	scope := p.ScopeID.Find(ev.Message)
+	if scope == "" {
+		return ev
+	}
+	status := p.Status.Find(ev.Message)
+	if mapped, ok := d.EventStatusMap(spec.HookSubagentResult)[status]; ok {
+		status = mapped
+	}
+	return models.CanonicalEvent{
+		Kind: spec.HookSubagentResult, SessionID: ev.SessionID, TurnID: ev.TurnID, Raw: ev.Raw,
+		Subagent: &models.SubagentEvent{ID: scope, Status: status, Result: strings.TrimSpace(p.Result.Find(ev.Message))},
+	}
 }
 
 func decode(d *spec.Descriptor, raw []byte) (map[string]any, error) {
@@ -176,7 +203,6 @@ func build(
 		Message:    get("message"),
 		TurnID:     get("turn_id"),
 		TurnStatus: get("turn_status"),
-		AsyncWork:  mapping.Count(decoded, fields["async_work"]),
 		Model:      get("model"),
 		Effort:     get("effort"),
 		Reason:     get("reason"),
@@ -187,18 +213,20 @@ func build(
 	}
 	switch canonical {
 	case spec.HookUserPrompt:
-		if id := get("subagent_id"); id != "" {
+		if id := get("scope_id"); id != "" {
 			ev.Subagent = &models.SubagentEvent{ID: id}
 		}
 	case spec.HookToolPre, spec.HookToolPost, spec.HookToolFail:
 		ev.Tool = buildTool(fields, statusMap, kindMap, locations, diffFiles, patch, decoded)
-		if id := get("subagent_id"); id != "" {
+		if id := get("scope_id"); id != "" {
 			ev.Subagent = &models.SubagentEvent{ID: id}
 		}
-	case spec.HookSubagentPre, spec.HookSubagentPost:
-		ev.Subagent = &models.SubagentEvent{
-			ID:        get("subagent_id"),
-			AgentType: get("agent_type"),
+	case spec.HookSubagentPre, spec.HookSubagentPost, spec.HookSubagentResult:
+		ev.Subagent = buildSubagent(fields, statusMap, decoded)
+	case spec.HookPlanStep:
+		ev.Step = buildStep(fields, statusMap, decoded)
+		if ev.Step.ScopeID != "" {
+			ev.Subagent = &models.SubagentEvent{ID: ev.Step.ScopeID}
 		}
 	case spec.HookNotification:
 		ev.Interrupt = &models.InterruptEvent{Kind: models.InterruptNotification, Detail: ev.Message}
@@ -232,6 +260,35 @@ func build(
 	return ev
 }
 
+func buildSubagent(fields spec.FieldMap, statusMap map[string]string, decoded map[string]any) *models.SubagentEvent {
+	get := func(name string) string { return mapping.String(decoded, fields[name]) }
+	status := get("status")
+	if mapped, ok := statusMap[status]; ok {
+		status = mapped
+	}
+	a := &models.SubagentEvent{
+		ID: get("scope_id"), AgentType: get("agent_type"), Title: get("title"), Status: status, Result: get("result"),
+	}
+	tokens, hasTokens := mapping.Int(decoded, fields["usage.tokens"])
+	uses, hasUses := mapping.Int(decoded, fields["usage.tool_uses"])
+	duration, hasDuration := mapping.Int(decoded, fields["usage.duration"])
+	if hasTokens || hasUses || hasDuration {
+		a.Usage = &models.SubagentUsage{Tokens: int64(tokens), ToolUses: int64(uses), DurationMs: int64(duration)}
+	}
+	return a
+}
+
+func buildStep(fields spec.FieldMap, statusMap map[string]string, decoded map[string]any) *models.PlanStepEvent {
+	get := func(name string) string { return mapping.String(decoded, fields[name]) }
+	status := get("status")
+	if mapped, ok := statusMap[status]; ok {
+		status = mapped
+	}
+	return &models.PlanStepEvent{
+		ScopeID: get("scope_id"), StepID: get("step_id"), Text: get("text"), Detail: get("detail"), Status: status,
+	}
+}
+
 func buildDelta(fields spec.FieldMap, decoded map[string]any) *models.MessageDelta {
 	index, _ := mapping.Int(decoded, fields["index"])
 	final, _ := mapping.Bool(decoded, fields["final"])
@@ -246,8 +303,7 @@ func buildDelta(fields spec.FieldMap, decoded map[string]any) *models.MessageDel
 }
 
 // buildPlan reads the whole plan array, WHOLESALE: the newest list is the entire
-// truth, so there is nothing to merge and nothing that can drift — the same
-// anti-drift rule turn_stop's async-work LEVEL follows.
+// truth, so there is nothing to merge and nothing that can drift.
 //
 // A step with no text is skipped (a plan entry with nothing to say is not a step),
 // but an unknown status passes through UNCHANGED rather than being dropped: a
@@ -310,11 +366,12 @@ func buildTool(fields spec.FieldMap, statusMap, kindMap map[string]string, locat
 		Diff:       buildDiffFiles(diffFiles, decoded),
 		Patch:      buildPatch(patch, decoded),
 
-		Result:          mapping.JSON(decoded, fields["tool_result"]),
-		Error:           mapping.String(decoded, fields["tool_error"]),
-		Status:          status,
-		DurationMS:      duration,
-		NestedSessionID: mapping.String(decoded, fields["nested_session_id"]),
+		Result:         mapping.JSON(decoded, fields["tool_result"]),
+		Error:          mapping.String(decoded, fields["tool_error"]),
+		Status:         status,
+		DurationMS:     duration,
+		SpawnsScope:    mapping.String(decoded, fields["spawns_scope"]),
+		AddressesScope: mapping.String(decoded, fields["addresses_scope"]),
 	}
 }
 

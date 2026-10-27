@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -198,9 +199,9 @@ func TestRecorder_RetireAndForgetDropTheStreams(t *testing.T) {
 // tail behind a marker, so a long stream costs linear bytes, not quadratic.
 func TestLive_ALongToolOutputKeepsATailWindow(t *testing.T) {
 	l := newLive()
-	line := strings.Repeat("x", 1023) + "\n"
+	line := strings.Repeat("é", 511) + "\n"
 	var got string
-	for i := range 2 * toolOutputWindow / len(line) {
+	for i := range 3 * toolOutputWindow / len(line) {
 		got, _ = l.observe(testChat, "run-1", LiveDelta{
 			TurnID: "T1", ID: "tool-1", Kind: KindToolOutput, Text: fmt.Sprintf("%04d", i) + line[4:],
 		}, at0)
@@ -209,6 +210,7 @@ func TestLive_ALongToolOutputKeepsATailWindow(t *testing.T) {
 	assert.LessOrEqual(t, len(got), toolOutputWindow+64, "a frame never carries more than the window")
 	assert.True(t, strings.HasPrefix(got, "[… "), "what is cut is said: %q", got[:32])
 	assert.True(t, strings.HasSuffix(got, line[4:]), "the window is the stream's tail")
+	assert.True(t, utf8.ValidString(got), "a cut never splits a character")
 }
 
 func BenchmarkLive_ObserveALongToolOutput(b *testing.B) {

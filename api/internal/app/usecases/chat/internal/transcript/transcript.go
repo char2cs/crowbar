@@ -271,8 +271,7 @@ type facts struct {
 	text   ledger.MessageFold
 	tools  map[scoped]*toolFact
 	order  []*toolFact
-	scopes map[string]*scopeFact
-	spawns []*scopeFact
+	agents ledger.SubagentBook
 	marks  []*markFact
 	// compacting is the compaction whose end has not been folded.
 	compacting *markFact
@@ -286,7 +285,7 @@ type facts struct {
 func fold(chatID string, rows []ledger.Row) *facts {
 	f := &facts{
 		chatID: chatID, turns: map[string]*turnFacts{}, tools: map[scoped]*toolFact{},
-		scopes: map[string]*scopeFact{}, asks: map[string]*askFact{}, runners: map[string]string{},
+		asks: map[string]*askFact{}, runners: map[string]string{},
 	}
 	for _, r := range rows {
 		f.apply(r)
@@ -299,6 +298,7 @@ func fold(chatID string, rows []ledger.Row) *facts {
 func (f *facts) apply(r ledger.Row) {
 	f.head = r.Seq
 	f.text.Apply(r)
+	f.agents.Apply(r)
 	switch r.Kind {
 	case ledger.KindUserMessage:
 		f.applyUser(r)
@@ -318,8 +318,6 @@ func (f *facts) apply(r ledger.Row) {
 		f.applyPlan(r)
 	case ledger.KindToolCall:
 		f.applyTool(r)
-	case ledger.KindSubagent:
-		f.applySubagent(r)
 	case ledger.KindMarker:
 		f.applyMarker(r)
 	case ledger.KindAsk:
@@ -327,8 +325,8 @@ func (f *facts) apply(r ledger.Row) {
 	case ledger.KindAskResolved:
 		f.applyAskResolved(r)
 	case ledger.KindPromptSettled, ledger.KindSessionBound, ledger.KindSessionLost,
-		ledger.KindAssistantText, ledger.KindReasoning:
-		// f.text folds what was said; the rest the transcript does not show
+		ledger.KindAssistantText, ledger.KindReasoning, ledger.KindSubagent:
+		// f.text folds what was said, f.agents the subagents; the transcript shows no more
 	}
 }
 

@@ -39,6 +39,13 @@ const (
 	// HookPlanUpdate is the agent restating its own to-do list for this turn.
 	HookPlanUpdate = "plan_update"
 
+	// HookPlanStep is one step of that list created or changed alone.
+	HookPlanStep = "plan_step"
+
+	// HookSubagentResult is a subagent handing its result back to its parent,
+	// which the parent then answers in a turn of its own.
+	HookSubagentResult = "subagent_result"
+
 	// HookDiffUpdate is the newest complete unified diff for the current turn.
 	HookDiffUpdate = "diff_update"
 

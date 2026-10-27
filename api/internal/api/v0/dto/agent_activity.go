@@ -140,10 +140,15 @@ type AgentToolLocationDTO struct {
 }
 
 type AgentSubagentDTO struct {
-	ID        string     `json:"id"`
-	TurnID    string     `json:"turnId"`
-	Seq       int64      `json:"seq"`
-	AgentType string     `json:"agentType,omitempty"`
+	ID        string `json:"id"`
+	TurnID    string `json:"turnId"`
+	Seq       int64  `json:"seq"`
+	AgentType string `json:"agentType,omitempty"`
+	Title     string `json:"title,omitempty"`
+	// Status is starting|running|done|failed|interrupted|abandoned.
+	Status    string     `json:"status"`
+	ToolUses  int64      `json:"toolUses,omitempty"`
+	Tokens    int64      `json:"tokens,omitempty"`
 	StartedAt time.Time  `json:"startedAt"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
 	// Messages is the subagent's own nested reply history — see

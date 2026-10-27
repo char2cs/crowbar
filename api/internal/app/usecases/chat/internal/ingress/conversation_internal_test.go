@@ -26,7 +26,8 @@ func announced(t *testing.T, st ledger.State, provider, sessionID string) ledger
 func TestNamesAnotherConversation_JudgesAgainstTheChatsBoundSession(t *testing.T) {
 	t.Parallel()
 	foreign := func(st ledger.State, provider, kind, sessionID string) bool {
-		return namesAnotherConversation(boundSession(st, provider), engineagents.CanonicalEvent{Kind: kind, SessionID: sessionID})
+		return namesAnotherConversation(boundSession(st, provider), engineagents.CanonicalEvent{Kind: kind, SessionID: sessionID},
+			engineagents.ChannelHooks)
 	}
 	st := ledger.Fold("chat-1", nil)
 	assert.False(t, foreign(st, "p1", engineagents.HookTurnStop, "thread-child"),
@@ -36,7 +37,7 @@ func TestNamesAnotherConversation_JudgesAgainstTheChatsBoundSession(t *testing.T
 	assert.False(t, foreign(st, "p1", engineagents.HookTurnStop, "thread-main"))
 	assert.True(t, foreign(st, "p1", engineagents.HookTurnStop, "thread-child"))
 	assert.False(t, foreign(st, "p1", engineagents.HookSessionStart, "thread-child"),
-		"session_start is the announcement, never judged")
+		"a CLI's session_start is the announcement, never judged")
 	assert.False(t, foreign(st, "p1", engineagents.HookTurnStop, ""))
 	assert.False(t, foreign(st, "p2", engineagents.HookTurnStop, "thread-child"),
 		"another provider's conversation on the chat is its own")
@@ -45,4 +46,16 @@ func TestNamesAnotherConversation_JudgesAgainstTheChatsBoundSession(t *testing.T
 	assert.True(t, foreign(st, "p1", engineagents.HookTurnStop, "thread-main"),
 		"a rebind leaves the session behind foreign")
 	assert.False(t, foreign(st, "p1", engineagents.HookTurnStop, "thread-cleared"))
+}
+
+// An api connection binds the sessions it opens itself, so a thread it reports
+// starting under another id is a child's (C13): judged, never an announcement.
+func TestNamesAnotherConversation_AnAPIThreadStartOfAnotherSessionIsAChilds(t *testing.T) {
+	t.Parallel()
+	st := announced(t, ledger.Fold("chat-1", nil), "p1", "thread-main")
+	child := engineagents.CanonicalEvent{Kind: engineagents.HookSessionStart, SessionID: "thread-child"}
+
+	assert.True(t, namesAnotherConversation(boundSession(st, "p1"), child, engineagents.ChannelAPI))
+	child.SessionID = "thread-main"
+	assert.False(t, namesAnotherConversation(boundSession(st, "p1"), child, engineagents.ChannelAPI))
 }

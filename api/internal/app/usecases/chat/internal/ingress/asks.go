@@ -79,7 +79,7 @@ func bindTool(st ledger.State, scope string, a *ledger.Ask, c *engineagents.Choi
 // waitedOn reports whether an ask in scope is waited on: the chat's agent's
 // while a turn runs, a nested conversation's while no turn end outlived it.
 func waitedOn(st ledger.State, scope string) bool {
-	if scope == "" || !st.HasScopePhase(scope, ledger.SubagentStart) {
+	if _, known := st.SubagentOf(scope); scope == "" || !known {
 		_, running := st.RunningTurn()
 		return running
 	}

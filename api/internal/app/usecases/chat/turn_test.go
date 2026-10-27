@@ -255,14 +255,9 @@ func TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded(t *testing.T) 
 	f.announce(t, runnerID, "thread-main")
 	hook(t, f, runnerID, "codex", "user_prompt", map[string]any{"prompt": "delegate"})
 
-	// The PARENT thread's own spawnAgent tool call completes, naming the
-	// child thread it just created (item.receiverThreadIds[0]) — this is
-	// what opens the nested subagent for real. nested_session_id only
-	// resolves off codex's api: channel block (see codex.yaml's own comment
-	// on tool_post — the hooks: block maps no such field at all, since no
-	// PostToolUse capture of a collab-agent completion has ever been taken),
-	// so this — like every event below — must arrive on an API-marked ctx,
-	// api-shaped, exactly as codex's real collabAgentToolCall traffic does.
+	// The parent's spawnAgent completion names the child thread it created
+	// (item.receiverThreadIds[0]), which binds the subagent; api-shaped, as
+	// every event below, on an API-marked ctx.
 	hookAPI(t, f, runnerID, "codex", "tool_post", map[string]any{
 		"threadId": "thread-main",
 		"item": map[string]any{
@@ -363,11 +358,8 @@ func TestRegression_SpawnAgentCompletionOpensTheNestedSubagent(t *testing.T) {
 	require.False(t, f.busy(t, chatID),
 		"precondition: the parent's own turn genuinely closed, nothing else open yet")
 
-	// The parent's own spawnAgent tool call completes, naming the child
-	// thread it just created — this is what opens the nested subagent, and
-	// it is the ONLY thing open at this instant. nested_session_id only
-	// resolves off codex's api: channel block (see the sibling test above),
-	// so this must be api-shaped on an API-marked ctx.
+	// The parent's spawnAgent completion binds the child thread: the ONLY
+	// thing open at this instant, api-shaped as in the sibling test above.
 	hookAPI(t, f, runnerID, "codex", "tool_post", map[string]any{
 		"threadId": "thread-main",
 		"item": map[string]any{
@@ -751,7 +743,7 @@ func TestObservation_AnUnrecordableObservationIsRefusedAndDeadLettered(t *testin
 		{engineagents.HookToolPre, map[string]any{"tool_use_id": "t1", "tool_name": "Bash"}},
 		{engineagents.HookToolPost, map[string]any{"tool_use_id": "t1", "tool_name": "Bash"}},
 		{engineagents.HookSubagentPre, map[string]any{"agent_id": "a1"}},
-		{engineagents.HookSubagentPost, map[string]any{"agent_id": "a1"}},
+		{engineagents.HookSubagentPost, map[string]any{"agent_id": "a1", "agent_type": "explorer"}},
 		{engineagents.HookNotification, map[string]any{"message": "blocked"}},
 		{engineagents.HookPermission, map[string]any{"tool_name": "Bash"}},
 		{engineagents.HookCompactPre, map[string]any{"trigger": "auto"}},
@@ -1345,9 +1337,9 @@ func TestObservation_APendingChoiceDoesNotSurviveItsTurn(t *testing.T) {
 	assert.Equal(t, domain.ChoiceResolutionAbandoned, all.Choices[0].Resolution)
 }
 
-// Once its turn ended, only the background work that end declared can hold the
+// Once its turn ended, only a subagent running past that end can hold the
 // CLI on an ask: held, it stays a card to answer (held ⇔ answerable).
-func TestObservation_AHeldAskOutlivesAnEndThatDeclaredBackgroundWork(t *testing.T) {
+func TestObservation_AHeldAskOutlivesAnEndASubagentRunsPast(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	f.announce(t, runnerID, "s1")
@@ -1356,7 +1348,7 @@ func TestObservation_AHeldAskOutlivesAnEndThatDeclaredBackgroundWork(t *testing.
 	ask := deliver(t, f, runnerID, "claude", engineagents.HookPermission, permissionPayload())
 	require.NotEmpty(t, ask)
 
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop", stopPayloadFor(t, "s1", "main done", 1)))
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop", stopPayload(t, "main done")))
 	f.wait()
 
 	_, held := f.usecase.PendingAnswer(ask)
@@ -1874,35 +1866,79 @@ func TestRegression_ChatLogDoesNotServeAHarnessTurnAsTheUsers(t *testing.T) {
 	assert.Contains(t, handoff, "claude harness (injected, NOT the user):")
 }
 
-// ─── from async_work_test.go ──────────────────────────────────────────
+// ─── background subagents ─────────────────────────────────────────────
 
-// Work a turn_stop reports still running keeps the chat busy, so a switch is
-// refused until a later turn's end restates the level at zero.
-func TestSwitchProvider_BackgroundWork_IsRefusedUntilItEnds(t *testing.T) {
+// backgroundSubagent starts subagent a1 in a turn that then ends with it still
+// running, as claude's background Agent call does.
+func backgroundSubagent(t *testing.T, f testFixture, runnerID string) {
+	t.Helper()
+	prompt(t, f, runnerID, "claude", "launch a background subagent")
+	hook(t, f, runnerID, "claude", engineagents.HookSubagentPre, map[string]any{
+		"session_id": "s1", "agent_id": "a1", "agent_type": "general-purpose",
+	})
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop", stopPayload(t, "Launched.")))
+	f.wait()
+}
+
+// A running subagent keeps the chat busy, so a switch is refused until it stops.
+func TestSwitchProvider_ARunningSubagentIsRefusedUntilItStops(t *testing.T) {
 	f := newFixture(t)
-
 	chatID, runnerID := f.spawn(t, "claude")
 	oldTerm := f.runner(t, runnerID).TerminalSession
 	f.announce(t, runnerID, "s1")
-	prompt(t, f, runnerID, "claude", "launch a background subagent")
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
-		stopPayload(t, "Launched.", 1)))
-	f.wait()
-	require.True(t, f.busy(t, chatID), "precondition: async work keeps the chat live")
+	backgroundSubagent(t, f, runnerID)
+	require.True(t, f.busy(t, chatID), "precondition: the subagent keeps the chat live")
+	require.False(t, running(t, f, chatID), "the turn itself really did end")
 
 	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.ErrorIs(t, err, agentusecase.ErrPromptBusy)
-	require.Empty(t, f.term.terminatedIDs(), "background work must keep the outgoing TUI alive")
+	require.Empty(t, f.term.terminatedIDs(), "a running subagent keeps the outgoing TUI alive")
 
-	prompt(t, f, runnerID, "claude", taskNotificationPrompt)
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
-		stopPayload(t, "The background subagent finished.", 0)))
-	f.wait()
-
+	hook(t, f, runnerID, "claude", engineagents.HookSubagentPost, map[string]any{"session_id": "s1", "agent_id": "a1"})
+	require.False(t, f.busy(t, chatID), "its own stop ends it")
 	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.NoError(t, err)
 	f.wait()
 	require.Contains(t, f.term.terminatedIDs(), oldTerm)
+}
+
+// The subagent's hand-back opens the parent's turn that answers it; that
+// turn's end, with the subagent done, ends the chat's work.
+func TestRegression_ASubagentsHandBackIsAnsweredThenTheChatRests(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "s1")
+	backgroundSubagent(t, f, runnerID)
+
+	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt, map[string]any{
+		"session_id": "s1", "prompt_id": "hand-back",
+		"prompt": "<agent-message from=\"a1\">\n[Subagent hand-back] The report follows:\n  done\n</agent-message>",
+	})
+	require.True(t, running(t, f, chatID), "the hand-back opens a turn of the parent's")
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
+		mustJSON(t, map[string]any{"session_id": "s1", "prompt_id": "hand-back", "last_assistant_message": "It finished."})))
+	f.wait()
+
+	require.False(t, f.busy(t, chatID), "once the work is done the chat MUST rest")
+	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 0)
+	require.NoError(t, err)
+	assert.Equal(t, "It finished.", page.Items[len(page.Items)-1].Text, "the hand-back's reply is recorded")
+}
+
+// A CLI killed with a subagent running sends no stop; its runner's exit, which
+// the boot reconcile records, interrupts the subagent.
+func TestRegression_KilledCLIWithARunningSubagent_DoesNotSpinForever(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "s1")
+	backgroundSubagent(t, f, runnerID)
+	require.True(t, f.busy(t, chatID), "precondition: spinning on the subagent")
+
+	f.term.dieWithDaemon()
+	require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
+	f.wait()
+
+	require.False(t, f.busy(t, chatID), "a dead CLI's subagent must not spin the chat forever across a restart")
 }
 
 // A stopped Claude still finishing its text after a switch to Codex: what it
@@ -2037,191 +2073,10 @@ func TestRegression_ClearMidStreamSalvagesTheAlreadyStreamedText(t *testing.T) {
 	assert.Equal(t, "claude", salvaged.ProviderID)
 }
 
-// stopPayload is a real claude 2.1.212 Stop hook payload carrying `running` background
-// tasks — the shape traced live while a background subagent was working. tasks is how
-// many entries claude reports STILL OUTSTANDING as it goes quiet.
-func stopPayload(t *testing.T, message string, tasks int) []byte {
+// stopPayload is a claude Stop hook payload on session s1.
+func stopPayload(t *testing.T, message string) []byte {
 	t.Helper()
-	return stopPayloadFor(t, "s1", message, tasks)
-}
-
-// stopPayloadFor names the session the turn belongs to, for the tests whose
-// fixture announces something other than "s1". A turn_stop that names a session
-// the runner is not on is another conversation's, and ingest drops it — see
-// namesAnotherConversation — so a payload's session has to match the announce
-// that set the scene, exactly as a real CLI's would.
-func stopPayloadFor(t *testing.T, session, message string, tasks int) []byte {
-	t.Helper()
-	bg := make([]any, 0, tasks)
-	for range tasks {
-		bg = append(bg, map[string]any{
-			"id":         "abbe4333c2384e2dc",
-			"type":       "subagent",
-			"status":     "running",
-			"agent_type": "general-purpose",
-		})
-	}
-	return mustJSON(t, map[string]any{
-		"session_id":             session,
-		"last_assistant_message": message,
-		"background_tasks":       bg,
-		"session_crons":          []any{},
-	})
-}
-
-// Claude fires Stop while a background subagent still works; the async-work level
-// on that Stop must travel from the hook payload into the fold so the chat stays
-// working.
-func TestRegression_TurnStopWithBackgroundSubagent_KeepsChatWorking(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	f.announce(t, runnerID, "s1")
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
-		mustJSON(t, map[string]any{"prompt": "launch a background subagent and wait for it"})))
-	require.True(t, f.busy(t, chatID), "precondition: the turn is open")
-
-	// claude hands the work off and ends its turn — with one subagent still running.
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
-		stopPayload(t, "Launched. The subagent is running in the background.", 1)))
-	f.wait()
-
-	require.True(t, f.busy(t, chatID),
-		"the spinner must KEEP SPINNING: the turn ended but a background subagent is still working")
-	require.False(t, running(t, f, chatID), "the turn itself really did end")
-}
-
-// TestRegression_BackgroundSubagentFinishes_StopsChatWorking is the other half, and the
-// one that keeps the fix from becoming a WORSE bug than the one it fixes: the spinner has
-// to actually STOP. A permanently-spinning spinner lies forever, and this is an
-// event-sourced aggregate, so it would survive restarts.
-//
-// Traced: when the subagent reports back claude re-invokes itself (a UserPromptSubmit
-// carrying a <task-notification>), answers, and ends THAT turn with background_tasks: [].
-func TestRegression_BackgroundSubagentFinishes_StopsChatWorking(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	f.announce(t, runnerID, "s1")
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
-		mustJSON(t, map[string]any{"prompt": "launch a background subagent"})))
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
-		stopPayload(t, "Launched.", 1)))
-	f.wait()
-	require.True(t, f.busy(t, chatID), "precondition: spinning on the subagent")
-
-	// The subagent reports back: claude re-invokes itself and ends the turn with nothing left.
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
-		mustJSON(t, map[string]any{"prompt": "<task-notification><task-id>abbe4333c2384e2dc</task-id>"})))
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
-		stopPayload(t, "The subagent finished.", 0)))
-	f.wait()
-
-	require.False(t, f.busy(t, chatID), "once the work is done the spinner MUST stop — no stuck-on")
-}
-
-// TestRegression_ConcurrentBackgroundSubagentsDrain_StopsChatWorking is the traced
-// multi-subagent case: three at once, and claude RESTATES the whole list on every Stop as
-// it drains ([running x3] → [running x4] → [running] → []). The level follows it down and
-// lands idle — no pairing, no arithmetic, nothing to leak.
-func TestRegression_ConcurrentBackgroundSubagentsDrain_StopsChatWorking(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	f.announce(t, runnerID, "s1")
-
-	// Each restatement claude actually emitted, in order. A subagent spawning MORE
-	// subagents (3 → 4) is why this must never be a decrementing counter.
-	for _, outstanding := range []int{3, 4, 1, 0} {
-		require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
-			mustJSON(t, map[string]any{"prompt": "turn"})))
-		require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
-			stopPayload(t, "restated", outstanding)))
-		f.wait()
-
-		if outstanding > 0 {
-			require.Truef(t, f.busy(t, chatID),
-				"%d subagents still running: must keep spinning", outstanding)
-		}
-	}
-
-	require.False(t, f.busy(t, chatID), "drained to zero: the spinner must stop")
-}
-
-// An interrupt fires no hook, so the CLI never closes the turn it cut: the
-// next prompt's turn supersedes it, and that turn's own Stop settles the level.
-func TestRegression_InterruptedTurnThenNewPrompt_DoesNotStrandSpinner(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	f.announce(t, runnerID, "s1")
-
-	// A turn that ended with background work outstanding...
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
-		mustJSON(t, map[string]any{"prompt": "launch three background subagents"})))
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
-		stopPayload(t, "Launched three.", 3)))
-	f.wait()
-	require.True(t, f.busy(t, chatID), "precondition: spinning on 3 subagents")
-
-	// ...the user hits ESC. NOTHING arrives — that is the whole point; no hook exists.
-	// Then they type again. This is the only edge that can heal it.
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
-		mustJSON(t, map[string]any{"prompt": "hi"})))
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
-		stopPayload(t, "hello", 0)))
-	f.wait()
-
-	require.False(t, f.busy(t, chatID),
-		"an interrupt must not strand the spinner: the next completed turn settles it")
-}
-
-// TestRegression_KilledCLIWithBackgroundWork_DoesNotSpinForever is the stuck-on case that
-// the hook surface cannot fix, and the reconcile must.
-//
-// Traced: SIGKILL mid-background-work sends NO SessionEnd and NO final Stop. The last word
-// on the aggregate is a turn_stop reporting work still running, with nobody left alive to
-// restate it — and in an event-sourced aggregate that word outlives the daemon. The boot
-// reconcile (a dead PTY cannot still be working) is what clears it.
-func TestRegression_KilledCLIWithBackgroundWork_DoesNotSpinForever(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "claude")
-	f.announce(t, runnerID, "s1")
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
-		mustJSON(t, map[string]any{"prompt": "launch a background subagent"})))
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
-		stopPayload(t, "Launched.", 1)))
-	f.wait()
-	require.True(t, f.busy(t, chatID), "precondition: spinning on announced work")
-	require.False(t, running(t, f, chatID),
-		"and NOT because a turn is open — the turn closed; only the work keeps it lit")
-
-	// The CLI dies with the daemon. No Stop is coming, ever.
-	f.term.dieWithDaemon()
-	require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
-	f.wait()
-
-	require.False(t, f.busy(t, chatID),
-		"a dead CLI's announced work must not spin the chat forever across a restart")
-}
-
-// TestCodexTurnStop_NeverReportsAsyncWork is the PROVIDER-AGNOSTIC requirement through the
-// live usecase: codex maps no async_work, so even a Stop payload that happens to carry a
-// background_tasks array leaves ev.AsyncWork at 0 — an unmapped field must never be
-// counted.
-func TestCodexTurnStop_NeverReportsAsyncWork(t *testing.T) {
-	f := newFixture(t)
-
-	chatID, runnerID := f.spawn(t, "codex")
-	f.announce(t, runnerID, "s1")
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "user_prompt",
-		mustJSON(t, map[string]any{"prompt": "do a thing"})))
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "turn_stop",
-		stopPayload(t, "done", 3)))
-	f.wait()
-
-	require.False(t, f.busy(t, chatID), "codex maps no async_work: an unmapped field must never be counted")
+	return mustJSON(t, map[string]any{"session_id": "s1", "last_assistant_message": message})
 }
 
 // thread/compact/start wraps its item pair in its own turn/started..completed,
@@ -2529,7 +2384,14 @@ func TestRegression_RealClaudeSubagentSession_OnlyTheHumansWordsAreUserRows(t *t
 		"Launch two subagents in the background with the Agent tool (general-purpose), each must Read a.txt then run Bash 'echo hi'. Report each in one line. Then say DONE.",
 		"what is 2+2? one word",
 	}, users, "only what the human typed may be a user row")
-	assert.Equal(t, 2, harness, "each subagent hand-back is kept, as the harness's words")
+	assert.Zero(t, harness, "a hand-back is its subagent's result, nobody's words")
+	subs, err := f.activity.Subagents(f.ctx, chatID)
+	require.NoError(t, err)
+	require.Len(t, subs, 2)
+	for _, sub := range subs {
+		require.NotEmpty(t, sub.Messages, sub.ID)
+		assert.Contains(t, sub.Messages[len(sub.Messages)-1].Text, "a.txt contains", "%s's hand-back is its result", sub.ID)
+	}
 }
 
 func TestRegression_RealClaudeSubagentSession_SubagentToolCallsAreItsOwn(t *testing.T) {

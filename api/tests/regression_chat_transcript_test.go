@@ -139,8 +139,8 @@ func (c turnChat) backgroundActivity(t *testing.T, files ...string) map[string]s
 	return out
 }
 
-// The turn end at 11 restates both subagents as background work: they run past
-// it, with the tools they open after it, until each stops.
+// Both subagents run past the turn end at 11, with the tools they open after
+// it, until each is over: a3edc… at its hand-back (23).
 func TestRegression_ABackgroundSubagentRunsPastItsTurnsEnd(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 
@@ -152,10 +152,59 @@ func TestRegression_ABackgroundSubagentRunsPastItsTurnsEnd(t *testing.T) {
 
 	c.replayRange(t, 13, 24)
 	assert.Equal(t, map[string]string{
-		"05-SubagentStart.json": "running", "06-SubagentStart.json": "running",
+		"05-SubagentStart.json": "stopped", "06-SubagentStart.json": "running",
 		"13-PreToolUse.json": "ok", "14-PreToolUse.json": "ok", "21-PreToolUse.json": "running",
 	}, c.backgroundActivity(t, "05-SubagentStart.json", "06-SubagentStart.json",
 		"13-PreToolUse.json", "14-PreToolUse.json", "21-PreToolUse.json"))
+}
+
+// 11-Stop ends the parent turn while a3edc… and a6fec… run; 23 hands a3edc…'s
+// result back and opens the turn 28-Stop closes; a6fec… stops at 26.
+func TestRegression_ABackgroundSubagentKeepsTheChatWorkingUntilItStops(t *testing.T) {
+	c := newTurnChat(t, newHarness(t))
+
+	c.replayRange(t, 0, 12)
+	assert.True(t, c.working(t), "the parent turn ended, its subagents did not")
+	c.replayRange(t, 12, 26)
+	assert.True(t, c.working(t), "a6fec… still runs")
+	c.replayRange(t, 26, 29)
+
+	assert.False(t, c.working(t), "every subagent stopped and the hand-back's turn closed")
+	assert.Contains(t, assistantTexts(c.messages(t)), fixtureField(t, "28-Stop.json", "last_assistant_message"),
+		"the hand-back's reply is recorded")
+}
+
+// A todo list's steps arrive one by one; the plan frame is the whole list.
+func TestRegression_ATodoListBecomesPlanRows(t *testing.T) {
+	c := newTurnChat(t, newHarness(t))
+	c.startTurn(t, c.launch, "A")
+
+	for id, subject := range map[string]string{"1": "Read a.txt", "2": "Run echo"} {
+		c.hook(t, c.launch, "plan_step", map[string]any{
+			"hook_event_name": "TaskCreated", "prompt_id": "A", "task_id": id, "task_subject": subject,
+		})
+	}
+	c.hook(t, c.launch, "plan_step", map[string]any{
+		"hook_event_name": "PostToolUse", "prompt_id": "A", "tool_name": "TaskUpdate",
+		"tool_input":    map[string]any{"taskId": "1", "status": "in_progress"},
+		"tool_response": map[string]any{"statusChange": map[string]any{"from": "pending", "to": "in_progress"}},
+	})
+
+	var plan []struct{ Text, Status string }
+	readUntil(t, c.conn, func(m map[string]any) bool {
+		if m["chatId"] != c.chatID || m["kind"] != "plan" {
+			return false
+		}
+		raw, err := json.Marshal(m["plan"])
+		require.NoError(t, err)
+		require.NoError(t, json.Unmarshal(raw, &plan))
+		return len(plan) == 2 && strings.Contains(string(raw), "active")
+	})
+	steps := map[string]string{}
+	for _, s := range plan {
+		steps[s.Text] = s.Status
+	}
+	assert.Equal(t, map[string]string{"Read a.txt": "active", "Run echo": "pending"}, steps)
 }
 
 func TestRegression_Symptom3_TextSaidBeforeAProcessExitsIsKept(t *testing.T) {

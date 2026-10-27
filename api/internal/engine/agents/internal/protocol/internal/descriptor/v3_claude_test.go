@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/inbound"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
@@ -37,7 +38,7 @@ func TestClaudeDescriptor_MapsBashDescriptionAsTitle(t *testing.T) {
 }
 
 // bashFailure is the claude 2.1.302 PostToolUseFailure capture, scrubbed only; it cannot join the
-// replay because no recorded subagent failure resolves subagent_id.
+// replay because no recorded subagent failure resolves scope_id.
 const bashFailure = `{
   "session_id": "6f1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
   "transcript_path": "/h/.claude/projects/-ws/6f1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d.jsonl",
@@ -87,4 +88,49 @@ func TestClaudeDescriptor_PermissionNamesItsCallFromTheRecordedAsk(t *testing.T)
 		expectEq(t, file+" target", ev.Choice.ToolTarget, want.target)
 		expectEq(t, file+" server", ev.Choice.MCPServer, want.server)
 	}
+}
+
+// A subagent's hand-back is its result, never the user's prompt; its prompt
+// id names the parent's turn that answers it.
+func TestInjectedSubagentResultIsNotAUserPrompt(t *testing.T) {
+	d := loadDescriptor(t, "claude")
+	raw, err := os.ReadFile(fixtureRoot + "/claude/UserPromptSubmit.AgentMessage.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev, err := inbound.Parse(d, spec.HookUserPrompt, raw, spec.ChannelHooks)
+	if err != nil || ev.Subagent == nil {
+		t.Fatalf("subagent %v, err %v", ev.Subagent, err)
+	}
+	expectEq(t, "kind", ev.Kind, spec.HookSubagentResult)
+	expectEq(t, "scope", ev.Subagent.ID, "a3edc502687d15840")
+	expectEq(t, "turn", ev.TurnID, "bfbceb05-8583-4143-8108-046be645e2c6")
+	expectEq(t, "result", ev.Subagent.Result, "a.txt contains \"alpha\" (one line), and `echo hi` printed \"hi\".")
+	expectEq(t, "no prompt", ev.Message, "")
+}
+
+func TestClaudeDescriptor_ABackgroundAgentCallNamesTheScopeItSpawned(t *testing.T) {
+	d := loadDescriptor(t, "claude")
+	spawn := parseRecorded(t, d, "tool_post", "PostToolUse.Agent.json", spec.ChannelHooks)
+	expectEq(t, "kind", spawn.Kind, "subagent")
+	expectEq(t, "spawns", spawn.SpawnsScope, "a3edc502687d15840")
+}
+
+// A TaskUpdate's completion is one plan step changed alone.
+func TestClaudeDescriptor_ATaskUpdateIsAPlanStep(t *testing.T) {
+	d := loadDescriptor(t, "claude")
+	ev, err := inbound.Parse(d, spec.HookPlanStep, []byte(`{"session_id":"s","transcript_path":"/t",
+		"hook_event_name":"PostToolUse","tool_name":"TaskUpdate","tool_input":{"taskId":"1","status":"in_progress"},
+		"tool_response":{"statusChange":{"from":"pending","to":"in_progress"}}}`), spec.ChannelHooks)
+	if err != nil || ev.Step == nil {
+		t.Fatalf("step %v, err %v", ev.Step, err)
+	}
+	expectEq(t, "step", *ev.Step, models.PlanStepEvent{StepID: "1", Status: "active"})
+
+	created, err := inbound.Parse(d, spec.HookPlanStep, []byte(`{"session_id":"s","transcript_path":"/t",
+		"hook_event_name":"TaskCreated","task_id":"2","task_subject":"Write it","task_description":"all of it"}`), spec.ChannelHooks)
+	if err != nil || created.Step == nil {
+		t.Fatalf("step %v, err %v", created.Step, err)
+	}
+	expectEq(t, "created", *created.Step, models.PlanStepEvent{StepID: "2", Text: "Write it", Detail: "all of it", Status: "pending"})
 }

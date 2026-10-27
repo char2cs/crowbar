@@ -97,8 +97,10 @@ capture: UserPromptSubmit firing inside a subagent is unverified against real tr
 ## Subagent captures (claude 2.1.289, 2026-10-05)
 
 `SubagentStart.json`, `SubagentStop.json`, `PreToolUse.Subagent.json`,
-`PostToolUse.Subagent.json` and `UserPromptSubmit.AgentMessage.json` are
-VERBATIM from one interactive session with two background subagents, paths
+`PostToolUse.Subagent.json`, `PostToolUse.Agent.json` (the background `Agent` call's
+completion, naming the `agentId` it spawned; byte-identical to
+`api/tests/testdata/hooks/claude-subagent-session/04-PostToolUse.json`) and
+`UserPromptSubmit.AgentMessage.json` are VERBATIM from one interactive session with two background subagents, paths
 scrubbed as above. A subagent's own tool hooks carry `agent_id`/`agent_type`;
 the main agent's never do. The harness hands a subagent's report back through
 UserPromptSubmit wrapped in `<agent-message from=...>` — no `source` field
@@ -113,6 +115,6 @@ an MCP server's tool, the task tools and an Edit. Scrubbed as above, plus
 `user`. The replay skips the permission field families that resolve against a suggestion,
 question or option sub-object (see fixture_test.go); choice_test.go covers those.
 
-A PostToolUseFailure was captured in the same run but is not replayed: it leaves `subagent_id`,
+A PostToolUseFailure was captured in the same run but is not replayed: it leaves `scope_id`,
 `mcp_server` and `mcp_tool` unresolved, so `tool_fail` stays unverified until a subagent
 failure and a failed MCP call are recorded. v3_claude_test.go carries the capture verbatim.

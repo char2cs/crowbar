@@ -16,8 +16,12 @@ const (
 	ToolFail = "fail" // it failed or was declined
 )
 
-// ToolKindMCP is the kind of a call into an MCP server.
-const ToolKindMCP = "mcp"
+// The tool kinds the ledger reads: a call into an MCP server, and a call that
+// spawns a subagent.
+const (
+	ToolKindMCP      = "mcp"
+	ToolKindSubagent = "subagent"
+)
 
 // ToolCall is the body of a tool_call row: one phase of one tool call.
 type ToolCall struct {
@@ -42,9 +46,10 @@ type ToolCall struct {
 	Interrupted bool   `json:"interrupted,omitempty"`
 	// InputKey is InputKey of the call's input: what an ask about it names it by.
 	InputKey string `json:"inputKey,omitempty"`
-	// SpawnsScope is the conversation of its own this call opened or
-	// addresses; its events are recorded in that scope.
-	SpawnsScope string `json:"spawnsScope,omitempty"`
+	// SpawnsScope is the subagent this call spawned; AddressesScope one it
+	// only waits on or closes, which makes the call itself meta.
+	SpawnsScope    string `json:"spawnsScope,omitempty"`
+	AddressesScope string `json:"addressesScope,omitempty"`
 }
 
 // ToolLocation is a place in a file a tool call touched.
@@ -148,7 +153,4 @@ func (s *State) applyToolCall(r Row) {
 		t.phases = append(slices.Clip(t.phases), body.Phase)
 	}
 	k.tools[key] = t
-	if body.SpawnsScope != "" {
-		s.spawnScope(body.SpawnsScope, r.TurnID)
-	}
 }

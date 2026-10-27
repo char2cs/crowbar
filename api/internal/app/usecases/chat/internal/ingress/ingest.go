@@ -86,6 +86,7 @@ type Recorder struct {
 	runners RecorderRunners
 	live    *live
 	manual  *manualCompactions
+	unbound *held
 }
 
 // NewRecorder builds the Recorder. The runner port is bound by SetRunners.
@@ -93,7 +94,7 @@ func NewRecorder(d RecorderDeps) *Recorder {
 	return &Recorder{
 		chats: d.Chats, agents: d.Agents, ws: d.Workspace, home: d.Home, ledger: d.Ledger,
 		blobs: d.Blobs, telemetry: d.Telemetry, answers: d.Answers, titles: d.Titles, frames: d.Frames,
-		live: newLive(), manual: &manualCompactions{chats: map[string]bool{}},
+		live: newLive(), manual: &manualCompactions{chats: map[string]bool{}}, unbound: newHeld(),
 	}
 }
 
@@ -104,6 +105,7 @@ func (r *Recorder) SetRunners(runners RecorderRunners) { r.runners = runners }
 func (r *Recorder) ForgetChat(chatID string) {
 	r.live.forgetChat(chatID)
 	r.manual.consume(chatID)
+	r.unbound.release(chatID)
 }
 
 // Descriptor resolves the descriptor runner's hooks are parsed with.
@@ -128,6 +130,7 @@ var mapped = []string{
 	engineagents.HookSubagentPre, engineagents.HookSubagentPost, engineagents.HookNotification,
 	engineagents.HookPermission, engineagents.HookElicitation,
 	engineagents.HookCompactPre, engineagents.HookCompactPost,
+	engineagents.HookSubagentResult, engineagents.HookPlanStep,
 }
 
 // Dispatch records ev, one hook of runner's parsed by agent, on runner's chat.
@@ -156,13 +159,9 @@ func (r *Recorder) Dispatch(
 		RunnerID: runner.ID, Provider: runner.ProviderID, SessionID: boundSession(st, runner.ProviderID),
 		Persists: agent.SessionPersists(), Channel: channel,
 	}
-	if namesAnotherConversation(src.SessionID, ev) {
-		// A nested conversation the chat's agent opened rides the same wire;
-		// any other session is foreign.
-		if !st.ScopeOpen(ev.SessionID) {
-			return nil, "", fmt.Errorf("agent: hook: session %s: %w", ev.SessionID, engineagents.ErrForeignConversation)
-		}
-		src.Scope = ev.SessionID
+	frame := heldFrame{runner: runner, agent: agent, ev: ev, raw: raw, channel: channel}
+	if held, err := r.placeScope(ctx, chat.ID, st, frame, &src); held || err != nil {
+		return nil, "", err
 	}
 	switch {
 	case src.Scope == "" && ev.Kind == engineagents.HookSessionStart && !startsOn(st, runner.ID):
@@ -264,12 +263,13 @@ func (r *Recorder) commit(
 		_, _, err := r.ledger.Do(ctx, chat.ID, func(st ledger.State) ([]ledger.Row, error) {
 			rows, effects, err := Map(st, ev, src, refs)
 			fx = effects
+			fx.Bound = boundScope(rows)
 			return rows, err
 		})
 		return err
 	}
 	var err error
-	if ev.Kind == engineagents.HookUserPrompt || ev.Kind == engineagents.HookTurnStop {
+	if ev.Kind == engineagents.HookUserPrompt || ev.Kind == engineagents.HookTurnStop || ev.Kind == engineagents.HookSubagentResult {
 		err = r.held(runnerID, &src, do)
 	} else {
 		err = do()
@@ -287,6 +287,10 @@ func (r *Recorder) commit(
 	}
 	if fx.Ended != "" {
 		r.live.forget(chat.ID, runnerID, fx.Ended)
+		r.unclaimed(ctx, chat.ID, r.unbound.release(chat.ID))
+	}
+	if fx.Bound != "" {
+		r.drain(ctx, chat.ID, fx.Bound)
 	}
 	if fx.Unbound != "" {
 		slog.WarnContext(ctx, "agent: ingest hook: an ask's input names none of its tool's open calls",

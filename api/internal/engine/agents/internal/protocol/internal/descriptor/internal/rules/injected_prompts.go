@@ -24,6 +24,9 @@ func (injectedPrompts) Check(d *spec.Descriptor) error {
 		if _, ok := spec.InjectedPromptKinds[p.Kind]; !ok {
 			return invalid(d.ID, "injected_prompts[%d]: unknown kind %q", i, p.Kind)
 		}
+		if p.Kind == spec.InjectedPromptSubagentResult && p.ScopeID == nil {
+			return invalid(d.ID, "injected_prompts[%d]: a subagent_result names its scope_id", i)
+		}
 	}
 	return nil
 }

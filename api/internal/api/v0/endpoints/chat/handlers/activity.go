@@ -46,6 +46,7 @@ func (h *Handlers) Activity(ctx *gin.Context) {
 	for _, s := range activity.Subagents {
 		out.Subagents = append(out.Subagents, dto.AgentSubagentDTO{
 			ID: s.ID, TurnID: s.TurnID, Seq: s.Seq, AgentType: s.AgentType,
+			Title: s.Title, Status: s.Status, ToolUses: s.ToolUses, Tokens: s.Tokens,
 			StartedAt: s.StartedAt, EndedAt: s.EndedAt,
 			Messages: subagentMessageDTOs(s.Messages),
 		})

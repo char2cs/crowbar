@@ -334,11 +334,11 @@ func TestMap_ASubagentsPhasesAreRecordedOnce(t *testing.T) {
 
 	rows, _ := c.mapped(start, hooksSource())
 	require.Len(t, rows, 1)
-	assert.Equal(t, ledger.Subagent{Phase: ledger.SubagentStart, Type: "explorer"}, bodyOf[ledger.Subagent](t, rows[0]))
+	assert.Equal(t, ledger.SubagentBody{Phase: ledger.SubagentStart, Type: "explorer"}, bodyOf[ledger.SubagentBody](t, rows[0]))
 	again, _ := c.mapped(start, hooksSource())
 	assert.Empty(t, again)
 	rows, _ = c.mapped(stop, hooksSource())
-	assert.Equal(t, ledger.SubagentStop, bodyOf[ledger.Subagent](t, rows[0]).Phase)
+	assert.Equal(t, ledger.SubagentStop, bodyOf[ledger.SubagentBody](t, rows[0]).Phase)
 	none, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookSubagentPre}, hooksSource())
 	assert.Empty(t, none)
 }

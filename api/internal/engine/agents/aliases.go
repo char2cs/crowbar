@@ -32,6 +32,8 @@ type (
 	ToolLocation   = models.ToolLocation
 	PatchHunk      = models.PatchHunk
 	SubagentEvent  = models.SubagentEvent
+	SubagentUsage  = models.SubagentUsage
+	PlanStepEvent  = models.PlanStepEvent
 	InterruptEvent = models.InterruptEvent
 	ChoicePrompt   = models.ChoicePrompt
 	PromptQuestion = models.PromptQuestion
@@ -105,6 +107,8 @@ const (
 	HookIdle            = spec.HookIdle
 	HookToolOutputDelta = spec.HookToolOutputDelta
 	HookPlanUpdate      = spec.HookPlanUpdate
+	HookPlanStep        = spec.HookPlanStep
+	HookSubagentResult  = spec.HookSubagentResult
 	HookDiffUpdate      = spec.HookDiffUpdate
 	HookMessageComplete = spec.HookMessageComplete
 )

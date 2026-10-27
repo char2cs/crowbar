@@ -53,16 +53,10 @@ type TurnEnded struct {
 	Status   string `json:"status"` // "done" | "interrupted"
 	Reason   string `json:"reason,omitempty"`
 	RunnerID string `json:"runnerId,omitempty"` // whose end it is
-	// AsyncWork is the background work the provider's own turn end restated;
-	// nil on every other end, which says nothing of it. Deleted in T9.
-	AsyncWork *int   `json:"asyncWork,omitempty"`
-	Effort    string `json:"effort,omitempty"`
+	Effort   string `json:"effort,omitempty"`
 	// Diff is the provider's last whole diff of the turn's changes.
 	Diff string `json:"diff,omitempty"`
 }
-
-// Async reports whether the end declared background work still running.
-func (e TurnEnded) Async() bool { return e.AsyncWork != nil && *e.AsyncWork > 0 }
 
 // TurnFailed is the body of a turn_failed row: the provider could not finish
 // the turn.
@@ -92,14 +86,6 @@ type turnState struct {
 	startSeq, closeSeq            int64
 }
 
-// background is the background work a runner last restated. A Stop ends the
-// runner's claim to any until it starts another turn.
-type background struct {
-	runnerID  string
-	asyncWork int
-	stopped   bool
-}
-
 // RunningTurn is the chat's main-scope turn while it runs.
 func (s State) RunningTurn() (Turn, bool) {
 	if s.hasTurn && s.turn.Status == TurnStatusRunning {
@@ -113,14 +99,11 @@ func (s State) LastTurn() (Turn, bool) {
 	return s.turn.Turn, s.hasTurn
 }
 
-// Busy reports whether the chat is working: a main-scope turn runs, or the
-// live runner's last restatement, late or not, left background work (T9
-// replaces that second clause with live subagents).
+// Busy reports whether the chat is working: a main-scope turn runs, or a
+// subagent is starting or running, whatever turn spawned it.
 func (s State) Busy() bool {
-	if _, ok := s.RunningTurn(); ok {
-		return true
-	}
-	return s.bg.asyncWork > 0 && s.hasLive && s.live.RunnerID == s.bg.runnerID
+	_, ok := s.RunningTurn()
+	return ok || len(s.Subagents()) > 0
 }
 
 // startsTurn reports whether a turn_started may open its turn: never over a
@@ -151,25 +134,16 @@ func (s *State) applyTurnStarted(r Row, body TurnStarted) {
 		provider: body.Provider, sessionID: body.SessionID, persists: body.Persists, startSeq: r.Seq,
 	}
 	s.hasTurn = true
-	s.keys.openTurn(r.TurnID, body.ProviderTurnID, body.RunnerID)
-	if s.bg.runnerID == body.RunnerID {
-		s.bg.stopped = false
+	if gone := s.keys.openTurn(r.TurnID, body.ProviderTurnID, body.RunnerID); gone != "" {
+		s.agents.forgetTurn(gone)
 	}
 }
 
 // applyTurnEnded closes the running turn it names; any other close is late.
-// Either way a Stop ends its runner's claim to background work, and a
-// provider's own end restates it.
 func (s *State) applyTurnEnded(r Row) {
 	body, err := DecodeBody[TurnEnded](r)
 	if err != nil || r.Scope != "" {
 		return
-	}
-	switch {
-	case body.Reason == ReasonStopped && s.hasLive && body.RunnerID == s.live.RunnerID:
-		s.bg = background{runnerID: body.RunnerID, stopped: true}
-	case body.AsyncWork != nil:
-		s.restate(body.RunnerID, *body.AsyncWork)
 	}
 	if !s.hasTurn || s.turn.ID != r.TurnID {
 		return
@@ -180,32 +154,22 @@ func (s *State) applyTurnEnded(r Row) {
 		return
 	}
 	s.turn.Status, s.turn.closeSeq = next, r.Seq
-	s.abandonAsks(func(a PendingAsk) bool { return a.TurnID == r.TurnID && !a.OutlivesEnd(body.Async()) })
+	outlived := s.SubagentRunning()
+	s.abandonAsks(func(a PendingAsk) bool { return a.TurnID == r.TurnID && !a.OutlivesEnd(outlived) })
 	if next == TurnStatusDone && s.turn.persists == PersistsTurnEnd {
 		s.markTurned(s.turn.provider, s.turn.sessionID)
 	}
 }
 
-// applyTurnFailed fails the running turn it names. A failed turn restates no
-// background work, so a failure never leaves the chat refusing prompts on it.
+// applyTurnFailed fails the running turn it names.
 func (s *State) applyTurnFailed(r Row) {
 	if _, err := DecodeBody[TurnFailed](r); err != nil || r.Scope != "" || !s.hasTurn || s.turn.ID != r.TurnID {
 		return
 	}
-	s.restate(s.turn.RunnerID, 0)
 	if next, ok := s.turn.Status.Next(TurnStatusFailed); ok {
 		s.turn.Status, s.turn.closeSeq = next, r.Seq
 		s.abandonAsks(func(a PendingAsk) bool { return a.TurnID == r.TurnID })
 	}
-}
-
-// restate records runnerID's background work, when it is the live runner and
-// no Stop ended its claim.
-func (s *State) restate(runnerID string, asyncWork int) {
-	if !s.hasLive || s.live.RunnerID != runnerID || (s.bg.stopped && s.bg.runnerID == runnerID) {
-		return
-	}
-	s.bg = background{runnerID: runnerID, asyncWork: max(asyncWork, 0)}
 }
 
 // EndTurn is the turn_ended row for the running turn; none when no turn runs.
@@ -252,13 +216,18 @@ func (s State) turnOf(runnerID, providerTurnID string) (string, bool) {
 	return uuid.NewString(), false
 }
 
-// Stop is a user's Stop as rows: the running turn interrupted, and every
-// pending prompt settled unconsumed, both for ReasonStopped.
+// Stop is a user's Stop as rows: the running turn and every live subagent
+// interrupted, and every pending prompt settled unconsumed.
 func Stop(st State) ([]Row, error) {
-	rows, err := EndTurn(st, TurnStatusInterrupted, ReasonStopped)
+	rows, err := Stopping(st)
 	if err != nil {
 		return nil, err
 	}
+	ended, err := EndTurn(st, TurnStatusInterrupted, ReasonStopped)
+	if err != nil {
+		return nil, err
+	}
+	rows = append(rows, ended...)
 	settled, err := Settle(st, func(Prompt) bool { return true }, false, ReasonStopped)
 	return append(rows, settled...), err
 }

@@ -22,6 +22,7 @@ const (
 	reasonNoDescriptor  = "no_descriptor"
 	reasonWriteFailed   = "write_failed"
 	reasonSenderGone    = "sender_gone"
+	reasonInternal      = "internal_subagent"
 )
 
 // refusals are the reasons a hook was refused to its sender; a hook kept for any

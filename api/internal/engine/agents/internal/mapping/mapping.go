@@ -211,18 +211,6 @@ func String(doc map[string]any, paths Expr) string {
 	return s
 }
 
-func Count(doc map[string]any, paths Expr) int {
-	v, ok := resolve(doc, paths)
-	if !ok {
-		return 0
-	}
-	arr, isArray := v.([]any)
-	if !isArray {
-		return 0
-	}
-	return len(arr)
-}
-
 func Int(doc map[string]any, paths Expr) (int, bool) {
 	f, ok := Float(doc, paths)
 	if !ok {

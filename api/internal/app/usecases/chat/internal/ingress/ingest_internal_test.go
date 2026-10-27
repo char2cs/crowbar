@@ -307,7 +307,7 @@ func TestRecorder_AnotherSessionsEventIsForeignUnlessNested(t *testing.T) {
 	require.NoError(t, err)
 	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{
 		Kind: engineagents.HookToolPost, SessionID: "main",
-		Tool: &engineagents.ToolEvent{ID: "spawn", Name: "Agent", NestedSessionID: "child"},
+		Tool: &engineagents.ToolEvent{ID: "spawn", Name: "Agent", Kind: ledger.ToolKindSubagent, SpawnsScope: "child"},
 	})
 	require.NoError(t, err)
 	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{

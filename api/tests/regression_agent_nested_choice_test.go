@@ -13,7 +13,7 @@ import (
 
 // nestedChoiceDescriptorYAML is the answer stub plus the two tool events a
 // provider that streams a subagent's own thread over the parent's connection
-// uses: tool_post naming the child (nested_session_id), then the child's own
+// uses: tool_post naming the child it spawned (spawns_scope), then the child's own
 // events carrying the child's session id.
 const nestedChoiceEventsYAML = `  tool_pre:
     in: tool_pre
@@ -23,11 +23,13 @@ const nestedChoiceEventsYAML = `  tool_pre:
       tool_name: tool_name
   tool_post:
     in: tool_post
+    kind_map: { spawn: subagent }
     map:
       session_id: session_id
       tool_id: tool_id
       tool_name: tool_name
-      nested_session_id: nested_session_id
+      tool_kind: tool_name
+      spawns_scope: spawns_scope
 `
 
 func nestedChoiceDescriptor() string {
@@ -45,7 +47,7 @@ func newNestedChoiceChat(t *testing.T) nestedChoiceChat {
 		postAnswerStubHook(t, c.h, repoBase(c.imported), c.runnerID, event, payload)
 	}
 	hook("session_start", `{"session_id":"main"}`)
-	hook("tool_post", `{"session_id":"main","tool_id":"spawn-1","tool_name":"spawn","nested_session_id":"child"}`)
+	hook("tool_post", `{"session_id":"main","tool_id":"spawn-1","tool_name":"spawn","spawns_scope":"child"}`)
 	c.h.Quiesce()
 	return nestedChoiceChat{c}
 }

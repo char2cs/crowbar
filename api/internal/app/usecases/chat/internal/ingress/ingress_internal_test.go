@@ -391,6 +391,10 @@ func TestHook_AnAcknowledgedHookIsDeadLetteredOrRefused(t *testing.T) {
 			set:    func(f fixture) { f.turns.err = fmt.Errorf("unhandled: %w", seam.ErrHookNotRecorded) },
 			reason: reasonNotRecorded,
 		},
+		"a harness-internal subagent's stop": {
+			set:    func(f fixture) { f.turns.err = errInternalSubagent },
+			reason: reasonInternal,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture()

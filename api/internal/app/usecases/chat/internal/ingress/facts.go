@@ -144,9 +144,9 @@ func mapTool(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope 
 	body := ledger.ToolCall{
 		ToolID: id, Phase: phase, Name: tool.Name, Kind: tool.Kind, Title: tool.Title, Target: tool.Target,
 		Locations: toolLocations(tool), InputRef: refs.Input, ResultRef: refs.Result,
-		Error: caption(tool.Error), DurationMS: tool.DurationMS, SpawnsScope: tool.NestedSessionID,
-		ExitCode: tool.ExitCode, Interrupted: tool.Interrupted,
+		Error: caption(tool.Error), DurationMS: tool.DurationMS, ExitCode: tool.ExitCode, Interrupted: tool.Interrupted,
 	}
+	scopeOf(&body, tool)
 	if !st.HasToolInput(scope, id) {
 		// A call is keyed once: its first input is the one an ask names it by.
 		body.InputKey = ledger.InputKey(tool.Input)
@@ -161,10 +161,14 @@ func mapTool(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope 
 		body.Diff, body.Status = toolResultDiff(tool), toolStatus(ev)
 	}
 	row, err := ledger.NewRow(ledger.KindToolCall, turnID, scope, body)
-	if err != nil || phase == ledger.ToolPre {
-		return []ledger.Row{row}, err
+	if err != nil {
+		return nil, err
 	}
-	rows := []ledger.Row{row}
+	spawned, err := spawnRows(st, body, turnID)
+	rows := append([]ledger.Row{row}, spawned...)
+	if err != nil || phase == ledger.ToolPre {
+		return rows, err
+	}
 	for _, askID := range st.AsksOfTool(scope, id) {
 		resolved, err := ledger.ResolveAsk(st, askID, ledger.ResolutionProceeded, nil)
 		if err != nil {
@@ -194,25 +198,6 @@ func toolStatus(ev engineagents.CanonicalEvent) string {
 		return domain.ToolStatusError
 	}
 	return cmp.Or(ev.Tool.Status, domain.ToolStatusOK)
-}
-
-// mapSubagent records a subagent's start or stop in its own scope, once.
-func mapSubagent(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]ledger.Row, error) {
-	if ev.Subagent == nil || ev.Subagent.ID == "" {
-		return nil, nil
-	}
-	scope := ev.Subagent.ID
-	phase := ledger.SubagentStart
-	if ev.Kind == engineagents.HookSubagentPost {
-		phase = ledger.SubagentStop
-	}
-	if st.HasScopePhase(scope, phase) {
-		return nil, nil
-	}
-	turnID, _ := turnFor(st, src, scope, ev.TurnID)
-	row, err := ledger.NewRow(ledger.KindSubagent, turnID, scope,
-		ledger.Subagent{Phase: phase, Type: ev.Subagent.AgentType})
-	return []ledger.Row{row}, err
 }
 
 // mapPlan records the agent's plan as restated, in its scope.

@@ -125,7 +125,8 @@ func TestProjector_AToolOpenWhenItsRunnerExitedReadsAbandoned(t *testing.T) {
 func TestProjector_AScopesToolCallsAreItsSubagents(t *testing.T) {
 	b := newBook(t)
 	b.open("T1", "go")
-	b.add(tool(t, "", ledger.ToolCall{ToolID: "spawn", Phase: ledger.ToolPost, Name: "Agent", SpawnsScope: "A"}))
+	b.add(tool(t, "", ledger.ToolCall{ToolID: "spawn", Phase: ledger.ToolPost, Name: "Agent", SpawnsScope: "A"}),
+		mk(t, ledger.KindSubagent, "T1", "A", ledger.SubagentBody{Phase: ledger.SubagentBound, SpawnToolID: "spawn"}))
 	b.add(tool(t, "A", ledger.ToolCall{ToolID: "t1", Phase: ledger.ToolPre, Name: "Read"}))
 	b.add(tool(t, "B", ledger.ToolCall{ToolID: "t1", Phase: ledger.ToolPre, Name: "Bash"}))
 
@@ -137,59 +138,61 @@ func TestProjector_AScopesToolCallsAreItsSubagents(t *testing.T) {
 	assert.Equal(t, "B", calls[2].SubagentID)
 }
 
-func TestProjector_ASubagentIsOpenedByItsStartOrItsSpawn(t *testing.T) {
+func TestProjector_ASubagentIsOpenedByItsStartOrItsBind(t *testing.T) {
 	b := newBook(t)
 	b.open("T1", "go")
-	b.add(mk(t, ledger.KindSubagent, "T1", "A", ledger.Subagent{Phase: ledger.SubagentStart, Type: "explorer"}))
-	b.add(tool(t, "", ledger.ToolCall{ToolID: "spawn", Phase: ledger.ToolPost, SpawnsScope: "B"}))
-	b.add(mk(t, ledger.KindSubagent, "T1", "C", ledger.Subagent{Phase: ledger.SubagentStop}))
+	b.add(mk(t, ledger.KindSubagent, "T1", "A", ledger.SubagentBody{Phase: ledger.SubagentStart, Type: "explorer"}))
+	b.add(mk(t, ledger.KindSubagent, "T1", "", ledger.SubagentBody{Phase: ledger.SubagentStart, SpawnToolID: "spawn", Title: "look"}))
+	b.add(mk(t, ledger.KindSubagent, "T1", "B", ledger.SubagentBody{Phase: ledger.SubagentBound, SpawnToolID: "spawn"}))
+	b.add(mk(t, ledger.KindSubagent, "T1", "", ledger.SubagentBody{Phase: ledger.SubagentStart, SpawnToolID: "never-bound"}))
+	b.add(mk(t, ledger.KindSubagent, "T1", "C", ledger.SubagentBody{Phase: ledger.SubagentStop}))
 	b.say("A", "a1", "found it")
-	b.add(mk(t, ledger.KindSubagent, "T1", "A", ledger.Subagent{Phase: ledger.SubagentStop}))
+	b.add(mk(t, ledger.KindSubagent, "T1", "A", ledger.SubagentBody{
+		Phase: ledger.SubagentStop, Result: "the report", Usage: &ledger.SubagentUsage{Tokens: 40, ToolUses: 3},
+	}))
 
 	subs := b.activity().Subagents
-	require.Len(t, subs, 2, "a scope only its stop names was never opened")
+	require.Len(t, subs, 2, "a scope only its stop names was never opened, and an unbound spawn has no scope")
 	assert.Equal(t, "A", subs[0].ID)
 	assert.Equal(t, "explorer", subs[0].AgentType)
+	assert.Equal(t, "done", subs[0].Status)
+	assert.Equal(t, int64(40), subs[0].Tokens)
+	assert.Equal(t, int64(3), subs[0].ToolUses)
 	require.NotNil(t, subs[0].EndedAt)
-	require.Len(t, subs[0].Messages, 1)
+	require.Len(t, subs[0].Messages, 2)
 	assert.Equal(t, "found it", subs[0].Messages[0].Text)
+	assert.Equal(t, "the report", subs[0].Messages[1].Text, "its handed-back result is what it said last")
 	assert.Equal(t, "B", subs[1].ID)
+	assert.Equal(t, "look", subs[1].Title, "its spawning call titles it")
+	assert.Equal(t, "running", subs[1].Status)
 	assert.Nil(t, subs[1].EndedAt)
 }
 
-func TestProjector_ASubagentOpenWhenItsTurnEndedReadsStopped(t *testing.T) {
+func TestProjector_ASubagentRunsPastItsTurnsEndUntilItsRunnerExits(t *testing.T) {
 	b := newBook(t)
 	b.open("T1", "go")
-	b.add(mk(t, ledger.KindSubagent, "T1", "A", ledger.Subagent{Phase: ledger.SubagentStart}))
+	b.add(mk(t, ledger.KindSubagent, "T1", "A", ledger.SubagentBody{Phase: ledger.SubagentStart}))
 	b.end()
-
-	sub := b.activity().Subagents[0]
-	require.NotNil(t, sub.EndedAt, "a stop that never came is its turn's end")
-}
-
-func TestProjector_ASubagentOpenWhenItsRunnerExitedReadsStopped(t *testing.T) {
-	b := newBook(t)
-	b.open("T1", "go")
-	b.end()
-	b.add(tool(t, "", ledger.ToolCall{ToolID: "spawn", Phase: ledger.ToolPost, SpawnsScope: "A"}))
-	assert.Nil(t, b.activity().Subagents[0].EndedAt, "one opened after its turn ended outlives that end")
+	assert.Nil(t, b.activity().Subagents[0].EndedAt, "a background subagent outlives its turn's end")
 
 	b.add(mk(t, ledger.KindRunnerExited, "", "", ledger.RunnerExited{RunnerID: "run-1", Reason: "exited"}))
 
-	require.NotNil(t, b.activity().Subagents[0].EndedAt)
+	sub := b.activity().Subagents[0]
+	require.NotNil(t, sub.EndedAt)
+	assert.Equal(t, "interrupted", sub.Status)
 }
 
-// A turn that ends declaring background work leaves its subagents running:
+// A turn that ends while its subagents run leaves them running:
 // each is over at its own stop or its runner's exit, and a tool of one is
 // abandoned only when that subagent ends with it open.
 func TestProjector_ABackgroundSubagentRunsPastItsTurnsEnd(t *testing.T) {
 	b := newBook(t)
 	b.open("T1", "go")
 	b.add(
-		mk(t, ledger.KindSubagent, "T1", "A", ledger.Subagent{Phase: ledger.SubagentStart}),
-		mk(t, ledger.KindSubagent, "T1", "B", ledger.Subagent{Phase: ledger.SubagentStart}),
+		mk(t, ledger.KindSubagent, "T1", "A", ledger.SubagentBody{Phase: ledger.SubagentStart}),
+		mk(t, ledger.KindSubagent, "T1", "B", ledger.SubagentBody{Phase: ledger.SubagentStart}),
 		tool(t, "A", ledger.ToolCall{ToolID: "read", Phase: ledger.ToolPre, Name: "Read"}),
-		mk(t, ledger.KindTurnEnded, "T1", "", ledger.TurnEnded{Status: "done", RunnerID: "run-1", AsyncWork: new(2)}),
+		mk(t, ledger.KindTurnEnded, "T1", "", ledger.TurnEnded{Status: "done", RunnerID: "run-1"}),
 		tool(t, "A", ledger.ToolCall{ToolID: "bash", Phase: ledger.ToolPre, Name: "Bash"}),
 		tool(t, "B", ledger.ToolCall{ToolID: "grep", Phase: ledger.ToolPre, Name: "Grep"}),
 	)
@@ -209,7 +212,7 @@ func TestProjector_ABackgroundSubagentRunsPastItsTurnsEnd(t *testing.T) {
 	running := domain.ToolStatusRunning
 	assert.Equal(t, map[string]string{"A": "running", "B": "running", "Read": running, "Bash": running, "Grep": running}, status())
 
-	b.add(mk(t, ledger.KindSubagent, "T1", "A", ledger.Subagent{Phase: ledger.SubagentStop}))
+	b.add(mk(t, ledger.KindSubagent, "T1", "A", ledger.SubagentBody{Phase: ledger.SubagentStop}))
 	abandoned := domain.ToolStatusAbandoned
 	assert.Equal(t, map[string]string{"A": "stopped", "B": "running", "Read": abandoned, "Bash": abandoned, "Grep": running}, status())
 

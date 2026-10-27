@@ -167,6 +167,8 @@ func (i *Ingress) record(ctx context.Context, h hook, runner engineagents.Runner
 		return nil
 	case errors.Is(err, engineagents.ErrForeignConversation):
 		return i.deadLetter(ctx, h, chatID, reasonForeign)
+	case errors.Is(err, errInternalSubagent):
+		return i.deadLetter(ctx, h, chatID, reasonInternal)
 	case errors.Is(err, seam.ErrHookNotRecorded):
 		return i.deadLetter(ctx, h, chatID, reasonNotRecorded)
 	case errors.Is(err, apperr.ErrUnprocessable):

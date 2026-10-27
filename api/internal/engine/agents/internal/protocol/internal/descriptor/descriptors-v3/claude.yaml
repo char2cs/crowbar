@@ -73,7 +73,7 @@ events:
   user_prompt:
     required: [session_id, message]
     in: UserPromptSubmit
-    map: { session_id: session_id, message: prompt, subagent_id: agent_id, turn_id: prompt_id }
+    map: { session_id: session_id, message: prompt, scope_id: agent_id, turn_id: prompt_id }
     fixtures: [UserPromptSubmit.json, UserPromptSubmit.Subagent.json, UserPromptSubmit.AgentMessage.json]
 
   turn_stop:
@@ -82,7 +82,6 @@ events:
     map:
       session_id: session_id
       message:    last_assistant_message
-      async_work: background_tasks
       effort:     effort.level
       turn_id:    prompt_id
     fixtures: [Stop.json]
@@ -117,7 +116,7 @@ events:
     in: PreToolUse
     map:
       session_id:  session_id
-      subagent_id: agent_id
+      scope_id:    agent_id
       tool_id:     tool_use_id
       tool_name:   tool_name
       tool_kind:   { first_present: [ { from: tool_name, pattern: '^(?P<v>mcp)__' }, tool_name ] }
@@ -141,7 +140,7 @@ events:
     in: PostToolUse
     map:
       session_id:  session_id
-      subagent_id: agent_id
+      scope_id:    agent_id
       tool_id:     tool_use_id
       tool_name:   tool_name
       tool_kind:   { first_present: [ { from: tool_name, pattern: '^(?P<v>mcp)__' }, tool_name ] }
@@ -153,9 +152,10 @@ events:
       tool_input:  tool_input
       tool_result: tool_response
       duration_ms: duration_ms
+      spawns_scope: tool_response.agentId
     patch: { items: tool_response.structuredPatch, old_start: oldStart, new_start: newStart, lines: lines }
     fixtures: [PostToolUse.json, PostToolUse.Edit.json, PostToolUse.Subagent.json, PostToolUse.Bash.json,
-               PostToolUse.mcp.json]
+               PostToolUse.mcp.json, PostToolUse.Agent.json]
 
   # Fires INSTEAD OF PostToolUse, not alongside it — mapping only tool_post
   # leaves a failed tool open until the turn-close sweep abandons it.
@@ -165,13 +165,13 @@ events:
       TaskCreate: plan, TaskUpdate: plan, TaskList: plan, TaskGet: plan, ToolSearch: meta,
       SubagentHandback: meta, AskUserQuestion: ask }
     required: [session_id, tool_id, tool_name]
-    # No fixture: the real failure leaves subagent_id, mcp_server and mcp_tool unresolved; the
+    # No fixture: the real failure leaves scope_id, mcp_server and mcp_tool unresolved; the
     # replay would need a recorded subagent failure and a failed MCP call.
     unverified: true
     in: PostToolUseFailure
     map:
       session_id:  session_id
-      subagent_id: agent_id
+      scope_id:    agent_id
       tool_id:     tool_use_id
       tool_name:   tool_name
       tool_kind:   { first_present: [ { from: tool_name, pattern: '^(?P<v>mcp)__' }, tool_name ] }
@@ -187,16 +187,42 @@ events:
       interrupted: is_interrupt
 
   subagent_pre:
-    required: [session_id, subagent_id]
+    required: [session_id, scope_id]
     in: SubagentStart
-    map: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
+    map: { session_id: session_id, scope_id: agent_id, agent_type: agent_type }
     fixtures: [SubagentStart.json]
 
   subagent_post:
-    required: [session_id, subagent_id]
+    required: [session_id, scope_id]
     in: SubagentStop
-    map: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
+    map: { session_id: session_id, scope_id: agent_id, agent_type: agent_type, result: last_assistant_message }
     fixtures: [SubagentStop.json]
+    # The recorded stop is a background agent's, which carries no last message.
+    unverified_fields: [result]
+
+  # A hand-back is a UserPromptSubmit (see injected_prompts); its turn_id is the
+  # prompt's, which names the parent's turn that answers it.
+  subagent_result:
+    unverified: true
+    in: UserPromptSubmit
+    map: { session_id: session_id, turn_id: prompt_id }
+
+  # The task list, one step at a time: TaskCreated and TaskCompleted, and the
+  # TaskUpdate tool's PostToolUse (registered with that matcher below). No capture
+  # of the first two exists yet; the field names are the hooks' documented ones.
+  plan_step:
+    unverified: true
+    unverified_fields: [step_id, text, detail]
+    in: [TaskCreated, TaskCompleted, PostToolUse]
+    status_map: { pending: pending, in_progress: active, completed: done, deleted: removed,
+      TaskCreated: pending, TaskCompleted: done }
+    map:
+      session_id: session_id
+      scope_id:   agent_id
+      step_id:    { first_present: [task_id, tool_input.taskId] }
+      text:       { first_present: [task_subject, tool_input.subject] }
+      detail:     task_description
+      status:     { first_present: [tool_response.statusChange.to, tool_input.status, hook_event_name] }
 
   notification:
     required: [session_id]
@@ -325,8 +351,7 @@ permission_levels:
         - pass_arg: { arg: "--permission-mode", value: "auto" }
 
 # --- carried across from v2 unchanged -------------------------------------
-# Validated against claude 2.1.236. An older claude degrades safely: a Stop
-# payload without background_tasks yields 0 and Working folds from the turn.
+# Validated against claude 2.1.236.
 spawn:
   cmd: claude
   interactive_required: true
@@ -471,7 +496,13 @@ hooks_injection:
           "PreToolUse":[{"hooks":[{"type":"http",
             "url":"{hook_url}/tool_pre","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
           "PostToolUse":[{"hooks":[{"type":"http",
-            "url":"{hook_url}/tool_post","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
+            "url":"{hook_url}/tool_post","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]},
+            {"matcher":"TaskUpdate","hooks":[{"type":"http",
+            "url":"{hook_url}/plan_step","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
+          "TaskCreated":[{"hooks":[{"type":"http",
+            "url":"{hook_url}/plan_step","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
+          "TaskCompleted":[{"hooks":[{"type":"http",
+            "url":"{hook_url}/plan_step","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
           "PostToolUseFailure":[{"hooks":[{"type":"http",
             "url":"{hook_url}/tool_fail","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
           "SubagentStart":[{"hooks":[{"type":"http",
@@ -555,7 +586,11 @@ injected_prompts:
   - kind: task_notification
     needle: "<task-notification>"
   - needle: "<teammate-message"
-  - needle: "<agent-message"
+  # The hand-back of a subagent's result: subagent_result, never a prompt.
+  - kind: subagent_result
+    needle: "<agent-message"
+    scope_id: { pattern: 'from="(?P<v>[^"]+)"' }
+    result:   { pattern: '(?s)The report follows:\n(?P<v>.*)</agent-message>' }
   - needle: "[Subagent hand-back]"
 # claude paints its trust dialog BEFORE any hook fires, so a chat behind it
 # is an empty pane over a blocked process with no channel to answer it.

@@ -67,11 +67,11 @@ func (f *facts) askResolution(a *askFact) (*time.Time, string, []string) {
 // subagent's stop, else at its turn's end unless that end leaves it open
 // (ledger.Ask.OutlivesEnd), else at its runner's exit.
 func (f *facts) askEnd(a *askFact) (time.Time, bool) {
-	if s, ok := f.scopes[a.scope]; ok && a.scope != "" && s.stopped && s.stopSeq > a.seq {
-		return s.stopAt, true
+	if s, ok := f.agents.Of(a.scope); ok && s.EndSeq > a.seq && (s.Status == ledger.SubagentDone || s.Status == ledger.SubagentFailed) {
+		return s.EndedAt, true
 	}
 	t := f.turns[a.turnID]
-	if t != nil && t.ended && t.endSeq > a.seq && !a.ask.OutlivesEnd(t.async) {
+	if t != nil && t.ended && t.endSeq > a.seq && !a.ask.OutlivesEnd(t.outlived) {
 		return t.endAt, true
 	}
 	return f.exitAfter(t, a.seq)

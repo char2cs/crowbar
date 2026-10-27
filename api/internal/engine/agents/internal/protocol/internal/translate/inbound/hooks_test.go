@@ -277,51 +277,6 @@ func TestParse_ADualShapeEventStillAcceptsAGenuineAPIPayload(t *testing.T) {
 	assert.NoError(t, err, "an api-transport payload never carries transcript_path; its absence is not foreign")
 }
 
-func TestParse_AsyncWorkIsTheLengthOfTheDeclaredArray(t *testing.T) {
-	testCases := []struct {
-		name    string
-		mapping map[string]string
-		payload string
-		want    int
-	}{
-		{
-			"three outstanding",
-			map[string]string{"async_work": "background_tasks"},
-			`{"background_tasks":[1,2,3]}`, 3,
-		},
-		{
-			"converged to empty",
-			map[string]string{"async_work": "background_tasks"},
-			`{"background_tasks":[]}`, 0,
-		},
-		{
-			"field absent on an older CLI",
-			map[string]string{"async_work": "background_tasks"},
-			`{}`, 0,
-		},
-		{"provider maps nothing", map[string]string{}, `{"background_tasks":[1,2]}`, 0},
-		{
-			"not an array",
-			map[string]string{"async_work": "background_tasks"},
-			`{"background_tasks":"running"}`, 0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			mapping := map[string]string{"message": "last"}
-			for k, v := range tc.mapping {
-				mapping[k] = v
-			}
-			d := descriptor(map[string]map[string]string{spec.HookTurnStop: mapping})
-
-			ev, err := parse(d, spec.HookTurnStop, []byte(tc.payload))
-
-			require.NoError(t, err)
-			assert.Equal(t, tc.want, ev.AsyncWork)
-		})
-	}
-}
-
 func TestParse_BuildsAToolEventForBothToolPhases(t *testing.T) {
 	d := descriptor(map[string]map[string]string{
 		spec.HookToolPre: {
@@ -351,14 +306,12 @@ func TestParse_BuildsAToolEventForBothToolPhases(t *testing.T) {
 	assert.Equal(t, 42, post.Tool.DurationMS)
 }
 
-// A tool call may name a whole SECOND conversation, not just its own
-// request/result — codex's collabAgentToolCall reports the thread id of the
-// agent it spawned or is addressing. NestedSessionID is generic: the
-// descriptor supplies the path, Go never learns why the field is there.
-func TestParse_ToolPostCarriesANestedSessionIDWhenTheDescriptorMapsOne(t *testing.T) {
+// A tool call may name the subagent it spawned or addresses; the descriptor
+// supplies the path, Go never learns why the field is there.
+func TestParse_ToolPostCarriesTheScopesItNames(t *testing.T) {
 	d := descriptor(map[string]map[string]string{
 		spec.HookToolPost: {
-			"tool_id": "tool_use_id", "nested_session_id": "receiver_thread",
+			"tool_id": "tool_use_id", "spawns_scope": "receiver_thread", "addresses_scope": "receiver_thread",
 		},
 	})
 
@@ -367,10 +320,11 @@ func TestParse_ToolPostCarriesANestedSessionIDWhenTheDescriptorMapsOne(t *testin
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Tool)
-	assert.Equal(t, "child-1", ev.Tool.NestedSessionID)
+	assert.Equal(t, "child-1", ev.Tool.SpawnsScope)
+	assert.Equal(t, "child-1", ev.Tool.AddressesScope)
 }
 
-func TestParse_ToolPostWithNoNestedSessionMappingLeavesItEmpty(t *testing.T) {
+func TestParse_ToolPostWithNoScopeMappingLeavesItEmpty(t *testing.T) {
 	d := descriptor(map[string]map[string]string{
 		spec.HookToolPost: {"tool_id": "tool_use_id"},
 	})
@@ -379,7 +333,7 @@ func TestParse_ToolPostWithNoNestedSessionMappingLeavesItEmpty(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Tool)
-	assert.Empty(t, ev.Tool.NestedSessionID)
+	assert.Empty(t, ev.Tool.SpawnsScope)
 }
 
 func TestParse_ToolEventCarriesTheMappedEditBeforeAndAfterText(t *testing.T) {
@@ -446,8 +400,8 @@ func TestParse_ToolTargetTakesTheFirstMappedPathThatHasAValue(t *testing.T) {
 
 func TestParse_BuildsSubagentAndInterruptEvents(t *testing.T) {
 	d := descriptor(map[string]map[string]string{
-		spec.HookSubagentPre:  {"subagent_id": "agent_id", "agent_type": "agent_type"},
-		spec.HookSubagentPost: {"subagent_id": "agent_id"},
+		spec.HookSubagentPre:  {"scope_id": "agent_id", "agent_type": "agent_type"},
+		spec.HookSubagentPost: {"scope_id": "agent_id", "result": "last", "status": "state", "usage.tokens": "used.tokens"},
 		spec.HookNotification: {"message": "message"},
 		spec.HookPermission:   {"message": "tool_name"},
 		spec.HookCompactPre:   {"trigger": "trigger"},
@@ -459,6 +413,12 @@ func TestParse_BuildsSubagentAndInterruptEvents(t *testing.T) {
 	require.NotNil(t, sub.Subagent)
 	assert.Equal(t, "a1", sub.Subagent.ID)
 	assert.Equal(t, "explore", sub.Subagent.AgentType)
+	assert.Nil(t, sub.Subagent.Usage, "nothing spent is reported")
+
+	stop, err := parse(d, spec.HookSubagentPost, []byte(`{"agent_id":"a1","last":"done it","state":"x","used":{"tokens":12}}`))
+	require.NoError(t, err)
+	assert.Equal(t, models.SubagentEvent{ID: "a1", Result: "done it", Status: "x", Usage: &models.SubagentUsage{Tokens: 12}},
+		*stop.Subagent)
 
 	note, err := parse(d, spec.HookNotification, []byte(`{"message":"waiting on you"}`))
 	require.NoError(t, err)

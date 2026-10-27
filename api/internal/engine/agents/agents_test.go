@@ -259,13 +259,12 @@ func TestAgent_ParseHookMapsAConversationTurn(t *testing.T) {
 	a := get(t, "claude")
 
 	ev, err := a.ParseHook(agents.HookTurnStop,
-		[]byte(`{"session_id":"s1","last_assistant_message":"done","background_tasks":[1]}`),
+		[]byte(`{"session_id":"s1","last_assistant_message":"done"}`),
 		agents.ChannelHooks)
 
 	require.NoError(t, err)
 	assert.Equal(t, "s1", ev.SessionID)
 	assert.Equal(t, "done", ev.Message)
-	assert.Equal(t, 1, ev.AsyncWork)
 }
 
 // subagent_pre stays hooks-only (no per-event transport override AND no

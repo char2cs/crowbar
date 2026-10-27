@@ -40,9 +40,13 @@ func nestedEnd(st ledger.State, ev engineagents.CanonicalEvent, src Source, scop
 		}
 		rows = append(rows, row)
 	}
-	if st.HasScopePhase(scope, ledger.SubagentStop) {
+	if a, seen := st.SubagentOf(scope); seen && !a.Status.Live() {
 		return rows, nil
 	}
-	row, err := ledger.NewRow(ledger.KindSubagent, turnID, scope, ledger.Subagent{Phase: ledger.SubagentStop})
+	stop := ledger.SubagentBody{Phase: ledger.SubagentStop, Result: ev.Message}
+	if ev.Kind == engineagents.HookTurnFailed {
+		stop.Status = string(ledger.SubagentFailed)
+	}
+	row, err := ledger.NewRow(ledger.KindSubagent, turnID, scope, stop)
 	return append(rows, row), err
 }

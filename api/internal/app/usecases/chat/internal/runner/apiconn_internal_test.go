@@ -234,7 +234,7 @@ events:
   subagent_pre:
     transport: hooks
     in: SubagentStart
-    map: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
+    map: { session_id: session_id, scope_id: agent_id, agent_type: agent_type }
 runtime:
   transport: api
   api:

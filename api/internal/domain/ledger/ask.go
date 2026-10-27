@@ -44,10 +44,10 @@ type Ask struct {
 	Answerable bool `json:"answerable"`
 }
 
-// OutlivesEnd reports whether the ask stays open past its turn's end: an end that
-// declared background work (async) leaves a held ask to that work, the only
-// thing that can hold the CLI on it once its turn is over.
-func (a Ask) OutlivesEnd(async bool) bool { return async && a.Answerable }
+// OutlivesEnd reports whether the ask stays open past its turn's end: while a
+// subagent runs past that end, a held ask is left to it, the only thing that
+// can hold the CLI on it once its turn is over.
+func (a Ask) OutlivesEnd(subagentRunning bool) bool { return subagentRunning && a.Answerable }
 
 // AskResolved is the body of an ask_resolved row.
 type AskResolved struct {

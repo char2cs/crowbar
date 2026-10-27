@@ -23,7 +23,7 @@ type turnFacts struct {
 	startSeq, endSeq int64
 	startAt, endAt   time.Time
 	ended, failed    bool
-	async            bool   // its first end declared background work
+	outlived         bool   // a subagent ran past its first end
 	status           string // the component status its first end gave it
 	effort, diff     string
 	plan             []ledger.PlanItem
@@ -101,7 +101,7 @@ func (f *facts) end(t *turnFacts, r ledger.Row, status string, body ledger.TurnE
 	}
 	if !t.ended {
 		t.ended, t.endSeq, t.endAt, t.status = true, r.Seq, r.At, status
-		t.async = body.Async()
+		t.outlived = f.subagentRunning()
 	}
 }
 
@@ -111,25 +111,7 @@ func (f *facts) applyPlan(r ledger.Row) {
 		return
 	}
 	t := f.turn(r.TurnID)
-	if body.Op == ledger.PlanUpsert {
-		t.plan = upsert(t.plan, body.Items)
-	} else {
-		t.plan = slices.Clone(body.Items)
-	}
-	t.planAt = r.At
-}
-
-func upsert(plan, items []ledger.PlanItem) []ledger.PlanItem {
-	out := slices.Clone(plan)
-	for _, it := range items {
-		at := slices.IndexFunc(out, func(p ledger.PlanItem) bool { return it.ID != "" && p.ID == it.ID })
-		if at < 0 {
-			out = append(out, it)
-			continue
-		}
-		out[at] = it
-	}
-	return out
+	t.plan, t.planAt = ledger.FoldPlan(t.plan, body), r.At
 }
 
 // listed is one message in both its read shapes.
@@ -302,3 +284,8 @@ func pageBefore(messages []domain.LedgerMessage, before, limit int) ([]domain.Le
 }
 
 func bySequence(m domain.LedgerMessage, seq int) int { return cmp.Compare(m.Sequence, seq) }
+
+// subagentRunning reports whether a bound subagent runs, as the rows so far left it.
+func (f *facts) subagentRunning() bool {
+	return slices.ContainsFunc(f.agents.All(), func(a ledger.Subagent) bool { return a.Status == ledger.SubagentRunning })
+}

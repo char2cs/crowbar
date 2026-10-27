@@ -92,10 +92,10 @@ func TestExit_EndsTheRunnerAndSettlesOnlyWhatItCarried(t *testing.T) {
 func TestFold_ARunnersExitClosesOnlyWhatItRan(t *testing.T) {
 	st := ledger.Fold("c1", sequenced(t,
 		started(t, "r1"), turnStarted(t, "T1", "r1"),
-		scoped(t, ledger.KindSubagent, "T1", "S1", ledger.Subagent{Phase: ledger.SubagentStart}),
+		scoped(t, ledger.KindSubagent, "T1", "S1", ledger.SubagentBody{Phase: ledger.SubagentStart}),
 		turnEnded(t, "T1", ledger.TurnEnded{Status: "done", RunnerID: "r1"}),
 		started(t, "r2"), turnStarted(t, "T2", "r2"),
-		scoped(t, ledger.KindSubagent, "T2", "S2", ledger.Subagent{Phase: ledger.SubagentStart}),
+		scoped(t, ledger.KindSubagent, "T2", "S2", ledger.SubagentBody{Phase: ledger.SubagentStart}),
 		row(t, ledger.KindAsk, "T2", ledger.Ask{AskID: "A2", Event: "permission"}),
 		exited(t, "r1", "exited", 0),
 	))
@@ -103,7 +103,8 @@ func TestFold_ARunnersExitClosesOnlyWhatItRan(t *testing.T) {
 	assert.Len(t, st.PendingAsks(), 1, "r2's ask outlives r1's exit")
 	assert.True(t, st.ScopeWaits("S2"))
 	assert.True(t, st.ScopeOpen("S1"), "its late reports still reach it")
-	assert.False(t, st.HasScopePhase("S1", ledger.SubagentStop), "its own stop is still to come")
+	s1, _ := st.SubagentOf("S1")
+	assert.Equal(t, ledger.SubagentInterrupted, s1.Status, "its runner is gone")
 
 	end := exited(t, "r2", "exited", 0)
 	end.Seq = st.Head() + 1

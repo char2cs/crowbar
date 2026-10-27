@@ -16,7 +16,7 @@ func nestedChat(t *testing.T) (*chatRows, string) {
 	c := liveChatRows(t)
 	turnID := c.typed("delegate")
 	spawn := toolEvent(engineagents.HookToolPost, "spawn-1", "spawn")
-	spawn.Tool.NestedSessionID = "child"
+	spawn.Tool.Kind, spawn.Tool.SpawnsScope = ledger.ToolKindSubagent, "child"
 	c.mapped(spawn, hooksSource())
 	require.True(t, c.st.ScopeOpen("child"))
 	return c, turnID
@@ -52,7 +52,7 @@ func TestMap_ANestedConversationsEndIsItsReplyAndItsStop(t *testing.T) {
 	require.Equal(t, []ledger.Kind{ledger.KindAssistantText, ledger.KindSubagent}, kinds(rows))
 	assert.Equal(t, turnID, rows[0].TurnID)
 	assert.Equal(t, ledger.ReplyID("child"), bodyOf[ledger.AssistantText](t, rows[0]).MessageID)
-	assert.Equal(t, ledger.SubagentStop, bodyOf[ledger.Subagent](t, rows[1]).Phase)
+	assert.Equal(t, ledger.SubagentBody{Phase: ledger.SubagentStop, Result: "done"}, bodyOf[ledger.SubagentBody](t, rows[1]))
 	_, running := c.st.RunningTurn()
 	assert.True(t, running, "the chat's own turn runs on")
 

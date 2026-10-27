@@ -127,6 +127,10 @@ type ActivitySubagent struct {
 	ChatID    string     `json:"chatId"`
 	Seq       int64      `json:"seq"`
 	AgentType string     `json:"agentType,omitempty"`
+	Title     string     `json:"title,omitempty"`
+	Status    string     `json:"status"`
+	ToolUses  int64      `json:"toolUses,omitempty"`
+	Tokens    int64      `json:"tokens,omitempty"`
 	StartedAt time.Time  `json:"startedAt"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
 

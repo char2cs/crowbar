@@ -103,9 +103,9 @@ func TestChoices_AnAskIsAbandonedByItsOwnRunnersExit(t *testing.T) {
 	assert.Empty(t, pending)
 }
 
-// An end that declared background work leaves a held ask to that work, open and
+// An end a subagent runs past leaves a held ask to it, open and
 // answerable as the ledger's state keeps it; a subagent's ask closes with it.
-func TestChoices_AHeldAskOutlivesAnEndThatDeclaredBackgroundWork(t *testing.T) {
+func TestChoices_AHeldAskOutlivesAnEndASubagentRunsPast(t *testing.T) {
 	b := newBook(t)
 	b.open("T1", "go")
 	permission := ledger.Ask{Event: "permission", Kind: domain.ChoiceKindPermission}
@@ -114,14 +114,14 @@ func TestChoices_AHeldAskOutlivesAnEndThatDeclaredBackgroundWork(t *testing.T) {
 	unheld.AskID = "unheld"
 	heldInA.AskID, heldInA.Answerable = "held-in-A", true
 	b.add(
-		mk(t, ledger.KindSubagent, "T1", "A", ledger.Subagent{Phase: ledger.SubagentStart}),
+		mk(t, ledger.KindSubagent, "T1", "A", ledger.SubagentBody{Phase: ledger.SubagentStart}),
 		asked(t, held), asked(t, unheld), mk(t, ledger.KindAsk, "T1", "A", heldInA),
-		mk(t, ledger.KindTurnEnded, "T1", "", ledger.TurnEnded{Status: "done", RunnerID: "run-1", AsyncWork: new(1)}),
+		mk(t, ledger.KindTurnEnded, "T1", "", ledger.TurnEnded{Status: "done", RunnerID: "run-1"}),
 	)
 	assert.Equal(t, []string{"held", "held-in-A"}, openChoices(t, b), "nothing holds the unheld one")
 	assert.True(t, b.activity().Choices[0].Answerable)
 
-	b.add(mk(t, ledger.KindSubagent, "T1", "A", ledger.Subagent{Phase: ledger.SubagentStop}))
+	b.add(mk(t, ledger.KindSubagent, "T1", "A", ledger.SubagentBody{Phase: ledger.SubagentStop}))
 	assert.Equal(t, []string{"held"}, openChoices(t, b), "A's ask closes with A")
 }
 

@@ -23,14 +23,15 @@ type State struct {
 
 	turn    turnState // the newest main-scope turn, while hasTurn
 	hasTurn bool
-	bg      background // the live runner's last restated background work
+	agents  SubagentBook
+	plan    []PlanItem // the main agent's plan
 
 	keys keys // what a retried hook's fact is recognised by
 }
 
 // keepTurns is how many of the newest main turns keep their keys: a retried
-// or late hook names the running turn or the one before it. A scope still
-// open outlives its turn's keys until it stops or its runner exits.
+// or late hook names the running turn or the one before it. A live subagent
+// outlives its turn's keys until it ends.
 const keepTurns = 2
 
 // keys are the natural keys of the newest turns' facts.
@@ -41,7 +42,6 @@ type keys struct {
 	lastMain   map[string]string // turn → its newest main-scope message
 	replies    map[string]reply
 	tools      map[string]toolKeys
-	scopes     map[string]scopeKeys
 	asks       map[string]PendingAsk
 	compaction compaction
 }
@@ -52,7 +52,7 @@ func (k *keys) init() *keys {
 	if k.provider == nil {
 		k.provider, k.messages, k.lastMain = map[string]string{}, map[string]messageKeys{}, map[string]string{}
 		k.replies, k.tools = map[string]reply{}, map[string]toolKeys{}
-		k.scopes, k.asks = map[string]scopeKeys{}, map[string]PendingAsk{}
+		k.asks = map[string]PendingAsk{}
 	}
 	return k
 }
@@ -61,29 +61,30 @@ func (k keys) clone() keys {
 	k.turns = slices.Clone(k.turns)
 	k.provider, k.messages, k.lastMain = maps.Clone(k.provider), maps.Clone(k.messages), maps.Clone(k.lastMain)
 	k.replies, k.tools = maps.Clone(k.replies), maps.Clone(k.tools)
-	k.scopes, k.asks = maps.Clone(k.scopes), maps.Clone(k.asks)
+	k.asks = maps.Clone(k.asks)
 	return k
 }
 
-// openTurn keeps turnID's keys and drops those of the turn it pushes out.
-func (k *keys) openTurn(turnID, providerTurnID, runnerID string) {
+// openTurn keeps turnID's keys and drops those of the turn it pushes out,
+// which it returns.
+func (k *keys) openTurn(turnID, providerTurnID, runnerID string) string {
 	k.init()
 	if providerTurnID != "" {
 		k.provider[providerTurnID] = turnID
 	}
 	k.turns = append(slices.Clip(k.turns), keptTurn{id: turnID, runnerID: runnerID})
 	if len(k.turns) <= keepTurns {
-		return
+		return ""
 	}
 	gone := k.turns[0].id
 	k.turns = k.turns[1:]
 	maps.DeleteFunc(k.provider, func(_, t string) bool { return t == gone })
 	maps.DeleteFunc(k.messages, func(_ string, m messageKeys) bool { return m.turnID == gone })
 	maps.DeleteFunc(k.tools, func(_ string, t toolKeys) bool { return t.turnID == gone })
-	maps.DeleteFunc(k.scopes, func(_ string, s scopeKeys) bool { return s.turnID == gone && (s.stopped || s.exited) })
 	maps.DeleteFunc(k.asks, func(_ string, a PendingAsk) bool { return a.TurnID == gone })
 	delete(k.lastMain, gone)
 	delete(k.replies, gone)
+	return gone
 }
 
 // runnerOf is the runner of kept turn turnID; "" when it is not kept.
@@ -133,8 +134,8 @@ func Fold(chatID string, rows []Row) State {
 var appliers = map[Kind]func(*State, Row){
 	KindUserMessage:   (*State).applyUserMessage,
 	KindTurnStarted:   (*State).startTurn,
-	KindTurnEnded:     func(s *State, r Row) { s.applyTurnEnded(r); s.outliveScopes(r) },
-	KindTurnFailed:    func(s *State, r Row) { s.applyTurnFailed(r); s.outliveScopes(r) },
+	KindTurnEnded:     (*State).applyTurnEnded,
+	KindTurnFailed:    (*State).applyTurnFailed,
 	KindPromptSettled: (*State).applyPromptSettled,
 	KindSessionBound:  (*State).applySessionBound,
 	KindSessionLost:   (*State).applySessionLost,
@@ -146,6 +147,7 @@ var appliers = map[Kind]func(*State, Row){
 	KindAsk:           (*State).applyAsk,
 	KindAskResolved:   (*State).applyAskResolved,
 	KindSubagent:      (*State).applySubagent,
+	KindPlan:          (*State).applyPlan,
 }
 
 // Apply advances s by one row. It never fails: a row naming a prompt that is
@@ -157,6 +159,7 @@ func (s *State) Apply(r Row) {
 	if apply, ok := appliers[r.Kind]; ok {
 		apply(s, r)
 	}
+	s.agents.Apply(r)
 }
 
 func (s *State) startTurn(r Row) {
@@ -210,6 +213,8 @@ func (s State) Clone() State {
 	s.conversations = slices.Clone(s.conversations)
 	s.current = maps.Clone(s.current)
 	s.keys = s.keys.clone()
+	s.agents = s.agents.clone()
+	s.plan = slices.Clone(s.plan)
 	return s
 }
 
@@ -217,10 +222,11 @@ func (s State) Clone() State {
 func (s State) Head() int64 { return s.head }
 
 // HasOpenWork reports whether something in the chat is still unfinished: a
-// prompt awaiting the provider, a running turn, or a runner that has not exited.
+// prompt awaiting the provider, a running turn or subagent, or a runner that
+// has not exited.
 func (s State) HasOpenWork() bool {
 	_, running := s.RunningTurn()
-	return len(s.pending) > 0 || running || s.hasLive
+	return len(s.pending) > 0 || running || s.hasLive || len(s.Subagents()) > 0
 }
 
 // PendingPrompts are the crowbar prompts not yet acknowledged, oldest first.

@@ -64,6 +64,8 @@ type Effects struct {
 	// Unbound is an ask bound to no call: its tool's open calls were each
 	// given another input.
 	Unbound string
+	// Bound is the subagent the rows bound to its scope: what is held for it is now its.
+	Bound string
 }
 
 // Map decides the rows for one parsed event against the chat's state. It does
@@ -93,6 +95,9 @@ func Map(st ledger.State, ev engineagents.CanonicalEvent, src Source, refs BlobR
 	case engineagents.HookCompactPre, engineagents.HookCompactPost:
 		rows, err := mapCompaction(st, ev, src)
 		return rows, Effects{}, err
+	case engineagents.HookSubagentResult:
+		rows, err := mapHandBack(st, ev, src)
+		return rows, Effects{}, err
 	}
 	return mapActivity(st, ev, src, refs)
 }
@@ -111,6 +116,9 @@ func mapActivity(st ledger.State, ev engineagents.CanonicalEvent, src Source, re
 		return mapAsk(st, ev, src, scope)
 	case engineagents.HookPlanUpdate:
 		rows, err := mapPlan(st, ev, src, scope)
+		return rows, Effects{}, err
+	case engineagents.HookPlanStep:
+		rows, err := mapPlanStep(st, ev, src, scope)
 		return rows, Effects{}, err
 	case engineagents.HookNotification:
 		row, err := ledger.NewRow(ledger.KindMarker, runningTurn(st), "",
@@ -160,10 +168,19 @@ func startsOn(st ledger.State, runnerID string) bool {
 func mapPrompt(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]ledger.Row, error) {
 	// A prompt inside a subagent is its parent talking to it; a turn its
 	// provider already started here is a retry.
-	if ev.Subagent != nil || !src.Held || !startsOn(st, src.RunnerID) {
+	if ev.Subagent != nil {
 		return nil, nil
 	}
-	if _, seen := st.ProviderTurn(ev.TurnID); seen {
+	return openProviderTurn(st, ev.TurnID, src)
+}
+
+// openProviderTurn is the turn the provider started as providerTurnID, unless
+// none may start on src's runner or it was already recorded.
+func openProviderTurn(st ledger.State, providerTurnID string, src Source) ([]ledger.Row, error) {
+	if !src.Held || !startsOn(st, src.RunnerID) {
+		return nil, nil
+	}
+	if _, seen := st.ProviderTurn(providerTurnID); seen {
 		return nil, nil
 	}
 	rows, err := ledger.EndTurn(st, ledger.TurnStatusDone, ledger.ReasonSuperseded)
@@ -171,7 +188,7 @@ func mapPrompt(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]l
 		return nil, err
 	}
 	started := ledger.TurnStarted{
-		ProviderTurnID: ev.TurnID, RunnerID: src.RunnerID, Provider: src.Provider,
+		ProviderTurnID: providerTurnID, RunnerID: src.RunnerID, Provider: src.Provider,
 		SessionID: src.SessionID, Persists: src.Persists,
 	}
 	opened, err := openRows(st, started, src)
@@ -231,7 +248,7 @@ func mapStop(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 		return rows, Effects{}, err
 	}
 	end := ledger.TurnEnded{
-		Status: string(stopStatus(ev.TurnStatus)), AsyncWork: &ev.AsyncWork, Effort: ev.Effort,
+		Status: string(stopStatus(ev.TurnStatus)), Effort: ev.Effort,
 		Diff: lastText(src.Live.Diff, ""),
 	}
 	ended, closes, err := ledger.EndTurnOf(st, src.RunnerID, ev.TurnID, end)
@@ -239,7 +256,7 @@ func mapStop(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 		return nil, Effects{}, err
 	}
 	turnID := ended.TurnID
-	rows, err := closingRows(st, turnID, ev.Message, src, end.Async())
+	rows, err := closingRows(st, turnID, ev.Message, src, st.SubagentRunning())
 	if err != nil {
 		return nil, Effects{}, err
 	}
@@ -256,7 +273,7 @@ func mapStop(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 // closingRows are what a turn's end records of what it said: the answers
 // streamed with no row of their own, the reply its hook carried, the thought
 // behind it, and every ask nothing will answer now.
-func closingRows(st ledger.State, turnID, reply string, src Source, async bool) ([]ledger.Row, error) {
+func closingRows(st ledger.State, turnID, reply string, src Source, outlived bool) ([]ledger.Row, error) {
 	var rows []ledger.Row
 	last, hasLast := st.LastMessage(turnID)
 	for _, a := range src.Live.Answers {
@@ -289,7 +306,7 @@ func closingRows(st ledger.State, turnID, reply string, src Source, async bool) 
 		}
 		rows = append(rows, row)
 	}
-	abandoned, err := abandonAsks(st, turnID, async)
+	abandoned, err := abandonAsks(st, turnID, outlived)
 	return append(rows, abandoned...), err
 }
 
@@ -305,11 +322,11 @@ func lastText(texts []liveText, turnID string) string {
 }
 
 // abandonAsks closes the open asks of turnID that its end leaves nothing to
-// answer: an async end keeps the held ones (ledger.Ask.OutlivesEnd).
-func abandonAsks(st ledger.State, turnID string, async bool) ([]ledger.Row, error) {
+// answer: an end a subagent runs past keeps the held ones (ledger.Ask.OutlivesEnd).
+func abandonAsks(st ledger.State, turnID string, outlived bool) ([]ledger.Row, error) {
 	var rows []ledger.Row
 	for _, a := range st.PendingAsks() {
-		if a.TurnID != turnID || a.OutlivesEnd(async) {
+		if a.TurnID != turnID || a.OutlivesEnd(outlived) {
 			continue
 		}
 		resolved, err := ledger.ResolveAsk(st, a.AskID, ledger.ResolutionAbandoned, nil)

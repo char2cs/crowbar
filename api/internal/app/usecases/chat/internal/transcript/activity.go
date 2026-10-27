@@ -32,14 +32,6 @@ type toolFact struct {
 	started, closed bool
 }
 
-type scopeFact struct {
-	id, turnID, agentType string
-	seq, stopSeq          int64
-	startAt, stopAt       time.Time
-	// opened: a start or a spawning tool call named it, not only a stop.
-	opened, stopped bool
-}
-
 type markFact struct {
 	seq                  int64
 	at                   time.Time
@@ -78,32 +70,6 @@ func (f *facts) applyTool(r ledger.Row) {
 		if c.DurationMS == 0 && t.started {
 			c.DurationMS = int(at.Sub(c.StartedAt).Milliseconds())
 		}
-	}
-	if body.SpawnsScope != "" {
-		f.scope(body.SpawnsScope, r).opened = true
-	}
-}
-
-func (f *facts) scope(id string, r ledger.Row) *scopeFact {
-	s, ok := f.scopes[id]
-	if !ok {
-		s = &scopeFact{id: id, turnID: r.TurnID, seq: r.Seq, startAt: r.At}
-		f.scopes[id] = s
-		f.spawns = append(f.spawns, s)
-	}
-	return s
-}
-
-func (f *facts) applySubagent(r ledger.Row) {
-	body, err := ledger.DecodeBody[ledger.Subagent](r)
-	if err != nil || r.Scope == "" {
-		return
-	}
-	s := f.scope(r.Scope, r)
-	s.agentType = cmp.Or(s.agentType, body.Type)
-	s.opened = s.opened || body.Phase == ledger.SubagentStart
-	if body.Phase == ledger.SubagentStop && !s.stopped {
-		s.stopped, s.stopSeq, s.stopAt = true, r.Seq, r.At
 	}
 }
 
@@ -181,31 +147,17 @@ func followingMessage(messages []ledger.MessageText, turnID string, seq int64) s
 	return MessageID(messages[at].Key.MessageID)
 }
 
-// toolEnd is when an open tool call is over: when its scope is, the main
+// toolEnd is when an open tool call is over: when its subagent is, the main
 // scope's being its turn's.
 func (f *facts) toolEnd(t *toolFact) (time.Time, bool) {
-	if s, ok := f.scopes[t.key.scope]; ok && t.key.scope != "" {
-		return f.scopeEnd(s)
+	if a, ok := f.agents.Of(t.key.scope); ok {
+		return a.EndedAt, !a.Status.Live()
 	}
 	return f.closedBy(t.turnID, t.seq, false)
 }
 
-// scopeEnd is when subagent s is over: at its stop, else at its turn's end
-// when it opened before an end that declared no background work, else at its
-// runner's exit.
-func (f *facts) scopeEnd(s *scopeFact) (time.Time, bool) {
-	if s.stopped {
-		return s.stopAt, true
-	}
-	t := f.turns[s.turnID]
-	if t != nil && t.ended && t.endSeq > s.seq && !t.async {
-		return t.endAt, true
-	}
-	return f.exitAfter(t, s.seq)
-}
-
-// subagents are the chat's opened subagents by their first row, each with
-// what it said, and over as scopeEnd says.
+// subagents are the chat's bound subagents by their first row, each with what
+// it said and the result it handed back.
 func (f *facts) subagents() []domain.ActivitySubagent {
 	said := map[string][]domain.ActivitySubagentMessage{}
 	for _, m := range f.text.Messages() {
@@ -213,16 +165,22 @@ func (f *facts) subagents() []domain.ActivitySubagent {
 			said[m.Key.Scope] = append(said[m.Key.Scope], domain.ActivitySubagentMessage{Text: m.Text, At: m.SettledAt})
 		}
 	}
-	out := make([]domain.ActivitySubagent, 0, len(f.spawns))
-	for _, s := range f.spawns {
-		if !s.opened {
-			continue // the CLI's own housekeeping agents report only their stop
+	var out []domain.ActivitySubagent
+	for _, s := range f.agents.All() {
+		if s.Scope == "" {
+			continue // a spawn never bound has nothing of its own to show
+		}
+		messages := said[s.Scope]
+		if s.Result != "" && !slices.ContainsFunc(messages, func(m domain.ActivitySubagentMessage) bool { return m.Text == s.Result }) {
+			messages = append(messages, domain.ActivitySubagentMessage{Text: s.Result, At: s.EndedAt})
 		}
 		a := domain.ActivitySubagent{
-			ID: s.id, TurnID: s.turnID, ChatID: f.chatID, Seq: s.seq, AgentType: s.agentType,
-			StartedAt: s.startAt, Messages: said[s.id],
+			ID: s.Scope, TurnID: s.TurnID, ChatID: f.chatID, Seq: s.Seq, AgentType: s.Type, Title: s.Title,
+			Status: string(s.Status), ToolUses: s.Usage.ToolUses, Tokens: s.Usage.Tokens,
+			StartedAt: s.StartedAt, Messages: messages,
 		}
-		if at, over := f.scopeEnd(s); over {
+		if !s.Status.Live() {
+			at := s.EndedAt
 			a.EndedAt = &at
 		}
 		out = append(out, a)

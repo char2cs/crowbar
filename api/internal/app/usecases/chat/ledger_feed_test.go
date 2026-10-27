@@ -260,10 +260,10 @@ func TestLedgerFeed_ASubagentsStopClearsTheQuestionsItHeld(t *testing.T) {
 	}
 	appendWithin(t, f, chatID,
 		row(ledger.KindTurnStarted, "", ledger.TurnStarted{RunnerID: runnerID}),
-		row(ledger.KindSubagent, "A", ledger.Subagent{Phase: ledger.SubagentStart}),
+		row(ledger.KindSubagent, "A", ledger.SubagentBody{Phase: ledger.SubagentStart}),
 		row(ledger.KindAsk, "A", ledger.Ask{AskID: "choice-1", Event: "permission", Kind: domain.ChoiceKindPermission, Answerable: true}),
 	)
-	appendWithin(t, f, chatID, row(ledger.KindSubagent, "A", ledger.Subagent{Phase: ledger.SubagentStop}))
+	appendWithin(t, f, chatID, row(ledger.KindSubagent, "A", ledger.SubagentBody{Phase: ledger.SubagentStop}))
 	f.wait()
 
 	mu.Lock()
