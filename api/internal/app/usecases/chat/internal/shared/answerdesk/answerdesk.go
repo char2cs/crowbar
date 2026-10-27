@@ -31,8 +31,8 @@ const (
 	// for an hour is holding a process hostage, not asking a question.
 	maxWait = 15 * time.Minute
 	// DefaultRetention is how long a verdict lingers for a relay that has not asked
-	// for it yet. It covers the gap between Crowbar answering and the relay's next
-	// poll; past it the answer is stale and the provider has moved on.
+	// for it yet: one answered between its hook being recorded and its wait
+	// starting. Past it the answer is stale and the provider has moved on.
 	DefaultRetention = time.Minute
 )
 
@@ -117,14 +117,10 @@ func (d *Desk) Hold(prompt Prompt) *Slot {
 	return slot
 }
 
-// Pending reports the prompt askID is parked on and how long its relay may
-// wait.
-func (d *Desk) Pending(askID string) (PendingAnswer, bool) {
-	slot, held := d.held(askID)
-	if !held {
-		return PendingAnswer{}, false
-	}
-	return PendingAnswer{ChoiceID: slot.ChoiceID, Wait: Wait(slot.Keys.Wait)}, true
+// Holds reports whether a relay is parked on askID.
+func (d *Desk) Holds(askID string) bool {
+	_, held := d.held(askID)
+	return held
 }
 
 // AnswerableIDs filters choices down to the ones a relay of chatID is still

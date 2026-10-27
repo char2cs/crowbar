@@ -318,25 +318,16 @@ type AnswerUsecase interface {
 		content []byte,
 	) error
 
-	// PendingAnswer reports whether the relay held on askID must stay alive
-	// waiting for a human, and how long the daemon will hold it.
-	PendingAnswer(askID string) (agentusecase.PendingAnswer, bool)
+	// HoldsAnswer reports whether the hook that opened askID must be held open
+	// waiting for a human.
+	HoldsAnswer(askID string) bool
 
-	// AwaitAnswer blocks that relay until its prompt is decided, the budget expires,
+	// AwaitAnswer blocks that hook until its prompt is decided, the budget expires,
 	// or the request is cancelled. Only the first carries bytes to print.
 	AwaitAnswer(
 		ctx context.Context,
 		askID string,
 	) (agentusecase.HookAnswer, error)
-
-	// AbandonAnswer is the relay reporting that its prompt was decided somewhere
-	// else — it was signalled, which is the only notice a terminal-side DECLINE
-	// gives. It clears the prompt so the chat stops showing a question nobody is
-	// asking.
-	AbandonAnswer(
-		ctx context.Context,
-		askID string,
-	)
 
 	// SetChatPermissionLevel overrides chatID's trust dial for the rest of its
 	// lifetime, independent of the global default (see

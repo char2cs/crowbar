@@ -17,12 +17,10 @@ import (
 // person, and deciding for it. Its state is a desk of live relays; the verdict
 // is recorded in the chat's ledger.
 type AnswerUsecase interface {
-	// PendingAnswer reports the prompt the relay held on askID is parked on, and
-	// how long it may wait for a person before it must print nothing and let the
-	// provider fall back to its own UI.
-	PendingAnswer(
+	// HoldsAnswer reports whether a relay is held on askID, waiting for a person.
+	HoldsAnswer(
 		askID string,
-	) (PendingAnswer, bool)
+	) bool
 
 	// AwaitAnswer blocks the relay held on askID until a person answers, its
 	// declared budget expires, or ctx is cancelled. It returns the stdout the
@@ -35,14 +33,6 @@ type AnswerUsecase interface {
 		ctx context.Context,
 		askID string,
 	) (HookAnswer, error)
-
-	// AbandonAnswer retires the relay held on askID without printing. When no
-	// verdict had been reached it also closes the ledger's question as proceeded,
-	// because the provider is about to resolve the prompt through its own UI.
-	AbandonAnswer(
-		ctx context.Context,
-		askID string,
-	)
 
 	// AnswerChoice decides a pending prompt from Crowbar: it renders the picked
 	// options into the provider's own answer format and hands that to the relay
@@ -86,11 +76,6 @@ var _ AnswerUsecase = (*Usecase)(nil)
 // first, so the answer would reach no CLI.
 var ErrNoLongerWaiting = answerdesk.ErrNotWaiting
 
-// PendingAnswer is what a blocked hook relay is told: which prompt it is parked
-// on, and how long it may wait for a person before it must print nothing and let
-// the provider fall back to its own UI.
-type PendingAnswer = answerdesk.PendingAnswer
-
 // HookAnswer is what a relay prints. An empty Stdout means nobody answered in
 // time.
 type HookAnswer = answerdesk.HookAnswer
@@ -102,12 +87,11 @@ type HookAnswer = answerdesk.HookAnswer
 // describes a live hook process holding a live provider gate open, so one that
 // survived a restart would be a promise to a process that no longer exists.
 
-// PendingAnswer reports the prompt the relay held on askID is parked on, and how
-// long it may wait for a person before it must print nothing.
-func (u *Usecase) PendingAnswer(
+// HoldsAnswer reports whether a relay is held on askID, waiting for a person.
+func (u *Usecase) HoldsAnswer(
 	askID string,
-) (PendingAnswer, bool) {
-	return u.answers.Pending(askID)
+) bool {
+	return u.answers.Holds(askID)
 }
 
 // AwaitAnswer blocks the relay held on askID until a person answers, its declared
@@ -122,15 +106,6 @@ func (u *Usecase) AwaitAnswer(
 		u.answers.Abandon(context.WithoutCancel(ctx), askID)
 	}
 	return answer, err
-}
-
-// AbandonAnswer retires the relay held on askID without printing, closing the
-// ledger's question as proceeded when nobody had decided it.
-func (u *Usecase) AbandonAnswer(
-	ctx context.Context,
-	askID string,
-) {
-	u.answers.Abandon(ctx, askID)
 }
 
 // AnswerChoice renders the picked options in the CLI's own answer format and

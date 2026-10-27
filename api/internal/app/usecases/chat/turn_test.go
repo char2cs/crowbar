@@ -1351,7 +1351,7 @@ func TestObservation_AHeldAskOutlivesAnEndASubagentRunsPast(t *testing.T) {
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop", stopPayload(t, "main done")))
 	f.wait()
 
-	_, held := f.usecase.PendingAnswer(ask)
+	held := f.usecase.HoldsAnswer(ask)
 	require.True(t, held, "precondition: the desk still holds the CLI")
 	assert.Len(t, pendingChoices(t, f, chatID), 1, "held ⇔ answerable")
 	st, err := f.ledger.State(f.ctx, chatID)

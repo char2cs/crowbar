@@ -33,63 +33,6 @@ func newTestContext(
 	return ctx, rec
 }
 
-// TestHooks_DecodesAndDispatches proves Hooks decodes the
-// {segment_id, provider, event, payload_raw} body and forwards the decoded
-// values verbatim to Hook, writing a bare 202 on success
-// (fail-fast/good-path-async, 00 §4).
-func TestHooks_DecodesAndDispatches(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{}
-	h := newChatHandlers(uc)
-
-	body := []byte(`{"segment_id":"seg-1","provider":"claude","event":"session_start","payload_raw":"{\"sessionId\":\"sess-1\"}"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/hooks", body)
-
-	h.Hooks(ctx)
-
-	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Empty(t, rec.Body.Bytes())
-
-	require.Len(t, uc.ingestCalls, 1)
-	assert.Equal(t, "seg-1", uc.ingestCalls[0].segID)
-	assert.Equal(t, "claude", uc.ingestCalls[0].provider)
-	assert.Equal(t, "session_start", uc.ingestCalls[0].event)
-	assert.Contains(t, string(uc.ingestCalls[0].raw), `"sessionId":"sess-1"`)
-}
-
-// TestHooks_BadJSON proves a malformed body is rejected 400 without reaching
-// the usecase.
-func TestHooks_BadJSON(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{}
-	h := newChatHandlers(uc)
-
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/hooks", []byte("{not json"))
-
-	h.Hooks(ctx)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Empty(t, uc.ingestCalls)
-}
-
-// TestHooks_UsecaseError proves a Hook failure surfaces as a mapped
-// error response rather than a 202.
-func TestHooks_UsecaseError(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{ingestErr: errors.New("boom")}
-	h := newChatHandlers(uc)
-
-	body := []byte(`{"segment_id":"seg-1","provider":"claude","event":"turn_stop","payload_raw":"{}"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/hooks", body)
-
-	h.Hooks(ctx)
-
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-}
-
 // fakeAgentUsecase is a configurable double for all five agent ports: each method records
 // its call so tests can assert forwarding, and each returns a canned
 // error/value so tests can exercise the handlers' error branches.
@@ -207,14 +150,12 @@ type fakeAgentUsecase struct {
 	setChatPermissionLevelCalls []setChatPermissionLevelCall
 	setChatPermissionLevelErr   error
 
-	pendingAnswer agentusecase.PendingAnswer
-	pendingAwait  bool
-	awaitAnswer   agentusecase.HookAnswer
-	awaitErr      error
-	awaitCalls    []string
-	abandonCalls  []string
-	telemetry     engineagents.Telemetry
-	telemetryOK   bool
+	pendingAwait bool
+	awaitAnswer  agentusecase.HookAnswer
+	awaitErr     error
+	awaitCalls   []string
+	telemetry    engineagents.Telemetry
+	telemetryOK  bool
 	// telemetryOffSurface makes TelemetryOnChatSurface answer false — the
 	// chat is on a surface whose channel carries no usage report.
 	telemetryOffSurface bool
@@ -617,8 +558,8 @@ func (f *fakeAgentUsecase) AnswerChoice(
 	return f.answerErr
 }
 
-func (f *fakeAgentUsecase) PendingAnswer(string) (agentusecase.PendingAnswer, bool) {
-	return f.pendingAnswer, f.pendingAwait
+func (f *fakeAgentUsecase) HoldsAnswer(string) bool {
+	return f.pendingAwait
 }
 
 func (f *fakeAgentUsecase) AwaitAnswer(
@@ -626,10 +567,6 @@ func (f *fakeAgentUsecase) AwaitAnswer(
 ) (agentusecase.HookAnswer, error) {
 	f.awaitCalls = append(f.awaitCalls, askID)
 	return f.awaitAnswer, f.awaitErr
-}
-
-func (f *fakeAgentUsecase) AbandonAnswer(_ context.Context, askID string) {
-	f.abandonCalls = append(f.abandonCalls, askID)
 }
 
 func (f *fakeAgentUsecase) SetChatPermissionLevel(
@@ -680,7 +617,7 @@ type payloadCall struct {
 }
 
 // ---------------------------------------------------------------------------
-// HTTPHook — a vendor CLI's own HTTP hook, no relay process
+// HTTPHook — the hook ingress
 // ---------------------------------------------------------------------------
 
 func newHTTPHookContext(
@@ -766,5 +703,4 @@ func TestHTTPHook_HoldsTheRequestOpenUntilAHumanDecides(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.JSONEq(t, `{"behavior":"allow"}`, rec.Body.String())
 	assert.Equal(t, []string{"ask-1"}, uc.awaitCalls, "the daemon waits on the ask itself; the CLI never polls")
-	assert.Empty(t, uc.abandonCalls)
 }

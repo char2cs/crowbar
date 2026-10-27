@@ -359,7 +359,7 @@ func TestRecorder_AHeldAskIsParkedOnTheDesk(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotEmpty(t, ask)
-	_, held := f.answers.Pending(ask)
+	held := f.answers.Holds(ask)
 	assert.True(t, held)
 }
 

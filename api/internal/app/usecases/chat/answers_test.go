@@ -126,10 +126,8 @@ func TestAnswer_APermissionIsAnsweredFromCrowbarAndReachesTheCLI(t *testing.T) {
 	chatID, runnerID := f.spawn(t, "claude")
 	ask, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
-	pending, waiting := f.usecase.PendingAnswer(ask)
-	require.True(t, waiting, "a claude permission must hold its relay open")
-	assert.Equal(t, choice.ID, pending.ChoiceID)
-	assert.Positive(t, pending.Wait, "the relay is given a finite budget, never an open one")
+	require.True(t, f.usecase.HoldsAnswer(ask), "a claude permission must hold its relay open")
+	assert.Equal(t, choice.ID, ask)
 
 	printed := await(f, ask)
 	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil))
@@ -285,7 +283,7 @@ func TestRegression_ACodexPermissionIsAnsweredFromCrowbarAndReachesTheCLI(t *tes
 
 	pending := pendingChoices(t, f, chatID)
 	require.Len(t, pending, 1)
-	_, waiting := f.usecase.PendingAnswer(ask)
+	waiting := f.usecase.HoldsAnswer(ask)
 	assert.True(t, waiting, "a codex permission must hold its relay open")
 	assert.Contains(t, f.usecase.AnswerableChoiceIDs(chatID, pending), pending[0].ID)
 
@@ -324,25 +322,6 @@ func TestAnswer_AnOversizedPayloadIsObservedButNotHeld(t *testing.T) {
 	assert.Empty(t, ask)
 }
 
-func TestAnswer_AbandonClearsAPromptDecidedAtTheTerminal(t *testing.T) {
-	f := newFixture(t)
-	chatID, runnerID := f.spawn(t, "claude")
-	ask, _ := blockedPermission(t, f, chatID, runnerID, permissionPayload())
-
-	printed := await(f, ask)
-	f.usecase.AbandonAnswer(f.ctx, ask)
-	f.wait()
-
-	assert.Empty(t, <-printed, "a prompt decided elsewhere prints NOTHING")
-	assert.Empty(t, pendingChoices(t, f, chatID),
-		"and stops being a question the chat says nobody has answered")
-}
-
-func TestAnswer_AbandonOfAnUnknownDeliveryIsANoOp(t *testing.T) {
-	f := newFixture(t)
-	f.usecase.AbandonAnswer(f.ctx, uuid.NewString())
-}
-
 func TestAnswer_ADeadRunnerReleasesEveryRelayAndClearsItsPrompts(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -355,7 +334,7 @@ func TestAnswer_ADeadRunnerReleasesEveryRelayAndClearsItsPrompts(t *testing.T) {
 	assert.Empty(t, <-printed, "an orphaned relay is released with no verdict")
 	assert.Empty(t, pendingChoices(t, f, chatID),
 		"a question asked by a process that no longer exists must not stay pending")
-	_, waiting := f.usecase.PendingAnswer(ask)
+	waiting := f.usecase.HoldsAnswer(ask)
 	assert.False(t, waiting)
 }
 
@@ -439,7 +418,7 @@ func TestAnswer_ARelayThatDisconnectsFreesItsPrompt(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	f.wait()
 
-	_, waiting := f.usecase.PendingAnswer(ask)
+	waiting := f.usecase.HoldsAnswer(ask)
 	assert.False(t, waiting)
 	assert.Empty(t, pendingChoices(t, f, chatID), "its CLI asks the prompt itself now")
 	err = f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil)
@@ -589,7 +568,7 @@ func TestAnswer_AnUnrecordableDecisionIsNotHandedToTheRelay(t *testing.T) {
 	err := f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil)
 	require.Error(t, err)
 
-	_, stillWaiting := f.usecase.PendingAnswer(ask)
+	stillWaiting := f.usecase.HoldsAnswer(ask)
 	assert.True(t, stillWaiting, "the relay must not have been told anything")
 }
 
@@ -604,7 +583,7 @@ func TestAnswer_ADeadRunnerReleasesItsRelaysEvenIfTheRecordCannotBeWritten(t *te
 	f.wait()
 
 	assert.Empty(t, <-printed)
-	_, waiting := f.usecase.PendingAnswer(ask)
+	waiting := f.usecase.HoldsAnswer(ask)
 	assert.False(t, waiting)
 }
 
@@ -666,7 +645,7 @@ func TestRegression_APartialAnswerToAMultiQuestionPromptIsRefused(t *testing.T) 
 	require.ErrorIs(t, err, apperr.ErrInvalidArgument, "two of three is not an answer either")
 
 	assert.Len(t, pendingChoices(t, f, chatID), 1)
-	_, stillWaiting := f.usecase.PendingAnswer(ask)
+	stillWaiting := f.usecase.HoldsAnswer(ask)
 	assert.True(t, stillWaiting)
 
 	printed := await(f, ask)
@@ -791,7 +770,7 @@ func TestAnswer_ADeadRunnerSweepsAVerdictNoRelayCollected(t *testing.T) {
 	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
 	f.wait()
 
-	_, waiting := f.usecase.PendingAnswer(ask)
+	waiting := f.usecase.HoldsAnswer(ask)
 	assert.False(t, waiting, "a dead CLI's uncollected verdict is swept off the desk")
 	answer, err := f.usecase.AwaitAnswer(f.ctx, ask)
 	require.NoError(t, err)
@@ -804,22 +783,22 @@ func TestAnswer_ADeadRunnerSweepsAVerdictNoRelayCollected(t *testing.T) {
 		"the answer a human really gave must not be rewritten as abandoned")
 }
 
-func TestAnswer_AbandonAfterAnAnswerDoesNotRewriteTheRecord(t *testing.T) {
+func TestAnswer_AHangUpAfterAnAnswerDoesNotRewriteTheRecord(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	ask, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
 	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil))
 	f.wait()
-	f.usecase.AbandonAnswer(f.ctx, ask)
+	hungUp, cancel := context.WithCancel(f.ctx)
+	cancel()
+	answer, err := f.usecase.AwaitAnswer(hungUp, ask)
+	require.NoError(t, err)
+	assert.NotEmpty(t, answer.Stdout, "a verdict already reached is handed over, not abandoned")
 	f.wait()
 
 	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
 	require.NoError(t, err)
 	require.Len(t, all.Choices, 1)
 	assert.Equal(t, domain.ChoiceResolutionAnswered, all.Choices[0].Resolution)
-
-	answer, err := f.usecase.AwaitAnswer(f.ctx, ask)
-	require.NoError(t, err)
-	assert.Empty(t, answer.Stdout, "the relay that reported its own death collects nothing")
 }

@@ -1473,8 +1473,8 @@ func (configurableListGetUsecase) AnswerChoice(
 	return nil
 }
 
-func (configurableListGetUsecase) PendingAnswer(string) (agentusecase.PendingAnswer, bool) {
-	return agentusecase.PendingAnswer{}, false
+func (configurableListGetUsecase) HoldsAnswer(string) bool {
+	return false
 }
 
 func (configurableListGetUsecase) AwaitAnswer(
@@ -1482,8 +1482,6 @@ func (configurableListGetUsecase) AwaitAnswer(
 ) (agentusecase.HookAnswer, error) {
 	return agentusecase.HookAnswer{}, nil
 }
-
-func (configurableListGetUsecase) AbandonAnswer(context.Context, string) {}
 
 func (configurableListGetUsecase) SetChatPermissionLevel(
 	context.Context, string, string,

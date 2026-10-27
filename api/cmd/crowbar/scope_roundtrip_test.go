@@ -19,19 +19,11 @@ import (
 // This file guards the FULL in-PTY callback round-trip that the plain
 // scopedAgentPath unit tests structurally cannot see:
 //
-//	descriptor hook template → engine/agents.Expand → flat shell string
+//	descriptor template → engine/agents.Expand → flat shell string
 //	  → /bin/sh word-splitting → argv → real cobra/pflag parse → scopedAgentPath
 //
-// Every earlier test entered that chain AFTER the shell, handing cobra a
-// pre-split []string with an explicit "" repo — which is not what a shell can
-// ever produce. It therefore missed a total outage of agent chats on
-// project-home workspaces: those resolve an EMPTY RepoID, the old template
-// `--repo {repo_id}` rendered a bare `--repo `, /bin/sh dropped the empty token,
-// and pflag (which does not reject a dash-prefixed value) consumed the NEXT
-// token as --repo's value. `crowbar hook session_start … --project P --repo
-// --workspace W` parsed as repo="--workspace" plus a stray positional W, failing
-// hook's ExactArgs(1) — so NO session_bound / turn_started / turn_stopped /
-// title_set callback ever reached the daemon for a project-home chat.
+// A project home resolves an EMPTY RepoID; a bare `--repo ` would be dropped by
+// the shell and pflag would swallow the next token as its value.
 //
 // The tests below therefore go through a REAL /bin/sh and the REAL root command.
 
@@ -94,7 +86,7 @@ func parseThroughCobra(t *testing.T, argv []string) parsedCallback {
 		require.NoError(t, err)
 		return v
 	}
-	// segment is only bound on commands that carry a runner id (hook, mcp);
+	// segment is only bound on commands that carry a runner id (mcp);
 	// handoff dump has no such flag, so it is read optionally.
 	segment := ""
 	if target.Flags().Lookup("segment") != nil {
@@ -106,41 +98,28 @@ func parseThroughCobra(t *testing.T, argv []string) parsedCallback {
 	}
 }
 
-// TestHookRoundTrip_ScopeFlagsMidLine_ProjectHomeHasNoRepo keeps the empty-repo
-// guard alive at the one position the shipped descriptor templates do not reach:
-// {scope_flags} in the MIDDLE of the command line, with a flag AND a positional
-// still to come after it.
-//
-// The descriptor hook templates above render {scope_flags} last, so a swallowed
-// --repo value there runs off the end of the argv. Mid-line it eats a REAL token and
-// shifts everything after it — `--repo --segment SEG` parses as repo="--segment"
-// with SEG left as a stray positional, blowing `hook`'s ExactArgs(1). That is the
-// exact shape the retired title instruction had (it put the scope flags before
-// --segment and the title), and it is the shape any future callback template can
-// take again, so the guard outlives the command it was written against: `hook`
-// carries the identical --segment + positional plumbing.
-func TestHookRoundTrip_ScopeFlagsMidLine_ProjectHomeHasNoRepo(t *testing.T) {
+// TestMCPRoundTrip_ScopeFlagsMidLine_ProjectHomeHasNoRepo keeps the empty-repo
+// guard alive with {scope_flags} in the MIDDLE of the command line: a swallowed
+// --repo value there eats the next real token — `--repo --segment SEG` would
+// parse as repo="--segment" with SEG left as a stray positional.
+func TestMCPRoundTrip_ScopeFlagsMidLine_ProjectHomeHasNoRepo(t *testing.T) {
 	ctx := engineagents.TemplateCtx{
 		CrowbarHook: argvDumper(t),
 		Segid:       "SEG-1",
-		Provider:    "claude",
 		ProjectID:   "PROJ",
 		RepoID:      "", // ← project-home: WorktreeDir resolves no repo
 		WorkspaceID: "WS",
 	}
-	command := engineagents.Expand(
-		"{crowbar} hook {scope_flags} --segment {segid} --provider {provider} session_start", ctx,
-	)
+	command := engineagents.Expand("{crowbar} mcp {scope_flags} --segment {segid} --token T", ctx)
 
 	got := parseThroughCobra(t, argvThroughShell(t, command))
 
 	require.Equal(t, "", got.repo,
 		"an empty repo id rendered mid-line must parse as empty, not swallow the following flag")
 	require.Equal(t, "SEG-1", got.segment)
-	require.Equal(t, []string{"session_start"}, got.args,
-		"the positional after the scope flags must stay the event name")
-	require.Equal(t, "/v0/projects/PROJ/home/chats/hooks",
-		scopedAgentPath(got.project, got.repo, got.workspace, "/hooks"))
+	require.Empty(t, got.args, "nothing after the scope flags may be left a stray positional")
+	require.Equal(t, "/v0/projects/PROJ/home/chats/runners/SEG-1/mcp",
+		scopedAgentPath(got.project, got.repo, got.workspace, "/runners/"+got.segment+"/mcp"))
 }
 
 // TestHandoffDumpRoundTrip_ProjectHomeHasNoRepo covers the third callback. It has
@@ -166,7 +145,7 @@ func TestHandoffDumpRoundTrip_ProjectHomeHasNoRepo(t *testing.T) {
 }
 
 // A callback must dial the socket its rendered scope flags hand it, not one derived from its --home.
-func TestHookRoundTrip_DialsTheSocketTheDaemonBound_ForANonCleanHome(t *testing.T) {
+func TestHandoffDumpRoundTrip_DialsTheSocketTheDaemonBound_ForANonCleanHome(t *testing.T) {
 	base, err := os.MkdirTemp("", "cb")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(base) })
@@ -178,7 +157,9 @@ func TestHookRoundTrip_DialsTheSocketTheDaemonBound_ForANonCleanHome(t *testing.
 	reached := make(chan string, 1)
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reached <- r.URL.Path
-		w.WriteHeader(http.StatusAccepted)
+		if _, err := w.Write([]byte(`{"success":true,"data":{"handoff":""}}`)); err != nil {
+			t.Error(err)
+		}
 	})}
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
@@ -186,13 +167,10 @@ func TestHookRoundTrip_DialsTheSocketTheDaemonBound_ForANonCleanHome(t *testing.
 	h, err := home.Resolve()
 	require.NoError(t, err)
 	ctx := engineagents.TemplateCtx{
-		CrowbarHook: argvDumper(t), Segid: "SEG-1", Provider: "claude",
-		ProjectID: "PROJ", RepoID: "REPO", WorkspaceID: "WS",
+		CrowbarHook: argvDumper(t), ProjectID: "PROJ", RepoID: "REPO", WorkspaceID: "WS",
 		CrowbarHome: h.Root(), DaemonSocket: ln.Addr().String(),
 	}
-	command := engineagents.Expand(
-		"{crowbar} hook {scope_flags} --segment {segid} --provider {provider} --payload {} session_start", ctx,
-	)
+	command := engineagents.Expand("{crowbar} handoff dump {scope_flags} chat-1", ctx)
 
 	root := newRootCmd()
 	root.SetArgs(argvThroughShell(t, command))
@@ -200,8 +178,8 @@ func TestHookRoundTrip_DialsTheSocketTheDaemonBound_ForANonCleanHome(t *testing.
 
 	select {
 	case path := <-reached:
-		require.Equal(t, "/v0/projects/PROJ/repos/REPO/chats/hooks", path)
+		require.Equal(t, "/v0/projects/PROJ/repos/REPO/chats/chat-1/handoff", path)
 	default:
-		t.Fatalf("the hook never reached the socket the daemon bound (%s)", ln.Addr())
+		t.Fatalf("the callback never reached the socket the daemon bound (%s)", ln.Addr())
 	}
 }

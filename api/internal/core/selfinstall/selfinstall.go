@@ -9,7 +9,7 @@ import (
 )
 
 // Install copies the running executable to <homeDir>/bin/crowbar (0755) so the
-// vendor CLIs' hooks can invoke `crowbar hook ...` by absolute path. Idempotent:
+// vendor CLIs can launch `crowbar mcp` by absolute path. Idempotent:
 // re-copies only when the destination is missing or a different size. Best-effort
 // at the call site (a failure must not stop the daemon).
 func Install(homeDir string) (string, error) {

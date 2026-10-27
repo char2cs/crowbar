@@ -103,18 +103,6 @@ func TestWait_ClampsAnAbsentOrAbsurdBudget(t *testing.T) {
 	assert.Equal(t, 30*time.Second, answerdesk.Wait(30*time.Second))
 }
 
-func TestPending_ReportsTheChoiceAndTheClampedBudget(t *testing.T) {
-	t.Parallel()
-
-	d, _ := fixture(time.Hour)
-
-	pending, held := d.Pending("choice-1")
-
-	require.True(t, held)
-	assert.Equal(t, "choice-1", pending.ChoiceID)
-	assert.Equal(t, 15*time.Minute, pending.Wait, "the relay is told the clamped budget, not the declared one")
-}
-
 func TestHold_ReopeningAPromptReleasesTheRelayAlreadyHoldingIt(t *testing.T) {
 	t.Parallel()
 
@@ -165,7 +153,7 @@ func TestReleaseRunner_DoesNotReportAnAlreadyDecidedRelay(t *testing.T) {
 	released := d.ReleaseRunner("runner-1")
 
 	assert.Empty(t, released, "a decided relay is not an abandoned one")
-	_, waiting := d.Pending("choice-1")
+	waiting := d.Holds("choice-1")
 	assert.False(t, waiting, "but its slot is still freed")
 }
 
@@ -176,7 +164,7 @@ func TestAbandon_ReportsTheQuestionToCloseWhenNobodyDecided(t *testing.T) {
 
 	d.Abandon(context.Background(), "choice-1")
 
-	_, waiting := d.Pending("choice-1")
+	waiting := d.Holds("choice-1")
 	assert.False(t, waiting)
 }
 
@@ -256,7 +244,7 @@ func TestLedger_AFailedWriteStillReleasesTheRelay(t *testing.T) {
 	d.Abandon(context.Background(), "choice-1")
 
 	<-slot.Settled()
-	_, waiting := d.Pending("choice-1")
+	waiting := d.Holds("choice-1")
 	assert.False(t, waiting)
 }
 

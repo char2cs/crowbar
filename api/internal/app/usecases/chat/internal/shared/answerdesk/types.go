@@ -13,14 +13,6 @@ import (
 // bigger than this is left to the provider's own UI instead.
 const MaxPayloadBytes = 128 << 10
 
-// PendingAnswer is what a blocked relay is told: which prompt it is parked on,
-// and how long it may wait for a person before it must print nothing and let the
-// provider fall back to its own UI.
-type PendingAnswer struct {
-	ChoiceID string
-	Wait     time.Duration
-}
-
 // HookAnswer is what a relay prints. An empty Stdout means nobody answered in
 // time — the signal to leave the prompt to the provider.
 type HookAnswer struct {

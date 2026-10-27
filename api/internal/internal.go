@@ -223,12 +223,12 @@ func (s *stack) open(
 		return fmt.Errorf("internal: api: %w", err)
 	}
 
-	// Install the crowbar binary into <home>/bin so vendor CLI hooks can invoke
-	// `crowbar hook` by absolute path, into the home the adapter opened so tests
+	// Install the crowbar binary into <home>/bin so vendor CLIs can launch
+	// `crowbar mcp` by absolute path, into the home the adapter opened so tests
 	// and dev instances stay isolated. Best-effort: never block startup.
 	installHome := s.adapter.Home().Root()
 	if _, err := selfinstall.Install(installHome); err != nil {
-		slog.Warn("internal: install the crowbar binary for hooks", "home", installHome, "err", err)
+		slog.Warn("internal: install the crowbar binary", "home", installHome, "err", err)
 	}
 
 	// Published before anything can spawn a CLI: the spawner reads it to point the

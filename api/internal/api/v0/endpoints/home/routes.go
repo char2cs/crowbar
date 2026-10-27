@@ -128,7 +128,7 @@ func registerAgent(
 	// workspace and injects :wsId before each handler — and before the lifecycle
 	// WS (agentWS), whose agentChatDef filter keys on that injected :wsId so a
 	// home client sees exactly the home workspace's chats. This also makes the
-	// in-PTY CLI callbacks (crowbar hook/handoff) and the agent's own MCP relay
+	// CLI's hooks, its handoff callback and the agent's own MCP relay
 	// reachable for a project-home workspace, whose repo-less scope resolves to
 	// this /home/agent mount (see cmd/crowbar/scope.go's home branch).
 	home.POST("/chats", h.RequireHomeWorkspace, ah.Create)
@@ -170,13 +170,6 @@ func registerAgent(
 	home.DELETE("/chats/folders/:folderId", h.RequireHomeWorkspace, ah.DeleteFolder)
 	home.POST("/chats/runners/:segid/mcp", h.RequireHomeWorkspace, ah.MCP)
 	home.POST("/chats/runners/:segid/hooks/:provider/:event", h.RequireHomeWorkspace, ah.HTTPHook)
-	home.POST("/chats/hooks", h.RequireHomeWorkspace, ah.Hooks)
-	// The answer channel's relay half. It mounts here for exactly the reason the
-	// hook ingress above does: a project-home workspace's repo-less scope resolves
-	// to this /home/agent mount, so a CLI running there reaches these leaves and no
-	// others (see cmd/crowbar/scope.go).
-	home.POST("/chats/hooks/await", h.RequireHomeWorkspace, ah.AwaitHookAnswer)
-	home.POST("/chats/hooks/abandon", h.RequireHomeWorkspace, ah.AbandonHookAnswer)
 	home.GET("/chats/providers", h.RequireHomeWorkspace, ah.Providers)
 	home.GET("/chats/ws", h.RequireHomeWorkspace, agentWS)
 }

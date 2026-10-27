@@ -55,6 +55,12 @@ func TestHomeMountsEveryAgentRoute(t *testing.T) {
 			"the /home group is missing agent route %q that the workspace group mounts — a chat on a "+
 				"project-home or repo-home workspace would 404 on it", route)
 	}
+	// The relay transport is retired on both mounts: hooks have one ingress.
+	for _, gone := range []string{"POST /chats/hooks", "POST /chats/hooks/await", "POST /chats/hooks/abandon"} {
+		assert.NotContains(t, wsRoutes, gone)
+		assert.NotContains(t, homeRoutes, gone)
+	}
+	assert.Contains(t, homeRoutes, "POST /chats/runners/:segid/hooks/:provider/:event")
 }
 
 // agentSubRoutes registers routes via `mount` and returns every "/agent/..." route

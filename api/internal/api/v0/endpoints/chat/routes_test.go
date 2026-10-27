@@ -439,7 +439,7 @@ func TestRegisterMountsRoutes(
 		{http.MethodPatch, base + "/chats/folders/f1"},
 		{http.MethodDelete, base + "/chats/folders/f1"},
 		{http.MethodPost, base + "/chats/runners/seg-1/mcp"},
-		{http.MethodPost, base + "/chats/hooks"},
+		{http.MethodPost, base + "/chats/runners/seg-1/hooks/claude/tool_pre"},
 		{http.MethodGet, base + "/chats/providers"},
 		{http.MethodGet, base + "/chats/ws"},
 		{http.MethodPut, "/v0/settings/chat/providers"},
@@ -546,15 +546,13 @@ func (stubUsecase) AnswerChoice(
 	return nil
 }
 
-func (stubUsecase) PendingAnswer(string) (agentusecase.PendingAnswer, bool) {
-	return agentusecase.PendingAnswer{}, false
+func (stubUsecase) HoldsAnswer(string) bool {
+	return false
 }
 
 func (stubUsecase) AwaitAnswer(context.Context, string) (agentusecase.HookAnswer, error) {
 	return agentusecase.HookAnswer{}, nil
 }
-
-func (stubUsecase) AbandonAnswer(context.Context, string) {}
 
 func (stubUsecase) SetChatPermissionLevel(
 	context.Context, string, string,

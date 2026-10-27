@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/core/ipc"
@@ -24,7 +25,7 @@ func TestClient_PostJSON_OverUnixSocket(t *testing.T) {
 	defer func() { _ = ln.Close() }()
 
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/v0/chats/hooks", r.URL.Path)
+		assert.Equal(t, "/v0/chats/c1/prompts", r.URL.Path)
 		w.WriteHeader(http.StatusAccepted)
 		_, _ = w.Write([]byte(`{"success":true}`))
 	})}
@@ -33,7 +34,7 @@ func TestClient_PostJSON_OverUnixSocket(t *testing.T) {
 
 	c, err := ipc.NewClient("unix://" + sock)
 	require.NoError(t, err)
-	status, body, err := c.PostJSON(context.Background(), "/v0/chats/hooks", map[string]string{"event": "session_start"})
+	status, body, err := c.PostJSON(context.Background(), "/v0/chats/c1/prompts", map[string]string{"event": "session_start"})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusAccepted, status)
 	require.Contains(t, string(body), "success")

@@ -3,8 +3,8 @@
 // Package scripted_test proves the agent session lifecycle end to end against
 // both built-in descriptors, with the vendor CLIs replaced by a scripted
 // emulator of their real wire (fake_*_test.go): the shipped claude.yaml and
-// codex.yaml, a real daemon, real PTYs, the real `crowbar hook` relay over the
-// daemon's unix socket and a real app-server over its stdio. No credentials and no
+// codex.yaml, a real daemon, real PTYs, real hooks posted to the daemon and a real
+// app-server over its stdio. No credentials and no
 // network — every healthy and faulty behaviour is declared per test.
 package scripted_test
 
@@ -85,8 +85,8 @@ func apiRoot() string {
 	return filepath.Join(filepath.Dir(file), "..", "..", "..")
 }
 
-// daemon is one boot of the backend, served on the unix socket the hook relay
-// dials. A restart is a second boot over the same home.
+// daemon is one boot of the backend, served on the unix socket the CLI callbacks
+// dial. A restart is a second boot over the same home.
 type daemon struct {
 	t        *testing.T
 	app      *app.Container
@@ -97,8 +97,8 @@ type daemon struct {
 	hooks    *hookLog
 }
 
-// hookLog is every hook the relay delivered to this daemon, with the status
-// it got back — what a failure message needs to show.
+// hookLog is every hook a CLI posted to this daemon, with the status it got
+// back — what a failure message needs to show.
 type hookLog struct {
 	mu      sync.Mutex
 	entries []string
@@ -106,26 +106,21 @@ type hookLog struct {
 
 func (h *hookLog) middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.Request.Method != http.MethodPost || !strings.HasSuffix(c.Request.URL.Path, "/hooks") {
+		if c.Request.Method != http.MethodPost || !strings.HasSuffix(c.FullPath(), "/hooks/:provider/:event") {
 			c.Next()
 			return
 		}
 		body, _ := io.ReadAll(c.Request.Body)
 		c.Request.Body = io.NopCloser(bytes.NewReader(body))
 		c.Next()
-		var env struct {
-			Segment string `json:"segment_id"`
-			Event   string `json:"event"`
-			Payload string `json:"payload_raw"`
-		}
-		_ = json.Unmarshal(body, &env)
-		if len(env.Payload) > 160 {
-			env.Payload = env.Payload[:160]
+		payload := string(body)
+		if len(payload) > 160 {
+			payload = payload[:160]
 		}
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		h.entries = append(h.entries, fmt.Sprintf("%s %d %s %s %s", time.Now().Format("15:04:05.000"),
-			c.Writer.Status(), env.Segment, env.Event, env.Payload))
+			c.Writer.Status(), c.Param("segid"), c.Param("event"), payload))
 	}
 }
 

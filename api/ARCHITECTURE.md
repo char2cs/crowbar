@@ -13,7 +13,7 @@ Build and test with `-tags noEmbed` (the default build embeds `web/dist`, see
 
 | Binary | Role |
 | --- | --- |
-| `cmd/crowbar` | `serve` (the daemon), plus the in-PTY callbacks a vendor CLI runs: `hook <event>` (posts a hook envelope to the daemon over the unix socket and, for an answerable permission prompt, stays alive until a human decides), `mcp` (stdio MCP server exposing review tools), `handoff dump`. `web_embed.go` / `web_noembed.go` select the embedded bundle. |
+| `cmd/crowbar` | `serve` (the daemon), plus the in-PTY callbacks a vendor CLI runs: `mcp` (stdio MCP server exposing review tools), `handoff dump`. Hooks are not a subcommand: the CLI posts them to the daemon's hook server. `web_embed.go` / `web_noembed.go` select the embedded bundle. |
 | `crowbar migrate --plan` | Read-only preview of what the next boot would migrate: layout, pending steps with their actions and counts, the `state/` backup decision. It has no apply path; the daemon migrates as it boots. Exits non-zero with the halt reason where the boot would halt. |
 | `crowbar paths` | Prints `{"home","socket"}` as JSON: the one answer to "where is the Crowbar home and the daemon socket". The desktop shell and the e2e helper ask it instead of computing either. |
 | `cmd/crowbar-seed`, `cmd/crowbar-seed-chat` | Dev-only fixture fillers for a running dev daemon (`make seed`). Never shipped. `seed-chat` takes the home lock and refuses a home that still has pending migration steps: boot the daemon once first. |
@@ -54,7 +54,7 @@ Process-level plumbing with no domain knowledge:
   client the in-PTY callbacks use), `terminal` (the PTY session engine — spawn,
   resize, screen model, reap), `shellenv`/`binpath` (login-shell PATH and CLI
   lookup for a GUI-launched daemon), `selfinstall` (copies the binary to
-  `<home>/bin` so vendor hooks can call `crowbar hook` by absolute path),
+  `<home>/bin` so a vendor CLI can launch `crowbar mcp` by absolute path),
   `safego` (panic-safe goroutines).
 
 ### `engine/`
@@ -236,9 +236,12 @@ them derive one.
 - **UI action** → REST handler → usecase → aggregate command → event appended →
   projection updates the read model → hub → WebSocket broadcaster → clients.
 - **Agent turn**: the chat usecase spawns the vendor CLI in a PTY (`core/terminal`)
-  from the descriptor's spawn plan. The CLI's hooks run `crowbar hook`, which
-  posts to the daemon over the unix socket; the agents engine interprets the
-  envelope and the chat usecase records activity and fans it out.
+  from the descriptor's spawn plan. The CLI posts each hook (natively or through
+  curl) to the daemon's loopback hook server at
+  `.../chats/runners/:segid/hooks/:provider/:event`, authenticated by the runner
+  token; the agents engine interprets the payload and the chat usecase records
+  activity and fans it out. A hook that opens an answerable ask is held open, and
+  the human's answer is its response.
 - **Watchers**: subscribing to a workspace's files/git stream starts its watcher;
   changes flow back as git-status/file frames. A host document (a file outside
   every worktree, local socket only) is held by one `GET /v0/documents/ws?path=`

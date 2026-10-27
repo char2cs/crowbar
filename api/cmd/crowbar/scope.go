@@ -21,7 +21,7 @@ import (
 // resolve a slug from"; see usecases/container.go AgentChatsDir). Its agent
 // surface is mounted under the home group (/v0/projects/:projectId/home/chats/...)
 // by home.Register — NOT under .../repos/:repoId — so with an
-// empty repo we must emit the HOME path or the in-PTY callbacks (hook, chat
+// empty repo we must emit the HOME path or the in-PTY callbacks (mcp, chat
 // rename, handoff dump) would 404 on /repos//chats. Repo-home
 // (Kind=git / IsDefault) and worktrees both carry a repo id and take the
 // repo-scoped branch below.
@@ -35,7 +35,7 @@ func scopedAgentPath(
 }
 
 // bindScopeFlags registers the --project/--repo/--workspace flags shared by
-// every in-PTY CLI callback (hook, chat rename, handoff dump) that must build
+// every in-PTY CLI callback (mcp, chat rename, handoff dump) that must build
 // a scoped agent API path. --workspace is no longer read into that path
 // (Task 17), but the flag stays: engine/agent's {scope_flags} template token
 // still renders it, and dropping the flag itself would break parsing a
@@ -45,7 +45,7 @@ func scopedAgentPath(
 // token (TemplateCtx.ScopeFlags), which renders these as `--project=…` /
 // `--workspace=…` and OMITS --repo entirely for a project-home workspace. That
 // omission is what makes an empty --repo actually reach scopedAgentPath's home
-// branch: a bare `--repo ` in the flat shell string of a hook command is dropped
+// branch: a bare `--repo ` in the flat shell string of a callback command is dropped
 // by the shell, after which pflag swallows the following token as its value.
 // See scope_roundtrip_test.go, which drives the real shell → real cobra path.
 func bindScopeFlags(
@@ -60,7 +60,7 @@ func bindScopeFlags(
 }
 
 // applyHomeOverride sets CROWBAR_HOME for this process when override is non-empty.
-// Every in-PTY callback (hook, mcp, handoff dump) is a fresh, short-lived
+// Every in-PTY callback (mcp, handoff dump) is a fresh, short-lived
 // process invoked once per event/session, so mutating process-global state
 // here at startup is race-free — there is no concurrent second invocation in
 // the same process to race against.

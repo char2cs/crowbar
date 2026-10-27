@@ -2,13 +2,11 @@ package handlers
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 )
 
 const maxAnswerReasonBytes = 4 << 10
@@ -55,46 +53,4 @@ func (h *Handlers) AnswerChoice(ctx *gin.Context) {
 		return
 	}
 	libs.WriteMutationOK(ctx, http.StatusOK, ctx.Param("choiceId"))
-}
-
-func (h *Handlers) AwaitHookAnswer(ctx *gin.Context) {
-	var body struct {
-		AskID string `json:"ask_id"`
-	}
-	if err := ctx.ShouldBindJSON(&body); err != nil {
-		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
-		return
-	}
-	if body.AskID == "" {
-		libs.WriteErr(ctx, http.StatusBadRequest, "ask_id is required")
-		return
-	}
-
-	answer, err := h.answers.AwaitAnswer(ctx.Request.Context(), body.AskID)
-	if err != nil {
-		if errors.Is(err, ctx.Request.Context().Err()) {
-			libs.WriteQueryOK(ctx, dto.AgentHookAnswerDTO{})
-			return
-		}
-		status, message := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, message)
-		return
-	}
-	libs.WriteQueryOK(ctx, dto.AgentHookAnswerDTO{Stdout: string(answer.Stdout)})
-}
-
-func (h *Handlers) AbandonHookAnswer(ctx *gin.Context) {
-	var body struct {
-		AskID string `json:"ask_id"`
-	}
-	if err := ctx.ShouldBindJSON(&body); err != nil {
-		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
-		return
-	}
-	if body.AskID == "" {
-		libs.WriteErr(ctx, http.StatusBadRequest, "ask_id is required")
-		return
-	}
-	h.answers.AbandonAnswer(ctx.Request.Context(), body.AskID)
-	libs.WriteAccepted(ctx)
 }

@@ -391,7 +391,6 @@ func extraRoutes() []string {
 		"POST " + repo + "/chats/folders",
 		"PATCH " + repo + "/chats/folders/:folderId",
 		"DELETE " + repo + "/chats/folders/:folderId",
-		"POST " + repo + "/chats/hooks",
 		"GET " + repo + "/chats/providers",
 		"GET " + repo + "/chats/ws",
 		// The runner model added resume and never declared it here, which is exactly
@@ -454,11 +453,6 @@ func extraRoutes() []string {
 		// the client's own copy was lost before the provider confirmed it.
 		"POST " + repo + "/chats/:id/prompts",
 		"GET " + repo + "/chats/:id/pending-prompt",
-		// The answer channel's other two legs (routes.go): the in-PTY relay parking
-		// alive while the provider's gate stays open, and what it reports when the
-		// provider decided at the terminal instead.
-		"POST " + repo + "/chats/hooks/await",
-		"POST " + repo + "/chats/hooks/abandon",
 		// Provider PRIORITY + enable/disable is a GLOBAL user setting (the CLIs are
 		// machine-level, not per workspace), so its write route mounts outside the
 		// entity hierarchy beside /settings/terminal/profiles. It is the write
@@ -522,7 +516,6 @@ func extraRoutes() []string {
 		"POST " + home + "/chats/:id/rename",
 		"GET " + home + "/chats/:id/handoff",
 		"DELETE " + home + "/chats/:id",
-		"POST " + home + "/chats/hooks",
 		"GET " + home + "/chats/providers",
 		"GET " + home + "/chats/ws",
 		// The same two forced-terminal/native session moves, mounted here for
@@ -581,9 +574,6 @@ func extraRoutes() []string {
 		"POST " + home + "/chats/:id/choices/:choiceId/answer",
 		"POST " + home + "/chats/:id/prompts",
 		"GET " + home + "/chats/:id/pending-prompt",
-		// And the same answer-channel pair, for the same reason.
-		"POST " + home + "/chats/hooks/await",
-		"POST " + home + "/chats/hooks/abandon",
 		// The home hosts a file tree, so it hosts the file tree's duplicate op too.
 		"POST " + home + "/files/copy",
 		// The daemon's timing-ring read/arm seam. Process-wide, not scoped to a

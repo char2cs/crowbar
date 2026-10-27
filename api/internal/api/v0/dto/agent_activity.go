@@ -244,48 +244,6 @@ type AgentChoiceDTO struct {
 	AnsweredOptionIDs []string `json:"answeredOptionIds,omitempty"`
 }
 
-// AgentHookAckDTO is the daemon's reply to a relay that has just delivered a
-// hook, and it exists for exactly one instruction: STAY ALIVE.
-//
-// A vendor CLI holds its own permission gate open for as long as the hook process
-// it fired is running, so a relay that exits has already let the CLI's dialog
-// through. Await is how the daemon says "this hook opened a question a human can
-// answer here" — and it is returned rather than discovered because the relay
-// cannot name the prompt: identity is minted daemon-side, from the payload, after
-// the chat is resolved.
-//
-// A hook that opened nothing answerable gets an empty body, and the relay exits
-// immediately — byte-identical to its behaviour before this field existed.
-//
-// Reply is the other: a hook the daemon answers at once. The relay prints it to
-// stdout and exits, which is how a message sent mid-turn reaches the running CLI.
-type AgentHookAckDTO struct {
-	Await *AgentHookAwaitDTO `json:"await,omitempty"`
-	Reply string             `json:"reply,omitempty"`
-}
-
-// AgentHookAwaitDTO tells a relay what it is waiting on and for how long.
-type AgentHookAwaitDTO struct {
-	// ChoiceID is Crowbar's identity for the prompt. The relay never interprets it;
-	// it carries it so a log line can name what a hook is blocked on.
-	ChoiceID string `json:"choiceId"`
-	// WaitMS is the daemon's own budget, in milliseconds. The relay bounds its
-	// request by it instead of inventing a number, so the budget lives in exactly
-	// one place — the provider's descriptor — and stays comfortably inside the
-	// timeout injected on the provider's hook registration.
-	WaitMS int64 `json:"waitMs"`
-}
-
-// AgentHookAnswerDTO is the verdict handed back to a blocked relay.
-//
-// Stdout is printed VERBATIM, in one write, and is the provider's own JSON — the
-// daemon renders it from the descriptor so the relay carries bytes and decides
-// nothing. Empty means print nothing, which is the honest answer for a prompt
-// that expired or was decided at the terminal.
-type AgentHookAnswerDTO struct {
-	Stdout string `json:"stdout"`
-}
-
 // AgentChoiceQuestionDTO is ONE question inside a prompt, with the options that
 // answer it.
 //

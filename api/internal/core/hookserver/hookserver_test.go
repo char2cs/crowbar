@@ -49,7 +49,7 @@ func TestGate_RefusesEverythingElse(t *testing.T) {
 		{http.MethodGet, hookPath},
 		{http.MethodDelete, hookPath},
 		{http.MethodPost, "/v0/projects/p1/repos/r1/chats"},
-		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/hooks"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/prompts"},
 		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/runners/seg-1/mcp"},
 		{http.MethodGet, "/v0/projects"},
 		{http.MethodGet, "/v0/console/logs"},

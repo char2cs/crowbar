@@ -27,7 +27,7 @@ func TestAwait_TheBudgetExpiringPrintsNothingAndClosesItsQuestion(t *testing.T) 
 
 	require.NoError(t, err)
 	assert.Empty(t, answer.Stdout)
-	_, waiting := d.Pending("choice-1")
+	waiting := d.Holds("choice-1")
 	assert.False(t, waiting, "an expired wait must not leave a slot an answer could reach")
 	assert.Equal(t, []resolution{{"chat-1", "choice-1", domain.ChoiceResolutionRefused}}, ledger.all())
 }
@@ -137,7 +137,7 @@ func TestAnswer_AVerdictIsRetainedForARelayThatHasNotAskedYet(t *testing.T) {
 
 	require.NoError(t, decide(d, slot, "allow"))
 
-	_, waiting := d.Pending("choice-1")
+	waiting := d.Holds("choice-1")
 	require.True(t, waiting, "the decision waits on the desk for its relay")
 	_, answerable := d.ByChoiceID("choice-1")
 	assert.False(t, answerable, "while the prompt stops being answerable at once")
@@ -145,7 +145,7 @@ func TestAnswer_AVerdictIsRetainedForARelayThatHasNotAskedYet(t *testing.T) {
 	answer, err := d.Await(context.Background(), "choice-1", proceeded)
 	require.NoError(t, err)
 	assert.Equal(t, "allow", string(answer.Stdout))
-	_, stillWaiting := d.Pending("choice-1")
+	stillWaiting := d.Holds("choice-1")
 	assert.False(t, stillWaiting, "and a claimed verdict is gone")
 }
 
@@ -160,7 +160,7 @@ func TestAnswer_AnUnclaimedVerdictDoesNotOutliveItsRetention(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, answer.Stdout, "an expired verdict is not handed to a relay that came back late")
 
-	_, waiting := d.Pending("choice-1")
+	waiting := d.Holds("choice-1")
 	assert.False(t, waiting, "and the reaper frees it on a desk nothing else ever touches")
 }
 
@@ -172,7 +172,7 @@ func TestAnswer_IgnoresASlotThatHasLeftTheDesk(t *testing.T) {
 
 	require.ErrorIs(t, decide(d, slot, "allow"), answerdesk.ErrNotWaiting)
 
-	_, waiting := d.Pending("choice-1")
+	waiting := d.Holds("choice-1")
 	assert.False(t, waiting, "resolving a spent slot put it back on the desk")
 }
 

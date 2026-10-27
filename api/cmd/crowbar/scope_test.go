@@ -52,19 +52,19 @@ func TestScopedAgentPath_HomeWorkspaceHasNoRepo(t *testing.T) {
 	// (added in commit 1), NOT /repos//chats, which 404s. This is the
 	// project-home half of the spec's CRITICAL "chats work for ALL workspace
 	// kinds" requirement.
-	got := scopedAgentPath("p1", "", "home-ws", "/hooks")
-	want := "/v0/projects/p1/home/chats/hooks"
+	got := scopedAgentPath("p1", "", "home-ws", "/runners/s1/mcp")
+	want := "/v0/projects/p1/home/chats/runners/s1/mcp"
 	if got != want {
 		t.Fatalf("scopedAgentPath(home) = %q, want %q", got, want)
 	}
 }
 
 func TestScopedAgentPath_HomeSuffixesCompose(t *testing.T) {
-	// The home branch must compose with every callback suffix — the hook
-	// (hook.go), the agent rename with its ?source=agent query (chat.go), and the
-	// handoff dump (handoff.go) — each landing on the matching home-group route.
+	// The home branch must compose with every callback suffix — the MCP relay
+	// (mcp.go), the agent rename with its ?source=agent query, and the handoff
+	// dump (handoff.go) — each landing on the matching home-group route.
 	cases := map[string]string{
-		"/hooks":                  "/v0/projects/p1/home/chats/hooks",
+		"/runners/s1/mcp":         "/v0/projects/p1/home/chats/runners/s1/mcp",
 		"/c1/rename?source=agent": "/v0/projects/p1/home/chats/c1/rename?source=agent",
 		"/c1/handoff":             "/v0/projects/p1/home/chats/c1/handoff",
 	}
