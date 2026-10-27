@@ -46,7 +46,12 @@ once: the step is recorded as done, the marker deleted, nothing re-run):
 - `chat-ledger`: each chat's legacy transcript, tools, subagents, dividers,
   asks and journalled prompts become chat ledger rows, bound to the session its
   newest turn ran on. Nothing is redelivered: a prompt the old daemon never saw
-  answered is shown settled, and no legacy ask can be answered.
+  answered is shown settled, and no legacy ask can be answered. A chat that
+  cannot be converted, or whose ledger already holds rows, is skipped and named
+  in the log; its legacy records stay on disk. The step runs once and leaves
+  the legacy files in place, unread from then on: running an older build on the
+  home after upgrading loses whatever that build records, and rolling back means
+  restoring the backup the upgrade took.
 
 Also changed for old data, without a migration:
 

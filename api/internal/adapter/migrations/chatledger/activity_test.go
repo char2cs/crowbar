@@ -41,7 +41,7 @@ func TestConvertChat_AToolNoTurnHoldsIsSkipped(t *testing.T) {
 	assert.Len(t, rowsOf(res, ledger.KindToolCall), 2)
 }
 
-func TestConvertChat_AnUnendedSubagentIsAbandoned(t *testing.T) {
+func TestConvertChat_AnUnendedSubagentIsInterrupted(t *testing.T) {
 	res := convert(t, chatA(), nobody)
 
 	st := fold(res)

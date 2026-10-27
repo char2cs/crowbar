@@ -248,8 +248,9 @@ func TestRegression_Upgrade_LegacyChatsBecomeLedgerRowsAtBoot(t *testing.T) {
 	assert.Positive(t, runs[0]["rows"])
 }
 
-// writeLegacyChat writes two exchanges as the pre-ledger daemon kept them,
-// the first a prompt its journal delivered.
+// writeLegacyChat writes two exchanges in the pre-ledger daemon's shape, the
+// first a prompt its journal delivered: hand-built through the legacy DDL,
+// not a recording.
 func writeLegacyChat(t *testing.T, h crowbarhome.Home, chatID string, at time.Time) {
 	t.Helper()
 	runner := openSQLite(t, filepath.Join(h.Store(), chatledger.RunnerDB))

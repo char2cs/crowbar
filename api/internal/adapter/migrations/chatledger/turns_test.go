@@ -107,3 +107,14 @@ func TestConvertChat_AReplyWithNoPromptIsATurnAndANoticeOutsideOneAMarker(t *tes
 	assert.Equal(t, turnID("chat-b", "msg-b1"), rowsOf(res, ledger.KindTurnStarted)[0].TurnID)
 	assert.Equal(t, []ledger.Marker{{Kind: ledger.MarkerNotification, Detail: "rate limited"}}, bodies[ledger.Marker](t, res, ledger.KindMarker))
 }
+
+// A reply row the old daemon kept with no id still restates: its message is
+// named by its seq, as its turn is.
+func TestConvertChat_AReplyWithNoIDIsNamedByItsSeq(t *testing.T) {
+	in := chatB()
+	in.Turns[1].ID = ""
+
+	res := convert(t, in, nobody)
+
+	assert.Equal(t, "seq-2", bodies[ledger.AssistantText](t, res, ledger.KindAssistantText)[0].MessageID)
+}

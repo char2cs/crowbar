@@ -138,7 +138,7 @@ func (c *conversion) restate(g *group, prompts []LegacyPrompt, floor time.Time) 
 	for _, r := range g.replies {
 		at := latest(r.StartedAt, g.start)
 		c.emit(ruleText, at, r.Seq, ledger.KindAssistantText, g.id, "",
-			ledger.AssistantText{MessageID: r.ID, Index: ledger.IndexComplete, Final: true, Text: r.Text})
+			ledger.AssistantText{MessageID: cmp.Or(r.ID, fmt.Sprintf("seq-%d", r.Seq)), Index: ledger.IndexComplete, Final: true, Text: r.Text})
 		g.end = latest(g.end, at, endOf(r))
 	}
 	if g.notice != nil {
