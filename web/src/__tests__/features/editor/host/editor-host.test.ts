@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as Monaco from 'monaco-editor'
 import { MONACO_LOAD_MS, openTestDocument } from '@/__tests__/__fixtures__/documents'
-import { getEditorHost, loadEditorHost, type EditorHost } from '@/features/editor/host/editor-host'
+import {
+  getEditorHost,
+  loadEditorHost,
+  releaseWithDocument,
+  reopenDocument,
+  type EditorHost,
+} from '@/features/editor/host/editor-host'
 import { activeEditors } from '@/features/editor/lib/active-editor-context'
 import { documentUri } from '@/features/editor/documents/document-ref'
 import { applyActiveBuffer } from '@/features/editor/lib/pane-editor-controller'
@@ -156,6 +162,83 @@ describe('editor host', () => {
       const model = shownModel(host, 'p1')
       expect(model?.isDisposed()).toBe(false)
       expect(model?.getValue()).toBe('A')
+    },
+    MONACO_LOAD_MS,
+  )
+
+  it(
+    'what is released with a document goes once, with that document alone',
+    async () => {
+      const host = await loadEditorHost()
+      await open('ws-a', 'src/x.ts', 'X')
+      await open('ws-a', 'src/y.ts', 'Y')
+      const [x, y] = ['src/x.ts', 'src/y.ts'].map((p) => documentUri(workspaceRef('ws-a', p)))
+      const [first, second, other] = [vi.fn(), vi.fn(), vi.fn()]
+      releaseWithDocument(x, first)
+      releaseWithDocument(x, second)
+      releaseWithDocument(y, other)
+
+      host.documents.release(x)
+      host.documents.release(x)
+
+      expect([first, second].map((f) => f.mock.calls.length)).toEqual([1, 1])
+      expect(other).not.toHaveBeenCalled()
+      host.documents.release(y)
+      expect(other).toHaveBeenCalledTimes(1)
+    },
+    MONACO_LOAD_MS,
+  )
+
+  it(
+    'what is held with a document that is not open goes at once',
+    async () => {
+      await loadEditorHost()
+      const dispose = vi.fn()
+
+      releaseWithDocument(documentUri(workspaceRef('ws-a', 'src/none.ts')), dispose)
+
+      expect(dispose).toHaveBeenCalledTimes(1)
+    },
+    MONACO_LOAD_MS,
+  )
+
+  it(
+    'a document reopened in place keeps what is released with it',
+    async () => {
+      const host = await loadEditorHost()
+      const doc = workspaceRef('ws-a', 'src/x.ts')
+      const uri = documentUri(doc)
+      await open('ws-a', 'src/x.ts', 'disk')
+      const dispose = vi.fn()
+      releaseWithDocument(uri, dispose)
+
+      reopenDocument(uri, () => host.documents.open(doc, 'plaintext', 'draft', 'disk'))
+
+      expect(dispose).not.toHaveBeenCalled()
+      expect(host.documents.text(uri)).toBe('draft')
+      host.documents.release(uri)
+      expect(dispose).toHaveBeenCalledTimes(1)
+    },
+    MONACO_LOAD_MS,
+  )
+
+  it(
+    'a reopen that fails lets go of what was held with the document',
+    async () => {
+      const host = await loadEditorHost()
+      const uri = documentUri(workspaceRef('ws-a', 'src/x.ts'))
+      await open('ws-a', 'src/x.ts', 'disk')
+      const dispose = vi.fn()
+      releaseWithDocument(uri, dispose)
+
+      expect(() =>
+        reopenDocument(uri, () => {
+          throw new Error('no model')
+        }),
+      ).toThrow('no model')
+
+      expect(host.documents.has(uri)).toBe(false)
+      expect(dispose).toHaveBeenCalledTimes(1)
     },
     MONACO_LOAD_MS,
   )

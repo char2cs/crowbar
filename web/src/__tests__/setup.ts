@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 import 'fake-indexeddb/auto'
 import { enableMapSet } from 'immer'
+import { vi } from 'vitest'
 
 // main.tsx calls this once at real app boot — stores that keep a Set/Map in
 // Immer state (e.g. file-explorer-tree-store's expandedPathsByWorkspace)
@@ -249,3 +250,26 @@ if (typeof navigator !== 'undefined' && !navigator.clipboard) {
     writable: true,
   })
 }
+
+// No daemon answers a test: a host document's watch socket opens at once and hears nothing,
+// so every open path reaches its read. Every other endpoint keeps the real manager.
+vi.mock('@/lib/ws/manager', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/ws/manager')>()
+  const real = actual.wsManager
+  const watch = (endpoint: string) => endpoint.startsWith('/v0/documents/ws?')
+  const held = new Map<string, number>()
+  const hold = (endpoint: string, n: number) => held.set(endpoint, (held.get(endpoint) ?? 0) + n)
+  const wsManager: typeof real = {
+    subscribe: (endpoint, cb) => {
+      if (!watch(endpoint)) return real.subscribe(endpoint, cb)
+      hold(endpoint, 1)
+      return () => void hold(endpoint, -1)
+    },
+    send: (endpoint, data) => real.send(endpoint, data),
+    opened: (endpoint) => (watch(endpoint) ? Promise.resolve() : real.opened(endpoint)),
+    onDrop: (endpoint, listener) => (watch(endpoint) ? () => {} : real.onDrop(endpoint, listener)),
+    subscribed: (endpoint) =>
+      watch(endpoint) ? (held.get(endpoint) ?? 0) > 0 : real.subscribed(endpoint),
+  }
+  return { ...actual, wsManager }
+})

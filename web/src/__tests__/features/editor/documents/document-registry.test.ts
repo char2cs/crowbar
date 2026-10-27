@@ -137,6 +137,34 @@ describe('DocumentRegistry', () => {
     b.dispose()
   })
 
+  it('disk text the document already holds changes nothing, so no listener hears it', () => {
+    documents.open(DOC, 'typescript', 'same')
+    const heard = vi.fn()
+    documents.onDidApplyExternal(URI, heard)
+
+    documents.applyExternal(URI, 'same', true)
+
+    expect(heard).not.toHaveBeenCalled()
+    expect(listener.contentChanged).not.toHaveBeenCalled()
+    documents.applyExternal(URI, 'other', true)
+    expect(heard).toHaveBeenCalledTimes(1)
+  })
+
+  it('the save mark moves on with every save and every open, so an older read is told apart', () => {
+    expect(documents.saveMark(URI)).toBe(-1)
+    documents.open(DOC, 'typescript', 'v0')
+    const opened = documents.saveMark(URI)
+
+    documents.markSaved(URI, 'v0')
+    const saved = documents.saveMark(URI)
+    documents.release(URI)
+    documents.open(DOC, 'typescript', 'v0')
+
+    expect(saved).not.toBe(opened)
+    expect(documents.saveMark(URI)).not.toBe(saved)
+    expect(documents.saveMark(URI)).not.toBe(opened)
+  })
+
   it('tells the listener of a release while the model is still alive', () => {
     documents.open(DOC, 'plaintext', 'x')
     const model = live()

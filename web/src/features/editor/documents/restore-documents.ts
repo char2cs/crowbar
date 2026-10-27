@@ -1,6 +1,11 @@
 import { isNotFoundError } from '@/lib/api'
 import { readDocument, type DocumentRef } from '@/lib/api/documents'
-import { getEditorHost } from '@/features/editor/host/editor-host'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import {
+  getEditorHost,
+  releaseWithDocument,
+  reopenDocument,
+} from '@/features/editor/host/editor-host'
 import { setDocumentDirty } from '@/features/editor/lib/buffer-save'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import {
@@ -9,18 +14,32 @@ import {
   type EditorContent,
 } from '@/features/panes/types/pane-content'
 import { toast } from '@/features/window/stores/toast-store'
-import { flagExternalChange } from '@/features/workspace/lib/external-buffer-sync'
-import { applyExternalText, savedDocumentText } from './document-text'
-import { documentRefOf, documentUri } from './document-ref'
+import {
+  flagExternalChange,
+  followHostDocument,
+  takeDiskText,
+} from '@/features/workspace/lib/external-buffer-sync'
+import { documentSaveMark, documentText, isDocumentDirty } from './document-text'
+import { documentName, documentRefOf, documentUri } from './document-ref'
 import { clearDraft, loadDraft, loadDrafts, type EditorDraft } from './draft-store'
 import {
   documentModelOpener,
+  findDocumentBuffer,
   openFailure,
   setDocumentUnavailable,
+  watchRefusal,
   type OpenDocumentModel,
 } from './open-document'
 
-type Failures = (DocumentUnavailable & { path: string })[]
+type Failure = DocumentUnavailable & { path: string; workspaceId: string }
+type Failures = Failure[]
+type Read = { disk: string; ref: DocumentRef } | { error: unknown }
+
+const failure = (ref: DocumentRef, reason: DocumentUnavailable): Failure => ({
+  ...reason,
+  path: ref.path,
+  workspaceId: ref.authority === 'workspace' ? ref.workspaceId : '',
+})
 
 /** The draft holds edits that are on neither side: not its base text, and not `disk`. */
 const unsaved = (draft: EditorDraft | undefined, disk?: string | null): draft is EditorDraft =>
@@ -29,19 +48,78 @@ const unsaved = (draft: EditorDraft | undefined, disk?: string | null): draft is
 const stillOpen = (buffer: EditorContent) =>
   windowPaneStore.getState().buffers.some((b) => b.id === buffer.id)
 
-/** Opens one restored buffer's document: its draft over disk, disk alone, or why it cannot. */
+/** A host document's watch through one restore: the model it opens holds it, or it goes. */
+interface RestoreWatch {
+  /** Opens a model, which holds the watch from then on. */
+  open: OpenDocumentModel
+  /** The daemon refused the watch: only an unsaved draft opens, and unwatched. */
+  refused: boolean
+  end(): void
+}
+
+async function watchFor(
+  buffer: EditorContent,
+  openModel: OpenDocumentModel,
+): Promise<RestoreWatch> {
+  const ref = documentRefOf(buffer)
+  const unwatched = { open: openModel, refused: false, end: () => {} }
+  // A workspace file is its files stream's; an open model already holds its own watch.
+  if (ref.authority !== 'host' || getEditorHost()?.documents.has(documentUri(ref))) {
+    return unwatched
+  }
+  // Each restored host tab holds its own socket, as an opened one does.
+  let unwatch: (() => void) | null = null
+  let refused = false
+  try {
+    unwatch = await followHostDocument(ref)
+  } catch {
+    // The refusal carries no reason; the read that follows tells it.
+    refused = true
+  }
+  return {
+    refused,
+    open: (opened, text, savedText) => {
+      openModel(opened, text, savedText)
+      if (unwatch) releaseWithDocument(documentUri(opened), unwatch)
+      unwatch = null
+    },
+    end: () => {
+      unwatch?.()
+      unwatch = null
+    },
+  }
+}
+
+/** Opens one restored buffer's document, a host one armed before it is read. */
 async function restoreDocument(
   buffer: EditorContent,
   draft: EditorDraft | undefined,
   openModel: OpenDocumentModel,
   failures: Failures,
 ): Promise<void> {
+  const watch = await watchFor(buffer, openModel)
+  try {
+    await loadDocument(buffer, draft, openModel, watch, failures)
+  } finally {
+    watch.end()
+  }
+}
+
+/** Its draft over disk, disk alone, or why it cannot. */
+async function loadDocument(
+  buffer: EditorContent,
+  draft: EditorDraft | undefined,
+  openModel: OpenDocumentModel,
+  watch: RestoreWatch,
+  failures: Failures,
+): Promise<void> {
   const ref = documentRefOf(buffer)
+  const since = documentSaveMark(ref)
   // An untitled document has no file: its draft is all there is.
-  const read = buffer.isVirtual
-    ? { disk: '' }
+  const read: Read = buffer.isVirtual
+    ? { disk: '', ref }
     : await readDocument(ref).then(
-        (doc) => ({ disk: doc.text }),
+        (doc) => ({ disk: doc.text, ref: doc.ref }),
         (error: unknown) => ({ error }),
       )
   if (!stillOpen(buffer)) return
@@ -49,48 +127,83 @@ async function restoreDocument(
   if ('disk' in read) setDocumentUnavailable(ref, null)
   // Decided after the read: a reconcile or a reopen may have opened the document meanwhile.
   if (getEditorHost()?.documents.has(documentUri(ref))) {
-    adoptDraft(buffer, draft, openModel)
-    if ('disk' in read && !buffer.isVirtual) catchUp(ref, read.disk)
-    return
+    return meetOpenDocument(buffer, draft, openModel, read, since)
   }
   if ('error' in read) {
     const reason = openFailure(ref, read.error)
     // A missing file is said on its tab alone.
-    if (!isNotFoundError(read.error)) failures.push({ ...reason, path: ref.path })
+    if (!isNotFoundError(read.error)) failures.push(failure(ref, reason))
     // A draft still opens, being the only copy of its edits.
     if (!unsaved(draft)) return setDocumentUnavailable(ref, reason)
     setDocumentUnavailable(ref, null)
   }
   const disk = 'disk' in read ? read.disk : null
+  if (watch.refused) {
+    if (!unsaved(draft, disk)) {
+      const reason = watchRefusal(ref, read)
+      failures.push(failure(ref, reason))
+      return setDocumentUnavailable(ref, reason)
+    }
+    // The draft opens unwatched; the next reopen or reconcile follows it again.
+    if (!('error' in read) || isNotFoundError(read.error)) {
+      failures.push(
+        failure(ref, { title: 'Not following changes on disk', message: documentName(ref) }),
+      )
+    }
+  }
   if (!unsaved(draft, disk)) {
-    openModel(ref, disk ?? '')
+    watch.open(ref, disk ?? '')
     return settle(buffer, draft)
   }
-  openModel(ref, draft.text, draft.savedText)
+  watch.open(ref, draft.text, draft.savedText)
   settle(buffer, draft)
   if (disk !== null && disk !== draft.savedText) flagExternalChange(ref)
 }
 
-/** An open document meets the disk text just read: a clean one takes it, a dirty one is flagged. */
-function catchUp(ref: DocumentRef, disk: string): void {
-  if (disk === savedDocumentText(ref)) return
-  if (getEditorHost()?.documents.isDirty(documentUri(ref))) return flagExternalChange(ref)
-  applyExternalText(ref, disk, { saved: true })
+/** The document opened before or during the read: a draft may take its place, and the read lands if it is not older. */
+function meetOpenDocument(
+  buffer: EditorContent,
+  draft: EditorDraft | undefined,
+  openModel: OpenDocumentModel,
+  read: Read,
+  since: number,
+): void {
+  const ref = documentRefOf(buffer)
+  adoptDraft(buffer, draft, openModel)
+  if ('disk' in read) {
+    if (!buffer.isVirtual) takeDiskText(ref, read.disk, since)
+    return
+  }
+  // A later failure replaces the reason a clean document's tab still shows.
+  if (findDocumentBuffer(ref)?.unavailable && !isDocumentDirty(ref)) {
+    setDocumentUnavailable(ref, openFailure(ref, read.error))
+  }
 }
 
 /** Restores one tab; whatever fails, a tab left without its document says why rather than blank. */
 async function failSafe(
   buffer: EditorContent,
   failures: Failures,
+  draft: EditorDraft | undefined,
   restore: () => Promise<void> | void,
 ): Promise<void> {
   try {
     await restore()
   } catch (error) {
     const ref = documentRefOf(buffer)
-    if (!stillOpen(buffer) || getEditorHost()?.documents.has(documentUri(ref))) return
+    if (!stillOpen(buffer)) return
+    if (getEditorHost()?.documents.has(documentUri(ref))) {
+      // The document shows; what failed after it opened is logged, and said if it cost the draft.
+      console.error('Restoring a document failed:', error)
+      if (unsaved(draft, documentText(ref))) {
+        failures.push(
+          failure(ref, { title: 'Unsaved changes not restored', message: documentName(ref) }),
+        )
+      }
+      return
+    }
     const reason = openFailure(ref, error)
-    failures.push({ ...reason, path: ref.path })
+    failures.push(failure(ref, reason))
     setDocumentUnavailable(ref, reason)
   }
 }
@@ -107,8 +220,7 @@ function adoptDraft(
   const disk = documents?.savedText(uri)
   if (!unsaved(draft, disk) || documents?.isDirty(uri)) return settle(buffer, draft)
   // Reopened rather than edited, so a restored draft never arms an autosave.
-  documents?.release(uri)
-  openModel(ref, draft.text, draft.savedText)
+  reopenDocument(uri, () => openModel(ref, draft.text, draft.savedText))
   settle(buffer, draft)
   if (disk !== draft.savedText) flagExternalChange(ref)
 }
@@ -124,14 +236,30 @@ function settle(buffer: EditorContent, draft: EditorDraft | undefined): void {
 
 const tail = (path: string, n: number) => path.split('/').slice(-n).join('/')
 
+/** A workspace as the user knows it: its branch, else its id. */
+function workspaceName(workspaceId: string): string {
+  for (const repo of useSidebarStore.getState().repos) {
+    const ws = repo.workspaces.find((w) => w.id === workspaceId)
+    if (ws) return ws.branch
+  }
+  return workspaceId
+}
+
 /** A message naming its file, by as much of its path as tells it from the others named alike. */
-function failureLabel({ message, path }: Failures[number], kind: Failures): string {
+function fileLabel({ message, path }: Failure, kind: Failures): string {
   if (!`/${path}`.endsWith(`/${message}`)) return message
   const clashes = (n: number) =>
     kind.some((f) => f.message === message && f.path !== path && tail(f.path, n) === tail(path, n))
   let n = 1
   while (n < path.split('/').length && clashes(n)) n++
   return tail(path, n)
+}
+
+/** The same file failing in two worktrees is told apart by its workspace. */
+function failureLabel(failure: Failure, kind: Failures): string {
+  const label = fileLabel(failure, kind)
+  const twin = kind.some((f) => f.path === failure.path && f.workspaceId !== failure.workspaceId)
+  return twin ? `${label} (${workspaceName(failure.workspaceId)})` : label
 }
 
 /** One toast per kind of failure, naming every file it hit. */
@@ -155,7 +283,7 @@ function failAll(buffers: EditorContent[], error: unknown): void {
     const ref = documentRefOf(b)
     const reason = openFailure(ref, error)
     setDocumentUnavailable(ref, reason)
-    return { ...reason, path: ref.path }
+    return failure(ref, reason)
   })
   sayFailures(failures)
 }
@@ -184,7 +312,7 @@ export async function restoreDocuments(): Promise<void> {
   const restores = buffers.map((buffer) => {
     const uri = documentUri(documentRefOf(buffer))
     const draft = drafts.get(uri)
-    return failSafe(buffer, failures, () =>
+    return failSafe(buffer, failures, draft, () =>
       getEditorHost()?.documents.has(uri)
         ? adoptDraft(buffer, draft, openModel)
         : restoreDocument(buffer, draft, openModel, failures),
@@ -205,7 +333,7 @@ export async function retryDocument(buffer: EditorContent): Promise<DocumentUnav
       documentModelOpener(),
       loadDraft(documentUri(ref)),
     ])
-    await failSafe(buffer, [], () => restoreDocument(buffer, draft, openModel, []))
+    await failSafe(buffer, [], draft, () => restoreDocument(buffer, draft, openModel, []))
   } catch (error) {
     setDocumentUnavailable(ref, openFailure(ref, error))
   }

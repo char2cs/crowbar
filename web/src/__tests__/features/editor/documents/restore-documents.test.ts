@@ -4,6 +4,7 @@ const { readDocument } = vi.hoisted(() => ({ readDocument: vi.fn() }))
 vi.mock('@/lib/api/documents', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api/documents')>()),
   readDocument,
+  readDocumentFromDisk: async (ref: unknown) => (await readDocument(ref).catch(() => null))?.text,
 }))
 // Counts Monaco loads; the host itself is the real one.
 const { loadEditorHost } = vi.hoisted(() => ({ loadEditorHost: vi.fn() }))
@@ -25,7 +26,7 @@ import {
   openDocument,
   retryLoad,
 } from '@/features/editor/documents/open-document'
-import { getEditorHost } from '@/features/editor/host/editor-host'
+import { getEditorHost, releaseWithDocument } from '@/features/editor/host/editor-host'
 import { restoreDocuments } from '@/features/editor/documents/restore-documents'
 import { saveActiveBuffer } from '@/features/editor/lib/buffer-save'
 import {
@@ -34,12 +35,38 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import { isEditorContent, type EditorContent } from '@/features/panes/types/pane-content'
 import { toast } from '@/features/window/stores/toast-store'
-import { reconcileWorkspaceDocuments } from '@/features/workspace/lib/external-buffer-sync'
+import {
+  followHostDocument,
+  reconcileWorkspaceDocuments,
+} from '@/features/workspace/lib/external-buffer-sync'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import { wsManager } from '@/lib/ws/manager'
 
 const A = workspaceRef('ws-restore', 'src/a.ts')
 const B = workspaceRef('ws-restore', 'src/b.ts')
 const UNTITLED = workspaceRef('ws-restore', 'untitled:Untitled')
 const host = (path: string): DocumentRef => ({ authority: 'host', path })
+const NOTES = { authority: 'host', path: '/tmp/s5/notes.md' } as const
+
+/** Host watch sockets: the calls in order, how many are held, and what an open answers. */
+function watches(opened: () => Promise<void> = () => Promise.resolve()) {
+  const w = { calls: [] as string[], held: 0, opened }
+  vi.spyOn(wsManager, 'subscribe').mockImplementation(() => {
+    w.calls.push('subscribe')
+    w.held++
+    return () => void w.held--
+  })
+  vi.spyOn(wsManager, 'opened').mockImplementation(() => (w.calls.push('opened'), w.opened()))
+  vi.spyOn(wsManager, 'subscribed').mockImplementation(() => w.held > 0)
+  return w
+}
+
+/** Another opener's work: the document's model, holding a watch of its own. */
+async function openElsewhere(ref: typeof NOTES, text: string) {
+  const unwatch = await followHostDocument(ref)
+  ;(await documentModelOpener())(ref, text)
+  releaseWithDocument(documentUri(ref), unwatch)
+}
 
 /** A buffer the saved layout brought back: a tab, and no document yet. */
 function restoredTab(doc: DocumentRef, opts: { isVirtual?: boolean } = {}): string {
@@ -321,5 +348,151 @@ describe('restoreDocuments', () => {
       "Can't open this file here",
       'Files outside your workspaces open only in the Crowbar desktop app.',
     )
+  })
+
+  it('a failure after the document opened is logged, and said when it cost the draft', async () => {
+    restoredTab(A)
+    ;(await documentModelOpener())(A, 'disk')
+    await putDrafts([draft(A, 'mine', 'disk')])
+    vi.spyOn(getEditorHost()!.documents, 'release').mockImplementationOnce(() => {
+      throw new Error('boom')
+    })
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await restoreDocuments()
+
+    expect(logged).toHaveBeenCalledWith('Restoring a document failed:', expect.any(Error))
+    expect(error).toHaveBeenCalledWith('Unsaved changes not restored', 'a.ts')
+  })
+
+  it('the same file failing in two worktrees is named with each workspace', async () => {
+    const workspaces = [
+      { id: 'ws-x', branch: 'feature-x' },
+      { id: 'ws-y', branch: 'feature-y' },
+    ]
+    useSidebarStore.setState({ repos: [{ id: 'r', name: 'r', workspaces }] as never })
+    restoredTab(workspaceRef('ws-x', 'src/a.ts'))
+    restoredTab(workspaceRef('ws-y', 'src/a.ts'))
+    readDocument.mockRejectedValue(new ApiError('boom', 500))
+
+    await restoreDocuments()
+
+    expect(error).toHaveBeenCalledWith('Failed to open file', 'a.ts (feature-x), a.ts (feature-y)')
+    useSidebarStore.setState({ repos: [] })
+  })
+})
+
+describe('a restored host document and its watch', () => {
+  it('is read only once its watch is armed; a workspace document opens none', async () => {
+    let arm: () => void = () => {}
+    const w = watches(() => new Promise((resolve) => (arm = resolve)))
+    restoredTab(NOTES)
+    restoredTab(A)
+    readDocument.mockImplementation(async (ref: DocumentRef) => {
+      w.calls.push(`read ${ref.path}`)
+      return { ref, text: 'disk' }
+    })
+
+    const restoring = restoreDocuments()
+    await vi.waitFor(() => expect(w.calls).toContain('read src/a.ts'))
+    expect(w.calls).not.toContain(`read ${NOTES.path}`)
+    arm()
+    await restoring
+
+    expect(w.calls.filter((c) => c !== 'read src/a.ts')).toEqual([
+      'subscribe',
+      'opened',
+      `read ${NOTES.path}`,
+    ])
+    expect([documentText(NOTES), w.held]).toEqual(['disk', 1])
+    resetWindowPaneStoreForTests()
+    expect(w.held).toBe(0)
+  })
+
+  it.each([
+    ['its file is gone', new ApiError('gone', 404), undefined, 0],
+    ['its file is gone under an unsaved draft', new ApiError('gone', 404), 'mine', 1],
+  ])('holds its watch only with its model when %s', async (_, failure, unsavedText, held) => {
+    const w = watches()
+    restoredTab(NOTES)
+    if (unsavedText) await putDrafts([draft(NOTES, unsavedText, 'disk')])
+    readDocument.mockRejectedValue(failure)
+
+    await restoreDocuments()
+
+    expect([documentText(NOTES), w.held]).toEqual([unsavedText ?? null, held])
+  })
+
+  it('lets its watch go when its tab closes during the read', async () => {
+    const w = watches()
+    restoredTab(NOTES)
+    let finish: () => void = () => {}
+    readDocument.mockReturnValue(
+      new Promise((resolve) => (finish = () => resolve({ ref: NOTES, text: 'disk' }))),
+    )
+
+    const restoring = restoreDocuments()
+    await vi.waitFor(() => expect(readDocument).toHaveBeenCalled())
+    resetWindowPaneStoreForTests()
+    finish()
+    await restoring
+
+    expect([documentText(NOTES), w.held]).toEqual([null, 0])
+  })
+
+  it('opened elsewhere before or during its read keeps that watch alone, under its draft', async () => {
+    const w = watches()
+    restoredTab(NOTES)
+    await putDrafts([draft(NOTES, 'mine', 'disk')])
+    let finish: () => void = () => {}
+    readDocument.mockReturnValueOnce(
+      new Promise((resolve) => (finish = () => resolve({ ref: NOTES, text: 'disk' }))),
+    )
+
+    const restoring = restoreDocuments()
+    await vi.waitFor(() => expect(readDocument).toHaveBeenCalled())
+    await openElsewhere(NOTES, 'disk')
+    finish()
+    await restoring
+
+    expect([documentText(NOTES), w.held]).toEqual(['mine', 1])
+    await restoreDocuments()
+    expect(w.calls.filter((c) => c === 'subscribe')).toHaveLength(2)
+    resetWindowPaneStoreForTests()
+    expect(w.held).toBe(0)
+  })
+
+  it('whose watch is refused opens nowhere and says why', async () => {
+    watches(() => Promise.reject(new Error('refused')))
+    const [id, drifted] = [restoredTab(NOTES), restoredTab(host('/tmp/S5/b.md'))]
+    readDocument.mockImplementation(async (ref: DocumentRef) => ({
+      ref: ref.path === NOTES.path ? ref : host('/tmp/s5/b.md'),
+      text: 'disk',
+    }))
+
+    await restoreDocuments()
+
+    expect(bufferOf(id).unavailable).toEqual({ title: 'Failed to open file', message: 'notes.md' })
+    expect(bufferOf(drifted).unavailable).toEqual({
+      title: 'Failed to open file',
+      message: '/tmp/S5/b.md',
+    })
+    expect(documentText(NOTES)).toBeNull()
+  })
+
+  it('under an unsaved draft whose watch is refused opens unwatched, says so once, and follows again when reopened', async () => {
+    const w = watches(() => Promise.reject(new Error('refused')))
+    const id = restoredTab(NOTES)
+    await putDrafts([draft(NOTES, 'mine', 'disk')])
+    readDocument.mockResolvedValue({ ref: NOTES, text: 'disk' })
+
+    await restoreDocuments()
+
+    expect([documentText(NOTES), w.held]).toEqual(['mine', 0])
+    expect(error).toHaveBeenCalledTimes(1)
+    expect(error).toHaveBeenCalledWith('Not following changes on disk', 'notes.md')
+    w.opened = () => Promise.resolve()
+    expect(await openDocument(NOTES)).toBe(id)
+    expect(w.held).toBe(1)
   })
 })

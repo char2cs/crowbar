@@ -48,6 +48,11 @@ export async function readDocument(target: DocumentTarget): Promise<DocumentRead
   return { ref: toRef(doc), text: decodeFileContent(doc) }
 }
 
+/** The socket that holds the daemon's watch on a host document's file while it is open. */
+export function documentWatchEndpoint(path: string): string {
+  return `/v0/documents/ws?path=${encodeURIComponent(path)}`
+}
+
 /** The document's text as saved on disk, or null when it cannot be read. */
 export function readDocumentFromDisk(target: DocumentTarget): Promise<string | null> {
   return readDocument(target)
