@@ -64,17 +64,20 @@ func TestReport_NamesTheStepThatIsRunning(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
 
-	require.Len(t, healths, 5)
+	require.Len(t, healths, 6)
 	for _, health := range healths {
 		assert.Equal(t, http.StatusOK, health.status)
 		assert.Equal(t, "migrating", health.Data.Status, health.raw)
 	}
-	assert.Equal(t, progress{Phase: "pre-open", Step: migrate.ID{Number: 2, Name: "workspace-paths-table"}, Index: 1, Total: 5},
+	assert.Equal(t, progress{Phase: "pre-open", Step: migrate.ID{Number: 2, Name: "workspace-paths-table"}, Index: 1, Total: 6},
 		detail[progress](t, healths[0]))
-	assert.Equal(t, progress{Phase: "post-open", Step: migrate.ID{Number: 1, Name: "project-homes"}, Index: 2, Total: 5},
+	assert.Equal(t, progress{Phase: "pre-open", Step: migrate.ID{Number: 6, Name: "chat-ledger"}, Index: 2, Total: 6},
 		detail[progress](t, healths[1]))
+	assert.Equal(t, progress{Phase: "post-open", Step: migrate.ID{Number: 1, Name: "project-homes"}, Index: 3, Total: 6},
+		detail[progress](t, healths[2]))
 	assert.Equal(t, http.StatusServiceUnavailable, refusals[0].status)
 	assert.Equal(t, "daemon_migrating", refusals[0].Code)
-	assert.Equal(t, "Crowbar is upgrading its data (step 1 of 5: workspace-paths-table)", refusals[0].Error)
-	assert.Equal(t, "Crowbar is upgrading its data (step 5 of 5: hook-deliveries)", refusals[4].Error)
+	assert.Equal(t, "Crowbar is upgrading its data (step 1 of 6: workspace-paths-table)", refusals[0].Error)
+	assert.Equal(t, "Crowbar is upgrading its data (step 2 of 6: chat-ledger)", refusals[1].Error)
+	assert.Equal(t, "Crowbar is upgrading its data (step 6 of 6: hook-deliveries)", refusals[5].Error)
 }

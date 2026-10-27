@@ -115,7 +115,7 @@ func TestNew_RunsTheLegacyStepsBeforeServing(t *testing.T) {
 	require.NoError(t, err)
 
 	applied := migratetest.Applied(t, h)
-	for step := 1; step <= 5; step++ {
+	for step := 1; step <= 6; step++ {
 		assert.Len(t, applied[step], 1, "step %d", step)
 	}
 	records := readLedger(t, h)

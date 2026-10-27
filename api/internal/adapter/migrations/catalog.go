@@ -6,6 +6,7 @@ package migrations
 import (
 	"context"
 
+	"github.com/char2cs/crowbar/api/internal/adapter/migrations/chatledger"
 	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 )
@@ -19,6 +20,10 @@ const (
 	StepChatProviders       = 4
 	StepHookDeliveries      = 5
 )
+
+// StepChatLedger restates the legacy chat records as ledger rows. It changes
+// no layout, so the post-open legacy steps after it stay as they are.
+const StepChatLedger = 6
 
 // legacyNames are the steps' names, which were also their markers' file names.
 var legacyNames = map[int]string{
@@ -57,6 +62,7 @@ func legacySteps() []migrate.Step {
 		legacyStep(StepChatTypes, migrate.PostOpen, rewrites("chats minted before chat types existed")),
 		legacyStep(StepChatProviders, migrate.PostOpen, rewrites("chat providers their runner history disagrees with")),
 		legacyStep(StepHookDeliveries, migrate.PostOpen, deletes(".hook-deliveries directories")),
+		{Number: StepChatLedger, Name: "chat-ledger", Phase: migrate.PreOpen, Plan: chatledger.Plan},
 	}
 }
 

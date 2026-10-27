@@ -174,7 +174,11 @@ at the `Known` layout. The five legacy fix-ups the marker files under
 `hook-deliveries`). An existing marker is adopted once: recorded, deleted, the
 step not re-run. Over rows it cannot replay a legacy step stays best-effort: it
 counts them as `skipped_rows` and completes; only an engine failure or a failed
-Verify halts.
+Verify halts. Step 6 `chat-ledger` (pre-open, in-layout) restates the legacy
+chat records (`agent_runner.db`, `agent_activity.db`, `<home>/chats/*/prompt-requests`)
+as ledger rows, checkpointed per chat: a chat whose ledger already has rows is
+counted `skipped_chats`, and a CLI the old daemon never saw exit is left live for
+the boot reconcile to end.
 
 **Backup.** When a pending plan sets `RewritesState` and `state/` holds files,
 the run first writes `<home>/migrate/backups/<run-id>/` (built as

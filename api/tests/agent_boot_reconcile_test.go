@@ -5,6 +5,7 @@ package tests
 import (
 	"context"
 	"net/http"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -257,6 +258,17 @@ func TestRegression_ABootWithALiveRunnerRecordsDaemonRestart(t *testing.T) {
 // runner only in its own runner store. The upgrade boot ends it like any other,
 // or the chat's turn spins forever.
 func TestRegression_AgentBootReconcileEndsTheRunnerACrashedOldDaemonLeft(t *testing.T) {
+	assertLegacyRunnerEnded(t, false)
+}
+
+// A home whose older daemon already ran the provider step carries its marker,
+// so that step is adopted and never runs: the runner is ended all the same.
+func TestRegression_AgentBootReconcileEndsTheRunnerOnAHomeThatAdoptedTheProviderStep(t *testing.T) {
+	assertLegacyRunnerEnded(t, true)
+}
+
+func assertLegacyRunnerEnded(t *testing.T, providerStepMarked bool) {
+	t.Helper()
 	home := t.TempDir()
 	h := newHarnessAt(t, home)
 	imported := importWritableWorkspace(t, h)
@@ -270,6 +282,11 @@ func TestRegression_AgentBootReconcileEndsTheRunnerACrashedOldDaemonLeft(t *test
 	seed := openBaseEra(t, home)
 	seed.chat(chat)
 	seed.close()
+	if providerStepMarked {
+		marker := filepath.Join(home, "state", "upgrades", "chat-providers-from-history")
+		require.NoError(t, os.MkdirAll(filepath.Dir(marker), 0o700))
+		require.NoError(t, os.WriteFile(marker, nil, 0o600))
+	}
 	store := homeAt(t, home).Store()
 	legacy := openSQLite(t, filepath.Join(store, chatledger.RunnerDB))
 	require.NoError(t, legacy.Exec(chatledger.RunnersDDL).Error)

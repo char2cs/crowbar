@@ -43,6 +43,10 @@ once: the step is recorded as done, the marker deleted, nothing re-run):
   else.
 - `workspace-paths-table`: the retired `workspace_paths` table is dropped from
   `view.db`.
+- `chat-ledger`: each chat's legacy transcript, tools, subagents, dividers,
+  asks and journalled prompts become chat ledger rows, bound to the session its
+  newest turn ran on. Nothing is redelivered: a prompt the old daemon never saw
+  answered is shown settled, and no legacy ask can be answered.
 
 Also changed for old data, without a migration:
 

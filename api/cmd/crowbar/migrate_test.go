@@ -37,7 +37,7 @@ func TestMigrateCmd_PlanPrintsAndChangesNothingOnDisk(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Contains(t, out, "home      "+h.Root())
-	assert.Contains(t, out, "5 pending steps, in execution order")
+	assert.Contains(t, out, "6 pending steps, in execution order")
 	assert.Contains(t, out, "#2 workspace-paths-table   pre-open   layout 0")
 	assert.Contains(t, out, "state/view.db: drop table workspace_paths")
 	assert.Contains(t, out, "#3 chat-types   post-open   layout 0")
@@ -59,6 +59,23 @@ func TestMigrateCmd_PlanOfAnUnopenedHomeCreatesNothing(t *testing.T) {
 	assert.Contains(t, out, "state backup  not needed")
 	assert.Empty(t, testutil.TreeSnapshot(t, h))
 	assert.NoDirExists(t, h.State())
+}
+
+// The chat-ledger step has no command of its own: the dry run names it and
+// its conversion, and opens no legacy database.
+func TestMigrateCmd_PlanNamesTheChatLedgerStep(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	t.Setenv(home.EnvVar, h.Root())
+	testutil.WriteFile(t, h, "state/store/agent_activity.db", "not a database: the plan must not open it")
+	before := testutil.TreeSnapshot(t, h)
+
+	out, err := runMigrate(t, "--plan")
+
+	require.NoError(t, err)
+	assert.Contains(t, out, "#6 chat-ledger   pre-open   layout 0")
+	assert.Contains(t, out, "legacy chat history → chat ledger")
+	assert.Equal(t, before, testutil.TreeSnapshot(t, h), "nothing written")
+	assert.NoDirExists(t, h.MigrateDir())
 }
 
 func TestMigrateCmd_RequiresPlan(t *testing.T) {

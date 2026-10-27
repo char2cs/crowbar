@@ -10,6 +10,7 @@ import (
 
 	gormdb "gorm.io/gorm"
 
+	"github.com/char2cs/crowbar/api/internal/adapter/migrations/chatledger"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
@@ -26,6 +27,7 @@ func PreOpenImpls() migrate.Impls {
 			Apply:  dropWorkspacePaths,
 			Verify: verifyWorkspacePaths,
 		}),
+		StepChatLedger: chatledger.Impl(),
 	}
 }
 

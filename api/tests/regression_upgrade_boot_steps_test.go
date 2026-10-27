@@ -14,10 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
+	"github.com/char2cs/crowbar/api/internal/adapter/migrations/chatledger"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	crowbarhome "github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
@@ -202,6 +204,88 @@ func TestRegression_Upgrade_RestoringABackupAsDocumentedRerunsItsSteps(t *testin
 	require.NoError(t, err)
 	assert.Equal(t, domain.ChatTypeChat, got.Type, "chat-types ran again on the restored chat")
 	assert.Len(t, migratetest.Applied(t, homeAt(t, home))[3], 1)
+}
+
+// A chat the pre-ledger daemon recorded keeps its history: the upgrade boot
+// restates it as ledger rows, bound to the session its newest turn ran on,
+// and a second boot converts nothing.
+func TestRegression_Upgrade_LegacyChatsBecomeLedgerRowsAtBoot(t *testing.T) {
+	home := t.TempDir()
+	h := newHarnessAt(t, home)
+	imported := importWritableWorkspace(t, h)
+	h.Quiesce()
+	h.crash()
+	at := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	chat := domain.Chat{ID: uuid.NewString(), WorkspaceID: imported.workspaceID, ProviderID: "claude", Title: "old", CreatedAt: at}
+	seed := openBaseEra(t, home)
+	seed.chat(chat)
+	seed.close()
+	writeLegacyChat(t, homeAt(t, home), chat.ID, at)
+
+	h2 := newHarnessAt(t, home)
+	h2.Quiesce()
+
+	legacy := []string{"first prompt", "first answer", "second prompt", "second answer"}
+	assert.Equal(t, legacy, messageTexts(t, h2, imported, chat.ID))
+	snap, err := h2.app.Usecases.AgentChat.ChatSnapshot(context.Background(), chat.ID)
+	require.NoError(t, err)
+	assert.False(t, snap.Ledger.Busy, "a converted chat is at rest")
+	var bound []string
+	for _, c := range snap.Ledger.Conversations {
+		if c.State == ledger.ConversationBound {
+			bound = append(bound, c.SessionID)
+		}
+	}
+	assert.Equal(t, []string{"S-1"}, bound, "the session its newest turn ran on")
+	h2.shutdown()
+
+	h3 := newHarnessAt(t, home)
+	h3.Quiesce()
+
+	assert.Equal(t, legacy, messageTexts(t, h3, imported, chat.ID))
+	runs := migratetest.Applied(t, homeAt(t, home))[6]
+	require.Len(t, runs, 1, "the second boot converts nothing")
+	assert.Positive(t, runs[0]["rows"])
+}
+
+// writeLegacyChat writes two exchanges as the pre-ledger daemon kept them,
+// the first a prompt its journal delivered.
+func writeLegacyChat(t *testing.T, h crowbarhome.Home, chatID string, at time.Time) {
+	t.Helper()
+	runner := openSQLite(t, filepath.Join(h.Store(), chatledger.RunnerDB))
+	require.NoError(t, runner.Exec(chatledger.ConversationsDDL).Error)
+	require.NoError(t, runner.Exec(`INSERT INTO agent_chat_conversations
+		(chat_id, session_id, provider_id, first_seen_at, last_active_at) VALUES (?, 'S-1', 'claude', ?, ?)`,
+		chatID, at, at.Add(time.Hour)).Error)
+	closeSQLite(t, runner)
+	activity := openSQLite(t, filepath.Join(h.Store(), chatledger.ActivityDB))
+	require.NoError(t, activity.Exec(chatledger.TurnsDDL).Error)
+	for i, row := range []struct{ id, role, text string }{
+		{"req-1", "user", "first prompt"},
+		{"msg-1", "assistant", "first answer"},
+		{"u-2", "user", "second prompt"},
+		{"msg-2", "assistant", "second answer"},
+	} {
+		start := at.Add(time.Duration(i+1) * time.Minute)
+		require.NoError(t, activity.Exec(`INSERT INTO agent_turns
+			(key, id, chat_id, seq, display_order, role, provider_id, runner_id, session_id, text, started_at, ended_at)
+			VALUES (?, ?, ?, ?, ?, ?, 'claude', 'run-1', 'S-1', ?, ?, ?)`,
+			chatID+"\x00"+row.id, row.id, chatID, i+1, i/2+1, row.role, row.text, start, start.Add(time.Second)).Error)
+	}
+	closeSQLite(t, activity)
+	journal := filepath.Join(h.Root(), "chats", chatID, chatledger.PromptsDir)
+	require.NoError(t, os.MkdirAll(journal, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(journal, "req-1.json"),
+		[]byte(`{"requestId":"req-1","text":"first prompt","state":"accepted","providerId":"claude"}`), 0o600))
+}
+
+func messageTexts(t *testing.T, h *harness, imported importedRepo, chatID string) []string {
+	t.Helper()
+	var texts []string
+	for _, m := range readRecordedMessages(t, h, imported, chatID) {
+		texts = append(texts, m.Text)
+	}
+	return texts
 }
 
 // copyFile replaces dst with src's bytes, as a person restoring by hand would.
