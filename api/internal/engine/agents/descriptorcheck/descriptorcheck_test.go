@@ -84,6 +84,25 @@ func TestValidateAll_AnOverrideCopiedFromAnOldShippedDescriptorFallsBack(t *test
 	}
 }
 
+// The real migration case: an override in today's vocabulary whose hooks still
+// run the retired relay is refused once, by the finding that names the replacement.
+func TestValidate_AShippedDescriptorStillWiredToTheRelayIsRefused(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "internal", "protocol", "internal", "descriptor", "descriptors-v3", "claude.yaml"))
+	require.NoError(t, err)
+	relayed := strings.Replace(string(raw), "{hook_curl} {hook_url}/telemetry", "{crowbar_hook} hook telemetry --segment {segid}", 1)
+	require.NotEqual(t, string(raw), relayed, "the shipped descriptor posts its telemetry through curl")
+
+	rep := descriptorcheck.Validate([]byte(relayed))
+	f := findingFor(t, rep, "hooks.relay_retired")
+	assert.Equal(t, descriptorcheck.SeverityError, f.Severity)
+	assert.True(t, strings.HasPrefix(f.Path, "hooks_injection["), f.Path)
+	assert.Equal(t, "post hooks to {hook_url}/<event> (HTTP) or through {hook_curl}", f.Hint)
+	for _, other := range rep.Findings {
+		assert.NotEqual(t, "template.unknown_var", other.Rule, "one cause, one finding")
+	}
+	assert.False(t, descriptorcheck.AcceptOverride([]byte(relayed)))
+}
+
 // An override with no shipped default to fall back to is still blocked.
 func TestGate_AnOverrideWithNoShippedDefaultIsStillBlocked(t *testing.T) {
 	home := t.TempDir()

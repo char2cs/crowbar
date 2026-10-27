@@ -96,6 +96,9 @@ func templateRules(doc document, d *spec.Descriptor) []Finding {
 			if slices.Contains(known, name) || strings.HasPrefix(name, "permission.") {
 				continue
 			}
+			if name == "crowbar_hook" && strings.Contains(f.value, relayHookCommand) {
+				continue // hooks.relay_retired names this one and its replacement
+			}
 			out = append(out, doc.finding("template.unknown_var", SeverityError, f.path,
 				fmt.Sprintf("{%s} is not a template variable Crowbar fills", name),
 				"use one of: "+strings.Join(sortedCopy(known), ", ")))
