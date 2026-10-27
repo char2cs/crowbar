@@ -78,6 +78,9 @@ type ChatUsecase interface {
 		chatID string,
 	) error
 
+	// OpenFeed is the chat's row feed from since: see Usecase.OpenFeed.
+	OpenFeed(ctx context.Context, chatID string, since int64) (<-chan FeedFrame, error)
+
 	// ListChats returns every chat the daemon knows, across all workspaces.
 	ListChats(
 		ctx context.Context,
@@ -244,6 +247,9 @@ type Usecase struct {
 	snapshots *snapshot.Snapshots
 	// feed is the hub, bound at sweep start; ledger commits publish through it.
 	feed atomic.Pointer[ChatFeed]
+	// feeds are the per-chat row feeds, and epoch names this daemon's run to them.
+	feeds *feeds
+	epoch string
 
 	// The five components. Each owns one responsibility, and the delegating
 	// methods in this file and the other five are the whole of what reaches them.
@@ -302,6 +308,9 @@ func (u *Usecase) PurgeChat(
 	err := u.conversations.PurgeChat(ctx, chatID)
 	if errors.Is(err, agentchat.ErrNotFound) {
 		return fmt.Errorf("%w: %w", err, apperr.ErrNotFound)
+	}
+	if err == nil {
+		u.feeds.deleted(chatID)
 	}
 	return err
 }

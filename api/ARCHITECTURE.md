@@ -120,12 +120,15 @@ the usecases they call.
   `/v0/projects/:projectId/repos/:repoId/...` with guards that reject ids from
   another scope; the flat `/v0/chats/:chatId/...` group resolves the chat's
   worktree once per request (`reqscope`) and serves git, files, terminal, lsp,
-  search, editor and review for that chat.
+  search, editor and review for that chat. `/v0/chats/:chatId/feed` sits beside
+  that group, not in it: the chat's ledger rows by `seq` (resumable with
+  `since`), then its streamed text as numbered deltas; overflow is a `resync`.
 - `v0/endpoints/<group>/`: one package per group (`handlers/` + `routes.go`);
   `v0/dto`: wire types.
 - `v0/ws`: `Broadcaster[T]` + `StreamDef` — each stream filters its clients by
   scope and sends a snapshot on subscribe (`v0/snapshots.go`) followed by deltas
-  from the hub.
+  from the hub. `Stream` serves one socket from a channel on the same write
+  loop and keepalive.
 
 ## Boot and migration
 

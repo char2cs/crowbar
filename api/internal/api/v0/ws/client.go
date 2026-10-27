@@ -52,6 +52,9 @@ type client struct {
 	// binding; rebound asks the write loop to send it, coalescing like wake.
 	resnapshot func() [][]byte
 	rebound    chan struct{}
+
+	// closing, on a Stream, carries the close code its source ended on.
+	closing chan int
 }
 
 func newClient() *client {
@@ -200,6 +203,8 @@ func writeNext(
 		return writeFrames(conn, cl.drainPending())
 	case <-cl.rebound:
 		return writeResnapshot(conn, cl)
+	case code := <-cl.closing:
+		return writeClose(conn, cl, code)
 	case <-ticker.C:
 		_ = conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 		return conn.WriteMessage(websocket.PingMessage, nil) == nil
@@ -215,15 +220,20 @@ func writeResnapshot(
 	conn *websocket.Conn,
 	cl *client,
 ) bool {
+	if !writeQueued(conn, cl) || !writeFrames(conn, cl.drainPending()) {
+		return false
+	}
+	return writeFrames(conn, cl.resnapshot())
+}
+
+// writeQueued writes what cl.send holds now, in order.
+func writeQueued(conn *websocket.Conn, cl *client) bool {
 	for queued := len(cl.send); queued > 0; queued-- {
 		if !writeFrame(conn, <-cl.send) {
 			return false
 		}
 	}
-	if !writeFrames(conn, cl.drainPending()) {
-		return false
-	}
-	return writeFrames(conn, cl.resnapshot())
+	return true
 }
 
 func writeFrames(conn *websocket.Conn, msgs [][]byte) bool {

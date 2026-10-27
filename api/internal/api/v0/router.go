@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat"
+	chathandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat/handlers"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/console"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/documents"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor"
@@ -114,6 +115,9 @@ func (c *Container) Register(
 	// for the worktree that chat holds. Without it, a frontend that stopped
 	// watching .../workspaces/:wsId would leave every PR status frozen at `new`.
 	chatScoped.GET("/ws", c.agentChats.Handle)
+	// The chat's row feed reads only its ledger, so it mounts outside chatScoped:
+	// a home or bubble chat, with no worktree to resolve, has a feed too.
+	chats.GET("/:chatId/feed", chathandlers.NewFeed(c.app.Usecases.AgentChat).Handle)
 
 	c.detached = append(c.detached, projectsPkg.Register(
 		rg,

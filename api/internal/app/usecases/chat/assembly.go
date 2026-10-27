@@ -3,6 +3,8 @@ package chat
 import (
 	"context"
 
+	"github.com/google/uuid"
+
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
@@ -131,6 +133,8 @@ func New(d Deps) *Usecase {
 		folders:    d.Folders,
 		nodes:      d.Nodes,
 		repoRoots:  d.RepoRoots,
+		feeds:      newFeeds(feedCapacity),
+		epoch:      uuid.NewString(),
 	}
 	locks := ingress.NewLocks()
 	sh := shared{
@@ -223,7 +227,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	u.recorder = ingress.NewRecorder(ingress.RecorderDeps{
 		Chats: d.Chats, Agents: d.Agents, Workspace: d.Workspace, Home: d.Home, Ledger: d.Ledger,
 		Blobs: d.Blobs, Telemetry: sh.telemetry, Answers: sh.answers, Titles: u.conversations,
-		Frames: hubFrames{feed: &u.feed},
+		Frames: hubFrames{feed: &u.feed, feeds: u.feeds},
 	})
 	u.runners = runner.New(runner.Deps{
 		Chats:         d.Chats,
@@ -261,6 +265,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		}
 	})
 	d.Ledger.Subscribe(u.publishLedgerRows)
+	d.Ledger.Subscribe(func(chatID string, rows []ledger.Row, _ ledger.State) { u.feeds.rows(chatID, rows) })
 }
 
 // runnerTurns is the hook side as the runner lifecycle sees it: the recorder,

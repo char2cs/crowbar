@@ -135,7 +135,14 @@ type frame struct {
 type feedSpy struct {
 	mu        sync.Mutex
 	frames    []frame
+	deltas    []FeedDelta
 	telemetry int
+}
+
+func (f *feedSpy) FeedDelta(_ string, d FeedDelta) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deltas = append(f.deltas, d)
 }
 
 func (f *feedSpy) MessageDelta(_, _, messageID, text, kind string, startedAt time.Time) {

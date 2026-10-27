@@ -63,10 +63,11 @@ type RecorderDeps struct {
 	Frames    Frames
 }
 
-// Frames shows a chat's clients what no row says: the text streamed so far
-// and the provider's usage reports.
+// Frames shows a chat's clients what no row says: the text streamed so far,
+// what each frame of it added, and the provider's usage reports.
 type Frames interface {
 	MessageDelta(chatID, workspaceID, messageID, text, kind string, startedAt time.Time)
+	FeedDelta(chatID string, d FeedDelta)
 	Telemetry(chatID, workspaceID string, report engineagents.Telemetry)
 }
 
@@ -265,10 +266,11 @@ func (r *Recorder) commit(
 	ctx context.Context, chat domain.Chat, runnerID string, ev engineagents.CanonicalEvent, src Source, refs BlobRefs,
 ) (Effects, error) {
 	var fx Effects
+	var committed []ledger.Row
 	var after ledger.State
 	do := func() error {
 		var err error
-		_, after, err = r.ledger.Do(ctx, chat.ID, func(st ledger.State) ([]ledger.Row, error) {
+		committed, after, err = r.ledger.Do(ctx, chat.ID, func(st ledger.State) ([]ledger.Row, error) {
 			rows, effects, err := Map(st, ev, src, refs)
 			fx = effects
 			fx.Bound = boundScope(rows)
@@ -287,6 +289,11 @@ func (r *Recorder) commit(
 	}
 	if fx.Live != nil {
 		r.publishLive(chat, runnerID, *fx.Live)
+	}
+	for _, row := range committed {
+		if id, whole := completeMessage(row); whole {
+			r.live.complete(chat.ID, runnerID, row.TurnID, row.Scope, id)
+		}
 	}
 	if fx.Title != "" {
 		if err := r.titles.RenameChat(ctx, chat.ID, deriveTitle(fx.Title), "derived"); err != nil {

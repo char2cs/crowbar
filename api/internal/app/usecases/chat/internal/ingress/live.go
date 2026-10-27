@@ -23,6 +23,22 @@ const (
 	KindDiff       = "diff"
 )
 
+// StreamAnswer is the answer's stream as a feed names it; the other streams
+// are named by their kind.
+const StreamAnswer = "answer"
+
+// FeedDelta is one frame of a stream no row holds: only the text new since its
+// stream's last frame, numbered per stream, or the whole text when Replace.
+type FeedDelta struct {
+	ID      string `json:"id"` // message id (answer, reasoning) or tool id (tool_output, diff)
+	TurnID  string `json:"turnId"`
+	Scope   string `json:"scope,omitempty"`
+	Stream  string `json:"stream"` // "answer" | "reasoning" | "tool_output" | "diff"
+	N       int    `json:"n"`      // 1-based position of this frame in its stream
+	Text    string `json:"text"`   // the new suffix; everything so far when Replace
+	Replace bool   `json:"replace,omitempty"`
+}
+
 // toolOutputWindow is how much of a tool's output a frame carries: it is only
 // ever shown, and its whole text lands on the call's own result.
 const toolOutputWindow = 64 << 10
@@ -54,7 +70,10 @@ func (r *Recorder) unrecorded(chatID, runnerID string) Unrecorded {
 // publishLive shows d once its rows are in, with the stream so far. A frame
 // of a stream shown as a reply never shows less than the reply's own text.
 func (r *Recorder) publishLive(chat domain.Chat, runnerID string, d LiveDelta) {
-	text, startedAt := r.live.observe(chat.ID, runnerID, d, time.Now())
+	text, startedAt, fed := r.live.observe(chat.ID, runnerID, d, time.Now())
+	if fed != nil {
+		r.frames.FeedDelta(chat.ID, *fed)
+	}
 	if d.Kind != KindAnswer {
 		startedAt = time.Time{}
 	}
@@ -63,6 +82,10 @@ func (r *Recorder) publishLive(chat domain.Chat, runnerID string, d LiveDelta) {
 	}
 	r.frames.MessageDelta(chat.ID, chat.WorkspaceID, d.ShownAs, text, d.Kind, startedAt)
 }
+
+// Snapshot is one Replace frame per stream of chatID no row holds, each at its
+// stream's current number, in the order they began.
+func (r *Recorder) Snapshot(chatID string) []FeedDelta { return r.live.snapshot(chatID) }
 
 // ExitRows are what runnerID's exit records of the answers it streamed with no
 // row of their own; the caller commits them with the exit, then calls Retire.
@@ -90,6 +113,7 @@ type liveBlock struct {
 	at       time.Time
 	order    int // when it began among the chat's streams: the order it was said in
 	dropped  int // the bytes of a tool output trimmed off its head
+	n        int // the feed frames its stream has had
 }
 
 // live is the text streamed so far that no row holds, per chat, so every frame
@@ -103,14 +127,36 @@ type live struct {
 
 func newLive() *live { return &live{byChat: map[string]map[liveKey]*liveBlock{}} }
 
-// observe folds d, from runnerID, into its stream and returns its whole text
-// and when it began. A numbered answer increment takes its index's place, an
-// unnumbered one the next; other kinds append to their index's part.
-func (l *live) observe(chatID, runnerID string, d LiveDelta, now time.Time) (string, time.Time) {
+// observe folds d, from runnerID, into its stream and returns its whole text,
+// when it began, and the feed frame of what it added (nil for a numbered
+// stream, which rows carry, or for nothing new). A numbered answer increment
+// takes its index's place, an unnumbered one the next; other kinds append to
+// their index's part.
+func (l *live) observe(chatID, runnerID string, d LiveDelta, now time.Time) (string, time.Time, *FeedDelta) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	k := liveKey{runnerID: runnerID, turnID: d.TurnID, scope: d.Scope, id: d.ID, kind: d.Kind}
 	b := l.blockLocked(chatID, k, now)
+	before := b.join(d.Kind)
+	b.fold(d)
+	after := b.join(d.Kind)
+	if d.Kind == KindToolOutput {
+		b.trim()
+	}
+	text := b.text(d.Kind)
+	if b.numbered || after == before {
+		return text, b.at, nil
+	}
+	b.n++
+	fed := k.feed(b.n, text, true)
+	if strings.HasPrefix(after, before) {
+		fed.Text, fed.Replace = after[len(before):], false
+	}
+	return text, b.at, &fed
+}
+
+// fold takes d into the block's parts.
+func (b *liveBlock) fold(d LiveDelta) {
 	switch {
 	case d.Replace:
 		b.parts = map[int]string{0: d.Text}
@@ -123,10 +169,49 @@ func (l *live) observe(chatID, runnerID string, d LiveDelta, now time.Time) (str
 		b.parts[b.next] = d.Text
 		b.next++
 	}
-	if d.Kind == KindToolOutput {
-		b.trim()
+}
+
+func (k liveKey) feed(n int, text string, replace bool) FeedDelta {
+	stream := k.kind
+	if stream == KindAnswer {
+		stream = StreamAnswer
 	}
-	return b.text(d.Kind), b.at
+	return FeedDelta{ID: k.id, TurnID: k.turnID, Scope: k.scope, Stream: stream, N: n, Text: text, Replace: replace}
+}
+
+// snapshot is a Replace frame of each of chatID's streams no row holds.
+func (l *live) snapshot(chatID string) []FeedDelta {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	blocks := l.byChat[chatID]
+	keys := slices.Collect(maps.Keys(blocks))
+	slices.SortFunc(keys, func(a, b liveKey) int { return blocks[a].order - blocks[b].order })
+	var out []FeedDelta
+	for _, k := range keys {
+		if b := blocks[k]; !b.numbered && b.n > 0 {
+			out = append(out, k.feed(b.n, b.text(k.kind), true))
+		}
+	}
+	return out
+}
+
+// completeMessage is the message a row holds whole, if it is one.
+func completeMessage(row ledger.Row) (string, bool) {
+	if row.Kind != ledger.KindAssistantText {
+		return "", false
+	}
+	body, err := ledger.DecodeBody[ledger.AssistantText](row)
+	return body.MessageID, err == nil && body.Index == ledger.IndexComplete
+}
+
+// complete drops runnerID's answer stream that a complete row now holds.
+func (l *live) complete(chatID, runnerID, turnID, scope, id string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.byChat[chatID], liveKey{runnerID: runnerID, turnID: turnID, scope: scope, id: id, kind: KindAnswer})
+	if len(l.byChat[chatID]) == 0 {
+		delete(l.byChat, chatID)
+	}
 }
 
 // trim keeps a tool output's tail once it is twice the window: each delta

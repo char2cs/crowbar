@@ -76,6 +76,11 @@ func (f *fakeChatUsecase) RenameByRunner(context.Context, string, string, string
 	panic("unused")
 }
 func (f *fakeChatUsecase) PurgeChat(context.Context, string) error { panic("unused") }
+
+func (f *fakeChatUsecase) OpenFeed(context.Context, string, int64) (<-chan agentusecase.FeedFrame, error) {
+	panic("unused")
+}
+
 func (f *fakeChatUsecase) CwdWorkspaceID(context.Context, string) (string, bool, error) {
 	panic("unused")
 }

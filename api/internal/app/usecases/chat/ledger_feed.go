@@ -107,8 +107,13 @@ func (u *Usecase) announceChoices(chatID string) {
 }
 
 // hubFrames carry the recorder's frames on the hub's feed, once
-// StartTerminalWaitSweep wires it.
-type hubFrames struct{ feed *atomic.Pointer[ChatFeed] }
+// StartTerminalWaitSweep wires it, and its feed deltas on the chat feeds.
+type hubFrames struct {
+	feed  *atomic.Pointer[ChatFeed]
+	feeds *feeds
+}
+
+func (h hubFrames) FeedDelta(chatID string, d FeedDelta) { h.feeds.delta(chatID, d) }
 
 func (h hubFrames) MessageDelta(chatID, workspaceID, messageID, text, kind string, startedAt time.Time) {
 	if feed := h.feed.Load(); feed != nil && feed.MessageDelta != nil {
