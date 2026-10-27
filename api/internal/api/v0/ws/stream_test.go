@@ -101,3 +101,48 @@ func TestStream_ReturnsOnceTheClientGoes(t *testing.T) {
 
 	<-served
 }
+
+func TestStream_ACrossOriginDialIsRefusedAndReadsNothing(t *testing.T) {
+	frames := make(chan string, 1)
+	frames <- "secret"
+	served := make(chan struct{})
+	header := http.Header{"Origin": []string{"http://evil.example"}}
+
+	_, resp, err := websocket.DefaultDialer.Dial(streamServer(t, frames, served), header)
+
+	require.Error(t, err)
+	require.NotNil(t, resp)
+	require.NoError(t, resp.Body.Close())
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	<-served
+	assert.Len(t, frames, 1, "a refused socket takes no frame")
+}
+
+func TestStream_AClientLeavingMidStreamReleasesTheSource(t *testing.T) {
+	frames := make(chan string)
+	served := make(chan struct{})
+	conn, resp, err := websocket.DefaultDialer.Dial(streamServer(t, frames, served), nil)
+	if resp != nil {
+		require.NoError(t, resp.Body.Close())
+	}
+	require.NoError(t, err)
+	frames <- "first"
+	_, _, err = conn.ReadMessage()
+	require.NoError(t, err)
+
+	produced := make(chan struct{})
+	go func() {
+		defer close(produced)
+		for {
+			select {
+			case frames <- "more":
+			case <-served:
+				return
+			}
+		}
+	}()
+	require.NoError(t, conn.Close())
+
+	<-served
+	<-produced
+}

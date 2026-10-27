@@ -2,7 +2,6 @@ package ws
 
 import (
 	"log/slog"
-	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -11,19 +10,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
 
-// Stream upgrades c's request to a socket of its own and writes each frame of
-// frames, in order, until frames closes or the client goes. A frame encode
-// gives a close code ends the socket with that code, after the frame itself.
-// The socket is kept alive by the pings every socket here sends.
+// Stream serves one socket from frames on the shared write loop and its
+// pings; a frame encoded with a close code ends the socket after itself.
 func Stream[T any](c *gin.Context, frames <-chan T, encode func(T) (data []byte, closeCode int)) {
-	if !websocket.IsWebSocketUpgrade(c.Request) {
-		c.AbortWithStatus(http.StatusBadRequest)
-		return
-	}
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		c.AbortWithStatus(http.StatusBadRequest)
-		return
+		return // Upgrade already answered: 400 for no handshake, 403 for a foreign origin
 	}
 	cl := newClient()
 	cl.closing = make(chan int, 1)
@@ -33,8 +25,8 @@ func Stream[T any](c *gin.Context, frames <-chan T, encode func(T) (data []byte,
 	cl.closeDone()
 }
 
-// forward queues each frame for the write loop, then the close code that ends
-// the socket; a source that ends with none ends it at once.
+// forward queues frames for the write loop; a source that closes with no
+// close code ends the socket at once.
 func forward[T any](cl *client, frames <-chan T, encode func(T) ([]byte, int)) {
 	for f := range frames {
 		data, code := encode(f)

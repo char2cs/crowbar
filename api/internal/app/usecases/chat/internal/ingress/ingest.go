@@ -290,10 +290,8 @@ func (r *Recorder) commit(
 	if fx.Live != nil {
 		r.publishLive(chat, runnerID, *fx.Live)
 	}
-	for _, row := range committed {
-		if id, whole := completeMessage(row); whole {
-			r.live.complete(chat.ID, runnerID, row.TurnID, row.Scope, id)
-		}
+	if len(committed) > 0 {
+		r.live.dropRecorded(chat.ID, runnerID, after)
 	}
 	if fx.Title != "" {
 		if err := r.titles.RenameChat(ctx, chat.ID, deriveTitle(fx.Title), "derived"); err != nil {

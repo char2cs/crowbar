@@ -85,7 +85,9 @@ func (r *Recorder) publishLive(chat domain.Chat, runnerID string, d LiveDelta) {
 
 // Snapshot is one Replace frame per stream of chatID no row holds, each at its
 // stream's current number, in the order they began.
-func (r *Recorder) Snapshot(chatID string) []FeedDelta { return r.live.snapshot(chatID) }
+func (r *Recorder) Snapshot(chatID string, st ledger.State) []FeedDelta {
+	return r.live.snapshot(chatID, st)
+}
 
 // ExitRows are what runnerID's exit records of the answers it streamed with no
 // row of their own; the caller commits them with the exit, then calls Retire.
@@ -127,11 +129,8 @@ type live struct {
 
 func newLive() *live { return &live{byChat: map[string]map[liveKey]*liveBlock{}} }
 
-// observe folds d, from runnerID, into its stream and returns its whole text,
-// when it began, and the feed frame of what it added (nil for a numbered
-// stream, which rows carry, or for nothing new). A numbered answer increment
-// takes its index's place, an unnumbered one the next; other kinds append to
-// their index's part.
+// observe folds d into its stream: its whole text, when it began, and the feed
+// frame of what it added. A numbered stream has none: its rows carry it.
 func (l *live) observe(chatID, runnerID string, d LiveDelta, now time.Time) (string, time.Time, *FeedDelta) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -155,7 +154,8 @@ func (l *live) observe(chatID, runnerID string, d LiveDelta, now time.Time) (str
 	return text, b.at, &fed
 }
 
-// fold takes d into the block's parts.
+// fold takes d into the block's parts: a numbered answer increment at its
+// index, an unnumbered one next, other kinds appended to their index's part.
 func (b *liveBlock) fold(d LiveDelta) {
 	switch {
 	case d.Replace:
@@ -180,7 +180,7 @@ func (k liveKey) feed(n int, text string, replace bool) FeedDelta {
 }
 
 // snapshot is a Replace frame of each of chatID's streams no row holds.
-func (l *live) snapshot(chatID string) []FeedDelta {
+func (l *live) snapshot(chatID string, st ledger.State) []FeedDelta {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	blocks := l.byChat[chatID]
@@ -188,27 +188,35 @@ func (l *live) snapshot(chatID string) []FeedDelta {
 	slices.SortFunc(keys, func(a, b liveKey) int { return blocks[a].order - blocks[b].order })
 	var out []FeedDelta
 	for _, k := range keys {
-		if b := blocks[k]; !b.numbered && b.n > 0 {
+		if b := blocks[k]; !b.numbered && b.n > 0 && !k.recorded(st) {
 			out = append(out, k.feed(b.n, b.text(k.kind), true))
 		}
 	}
 	return out
 }
 
-// completeMessage is the message a row holds whole, if it is one.
-func completeMessage(row ledger.Row) (string, bool) {
-	if row.Kind != ledger.KindAssistantText {
-		return "", false
+// recorded reports whether a row in st holds the stream's whole text: a
+// message's complete chunk, or a tool's result. Reasoning and the diff are
+// the turn's, recorded at its end.
+func (k liveKey) recorded(st ledger.State) bool {
+	switch k.kind {
+	case KindAnswer:
+		return st.HasChunk(k.scope, k.id, ledger.IndexComplete)
+	case KindToolOutput:
+		return st.HasToolPhase(k.scope, k.id, ledger.ToolPost) || st.HasToolPhase(k.scope, k.id, ledger.ToolFail)
 	}
-	body, err := ledger.DecodeBody[ledger.AssistantText](row)
-	return body.MessageID, err == nil && body.Index == ledger.IndexComplete
+	return false
 }
 
-// complete drops runnerID's answer stream that a complete row now holds.
-func (l *live) complete(chatID, runnerID, turnID, scope, id string) {
+// dropRecorded drops runnerID's streams on chatID a row in st now holds.
+func (l *live) dropRecorded(chatID, runnerID string, st ledger.State) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	delete(l.byChat[chatID], liveKey{runnerID: runnerID, turnID: turnID, scope: scope, id: id, kind: KindAnswer})
+	for k := range l.byChat[chatID] {
+		if k.runnerID == runnerID && k.recorded(st) {
+			delete(l.byChat[chatID], k)
+		}
+	}
 	if len(l.byChat[chatID]) == 0 {
 		delete(l.byChat, chatID)
 	}

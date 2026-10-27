@@ -3,7 +3,9 @@ package chat
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,18 +26,18 @@ func seqRows(from, to int64) []ledger.Row {
 	return rows
 }
 
-// attaching emits frames as a replay would and reports head.
-func attaching(head int64, during func(), frames ...FeedFrame) func(func(FeedFrame) bool) (int64, error) {
-	return func(emit func(FeedFrame) bool) (int64, error) {
+// attaching emits frames as a replay would.
+func attaching(during func(), frames ...FeedFrame) func(func(FeedFrame) bool) error {
+	return func(emit func(FeedFrame) bool) error {
 		if during != nil {
 			during()
 		}
 		for _, f := range frames {
 			if !emit(f) {
-				return 0, context.Canceled
+				return context.Canceled
 			}
 		}
-		return head, nil
+		return nil
 	}
 }
 
@@ -81,7 +83,7 @@ func rowFrames(rows []ledger.Row) []FeedFrame {
 func TestFeeds_AFullBufferResyncsInsteadOfSkipping(t *testing.T) {
 	f := newFeeds(2)
 	attached := make(chan struct{})
-	out := f.open(t.Context(), "c1", attaching(0, func() { close(attached) }))
+	out := f.open(t.Context(), "c1", 0, attaching(func() { close(attached) }))
 	<-attached
 
 	f.rows("c1", seqRows(1, 3))
@@ -92,11 +94,37 @@ func TestFeeds_AFullBufferResyncsInsteadOfSkipping(t *testing.T) {
 	assert.Equal(t, FeedFrame{Type: FeedResync, Seq: 2}, frames[2], "resync from the last row it was sent")
 }
 
+// The frame the writer holds is unread too: with row 1 in its hand, two more
+// rows overflow a feed of two.
+func TestFeeds_TheFrameInTheWritersHandCountsAsUnread(t *testing.T) {
+	f := newFeeds(2)
+	attached := make(chan struct{})
+	out := f.open(t.Context(), "c1", 0, attaching(func() { close(attached) }))
+	<-attached
+	f.rows("c1", seqRows(1, 1))
+	subs := f.subs("c1")
+	require.Len(t, subs, 1)
+	sub := subs[0]
+	require.Eventually(t, func() bool {
+		sub.mu.Lock()
+		defer sub.mu.Unlock()
+		return sub.holding
+	}, 10*time.Second, time.Millisecond)
+
+	f.rows("c1", seqRows(2, 3))
+
+	frames := take(t, out, 3)
+	assert.Equal(t, []int64{1, 2}, seqsOf(frames))
+	require.Equal(t, FeedFrame{Type: FeedResync, Seq: 2}, frames[2])
+	_, open := <-out
+	assert.False(t, open)
+}
+
 func TestFeeds_LiveRowsDuringReplayAreDeliveredOnce(t *testing.T) {
 	f := newFeeds(16)
 	ready := FeedFrame{Type: feedReady, Epoch: "e1", Seq: 3}
 	commitDuringReplay := func() { f.rows("c1", seqRows(2, 3)); f.rows("c1", seqRows(4, 5)) }
-	out := f.open(t.Context(), "c1", attaching(3, commitDuringReplay, append(rowFrames(seqRows(1, 3)), ready)...))
+	out := f.open(t.Context(), "c1", 0, attaching(commitDuringReplay, append(rowFrames(seqRows(1, 3)), ready)...))
 
 	frames := take(t, out, 6)
 
@@ -113,7 +141,7 @@ func TestFeeds_ReadyIsFollowedBySnapshotsThenLiveFrames(t *testing.T) {
 		f.rows("c1", seqRows(1, 1))
 		f.delta("c2", FeedDelta{ID: "elsewhere"})
 	}
-	out := f.open(t.Context(), "c1", attaching(0, during,
+	out := f.open(t.Context(), "c1", 0, attaching(during,
 		FeedFrame{Type: feedReady, Epoch: "e1"}, FeedFrame{Type: feedDelta, Delta: &snap}))
 
 	frames := take(t, out, 4)
@@ -156,7 +184,7 @@ func TestFeeds_ADeltaRacingTheSnapshotNeverDuplicatesText(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFeeds(16)
-			out := f.open(t.Context(), "c1", attaching(0, func() { f.delta("c1", d(3, "c")) }, tc.snap))
+			out := f.open(t.Context(), "c1", 0, attaching(func() { f.delta("c1", d(3, "c")) }, tc.snap))
 			frames := take(t, out, 1)
 			f.delta("c1", d(4, "d"))
 
@@ -168,7 +196,7 @@ func TestFeeds_ADeltaRacingTheSnapshotNeverDuplicatesText(t *testing.T) {
 func TestFeeds_ADeletedChatEndsItsFeedsAfterWhatWasQueued(t *testing.T) {
 	f := newFeeds(16)
 	attached := make(chan struct{})
-	out := f.open(t.Context(), "c1", attaching(0, func() { close(attached) }))
+	out := f.open(t.Context(), "c1", 0, attaching(func() { close(attached) }))
 	<-attached
 
 	f.rows("c1", seqRows(1, 1))
@@ -184,26 +212,29 @@ func TestFeeds_ADeletedChatEndsItsFeedsAfterWhatWasQueued(t *testing.T) {
 func TestFeeds_AFeedClosesWhenItsContextEndsOrItsAttachFails(t *testing.T) {
 	f := newFeeds(16)
 	ctx, cancel := context.WithCancel(t.Context())
-	out := f.open(ctx, "c1", attaching(0, nil))
+	out := f.open(ctx, "c1", 0, attaching(nil))
 	f.rows("c1", seqRows(1, 1))
 	take(t, out, 1)
 
 	cancel()
 
 	assert.Empty(t, drain(out))
-	failed := f.open(t.Context(), "c1", func(func(FeedFrame) bool) (int64, error) { return 0, errors.New("disk gone") })
-	assert.Equal(t, []FeedFrame{{Type: FeedResync}}, drain(failed), "a feed that cannot attach says so")
+	failed := f.open(t.Context(), "c1", 500, func(func(FeedFrame) bool) error { return errors.New("disk gone") })
+	assert.Equal(t, []FeedFrame{{Type: FeedResync, Seq: 500}}, drain(failed),
+		"a feed that cannot attach says so, from what the client already has")
 	assert.Empty(t, f.byChat)
 }
 
-// knownChats knows one chat.
+// knownChats knows one chat, for reads up to its last one when that is set.
 type knownChats struct {
 	agentchat.EventStore
-	id string
+	id    string
+	last  int32
+	reads *atomic.Int32
 }
 
 func (k knownChats) GetChat(_ context.Context, id string) (domain.Chat, error) {
-	if id != k.id {
+	if id != k.id || k.reads != nil && k.reads.Add(1) > k.last {
 		return domain.Chat{}, agentchat.ErrNotFound
 	}
 	return domain.Chat{ID: id}, nil
@@ -243,4 +274,28 @@ func TestOpenFeed_AnUnknownChatIsNotFound(t *testing.T) {
 	_, err := u.OpenFeed(t.Context(), "nope", 0)
 
 	require.ErrorIs(t, err, apperr.ErrNotFound)
+}
+
+func TestOpenFeed_AChatPurgedWhileItOpensEndsDeleted(t *testing.T) {
+	u := newWiringFixture(t)
+	u.chats = knownChats{id: "c1", last: 1, reads: &atomic.Int32{}}
+
+	out, err := u.OpenFeed(t.Context(), "c1", 0)
+
+	require.NoError(t, err)
+	assert.Equal(t, []FeedFrame{{Type: FeedDeleted}}, drain(out))
+}
+
+func TestOpenFeed_ASinceBeyondTheHeadResyncsFromTheHead(t *testing.T) {
+	u := newWiringFixture(t)
+	u.chats = knownChats{id: "c1"}
+	for range 2 {
+		_, _, err := u.ledger.Append(t.Context(), "c1", marker(t, ledger.MarkerNotification))
+		require.NoError(t, err)
+	}
+
+	out, err := u.OpenFeed(t.Context(), "c1", 5)
+
+	require.NoError(t, err)
+	assert.Equal(t, []FeedFrame{{Type: FeedResync, Seq: 2}}, drain(out))
 }

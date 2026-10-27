@@ -58,10 +58,27 @@ func getFeed(t *testing.T, url string) int {
 	return resp.StatusCode
 }
 
+func dialStatus(t *testing.T, url string) int {
+	t.Helper()
+	conn, resp, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(url, "http"), nil)
+	require.Error(t, err)
+	require.Nil(t, conn)
+	require.NoError(t, resp.Body.Close())
+	return resp.StatusCode
+}
+
 func TestFeed_UnknownChatIs404(t *testing.T) {
 	base := feedServer(t, &fakeFeeds{})
 
-	assert.Equal(t, http.StatusNotFound, getFeed(t, base+"/chats/nope/feed"))
+	assert.Equal(t, http.StatusNotFound, dialStatus(t, base+"/chats/nope/feed"))
+}
+
+func TestFeed_APlainGetIsRefusedBeforeAFeedOpens(t *testing.T) {
+	feeds := &fakeFeeds{}
+	base := feedServer(t, feeds)
+
+	assert.Equal(t, http.StatusBadRequest, getFeed(t, base+"/chats/chat-1/feed"))
+	assert.False(t, feeds.opened)
 }
 
 func TestFeed_BadSinceIs400(t *testing.T) {

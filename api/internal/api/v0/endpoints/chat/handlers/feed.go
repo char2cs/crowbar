@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
@@ -43,6 +44,10 @@ func (h *Feed) Handle(c *gin.Context) {
 			return
 		}
 		since = n
+	}
+	if !websocket.IsWebSocketUpgrade(c.Request) {
+		libs.WriteErr(c, http.StatusBadRequest, "the feed is a websocket")
+		return
 	}
 	ctx, cancel := context.WithCancel(c.Request.Context())
 	defer cancel()

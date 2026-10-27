@@ -45,11 +45,12 @@ type FeedDelta = ingress.FeedDelta
 
 func rowFrame(r ledger.Row) FeedFrame { return FeedFrame{Type: feedRow, Row: &r} }
 
-// OpenFeed attaches to chatID's live rows, then replays rows with seq > since.
-// The channel yields the replayed rows, the ready frame, one Replace delta per
-// live stream (Snapshot taken after the subscriber was registered), then live
-// frames. It is closed after a resync or deleted frame, or when ctx ends.
-// apperr.ErrNotFound for an unknown chat.
+// errFeedEnded is an attach that sent the frame its feed ends on.
+var errFeedEnded = errors.New("chat feed: ended while attaching")
+
+// OpenFeed is chatID's feed: rows after since, ready, a snapshot of its live
+// streams, then live frames. It registers before reading the head, so a row
+// committed meanwhile is sent once; an unknown chat is apperr.ErrNotFound.
 func (u *Usecase) OpenFeed(ctx context.Context, chatID string, since int64) (<-chan FeedFrame, error) {
 	if _, err := u.chats.GetChat(ctx, chatID); err != nil {
 		if errors.Is(err, agentchat.ErrNotFound) {
@@ -57,43 +58,55 @@ func (u *Usecase) OpenFeed(ctx context.Context, chatID string, since int64) (<-c
 		}
 		return nil, fmt.Errorf("chat feed: %s: %w", chatID, err)
 	}
-	return u.feeds.open(ctx, chatID, func(emit func(FeedFrame) bool) (int64, error) {
+	return u.feeds.open(ctx, chatID, since, func(emit func(FeedFrame) bool) error {
 		return u.attachFeed(ctx, chatID, since, emit)
 	}), nil
 }
 
 // attachFeed replays chatID's rows after since up to its head, then sends the
-// ready frame and the snapshot of its live streams. It returns the head.
-func (u *Usecase) attachFeed(ctx context.Context, chatID string, since int64, emit func(FeedFrame) bool) (int64, error) {
+// ready frame and the snapshot of what no row up to the head holds. A purge
+// that ran before the feed registered is told as deleted.
+func (u *Usecase) attachFeed(ctx context.Context, chatID string, since int64, emit func(FeedFrame) bool) error {
+	if _, err := u.chats.GetChat(ctx, chatID); errors.Is(err, agentchat.ErrNotFound) {
+		emit(FeedFrame{Type: FeedDeleted})
+		return errFeedEnded
+	} else if err != nil {
+		return fmt.Errorf("chat feed: %s: %w", chatID, err)
+	}
 	st, err := u.ledger.State(ctx, chatID)
 	if err != nil {
-		return 0, fmt.Errorf("chat feed: %s: head: %w", chatID, err)
+		return fmt.Errorf("chat feed: %s: head: %w", chatID, err)
 	}
 	head := st.Head()
+	if since > head {
+		// A since this ledger never reached: the client rebuilds from the head.
+		emit(FeedFrame{Type: FeedResync, Seq: head})
+		return errFeedEnded
+	}
 	for after := since; after < head; {
 		rows, err := u.ledger.Read(ctx, chatID, after, int(min(head-after, feedReplayPage)))
 		if err != nil {
-			return 0, fmt.Errorf("chat feed: %s: replay: %w", chatID, err)
+			return fmt.Errorf("chat feed: %s: replay: %w", chatID, err)
 		}
 		if len(rows) == 0 {
 			break
 		}
 		for _, r := range rows {
 			if !emit(rowFrame(r)) {
-				return 0, ctx.Err()
+				return ctx.Err()
 			}
 		}
 		after = rows[len(rows)-1].Seq
 	}
 	if !emit(FeedFrame{Type: feedReady, Epoch: u.epoch, Seq: head}) {
-		return 0, ctx.Err()
+		return ctx.Err()
 	}
-	for _, d := range u.recorder.Snapshot(chatID) {
+	for _, d := range u.recorder.Snapshot(chatID, st) {
 		if !emit(FeedFrame{Type: feedDelta, Delta: &d}) {
-			return 0, ctx.Err()
+			return ctx.Err()
 		}
 	}
-	return head, nil
+	return nil
 }
 
 // feeds is every open chat feed. Publishing never blocks: each feed queues
@@ -120,9 +133,9 @@ type feedSub struct {
 
 // open registers a feed of chatID, then runs attach on its own goroutine: what
 // attach emits comes first, then what was published meanwhile, without the
-// rows at or below the head attach returns.
+// rows the client was already sent (since counts as sent).
 func (f *feeds) open(
-	ctx context.Context, chatID string, attach func(emit func(FeedFrame) bool) (int64, error),
+	ctx context.Context, chatID string, since int64, attach func(emit func(FeedFrame) bool) error,
 ) <-chan FeedFrame {
 	s := &feedSub{wake: make(chan struct{}, 1)}
 	f.mu.Lock()
@@ -135,7 +148,7 @@ func (f *feeds) open(
 	safego.Go("chat.feed", func() {
 		defer close(out)
 		defer f.leave(chatID, s)
-		s.pump(ctx, chatID, out, attach)
+		s.pump(ctx, chatID, out, since, attach)
 	})
 	return out
 }
@@ -237,18 +250,16 @@ func (s *feedSub) sent() {
 
 // pump writes the feed out: attach's frames, then the queue, then its end.
 func (s *feedSub) pump(
-	ctx context.Context, chatID string, out chan<- FeedFrame, attach func(emit func(FeedFrame) bool) (int64, error),
+	ctx context.Context, chatID string, out chan<- FeedFrame, since int64, attach func(emit func(FeedFrame) bool) error,
 ) {
-	w := &feedWriter{ctx: ctx, out: out}
-	head, err := attach(w.emit)
-	if err != nil {
-		if ctx.Err() == nil {
+	w := &feedWriter{ctx: ctx, out: out, last: since}
+	if err := attach(w.emit); err != nil {
+		if !errors.Is(err, errFeedEnded) && ctx.Err() == nil {
 			slog.Warn("chat feed: attach", "chat_id", chatID, "err", err)
 			w.emit(FeedFrame{Type: FeedResync, Seq: w.last})
 		}
 		return
 	}
-	w.last = max(w.last, head)
 	for s.step(w) {
 	}
 }

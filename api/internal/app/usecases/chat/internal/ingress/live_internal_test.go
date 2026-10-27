@@ -289,8 +289,8 @@ func TestLive_SnapshotHasOneReplacePerLiveStream(t *testing.T) {
 		{ID: "m1", TurnID: "T1", Stream: StreamAnswer, N: 2, Text: "one more", Replace: true},
 		{ID: "tool-1", TurnID: "T1", Stream: KindToolOutput, N: 1, Text: "$ ls", Replace: true},
 		{ID: "m2", TurnID: "T1", Scope: "agent-1", Stream: StreamAnswer, N: 1, Text: "two", Replace: true},
-	}, l.snapshot(testChat), "in the order they began")
-	assert.Empty(t, l.snapshot("chat-3"))
+	}, l.snapshot(testChat, ledger.State{}), "in the order they began")
+	assert.Empty(t, l.snapshot("chat-3", ledger.State{}))
 }
 
 func TestLive_ACompleteRowDropsItsStreamFromTheSnapshot(t *testing.T) {
@@ -304,7 +304,7 @@ func TestLive_ACompleteRowDropsItsStreamFromTheSnapshot(t *testing.T) {
 		_, _, err = f.dispatch(t, ev)
 		require.NoError(t, err)
 	}
-	require.Len(t, f.r.Snapshot(testChat), 2)
+	require.Len(t, f.r.Snapshot(testChat, f.state(t)), 2)
 
 	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{
 		Kind:     engineagents.HookMessageComplete,
@@ -312,11 +312,50 @@ func TestLive_ACompleteRowDropsItsStreamFromTheSnapshot(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := f.r.Snapshot(testChat)
+	snap := f.r.Snapshot(testChat, f.state(t))
 	require.Len(t, snap, 1)
 	assert.Equal(t, "m2", snap[0].ID, "the row holds m1 now")
 	assert.Equal(t, []FeedDelta{
 		{ID: "m1", TurnID: snap[0].TurnID, Stream: StreamAnswer, N: 1, Text: "hel"},
 		{ID: "m2", TurnID: snap[0].TurnID, Stream: StreamAnswer, N: 1, Text: "still going"},
 	}, f.feed.deltas, "each unnumbered delta is fed once its rows commit")
+}
+
+func TestLive_AFinishedToolsOutputLeavesTheSnapshot(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	for _, ev := range []engineagents.CanonicalEvent{
+		{Kind: engineagents.HookUserPrompt, Message: "go"},
+		toolEvent(engineagents.HookToolPre, "tool-1", "Bash"),
+		delta(engineagents.HookToolOutputDelta, "tool-1", false, false, "$ ls"),
+	} {
+		_, _, err := f.dispatch(t, ev)
+		require.NoError(t, err)
+	}
+	require.Len(t, f.r.Snapshot(testChat, f.state(t)), 1)
+
+	_, _, err := f.dispatch(t, toolEvent(engineagents.HookToolPost, "tool-1", "Bash"))
+	require.NoError(t, err)
+
+	assert.Empty(t, f.r.Snapshot(testChat, f.state(t)), "the call's result row holds its whole output")
+	assert.Empty(t, f.r.live.byChat, "and the buffer lets it go")
+}
+
+// A row that commits while its stream is still held is the snapshot's to
+// leave out: the state at the head is what the replay sent.
+func TestLive_TheSnapshotLeavesOutWhatTheStateRecorded(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	for _, ev := range []engineagents.CanonicalEvent{
+		{Kind: engineagents.HookUserPrompt, Message: "go"},
+		delta(engineagents.HookMessageDelta, "m1", false, false, "hel"),
+	} {
+		_, _, err := f.dispatch(t, ev)
+		require.NoError(t, err)
+	}
+	turn, _ := f.state(t).LastTurn()
+	_, _, err := f.ledger.Append(t.Context(), testChat, row(t, ledger.KindAssistantText, turn.ID, "",
+		ledger.AssistantText{MessageID: "m1", Index: ledger.IndexComplete, Text: "hello"}))
+	require.NoError(t, err)
+
+	require.Len(t, f.r.Snapshot(testChat, ledger.State{}), 1, "the buffer still holds it")
+	assert.Empty(t, f.r.Snapshot(testChat, f.state(t)))
 }

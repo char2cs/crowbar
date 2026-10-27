@@ -281,5 +281,9 @@ func TestChatFeed_DeletingTheChatEndsItsFeed(t *testing.T) {
 	require.ErrorAs(t, err, &closed)
 	assert.Equal(t, 4001, closed.Code)
 	h.QuiesceReactors()
-	_ = h.raw(http.MethodGet, "/v0/chats/"+chatID+"/feed", nil, http.StatusNotFound).Body.Close()
+	gone, resp, err := websocket.DefaultDialer.Dial("ws"+h.url[len("http"):]+"/v0/chats/"+chatID+"/feed", nil)
+	require.Error(t, err)
+	require.Nil(t, gone)
+	require.NoError(t, resp.Body.Close())
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode, "an erased chat has no feed")
 }
