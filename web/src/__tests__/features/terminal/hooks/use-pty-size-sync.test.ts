@@ -187,7 +187,7 @@ function resizeThroughHook(terminal: Terminal, cols: number, rows: number) {
 // follows must repaint exactly what the client already shows.
 describe('usePtySizeSync — the keyframe after a resize matches xterm.js own reflow', () => {
   const known = 'printedSpacesKnownDivergence'
-  it('the fixture covers every scenario the daemon writes', () => {
+  it('the fixture holds the known-divergence scenario', () => {
     expect(resizeFixture.scenarios.map((s) => s.name)).toContain(known)
   })
 
@@ -215,13 +215,18 @@ describe('usePtySizeSync — the keyframe after a resize matches xterm.js own re
   it('known divergence: a chain ending in printed spaces keeps one more row on the client', async () => {
     const sc = resizeFixture.scenarios.find((s) => s.name === known)!
     const after = bufferOf(await xtermFed(sc.after, sc.toCols, sc.toRows, sc.scrollback))
+    // Raw output keeps the three printed spaces; a keyframe sends the one space a wrap needs.
+    const spaces = {
+      text: expect.stringMatching(/^ +$/),
+      wrapped: true,
+      widths: '1'.repeat(sc.toCols),
+    }
+    const lines = [...after.lines.slice(0, 2), spaces, ...after.lines.slice(2, -1)]
+    const want = { ...after, cursor: [after.cursor[0], Number(after.cursor[1]) + 1], lines }
     for (const data of [sc.raw, sc.before]) {
       const client = await xtermFed(data, sc.cols, sc.rows, sc.scrollback)
       resizeThroughHook(client, sc.toCols, sc.toRows)
-      const got = bufferOf(client)
-      expect(got.lines.slice(0, 2)).toEqual(after.lines.slice(0, 2))
-      expect(got.lines[2]).toMatchObject({ text: expect.stringMatching(/^ *$/), wrapped: true })
-      expect(got.lines.slice(3, 4)).toEqual(after.lines.slice(2, 3))
+      expect(bufferOf(client)).toEqual(want)
     }
   })
 })
