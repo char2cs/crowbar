@@ -55,6 +55,11 @@ export function siblingRef(ref: DocumentRef, relativePath: string): DocumentRef 
     : workspaceRef(ref.workspaceId, resolved)
 }
 
+/** An untitled buffer's document: it has no file, so no disk, watch or language server. */
+export function isUntitledRef(ref: Pick<DocumentRef, 'path'>): boolean {
+  return ref.path.startsWith('untitled:')
+}
+
 export function sameDocument(a: DocumentRef, b: DocumentRef): boolean {
   if (a.authority === 'host' || b.authority === 'host') {
     return a.authority === b.authority && a.path === b.path

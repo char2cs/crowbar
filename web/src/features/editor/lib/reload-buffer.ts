@@ -1,5 +1,5 @@
 import { readDocument } from '@/lib/api/documents'
-import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
+import { documentRefOf, documentUri, isUntitledRef } from '@/features/editor/documents/document-ref'
 import { applyExternalText, documentText } from '@/features/editor/documents/document-text'
 import { awaitsRetry, retryLoad } from '@/features/editor/documents/open-document'
 import { cancelPendingWrites, findEditorBuffer, type PathedBuffer } from './buffer-save'
@@ -15,7 +15,7 @@ export async function reloadBufferFromDisk(
   confirmDiscard: (buffer: PathedBuffer) => boolean,
 ): Promise<ReloadOutcome> {
   const opened = findEditorBuffer(bufferId)
-  if (!opened || opened.isVirtual || opened.path.startsWith('untitled:')) return 'failed'
+  if (!opened || opened.isVirtual || isUntitledRef(opened)) return 'failed'
   // A tab whose document failed to load reads it again, as a reopen does.
   if (awaitsRetry(opened)) return (await retryLoad(opened)) ? 'reloaded' : 'failed'
   const ref = documentRefOf(opened)

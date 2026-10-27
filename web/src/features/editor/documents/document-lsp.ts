@@ -15,7 +15,7 @@ import { scheduleIdleTask, type IdleTaskHandle } from '../lib/idle-task'
 import { LSP_MARKER_OWNER, LspClient } from '../lsp/lsp-client'
 import { pathsMatch, toMonacoMarker } from '../monaco/editor-conversions'
 import { getLanguageIdFromPath } from '../utils/language-id'
-import { documentRefOf, sameDocument } from './document-ref'
+import { documentRefOf, isUntitledRef, sameDocument } from './document-ref'
 
 const NONE = () => {}
 
@@ -35,7 +35,7 @@ function languageOf(ref: DocumentRef): string {
  * and the home workspace have no server.
  */
 export function attachDocumentLsp(ref: DocumentRef, model: Monaco.editor.ITextModel): () => void {
-  if (ref.authority === 'host' || ref.path.startsWith('untitled:')) return NONE
+  if (ref.authority === 'host' || isUntitledRef(ref)) return NONE
   const { workspaceId, path } = ref
   if (isHomeWorkspace(workspaceId)) return NONE
   const client = LspClient.getInstance()

@@ -16,7 +16,12 @@
 import { useFileWatcherStore } from '@/features/file-system/controllers/file-watcher-store'
 import { workspaceRef, writeDocument, type DocumentRef } from '@/lib/api/documents'
 import { bestEffort } from '@/lib/best-effort'
-import { documentName, documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
+import {
+  documentName,
+  documentRefOf,
+  documentUri,
+  isUntitledRef,
+} from '@/features/editor/documents/document-ref'
 import {
   applyExternalText,
   documentText,
@@ -77,7 +82,7 @@ function reportSaveError(error: unknown): void {
   toast.error('Failed to save file', message)
 }
 
-const isUntitled = (buffer: PathedBuffer) => buffer.isVirtual || buffer.path.startsWith('untitled:')
+const isUntitled = (buffer: PathedBuffer) => buffer.isVirtual || isUntitledRef(buffer)
 
 /** Drops the draft write and autosave waiting on `uri`'s edits to pause. */
 export function cancelPendingWrites(uri: string): void {
