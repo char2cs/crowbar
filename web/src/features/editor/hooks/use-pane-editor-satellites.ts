@@ -4,8 +4,6 @@
  *
  *  - theme + settings-driven options (use-editor-appearance.ts),
  *  - the model's language/indentation after each swap,
- *  - the LSP document lifecycle and diagnostics markers
- *    (use-lsp-document-sync.ts),
  *  - current-line git blame (use-inline-blame.ts),
  *  - focus on swap.
  *
@@ -23,10 +21,8 @@ import type {
 import { documentRefOf, documentUri, refFromUri } from '@/features/editor/documents/document-ref'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { isEditorContent } from '@/features/panes/types/pane-content'
-import { getLanguageIdFromPath } from '../utils/language-id'
 import { useEditorOptions, useEditorTheme, useModelOptions } from './use-editor-appearance'
 import { useInlineBlame } from './use-inline-blame'
-import { useLspDocumentSync } from './use-lsp-document-sync'
 
 type StandaloneEditor = Monaco.editor.IStandaloneCodeEditor
 
@@ -63,7 +59,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
   useEffect(() => registry.subscribe(paneId, (ctx) => setBound(toBound(ctx))), [paneId, registry])
   const { editor, model, uri, filePath } = bound
   // The model uri names the buffer's own document, whatever pane shows it; a
-  // host document belongs to no workspace's language server or git.
+  // host document belongs to no workspace's git.
   const doc = refFromUri(uri)
   const workspaceId = doc?.authority === 'workspace' ? doc.workspaceId : null
 
@@ -75,12 +71,10 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
     )
     return own && isEditorContent(own) ? own.languageOverride : undefined
   })
-  const languageId = languageOverride ?? getLanguageIdFromPath(filePath) ?? 'plaintext'
 
   useEditorTheme(editor)
   useEditorOptions(editor, { readOnly, scrollable })
   useModelOptions(model, filePath, languageOverride)
-  useLspDocumentSync(model, filePath, languageId, workspaceId)
   useInlineBlame(editor, model, workspaceId, filePath)
 
   // Cmd/Ctrl+A selects the whole model even when an app-level shortcut would

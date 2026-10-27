@@ -14,8 +14,7 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 
-// Both talk to the daemon; neither touches the model text under test.
-vi.mock('@/features/editor/hooks/use-lsp-document-sync', () => ({ useLspDocumentSync: () => {} }))
+// It talks to the daemon and never touches the model text under test.
 vi.mock('@/features/editor/hooks/use-inline-blame', () => ({ useInlineBlame: () => {} }))
 
 const PATH = 'package.json'

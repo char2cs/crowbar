@@ -61,12 +61,17 @@ export function loadEditorHost(): Promise<EditorHost> {
   loading ??= Promise.all([
     import('@/features/editor/lib/monaco-adapters'),
     import('@/features/editor/lib/buffer-save'),
+    import('@/features/editor/documents/document-lsp'),
+    import('monaco-editor/esm/vs/editor/editor.api.js'),
   ]).then(
-    ([adapters, save]) => {
+    ([adapters, save, lsp, monaco]) => {
       const documents = new DocumentRegistry(adapters.realModelApi(), {
         dirtyChanged: save.setDocumentDirty,
         contentChanged: save.noteDocumentEdited,
-        opened: () => {},
+        opened: (uri, ref) => {
+          const model = monaco.editor.getModel(monaco.Uri.parse(uri))
+          if (model) releaseWithDocument(uri, lsp.attachDocumentLsp(ref, model))
+        },
         released: (uri) => {
           save.cancelPendingWrites(uri)
           released(uri)
