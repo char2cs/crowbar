@@ -1,10 +1,13 @@
 package ingress
 
 import (
+	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -18,6 +21,10 @@ const (
 	KindToolOutput = "tool_output"
 	KindDiff       = "diff"
 )
+
+// toolOutputWindow is how much of a tool's output a frame carries: it is only
+// ever shown, and its whole text lands on the call's own result.
+const toolOutputWindow = 64 << 10
 
 // LiveDelta is one increment of streamed text no row holds: what the live
 // frame of its stream is built from.
@@ -77,6 +84,7 @@ type liveBlock struct {
 	numbered bool
 	at       time.Time
 	order    int // when it began among the chat's streams: the order it was said in
+	dropped  int // the bytes of a tool output trimmed off its head
 }
 
 // live is the text streamed so far that no row holds, per chat, so every frame
@@ -110,7 +118,25 @@ func (l *live) observe(chatID, runnerID string, d LiveDelta, now time.Time) (str
 		b.parts[b.next] = d.Text
 		b.next++
 	}
+	if d.Kind == KindToolOutput {
+		b.trim()
+	}
 	return b.text(d.Kind), b.at
+}
+
+// trim keeps a tool output's tail once it is twice the window: each delta
+// then costs at most the window, however long the stream runs.
+func (b *liveBlock) trim() {
+	whole := b.join(KindToolOutput)
+	if len(whole) <= 2*toolOutputWindow {
+		return
+	}
+	cut := len(whole) - toolOutputWindow
+	for cut < len(whole) && !utf8.RuneStart(whole[cut]) {
+		cut++
+	}
+	last := slices.Max(slices.Collect(maps.Keys(b.parts)))
+	b.parts, b.dropped = map[int]string{last: whole[cut:]}, b.dropped+cut
 }
 
 func (l *live) blockLocked(chatID string, k liveKey, now time.Time) *liveBlock {
@@ -128,7 +154,21 @@ func (l *live) blockLocked(chatID string, k liveKey, now time.Time) *liveBlock {
 	return b
 }
 
+// text is the stream's whole text; a tool output's is its last window, behind
+// a marker saying how much came before.
 func (b *liveBlock) text(kind string) string {
+	whole := b.join(kind)
+	if kind != KindToolOutput || len(whole) <= toolOutputWindow && b.dropped == 0 {
+		return whole
+	}
+	cut := max(len(whole)-toolOutputWindow, 0)
+	for cut < len(whole) && !utf8.RuneStart(whole[cut]) {
+		cut++
+	}
+	return fmt.Sprintf("[… %d earlier bytes not shown]\n", b.dropped+cut) + whole[cut:]
+}
+
+func (b *liveBlock) join(kind string) string {
 	indexes := make([]int, 0, len(b.parts))
 	for i := range b.parts {
 		indexes = append(indexes, i)

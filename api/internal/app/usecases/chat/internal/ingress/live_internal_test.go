@@ -1,6 +1,8 @@
 package ingress
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -190,4 +192,36 @@ func TestRecorder_RetireAndForgetDropTheStreams(t *testing.T) {
 	require.NoError(t, err)
 	rows := f.rows(t)
 	assert.Empty(t, bodyOf[ledger.Marker](t, rows[len(rows)-1]).Detail, "a forgotten chat's request is gone")
+}
+
+// A tool's output is only ever shown: past the window, a frame carries its
+// tail behind a marker, so a long stream costs linear bytes, not quadratic.
+func TestLive_ALongToolOutputKeepsATailWindow(t *testing.T) {
+	l := newLive()
+	line := strings.Repeat("x", 1023) + "\n"
+	var got string
+	for i := range 2 * toolOutputWindow / len(line) {
+		got, _ = l.observe(testChat, "run-1", LiveDelta{
+			TurnID: "T1", ID: "tool-1", Kind: KindToolOutput, Text: fmt.Sprintf("%04d", i) + line[4:],
+		}, at0)
+	}
+
+	assert.LessOrEqual(t, len(got), toolOutputWindow+64, "a frame never carries more than the window")
+	assert.True(t, strings.HasPrefix(got, "[… "), "what is cut is said: %q", got[:32])
+	assert.True(t, strings.HasSuffix(got, line[4:]), "the window is the stream's tail")
+}
+
+func BenchmarkLive_ObserveALongToolOutput(b *testing.B) {
+	line := strings.Repeat("x", 255) + "\n"
+	for _, deltas := range []int{4096, 32768} {
+		b.Run(fmt.Sprintf("deltas=%d", deltas), func(b *testing.B) {
+			for range b.N {
+				l := newLive()
+				for range deltas {
+					l.observe(testChat, "run-1", LiveDelta{TurnID: "T1", ID: "tool-1", Kind: KindToolOutput, Text: line}, at0)
+				}
+			}
+			b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N*deltas), "ns/delta")
+		})
+	}
 }
