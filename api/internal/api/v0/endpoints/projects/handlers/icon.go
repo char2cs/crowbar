@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -112,7 +111,7 @@ func (h *Handlers) PutIconEmoji(
 	// An emoji replaces an image: clear the flag and best-effort remove the file
 	// behind it, so a later "reset" has nothing stale to fall back to.
 	if path, ok := h.iconPath(c); ok {
-		_ = os.Remove(path)
+		icons.Remove(c.Request.Context(), path)
 	}
 	hasIcon := false
 	h.saveIcon(c, projectID, project.Update{
@@ -133,7 +132,7 @@ func (h *Handlers) DeleteIcon(
 		return
 	}
 	if path, ok := h.iconPath(c); ok {
-		_ = os.Remove(path)
+		icons.Remove(c.Request.Context(), path)
 	}
 	hasIcon, emoji := false, ""
 	h.saveIcon(c, projectID, project.Update{AvatarHasIcon: &hasIcon, AvatarEmoji: &emoji})

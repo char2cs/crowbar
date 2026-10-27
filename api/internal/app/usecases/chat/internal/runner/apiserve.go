@@ -6,7 +6,10 @@
 package runner
 
 import (
+	"errors"
 	"fmt"
+	"log/slog"
+	"os"
 	"os/exec"
 	"syscall"
 	"time"
@@ -45,7 +48,10 @@ type serveProcess struct {
 func reapServe(cmd *exec.Cmd) *serveProcess {
 	s := &serveProcess{cmd: cmd, exited: make(chan struct{})}
 	go func() {
-		_ = cmd.Wait()
+		// A serve ends by being killed, so its exit status says nothing new.
+		if err := cmd.Wait(); err != nil {
+			slog.Debug("agent: api transport: serve exited", "err", err)
+		}
 		close(s.exited)
 	}()
 	return s
@@ -69,7 +75,10 @@ func (s *serveProcess) kill() {
 	}
 	// Whatever is still in the group — the leader past its bound, or a child
 	// it left behind — is not allowed to outlive the runner.
-	_ = signalGroup(s.cmd.Process, syscall.SIGKILL)
+	err := signalGroup(s.cmd.Process, syscall.SIGKILL)
+	if err != nil && !errors.Is(err, os.ErrProcessDone) && !errors.Is(err, syscall.ESRCH) {
+		slog.Warn("agent: api transport: kill serve", "pid", s.cmd.Process.Pid, "err", err)
+	}
 	select {
 	case <-s.exited:
 	case <-time.After(serveExitBound):

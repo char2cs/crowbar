@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
@@ -68,5 +69,7 @@ func (h *Handlers) broadcastLastError(
 	if wsID == "" {
 		return
 	}
-	_, _ = h.lastErrors.SetLastError(ctx, wsID, message)
+	if _, err := h.lastErrors.SetLastError(ctx, wsID, message); err != nil {
+		slog.ErrorContext(ctx, "worktree: record the failed op on the workspace", "ws", wsID, "op_err", message, "err", err)
+	}
 }

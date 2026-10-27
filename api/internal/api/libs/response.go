@@ -10,8 +10,13 @@
 package libs
 
 import (
+	"context"
 	"errors"
+	"io"
+	"log/slog"
+	"net"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 )
@@ -142,6 +147,28 @@ func noteFailure(
 	message string,
 ) {
 	if status >= http.StatusInternalServerError {
-		_ = c.Error(errors.New(message))
+		NoteError(c, errors.New(message))
+	}
+}
+
+// NoteError puts err on gin's error list for the access log: once a response is
+// under way, that is the one place a failure can still go.
+func NoteError(
+	c *gin.Context,
+	err error,
+) {
+	c.Errors = append(c.Errors, &gin.Error{Err: err, Type: gin.ErrorTypePrivate})
+}
+
+// CloseLogged closes c, which nobody is left to hand a failure to, and logs one;
+// a connection or file something else already closed is not a failure.
+func CloseLogged(
+	ctx context.Context,
+	what string,
+	c io.Closer,
+) {
+	err := c.Close()
+	if err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, os.ErrClosed) {
+		slog.WarnContext(ctx, what, "err", err)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -53,7 +54,9 @@ func Color(
 ) string {
 	p := palette()
 	h := fnv.New32a()
-	_, _ = h.Write([]byte(name))
+	if _, err := h.Write([]byte(name)); err != nil {
+		return p[0] // unreachable: a hash write never fails
+	}
 	return p[h.Sum32()%paletteSize]
 }
 
@@ -155,7 +158,11 @@ func downloadBytes(
 	if err != nil {
 		return nil, "", nil
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.WarnContext(ctx, "avatar: close the download", "err", err)
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return nil, "", nil
 	}

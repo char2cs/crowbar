@@ -106,10 +106,9 @@ func (p *hubProjector) onForget(evt asynxModels.Event[domain.Node]) {
 // (evt.Aggregate), not the event name/id — neither is encoded in EventName. It
 // never persists — the store projection owns durability.
 func (p *hubProjector) onEvent(
-	ctx context.Context,
+	_ context.Context,
 	evt asynxModels.Event[domain.Node],
 ) {
-	_ = ctx
 	p.emit(NodeEvent{
 		NodeID:   evt.AggregateID,
 		ParentID: evt.Aggregate.ParentID,

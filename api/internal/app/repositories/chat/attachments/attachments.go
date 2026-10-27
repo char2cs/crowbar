@@ -91,9 +91,11 @@ func Store(
 		}
 		return "", "", fmt.Errorf("attachments: create: %w", err)
 	}
-	defer func() { _ = f.Close() }()
 	if _, err := f.Write(data); err != nil {
-		return "", "", fmt.Errorf("attachments: write: %w", err)
+		return "", "", errors.Join(fmt.Errorf("attachments: write: %w", err), f.Close())
+	}
+	if err := f.Close(); err != nil {
+		return "", "", fmt.Errorf("attachments: close: %w", err)
 	}
 	return fileName, ContentType(data), nil
 }
@@ -171,8 +173,10 @@ func Read(
 	if err != nil {
 		return nil, "", ErrNotFound
 	}
-	defer func() { _ = f.Close() }()
 	data, err = io.ReadAll(io.LimitReader(f, MaxBytes+1))
+	if closeErr := f.Close(); closeErr != nil {
+		return nil, "", fmt.Errorf("attachments: close %s: %w", fileName, closeErr)
+	}
 	if err != nil || int64(len(data)) > MaxBytes {
 		return nil, "", ErrNotFound
 	}

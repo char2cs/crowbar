@@ -136,10 +136,12 @@ func printReports(w io.Writer, reports []descriptorcheck.Report, asJSON bool) er
 	for _, r := range reports {
 		ok = ok && r.OK()
 	}
-	if err := emit(w, reports, asJSON, func() {
+	if err := emit(w, reports, asJSON, func() error {
+		out := &stickyWriter{w: w}
 		for _, r := range reports {
-			writeReport(w, r)
+			out.report(r)
 		}
+		return out.err
 	}); err != nil {
 		return err
 	}
@@ -150,9 +152,11 @@ func printReports(w io.Writer, reports []descriptorcheck.Report, asJSON bool) er
 }
 
 // emit writes v as JSON, or runs text for the human-readable form.
-func emit(w io.Writer, v any, asJSON bool, text func()) error {
+func emit(w io.Writer, v any, asJSON bool, text func() error) error {
 	if !asJSON {
-		text()
+		if err := text(); err != nil {
+			return fmt.Errorf("descriptor: %w", err)
+		}
 		return nil
 	}
 	if err := json.NewEncoder(w).Encode(v); err != nil {
@@ -161,7 +165,20 @@ func emit(w io.Writer, v any, asJSON bool, text func()) error {
 	return nil
 }
 
-func writeReport(w io.Writer, r descriptorcheck.Report) {
+// stickyWriter keeps the first write error, so a report either prints whole or
+// fails with what stopped it.
+type stickyWriter struct {
+	w   io.Writer
+	err error
+}
+
+func (s *stickyWriter) printf(format string, a ...any) {
+	if s.err == nil {
+		_, s.err = fmt.Fprintf(s.w, format, a...)
+	}
+}
+
+func (s *stickyWriter) report(r descriptorcheck.Report) {
 	status := "ok"
 	if !r.OK() {
 		status = "BLOCKED"
@@ -170,21 +187,23 @@ func writeReport(w io.Writer, r descriptorcheck.Report) {
 	if r.Source != "" {
 		where = r.Source
 	}
-	_, _ = fmt.Fprintf(w, "%s (%s): %s\n", r.ID, where, status)
+	s.printf("%s (%s): %s\n", r.ID, where, status)
 	for _, f := range r.Findings {
-		_, _ = fmt.Fprintf(w, "  %s %s at %s (line %d): %s\n", f.Severity, f.Rule, f.Path, f.Line, f.Message)
+		s.printf("  %s %s at %s (line %d): %s\n", f.Severity, f.Rule, f.Path, f.Line, f.Message)
 		if f.Hint != "" {
-			_, _ = fmt.Fprintf(w, "      hint: %s\n", f.Hint)
+			s.printf("      hint: %s\n", f.Hint)
 		}
 	}
 }
 
 func printLive(w io.Writer, rep descriptorcheck.LiveReport, asJSON bool) error {
-	if err := emit(w, rep, asJSON, func() {
-		writeReport(w, rep.Report)
+	if err := emit(w, rep, asJSON, func() error {
+		out := &stickyWriter{w: w}
+		out.report(rep.Report)
 		for _, s := range rep.Steps {
-			_, _ = fmt.Fprintf(w, "  %-4s %-15s %6.1fs  %s\n", s.Status, s.Name, s.Elapsed.Seconds(), s.Detail)
+			out.printf("  %-4s %-15s %6.1fs  %s\n", s.Status, s.Name, s.Elapsed.Seconds(), s.Detail)
 		}
+		return out.err
 	}); err != nil {
 		return err
 	}

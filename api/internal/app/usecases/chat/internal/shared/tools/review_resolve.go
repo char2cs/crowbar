@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -75,9 +76,9 @@ func resolveReviewThread(
 // the caller's own repo would reach nobody's stream for a cross-repo write.
 // wsID is already confirmed present in the visible set by the CanSee check that
 // ran before every call site, so the lookup below always finds it — and the set
-// is already loaded and memoised by that same check, which is why the load error
-// is discarded here rather than failing the broadcast: a caller that reached this
-// function loaded it successfully. The fallback to c.Workspace guards both a
+// is already loaded and memoised by that same check, which is why a load error
+// is only logged here rather than failing the broadcast: a caller that reached
+// this function loaded it successfully. The fallback to c.Workspace guards both a
 // future call site that skips the check and the impossible-today error case,
 // which broadcasts to the caller's own project/repo rather than not at all.
 func broadcastThreadWrite(
@@ -87,7 +88,10 @@ func broadcastThreadWrite(
 	thread domain.ReviewThread,
 ) {
 	ws := c.Workspace
-	visible, _ := c.Visible()
+	visible, err := c.Visible()
+	if err != nil {
+		slog.Warn("agent tools: review thread broadcast: load the visible workspaces", "ws", wsID, "err", err)
+	}
 	for _, w := range visible {
 		if w.ID == wsID {
 			ws = w

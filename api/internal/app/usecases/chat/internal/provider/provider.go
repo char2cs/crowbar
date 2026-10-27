@@ -9,6 +9,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -73,13 +74,10 @@ func (p *Providers) InstallDescriptor(_ context.Context, raw []byte) (descriptor
 		return report, fmt.Errorf("agent: create descriptor: %w", err)
 	}
 	if _, err = f.Write(raw); err != nil {
-		_ = f.Close()
-		_ = os.Remove(path)
-		return report, fmt.Errorf("agent: write descriptor: %w", err)
+		return report, errors.Join(fmt.Errorf("agent: write descriptor: %w", err), f.Close(), os.Remove(path))
 	}
 	if err = f.Close(); err != nil {
-		_ = os.Remove(path)
-		return report, fmt.Errorf("agent: close descriptor: %w", err)
+		return report, errors.Join(fmt.Errorf("agent: close descriptor: %w", err), os.Remove(path))
 	}
 	return report, nil
 }

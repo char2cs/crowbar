@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -23,10 +24,13 @@ func newHookCmd() *cobra.Command {
 		Args:   cobra.ExactArgs(1),
 		Hidden: true,
 		RunE: func(_ *cobra.Command, args []string) error {
-			applyHomeOverride(home)
 			// A hook must never break the vendor CLI: swallow every error into
 			// an exit-0 RunE, surfaced on stderr only (never stdout).
-			payload, err := resolvePayload(payloadInline, payloadFile, os.Stdin)
+			err := applyHomeOverride(home)
+			var payload []byte
+			if err == nil {
+				payload, err = resolvePayload(payloadInline, payloadFile, os.Stdin)
+			}
 			if err == nil {
 				err = runHook(hookRun{
 					Event: args[0], Segment: segment, Provider: provider,
@@ -49,7 +53,7 @@ func newHookCmd() *cobra.Command {
 }
 
 // resolvePayload selects the payload source: inline > file > stdin.
-func resolvePayload(inline, file string, stdin io.Reader) ([]byte, error) {
+func resolvePayload(inline, file string, stdin io.Reader) (_ []byte, err error) {
 	switch {
 	case inline != "":
 		if len(inline) > maxHookPayloadBytes {
@@ -61,7 +65,7 @@ func resolvePayload(inline, file string, stdin io.Reader) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		defer func() { _ = f.Close() }()
+		defer func() { err = errors.Join(err, f.Close()) }()
 		return readBoundedHookPayload(f)
 	default:
 		return readBoundedHookPayload(stdin)

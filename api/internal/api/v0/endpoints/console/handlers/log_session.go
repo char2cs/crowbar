@@ -1,10 +1,13 @@
 package handlers
 
 import (
+	"context"
+	"fmt"
 	"time"
 
 	"github.com/gorilla/websocket"
 
+	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/core/logring"
 )
 
@@ -38,7 +41,7 @@ func (s *logSession) run() {
 
 func (s *logSession) release() {
 	s.stream.Close()
-	_ = s.conn.Close()
+	libs.CloseLogged(context.Background(), "console: close the log socket", s.conn)
 }
 
 func (s *logSession) replay() error {
@@ -77,7 +80,9 @@ func (s *logSession) follow(
 func (s *logSession) send(
 	frame any,
 ) error {
-	_ = s.conn.SetWriteDeadline(time.Now().Add(logWriteTimeout))
+	if err := s.conn.SetWriteDeadline(time.Now().Add(logWriteTimeout)); err != nil {
+		return fmt.Errorf("console: log socket: write deadline: %w", err)
+	}
 	return s.conn.WriteJSON(frame)
 }
 

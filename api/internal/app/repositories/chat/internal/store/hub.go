@@ -100,10 +100,9 @@ func (p *hubProjector) onForget(evt asynxModels.Event[domain.Chat]) {
 // onEvent broadcasts the lifecycle frame derived from the event. workspaceID
 // comes off the reduced aggregate: EventName does not encode it.
 func (p *hubProjector) onEvent(
-	ctx context.Context,
+	_ context.Context,
 	evt asynxModels.Event[domain.Chat],
 ) {
-	_ = ctx
 	p.emit(ChatEvent{
 		ChatID:      evt.AggregateID,
 		WorkspaceID: evt.Aggregate.WorkspaceID,

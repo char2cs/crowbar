@@ -3,6 +3,7 @@ package tree
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -287,9 +288,7 @@ func (u *chatFolderUsecase) aliasLevel(
 		return
 	}
 	if repoID != "" {
-		if _, seen := defaults[repoID]; !seen {
-			defaults[repoID], _ = u.workspaces.DefaultWorkspaceOf(ctx, repoID)
-		}
+		u.rememberDefault(ctx, defaults, repoID)
 	}
 	switch {
 	case repoID == "" || defaults[repoID] == wsID:
@@ -305,4 +304,21 @@ func (u *chatFolderUsecase) aliasLevel(
 			aliases[wsID] = ownerID
 		}
 	}
+}
+
+// rememberDefault memoises repoID's default checkout in defaults. A lookup that
+// fails is logged and remembered as none, which is what a repo without one has.
+func (u *chatFolderUsecase) rememberDefault(
+	ctx context.Context,
+	defaults map[string]string,
+	repoID string,
+) {
+	if _, seen := defaults[repoID]; seen {
+		return
+	}
+	id, err := u.workspaces.DefaultWorkspaceOf(ctx, repoID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent chat folder: default checkout of a repo", "repo_id", repoID, "err", err)
+	}
+	defaults[repoID] = id
 }

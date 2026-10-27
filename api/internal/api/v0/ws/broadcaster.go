@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
+	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
 
@@ -118,8 +119,8 @@ func (b *Broadcaster[T]) Handle(
 	// all be released even if snapshotFor panics (gin's Recovery would otherwise
 	// unwind past the cleanup, leaking an FD, a dead map entry that every future
 	// Push iterates, and a watcher/LSP refcount). Defers make cleanup
-	// unconditional; double-close of conn is harmless (the err is ignored).
-	defer func() { _ = conn.Close() }()
+	// unconditional; a double close of conn is harmless and not logged.
+	defer libs.CloseLogged(c.Request.Context(), "ws: close", conn)
 
 	snapshot := b.snapshotFor(cl, snapScope)
 

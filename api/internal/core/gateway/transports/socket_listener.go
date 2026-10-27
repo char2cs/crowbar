@@ -1,6 +1,9 @@
 package transports
 
 import (
+	"errors"
+	"fmt"
+	"io/fs"
 	"net"
 	"os"
 )
@@ -15,6 +18,8 @@ type socketListener struct {
 
 func (l *socketListener) Close() error {
 	err := l.Listener.Close()
-	_ = os.Remove(l.path)
+	if rmErr := os.Remove(l.path); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
+		err = errors.Join(err, fmt.Errorf("gateway: socket: remove %s: %w", l.path, rmErr))
+	}
 	return err
 }

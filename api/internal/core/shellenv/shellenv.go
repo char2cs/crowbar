@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/user"
@@ -46,7 +47,10 @@ func ApplyLoginShellPath(ctx context.Context) string {
 		return os.Getenv("PATH")
 	}
 	merged := mergePaths(loginPath, os.Getenv("PATH"))
-	_ = os.Setenv("PATH", merged)
+	if err := os.Setenv("PATH", merged); err != nil {
+		slog.WarnContext(ctx, "shellenv: apply the login-shell PATH", "err", err)
+		return os.Getenv("PATH")
+	}
 	return merged
 }
 

@@ -675,7 +675,7 @@ func fetchGithubAvatarBytes(
 	if err != nil {
 		return nil, "", nil
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer libs.CloseLogged(ctx, "repos: close the avatar response", resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		return nil, "", nil
 	}
@@ -840,16 +840,12 @@ func (h *Handlers) PullRequests(c *gin.Context) {
 	}
 	links := []PRLinkDTO{}
 	if h.provider != nil {
-		got, _ := h.provider.OpenPullRequests(c.Request.Context(), repo.Path)
+		got, err := h.provider.OpenPullRequests(c.Request.Context(), repo.Path)
+		if err != nil { // an advisory hint: no provider CLI or no auth is the common case
+			slog.DebugContext(c.Request.Context(), "repos: open pull requests", "repo_id", repo.ID, "err", err)
+		}
 		for _, l := range got {
-			links = append(links, PRLinkDTO{
-				Head:   l.Head,
-				Base:   l.Base,
-				Number: l.Number,
-				Status: l.Status,
-				URL:    l.URL,
-				Title:  l.Title,
-			})
+			links = append(links, PRLinkDTO{Head: l.Head, Base: l.Base, Number: l.Number, Status: l.Status, URL: l.URL, Title: l.Title})
 		}
 	}
 	libs.WriteQueryOK(c, links)
@@ -918,7 +914,7 @@ func (h *Handlers) PutIconEmoji(c *gin.Context) {
 	// Emoji takes precedence over an on-disk image: clear the icon flag and
 	// best-effort remove any previously stored icon file.
 	if iconPath, ok := h.iconPath(c); ok {
-		_ = os.Remove(iconPath)
+		icons.Remove(c.Request.Context(), iconPath)
 	}
 	repo.AvatarEmoji = body.Emoji
 	repo.AvatarHasIcon = false
@@ -942,7 +938,7 @@ func (h *Handlers) DeleteIcon(c *gin.Context) {
 		return
 	}
 	if iconPath, ok := h.iconPath(c); ok {
-		_ = os.Remove(iconPath)
+		icons.Remove(c.Request.Context(), iconPath)
 	}
 	repo.AvatarHasIcon = false
 	repo.AvatarEmoji = ""

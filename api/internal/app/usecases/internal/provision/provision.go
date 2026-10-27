@@ -74,7 +74,10 @@ func fromOrigin(
 			"branch", branch, "err", err)
 	}
 	// Read BEFORE the -B reset moves it, to report a local tip it leaves behind.
-	localTip, _ := git.RevParse(ctx, repoPath, "refs/heads/"+branch)
+	localTip, err := git.RevParse(ctx, repoPath, "refs/heads/"+branch)
+	if err != nil {
+		localTip = "" // no local branch: the reset leaves nothing behind
+	}
 	sha, err := git.WorktreeAddAtRef(ctx, repoPath, path, branch, "origin/"+branch)
 	if err != nil {
 		return "", fmt.Errorf("worktree add %q at origin: %w", branch, err)

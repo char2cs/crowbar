@@ -60,12 +60,15 @@ func (h *Handlers) WS(ctx *gin.Context) {
 		ctx.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
-	defer func() { _ = conn.Close() }()
+	defer libs.CloseLogged(ctx.Request.Context(), "terminal ws: close", conn)
 
 	conn.SetPongHandler(func(string) error {
 		return conn.SetReadDeadline(time.Now().Add(wsPongWait))
 	})
-	_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	if err := conn.SetReadDeadline(time.Now().Add(wsPongWait)); err != nil {
+		slog.WarnContext(ctx.Request.Context(), "terminal ws: read deadline", "session_id", sid, "err", err)
+		return
+	}
 
 	go func() {
 		defer safego.Recover("terminal.ws.pinger")

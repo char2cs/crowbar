@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -68,9 +69,7 @@ func (c *Client) Get(ctx context.Context, path string) (int, []byte, error) {
 	if err != nil {
 		return 0, nil, fmt.Errorf("ipc: do: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	respBody, _ := io.ReadAll(resp.Body)
-	return resp.StatusCode, respBody, nil
+	return readResponse(resp)
 }
 
 func (c *Client) PostJSON(ctx context.Context, path string, body any) (int, []byte, error) {
@@ -99,7 +98,16 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any) (int
 	if err != nil {
 		return 0, nil, fmt.Errorf("ipc: do: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	respBody, _ := io.ReadAll(resp.Body)
-	return resp.StatusCode, respBody, nil
+	return readResponse(resp)
+}
+
+// readResponse is the status and the whole body of resp, which it closes. A
+// body cut short fails the call: half a reply is not an answer.
+func readResponse(resp *http.Response) (_ int, _ []byte, err error) {
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, nil, fmt.Errorf("ipc: read body: %w", err)
+	}
+	return resp.StatusCode, body, nil
 }

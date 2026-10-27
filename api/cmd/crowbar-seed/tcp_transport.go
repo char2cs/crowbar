@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -64,7 +65,7 @@ func (t *tcpTransport) do(
 	method string,
 	path string,
 	body []byte,
-) (int, []byte, error) {
+) (_ int, _ []byte, err error) {
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
@@ -78,7 +79,10 @@ func (t *tcpTransport) do(
 	if err != nil {
 		return 0, nil, fmt.Errorf("tcp: %s %s: %w", method, path, err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	respBody, _ := io.ReadAll(resp.Body)
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, nil, fmt.Errorf("tcp: %s %s: read: %w", method, path, err)
+	}
 	return resp.StatusCode, respBody, nil
 }

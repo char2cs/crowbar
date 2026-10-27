@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -71,8 +72,12 @@ func bindScopeFlags(
 // production. home is now baked into the command line at spawn time
 // (TemplateCtx.CrowbarHome / ScopeFlags, see spawnplan.go), so this override
 // always wins over ambient environment.
-func applyHomeOverride(override string) {
-	if override != "" {
-		_ = os.Setenv(home.EnvVar, override)
+func applyHomeOverride(override string) error {
+	if override == "" {
+		return nil
 	}
+	if err := os.Setenv(home.EnvVar, override); err != nil {
+		return fmt.Errorf("set %s: %w", home.EnvVar, err)
+	}
+	return nil
 }

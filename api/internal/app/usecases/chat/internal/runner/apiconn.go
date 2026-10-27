@@ -114,7 +114,9 @@ func (r *apiConnRegistry) drop(runnerID string) {
 		c.cancel()
 	}
 	if c.driver != nil {
-		_ = c.driver.Close()
+		if err := c.driver.Close(); err != nil {
+			slog.Warn("agent: api transport: close the connection", "runner_id", runnerID, "err", err)
+		}
 	}
 	c.serve.kill()
 }

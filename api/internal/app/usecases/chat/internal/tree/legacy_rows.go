@@ -68,7 +68,10 @@ func (u *chatFolderUsecase) addNodelessAnchors(
 		if nodeSeen[id] || id == scope.workspaceID {
 			continue
 		}
-		parent, _ := u.workspaces.VisibleForkParent(ctx, id)
+		parent, err := u.workspaces.VisibleForkParent(ctx, id)
+		if err != nil {
+			parent = "" // a fork parent that does not resolve leaves no space to hold the row to
+		}
 		f.rows = append(f.rows, u.anchorView(ctx, id, domain.Node{ID: id, Kind: domain.NodeKindWorkspace, ParentID: parent}))
 		f.homeIDs[id], f.fresh[id] = true, true
 	}

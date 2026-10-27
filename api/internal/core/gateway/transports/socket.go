@@ -49,8 +49,7 @@ func NewSocket(
 
 	if runtime.GOOS != "windows" {
 		if err := chmod(path, 0o600); err != nil {
-			_ = ln.Close()
-			return nil, fmt.Errorf("gateway: socket: chmod %s: %w", path, err)
+			return nil, errors.Join(fmt.Errorf("gateway: socket: chmod %s: %w", path, err), ln.Close())
 		}
 	}
 
@@ -71,6 +70,5 @@ func handleStale(
 		return os.Remove(path)
 	}
 
-	_ = conn.Close()
-	return ErrDaemonRunning
+	return errors.Join(ErrDaemonRunning, conn.Close())
 }

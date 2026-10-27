@@ -2,6 +2,7 @@ package realtime
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/hub"
@@ -56,7 +57,7 @@ func (d *watcherDispatcher) OnSyncWorkingTreeState(
 	ctx context.Context,
 	input enginefs.SyncInput,
 ) {
-	_, _ = d.workspace.SyncWorkingTreeState(
+	if _, err := d.workspace.SyncWorkingTreeState(
 		ctx,
 		workspacerepo.SyncInput{
 			ID:           input.WsID,
@@ -66,5 +67,7 @@ func (d *watcherDispatcher) OnSyncWorkingTreeState(
 			HasCommits:   input.HasCommits,
 		},
 		d.now(),
-	)
+	); err != nil {
+		slog.WarnContext(ctx, "realtime: sync working-tree state", "ws", input.WsID, "err", err)
+	}
 }

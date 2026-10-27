@@ -23,7 +23,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
-	"github.com/char2cs/crowbar/api/internal/engine/provider"
 	"github.com/char2cs/crowbar/api/internal/engine/provider/poll"
 )
 
@@ -373,7 +372,9 @@ func startModelDiscoveryWarmup(
 		return
 	}
 	go func() {
-		_, _ = engines.Agents.List(context.WithoutCancel(ctx), crowbarHome)
+		if _, err := engines.Agents.List(context.WithoutCancel(ctx), crowbarHome); err != nil {
+			slog.WarnContext(ctx, "app: model discovery warmup", "err", err)
+		}
 	}()
 }
 
@@ -426,7 +427,9 @@ func startRestoreTerminalSessions(
 	if ucs.Terminal == nil {
 		return
 	}
-	_ = ucs.Terminal.RestorePersistedSessions(context.WithoutCancel(ctx))
+	if err := ucs.Terminal.RestorePersistedSessions(context.WithoutCancel(ctx)); err != nil {
+		slog.WarnContext(ctx, "app: restore persisted terminal sessions", "err", err)
+	}
 }
 
 // reconcileAgentRunners ends the runners the ledger still holds open from the
@@ -470,68 +473,6 @@ func startOwningChatReconcile(
 		return
 	}
 	reconcileOwningChats(ctx, workspaces, chats, ucs.AgentChatFolder)
-}
-
-func sweepCallback(
-	ctx context.Context,
-	ucs *usecases.Container,
-) func(
-	wsID string,
-	state provider.ProviderState,
-) {
-	return func(
-		wsID string,
-		state provider.ProviderState,
-	) {
-		_ = ucs.ProviderSync.SyncFromState(
-			context.WithoutCancel(ctx),
-			wsID,
-			state,
-			time.Now(),
-		)
-	}
-}
-
-// shouldSweep reports whether the global cron should re-poll a workspace: it
-// must have a live PR (PRUrl != "") and must not be in a terminal PR state
-// (pr-merged/pr-closed), which are never re-polled (D10/§11). This widens the
-// old Status==pr-open filter so pr-open->pr-merged/closed transitions are
-// observed on unwatched workspaces and pr-conflicts workspaces keep syncing.
-func shouldSweep(
-	ws domain.Workspace,
-) bool {
-	if ws.PRUrl == "" {
-		return false
-	}
-	if ws.Status == domain.WorkspaceStatusPRMerged ||
-		ws.Status == domain.WorkspaceStatusPRClosed {
-		return false
-	}
-	return true
-}
-
-func sweepTargets(
-	repo workspace.Workspace,
-) func() []poll.SweepTarget {
-	return func() []poll.SweepTarget {
-		rows, err := repo.List(context.Background())
-		if err != nil {
-			return nil
-		}
-		targets := make([]poll.SweepTarget, 0, len(rows))
-		for _, ws := range rows {
-			if !shouldSweep(ws) {
-				continue
-			}
-			targets = append(targets, poll.SweepTarget{
-				WSID:      ws.ID,
-				RepoPath:  ws.WorktreePath,
-				Branch:    ws.Branch,
-				HasOpenPR: true,
-			})
-		}
-		return targets
-	}
 }
 
 // announceHomeRow fans a home row a repo drag shifted out on the chats WS

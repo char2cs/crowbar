@@ -2,6 +2,8 @@ package realtime
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -234,5 +236,8 @@ func (m *ProviderPollManager) pollTickWithTimeout(
 ) {
 	pollCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	_ = m.poll.PollWorkspace(pollCtx, wsID)
+	// A tick has no caller: a failed poll is logged, and the next tick tries again.
+	if err := m.poll.PollWorkspace(pollCtx, wsID); err != nil && !errors.Is(err, context.Canceled) {
+		slog.WarnContext(ctx, "realtime: provider poll", "ws", wsID, "err", err)
+	}
 }

@@ -1,6 +1,7 @@
 package selfinstall
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -38,14 +39,14 @@ func Install(homeDir string) (string, error) {
 	return dst, nil
 }
 
-func copyFile(src, dst string) error {
+func copyFile(src, dst string) (err error) {
 	// src is os.Executable() and dst is derived from the daemon's own home; neither
 	// is caller-supplied, which is the inclusion G304 exists to catch.
 	in, err := os.Open(src) //nolint:gosec // src is this process's own binary.
 	if err != nil {
 		return fmt.Errorf("selfinstall: open src: %w", err)
 	}
-	defer func() { _ = in.Close() }()
+	defer func() { err = errors.Join(err, in.Close()) }()
 	tmp := dst + ".tmp"
 	// Created 0o600 and made executable by Install's Chmod AFTER the rename, so a
 	// half-written copy is never executable — the window a create-then-fill of an
@@ -55,8 +56,7 @@ func copyFile(src, dst string) error {
 		return fmt.Errorf("selfinstall: create: %w", err)
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		return fmt.Errorf("selfinstall: copy: %w", err)
+		return errors.Join(fmt.Errorf("selfinstall: copy: %w", err), out.Close())
 	}
 	if err := out.Close(); err != nil {
 		return fmt.Errorf("selfinstall: close: %w", err)

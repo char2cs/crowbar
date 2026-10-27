@@ -120,7 +120,9 @@ func (h *Handlers) bufferedPatch(
 		ctx.Header(truncatedHeader, "true")
 	}
 	ctx.Status(http.StatusOK)
-	_, _ = ctx.Writer.Write(buf.Bytes())
+	if _, err := ctx.Writer.Write(buf.Bytes()); err != nil {
+		libs.NoteError(ctx, err)
+	}
 }
 
 // failPatch reports a streaming failure as best the response still allows.
@@ -135,7 +137,7 @@ func failPatch(
 	err error,
 ) {
 	if ctx.Writer.Written() {
-		_ = ctx.Error(err)
+		libs.NoteError(ctx, err)
 		return
 	}
 	ctx.Writer.Header().Del("Content-Type")

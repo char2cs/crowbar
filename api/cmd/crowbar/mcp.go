@@ -46,7 +46,9 @@ func newMCPCmd() *cobra.Command {
 		Short:  "Relay MCP stdio traffic to the Crowbar daemon",
 		Hidden: true,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			applyHomeOverride(home)
+			if err := applyHomeOverride(home); err != nil {
+				return err
+			}
 			client, err := ipc.NewClientWithTimeout(host, mcpRelayTimeout)
 			if err != nil {
 				return err

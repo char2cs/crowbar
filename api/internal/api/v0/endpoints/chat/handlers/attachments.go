@@ -72,7 +72,7 @@ func readAttachmentFromMultipart(ctx *gin.Context) ([]byte, string, string, bool
 		libs.WriteErr(ctx, http.StatusBadRequest, "file field required")
 		return nil, "", "", false
 	}
-	defer func() { _ = file.Close() }()
+	defer libs.CloseLogged(ctx.Request.Context(), "chat attachments: close the upload", file)
 	data, ok := readAttachmentBytes(ctx, file)
 	if !ok {
 		return nil, "", "", false
@@ -146,7 +146,7 @@ func readAttachmentFromPath(ctx *gin.Context) ([]byte, string, string, bool) {
 		libs.WriteErr(ctx, http.StatusBadRequest, "could not read attachment file")
 		return nil, "", "", false
 	}
-	defer func() { _ = f.Close() }()
+	defer libs.CloseLogged(ctx.Request.Context(), "chat attachments: close the file", f)
 	data, ok := readAttachmentBytes(ctx, f)
 	if !ok {
 		return nil, "", "", false

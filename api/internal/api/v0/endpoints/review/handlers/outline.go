@@ -69,8 +69,10 @@ func writeOutline(
 	}
 	ctx.Header("Content-Encoding", "gzip")
 	zw := gzip.NewWriter(ctx.Writer)
-	defer func() { _ = zw.Close() }()
 	encodeOutline(ctx, zw, data)
+	if err := zw.Close(); err != nil {
+		libs.NoteError(ctx, err)
+	}
 }
 
 // encodeOutline records an encode failure on the context rather than replacing
@@ -83,7 +85,7 @@ func encodeOutline(
 ) {
 	err := json.NewEncoder(w).Encode(libs.Envelope{Success: true, Data: data})
 	if err != nil {
-		_ = ctx.Error(err)
+		libs.NoteError(ctx, err)
 	}
 }
 

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	asynxModels "github.com/char2cs/asynx/models"
+
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 )
 
@@ -155,7 +157,7 @@ func (c *Container) Close() {
 // may already be closed).
 //
 // A Shutdown that already ran for this Container makes every call here an
-// immediate, harmless no-op (asynx.ErrAlreadyShuttingDown, swallowed) — each
+// immediate, harmless no-op (asynx.ErrAlreadyShuttingDown, not logged) — each
 // per-type Shutdown latches via its own CompareAndSwap, so Close can call this
 // unconditionally instead of tracking whether Shutdown ran. On the path that
 // DIDN'T run one (a crash, a Serve failure), this is what stops the shard
@@ -164,10 +166,16 @@ func (c *Container) Close() {
 func (c *Container) stopBackgroundWorkers(
 	ctx context.Context,
 ) {
-	_ = c.axWorkspace.Shutdown(ctx)
-	_ = c.axReviewThread.Shutdown(ctx)
-	_ = c.axAgentChat.Shutdown(ctx)
-	_ = c.axNode.Shutdown(ctx)
+	for _, err := range []error{
+		c.axWorkspace.Shutdown(ctx),
+		c.axReviewThread.Shutdown(ctx),
+		c.axAgentChat.Shutdown(ctx),
+		c.axNode.Shutdown(ctx),
+	} {
+		if err != nil && !errors.Is(err, asynxModels.ErrAlreadyShuttingDown) {
+			slog.WarnContext(ctx, "app: stop an aggregate's workers", "err", err)
+		}
+	}
 }
 
 // shutdownAgentRunners notes daemon_restart on every live runner and kills

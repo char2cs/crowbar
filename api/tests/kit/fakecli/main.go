@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -81,7 +82,9 @@ func postOnQuit(dir string, rec launch) {
 	if err != nil {
 		return
 	}
-	_ = resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "fakecli: close the quit hook's answer: %v\n", err)
+	}
 }
 
 // refuseResume prints the canned refusal and returns 1 when this launch resumes a

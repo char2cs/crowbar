@@ -28,7 +28,9 @@ func newHandoffDumpCmd() *cobra.Command {
 		Short: "Print a chat's assembled handoff to stdout",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			applyHomeOverride(home)
+			if err := applyHomeOverride(home); err != nil {
+				return err
+			}
 			return runHandoffDump(args[0], project, repo, workspace, host, os.Stdout)
 		},
 	}

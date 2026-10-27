@@ -95,7 +95,10 @@ func (u *chatFolderUsecase) anchorView(
 	workspaceID string,
 	n domain.Node,
 ) domain.Chat {
-	createdAt, _ := u.workspaces.CreatedAtOf(ctx, workspaceID)
+	createdAt, err := u.workspaces.CreatedAtOf(ctx, workspaceID)
+	if err != nil {
+		createdAt = time.Time{} // a workspace that no longer reads ties as the oldest
+	}
 	return workspaceAnchorView(workspaceID, n, createdAt)
 }
 

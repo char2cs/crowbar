@@ -145,17 +145,15 @@ func writeDurable(path string, data []byte) (err error) {
 	tmpName := tmp.Name()
 	defer func() {
 		if err != nil {
-			_ = os.Remove(tmpName)
+			err = errors.Join(err, os.Remove(tmpName))
 		}
 	}()
 
 	if _, err = tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("ledger blobs: write: %w", err)
+		return errors.Join(fmt.Errorf("ledger blobs: write: %w", err), tmp.Close())
 	}
 	if err = tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("ledger blobs: sync: %w", err)
+		return errors.Join(fmt.Errorf("ledger blobs: sync: %w", err), tmp.Close())
 	}
 	if err = tmp.Close(); err != nil {
 		return fmt.Errorf("ledger blobs: close: %w", err)
@@ -170,12 +168,12 @@ func writeDurable(path string, data []byte) (err error) {
 	return syncDir(dir)
 }
 
-func syncDir(dir string) error {
+func syncDir(dir string) (err error) {
 	dh, err := os.Open(dir) //nolint:gosec // daemon-owned content directory
 	if err != nil {
 		return fmt.Errorf("ledger blobs: open dir: %w", err)
 	}
-	defer func() { _ = dh.Close() }()
+	defer func() { err = errors.Join(err, dh.Close()) }()
 	if err := dh.Sync(); err != nil {
 		return fmt.Errorf("ledger blobs: sync dir: %w", err)
 	}

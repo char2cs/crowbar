@@ -80,8 +80,7 @@ func awaitHookAnswerOn(
 	case <-signals:
 
 		cancel()
-		reportAbandoned(envelope, askID, host)
-		return nil
+		return reportAbandoned(envelope, askID, host)
 	case r := <-done:
 		if r.err != nil {
 			return r.err
@@ -122,16 +121,19 @@ func pollHookAnswer(
 	return answer.Data.Stdout, nil
 }
 
-func reportAbandoned(envelope hookEnvelope, askID, host string) {
+func reportAbandoned(envelope hookEnvelope, askID, host string) error {
 	client, err := ipc.NewClientWithTimeout(host, abandonBudget)
 	if err != nil {
-		return
+		return fmt.Errorf("hook answer: report abandoned: %w", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), abandonBudget)
 	defer cancel()
-	_, _, _ = client.PostJSON(
+	if _, _, err := client.PostJSON(
 		ctx,
 		scopedAgentPath(envelope.Project, envelope.Repo, envelope.Workspace, "/hooks/abandon"),
 		map[string]string{"ask_id": askID},
-	)
+	); err != nil {
+		return fmt.Errorf("hook answer: report abandoned: %w", err)
+	}
+	return nil
 }

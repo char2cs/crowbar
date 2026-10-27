@@ -7,7 +7,9 @@ import (
 
 func TestApplyHomeOverride_SetsEnvWhenNonEmpty(t *testing.T) {
 	t.Setenv("CROWBAR_HOME", "")
-	applyHomeOverride("/tmp/x")
+	if err := applyHomeOverride("/tmp/x"); err != nil {
+		t.Fatalf("applyHomeOverride: %v", err)
+	}
 	if got := os.Getenv("CROWBAR_HOME"); got != "/tmp/x" {
 		t.Fatalf("CROWBAR_HOME = %q, want %q", got, "/tmp/x")
 	}
@@ -15,9 +17,20 @@ func TestApplyHomeOverride_SetsEnvWhenNonEmpty(t *testing.T) {
 
 func TestApplyHomeOverride_LeavesEnvAloneWhenEmpty(t *testing.T) {
 	t.Setenv("CROWBAR_HOME", "/already/set")
-	applyHomeOverride("")
+	if err := applyHomeOverride(""); err != nil {
+		t.Fatalf("applyHomeOverride: %v", err)
+	}
 	if got := os.Getenv("CROWBAR_HOME"); got != "/already/set" {
 		t.Fatalf("CROWBAR_HOME = %q, want unchanged %q", got, "/already/set")
+	}
+}
+
+// A home the process cannot take must stop the callback: running on would
+// resolve whatever home the environment happens to carry.
+func TestScope_ASetenvFailureIsReturned(t *testing.T) {
+	t.Setenv("CROWBAR_HOME", "/already/set")
+	if err := applyHomeOverride("/tmp/x\x00y"); err == nil {
+		t.Fatal("applyHomeOverride with a NUL byte: want an error")
 	}
 }
 

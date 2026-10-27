@@ -137,7 +137,7 @@ func openContainer(
 	var o opens
 	defer func() {
 		if err != nil {
-			o.unwind()
+			err = errors.Join(err, o.unwind())
 		}
 	}()
 
@@ -195,10 +195,12 @@ type opens struct {
 
 // unwind closes what was opened, newest first. Only called when openContainer is
 // returning an error — on success the Container owns these and Close has them.
-func (o *opens) unwind() {
+func (o *opens) unwind() error {
+	var errs []error
 	for i := len(o.rollback) - 1; i >= 0; i-- {
-		_ = o.rollback[i]()
+		errs = append(errs, o.rollback[i]())
 	}
+	return errors.Join(errs...)
 }
 
 func (o *opens) eventStore(dir, name, what string) asynxModels.Store {

@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/origin"
 )
 
@@ -123,7 +125,9 @@ func (c *client) closeDone() {
 func readPump(
 	conn *websocket.Conn,
 ) {
-	_ = conn.SetReadDeadline(time.Now().Add(pongTimeout))
+	if err := conn.SetReadDeadline(time.Now().Add(pongTimeout)); err != nil {
+		return
+	}
 	conn.SetPongHandler(func(string) error {
 		return conn.SetReadDeadline(time.Now().Add(pongTimeout))
 	})
@@ -146,7 +150,7 @@ func writePump(
 	ticker := time.NewTicker(pingInterval)
 	defer func() {
 		ticker.Stop()
-		_ = conn.Close()
+		libs.CloseLogged(context.Background(), "ws: write pump: close", conn)
 	}()
 	if !flushSnapshot(conn, cl, snapshot) {
 		return
@@ -172,8 +176,7 @@ func flushSnapshot(
 			return false
 		default:
 		}
-		_ = conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-		if conn.WriteMessage(websocket.TextMessage, msg) != nil {
+		if !writeMessage(conn, websocket.TextMessage, msg) {
 			return false
 		}
 	}
@@ -206,8 +209,7 @@ func writeNext(
 	case code := <-cl.closing:
 		return writeClose(conn, cl, code)
 	case <-ticker.C:
-		_ = conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-		return conn.WriteMessage(websocket.PingMessage, nil) == nil
+		return writeMessage(conn, websocket.PingMessage, nil)
 	case <-cl.done:
 		return false
 	}
@@ -246,6 +248,14 @@ func writeFrames(conn *websocket.Conn, msgs [][]byte) bool {
 }
 
 func writeFrame(conn *websocket.Conn, msg []byte) bool {
-	_ = conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-	return conn.WriteMessage(websocket.TextMessage, msg) == nil
+	return writeMessage(conn, websocket.TextMessage, msg)
+}
+
+// writeMessage writes one message under the write timeout; a socket that
+// cannot take the deadline cannot take the write either.
+func writeMessage(conn *websocket.Conn, kind int, msg []byte) bool {
+	if conn.SetWriteDeadline(time.Now().Add(writeTimeout)) != nil {
+		return false
+	}
+	return conn.WriteMessage(kind, msg) == nil
 }

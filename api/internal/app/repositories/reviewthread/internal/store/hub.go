@@ -42,9 +42,8 @@ type hubProjector struct {
 // onEvent broadcasts the bare aggregate frame. It never persists — the store
 // projection owns durability (decision 5).
 func (p *hubProjector) onEvent(
-	ctx context.Context,
+	_ context.Context,
 	evt asynxModels.Event[domain.ReviewThread],
 ) {
-	_ = ctx
 	p.broadcast(evt.Aggregate)
 }

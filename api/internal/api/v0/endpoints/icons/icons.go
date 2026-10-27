@@ -13,8 +13,12 @@
 package icons
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -76,7 +80,7 @@ func Serve(
 		c.Status(http.StatusNotFound)
 		return
 	}
-	defer func() { _ = f.Close() }()
+	defer libs.CloseLogged(c.Request.Context(), "icons: close the icon", f)
 	data, err := io.ReadAll(io.LimitReader(f, MaxBytes+1))
 	if err != nil {
 		c.Status(http.StatusNotFound)
@@ -142,7 +146,7 @@ func readFromPath(
 		libs.WriteErr(c, http.StatusBadRequest, "could not read icon file")
 		return nil, false
 	}
-	defer func() { _ = f.Close() }()
+	defer libs.CloseLogged(c.Request.Context(), "icons: close the upload", f)
 	// LimitReader caps the actual read even if the file grows between Stat and Open.
 	data, err := io.ReadAll(io.LimitReader(f, MaxBytes+1))
 	if err != nil {
@@ -167,7 +171,7 @@ func readFromMultipart(
 		libs.WriteErr(c, http.StatusBadRequest, "icon field required")
 		return nil, false
 	}
-	defer func() { _ = file.Close() }()
+	defer libs.CloseLogged(c.Request.Context(), "icons: close the upload", file)
 
 	data, err := io.ReadAll(io.LimitReader(file, MaxBytes+1))
 	if err != nil {
@@ -218,6 +222,18 @@ func Store(
 		return fmt.Errorf("write error: %w", err)
 	}
 	return nil
+}
+
+// Remove deletes the stored icon at path. One already gone is not a failure; any
+// other is logged, because the caller clears the record either way and Serve
+// answers 404 for it from then on.
+func Remove(
+	ctx context.Context,
+	path string,
+) {
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		slog.WarnContext(ctx, "icons: remove the stored icon", "path", path, "err", err)
+	}
 }
 
 // IsSingleEmoji reports whether s holds exactly one user-perceived character
