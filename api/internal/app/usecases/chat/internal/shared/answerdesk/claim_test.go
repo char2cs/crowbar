@@ -292,6 +292,27 @@ func TestRegression_AnAnswerLookedUpBeforeAReAskReachesItsNewRelay(t *testing.T)
 	assert.Equal(t, "allow", <-printed)
 }
 
+// A relay a re-ask displaced prints nothing; the answer reaches only the relay
+// now holding the ask.
+func TestAwait_ADisplacedRelayPrintsNothing(t *testing.T) {
+	t.Parallel()
+	parked := make(chan struct{}, 2)
+	d, slot, _ := withLedger(time.Minute, answerdesk.WithBudgetClock(func(time.Duration) <-chan time.Time {
+		parked <- struct{}{}
+		return nil
+	}))
+	first := relay(context.Background(), d)
+	<-parked
+
+	fresh := d.Hold(slot.Prompt)
+
+	assert.Empty(t, <-first, "the displaced relay prints nothing")
+	second := relay(context.Background(), d)
+	<-parked
+	require.NoError(t, decide(d, fresh, "allow"))
+	assert.Equal(t, "allow", <-second)
+}
+
 // clocked is a desk whose relay budget runs out when the test sends on budget.
 func clocked(budget chan time.Time) (*answerdesk.Desk, *answerdesk.Slot, *recordingLedger) {
 	return withLedger(time.Minute, answerdesk.WithBudgetClock(func(time.Duration) <-chan time.Time { return budget }))
