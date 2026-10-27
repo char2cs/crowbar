@@ -19,7 +19,7 @@ func TestHelperProcess(t *testing.T) {
 	args := os.Args
 	output := args[len(args)-2]
 	exitCode := args[len(args)-1]
-	fmt.Fprint(os.Stdout, output)
+	_, _ = fmt.Fprint(os.Stdout, output)
 	if exitCode != "0" {
 		os.Exit(1)
 	}

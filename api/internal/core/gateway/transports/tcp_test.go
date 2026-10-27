@@ -11,7 +11,7 @@ import (
 func TestNewTCP_ValidAddress(t *testing.T) {
 	l, err := NewTCP("tcp://127.0.0.1:0")
 	require.NoError(t, err)
-	t.Cleanup(func() { l.Close() })
+	t.Cleanup(func() { _ = l.Close() })
 	_, ok := l.(*net.TCPListener)
 	assert.True(t, ok)
 }

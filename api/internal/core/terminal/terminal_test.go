@@ -355,7 +355,7 @@ func TestEngine_Attach_UnknownSession(t *testing.T) {
 	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	conn := newMockConn()
-	conn.Close()
+	_ = conn.Close()
 	err := eng.Attach(ctx, "ghost", conn)
 	assert.Error(t, err)
 }
@@ -382,7 +382,7 @@ func TestEngine_Attach_ReceivesOutput(t *testing.T) {
 		return len(data) >= 5 && containsStr(data, "hello")
 	}) // blocks on the fan-out signal: "must receive output containing 'hello'"
 
-	conn.Close()
+	_ = conn.Close()
 	require.NoError(t, eng.Kill(ctx, sid))
 	<-attachDone
 }
@@ -441,7 +441,7 @@ func TestEngine_Attach_DeadSession(t *testing.T) {
 	// We cannot do this from outside without access to internals, so instead
 	// we verify Attach returns error for a non-existent session ID.
 	conn := newMockConn()
-	conn.Close()
+	_ = conn.Close()
 	err = eng.Attach(ctx, "gone-session", conn)
 	assert.Error(t, err)
 }
@@ -476,7 +476,7 @@ func TestEngine_Attach_ResizeMessage(t *testing.T) {
 	// -timeout` reports it with the blocked stack.
 	<-conn.allConsumed
 
-	conn.Close()
+	_ = conn.Close()
 	require.NoError(t, eng.Kill(ctx, sid))
 	<-attachDone
 }
@@ -760,7 +760,7 @@ func TestEngine_LoadPlaceholder_ThenAttach_Restores(t *testing.T) {
 		return containsStr(data, marker)
 	}) // blocks on the fan-out signal: "scrollback must be replayed after LoadPlaceholder → Attach"
 
-	conn.Close()
+	_ = conn.Close()
 	<-attachDone
 	require.NoError(t, eng.Kill(ctx, sid))
 }
@@ -795,7 +795,7 @@ func TestEngine_Detach_PersistsScrollbackAndMeta(t *testing.T) {
 		return containsStr(data, "detach-marker")
 	})
 
-	conn.Close()
+	_ = conn.Close()
 	<-attachDone
 
 	assert.True(t, bufExists(store.dir, sid), ".buf file must exist after last-client detach")
@@ -834,7 +834,7 @@ func TestEngine_Suspend_WithConnectedClient_NoOp(t *testing.T) {
 	// Session must still be writable (live PTY).
 	assert.NoError(t, eng.Write(ctx, sid, []byte("echo still-alive\n")))
 
-	conn.Close()
+	_ = conn.Close()
 	<-attachDone
 	require.NoError(t, eng.Kill(ctx, sid))
 }
@@ -916,7 +916,7 @@ func TestEngine_Suspend_ThenAttach_Restores(t *testing.T) {
 	}()
 	require.NoError(t, eng.Write(ctx, sid, []byte("echo pre-suspend\n")))
 	waitForMsg(t, conn1, func(d string) bool { return containsStr(d, "pre-suspend") })
-	conn1.Close()
+	_ = conn1.Close()
 
 	// Join the Attach goroutine. Attach runs the client's read pump and calls Detach on its
 	// way out, so its RETURN is the detach-bookkeeping completing — the real signal that the
@@ -951,7 +951,7 @@ func TestEngine_Suspend_ThenAttach_Restores(t *testing.T) {
 		return containsStr(d, "post-restore")
 	}) // blocks on the fan-out signal: "new output must flow after restore"
 
-	conn2.Close()
+	_ = conn2.Close()
 	<-attachDone
 	require.NoError(t, eng.Kill(ctx, sid))
 }
@@ -1046,7 +1046,7 @@ func TestEngine_StateOf_ActiveWhileAttached(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, "active", state)
 
-	conn.Close()
+	_ = conn.Close()
 	<-attachDone
 	require.NoError(t, eng.Kill(ctx, sid))
 }
@@ -1077,7 +1077,7 @@ func TestEngine_OnSessionState_DetachedFiredOnLastClientLeave(t *testing.T) {
 	// blocks on the fan-out signal — must receive initial output before closing
 	waitForMsg(t, conn, func(d string) bool { return len(d) > 0 })
 
-	conn.Close()
+	_ = conn.Close()
 	<-attachDone
 
 	assert.Equal(t, "detached", <-stateCh,
@@ -1134,7 +1134,7 @@ func TestRegression_TerminalLifecycle_StateOf_And_OnSessionState(t *testing.T) {
 	assert.Equal(t, "active", state, "session must be active while client is attached")
 
 	// Detach client → "detached" + callback fires.
-	conn.Close()
+	_ = conn.Close()
 	<-attachDone
 
 	assert.Equal(t, "detached", <-stateCh,

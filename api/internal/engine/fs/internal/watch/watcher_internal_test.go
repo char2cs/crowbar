@@ -523,7 +523,7 @@ func TestAddRecursive_PermissionDeniedSwallowed(t *testing.T) {
 	noPermDir := filepath.Join(dir, "noperm")
 	require.NoError(t, os.MkdirAll(noPermDir, 0o700))
 	require.NoError(t, os.Chmod(noPermDir, 0o000))
-	t.Cleanup(func() { os.Chmod(noPermDir, 0o700) })
+	t.Cleanup(func() { _ = os.Chmod(noPermDir, 0o700) })
 
 	w := NewWatcher("ws-perm", dir, "", &minimalGit{}, &recordingDispatcher{})
 	ctx, cancel := context.WithCancel(context.Background())

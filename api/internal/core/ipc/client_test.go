@@ -17,19 +17,19 @@ func TestClient_PostJSON_OverUnixSocket(t *testing.T) {
 	// Use a short temp directory to stay under macOS's 104-byte sun_path limit
 	tmpDir := filepath.Join("/tmp", "cs.sock")
 	sock := filepath.Join(tmpDir, "t.sock")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 	_ = os.MkdirAll(tmpDir, 0o755)
 	ln, err := net.Listen("unix", sock)
 	require.NoError(t, err)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/v0/chats/hooks", r.URL.Path)
 		w.WriteHeader(http.StatusAccepted)
 		_, _ = w.Write([]byte(`{"success":true}`))
 	})}
-	go srv.Serve(ln)
-	defer srv.Close()
+	go func() { _ = srv.Serve(ln) }()
+	defer func() { _ = srv.Close() }()
 
 	c, err := ipc.NewClient("unix://" + sock)
 	require.NoError(t, err)
@@ -44,11 +44,11 @@ func TestClient_PatchJSON_OverUnixSocket(t *testing.T) {
 	// Use a short temp directory to stay under macOS's 104-byte sun_path limit
 	tmpDir := filepath.Join("/tmp", "cp.sock")
 	sock := filepath.Join(tmpDir, "t.sock")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 	_ = os.MkdirAll(tmpDir, 0o755)
 	ln, err := net.Listen("unix", sock)
 	require.NoError(t, err)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPatch, r.Method)
@@ -56,8 +56,8 @@ func TestClient_PatchJSON_OverUnixSocket(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"success":true,"data":{"id":"c1"}}`))
 	})}
-	go srv.Serve(ln)
-	defer srv.Close()
+	go func() { _ = srv.Serve(ln) }()
+	defer func() { _ = srv.Close() }()
 
 	c, err := ipc.NewClient("unix://" + sock)
 	require.NoError(t, err)
@@ -72,11 +72,11 @@ func TestClient_Get_OverUnixSocket(t *testing.T) {
 	// Use a short temp directory to stay under macOS's 104-byte sun_path limit
 	tmpDir := filepath.Join("/tmp", "cg.sock")
 	sock := filepath.Join(tmpDir, "t.sock")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 	_ = os.MkdirAll(tmpDir, 0o755)
 	ln, err := net.Listen("unix", sock)
 	require.NoError(t, err)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodGet, r.Method)
@@ -84,8 +84,8 @@ func TestClient_Get_OverUnixSocket(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"success":true,"data":{"handoff":"X"}}`))
 	})}
-	go srv.Serve(ln)
-	defer srv.Close()
+	go func() { _ = srv.Serve(ln) }()
+	defer func() { _ = srv.Close() }()
 
 	c, err := ipc.NewClient("unix://" + sock)
 	require.NoError(t, err)

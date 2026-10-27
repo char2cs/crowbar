@@ -115,7 +115,7 @@ func skipDir(name string) error {
 	return nil
 }
 
-func mustRel(t *testing.T, base string, path string) string {
+func mustRel(t *testing.T, base, path string) string {
 	t.Helper()
 	rel, err := filepath.Rel(base, path)
 	require.NoError(t, err)

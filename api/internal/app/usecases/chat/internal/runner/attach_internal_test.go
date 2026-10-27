@@ -174,7 +174,7 @@ func TestSwitchToTerminal_ReturnsErrTurnInProgress_WhenWorking(t *testing.T) {
 	defer cancel()
 	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	rs := &Runners{
 		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
@@ -207,7 +207,7 @@ func TestSwitchToTerminal_ForksTheAttachProcessAndDropsTheAPIConnection(t *testi
 	defer cancel()
 	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	term := &fakeTermForAttach{}
 	rs := &Runners{
@@ -266,7 +266,7 @@ func TestRegression_SwitchToTerminalForksWithTheProcessEnvironment(t *testing.T)
 	defer cancel()
 	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	term := &fakeTermForAttach{}
 	rs := &Runners{
@@ -313,7 +313,7 @@ func switchToTerminalOnTheBoundSession(t *testing.T, l *ledgerstore.Store, attac
 	defer cancel()
 	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	term := &fakeTermForAttach{}
 	rs := &Runners{

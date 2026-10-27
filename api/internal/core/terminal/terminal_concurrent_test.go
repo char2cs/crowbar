@@ -94,7 +94,7 @@ func TestRestore_ConcurrentAttach_NoOrphan(t *testing.T) {
 		waitForMsg(t, c, func(d string) bool { return containsStr(d, liveProbe) })
 	}
 	for _, c := range conns {
-		c.Close()
+		_ = c.Close()
 	}
 	wg.Wait()
 
@@ -296,7 +296,7 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 				store.arm()
 				// Closing the conn unblocks readPump → Detach → the
 				// detach-bookkeeping persist parks on the gate.
-				conn.Close()
+				_ = conn.Close()
 				close(done) // the Attach goroutine itself is joined separately
 				return done
 			},
@@ -381,7 +381,7 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 			// have already run — the two facts asserted below.
 			<-reaped
 			<-attachDone
-			conn.Close()
+			_ = conn.Close()
 
 			assert.False(t, eng.SessionExists(ctx, sid),
 				"registry must not contain the reaped session")

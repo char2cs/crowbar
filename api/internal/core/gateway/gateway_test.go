@@ -18,7 +18,7 @@ func TestGatewayTCP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	if _, ok := l.(*net.TCPListener); !ok {
 		t.Fatalf("expected TCPListener, got %T", l)
 	}
@@ -35,7 +35,7 @@ func TestGatewayUnix_ExplicitPath(t *testing.T) {
 	sockPath := filepath.Join(t.TempDir(), "test.sock")
 	l, err := gateway.New("unix://"+sockPath, "")
 	require.NoError(t, err)
-	t.Cleanup(func() { l.Close() })
+	t.Cleanup(func() { _ = l.Close() })
 	assert.NotNil(t, l)
 }
 
@@ -48,6 +48,6 @@ func TestGatewayUnix_BarePathBindsTheGivenSocket(t *testing.T) {
 	l, err := gateway.New("unix://", sock)
 
 	require.NoError(t, err)
-	t.Cleanup(func() { l.Close() })
+	t.Cleanup(func() { _ = l.Close() })
 	assert.FileExists(t, sock)
 }

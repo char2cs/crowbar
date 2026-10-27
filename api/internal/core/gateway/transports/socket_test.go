@@ -31,7 +31,7 @@ func TestNewSocket_ExplicitPath(t *testing.T) {
 	sockPath := tempSocketPath(t)
 	l, err := NewSocket("unix://" + sockPath)
 	require.NoError(t, err)
-	t.Cleanup(func() { l.Close() })
+	t.Cleanup(func() { _ = l.Close() })
 	assert.NotNil(t, l)
 	_, statErr := os.Stat(sockPath)
 	assert.NoError(t, statErr, "socket file should exist after NewSocket")
@@ -46,7 +46,7 @@ func TestNewSocket_DefaultPath_UsesHome(t *testing.T) {
 	t.Setenv(home.EnvVar, "")
 	l, err := NewSocket("unix://")
 	require.NoError(t, err)
-	t.Cleanup(func() { l.Close() })
+	t.Cleanup(func() { _ = l.Close() })
 	assert.NotNil(t, l)
 	_, statErr := os.Stat(filepath.Join(userHome, ".crowbar", "crowbar.sock"))
 	assert.NoError(t, statErr, "socket should be created at ~/.crowbar/crowbar.sock")
@@ -74,7 +74,7 @@ func TestNewSocket_Permissions(t *testing.T) {
 	sockPath := tempSocketPath(t)
 	l, err := NewSocket("unix://" + sockPath)
 	require.NoError(t, err)
-	t.Cleanup(func() { l.Close() })
+	t.Cleanup(func() { _ = l.Close() })
 
 	info, err := os.Stat(sockPath)
 	require.NoError(t, err)
@@ -92,7 +92,7 @@ func TestNewSocket_StaleSocket_IsReclaimed(t *testing.T) {
 
 	l, err := NewSocket("unix://" + sockPath)
 	require.NoError(t, err, "a stale socket should be reclaimed, not rejected")
-	t.Cleanup(func() { l.Close() })
+	t.Cleanup(func() { _ = l.Close() })
 
 	conn, err := net.Dial("unix", sockPath)
 	require.NoError(t, err, "the reclaimed socket should accept connections")
@@ -104,7 +104,7 @@ func TestNewSocket_DaemonAlreadyRunning(t *testing.T) {
 
 	active, err := net.Listen("unix", sockPath)
 	require.NoError(t, err)
-	defer active.Close()
+	defer func() { _ = active.Close() }()
 	go func() {
 		for {
 			conn, err := active.Accept()

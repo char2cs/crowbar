@@ -254,7 +254,7 @@ func TestRegression_TerminalSession_RestartRoundTrip_RealStore(t *testing.T) {
 	// Detach the capture conn — triggers persistOnDetach (flushes ring to disk
 	// as state="detached"). This is serialised: <-attachDone1 guarantees
 	// persistOnDetach has completed before we proceed.
-	conn1.Close()
+	_ = conn1.Close()
 	<-attachDone1
 
 	// Graceful Shutdown: for every live session, Shutdown
@@ -352,7 +352,7 @@ func TestRegression_TerminalSession_RestartRoundTrip_RealStore(t *testing.T) {
 	assert.NoError(t, statErr, "scrollback .buf file must exist after restart-restore")
 
 	// ---- Cleanup: kill the session and stop engine #2. ----
-	conn2.Close()
+	_ = conn2.Close()
 	<-attachDone2
 	_ = eng2.Kill(ctx, sessionID)
 	eng2.Shutdown()

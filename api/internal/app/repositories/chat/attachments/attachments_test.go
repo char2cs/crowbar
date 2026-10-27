@@ -307,7 +307,7 @@ func TestRead_OpenErrorReturnsNotFound(t *testing.T) {
 	filePath := filepath.Join(dir, fileName)
 	err := os.WriteFile(filePath, []byte("data"), 0o000)
 	require.NoError(t, err)
-	defer os.Chmod(filePath, 0o644) // Restore for cleanup
+	defer func() { _ = os.Chmod(filePath, 0o644) }() // Restore for cleanup
 
 	// Try to read it - should get ErrNotFound due to permission denied
 	_, _, err = attachments.Read(dir, fileName)
@@ -335,7 +335,7 @@ func TestStore_OpenFileFailureReturnsError(t *testing.T) {
 	// Pre-create the dir, then restrict write permissions
 	err := os.Chmod(dir, 0o500) // r-x------: can read/search but not write
 	require.NoError(t, err)
-	defer os.Chmod(dir, 0o755) // Restore for cleanup
+	defer func() { _ = os.Chmod(dir, 0o755) }() // Restore for cleanup
 
 	// Try to create a file in the write-protected dir
 	// os.OpenFile will fail with EACCES (permission denied) on the create

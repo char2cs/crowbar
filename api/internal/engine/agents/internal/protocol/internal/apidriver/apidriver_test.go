@@ -76,7 +76,7 @@ func TestStart_HandshakeThenDeliversCanonicalEvents(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	select {
 	case ev := <-drv.Events():
@@ -106,7 +106,7 @@ func TestStart_AsksCarryAReplyChannel(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	ev := <-drv.Events()
 	require.Equal(t, "permission", ev.Canonical)
@@ -143,7 +143,7 @@ func TestStart_ByWireOverlayNamesTheToolOnThePermissionCard(t *testing.T) {
 			d := loadCodexAPIDescriptor(t)
 			drv, err := apidriver.Start(ctx, d, stdio, nil)
 			require.NoError(t, err)
-			defer drv.Close()
+			defer func() { _ = drv.Close() }()
 
 			ev := <-drv.Events()
 			require.Equal(t, "permission", ev.Canonical)
@@ -174,7 +174,7 @@ func TestStart_MalformedParamsAreDroppedNotFatal(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	select {
 	case ev := <-drv.Events():
@@ -238,7 +238,7 @@ func TestEstablishSession_NoKnownSessionRunsFreshAndCapturesTheNewID(t *testing.
 	d := loadCodexAPIDescriptor(t)
 	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	out, err := drv.EstablishSession(ctx, "prompt", map[string]string{
 		"session_id": "", "cwd": "/work",
@@ -263,7 +263,7 @@ func TestRegression_EstablishSessionFreshCarriesTheHandoffAsDeveloperInstruction
 	d := loadCodexAPIDescriptor(t)
 	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	_, err = drv.EstablishSession(ctx, "prompt", map[string]string{
 		"session_id": "", "cwd": "/work", "context": "Claude said: I like turtles",
@@ -283,7 +283,7 @@ func TestEstablishSession_KnownSessionRunsResumeNotFresh(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	out, err := drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "known-1", "cwd": "/work"})
 	require.NoError(t, err)
@@ -304,7 +304,7 @@ func TestRegression_EstablishSessionResumeAlsoCarriesTheCurrentPermissionLevel(t
 	d := loadCodexAPIDescriptor(t)
 	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	_, err = drv.EstablishSession(ctx, "prompt", map[string]string{
 		"session_id": "known-1", "cwd": "/work",
@@ -326,7 +326,7 @@ func TestEstablishSession_SecondCallOnAnEstablishedConnectionIsANoop(t *testing.
 	d := loadCodexAPIDescriptor(t)
 	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	_, err = drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "", "cwd": "/work"})
 	require.NoError(t, err)
@@ -353,7 +353,7 @@ func TestRegression_EstablishSessionAlreadyEstablished_BlankCallerSessionIDFalls
 	d := loadCodexAPIDescriptor(t)
 	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	_, err = drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "t-resumed", "cwd": "/work"})
 	require.NoError(t, err)
@@ -376,7 +376,7 @@ func TestDispatch_SendsTheStructuredActionPayloadAfterEstablishing(t *testing.T)
 	d := loadCodexAPIDescriptor(t)
 	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	out, err := drv.Dispatch(ctx, "prompt", map[string]string{
 		"session_id": "", "cwd": "/work", "text": "hello there",
@@ -435,7 +435,7 @@ func TestDispatch_ASecondMessageOnAnEstablishedConnectionSkipsStraightToAction(t
 	d := loadCodexAPIDescriptor(t)
 	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	_, err = drv.Dispatch(ctx, "prompt", map[string]string{"session_id": "", "cwd": "/work", "text": "first"})
 	require.NoError(t, err)
@@ -532,7 +532,7 @@ func TestSend_MergesValuesRememberedFromEarlierCaptures(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	_, err = drv.Dispatch(ctx, "prompt", map[string]string{"session_id": "", "cwd": "/work", "text": "hi"})
 	require.NoError(t, err)
@@ -596,7 +596,7 @@ func TestRegression_InterruptRacingANewTurnStart_MustNotSendTheStalePreviousTurn
 	d := loadCodexAPIDescriptor(t)
 	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	// Turn 1 completes in full: remembered["turn_id"] == "turn-1".
 	_, err = drv.Dispatch(ctx, "prompt", map[string]string{"session_id": "", "cwd": "/work", "text": "first"})
@@ -660,7 +660,7 @@ func TestSend_PropagatesAJSONRPCErrorFromTheReply(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	_, err = drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "", "cwd": "/work"})
 	require.NoError(t, err)
@@ -684,7 +684,7 @@ func TestInjectAt_RunsTheDeclaredContextStepAfterResume(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	_, err = drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "sid-1", "cwd": "/work"})
 	require.NoError(t, err)
@@ -726,7 +726,7 @@ func TestInjectAt_UndeclaredMomentIsANoop(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	err = drv.InjectAt(ctx, "resume", map[string]string{"session_id": "sid-1"})
 	require.NoError(t, err)
@@ -754,7 +754,7 @@ func TestRegression_LostSessionOnResumeIsReportedNotReplaced(t *testing.T) {
 	origins := &recordedOrigins{}
 	drv, err := apidriver.Start(ctx, d, stdio, origins.claim)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	_, err = drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "t-dead", "cwd": "/work"})
 	require.ErrorIs(t, err, apidriver.ErrSessionLost)
@@ -833,7 +833,7 @@ func TestRegression_LostSessionOnTurnStartReentersTheSameConversation(t *testing
 	origins := &recordedOrigins{}
 	drv, err := apidriver.Start(ctx, d, stdio, origins.claim)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 	establishAtSpawn(t, ctx, drv)
 
 	// A later message push: carries only the fields a prompt has, exactly as
@@ -874,7 +874,7 @@ func TestRegression_LostSessionIsLostOnceResumeAlsoRefusesIt(t *testing.T) {
 	origins := &recordedOrigins{}
 	drv, err := apidriver.Start(ctx, d, stdio, origins.claim)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 	establishAtSpawn(t, ctx, drv)
 
 	_, err = drv.Dispatch(ctx, "prompt", map[string]string{
@@ -898,7 +898,7 @@ func TestRegression_UndeclaredErrorCodeIsStillFatal(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 	drv, err := apidriver.Start(ctx, d, stdio, nil)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	_, err = drv.Dispatch(ctx, "prompt", map[string]string{
 		"session_id": "", "cwd": "/work", "text": "hi",
@@ -922,7 +922,7 @@ func TestRegression_EstablishSessionFreshReportsTheSessionItMinted(t *testing.T)
 	origins := &recordedOrigins{}
 	drv, err := apidriver.Start(ctx, d, stdio, origins.claim)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	out, err := drv.EstablishSession(ctx, "prompt", map[string]string{
 		"session_id": "", "cwd": "/work",
@@ -949,7 +949,7 @@ func TestEstablishSession_ResumeReportsTheSessionItEntered(t *testing.T) {
 	origins := &recordedOrigins{}
 	drv, err := apidriver.Start(ctx, d, stdio, origins.claim)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	_, err = drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "known-1", "cwd": "/work"})
 	require.NoError(t, err)
@@ -971,7 +971,7 @@ func TestEstablishSession_AnAlreadyEstablishedConnectionOpensNoClaim(t *testing.
 	origins := &recordedOrigins{}
 	drv, err := apidriver.Start(ctx, d, stdio, origins.claim)
 	require.NoError(t, err)
-	defer drv.Close()
+	defer func() { _ = drv.Close() }()
 
 	_, err = drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "", "cwd": "/work"})
 	require.NoError(t, err)

@@ -113,7 +113,7 @@ func TestCompact_APITransport_SendsThreadCompactStart(t *testing.T) {
 	defer cancel()
 	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	rs := &Runners{
 		apiConns:      newAPIConnRegistry(),

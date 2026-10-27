@@ -86,7 +86,7 @@ func freeFIFO(
 func heldLockedRoot(
 	t *testing.T,
 	origin string,
-) (root string, ready string, release string) {
+) (root, ready, release string) {
 	t.Helper()
 	root = filepath.Join(t.TempDir(), "root")
 	gitOut(t, origin, "clone", "-q", origin, root)

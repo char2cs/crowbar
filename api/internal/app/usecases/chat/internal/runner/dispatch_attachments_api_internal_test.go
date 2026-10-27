@@ -164,7 +164,7 @@ func TestSubmitPromptOverAPI_MaterializesAnAttachmentBeforePushing(t *testing.T)
 	defer cancel()
 	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	rs := &Runners{
 		apiConns:      newAPIConnRegistry(),
@@ -238,7 +238,7 @@ func TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_SettlesThePro
 	defer cancel()
 	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	rs := &Runners{
 		apiConns:      newAPIConnRegistry(),

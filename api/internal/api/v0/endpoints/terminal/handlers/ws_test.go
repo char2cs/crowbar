@@ -129,7 +129,7 @@ func TestWS_RejectsCrossOriginUpgrade(t *testing.T) {
 
 	require.Error(t, err, "a disallowed cross-origin request must not be upgraded")
 	require.NotNil(t, resp)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.NotEqual(t, http.StatusSwitchingProtocols, resp.StatusCode)
 	// Attach is only reachable past a successful upgrade, and the response the
 	// dial just read was written by the same handler goroutine that would have

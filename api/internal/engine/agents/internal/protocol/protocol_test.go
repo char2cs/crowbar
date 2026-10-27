@@ -85,7 +85,7 @@ func TestAPIConn_FacadeForwardsEveryCallThroughToTheUnderlyingDriver(t *testing.
 
 	conn, err := protocol.StartAPIDriver(ctx, d, stdio, nil)
 	require.NoError(t, err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	out, err := conn.EstablishSession(ctx, "prompt", map[string]string{"session_id": "sid-1", "cwd": "/work"})
 	require.NoError(t, err)
@@ -117,7 +117,7 @@ func TestAPIConn_InjectAtUndeclaredMomentIsANoopThroughTheFacade(t *testing.T) {
 
 	conn, err := protocol.StartAPIDriver(ctx, d, stdio, nil)
 	require.NoError(t, err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	err = conn.InjectAt(ctx, "resume", map[string]string{"session_id": "sid-1"})
 	require.NoError(t, err)
