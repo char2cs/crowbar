@@ -5,6 +5,7 @@ package tests
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/websocket"
@@ -223,6 +224,24 @@ func TestRegression_AHeldAskWhoseCLIHungUpIsClosedAsProceeded(t *testing.T) {
 	c.h.get(repoBase(c.imported)+"/chats/"+c.chatID+"/activity", &activity)
 	require.Len(t, activity.Choices, 1)
 	require.Equal(t, choiceID, activity.Choices[0].ID)
+	require.Equal(t, "proceeded", activity.Choices[0].Resolution, "its CLI went on without Crowbar's answer")
+}
+
+// A held ask nobody answers within its budget is released with nothing to print,
+// and its CLI asks the question itself: the choice closes as proceeded.
+func TestRegression_AHeldAskWhoseBudgetRanOutIsClosedAsProceeded(t *testing.T) {
+	descriptor := strings.Replace(answerStubProviderDescriptorYAML, "timeout_seconds: 5", "timeout_seconds: 1", 1)
+	c := newChoiceFrameChat(t, descriptor)
+	conn := c.dial()
+
+	choiceID := c.ask(t, "p1")
+	assert.Empty(t, c.reply(t, choiceID), "an expired hold answers 200 with nothing to print")
+	readUntil(t, conn, c.choiceFrame(func(choices []map[string]any) bool { return len(choices) == 0 }))
+	var activity struct {
+		Choices []struct{ ID, Resolution string } `json:"choices"`
+	}
+	c.h.get(repoBase(c.imported)+"/chats/"+c.chatID+"/activity", &activity)
+	require.Len(t, activity.Choices, 1)
 	require.Equal(t, "proceeded", activity.Choices[0].Resolution, "its CLI went on without Crowbar's answer")
 }
 
