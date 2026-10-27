@@ -60,7 +60,7 @@ func NewClientWithTimeout(host string, timeout time.Duration) (*Client, error) {
 // returning the response status and raw body. It never returns a non-nil
 // error on a non-2xx status; callers decode the {success,error,data} envelope
 // themselves to distinguish daemon-reported failures from transport failures.
-func (c *Client) Get(ctx context.Context, path string) (int, []byte, error) {
+func (c *Client) Get(ctx context.Context, path string) (_ int, _ []byte, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://unix"+path, nil)
 	if err != nil {
 		return 0, nil, fmt.Errorf("ipc: request: %w", err)
@@ -69,6 +69,7 @@ func (c *Client) Get(ctx context.Context, path string) (int, []byte, error) {
 	if err != nil {
 		return 0, nil, fmt.Errorf("ipc: do: %w", err)
 	}
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 	return readResponse(resp)
 }
 
@@ -84,7 +85,7 @@ func (c *Client) PatchJSON(ctx context.Context, path string, body any) (int, []b
 	return c.doJSON(ctx, http.MethodPatch, path, body)
 }
 
-func (c *Client) doJSON(ctx context.Context, method, path string, body any) (int, []byte, error) {
+func (c *Client) doJSON(ctx context.Context, method, path string, body any) (_ int, _ []byte, err error) {
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return 0, nil, fmt.Errorf("ipc: marshal: %w", err)
@@ -98,13 +99,13 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any) (int
 	if err != nil {
 		return 0, nil, fmt.Errorf("ipc: do: %w", err)
 	}
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 	return readResponse(resp)
 }
 
-// readResponse is the status and the whole body of resp, which it closes. A
-// body cut short fails the call: half a reply is not an answer.
-func readResponse(resp *http.Response) (_ int, _ []byte, err error) {
-	defer func() { err = errors.Join(err, resp.Body.Close()) }()
+// readResponse is the status and the whole body of resp. A body cut short
+// fails the call: half a reply is not an answer.
+func readResponse(resp *http.Response) (int, []byte, error) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return 0, nil, fmt.Errorf("ipc: read body: %w", err)

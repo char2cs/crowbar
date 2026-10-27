@@ -675,7 +675,11 @@ func fetchGithubAvatarBytes(
 	if err != nil {
 		return nil, "", nil
 	}
-	defer libs.CloseLogged(ctx, "repos: close the avatar response", resp.Body)
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.WarnContext(ctx, "repos: close the avatar response", "err", err)
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return nil, "", nil
 	}

@@ -47,10 +47,8 @@ func Walk(
 	if _, err := os.Lstat(repoPath); err != nil {
 		return nil, fmt.Errorf("walk: root inaccessible %s: %w", repoPath, err)
 	}
-	for _, g := range slices.Concat(includeGlobs, excludeGlobs) {
-		if !doublestar.ValidatePattern(g) {
-			return nil, fmt.Errorf("walk: %q: %w", g, ErrBadGlob)
-		}
+	if err := checkGlobs(slices.Concat(includeGlobs, excludeGlobs)); err != nil {
+		return nil, err
 	}
 
 	out := make(chan string, runtime.GOMAXPROCS(0)*4)
@@ -123,6 +121,19 @@ func Walk(
 	}()
 
 	return out, nil
+}
+
+// checkGlobs refuses the first glob that is not a valid pattern, so matching
+// needs no error of its own.
+func checkGlobs(
+	globs []string,
+) error {
+	for _, g := range globs {
+		if !doublestar.ValidatePattern(g) {
+			return fmt.Errorf("walk: %q: %w", g, ErrBadGlob)
+		}
+	}
+	return nil
 }
 
 // passesGlobs reports whether path satisfies the include/exclude glob filters.
