@@ -203,16 +203,16 @@ events:
   # A hand-back is a UserPromptSubmit (see injected_prompts); its turn_id is the
   # prompt's, which names the parent's turn that answers it.
   subagent_result:
-    unverified: true
     in: UserPromptSubmit
     map: { session_id: session_id, turn_id: prompt_id }
+    fixtures: [UserPromptSubmit.AgentMessage.json]
 
   # The task list, one step at a time: TaskCreated and TaskCompleted, and the
   # TaskUpdate tool's PostToolUse (registered with that matcher below). No capture
   # of the first two exists yet; the field names are the hooks' documented ones.
   plan_step:
     unverified: true
-    unverified_fields: [step_id, text, detail]
+    unverified_fields: [step_id, text, detail, status]
     in: [TaskCreated, TaskCompleted, PostToolUse]
     status_map: { pending: pending, in_progress: active, completed: done, deleted: removed,
       TaskCreated: pending, TaskCompleted: done }
@@ -222,7 +222,9 @@ events:
       step_id:    { first_present: [task_id, tool_input.taskId] }
       text:       { first_present: [task_subject, tool_input.subject] }
       detail:     task_description
-      status:     { first_present: [tool_response.statusChange.to, tool_input.status, hook_event_name] }
+      # A TaskUpdate that changes no status says none; only the two task hooks are one.
+      status:     { first_present: [tool_response.statusChange.to, tool_input.status,
+                                    { from: hook_event_name, pattern: '^(?P<v>Task(?:Created|Completed))$' }] }
 
   notification:
     required: [session_id]

@@ -17,6 +17,8 @@ func TestFold_PlanUpsertAndReplace(t *testing.T) {
 	assert.Equal(t, []ledger.PlanItem{
 		{ID: "1", Text: "read", Status: "active"}, {ID: "2", Text: "write", Status: "pending"},
 	}, items, "an upsert changes what it names, keeping what it leaves out")
+	renamed := ledger.FoldPlan(items, ledger.Plan{Op: ledger.PlanUpsert, Items: []ledger.PlanItem{{ID: "1", Text: "read it"}}})
+	assert.Equal(t, ledger.PlanItem{ID: "1", Text: "read it", Status: "active"}, renamed[0], "a rename keeps the step's status")
 
 	items = ledger.FoldPlan(items, ledger.Plan{Op: ledger.PlanUpsert, Items: []ledger.PlanItem{{ID: "2", Status: ledger.PlanStepRemoved}}})
 	assert.Equal(t, []ledger.PlanItem{{ID: "1", Text: "read", Status: "active"}}, items, "a removed step leaves the plan")

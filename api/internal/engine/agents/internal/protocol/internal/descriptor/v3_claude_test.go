@@ -133,4 +133,11 @@ func TestClaudeDescriptor_ATaskUpdateIsAPlanStep(t *testing.T) {
 		t.Fatalf("step %v, err %v", created.Step, err)
 	}
 	expectEq(t, "created", *created.Step, models.PlanStepEvent{StepID: "2", Text: "Write it", Detail: "all of it", Status: "pending"})
+
+	renamed, err := inbound.Parse(d, spec.HookPlanStep, []byte(`{"session_id":"s","transcript_path":"/t",
+		"hook_event_name":"PostToolUse","tool_name":"TaskUpdate","tool_input":{"taskId":"1","subject":"renamed"}}`), spec.ChannelHooks)
+	if err != nil || renamed.Step == nil {
+		t.Fatalf("step %v, err %v", renamed.Step, err)
+	}
+	expectEq(t, "a rename says no status", *renamed.Step, models.PlanStepEvent{StepID: "1", Text: "renamed"})
 }
