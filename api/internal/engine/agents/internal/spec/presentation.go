@@ -38,8 +38,8 @@ type PresentationSpec struct {
 
 type PromptSubmitSpec struct {
 	Strategy      string             `yaml:"strategy"`
-	Fresh         []InjectStep       `yaml:"fresh"`
-	Resume        []InjectStep       `yaml:"resume"`
+	Fresh         InjectSteps        `yaml:"fresh"`
+	Resume        InjectSteps        `yaml:"resume"`
 	LeadingSigils *LeadingSigilsSpec `yaml:"leading_sigils"`
 	Steer         *SteerSpec         `yaml:"steer"`
 }

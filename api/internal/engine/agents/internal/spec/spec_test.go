@@ -38,6 +38,37 @@ func TestInjectStep_RejectsAnythingButExactlyOneVerb(t *testing.T) {
 	}
 }
 
+// A descriptor's step list decodes as a plain YAML list would: absent or null
+// is no steps, anything but a list is refused, and a bad step fails the list.
+func TestInjectSteps_ADescriptorsStepListDecodesAsAYAMLList(t *testing.T) {
+	ok := map[string]int{"absent": 0, "null": 0, "two steps": 2}
+	docs := map[string]string{
+		"absent":     "id: x\n",
+		"null":       "hooks_injection: null\n",
+		"two steps":  "hooks_injection:\n  - set_env: { name: A }\n  - pass_arg: { arg: b }\n",
+		"a mapping":  "hooks_injection: { set_env: { name: A } }\n",
+		"a scalar":   "hooks_injection: nope\n",
+		"a bad step": "hooks_injection:\n  - set_env: { name: A }\n  - {}\n",
+		"two verbs":  "hooks_injection:\n  - { set_env: { name: A }, pass_arg: { arg: b } }\n",
+	}
+	for name, doc := range docs {
+		t.Run(name, func(t *testing.T) {
+			var d spec.Descriptor
+			err := yaml.Unmarshal([]byte(doc), &d)
+			want, accepted := ok[name]
+			if !accepted {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Len(t, d.HooksInjection, want)
+			if want == 0 {
+				assert.Nil(t, d.HooksInjection)
+			}
+		})
+	}
+}
+
 func TestCloneSteps_IsADeepCopy(t *testing.T) {
 	src := []spec.InjectStep{{Verb: "pass_arg", Args: map[string]any{"arg": "a"}}}
 

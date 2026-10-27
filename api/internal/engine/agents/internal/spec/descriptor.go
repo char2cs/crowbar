@@ -16,20 +16,20 @@ type Descriptor struct {
 	Spawn   SpawnSpec   `yaml:"spawn"`
 	Session SessionSpec `yaml:"session"`
 
-	ConfigInjection []InjectStep `yaml:"config_injection"`
+	ConfigInjection InjectSteps `yaml:"config_injection"`
 
 	// HooksInjection points the provider's hooks at the daemon's hook server.
 	// It is applied ONLY to a process whose delivery channel is hooks — a PTY
 	// — never to an api-transport `serve` process: a process reports over
 	// exactly one channel, so an event can never arrive twice (sessions spec
 	// §2.3).
-	HooksInjection []InjectStep `yaml:"hooks_injection"`
+	HooksInjection InjectSteps `yaml:"hooks_injection"`
 
-	MCPInject []InjectStep `yaml:"mcp_injection"`
+	MCPInject InjectSteps `yaml:"mcp_injection"`
 
-	ContextInject []InjectStep `yaml:"context_inject"`
+	ContextInject InjectSteps `yaml:"context_inject"`
 
-	ResumeContextInject []InjectStep `yaml:"resume_context_inject"`
+	ResumeContextInject InjectSteps `yaml:"resume_context_inject"`
 
 	Presentation PresentationSpec `yaml:"presentation"`
 

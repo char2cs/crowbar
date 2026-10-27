@@ -24,8 +24,8 @@ type ModelSpec struct {
 	// api-transport spawn whose connection comes up forks nothing at all, so
 	// Apply reaches no process and the choice is silently dropped. Both are
 	// required of an api-transport descriptor (rules.selectionAPICarrier).
-	Apply    []InjectStep `yaml:"apply"`
-	APIApply []InjectStep `yaml:"api_apply"`
+	Apply    InjectSteps `yaml:"apply"`
+	APIApply InjectSteps `yaml:"api_apply"`
 }
 
 // ModelManifestSpec resolves a model catalogue from a JSON document instead

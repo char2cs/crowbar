@@ -17,6 +17,6 @@ type PermissionSpec struct {
 // of an argv — a request that needs its sandbox and approval values as data,
 // not as a flag — and Go must not know what the provider calls them.
 type PermissionLevelSpec struct {
-	Apply []InjectStep      `yaml:"apply"`
+	Apply InjectSteps       `yaml:"apply"`
 	Vars  map[string]string `yaml:"vars"`
 }

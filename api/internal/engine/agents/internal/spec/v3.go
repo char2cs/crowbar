@@ -251,7 +251,7 @@ type InjectSpec struct {
 	At    string         `yaml:"at"`
 	Call  string         `yaml:"call"`
 	Send  map[string]any `yaml:"send"`
-	Steps []InjectStep   `yaml:"steps"`
+	Steps InjectSteps    `yaml:"steps"`
 }
 
 // TransportFor returns the transport an event uses: its own if it declares one, the
