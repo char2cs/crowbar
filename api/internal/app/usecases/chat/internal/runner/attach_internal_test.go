@@ -121,7 +121,7 @@ runtime:
     attach: [acme, resume, "{session_id}"]
     handshake: { call: initialize, notify: initialized }
 config_injection:
-  - pass_arg: { arg: "-c", value: 'hooks.Stop=[{hooks=[{type="command",command="{crowbar_hook} hook turn_stop --segment {segid}"}]}]' }
+  - pass_arg: { arg: "-c", value: 'hooks.Stop=[{hooks=[{type="command",command="{hook_url}/turn_stop"}]}]' }
 `
 
 func attachTestAgent(t *testing.T) engineagents.Agent {
@@ -222,7 +222,7 @@ func TestSwitchToTerminal_ForksTheAttachProcessAndDropsTheAPIConnection(t *testi
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,
-		tctx: engineagents.TemplateCtx{Session: "sess-1", Cwd: "/work", Segid: "seg-1", CrowbarHook: "/bin/crowbar"},
+		tctx: engineagents.TemplateCtx{Session: "sess-1", Cwd: "/work", Segid: "seg-1", HookBase: "http://h", ProjectID: "p", Provider: "acme"},
 	})
 
 	termSessID, err := rs.SwitchToTerminal(context.Background(), "chat-1")
@@ -239,7 +239,7 @@ func TestSwitchToTerminal_ForksTheAttachProcessAndDropsTheAPIConnection(t *testi
 	require.Equal(t, "/work", call.cwd)
 	require.Equal(t, []string{
 		"acme", "resume", "sess-1",
-		"-c", `hooks.Stop=[{hooks=[{type="command",command="/bin/crowbar hook turn_stop --segment seg-1"}]}]`,
+		"-c", `hooks.Stop=[{hooks=[{type="command",command="http://h/v0/projects/p/home/chats/runners/seg-1/hooks/acme/turn_stop"}]}]`,
 	}, call.argv, "the attached process must carry the same hooks wiring a normal spawn gets")
 
 	view, ok := rs.attached.get("runner-1")

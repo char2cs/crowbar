@@ -614,7 +614,7 @@ func (a *agent) APIServeArgv(ctx TemplateCtx) ([]string, bool) {
 // attached process is an ORDINARY hooks-transport CLI the instant it starts
 // (config_injection is where session_start/user_prompt/turn_stop/tool_pre&
 // post/subagent_pre&post/permission/compact_pre&post/session_end all get
-// wired to {crowbar_hook}), so without this the one process a non-hotswap
+// wired to the hook server), so without this the one process a non-hotswap
 // provider hands a live turn over to would report NOTHING back to Crowbar's
 // ledger — indistinguishable from the chat going silently out of sync.
 //

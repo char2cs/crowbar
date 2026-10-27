@@ -982,7 +982,7 @@ func withLifecycle(body string) string {
 	doc["events"] = events
 	if _, ok := doc["hooks_injection"]; !ok {
 		doc["hooks_injection"] = []any{map[string]any{"pass_arg": map[string]any{
-			"arg": "--hook", "value": "{crowbar_hook} hook any --segment {segid}",
+			"arg": "--hook", "value": "{hook_curl} {hook_url}",
 		}}}
 	}
 	out, err := yaml.Marshal(doc)

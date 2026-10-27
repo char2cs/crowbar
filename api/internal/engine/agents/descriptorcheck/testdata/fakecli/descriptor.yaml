@@ -18,9 +18,14 @@ session:
   refused: { exit_code: 1, needles: ["No conversation found with session ID"] }
   persists: turn_start
 hooks_injection:
-  - pass_arg: { arg: "--hook", value: "session_start={crowbar_hook} hook session_start --segment {segid}" }
-  - pass_arg: { arg: "--hook", value: "user_prompt={crowbar_hook} hook user_prompt --segment {segid}" }
-  - pass_arg: { arg: "--hook", value: "turn_stop={crowbar_hook} hook turn_stop --segment {segid}" }
+  - write_file:
+      path: "{tmp}/hook.curl"
+      content: |
+        header = "X-Crowbar-Runner-Token: {runner_token}"
+        data-binary = "@-"
+  - pass_arg: { arg: "--hook", value: "session_start={hook_curl} {hook_url}/session_start" }
+  - pass_arg: { arg: "--hook", value: "user_prompt={hook_curl} {hook_url}/user_prompt" }
+  - pass_arg: { arg: "--hook", value: "turn_stop={hook_curl} {hook_url}/turn_stop" }
 terminal_prompts:
   - kind: workspace_trust
     needle: "Trust this folder?"

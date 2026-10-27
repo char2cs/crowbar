@@ -75,13 +75,6 @@ func TestValidate_AnUnknownInjectVerbIsAnError(t *testing.T) {
 	assert.Equal(t, "context_inject[0]", f.Path)
 }
 
-func TestValidate_HookWiringOutsideHooksInjectionIsAnError(t *testing.T) {
-	rep := descriptorcheck.Validate(minimal(
-		"config_injection:\n  - pass_arg: { arg: -c, value: \"hooks.Stop={crowbar_hook} hook turn_stop\" }\n"))
-	f := findingFor(t, rep, "hooks.in_config_injection")
-	assert.Equal(t, "config_injection[0]", f.Path)
-}
-
 func TestValidate_CurlHookWiringOutsideHooksInjectionIsAnError(t *testing.T) {
 	rep := descriptorcheck.Validate(minimal(
 		"config_injection:\n  - pass_arg: { arg: -c, value: \"hooks.Stop={hook_curl} {hook_url}/turn_stop\" }\n"))
@@ -93,6 +86,19 @@ func TestValidate_HookEventsWithNoWiringAreAnError(t *testing.T) {
 	rep := descriptorcheck.Validate(minimal("events:\n  session_start:\n    in: SessionStart\n    map: { session_id: session_id }\n"))
 	f := findingFor(t, rep, "hooks.not_wired")
 	assert.Equal(t, "hooks_injection", f.Path)
+	assert.Contains(t, f.Hint, "{hook_url}")
+	assert.NotContains(t, f.Hint, "crowbar_hook")
+}
+
+// An override written for the retired relay would otherwise load with hooks
+// that reach nothing.
+func TestRelayHookWiringIsRefusedWithTheReplacement(t *testing.T) {
+	rep := descriptorcheck.Validate(complete(
+		"mcp_injection:\n  - pass_arg: { arg: -c, value: 'x=\"{crowbar_hook} hook tool_pre --segment {segid}\"' }\n"))
+	f := findingFor(t, rep, "hooks.relay_retired")
+	assert.Equal(t, descriptorcheck.SeverityError, f.Severity)
+	assert.Equal(t, "mcp_injection[0].pass_arg.value", f.Path)
+	assert.Equal(t, "post hooks to {hook_url}/<event> (HTTP) or through {hook_curl}", f.Hint)
 }
 
 func TestValidate_AnAPIProviderNeedsAServeArgv(t *testing.T) {

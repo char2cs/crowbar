@@ -19,11 +19,9 @@ import (
 	"time"
 )
 
-// recorder stands in for the daemon's hook intake. A CLI that runs a command is
-// given a script standing in for `crowbar hook <event>`; one that posts its hooks
-// itself (or through curl) is given a loopback server. Either writes the event
-// name and its payload to a file of its own (hooks run concurrently, so one shared
-// log would interleave).
+// recorder stands in for the daemon's hook intake: a loopback server the CLI posts
+// its hooks to, itself or through curl. Each hook's event name and payload go to a
+// file of their own (hooks run concurrently, so one shared log would interleave).
 type recorder struct {
 	path   string
 	dir    string
@@ -42,11 +40,9 @@ func newRecorder(ctx context.Context, dir string) (recorder, error) {
 	if err := os.MkdirAll(r.dir, 0o750); err != nil {
 		return recorder{}, fmt.Errorf("hook recorder: %w", err)
 	}
-	// Only `hook` is recorded: the MCP server the descriptor also points at
-	// this path must exit at once rather than read a stdin that never closes.
-	script := fmt.Sprintf("#!/bin/sh\n[ \"$1\" = hook ] || exit 1\nf=$(mktemp '%s/h.XXXXXXXX') || exit 1\n{ printf '%%s\\n' \"$2\"; cat; } > \"$f.tmp\" && mv \"$f.tmp\" \"$f.rec\"\n",
-		strings.ReplaceAll(r.dir, "'", `'\''`))
-	if err := os.WriteFile(r.path, []byte(script), 0o700); err != nil { //nolint:gosec // the recorder must be executable
+	// path stands in for the crowbar binary: the MCP server a descriptor points
+	// at it must exit at once rather than read a stdin that never closes.
+	if err := os.WriteFile(r.path, []byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil { //nolint:gosec // the stand-in must be executable
 		return recorder{}, fmt.Errorf("hook recorder: %w", err)
 	}
 	var lc net.ListenConfig

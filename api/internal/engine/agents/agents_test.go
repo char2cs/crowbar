@@ -1369,7 +1369,7 @@ spawn:
 // TestAgent_APIAttachArgvCarriesConfigInjection pins the sibling gap: the
 // attached process is an ORDINARY hooks-transport CLI from the instant it
 // starts, and config_injection is where session_start/user_prompt/turn_stop/
-// etc. all get wired to {crowbar_hook} — without this, the one process a
+// etc. all get wired to the hook server — without this, the one process a
 // non-hotswap provider hands a live turn over to would report nothing back
 // to Crowbar's ledger at all.
 func TestAgent_APIAttachArgvCarriesConfigInjection(t *testing.T) {
@@ -1384,18 +1384,18 @@ spawn:
     attach: [acme, resume, "{session_id}"]
     handshake: { call: initialize, notify: initialized }
 config_injection:
-  - pass_arg: { arg: "-c", value: 'hooks.Stop=[{hooks=[{type="command",command="{crowbar_hook} hook turn_stop --segment {segid}"}]}]' }
+  - pass_arg: { arg: "-c", value: 'hooks.Stop=[{hooks=[{type="command",command="{hook_url}/turn_stop"}]}]' }
 `)
 	a, err := agents.New().Get(context.Background(), home, "api-attach-hooks")
 	require.NoError(t, err)
 
 	attachArgv, ok := a.APIAttachArgv(agents.TemplateCtx{
-		Session: "sess-1", Segid: "seg-1", CrowbarHook: "/bin/crowbar",
+		Session: "sess-1", Segid: "seg-1", HookBase: "http://h", ProjectID: "p", Provider: "acme",
 	})
 	require.True(t, ok)
 	assert.Equal(t, []string{
 		"acme", "resume", "sess-1",
-		"-c", `hooks.Stop=[{hooks=[{type="command",command="/bin/crowbar hook turn_stop --segment seg-1"}]}]`,
+		"-c", `hooks.Stop=[{hooks=[{type="command",command="http://h/v0/projects/p/home/chats/runners/seg-1/hooks/acme/turn_stop"}]}]`,
 	}, attachArgv, "the attached TUI must be wired with the SAME hooks a normal hooks-transport spawn gets")
 }
 

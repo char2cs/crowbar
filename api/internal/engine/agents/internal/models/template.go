@@ -70,10 +70,9 @@ type TemplateCtx struct {
 	PermissionVars map[string]string
 }
 
-// HookURL is where this runner's hooks are posted by a CLI that posts them itself:
-// the runner-keyed route on the hook server, under the project/repo scope the relay
-// built its path from — a project home has no repo and takes the home branch. The
-// descriptor appends the event name.
+// HookURL is where this runner's hooks are posted: the runner-keyed route on the
+// hook server, under its project/repo scope — a project home has no repo and
+// takes the home branch. The descriptor appends the event name.
 func (c TemplateCtx) HookURL() string {
 	if c.HookBase == "" {
 		return ""
@@ -106,11 +105,9 @@ func (c TemplateCtx) ScopeFlags() string {
 	return flags
 }
 
-// shellWord is s as one shell word. {crowbar_hook} and {scope_flags} are only
-// ever rendered into hook commands the vendor CLI runs through a shell, where
-// a path with a space would split. Single quotes also survive the JSON and
-// TOML strings those commands are embedded in (a path holding a quote itself
-// cannot be embedded in either).
+// shellWord is s as one shell word. {scope_flags} and {hook_curl} are rendered
+// into commands a vendor CLI runs through a shell, where a path with a space
+// would split; single quotes also survive the JSON and TOML embedding them.
 func shellWord(s string) string {
 	if s == "" || strings.Trim(s, shellSafe) == "" {
 		return s
@@ -153,7 +150,6 @@ func (c TemplateCtx) pairs() []string {
 		"{effort}", c.Effort,
 		"{cwd}", c.Cwd,
 		"{cwd_json}", jsonString(c.Cwd),
-		"{crowbar_hook}", shellWord(c.CrowbarHook),
 		"{crowbar_home}", c.CrowbarHome,
 		"{hook_url}", c.HookURL(),
 		"{hook_curl}", c.HookCurl(),

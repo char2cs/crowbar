@@ -18,7 +18,7 @@ func TestValidate_AShellAsTheCommandIsAnError(t *testing.T) {
 
 func TestValidate_AShellWithAFixedScriptIsOnlyAWarning(t *testing.T) {
 	rep := descriptorcheck.Validate([]byte(strings.Replace(string(minimal(
-		"hooks_injection:\n  - set_env: { name: H, value: \"{crowbar_hook} hook any --segment {segid}\" }\n"+
+		"hooks_injection:\n  - set_env: { name: H, value: \"{hook_curl} {hook_url}\" }\n"+
 			"events:\n  session_start: { in: s, map: { session_id: s } }\n"+
 			"  user_prompt: { in: u, map: { session_id: s, message: p } }\n"+
 			"  turn_stop: { in: t, map: { session_id: s, message: m } }\n")),
@@ -30,21 +30,6 @@ func TestValidate_AShellWithAFixedScriptIsOnlyAWarning(t *testing.T) {
 
 // A hook command runs through the CLI's shell, so a value the user or the
 // provider controls must never be spliced into one.
-func TestValidate_AUserValueInAHookCommandIsAnError(t *testing.T) {
-	rep := descriptorcheck.Validate(complete(
-		"mcp_injection:\n  - pass_arg: { arg: -c, value: 'x=\"{crowbar_hook} hook turn_stop --cwd {cwd}\"' }\n"))
-	f := findingFor(t, rep, "hooks.unsafe_placeholder")
-	assert.Equal(t, "mcp_injection[0].pass_arg.value", f.Path)
-	assert.Contains(t, f.Message, "{cwd}")
-}
-
-func TestValidate_TheHookCommandPlaceholdersAreAccepted(t *testing.T) {
-	rep := descriptorcheck.Validate(complete(
-		"mcp_injection:\n  - pass_arg: { arg: -c, value: 'x=\"{crowbar_hook} hook a --segment {segid} --provider {provider} {scope_flags}\" y={cwd_json}' }\n"))
-	assert.True(t, rep.OK(), "%+v", rep.Findings)
-}
-
-// A curl hook command is a hook command too: it runs through the CLI's shell.
 func TestValidate_AUserValueInACurlHookCommandIsAnError(t *testing.T) {
 	rep := descriptorcheck.Validate(complete(
 		"mcp_injection:\n  - pass_arg: { arg: -c, value: 'x=\"{hook_curl} {hook_url}/a?cwd={cwd}\"' }\n"))
@@ -55,7 +40,7 @@ func TestValidate_AUserValueInACurlHookCommandIsAnError(t *testing.T) {
 
 func TestValidate_TheCurlHookPlaceholdersAreAccepted(t *testing.T) {
 	rep := descriptorcheck.Validate(complete(
-		"mcp_injection:\n  - pass_arg: { arg: -c, value: 'x=\"{hook_curl} {hook_url}/a\" y={cwd_json}' }\n"))
+		"mcp_injection:\n  - pass_arg: { arg: -c, value: 'x=\"{hook_curl} {hook_url}/a -H s:{segid}:{provider} {scope_flags}\" y={cwd_json}' }\n"))
 	assert.True(t, rep.OK(), "%+v", rep.Findings)
 }
 

@@ -15,8 +15,8 @@ import (
 )
 
 // live is one conformance run: a private crowbar home holding the descriptor
-// under test, a working directory, and a hook recorder standing in for
-// `crowbar hook`.
+// under test, a working directory, and a hook recorder standing in for the
+// daemon's hook server.
 type live struct {
 	opts  LiveOptions
 	d     *spec.Descriptor
@@ -98,8 +98,8 @@ func (l *live) close(ctx context.Context) {
 	}
 }
 
-// templateCtx is what the runner fills for a spawn, with the recorder as both the
-// hook relay and the hook server.
+// templateCtx is what the runner fills for a spawn, with the recorder as the
+// hook server and its stand-in as the crowbar binary.
 func (l *live) templateCtx(tmp string) agents.TemplateCtx {
 	return agents.TemplateCtx{
 		Tmp: tmp, Cwd: l.cwd, CrowbarHook: l.hooks.path, HookBase: l.hooks.url, CrowbarHome: l.home,

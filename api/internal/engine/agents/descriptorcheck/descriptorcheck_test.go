@@ -148,7 +148,7 @@ func complete(extra string) []byte {
 }
 
 const completeLifecycle = `hooks_injection:
-  - pass_arg: { arg: --hook, value: "{crowbar_hook} hook any --segment {segid}" }
+  - pass_arg: { arg: --hook, value: "{hook_curl} {hook_url}" }
 events:
   session_start: { required: [session_id], in: SessionStart, map: { session_id: session_id } }
   user_prompt: { required: [session_id], in: UserPromptSubmit, map: { session_id: session_id, message: prompt } }
