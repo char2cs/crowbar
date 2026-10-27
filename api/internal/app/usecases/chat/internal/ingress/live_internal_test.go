@@ -211,6 +211,9 @@ func TestLive_ALongToolOutputKeepsATailWindow(t *testing.T) {
 	assert.True(t, strings.HasPrefix(got, "[… "), "what is cut is said: %q", got[:32])
 	assert.True(t, strings.HasSuffix(got, line[4:]), "the window is the stream's tail")
 	assert.True(t, utf8.ValidString(got), "a cut never splits a character")
+	for _, b := range l.byChat[testChat] {
+		assert.LessOrEqual(t, len(b.join(KindToolOutput)), 2*toolOutputWindow, "what is kept is bounded too")
+	}
 }
 
 func BenchmarkLive_ObserveALongToolOutput(b *testing.B) {
