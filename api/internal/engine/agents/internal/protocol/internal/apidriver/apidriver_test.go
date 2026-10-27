@@ -717,10 +717,7 @@ func TestInjectAt_RunsTheDeclaredContextStepAfterResume(t *testing.T) {
 	assert.Equal(t, "while you were away, this happened", params.Items[0].Content[0].Text)
 }
 
-// TestInjectAt_UndeclaredMomentIsANoop: a descriptor with nothing declared for
-// at (codex declares only "mcp" and "context", never "resume") must not call
-// anything — the same declarative-capability shape ContextSteps already has for
-// a provider with no use for a given moment.
+// An inject moment the descriptor declares nothing for calls nothing.
 func TestInjectAt_UndeclaredMomentIsANoop(t *testing.T) {
 	stdio, seen := scriptedServer(t, nil)
 
@@ -788,10 +785,8 @@ func TestEstablishSession_ARefusalNeedsTheDeclaredCodeAndLine(t *testing.T) {
 	}
 }
 
-// recordedOrigins collects the sessions a connection reports having produced
-// ITSELF, and asserts the claim was open before the id existed — the ordering
-// the runner layer depends on, since a provider can announce a new session over
-// this same connection before the call that creates it has returned.
+// recordedOrigins collects the sessions a connection reports producing itself,
+// asserting each claim opened before its id existed.
 type recordedOrigins struct {
 	open   int
 	claims int
@@ -891,10 +886,7 @@ func TestRegression_LostSessionIsLostOnceResumeAlsoRefusesIt(t *testing.T) {
 	assert.Zero(t, origins.open, "every claim is closed, the refused resume's included")
 }
 
-// TestRegression_UndeclaredErrorCodeIsStillFatal keeps the recovery narrow: it
-// is driven by the codes codex.yaml declares and nothing else, so an ordinary
-// protocol failure still surfaces as an error instead of silently abandoning a
-// perfectly live session and starting a new one behind the user's back.
+// Only the codes the descriptor declares recover; any other failure is fatal.
 func TestRegression_UndeclaredErrorCodeIsStillFatal(t *testing.T) {
 	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-1"}}`},
@@ -944,10 +936,8 @@ func TestRegression_EstablishSessionFreshReportsTheSessionItMinted(t *testing.T)
 	assert.Zero(t, origins.open, "the claim must be closed")
 }
 
-// A resume is an establish too: the conversation this connection loaded is the
-// one it legitimately runs on, so it is claimed exactly as a fresh mint is.
-// Resume's own steps declare no capture — session_id survives only because it
-// went IN non-empty — which is why this asserts the id and not just the count.
+// A resume is claimed as a fresh mint is; it captures no id, so this checks
+// the id that went in.
 func TestEstablishSession_ResumeReportsTheSessionItEntered(t *testing.T) {
 	stdio, _ := scriptedServer(t, []scriptedCall{
 		{method: "thread/resume", result: `{"thread":{"id":"known-1"}}`},
