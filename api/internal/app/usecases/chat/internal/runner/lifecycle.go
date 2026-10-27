@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -52,34 +51,6 @@ func (rs *Runners) ReconcileRunnersOnBoot(
 		}
 	}
 	return errors.Join(append(errs, rs.reconcilePendingPromptsOnBoot(ctx))...)
-}
-
-// AdoptLegacyRunners records each CLI the pre-ledger daemon left running as
-// its chat's live runner, for the boot reconcile to end and close the turn of.
-// A chat that is gone, or whose ledger already holds the runner, is skipped.
-func (rs *Runners) AdoptLegacyRunners(ctx context.Context, runners []agents.Runner) error {
-	for _, r := range runners {
-		if _, err := rs.chats.GetChat(ctx, r.CurrentChatID); errors.Is(err, agentchat.ErrNotFound) {
-			continue
-		} else if err != nil {
-			return fmt.Errorf("agent: adopt legacy runner %s: %w", r.ID, err)
-		}
-		row, err := ledger.NewRow(ledger.KindRunnerStarted, "", "",
-			ledger.RunnerStarted{RunnerID: r.ID, Provider: r.ProviderID})
-		if err == nil {
-			_, _, err = rs.ledger.Do(ctx, r.CurrentChatID, func(st ledger.State) ([]ledger.Row, error) {
-				_, live := st.LiveRunner()
-				if exit, ok := st.LastExit(); live || ok && exit.RunnerID == r.ID {
-					return nil, nil
-				}
-				return []ledger.Row{row}, nil
-			})
-		}
-		if err != nil {
-			return fmt.Errorf("agent: adopt legacy runner %s: %w", r.ID, err)
-		}
-	}
-	return nil
 }
 
 func (rs *Runners) reconcileBootRunner(ctx context.Context, chatID string) error {

@@ -283,36 +283,6 @@ func (c purgedChats) GetChat(ctx context.Context, chatID string) (domain.Chat, e
 	return c.stubChatsForSpawn.GetChat(ctx, chatID)
 }
 
-// A CLI a crashed pre-ledger daemon left running is adopted as its chat's
-// live runner, so this boot ends it. Adopting again changes nothing, and a
-// runner on a chat that is gone is skipped.
-func TestAdoptLegacyRunners_TheBootEndsWhatACrashedOldDaemonLeftRunning(t *testing.T) {
-	home := t.TempDir()
-	rs := &Runners{
-		ledger: newTestLedger(t), chats: purgedChats{stubChatsForSpawn: stubChatsForSpawn{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}}, gone: "chat-purged"},
-		turns: noopTurns{},
-		ws:    stubWorkspaceForSpawn{home: home, worktree: home, chatsDir: home},
-	}
-	legacy := []agents.Runner{
-		{ID: "runner-1", ProviderID: "claude", CurrentChatID: "chat-1"},
-		{ID: "runner-p", ProviderID: "claude", CurrentChatID: "chat-purged"},
-	}
-
-	require.NoError(t, rs.AdoptLegacyRunners(t.Context(), legacy))
-	require.NoError(t, rs.AdoptLegacyRunners(t.Context(), legacy), "a step run again")
-	require.NoError(t, rs.ReconcileRunnersOnBoot(t.Context()))
-	require.NoError(t, rs.AdoptLegacyRunners(t.Context(), legacy), "a step run again after the boot ended it")
-
-	assert.Equal(t, domain.AgentExitDaemonRestart, retiredAs(t, rs))
-	rows, err := rs.ledger.Read(t.Context(), "chat-1", 0, 0)
-	require.NoError(t, err)
-	assert.Equal(t, 1, countKind(rows, ledger.KindRunnerStarted))
-	assert.Equal(t, 1, countKind(rows, ledger.KindRunnerExited))
-	purged, err := rs.ledger.Read(t.Context(), "chat-purged", 0, 0)
-	require.NoError(t, err)
-	assert.Empty(t, purged)
-}
-
 // A daemon shutting down ends every runner as daemon_restart: the exit each
 // PTY's death fires records that cause once, closes its turn and frees its chat.
 func TestShutdown_EveryRunnerEndsAsADaemonRestart(t *testing.T) {
