@@ -62,7 +62,7 @@ func SearchDiff(
 	ref string,
 	query string,
 	opts gitdomain.SearchOpts,
-) ([]gitdomain.SearchHit, bool, error) {
+) (_ []gitdomain.SearchHit, _ bool, err error) {
 	if query == "" {
 		return nil, false, nil
 	}
@@ -74,7 +74,7 @@ func SearchDiff(
 	if err != nil {
 		return nil, false, err
 	}
-	defer func() { _ = reader.Close() }()
+	defer func() { err = errors.Join(err, reader.Close()) }()
 	s := &diffSearch{match: match, limit: opts.Limit}
 	if scanErr := s.scan(reader); scanErr != nil {
 		return nil, false, scanErr

@@ -82,7 +82,11 @@ func (s *Session) resetModelLocked() {
 	s.screenGen++
 	if old != nil {
 		func() {
-			defer func() { _ = recover() }()
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Warn("terminal: closing the corrupt screen model panicked", "component", "terminal", "session", s.id, "panic", r)
+				}
+			}()
 			old.Close()
 		}()
 	}

@@ -3,7 +3,6 @@ package descriptor
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor/internal/rules"
@@ -51,8 +50,7 @@ func Sources(homeDir string) ([]Source, error) {
 	}
 	ids := idSet(entries)
 	if homeDir != "" {
-		diskEntries, _ := os.ReadDir(filepath.Join(homeDir, overrideDir))
-		for id := range idSet(diskEntries) {
+		for id := range idSet(overrideEntries(homeDir)) {
 			ids[id] = struct{}{}
 		}
 	}

@@ -9,6 +9,7 @@ package ignore
 
 import (
 	"bufio"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,7 +119,11 @@ func readPatterns(
 	if err != nil {
 		return nil
 	}
-	defer func() { _ = f.Close() }()
+	defer func() {
+		if err := f.Close(); err != nil {
+			slog.Warn("watch: ignore: close", "path", path, "err", err)
+		}
+	}()
 
 	var patterns []pattern
 	scanner := bufio.NewScanner(f)

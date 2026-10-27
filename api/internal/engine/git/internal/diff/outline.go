@@ -50,12 +50,12 @@ func Outline(
 	ctx context.Context,
 	repoPath string,
 	ref string,
-) ([]gitdomain.FileOutline, error) {
+) (_ []gitdomain.FileOutline, err error) {
 	reader, wait, err := exec.GitStream(ctx, repoPath, "diff", "-M", "-U3", ref, "--")
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = reader.Close() }()
+	defer func() { err = errors.Join(err, reader.Close()) }()
 
 	s := &outlineScan{}
 	if scanErr := s.run(bufio.NewReaderSize(reader, outlineBufferBytes)); scanErr != nil {

@@ -34,8 +34,8 @@ func (d document) lookup(path string) *yaml.Node {
 			n = mapValue(n, m[1])
 		}
 		for _, idx := range indexRE.FindAllStringSubmatch(m[2], -1) {
-			i, _ := strconv.Atoi(idx[1])
-			if n == nil || n.Kind != yaml.SequenceNode || i >= len(n.Content) {
+			i, err := strconv.Atoi(idx[1])
+			if err != nil || n == nil || n.Kind != yaml.SequenceNode || i >= len(n.Content) {
 				return nil
 			}
 			n = n.Content[i]
@@ -148,6 +148,9 @@ func errorLine(msg string) int {
 	if m == nil {
 		return 0
 	}
-	n, _ := strconv.Atoi(m[1])
+	n, err := strconv.Atoi(m[1])
+	if err != nil {
+		return 0 // a line past int is no line to point at
+	}
 	return n
 }

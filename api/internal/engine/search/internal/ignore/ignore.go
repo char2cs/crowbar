@@ -3,6 +3,7 @@ package ignore
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,7 +40,7 @@ type pattern struct {
 func (s *Stack) Add(
 	dir string,
 	gitignorePath string,
-) error {
+) (err error) {
 	f, err := os.Open(gitignorePath) //nolint:gosec // path is controlled by the server
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -47,7 +48,7 @@ func (s *Stack) Add(
 		}
 		return fmt.Errorf("ignore: open %s: %w", gitignorePath, err)
 	}
-	defer func() { _ = f.Close() }()
+	defer func() { err = errors.Join(err, f.Close()) }()
 
 	var patterns []pattern
 	scanner := bufio.NewScanner(f)
@@ -60,8 +61,8 @@ func (s *Stack) Add(
 		patterns = append(patterns, p)
 	}
 
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("ignore: scan %s: %w", gitignorePath, err)
+	if scanErr := scanner.Err(); scanErr != nil {
+		return fmt.Errorf("ignore: scan %s: %w", gitignorePath, scanErr)
 	}
 
 	s.layers = append(s.layers, layer{dir: dir, patterns: patterns})
@@ -123,6 +124,9 @@ func parseLine(
 	hasLeadingSlash := strings.HasPrefix(line, "/")
 	anchored := hasLeadingSlash || strings.Contains(strings.TrimPrefix(line, "/"), "/")
 	line = strings.TrimPrefix(line, "/")
+	if !doublestar.ValidatePattern(line) {
+		return pattern{}, false // a malformed glob can match nothing
+	}
 
 	return pattern{
 		raw:      line,
@@ -163,12 +167,7 @@ func matchesAnchored(
 	raw string,
 	rel string,
 ) bool {
-	if ok, _ := doublestar.Match(raw, rel); ok {
-		return true
-	}
-
-	ok, _ := doublestar.Match(raw+"/**", rel)
-	return ok
+	return doublestar.MatchUnvalidated(raw, rel) || doublestar.MatchUnvalidated(raw+"/**", rel)
 }
 
 // matchesAnywhere checks a non-anchored pattern against each path component
@@ -179,12 +178,12 @@ func matchesAnywhere(
 ) bool {
 	parts := strings.Split(rel, "/")
 	for i, part := range parts {
-		if ok, _ := doublestar.Match(raw, part); ok {
+		if doublestar.MatchUnvalidated(raw, part) {
 			return true
 		}
 
 		suffix := strings.Join(parts[i:], "/")
-		if ok, _ := doublestar.Match(raw, suffix); ok {
+		if doublestar.MatchUnvalidated(raw, suffix) {
 			return true
 		}
 	}

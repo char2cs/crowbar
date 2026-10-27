@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -135,11 +136,14 @@ func parseManifestDoc(raw []byte) (manifestDoc, bool) {
 		return manifestDoc{}, false
 	}
 	ts, _ := scalarString(obj["updatedAt"])
-	updatedAt, _ := time.Parse(time.RFC3339, ts)
+	updatedAt, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		updatedAt = time.Time{} // an undated copy is the oldest candidate
+	}
 	return manifestDoc{updatedAt: updatedAt, root: root}, true
 }
 
-func fetchManifest(ctx context.Context, url string, timeoutMS int) ([]byte, error) {
+func fetchManifest(ctx context.Context, url string, timeoutMS int) (_ []byte, err error) {
 	if url == "" {
 		return nil, fmt.Errorf("agents: model manifest url is empty")
 	}
@@ -153,7 +157,7 @@ func fetchManifest(ctx context.Context, url string, timeoutMS int) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("agents: model manifest fetch: status %d", resp.StatusCode)
 	}

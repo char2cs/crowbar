@@ -4,12 +4,14 @@ package walk
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -21,6 +23,9 @@ import (
 type Ignorer interface {
 	ShouldIgnore(absPath string) bool
 }
+
+// ErrBadGlob is an include or exclude glob that is not a valid pattern.
+var ErrBadGlob = errors.New("walk: bad glob")
 
 // Walk returns a channel that receives absolute file paths from repoPath.
 //
@@ -41,6 +46,11 @@ func Walk(
 ) (<-chan string, error) {
 	if _, err := os.Lstat(repoPath); err != nil {
 		return nil, fmt.Errorf("walk: root inaccessible %s: %w", repoPath, err)
+	}
+	for _, g := range slices.Concat(includeGlobs, excludeGlobs) {
+		if !doublestar.ValidatePattern(g) {
+			return nil, fmt.Errorf("walk: %q: %w", g, ErrBadGlob)
+		}
 	}
 
 	out := make(chan string, runtime.GOMAXPROCS(0)*4)
@@ -129,7 +139,7 @@ func passesGlobs(
 	rel = filepath.ToSlash(rel)
 
 	for _, g := range excludeGlobs {
-		if matched, _ := doublestar.Match(g, rel); matched {
+		if doublestar.MatchUnvalidated(g, rel) {
 			return false
 		}
 	}
@@ -139,7 +149,7 @@ func passesGlobs(
 	}
 
 	for _, g := range includeGlobs {
-		if matched, _ := doublestar.Match(g, rel); matched {
+		if doublestar.MatchUnvalidated(g, rel) {
 			return true
 		}
 	}

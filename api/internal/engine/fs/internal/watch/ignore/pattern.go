@@ -20,7 +20,7 @@ type pattern struct {
 }
 
 // parseLine compiles one gitignore line into a pattern. It returns ok=false for
-// blank lines and comments, which carry no matching rule.
+// blank lines, comments and a malformed glob, none of which can match anything.
 func parseLine(
 	line string,
 ) (pattern, bool) {
@@ -39,11 +39,12 @@ func parseLine(
 	}
 
 	trimmed := strings.TrimSuffix(line, "/")
-	if trimmed == "" {
+	glob := strings.TrimPrefix(trimmed, "/")
+	if trimmed == "" || !doublestar.ValidatePattern(glob) {
 		return pattern{}, false
 	}
 	return pattern{
-		glob:     strings.TrimPrefix(trimmed, "/"),
+		glob:     glob,
 		anchored: strings.Contains(trimmed, "/"),
 		negate:   negate,
 	}, true
@@ -63,9 +64,7 @@ func (p pattern) match(
 	}
 	rel = filepath.ToSlash(rel)
 	if p.anchored {
-		ok, _ := doublestar.Match(p.glob, rel)
-		return ok
+		return doublestar.MatchUnvalidated(p.glob, rel)
 	}
-	ok, _ := doublestar.Match(p.glob, path.Base(rel))
-	return ok
+	return doublestar.MatchUnvalidated(p.glob, path.Base(rel))
 }

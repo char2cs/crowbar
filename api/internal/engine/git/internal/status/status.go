@@ -57,8 +57,11 @@ func parseAheadBehind(
 	if len(parts) != 2 {
 		return 0, 0
 	}
-	ahead, _ := strconv.Atoi(strings.TrimPrefix(parts[0], "+"))
-	behind, _ := strconv.Atoi(strings.TrimPrefix(parts[1], "-"))
+	ahead, aErr := strconv.Atoi(strings.TrimPrefix(parts[0], "+"))
+	behind, bErr := strconv.Atoi(strings.TrimPrefix(parts[1], "-"))
+	if aErr != nil || bErr != nil {
+		return 0, 0 // a header that does not parse says no more than an absent one
+	}
 	return ahead, behind
 }
 

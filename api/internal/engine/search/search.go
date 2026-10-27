@@ -118,6 +118,9 @@ func (e *searchEngine) Search(
 
 	ig := buildIgnoreStack(repoPath)
 	paths, err := walk.Walk(ctx, repoPath, ig, req.Include, req.Exclude)
+	if errors.Is(err, walk.ErrBadGlob) {
+		return SearchResponse{}, fmt.Errorf("%w: %w", ErrBadPattern, err)
+	}
 	if err != nil {
 		return SearchResponse{}, fmt.Errorf("search: walk: %w", err)
 	}
@@ -222,12 +225,12 @@ func searchFile(
 	absPath string,
 	repoPath string,
 	re *regexp.Regexp,
-) ([]SearchResult, error) {
+) (_ []SearchResult, err error) {
 	f, err := os.Open(absPath) //nolint:gosec // path comes from filepath.WalkDir under repoPath
 	if err != nil {
 		return nil, fmt.Errorf("search: open %s: %w", absPath, err)
 	}
-	defer func() { _ = f.Close() }()
+	defer func() { err = errors.Join(err, f.Close()) }()
 
 	// Binary sniff on the first 8 KB.
 	sample := make([]byte, binarySampleSize)

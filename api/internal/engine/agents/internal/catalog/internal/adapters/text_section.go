@@ -3,6 +3,7 @@ package adapters
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -27,7 +28,10 @@ func (textSection) Probe(
 		return Result{}, ErrMalformedOutput
 	}
 
-	pattern, _ := regexp.Compile(p.ItemPattern)
+	pattern, err := regexp.Compile(p.ItemPattern)
+	if err != nil {
+		return Result{}, fmt.Errorf("catalog: item_pattern: %w", err)
+	}
 
 	limit := s.EffectiveMaxItems() + 1
 	candidates := make([]Candidate, 0)

@@ -3,8 +3,10 @@ package descriptor
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -100,8 +102,7 @@ func All(ctx context.Context, homeDir string, accept func(raw []byte) bool) ([]*
 	}
 	ids := idSet(entries)
 	if homeDir != "" {
-		diskEntries, _ := os.ReadDir(filepath.Join(homeDir, overrideDir))
-		for id := range idSet(diskEntries) {
+		for id := range idSet(overrideEntries(homeDir)) {
 			ids[id] = struct{}{}
 		}
 	}
@@ -116,6 +117,17 @@ func All(ctx context.Context, homeDir string, accept func(raw []byte) bool) ([]*
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
+}
+
+// overrideEntries lists homeDir's override directory. One that cannot be read
+// leaves the embedded set standing, as a broken override does, and says so.
+func overrideEntries(homeDir string) []fs.DirEntry {
+	dir := filepath.Join(homeDir, overrideDir)
+	entries, err := os.ReadDir(dir)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		slog.Warn("agents: list descriptor overrides", "dir", dir, "err", err)
+	}
+	return entries
 }
 
 func hasEmbedded(id string) bool {

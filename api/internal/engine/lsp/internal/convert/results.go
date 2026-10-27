@@ -138,7 +138,14 @@ func relTextDocument(
 	if err := json.Unmarshal(td["uri"], &uri); err != nil {
 		return
 	}
-	rel, _ := json.Marshal(WorkspaceRelPath(worktreePath, PathFromURI(uri)))
+	rel, err := json.Marshal(WorkspaceRelPath(worktreePath, PathFromURI(uri)))
+	if err != nil {
+		return
+	}
 	td["uri"] = rel
-	item["textDocument"], _ = json.Marshal(td)
+	raw, err := json.Marshal(td)
+	if err != nil {
+		return
+	}
+	item["textDocument"] = raw
 }

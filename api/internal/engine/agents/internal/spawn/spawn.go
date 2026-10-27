@@ -2,6 +2,7 @@ package spawn
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
@@ -25,7 +26,7 @@ func Plan(
 		Cwd:        ctx.Cwd,
 		TmpDir:     ctx.Tmp,
 		Env:        env.Clear(baseEnv, d.Spawn.Env.Clear),
-		Cleanup:    func() { _ = os.RemoveAll(ctx.Tmp) },
+		Cleanup:    func() { removeTmp(ctx.Tmp) },
 	}
 	PrependArgs(d, ctx, plan)
 
@@ -135,4 +136,12 @@ func PromptSteps(d *spec.Descriptor, resume bool) ([]spec.InjectStep, bool) {
 		steps = d.Presentation.PromptSubmit.Resume
 	}
 	return spec.CloneSteps(steps), true
+}
+
+// removeTmp deletes a spawn's scratch directory. A teardown has no caller to
+// hand a failure to, so it is logged.
+func removeTmp(dir string) {
+	if err := os.RemoveAll(dir); err != nil {
+		slog.Warn("agents: spawn: remove the scratch directory", "dir", dir, "err", err)
+	}
 }

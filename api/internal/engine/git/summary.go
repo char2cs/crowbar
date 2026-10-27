@@ -175,16 +175,8 @@ func parseNumstat(
 		if len(fields) < 2 {
 			continue
 		}
-		a, _ := strconv.Atoi(fields[0])
-		d, _ := strconv.Atoi(fields[1])
-		if a < 0 {
-			a = 0
-		}
-		if d < 0 {
-			d = 0
-		}
-		totalAdded += a
-		totalDeleted += d
+		totalAdded += numstatCount(fields[0])
+		totalDeleted += numstatCount(fields[1])
 	}
 	return totalAdded, totalDeleted, nil
 }
@@ -197,6 +189,18 @@ func (e *engine) repoHasCommits(
 	if r.ExitCode != 0 {
 		return false
 	}
-	count, _ := strconv.Atoi(strings.TrimSpace(r.Stdout))
-	return count > 0
+	count, err := strconv.Atoi(strings.TrimSpace(r.Stdout))
+	return err == nil && count > 0
+}
+
+// numstatCount is one numstat column. A binary file's columns read "-", and
+// count no lines.
+func numstatCount(
+	field string,
+) int {
+	n, err := strconv.Atoi(field)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }

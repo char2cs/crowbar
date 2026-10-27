@@ -5,6 +5,7 @@ package descriptorcheck
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -55,7 +56,11 @@ func newRecorder(ctx context.Context, dir string) (recorder, error) {
 	}
 	r.url = "http://" + ln.Addr().String()
 	r.server = &http.Server{Handler: http.HandlerFunc(r.record), ReadHeaderTimeout: 10 * time.Second}
-	go func() { _ = r.server.Serve(ln) }()
+	go func() {
+		if err := r.server.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
+			slog.Warn("descriptorcheck: the hook recorder stopped", "err", err)
+		}
+	}()
 	return r, nil
 }
 
@@ -102,13 +107,21 @@ func (r recorder) close(ctx context.Context) {
 
 // records is every completed hook, oldest first.
 func (r recorder) records() []hookRecord {
-	files, _ := filepath.Glob(filepath.Join(r.dir, "*.rec"))
+	entries, err := os.ReadDir(r.dir)
+	if err != nil {
+		slog.Warn("descriptorcheck: read the hook records", "dir", r.dir, "err", err)
+		return nil
+	}
 	type stamped struct {
 		rec hookRecord
 		at  int64
 	}
 	var all []stamped
-	for _, f := range files {
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".rec") {
+			continue
+		}
+		f := filepath.Join(r.dir, e.Name())
 		raw, err := os.ReadFile(f) //nolint:gosec // a file this run's recorder wrote
 		info, statErr := os.Stat(f)
 		if err != nil || statErr != nil {
