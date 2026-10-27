@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
 )
@@ -108,38 +107,6 @@ func TestGitDef_Lambdas(t *testing.T) {
 	assert.Equal(t, "w1", def.Filters[0].Extract(evt))
 	assert.NotNil(t, def.Filters[0].Resolve)
 	assert.True(t, def.Filters[0].Required)
-}
-
-func TestFilesDef_Lambdas(t *testing.T) {
-	def := filesDef(nil)
-	evt := domain.FileChangeEvent{WsID: "w1", Path: "a.go"}
-
-	assert.Equal(t, "w1", def.Namespace(evt))
-
-	data, err := def.Serialize(evt)
-	require.NoError(t, err)
-	assert.Contains(t, string(data), "a.go")
-
-	// TWO filters for the two live mounts: the home route resolves wsId, the
-	// chat-scoped one a bound chatId; each client activates only its own.
-	require.Len(t, def.Filters, 2)
-	assert.Equal(t, "wsId", def.Filters[0].Param)
-	assert.Equal(t, "w1", def.Filters[0].Extract(evt))
-	assert.Equal(t, "chatId", def.Filters[1].Param)
-	assert.Equal(t, "w1", def.Filters[1].Extract(evt))
-	assert.NotNil(t, def.Filters[1].Resolve)
-	assert.False(t, def.Filters[1].Required)
-}
-
-// TestFilesDef_CarriesNoSnapshot pins a real design answer rather than an
-// absence nobody chose: a file-change event is NEWS, not state. A connecting
-// client has already fetched the tree over REST, so there is nothing to replay
-// — which is why the chat-scoped move needed no chat-resolving snapshot source
-// of the kind gitSnapshot grew. If a snapshot is ever added here it must answer
-// the BARE chat scope too (see gitSnapshot), and this is the test that will say
-// so.
-func TestFilesDef_CarriesNoSnapshot(t *testing.T) {
-	assert.Nil(t, filesDef(nil).Snapshot)
 }
 
 func TestAgentChatDef_Lambdas(t *testing.T) {

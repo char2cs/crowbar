@@ -325,6 +325,42 @@ func TestDocument_DanglingLinkInStateIsRefused(t *testing.T) {
 	require.ErrorIs(t, err, apperr.ErrDaemonStateDocument)
 }
 
+func TestHostDocument_AnswersTheCanonicalHostRefOverTheLocalTransport(t *testing.T) {
+	_, syncer, uc, _ := newDocumentUsecase(t)
+	withRows(syncer)
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	path := filepath.Join(dir, "a.md")
+
+	ref, err := uc.HostDocument(context.Background(), path, domain.TransportLocal)
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.DocumentRef{Authority: domain.DocumentAuthorityHost, Path: path}, ref)
+}
+
+// TestHostDocument_RefusesWhatItWouldNotWatch pins the watch gate: only the
+// local socket, only a host document, and only the spelling a read answers.
+func TestHostDocument_RefusesWhatItWouldNotWatch(t *testing.T) {
+	_, syncer, uc, home := newDocumentUsecase(t)
+	wt, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	withRows(syncer, domain.Workspace{ID: "w1", WorktreePath: wt})
+	outside, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	link := filepath.Join(t.TempDir(), "link")
+	require.NoError(t, os.Symlink(outside, link))
+	ctx := context.Background()
+
+	_, err = uc.HostDocument(ctx, filepath.Join(outside, "a.md"), domain.TransportRemote)
+	require.ErrorIs(t, err, apperr.ErrHostDocumentNeedsLocalTransport)
+	_, err = uc.HostDocument(ctx, filepath.Join(wt, "a.md"), domain.TransportLocal)
+	require.ErrorIs(t, err, apperr.ErrInvalidArgument, "a workspace document")
+	_, err = uc.HostDocument(ctx, filepath.Join(link, "a.md"), domain.TransportLocal)
+	require.ErrorIs(t, err, apperr.ErrInvalidArgument, "a symlinked-parent spelling")
+	_, err = uc.HostDocument(ctx, filepath.Join(home, "state", "global.db"), domain.TransportLocal)
+	require.ErrorIs(t, err, apperr.ErrDaemonStateDocument)
+}
+
 func TestWriteDocument_WorkspaceWritesThenResyncs(t *testing.T) {
 	fs, syncer, uc := newFileUsecase(t)
 	okWorkspace(syncer)

@@ -26,6 +26,10 @@ type StreamDef[T any] struct {
 	ScopeKey      func(*gin.Context) string
 	OnSubscribe   func(scope string)
 	OnUnsubscribe func(scope string)
+	// Admit, for a stream without bound filters, holds a client's scope in place
+	// of OnSubscribe and may fail: the request is then refused with 503 before
+	// the upgrade, so a 101 means the scope is held. OnUnsubscribe releases it.
+	Admit func(scope string) error
 	// CoalesceKey opts a stream into latest-wins delivery: when set and it
 	// reports ok for a value, a client's per-key pending slot is OVERWRITTEN
 	// rather than queued, so a slow client is never starved and never

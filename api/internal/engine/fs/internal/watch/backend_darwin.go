@@ -23,6 +23,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 )
 
 type op uint32
@@ -124,7 +126,7 @@ func (b *fseventsBackend) resolveRoots() []string {
 			if p != b.spec.tree {
 				continue
 			}
-			real = p
+			real = safepath.Canonical(p)
 		}
 		b.roots = append(b.roots, streamRoot{spelled: p, real: real})
 	}
@@ -237,10 +239,14 @@ func (b *fseventsBackend) spelled(
 
 // wanted reports whether a per-directory watch over the spec would see path:
 // anything in a ref tree, a git dir's direct entries, and working-tree entries
-// whose every ancestor directory survives spec.skip.
+// whose every ancestor directory survives spec.skip. A stream rooted at one
+// file reports that file alone, whatever case it reports it in.
 func (b *fseventsBackend) wanted(
 	path string,
 ) bool {
+	if b.spec.file {
+		return true
+	}
 	for _, root := range b.spec.refTrees {
 		if isUnder(path, root) {
 			return true

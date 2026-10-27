@@ -93,6 +93,13 @@ type Engine interface {
 		git watch.GitStatusProvider,
 		dispatcher watch.Dispatcher,
 	) *watch.Watcher
+
+	// NewFileWatcher builds a watcher on one file, which need not exist yet;
+	// the caller owns Start and Stop.
+	NewFileWatcher(
+		path string,
+		emit func(change domain.FileChangeType),
+	) *watch.FileWatcher
 }
 
 type fsEngine struct{}
@@ -188,4 +195,11 @@ func (e *fsEngine) NewWatcher(
 	dispatcher watch.Dispatcher,
 ) *watch.Watcher {
 	return watch.NewWatcher(wsID, repoPath, base, git, dispatcher)
+}
+
+func (e *fsEngine) NewFileWatcher(
+	path string,
+	emit func(change domain.FileChangeType),
+) *watch.FileWatcher {
+	return watch.NewFileWatcher(path, emit)
 }

@@ -7,6 +7,10 @@ import "github.com/char2cs/crowbar/api/internal/engine/fs/internal/watch"
 // 03 §6).
 type Watcher = watch.Watcher
 
+// FileWatcher follows one file for Engine.NewFileWatcher; Start returns once
+// the OS watch is armed.
+type FileWatcher = watch.FileWatcher
+
 // Dispatcher receives the watcher fan-out callbacks (OnFileChange, OnGitStatus,
 // OnSyncWorkingTreeState). The delivery layer implements it to broadcast and to
 // issue the SyncWorkingTreeState command (03 §5).

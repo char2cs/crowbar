@@ -10,9 +10,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // documentRef is the resolved ref the document route answers a write with.
@@ -115,6 +118,68 @@ func TestRegression_HostDocumentRefusedOverTCP(t *testing.T) {
 	got, err := os.ReadFile(abs)
 	require.NoError(t, err)
 	assert.Equal(t, "secret\n", string(got))
+}
+
+// TestRegression_HostDocumentWatchRefusedOverTCP proves a host document's watch
+// is held only over the local socket: over TCP the gate refuses with the code.
+func TestRegression_HostDocumentWatchRefusedOverTCP(t *testing.T) {
+	h := newHarness(t)
+	abs := filepath.Join(t.TempDir(), "a.md")
+
+	assert.Equal(t, "host_document_requires_local_transport", refusal(t, h, http.MethodGet, documentsWatch+"?path="+url.QueryEscape(abs), nil))
+}
+
+const (
+	// documentsWatch is the socket a client holds a host document's watch by.
+	documentsWatch = "/v0/documents/ws"
+	// documentChangeBound fails a test whose change never arrives.
+	documentChangeBound = 15 * time.Second
+)
+
+// TestRegression_HostDocumentWatchArmedBeforeRead proves the open order: the
+// watch is armed when the socket opens, so a write between the open and the
+// read is in the read and still arrives as a change.
+func TestRegression_HostDocumentWatchArmedBeforeRead(t *testing.T) {
+	h := newHarness(t)
+	local := kit.ServeLocal(t, h.server.Config.Handler)
+	a := filepath.Join(t.TempDir(), "a.md")
+	require.NoError(t, os.WriteFile(a, []byte("v1\n"), 0o600))
+	canonA, _ := local.ReadDocument(t, a)
+
+	w := local.DialDocument(t, canonA)
+	require.NoError(t, os.WriteFile(a, []byte("v2\n"), 0o600))
+
+	_, text := local.ReadDocument(t, canonA)
+	assert.Equal(t, "v2\n", text)
+	w.ReadUntil(t, documentChangeBound, func(msg map[string]any) bool { return msg["path"] == canonA })
+}
+
+// TestRegression_HostDocumentFollowsExternalChange proves a held document hears
+// its own file's changes, and a closed one's reach no client.
+func TestRegression_HostDocumentFollowsExternalChange(t *testing.T) {
+	h := newHarness(t)
+	local := kit.ServeLocal(t, h.server.Config.Handler)
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a.md"), filepath.Join(dir, "b.md")
+	require.NoError(t, os.WriteFile(a, []byte("a\n"), 0o600))
+	require.NoError(t, os.WriteFile(b, []byte("b\n"), 0o600))
+	canonA, _ := local.ReadDocument(t, a)
+	canonB, _ := local.ReadDocument(t, b)
+	wa, wb := local.DialDocument(t, canonA), local.DialDocument(t, canonB)
+
+	require.NoError(t, os.WriteFile(a, []byte("external\n"), 0o600))
+	msg := wa.ReadMsg(t, documentChangeBound)
+	assert.Equal(t, "host", msg["authority"])
+	assert.Equal(t, canonA, msg["path"])
+	assert.Contains(t, []any{"modified", "created"}, msg["type"])
+
+	wa.Close(t)
+	require.NoError(t, os.WriteFile(a, []byte("after close\n"), 0o600))
+	require.NoError(t, os.WriteFile(b, []byte("barrier\n"), 0o600))
+	wb.ReadUntil(t, documentChangeBound, func(msg map[string]any) bool {
+		require.NotEqual(t, canonA, msg["path"], "a closed document's change reached a client")
+		return msg["path"] == canonB
+	})
 }
 
 // TestRegression_DanglingSymlinkWriteRefused proves a save never creates the

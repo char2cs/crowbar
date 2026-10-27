@@ -486,9 +486,9 @@ func extraRoutes() []string {
 		// reads the truth on its first frame — the per-session push cannot cover that,
 		// since the process is already running by the time a client can attach.
 		"PUT /v0/settings/terminal/theme",
-		// One document read/write by ref: a workspace's file or a host file.
-		"GET /v0/documents/content",
-		"PUT /v0/documents/content",
+		// Documents by ref (a workspace's file or a host file), and a host file's watch.
+		"GET /v0/documents/content", "PUT /v0/documents/content",
+		"GET /v0/documents/ws",
 		// Repo-home-as-workspace surface: the special non-git default workspace is
 		// navigable like a workspace but git-less, exposing its own files,
 		// terminals, and review-thread subtrees under /projects/:projectId/home

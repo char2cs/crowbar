@@ -1,10 +1,14 @@
 package ws_test
 
 import (
+	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	ws "github.com/char2cs/crowbar/api/internal/api/v0/ws"
 )
@@ -73,4 +77,51 @@ func TestBroadcaster_NoHooks_NoRegression(t *testing.T) {
 	b.Push(item{Name: "alpha", Kind: "fruit"})
 
 	assert.Equal(t, "alpha", readItem(t, conn).Name)
+}
+
+// admitDef holds each client's scope through Admit, refusing the scope "refused".
+func admitDef(
+	rec *lifecycleRecorder,
+) ws.StreamDef[item] {
+	def := lifecycleDef(rec)
+	def.OnSubscribe = nil
+	def.Admit = func(scope string) error {
+		rec.subscribe <- scope
+		if scope == "refused" {
+			return errors.New("no watch")
+		}
+		return nil
+	}
+	return def
+}
+
+func TestBroadcaster_Admit_HoldsTheScopeBeforeTheUpgradeAndReleasesItOnLeave(t *testing.T) {
+	rec := newLifecycleRecorder()
+	_, srv := setup(t, admitDef(rec))
+
+	conn := dial(t, srv, "/items?wsId=w7")
+
+	select {
+	case scope := <-rec.subscribe:
+		assert.Equal(t, "w7", scope)
+	default:
+		assert.Fail(t, "the upgrade answered before Admit held the scope")
+	}
+	_ = conn.Close()
+	assert.Equal(t, "w7", <-rec.unsubscribe)
+}
+
+func TestBroadcaster_Admit_ErrorRefusesTheUpgradeAndHoldsNothing(t *testing.T) {
+	rec := newLifecycleRecorder()
+	_, srv := setup(t, admitDef(rec))
+
+	_, resp, err := websocket.DefaultDialer.Dial("ws"+srv.URL[len("http"):]+"/items?wsId=refused", nil)
+
+	require.ErrorIs(t, err, websocket.ErrBadHandshake)
+	require.NoError(t, resp.Body.Close())
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	assert.Equal(t, "refused", <-rec.subscribe)
+	_ = dial(t, srv, "/items?wsId=w8").Close()
+	assert.Equal(t, "w8", <-rec.subscribe)
+	assert.Equal(t, "w8", <-rec.unsubscribe, "the refused client released nothing")
 }

@@ -202,10 +202,8 @@ func TestWatcher_DetectsFileCreate(
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "new.txt"), []byte("x"), 0o600))
 
-	evt := d.waitForChange(pathIs("new.txt"))
-	assert.Equal(t, domain.FileChangeCreated, evt.Type)
-	assert.Equal(t, "new.txt", evt.Path)
-	assert.Equal(t, "ws1", evt.WsID)
+	want := domain.FileChangeEvent{Type: domain.FileChangeCreated, Authority: domain.DocumentAuthorityWorkspace, Path: "new.txt", WsID: "ws1"}
+	assert.Equal(t, want, d.waitForChange(pathIs("new.txt")))
 }
 
 func TestWatcher_DetectsFileModify(

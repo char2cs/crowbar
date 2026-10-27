@@ -204,15 +204,16 @@ func (c *Container) Register(
 	// chatScoped's resolveChatWorktree middleware has already resolved the
 	// worktree before the handlers run. The home group above keeps its own
 	// /home/files surface, for the project-level row no chat resolves to, and
-	// reuses this same c.files.Handle broadcaster (see filesDef, container.go).
+	// reuses this same c.files.Handle broadcaster (see filesDef, file_streams.go).
 	files.Register(
 		chatScoped,
 		c.app.Usecases.File,
 		c.files.Handle,
 	)
-	// A document's content is read and written by ref on the flat /v0 group:
-	// a host file outside every worktree has no chat or workspace to scope by.
-	documents.Register(rg, c.app.Usecases.File)
+	// A document's content is read and written by ref on the flat /v0 group,
+	// and a host document is held for its watch there: a host file outside
+	// every worktree has no chat or workspace to scope by.
+	documents.Register(rg, c.app.Usecases.File, c.documents.Handle)
 	// Git is the first of spec §4.2's SHARED bucket to move (§8 step 4): one
 	// worktree, one answer, and every chat holding it sees the same writes. It
 	// mounts on the flat chat prefix alone now — the old workspace-scoped mount
