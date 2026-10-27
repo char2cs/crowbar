@@ -45,52 +45,37 @@ type Driver struct {
 	out    chan Event
 	origin SessionOrigin
 
-	// mu guards established and remembered.
-	//
-	// established is set once this connection has itself run an event's Fresh
-	// or Resume steps successfully, so a second message on an already-live
-	// connection goes straight to Action. Nothing ON THE WIRE clears it; only
-	// reopen does, and only when a lost session is being recovered.
-	//
-	// remembered holds every field ANY step's capture: has ever pulled out of a
-	// response on this connection — session_id from a session-creating call,
-	// turn_id from a turn call, whatever a descriptor names — so a LATER Send
-	// (which has no step of its own to capture from) can still reference it. An
-	// interrupt needs the turn id of a call it never made itself; this is how
-	// it gets it without Crowbar's code knowing turns exist.
-	//
-	// birth is the value set the FIRST establish on this connection ran with.
-	// A re-entry (reestablish) re-runs the Resume steps long after that call
-	// returned, from a plain message push carrying only session_id/cwd/text, so
-	// it is re-entered with the settings the session was opened with.
+	// mu guards the rest. established: this connection ran an event's Fresh or
+	// Resume steps (only reopen clears it). remembered: every value a step's
+	// capture: pulled out, for a later Send. birth: the first establish's values.
 	mu          sync.Mutex
 	established bool
 	remembered  map[string]string
 	birth       map[string]string
 }
 
-// Start speaks over serve's stdio, runs the descriptor's declared handshake
-// call, sends `initialized`, and starts translating inbound frames into
-// canonical Events. The answered handshake is serve being ready; on any
-// failure stdio is closed.
-//
-// origin may be nil for a caller that does not care which sessions this
-// connection produced itself — see SessionOrigin for who does.
+// Start runs the descriptor's handshake over serve's stdio and starts
+// translating inbound frames; the answered handshake is serve being ready. On
+// any failure stdio is closed. origin may be nil (see SessionOrigin).
 func Start(
 	ctx context.Context, d *spec.Descriptor, stdio jsonrpc.Stdio, origin SessionOrigin,
 ) (*Driver, error) {
-	call := d.Runtime.API.Handshake["call"]
-	if call == "" {
+	hs := d.Runtime.API.Handshake
+	if hs.Call == "" {
 		return nil, errors.Join(fmt.Errorf("apidriver: descriptor %s declares no handshake call", d.ID), stdio.Close())
 	}
 	conn := jsonrpc.New(stdio)
-	if _, err := conn.Call(ctx, call, map[string]any{
-		"clientInfo": map[string]string{"name": "crowbar", "title": "Crowbar", "version": "0.0.0"},
-	}); err != nil {
+	params := hs.Params
+	if params == nil {
+		params = map[string]any{}
+	}
+	if _, err := conn.Call(ctx, hs.Call, params); err != nil {
 		return nil, errors.Join(fmt.Errorf("apidriver: %s handshake: %w", d.ID, err), conn.Close())
 	}
-	if err := conn.Notify("initialized", map[string]any{}); err != nil {
-		return nil, errors.Join(fmt.Errorf("apidriver: %s initialized: %w", d.ID, err), conn.Close())
+	if hs.Notify != "" {
+		if err := conn.Notify(hs.Notify, map[string]any{}); err != nil {
+			return nil, errors.Join(fmt.Errorf("apidriver: %s %s: %w", d.ID, hs.Notify, err), conn.Close())
+		}
 	}
 
 	drv := &Driver{
@@ -390,19 +375,9 @@ func (drv *Driver) Dispatch(
 	return recovered, nil
 }
 
-// InjectAt runs the descriptor's inject step declared for lifecycle moment at
-// (spec.InjectSpec's "config | mcp | context | resume"), if it has one — a
-// descriptor with nothing declared for at is a no-op, not an error, the same
-// declarative-capability shape ContextSteps already has (a provider whose
-// resume channel is config, not a live connection, has no use for this).
-//
-// Unlike EstablishSession/Dispatch's Fresh/Resume/Action lists (bound to a
-// canonical EVENT, always run in the same place in that event's lifecycle),
-// an inject step is bound to a lifecycle MOMENT the caller decides on: a
-// context inject (at: context) has to run once, right after a RESUME
-// establishes a session that existed before this connection loaded it — never
-// on a fresh session, whose creating call already carries {context} in the
-// very call that creates it.
+// InjectAt runs the inject step declared for lifecycle moment at, if any. A
+// context inject runs once, right after a resume loads a session that existed
+// before this connection: a fresh one's creating call already carries it.
 func (drv *Driver) InjectAt(ctx context.Context, at string, values map[string]string) error {
 	var step *spec.InjectSpec
 	for i := range drv.d.Inject {
@@ -429,21 +404,9 @@ func (drv *Driver) InjectAt(ctx context.Context, at string, values map[string]st
 	return nil
 }
 
-// runSteps executes one Fresh/Resume/Action list in order: expand Send's
-// template tree against values, call it, and fold any Capture into values so
-// a later step in the SAME list (or the caller) can read it.
-//
-// Any field this step is ABOUT to (re)capture is dropped from remembered
-// first, before the call goes out — never left standing until the reply
-// lands. Send (interrupt, compact_start) reads remembered concurrently with
-// this, on a caller's own goroutine, and turn_id is exactly the field a
-// second turn call overwrites: leaving the PREVIOUS turn's id in place for
-// the whole round trip means a Stop racing in while this call is still in
-// flight would ship an interrupt naming a turn that already ended — not
-// loudly rejected (that's the safe, already-handled empty-field case), but
-// silently pointed at the wrong turn while the real one keeps generating.
-// Clearing here trades that silent miss for the safe one: an empty field
-// fails the provider's own validation and StopChat falls back to a full stop.
+// runSteps runs one Fresh/Resume/Action list in order, folding each Capture
+// into values. A field about to be recaptured is dropped from remembered first:
+// a racing Send then fails on an empty id rather than naming a finished turn.
 func (drv *Driver) runSteps(ctx context.Context, steps []spec.CallStep, values map[string]string) error {
 	for _, step := range steps {
 		if len(step.Capture) > 0 {

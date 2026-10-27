@@ -242,7 +242,7 @@ runtime:
     delivery: stdio
     format: ndjson
     serve: [acme, serve]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
 `
 
 func apiTransportTestAgent(t *testing.T) engineagents.Agent {

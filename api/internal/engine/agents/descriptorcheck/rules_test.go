@@ -103,6 +103,18 @@ func TestValidate_AnAPIProviderNeedsAServeArgv(t *testing.T) {
 	assert.Equal(t, 7, f.Line)
 }
 
+func TestValidate_AnAPIProviderDeclaresItsHandshake(t *testing.T) {
+	api := "id: api\nspawn:\n  cmd: api\n  interactive_required: true\nruntime:\n  transport: api\n  api:\n" +
+		"    protocol: jsonrpc2\n    serve: [api, serve]\n"
+	f := findingFor(t, descriptorcheck.Validate([]byte(api)), "runtime.api_handshake")
+	assert.Equal(t, "runtime.api", f.Path)
+	assert.Equal(t, descriptorcheck.SeverityError, f.Severity)
+
+	for _, f := range descriptorcheck.Validate([]byte(api + "    handshake: { call: open, notify: opened }\n")).Findings {
+		assert.NotEqual(t, "runtime.api_handshake", f.Rule)
+	}
+}
+
 func refused(code, needles string) string {
 	return "session:\n  resume: { arg: \"--resume {id}\" }\n  refused: { exit_code: " + code + ", needles: " + needles + " }\n"
 }

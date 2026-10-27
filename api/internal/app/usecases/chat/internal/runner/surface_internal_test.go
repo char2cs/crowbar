@@ -73,7 +73,7 @@ runtime:
     delivery: stdio
     format: ndjson
     serve: [surfaceless, serve]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
 surfaces:
   chat: { channel: api, start_here: true }
 `

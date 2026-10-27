@@ -177,6 +177,11 @@ func channelRules(doc document, d *spec.Descriptor) []Finding {
 		out = append(out, doc.finding("runtime.api_serve", SeverityError, "runtime.api",
 			"runtime.transport is api but runtime.api.serve is empty", "declare the argv that starts the provider's api serve process"))
 	}
+	if d.Runtime.Transport == string(spec.ChannelAPI) && d.Runtime.API.Handshake.Call == "" {
+		out = append(out, doc.finding("runtime.api_handshake", SeverityError, "runtime.api",
+			"runtime.transport is api but runtime.api.handshake names no call: no connection is ever opened",
+			"declare runtime.api.handshake: the call that opens the connection, its params, and the notification that follows its answer"))
+	}
 	return out
 }
 

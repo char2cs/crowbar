@@ -1305,7 +1305,7 @@ spawn:
   interactive_required: true
 `+v3EventsBlock+apiRuntime+`
     serve: [api-cli, serve]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
 `)
 	apiNoAttach, err := agents.New().Get(context.Background(), home, "api-no-attach")
 	require.NoError(t, err)
@@ -1320,7 +1320,7 @@ spawn:
 `+v3EventsBlock+apiRuntime+`
     serve: [api-cli, serve]
     attach: [api-cli, --remote]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
 `)
 	apiWithAttach, err := agents.New().Get(context.Background(), home, "api-with-attach")
 	require.NoError(t, err)
@@ -1353,7 +1353,7 @@ spawn:
 `+v3EventsBlock+apiRuntime+`
     serve:  [acme, app-server, --cwd, "{cwd}"]
     attach: [acme, resume, "{session_id}"]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
 `)
 	a, err := agents.New().Get(context.Background(), home, "api-transport")
 	require.NoError(t, err)
@@ -1383,7 +1383,7 @@ spawn:
 `+v3EventsBlock+apiRuntime+`
     serve:  [acme, app-server]
     attach: [acme, resume, "{session_id}"]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
 config_injection:
   - pass_arg: { arg: "-c", value: 'hooks.Stop=[{hooks=[{type="command",command="{crowbar_hook} hook turn_stop --segment {segid}"}]}]' }
 `)
@@ -1424,7 +1424,7 @@ spawn:
 `+v3EventsBlock+apiRuntime+`
     serve:  [acme, app-server]
     attach: [acme, resume, "{session_id}"]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
 `)
 	a, err := agents.New().Get(context.Background(), home, "api-attach-spawn-args")
 	require.NoError(t, err)
@@ -1459,7 +1459,7 @@ spawn:
   interactive_required: true
 `+v3EventsBlock+apiRuntime+`
     serve:  [acme, app-server]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
 mcp_injection:
   - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.command="{crowbar}"' }
   - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.args=["mcp","--segment","{segid}"]' }
@@ -1508,7 +1508,7 @@ spawn:
   interactive_required: true
 `+v3EventsBlock+apiRuntime+`
     serve:  [acme, app-server]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
 model:
   available: [fast, deep]
   strategy: restart_tui
@@ -1552,7 +1552,7 @@ spawn:
   interactive_required: true
 `+v3EventsBlock+apiRuntime+`
     serve:  [acme, app-server]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
 model:
   available: [fast, deep]
   strategy: restart_tui
@@ -1620,7 +1620,7 @@ runtime:
     delivery: stdio
     format: ndjson
     serve: [acme, app-server]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
   hooks:
     format: json
 `)

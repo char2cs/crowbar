@@ -41,8 +41,16 @@ type APISpec struct {
 	Serve []string `yaml:"serve"`
 	// Attach points a TUI at the SAME conversation, so one session yields both the
 	// structured protocol and the terminal pane with no screen scraping.
-	Attach    []string          `yaml:"attach"`
-	Handshake map[string]string `yaml:"handshake"`
+	Attach    []string      `yaml:"attach"`
+	Handshake HandshakeSpec `yaml:"handshake"`
+}
+
+// HandshakeSpec is what opens a connection: Call with Params, answered, then
+// the Notify notification when one is declared.
+type HandshakeSpec struct {
+	Call   string         `yaml:"call"`
+	Params map[string]any `yaml:"params"`
+	Notify string         `yaml:"notify"`
 }
 
 const (

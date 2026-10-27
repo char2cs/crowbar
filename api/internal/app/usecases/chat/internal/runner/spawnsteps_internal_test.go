@@ -117,7 +117,7 @@ runtime:
     delivery: stdio
     format: ndjson
     serve: [acme, serve]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
 `
 
 func loadAPIResumeDescriptor(t *testing.T) engineagents.Agent {

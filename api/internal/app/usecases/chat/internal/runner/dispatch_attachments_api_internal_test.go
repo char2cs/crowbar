@@ -111,7 +111,7 @@ runtime:
     delivery: stdio
     format: ndjson
     serve: [acme, serve]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
 `
 
 func apiPushAttachmentTestAgent(t *testing.T) engineagents.Agent {

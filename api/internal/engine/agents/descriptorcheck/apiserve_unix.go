@@ -43,7 +43,7 @@ func (l *live) apiServe(ctx context.Context) Step {
 	if err := conn.Close(); err != nil {
 		return fail("api_serve", "close: "+err.Error())
 	}
-	return pass("api_serve", l.d.Runtime.API.Handshake["call"]+" answered over the stdio of "+strings.Join(argv, " "))
+	return pass("api_serve", l.d.Runtime.API.Handshake.Call+" answered over the stdio of "+strings.Join(argv, " "))
 }
 
 // endServe kills serve's process group and reaps it. Nobody awaits this, so a

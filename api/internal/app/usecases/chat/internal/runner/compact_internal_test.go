@@ -46,7 +46,7 @@ runtime:
     delivery: stdio
     format: ndjson
     serve: [acme, serve]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
 `
 
 func compactAPITestAgent(t *testing.T) engineagents.Agent {

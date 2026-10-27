@@ -96,7 +96,7 @@ runtime:
     delivery: stdio
     format: ndjson
     serve: [acme, serve]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
 `
 
 func TestSpawnRunner_SpawnPlanFailure_ReturnsTheBuildError(t *testing.T) {

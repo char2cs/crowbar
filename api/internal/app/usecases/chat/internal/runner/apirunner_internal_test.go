@@ -349,7 +349,7 @@ runtime:
     delivery: stdio
     format: ndjson
     serve: [acme, serve]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
 session: { resume: { arg: "resume {id}" }, persists: turn_start }
 presentation:
   prompt_submit:

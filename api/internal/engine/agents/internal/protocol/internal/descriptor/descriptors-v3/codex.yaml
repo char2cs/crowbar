@@ -35,7 +35,11 @@ runtime:
     # Never rendered at spawn (see applyAPITransport's Hotswap gate); only
     # SwitchToTerminal forks this, and only once idle.
     attach: [codex, resume, "{session_id}"]
-    handshake: { call: initialize }
+    # app-server answers initialize, then waits for the initialized notification.
+    handshake:
+      call: initialize
+      params: { clientInfo: { name: crowbar, title: Crowbar, version: "0.0.0" } }
+      notify: initialized
   hooks:
     format: json
     delivery: http

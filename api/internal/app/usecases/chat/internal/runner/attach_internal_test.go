@@ -119,7 +119,7 @@ runtime:
     format: ndjson
     serve:  [acme, app-server]
     attach: [acme, resume, "{session_id}"]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
 config_injection:
   - pass_arg: { arg: "-c", value: 'hooks.Stop=[{hooks=[{type="command",command="{crowbar_hook} hook turn_stop --segment {segid}"}]}]' }
 `

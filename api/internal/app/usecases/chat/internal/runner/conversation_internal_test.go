@@ -125,7 +125,7 @@ runtime:
     delivery: stdio
     format: ndjson
     serve: [acme, serve]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
 `
 
 var refusedResume = map[string]map[string]any{
@@ -275,7 +275,7 @@ runtime:
     delivery: stdio
     format: ndjson
     serve: [%q, "-test.run=^TestHelperServe$", "--", "serve"]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
 `
 
 // TestHelperServe is not a test: it is the `serve` a helperServeDescriptor spawn

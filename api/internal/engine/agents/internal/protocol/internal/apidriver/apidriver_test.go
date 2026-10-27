@@ -118,15 +118,8 @@ func TestStart_AsksCarryAReplyChannel(t *testing.T) {
 	require.JSONEq(t, `{"decision":"accept"}`, string(reply["result"]))
 }
 
-// TestStart_ByWireOverlayNamesTheToolOnThePermissionCard is F1 of the
-// descriptor channel-split design, proven end to end over the real transport:
-// codex's api-side permission payload carries no `tool`/`params` field on
-// EITHER wire method (confirmed live, codex-cli 0.149.1 — see codex.yaml's
-// own comment on permission.api), so before by_wire: existed the resulting
-// card's tool name was always empty. by_wire: derives it from WHICH wire
-// method actually matched — this drives both real wire names through the
-// SAME live translateLoop production uses and checks the literal each one
-// injects.
+// codex's api permission payload names no tool on either wire method, so
+// by_wire: names it from the method that matched, through the live loop.
 func TestStart_ByWireOverlayNamesTheToolOnThePermissionCard(t *testing.T) {
 	for wire, want := range map[string]string{
 		"item/commandExecution/requestApproval": "commandExecution",
@@ -258,15 +251,8 @@ func TestEstablishSession_NoKnownSessionRunsFreshAndCapturesTheNewID(t *testing.
 	require.Contains(t, (*seen)[0], `"approvalPolicy":"on-request"`)
 }
 
-// TestRegression_EstablishSessionFreshCarriesTheHandoffAsDeveloperInstructions
-// pins the live bug: switching a chat to codex spawned it with the whole prior
-// conversation correctly assembled into tctx.Context (spawnRunner already did
-// that work, transport-agnostic), but api-transport's EstablishSession call
-// dropped it on the floor — thread/start went out with only cwd/sandbox, so a
-// codex chat switched-to from another provider answered its first message
-// with zero memory of what came before. Verified against the real codex.yaml,
-// not a test fixture, so a future edit that renames or removes the
-// developerInstructions field breaks this test rather than shipping silently.
+// A codex chat switched to from another provider carries the handoff as
+// thread/start's developerInstructions, checked against the real codex.yaml.
 func TestRegression_EstablishSessionFreshCarriesTheHandoffAsDeveloperInstructions(t *testing.T) {
 	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-123"}}`},
@@ -355,16 +341,8 @@ func TestEstablishSession_SecondCallOnAnEstablishedConnectionIsANoop(t *testing.
 	require.Len(t, *seen, 1, "only the first EstablishSession may reach the wire")
 }
 
-// TestRegression_EstablishSessionAlreadyEstablished_BlankCallerSessionIDFallsBackToRemembered
-//
-// pushPromptOverAPI's caller reads session_id off the RUNNER ROW, and that row is
-// never rebound by a pure api-transport resume (thread/resume fires no
-// thread/started notification for pumpAPIConn to carry into HandleSessionStart) —
-// so the very first prompt sent after a switch BACK to an already-resumed codex
-// passed session_id="" straight through. Dispatch → EstablishSession's established
-// short-circuit used to hand that blank back unchanged, so turn/start received
-// session_id="" and codex refused it outright ("invalid thread id: ... found 0"),
-// permanently uncertain-ing every later prompt to that runner too. Confirmed live.
+// A resume rebinds no runner row, so the first prompt after one passes a blank
+// session id: an established connection falls back to the one it remembered.
 func TestRegression_EstablishSessionAlreadyEstablished_BlankCallerSessionIDFallsBackToRemembered(t *testing.T) {
 	stdio, _ := scriptedServer(t, []scriptedCall{
 		{method: "thread/resume", result: `{"thread":{"id":"t-resumed"}}`},
@@ -467,6 +445,54 @@ func TestDispatch_ASecondMessageOnAnEstablishedConnectionSkipsStraightToAction(t
 	require.Len(t, *seen, 3, "the second message must not re-run thread/start")
 }
 
+// The handshake is the descriptor's: its call, its params and the notification
+// that follows the answer, none of them named in Go.
+func TestStart_SpeaksTheHandshakeItsDescriptorDeclares(t *testing.T) {
+	d, err := descriptor.ParseV3([]byte(`
+id: declared
+runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    serve: [x]
+    handshake: { call: hello, params: { client: { name: probe } }, notify: ready }
+  spawn:
+    cmd: x
+events:
+  session_start:
+    in: thread/started
+    map: { session_id: thread.id }
+`))
+	require.NoError(t, err)
+	in, out, peer := testutil.StdioPipe(t)
+	type frame struct {
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
+		Params json.RawMessage `json:"params"`
+	}
+	seen := make(chan frame, 2)
+	go func() {
+		var call, note frame
+		if peer.ReadJSON(&call) != nil || peer.WriteJSON(map[string]any{"id": call.ID, "result": map[string]string{}}) != nil {
+			return
+		}
+		seen <- call
+		if peer.ReadJSON(&note) == nil {
+			seen <- note
+		}
+	}()
+
+	drv, err := apidriver.Start(t.Context(), d, jsonrpc.Stdio{In: in, Out: out}, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = drv.Close() })
+
+	call, note := <-seen, <-seen
+	assert.Equal(t, "hello", call.Method)
+	assert.JSONEq(t, `{"client":{"name":"probe"}}`, string(call.Params))
+	assert.Equal(t, "ready", note.Method)
+	assert.Empty(t, note.ID, "the follow-up is a notification")
+}
+
 func TestStart_MissingHandshakeCallIsAnError(t *testing.T) {
 	raw := []byte(`
 id: no-handshake
@@ -492,12 +518,8 @@ events:
 	require.ErrorIs(t, err, os.ErrClosed, "a refused start closes the stdio it was handed")
 }
 
-// TestSend_MergesValuesRememberedFromEarlierCaptures reproduces the codex
-// interrupt shape live-confirmed against codex-cli 0.149.1: turn/interrupt
-// needs BOTH threadId (from thread/start, captured at EstablishSession) and
-// turnId (from turn/start, captured at Dispatch) — neither of which the caller
-// supplies to Send itself. Send must source both from what this connection has
-// already remembered.
+// turn/interrupt needs threadId and turnId, neither supplied by the caller:
+// Send sources both from what this connection remembered.
 func TestSend_MergesValuesRememberedFromEarlierCaptures(t *testing.T) {
 	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-9"}}`},
@@ -521,21 +543,8 @@ func TestSend_MergesValuesRememberedFromEarlierCaptures(t *testing.T) {
 	require.Contains(t, (*seen)[2], `"turnId":"turn-1"`)
 }
 
-// TestRegression_InterruptRacingANewTurnStart_MustNotSendTheStalePreviousTurnID
-// pins the "Codex stop doesn't work sometimes" bug. remembered["turn_id"] is
-// only OVERWRITTEN once a turn/start call's reply lands and its capture: runs
-// — nothing clears it the instant the NEXT turn/start is actually SENT. So a
-// Stop that races in after a chat is already reported Working (which fires off
-// the userMessage item/started notification arriving over this SAME
-// connection, entirely independent of this call's own reply) but before THIS
-// turn/start's reply has come back finds remembered still holding the
-// PREVIOUS, already-finished turn's id — and Send happily ships turn/interrupt
-// naming that dead turn. Confirmed live behaviour (codex.yaml's own interrupt:
-// doc comment): turn/interrupt against an id that is not the CURRENTLY open
-// turn is not what StopChat intends either way — an empty id fails loudly and
-// falls back to a full stop (already handled), but a stale, well-formed one
-// risks silently targeting a turn that already ended while the real one
-// keeps generating, which is indistinguishable from Stop doing nothing at all.
+// remembered turn_id is overwritten only by turn/start's reply, so a Stop racing
+// a new turn/start must not send the previous, finished turn's id.
 func TestRegression_InterruptRacingANewTurnStart_MustNotSendTheStalePreviousTurnID(t *testing.T) {
 	turn2StartSeen := make(chan struct{})
 	interruptParams := make(chan string, 1)
@@ -623,11 +632,7 @@ func TestRegression_InterruptRacingANewTurnStart_MustNotSendTheStalePreviousTurn
 	require.NoError(t, <-turn2Done)
 }
 
-// TestSend_PropagatesAJSONRPCErrorFromTheReply pins that Send waits for a real
-// reply rather than firing a notification — live-confirmed that codex's own
-// turn/interrupt is request/response: a malformed call comes back a JSON-RPC
-// error, not silence, and Send has to surface that rather than reporting
-// success on a call the server actually rejected.
+// Send waits for a reply: a rejected turn/interrupt is a JSON-RPC error it surfaces.
 func TestSend_PropagatesAJSONRPCErrorFromTheReply(t *testing.T) {
 	stdio := fakeCodexServer(t, func(conn *testutil.LinePeer) {
 		msg, err := conn.Read() // thread/start
