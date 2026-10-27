@@ -87,5 +87,7 @@ func (h *Handlers) WS(ctx *gin.Context) {
 		}
 	}()
 
-	_ = eng.Attach(ctx.Request.Context(), sid, conn)
+	if err := eng.Attach(ctx.Request.Context(), sid, conn); err != nil {
+		slog.WarnContext(ctx.Request.Context(), "terminal ws: attach", "session_id", sid, "err", err)
+	}
 }

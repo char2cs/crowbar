@@ -2,9 +2,12 @@ package handlers_test
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -136,4 +139,52 @@ func TestWS_RejectsCrossOriginUpgrade(t *testing.T) {
 		t.Fatalf("the engine must never see a connection that failed to upgrade, got Attach(%q)", sessionID)
 	default:
 	}
+}
+
+// failingAttachEngine refuses every attach, as a session whose restore fails does.
+type failingAttachEngine struct{ stubEngine }
+
+func (failingAttachEngine) Attach(context.Context, string, engineterminal.WSConn) error {
+	return errors.New("restore failed")
+}
+
+// recordsChan is a slog handler that hands each record to a test.
+type recordsChan chan slog.Record
+
+func (c recordsChan) Enabled(context.Context, slog.Level) bool { return true }
+func (c recordsChan) Handle(_ context.Context, r slog.Record) error {
+	c <- r
+	return nil
+}
+func (c recordsChan) WithAttrs([]slog.Attr) slog.Handler { return c }
+func (c recordsChan) WithGroup(string) slog.Handler      { return c }
+
+func TestWS_AFailedAttachIsLoggedWithItsSession(t *testing.T) {
+	records := make(recordsChan, 16)
+	prev := slog.Default()
+	slog.SetDefault(slog.New(records))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	r := gin.New()
+	mountSessions(r, handlers.New(failingAttachEngine{}, stubProfiles{}, &spyBroadcaster{}))
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	conn, resp, err := websocket.DefaultDialer.Dial("ws"+srv.URL[len("http"):]+wsSessionPath, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	var rec slog.Record
+	select {
+	case rec = <-records:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a failed attach logged nothing")
+	}
+	assert.Equal(t, slog.LevelWarn, rec.Level)
+	attrs := map[string]string{}
+	rec.Attrs(func(a slog.Attr) bool { attrs[a.Key] = a.Value.String(); return true })
+	assert.Equal(t, "sess1", attrs["session_id"])
+	assert.Contains(t, attrs["err"], "restore failed")
 }
