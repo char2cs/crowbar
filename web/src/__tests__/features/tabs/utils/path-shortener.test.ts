@@ -17,11 +17,13 @@ function tab(id: string, workspaceId: string, path: string): EditorContent {
   }
 }
 
-const branches: Record<string, string> = { 'ws-a': 'feat/a', 'ws-b': 'feat/b' }
-const workspaceName = (id: string) => branches[id] ?? id
+const workspaceNames = new Map([
+  ['ws-a', 'feat/a'],
+  ['ws-b', 'feat/b'],
+])
 
 function labels(...tabs: EditorContent[]): string[] {
-  const names = calculateDisplayNames(tabs, undefined, workspaceName)
+  const names = calculateDisplayNames(tabs, workspaceNames)
   return tabs.map((t) => names.get(t.id) ?? '')
 }
 

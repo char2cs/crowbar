@@ -373,7 +373,7 @@ const TabBar = ({
   const showReopenToggleRight =
     !sidebarOpen && !isBottomPane && sidebarPosition === 'right' && isAtRightEdge
 
-  const getBufferDisplayName = useBufferDisplayName({ buffers, rootFolderPath })
+  const getBufferDisplayName = useBufferDisplayName({ buffers })
 
   // The max-open-tabs cap is NOT enforced here any more. It lives in
   // buffer-slice's openContent, next to the engine's own budget and the

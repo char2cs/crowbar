@@ -46,8 +46,7 @@ function distinctPathLabels(paths: string[], fileName: string): Map<string, stri
  */
 export function calculateDisplayNames(
   buffers: PaneContent[],
-  _rootPath: string | undefined,
-  workspaceName: (workspaceId: string) => string,
+  workspaceNames: ReadonlyMap<string, string>,
 ): Map<string, string> {
   const displayNames = new Map<string, string>()
 
@@ -76,7 +75,10 @@ export function calculateDisplayNames(
       const twin = group.some(
         (other) => other.path === buffer.path && other.workspaceId !== buffer.workspaceId,
       )
-      displayNames.set(buffer.id, twin ? `${label} (${workspaceName(buffer.workspaceId)})` : label)
+      displayNames.set(
+        buffer.id,
+        twin ? `${label} (${workspaceNames.get(buffer.workspaceId) ?? buffer.workspaceId})` : label,
+      )
     }
   }
 

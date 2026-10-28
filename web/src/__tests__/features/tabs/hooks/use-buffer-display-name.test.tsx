@@ -38,7 +38,7 @@ let renderCount = 0
 
 function Probe({ buffers }: { buffers: PaneContent[] }) {
   renderCount++
-  const getBufferDisplayName = useBufferDisplayName({ buffers, rootFolderPath: undefined })
+  const getBufferDisplayName = useBufferDisplayName({ buffers })
   return <div data-testid="probe">{buffers.map((b) => getBufferDisplayName(b)).join('|')}</div>
 }
 

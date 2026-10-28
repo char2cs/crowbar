@@ -3,12 +3,11 @@ import { useShallow } from 'zustand/react/shallow'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { workspaceBranch } from '@/lib/workspace/workspace-branch'
+import { workspaceNames } from '@/lib/workspace/workspace-branch'
 import { calculateDisplayNames } from '../utils/path-shortener'
 
 interface UseBufferDisplayNameOptions {
   buffers: PaneContent[]
-  rootFolderPath: string | undefined
 }
 
 // Separates the projected fields joined into each tuple string below. The
@@ -31,7 +30,7 @@ interface TerminalSessionFields {
  * human-readable tab label from buffer metadata, terminal session state and
  * path-shortener disambiguation.
  */
-export function useBufferDisplayName({ buffers, rootFolderPath }: UseBufferDisplayNameOptions) {
+export function useBufferDisplayName({ buffers }: UseBufferDisplayNameOptions) {
   // Subscribe only to the session fields this hook actually reads, projected
   // per terminal buffer into a flat string. Previously this subscribed to
   // the whole `sessions` Map, so every terminal's prompt redraw or `cd`
@@ -66,13 +65,13 @@ export function useBufferDisplayName({ buffers, rootFolderPath }: UseBufferDispl
   }, [sessionFieldTuples])
 
   const workspaceIds = useMemo(() => [...new Set(buffers.map((b) => b.workspaceId))], [buffers])
-  const branches = useSidebarStore(
-    useShallow((state) => workspaceIds.map((id) => workspaceBranch(state.repos, id))),
+  const names = useSidebarStore(
+    useShallow((state) => [...workspaceNames(state.repos, workspaceIds).values()]),
   )
-  const displayNames = useMemo(() => {
-    const branchOf = new Map(workspaceIds.map((id, i) => [id, branches[i]]))
-    return calculateDisplayNames(buffers, rootFolderPath, (id) => branchOf.get(id) ?? id)
-  }, [buffers, rootFolderPath, workspaceIds, branches])
+  const displayNames = useMemo(
+    () => calculateDisplayNames(buffers, new Map(workspaceIds.map((id, i) => [id, names[i]]))),
+    [buffers, workspaceIds, names],
+  )
 
   const isUsefulTerminalTitle = useCallback((title?: string) => {
     if (!title) return false

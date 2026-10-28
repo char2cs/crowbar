@@ -1,7 +1,7 @@
 import { isNotFoundError } from '@/lib/api'
 import { readDocument, type DocumentRef } from '@/lib/api/documents'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { workspaceBranch } from '@/lib/workspace/workspace-branch'
+import { workspaceNames } from '@/lib/workspace/workspace-branch'
 import {
   getEditorHost,
   releaseWithDocument,
@@ -248,12 +248,10 @@ function fileLabel({ message, path }: Failure, kind: Failures): string {
 }
 
 /** The same file failing in two worktrees is told apart by its workspace. */
-function failureLabel(failure: Failure, kind: Failures): string {
+function failureLabel(failure: Failure, kind: Failures, names: Map<string, string>): string {
   const label = fileLabel(failure, kind)
   const twin = kind.some((f) => f.path === failure.path && f.workspaceId !== failure.workspaceId)
-  return twin
-    ? `${label} (${workspaceBranch(useSidebarStore.getState().repos, failure.workspaceId)})`
-    : label
+  return twin ? `${label} (${names.get(failure.workspaceId) ?? failure.workspaceId})` : label
 }
 
 /** One toast per kind of failure, naming every file it hit. */
@@ -263,7 +261,9 @@ function sayFailures(failures: Failures): void {
     kinds.set(failure.title, [...(kinds.get(failure.title) ?? []), failure])
   }
   for (const [title, kind] of kinds) {
-    const labels = new Set(kind.map((failure) => failureLabel(failure, kind)))
+    const ids = [...new Set(kind.map((f) => f.workspaceId))]
+    const names = workspaceNames(useSidebarStore.getState().repos, ids)
+    const labels = new Set(kind.map((failure) => failureLabel(failure, kind, names)))
     toast.error(title, [...labels].join(', '))
   }
 }
