@@ -128,7 +128,7 @@
   "web/src/__tests__/features/panes/hooks/use-pane-keyboard.test.ts": 710,
   "web/src/__tests__/features/settings/components/tabs/providers-settings.test.tsx": 875,
   "web/src/__tests__/features/tabs/components/tab-bar.test.tsx": 516,
-  "web/src/__tests__/features/workspace/stores/hooks/use-workspace-agent-chats-stream.test.ts": 1766,
+  "web/src/__tests__/features/workspace/stores/hooks/use-workspace-agent-chats-stream.test.ts": 1762,
   "web/src/__tests__/features/workspace/stores/slices/agent-chats-slice.test.ts": 814,
   "web/src/__tests__/lib/persistence/hydrate.test.ts": 645,
   "web/src/components/app-sync-engine.ts": 620,
