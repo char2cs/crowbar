@@ -306,7 +306,7 @@ func (r *Recorder) commit(
 	}
 	if !startingSubagent(after) {
 		// Nothing still starting can claim what is held.
-		r.unclaimed(ctx, chat.ID, r.unbound.release(chat.ID))
+		r.settleUnclaimed(ctx, chat.ID, r.unbound.release(chat.ID))
 	}
 	if fx.Unbound != "" {
 		slog.WarnContext(ctx, "agent: ingest hook: an ask's input names none of its tool's open calls",

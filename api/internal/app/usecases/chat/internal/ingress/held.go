@@ -59,7 +59,7 @@ func (h *held) claim(chatID, scope string) []heldFrame {
 	defer h.mu.Unlock()
 	var claimed, kept []heldFrame
 	for _, f := range h.byChat[chatID] {
-		if f.ev.SessionID == scope {
+		if heldScope(f.ev) == scope {
 			claimed = append(claimed, f)
 		} else {
 			kept = append(kept, f)
@@ -104,8 +104,12 @@ func (h *held) setLocked(chatID string, frames []heldFrame) {
 
 // placeScope places f when it names another conversation than the chat's: in
 // the subagent bound to it, else held while one is starting (held), else foreign.
+// A hand-back of an unbound scope is held the same way.
 func (r *Recorder) placeScope(ctx context.Context, chatID string, st ledger.State, f heldFrame, src *Source) (bool, error) {
 	switch {
+	case handsBackUnbound(st, f.ev):
+		r.holdFrame(ctx, chatID, f)
+		return true, nil
 	case !namesAnotherConversation(src.SessionID, f.ev, f.channel):
 		return false, nil
 	case st.ScopeOpen(f.ev.SessionID):
@@ -143,6 +147,34 @@ func (r *Recorder) unclaimed(ctx context.Context, chatID string, frames []heldFr
 	for _, f := range frames {
 		r.deadLetter(ctx, chatID, f, reasonUnclaimedScope)
 	}
+}
+
+// settleUnclaimed records the hand-backs no bind claimed, as subagents of
+// their own now that nothing starting can be theirs, and dead-letters the
+// rest. The caller holds the chat's lock.
+func (r *Recorder) settleUnclaimed(ctx context.Context, chatID string, frames []heldFrame) {
+	var rest []heldFrame
+	for _, f := range frames {
+		if f.ev.Kind != engineagents.HookSubagentResult {
+			rest = append(rest, f)
+			continue
+		}
+		if _, _, err := r.Dispatch(ctx, f.runner, f.agent, f.ev, f.raw, f.channel); err != nil {
+			slog.WarnContext(ctx, "agent: ingest hook: a held hand-back nothing bound",
+				"chat_id", chatID, "scope", heldScope(f.ev), "err", err)
+			r.deadLetter(ctx, chatID, f, drainReason(err))
+		}
+	}
+	r.unclaimed(ctx, chatID, rest)
+}
+
+// heldScope is the scope a held frame waits on: a hand-back names it, any
+// other frame is of the scope's own session.
+func heldScope(ev engineagents.CanonicalEvent) string {
+	if ev.Kind == engineagents.HookSubagentResult && ev.Subagent != nil {
+		return ev.Subagent.ID
+	}
+	return ev.SessionID
 }
 
 func (r *Recorder) deadLetter(ctx context.Context, chatID string, f heldFrame, reason string) {

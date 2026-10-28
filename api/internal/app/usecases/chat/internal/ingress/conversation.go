@@ -35,6 +35,16 @@ func awaitsBind(st ledger.State, ev engineagents.CanonicalEvent) bool {
 	return startingSubagent(st)
 }
 
+// handsBackUnbound reports whether ev hands back the result of a scope no
+// subagent is bound to while one is starting: it may be that one's result.
+func handsBackUnbound(st ledger.State, ev engineagents.CanonicalEvent) bool {
+	if ev.Kind != engineagents.HookSubagentResult || ev.Subagent == nil || ev.Subagent.ID == "" {
+		return false
+	}
+	_, bound := st.SubagentOf(ev.Subagent.ID)
+	return !bound && startingSubagent(st)
+}
+
 // startingSubagent reports whether a subagent of the chat is still starting:
 // spawned, its conversation not yet bound.
 func startingSubagent(st ledger.State) bool {

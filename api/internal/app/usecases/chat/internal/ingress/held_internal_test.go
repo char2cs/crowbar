@@ -147,6 +147,47 @@ func TestIngress_ALateTurnEndLeavesTheRunningTurnsHeldFrames(t *testing.T) {
 	assert.Equal(t, 1, drained)
 }
 
+func handBack(scope, result string) engineagents.CanonicalEvent {
+	return engineagents.CanonicalEvent{
+		Kind: engineagents.HookSubagentResult, SessionID: "main", TurnID: "pt-2",
+		Subagent: &engineagents.SubagentEvent{ID: scope, Result: result},
+	}
+}
+
+// A hand-back of a scope no subagent is bound to, while a spawn is starting,
+// may be that spawn's: it waits for the bind instead of starting a second one.
+func TestIngress_AHandBackBeforeItsBindLandsInTheBoundSubagent(t *testing.T) {
+	f := apiChild(t)
+	other := spawnOn(engineagents.HookToolPre, "")
+	other.Tool.ID = "call-2"
+	f.api(t, other) // still starting after the bind: the hand-back is claimed by its scope
+
+	f.api(t, handBack("child", "found it"))
+
+	_, recorded := f.state(t).SubagentOf("child")
+	assert.False(t, recorded, "held until the call that spawned it binds")
+	f.api(t, spawnOn(engineagents.HookToolPost, "child"))
+	child, ok := f.state(t).SubagentOf("child")
+	require.True(t, ok)
+	assert.Equal(t, "call-1", child.SpawnToolID, "the spawn and the hand-back are one subagent")
+	assert.Equal(t, "found it", child.Result)
+	assert.Zero(t, f.unclaimedCount(t))
+}
+
+// A held hand-back nothing binds is still recorded once nothing is starting:
+// its result is never dead-lettered.
+func TestIngress_AHeldHandBackNothingBindsIsRecorded(t *testing.T) {
+	f := apiChild(t)
+	f.api(t, handBack("child", "found it"))
+
+	f.api(t, engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, SessionID: "main", TurnID: "pt-1"})
+
+	child, ok := f.state(t).SubagentOf("child")
+	require.True(t, ok)
+	assert.Equal(t, "found it", child.Result)
+	assert.Zero(t, f.unclaimedCount(t))
+}
+
 // A runner's exit interrupts what was starting, so nothing can claim its
 // held frames any more.
 func TestIngress_ARunnersExitDeadLettersItsHeldFrames(t *testing.T) {
