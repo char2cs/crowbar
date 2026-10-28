@@ -114,7 +114,7 @@ func TestNodeProjection_AForgetDeliveredTwiceIsANoOp(t *testing.T) {
 }
 
 // healable is a node store over one log, with the read-model DB to lose rows from.
-func healable(t *testing.T) (context.Context, Store, asynx.Asynx[domain.Node], asynxModels.Store, *gormdb.DB) {
+func healable(t *testing.T) (context.Context, Store, asynxModels.Store, *gormdb.DB) {
 	t.Helper()
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
@@ -134,11 +134,11 @@ func healable(t *testing.T) (context.Context, Store, asynx.Asynx[domain.Node], a
 	_, err = ax.SendWait(ctx, nodecmds.Create{ID: "n1", Kind: domain.NodeKindChat, ParentID: "p1"})
 	require.NoError(t, err)
 	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM nodes_read").Error)
-	return ctx, st, ax, es, db
+	return ctx, st, es, db
 }
 
 func TestStore_AHealThatCannotSaveIsAnError(t *testing.T) {
-	ctx, st, _, _, db := healable(t)
+	ctx, st, _, db := healable(t)
 	require.NoError(t, db.WithContext(ctx).Exec("PRAGMA query_only = ON").Error)
 
 	_, err := st.GetNode(ctx, "n1")
@@ -149,7 +149,7 @@ func TestStore_AHealThatCannotSaveIsAnError(t *testing.T) {
 }
 
 func TestStore_AHealNeverResurrectsATombstonedNode(t *testing.T) {
-	ctx, st, _, es, _ := healable(t)
+	ctx, st, es, _ := healable(t)
 	appendTombstone(t, es, "n1")
 
 	_, err := st.GetNode(ctx, "n1")

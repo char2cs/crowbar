@@ -82,7 +82,7 @@ func (s *service) rebuild(
 func (s *service) replay(
 	ctx context.Context,
 	id string,
-) (replayErr error, saveErr error) {
+) (replayErr, saveErr error) {
 	replayErr = s.ax.Replay(ctx, id, 1, 0, func(ctx context.Context, evt asynxModels.Event[domain.Workspace]) {
 		switch {
 		case saveErr != nil:
