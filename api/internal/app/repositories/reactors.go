@@ -1,7 +1,6 @@
 package repositories
 
 import (
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +11,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/purge"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // ReactorDrain is the shutdown handle for every post-commit reactor: the app layer
