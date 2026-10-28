@@ -187,6 +187,7 @@ import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persist
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
+import { reportChannelState } from '@/lib/ws/connection-store'
 import { useSettingsStore } from '@/features/settings/store'
 import {
   nextVersion,
@@ -421,7 +422,12 @@ const paneOf = (_store: Store, id: string) => windowPaneStore.getState().panes[i
 // The default backend is a HEALTHY one: a resume brings the chat's CLI back, and reading
 // the chat back afterwards shows the runner now on it. Tests that are about failure say
 // so explicitly by overriding these — nothing else has to opt in to "it worked".
+// The daemon is up: the pane's sockets in this jsdom never connect, and a closed local channel
+// reads as an offline chat.
+const DAEMON_CHANNEL = 'test://daemon'
+
 beforeEach(() => {
+  reportChannelState(DAEMON_CHANNEL, true, 'local')
   platform.mobile = false
   resetWindowPaneStoreForTests()
   chatLedgerStore.setState({ ledgers: {} })
@@ -1087,6 +1093,22 @@ describe('AgentChatPane', () => {
 
       expect(await screen.findByText(/starting codex/i)).toBeInTheDocument()
       expect(screen.queryByRole('textbox', { name: /message the agent/i })).toBeNull()
+    })
+
+    // The transcript stays up from the cache; nothing typed would reach a daemon that is gone.
+    it('turns the composer into a read-only note while the chat’s host does not answer', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
+      expect(await screen.findByRole('textbox', { name: /message the agent/i })).toBeInTheDocument()
+
+      act(() => reportChannelState(DAEMON_CHANNEL, false, 'local'))
+
+      expect(await screen.findByText('Offline — read-only')).toBeInTheDocument()
+      expect(screen.queryByRole('textbox', { name: /message the agent/i })).toBeNull()
+
+      act(() => reportChannelState(DAEMON_CHANNEL, true, 'local'))
+
+      expect(await screen.findByRole('textbox', { name: /message the agent/i })).toBeInTheDocument()
     })
 
     it('notes a revive that continued from the transcript', async () => {

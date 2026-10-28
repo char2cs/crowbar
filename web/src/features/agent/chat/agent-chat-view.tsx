@@ -119,6 +119,8 @@ export interface AgentChatViewProps {
   /** A send may be dispatched now: the chat is live, or dormant and revived
    *  by the send itself (server-side). False while the daemon places a CLI. */
   canSend: boolean
+  /** The chat's host does not answer: the composer is read-only. */
+  offline?: boolean
   /** The daemon still placing a CLI this pane did not ask for. */
   revival?: ComposerRevival
   /** One line on how the conversation continues (why it is dormant, or that
@@ -354,6 +356,7 @@ export function AgentChatView({
   live,
   revival,
   canSend,
+  offline = false,
   sessionNote,
   active,
   visible,
@@ -984,6 +987,7 @@ export function AgentChatView({
     // can see.
     const state = resolveComposerState({
       live: canSend,
+      offline,
       revival,
       submitUnavailable,
       terminalWait: terminalWaiting
@@ -1227,6 +1231,7 @@ export function AgentChatView({
               providerLabel={providerLabel}
               permissionLevels={provider?.permissionLevels}
               live={canSend}
+              offline={offline}
               revival={revival}
               working={working}
               compacting={compacting}

@@ -296,10 +296,11 @@ export function AgentChatPaneBody({
   // its own font-size-based terminalZoomLevel).
   const chatZoom = useZoomStore.use.zoom()
   const providerName = providers.find((p) => p.id === activeProviderId)?.displayName || 'the agent'
-  const { known, liveRunnerId, attachment, revival, sessionNote, canSend, startSession } =
+  const { known, liveRunnerId, attachment, revival, sessionNote, canSend, offline, startSession } =
     usePaneSession({
       store,
       wsId,
+      hostId,
       chatId: shownChatId,
       providerName,
       presentation,
@@ -956,6 +957,7 @@ export function AgentChatPaneBody({
               turnRevision={turnRevision}
               live={attachment.state === 'attached' || promptReplacing}
               canSend={canSend}
+              offline={offline}
               sessionNote={sessionNote}
               revival={revival}
               // In split the chat is genuinely in front of the user, so it is

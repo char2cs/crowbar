@@ -26,6 +26,8 @@ export type SignpostReason =
   | 'terminal_wait'
   /** The daemon is placing a CLI (a revive, a switch). */
   | 'reviving'
+  /** The chat's host does not answer: what is shown is the last it said. */
+  | 'offline'
 
 /** The daemon placing a CLI this pane did not ask for — richer than the
  *  collapsed `live` boolean. A dormant chat is NOT one: sending revives it. */
@@ -33,6 +35,8 @@ export type ComposerRevival = { state: 'reviving'; message: string }
 
 export interface ComposerInputs {
   live: boolean
+  /** The chat's host is unreachable: nothing can be sent or answered. */
+  offline?: boolean
   revival?: ComposerRevival
   submitUnavailable: boolean
   terminalWait?: AgentTerminalWait
@@ -60,6 +64,7 @@ export function describeTerminalWait(wait: AgentTerminalWait): string {
  * The order is the contract, and it reads top-down as "what is the ONE thing a
  * person can act on right now":
  *
+ *  0. `offline`      — the host does not answer; read-only whatever else is true
  *  1. `dormant`      — nothing can be sent yet (the chat is unknown), refined
  *                      into `reviving` while the daemon places a CLI
  *  2. `unsupported`  — this provider will never take a typed prompt
@@ -76,6 +81,9 @@ export function describeTerminalWait(wait: AgentTerminalWait): string {
 export function resolveComposerState(inputs: ComposerInputs): ComposerState {
   const { live, revival, submitUnavailable, terminalWait, compacting, activity } = inputs
 
+  if (inputs.offline) {
+    return { kind: 'signpost', reason: 'offline', message: 'Offline — read-only' }
+  }
   if (!live) {
     if (revival) {
       return { kind: 'signpost', reason: 'reviving', message: revival.message }
