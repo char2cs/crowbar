@@ -171,21 +171,6 @@ func TestNew_HubProjectionError(t *testing.T) {
 	assert.Contains(t, err.Error(), "agentchat store: projections")
 }
 
-// TestFoldReplayed_SaveError_DoesNotPanic proves foldReplayed (the Replay
-// callback healOne/rebuild pass to s.ax.Replay) LOGS a persist failure rather
-// than propagating or panicking: Replay's own contract has no error return
-// path back through a projection handler, so a Save failure here can only
-// ever be surfaced by logging it — silently degrading to "this one row did
-// not heal" rather than crashing the whole heal.
-func TestFoldReplayed_SaveError_DoesNotPanic(t *testing.T) {
-	s := &service{storage: &storageStore{inner: &errInner{err: errors.New("db down")}}}
-	assert.NotPanics(t, func() {
-		s.foldReplayed(context.Background(), asynxModels.Event[domain.Chat]{
-			Aggregate: domain.Chat{ID: "c1"},
-		})
-	})
-}
-
 // fakeAx is a minimal asynx stub that fails Subscribe / OnForget on demand.
 type fakeAx struct {
 	asynx.Asynx[domain.Chat]

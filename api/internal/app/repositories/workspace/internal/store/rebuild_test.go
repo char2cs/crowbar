@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	gormdb "gorm.io/gorm"
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
@@ -229,14 +231,49 @@ func TestListOrRebuild_ReplayErrorAbortsTheWholeRebuild(t *testing.T) {
 	assert.Contains(t, err.Error(), "replay poison")
 }
 
-// TestListOrRebuild_FoldErrorDuringReplayIsLoggedNotSurfaced proves foldReplayed
-// treats a read-model persistence failure as best-effort logging, not a hard
-// error: List's own SELECT still works against a read-only connection, only the
-// write inside the replay's fold callback fails, and ListOrRebuild must still
-// succeed with the row simply absent rather than surfacing that internal error.
-func TestListOrRebuild_FoldErrorDuringReplayIsLoggedNotSurfaced(t *testing.T) {
-	ctx := context.Background()
+// A heal whose save fails answers with the error, not an empty model: List's
+// SELECT still works on the read-only connection, only the replay's write fails.
+func TestListOrRebuild_AFoldErrorDuringReplayIsReturned(t *testing.T) {
+	ctx, st, ax, _, db := newSharedLogService(t)
 
+	_, err := ax.SendWait(ctx, wscmds.CreateWorkspace{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "main", Now: time.Unix(1, 0).UTC(),
+		Provisioning: domain.WorkspacePlaceholder,
+	})
+	require.NoError(t, err)
+
+	// Lose the durable row, then make the connection read-only: List's SELECT
+	// still succeeds (empty), but the replay's fold can no longer persist the
+	// healed row back.
+	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM read_workspaces").Error)
+	require.NoError(t, db.WithContext(ctx).Exec("PRAGMA query_only = ON").Error)
+
+	_, err = st.ListOrRebuild(ctx)
+
+	require.Error(t, err)
+}
+
+func TestListOrRebuild_NeverResurrectsATombstonedWorkspace(t *testing.T) {
+	ctx, st, ax, es, db := newSharedLogService(t)
+	_, err := ax.SendWait(ctx, wscmds.CreateWorkspace{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "main", Now: time.Unix(1, 0).UTC(),
+		Provisioning: domain.WorkspacePlaceholder,
+	})
+	require.NoError(t, err)
+	appendTombstone(t, es, "w1")
+	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM read_workspaces").Error)
+
+	rows, err := st.ListOrRebuild(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, rows)
+}
+
+// newSharedLogService is the store over the one log its axWorkspace writes.
+func newSharedLogService(
+	t *testing.T,
+) (context.Context, store.Store, asynx.Asynx[domain.Workspace], asynxModels.Store, *gormdb.DB) {
+	t.Helper()
+	ctx := context.Background()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
 	db, err := storesqlite.OpenDB(":memory:")
@@ -251,23 +288,24 @@ func TestListOrRebuild_FoldErrorDuringReplayIsLoggedNotSurfaced(t *testing.T) {
 	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(ctx) })
+	return ctx, store.New(pst, es, ax), ax, es, db
+}
 
-	st := store.New(pst, es, ax)
-
-	_, err = ax.SendWait(ctx, wscmds.CreateWorkspace{
-		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "main", Now: time.Unix(1, 0).UTC(),
-		Provisioning: domain.WorkspacePlaceholder,
+// appendTombstone writes the marker a Forget leaves when it fails before the erase.
+func appendTombstone(t *testing.T, es asynxModels.Store, id string) {
+	t.Helper()
+	ctx := context.Background()
+	prior, err := es.ReadFrom(ctx, "events:"+id, 1)
+	require.NoError(t, err)
+	var last struct {
+		SchemaVersion int `json:"schema_version"`
+	}
+	require.NoError(t, json.Unmarshal(prior[len(prior)-1], &last))
+	v := int64(len(prior) + 1)
+	evt, err := json.Marshal(map[string]any{
+		"id": "tomb-" + id, "event_name": asynxModels.ForgetEventName, "version": v,
+		"schema_version": last.SchemaVersion, "occurred_at": time.Unix(2, 0).UTC(), "patches": json.RawMessage("[]"),
 	})
 	require.NoError(t, err)
-
-	// Lose the durable row, then make the connection read-only: List's SELECT
-	// still succeeds (empty), but the replay's fold can no longer persist the
-	// healed row back.
-	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM read_workspaces").Error)
-	require.NoError(t, db.WithContext(ctx).Exec("PRAGMA query_only = ON").Error)
-
-	rows, err := st.ListOrRebuild(ctx)
-
-	require.NoError(t, err, "a Fold failure during replay must be logged, not surfaced")
-	assert.Empty(t, rows, "the row could not be persisted back, so it is still absent")
+	require.NoError(t, es.Atomically(ctx, func(tx asynxModels.Tx) error { return tx.Append(ctx, "events:"+id, v, evt) }))
 }

@@ -11,8 +11,8 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/char2cs/asynx"
@@ -161,23 +161,30 @@ func (s *service) rebuild(
 			// — skip it; the aggregate is rebuilt from its "events:" key.
 			continue
 		}
-		if err := s.ax.Replay(ctx, id, 1, 0, s.foldReplayed); err != nil {
+		if err := errors.Join(s.replay(ctx, id)); err != nil {
 			return fmt.Errorf("reviewthread store: replay %s: %w", id, err)
 		}
 	}
 	return nil
 }
 
-// foldReplayed persists each replayed aggregate into the read model. Replay folds
-// the event stream, so evt.Aggregate carries the aggregate's state at that version;
-// the final event leaves the current state durable.
-func (s *service) foldReplayed(
+// replay folds id's stream into the read model, returning Replay's error and the
+// first save error apart. A Forget marker deletes the row, so a tombstoned
+// stream never heals back as a ghost.
+func (s *service) replay(
 	ctx context.Context,
-	evt asynxModels.Event[domain.ReviewThread],
-) {
-	if err := s.storage.Save(ctx, evt.Aggregate); err != nil {
-		slog.ErrorContext(ctx, "reviewthread store: replay fold", "id", evt.Aggregate.ID, "err", err)
-	}
+	id string,
+) (replayErr error, saveErr error) {
+	replayErr = s.ax.Replay(ctx, id, 1, 0, func(ctx context.Context, evt asynxModels.Event[domain.ReviewThread]) {
+		switch {
+		case saveErr != nil:
+		case evt.EventName == asynxModels.ForgetEventName:
+			saveErr = s.storage.Delete(ctx, id)
+		default:
+			saveErr = s.storage.Save(ctx, evt.Aggregate)
+		}
+	})
+	return replayErr, saveErr
 }
 
 func filterByWorkspace(
