@@ -145,7 +145,6 @@
   "web/src/components/ui/table-node.tsx": 1308,
   "web/src/features/agent/chat/agent-chat-view.tsx": 1279,
   "web/src/features/agent/components/agent-chat-pane.tsx": 1151,
-  "web/src/features/agent/composer/composer-choice.tsx": 599,
   "web/src/features/agent/composer/plate/chat-markdown-editor.tsx": 521,
   "web/src/features/agent/controls/agent-selection-picker.tsx": 502,
   "web/src/features/agent/hooks/use-prompt-queue.ts": 677,
