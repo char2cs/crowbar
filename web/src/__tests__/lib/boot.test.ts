@@ -12,6 +12,7 @@ import { dataOf, idle, type Loadable } from '@/lib/loadable'
 import { saveCache } from '@/lib/persistence/cache-store'
 import { resetDB } from '@/lib/persistence/idb'
 import { useProjectDataStore } from '@/lib/store/projects'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { getHomeTree, useHomeTreeStore } from '@/lib/store/home-tree'
 import {
   __resetHomeWorkspaceResolverForTest,
@@ -82,6 +83,7 @@ describe('hydrateCriticalStores', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     workspaceListData.current = { status: 'idle' }
+    useFolderSignalStore.setState({ seededRepoIds: new Set() })
   })
 
   it('hydrates preferences and pane layout', async () => {
@@ -130,6 +132,27 @@ describe('hydrateCriticalStores', () => {
 
     expect(setRepos).toHaveBeenCalledWith([testRepo])
     expect(order).toEqual(['fetch', 'setRepos', 'hydrateSidebar'])
+  })
+
+  // An unreachable host never answers the tree seed, so the cache alone has to be
+  // enough for the sidebar to draw the repos boot just put in the store.
+  it('counts the repos read from the cache as seeded, once they are in the store', async () => {
+    const cached: Repo = {
+      ...testRepo,
+      workspaces: [{ id: 'w1', branch: 'main', age: '', owningChatId: 'c1' }],
+    }
+    workspaceListFetch.mockImplementation(async () => {
+      workspaceListData.current = { status: 'success', data: [cached], fetchedAt: Date.now() }
+    })
+    let seededWhenSet = true
+    setRepos.mockImplementation(() => {
+      seededWhenSet = useFolderSignalStore.getState().seededRepoIds.has('r1')
+    })
+
+    await hydrateCriticalStores()
+
+    expect(seededWhenSet).toBe(false)
+    expect(useFolderSignalStore.getState().seededRepoIds.has('r1')).toBe(true)
   })
 
   it('registers nothing with the desktop proxy where no remote host was ever paired', async () => {

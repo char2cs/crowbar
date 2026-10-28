@@ -198,8 +198,11 @@ describe('SidebarTreeSurface', () => {
       title: '',
     })
     await useWorkspaceListStore.getState().fetch()
+    // What boot does with the cached tree (lib/boot.ts).
+    const cached = dataOf(useWorkspaceListStore.getState().data) ?? []
     act(() => {
-      useSidebarStore.getState().setRepos(dataOf(useWorkspaceListStore.getState().data) ?? [])
+      useSidebarStore.getState().setRepos(cached)
+      useFolderSignalStore.getState().markSeededFromCache(cached)
     })
 
     render(

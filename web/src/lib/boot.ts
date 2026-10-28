@@ -5,6 +5,7 @@ import {
 } from '@/lib/persistence/hydrate'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { seedProjectList } from '@/lib/store/projects'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { hydrateHomeTree } from '@/lib/store/home-tree'
 import { getVisibleProjectIds } from '@/lib/store/project-visibility'
 import { hydrateHomeWorkspace } from '@/features/workspace/lib/home-workspace-resolver'
@@ -68,7 +69,10 @@ export async function hydrateCriticalStores(): Promise<void> {
   // The one network step, deliberately not awaited: members stay unplaced until it answers.
   void placeRestoredChatMembers()
   await useWorkspaceListStore.getState().fetch()
-  useSidebarStore.getState().setRepos(dataOf(useWorkspaceListStore.getState().data) ?? [])
+  const cachedRepos = dataOf(useWorkspaceListStore.getState().data) ?? []
+  useSidebarStore.getState().setRepos(cachedRepos)
+  // After the rows are in the store: the cache is all there is until a host answers.
+  useFolderSignalStore.getState().markSeededFromCache(cachedRepos)
   // setRepos recorded each workspace's scope, which the messages URL needs. Not
   // awaited: the first page loads while the chat surface's chunks do.
   void prefetchVisibleChats()

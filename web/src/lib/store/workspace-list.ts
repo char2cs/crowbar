@@ -2,7 +2,6 @@ import { create } from 'zustand'
 import { createLoadableSlice, type LoadableSlice } from '@/lib/store/loadable-slice'
 import type { Repo } from '@/lib/store/sidebar'
 import { readVisibleRepoTree } from '@/lib/store/project-visibility'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
 
 // §6/§7: the sidebar tree is now derived from the WS-driven entity cache, not a
 // flat cross-project GET. `fetch` reads the per-entity object stores
@@ -24,11 +23,7 @@ import { useFolderSignalStore } from '@/lib/store/folder-signal'
 export const useWorkspaceListStore = create<LoadableSlice<Repo[], []>>()((set, get) =>
   createLoadableSlice<Repo[], []>({
     store: 'workspaces-data',
-    fetcher: async () => {
-      const repos = await readVisibleRepoTree()
-      useFolderSignalStore.getState().markSeededFromCache(repos)
-      return repos
-    },
+    fetcher: readVisibleRepoTree,
     cacheKey: () => 'workspaces',
   })(set, get),
 )
