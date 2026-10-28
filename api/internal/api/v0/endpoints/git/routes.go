@@ -58,7 +58,6 @@ func mount(
 	rg.GET(prefix+"/status", dispatch(h.Status, gitWS))
 	rg.GET(prefix+"/diff", h.Diff)
 	rg.GET(prefix+"/log", h.Log)
-	rg.GET(prefix+"/blame", h.Blame)
 	rg.GET(prefix+"/branches", h.Branches)
 	rg.GET(prefix+"/stashes", h.Stashes)
 	rg.GET(prefix+"/conflicts", h.Conflicts)

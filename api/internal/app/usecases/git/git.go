@@ -61,11 +61,6 @@ type ReadEngine interface {
 		limit int,
 		skip int,
 	) ([]gitdomain.Commit, error)
-	Blame(
-		ctx context.Context,
-		repoPath string,
-		filePath string,
-	) ([]gitdomain.BlameEntry, error)
 	Branches(
 		ctx context.Context,
 		repoPath string,
@@ -109,11 +104,6 @@ type Usecase interface {
 		limit int,
 		skip int,
 	) ([]gitdomain.Commit, error)
-	Blame(
-		ctx context.Context,
-		wsID string,
-		filePath string,
-	) ([]gitdomain.BlameEntry, error)
 	Branches(
 		ctx context.Context,
 		wsID string,
@@ -397,23 +387,6 @@ func (u *gitUsecase) Log(
 		return nil, fmt.Errorf("git: log: %w", err)
 	}
 	return commits, nil
-}
-
-// Blame annotates each line of a file with its last-changing commit.
-func (u *gitUsecase) Blame(
-	ctx context.Context,
-	wsID string,
-	filePath string,
-) ([]gitdomain.BlameEntry, error) {
-	repoPath, err := u.repoPath(ctx, wsID)
-	if err != nil {
-		return nil, err
-	}
-	entries, err := u.git.Blame(ctx, repoPath, filePath)
-	if err != nil {
-		return nil, fmt.Errorf("git: blame: %w", err)
-	}
-	return entries, nil
 }
 
 // Branches returns all branches.

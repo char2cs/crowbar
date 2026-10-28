@@ -15,7 +15,7 @@
   "api/internal/api/v0/endpoints/repos/handlers/repos.go": 1051,
   "api/internal/api/v0/endpoints/repos/handlers/repos_extra_test.go": 835,
   "api/internal/api/v0/endpoints/repos/handlers/repos_test.go": 588,
-  "api/internal/api/v0/route_audit_test.go": 967,
+  "api/internal/api/v0/route_audit_test.go": 965,
   "api/internal/app/container.go": 509,
   "api/internal/app/repositories/chat/event_store.go": 572,
   "api/internal/app/repositories/chat/event_store_test.go": 632,

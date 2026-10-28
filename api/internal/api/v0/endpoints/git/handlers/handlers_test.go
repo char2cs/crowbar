@@ -39,10 +39,6 @@ func (stubGit) Log(_ context.Context, _ string, _, _ int) ([]gitdomain.Commit, e
 	return nil, nil
 }
 
-func (stubGit) Blame(_ context.Context, _, _ string) ([]gitdomain.BlameEntry, error) {
-	return nil, nil
-}
-
 func (stubGit) Branches(_ context.Context, _ string) ([]gitdomain.Branch, error) {
 	return nil, nil
 }
@@ -176,7 +172,6 @@ func newRouterWithErrors(
 	rg.GET("/status", h.Status)
 	rg.GET("/diff", h.Diff)
 	rg.GET("/log", h.Log)
-	rg.GET("/blame", h.Blame)
 	rg.GET("/branches", h.Branches)
 	rg.GET("/stashes", h.Stashes)
 	rg.GET("/conflicts", h.Conflicts)
@@ -234,7 +229,6 @@ func TestGitReadHandlers(
 	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/status", nil).Code)
 	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/diff", nil).Code)
 	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/log", nil).Code)
-	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/blame?path=main.go", nil).Code)
 	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/branches", nil).Code)
 	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/stashes", nil).Code)
 	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/conflicts", nil).Code)
@@ -247,7 +241,6 @@ func TestGitReadHandlers_MissingParams(
 ) {
 	r := newRouter()
 
-	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodGet, ws+"/blame", nil).Code)
 	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodGet, ws+"/conflict-hunks", nil).Code)
 	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodGet, ws+"/commit-diff", nil).Code)
 }

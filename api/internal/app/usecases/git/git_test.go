@@ -90,9 +90,6 @@ func TestGitUsecase_Log_Diff_CommitDiff_Blame_Branches_Stashes_Conflicts(t *test
 	git.CommitDiffFn = func(_ context.Context, _, _ string) (gitdomain.MultiFileDiff, error) {
 		return gitdomain.MultiFileDiff{}, nil
 	}
-	git.BlameFn = func(_ context.Context, _, _ string) ([]gitdomain.BlameEntry, error) {
-		return []gitdomain.BlameEntry{{}}, nil
-	}
 	git.BranchesFn = func(_ context.Context, _ string) ([]gitdomain.Branch, error) {
 		return []gitdomain.Branch{{Name: "main"}}, nil
 	}
@@ -116,10 +113,6 @@ func TestGitUsecase_Log_Diff_CommitDiff_Blame_Branches_Stashes_Conflicts(t *test
 
 	_, err = uc.CommitDiff(ctx, "w1", "sha")
 	require.NoError(t, err)
-
-	blame, err := uc.Blame(ctx, "w1", "f")
-	require.NoError(t, err)
-	assert.Len(t, blame, 1)
 
 	branches, err := uc.Branches(ctx, "w1")
 	require.NoError(t, err)
@@ -148,7 +141,6 @@ func TestGitUsecase_ReadErrorsForward(t *testing.T) {
 	git.CommitDiffFn = func(_ context.Context, _, _ string) (gitdomain.MultiFileDiff, error) {
 		return gitdomain.MultiFileDiff{}, boom
 	}
-	git.BlameFn = func(_ context.Context, _, _ string) ([]gitdomain.BlameEntry, error) { return nil, boom }
 	git.BranchesFn = func(_ context.Context, _ string) ([]gitdomain.Branch, error) { return nil, boom }
 	git.StashesFn = func(_ context.Context, _ string) ([]gitdomain.Stash, error) { return nil, boom }
 	git.ConflictedFilesFn = func(_ context.Context, _ string) ([]string, error) { return nil, boom }
@@ -161,8 +153,6 @@ func TestGitUsecase_ReadErrorsForward(t *testing.T) {
 	_, err = uc.Diff(ctx, "w1", false)
 	assert.Error(t, err)
 	_, err = uc.CommitDiff(ctx, "w1", "s")
-	assert.Error(t, err)
-	_, err = uc.Blame(ctx, "w1", "f")
 	assert.Error(t, err)
 	_, err = uc.Branches(ctx, "w1")
 	assert.Error(t, err)
@@ -445,7 +435,6 @@ func TestGitUsecase_ReadOps_WorkspaceError(t *testing.T) {
 		return gitdomain.MultiFileDiff{}, nil
 	}
 	git.LogFn = func(_ context.Context, _ string, _, _ int) ([]gitdomain.Commit, error) { return nil, nil }
-	git.BlameFn = func(_ context.Context, _, _ string) ([]gitdomain.BlameEntry, error) { return nil, nil }
 	git.BranchesFn = func(_ context.Context, _ string) ([]gitdomain.Branch, error) { return nil, nil }
 	git.StashesFn = func(_ context.Context, _ string) ([]gitdomain.Stash, error) { return nil, nil }
 	git.ConflictedFilesFn = func(_ context.Context, _ string) ([]string, error) { return nil, nil }
@@ -458,8 +447,6 @@ func TestGitUsecase_ReadOps_WorkspaceError(t *testing.T) {
 	_, err = uc.CommitDiff(ctx, "w1", "s")
 	assert.Error(t, err)
 	_, err = uc.Log(ctx, "w1", 1, 0)
-	assert.Error(t, err)
-	_, err = uc.Blame(ctx, "w1", "f")
 	assert.Error(t, err)
 	_, err = uc.Branches(ctx, "w1")
 	assert.Error(t, err)

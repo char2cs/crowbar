@@ -36,10 +36,6 @@ func (stubGit) Log(_ context.Context, _ string, _, _ int) ([]gitdomain.Commit, e
 	return nil, nil
 }
 
-func (stubGit) Blame(_ context.Context, _, _ string) ([]gitdomain.BlameEntry, error) {
-	return nil, nil
-}
-
 func (stubGit) Branches(_ context.Context, _ string) ([]gitdomain.Branch, error) {
 	return nil, nil
 }
@@ -144,7 +140,6 @@ func gitSurface() []struct {
 		{http.MethodGet, "/status"},
 		{http.MethodGet, "/diff"},
 		{http.MethodGet, "/log"},
-		{http.MethodGet, "/blame"},
 		{http.MethodGet, "/branches"},
 		{http.MethodGet, "/stashes"},
 		{http.MethodGet, "/conflicts"},
@@ -228,4 +223,17 @@ func TestRegisterDropsWorkspaceScopedRoutes(
 		r.ServeHTTP(rec, req)
 		assert.Equal(t, http.StatusNotFound, rec.Code, path)
 	}
+}
+
+// Blame is served once, by the editor endpoint's GET /v0/chats/:chatId/blame;
+// git mounts no second copy that could drift from it.
+func TestRegisterLeavesBlameToEditor(
+	t *testing.T,
+) {
+	r := registerChatScoped(t)
+
+	rec := httptest.NewRecorder()
+	path := "/v0/chats/chat1/git/blame?path=a.go"
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, http.NoBody))
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

@@ -14,7 +14,6 @@ type GitOpsEngine struct {
 	DiffFn            func(ctx context.Context, repoPath string, staged bool) ([]gitdomain.FileDiff, error)
 	CommitDiffFn      func(ctx context.Context, repoPath, sha string) (gitdomain.MultiFileDiff, error)
 	LogFn             func(ctx context.Context, repoPath string, limit, skip int) ([]gitdomain.Commit, error)
-	BlameFn           func(ctx context.Context, repoPath, filePath string) ([]gitdomain.BlameEntry, error)
 	BranchesFn        func(ctx context.Context, repoPath string) ([]gitdomain.Branch, error)
 	StashesFn         func(ctx context.Context, repoPath string) ([]gitdomain.Stash, error)
 	ConflictedFilesFn func(ctx context.Context, repoPath string) ([]string, error)
@@ -109,14 +108,6 @@ func (g *GitOpsEngine) Log(
 	skip int,
 ) ([]gitdomain.Commit, error) {
 	return g.LogFn(ctx, repoPath, limit, skip)
-}
-
-func (g *GitOpsEngine) Blame(
-	ctx context.Context,
-	repoPath string,
-	filePath string,
-) ([]gitdomain.BlameEntry, error) {
-	return g.BlameFn(ctx, repoPath, filePath)
 }
 
 func (g *GitOpsEngine) Branches(

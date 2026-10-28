@@ -84,29 +84,6 @@ func (h *Handlers) Log(
 	libs.WriteQueryOK(ctx, commits)
 }
 
-// Blame GET /v0/chats/:chatId/git/blame?path=<filePath>
-func (h *Handlers) Blame(
-	ctx *gin.Context,
-) {
-	rctx := ctx.Request.Context()
-	id := h.workspaceID(ctx)
-
-	filePath := ctx.Query("path")
-	if filePath == "" {
-		libs.WriteErr(ctx, http.StatusBadRequest, "path query parameter is required")
-		return
-	}
-
-	entries, err := h.git.Blame(rctx, id, filePath)
-	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
-		return
-	}
-
-	libs.WriteQueryOK(ctx, entries)
-}
-
 // Branches GET /v0/chats/:chatId/git/branches
 func (h *Handlers) Branches(
 	ctx *gin.Context,

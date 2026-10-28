@@ -28,10 +28,6 @@ func (errGit) Log(_ context.Context, _ string, _, _ int) ([]gitdomain.Commit, er
 	return nil, errBoom
 }
 
-func (errGit) Blame(_ context.Context, _, _ string) ([]gitdomain.BlameEntry, error) {
-	return nil, errBoom
-}
-
 func (errGit) Branches(_ context.Context, _ string) ([]gitdomain.Branch, error) {
 	return nil, errBoom
 }
@@ -160,7 +156,6 @@ func TestGitReadHandlers_Errors(
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, ws+"/status", nil).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, ws+"/diff", nil).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, ws+"/log", nil).Code)
-	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, ws+"/blame?path=main.go", nil).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, ws+"/branches", nil).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, ws+"/stashes", nil).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, ws+"/conflicts", nil).Code)
