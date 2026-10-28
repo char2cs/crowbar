@@ -52,7 +52,7 @@ export async function hydrateCriticalStores(): Promise<void> {
     await hydrateWindowPaneLayout()
   } catch (err) {
     // main.tsx renders even after a failed boot: render must not overtake the registration.
-    if (remoteHosts) await remoteHosts
+    await remoteHosts
     throw err
   }
   // The chat surface chunk loads beside the IndexedDB reads below, and render
@@ -60,7 +60,7 @@ export async function hydrateCriticalStores(): Promise<void> {
   const chatSurface = showsChat() ? preloadAgentChatPane() : undefined
   // Layout hydration to the first transcript row shown; AgentTranscript closes it.
   if (chatSurface) markStart('chat:first-row')
-  if (remoteHosts) await remoteHosts
+  await remoteHosts
   // The one network step, deliberately not awaited: members stay unplaced until it answers.
   void placeRestoredChatMembers()
   await useWorkspaceListStore.getState().fetch()
@@ -72,11 +72,12 @@ export async function hydrateCriticalStores(): Promise<void> {
   await chatSurface?.catch(() => {})
 }
 
-/** A paired install's hosts registered and its cached project rows held — where a restored
- *  pane's host, local too, resolves from. Undefined where no remote was ever paired, so
- *  that boot does exactly what it did. */
-function prepareRemoteHosts(): Promise<unknown> | undefined {
-  if (!hasPairedRemote(useHostConfigStore.getState())) return undefined
+/** A paired install's hosts registered, and the cached project rows held — where a restored
+ *  pane's host, local too, resolves from, and what scopes the cached sidebar tree to every
+ *  known project instead of only the active one. An install that never paired a remote
+ *  registers nothing and only holds the rows. */
+function prepareRemoteHosts(): Promise<unknown> {
+  if (!hasPairedRemote(useHostConfigStore.getState())) return seedProjectList()
   return Promise.all([hostsRegistered(), seedProjectList()])
 }
 

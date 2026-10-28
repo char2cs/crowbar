@@ -8,7 +8,7 @@ import {
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
 import type { Host } from '@/features/hosts/types'
-import { idle, type Loadable } from '@/lib/loadable'
+import { dataOf, idle, type Loadable } from '@/lib/loadable'
 import { saveCache } from '@/lib/persistence/cache-store'
 import { resetDB } from '@/lib/persistence/idb'
 import { useProjectDataStore } from '@/lib/store/projects'
@@ -297,10 +297,17 @@ describe('the cached project list at boot', () => {
     expect(requested()).not.toContain('/v0/projects')
   })
 
-  it('leaves the list alone where no remote host was ever paired', async () => {
+  // The sidebar tree is read for the projects the list carries, so a local-only
+  // install that never seeded it would draw only the active project's cache.
+  it('holds the cached list where no remote host was ever paired, without reading the network', async () => {
     await hydrateCriticalStores()
 
-    expect(useProjectDataStore.getState().data.status).toBe('idle')
+    expect(useProjectDataStore.getState().data.status).toBe('loading')
+    expect(dataOf(useProjectDataStore.getState().data)?.map((p) => p.id)).toEqual([
+      'p-local',
+      'p-remote',
+    ])
     await vi.waitFor(() => expect(requested()).toContain(MESSAGES))
+    expect(requested()).not.toContain('/v0/projects')
   })
 })

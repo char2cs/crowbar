@@ -144,6 +144,30 @@ describe('_shell/index beforeLoad', () => {
     expect.fail('expected redirect to throw')
   })
 
+  // Offline cold start: the cached list is what boot seeded, and the failed
+  // read must not turn it into an error page.
+  it('lands on the cached project when the list read fails', async () => {
+    const { useProjectDataStore } = await import('@/lib/store/projects')
+    const { loading, success, idle } = await import('@/lib/loadable')
+    const cached = {
+      id: 'p9',
+      name: 'Cached',
+      path: '/c',
+      lastActivity: new Date(0),
+      hostId: 'local',
+    }
+    useProjectDataStore.setState({ data: loading(success([cached])) })
+    readLocal.mockRejectedValue(new Error('connection refused'))
+    try {
+      await expect(runBeforeLoad()).rejects.toMatchObject({
+        isRedirect: true,
+        options: { to: '/ide/$projectId/home', params: { projectId: 'p9' } },
+      })
+    } finally {
+      useProjectDataStore.setState({ data: idle() })
+    }
+  })
+
   it('lands as soon as the local list is read, while a paired host that is up never answers', async () => {
     useHostConfigStore.getState().addHost({
       id: 'h1',
