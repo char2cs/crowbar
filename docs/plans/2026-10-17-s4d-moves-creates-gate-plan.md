@@ -15,9 +15,9 @@
 ### Task 11: Moves go through the Tree
 
 **Files (Go):**
-- Create: `api/internal/api/v0/endpoints/tree/{routes.go,handlers/handlers.go}` (R19's four routes over `usecases/tree.Service`; the move reply carries `hub.VersionOf(stream.KindTree, projectID)`), test `handlers/handlers_test.go`.
-- Modify: `api/internal/app/stream/hub.go` (`VersionOf`: the hub records the `v` of the last frame per entity key), `api/internal/api/v0/router.go`.
-- Delete: `ToLegacy` (`usecases/tree/legacy.go` keeps `FromLegacy` for the tree-containers step, 8 at refresh), `PATCH …/chats/:id/placement` (repo and home), `PATCH …/workspaces/:id/placement`, `…/chats/folders` CRUD (repo and home) and their handlers (`endpoints/chat/handlers/folders.go`, `endpoints/workspace/handlers/placement.go`, `PlaceChat`), `order`/`folderId` from the repo PATCH body, `ChatDTO.parentId/order`, `WorkspaceDTO.folderId/order`, `ChatWorktreeDTO.folderId/order`, `RepoDTO.order/folderId`, the folder routes' `AgentChatDTO` replies (there is no `FolderDTO`), and their tests.
+- Create: `api/internal/api/v0/endpoints/tree/{routes.go,handlers/handlers.go}` (R19's four routes over `usecases/tree.Service`; the move handler takes its own `SendWait` event's version `rev` and replies `{v, tree}` with `v` from `hub.VersionAt(stream.KindTree, projectID, rev)`, or `{tree}` without `v` when that answers `false`; index R19, F4), test `handlers/handlers_test.go`.
+- Modify: `api/internal/app/stream/hub.go` (`VersionAt` over the `(rev, v)` T5's `Entity` records per key), `usecases/tree.Service.Move` (also returns the event version), `api/internal/api/v0/router.go`.
+- Delete: `ToLegacy` and `FromLegacyMove` (`usecases/tree/legacy.go` keeps `FromLegacy` for the tree-containers step, 8 at refresh), the R13 overlay (`usecases/chat/placement_reads.go`, `LoadChat`'s and `home_read.go`'s overlay calls) and `domain.Chat.ParentID/Order` (kept since T2 for the DTO fields below; F1, F12), `PATCH …/chats/:id/placement` (repo and home), `PATCH …/workspaces/:id/placement`, `…/chats/folders` CRUD (repo and home) and their handlers (`endpoints/chat/handlers/folders.go`, `endpoints/workspace/handlers/placement.go`, `PlaceChat`), `order`/`folderId` from the repo PATCH body, `ChatDTO.parentId/order`, `WorkspaceDTO.folderId/order`, `ChatWorktreeDTO.folderId/order`, `RepoDTO.order/folderId`, the folder routes' `AgentChatDTO` replies (there is no `FolderDTO`), and their tests.
 - Modify (black box): `api/tests/tree_placement_test.go` (T1): `placementOf` reads the `tree` entity from the `projects` scope; each expectation is restated in explicit-container terms (R4) with a comment naming the T1 value it replaces; the refusal test hits `POST …/tree/moves` and asserts R19's codes.
 
 **Files (web):**
@@ -33,7 +33,7 @@
 ```ts
 // api.ts
 export interface Placement { parentId: string; index: number } // mirrors domain/tree.Placement
-export function moveNode(projectId: string, nodeId: string, parentId: string, index: number): Promise<void> // applies the reply as an entity frame
+export function moveNode(projectId: string, nodeId: string, parentId: string, index: number): Promise<void> // applies a reply with v as an entity frame; without v only clears pendingMove
 export function createFolder(projectId: string, f: { id: string; name: string; parentId: string; index: number }): Promise<void>
 export function renameFolder(projectId: string, id: string, name: string): Promise<void>
 export function deleteFolder(projectId: string, id: string): Promise<void>
@@ -45,7 +45,7 @@ export function moveForDrop(index: TreeIndex, dragged: string, target: DropTarge
 export interface PendingMove { projectId: string; nodeId: string; parentId: string; index: number }
 ```
 
-- [ ] **Step 1: Write the failing Go tests.** `handlers_test.go`: `TestMove_RepliesWithTheTreeAndItsVersion`, `TestMove_ARefusalIs409WithItsCode`, `TestCreateFolder_UsesTheClientID`, `TestDeleteFolder_MovesChildrenUp`; black box as above. Run: `GOTEST ./internal/api/v0/endpoints/tree/...`, `GOBOX 'TestTree_'`. Expected: FAIL.
+- [ ] **Step 1: Write the failing Go tests.** `handlers_test.go`: `TestMove_RepliesWithTheTreeAndItsVersion`, `TestMove_TwoConcurrentMovesNeverReplyWithTheOthersVersion` (F4), `TestMove_ARefusalIs409WithItsCode`, `TestCreateFolder_UsesTheClientID`, `TestDeleteFolder_MovesChildrenUp`; black box as above. Run: `GOTEST ./internal/api/v0/endpoints/tree/...`, `GOBOX 'TestTree_'`. Expected: FAIL.
 - [ ] **Step 2: Implement the Go side** and delete the legacy routes and fields. Run Step 1's commands, `GOTEST ./internal/app/... ./internal/api/...`, Go gates. `grep -rn 'ToLegacy\|/placement\|chats/folders' api/internal --include='*.go'` finds nothing.
 - [ ] **Step 3: Write the failing web tests.**
 ```ts
@@ -56,6 +56,7 @@ it('refuses a thread under another workspace'); it('keeps a fork under its fork 
 it('a drop before a row means its parent at its index')
 it('a drop inside a container means its last child')
 it('a drop onto its own place is no move')
+it('a reply without v clears the pending move and leaves the stored tree')     // R19, F4
 // tree-ui-store.test.ts (extend) / rows.test.ts (extend)
 it('a pending move draws the row at its new place at once')
 it('the reply clears the pending move in the same update that applies the tree')   // no frame shows the old place
@@ -128,15 +129,15 @@ Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 - Modify: the comments of every moved file to the ≤3-line *why* rule (comment changes only).
 
 - [ ] **Step 1: Move and re-key.** Run T1's pin, `cd web && bunx vitest run src/__tests__/features/workspace/tree src/__tests__/components/layout`, `bun tsc --noEmit`, web gates. Expected: PASS.
-- [ ] **Step 2: Measure the gate.** `node scripts/ratchet/loc-budgets.mjs`: `web.sidebar` ≤ 5,000. If it is above, stop and report the per-file list (largest first) and D9's status to the user as a spec question (ledger F11); never loosen the budget and never move a file whose owner is the sidebar. Then the index's gate table: the `websocket.Upgrader` grep lists exactly three sites (stream, terminal PTY, console log tail); `grep -rn 'newAsynx\[' api/internal/app` lists Workspace, Chat, ReviewThread, Tree; the reseed-GET grep finds only user-initiated reads; `grep -rn 'crowbar_\|loadCache\|saveCache\|entity-cache' web/src --include='*.ts*' | grep -v __tests__` lists only `idb.ts`'s upgrade chain and schema types.
+- [ ] **Step 2: Measure the gate.** `node scripts/ratchet/loc-budgets.mjs`: `web.sidebar` ≤ 5,000. If it is above, stop and report the per-file list (largest first) and D9's status to the user as a spec question (ledger F11); never loosen the budget and never move a file whose owner is the sidebar. Then the index's gate table: the `websocket.Upgrader` grep lists exactly three sites (stream, terminal PTY, console log tail); `grep -n 'newAsynx(' api/internal/app/asynx.go` lists 4 call sites: workspace, reviewThread, agentChat, tree (F14); the reseed-GET grep finds only user-initiated reads; `grep -rn 'crowbar_\|loadCache\|saveCache\|entity-cache' web/src --include='*.ts*' | grep -v __tests__` lists only `idb.ts`'s upgrade chain and schema types.
 - [ ] **Step 3: Ratchet.** `node scripts/ratchet/{file-size,counters,loc-budgets}.mjs --update`, then each without `--update`, then the targeted Go and web gates listed in the index (ledger F21 and the handoff: never `make pr-checks`, never a full `vitest run` or `go test ./...`; CI runs the full suites). Expected: PASS, every number lower or equal; `loc-budgets` keys red at base before S4 are reported with their delta, not raised.
 - [ ] **Step 4: Live check (Review Focus 1, 5).** Where and by whom: index OR4 (with the user, or in the isolated noVNC container). P3's `df -h`. `rm -rf .crowbar/s4-pin/home && tar -xf .crowbar/s4-pin/home-before.tar -C .crowbar/s4-pin` (T1's home, untouched since T1). `make dev-desktop CROWBAR_HOME=$(git rev-parse --show-toplevel)/.crowbar/s4-pin/home`. Then with Tauri MCP:
-  1. `$CROWBAR_HOME/migrate/ledger.jsonl` records `placement-tree` and `tree-containers` applied and verified; `$CROWBAR_HOME/state/events/node.db` does not exist.
-  2. Capture the outline with T1's script; `diff` against `.crowbar/s4-pin/outline-before.txt`: empty.
+  1. `$CROWBAR_HOME/migrate/ledger.jsonl` records `placement-tree` and `tree-containers` applied and verified; `$CROWBAR_HOME/state/events/node.db` still exists and nothing in the daemon opens it (rollback-safe until S8, index R12, F15).
+  2. Capture the outline with T1's script (scoped to the sidebar tree root, F21); `diff` against `.crowbar/s4-pin/outline-before.txt`: empty.
   3. In the app: drag a thread into a repo folder and back; drag a home folder above a repo; create a folder, rename it, delete it (its children move up, in order); try to drop a folder onto a chat (the indicator refuses; no request is sent); try to drop a thread under another branch (the indicator refuses). After each step capture the outline and check it against the expected change only; `webview_screenshot` once per step for the record (not committed).
   4. Quit and relaunch: the outline equals the one before quitting; the skeleton shows until the first snapshot (V1).
   5. In the webview: `indexedDB.databases()` reports `crowbar` at version 11, and opening it without a version lists the same 17 object store names it had at T1 (read only; nothing is written).
-  6. Record, from `performance` entries, the time from navigation start to the first `[role="treeitem"]` (D5's number) in the commit body.
+  6. Record, from `performance` entries, the time from navigation start to the first `[role="treeitem"]` (D5's number) in the commit body, and how long the hub lock was held for the pin home's `projects` snapshot. Read the hub's snapshot timing from the daemon log at debug level, which T5 adds as one `slog.Debug` line per `sub` (index R7, F3).
   Quit the app. Never touch `~/.crowbar` or the production app.
 - [ ] **Step 5: Commit.**
 
