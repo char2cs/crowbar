@@ -116,7 +116,7 @@ func TestNewSocket_DaemonAlreadyRunning(t *testing.T) {
 	}()
 
 	_, err = NewSocket("unix://" + sockPath)
-	assert.ErrorIs(t, err, ErrDaemonRunning)
+	assert.Same(t, ErrDaemonRunning, err)
 }
 
 func TestNewSocket_ListenError(t *testing.T) {

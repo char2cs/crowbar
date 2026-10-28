@@ -70,5 +70,8 @@ func handleStale(
 		return os.Remove(path)
 	}
 
-	return errors.Join(ErrDaemonRunning, conn.Close())
+	if closeErr := conn.Close(); closeErr != nil {
+		return errors.Join(ErrDaemonRunning, closeErr)
+	}
+	return ErrDaemonRunning
 }
