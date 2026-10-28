@@ -327,3 +327,25 @@ func TestRecordSpawnFailure_ClosesATurnOpenedInTheWindow(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, opened, "a turn opened on a runner whose spawn failed")
 }
+
+// A spawn the connection refuses before anything forked leaves neither its
+// runner directory nor its surface entry behind: no exit callback reaps them.
+func TestSpawnRunner_ARefusedPreForkSpawnReapsItsDirAndSurface(t *testing.T) {
+	h := helperServeSpawn(t, "refuse", false)
+	t.Setenv(helperServeAsked, filepath.Join(t.TempDir(), "asked"))
+	h.rs.chats = stubChatsForSpawn{chat: domain.Chat{
+		ID: h.chatID, WorkspaceID: "ws-1", ProviderID: "carrier-test", Surface: engineagents.SurfaceChat,
+	}}
+	h.rs.conversations = reviveConversations{provider: "carrier-test"}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	_, err := h.rs.spawnRunner(ctx, h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"}, false)
+
+	require.ErrorIs(t, err, ErrSpawnSessionRefused)
+	assert.NoDirExists(t, filepath.Join(h.home, "runners", "runner-1-carrier-test"))
+	h.rs.surfaces.mu.Lock()
+	_, kept := h.rs.surfaces.byRun["runner-1"]
+	h.rs.surfaces.mu.Unlock()
+	assert.False(t, kept, "the refused runner's surface entry is dropped")
+}

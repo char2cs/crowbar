@@ -195,7 +195,7 @@ func (rs *Runners) spawnRunner(
 	)
 	if refused != nil {
 		// The plan resumes the session the provider just refused.
-		rs.abandonUnforked(runnerID)
+		rs.abandonUnforked(ctx, runnerID, paths)
 		return "", fmt.Errorf("%w: %w", ErrSpawnSessionRefused, refused)
 	}
 	steps := buildSpawnSteps(
@@ -204,12 +204,12 @@ func (rs *Runners) spawnRunner(
 
 	plan, err := descriptor.SpawnPlan(tctx, os.Environ(), steps)
 	if err != nil {
-		rs.abandonUnforked(runnerID)
+		rs.abandonUnforked(ctx, runnerID, paths)
 		return "", fmt.Errorf("agent: spawn runner: build spawn plan: %w", err)
 	}
 	pointPlanAtAttach(plan, attachArgv)
 	if err := rs.bindAssigned(ctx, chatID, launch); err != nil {
-		rs.abandonUnforked(runnerID)
+		rs.abandonUnforked(ctx, runnerID, paths)
 		return "", err
 	}
 
@@ -256,10 +256,13 @@ func (rs *Runners) spawnRunner(
 	return runnerID, nil
 }
 
-// abandonUnforked forgets what a spawn set up before it forked anything.
-func (rs *Runners) abandonUnforked(runnerID string) {
+// abandonUnforked forgets what a spawn set up before it forked anything: no
+// exit callback exists yet to reap the runner's directory or surface entry.
+func (rs *Runners) abandonUnforked(ctx context.Context, runnerID string, paths spawnPaths) {
 	rs.apiConns.drop(runnerID)
 	rs.agents.ForgetRunner(runnerID)
+	rs.surfaces.drop(runnerID)
+	reapRunnerDir(ctx, paths.crowbarHome, paths.tmpDir)
 }
 
 func (rs *Runners) forkCLI(
@@ -272,8 +275,7 @@ func (rs *Runners) forkCLI(
 	if err == nil {
 		return termSessID, nil
 	}
-	rs.abandonUnforked(req.runnerID)
-	reapRunnerDir(ctx, req.crowbarHome, req.tmpDir)
+	rs.abandonUnforked(ctx, req.runnerID, spawnPaths{crowbarHome: req.crowbarHome, tmpDir: req.tmpDir})
 
 	// A CLI that is not installed is the ONE spawn failure the user can act on, so
 	// it travels as its own sentinel (→ 424, a named message in the UI) rather than
