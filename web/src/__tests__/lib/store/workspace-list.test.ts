@@ -5,6 +5,7 @@ import { dataOf, idle, success } from '@/lib/loadable'
 import { upsertEntity } from '@/lib/persistence/entity-cache'
 import { useProjectDataStore, useProjectStore } from '@/lib/store/projects'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import type { Project, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const project = (id: string): Project => ({
@@ -58,6 +59,7 @@ beforeEach(() => {
   // which projects are KNOWN.
   useProjectStore.setState({ activeProjectId: 'p1' })
   useProjectDataStore.setState({ data: idle() })
+  useFolderSignalStore.setState({ seededRepoIds: new Set() })
 })
 
 describe('useWorkspaceListStore', () => {
@@ -72,6 +74,17 @@ describe('useWorkspaceListStore', () => {
     expect(repos[0].id).toBe('r1')
     expect(repos[0].projectId).toBe('p1')
     expect(repos[0].workspaces.map((w) => w.id)).toEqual(['w1'])
+  })
+
+  // An unreachable host never seeds the tree, so the cache alone has to be
+  // enough for the sidebar to draw the repo.
+  it('fetch counts a repo read from the cache as seeded', async () => {
+    await upsertEntity('crowbar_repos', repoDTO)
+    await upsertEntity('crowbar_workspaces', { ...wsDTO, owningChatId: 'c1' })
+
+    await useWorkspaceListStore.getState().fetch()
+
+    expect(useFolderSignalStore.getState().seededRepoIds.has('r1')).toBe(true)
   })
 
   it('fetch yields an empty tree when the entity cache is empty', async () => {

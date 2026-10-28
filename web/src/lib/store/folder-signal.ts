@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
+import type { Repo } from '@/lib/store/sidebar'
 
 /**
  * Per-repo generation counter for "this repo's TREE moved, read it again" —
@@ -57,6 +58,14 @@ interface FolderSignalState {
    *  nothing costs no subscriber a render. */
   markTreeSeeded: (repoId: string) => void
   /**
+   * Admit repos whose rows were read back from the IndexedDB entity cache. The
+   * cache is the only copy there is while the host is unreachable, and its
+   * workspaces carry the backend-resolved `owningChatId`, so a row drawn from
+   * them already has the id the network would settle on. A repo with nothing
+   * cached, or a workspace cached before owners existed, stays gated.
+   */
+  markSeededFromCache: (repos: readonly Repo[]) => void
+  /**
    * Repos whose WORKSPACE list has come back from the daemon at least once.
    * `sidebar-tree-surface.tsx` admits such a repo to the tree before its
    * folders+chats seed lands: its header/branch rows draw from workspace data
@@ -89,6 +98,14 @@ export const useFolderSignalStore = create<FolderSignalState>()(
           ? state
           : { seededRepoIds: new Set([...state.seededRepoIds, repoId]) },
       ),
+    markSeededFromCache: (repos) =>
+      set((state) => {
+        const next = repos.filter(
+          (repo) => !state.seededRepoIds.has(repo.id) && hasFinalRowIds(repo),
+        )
+        if (next.length === 0) return state
+        return { seededRepoIds: new Set([...state.seededRepoIds, ...next.map((r) => r.id)]) }
+      }),
     seededWorkspaceRepoIds: NO_REPOS,
     markWorkspacesSeeded: (repoId) =>
       set((state) =>
@@ -105,3 +122,8 @@ export const useFolderSignalStore = create<FolderSignalState>()(
       ),
   })),
 )
+
+function hasFinalRowIds(repo: Repo): boolean {
+  if (repo.workspaces.length === 0 && !repo.chats?.length) return false
+  return repo.workspaces.every((ws) => !!ws.owningChatId)
+}
