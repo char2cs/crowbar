@@ -709,23 +709,6 @@ describe('AgentChatView durable FIFO', () => {
     expect(submitPromptFn).toHaveBeenCalledTimes(1)
   })
 
-  it('treats request_already_accepted as awaiting hook evidence, never resendable uncertainty', async () => {
-    submitPromptFn.mockRejectedValueOnce(
-      new ApiError('the original request was accepted', 409, 'request_already_accepted'),
-    )
-    setup()
-    await enterPrompt('accepted once')
-    await waitFor(() =>
-      expect(screen.getByTestId('queued-prompt')).toHaveAttribute('data-state', 'awaiting_turn'),
-    )
-    expect(screen.getByTestId('queued-prompt')).not.toHaveAttribute(
-      'data-state',
-      'outcome_uncertain',
-    )
-    expect(screen.queryByRole('button', { name: /retry same request/i })).not.toBeInTheDocument()
-    expect(submitPromptFn).toHaveBeenCalledTimes(1)
-  })
-
   it.each([
     [new TypeError('Load failed'), 'transport rejection'],
     [new ApiError('unexpected server failure', 500), 'unexpected 5xx'],

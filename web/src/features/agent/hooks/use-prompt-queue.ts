@@ -464,18 +464,8 @@ export function usePromptQueue(options: PromptQueueOptions) {
         refreshMessages()
       } catch (error) {
         if (error instanceof ApiError && error.status === 409) {
-          const code: string = error.problem.code
-          const definitelyBusy = code === 'chat_busy'
-          if (code === 'request_already_accepted') {
-            // Dedupe proved the original restart succeeded. There is nothing to
-            // resend and no need for a runner result: wait for hook evidence.
-            mark(item.clientRequestId, (current) => ({
-              ...current,
-              state: 'awaiting_turn',
-              error: undefined,
-            }))
-            refreshMessages()
-          } else if (definitelyBusy) {
+          const code = error.problem.code
+          if (code === 'chat_busy') {
             const waitForIdleEpoch = idleEpochRef.current + 1
             mark(item.clientRequestId, (current) => ({
               ...current,
