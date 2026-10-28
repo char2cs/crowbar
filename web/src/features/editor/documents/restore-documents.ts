@@ -1,6 +1,7 @@
 import { isNotFoundError } from '@/lib/api'
 import { readDocument, type DocumentRef } from '@/lib/api/documents'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { workspaceBranch } from '@/lib/workspace/workspace-branch'
 import {
   getEditorHost,
   releaseWithDocument,
@@ -236,15 +237,6 @@ function settle(buffer: EditorContent, draft: EditorDraft | undefined): void {
 
 const tail = (path: string, n: number) => path.split('/').slice(-n).join('/')
 
-/** A workspace as the user knows it: its branch, else its id. */
-function workspaceName(workspaceId: string): string {
-  for (const repo of useSidebarStore.getState().repos) {
-    const ws = repo.workspaces.find((w) => w.id === workspaceId)
-    if (ws) return ws.branch
-  }
-  return workspaceId
-}
-
 /** A message naming its file, by as much of its path as tells it from the others named alike. */
 function fileLabel({ message, path }: Failure, kind: Failures): string {
   if (!`/${path}`.endsWith(`/${message}`)) return message
@@ -259,7 +251,9 @@ function fileLabel({ message, path }: Failure, kind: Failures): string {
 function failureLabel(failure: Failure, kind: Failures): string {
   const label = fileLabel(failure, kind)
   const twin = kind.some((f) => f.path === failure.path && f.workspaceId !== failure.workspaceId)
-  return twin ? `${label} (${workspaceName(failure.workspaceId)})` : label
+  return twin
+    ? `${label} (${workspaceBranch(useSidebarStore.getState().repos, failure.workspaceId)})`
+    : label
 }
 
 /** One toast per kind of failure, naming every file it hit. */

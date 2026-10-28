@@ -21,16 +21,33 @@ function getFileName(filePath: string): string {
   return parts[parts.length - 1] || ''
 }
 
+/** The shortest `../dir/name` tail of each distinct path that tells it from the others. */
+function distinctPathLabels(paths: string[], fileName: string): Map<string, string> {
+  const segmentsOf = new Map(paths.map((path) => [path, getPathSegments(path)]))
+  const label = (segments: string[]) =>
+    segments.length > 0 ? `../${segments.join('/')}/${fileName}` : fileName
+  if (paths.length === 1) return new Map([[paths[0], fileName]])
+
+  const deepest = Math.max(...[...segmentsOf.values()].map((segments) => segments.length))
+  for (let needed = 1; needed <= deepest; needed++) {
+    const tails = new Set([...segmentsOf.values()].map((s) => s.slice(-needed).join('/')))
+    if (tails.size === paths.length) {
+      return new Map(paths.map((path) => [path, label(segmentsOf.get(path)!.slice(-needed))]))
+    }
+  }
+  return new Map(paths.map((path) => [path, label(segmentsOf.get(path)!)]))
+}
+
 /**
- * Check if a path is within the root directory
- */
-/**
- * Calculate minimal distinguishing display names for buffers
+ * Calculate minimal distinguishing display names for buffers: same-named files
+ * by the shortest differing directory tail, and one path open from two
+ * workspaces by the workspace's name, as restore failures name them.
  * Returns a map of buffer ID to display name
  */
 export function calculateDisplayNames(
   buffers: PaneContent[],
   _rootPath: string | undefined,
+  workspaceName: (workspaceId: string) => string,
 ): Map<string, string> {
   const displayNames = new Map<string, string>()
 
@@ -51,61 +68,15 @@ export function calculateDisplayNames(
     fileNameGroups.get(fileName)!.push(buffer)
   }
 
-  // For each filename group, determine minimal distinguishing paths
-  for (const [fileName, groupBuffers] of fileNameGroups) {
-    if (groupBuffers.length === 1) {
-      // Only one file with this name, just show the filename
-      displayNames.set(groupBuffers[0].id, fileName)
-    } else {
-      // Multiple files with same name, need to distinguish
-      const pathSegmentsList = groupBuffers.map((b) => ({
-        buffer: b,
-        segments: getPathSegments(b.path ?? ''),
-      }))
-
-      // Find the minimum number of segments needed to distinguish all files
-      let segmentsNeeded = 1
-      let allDistinct = false
-
-      while (
-        !allDistinct &&
-        segmentsNeeded <= Math.max(...pathSegmentsList.map((p) => p.segments.length))
-      ) {
-        const displayStrings = new Set<string>()
-
-        for (const item of pathSegmentsList) {
-          const { segments } = item
-          const relevantSegments = segments.slice(-segmentsNeeded)
-          const displayPath = relevantSegments.join('/')
-          displayStrings.add(`${displayPath}/${fileName}`)
-        }
-
-        if (displayStrings.size === groupBuffers.length) {
-          // All distinct!
-          allDistinct = true
-          for (const item of pathSegmentsList) {
-            const { buffer, segments } = item
-            const relevantSegments = segments.slice(-segmentsNeeded)
-            const displayPath =
-              relevantSegments.length > 0
-                ? `../${relevantSegments.join('/')}/${fileName}`
-                : fileName
-            displayNames.set(buffer.id, displayPath)
-          }
-        } else {
-          segmentsNeeded++
-        }
-      }
-
-      // Fallback: if still not distinct, use full relative path
-      if (!allDistinct) {
-        for (const item of pathSegmentsList) {
-          const { buffer, segments } = item
-          const displayPath =
-            segments.length > 0 ? `../${segments.join('/')}/${fileName}` : fileName
-          displayNames.set(buffer.id, displayPath)
-        }
-      }
+  for (const [fileName, group] of fileNameGroups) {
+    const paths = [...new Set(group.map((b) => b.path ?? ''))]
+    const labels = distinctPathLabels(paths, fileName)
+    for (const buffer of group) {
+      const label = labels.get(buffer.path ?? '')!
+      const twin = group.some(
+        (other) => other.path === buffer.path && other.workspaceId !== buffer.workspaceId,
+      )
+      displayNames.set(buffer.id, twin ? `${label} (${workspaceName(buffer.workspaceId)})` : label)
     }
   }
 

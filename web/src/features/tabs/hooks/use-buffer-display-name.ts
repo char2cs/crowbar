@@ -2,6 +2,8 @@ import { useCallback, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import type { PaneContent } from '@/features/panes/types/pane-content'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import { workspaceBranch } from '@/lib/workspace/workspace-branch'
 import { calculateDisplayNames } from '../utils/path-shortener'
 
 interface UseBufferDisplayNameOptions {
@@ -63,10 +65,14 @@ export function useBufferDisplayName({ buffers, rootFolderPath }: UseBufferDispl
     return map
   }, [sessionFieldTuples])
 
-  const displayNames = useMemo(
-    () => calculateDisplayNames(buffers, rootFolderPath),
-    [buffers, rootFolderPath],
+  const workspaceIds = useMemo(() => [...new Set(buffers.map((b) => b.workspaceId))], [buffers])
+  const branches = useSidebarStore(
+    useShallow((state) => workspaceIds.map((id) => workspaceBranch(state.repos, id))),
   )
+  const displayNames = useMemo(() => {
+    const branchOf = new Map(workspaceIds.map((id, i) => [id, branches[i]]))
+    return calculateDisplayNames(buffers, rootFolderPath, (id) => branchOf.get(id) ?? id)
+  }, [buffers, rootFolderPath, workspaceIds, branches])
 
   const isUsefulTerminalTitle = useCallback((title?: string) => {
     if (!title) return false
