@@ -90,18 +90,33 @@ func newSteerFixture(t *testing.T) steerFixture {
 	f.imported = importWritableWorkspace(t, h)
 	f.chatID, f.runnerID = createStubChat(t, h, f.imported, f.provider)
 	// The CLI logs its launch on its own schedule; one quit before then never logs.
-	require.Eventually(t, func() bool { return f.launchCount(t) == 1 }, 10*time.Second, 5*time.Millisecond)
+	require.Eventually(t, f.launchedTimes(1), 10*time.Second, 5*time.Millisecond)
 	return f
 }
 
 func (f steerFixture) launchCount(t *testing.T) int {
 	t.Helper()
+	n, err := f.launched()
+	require.NoError(t, err)
+	return n
+}
+
+// launched is how many times the CLI logged its launch; it never fails the
+// test itself, so an Eventually condition can call it off the test goroutine.
+func (f steerFixture) launched() (int, error) {
 	raw, err := os.ReadFile(f.launches)
 	if errors.Is(err, os.ErrNotExist) {
-		return 0
+		return 0, nil
 	}
-	require.NoError(t, err)
-	return strings.Count(string(raw), "launched")
+	return strings.Count(string(raw), "launched"), err
+}
+
+// launchedTimes is an Eventually condition: the CLI has launched n times.
+func (f steerFixture) launchedTimes(n int) func() bool {
+	return func() bool {
+		got, err := f.launched()
+		return err == nil && got == n
+	}
 }
 
 // hook posts one provider hook and returns the daemon's reply, what the CLI
@@ -219,7 +234,7 @@ func TestRegression_PromptSentWhileIdleStillRestartsTheCLI(t *testing.T) {
 	f.submit(t, "hello", uuid.NewString(), http.StatusOK)
 
 	// The respawned CLI logs its launch on its own schedule, after the 200.
-	require.Eventually(t, func() bool { return f.launchCount(t) == 2 }, 10*time.Second, 5*time.Millisecond)
+	require.Eventually(t, f.launchedTimes(2), 10*time.Second, 5*time.Millisecond)
 }
 
 // Stop retires the runner; the message parked on its turn was never delivered
