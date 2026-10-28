@@ -19,8 +19,10 @@ import { usePaneTopRowEdges } from '../hooks/use-pane-top-row-edges'
 import { PaneTopRow } from './pane-top-row'
 import TabNavigationButtons from './tab-navigation-buttons'
 
-// Every tab is this wide, a split included.
-const ROW_WIDTH_PX = 176
+// Tabs share the strip equally between these bounds, a split included; the
+// strip scrolls only once every tab is at the minimum.
+const TAB_MAX_WIDTH_PX = 240
+const TAB_MIN_WIDTH_PX = 112
 
 /**
  * The sidebar's Recents rows laid out across the top: one per view of the
@@ -116,7 +118,13 @@ function ViewTabSlot({ viewId, children }: { viewId: string; children: React.Rea
   const hasMembers = useStore(windowPaneStore, (s) => viewMembers(s, viewId).length > 0)
   if (!hasMembers) return null
   return (
-    <div className="shrink-0" style={{ width: ROW_WIDTH_PX }}>
+    <div
+      style={{
+        flex: `1 1 ${TAB_MAX_WIDTH_PX}px`,
+        minWidth: TAB_MIN_WIDTH_PX,
+        maxWidth: TAB_MAX_WIDTH_PX,
+      }}
+    >
       {children}
     </div>
   )
