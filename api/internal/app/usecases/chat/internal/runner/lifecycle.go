@@ -88,19 +88,20 @@ func (rs *Runners) Shutdown() {
 
 // reconcileRunnerExit records that runnerID's process is gone: one ledger
 // commit ends its turn, names why and settles what it carried, then the chat
-// is freed. The first exit signal to claim the runner records it.
-func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
+// is freed. The first exit signal to claim the runner records it, and is
+// answered the reason it recorded.
+func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) string {
 	ctx = context.WithoutCancel(ctx)
 	rs.agents.ForgetRunner(runnerID)
 	rs.surfaces.drop(runnerID)
 	rs.answers.ReleaseRunner(runnerID)
 	entry, ok := rs.claimEnd(runnerID)
 	if !ok {
-		return
+		return ""
 	}
 	defer rs.live.remove(runnerID)
 	if !entry.started {
-		return // its spawn failed, and records that itself
+		return "" // its spawn failed, and records that itself
 	}
 	chatID := entry.runner.CurrentChatID
 	defer rs.announceRunner(ctx, chatID, runnerID, frameExited)
@@ -115,6 +116,7 @@ func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
 	}
 	rs.turns.Retire(chatID, runnerID)
 	slog.InfoContext(ctx, "agent: runner ended", "component", "runner", "chat", chatID, "reason", reason)
+	return reason
 }
 
 // endUnheld records runnerID's exit for a path not holding its chat, under the

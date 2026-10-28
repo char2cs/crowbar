@@ -21,6 +21,7 @@ export type ProblemCode =
   | 'request_id_conflict'
   | 'prompt_submit_unsupported'
   | 'live_tui_required'
+  | 'session_lost'
   | 'catalog_unsupported'
   | 'catalog_timeout'
   | 'catalog_command_unavailable'

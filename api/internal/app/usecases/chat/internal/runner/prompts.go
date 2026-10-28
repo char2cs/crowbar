@@ -89,13 +89,26 @@ func (rs *Runners) submitPromptLocked(
 	return rs.launchCarrying(ctx, h, chat, clientRequestID, text, delivery)
 }
 
-// spawnFailure is what a failed replacement spawn tells the client: only a CLI
-// that is not installed provably never ran, any other failure may follow a fork.
+// spawnFailure is what a failed replacement spawn tells the client: a CLI that
+// is not installed, or was refused its session, provably never took the prompt;
+// any other failure may follow a fork.
 func spawnFailure(ctx context.Context, err error) error {
-	if errors.Is(err, engineterminal.ErrCommandNotFound) {
+	switch {
+	case errors.Is(err, engineterminal.ErrCommandNotFound):
 		return fmt.Errorf("agent: submit prompt: replacement spawn: %w", err)
+	case errors.Is(err, ErrSpawnSessionRefused):
+		return ErrPromptSessionLost
 	}
 	return uncertainPromptOutcome(ctx, "replacement spawn", err)
+}
+
+// pushFailure is what a failed api push tells the client: a session the
+// provider no longer has cannot have taken the prompt.
+func pushFailure(ctx context.Context, err error) error {
+	if errors.Is(err, engineagents.ErrAPISessionLost) {
+		return ErrPromptSessionLost
+	}
+	return uncertainPromptOutcome(ctx, "api push", err)
 }
 
 func normalisePromptRequest(
@@ -281,7 +294,7 @@ func (rs *Runners) submitPromptOverAPI(
 	if pushErr != nil {
 		rs.loseAPISession(ctx, chat.ID, live, session, pushErr)
 		return domain.AgentPromptSubmission{}, true, rs.failPrompt(
-			ctx, chat.ID, clientRequestID, uncertainPromptOutcome(ctx, "api push", pushErr),
+			ctx, chat.ID, clientRequestID, pushFailure(ctx, pushErr),
 		)
 	}
 	submission, err := rs.commitPromptSpawn(ctx, chat.ID, clientRequestID, live.ID)

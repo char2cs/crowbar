@@ -34,6 +34,7 @@ const (
 	RequestIDConflict       Code = "request_id_conflict"
 	PromptSubmitUnsupported Code = "prompt_submit_unsupported"
 	LiveTUIRequired         Code = "live_tui_required"
+	SessionLost             Code = "session_lost"
 
 	CatalogUnsupported        Code = "catalog_unsupported"
 	CatalogTimeout            Code = "catalog_timeout"
@@ -70,7 +71,7 @@ func (c Code) Status() int {
 		return http.StatusForbidden
 	case NotFound:
 		return http.StatusNotFound
-	case Conflict, Locked, ChatBusy, RequestOutcomeUncertain, RequestIDConflict,
+	case Conflict, Locked, ChatBusy, SessionLost, RequestOutcomeUncertain, RequestIDConflict,
 		CatalogSuperseded, WorkAtRisk, IDConflict, OperationIDConflict, OperationRunning:
 		return http.StatusConflict
 	case TooLarge:

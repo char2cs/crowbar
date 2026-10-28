@@ -283,7 +283,7 @@ func TestSubmitPrompt_ALaunchWhoseSessionTheConnectionRefusesForksNothing(t *tes
 
 	_, err := h.rs.SubmitPromptWithSwitch(ctx, h.chatID, "hello", requestID, "", nil)
 
-	require.ErrorIs(t, err, ErrPromptOutcomeUnknown)
+	require.ErrorIs(t, err, ErrPromptSessionLost)
 	assert.Empty(t, h.term.created, "no PTY forks to resume the refused session")
 	assert.Equal(t, []string{"initialize", "thread/resume"}, askedCalls(t, asked), "one CLI was launched")
 	assert.Equal(t, ledger.ReasonSessionLost, promptReceipt(t, h.rs.ledger, requestID).Reason)

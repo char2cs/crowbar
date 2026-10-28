@@ -3,6 +3,7 @@
 package tests
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -311,4 +312,92 @@ func TestRegression_Symptom2_SwitchingBackResumesTheProvidersOwnSession(t *testi
 
 	l3 := promptLaunch(t, h, imported, fake, chatID, "three", fake.ID)
 	assert.Equal(t, s, argAfter(l3.Argv, "--resume"), "switching back resumes the provider's own session")
+}
+
+// dormantRefusingChat is a dormant chat bound to a session its CLI now refuses
+// to resume, and the lifecycle stream it is watched on.
+func dormantRefusingChat(t *testing.T, h *harness, imported importedRepo) (string, string, *websocket.Conn) {
+	t.Helper()
+	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
+	chatID, l1 := createFakeChat(t, h, imported, fake)
+	s := argAfter(l1.Argv, "--session-id")
+	require.NotEmpty(t, s, "the first launch names its session: %v", l1.Argv)
+	completeTurn(t, h, l1, h.url+repoBase(imported), "claude", s, "one")
+	conn := h.dial(repoBase(imported) + "/chats/ws")
+	killAndAwaitExit(t, h, conn, l1)
+	fake.RefuseResume(t, s, "No conversation found with session ID: "+s)
+	return chatID, s, conn
+}
+
+// answerOf is path's status and, for a failure, the problem code it carries.
+func answerOf(t *testing.T, h *harness, path string, body any) (int, string) {
+	t.Helper()
+	raw, err := json.Marshal(body)
+	require.NoError(t, err)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, h.url+path, bytes.NewReader(raw))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := h.server.Client().Do(req)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, resp.Body.Close()) }()
+	var envelope struct {
+		Code string `json:"code"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&envelope))
+	return resp.StatusCode, envelope.Code
+}
+
+// requireAnsweredAsLost holds for a launch whose CLI refuses its session: 200
+// when the launch answers before the CLI dies (the feed then says why), else
+// session_lost, never an uncertain delivery. The runner tests pin the second.
+func requireAnsweredAsLost(t *testing.T, status int, code string) {
+	t.Helper()
+	if status == http.StatusOK {
+		return
+	}
+	assert.Equal(t, http.StatusConflict, status)
+	assert.Equal(t, "session_lost", code, "never request_outcome_uncertain")
+}
+
+func TestRegression_C27_ASendRefusedForALostSessionIsTypedSessionLost(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	chatID, _, conn := dormantRefusingChat(t, h, imported)
+	requestID := uuid.NewString()
+
+	status, code := answerOf(t, h, repoBase(imported)+"/chats/"+chatID+"/prompts",
+		map[string]string{"text": "two", "clientRequestId": requestID})
+
+	requireAnsweredAsLost(t, status, code)
+	settled, exited := false, false
+	readUntil(t, conn, func(m map[string]any) bool {
+		settled = settled || isPromptSettled(requestID)(m)
+		exited = exited || chatExitedWith(chatID, "resume_failed")(m)
+		return settled && exited
+	})
+	h.QuiesceReactors()
+	feed := dialFeed(t, h, chatID, 0)
+	var reasons []string
+	for f := nextFeedFrame(t, feed); f.Type != "ready"; f = nextFeedFrame(t, feed) {
+		var body struct{ RequestID, Reason string }
+		if f.Row.Kind == "prompt_settled" && json.Unmarshal(f.Row.Body, &body) == nil && body.RequestID == requestID {
+			reasons = append(reasons, body.Reason)
+		}
+	}
+	assert.Equal(t, []string{"session_lost"}, reasons, "the feed says why the prompt was not taken")
+}
+
+func TestRegression_C27_AResumeRefusedForALostSessionIsTypedSessionLost(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	chatID, s, conn := dormantRefusingChat(t, h, imported)
+
+	status, code := answerOf(t, h, repoBase(imported)+"/chats/"+chatID+"/resume", nil)
+
+	requireAnsweredAsLost(t, status, code)
+	readUntil(t, conn, chatExitedWith(chatID, "resume_failed"))
+	h.QuiesceReactors()
+	view := readChatSession(t, h, imported, chatID)
+	require.NotNil(t, view.Conversation)
+	assert.Equal(t, chatConversationView{ProviderID: "claude", SessionID: s, State: "lost"}, *view.Conversation)
 }

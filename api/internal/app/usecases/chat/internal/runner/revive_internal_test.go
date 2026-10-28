@@ -15,6 +15,7 @@ import (
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // refusedS1 is a CLI's exit on refusing to resume session S1.
@@ -133,7 +134,8 @@ func TestSubmitPromptWithSwitch_ARefusedResumeSettlesThePromptItsOneLaunchCarrie
 				term.refuseAll()
 
 				if early {
-					require.ErrorIs(t, err, ErrPromptOutcomeUnknown)
+					require.ErrorIs(t, err, ErrPromptSessionLost)
+					assert.Equal(t, problem.SessionLost, problem.CodeOf(err))
 				} else {
 					require.NoError(t, err)
 					assert.NotEmpty(t, submission.RunnerID)

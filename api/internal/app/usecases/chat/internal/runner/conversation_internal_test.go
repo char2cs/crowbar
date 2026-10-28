@@ -237,7 +237,7 @@ func TestSubmitPromptOverAPI_ARefusedSessionIsLost(t *testing.T) {
 	_, handled, err := rs.submitPromptOverAPI(t.Context(), domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}, "req-1",
 		engineagents.Runner{ID: "runner-1", ProviderID: apiLoseProvider}, restartOnChangeAgent{}, t.TempDir(), "hi")
 	assert.True(t, handled)
-	require.ErrorIs(t, err, ErrPromptOutcomeUnknown)
+	require.ErrorIs(t, err, ErrPromptSessionLost)
 	assertSessionLost(t, rs, asked)
 }
 
@@ -394,9 +394,30 @@ func TestResumeChat_ASessionTheConnectionRefusesFailsTheResume(t *testing.T) {
 
 	require.ErrorIs(t, err, engineagents.ErrAPISessionLost)
 	require.ErrorIs(t, err, problem.ErrConflict, "the chat's session is gone, not the daemon")
+	assert.Equal(t, problem.SessionLost, problem.CodeOf(err))
 	assert.Empty(t, h.term.created, "no PTY resumes the lost session")
 	assert.Equal(t, []string{"initialize", "thread/resume"}, askedCalls(t, asked))
 	c, _ := chatState(t, h.rs.ledger).Conversation("carrier-test")
+	assert.Equal(t, ledger.ConversationLost, c.State)
+	assert.Equal(t, domain.AgentExitResumeFailed, endedAs(t, h))
+	_, live := h.rs.live.byChat(h.chatID)
+	assert.False(t, live, "no runner is left on the chat")
+}
+
+// A resumed CLI that refuses its session before its launch answers fails the
+// resume as the lost session, its exit recorded once.
+func TestResumeChat_ACLIRefusingItsSessionInStartupIsSessionLost(t *testing.T) {
+	h := newSpawnHarness(t, "")
+	h.rs.term = &refusingTerm{early: true}
+	h.rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: h.chatID, WorkspaceID: "ws-1", ProviderID: "claude"}}
+	h.rs.conversations = reviveConversations{provider: "claude"}
+	h.rs.ledger = turnedTestLedger(t, "claude", "S1")
+
+	_, err := h.rs.ResumeChat(t.Context(), h.chatID)
+
+	require.ErrorIs(t, err, ErrSpawnSessionRefused)
+	assert.Equal(t, problem.SessionLost, problem.CodeOf(err))
+	c, _ := chatState(t, h.rs.ledger).Conversation("claude")
 	assert.Equal(t, ledger.ConversationLost, c.State)
 	assert.Equal(t, domain.AgentExitResumeFailed, endedAs(t, h))
 	_, live := h.rs.live.byChat(h.chatID)

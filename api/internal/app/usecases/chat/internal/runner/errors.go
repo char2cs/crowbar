@@ -42,9 +42,23 @@ var ErrProviderExitedDuringStartup = fmt.Errorf(
 
 // ErrSpawnSessionRefused is a spawn whose provider refused the session it
 // resumes. That session is lost, and the chat's next launch starts a fresh one.
-var ErrSpawnSessionRefused = fmt.Errorf(
-	"agent: spawn runner: the provider refused the session this chat resumes: %w", problem.ErrConflict,
-)
+var ErrSpawnSessionRefused = &problem.Error{
+	Code: problem.SessionLost, Message: "agent: spawn runner: the provider refused the session this chat resumes",
+	Err: problem.ErrConflict,
+}
+
+// errRefusedInStartup is a CLI that died in startup refusing the session it
+// resumed: recorded as any startup exit is, answered as the lost session it is
+// rather than as a failed dependency.
+type errRefusedInStartup struct{}
+
+func (errRefusedInStartup) Error() string {
+	return ErrSpawnSessionRefused.Message + ": provider process exited during startup"
+}
+
+func (errRefusedInStartup) Unwrap() error { return ErrSpawnSessionRefused }
+
+func (errRefusedInStartup) Is(target error) bool { return target == ErrProviderExitedDuringStartup }
 
 // ErrNoLiveRunner is a chat with no CLI on it: dormant, the normal state
 // between runs, so a reader treats it as an answer rather than a failure.
@@ -76,6 +90,10 @@ var (
 	// cannot confirm it did. Retrying automatically could duplicate a prompt the
 	// provider accepted.
 	ErrPromptOutcomeUnknown = &problem.Error{Code: problem.RequestOutcomeUncertain, Message: "agent: prior prompt delivery outcome is uncertain; inspect the chat before retrying with a new request id", Err: problem.ErrConflict}
+
+	// ErrPromptSessionLost means the launch carrying the prompt was refused the
+	// session it resumed: the provider never took the prompt.
+	ErrPromptSessionLost = &problem.Error{Code: problem.SessionLost, Message: "agent: the provider no longer has this chat's session", Err: problem.ErrConflict}
 
 	// ErrPromptUnsupported leaves the native terminal fully usable while telling
 	// React that this provider has no declarative restart-TUI submission mapping.

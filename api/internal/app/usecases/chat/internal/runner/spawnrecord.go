@@ -69,10 +69,18 @@ func (rs *Runners) recordRunner(
 	rs.commitCarriedSelection(ctx, chatID, staged)
 	rs.announceRunner(ctx, chatID, r.ID, frameStarted)
 	if exitedEarly {
-		rs.reconcileRunnerExit(context.WithoutCancel(ctx), r.ID)
-		return ErrProviderExitedDuringStartup
+		return startupExit(rs.reconcileRunnerExit(context.WithoutCancel(ctx), r.ID))
 	}
 	return nil
+}
+
+// startupExit is what a spawn whose CLI died in startup answers, given the
+// reason its exit recorded.
+func startupExit(reason string) error {
+	if reason == domain.AgentExitResumeFailed {
+		return errRefusedInStartup{}
+	}
+	return ErrProviderExitedDuringStartup
 }
 
 // recordSpawnFailure frees the chat of a spawn that put no CLI on it and, for an

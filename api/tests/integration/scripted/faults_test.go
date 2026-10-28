@@ -19,6 +19,7 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -299,7 +300,7 @@ func (r *rig) sendToALostSession(chatID, provider, text string) {
 	requestID := uuid.NewString()
 	_, err := r.runners().SubmitPrompt(context.Background(), chatID, text, requestID, "", nil)
 	if provider == "codex" || err != nil {
-		require.ErrorIs(r.t, err, agentusecase.ErrPromptOutcomeUnknown)
+		require.Equal(r.t, problem.SessionLost, problem.CodeOf(err), "%v", err)
 	}
 	r.eventually(func() bool {
 		c, ok := r.snapshot(chatID).Conversation()

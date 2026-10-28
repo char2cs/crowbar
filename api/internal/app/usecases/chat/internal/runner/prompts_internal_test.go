@@ -2,6 +2,9 @@ package runner
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
@@ -12,6 +15,7 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -199,4 +203,17 @@ func newTestLedger(tb testing.TB) *ledgerstore.Store {
 	l, err := ledgerstore.Open(tb.Context(), db, time.Now)
 	require.NoError(tb, err)
 	return l
+}
+
+// A spawn refused for its lost session says so; a spawn that may have forked
+// still cannot tell whether the provider took the prompt.
+func TestSpawnFailure_ALostSessionIsSessionLost(t *testing.T) {
+	refused := fmt.Errorf("%w: %w", ErrSpawnSessionRefused, engineagents.ErrAPISessionLost)
+
+	err := spawnFailure(t.Context(), refused)
+
+	require.ErrorIs(t, err, ErrPromptSessionLost)
+	assert.Equal(t, problem.SessionLost, problem.CodeOf(err))
+	assert.Equal(t, http.StatusConflict, problem.CodeOf(err).Status())
+	assert.ErrorIs(t, spawnFailure(t.Context(), errors.New("fork failed")), ErrPromptOutcomeUnknown)
 }
