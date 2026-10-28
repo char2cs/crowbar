@@ -445,9 +445,9 @@ func extraRoutes() []string {
 		"PUT " + repo + "/chats/:id/permission-level",
 		// A human deciding a question the agent put to them mid-turn.
 		"POST " + repo + "/chats/:id/choices/:choiceId/answer",
-		// Submitting the user's own text into the chat, and recovering it if
-		// the client's own copy was lost before the provider confirmed it.
+		// Sending the user's text, withdrawing it (Esc after send), and recovering it.
 		"POST " + repo + "/chats/:id/prompts",
+		"POST " + repo + "/chats/:id/prompts/:requestId/retract",
 		"GET " + repo + "/chats/:id/pending-prompt",
 		// Provider PRIORITY + enable/disable is a GLOBAL user setting (the CLIs are
 		// machine-level, not per workspace), so its write route mounts outside the
@@ -551,9 +551,8 @@ func extraRoutes() []string {
 		"POST " + home + "/chats/folders",
 		"PATCH " + home + "/chats/folders/:folderId",
 		"DELETE " + home + "/chats/folders/:folderId",
-		// The same read surface, slash-catalog, selection, answer, and prompts
-		// routes, mounted on the home group for the same reason as the rest of this
-		// block: a chat in the project home behaves like a chat anywhere else.
+		// The same read, slash-catalog, selection, answer and prompt routes: a
+		// chat in the project home behaves like a chat anywhere else.
 		"GET " + home + "/chats/:id/activity",
 		"GET " + home + "/chats/:id/activity/:toolId/payload",
 		"GET " + home + "/chats/:id/choices",
@@ -569,6 +568,7 @@ func extraRoutes() []string {
 		"PUT " + home + "/chats/:id/permission-level",
 		"POST " + home + "/chats/:id/choices/:choiceId/answer",
 		"POST " + home + "/chats/:id/prompts",
+		"POST " + home + "/chats/:id/prompts/:requestId/retract",
 		"GET " + home + "/chats/:id/pending-prompt",
 		// The home hosts a file tree, so it hosts the file tree's duplicate op too.
 		"POST " + home + "/files/copy",

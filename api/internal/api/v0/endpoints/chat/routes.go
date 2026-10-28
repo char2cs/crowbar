@@ -134,6 +134,7 @@ func Register(
 	repoScoped.POST("/chats/:id/resume", h.Resume)
 	repoScoped.POST("/chats/:id/compact", h.Compact)
 	repoScoped.POST("/chats/:id/stop", h.Stop)
+	repoScoped.POST("/chats/:id/prompts/:requestId/retract", h.Retract)
 	repoScoped.POST("/chats/:id/close", h.Close)
 	repoScoped.POST("/chats/:id/switch-to-terminal", h.SwitchToTerminal)
 	repoScoped.POST("/chats/:id/switch-to-native", h.SwitchToNative)

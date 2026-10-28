@@ -25,6 +25,9 @@ const (
 	ReasonDaemonRestart   = "daemon_restart"
 	ReasonDeliveryFailed  = "delivery_failed"
 	ReasonSessionLost     = "session_lost"
+	// ReasonRetracted: the user withdrew the prompt; it also closes the turn a
+	// delivered prompt opened.
+	ReasonRetracted = "retracted"
 )
 
 // UserMessage is the body of a user_message row.

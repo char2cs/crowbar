@@ -146,14 +146,6 @@ type stubUsecase struct {
 	dispatch *dispatchRecord
 }
 
-func (stubUsecase) SpawnChat(
-	_ context.Context,
-	_ string,
-	_ string,
-) (string, string, error) {
-	return "chat-1", "seg-1", nil
-}
-
 func (stubUsecase) Hook(
 	context.Context, string, string, string, []byte, engineagents.Channel,
 ) (agentusecase.HookReply, error) {
@@ -266,6 +258,10 @@ func (stubUsecase) Compact(
 	_ string,
 ) error {
 	return nil
+}
+
+func (stubUsecase) Retract(context.Context, string, string) (agentusecase.RetractResult, error) {
+	return agentusecase.RetractResult{}, nil
 }
 
 func (stubUsecase) StopChat(
@@ -424,6 +420,7 @@ func TestRegisterMountsRoutes(
 		{http.MethodGet, base + "/chats/c1"},
 		{http.MethodGet, base + "/chats/c1/messages"},
 		{http.MethodPost, base + "/chats/c1/prompts"},
+		{http.MethodPost, base + "/chats/c1/prompts/r1/retract"},
 		{http.MethodGet, base + "/chats/c1/slash-catalog"},
 		{http.MethodGet, base + "/chats/c1/pending-prompt"},
 		{http.MethodPost, base + "/chats/c1/attachments"},

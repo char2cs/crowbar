@@ -46,6 +46,10 @@ type RunnerUsecase interface {
 		chatID string,
 	) error
 
+	// Retract withdraws a sent prompt: settled while the provider has not taken
+	// it, its turn interrupted once it has. A settled prompt is a conflict.
+	Retract(ctx context.Context, chatID, requestID string) (RetractResult, error)
+
 	// CloseChat retires the CLI on a chat nothing displays any more, even
 	// mid-turn, leaving the chat dormant. Unlike StopChat it never interrupts in
 	// place: the session ends with the view.
@@ -189,6 +193,10 @@ type RunnerUsecase interface {
 
 var _ RunnerUsecase = (*Usecase)(nil)
 
+// RetractResult is what a retract did ("retracted" | "interrupted") and the
+// prompt's text, handed back to the composer.
+type RetractResult = runner.RetractResult
+
 // The CLI lifecycle's refusals, re-exported so a handler can map them to a status
 // without importing past the door. Each is the SAME value the lifecycle returns,
 // so errors.Is matches across the boundary.
@@ -250,6 +258,11 @@ func (u *Usecase) StopChat(
 	chatID string,
 ) error {
 	return u.runners.StopChat(ctx, chatID)
+}
+
+// Retract withdraws requestID from the chat; its text comes back.
+func (u *Usecase) Retract(ctx context.Context, chatID, requestID string) (RetractResult, error) {
+	return u.runners.Retract(ctx, chatID, requestID)
 }
 
 // CloseChat retires the CLI on a chat no view displays. The chat itself survives.

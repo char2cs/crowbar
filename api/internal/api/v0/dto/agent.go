@@ -326,6 +326,13 @@ type PromptSubmissionDTO struct {
 	TerminalSessionID string `json:"terminalSessionId"`
 }
 
+// AgentRetractDTO is a retract's answer: "retracted" (the provider never took
+// the prompt) or "interrupted" (its turn was ended), and the prompt's text.
+type AgentRetractDTO struct {
+	State string `json:"state"`
+	Text  string `json:"text"`
+}
+
 // PendingPromptDTO is the wire shape of domain.PendingPrompt — a prompt the
 // provider has not acknowledged yet, sent so a client whose own local copy was
 // lost can recover the literal text.

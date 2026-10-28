@@ -25,4 +25,6 @@ const (
 	// AgentExitDisplaced: Crowbar ended the CLI to replace it (a switch, a
 	// restart) or because its chat was erased.
 	AgentExitDisplaced = "displaced"
+	// AgentExitRetracted: the prompt the CLI was launched to carry was withdrawn.
+	AgentExitRetracted = "retracted"
 )

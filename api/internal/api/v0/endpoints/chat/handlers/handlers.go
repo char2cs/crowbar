@@ -236,16 +236,16 @@ type RunnerUsecase interface {
 		chatID string,
 	) (runnerID string, err error)
 
-	// StopChat gracefully terminates chatID's live vendor CLI and leaves the chat
-	// DORMANT and resumable (the chat entry and its bound conversation are retained) —
-	// the counterpart of ResumeChat, and what closing a chat tab calls. It neither
-	// respawns (unlike SwitchProvider) nor deletes the chat (unlike PurgeChat), and the
-	// in-flight turn is aborted by design ("close = stop"). A chat with no live runner
-	// is a nil no-op.
+	// StopChat ends chatID's turn, in place where the provider can, else with its
+	// CLI, leaving the chat dormant and resumable. No live runner: a no-op.
 	StopChat(
 		ctx context.Context,
 		chatID string,
 	) error
+
+	// Retract withdraws a sent prompt: settled while the provider has not taken
+	// it, its turn interrupted once it has. A settled prompt is a conflict.
+	Retract(ctx context.Context, chatID, requestID string) (agentusecase.RetractResult, error)
 
 	// CloseChat retires chatID's live vendor CLI because no view displays the chat
 	// any more, mid-turn included, and leaves it dormant and resumable.
