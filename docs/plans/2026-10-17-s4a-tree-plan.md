@@ -15,9 +15,9 @@
 ### Task 1: Pin the hierarchy
 
 **Files:**
-- Modify: the component that renders `role="treeitem"` for a sidebar row (`web/src/components/sidebar/sidebar-row.tsx` or the part S3 T3 split it into): add `aria-level={depth + 1}` and `aria-label={row.label}` when not already present (ARIA tree pattern; no visual change).
-- Test (extend): `web/src/__tests__/components/layout/sidebar-tree-surface.test.tsx` — a `describe('hierarchy pin')` block; add no `vi.mock` (the file already has four).
-- Test (create): `api/tests/tree_placement_test.go` (black box).
+- Modify: the component that renders `role="treeitem"` for a sidebar row (`web/src/components/sidebar/sidebar-row.tsx:245` at refresh, or the part an earlier task split it into): add `aria-level={depth + 1}` and `aria-label={row.label}` (neither is present at refresh; the file explorer's `file-explorer-tree-item.tsx` already uses this pattern). `sidebar-row.tsx` is 680 lines (file-size baseline 680): split it by responsibility first, in this commit, so no edited file is over 500.
+- Test (extend): `web/src/__tests__/components/layout/sidebar-tree-surface.test.tsx` (372 lines) — a `describe('hierarchy pin')` block. The file has four `vi.mock` (router, workspace store registry, toast store, home-workspace resolver); bring it to three in this commit and add none (index OR5). If the pin pushes it past 500 lines, the pin goes in its own `describe` file for the same unit only with the controller's ruling (CLAUDE.md: extend the unit's file).
+- Test (create): `api/tests/tree_placement_test.go` (black box; reuse `newImportFixture` from `api/tests/regression_import_branches_test.go`).
 
 **Interfaces:**
 - Produces (web test-local, kept by T8, T10): `const PIN` (the fixture as plain DTO data), `loadPinFixture(): void` (writes `PIN` into whatever stores the sidebar reads at this commit), `outline(root: HTMLElement): string[]` (one line per `[role="treeitem"]` in DOM order: `'  '.repeat(level - 1) + label + ' [' + rowId + ']'`, from `aria-level`, `aria-label`, `data-sidebar-row-id`).
@@ -48,7 +48,7 @@ level 2    repo "beta" [oc-beta]                          repo filed in a home f
 
 - [ ] **Step 4: Run it.** `GOBOX 'TestTree_'`. Expected: PASS (it pins today).
 
-- [ ] **Step 5: Capture the live "before".** With P3 checked: `export CROWBAR_HOME=$(git rev-parse --show-toplevel)/.crowbar/s4-pin/home`; install the fake provider into that home exactly as S2 R25 does (so no real CLI can start; never send a prompt); `make dev-desktop CROWBAR_HOME=$CROWBAR_HOME`; `make seed CROWBAR_HOME=$CROWBAR_HOME`; create a second local repo with `git init` under `$CROWBAR_HOME/../repos/beta` and import it; then, through the app with Tauri MCP (`webview_interact`), build the `PIN` hierarchy (titles as in Step 1; ids differ). Capture with `webview_execute_js`: `[...document.querySelectorAll('[role="treeitem"]')].map(e => '  '.repeat(+e.getAttribute('aria-level') - 1) + e.getAttribute('aria-label')).join('\n')` and save it to `.crowbar/s4-pin/outline-before.txt`. Quit the app, then `tar -cf .crowbar/s4-pin/home-before.tar -C .crowbar/s4-pin home`. Nothing under `.crowbar/` is committed (it is git-ignored).
+- [ ] **Step 5: Capture the live "before".** Where and by whom is index OR4 (the user's machine or the isolated noVNC container; never a session that can reach provider homes). T2 does not merge before this step's two files exist. With P3 checked: `export CROWBAR_HOME=$(git rev-parse --show-toplevel)/.crowbar/s4-pin/home`; install the fake provider into that home exactly as S2 R25 does (so no real CLI can start; never send a prompt); `make dev-desktop CROWBAR_HOME=$CROWBAR_HOME`; `make seed CROWBAR_HOME=$CROWBAR_HOME`; create a second local repo with `git init` under `$CROWBAR_HOME/../repos/beta` and import it; then, through the app with Tauri MCP (`webview_interact`), build the `PIN` hierarchy (titles as in Step 1; ids differ). Capture with `webview_execute_js`: `[...document.querySelectorAll('[role="treeitem"]')].map(e => '  '.repeat(+e.getAttribute('aria-level') - 1) + e.getAttribute('aria-label')).join('\n')` and save it to `.crowbar/s4-pin/outline-before.txt`. Quit the app, then `tar -cf .crowbar/s4-pin/home-before.tar -C .crowbar/s4-pin home`. Nothing under `.crowbar/` is committed (it is git-ignored).
 
 - [ ] **Step 6: Commit.**
 
@@ -56,7 +56,8 @@ level 2    repo "beta" [oc-beta]                          repo filed in a home f
 git add web/src/components/sidebar/<row file> web/src/__tests__/components/layout/sidebar-tree-surface.test.tsx api/tests/tree_placement_test.go
 git commit -m "test(sidebar): pin the rendered hierarchy and today's placement wire before the Tree replaces it
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```
 
 ---
@@ -68,16 +69,16 @@ Storage swap only: every row keeps today's parent and order with today's meaning
 **Files:**
 - Create: `api/internal/domain/tree/tree.go` (`Kind`, `Node`, `Tree` from the index; `KindOf(legacy string) (Kind, error)`).
 - Create: `api/internal/app/repositories/tree/{repository.go,commands.go,ports.go}`; tests `repository_test.go`, `commands_test.go`, `ports_test.go`.
-- Create: `api/internal/app/migratetree/{legacy.go,step6.go}`; tests `legacy_test.go`, `step6_test.go`.
-- Modify: `api/internal/adapter/migrations/catalog.go` (`StepPlacementTree` = next free number, post-open, in-layout, name `placement_tree`, `Plan` counting Node rows, folders and chats with placement; `RewritesState: true`); `api/internal/app/legacy_steps.go` (register `migratetree.Step6Impl(...)` beside `legacyImpls`).
-- Modify: `api/internal/app/container.go` (build `axTree` over new `adapters.TreeES()`/`TreeSS()` with `newAsynx[tree.Tree]`; drop `axNode`), `api/internal/adapter/container.go` (open `events/tree.db`, `events/tree_snapshots.db`; stop opening the three node files), `api/internal/app/repositories/container.go`, `api/internal/app/usecases/container.go` (the tree usecase's `Folders`/`Nodes` ports and its chat placement writes come from `repotree.Ports`), `api/internal/app/gorm.go` (no `Folders` store), `api/internal/app/repositories/chat/` (Chat `SchemaVersion` +1 with `StripRetiredPlacementFields` dropping `/parentId` and `/order` patches, registered in `app/container.go` as the workspace one is), `api/internal/domain/chat.go` (`ParentID`, `Order` tagged `json:"-"`), `api/internal/app/usecases/chat/{home_read.go,placement_reads.go}` (one overlay: every Chat the usecase returns, and every row the tree usecase's `Chats` port reads, gets `ParentID`/`Order` from the Tree; the Node overlay goes), every other reader of the Node repository (`grep -rn 'NodeReadDB\|repositories/node\|NodePlacements' api/internal`, e.g. the workspace and repo DTO placement fields) reads the Tree through `repotree.Ports`, `api/internal/app/owning_chats_reconcile.go` (placement half reads the Tree).
-- Delete: `api/internal/app/repositories/node/` (all), the `Node`/`NodeKind` half of `api/internal/domain/node.go` (the file keeps `FileNode*`), `api/internal/domain/folder.go`, `api/internal/app/repositories/chat/internal/commands/{set_placement.go,set_order.go,placement_test.go}`, the Node/Folder stubs in `api/internal/app/usecases/mocks/mocks.go` (`NodePlacements`, folder store).
+- Create: `api/internal/app/migratetree/{legacy.go,placement_tree.go}`; tests `legacy_test.go`, `placement_tree_test.go` (files named for the step, not its number, which is only known at dispatch).
+- Modify: `api/internal/adapter/migrations/catalog.go` (`StepPlacementTree` = the next free number, 7 at refresh since S1's `StepChatLedger` is 6; post-open, in-layout, name `placement-tree`; its `Plan` counts Node rows, folders and chats with placement and returns `migrate.Plan{…, RewritesState: true}`); `api/internal/app/legacy_steps.go` (329 lines: register `migratetree.PlacementTreeImpl(...)` beside `legacyImpls`, and in `Implemented`).
+- Modify (oversize at refresh, split by responsibility before adding: `app/container.go` 509, `app/repositories/container.go` 658, `app/usecases/container.go` 1,052; `usecases/mocks/mocks.go` 2,271 only shrinks here): `api/internal/app/container.go` (build `axTree` over new `adapters.TreeES()`/`TreeSS()` with `newAsynx[tree.Tree]`; drop `axNode`), `api/internal/adapter/container.go` (open `events/tree.db`, `events/tree_snapshots.db`; stop opening the three node files), `api/internal/app/repositories/container.go`, `api/internal/app/usecases/container.go` (the tree usecase's `Folders`/`Nodes` ports and its chat placement writes come from `repotree.Ports`), `api/internal/app/gorm.go` (no `Folders` store), `api/internal/app/repositories/chat/` (create `upcast.go`: Chat `SchemaVersion` +1 with `StripRetiredPlacementFields` dropping `/parentId` and `/order` patches, registered in `app/container.go` beside `axAgentChat` as `workspace.StripRetiredPlacementFields` is beside `axWorkspace`, from `repositories/workspace/upcast.go`), `api/internal/domain/chat.go` (`ParentID`, `Order` tagged `json:"-"`), `api/internal/app/usecases/chat/{home_read.go,placement_reads.go}` (one overlay: every Chat the usecase returns, and every row the tree usecase's `Chats` port reads, gets `ParentID`/`Order` from the Tree; the Node overlay goes), every other reader of the Node repository (`grep -rn 'NodeReadDB\|repositories/node\|NodePlacements' api/internal`: at refresh `app/repositories/container.go`, `adapter/container.go`, `usecases/project/project_errors.go`, `usecases/workspace/internal/hierarchy/node.go`, and the workspace and repo DTO placement fields) reads the Tree through `repotree.Ports`, `api/internal/app/owning_chats_reconcile.go` (placement half reads the Tree).
+- Delete: `api/internal/app/repositories/node/` (all, incl. `internal/store/hub.go`, its `hub` publisher), the `Node`/`NodeKind` half of `api/internal/domain/node.go` (the file keeps `FileNode*`), `api/internal/domain/folder.go`, `api/internal/app/repositories/chat/internal/commands/{set_placement.go,set_order.go,placement_test.go}`, the Node/Folder stubs in `api/internal/app/usecases/mocks/mocks.go` (`NodePlacements`, folder store).
 - Modify tests that build Node or Folder fixtures to use the Tree (grep `domain.Node{`, `domain.Folder{`, `NodeKind`); an oversize test file is not grown (index Global Constraints).
 
 **Interfaces:**
 - Produces: `domain/tree` types (index). `repotree.New(ax asynx.Asynx[tree.Tree]) *Repository` with `Get`, `Seed(ctx, t tree.Tree) (tree.Tree, error)` (refuses an existing aggregate with `tree.ErrExists`), `Put(ctx, projectID string, n tree.Node) (tree.Tree, error)`, `Delete(ctx, projectID, id string) (tree.Tree, error)`, `Forget(ctx, projectID string) error`; commands use `SendWait`, `ShouldSnapshot() == true`, event names `tree.seeded`, `tree.put`, `tree.deleted`.
 - Produces (temporary, deleted in T3/T4): `repotree.Ports{Repo *Repository; Locate Locator}` implementing the tree usecase's `Nodes` and `Folders` interfaces and its chat `SetPlacement`/`SetOrder`; `type Locator interface { ProjectOf(ctx context.Context, id string, kind tree.Kind) (string, error) }` (chat → workspace → project; workspace → project; repo → project; folder → its repo's project or its home's project), backed by an id → project index filled on `Open(ctx)` from every project's `Get` and kept on every write.
-- Produces: `migratetree.ReadLegacy(ctx context.Context, src LegacySources) (LegacyHome, error)`; `type LegacyHome struct { Nodes []LegacyNode; Folders []LegacyFolder; Chats []LegacyChat; Workspaces []LegacyWorkspace; Repos []LegacyRepo; Projects []LegacyProject }` (each carries exactly the fields the conversion reads: ids, kind/type, parent, order, name, workspace, repo, project, home flags, owning chat, git `ParentID`, `CreatedAt`); `migratetree.Step6Impl(repo *repotree.Repository, src LegacySources) migrate.Impl`.
+- Produces: `migratetree.ReadLegacy(ctx context.Context, src LegacySources) (LegacyHome, error)`; `type LegacyHome struct { Nodes []LegacyNode; Folders []LegacyFolder; Chats []LegacyChat; Workspaces []LegacyWorkspace; Repos []LegacyRepo; Projects []LegacyProject }` (each carries exactly the fields the conversion reads: ids, kind/type, parent, order, name, workspace, repo, project, home flags, owning chat, git `ParentID`, `CreatedAt`); `migratetree.PlacementTreeImpl(repo *repotree.Repository, src LegacySources) migrate.Impl`.
 
 - [ ] **Step 1: Write the failing tests.**
 
@@ -91,7 +92,7 @@ func TestRepository_GetOfAnAbsentProjectIsAnEmptyTree(t *testing.T)
 func TestRepository_ForgetRemovesTheTree(t *testing.T)                 // Get after Forget → empty
 ```
 `ports_test.go`: the `Nodes`/`Folders` contract the tree usecase relies on, against a real repository: `TestPorts_CreateGetListByParentRoundTrip`, `TestPorts_FolderSaveKeepsItsNameOnItsNode`, `TestPorts_ChatPlacementWritesTheChatsNode`, `TestPorts_LocateFindsTheProjectOfAFreshChat` (no node yet; resolved through its workspace).
-`step6_test.go` writes a legacy home with test helpers in `legacy_test.go` (`writeLegacyChat(t, es, legacyChat)` and `writeLegacyNode(t, es, legacyNode)` send through a test-only asynx instance typed with the legacy struct, so the events carry real `parentId`/`order` patches; `insertFolder(t, db, LegacyFolder)` writes the `folders` table):
+`placement_tree_test.go` writes a legacy home with test helpers in `legacy_test.go` (`writeLegacyChat(t, es, legacyChat)` and `writeLegacyNode(t, es, legacyNode)` send through a test-only asynx instance typed with the legacy struct, so the events carry real `parentId`/`order` patches; `insertFolder(t, db, LegacyFolder)` writes the `folders` table):
 ```go
 // Review Focus 1: every legacy shape survives verbatim.
 func TestPlacementTreeStep_CopiesEveryLegacyPlacement(t *testing.T)
@@ -105,13 +106,13 @@ func TestPlacementTreeStep_IsIdempotentAfterACrashMidway(t *testing.T) // Mark a
 func TestPlacementTreeStep_VerifyFailsOnAChatWithoutANode(t *testing.T)
 func TestPlacementTreeStep_PlanCountsWhatItWillConvertAndDelete(t *testing.T)
 ```
-`api/internal/app/repositories/chat/upcast_test.go` (the file named for the upcaster's source): `TestStripRetiredPlacementFields_DropsParentIDAndOrderPatches`, and a replay test: a chat whose history holds `replace /order` loads without error after the bump.
+`api/internal/app/repositories/chat/upcast_test.go` (the test of `upcast.go`): `TestStripRetiredPlacementFields_DropsParentIDAndOrderPatches`, and a replay test: a chat whose history holds `replace /order` loads without error after the bump.
 
 - [ ] **Step 2: Run them to verify they fail.** `GOTEST ./internal/app/repositories/tree/... ./internal/app/migratetree/... ./internal/app/repositories/chat/...`. Expected: compile failure.
 
 - [ ] **Step 3: Implement.** The repository and commands as specified. `ReadLegacy` per index R13: the chat read model gives ids; a private `asynx` instance typed `legacyChat` over the chat event store (same schema version, the app's chat upcasters, a keep-all upcaster at the strip's version, no snapshot store, no subscribers) gives each chat's `ParentID`/`Order`; a private instance typed `legacyNode` over `events/node.db` (ids from `store/node.db`'s `nodes_read`) gives Node rows; `SELECT id, name, repo_id, home_id FROM folders` gives folders; workspaces, repos and projects come from the app's repositories. Conversion is verbatim: a node per Node row, a node per chat that has placement and no Node row, a folder's `Name` onto its node; project of each node by `Locator`'s rules; a legacy home folder with no `HomeID` goes to the home its neighbours name (today's `adoptHomeFolder` walk), else the oldest project by `CreatedAt`. `Apply`: per project not yet `Done`, `Seed`, `Mark`; then remove the three node files and `DROP TABLE folders`. `Verify`: every chat, folder, repo and non-home workspace that had placement has one node in its project's Tree; no node names a missing parent within its scope; the node files and the table are gone. Wire the tree usecase's ports to `repotree.Ports`. The usecase's planning code is untouched in this task.
 
-- [ ] **Step 4: Run the tests.** Step 2's packages plus `GOTEST ./internal/app/usecases/chat/... ./internal/app/... ./internal/adapter/...` and `GOBOX 'TestTree_'` (T1's pin must pass unchanged). Expected: PASS. Then `make lint`, `make deadcode`, `go vet -tags noEmbed ./...`, `go vet -tags 'integration noEmbed' ./tests/...`.
+- [ ] **Step 4: Run the tests.** Step 2's packages plus `GOTEST ./internal/app/usecases/chat/... ./internal/app/... ./internal/adapter/...` and `GOBOX 'TestTree_'` (T1's pin must pass unchanged). Expected: PASS. Then the Go gates (index Global Constraints: golangci-lint, `scripts/deadcode-check.sh`, `go vet -tags noEmbed ./...`) and `go vet -tags 'integration noEmbed' ./tests/...`.
 
 - [ ] **Step 5: Commit.**
 
@@ -120,9 +121,10 @@ git add api/internal/domain/tree api/internal/app/repositories/tree api/internal
 git rm -r api/internal/app/repositories/node api/internal/domain/folder.go <each deleted path>
 git commit -m "refactor(tree): one Tree aggregate per project owns placement; Node, folders and persisted chat placement go
 
-Step placement_tree copies today's placement verbatim and deletes the node files and the folders table.
+Step placement-tree copies today's placement verbatim and deletes the node files and the folders table.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```
 
 ---
@@ -133,11 +135,11 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Modify: `api/internal/domain/tree/tree.go`; create `api/internal/domain/tree/{rules.go,verbs.go,resolve.go}`; tests `rules_test.go`, `verbs_test.go`, `resolve_test.go`.
 - Modify: `api/internal/app/repositories/tree/commands.go` (replace `Put`/`Delete` with `Insert`, `Move`, `Rename`, `Remove`, `Promote`, `Replace`; each `Validate` calls the domain verb on `current`, `EmitEvent` returns its result), `repository.go`; delete `ports.go` and its test.
 - Create: `api/internal/app/usecases/tree/{service.go,legacy.go}`; tests `service_test.go`, `legacy_test.go`.
-- Create: `api/internal/app/migratetree/step7.go`, test `step7_test.go`; modify `catalog.go` (`StepTreeContainers`, post-open, in-layout, name `tree_containers`) and `legacy_steps.go`.
-- Modify: `api/internal/domain/problem/code.go` (the six codes of R19, 409; replace whatever codes S3 T1 gave today's tree errors: `grep -n 'Cycle\|CrossWorkspace\|ForkChain' api/internal/domain/problem`), `web/src/lib/errors/` problem mirror (the same six codes and their user wording; R19, V4).
-- Modify: the HTTP handlers of today's placement routes (`endpoints/chat/handlers/{chats.go,folders.go}` `PlaceChat`/folder CRUD for repo and home; `endpoints/workspace/handlers/placement.go`; `endpoints/repos/handlers/repos.go` order/folderId) to call `usecases/tree` through `FromLegacy`'s request translation; the DTO builders (`dto/agent.go`, `dto/workspace.go`, `dto/chat_worktree.go`, repo DTO) take placement from `ToLegacy`.
+- Create: `api/internal/app/migratetree/tree_containers.go`, test `tree_containers_test.go`; modify `catalog.go` (`StepTreeContainers`, the next free number, 8 at refresh; post-open, in-layout, name `tree-containers`) and `legacy_steps.go` (`TreeContainersImpl`).
+- Modify: `api/internal/domain/problem/code.go` *(S3 T1; at refresh errors are still `app/apperr`)* (the six codes of R19, 409; replace whatever codes S3 T1 gave today's tree errors: `grep -n 'Cycle\|CrossWorkspace\|ForkChain' api/internal/domain/problem`), `web/src/lib/errors/` *(S3 T1)* problem mirror (the same six codes and their user wording; R19, V4).
+- Modify: the HTTP handlers of today's placement routes (`endpoints/chat/handlers/{chats.go (605 lines: split first),folders.go}`, `PlaceChat` is in `folders.go`, folder CRUD for repo and home; `endpoints/workspace/handlers/placement.go`; `endpoints/repos/handlers/repos.go` (1,051 lines: split first) order/folderId) to call `usecases/tree` through `FromLegacy`'s request translation; the DTO builders (`dto/agent.go` `AgentChatDTOFrom`, `dto/workspace.go`, `dto/chat_worktree.go`, `dto/repo.go`) take placement from `ToLegacy`.
 - Modify: `api/internal/app/usecases/chat/internal/tree/` verbs that create, delete or promote (`chats.go` `CreateChat`, `owning_chat.go`, `imported_chat.go`, `delete_chat.go`, `shared_workspace.go`) to call `usecases/tree` (`Place`, `Unplace`, `Promote`) instead of the planner.
-- Delete: `api/internal/app/tree/` (all); in `api/internal/app/usecases/chat/internal/tree/`: `plan.go`, `walk.go`, `tree_snapshot.go`, `forest_scope.go`, `home_forest.go`, `legacy_rows.go`, `write_node.go`, `home_ports.go`, `validate.go`, `fork_chain.go`, `place_workspace.go`, `subtree.go`, `guard_not_working.go`, `errors.go`'s placement errors, and their tests; `tree.go`'s `Create`/`Rename`/`Move`/`Delete`/`ListInRepo`/`ListInHome`/`FolderScope`.
+- Delete: `api/internal/app/tree/` (all: `node.go`, `sibling_tree.go`, `tree.go` and tests); in `api/internal/app/usecases/chat/internal/tree/`: `plan.go`, `walk.go`, `tree_snapshot.go`, `forest_scope.go`, `home_forest.go`, `legacy_rows.go`, `write_node.go`, `home_ports.go`, `validate.go`, `fork_chain.go`, `place_workspace.go`, `subtree.go`, `guard_not_working.go`, `errors.go`'s placement errors, and their tests; `tree.go`'s `Create`/`Rename`/`Move`/`Delete`/`ListInRepo`/`ListInHome`/`FolderScope`.
 
 **Interfaces:**
 - Consumes: T2's repository and types.
@@ -152,7 +154,7 @@ func TestMove_RefusesACycle(t *testing.T)                        // onto itself;
 func TestMove_RefusesAFolderUnderAChat(t *testing.T)             // ErrNotAContainer
 func TestMove_RefusesARepoBelowProjectLevel(t *testing.T)        // repo under a workspace → ErrNotAContainer; under a home folder → ok
 func TestMove_KeepsANodeInItsContext(t *testing.T)               // repo-scoped folder to home level, home chat into a repo → ErrCrossContext
-func TestMove_RefusesAChatLeavingItsWorkspace(t *testing.T)      // thread under another branch → ErrCrossWorkspace; into a folder of the same workspace → ok
+func TestMove_RefusesAChatLeavingItsWorkspace(t *testing.T)      // thread under another branch's chat or workspace node → ErrCrossWorkspace; into a folder of the same workspace → ok; into a folder under another branch → ok (F1, D6)
 func TestMove_KeepsAForkUnderItsForkParent(t *testing.T)         // fork filed under its parent's sibling → ErrForkChain; into a folder inside the parent → ok
 func TestMove_RefusesASubtreeHoldingAWorkingChat(t *testing.T)   // Facts.Working → ErrSubtreeWorking
 func TestMove_TreatsFoldersAsTransparentForResolution(t *testing.T)
@@ -173,17 +175,17 @@ func TestVerbs_NeverMutateTheReceiver(t *testing.T)
 
 - [ ] **Step 2: Run them to verify they fail.** `GOTEST ./internal/domain/tree/...`. Expected: compile failure.
 
-- [ ] **Step 3: Implement the domain.** `Children` sorts by `Order`, then `ID`. A verb validates first (all rules over the moved subtree with `f`), then copies the map and renumbers. Errors are `*problem.Error` values with the R19 codes; messages are the user's wording (V4's for `ErrSubtreeWorking`).
+- [ ] **Step 3: Implement the domain.** `Children` sorts by `Order`, then `ID`. A failed lookup is an error, never a zero value (S3 T11b carry: today's `tree.go:387` `GetNode`, `home_forest.go:98` and `legacy_rows.go:71` turn a lookup failure into a zero value, so a transient failure in `Move` mints a fresh node); `TestService_MoveSurfacesALookupFailure` pins it. A verb validates first (all rules over the moved subtree with `f`), then copies the map and renumbers. Errors are `*problem.Error` values with the R19 codes; messages are the user's wording (V4's for `ErrSubtreeWorking`).
 
 - [ ] **Step 4: Write the failing service, legacy and step tests.**
 
-`service_test.go` (real repository, fake `Facts`): `TestService_MoveGathersFactsForTheWholeSubtree`, `TestService_CreateFolderUsesTheClientID`, `TestService_DeleteFolderPromotesItsChildren`, `TestService_UnplaceReturnsEveryRemovedChat`, `TestService_AncestorsReadTheChatsProjectTree`.
+`service_test.go` (real repository, fake `Facts`): `TestService_MoveGathersFactsForTheWholeSubtree`, `TestService_MoveSurfacesALookupFailure`, `TestService_CreateFolderUsesTheClientID`, `TestService_DeleteFolderPromotesItsChildren`, `TestService_UnplaceReturnsEveryRemovedChat`, `TestService_AncestorsReadTheChatsProjectTree`.
 `legacy_test.go`: `TestFromLegacy_MapsEachScopeRootToItsContainer` (home `""` → root; a repo chat's `""` → the repo node; a branch chat's `""` → its workspace node; a chat whose parent is a branch's owning chat → that workspace node; a workspace with no folder → its fork parent's node, else the repo node), `TestFromLegacy_OwningChatNodesBecomeTheirWorkspaceNode`, `TestToLegacy_IsTheInverseOnEveryPinnedRow` (T1's `PIN` hierarchy built both ways).
-`step7_test.go`: `TestTreeContainersStep_KeepsTheRenderedHierarchy` (Review Focus 1: a step-6 tree of T1's `PIN` shape plus the legacy ambiguities → explicit containers whose `ToLegacy` equals the input), `TestTreeContainersStep_IsIdempotent`, `TestTreeContainersStep_VerifyRefusesAnImplicitRoot`.
+`tree_containers_test.go`: `TestTreeContainersStep_KeepsTheRenderedHierarchy` (Review Focus 1: a placement-tree step's tree of T1's `PIN` shape plus the legacy ambiguities → explicit containers whose `ToLegacy` equals the input), `TestTreeContainersStep_NormalizesEveryLegacyViolation` (ledger F1 amendment: an off-parent fork goes under its fork parent's node and a dangling bubble parent goes to the chat's ground, each counted under its own label in `Mark`; a chat filed in another branch's folder survives unchanged), `TestTreeContainersStep_IsIdempotent`, `TestTreeContainersStep_VerifyRefusesAnImplicitRoot`.
 
 - [ ] **Step 5: Run them to verify they fail.** `GOTEST ./internal/app/usecases/tree/... ./internal/app/migratetree/...`.
 
-- [ ] **Step 6: Implement.** Service per index; `Move` reads the tree, computes `Subtree(nodeID)`, gathers `Facts` for its chats and workspaces, calls the repository. `FromLegacy` encodes R4's mapping (one function, used by step 7 and by the legacy routes). `ToLegacy` is its inverse for the DTOs. Step 7: per project not `Done`, read, `FromLegacy`, `Replace`, `Mark`; `Verify`: every non-root `ParentID` names a node of the same tree and `domain/tree`'s rules hold for every node with the current facts. Re-point the create/delete/promote verbs; delete the planner files listed above.
+- [ ] **Step 6: Implement.** Service per index; `Move` reads the tree, computes `Subtree(nodeID)`, gathers `Facts` for its chats and workspaces, calls the repository. `FromLegacy` encodes R4's mapping (one function, used by step 7 and by the legacy routes). `ToLegacy` is its inverse for the DTOs. The tree-containers step: per project not `Done`, read, `FromLegacy`, `Replace`, `Mark`; `Verify`: every non-root `ParentID` names a node of the same tree and `domain/tree`'s rules hold for every node with the current facts. Re-point the create/delete/promote verbs; delete the planner files listed above.
 
 - [ ] **Step 7: Run everything touched.** `GOTEST ./internal/domain/... ./internal/app/... ./internal/api/...`, `GOBOX 'TestTree_'` (T1's pin passes unchanged except the refusal codes, renamed per R19 in this commit), web `bunx vitest run src/__tests__/lib/errors`. Then the Go and web gates.
 
@@ -192,9 +194,10 @@ func TestVerbs_NeverMutateTheReceiver(t *testing.T)
 ```bash
 git commit -m "refactor(tree): the Tree decides moves with explicit containers; the placement planner goes
 
-Step tree_containers rewrites every Tree; today's routes keep their shapes through FromLegacy/ToLegacy until the client moves to the Tree.
+Step tree-containers rewrites every Tree; today's routes keep their shapes through FromLegacy/ToLegacy until the client moves to the Tree.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```
 (`git add`/`git rm` by path as in T2.)
 
@@ -204,7 +207,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Files:**
 - Move: the create/delete/promote verbs left in `api/internal/app/usecases/chat/internal/tree/` into the chat usecase, one file per verb family: `api/internal/app/usecases/chat/{create_chat.go,delete_chat.go,owning_chat.go,import_chat.go}` with their tests (moved, not rewritten; cases for deleted behaviour go).
-- Modify: every caller of `agentusecase.TreeUsecase` (`usecases/container.go` `AgentChatFolder`, `endpoints/chat/handlers`, `usecases/worktree`, `usecases/internal/branchimport`, `usecases/project/{owning_chats.go,home_level.go}`) to call the chat usecase or `usecases/tree`; `usecases/chat/chat.go` `Ancestors` → `usecases/tree.Service.Ancestors`; `usecases/worktree/chat_forest.go` reads the Tree.
+- Modify: every caller of `agentusecase.TreeUsecase` (`usecases/chat/aliases.go`, `usecases/container.go` and `app/container.go` `AgentChatFolder`, `api/tests/kit/env.go` (compile with `go vet -tags 'integration noEmbed' ./tests/...` only), `endpoints/chat/handlers`, `usecases/worktree`, `usecases/internal/branchimport`, `usecases/project/{owning_chats.go,home_level.go}`) to call the chat usecase or `usecases/tree`; `usecases/chat/chat.go` `Ancestors` → `usecases/tree.Service.Ancestors`; `usecases/worktree/chat_forest.go` reads the Tree.
 - Modify: `api/internal/domain/chat.go` (delete `ParentID`, `Order`), `usecases/chat/{home_read.go,placement_reads.go}` (delete the overlay; delete `placement_reads.go` if empty), and every reader the compiler names; DTO placement comes only from `ToLegacy`.
 - Delete: `api/internal/app/usecases/chat/internal/tree/` (whole package, incl. `internal/lineage`), `TreeUsecase` and its mock.
 
@@ -221,5 +224,6 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```bash
 git commit -m "refactor(chat): chat lifecycle verbs place rows through the Tree; the chat tree usecase and chat placement fields go
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```

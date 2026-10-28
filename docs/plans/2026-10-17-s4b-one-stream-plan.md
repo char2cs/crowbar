@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** `/v0/stream` exists end to end (daemon hub, frames, scopes, resources; client socket, scope holds, entity store) and carries operations, every workspace-scoped stream and the chat ledger. The operations stream, five stream definitions, `realtime` and the per-chat feed socket are deleted.
+**Goal:** `/v0/stream` exists end to end (daemon hub, frames, scopes, resources; client socket, scope holds, entity store) and carries operations, every workspace-scoped stream, S5's host-document watch (index OR2) and the chat ledger. The operations stream, six stream definitions, `realtime` and the per-chat feed socket are deleted.
 
 **Architecture:** See the index, `docs/plans/2026-10-17-s4-stream-store-tree-plan.md` (R5–R9, R16, R20, Shared vocabulary). The hub is the one publisher: one mutex, one version counter per epoch, one bounded queue per connection, one refcount per scope. A source per scope kind answers `sub`. The client's `stream.ts` owns the socket and routes frames to the store that owns each scope kind, which registers itself (core never imports a feature).
 
@@ -19,13 +19,13 @@
 - Create: `api/internal/app/stream/{hub.go,conn.go,refcount.go,projects_source.go}`; tests `hub_test.go`, `conn_test.go`, `refcount_test.go`, `projects_source_test.go`.
 - Create: `api/internal/api/v0/endpoints/stream/{routes.go,handlers/handlers.go}` (`GET /v0/stream`: upgrade with the same origin allow-list as `terminal/handlers/ws.go`'s upgrader, wrap the connection as `stream.Conn`, `hub.Serve`); test `handlers/handlers_test.go`.
 - Create: `api/internal/api/v0/stream_wire.go` (`func EncodeEntity(kind stream.EntityKind, v any) (json.RawMessage, error)`; T5 knows `operation`, encoded exactly as S3's frames carried it; an unknown kind is an error), test `stream_wire_test.go`.
-- Modify: `api/internal/app/container.go` (mint `epoch := uuid.NewString()` once; build the hub with the `projects` source and the `Encoder` it now takes as a constructor argument; expose the hub to the API container), `api/internal/internal.go` (the composition root: `app.New(ctx, s.engines, s.adapter, post, v0.EncodeEntity)`), `api/internal/app/shutdown.go` (`hub.Close()` after the operations service shuts down), `api/internal/app/usecases/operation/service.go` (its `publish` is `func(op domain.Operation) { hub.Entity(stream.Projects, stream.KindOperation, op.ID, op) }`), `api/internal/api/v0/router.go`, `api/internal/api/v0/container.go` (or the stream-defs file S3 split out).
-- Delete: `operationsDef`, its `Broadcaster`, the WebSocket half of `endpoints/operations` (`DELETE /v0/operations/:id` stays), `hub.BroadcastOperation`/`PushOperation`.
+- Modify (oversize at refresh: `app/container.go` 509, `api/v0/container.go` 875; split by responsibility before adding): `api/internal/app/container.go` (mint `epoch := uuid.NewString()` once; build the hub with the `projects` source and the `Encoder` it now takes as a constructor argument; expose the hub to the API container), `api/internal/internal.go` (the composition root, `internal.go:216` at refresh: `app.New(ctx, s.engines, s.adapter, post)` becomes `app.New(ctx, s.engines, s.adapter, post, v0.EncodeEntity)`), `api/internal/app/shutdown.go` (`hub.Close()` after the operations service shuts down), `api/internal/app/usecases/operation/service.go` *(S3 T3)* (its `publish` is `func(op domain.Operation) { hub.Entity(stream.Projects, stream.KindOperation, op.ID, op) }`), `api/internal/api/v0/router.go`, `api/internal/api/v0/container.go` (stream defs live there and in `file_streams.go` at refresh).
+- Delete *(all S3 T3)*: `operationsDef`, its `Broadcaster`, the WebSocket half of `endpoints/operations` (`DELETE /v0/operations/:id` stays), `hub.BroadcastOperation`/`PushOperation`.
 - Modify: `scripts/ratchet/modules.json` (`go.stream` += `api/internal/app/stream`, `api/internal/api/v0/endpoints/stream`; `web.core` += `web/src/core`), moving no budget (new code; R1).
-- Test (black box): create `api/tests/stream_client_test.go` (helper), `api/tests/stream_test.go`; port every test that dials `/v0/operations` (`grep -rln '/v0/operations' api/tests`) to the helper, deleting S3's `awaitOperation` dialer in favour of `awaitOperation(t, c *streamClient, id string, done func(domain.Operation) bool)`.
+- Test (black box): create `api/tests/stream_client_test.go` (helper), `api/tests/stream_test.go`; port every test that dials `/v0/operations` (`grep -rln '/v0/operations' api/tests`; none at refresh, S3 T3 adds them) to the helper, built on the harness's `dial`, deleting S3's `awaitOperation` dialer in favour of `awaitOperation(t, c *streamClient, id string, done func(domain.Operation) bool)`.
 - Web create: `web/src/core/stream/{frames.ts,stream.ts}`, `web/src/core/entities/entity-store.ts`; tests `web/src/__tests__/core/stream/{frames.test.ts,stream.test.ts}`, `web/src/__tests__/core/entities/entity-store.test.ts`.
-- Web modify: `web/src/main.tsx` (`startStream()` replaces `startOperationsStream()`), `web/src/lib/store/operations.ts` (server operations are read from `entityStore` kind `operation`; the store keeps only local operations, R11 of S3; `applyOperationFrame` goes), `web/src/lib/store/run-operation.ts` (reads both), their tests.
-- Web delete: `web/src/lib/store/operations-stream.ts` and its test.
+- Web modify: `web/src/main.tsx` (`startStream()` replaces S3 T3's `startOperationsStream()`), `web/src/lib/store/operations.ts` *(S3 T3)* (server operations are read from `entityStore` kind `operation`; the store keeps only local operations, R11 of S3; `applyOperationFrame` goes), `web/src/lib/store/run-operation.ts` *(S3 T3)* (reads both), their tests.
+- Web delete: `web/src/lib/store/operations-stream.ts` *(S3 T3)* and its test.
 
 **Interfaces:**
 - Produces (Go): `domain/stream` and `app/stream` as in the index. `stream.Projects` (the `projects` scope value), `stream.KindOperation`. `(*Hub).Serve` reads `Request`s and writes `Frame`s until the connection or `ctx` ends; it releases every scope the connection held when it returns.
@@ -74,7 +74,7 @@ func TestStream_AnOperationFrameFollowsItsStateChanges(t *testing.T)      // pus
 func TestStream_AnUnknownScopeIsRefusedWithAProblem(t *testing.T)
 ```
 
-- [ ] **Step 2: Run them to verify they fail.** `GOTEST ./internal/domain/stream/... ./internal/app/stream/... ./internal/api/v0/endpoints/stream/...`; `GOBOX 'TestStream_|TestOperations_|TestRegression_GitPush'`. Expected: compile failure.
+- [ ] **Step 2: Run them to verify they fail.** `GOTEST ./internal/domain/stream/... ./internal/app/stream/... ./internal/api/v0/endpoints/stream/...`; `GOBOX 'TestStream_|TestOperations_|TestRegression_GitPush'` (the last two exist once S3 T3 lands). Expected: compile failure.
 
 - [ ] **Step 3: Implement the daemon side.** `Hub` holds `mu`, `seq uint64`, the connections, and per scope the set of connections and a refcount. `Entity` takes `mu`, increments `seq`, marshals once, enqueues to every connection holding the scope (non-blocking; a full queue closes that connection with 4000). `sub` takes `mu`, asks the scope's source to `Attach` (an entity source emits its frames, each stamped with the current `seq`), enqueues `synced`, registers the connection, increments the refcount (0→1 runs each `Resource.Start(key)`), releases `mu`. A ledger source (T7) attaches without `mu`. `unsub` and connection end decrement (1→0 runs `Stop`). The writer goroutine drains the queue to `Conn.WriteJSON`; the reader parses `Request`s. Re-point the operations service's publish; delete the operations stream def, its route's WebSocket half and the hub pair; port the black-box dialers.
 
@@ -86,7 +86,7 @@ it('sends sub on the first hold of a scope and unsub on the last release')
 it('re-sends sub for every held scope after a reconnect, with since from the kind handler')
 it('a closed resync frame resubscribes that scope')
 it('a closed refused frame reports its problem once and drops the scope')
-it('an undecodable frame is reported and its scope resubscribed')
+it('an undecodable frame is reported once and its scope dropped')      // R20, ledger F22
 it('a ready frame with a new epoch reaches every registered kind before any entity frame')
 it('a resubscribe snapshot removes an entity deleted while offline')   // Review Focus 2
 it('onSignal delivers only its scope and kind')
@@ -112,7 +112,8 @@ git add api/internal/domain/stream api/internal/app/stream api/internal/api/v0/e
 git rm web/src/lib/store/operations-stream.ts web/src/__tests__/lib/store/operations-stream.test.ts <each deleted path>
 git commit -m "feat(stream): one /v0/stream with versioned entity frames; operations move onto it
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```
 
 ---
@@ -120,20 +121,20 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ### Task 6: Workspace scopes; `realtime` goes
 
 **Files:**
-- Create: `api/internal/app/stream/resources/{watcher.go,lsp.go,forge_poll.go,origin_sync.go}` (each `Resource`), moved from `api/internal/app/realtime/{watcher_manager.go,watcher_factory.go,linger_timer.go,lsp_manager.go,provider_poll_manager.go,origin_sync_manager.go}`: keep each start/stop body, its injected clock and timer factory, its `pollTimeout`; delete each manager's refcount map (the hub's refcount replaces all four). Tests move with them (`watcher_test.go`, `lsp_test.go`, `forge_poll_test.go`, `origin_sync_test.go`), their manager-refcount cases deleted.
-- Create: `api/internal/app/stream/{ws_source.go,git_source.go,files_source.go,lsp_source.go}` and their tests: each ports its old `StreamDef.Snapshot` (`threadsDef` → review-thread entities of the workspace; `gitDef` → the current git status as one signal; `filesDef` → none; `lspDef` → current diagnostics as signals).
-- Modify: the publishers: the watcher dispatcher (`Signal(git:<ws>, "git_status", ev)`, `Signal(files:<ws>, "file_change", ev)`), the LSP diagnostics publisher (`Signal(lsp:<ws>, "diagnostics", ev)`), `api/internal/app/repositories/reviewthread/internal/store/hub.go` (`Entity(ws:<ws>, review_thread, id, dto)`, `Gone` on delete); `api/internal/app/container.go` (resources map: `ws` → forge poll; `git` → watcher, origin sync; `files` → watcher; `lsp` → LSP host); `agentChatDef` loses its `ScopeKey`/`OnSubscribe`/`OnUnsubscribe` (the forge poll moved to `ws:`).
-- Delete: `api/internal/app/realtime/` (all), `gitDef`, `filesDef`, `lspDef`, `threadsDef`, `terminalsDef`, `withWatcherLifecycle`, `withLSPLifecycle`, `withOriginSyncLifecycle`, `scopeWsID`, `scopeLSPOwnerID` and their broadcasters; the WebSocket halves of the git status route, `files/routes.go` `/ws`, `editor/routes.go` `/lsp/ws`, `threads/routes.go`'s stream, and `terminal/routes.go` `GET /terminals` (it becomes a plain `GET` to `h.ListSessions`); the matching `hub` Broadcast/Push methods.
-- Test (black box): port every test that dials those endpoints (`grep -rln 'git/status\|/files/ws\|/lsp/ws\|/threads' api/tests`) to the stream helper.
-- Web modify: `web/src/features/workspace/stores/hooks/use-workspace-git.ts` (`holdScope('git:'+wsId)` + `onSignal('git:'+wsId, 'git_status', …)`), `use-workspace-file-tree.ts` (hold `files:` before the REST tree read, so no change between the read and the attach is lost; `onSignal(…, 'file_change', …)`), `web/src/features/editor/lsp/lsp-client.ts` (hold `lsp:<wsId>`; the owning-chat `followScope` goes because the scope is the workspace), the workspace view that S2 R16 refcounts lifecycle subscriptions from also holds `ws:<wsId>` while mounted (forge poll); every reader of the per-workspace store's review threads reads `selectReviewThreads(s, wsId)` from `web/src/core/entities/select.ts` (create; `grep -rn 'threads' web/src/features/workspace/stores` for the slice and its readers).
+- Create: `api/internal/app/stream/resources/{watcher.go,host_watch.go,lsp.go,forge_poll.go,origin_sync.go}` (each `Resource`), moved from `api/internal/app/realtime/` as it is at refresh: `watcher_manager.go`, `watcher_factory.go`, `watcher_proc.go`, `linger_timer.go` → `watcher.go` (+ split files if over 500); `host_watch_manager.go` (S5) → `host_watch.go`; `lsp_manager.go`, `lsp_lifecycle.go` → `lsp.go`; `provider_poll_manager.go` → `forge_poll.go`; `origin_sync_manager.go` → `origin_sync.go`; `watcher_dispatcher.go` and `git_status_provider.go` move beside the publishers they feed; `service.go` (the five Acquire/Release pairs) is deleted. Keep each start/stop body, its injected clock and timer factory, its `pollTimeout`, and S3's join-on-stop fixes (`a5d4b536`, `6e0cdce1`); delete each manager's refcount map (the hub's refcount replaces all five). Tests move with them, one per source (`watcher_test.go`, `host_watch_test.go`, `lsp_test.go`, `forge_poll_test.go`, `origin_sync_test.go`, from today's `*_internal_test.go` and `manager_seams_internal_test.go`), their manager-refcount cases deleted.
+- Create: `api/internal/app/stream/{ws_source.go,git_source.go,files_source.go,lsp_source.go,doc_source.go}` and their tests: each ports its old `StreamDef.Snapshot` (`threadsDef` → review-thread entities of the workspace; `gitDef` → the current git status as one signal; `filesDef` → none; `lspDef` → current diagnostics as signals; `documentsDef` → none, the client reads the document once `synced` arrives, as it does after the socket opens today). `Resource.Start` returns an error; a failed start closes the scope `refused` with its problem (the host watch's `ErrWatchLimit` keeps a code of its own; OR2).
+- Modify: the publishers: the watcher dispatcher (`Signal(git:<ws>, "git_status", ev)`, `Signal(files:<ws>, "file_change", ev)`), the LSP diagnostics publisher (`Signal(lsp:<ws>, "diagnostics", ev)`), `api/internal/app/repositories/reviewthread/internal/store/hub.go` (`Entity(ws:<ws>, review_thread, id, dto)`, `Gone` on delete); the host watch's change publisher (`Signal(doc:<path>, "file_change", ev)`); `api/internal/app/container.go` (resources map: `ws` → forge poll; `git` → watcher, origin sync; `files` → watcher; `lsp` → LSP host; `doc` → host watch); `agentChatDef` loses its `ScopeKey`/`OnSubscribe`/`OnUnsubscribe` (`api/v0/container.go:264`, `AcquireProviderPoll`: the forge poll moved to `ws:`).
+- Delete: `api/internal/app/realtime/` (all), `gitDef`, `filesDef`, `lspDef`, `threadsDef`, `terminalsDef`, `documentsDef`, `withWatcherLifecycle`, `withHostWatchLifecycle`, `hostWatchAdmit`, `withLSPLifecycle`, `withOriginSyncLifecycle`, `scopeWsID`, `scopeLSPOwnerID` and their broadcasters (`api/v0/container.go`, `api/v0/file_streams.go`); the WebSocket halves of `git/routes.go:58` (`/status`), `files/routes.go:59` and `home/routes.go:83` (`/files/ws`), `editor/routes.go:72` (`/lsp/ws`), `threads/routes.go:27` and `home/routes.go:89` (`/threads`), `documents/routes.go:21` (`/documents/ws`, the route goes), and `terminal/routes.go:40` `GET /terminals` (it becomes a plain `GET` to `h.ListSessions`); the matching `hub` Broadcast/Push methods.
+- Test (black box): port every test that dials those endpoints (`grep -rln 'git/status\|/files/ws\|/lsp/ws\|/threads\|/documents/ws' api/tests`; `files_test.go` holds the documents ones) to the stream helper.
+- Web modify: `web/src/features/workspace/stores/hooks/use-workspace-git.ts` (`holdScope('git:'+wsId)` + `onSignal('git:'+wsId, 'git_status', …)`), `use-workspace-file-tree.ts` (hold `files:` before the REST tree read, so no change between the read and the attach is lost; `onSignal(…, 'file_change', …)`), `web/src/features/editor/lsp/lsp-client.ts` (hold `lsp:<wsId>`; the owning-chat `followScope` goes because the scope is the workspace), the workspace view that S2 R16 *(S2 T4)* refcounts lifecycle subscriptions from also holds `ws:<wsId>` while mounted (forge poll); `web/src/features/workspace/lib/external-buffer-sync.ts` holds `doc:<path>` and `onSignal(…, 'file_change', …)` in place of `documentWatchEndpoint`'s socket (`lib/api/documents.ts`), keeping S5's watch-limit wording on a `refused` close; every reader of the per-workspace store's review threads reads `selectReviewThreads(s, wsId)` from `web/src/core/entities/select.ts` (create; `grep -rn 'threads' web/src/features/workspace/stores` for the slice and its readers).
 - Web delete: `use-workspace-threads-stream.ts`, the per-workspace threads slice state and actions, and their tests.
-- Web tests: extend `web/src/__tests__/features/workspace/stores/hooks/{use-workspace-git.test.ts,use-workspace-file-tree.test.ts}`, `web/src/__tests__/features/editor/lsp/lsp-client.test.ts`, create `web/src/__tests__/core/entities/select.test.ts`.
+- Web tests: create `web/src/__tests__/features/workspace/stores/hooks/{use-workspace-git.test.ts,use-workspace-file-tree.test.ts}` (neither exists at refresh), extend `web/src/__tests__/features/editor/lsp/lsp-client.test.ts` and the existing test of `external-buffer-sync.ts` (`find web/src/__tests__ -name 'external-buffer-sync*'`), create `web/src/__tests__/core/entities/select.test.ts`.
 
 **Interfaces:**
 - Consumes: T5.
 - Produces: signal kinds `git_status` (today's `GitStatusEvent`), `file_change` (`FileChangeEvent`), `diagnostics` (today's diagnostics event); entity kind `review_thread` (`ThreadDTO`) in `EntityData`; `selectReviewThreads(s: EntityState, wsId: string): ThreadDTO[]` (memoized on `byKind.review_thread` identity).
 
-- [ ] **Step 1: Write the failing tests.** Go (`api/internal/app/stream/`): `TestWsSource_SnapshotsTheWorkspacesReviewThreads`, `TestGitSource_SnapshotIsTheCurrentStatus`, `TestRefcount_TheWatcherIsSharedByGitAndFiles` (hold `git:w` and `files:w`: one watcher start; release both: one stop after its linger, driven by the injected timer). Black box: `TestStream_GitScopeSignalsAStatusChange` (write a file in an imported worktree → a `git_status` signal for that workspace), `TestStream_WsScopeCarriesReviewThreads` (post a review comment → a `review_thread` entity frame). Web:
+- [ ] **Step 1: Write the failing tests.** Go (`api/internal/app/stream/`): `TestWsSource_SnapshotsTheWorkspacesReviewThreads`, `TestGitSource_SnapshotIsTheCurrentStatus`, `TestRefcount_TheWatcherIsSharedByGitAndFiles` (hold `git:w` and `files:w`: one watcher start; release both: one stop after its linger, driven by the injected timer). Black box: `TestStream_GitScopeSignalsAStatusChange` (write a file in an imported worktree → a `git_status` signal for that workspace), `TestStream_WsScopeCarriesReviewThreads` (post a review comment → a `review_thread` entity frame), `TestStream_DocScopeSignalsAnExternalChange` and `TestStream_DocScopeAtTheWatchLimitIsRefused` (ported from `files_test.go`'s documents cases). Web:
 ```ts
 // use-workspace-git.test.ts
 it('holds git:<ws> while mounted and applies git_status signals')
@@ -146,13 +147,14 @@ it('selectReviewThreads returns the workspace threads and keeps identity when no
 ```
 - [ ] **Step 2: Run them to verify they fail.** `GOTEST ./internal/app/stream/...`; `GOBOX 'TestStream_'`; `cd web && bunx vitest run <the four test files>`.
 - [ ] **Step 3: Implement** as listed: move the resources, write the sources, re-point publishers and consumers, delete the definitions, routes, hub methods and `realtime`.
-- [ ] **Step 4: Run.** Step 2's commands plus `GOTEST ./internal/app/... ./internal/api/...`, Go gates, `go vet -tags 'integration noEmbed' ./tests/...`, `bun tsc --noEmit`, web gates. `grep -rn 'realtime\.' api/internal --include='*.go'` finds nothing.
+- [ ] **Step 4: Run.** Step 2's commands plus `GOTEST ./internal/app/... ./internal/api/...`, Go gates, `go vet -tags 'integration noEmbed' ./tests/...`, `bun tsc --noEmit`, web gates. `grep -rn 'realtime\.' api/internal --include='*.go'` and `grep -rn 'documents/ws' api/internal web/src` find nothing.
 - [ ] **Step 5: Commit.**
 
 ```bash
 git commit -m "refactor(stream): git, files, LSP and review threads ride the stream; realtime's four refcounts become the hub's one
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```
 
 ---
@@ -161,11 +163,11 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `api/internal/app/stream/chat_source.go` (`Attach` calls the chat usecase's `OpenFeed(ctx, chatID, since)` and maps its frames: `row` → `row{scope, row}`; `ready{seq}` → `synced{scope, seq}`; `delta` → `delta{scope, delta}`; `resync` → `closed{scope, resync}`; `deleted` → `closed{scope, deleted}`; an unknown chat → `closed{scope, refused, not_found}`); test `chat_source_test.go`.
-- Modify: `api/internal/app/usecases/chat/feed.go` (the feed's own `epoch` goes from `FeedFrame`; the connection's `ready` carries the daemon epoch, minted once in `app/container.go` and passed to the hub; `OpenFeed` stays), `api/internal/app/container.go` (`chat` source).
-- Delete: `api/internal/api/v0/endpoints/chat/handlers/feed.go` and `feed_test.go`, the `/feed` route.
-- Test (black box): port every test that dials `/feed` (`grep -rln '/feed' api/tests`) to the stream helper; add the two below.
-- Web modify: the ChatStore module that attaches a feed (S2 T3; `grep -rln 'feed?since' web/src`): attach = `holdScope('chat:'+chatId)`, detach = release (S2 R17's lifetime rule unchanged); the ChatStore registers `registerScopeKind('chat', { since, frame, epoch })`: `since(key)` is `feeds[key]?.seq ?? 0`, `frame` applies `row`/`delta` with S2's `applyRow`/`applyDelta`, `synced` marks the feed live, `closed{resync}` is handled by `stream.ts` (resubscribe), `closed{deleted}` drops the feed; `epoch` resets every feed (S2's epoch rule, now from the connection).
-- Web modify: `web/src/lib/ws/manager.ts` (delete `subscribe`'s `url` parameter, S2 R15; the feed was its only user).
+- Modify: `api/internal/app/usecases/chat/feed.go` (the feed's own `epoch` goes from `FeedFrame`; `FeedDelta` moves from `usecases/chat/internal/ingress/live.go` to `domain/ledger` so `domain/stream.Frame` can carry it, and `Frame.Delta` is added; the connection's `ready` carries the daemon epoch, minted once in `app/container.go` and passed to the hub; `OpenFeed` stays), `api/internal/app/container.go` (`chat` source).
+- Delete: `api/internal/api/v0/endpoints/chat/handlers/feed.go` and `feed_test.go`, the `/feed` route (`api/v0/router.go:120`, `chats.GET("/:chatId/feed", …)`).
+- Test (black box): port every test that dials `/feed` (`grep -rln '/feed' api/tests`: `chat_feed_test.go`'s six `TestChatFeed_*` at refresh) to the stream helper; add the two below.
+- Web modify: the ChatStore module that attaches a feed *(S2 T3; no web code reads the feed at refresh)* (`grep -rln 'feed?since' web/src`): attach = `holdScope('chat:'+chatId)`, detach = release (S2 R17's lifetime rule unchanged); the ChatStore registers `registerScopeKind('chat', { since, frame, epoch })`: `since(key)` is `feeds[key]?.seq ?? 0`, `frame` applies `row`/`delta` with S2's `applyRow`/`applyDelta`, `synced` marks the feed live, `closed{resync}` is handled by `stream.ts` (resubscribe), `closed{deleted}` drops the feed; `epoch` resets every feed (S2's epoch rule, now from the connection).
+- Web modify: `web/src/lib/ws/manager.ts` (225 lines; delete `subscribe`'s `url` parameter *(S2 T3, R15)*; the feed was its only user).
 - Web tests: extend the S2 test file of the module that attaches feeds and `web/src/__tests__/lib/ws/manager.test.ts` (delete the `url` cases).
 
 **Interfaces:**
@@ -195,5 +197,6 @@ it('a new epoch resets every feed')
 ```bash
 git commit -m "refactor(stream): chat ledgers are the chat:<id> scope; the per-chat feed socket goes
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```

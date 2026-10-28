@@ -17,14 +17,14 @@
 **Files (Go):**
 - Create: `api/internal/api/v0/endpoints/tree/{routes.go,handlers/handlers.go}` (R19's four routes over `usecases/tree.Service`; the move reply carries `hub.VersionOf(stream.KindTree, projectID)`), test `handlers/handlers_test.go`.
 - Modify: `api/internal/app/stream/hub.go` (`VersionOf`: the hub records the `v` of the last frame per entity key), `api/internal/api/v0/router.go`.
-- Delete: `ToLegacy` (`usecases/tree/legacy.go` keeps `FromLegacy` for step 7), `PATCH …/chats/:id/placement` (repo and home), `PATCH …/workspaces/:id/placement`, `…/chats/folders` CRUD (repo and home) and their handlers (`endpoints/chat/handlers/folders.go`, `endpoints/workspace/handlers/placement.go`, `PlaceChat`), `order`/`folderId` from the repo PATCH body, `ChatDTO.parentId/order`, `WorkspaceDTO.folderId/order`, `ChatWorktreeDTO.folderId/order`, `RepoDTO.order/folderId`, `FolderDTO`, and their tests.
+- Delete: `ToLegacy` (`usecases/tree/legacy.go` keeps `FromLegacy` for the tree-containers step, 8 at refresh), `PATCH …/chats/:id/placement` (repo and home), `PATCH …/workspaces/:id/placement`, `…/chats/folders` CRUD (repo and home) and their handlers (`endpoints/chat/handlers/folders.go`, `endpoints/workspace/handlers/placement.go`, `PlaceChat`), `order`/`folderId` from the repo PATCH body, `ChatDTO.parentId/order`, `WorkspaceDTO.folderId/order`, `ChatWorktreeDTO.folderId/order`, `RepoDTO.order/folderId`, the folder routes' `AgentChatDTO` replies (there is no `FolderDTO`), and their tests.
 - Modify (black box): `api/tests/tree_placement_test.go` (T1): `placementOf` reads the `tree` entity from the `projects` scope; each expectation is restated in explicit-container terms (R4) with a comment naming the T1 value it replaces; the refusal test hits `POST …/tree/moves` and asserts R19's codes.
 
 **Files (web):**
 - Create: `web/src/features/workspace/tree/{api.ts,drop-policy.ts,drop.ts}`; tests `web/src/__tests__/features/workspace/tree/{drop-policy.test.ts,drop.test.ts}`.
 - Move: `web/src/components/sidebar/hooks/use-sidebar-drag.ts` (751 lines: split by responsibility, gesture vs. auto-scroll vs. ghost), `web/src/components/tree-dnd/{drop-core.ts,drop-dom.ts}`, `web/src/components/layout/{drag-ghost.tsx,drop-indicator.tsx,edge-scroll.ts}` → `web/src/features/workspace/tree/drag/` (gesture, animation and feel unchanged; tests move to the mirrored path).
 - Modify: `web/src/features/workspace/tree/{tree-ui-store.ts,rows.ts}` (`pendingMove` applied by `deriveRows` as the row's position while set), every folder create/rename/delete caller (row menu, inline rename, create space panel) → `api.ts`.
-- Delete: `web/src/lib/api/sidebar-placement.ts`, `web/src/lib/store/applied-placement.ts`, the placement planning in what S3 left of `drop-actions.ts` (densify, scope roots, landing) and `components/sidebar/lib/sidebar-drop-policy.ts`, and their tests (`drop-actions*.test.ts`, `sidebar-drop-policy.test.ts`, `applied-placement.test.ts`, `repo-vs-repo-drop-line.test.ts`, `home-row-vs-repo-header-drop-line.test.ts`): a case pinning which drop the indicator allows moves to `drop-policy.test.ts`; a case pinning where a drop lands moves to `drop.test.ts`; cases for deleted planning go.
+- Delete: `web/src/lib/api/sidebar-placement.ts`, `web/src/lib/store/applied-placement.ts`, the placement planning in what is left of `drop-actions.ts` (999 lines at refresh: densify, scope roots, landing) and `components/sidebar/lib/sidebar-drop-policy.ts`, and their tests (`drop-actions*.test.ts` (seven files at refresh), `sidebar-drop-policy.test.ts`, `applied-placement.test.ts`, `repo-vs-repo-drop-line.test.ts`, `home-row-vs-repo-header-drop-line.test.ts`): a case pinning which drop the indicator allows moves to `drop-policy.test.ts`; a case pinning where a drop lands moves to `drop.test.ts`; cases for deleted planning go.
 
 **Interfaces:**
 - Consumes: T3 service, T5 hub, T8 `SidebarRow.nodeId`, T9 store, T10 entity store.
@@ -46,7 +46,7 @@ export interface PendingMove { projectId: string; nodeId: string; parentId: stri
 ```
 
 - [ ] **Step 1: Write the failing Go tests.** `handlers_test.go`: `TestMove_RepliesWithTheTreeAndItsVersion`, `TestMove_ARefusalIs409WithItsCode`, `TestCreateFolder_UsesTheClientID`, `TestDeleteFolder_MovesChildrenUp`; black box as above. Run: `GOTEST ./internal/api/v0/endpoints/tree/...`, `GOBOX 'TestTree_'`. Expected: FAIL.
-- [ ] **Step 2: Implement the Go side** and delete the legacy routes and fields. Run Step 1's commands, `GOTEST ./internal/app/... ./internal/api/...`, Go gates. `grep -rn 'ToLegacy\|FolderDTO\|/placement' api/internal --include='*.go'` finds nothing.
+- [ ] **Step 2: Implement the Go side** and delete the legacy routes and fields. Run Step 1's commands, `GOTEST ./internal/app/... ./internal/api/...`, Go gates. `grep -rn 'ToLegacy\|/placement\|chats/folders' api/internal --include='*.go'` finds nothing.
 - [ ] **Step 3: Write the failing web tests.**
 ```ts
 // drop-policy.test.ts: one case per R4 rule, mirroring domain/tree's rules_test.go case names
@@ -67,7 +67,8 @@ it('a refused move clears the pending move and reports the refusal once')       
 ```bash
 git commit -m "refactor(tree): a drop is one Tree move; legacy placement routes, DTO placement fields and client placement planning go
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```
 
 ---
@@ -75,12 +76,12 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ### Task 12: Creates and removals are one Tree write
 
 **Files (Go):**
-- Modify: the create routes the sidebar uses (thread create, branch create, fork, project-home chat create, branch import; `grep -rn 'h.Create\b\|ImportBatch\|Fork' api/internal/api/v0/endpoints`): each body accepts `placement: {parentId, index}` (optional; absent = the end of the natural container R4 names) and passes it to the T4 verb, which places the node in the same operation; `domain.OperationItem` gains `Placement *tree.Placement` (`type Placement struct { ParentID string; Index int }` in `domain/tree`), set by those verbs, so an in-flight row knows where it will land; the S3 TS mirror of `Operation` gains it.
+- Modify (`domain.OperationItem` and the create verbs' operations are *(S3 T3/T5)*): the create routes the sidebar uses (thread create, branch create, fork, project-home chat create, branch import; `grep -rn 'h.Create\b\|ImportBatch\|Fork' api/internal/api/v0/endpoints`): each body accepts `placement: {parentId, index}` (optional; absent = the end of the natural container R4 names) and passes it to the T4 verb, which places the node in the same operation; `domain.OperationItem` gains `Placement *tree.Placement` (`type Placement struct { ParentID string; Index int }` in `domain/tree`), set by those verbs, so an in-flight row knows where it will land; the S3 TS mirror of `Operation` gains it.
 - Test: extend the black-box test file of each create route (`grep -rln` the route path in `api/tests`) with Step 1's tests.
 
 **Files (web):**
 - Create: `web/src/features/workspace/tree/{create.ts,remove.ts,actions.ts}`; tests `web/src/__tests__/features/workspace/tree/{create.test.ts,remove.test.ts,actions.test.ts}`.
-- Delete: `web/src/components/layout/{create-actions.ts,thread-create.ts,home-actions.ts,removal-plan.ts,removal-commit.ts,trash-actions.ts}` and what S3 left of `web/src/components/sidebar/lib/row-actions.ts`, plus their tests (`create-actions*.test.ts`, `thread-create.test.ts`, `home-actions.test.ts`, `removal-plan*.test.ts`, `removal-commit.test.ts`, `trash-actions.test.ts`, `row-actions.test.ts`, `recents-home-chat-branch-create.test.ts`): cases that pin surviving behaviour move to the new test files; the second "place it" request after a create goes.
+- Delete: `web/src/components/layout/{create-actions.ts,thread-create.ts,home-actions.ts,removal-plan.ts,removal-commit.ts,trash-actions.ts}` and what is left of `web/src/components/sidebar/lib/row-actions.ts` (671 lines at refresh), plus their tests (`create-actions*.test.ts`, `thread-create.test.ts`, `home-actions.test.ts`, `removal-plan*.test.ts`, `removal-commit.test.ts`, `trash-actions.test.ts`, `row-actions.test.ts`, `components/sidebar/lib/recents-home-chat-branch-create.test.ts`): cases that pin surviving behaviour move to the new test files; the second "place it" request after a create goes.
 - Modify: every caller (row menu, row action buttons, recents band, space header, removal tray, removal confirm dialog, keyboard shortcuts: `grep -rln` each deleted module) → the new modules; `rows.ts` draws an in-flight item at `item.placement`.
 
 **Interfaces:**
@@ -113,7 +114,8 @@ it('commitRemoval sends one delete per removed root')
 ```bash
 git commit -m "refactor(tree): a create carries its placement and is one Tree write plus one entity write; removals plan from the Tree
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```
 
 ---
@@ -122,18 +124,18 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Files:**
 - Move: every remaining file of `web/src/components/sidebar/` and `web/src/components/tree-dnd/`, and the sidebar files of `web/src/components/layout/` (the `sidebar-*`, `space-*`, `removal-tray.tsx`, `removal-confirm-dialog.tsx`, `create-space-panel.tsx`, `recents-*`, `row-*`, `inline-rename-input.tsx`, `workspace-row-base.ts`, `workspace-branch-icon.tsx`, `repo-avatar.tsx`, `repo-icon-mark.tsx`, `project-icon-mark.tsx`, `keep-set.ts`, `use-card-resize-drag.ts`, `use-carousel-scroll-sync.ts`, `use-measured-height.ts`, `use-sidebar-panel.ts`, `open-actions.ts`, `detach-holder-modal.tsx`) into `web/src/features/workspace/tree/` (`git mv`, imports updated, tests moved to the mirrored path). `web/src/lib/store/` must then hold nothing the sidebar uses (`ls` it; anything left is named in the commit body with its owner).
-- Modify: `scripts/ratchet/modules.json` (D9's files named under their owning keys; stale prefixes removed: `api/internal/app/hub`, `api/internal/app/realtime`, `api/internal/api/v0/ws`, `api/internal/api/v0/snapshots.go`, `web/src/components/app-sync-engine.ts`, `web/src/components/app-sync-provider.tsx`, `web/src/components/sidebar`, `web/src/components/tree-dnd`), `scripts/ratchet/loc-budgets-baseline.json` (move D9's lines from `web.sidebar` to their keys by hand first, then `make ratchet ARGS=--update` writes every lower number), `scripts/ratchet/counters-baseline.json` and `file-size-baseline.json` (lower numbers from `--update`).
+- Modify: `scripts/ratchet/modules.json` (D9 as ruled in the index: only the shell files are named under their owning keys, dead files are deleted, sidebar-owned files stay in `web.sidebar`; stale prefixes removed: `api/internal/app/hub`, `api/internal/app/realtime`, `api/internal/api/v0/ws`, `api/internal/api/v0/snapshots.go`, `web/src/components/app-sync-engine.ts`, `web/src/components/app-sync-provider.tsx`, `web/src/components/sidebar`, `web/src/components/tree-dnd`), `scripts/ratchet/loc-budgets-baseline.json` (move the shell files' lines from `web.sidebar` to their keys by hand first, then `node scripts/ratchet/loc-budgets.mjs --update` writes every lower number), `scripts/ratchet/counters-baseline.json` and `file-size-baseline.json` (lower numbers from `node scripts/ratchet/{counters,file-size}.mjs --update`).
 - Modify: the comments of every moved file to the ≤3-line *why* rule (comment changes only).
 
 - [ ] **Step 1: Move and re-key.** Run T1's pin, `cd web && bunx vitest run src/__tests__/features/workspace/tree src/__tests__/components/layout`, `bun tsc --noEmit`, web gates. Expected: PASS.
-- [ ] **Step 2: Measure the gate.** `node scripts/ratchet/loc-budgets.mjs` (or `make ratchet`): `web.sidebar` ≤ 5,000. If it is above, stop and report the per-file list (largest first) and D9's status; never loosen the budget and never move a file whose owner is the sidebar. Then the index's gate table: the `websocket.Upgrader` grep lists exactly three sites (stream, terminal PTY, console log tail); `grep -rn 'newAsynx\[' api/internal/app` lists Workspace, Chat, ReviewThread, Tree; the reseed-GET grep finds only user-initiated reads; `grep -rn 'crowbar_\|loadCache\|saveCache\|entity-cache' web/src --include='*.ts*' | grep -v __tests__` lists only `idb.ts`'s upgrade chain and schema types.
-- [ ] **Step 3: Ratchet.** `make ratchet ARGS=--update`, then `make ratchet`, `make pr-checks` (or each gate it runs, if it runs a full suite: never a full `vitest run`; follow `CLAUDE.md`'s targeted rule and run the Go and web gates listed in the index). Expected: PASS, every number lower or equal.
-- [ ] **Step 4: Live check (Review Focus 1, 5).** `df -h /System/Volumes/Data` (P3). `rm -rf .crowbar/s4-pin/home && tar -xf .crowbar/s4-pin/home-before.tar -C .crowbar/s4-pin` (T1's home, untouched since T1). `make dev-desktop CROWBAR_HOME=$(git rev-parse --show-toplevel)/.crowbar/s4-pin/home`. Then with Tauri MCP:
-  1. `$CROWBAR_HOME/migrate/ledger.jsonl` records `placement_tree` and `tree_containers` applied and verified; `$CROWBAR_HOME/state/events/node.db` does not exist.
+- [ ] **Step 2: Measure the gate.** `node scripts/ratchet/loc-budgets.mjs`: `web.sidebar` ≤ 5,000. If it is above, stop and report the per-file list (largest first) and D9's status to the user as a spec question (ledger F11); never loosen the budget and never move a file whose owner is the sidebar. Then the index's gate table: the `websocket.Upgrader` grep lists exactly three sites (stream, terminal PTY, console log tail); `grep -rn 'newAsynx\[' api/internal/app` lists Workspace, Chat, ReviewThread, Tree; the reseed-GET grep finds only user-initiated reads; `grep -rn 'crowbar_\|loadCache\|saveCache\|entity-cache' web/src --include='*.ts*' | grep -v __tests__` lists only `idb.ts`'s upgrade chain and schema types.
+- [ ] **Step 3: Ratchet.** `node scripts/ratchet/{file-size,counters,loc-budgets}.mjs --update`, then each without `--update`, then the targeted Go and web gates listed in the index (ledger F21 and the handoff: never `make pr-checks`, never a full `vitest run` or `go test ./...`; CI runs the full suites). Expected: PASS, every number lower or equal; `loc-budgets` keys red at base before S4 are reported with their delta, not raised.
+- [ ] **Step 4: Live check (Review Focus 1, 5).** Where and by whom: index OR4 (with the user, or in the isolated noVNC container). P3's `df -h`. `rm -rf .crowbar/s4-pin/home && tar -xf .crowbar/s4-pin/home-before.tar -C .crowbar/s4-pin` (T1's home, untouched since T1). `make dev-desktop CROWBAR_HOME=$(git rev-parse --show-toplevel)/.crowbar/s4-pin/home`. Then with Tauri MCP:
+  1. `$CROWBAR_HOME/migrate/ledger.jsonl` records `placement-tree` and `tree-containers` applied and verified; `$CROWBAR_HOME/state/events/node.db` does not exist.
   2. Capture the outline with T1's script; `diff` against `.crowbar/s4-pin/outline-before.txt`: empty.
   3. In the app: drag a thread into a repo folder and back; drag a home folder above a repo; create a folder, rename it, delete it (its children move up, in order); try to drop a folder onto a chat (the indicator refuses; no request is sent); try to drop a thread under another branch (the indicator refuses). After each step capture the outline and check it against the expected change only; `webview_screenshot` once per step for the record (not committed).
   4. Quit and relaunch: the outline equals the one before quitting; the skeleton shows until the first snapshot (V1).
-  5. In the webview: `indexedDB.databases()` reports `crowbar` at version 10, and opening it without a version lists the same 17 object store names as `.crowbar/s4-pin/home-before.tar`'s era (read only; nothing is written).
+  5. In the webview: `indexedDB.databases()` reports `crowbar` at version 11, and opening it without a version lists the same 17 object store names it had at T1 (read only; nothing is written).
   6. Record, from `performance` entries, the time from navigation start to the first `[role="treeitem"]` (D5's number) in the commit body.
   Quit the app. Never touch `~/.crowbar` or the production app.
 - [ ] **Step 5: Commit.**
@@ -142,8 +144,9 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 git add scripts/ratchet <moved paths>
 git commit -m "chore(sidebar): the sidebar lives in features/workspace/tree; S4 gate ratcheted
 
-web.sidebar <n> (from 18,562), go.stream <n> (from 3,278); stream definitions 1; aggregates 4.
-Live: the upgraded pin home renders the identical outline; crowbar IndexedDB still v10 with 17 stores.
+web.sidebar <n> (from 18,562), go.stream <n> (from 3,278; 3,572 at refresh); stream definitions 1; aggregates 4.
+Live: the upgraded pin home renders the identical outline; crowbar IndexedDB still v11 with 17 stores.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```
