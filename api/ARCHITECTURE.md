@@ -69,7 +69,8 @@ Each engine is a facade over one capability, with its implementation in
 - `agents` — everything vendor-specific about agent CLIs: YAML descriptors
   (`internal/protocol/internal/descriptor/descriptors-v3/{claude,codex}.yaml`)
   mapped to spawn plans, hook/telemetry interpretation, model discovery and
-  selection.
+  selection. It holds no runner aggregate: the table of live CLIs is the chat
+  usecase's, in memory, and what outlives a restart is the chat's ledger.
 - `mcp` — JSON-RPC MCP protocol used by `crowbar mcp`.
 
 ### `adapter/`
@@ -78,12 +79,15 @@ Persistence only. Under `<home>/state`:
 - `events/<type>.db` — append-only event log per aggregate type, plus
   `events/<type>_snapshots.db` (one upserted snapshot per aggregate, O(1) warm reads).
 - `store/<type>.db` — the read-model projection per type.
+- `store/chat_ledger.db` — each chat's append-only ledger (`domain/ledger`
+  rows by `seq`), not event-sourced: one writer per chat owns its seqs and its
+  folded state. Beside it, the open-work heads, the provider-session bindings
+  and the dead letters (hooks the ingress could not place).
 - `view.db` — plain CRUD tables (projects, repositories, terminal profiles and
   sessions, provider preferences, settings) behind generic GORM stores.
 
-Types: `workspace`, `review_thread`, `agent_chat`, `agent_activity` (a chat's
-turns and tool calls — separate so a tool-call storm never queues behind sidebar
-writes), `node` (sidebar placement). The adapter takes no lock:
+Types: `workspace`, `review_thread`, `agent_chat`, `node` (sidebar placement).
+The adapter takes no lock:
 the boot's migration session holds the home from before the stores open until
 after they close.
 
@@ -142,10 +146,12 @@ the usecases they call.
    The session is published to the gate, then `RunPreOpen` runs, so health
    names each step as it starts: it plans every pending step of both phases,
    checks git where a plan needs it, backs up `state/` when a plan rewrites it,
-   and runs the pre-open steps.
+   and runs the pre-open steps — step 2, and step 6 `chat-ledger`, so the
+   legacy chats are ledger rows before any store opens.
 4. Engines, adapter, and `app.New(ctx, engines, adapter, session)`: the session
-   is the post-open runner, which `app.New` calls after the runner reconcile and
-   before the owning-chat reconcile. Then the API, the `crowbar` binary
+   is the post-open runner, which `app.New` calls before the runner reconcile
+   (a step can hand it a runner a crashed old daemon left) and the owning-chat
+   reconcile. Then the API, the `crowbar` binary
    installed into `<home>/bin`, and the hook server, listening and published.
 5. `gate.Open(api handler)`: the server, serving since step 2, starts passing
    requests to the API.
@@ -239,9 +245,14 @@ them derive one.
   from the descriptor's spawn plan. The CLI posts each hook (natively or through
   curl) to the daemon's loopback hook server at
   `.../chats/runners/:segid/hooks/:provider/:event`, authenticated by the runner
-  token; the agents engine interprets the payload and the chat usecase records
-  activity and fans it out. A hook that opens an answerable ask is held open, and
-  the human's answer is its response.
+  token. This HTTP ingress is the only hook path (the old socket relay is
+  retired): it resolves the runner in the live table, parses the payload through
+  the runner's descriptor and appends ledger rows under the chat's lock,
+  answering once they commit; a hook it cannot place is dead-lettered. A hook
+  that opens an answerable ask is held open, and the human's answer is its
+  response. Each committed row reaches the chat's `/v0/chats/:chatId/feed`
+  socket by `seq`; the chat's snapshot and its client broadcasts follow from
+  the same commit.
 - **Watchers**: subscribing to a workspace's files/git stream starts its watcher;
   changes flow back as git-status/file frames. A host document (a file outside
   every worktree, local socket only) is held by one `GET /v0/documents/ws?path=`
@@ -271,3 +282,7 @@ them derive one.
 - `tests/` is the black-box suite (build tag `integration`) over a real daemon,
   HTTP, WebSocket and SQLite, via `tests/kit`; `tests/integration/<concern>/`
   groups the heavier scenarios (crash, concurrency, bench).
+- The fake provider harness (`tests/kit/fakeprovider.go`, `tests/kit/fakecli`)
+  installs a provider descriptor into the test home whose CLI records its launch
+  and behaves like `cat`; a test plays the provider by posting hooks to the
+  hook server itself. No real provider CLI runs in a test.
