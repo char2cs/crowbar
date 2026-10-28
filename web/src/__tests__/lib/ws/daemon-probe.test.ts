@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { waitFor } from '@testing-library/react'
-import { probeDaemon } from '@/lib/ws/daemon-probe'
+import { noteSocketOpened, probeDaemon } from '@/lib/ws/daemon-probe'
 import { createWSManager } from '@/lib/ws/manager'
 import {
   reportChannelState,
@@ -25,6 +25,14 @@ class MockWebSocket {
   static last: MockWebSocket | null = null
   constructor() {
     MockWebSocket.last = this
+  }
+  open() {
+    this.readyState = MockWebSocket.OPEN
+    this.onopen?.()
+  }
+  drop() {
+    this.readyState = MockWebSocket.CLOSED
+    this.onclose?.()
   }
 }
 
@@ -73,6 +81,29 @@ describe('probeDaemon', () => {
       total: 5,
       name: 'chat-ledger',
     })
+  })
+
+  it('a daemon migrating before its first step is starting, not upgrading', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(health({ status: 'migrating', detail: null })))
+
+    await probeDaemon()
+
+    expect(useConnectionStore.getState().migrating).toEqual({ message: 'Crowbar is starting' })
+  })
+
+  it('a step the daemon did not name is called by its number', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          health({ status: 'migrating', detail: { index: 1, total: 3, step: { number: 7 } } }),
+        ),
+    )
+
+    await probeDaemon()
+
+    expect(useConnectionStore.getState().migrating?.step?.name).toBe('step 7')
   })
 
   it('a halted health read halts the daemon-halt store with its reason', async () => {
@@ -127,5 +158,48 @@ describe('probeDaemon', () => {
       ),
     )
     unsubscribe()
+  })
+
+  it.each([
+    ['halted', halted],
+    ['migrating', health({ status: 'migrating', detail: null })],
+  ])('a %s answer sent before a socket opened is ignored after it drops', async (_, late) => {
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    let answer!: (res: unknown) => void
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise((resolve) => (answer = resolve))),
+    )
+    const mgr = createWSManager()
+    const leaveGit = mgr.subscribe('/v0/ws/git', vi.fn())
+    MockWebSocket.last!.drop()
+    const inFlight = probeDaemon() // the one the refused socket sent
+    const leaveFiles = mgr.subscribe('/v0/ws/files', vi.fn())
+    const files = MockWebSocket.last!
+
+    files.open()
+    files.drop()
+    answer(late)
+    await inFlight
+
+    expect(useDaemonHaltStore.getState().message).toBeNull()
+    expect(useConnectionStore.getState().status).toBe('disconnected')
+    leaveGit()
+    leaveFiles()
+  })
+
+  it('a read that never answers does not hold a probe sent after a socket opened', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockReturnValueOnce(new Promise(() => {}))
+      .mockResolvedValueOnce(halted)
+    vi.stubGlobal('fetch', fetchMock)
+    void probeDaemon()
+
+    noteSocketOpened()
+    await probeDaemon()
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(useDaemonHaltStore.getState().message).toBe('layout 9 is newer than this Crowbar knows')
   })
 })

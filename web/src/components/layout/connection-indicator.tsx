@@ -12,6 +12,19 @@ const TOAST_KEY = 'connection-indicator'
 // banner; only show it once the disconnect has persisted for a moment.
 const SHOW_DELAY_MS = 500
 
+// Without a step the daemon is only starting (every boot passes through
+// migrating), so its own message is the title, never "upgrading its data".
+function migratingToast(migrating: Migrating) {
+  const { step } = migrating
+  return {
+    type: 'info' as const,
+    message: step ? 'Crowbar is upgrading its data' : migrating.message,
+    description: step ? `Step ${step.index} of ${step.total}: ${step.name}` : undefined,
+    key: TOAST_KEY,
+    duration: 0,
+  }
+}
+
 /**
  * Effect-only component: watches the wsManager's connection store and drives
  * a toast for sustained backend outages. Per CLAUDE.md, a toast is fired from
@@ -26,19 +39,6 @@ const SHOW_DELAY_MS = 500
  * resolved duration is `> 0`, so `0` opts a toast out of it entirely — and it
  * is dismissed only here, the instant a channel reconnects, never by a timer.
  */
-// Without a step the daemon is only starting (every boot passes through
-// migrating), so its own message is the title, never "upgrading its data".
-function migratingToast(migrating: Migrating) {
-  const { step } = migrating
-  return {
-    type: 'info' as const,
-    message: step ? 'Crowbar is upgrading its data' : migrating.message,
-    description: step ? `Step ${step.index} of ${step.total}: ${step.name}` : undefined,
-    key: TOAST_KEY,
-    duration: 0,
-  }
-}
-
 export function ConnectionIndicator() {
   const status = useConnectionStore((state) => state.status)
   const migrating = useConnectionStore((state) => state.migrating)

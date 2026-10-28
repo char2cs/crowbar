@@ -1,12 +1,14 @@
+import { ApiError } from '@/lib/errors/api-error'
 import { problemOf } from '@/lib/errors/problem'
 import { toastManager } from '@/lib/toast-manager'
 import { reportDaemonRefusal } from '@/lib/ws/connection-store'
 
-/** What the user was doing when it failed; `key` dedupes repeats of one failure. */
+/** What the user was doing when it failed. */
 interface ReportContext {
   action: string
-  key?: string
 }
+
+const UNEXPECTED = 'Something went wrong'
 
 // A cancelled request or Monaco provider call is a superseded one, not a failure.
 function isCancellation(error: unknown): boolean {
@@ -14,8 +16,7 @@ function isCancellation(error: unknown): boolean {
   return error.name === 'AbortError' || error.name === 'Canceled'
 }
 
-/** Tells the user an action failed and why, in the daemon's own words. Exported
- *  when its first caller lands; until then only rejections reach it. */
+/** Tells the user an action failed and why, in the daemon's own words. */
 function report(error: unknown, context: ReportContext): void {
   if (isCancellation(error)) return
   const problem = problemOf(error)
@@ -25,7 +26,7 @@ function report(error: unknown, context: ReportContext): void {
     return
   }
   toastManager.add({
-    id: context.key ?? context.action,
+    id: context.action,
     type: 'error',
     title: context.action,
     description: problem.message,
@@ -34,8 +35,16 @@ function report(error: unknown, context: ReportContext): void {
 
 /** Reports every promise rejection nothing handled; returns the uninstaller. */
 export function installGlobalReporting(target: Window = window): () => void {
-  const onRejection = (event: Event) =>
-    report((event as PromiseRejectionEvent).reason, { action: 'Something went wrong' })
+  const onRejection = (event: Event) => {
+    const reason: unknown = (event as PromiseRejectionEvent).reason
+    if (reason instanceof ApiError || isCancellation(reason)) {
+      report(reason, { action: UNEXPECTED })
+      return
+    }
+    // A client bug's own text means nothing to the user; it stays in the console.
+    console.error('unhandled rejection:', reason)
+    report(new Error(UNEXPECTED), { action: UNEXPECTED })
+  }
   target.addEventListener('unhandledrejection', onRejection)
   return () => target.removeEventListener('unhandledrejection', onRejection)
 }

@@ -52,14 +52,27 @@ describe('report', () => {
     expect(toastManager.add).not.toHaveBeenCalled()
   })
 
+  it('an unexpected error shows a generic line and keeps the real one in the console', () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const bug = new TypeError("cannot read properties of undefined (reading 'id')")
+
+    reject(bug)
+
+    expect(toastManager.add).toHaveBeenCalledWith(
+      expect.objectContaining({ description: 'Something went wrong' }),
+    )
+    expect(logged).toHaveBeenCalledWith(expect.any(String), bug)
+    logged.mockRestore()
+  })
+
   it('reports an unhandled rejection once installed, and nothing after dispose', () => {
-    reject('disk gone')
+    reject(new ApiError('disk gone', 500))
     expect(toastManager.add).toHaveBeenCalledWith(
       expect.objectContaining({ description: 'disk gone' }),
     )
 
     dispose()
-    reject(new Error('again'))
+    reject(new ApiError('again', 500))
     expect(toastManager.add).toHaveBeenCalledTimes(1)
   })
 })

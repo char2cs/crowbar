@@ -73,39 +73,6 @@ export function reportDaemonRefusal(problem: Problem): void {
   if (problem.code === 'daemon_halted') useDaemonHaltStore.getState().halt(problem.message)
 }
 
-export type DaemonHealthState =
-  { kind: 'migrating'; migrating: Migrating } | { kind: 'halted'; message: string } | null
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
-
-// The health route carries no message, only detail; these are the daemon's own
-// words for the same states (bootreport.go).
-function migratingFrom(detail: Record<string, unknown>): Migrating {
-  const { index, total, step } = detail
-  if (typeof index !== 'number' || typeof total !== 'number' || !isRecord(step)) {
-    return { message: 'Crowbar is starting' }
-  }
-  const name = String(step.name)
-  return {
-    message: `Crowbar is upgrading its data (step ${index} of ${total}: ${name})`,
-    step: { index, total, name },
-  }
-}
-
-/** The state a health read's `data` reports, or null for a daemon that is serving. */
-export function daemonStateFromHealth(data: unknown): DaemonHealthState {
-  if (!isRecord(data)) return null
-  const detail = isRecord(data.detail) ? data.detail : {}
-  if (data.status === 'halted') {
-    const message = typeof detail.message === 'string' ? detail.message : ''
-    return { kind: 'halted', message: message || 'the daemon halted without saying why' }
-  }
-  if (data.status === 'migrating') return { kind: 'migrating', migrating: migratingFrom(detail) }
-  return null
-}
-
 /** Test helper: clear all tracked channels. */
 export function resetConnectionState(): void {
   channelStates.clear()

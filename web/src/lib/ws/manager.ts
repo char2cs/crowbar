@@ -3,7 +3,7 @@ import { isTauri } from '@/lib/crowbar-bridge'
 import { wsUrl, isWebSocketCapable } from './url'
 import { reportChannelState, reportChannelGone } from './connection-store'
 import { TauriWebSocket } from './tauri-transport'
-import { probeDaemon } from './daemon-probe'
+import { noteSocketOpened, probeDaemon } from './daemon-probe'
 import { noteDaemonChange } from '@/lib/transport/daemon-changes'
 
 type Callback = (data: unknown) => void
@@ -103,6 +103,7 @@ export function createWSManager(): WSManager {
       ch.reconnectDelay = 1000
       if (channels.get(endpoint) !== ch) return
       ch.everOpen = true
+      noteSocketOpened()
       reportChannelState(endpoint, true)
       for (const waiter of ch.waiters.splice(0)) waiter.resolve()
       // Only now, not per attempt: a refetch while the daemon is still down

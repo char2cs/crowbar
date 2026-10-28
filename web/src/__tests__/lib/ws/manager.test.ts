@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { probeDaemon } from '@/lib/ws/daemon-probe'
 
-vi.mock('@/lib/ws/daemon-probe', () => ({ probeDaemon: vi.fn(() => Promise.resolve()) }))
+vi.mock('@/lib/ws/daemon-probe', () => ({
+  noteSocketOpened: vi.fn(),
+  probeDaemon: vi.fn(() => Promise.resolve()),
+}))
 
 class MockWebSocket {
   // vi.stubGlobal replaces the real WebSocket, so the mock must carry the
