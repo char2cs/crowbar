@@ -11,6 +11,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/purge"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
@@ -53,6 +54,7 @@ func (c *Container) QuiesceReactors(
 func (c *Container) wireCallbacks(
 	ctx context.Context,
 	crowbarHome string,
+	onGiveUp func(ctx context.Context, wsID string, tomb *domain.Workspace, err error),
 ) error {
 	c.drainGate = drain.New()
 	//nolint:gosec // G118: drainCancel is deliberately retained on the container and invoked later by the app layer's graceful shutdown via Drain().Cancel, not leaked.
@@ -64,7 +66,7 @@ func (c *Container) wireCallbacks(
 	if !ok {
 		return fmt.Errorf("workspace repository does not support delete-reactor registration")
 	}
-	if err := registrar.RegisterDeleteReactor(ctx, c.forgetDependents, purge.WorktreeRemover(crowbarHome, c.Workspace.List), c.drainGate); err != nil {
+	if err := registrar.RegisterDeleteReactor(ctx, c.forgetDependents, purge.WorktreeRemover(crowbarHome, c.Workspace.List), c.drainGate, onGiveUp); err != nil {
 		return fmt.Errorf("delete reactor: %w", err)
 	}
 	return nil

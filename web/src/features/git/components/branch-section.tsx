@@ -35,9 +35,9 @@ export function BranchSection({
   const [remoteBusy, setRemoteBusy] = useState(false)
   const [rebasing, setRebasing] = useState(false)
   // The workspace's last failed operation owns the reason; a later success clears it.
-  const remoteError = useOperationsStore((s) => selectEntityProblem(s, wsId)?.message ?? null)
-  const remoteOpId = useOperationsStore((s) => s.latestFor[wsId])
-  const [rebaseError, setRebaseError] = useState<string | null>(null)
+  const opError = useOperationsStore((s) => selectEntityProblem(s, wsId)?.message ?? null)
+  const latestOpId = useOperationsStore((s) => s.latestFor[wsId])
+  const latestKind = useOperationsStore((s) => s.ops[s.latestFor[wsId]]?.kind)
 
   const action = resolveBranchAction({
     hasUncommitted: files.length > 0,
@@ -53,15 +53,19 @@ export function BranchSection({
   // the conflict state over the WS stream. Crowbar never rebases on its own.
   const handleRebaseOntoParent = async () => {
     setRebasing(true)
-    setRebaseError(null)
-    try {
-      await rebaseOntoParent(wsId)
-      requestGitRefresh(wsId)
-    } catch (e) {
-      setRebaseError(e instanceof Error ? e.message : 'Rebase failed')
-    } finally {
-      setRebasing(false)
-    }
+    const op = runOperation(
+      {
+        kind: 'workspace.rebase_onto_parent',
+        subject: { kind: 'workspace', id: wsId },
+        projectId: '',
+        label: `Rebase onto ${parentBranch ?? 'parent'}`,
+      },
+      (opId) => rebaseOntoParent(wsId, opId),
+    )
+    // A failure is the store's to show; a kept conflict changed the tree either way.
+    const refresh = () => requestGitRefresh(wsId)
+    await whenSettled(op.id).then(refresh, refresh)
+    setRebasing(false)
   }
 
   // Push and pull run as operations, busy until the daemon settles one.
@@ -186,25 +190,24 @@ export function BranchSection({
         </div>
       )}
 
-      {(remoteError || rebaseError) && (
+      {opError && (
         <p className="ui-text-xs text-destructive mt-1">
-          {remoteError ?? rebaseError}
+          {opError}
           {' · '}
           <button
             type="button"
             className="underline"
             onClick={() => {
-              if (remoteError && (action.remote === 'push' || action.remote === 'pull')) {
-                void runRemote(action.remote)
-              } else if (rebaseError) {
-                setRebaseError(null)
+              if (latestKind === 'workspace.rebase_onto_parent') {
                 void handleRebaseOntoParent()
+              } else if (action.remote === 'push' || action.remote === 'pull') {
+                void runRemote(action.remote)
               }
             }}
           >
             Retry
           </button>
-          {remoteError && remoteOpId && (
+          {latestOpId && (
             <>
               {' · '}
               {/* Retry may not apply, e.g. the user pushed from a terminal since. */}
@@ -212,7 +215,7 @@ export function BranchSection({
                 type="button"
                 className="underline"
                 onClick={() =>
-                  void dismissOperation(remoteOpId).catch((e: unknown) =>
+                  void dismissOperation(latestOpId).catch((e: unknown) =>
                     report(e, { action: 'Dismiss' }),
                   )
                 }

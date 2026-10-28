@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -458,10 +459,6 @@ func (s *WorktreeSuite) TestWorktree_reparent() {
 	s.Assert().Equal(parentBTip, reloaded["forkPointSha"])
 }
 
-// TestWorktree_reparentWithChildrenRejected verifies the has_children guard. The
-// guard runs in the background (00 §4: reparent is 202+async), so the rejection
-// surfaces as a lastError on the workspace WS rather than a synchronous 409. The
-// child's git history must be untouched.
 // TestWorktree_reparentConflictMovesButStaysClean verifies the try-then-warn
 // model: a reparent whose rebase conflicts MOVES the child under the new parent
 // anyway, but ABORTS the rebase so the worktree stays clean (never stuck), and
@@ -523,9 +520,8 @@ func (s *WorktreeSuite) TestWorktree_rebaseOntoParentConflictKeepsForResolve() {
 	})
 
 	// User clicks "Rebase onto parent" → keep the conflict for resolution.
-	// The row is already pr-conflicts from the reparent above, and the working
-	// overlay re-broadcasts the current row when the async op begins — so wait
-	// on the op's real outcome (the persisted fork point), not the status alone.
+	// The row is already pr-conflicts from the reparent above, so wait on the
+	// op's real outcome (the persisted fork point), not the status alone.
 	resp2 := s.Env.POST(t, s.repoChatBase(childChatID)+"/rebase-onto-parent", map[string]any{})
 	kit.RequireStatus(t, resp2, http.StatusAccepted)
 	resp2.Body.Close()
@@ -540,29 +536,23 @@ func (s *WorktreeSuite) TestWorktree_rebaseOntoParentConflictKeepsForResolve() {
 		"the rebase is kept in progress (detached HEAD) for the user to resolve")
 }
 
-// TestWorktree_asyncOpBroadcastsWorkingOverlay pins the working-overlay
-// contract on the wire: accepting an async workspace mutation immediately
-// broadcasts the row with working=true (the tree spinner starts with the 202),
-// and the op's completion broadcasts working=false so the spinner always
-// resolves.
-func (s *WorktreeSuite) TestWorktree_asyncOpBroadcastsWorkingOverlay() {
+// TestWorktree_asyncOpSettlesItsOperation pins the operation contract on the
+// wire: an async workspace mutation answers 202 with its operation, and the
+// operations stream carries it to a terminal state.
+func (s *WorktreeSuite) TestWorktree_asyncOpSettlesItsOperation() {
 	t := s.T()
 
-	childID, chatID, _ := s.createChild("feature/working-overlay")
-	watcher := s.Env.DialChat(t, chatID)
-
+	_, chatID, _ := s.createChild("feature/working-overlay")
 	resp := s.Env.POST(t, s.repoChatBase(chatID)+"/sync", map[string]any{})
-	kit.RequireStatus(t, resp, http.StatusAccepted)
-	resp.Body.Close()
-
-	kit.WaitForWorkspace(t, watcher, childID, 10*time.Second, func(m map[string]any) bool {
-		return m["working"] == true
-	})
-	kit.WaitForWorkspace(t, watcher, childID, 10*time.Second, func(m map[string]any) bool {
-		return m["working"] == false
-	})
+	op := s.Env.AwaitOperation(t, resp, 10*time.Second)
+	s.Assert().Equal(domain.OpWorkspaceSync, op.Kind)
+	s.Assert().Equal(domain.OpSucceeded, op.State)
 }
 
+// TestWorktree_reparentWithChildrenRejected verifies the has_children guard. The
+// guard runs after the 202, so the rejection fails the reparent's operation
+// rather than answering a synchronous 409. The child's git history must be
+// untouched.
 func (s *WorktreeSuite) TestWorktree_reparentWithChildrenRejected() {
 	t := s.T()
 
@@ -575,13 +565,10 @@ func (s *WorktreeSuite) TestWorktree_reparentWithChildrenRejected() {
 	// Create a grandchild of `child` — Reparent must reject when child has children.
 	s.createChildUnder(childID, "feature/grandchild-rejected")
 
-	watcher := s.Env.DialChat(t, childChatID)
 	resp := s.Env.POST(t, s.repoChatBase(childChatID)+"/reparent", map[string]any{
 		"newParentId": parentBID,
 	})
-	kit.RequireStatus(t, resp, http.StatusAccepted)
-	resp.Body.Close()
-	kit.WaitForWorkspaceLastError(t, watcher, childID, 5*time.Second)
+	s.Assert().Equal(domain.OpFailed, s.Env.AwaitOperation(t, resp, 5*time.Second).State)
 
 	childTipAfterRejection := kit.RevParse(t, childPath, "HEAD")
 	s.Assert().Equal(childTipBefore, childTipAfterRejection, "rejected reparent must not mutate git")
@@ -595,8 +582,8 @@ func (s *WorktreeSuite) TestWorktree_reparentWithChildrenRejected() {
 // testing: reparenting a workspace onto ITSELF was unguarded, producing
 // parentId == id. That self-loop detached the node in the tree AND made it
 // permanently unreparentable (the leaf check counted the node as its own child).
-// The guard now rejects it; the rejection surfaces as a lastError (reparent is
-// 202+async) and the workspace's parent and git history are untouched.
+// The guard now rejects it; the rejection fails the reparent's operation and the
+// workspace's parent and git history are untouched.
 func (s *WorktreeSuite) TestRegression_ReparentOntoSelfRejected() {
 	t := s.T()
 
@@ -604,14 +591,13 @@ func (s *WorktreeSuite) TestRegression_ReparentOntoSelfRejected() {
 	kit.CommitFile(t, childPath, "c.txt", "c\n", "child commit")
 	childTipBefore := kit.RevParse(t, childPath, "HEAD")
 
-	watcher := s.Env.DialChat(t, childChatID)
 	resp := s.Env.POST(t, s.repoChatBase(childChatID)+"/reparent", map[string]any{
 		"newParentId": childID, // onto itself
 	})
-	kit.RequireStatus(t, resp, http.StatusAccepted)
-	resp.Body.Close()
-	le := kit.WaitForWorkspaceLastError(t, watcher, childID, 5*time.Second)
-	s.Assert().Contains(le, "itself", "self-parent must be rejected with a clear error")
+	op := s.Env.AwaitOperation(t, resp, 5*time.Second)
+	s.Require().Equal(domain.OpFailed, op.State)
+	s.Require().NotNil(op.Error)
+	s.Assert().Contains(op.Error.Message, "itself", "self-parent must be rejected with a clear error")
 
 	reloaded := s.getWorkspace(childChatID)
 	s.Assert().Equal(s.parentID, reloaded["parentId"], "self-parent must not change the parent")

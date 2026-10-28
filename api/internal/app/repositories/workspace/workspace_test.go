@@ -743,7 +743,7 @@ func TestWorkspace_Sweep_RedrivesThePurgeForEveryResidualDeletedRow(t *testing.T
 			removed = append(removed, tomb.WorktreePath)
 			return nil
 		},
-		gate,
+		gate, func(context.Context, string, *domain.Workspace, error) {},
 	))
 
 	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Protected: true, Provisioning: domain.WorkspacePlaceholder}, now)

@@ -1,4 +1,4 @@
-import { rowsFromRepo } from './rows-from-repo'
+import { rowsFromRepo, type ProblemLookup } from './rows-from-repo'
 import type { Repo } from '@/lib/store/sidebar'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
@@ -8,11 +8,15 @@ import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
  * backend still catching up) belongs to no space and renders nowhere until
  * it arrives, same as it already did in the flat, all-repos tree.
  */
-export function rowsForProject(repos: readonly Repo[], projectId: string): SidebarRow[] {
+export function rowsForProject(
+  repos: readonly Repo[],
+  projectId: string,
+  problemOf?: ProblemLookup,
+): SidebarRow[] {
   const rows: SidebarRow[] = []
   for (const r of repos) {
     if (r.projectId !== projectId) continue
-    rows.push(...rowsFromRepo(r))
+    rows.push(...rowsFromRepo(r, problemOf))
   }
   return rows
 }

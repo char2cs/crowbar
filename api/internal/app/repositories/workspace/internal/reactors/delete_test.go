@@ -117,6 +117,22 @@ func noDependents(context.Context, string) error { return nil }
 
 func noDrop(context.Context, string) error { return nil }
 
+func noGiveUp(context.Context, string, *domain.Workspace, error) {}
+
+// giveUp is one onGiveUp call; ctxErr is whether its ctx was already done.
+type giveUp struct {
+	wsID        string
+	tomb        *domain.Workspace
+	err, ctxErr error
+}
+
+func recordGiveUps() (GiveUp, chan giveUp) {
+	calls := make(chan giveUp, 4)
+	return func(ctx context.Context, wsID string, tomb *domain.Workspace, err error) {
+		calls <- giveUp{wsID: wsID, tomb: tomb, err: err, ctxErr: ctx.Err()}
+	}, calls
+}
+
 // TestRegisterDeleteReactor_GatedPurge_RemovesWorktreeAndForgets drives a real
 // Delete through a real axWorkspace with the real save-only store projection:
 // the projection persists the "deleted" tombstone (waking the reactor), the
@@ -147,7 +163,7 @@ func TestRegisterDeleteReactor_GatedPurge_RemovesWorktreeAndForgets(t *testing.T
 	}
 	gate := drain.New()
 	purger := NewPurger(ax, noDrop, forgetDependents, rmWorktree)
-	require.NoError(t, RegisterDeleteReactor(ctx, ax, st, purger, gate))
+	require.NoError(t, RegisterDeleteReactor(ctx, ax, st, purger, gate, noGiveUp))
 
 	createWorkspace(t, ctx, ax, "w1", "/wt/w1/worktree")
 	_, err := ax.SendWait(ctx, wscmds.Delete{ID: "w1"})
@@ -182,7 +198,7 @@ func TestDeleteReactor_Gate_DoesNotPurgeUntilTombstoneObserved(t *testing.T) {
 	rmCh := make(chan string, 1)
 	gate := drain.New()
 	purger := NewPurger(ax, noDrop, noDependents, func(_ context.Context, tomb domain.Workspace) error { rmCh <- tomb.WorktreePath; return nil })
-	require.NoError(t, RegisterDeleteReactor(ctx, ax, reader, purger, gate, WithReactorTimeout(5*time.Second)))
+	require.NoError(t, RegisterDeleteReactor(ctx, ax, reader, purger, gate, noGiveUp, WithReactorTimeout(5*time.Second)))
 
 	createWorkspace(t, ctx, ax, "w1", "/wt/w1/worktree")
 	_, err := ax.SendWait(ctx, wscmds.Delete{ID: "w1"})
@@ -254,7 +270,7 @@ func TestDeleteReactor_TransientRemoveWorktreeError_RetriesUntilSuccess(t *testi
 		return nil
 	})
 	gate := drain.New()
-	require.NoError(t, RegisterDeleteReactor(ctx, ax, st, purger, gate, WithRetryBackoff(time.Millisecond, 4*time.Millisecond)))
+	require.NoError(t, RegisterDeleteReactor(ctx, ax, st, purger, gate, noGiveUp, WithRetryBackoff(time.Millisecond, 4*time.Millisecond)))
 
 	createWorkspace(t, ctx, ax, "w1", "/wt/w1/worktree")
 	_, err := ax.SendWait(ctx, wscmds.Delete{ID: "w1"})
@@ -279,7 +295,7 @@ func TestDeleteReactor_PersistentFailure_BacksOff(t *testing.T) {
 		attempts.Add(1)
 		return errors.New("wedged")
 	})
-	r := newDeleteReactor(context.Background(), fixedStoreReader{domain.Workspace{ID: "w1", WorktreePath: "/wt", Provisioning: domain.WorkspaceProvisioned}}, purger, drain.New(),
+	r := newDeleteReactor(context.Background(), fixedStoreReader{domain.Workspace{ID: "w1", WorktreePath: "/wt", Provisioning: domain.WorkspaceProvisioned}}, purger, drain.New(), noGiveUp,
 		WithRetryBackoff(2*time.Millisecond, 16*time.Millisecond))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
@@ -300,7 +316,7 @@ func TestDeleteReactor_TombstoneNeverObserved_DoesNotPurge(t *testing.T) {
 	createWorkspace(t, ctx, ax, "w1", "/wt/w1/worktree")
 	rmCalled := false
 	purger := NewPurger(ax, noDrop, noDependents, func(context.Context, domain.Workspace) error { rmCalled = true; return nil })
-	r := newDeleteReactor(context.Background(), newGatedStoreReader(), purger, drain.New())
+	r := newDeleteReactor(context.Background(), newGatedStoreReader(), purger, drain.New(), noGiveUp)
 
 	bounded, cancel := context.WithTimeout(ctx, 40*time.Millisecond)
 	defer cancel()
@@ -310,6 +326,46 @@ func TestDeleteReactor_TombstoneNeverObserved_DoesNotPurge(t *testing.T) {
 	exists, err := ax.Exists(ctx, "w1")
 	require.NoError(t, err)
 	assert.True(t, exists, "aggregate must survive for the boot sweep to re-drive")
+}
+
+// A purge that gives up is reported to the caller, on a ctx it can still save under.
+func TestDeleteReactor_AGiveUpIsReportedNotLogged(t *testing.T) {
+	_, ax := newAx(t, nil)
+	purger := NewPurger(ax, noDrop, noDependents, func(context.Context, domain.Workspace) error {
+		return errors.New("wedged")
+	})
+	onGiveUp, calls := recordGiveUps()
+	tomb := domain.Workspace{ID: "w1", Branch: "feature/a", WorktreePath: "/wt", Provisioning: domain.WorkspaceProvisioned}
+	r := newDeleteReactor(context.Background(), fixedStoreReader{tomb}, purger, drain.New(), onGiveUp,
+		WithRetryBackoff(time.Millisecond, 2*time.Millisecond))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	r.purgeUntilDone(ctx, "w1")
+
+	require.Len(t, calls, 1)
+	got := <-calls
+	require.NotNil(t, got.tomb)
+	assert.Equal(t, []string{"w1", "feature/a"}, []string{got.wsID, got.tomb.Branch})
+	require.ErrorContains(t, got.err, "wedged")
+	assert.NoError(t, got.ctxErr, "the report must be able to save after the purge's deadline")
+}
+
+func TestDeleteReactor_ATombstoneNeverObservedReportsWithoutATomb(t *testing.T) {
+	ctx, ax := newAx(t, nil)
+	purger := NewPurger(ax, noDrop, noDependents, func(context.Context, domain.Workspace) error { return nil })
+	onGiveUp, calls := recordGiveUps()
+	r := newDeleteReactor(context.Background(), newGatedStoreReader(), purger, drain.New(), onGiveUp)
+
+	bounded, cancel := context.WithTimeout(ctx, 20*time.Millisecond)
+	defer cancel()
+	r.purgeUntilDone(bounded, "w1")
+
+	require.Len(t, calls, 1)
+	got := <-calls
+	assert.Equal(t, "w1", got.wsID)
+	assert.Nil(t, got.tomb)
+	require.ErrorIs(t, got.err, context.DeadlineExceeded)
 }
 
 // fakeAx is a minimal asynx stub whose Subscribe fails on demand.
@@ -340,7 +396,7 @@ func TestDeleteReactor_OnEvent_FallsBackToAggregateIDWhenEmpty(t *testing.T) {
 	})
 	rmCh := make(chan string, 1)
 	gate := drain.New()
-	r := newDeleteReactor(context.Background(), reader, NewPurger(ax, noDrop, noDependents, func(_ context.Context, tomb domain.Workspace) error { rmCh <- tomb.WorktreePath; return nil }), gate)
+	r := newDeleteReactor(context.Background(), reader, NewPurger(ax, noDrop, noDependents, func(_ context.Context, tomb domain.Workspace) error { rmCh <- tomb.WorktreePath; return nil }), gate, noGiveUp)
 
 	r.onEvent(ctx, asynxModels.Event[domain.Workspace]{Aggregate: domain.Workspace{ID: "w1"}})
 
@@ -364,7 +420,7 @@ func TestDeleteReactor_OnEvent_RefusedOnceDraining(t *testing.T) {
 	gate.Wait(context.Background())
 
 	rmCalled := false
-	r := newDeleteReactor(context.Background(), fixedStoreReader{}, NewPurger(ax, noDrop, noDependents, func(context.Context, domain.Workspace) error { rmCalled = true; return nil }), gate)
+	r := newDeleteReactor(context.Background(), fixedStoreReader{}, NewPurger(ax, noDrop, noDependents, func(context.Context, domain.Workspace) error { rmCalled = true; return nil }), gate, noGiveUp)
 	r.onEvent(ctx, asynxModels.Event[domain.Workspace]{AggregateID: "w1"})
 
 	assert.False(t, rmCalled, "a refused event must not spawn purge work")
@@ -423,7 +479,7 @@ func TestRegisterDeleteReactor_SubscribeError(t *testing.T) {
 		context.Background(),
 		&fakeAx{subscribeErr: errors.New("bus down")},
 		fixedStoreReader{}, NewPurger(fakeAxForget{}, noDrop, noDependents, func(context.Context, domain.Workspace) error { return nil }),
-		drain.New(),
+		drain.New(), noGiveUp,
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "workspace delete reactor: subscribe")

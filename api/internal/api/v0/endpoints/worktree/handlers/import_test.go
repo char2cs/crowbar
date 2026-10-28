@@ -16,9 +16,7 @@ import (
 )
 
 // Import refuses a branch that is not on the remote SYNCHRONOUSLY, on the
-// request path. The alternative is what it replaced: the batch fails deep in the
-// background, where its only channel is runAsync's blank workspace id — a no-op
-// in broadcastLastError — and the caller's optimistic row spins forever.
+// request path, where the caller is still looking.
 //
 // The degradation paths matter as much as the refusal. A fetch that fails, or a
 // ref check that errors, must NOT turn into a refusal: the remote being
@@ -55,7 +53,7 @@ func importRouterWith(
 		DefaultBranch: "main",
 	}}
 	h := worktreehandlers.
-		New(&fakeReader{}, hierarchy, repos, &fakeLastErrors{}, fakeWork{}).
+		New(&fakeReader{}, hierarchy, repos, newRecordedOps()).
 		WithRemoteRefs(remote)
 	r := gin.New()
 	r.POST("/v0/projects/:projectId/repos/:repoId/chats/import-batch", h.Import)
@@ -80,7 +78,11 @@ func TestImport_TheBatchRouteHandsCreateFromImportTheRepoFacts(t *testing.T) {
 	rec := do(importRouterWith(remote, hierarchy), http.MethodPost, importBatchTarget,
 		`{"branches":["feature/x"]}`)
 
-	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	op := accepted(t, rec)
+	assert.Equal(t, domain.OpBranchImport, op.Kind)
+	assert.Equal(t, domain.EntityRef{Kind: domain.EntityRepo, ID: "r1"}, op.Subject)
+	assert.Equal(t, "p1", op.ProjectID)
+	assert.Equal(t, "Import feature/x", op.Label)
 	<-hierarchy.importDone
 	assert.Equal(t, workspace.ImportInput{
 		RepoID:        "r1",

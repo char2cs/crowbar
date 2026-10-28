@@ -1,3 +1,4 @@
+import type { Problem } from '@/lib/errors/problem'
 import type { Workspace } from '@/lib/store/sidebar'
 
 /**
@@ -48,10 +49,14 @@ export function placeholderKind(
  *
  * For a real failure a live holder wins over a recorded cause, because it names
  * the checkout the user has to detach; a failure with no holder has no
- * reconstructable reason, so the cause the daemon recorded is the only
- * explanation there is (spec §3.3/§4/B7).
+ * reconstructable reason, so the newest failed operation naming the workspace
+ * (`problem`), else the cause the daemon recorded, is the explanation (§3.3/B7).
  */
-export function placeholderReason(ws: Workspace, kind: PlaceholderKind): string {
+export function placeholderReason(
+  ws: Workspace,
+  kind: PlaceholderKind,
+  problem: Problem | null,
+): string {
   if (kind === 'none') return ''
   if (kind === 'own-checkout') {
     return `\`${ws.branch}\` is checked out at ${ws.heldByPath} — detach it to hand this branch to Crowbar.`
@@ -59,8 +64,9 @@ export function placeholderReason(ws: Workspace, kind: PlaceholderKind): string 
   if (ws.heldByPath) {
     return `\`${ws.branch}\` is checked out at ${ws.heldByPath} — detach it to let Crowbar manage this branch.`
   }
-  if (ws.lastError) {
-    return `Crowbar couldn't set up \`${ws.branch}\`: ${ws.lastError}`
+  const cause = problem?.message ?? ws.lastError
+  if (cause) {
+    return `Crowbar couldn't set up \`${ws.branch}\`: ${cause}`
   }
   return `Crowbar couldn't set up \`${ws.branch}\`. Retry to provision it.`
 }

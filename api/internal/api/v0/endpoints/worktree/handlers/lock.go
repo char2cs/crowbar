@@ -24,7 +24,7 @@ type lockRequest struct {
 // one aggregate write with no git in it, and every way it can be refused — the
 // workspace is the project home, or a placeholder with no worktree of its own —
 // is something the user has to see while the menu they pressed it from is still
-// in front of them. A 202 would strand those behind a LastError frame.
+// in front of them. A 202 would strand those behind an operation.
 //
 // The updated workspace still arrives on the workspaces WebSocket stream, so the
 // sidebar does not patch its own cache from this response.
@@ -39,11 +39,11 @@ func (h *Handlers) ChatLock(
 		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	id, ok := h.chatWorkspace(c)
+	ws, ok := h.chatWorkspace(c)
 	if !ok {
 		return
 	}
-	if _, err := h.reader.SetLock(c.Request.Context(), id, body.Locked); err != nil {
+	if _, err := h.reader.SetLock(c.Request.Context(), ws.ID, body.Locked); err != nil {
 		libs.Fail(c, err)
 		return
 	}

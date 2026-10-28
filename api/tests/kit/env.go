@@ -834,69 +834,6 @@ func WaitForWorkspaceState(
 	return WaitForState(t, w, wsID, status, timeout)
 }
 
-// WaitForWorkComplete blocks until wsID's in-flight async mutation has STARTED
-// and then FINISHED, and returns the final DTO. It is the completion barrier for
-// the fire-and-forget 202 handlers, whose slow work runs in a detached goroutine
-// that no projection drain can see.
-//
-// It reads the daemon's OWN "am I busy" overlay. Every detached op is bracketed
-// by the handler: BeginWork(wsID) on the request goroutine, then EndWork(wsID) on
-// EVERY exit — success, error or panic — after the work function has returned.
-// Both broadcast a WorkspaceDTO, so the stream carries working:true … working:false,
-// and the falling edge is the daemon stating that the op is over. Waiting for the
-// RISING edge first is what makes the falling one meaningful: a workspace at rest
-// already reads working:false, so matching that alone would return before the op
-// had even begun.
-//
-// This is the barrier a merge needs. A merge's status fold is NOT one: a
-// conflicting child is broadcast as pr-conflicts by the merge-tree PREDICTION
-// overlay before any merge is attempted, so a test keyed on that status can
-// wake up while the merge is still mid-conflict and read a worktree that has not
-// been aborted yet — which is precisely the race the old 2-second cleanliness
-// poll was hiding.
-func WaitForWorkComplete(
-	t *testing.T,
-	w *WSWatcher,
-	wsID string,
-	timeout time.Duration,
-) map[string]any {
-	t.Helper()
-	isWorking := func(m map[string]any, want bool) bool {
-		if m["id"] != wsID {
-			return false
-		}
-		working, ok := m["working"].(bool)
-		return ok && working == want
-	}
-	readUntilWorktree(t, w, timeout, func(m map[string]any) bool { return isWorking(m, true) })
-	return readUntilWorktree(t, w, timeout, func(m map[string]any) bool { return isWorking(m, false) })
-}
-
-// WaitForWorkspaceLastError reads WS events from w until a WorkspaceDTO with the
-// given id carries a non-empty lastError. Returns the lastError string.
-func WaitForWorkspaceLastError(
-	t *testing.T,
-	w *WSWatcher,
-	wsID string,
-	timeout time.Duration,
-) string {
-	t.Helper()
-	msg := readUntilWorktree(
-		t,
-		w,
-		timeout,
-		func(m map[string]any) bool {
-			if m["id"] != wsID {
-				return false
-			}
-			le, _ := m["lastError"].(string)
-			return le != ""
-		},
-	)
-	le, _ := msg["lastError"].(string)
-	return le
-}
-
 // GET issues a GET request to path and returns the response.
 func (e *Env) GET(
 	t *testing.T,

@@ -10,8 +10,6 @@
 package worktree
 
 import (
-	"context"
-
 	"github.com/gin-gonic/gin"
 
 	worktreehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/worktree/handlers"
@@ -19,9 +17,9 @@ import (
 
 // Register mounts the chat-keyed worktree routes on the supplied repo-scoped
 // group. reader, hierarchy and repos back the verbs' reads and worktree
-// operations; lastErrors and working carry an async op's outcome on the entity;
-// remote lets the batch import refuse an absent branch synchronously; worktrees
-// resolves a chat to the workspace behind its worktree (spec §3).
+// operations; ops runs the slow verbs as operations; remote lets the batch
+// import refuse an absent branch synchronously; worktrees resolves a chat to the
+// workspace behind its worktree (spec §3).
 //
 // The verbs mount on the repo-scoped group at :id — the param a sibling
 // .../chats/:id/promote already binds at that position — so lock/sync/merge sit
@@ -30,9 +28,9 @@ import (
 //
 // They are registered from HERE rather than from chat.Register because the
 // bodies they run are these handlers': every one is a worktreehandlers.Handlers
-// method, so re-declaring the reader, the hierarchy, the work signal, the error
-// sink and runAsync in the chat package to serve them would be a second copy of
-// this file's entire dependency set.
+// method, so re-declaring the reader, the hierarchy and the operation service in
+// the chat package to serve them would be a second copy of this file's entire
+// dependency set.
 //
 // .../chats/import-batch is the BATCH import, and it is a route of its own
 // beside POST .../chats rather than a loop over it. POST .../chats with an
@@ -41,25 +39,22 @@ import (
 // parented under and falling back to a placeholder row for a branch another
 // worktree already holds. Driving it as N single creates would silently drop all
 // three of those.
-//
-// It returns the handlers' Shutdown, which waits for the work they detach.
 func Register(
 	rg *gin.RouterGroup,
 	reader worktreehandlers.Reader,
 	hierarchy worktreehandlers.Hierarchy,
 	repos worktreehandlers.Repos,
-	lastErrors worktreehandlers.LastErrorSetter,
-	working worktreehandlers.WorkSignal,
+	ops worktreehandlers.Operations,
 	remote worktreehandlers.RemoteRefs,
 	worktrees worktreehandlers.Worktrees,
-) func(context.Context) error {
-	h := worktreehandlers.New(reader, hierarchy, repos, lastErrors, working).
+) {
+	h := worktreehandlers.New(reader, hierarchy, repos, ops).
 		WithRemoteRefs(remote)
 	rg.POST("/chats/import-batch", h.Import)
 	// Without a resolver the verbs cannot answer which worktree a chat holds, so
 	// they are not mounted at all rather than left to answer a fiction.
 	if worktrees == nil {
-		return h.Shutdown
+		return
 	}
 	h.WithWorktrees(worktrees)
 	rg.POST("/chats/:id/lock", h.ChatLock)
@@ -73,5 +68,4 @@ func Register(
 	// meaning for POST /chats/:id/rename — see ChatRenameBranch for why that fold
 	// was declined.
 	rg.PATCH("/chats/:id/branch", h.ChatRenameBranch)
-	return h.Shutdown
 }

@@ -3,7 +3,9 @@
 package tests
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"testing"
 
@@ -43,18 +45,26 @@ func operationSettled(op domain.Operation) bool {
 	return op.State == domain.OpSucceeded || op.State == domain.OpFailed
 }
 
-// startOperation sends a request that answers 202 with an operation, under a
-// fresh Idempotency-Key, and returns that operation.
+// startOperation POSTs body (nil for none) under a fresh Idempotency-Key and
+// returns the operation the 202 answers with.
 func startOperation(
 	t *testing.T,
 	h *harness,
 	path string,
+	body any,
 ) domain.Operation {
 	t.Helper()
 	key := uuid.NewString()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, h.url+path, nil)
+	var reader io.Reader
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		require.NoError(t, err)
+		reader = bytes.NewReader(encoded)
+	}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, h.url+path, reader)
 	require.NoError(t, err)
 	req.Header.Set("Idempotency-Key", key)
+	req.Header.Set("Content-Type", "application/json")
 	resp, err := h.server.Client().Do(req)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, resp.Body.Close()) }()
@@ -72,7 +82,7 @@ func startOperation(
 func TestOperations_SnapshotCarriesSettledOperationsAcrossARestart(t *testing.T) {
 	h := newHarness(t)
 	push := failingPush(t, h)
-	op := startOperation(t, h, "/v0/chats/"+push.chatID+"/git/push")
+	op := startOperation(t, h, "/v0/chats/"+push.chatID+"/git/push", nil)
 	failed := awaitOperation(t, h, op.ID, operationSettled)
 	require.Equal(t, domain.OpFailed, failed.State)
 

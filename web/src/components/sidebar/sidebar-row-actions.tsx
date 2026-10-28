@@ -9,8 +9,8 @@ import {
 import { DISCLOSURE_GLYPH_PATH } from '@/components/layout/workspace-row-base'
 import { cn } from '@/lib/utils'
 import { useDetachModalStore } from '@/features/window/stores/detach-modal-store'
-import { toast } from '@/features/window/stores/toast-store'
 import { retryProvision } from '@/lib/api/workspace'
+import { runOperation } from '@/lib/store/run-operation'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 
 interface SidebarRowActionsProps {
@@ -97,14 +97,16 @@ export function SidebarRowActions({
             e.currentTarget.blur()
             const wsId = row.workspaceId
             if (!wsId) return
-            void retryProvision(wsId).catch((err: unknown) => {
-              toast.show({
-                message: `Couldn't set up ${row.branchName || row.label}`,
-                description: err instanceof Error ? err.message : String(err),
-                type: 'error',
-                key: `retry-provision-${wsId}`,
-              })
-            })
+            // A failure is the operations watcher's to toast and the row's to explain.
+            runOperation(
+              {
+                kind: 'workspace.retry_provision',
+                subject: { kind: 'workspace', id: wsId },
+                projectId: '',
+                label: `Retry ${row.branchName || row.label}`,
+              },
+              (opId) => retryProvision(wsId, opId),
+            )
           }}
           onPointerDown={(e) => e.stopPropagation()}
         >

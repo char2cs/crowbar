@@ -10,7 +10,9 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // importRequest is the POST …/chats/import-batch body: the branches to import
@@ -23,11 +25,9 @@ type importRequest struct {
 
 // Import handles POST /v0/projects/:projectId/repos/:repoId/chats/import-batch,
 // the sole mount since spec §8 step 6 deleted its …/workspaces/import twin. It
-// validates synchronously (repo present, branches non-empty), returns 202, and
-// resolves + creates the tree in the background. Each created chat arrives on
-// the per-repo WebSocket stream, exactly like a single create; a batch that
-// fails before producing anything is best-effort logged (no entity to hang
-// LastError on).
+// validates synchronously (repo present, branches non-empty), then answers 202
+// with the operation that resolves + creates the tree, named by the repo. Each
+// created chat arrives on the per-repo WebSocket stream, like a single create.
 //
 // It reads the repo from :repoId, the same param and the same store the
 // importing POST .../chats resolves through, which is the whole reason the
@@ -66,9 +66,8 @@ func (h *Handlers) Import(c *gin.Context) {
 	// Same reasoning for a branch that is not on the remote at all — a stale
 	// picker offering a branch deleted since the list was fetched, or a
 	// hand-crafted request. Importing means "give me origin's branch", so
-	// without one there is nothing to import: the batch would fail deep in the
-	// background, where the only channel it has is runAsync's blank workspace id
-	// (a no-op in broadcastLastError), and the caller's row would spin forever.
+	// without one there is nothing to import, and the refusal belongs on the
+	// request, where the caller is still looking.
 	if missing := h.branchesMissingFromRemote(c.Request.Context(), repo.Path, body.Branches); len(missing) > 0 {
 		libs.WriteErr(c, http.StatusBadRequest, fmt.Sprintf(
 			"not found on the remote: %s", strings.Join(missing, ", "),
@@ -83,21 +82,20 @@ func (h *Handlers) Import(c *gin.Context) {
 		DefaultBranch: repo.DefaultBranch,
 		Branches:      body.Branches,
 	}
-	libs.WriteAccepted(c)
-	h.runAsync(
-		c.Request.Context(),
-		h.working,
-		h.broadcastLastError,
-		"",
-		func(ctx context.Context) error {
-			if importErr := h.hierarchy.CreateFromImport(ctx, in); importErr != nil {
-				slog.WarnContext(ctx, "workspace import failed",
-					"repo", in.RepoID, "branches", in.Branches, "err", importErr)
-				return importErr
-			}
-			return nil
-		},
-	)
+	op, err := h.ops.Start(c.Request.Context(), operation.Spec{
+		ID:        libs.IdempotencyKey(c),
+		Kind:      domain.OpBranchImport,
+		Subject:   domain.EntityRef{Kind: domain.EntityRepo, ID: repo.ID},
+		ProjectID: repo.ProjectID,
+		Label:     importLabel(body.Branches),
+	}, func(ctx context.Context, _ operation.Progress) error {
+		return h.hierarchy.CreateFromImport(ctx, in)
+	})
+	if err != nil {
+		libs.Fail(c, err)
+		return
+	}
+	libs.WriteOperation(c, op)
 }
 
 // branchesMissingFromRemote refreshes the remote-tracking refs and returns the
@@ -142,4 +140,11 @@ func (h *Handlers) branchesMissingFromRemote(
 		}
 	}
 	return missing
+}
+
+func importLabel(branches []string) string {
+	if len(branches) == 1 {
+		return "Import " + branches[0]
+	}
+	return fmt.Sprintf("Import %d branches", len(branches))
 }

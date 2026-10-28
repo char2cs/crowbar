@@ -110,6 +110,10 @@ type StoreReader interface {
 	) (domain.Workspace, error)
 }
 
+// GiveUp hears a purge that did not complete before its deadline; tomb is nil
+// when the tombstone was never observed. The boot sweep retries it.
+type GiveUp func(ctx context.Context, wsID string, tomb *domain.Workspace, err error)
+
 // Opt configures the delete reactor's bounded-wait tunables.
 type Opt func(*deleteReactor)
 
@@ -140,9 +144,10 @@ func RegisterDeleteReactor(
 	storeReader StoreReader,
 	purger *Purger,
 	gate *drain.Gate,
+	onGiveUp GiveUp,
 	opts ...Opt,
 ) error {
-	r := newDeleteReactor(root, storeReader, purger, gate, opts...)
+	r := newDeleteReactor(root, storeReader, purger, gate, onGiveUp, opts...)
 	if _, err := ax.Subscribe(asynx.Topic("workspace.deleted.*"), r.onEvent); err != nil {
 		return fmt.Errorf("workspace delete reactor: subscribe: %w", err)
 	}
@@ -154,6 +159,7 @@ type deleteReactor struct {
 	storeReader StoreReader
 	purger      *Purger
 	gate        *drain.Gate
+	onGiveUp    GiveUp
 	timeout     time.Duration
 	retryBase   time.Duration
 	retryCap    time.Duration
@@ -164,6 +170,7 @@ func newDeleteReactor(
 	storeReader StoreReader,
 	purger *Purger,
 	gate *drain.Gate,
+	onGiveUp GiveUp,
 	opts ...Opt,
 ) *deleteReactor {
 	r := &deleteReactor{
@@ -171,6 +178,7 @@ func newDeleteReactor(
 		storeReader: storeReader,
 		purger:      purger,
 		gate:        gate,
+		onGiveUp:    onGiveUp,
 		timeout:     defaultReactorTimeout,
 		retryBase:   defaultRetryBase,
 		retryCap:    defaultRetryCap,
@@ -215,20 +223,23 @@ func (r *deleteReactor) run(
 // or ctx's deadline passes. Re-running is safe — every step is idempotent — and
 // the backoff keeps a persistent failure (a wedged rm, a store that is down) to
 // a few dozen attempts over the reactor's lifetime instead of thousands. Past the
-// deadline the tombstone is left for the boot sweep.
+// deadline the give-up is reported and the tombstone is left for the boot sweep.
 func (r *deleteReactor) purgeUntilDone(
 	ctx context.Context,
 	wsID string,
 ) {
 	delay := r.retryBase
+	var tomb *domain.Workspace
 	for attempt := 1; ; attempt++ {
-		err := r.attempt(ctx, wsID)
+		observed, err := r.attempt(ctx, wsID)
 		if err == nil {
 			return
 		}
+		if observed != nil {
+			tomb = observed
+		}
 		if ctx.Err() != nil {
-			slog.ErrorContext(ctx, "workspace delete reactor: purge did not complete; deferring to boot sweep",
-				"id", wsID, "attempts", attempt, "err", err)
+			r.giveUp(ctx, wsID, tomb, err)
 			return
 		}
 		slog.WarnContext(ctx, "workspace delete reactor: purge failed; retrying",
@@ -237,8 +248,7 @@ func (r *deleteReactor) purgeUntilDone(
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			slog.ErrorContext(ctx, "workspace delete reactor: purge did not complete; deferring to boot sweep",
-				"id", wsID, "attempts", attempt, "err", err)
+			r.giveUp(ctx, wsID, tomb, err)
 			return
 		case <-timer.C:
 		}
@@ -246,13 +256,24 @@ func (r *deleteReactor) purgeUntilDone(
 	}
 }
 
+// giveUp reports under a ctx that outlives the purge's deadline, which has passed.
+func (r *deleteReactor) giveUp(
+	ctx context.Context,
+	wsID string,
+	tomb *domain.Workspace,
+	err error,
+) {
+	r.onGiveUp(context.WithoutCancel(ctx), wsID, tomb, err)
+}
+
+// attempt purges once, returning the tombstone when it was observed.
 func (r *deleteReactor) attempt(
 	ctx context.Context,
 	wsID string,
-) error {
+) (*domain.Workspace, error) {
 	tomb, err := r.storeReader.AwaitTombstone(ctx, wsID)
 	if err != nil {
-		return fmt.Errorf("await tombstone: %w", err)
+		return nil, fmt.Errorf("await tombstone: %w", err)
 	}
-	return r.purger.Purge(ctx, tomb)
+	return &tomb, r.purger.Purge(ctx, tomb)
 }

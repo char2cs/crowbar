@@ -854,20 +854,13 @@ func TestRegression_DetachHolderFreesBranchAndMaterialisesWorktree(t *testing.T)
 	}
 	require.NotEmpty(t, placeholderID, "the held main branch must surface as a placeholder")
 
-	// Act: detach the holder (async → 202 Accepted; chat-keyed now, spec §4.3).
-	// Dial BEFORE the POST so the working overlay's rising edge can never be missed.
-	conn := repoChatsWS(h, imported)
+	// Act: detach the holder (202 with its operation; chat-keyed now, spec §4.3).
+	// The work — freeing the branch from the repo home and running `git worktree
+	// add` — runs after the 202; its operation settling is the daemon saying it is
+	// over. Then fold the projections, and the read model is a settled fact.
 	placeholderChatID := owningChatID(t, h, placeholderID)
-	resp := h.raw(http.MethodPost, repoBase+"/chats/"+placeholderChatID+"/detach-holder", nil, http.StatusAccepted)
-	_ = resp.Body.Close()
-
-	// The 202 only means "accepted": the real work — freeing the branch from the repo
-	// home and running `git worktree add` to materialise the placeholder — happens in a
-	// detached goroutine. The daemon brackets that goroutine with its working overlay,
-	// so the falling edge is the op ANNOUNCING it is finished. Block on that, then fold
-	// the projections, and the read model can be inspected as a settled fact instead of
-	// polled for 10 seconds.
-	waitForWorkComplete(t, conn, placeholderID)
+	detach := startOperation(t, h, repoBase+"/chats/"+placeholderChatID+"/detach-holder", nil)
+	require.Equal(t, domain.OpSucceeded, awaitOperation(t, h, detach.ID, operationSettled).State)
 	h.QuiesceReactors()
 
 	// Assert: the placeholder became a real, on-disk managed worktree — the branch was
@@ -996,13 +989,11 @@ func TestRegression_SidebarDiffTracksAdvancingBaseNotStaleForkPoint(t *testing.T
 	// counts only the child's one line.
 	runGit(t, childWorktree, "rebase", "main")
 
-	// Recompute the summary (async) and wait for the work-complete edge. sync is
-	// a chat-keyed lifecycle verb now (spec §4.3); dial the chat feed BEFORE the
-	// POST since it carries no snapshot (agentChatDef).
-	syncConn := repoChatsWS(h, imported)
-	acc := h.raw(http.MethodPost, repoBase+"/chats/"+childChatID+"/sync", nil, http.StatusAccepted)
-	_ = acc.Body.Close()
-	waitForWorkComplete(t, syncConn, childID)
+	// Recompute the summary and wait for its operation, then for the read model
+	// it committed (an independent async projection, see harness.Quiesce).
+	sync := startOperation(t, h, repoBase+"/chats/"+childChatID+"/sync", nil)
+	require.Equal(t, domain.OpSucceeded, awaitOperation(t, h, sync.ID, operationSettled).State)
+	h.Quiesce()
 
 	var child workspaceDTO
 	for _, w := range listWorkspaces(t, h, imported.projectID, imported.repoID) {
@@ -1065,7 +1056,7 @@ func TestRegression_PullingParentUpdatesChildDiffWithoutManualSync(t *testing.T)
 	// assertion below proves the PULL alone (no post-pull child sync) refreshes it.
 	// Syncing the base does not touch the child's own summary; the child's chat is
 	// the id this verb has to be addressed through.
-	syncBaseline(t, h, imported, childChatID, childID)
+	syncBaseline(t, h, imported, childChatID)
 	require.Equal(t, 1, childDiff(t, h, imported, childID).Added,
 		"baseline: the child shows its own +1 against feature/base before the pull")
 
@@ -1078,7 +1069,7 @@ func TestRegression_PullingParentUpdatesChildDiffWithoutManualSync(t *testing.T)
 	// now equals the child's own tip and its diff must collapse to +0/-0. Nothing syncs
 	// the child explicitly; only the pull's cascade can refresh it. git moved onto the
 	// flat chat prefix (spec §8 step 4): pull through the base's OWN owning chat.
-	pull := startOperation(t, h, "/v0/chats/"+baseChatID+"/git/pull")
+	pull := startOperation(t, h, "/v0/chats/"+baseChatID+"/git/pull", nil)
 	require.Equal(t, domain.OpSucceeded, awaitOperation(t, h, pull.ID, operationSettled).State)
 	// The operation settling only proves the PARENT's pull finished. The child's
 	// refresh is the CASCADE off that pull — a post-commit reactor in its own
@@ -1104,19 +1095,14 @@ func syncBaseline(
 	h *harness,
 	imported importedRepo,
 	chatID string,
-	wsID string,
 ) {
 	t.Helper()
-	conn := repoChatsWS(h, imported)
 	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
-	acc := h.raw(http.MethodPost, repoBase+"/chats/"+chatID+"/sync", nil, http.StatusAccepted)
-	_ = acc.Body.Close()
-	waitForWorkComplete(t, conn, wsID)
-	// The work-complete edge is EndWork's own rebroadcast — it fires when the work
-	// function returns, which is not the same instant the summary it committed
-	// becomes listable: the read model is an independent async projection (see
-	// harness.Quiesce). Callers read the pre-condition back over plain REST, so
-	// without this barrier the baseline assertion reads the PREVIOUS summary.
+	sync := startOperation(t, h, repoBase+"/chats/"+chatID+"/sync", nil)
+	require.Equal(t, domain.OpSucceeded, awaitOperation(t, h, sync.ID, operationSettled).State)
+	// The operation settles when the work returns, which is not the instant the
+	// summary it committed becomes listable: the read model is an independent
+	// async projection (see harness.Quiesce). Callers read it back over REST.
 	h.Quiesce()
 }
 

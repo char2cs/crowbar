@@ -7,7 +7,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/internal/detached"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -105,42 +105,14 @@ type Repos interface {
 	) (*domain.Repository, error)
 }
 
-// LastErrorSetter records the message from a failed background mutation on the
-// workspace entity so the failure is delivered on the workspace WebSocket stream
-// (00 §4: errors live on the entity, never a separate WS frame).
-type LastErrorSetter interface {
-	SetLastError(
+// Operations starts the slow worktree verbs as operations. It is satisfied by
+// the operation service.
+type Operations interface {
+	Start(
 		ctx context.Context,
-		id string,
-		message string,
-	) (domain.Workspace, error)
-}
-
-// WorkSignal brackets a workspace's background mutation window so the daemon
-// serves a real Working overlay: BeginWork re-broadcasts the row with
-// Working=true the moment an async op is accepted, EndWork resolves it, and
-// WorkingFor overlays the REST reads so a read fetched mid-work agrees with the
-// live stream. WorkingFor combines BOTH derived overlays — the inflight
-// background-mutation signal (IsWorking) AND the agent-turn signal; IsWorking is
-// retained for callers that need only the inflight half. Blank ids (an import
-// with no entity yet) are no-ops.
-type WorkSignal interface {
-	BeginWork(
-		ctx context.Context,
-		wsID string,
-	)
-	EndWork(
-		ctx context.Context,
-		wsID string,
-	)
-	IsWorking(
-		wsID string,
-	) bool
-	// WorkingFor reports whether the workspace is working via EITHER overlay
-	// (inflight mutation OR agent chat mid-turn).
-	WorkingFor(
-		wsID string,
-	) bool
+		spec operation.Spec,
+		work operation.Work,
+	) (domain.Operation, error)
 }
 
 // RemoteRefs is the narrow git surface Import uses to refuse a branch that is
@@ -161,37 +133,30 @@ type RemoteRefs interface {
 }
 
 // Handlers serves the chat-keyed worktree routes from the workspace read
-// usecase, the worktree hierarchy usecase, the repository store, the workspace
-// error sink that surfaces async-mutation failures on the entity, and the work
-// signal that drives the entity's Working overlay around async mutations.
+// usecase, the worktree hierarchy usecase, the repository store, and the
+// operation service the slow verbs run on.
 type Handlers struct {
-	reader     Reader
-	hierarchy  Hierarchy
-	repos      Repos
-	lastErrors LastErrorSetter
-	working    WorkSignal
-	remote     RemoteRefs
-	worktrees  Worktrees
-	// async owns the detached runAsync ops (see runAsync / WaitAsync / Shutdown).
-	async detached.Ops
+	reader    Reader
+	hierarchy Hierarchy
+	repos     Repos
+	ops       Operations
+	remote    RemoteRefs
+	worktrees Worktrees
 }
 
 // New builds the worktree Handlers from the workspace read usecase, the
-// worktree hierarchy usecase, the repository store, the workspace error sink,
-// and the working-overlay signal.
+// worktree hierarchy usecase, the repository store and the operation service.
 func New(
 	reader Reader,
 	hierarchy Hierarchy,
 	repos Repos,
-	lastErrors LastErrorSetter,
-	working WorkSignal,
+	ops Operations,
 ) *Handlers {
 	return &Handlers{
-		reader:     reader,
-		hierarchy:  hierarchy,
-		repos:      repos,
-		lastErrors: lastErrors,
-		working:    working,
+		reader:    reader,
+		hierarchy: hierarchy,
+		repos:     repos,
+		ops:       ops,
 	}
 }
 

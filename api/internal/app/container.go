@@ -81,8 +81,9 @@ func New(
 		return nil, err
 	}
 
+	ops := operation.New(gormStores.Operations, h.BroadcastOperation, time.Now)
 	chatSnapshots := newChatSnapshots(h)
-	repos, err := newRepositoriesContainer(ctx, adapters, rm, h, chatSnapshots, ax, engines)
+	repos, err := newRepositoriesContainer(ctx, adapters, rm, h, chatSnapshots, ax, engines, purgeGaveUp(ops))
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +110,7 @@ func New(
 		Repositories:   repos,
 		GORM:           gormStores,
 		Usecases:       ucs,
-		Operations:     operation.New(gormStores.Operations, h.BroadcastOperation, time.Now),
+		Operations:     ops,
 		crowbarHome:    crowbarHome,
 		engines:        engines,
 		axWorkspace:    ax.workspace,
@@ -202,6 +203,7 @@ func newRepositoriesContainer(
 	chatSnapshots *agentusecase.ChatSnapshots,
 	ax *aggregates,
 	engines *engine.Container,
+	onGiveUp func(ctx context.Context, wsID string, tomb *domain.Workspace, err error),
 ) (*repositories.Container, error) {
 	agentFanout := agentusecase.NewFanout(chatSnapshots)
 	repos, err := repositories.New(
@@ -216,11 +218,32 @@ func newRepositoriesContainer(
 		engines.Git,
 		agentFanout.ChatWatch(),
 		nil,
+		onGiveUp,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("app: repositories: %w", err)
 	}
 	return repos, nil
+}
+
+// purgeGaveUp records a workspace purge that did not complete as a failed
+// operation, so the user learns the disk was not freed.
+func purgeGaveUp(
+	ops *operation.Service,
+) func(ctx context.Context, wsID string, tomb *domain.Workspace, err error) {
+	return func(ctx context.Context, wsID string, tomb *domain.Workspace, cause error) {
+		spec := operation.Spec{
+			Kind:    domain.OpWorkspacePurge,
+			Subject: domain.EntityRef{Kind: domain.EntityWorkspace, ID: wsID},
+			Label:   "Remove workspace",
+		}
+		if tomb != nil {
+			spec.Label, spec.ProjectID = "Remove "+tomb.Branch, tomb.ProjectID
+		}
+		if _, err := ops.Fail(ctx, spec, fmt.Errorf("%w; Crowbar retries when it next starts", cause)); err != nil {
+			slog.ErrorContext(ctx, "app: record the purge that gave up", "workspace", wsID, "cause", cause, "err", err)
+		}
+	}
 }
 
 func toUsecaseStores(

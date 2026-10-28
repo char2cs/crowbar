@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { openChatInOwnPane } from '@/components/sidebar/lib/drop-actions'
+import { openChatInOwnPane } from '@/components/sidebar/lib/pane-drop-actions'
 import { selectProjectViewIds } from '@/features/panes/lib/view-selectors'
 import { viewChatIds } from '@/features/panes/lib/view-state'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'

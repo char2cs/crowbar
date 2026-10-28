@@ -5,7 +5,7 @@ import { presetChatLandingPresentation } from '@/features/agent/hooks/use-chat-p
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { toast } from '@/features/window/stores/toast-store'
-import { renderedProjectRows, visibleRepos } from '@/components/sidebar/lib/drop-actions'
+import { renderedProjectRows, visibleRepos } from '@/components/sidebar/lib/rendered-rows'
 
 // The create machinery every sidebar create shares — the in-flight guard, the
 // pending row's slot, the bounded wait for the real row — and THE thread

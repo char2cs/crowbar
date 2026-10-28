@@ -17,9 +17,11 @@ import { handleOpen as openSidebarRow } from './open-actions'
 import { handleTrash, handleTrashProject as trashProject } from './trash-actions'
 import { handleCreate as createSidebarRow } from './create-actions'
 import { applyPendingRemovals, attachRemovalState, renderedHiddenIds } from './removal-plan'
-import { performSidebarDrop, performSidebarPaneDrop } from '@/components/sidebar/lib/drop-actions'
+import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
+import { performSidebarPaneDrop } from '@/components/sidebar/lib/pane-drop-actions'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { selectEntityProblem, useOperationsStore } from '@/lib/store/operations'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { toast } from '@/features/window/stores/toast-store'
 import { SidebarTreeChrome } from './sidebar-tree-chrome'
@@ -166,9 +168,20 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
   // Marked for the SAME in-place transform as home rows above — computed
   // once here and reused by both `allRows` (chrome) and `rowsForProjectFn`
   // (the actual render path) rather than redone in each.
+  // A placeholder row explains itself with its newest failed operation.
+  const ops = useOperationsStore((s) => s.ops)
+  const latestFor = useOperationsStore((s) => s.latestFor)
+  const problemOf = useCallback(
+    (wsId: string) => selectEntityProblem({ ops, latestFor }, wsId),
+    [ops, latestFor],
+  )
   const repoRows = useMemo(
-    () => attachRemovalState(treeRepos.flatMap(rowsFromRepo), removalEntries),
-    [treeRepos, removalEntries],
+    () =>
+      attachRemovalState(
+        treeRepos.flatMap((r) => rowsFromRepo(r, problemOf)),
+        removalEntries,
+      ),
+    [treeRepos, removalEntries, problemOf],
   )
   const allRows = useMemo(
     () => [...homeRows, ...repoRows, ...pendingRows],
@@ -177,10 +190,10 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
 
   const rowsForProjectFn = useCallback(
     (projectId: string) => [
-      ...attachRemovalState(rowsForProject(treeRepos, projectId), removalEntries),
+      ...attachRemovalState(rowsForProject(treeRepos, projectId, problemOf), removalEntries),
       ...rowsFromPending(pendingEntries.filter((e) => e.projectId === projectId)),
     ],
-    [treeRepos, removalEntries, pendingEntries],
+    [treeRepos, removalEntries, pendingEntries, problemOf],
   )
   const openRow = useCallback(
     (id: string) => openSidebarRow(id, repos, navigate),

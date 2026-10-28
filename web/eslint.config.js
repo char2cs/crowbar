@@ -39,7 +39,6 @@ const MAX_LINES_BASELINE = [
   'src/__tests__/lib/persistence/hydrate.test.ts',
   'src/components/app-sync-engine.ts',
   'src/components/sidebar/hooks/use-sidebar-drag.ts',
-  'src/components/sidebar/lib/drop-actions.ts',
   'src/components/sidebar/lib/row-actions.ts',
   'src/components/sidebar/lib/rows-from-repo.ts',
   'src/components/ui/dropdown.tsx',

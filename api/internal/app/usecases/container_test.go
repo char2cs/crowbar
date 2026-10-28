@@ -75,6 +75,7 @@ func newContainerDeps(
 		nil, // git conflict-checker not exercised by this test
 		noChatWatch,
 		noNodeWatch,
+		func(context.Context, string, *domain.Workspace, error) {},
 	)
 	require.NoError(t, err)
 

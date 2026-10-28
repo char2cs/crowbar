@@ -93,13 +93,14 @@ func newRepos(
 ) (*repositories.Container, error) {
 	t.Helper()
 	a := newAggregates(t, ad, placementWatch)
-	return repositories.New(context.Background(), ad, a.rm, h, a.rt, a.ws, a.chat, a.node, nil, noChatWatch, noNodeWatch)
+	return repositories.New(context.Background(), ad, a.rm, h, a.rt, a.ws, a.chat, a.node, nil, noChatWatch, noNodeWatch, noGiveUp)
 }
 
 // noChatWatch / noNodeWatch are the announcement seams for tests that assert
 // nothing about WS frames or live position updates.
-func noChatWatch(_ agentchat.ChatEvent) {}
-func noNodeWatch(_ node.NodeEvent)      {}
+func noChatWatch(_ agentchat.ChatEvent)                          {}
+func noNodeWatch(_ node.NodeEvent)                               {}
+func noGiveUp(context.Context, string, *domain.Workspace, error) {}
 
 type captureHub struct {
 	hub.WebSocketHub
@@ -171,7 +172,7 @@ func TestContainer_New_NilWorkspaceAxReturnsError(t *testing.T) {
 	_, err := repositories.New(
 		context.Background(), ad, a.rm, hub.NewHub(),
 		a.rt, nil /* nil axWorkspace → workspace.New rejects */, a.chat, a.node,
-		nil, noChatWatch, noNodeWatch,
+		nil, noChatWatch, noNodeWatch, noGiveUp,
 	)
 	assert.Error(t, err)
 }
@@ -240,66 +241,11 @@ func TestContainer_ListWorkspaces_NoWorkingOverlay(t *testing.T) {
 	assert.False(t, rows[0].Working)
 }
 
-// TestContainer_BeginEndWork_BroadcastsWorkingOverlay pins the real working
-// overlay (00 §4 async mutations): BeginWork immediately re-broadcasts the row
-// with Working=true, event-driven frames emitted while the mutation runs carry
-// Working=true, and EndWork re-broadcasts with Working=false so the client
-// spinner always resolves.
-func TestContainer_BeginEndWork_BroadcastsWorkingOverlay(t *testing.T) {
-	ctx := context.Background()
-	h := &captureHub{}
-	c := newContainer(t, h)
-
-	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
-		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
-		Provisioning: domain.WorkspacePlaceholder,
-	}, time.Unix(1, 0).UTC())
-	require.NoError(t, err)
-	c.WaitQuiescent()
-	_, seen := h.last("w1")
-	require.True(t, seen, "create must broadcast the workspace row")
-
-	c.BeginWork(ctx, "w1")
-	working, ok := h.lastWorking("w1")
-	require.True(t, ok)
-	assert.True(t, working, "BeginWork must broadcast Working=true")
-	assert.True(t, c.IsWorking("w1"))
-
-	c.EndWork(ctx, "w1")
-	working, ok = h.lastWorking("w1")
-	require.True(t, ok)
-	assert.False(t, working, "EndWork must broadcast Working=false")
-	assert.False(t, c.IsWorking("w1"))
-}
-
-// TestContainer_BeginWork_NestsPerWorkspace asserts overlapping background
-// mutations on the same workspace stay Working until the LAST one ends, and
-// that blank ids (a create that has no entity yet) are ignored.
-func TestContainer_BeginWork_NestsPerWorkspace(t *testing.T) {
+// TestWorkingFor_IsTheAgentHalfOnly: a workspace reads working while one of its
+// agent chats is mid-turn; work an operation runs on it is the operation's to show.
+func TestWorkingFor_IsTheAgentHalfOnly(t *testing.T) {
 	ctx := context.Background()
 	c := newContainer(t, &captureHub{})
-
-	c.BeginWork(ctx, "w1")
-	c.BeginWork(ctx, "w1")
-	c.EndWork(ctx, "w1")
-	assert.True(t, c.IsWorking("w1"))
-	c.EndWork(ctx, "w1")
-	assert.False(t, c.IsWorking("w1"))
-
-	c.EndWork(ctx, "w1")
-	assert.False(t, c.IsWorking("w1"), "unbalanced EndWork must not underflow")
-
-	c.BeginWork(ctx, "")
-	assert.False(t, c.IsWorking(""), "blank ids are ignored")
-}
-
-// TestContainer_ListWorkspaces_WorkingOverlay asserts the snapshot source
-// carries the live working overlay, so a client subscribing mid-mutation sees
-// the spinner state without waiting for the next broadcast.
-func TestContainer_ListWorkspaces_WorkingOverlay(t *testing.T) {
-	ctx := context.Background()
-	c := newContainer(t, &captureHub{})
-
 	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
 		Provisioning: domain.WorkspacePlaceholder,
@@ -307,16 +253,15 @@ func TestContainer_ListWorkspaces_WorkingOverlay(t *testing.T) {
 	require.NoError(t, err)
 	c.WaitQuiescent()
 
-	c.BeginWork(ctx, "w1")
+	c.SetAgentWorking(ctx, "w1", "c1", true)
 	rows, err := c.ListWorkspaces(ctx)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.True(t, rows[0].Working)
+	assert.True(t, c.WorkingFor("w1"))
 
-	c.EndWork(ctx, "w1")
-	rows, err = c.ListWorkspaces(ctx)
-	require.NoError(t, err)
-	assert.False(t, rows[0].Working)
+	c.SetAgentWorking(ctx, "w1", "c1", false)
+	assert.False(t, c.WorkingFor("w1"))
 }
 
 // TestBroadcastWorkspace_ResolvesMergeEligibility pins that the broadcast DTO

@@ -152,9 +152,8 @@ func (c *Container) Register(
 		c.app.Repositories.Workspace,
 		c.app.Usecases.File,
 		c.eng.Terminal,
-		// The working-overlay read seam (the repositories Container's WorkingFor,
-		// which ORs the inflight-mutation and agent-turn overlays) — the same one
-		// the chat list's worktree fields stamp from. GET /home is the home
+		// The working read seam (the repositories Container's WorkingFor, an agent
+		// chat mid-turn) — the same one the chat list's worktree fields stamp from. GET /home is the home
 		// workspace's only REST read, so it stamps Working from here to agree with
 		// the frames the container broadcasts for that same workspace.
 		c.app.Repositories,
@@ -190,20 +189,19 @@ func (c *Container) Register(
 	// of the old `workspaces` group, whose thirteen :wsId routes spec §8 step 6
 	// deleted once every one of them had a chat-keyed replacement live and in
 	// use.
-	c.detached = append(c.detached, worktreePkg.Register(
+	worktreePkg.Register(
 		repoScoped,
 		c.app.Usecases.Workspace,
 		c.app.Usecases.Workspace,
 		c.app.GORM.Repositories,
-		c.app.Repositories.Workspace,
-		c.app.Repositories,
+		c.app.Operations,
 		c.eng.Git,
 		// The chat→worktree resolver (spec §3). It is the SAME value chatScoped's
 		// own middleware resolves through, so a verb reached through
 		// .../chats/:id and a read reached through /chats/:chatId agree on which
 		// worktree a chat is holding.
 		c.app.Usecases.Worktree,
-	))
+	)
 	// Files completes spec §4.2's SHARED bucket (§8 step 4): one worktree, one
 	// tree, and every chat holding it reads and writes the same files. It
 	// mounts on the flat chat prefix alone now — the old workspace-scoped mount

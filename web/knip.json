@@ -26,8 +26,6 @@
     "src/components/layout/workspace-switcher-model.ts": ["files"],
     "src/components/layout/workspace-switcher.tsx": ["files"],
     "src/components/sidebar/hooks/use-sidebar-drag.ts": ["exports", "types"],
-    "src/components/sidebar/lib/drop-actions.ts": ["exports"],
-    "src/components/sidebar/lib/reparent-settle.ts": ["exports"],
     "src/components/sidebar/lib/row-actions.ts": ["exports"],
     "src/components/sidebar/lib/row-order.ts": ["exports"],
     "src/components/sidebar/lib/rows-from-pending.ts": ["exports"],

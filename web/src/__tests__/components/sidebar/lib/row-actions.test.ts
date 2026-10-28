@@ -9,7 +9,7 @@ import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
-import { renderedProjectRows } from '@/components/sidebar/lib/drop-actions'
+import { renderedProjectRows } from '@/components/sidebar/lib/rendered-rows'
 import { toast } from '@/features/window/stores/toast-store'
 import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import * as api from '@/lib/api'
@@ -338,9 +338,7 @@ describe('row-actions', () => {
     // that races the HTTP round trip. A baseline snapshot taken AFTER
     // `importBranches` resolves would already see this workspace and treat it
     // as pre-existing, never locking it — the exact bug this regression test
-    // catches (mirrors reparent-settle.ts's own "frame that beats the
-    // response back" case, and drop-actions.ts's watchReparent(...) call
-    // BEFORE the request it's watching for).
+    // catches: the watch is armed BEFORE the request it watches for.
     it('locks a branch whose workspace lands in the store before the import call resolves', async () => {
       vi.mocked(api.importBranches).mockImplementationOnce(async () => {
         const repo = useSidebarStore.getState().repos[0]

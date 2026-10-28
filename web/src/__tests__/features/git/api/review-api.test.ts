@@ -66,7 +66,7 @@ function wireThreadDTO(overrides: Partial<ThreadDTO> = {}): ThreadDTO {
 describe('mergeIntoParent deleteSource', () => {
   it('sends deleteSource:true when the caller opts to delete the child', async () => {
     const fetchMock = mockFetchEnvelope(undefined)
-    await mergeIntoParent('ws-1', 'squash', true)
+    await mergeIntoParent('ws-1', 'squash', true, 'op-1')
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(JSON.parse(init.body as string)).toEqual({ strategy: 'squash', deleteSource: true })
   })
@@ -279,7 +279,7 @@ describe('review-api request shapes', () => {
   it('mergeIntoParent POSTs to the owning chat’s /merge-into-parent verb', async () => {
     const fetchMock = mockFetchEnvelope(null)
 
-    await mergeIntoParent('ws-5', 'squash')
+    await mergeIntoParent('ws-5', 'squash', false, 'op-1')
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('/v0/projects/p1/repos/r1/chats/chat-of-ws-5/merge-into-parent')

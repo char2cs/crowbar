@@ -51,7 +51,7 @@ func TestRegression_GitPushFailureIsVisible(t *testing.T) {
 	h := newHarness(t)
 	push := failingPush(t, h)
 
-	op := startOperation(t, h, "/v0/chats/"+push.chatID+"/git/push")
+	op := startOperation(t, h, "/v0/chats/"+push.chatID+"/git/push", nil)
 	require.Equal(t, domain.OpGitPush, op.Kind)
 	require.Equal(t, domain.EntityRef{Kind: domain.EntityWorkspace, ID: push.wsID}, op.Subject)
 

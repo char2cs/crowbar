@@ -9,6 +9,7 @@ import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-wor
 import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { getPostDeleteNavigationTarget } from '@/lib/store/repo-tree'
+import { runOperation, whenSettled } from '@/lib/store/run-operation'
 import { setMergeStrategy as patchMergeStrategy, mergeIntoParent } from '../api/review-api'
 import type { MergeStrategy } from '@/features/workspace/stores/slices/branch-review-slice'
 
@@ -44,9 +45,7 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
   const [open, setOpen] = useState(false)
   // Default ON: merging a child into its parent usually means you're done with it.
   const [deleteAfterMerge, setDeleteAfterMerge] = useState(true)
-  const [mergeError, setMergeError] = useState<string | null>(null)
   const [strategyError, setStrategyError] = useState<string | null>(null)
-  const [merging, setMerging] = useState(false)
   const navigate = useNavigate()
   const strategy = useWorkspaceStoreById(wsId, (s) => s.branchReview.mergeStrategy)
   const active = STRATEGIES.find((s) => s.value === strategy) ?? STRATEGIES[0]
@@ -65,9 +64,9 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
     }
   }
 
-  const handleMerge = async () => {
-    setMergeError(null)
-    setMerging(true)
+  // The merge runs as an operation: its failure is the operations watcher's to
+  // show, and the redirect waits for the merge (and the fold) to land.
+  const handleMerge = () => {
     let redirect: { projectId: string; repoId: string; wsId: string } | null = null
     if (deleteAfterMerge) {
       const repos = useSidebarStore.getState().repos
@@ -79,15 +78,22 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
         redirect = { projectId: repo.projectId ?? '', repoId: repo.id, wsId: targetWsId }
       }
     }
-    try {
-      await mergeIntoParent(wsId, strategy, deleteAfterMerge)
-      setOpen(false)
-      if (redirect) void navigate({ to: '/ide/$projectId/$repoId/$wsId', params: redirect })
-    } catch {
-      setMergeError('Merge failed — check the logs for details')
-    } finally {
-      setMerging(false)
-    }
+    const op = runOperation(
+      {
+        kind: 'workspace.merge_into_parent',
+        subject: { kind: 'workspace', id: wsId },
+        projectId: redirect?.projectId ?? '',
+        label: `Merge into ${parentBranch}`,
+      },
+      (opId) => mergeIntoParent(wsId, strategy, deleteAfterMerge, opId),
+    )
+    setOpen(false)
+    void whenSettled(op.id).then(
+      () => {
+        if (redirect) void navigate({ to: '/ide/$projectId/$repoId/$wsId', params: redirect })
+      },
+      () => undefined,
+    )
   }
 
   return (
@@ -121,16 +127,9 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
           <Checkbox checked={deleteAfterMerge} onChange={setDeleteAfterMerge} />
           <span className="ui-text-sm">Delete this workspace after merging</span>
         </label>
-        <Button
-          variant="default"
-          size="sm"
-          className="w-full"
-          disabled={merging}
-          onClick={() => void handleMerge()}
-        >
-          {merging ? 'Merging…' : active.confirm}
+        <Button variant="default" size="sm" className="w-full" onClick={handleMerge}>
+          {active.confirm}
         </Button>
-        {mergeError && <p className="ui-text-xs text-destructive mt-2">{mergeError}</p>}
       </PopoverContent>
     </Popover>
   )

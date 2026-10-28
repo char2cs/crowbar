@@ -59,14 +59,8 @@ type Container struct {
 	axReviewThread asynx.Asynx[domain.ReviewThread]
 	axAgentChat    asynx.Asynx[domain.Chat]
 	axNode         asynx.Asynx[domain.Node]
-	// inflight counts the background mutations currently running per workspace
-	// id (00 §4 fail-fast/good-path-async). It backs the derived Working overlay:
-	// the API layer brackets each async op with BeginWork/EndWork, and every
-	// serving path (live broadcast, snapshot, REST reads) overlays IsWorking so
-	// the client spinner tracks real daemon activity.
-	mu       sync.Mutex
-	inflight map[string]int
 
+	mu sync.Mutex
 	// agentWorking maps a workspace id to its busy agent chats; agentBroadcasts
 	// is each workspace's rebroadcast worker (agent_working.go). Guarded by mu.
 	agentWorking    map[string]map[string]struct{}
@@ -105,9 +99,10 @@ func New(
 	git wsusecase.MergeConflictBatchChecker,
 	chatWatch agentchat.WatchFunc,
 	nodeWatch node.WatchFunc,
+	onGiveUp func(ctx context.Context, wsID string, tomb *domain.Workspace, err error),
 ) (*Container, error) {
 	c := &Container{
-		hub: h, git: git, inflight: map[string]int{},
+		hub: h, git: git,
 		agentWorking: map[string]map[string]struct{}{}, agentBroadcasts: map[string]bool{},
 		axWorkspace: axWorkspace, axReviewThread: axReviewThread, axAgentChat: axAgentChat,
 		axNode: axNode,
@@ -119,7 +114,7 @@ func New(
 	c.Workspace = ws
 	// Register the hub (WS fan-out) projection on the singleton axWorkspace,
 	// injecting the container-owned enrichment: every event-driven frame goes
-	// through the SAME enrichFrame + hub.BroadcastWorkspace as the BeginWork/EndWork
+	// through the SAME enrichFrame + hub.BroadcastWorkspace as the agent-turn
 	// rebroadcasts, so the FE spinner + merge badges survive the store/hub split
 	// with zero regression (spec §3.5 hub-frame enrichment). The save-only store
 	// projection is registered inside workspace.New; the two derive independently
@@ -171,7 +166,7 @@ func New(
 	// joined to the shared drain WaitGroup so graceful shutdown can quiesce them
 	// (Task 15). Every cascaded repo must already be built — forgetDependents
 	// calls into c.ReviewThread and c.AgentChat.
-	if err := c.wireCallbacks(ctx, adapters.Home().Root()); err != nil {
+	if err := c.wireCallbacks(ctx, adapters.Home().Root(), onGiveUp); err != nil {
 		return nil, fmt.Errorf("repositories: wire callbacks: %w", err)
 	}
 	return c, nil
@@ -192,13 +187,12 @@ func (c *Container) WaitQuiescent() {
 }
 
 // enrichFrame builds the WS frame for ws: it attaches the two derived overlays
-// that are NOT part of the event-sourced aggregate — the Working/inflight spinner
-// (bracketed by BeginWork/EndWork, 00 §4) and the merge-eligibility overlay
-// (CanMergeLocally/ParentBranch, resolved off the hot path from the row's
-// repo-scoped siblings, spec §10) — and returns the wire DTO. It is the SINGLE
-// enrichment both the hub projection (RegisterHubProjection) and the
-// BeginWork/EndWork rebroadcasts converge on, so the emitted frame is identical
-// regardless of trigger (spec §3.5 hub-frame enrichment).
+// that are NOT part of the event-sourced aggregate — Working (an agent chat
+// mid-turn) and the merge-eligibility overlay (CanMergeLocally/ParentBranch,
+// resolved off the hot path from the row's repo-scoped siblings, spec §10) —
+// and returns the wire DTO. It is the SINGLE enrichment both the hub projection
+// (RegisterHubProjection) and the agent-turn rebroadcasts converge on, so the
+// emitted frame is identical regardless of trigger (spec §3.5).
 func (c *Container) enrichFrame(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -320,9 +314,8 @@ func (c *Container) resolveOwningChat(
 	return domain.ResolveOwningChat(rows)
 }
 
-// broadcastWorkspace enriches ws and pushes it to the hub. It backs the
-// BeginWork/EndWork rebroadcasts (which fire on the 202 ack, not on an event) and
-// routes through the SAME enrichFrame as the hub projection so both agree.
+// broadcastWorkspace enriches ws and pushes it to the hub, through the SAME
+// enrichFrame as the hub projection so both agree.
 func (c *Container) broadcastWorkspace(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -330,76 +323,18 @@ func (c *Container) broadcastWorkspace(
 	c.hub.BroadcastWorkspace(c.enrichFrame(ctx, ws))
 }
 
-// BeginWork marks the start of a background mutation on the workspace and
-// immediately re-broadcasts its row with Working=true, so the client spinner
-// starts the moment the 202 is written — not when the op's first event lands.
-// Blank ids (a create that has not produced an entity yet) are ignored.
-// Concurrent ops on the same workspace nest: the overlay stays true until the
-// matching EndWork of the LAST one.
-func (c *Container) BeginWork(
-	ctx context.Context,
-	wsID string,
-) {
-	if wsID == "" {
-		return
-	}
-	c.mu.Lock()
-	c.inflight[wsID]++
-	c.mu.Unlock()
-	c.rebroadcast(ctx, wsID)
-}
-
-// EndWork marks the end of a background mutation on the workspace and
-// re-broadcasts its row so the final frame always carries Working=false (and
-// whatever LastError the op recorded). Unbalanced calls never underflow, and a
-// row deleted by the op itself just skips the re-broadcast (its tombstone
-// already rode the event stream).
-func (c *Container) EndWork(
-	ctx context.Context,
-	wsID string,
-) {
-	if wsID == "" {
-		return
-	}
-	c.mu.Lock()
-	if n := c.inflight[wsID]; n <= 1 {
-		delete(c.inflight, wsID)
-	} else {
-		c.inflight[wsID] = n - 1
-	}
-	c.mu.Unlock()
-	c.rebroadcast(ctx, wsID)
-}
-
-// IsWorking reports whether the workspace has a background mutation in flight.
-func (c *Container) IsWorking(
-	wsID string,
-) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.inflight[wsID] > 0
-}
-
-// WorkingFor reports whether the workspace is working via EITHER derived overlay:
-// a background mutation in flight (inflight, via IsWorking) OR an agent chat
-// mid-turn (agentWorking, via agentWorkingFor). It is the single combined read the
-// REST list/detail handlers stamp Working from, so a REST read agrees with both
-// the live broadcast frames (enrichFrame) and the snapshot-on-subscribe readers
-// (ListWorkspaces/ListWorkspacesInRepo) — all four converge on this method. Each
-// overlay is read under its OWN lock acquisition (never one lock held across
-// both), mirroring the existing enrichFrame combination: the two are independent
-// booleans with no cross-overlay invariant, so a transient interleaving can only
-// observe a value that was truthful at some instant during the call — the same
-// guarantee every other reader already provides.
+// WorkingFor reports whether an agent chat in the workspace is mid-turn. The
+// REST reads, the snapshots and the live frames all stamp Working from it; work
+// an operation runs on the workspace is the operation's own state.
 func (c *Container) WorkingFor(
 	wsID string,
 ) bool {
-	return c.IsWorking(wsID) || c.agentWorkingFor(wsID)
+	return c.agentWorkingFor(wsID)
 }
 
-// rebroadcast pushes the workspace's current row to the hub so an overlay
-// transition (Begin/EndWork) is visible without waiting for the op's next
-// event. Best-effort: a missing row (already deleted) skips silently.
+// rebroadcast pushes the workspace's current row to the hub so an agent-turn
+// transition is visible without waiting for the next event. Best-effort: a
+// missing row (already deleted) skips silently.
 //
 // A read failure here is LOGGED rather than dropped in silence, because the frame
 // it costs us is not interchangeable with the next one. Working is transported as

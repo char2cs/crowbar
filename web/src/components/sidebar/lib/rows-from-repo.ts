@@ -3,7 +3,12 @@ import { EMPTY_CHATS, EMPTY_FOLDERS } from '@/lib/store/repo-tree'
 import { buildSidebarTree, type SidebarTreeNode } from '@/components/layout/workspace-tree-utils'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { placeholderKind, placeholderReason } from '@/lib/workspace/placeholder'
+import type { Problem } from '@/lib/errors/problem'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+
+/** A workspace's newest failed operation, looked up by the caller: the walk reads no store. */
+export type ProblemLookup = (workspaceId: string) => Problem | null
+const NO_PROBLEMS: ProblemLookup = () => null
 
 /**
  * The chat that owns a repo/project HOME workspace's worktree, straight off
@@ -19,11 +24,7 @@ import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
  * `ownsWorktree` signal {@link resolveOwnerChats} uses for every other row's
  * degrade case. Never a `Chat.type` check: Task 9 stopped minting/retyping a
  * `'branch'`-typed chat for this row, so nothing here may depend on it.
- *
- * Never throws. A workspace whose owning chat has not resolved by either
- * channel yet degrades exactly like any other unfolded workspace-owning row
- * below: left as its own raw id rather than dropped, so a row the user can
- * see stays visible while the daemon catches up.
+ * Never throws: an unresolved owner leaves the row under its own raw id.
  */
 export function resolveHomeOwnerId(
   homeId: string,
@@ -188,6 +189,7 @@ export type ChatIconFields = Pick<
 function workspaceIconFields(
   workspace: Workspace,
   ownDefaultBranch: string | undefined,
+  problem: Problem | null,
 ): Omit<ChatIconFields, 'kind' | 'ownsWorktree'> {
   const kind = placeholderKind(workspace, ownDefaultBranch)
   return {
@@ -199,7 +201,7 @@ function workspaceIconFields(
     isPlaceholder: kind !== 'none',
     needsProvisioning: kind === 'unprovisioned',
     heldByPath: kind === 'none' ? undefined : workspace.heldByPath || undefined,
-    placeholderReason: placeholderReason(workspace, kind) || undefined,
+    placeholderReason: placeholderReason(workspace, kind, problem) || undefined,
   }
 }
 
@@ -233,7 +235,7 @@ export function chatIconIndex(repos: readonly Repo[]): Map<string, ChatIconField
       index.set(chatId, {
         kind: 'branch',
         ownsWorktree: true,
-        ...(workspace ? workspaceIconFields(workspace, repo.defaultBranch) : {}),
+        ...(workspace ? workspaceIconFields(workspace, repo.defaultBranch, null) : {}),
       })
     }
   }
@@ -301,7 +303,7 @@ export function foldWorkspaceOwners(
  * it; a repo with no default workspace yet simply has no root row for its own
  * rows to hang off.
  */
-export function rowsFromRepo(repo: Repo): SidebarRow[] {
+export function rowsFromRepo(repo: Repo, problemOf: ProblemLookup = NO_PROBLEMS): SidebarRow[] {
   const rows: SidebarRow[] = []
   const homeId = repo.defaultWorkspaceId ?? null
 
@@ -396,18 +398,14 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
     true,
     homeId,
     repo.defaultBranch,
+    problemOf,
   )
 
   return rows
 }
 
-/**
- * Row id -> owning repo id, across every repo passed in — the scope
- * `hideRowsForInFlightCreates` (rows-from-pending.ts) needs to tell a
- * repo-scoped pending create's own repo's rows apart from every other
- * repo's (or project home's, which owns no repo and so is never in this
- * map at all).
- */
+/** Row id -> owning repo id across `repos`: how `hideRowsForInFlightCreates`
+ *  (rows-from-pending.ts) tells a pending create's repo's rows from the rest. */
 export function rowRepoScope(repos: readonly Repo[]): ReadonlyMap<string, string> {
   const scope = new Map<string, string>()
   for (const repo of repos) {
@@ -478,6 +476,7 @@ export function walkTreeIntoRows(
   foldersCanFork: boolean,
   ancestorWorkspaceId: string | null,
   ownDefaultBranch: string | undefined,
+  problemOf: ProblemLookup = NO_PROBLEMS,
 ): void {
   nodes.forEach((node, index) => {
     if (node.kind === 'chat') {
@@ -509,11 +508,9 @@ export function walkTreeIntoRows(
           workspaceId: ownedWorkspaceId,
           working: false,
           hasView: false,
-          // No `branchName`/`added`/`deleted`/`locked`: every one of those
-          // is a `Workspace` field, and this row exists precisely because
-          // that record is not here. Omitted rather than faked — a row
-          // claiming `locked: false` for a branch that is actually locked
-          // would offer verbs the daemon then refuses.
+          // No `branchName`/`added`/`deleted`/`locked`: those are `Workspace`
+          // fields, and that record is not here; faking `locked: false` would
+          // offer verbs the daemon then refuses.
         })
         walkTreeIntoRows(
           rows,
@@ -524,6 +521,7 @@ export function walkTreeIntoRows(
           foldersCanFork,
           ownedWorkspaceId,
           ownDefaultBranch,
+          problemOf,
         )
         return
       }
@@ -598,6 +596,7 @@ export function walkTreeIntoRows(
         foldersCanFork,
         ancestorWorkspaceId,
         ownDefaultBranch,
+        problemOf,
       )
       return
     }
@@ -667,15 +666,12 @@ export function walkTreeIntoRows(
         workspaceId: node.workspace.id,
         working: node.workspace.working ?? false,
         hasView: false,
-        ...workspaceIconFields(node.workspace, ownDefaultBranch),
+        ...workspaceIconFields(node.workspace, ownDefaultBranch, problemOf(node.workspace.id)),
       })
-      // Children hang off the row's OWN id, which is now the owning chat's
-      // (when one was resolved) — a thread the daemon filed under the
-      // workspace still has to arrive at the row the user can see.
-      //
-      // `node.workspace.id` (the RAW workspace id), not `node.id` — a
-      // folder nested under a locked/folded branch still has to resolve to
-      // the real workspace `createChat` posts to, not the owning chat's id.
+      // Children hang off the row's OWN id (the owning chat's, when resolved),
+      // so a thread filed under the workspace arrives at the visible row. The
+      // RAW `node.workspace.id` is the ancestor: a nested folder must resolve
+      // to the real workspace `createChat` posts to, not the owning chat.
       walkTreeIntoRows(
         rows,
         node.children,
@@ -685,6 +681,7 @@ export function walkTreeIntoRows(
         foldersCanFork,
         node.workspace.id,
         ownDefaultBranch,
+        problemOf,
       )
       return
     }
@@ -697,6 +694,7 @@ export function walkTreeIntoRows(
       foldersCanFork,
       ancestorWorkspaceId,
       ownDefaultBranch,
+      problemOf,
     )
   })
 }

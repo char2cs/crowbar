@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -148,24 +149,15 @@ func (s *ConflictsSuite) mergeConflict(childID, chatID string) {
 	resp := s.Env.POST(s.T(), s.repoChatBase(chatID)+"/merge-into-parent", map[string]string{
 		"strategy": "merge",
 	})
-	kit.RequireStatus(s.T(), resp, http.StatusAccepted)
-	resp.Body.Close()
 
-	// Block on the MERGE OP finishing, not on the child reaching pr-conflicts.
-	//
-	// The status is the wrong signal and always was: pr-conflicts is ALSO produced up
-	// front by the merge-tree prediction overlay (a child with diverging edits reads
-	// pr-conflicts before a merge is even attempted), so waiting for it can return
-	// while the real merge is still mid-conflict, with the worktree not yet aborted.
-	// The old code covered that hole by polling the worktrees for cleanliness for two
-	// seconds — a guess that the abort would land inside the window.
-	//
-	// The daemon's working overlay says exactly what is needed: the detached merge op
-	// is bracketed BeginWork → EndWork, and EndWork fires only after the merge
-	// function has returned, abort and all. The falling edge IS "the merge is over".
-	final := kit.WaitForWorkComplete(s.T(), watcher, childID, 30*time.Second)
-	s.Require().Equal("pr-conflicts", final["status"],
-		"a conflicting merge must leave the child in pr-conflicts")
+	// Block on the MERGE OP settling, not on the child reaching pr-conflicts: the
+	// merge-tree prediction overlay reports pr-conflicts before any merge runs, so
+	// the status can arrive while the merge is still mid-conflict. The operation
+	// settles only after the merge function has returned, abort and all.
+	s.Require().Equal(domain.OpSucceeded, s.Env.AwaitOperation(s.T(), resp, 30*time.Second).State)
+	kit.WaitForWorkspace(s.T(), watcher, childID, 10*time.Second, func(m map[string]any) bool {
+		return m["status"] == "pr-conflicts"
+	})
 	s.Env.Quiesce()
 
 	// H6/H7 regression guard: a conflicting merge must leave NEITHER worktree stuck.

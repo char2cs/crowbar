@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,8 +10,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
 
+	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	worktreehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/worktree/handlers"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -207,34 +211,6 @@ func (f *fakeRepos) FindByKey(
 	return f.repo, f.err
 }
 
-type fakeLastErrors struct {
-	gotID  string
-	gotMsg string
-	called chan struct{}
-}
-
-func (f *fakeLastErrors) SetLastError(
-	_ context.Context,
-	id string,
-	message string,
-) (domain.Workspace, error) {
-	f.gotID = id
-	f.gotMsg = message
-	if f.called != nil {
-		f.called <- struct{}{}
-	}
-	return domain.Workspace{ID: id, LastError: message}, nil
-}
-
-// fakeWork satisfies worktreehandlers.WorkSignal for tests that don't assert
-// the working overlay.
-type fakeWork struct{}
-
-func (fakeWork) BeginWork(_ context.Context, _ string) {}
-func (fakeWork) EndWork(_ context.Context, _ string)   {}
-func (fakeWork) IsWorking(_ string) bool               { return false }
-func (fakeWork) WorkingFor(_ string) bool              { return false }
-
 // fakeWorktrees stands in for the chat→workspace resolver spec §3 describes:
 // it records the chat id it was asked about and answers with ws, or with err.
 type fakeWorktrees struct {
@@ -253,31 +229,66 @@ func (f *fakeWorktrees) Resolve(
 	return f.ws, f.err
 }
 
+// recordedOps is a real operation service whose every published row lands on
+// frames, so a test reads what the client would see on the operations stream.
+type recordedOps struct {
+	*operation.Service
+	frames chan domain.Operation
+}
+
+func newRecordedOps() *recordedOps {
+	db, err := storesqlite.OpenDB(":memory:")
+	if err != nil {
+		panic(err)
+	}
+	opStore, err := storesqlite.NewFromDB[domain.Operation, string](db)
+	if err != nil {
+		panic(err)
+	}
+	frames := make(chan domain.Operation, 64)
+	return &recordedOps{
+		Service: operation.New(opStore, func(op domain.Operation) { frames <- op }, time.Now),
+		frames:  frames,
+	}
+}
+
+// accepted decodes the operation a 202 answers with.
+func accepted(t *testing.T, rec *httptest.ResponseRecorder) domain.Operation {
+	t.Helper()
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	var env struct {
+		Data struct {
+			Operation domain.Operation `json:"operation"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	return env.Data.Operation
+}
+
+// settled reads frames until the operation the 202 answered with is settled;
+// its work has returned by then, so a negative after it is exact.
+func (o *recordedOps) settled(t *testing.T, rec *httptest.ResponseRecorder) domain.Operation {
+	t.Helper()
+	id := accepted(t, rec).ID
+	for op := range o.frames {
+		if op.ID == id && (op.State == domain.OpSucceeded || op.State == domain.OpFailed) {
+			return op
+		}
+	}
+	return domain.Operation{}
+}
+
 // newChatRouter mounts the nine surviving chat-keyed routes on ONE Handlers
-// value, under the repo-scoped prefix the production Register uses.
-//
-// It hands the *Handlers back because WaitAsync is the only sound completion
-// signal for the fire-and-forget verbs: a test that must assert a NEGATIVE ("the
-// non-leaf child was NOT deleted") can only do so once the detached goroutine is
-// provably dead.
+// value, under the repo-scoped prefix the production Register uses, and hands
+// back the operations they start.
 func newChatRouter(
 	reader worktreehandlers.Reader,
 	hierarchy worktreehandlers.Hierarchy,
 	worktrees worktreehandlers.Worktrees,
-) (*gin.Engine, *worktreehandlers.Handlers) {
-	return newChatRouterWithErrors(reader, hierarchy, worktrees, &fakeLastErrors{})
-}
-
-// newChatRouterWithErrors is newChatRouter for the tests that inspect what a
-// failed background op recorded on the entity.
-func newChatRouterWithErrors(
-	reader worktreehandlers.Reader,
-	hierarchy worktreehandlers.Hierarchy,
-	worktrees worktreehandlers.Worktrees,
-	lastErrors worktreehandlers.LastErrorSetter,
-) (*gin.Engine, *worktreehandlers.Handlers) {
+) (*gin.Engine, *recordedOps) {
 	r := gin.New()
-	h := worktreehandlers.New(reader, hierarchy, &fakeRepos{}, lastErrors, fakeWork{}).
+	ops := newRecordedOps()
+	h := worktreehandlers.New(reader, hierarchy, &fakeRepos{}, ops).
 		WithWorktrees(worktrees)
 	rg := r.Group("/v0/projects/:projectId/repos/:repoId")
 	rg.POST("/chats/import-batch", h.Import)
@@ -289,7 +300,7 @@ func newChatRouterWithErrors(
 	rg.POST("/chats/:id/retry-provision", h.ChatRetryProvision)
 	rg.POST("/chats/:id/detach-holder", h.ChatDetachHolder)
 	rg.PATCH("/chats/:id/branch", h.ChatRenameBranch)
-	return r, h
+	return r, ops
 }
 
 // waitClosed blocks until done is closed. The close IS the "the background work

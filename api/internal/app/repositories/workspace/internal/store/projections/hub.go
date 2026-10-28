@@ -20,8 +20,8 @@ import (
 // state back.
 //
 // enrich and broadcast are owned by repositories.Container: the SAME pair also
-// backs the BeginWork/EndWork request-bracketed rebroadcasts, so the emitted
-// frame is identical whichever path fired. The frame type F is a parameter so
+// backs the agent-turn rebroadcasts, so the emitted frame is identical
+// whichever path fired. The frame type F is a parameter so
 // this package stays decoupled from the api-layer wire DTO.
 //
 // Every tombstone frame is reported to st (Store.Announced): the delete reactor

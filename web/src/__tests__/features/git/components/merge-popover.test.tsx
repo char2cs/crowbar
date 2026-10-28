@@ -1,43 +1,39 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Button } from '@/components/ui/button'
 import { MergePopover } from '@/features/git/components/merge-popover'
+import { useOperationsStore } from '@/lib/store/operations'
+import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 
-const { patchMergeStrategy, mergeIntoParent, setBranchReviewMergeStrategy, navigateMock } =
-  vi.hoisted(() => ({
-    patchMergeStrategy: vi.fn().mockResolvedValue('squash'),
-    mergeIntoParent: vi.fn().mockResolvedValue(undefined),
-    setBranchReviewMergeStrategy: vi.fn(),
-    navigateMock: vi.fn(),
-  }))
+const { patchMergeStrategy, mergeIntoParent, navigateMock } = vi.hoisted(() => ({
+  patchMergeStrategy: vi.fn().mockResolvedValue('squash'),
+  mergeIntoParent: vi.fn(),
+  navigateMock: vi.fn(),
+}))
 vi.mock('@/features/git/api/review-api', () => ({
   setMergeStrategy: patchMergeStrategy,
   mergeIntoParent,
 }))
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => navigateMock }))
-vi.mock('@/lib/store/sidebar', () => ({
-  useSidebarStore: {
-    getState: () => ({
-      repos: [{ id: 'r1', projectId: 'p1', workspaces: [{ id: 'parent-ws' }, { id: 'w1' }] }],
-    }),
-  },
-  getPostDeleteNavigationTarget: () => 'parent-ws',
-}))
-let strategy = 'merge'
-vi.mock('@/features/workspace/stores/hooks/use-workspace-store-by-id', () => ({
-  useWorkspaceStoreById: (
-    _id: string,
-    sel: (s: { branchReview: { mergeStrategy: string } }) => unknown,
-  ) => sel({ branchReview: { mergeStrategy: strategy } }),
-}))
-vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
-  getOrCreateWorkspaceStore: () => ({ getState: () => ({ setBranchReviewMergeStrategy }) }),
-}))
 
 beforeEach(() => {
   vi.clearAllMocks()
-  strategy = 'merge'
+  mergeIntoParent.mockResolvedValue({ items: [] })
+  useOperationsStore.setState({ ops: {}, latestFor: {} })
+  useSidebarStore.setState({
+    repos: [
+      {
+        id: 'r1',
+        projectId: 'p1',
+        defaultWorkspaceId: 'parent-ws',
+        workspaces: [
+          { id: 'parent-ws', branch: 'develop' },
+          { id: 'w1', branch: 'feature/a', parentId: 'parent-ws' },
+        ],
+      } as unknown as Repo,
+    ],
+  })
 })
 
 const renderPopover = () =>
@@ -56,7 +52,24 @@ describe('MergePopover', () => {
     expect(screen.getByRole('button', { name: 'Create merge commit' })).toBeDefined()
   })
 
-  it('defaults to deleting the child + redirects to the parent after merge', async () => {
+  it('merge into parent runs an operation and closes', async () => {
+    const user = userEvent.setup()
+    renderPopover()
+    await user.click(screen.getByRole('button', { name: 'Merge into develop' }))
+    await user.click(await screen.findByRole('button', { name: 'Create merge commit' }))
+
+    const [op] = Object.values(useOperationsStore.getState().ops)
+    expect(op).toMatchObject({
+      kind: 'workspace.merge_into_parent',
+      subject: { kind: 'workspace', id: 'w1' },
+    })
+    expect(mergeIntoParent).toHaveBeenCalledWith('w1', 'merge', true, op.id)
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Create merge commit' })).toBeNull(),
+    )
+  })
+
+  it('defaults to deleting the child + redirects to the parent once the merge settles', async () => {
     const user = userEvent.setup()
     renderPopover()
     await user.click(screen.getByRole('button', { name: 'Merge into develop' }))
@@ -65,11 +78,25 @@ describe('MergePopover', () => {
     expect(screen.getByRole('checkbox')).toBeDefined()
 
     await user.click(screen.getByRole('button', { name: 'Create merge commit' }))
-    expect(mergeIntoParent).toHaveBeenCalledWith('w1', 'merge', true)
-    expect(navigateMock).toHaveBeenCalledWith({
-      to: '/ide/$projectId/$repoId/$wsId',
-      params: { projectId: 'p1', repoId: 'r1', wsId: 'parent-ws' },
-    })
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith({
+        to: '/ide/$projectId/$repoId/$wsId',
+        params: { projectId: 'p1', repoId: 'r1', wsId: 'parent-ws' },
+      }),
+    )
+  })
+
+  it('a failed merge does not redirect', async () => {
+    mergeIntoParent.mockRejectedValue(new Error('conflict'))
+    const user = userEvent.setup()
+    renderPopover()
+    await user.click(screen.getByRole('button', { name: 'Merge into develop' }))
+    await user.click(await screen.findByRole('button', { name: 'Create merge commit' }))
+
+    await waitFor(() =>
+      expect(Object.values(useOperationsStore.getState().ops)[0]?.state).toBe('failed'),
+    )
+    expect(navigateMock).not.toHaveBeenCalled()
   })
 
   it('unchecking "delete" keeps the child and does not redirect', async () => {
@@ -80,7 +107,7 @@ describe('MergePopover', () => {
     // direct role-click under jsdom's missing PointerEvent).
     await user.click(await screen.findByText('Delete this workspace after merging'))
     await user.click(screen.getByRole('button', { name: 'Create merge commit' }))
-    expect(mergeIntoParent).toHaveBeenCalledWith('w1', 'merge', false)
+    expect(mergeIntoParent).toHaveBeenCalledWith('w1', 'merge', false, expect.any(String))
     expect(navigateMock).not.toHaveBeenCalled()
   })
 })

@@ -97,11 +97,11 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeOwningChatId: () => null,
 }))
 
+import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import {
   openChatInOwnPane,
   performSidebarPaneDrop,
-  performSidebarDrop,
-} from '@/components/sidebar/lib/drop-actions'
+} from '@/components/sidebar/lib/pane-drop-actions'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import {
   placeWorkspace,
@@ -115,6 +115,9 @@ import { idle, success } from '@/lib/loadable'
 import { reparentWorkspace } from '@/lib/api/workspace'
 import { setChatPlacement } from '@/features/agent/api/agent-chat-commands'
 import { toast } from '@/features/window/stores/toast-store'
+import { toastManager } from '@/lib/toast-manager'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
+import { applyOperationFrame, useOperationsStore, type Operation } from '@/lib/store/operations'
 import {
   getOrCreateWorkspaceStore,
   destroyWorkspaceStore,
@@ -148,11 +151,6 @@ import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
  *
  * `performSidebarPaneDrop`'s own suite (below, unchanged from Task 22) covers
  * §8.1's other two targets — the middle/edge of a PANE.
- *
- * `reparent-settle.test.ts` unit-tests `watchReparent` itself (the immediate/
- * subscription/failure/timeout paths); the "waits for real confirmation"
- * describe block below only proves it is actually WIRED into the placement
- * sequence here.
  */
 
 /** Which view record holds `chatId` — the grouping fact a merge writes and a
@@ -252,8 +250,12 @@ function makeRepo(): Repo {
   }
 }
 
-/** Simulates the WS frame a real reparent lands on success: a fresh
- *  `Workspace` object reporting the new `parentId`. */
+/** A drop failure reaches the user through `report()`, titled by the action. */
+function expectReported(description: string): void {
+  expect(toastManager.add).toHaveBeenCalledWith(expect.objectContaining({ description }))
+}
+
+/** The WS frame a landed reparent sends: a fresh `Workspace` with the new parent. */
 function confirmReparent(wsId: string, parentId: string): void {
   useSidebarStore.setState((s) => ({
     repos: s.repos.map((r) => ({
@@ -271,13 +273,16 @@ beforeEach(() => {
   useProjectDataStore.setState({ data: idle() })
   fetchWorkspaces.mockResolvedValue([])
   setActiveWorkspaceId('ws-1')
-  // Default: the reparent POST's background job "succeeds" and its
-  // confirming WS frame lands essentially at once — most tests below care
-  // about the PLACEMENT sequencing this unblocks, not the settle mechanism
-  // itself. The dedicated "waits for real confirmation"/"refusal" tests
-  // below override this per-call to prove the wait is real.
+  useOperationsStore.setState({ ops: {}, latestFor: {} })
+  vi.spyOn(toastManager, 'add')
+  // A reparent is addressed by the fork's owning chat (worktreeVerbBaseForWorkspace).
+  for (const { id } of makeRepo().workspaces)
+    recordWorkspaceScope({ projectId: 'proj-1', repoId: 'repo-1', wsId: id, owningChatId: id })
+  // Default: the reparent lands within its request; the operation tests below
+  // override this to answer 202 and settle it by frame.
   vi.mocked(reparentWorkspace).mockImplementation(async (wsId, parentId) => {
     confirmReparent(wsId, parentId)
+    return { items: [] }
   })
 })
 
@@ -389,7 +394,7 @@ describe('performSidebarDrop — reordering (no lineage change)', () => {
         'after',
       )
 
-      expect(reparentWorkspace).toHaveBeenCalledWith('ws-c', 'ws-b')
+      expect(reparentWorkspace).toHaveBeenCalledWith('ws-c', 'ws-b', expect.any(String))
       expect(placeWorkspace).toHaveBeenCalledWith('ws-c', { order: 0 })
     })
   })
@@ -421,7 +426,7 @@ describe('performSidebarDrop — filing into a folder', () => {
       'into',
     )
 
-    expect(reparentWorkspace).toHaveBeenCalledWith('ws-fork', 'home-1')
+    expect(reparentWorkspace).toHaveBeenCalledWith('ws-fork', 'home-1', expect.any(String))
     expect(placeWorkspace).toHaveBeenCalledWith('ws-fork', {
       folderId: 'folder-1',
       order: 0,
@@ -437,7 +442,7 @@ describe('performSidebarDrop — filing into a folder', () => {
       'into',
     )
 
-    expect(reparentWorkspace).toHaveBeenCalledWith('ws-b', 'ws-a')
+    expect(reparentWorkspace).toHaveBeenCalledWith('ws-b', 'ws-a', expect.any(String))
     expect(placeWorkspace).toHaveBeenCalledWith('ws-b', {
       folderId: 'folder-3',
       order: 1,
@@ -638,7 +643,7 @@ describe('performSidebarDrop — crossing a fork parent', () => {
     // ws-fork currently hangs off ws-a; dropped INTO ws-b it must rebase.
     await performSidebarDrop([branchRow('ws-fork')], branchRow('ws-b'), 'into')
 
-    expect(reparentWorkspace).toHaveBeenCalledWith('ws-fork', 'ws-b')
+    expect(reparentWorkspace).toHaveBeenCalledWith('ws-fork', 'ws-b', expect.any(String))
     expect(placeWorkspace).toHaveBeenCalledWith('ws-fork', { order: 0 })
     expect(vi.mocked(reparentWorkspace).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(placeWorkspace).mock.invocationCallOrder[0],
@@ -655,7 +660,7 @@ describe('performSidebarDrop — crossing a fork parent', () => {
       'after',
     )
 
-    expect(reparentWorkspace).toHaveBeenCalledWith('ws-b', 'ws-a')
+    expect(reparentWorkspace).toHaveBeenCalledWith('ws-b', 'ws-a', expect.any(String))
     expect(placeWorkspace).toHaveBeenCalledWith('ws-b', { order: 0 })
   })
 
@@ -686,56 +691,51 @@ describe('performSidebarDrop — crossing a fork parent', () => {
       'into',
     )
 
-    expect(reparentWorkspace).toHaveBeenCalledWith('ws-fork', 'home-1')
+    expect(reparentWorkspace).toHaveBeenCalledWith('ws-fork', 'home-1', expect.any(String))
     // Root-level siblings (5 of them) plus this one landing at the end.
     expect(placeWorkspace).toHaveBeenCalledWith('ws-fork', { order: 5 })
   })
 })
 
-describe('performSidebarDrop — waits for a real reparent confirmation, not just the 202', () => {
-  it('does not fire the placement call until a WS frame actually confirms the new parentId', async () => {
-    // This one call resolves the POST with no confirming side effect —
-    // exactly what the real 202-then-background-job endpoint does.
-    vi.mocked(reparentWorkspace).mockResolvedValueOnce(undefined)
+describe('performSidebarDrop — a reparent runs as an operation', () => {
+  /** Answers the reparent 202 with an accepted operation; `settle` sends its terminal frame. */
+  function acceptReparent(): { settle: (change: Partial<Operation>) => void } {
+    let op: Operation
+    vi.mocked(reparentWorkspace).mockImplementationOnce(async (wsId, _parentId, id) => {
+      op = { id, kind: 'workspace.reparent', subject: { kind: 'workspace', id: wsId } } as Operation
+      return { operation: { ...op, state: 'accepted', items: [], version: 1, createdAt: '' } }
+    })
+    return { settle: (change) => applyOperationFrame({ ...op, items: [], version: 2, ...change }) }
+  }
 
+  it('a reparent the daemon refuses reports its reason and skips the placement call', async () => {
+    const reparent = acceptReparent()
     const done = performSidebarDrop([branchRow('ws-fork')], branchRow('ws-b'), 'into')
+    await vi.waitFor(() => expect(reparentWorkspace).toHaveBeenCalled())
 
-    await Promise.resolve()
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(reparentWorkspace).toHaveBeenCalledWith('ws-fork', 'ws-b')
-    // The POST resolved, but nothing has confirmed the move landed yet.
+    reparent.settle({ state: 'failed', error: { code: 'conflict', message: 'has fork children' } })
+    await done
+
+    expect(placeWorkspace).not.toHaveBeenCalled()
+    const [op] = Object.values(useOperationsStore.getState().ops)
+    expect(op.error?.message).toBe('has fork children')
+    // The operations watcher toasts it; the drop does not toast it twice.
+    expect(toastManager.add).not.toHaveBeenCalled()
+  })
+
+  it('a reparent that succeeds places the workspace after the row moved', async () => {
+    const reparent = acceptReparent()
+    const done = performSidebarDrop([branchRow('ws-fork')], branchRow('ws-b'), 'into')
+    await vi.waitFor(() =>
+      expect(reparentWorkspace).toHaveBeenCalledWith('ws-fork', 'ws-b', expect.any(String)),
+    )
     expect(placeWorkspace).not.toHaveBeenCalled()
 
     confirmReparent('ws-fork', 'ws-b')
+    reparent.settle({ state: 'succeeded' })
     await done
 
     expect(placeWorkspace).toHaveBeenCalledWith('ws-fork', { order: 0 })
-  })
-
-  it('a server-side refusal (lastError set, e.g. guardReparent declining) surfaces as toast.error — the placement call never fires', async () => {
-    vi.mocked(reparentWorkspace).mockResolvedValueOnce(undefined)
-
-    const done = performSidebarDrop([branchRow('ws-fork')], branchRow('ws-b'), 'into')
-    await Promise.resolve()
-    await Promise.resolve()
-
-    // Simulate the background job's own refusal landing on the entity —
-    // this is the ONLY channel `guardReparent`'s error reaches.
-    useSidebarStore.setState((s) => ({
-      repos: s.repos.map((r) => ({
-        ...r,
-        workspaces: r.workspaces.map((w) =>
-          w.id === 'ws-fork' ? { ...w, lastError: 'workspace has fork children' } : w,
-        ),
-      })),
-    }))
-    await done
-
-    expect(placeWorkspace).not.toHaveBeenCalled()
-    expect(toast.error).toHaveBeenCalledWith(
-      'reparent of ws-fork failed: workspace has fork children',
-    )
   })
 
   // The daemon refuses a fork parent with no checkout (guardReparent); the
@@ -753,9 +753,7 @@ describe('performSidebarDrop — waits for a real reparent confirmation, not jus
     await performSidebarDrop([branchRow('ws-fork')], branchRow('ws-b'), 'into')
 
     expect(reparentWorkspace).not.toHaveBeenCalled()
-    expect(toast.error).toHaveBeenCalledWith(
-      "That branch hasn't been checked out yet — try again once it has",
-    )
+    expectReported("That branch hasn't been checked out yet — try again once it has")
   })
 })
 
@@ -796,14 +794,14 @@ describe('performSidebarDrop — multi-row moves', () => {
 })
 
 describe('performSidebarDrop — failures', () => {
-  it('a failed API call produces a toast.error, not a thrown exception', async () => {
+  it('a failed API call is reported, not thrown', async () => {
     vi.mocked(placeWorkspace).mockRejectedValueOnce(new Error('locked'))
 
     await expect(
       performSidebarDrop([branchRow('ws-c')], branchRow('ws-a', { parentId: 'home-1' }), 'before'),
     ).resolves.toBeUndefined()
 
-    expect(toast.error).toHaveBeenCalledWith('locked')
+    expectReported('locked')
   })
 })
 
@@ -1645,7 +1643,7 @@ describe('performSidebarDrop — a repo header row as the dragged subject', () =
     expect(placeRepo).toHaveBeenCalledWith('proj-1', 'repo-1', { folderId: '', order: 0 })
   })
 
-  it('a failed placement produces a toast.error, not a thrown exception', async () => {
+  it('a failed placement is reported, not thrown', async () => {
     vi.mocked(placeRepo).mockRejectedValueOnce(new Error('locked'))
     useHomeTreeStore.setState({
       trees: {
@@ -1664,7 +1662,7 @@ describe('performSidebarDrop — a repo header row as the dragged subject', () =
       ),
     ).resolves.toBeUndefined()
 
-    expect(toast.error).toHaveBeenCalledWith('locked')
+    expectReported('locked')
   })
 
   // Caught live: a home folder nested inside a CHAT (a legal spot for a
@@ -2497,7 +2495,7 @@ describe('performSidebarDrop — a branch row is addressed by its owning chat', 
       'into',
     )
 
-    expect(reparentWorkspace).toHaveBeenCalledWith('ws-b', 'ws-a')
+    expect(reparentWorkspace).toHaveBeenCalledWith('ws-b', 'ws-a', expect.any(String))
   })
 
   it('a branch row as the SUBJECT is placed by its workspace id', async () => {

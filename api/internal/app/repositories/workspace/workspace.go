@@ -457,9 +457,10 @@ func (w *workspace) RegisterDeleteReactor(
 	forgetDependents func(ctx context.Context, wsID string) error,
 	removeWorktree func(ctx context.Context, tomb domain.Workspace) error,
 	gate *drain.Gate,
+	onGiveUp func(ctx context.Context, wsID string, tomb *domain.Workspace, err error),
 ) error {
 	w.purger = reactors.NewPurger(w.ax, w.readModel.Drop, forgetDependents, removeWorktree)
-	return reactors.RegisterDeleteReactor(root, w.ax, w.readModel, w.purger, gate)
+	return reactors.RegisterDeleteReactor(root, w.ax, w.readModel, w.purger, gate, onGiveUp)
 }
 
 // GetHomeForProject scans all workspaces for the project and returns the one

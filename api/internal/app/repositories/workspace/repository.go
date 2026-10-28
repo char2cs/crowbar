@@ -207,7 +207,8 @@ type BootSweeper interface {
 
 // DeleteReactorRegistrar wires this aggregate's physical purge (Task 8) onto its
 // singleton axWorkspace. The composition root injects the cross-aggregate forget
-// cascade, the hardened worktree remover and the shared drain gate; this
+// cascade, the hardened worktree remover, the shared drain gate and who hears a
+// purge that gives up (tomb nil when it was never observed); this
 // repository builds the one Purger from them and hands it to both the async
 // delete reactor and the boot Sweep. Kept OFF the main Workspace interface (like
 // BootSweeper); the concrete *workspace satisfies it.
@@ -217,5 +218,6 @@ type DeleteReactorRegistrar interface {
 		forgetDependents func(ctx context.Context, wsID string) error,
 		removeWorktree func(ctx context.Context, tomb domain.Workspace) error,
 		gate *drain.Gate,
+		onGiveUp func(ctx context.Context, wsID string, tomb *domain.Workspace, err error),
 	) error
 }

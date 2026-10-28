@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render } from '@testing-library/react'
+import { fireEvent, render } from '@testing-library/react'
 import { SidebarRowActions } from '@/components/sidebar/sidebar-row-actions'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
+import { useOperationsStore } from '@/lib/store/operations'
+
+const { retryProvision } = vi.hoisted(() => ({
+  retryProvision: vi.fn().mockResolvedValue({ items: [] }),
+}))
+vi.mock('@/lib/api/workspace', () => ({ retryProvision }))
 
 const provisioned: SidebarRowType = {
   id: 'chat-owning-ws-1',
@@ -19,8 +25,8 @@ const provisioned: SidebarRowType = {
   isPlaceholder: false,
 }
 
-function controlsOf(row: SidebarRowType, isProjectHome = false): string[] {
-  const { container } = render(
+function renderActions(row: SidebarRowType, isProjectHome = false) {
+  return render(
     <SidebarRowActions
       row={row}
       isProjectHome={isProjectHome}
@@ -31,6 +37,10 @@ function controlsOf(row: SidebarRowType, isProjectHome = false): string[] {
       onToggleFold={vi.fn()}
     />,
   )
+}
+
+function controlsOf(row: SidebarRowType, isProjectHome = false): string[] {
+  const { container } = renderActions(row, isProjectHome)
   return Array.from(container.querySelectorAll('[data-control]')).map(
     (el) => el.getAttribute('data-control') ?? '',
   )
@@ -58,6 +68,22 @@ describe('SidebarRowActions', () => {
   it('leaves a placeholder branch row its remedy, remove and fold', () => {
     const controls = controlsOf({ ...provisioned, locked: false, isPlaceholder: true })
     expect(controls).toEqual(['retry-provision', 'remove', 'fold'])
+  })
+
+  it('Retry runs a retry_provision operation', () => {
+    useOperationsStore.setState({ ops: {}, latestFor: {} })
+    const { container } = renderActions({ ...provisioned, locked: false, isPlaceholder: true })
+    const retry = container.querySelector('[data-control="retry-provision"]')
+    if (!retry) throw new Error('no Retry control')
+    fireEvent.click(retry)
+
+    const [op] = Object.values(useOperationsStore.getState().ops)
+    expect(op).toMatchObject({
+      kind: 'workspace.retry_provision',
+      subject: { kind: 'workspace', id: 'ws-1' },
+      label: 'Retry main',
+    })
+    expect(retryProvision).toHaveBeenCalledWith('ws-1', op.id)
   })
 
   // Explicit product spec: repo-menu, Remove, Thread, Branch, Dropdown — left

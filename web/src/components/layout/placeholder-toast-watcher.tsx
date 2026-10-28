@@ -3,6 +3,7 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import { toast } from '@/features/window/stores/toast-store'
 import { placeholderKind, placeholderReason } from '@/lib/workspace/placeholder'
 import { useDetachModalStore } from '@/features/window/stores/detach-modal-store'
+import { selectEntityProblem, useOperationsStore } from '@/lib/store/operations'
 
 // Watches sidebar state and fires ONE error toast per newly-observed
 // UNPROVISIONED workspace (spec §3.6). Per CLAUDE.md the toast is fired from a
@@ -29,7 +30,11 @@ export function PlaceholderToastWatcher() {
         seen.current.add(ws.id)
         toast.show({
           message: `Couldn't set up ${ws.branch}`,
-          description: placeholderReason(ws, 'unprovisioned'),
+          description: placeholderReason(
+            ws,
+            'unprovisioned',
+            selectEntityProblem(useOperationsStore.getState(), ws.id),
+          ),
           type: 'error',
           key: ws.id,
           action: {

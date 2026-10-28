@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api/fetch'
+import { operationHeaders, type OperationReply } from '@/lib/store/run-operation'
 import {
   reviewBaseForWorkspace,
   workspaceBase,
@@ -170,18 +171,19 @@ export async function getReviewFiles(scope: DiffScope): Promise<ReviewFileSummar
 // ── Writes ──────────────────────────────────────────────────────────
 
 /**
- * POST to merge the workspace branch into its parent. Returns void (202 async).
- * When deleteSource is true, the daemon removes the now-merged child workspace
- * after a clean merge (a conflict keeps it); the caller redirects to the parent.
+ * POST to merge the workspace branch into its parent; answers 202 with the
+ * operation that runs it under `opId`. When deleteSource is true, the daemon
+ * removes the now-merged child workspace after a clean merge (a conflict keeps it).
  */
-export async function mergeIntoParent(
+export function mergeIntoParent(
   wsId: string,
   strategy: MergeStrategy,
-  deleteSource = false,
-): Promise<void> {
-  await apiFetch<unknown>(`${worktreeVerbBaseForWorkspace(wsId)}/merge-into-parent`, {
+  deleteSource: boolean,
+  opId: string,
+): Promise<OperationReply> {
+  return apiFetch<OperationReply>(`${worktreeVerbBaseForWorkspace(wsId)}/merge-into-parent`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...operationHeaders(opId) },
     body: JSON.stringify({ strategy, deleteSource }),
   })
 }

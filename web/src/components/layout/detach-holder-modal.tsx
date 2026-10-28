@@ -9,32 +9,29 @@ import {
 import { Button } from '@/components/ui/button'
 import { useDetachModalStore } from '@/features/window/stores/detach-modal-store'
 import { detachHolder } from '@/lib/api/workspace'
-import { toast } from '@/features/window/stores/toast-store'
+import { runOperation } from '@/lib/store/run-operation'
 
 // The consent modal for freeing a protected branch from a live holder. Framed as
 // disruptive-not-destructive: per the git engine's contract, detach never touches
 // the working tree — only moves HEAD — so uncommitted changes and commits are
-// preserved (spec §3.7). A detach blocked mid-merge/rebase surfaces cleanly as a
-// LastError from the backend (no partial state), which the toast/entity surface.
+// preserved (spec §3.7). A detach blocked mid-merge/rebase fails its operation,
+// which the operations watcher toasts and the placeholder row explains.
 export function DetachHolderModal() {
   const target = useDetachModalStore((s) => s.target)
   const close = useDetachModalStore((s) => s.close)
 
   if (!target) return null
 
-  const onConfirm = async () => {
-    try {
-      await detachHolder(target.wsId)
-    } catch (err) {
-      // The request never firing (e.g. no recorded scope) must not look like a
-      // successful detach — surface it; backend failures ride LastError instead.
-      toast.show({
-        message: `Couldn't detach ${target.branch}`,
-        description: err instanceof Error ? err.message : String(err),
-        type: 'error',
-        key: `detach-${target.wsId}`,
-      })
-    }
+  const onConfirm = () => {
+    runOperation(
+      {
+        kind: 'workspace.detach_holder',
+        subject: { kind: 'workspace', id: target.wsId },
+        projectId: '',
+        label: `Detach ${target.heldByPath}`,
+      },
+      (opId) => detachHolder(target.wsId, opId),
+    )
     close()
   }
 

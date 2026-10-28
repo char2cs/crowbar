@@ -59,7 +59,7 @@ func (s *stubFiles) Delete(_ context.Context, _, _ string, _ time.Time) error {
 	return nil
 }
 
-// ── WorkSignal stub — the derived working overlay the home read stamps from ──
+// ── WorkSignal stub — the working read the home read stamps from ──────────
 
 type stubWork struct{ working bool }
 

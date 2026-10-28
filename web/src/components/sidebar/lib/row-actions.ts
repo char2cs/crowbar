@@ -372,11 +372,9 @@ export async function performSetWorkspaceLock(
  * lands, rather than requiring a separate post-import Lock action.
  *
  * `armImportLockWatch` is called (and its baseline snapshot taken) BEFORE
- * `importBranches` goes out — exactly like `watchReparent`'s own call shape in
- * `drop-actions.ts` (`reparent-settle.ts`'s module doc explains why: a
- * workspace that lands while the request is still in flight has to be caught
- * too, or it is silently misread as having "already existed before the
- * import" and never locked).
+ * `importBranches` goes out: a workspace that lands while the request is still
+ * in flight has to be caught too, or it is silently misread as having "already
+ * existed before the import" and never locked.
  */
 export async function performImportBranches(
   repoId: string,
@@ -496,9 +494,8 @@ function waitForImportedBranch(predicate: (repos: readonly Repo[]) => boolean): 
 
 /** How long a per-branch lock-after-import waits for the branch's new
  *  workspace to arrive (via the sidebar store's WS-driven reseed) before
- *  giving up silently. Mirrors reparent-settle.ts's own bounded wait — a
- *  branch that never lands (a stranded import) must not leave a live store
- *  subscription open for the rest of the session. */
+ *  giving up silently. A branch that never lands (a stranded import) must not
+ *  leave a live store subscription open for the rest of the session. */
 const IMPORT_LOCK_SETTLE_TIMEOUT_MS = 30_000
 
 /**

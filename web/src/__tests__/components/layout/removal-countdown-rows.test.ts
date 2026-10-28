@@ -110,7 +110,10 @@ function repo(): Repo {
 function rowsOnScreen() {
   const entries = useRemovalTrayStore.getState().entries
   const repos = applyPendingRemovals(useSidebarStore.getState().repos, descendantHiddenIds(entries))
-  return attachRemovalState(repos.flatMap(rowsFromRepo), entries)
+  return attachRemovalState(
+    repos.flatMap((r) => rowsFromRepo(r)),
+    entries,
+  )
 }
 
 beforeEach(() => {

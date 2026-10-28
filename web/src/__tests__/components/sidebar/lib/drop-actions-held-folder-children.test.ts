@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 
-import { visibleRepos } from '@/components/sidebar/lib/drop-actions'
+import { visibleRepos } from '@/components/sidebar/lib/rendered-rows'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import {
   getInitialRemovalState,

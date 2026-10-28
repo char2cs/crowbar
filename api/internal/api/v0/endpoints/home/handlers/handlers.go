@@ -87,17 +87,12 @@ type ChatResolver interface {
 	) ([]domain.Chat, error)
 }
 
-// WorkSignal is the read half of the daemon's working overlay, the same seam the
-// workspaces handlers stamp their REST reads from (workspacehandlers.WorkSignal,
-// which the repositories Container satisfies). The home workspace is served by
-// THIS endpoint rather than the workspace-scoped list/detail, so it must stamp
-// the overlay itself or its REST read would report working=false while an agent
-// chat anchored to the project home is mid-turn — diverging from the very WS
-// frames the container enriches for it. Only the read is needed here: the home
-// endpoint runs no async mutations, so it never brackets a work window.
+// WorkSignal is the daemon's working read: an agent chat in the workspace is
+// mid-turn (the repositories Container satisfies it). The home workspace is
+// served by THIS endpoint, so it stamps Working itself or its REST read would
+// disagree with the WS frames the container enriches for it.
 type WorkSignal interface {
-	// WorkingFor reports whether the workspace is working via EITHER derived
-	// overlay (an inflight background mutation OR an agent chat mid-turn).
+	// WorkingFor reports whether an agent chat in the workspace is mid-turn.
 	WorkingFor(
 		wsID string,
 	) bool
