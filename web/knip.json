@@ -164,7 +164,7 @@
     "src/features/workspace/lib/home-workspace-resolver.ts": ["exports"],
     "src/features/workspace/stores/hooks/use-pane-store.ts": ["exports"],
     "src/features/workspace/stores/hooks/use-workspace-agent-chats-stream.ts": ["exports"],
-    "src/features/workspace/stores/slices/agent-chats-slice.ts": ["exports", "types"],
+    "src/features/workspace/stores/slices/agent-chats-slice.ts": ["exports"],
     "src/features/workspace/stores/slices/branch-review-slice.ts": ["exports", "types"],
     "src/features/workspace/stores/slices/file-watcher-slice.ts": ["types"],
     "src/features/workspace/stores/slices/recent-files-slice.ts": ["types"],

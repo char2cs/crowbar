@@ -155,6 +155,5 @@
   "web/src/features/editor/monaco/language-contributions.ts": 545,
   "web/src/features/file-explorer/file-explorer/hooks/use-file-explorer-context-menu.tsx": 610,
   "web/src/features/git/components/review-thread-item.tsx": 590,
-  "web/src/features/tabs/components/tab-bar.tsx": 745,
-  "web/src/features/workspace/stores/slices/agent-chats-slice.ts": 735
+  "web/src/features/tabs/components/tab-bar.tsx": 745
 }

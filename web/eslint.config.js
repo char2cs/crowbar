@@ -54,7 +54,6 @@ const MAX_LINES_BASELINE = [
   'src/features/agent/transcript/plate/streaming-value-patch.ts',
   'src/features/file-explorer/file-explorer/hooks/use-file-explorer-context-menu.tsx',
   'src/features/tabs/components/tab-bar.tsx',
-  'src/features/workspace/stores/slices/agent-chats-slice.ts',
 ]
 
 // Findings that predate these rules, in areas being rewritten by the
