@@ -1,14 +1,9 @@
 import { useLayoutEffect, type RefObject } from 'react'
 import { bestEffort } from '@/lib/best-effort'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { browserApi, type BrowserRect } from '@/lib/browser-bridge'
-import { useSettingsStore } from '@/features/settings/store'
 import { observeRect } from '@/features/browser/lib/observe-rect'
-import {
-  registerWebview,
-  setWebviewVisible,
-  webviewCreated,
-} from '@/features/browser/lib/webview-registry'
+import { ensureWebview } from '@/features/browser/lib/ensure-webview'
+import { webviewCreated } from '@/features/browser/lib/webview-registry'
 
 function rectOf(node: HTMLElement): BrowserRect {
   const { x, y, width, height } = node.getBoundingClientRect()
@@ -24,27 +19,35 @@ interface Options {
 }
 
 /**
- * Keeps a native webview laid over `placeholderRef`. Teardown is not here: a
- * tab switch or a pane move unmounts this, which only hides the webview — the
- * buffer's release closes it (see disposeBuffers).
+ * Keeps a native webview laid over `placeholderRef` while `visible`, and parked
+ * off screen otherwise. Teardown is not here: a tab switch or a pane move
+ * unmounts this, which only parks the webview — the buffer's release closes it
+ * (see disposeBuffers).
  */
 export function useBrowserWebview({ bufferId, hasUrl, visible, placeholderRef }: Options) {
-  // The webview is made the first time the tab is shown, never at restore: the
-  // registry is the one record of whether Rust has it.
+  // The webview is made the first time the tab is shown unless the agent got
+  // there first: the registry is the one record of whether Rust has it.
   useLayoutEffect(() => {
     const node = placeholderRef.current
     if (!hasUrl || !node) return
-    let created = webviewCreated(bufferId)
-    if (!created) {
-      if (!visible) return
-      const buffer = windowPaneStore.getState().bufferActions.getBufferById(bufferId)
-      if (buffer?.type !== 'browser') return
-      const zoom = useSettingsStore.getState().settings.browserZoom / 100
-      created = browserApi.open(bufferId, buffer.url, rectOf(node), zoom)
-      registerWebview(bufferId, created)
-      bestEffort(created, 'open browser webview')
+    const existing = webviewCreated(bufferId)
+    if (!visible) {
+      if (existing) {
+        bestEffort(
+          existing.then(() => browserApi.park(bufferId)),
+          'park browser webview',
+        )
+      }
+      return
     }
-    const ready = created
+    const ready = existing ?? ensureWebview(bufferId, rectOf(node), false)
+    if (!ready) return
+    if (existing) {
+      bestEffort(
+        existing.then(() => browserApi.unpark(bufferId, rectOf(node))),
+        'unpark browser webview',
+      )
+    }
     return observeRect(node, () =>
       bestEffort(
         ready.then(() => browserApi.setBounds(bufferId, rectOf(node))),
@@ -53,19 +56,6 @@ export function useBrowserWebview({ bufferId, hasUrl, visible, placeholderRef }:
     )
   }, [bufferId, hasUrl, visible, placeholderRef])
 
-  // Layout effects run in the commit, before paint: the hide for an overlay that
-  // mounts in this commit is issued before the frame that would show it.
-  useLayoutEffect(() => {
-    const created = webviewCreated(bufferId)
-    if (!hasUrl || !created) return
-    bestEffort(
-      created
-        .then(() => browserApi.setVisible(bufferId, visible))
-        .then(() => setWebviewVisible(bufferId, visible)),
-      'toggle browser webview',
-    )
-  }, [bufferId, hasUrl, visible])
-
   // A native view outlives its pane's DOM; whoever unmounts must take it off screen.
   useLayoutEffect(() => {
     if (!hasUrl) return
@@ -73,10 +63,8 @@ export function useBrowserWebview({ bufferId, hasUrl, visible, placeholderRef }:
       const created = webviewCreated(bufferId)
       if (!created) return
       bestEffort(
-        created
-          .then(() => browserApi.setVisible(bufferId, false))
-          .then(() => setWebviewVisible(bufferId, false)),
-        'hide browser webview',
+        created.then(() => browserApi.park(bufferId)),
+        'park browser webview',
       )
     }
   }, [bufferId, hasUrl])

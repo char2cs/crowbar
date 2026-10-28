@@ -7,6 +7,7 @@ import { useConsoleStore } from '@/features/console/stores/console-store'
 import { useSidebarPeekStore } from '@/features/window/stores/sidebar-peek-store'
 import { PaneEditorViewContent } from '@/features/panes/components/pane-editor-view-content'
 import { runAgentOp } from '@/features/browser/lib/agent-ops'
+import { ensureWebview } from '@/features/browser/lib/ensure-webview'
 import { useStore } from 'zustand'
 import { BrowserPane } from '@/features/browser/components/browser-pane'
 import {
@@ -17,7 +18,8 @@ import {
 const api = vi.hoisted(() => ({
   open: vi.fn().mockResolvedValue(undefined),
   setBounds: vi.fn().mockResolvedValue(undefined),
-  setVisible: vi.fn().mockResolvedValue(undefined),
+  park: vi.fn().mockResolvedValue(undefined),
+  unpark: vi.fn().mockResolvedValue(undefined),
   navigate: vi.fn().mockResolvedValue(undefined),
   back: vi.fn().mockResolvedValue(undefined),
   forward: vi.fn().mockResolvedValue(undefined),
@@ -227,14 +229,14 @@ describe('BrowserPane', () => {
     await user.type(screen.getByRole('textbox', { name: 'Address' }), 'example.com{Enter}')
 
     expect(api.open).toHaveBeenCalledTimes(1)
-    expect(api.open).toHaveBeenCalledWith(id, 'https://example.com', rect, 1)
+    expect(api.open).toHaveBeenCalledWith(id, 'https://example.com', rect, 1, false)
     expect(stored(id)).toMatchObject({ url: 'https://example.com' })
   })
 
   it('opens at mount when the tab already has a url', () => {
     const id = openBrowser('https://a.test')
     renderPane(<BrowserPane paneId="p-this" bufferId={id} visible />)
-    expect(api.open).toHaveBeenCalledWith(id, 'https://a.test', rect, 1)
+    expect(api.open).toHaveBeenCalledWith(id, 'https://a.test', rect, 1, false)
   })
 
   it('creates the webview at the configured page zoom', () => {
@@ -243,7 +245,7 @@ describe('BrowserPane', () => {
     })
     const id = openBrowser('https://a.test')
     renderPane(<BrowserPane paneId="p-this" bufferId={id} visible />)
-    expect(api.open).toHaveBeenCalledWith(id, 'https://a.test', rect, 1.5)
+    expect(api.open).toHaveBeenCalledWith(id, 'https://a.test', rect, 1.5, false)
   })
 
   it('searches with the configured engine when the address is not a host', async () => {
@@ -272,29 +274,31 @@ describe('BrowserPane', () => {
     expect(api.open).toHaveBeenCalledTimes(1)
   })
 
-  it('sends no toggle or move before the webview exists, and visible once it does', async () => {
+  it('sends no move before the webview exists, and follows the placeholder once it does', async () => {
     let created!: () => void
     api.open.mockReturnValueOnce(new Promise<void>((resolve) => (created = resolve)))
     const id = openBrowser('https://a.test')
     renderPane(<BrowserPane paneId="p-this" bufferId={id} visible />)
     act(() => FakeResizeObserver.instances.forEach((o) => o.trigger()))
 
-    expect(api.setVisible).not.toHaveBeenCalled()
+    expect(api.park).not.toHaveBeenCalled()
     expect(api.setBounds).not.toHaveBeenCalled()
 
     created()
-    await vi.waitFor(() => expect(api.setVisible).toHaveBeenLastCalledWith(id, true))
+    await vi.waitFor(() => expect(api.setBounds).toHaveBeenLastCalledWith(id, rect))
+    expect(api.unpark).not.toHaveBeenCalled()
   })
 
-  it('never toggles an empty tab, and shows the webview opened by its first url', async () => {
+  it('never parks an empty tab, and opens the webview its first url asks for', async () => {
     const user = userEvent.setup()
     const id = openBrowser()
     renderPane(<BrowserPane paneId="p-this" bufferId={id} visible />)
-    expect(api.setVisible).not.toHaveBeenCalled()
+    expect(api.open).not.toHaveBeenCalled()
+    expect(api.park).not.toHaveBeenCalled()
 
     await user.type(screen.getByRole('textbox', { name: 'Address' }), 'example.com{Enter}')
 
-    await vi.waitFor(() => expect(api.setVisible).toHaveBeenLastCalledWith(id, true))
+    expect(api.open).toHaveBeenCalledWith(id, 'https://example.com', rect, 1, false)
   })
 
   it('reports new bounds when the placeholder resizes', async () => {
@@ -329,20 +333,40 @@ describe('BrowserPane', () => {
     await vi.waitFor(() => expect(api.setBounds).toHaveBeenLastCalledWith(id, rect))
   })
 
-  it('creates no webview for a restored tab until it is first shown, then keeps it', async () => {
+  it('creates no webview for a restored tab until it is first shown, then parks and unparks it', async () => {
     const id = openBrowser('https://a.test')
     const { rerender } = renderPane(<BrowserPane paneId="p-this" bufferId={id} visible={false} />)
     expect(api.open).not.toHaveBeenCalled()
-    expect(api.setVisible).not.toHaveBeenCalled()
+    expect(api.park).not.toHaveBeenCalled()
 
     rerender(<BrowserPane paneId="p-this" bufferId={id} visible />)
     expect(api.open).toHaveBeenCalledTimes(1)
-    await vi.waitFor(() => expect(api.setVisible).toHaveBeenLastCalledWith(id, true))
 
     rerender(<BrowserPane paneId="p-this" bufferId={id} visible={false} />)
-    await vi.waitFor(() => expect(api.setVisible).toHaveBeenLastCalledWith(id, false))
+    await vi.waitFor(() => expect(api.park).toHaveBeenLastCalledWith(id))
     rerender(<BrowserPane paneId="p-this" bufferId={id} visible />)
-    await vi.waitFor(() => expect(api.setVisible).toHaveBeenLastCalledWith(id, true))
+    await vi.waitFor(() => expect(api.unpark).toHaveBeenLastCalledWith(id, rect))
+    expect(api.open).toHaveBeenCalledTimes(1)
+  })
+
+  it('never hides a webview: leaving the screen moves it away and keeps it live', async () => {
+    const id = openBrowser('https://a.test')
+    const { rerender } = renderPane(<BrowserPane paneId="p-this" bufferId={id} visible />)
+
+    rerender(<BrowserPane paneId="p-this" bufferId={id} visible={false} />)
+
+    await vi.waitFor(() => expect(api.park).toHaveBeenCalledWith(id))
+    expect(api.close).not.toHaveBeenCalled()
+  })
+
+  it('unparks a webview the agent made, at the placeholder, without reloading it', async () => {
+    const id = openBrowser('https://a.test')
+    await ensureWebview(id, { x: 0, y: 0, width: 1280, height: 800 }, true)
+    expect(api.open).toHaveBeenCalledWith(id, 'https://a.test', expect.anything(), 1, true)
+
+    renderPane(<BrowserPane paneId="p-this" bufferId={id} visible />)
+
+    await vi.waitFor(() => expect(api.unpark).toHaveBeenLastCalledWith(id, rect))
     expect(api.open).toHaveBeenCalledTimes(1)
   })
 
@@ -353,7 +377,7 @@ describe('BrowserPane', () => {
     expect(api.open).toHaveBeenCalledTimes(1)
   })
 
-  it('hides the webview while a popup is open over the app, and shows it after', async () => {
+  it('parks the webview while a popup is open over the app, and shows it after', async () => {
     const id = openBrowser('https://a.test')
     renderPane(<BrowserPane paneId="p-this" bufferId={id} visible />)
 
@@ -362,52 +386,52 @@ describe('BrowserPane', () => {
     await act(async () => {
       document.body.appendChild(popup)
     })
-    await vi.waitFor(() => expect(api.setVisible).toHaveBeenLastCalledWith(id, false))
+    await vi.waitFor(() => expect(api.park).toHaveBeenLastCalledWith(id))
 
     await act(async () => popup.remove())
-    await vi.waitFor(() => expect(api.setVisible).toHaveBeenLastCalledWith(id, true))
+    await vi.waitFor(() => expect(api.unpark).toHaveBeenLastCalledWith(id, rect))
   })
 
-  it('hides the webview while the sidebar peek card is on screen', async () => {
+  it('parks the webview while the sidebar peek card is on screen', async () => {
     const id = openBrowser('https://a.test')
     renderPane(<BrowserPane paneId="p-this" bufferId={id} visible />)
 
     act(() => useSidebarPeekStore.setState({ occupied: true }))
-    await vi.waitFor(() => expect(api.setVisible).toHaveBeenLastCalledWith(id, false))
+    await vi.waitFor(() => expect(api.park).toHaveBeenLastCalledWith(id))
 
     act(() => useSidebarPeekStore.setState({ occupied: false }))
-    await vi.waitFor(() => expect(api.setVisible).toHaveBeenLastCalledWith(id, true))
+    await vi.waitFor(() => expect(api.unpark).toHaveBeenLastCalledWith(id, rect))
   })
 
-  it('hides under another pane going fullscreen, but stays up when it is the fullscreen one', async () => {
+  it('parks under another pane going fullscreen, but stays up when it is the fullscreen one', async () => {
     const id = openBrowser('https://a.test')
     renderPane(<BrowserPane paneId="p-this" bufferId={id} visible />)
 
     act(() => windowPaneStore.setState({ fullscreenPaneId: 'p-other' }))
-    await vi.waitFor(() => expect(api.setVisible).toHaveBeenLastCalledWith(id, false))
+    await vi.waitFor(() => expect(api.park).toHaveBeenLastCalledWith(id))
 
     act(() => windowPaneStore.setState({ fullscreenPaneId: 'p-this' }))
-    await vi.waitFor(() => expect(api.setVisible).toHaveBeenLastCalledWith(id, true))
+    await vi.waitFor(() => expect(api.unpark).toHaveBeenLastCalledWith(id, rect))
   })
 
-  it('hides under an overlay-mode console and returns when it closes or pushes', async () => {
+  it('parks under an overlay-mode console and returns when it closes or pushes', async () => {
     const id = openBrowser('https://a.test')
     renderPane(<BrowserPane paneId="p-this" bufferId={id} visible />)
 
     act(() => useConsoleStore.setState({ open: true, mode: 'overlay' }))
-    await vi.waitFor(() => expect(api.setVisible).toHaveBeenLastCalledWith(id, false))
+    await vi.waitFor(() => expect(api.park).toHaveBeenLastCalledWith(id))
 
     act(() => useConsoleStore.setState({ mode: 'push' }))
-    await vi.waitFor(() => expect(api.setVisible).toHaveBeenLastCalledWith(id, true))
+    await vi.waitFor(() => expect(api.unpark).toHaveBeenLastCalledWith(id, rect))
 
     act(() => useConsoleStore.setState({ open: false, mode: 'overlay' }))
-    await vi.waitFor(() => expect(api.setVisible).toHaveBeenLastCalledWith(id, true))
+    await vi.waitFor(() => expect(api.unpark).toHaveBeenLastCalledWith(id, rect))
   })
 
-  it('hides but does not close the webview on unmount: tab teardown owns closing', async () => {
+  it('parks but does not close the webview on unmount: tab teardown owns closing', async () => {
     const id = openBrowser('https://a.test')
     renderPane(<BrowserPane paneId="p-this" bufferId={id} visible />).unmount()
-    await vi.waitFor(() => expect(api.setVisible).toHaveBeenLastCalledWith(id, false))
+    await vi.waitFor(() => expect(api.park).toHaveBeenLastCalledWith(id))
     expect(api.close).not.toHaveBeenCalled()
   })
 
@@ -440,24 +464,25 @@ describe('a browser tab hosted by its pane', () => {
     />
   )
 
-  it('shows the webview for the active tab', async () => {
+  it('opens in place for the active tab', () => {
     const id = openBrowser('https://a.test')
     renderPane(hosted(id, false))
-    await vi.waitFor(() => expect(api.setVisible).toHaveBeenLastCalledWith(id, true))
+    expect(api.open).toHaveBeenCalledWith(id, 'https://a.test', rect, 1, false)
+    expect(api.park).not.toHaveBeenCalled()
   })
 
-  it('hides the webview while its pane is a drop target, whose overlay would sit under it', async () => {
+  it('parks the webview while its pane is a drop target, whose overlay would sit under it', async () => {
     const id = openBrowser('https://a.test')
     const { rerender } = renderPane(hosted(id, false))
-    await vi.waitFor(() => expect(api.setVisible).toHaveBeenLastCalledWith(id, true))
+    expect(api.park).not.toHaveBeenCalled()
 
     rerender(hosted(id, true))
-    await vi.waitFor(() => expect(api.setVisible).toHaveBeenLastCalledWith(id, false))
+    await vi.waitFor(() => expect(api.park).toHaveBeenLastCalledWith(id))
   })
 })
 
 describe('an agent op on a restored tab that was never shown', () => {
-  it('reveals it, which creates the webview, and then runs', async () => {
+  it('creates it parked beside the visible tab, which stays selected and in place', async () => {
     const { paneActions, bufferActions } = windowPaneStore.getState()
     paneActions.openChat('chat-a', { workspaceId: 'ws-a' })
     const first = bufferActions.openContent({ type: 'browser', workspaceId: 'ws-test' })
@@ -481,7 +506,14 @@ describe('an agent op on a restored tab that was never shown', () => {
 
     await runAgentOp({ chatId: 'chat-a', op: 'reload', tab: first, args: {} })
 
-    expect(api.open.mock.calls.map((c) => c[0])).toEqual([second, first])
+    expect(api.open.mock.calls.map((c) => [c[0], c[4]])).toEqual([
+      [second, false],
+      [first, true],
+    ])
     expect(api.reload).toHaveBeenCalledWith(first)
+    expect(api.unpark).not.toHaveBeenCalled()
+    expect(windowPaneStore.getState().paneActions.getPaneByEditorTabId(first)).toMatchObject({
+      activeEditorTabId: second,
+    })
   })
 })

@@ -5,6 +5,7 @@ mod clipboard;
 mod commands;
 mod data;
 mod events;
+mod park;
 #[cfg(target_os = "macos")]
 mod webkit;
 
@@ -12,6 +13,7 @@ pub use agent::*;
 pub use clipboard::*;
 pub use commands::*;
 pub use data::*;
+pub use park::Parked;
 
 use tauri::{AppHandle, Runtime, Url, Webview};
 

@@ -1,12 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { listTabs, runAgentOp, type AgentLimits } from '@/features/browser/lib/agent-ops'
-import { registerWebview, setWebviewVisible } from '@/features/browser/lib/webview-registry'
 import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
 
 const api = vi.hoisted(() => ({
+  open: vi.fn().mockResolvedValue(undefined),
+  setBounds: vi.fn().mockResolvedValue(undefined),
+  park: vi.fn().mockResolvedValue(undefined),
+  unpark: vi.fn().mockResolvedValue(undefined),
   navigate: vi.fn().mockResolvedValue(undefined),
   reload: vi.fn().mockResolvedValue(undefined),
   close: vi.fn().mockResolvedValue(undefined),
@@ -15,23 +18,8 @@ const api = vi.hoisted(() => ({
 }))
 vi.mock('@/lib/browser-bridge', () => ({ browserApi: api }))
 
-const QUICK: AgentLimits = { liveMs: 20, showMs: 20, loadMs: 20 }
+const QUICK: AgentLimits = { loadMs: 20 }
 const state = () => windowPaneStore.getState()
-
-/** Stands in for BrowserPane: a tab with a URL gets a live webview, shown or not. */
-function simulatePane(visible = true) {
-  const mounted = new Set<string>()
-  const mount = () => {
-    for (const buffer of state().buffers) {
-      if (buffer.type !== 'browser' || buffer.url === '' || mounted.has(buffer.id)) continue
-      mounted.add(buffer.id)
-      registerWebview(buffer.id, Promise.resolve())
-      setWebviewVisible(buffer.id, visible)
-    }
-  }
-  mount()
-  return windowPaneStore.subscribe(mount)
-}
 
 function paneOf(chatId: string) {
   return state()
@@ -46,18 +34,13 @@ const req = (chatId: string, op: string, tab = '', args: Record<string, unknown>
   args,
 })
 
-let stopPane: () => void
-
 beforeEach(() => {
   vi.clearAllMocks()
   resetWindowPaneStoreForTests()
   state().paneActions.setActiveProject('p1')
   state().paneActions.openChat('chat-a', { workspaceId: 'ws-a' })
   state().paneActions.openChat('chat-b', { workspaceId: 'ws-b' })
-  stopPane = simulatePane()
 })
-
-afterEach(() => stopPane())
 
 async function openFor(chatId: string, url = 'https://a.test/') {
   const out = (await runAgentOp(req(chatId, 'open', '', { url }))) as { tab: string }
@@ -223,28 +206,60 @@ describe('navigation', () => {
 })
 
 describe('a tab that is not on screen', () => {
-  it('is brought to the front of its pane before the page is touched', async () => {
+  it('is driven without selecting it, switching chats or touching the layout', async () => {
     const first = await openFor('chat-a')
-    const second = (await runAgentOp(
-      req('chat-a', 'open', '', { newTab: true, url: 'https://c.test/' }),
-    )) as { tab: string }
-    expect(paneOf('chat-a')?.activeEditorTabId).toBe(second.tab)
+    await runAgentOp(req('chat-a', 'open', '', { newTab: true, url: 'https://c.test/' }))
+    const aPane = paneOf('chat-a')!
+    state().paneActions.activateEditorTabInPane(aPane.id, aPane.editorTabIds[1])
+    state().paneActions.setActivePane(paneOf('chat-b')!.id)
+    const before = {
+      activePaneId: state().activePaneId,
+      activeViewId: state().activeViewId,
+      tabs: paneOf('chat-a')!.activeEditorTabId,
+    }
     api.evaluate.mockResolvedValue('1')
+
     await runAgentOp(req('chat-a', 'eval', first, { js: 'return 1' }))
-    expect(paneOf('chat-a')?.activeEditorTabId).toBe(first)
+
+    expect(api.evaluate).toHaveBeenCalledWith(first, 'return 1', expect.any(Number))
+    expect({
+      activePaneId: state().activePaneId,
+      activeViewId: state().activeViewId,
+      tabs: paneOf('chat-a')!.activeEditorTabId,
+    }).toEqual(before)
+    expect(api.unpark).not.toHaveBeenCalled()
   })
 
-  it('reports that it cannot be shown instead of hanging', async () => {
-    stopPane()
-    stopPane = simulatePane(false)
-    const out = (await runAgentOp(req('chat-a', 'open'))) as { tab: string }
-    await expect(
-      runAgentOp(req('chat-a', 'navigate', out.tab, { url: 'https://hidden.test/' }), QUICK),
-    ).rejects.toThrow(/cannot be shown/)
-    await expect(runAgentOp(req('chat-a', 'snapshot', out.tab), QUICK)).rejects.toThrow(
-      /cannot be shown/,
+  it('creates the webview parked, once, when the tab was never shown', async () => {
+    const { bufferActions } = state()
+    const restored = bufferActions.openContent(
+      { type: 'browser', url: 'https://restored.test/', workspaceId: 'ws-a' },
+      { paneId: paneOf('chat-a')!.id },
     )
-    expect(api.evaluate).not.toHaveBeenCalled()
+    api.evaluate.mockResolvedValue('2')
+
+    await runAgentOp(req('chat-a', 'eval', restored, { js: 'return 2' }))
+    await runAgentOp(req('chat-a', 'reload', restored))
+
+    expect(api.open).toHaveBeenCalledTimes(1)
+    expect(api.open).toHaveBeenCalledWith(
+      restored,
+      'https://restored.test/',
+      { x: 0, y: 0, width: 1280, height: 800 },
+      1,
+      true,
+    )
+    expect(api.open.mock.invocationCallOrder[0]).toBeLessThan(
+      api.evaluate.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('drives a tab of a chat whose view is not the one on screen', async () => {
+    const tab = await openFor('chat-a')
+    state().paneActions.activateView(paneOf('chat-b')!.viewId!)
+    api.evaluate.mockResolvedValue('3')
+
+    expect(await runAgentOp(req('chat-a', 'eval', tab, { js: 'return 3' }))).toBe(3)
   })
 })
 

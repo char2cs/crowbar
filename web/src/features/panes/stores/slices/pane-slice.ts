@@ -70,9 +70,6 @@ export interface PaneActions {
   setActivePane(paneId: string): void
   activateEditorTabInPane(paneId: string, tabId: string): void
   activateChatInPane(paneId: string): void
-  /** Show `tabId` in `paneId` without taking focus: select it and open the
-   *  editor half if it was toggled off. For tabs something else drives. */
-  revealEditorTab(paneId: string, tabId: string): void
   addEditorTabToPane(paneId: string, tab: EditorTabBase): void
   removeEditorTabFromPane(paneId: string, tabId: string): void
   moveEditorTabToPane(tabId: string, fromPaneId: string, toPaneId: string): void
