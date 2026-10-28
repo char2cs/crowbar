@@ -78,3 +78,13 @@ func TestCodeOf_AWrappedCategoryStillMatches(t *testing.T) {
 	assert.Equal(t, problem.ChatBusy, problem.CodeOf(fmt.Errorf("submit: %w", busy)))
 	assert.Equal(t, "agent: chat is busy: conflict", busy.Error())
 }
+
+// A specific code says more than its category, so it wins a same-rank tie
+// wherever the category sentinel sits in the chain.
+func TestCodeOf_ASpecificCodeBeatsASameRankCategory(t *testing.T) {
+	busy := &problem.Error{Code: problem.ChatBusy, Message: "agent: chat is busy", Err: problem.ErrConflict}
+
+	assert.Equal(t, problem.ChatBusy, problem.CodeOf(fmt.Errorf("%w: %w", problem.ErrConflict, busy)))
+	assert.Equal(t, problem.ChatBusy, problem.CodeOf(fmt.Errorf("%w: %w", fs.ErrExist, busy)))
+	assert.Equal(t, problem.NotFound, problem.CodeOf(fmt.Errorf("%w: %w", busy, problem.ErrNotFound)))
+}

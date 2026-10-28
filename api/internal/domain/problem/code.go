@@ -2,7 +2,10 @@
 // code per failure a client can tell apart, and the HTTP status each maps to.
 package problem
 
-import "net/http"
+import (
+	"net/http"
+	"slices"
+)
 
 // Code is a failure's machine-readable name. The set is closed: every Code is
 // one of the constants below, spelled as the client branches on it.
@@ -89,13 +92,19 @@ func (c Code) Status() int {
 	}
 }
 
+var categories = []Code{
+	InvalidArgument, Forbidden, NotFound, Conflict, TooLarge, Unprocessable,
+	FailedDependency, BadGateway, Unavailable, Timeout,
+}
+
+func (c Code) isCategory() bool {
+	return c == Locked || c == Internal || slices.Contains(categories, c)
+}
+
 // CategoryFor is the category code of a bare status, for a response written
 // with a status and no error.
 func CategoryFor(status int) Code {
-	for _, c := range []Code{
-		InvalidArgument, Forbidden, NotFound, Conflict, TooLarge, Unprocessable,
-		FailedDependency, BadGateway, Unavailable, Timeout,
-	} {
+	for _, c := range categories {
 		if c.Status() == status {
 			return c
 		}

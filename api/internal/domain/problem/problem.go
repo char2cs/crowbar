@@ -47,11 +47,12 @@ var (
 )
 
 // CodeOf is the code a response for err carries. Of every code in err's tree,
-// the one whose category ranks first wins; on a tie, the outermost. None is Internal.
+// the one whose category ranks first wins; on a tie a specific code beats a
+// category, then the outermost wins. None is Internal.
 func CodeOf(err error) Code {
 	best := Internal
 	walk(err, func(c Code) {
-		if c.rank() < best.rank() {
+		if c.rank() < best.rank() || c.rank() == best.rank() && best.isCategory() && !c.isCategory() {
 			best = c
 		}
 	})
