@@ -6,7 +6,7 @@
 
 **Architecture:** See the index, `docs/plans/2026-10-17-s2-chatstore-plan.md` (R1, R14, R18, R19, R23, R25, R28, gate baseline). T11 requires T1–T5 and runs right after T5 (P2, index Task order); T12 and T13 require T1–T10.
 
-**Tech Stack:** Go, gin, testify, `api/tests`; web toolchain; Tauri MCP (`mcp__tauri__*`) for the live check.
+**Tech Stack:** Go, gin, testify, `api/tests`; web toolchain; the isolated noVNC container and its browser tools for the live check (no Tauri MCP in this environment; S3 OR6, S4 OR4).
 
 **Spec:** S1 R13 ("S2 deletes them"); architecture §11 row S2 (gate); additions §5 (budgets).
 
@@ -19,10 +19,12 @@ Before any build: free disk on the worktree's filesystem (`df -h .`); under 8 GB
 **Goal:** The ledger is read only through the feed, the blob route, and the two server-side readers that need text (`get_chat_log`, the handoff), which fold rows directly with `ledger.Messages`. The LRU projector, `/messages`, `/activity`, `/activity/:toolId/payload`, the `/choices` GET, `/pending-prompt`, the activity components and the lifecycle `message_delta`, `plan`, `choice`, `compaction_started`, `compaction_stopped`, `prompt_settled` frames are deleted, with the chat DTO's `session`.
 
 **Files:**
-- Delete: `api/internal/app/usecases/chat/internal/transcript/` (whole package and tests) and its users: the projector embed and the `MessageDelta`/choice publication in `api/internal/app/usecases/chat/ledger_feed.go` (`u.transcript.Apply`, `transcript.PendingChoicesOf`), its wiring in `assembly.go`, and its use in `turn.go`; entity frames (`working`, `terminal_wait`, `telemetry`, `worktree_state`) stay
-- Modify: `api/internal/app/usecases/chat/internal/conversation/{chatlog.go,handoff.go}` and tests — today they read `c.transcript.ChatTurns`/`c.transcript.Messages`; read the ledger (`Store.Read(ctx, chatID, after, limit)`, paged) and fold with the domain's message fold (`ledger.MessageFold`)
-- Delete: `api/internal/api/v0/endpoints/chat/handlers/{activity.go,activity_test.go,activity_components.go,pendingprompt.go,pendingprompt_test.go}`; `Messages`, `ToolPayload` and `Choices` (GET) from `handlers/chats.go` and `handlers/answers.go` (keep `AnswerChoice`) and their tests
-- Modify: `api/internal/api/v0/endpoints/chat/routes.go`, `api/internal/api/v0/endpoints/home/routes.go` and their tests — drop the five GET routes (`/messages`, `/activity`, `/activity/:toolId/payload`, `/choices`, `/pending-prompt`) in both mounts
+- Move first (pre-flight F4): the transcript package is not only the old client's plumbing. Its open-ask fold (`choices.go` `PendingChoicesOf` over `ledger.State`) and `PendingChoices` feed kept owners: `AnswerChoice` (`usecases/chat/answers.go:200-214`), `PendingChoiceSets`/`ReadPendingChoices` (`turn.go`), termwait (`runner/internal/termwait/evaluate.go:45`, `termwait.go:25`; R20 keeps termwait) and the answer desk (`shared/answerdesk/decide.go:17`, `answerdesk.go:130`), all on `domain.ActivityChoice`. Move the fold to a kept owner, `State.OpenAsks()` in `api/internal/domain/ledger` (beside `ledger.MessageFold`), and keep `domain.ActivityChoice` as the answer desk's, termwait's and `AnswerChoice`'s shape (replacing it with `ledger.Ask` is not in S2). `broadcastChoices` (`app/container.go:268`) and `seam.Choices` (`shared/seam/seam.go:55`) only publish the `choice` frame, so they go with it
+- Delete: `api/internal/app/usecases/chat/internal/transcript/` (whole package and tests) and its users: the projector embed and the `MessageDelta`/choice publication in `api/internal/app/usecases/chat/ledger_feed.go` (`u.transcript.Apply`, `transcript.PendingChoicesOf`), its wiring in `assembly.go`, its use in `turn.go` (`ReadActivity`, `ToolPayload`; `ReadPendingChoices` reads `State.OpenAsks()`), `answers.go` (reads `State.OpenAsks()`), `broadcastChoices` in `app/container.go` and `Choices` in `shared/seam/seam.go`; entity frames (`working`, `terminal_wait`, `telemetry`, `worktree_state`) stay
+- Modify: `api/internal/app/usecases/chat/internal/conversation/chatlog.go` and its test — today it reads `c.transcript.ChatTurns`/`c.transcript.Messages` (`:27`, `:96`); read the ledger (`Store.Read(ctx, chatID, after, limit)`, paged) and fold with the domain's message fold (`ledger.MessageFold`). `handoff.go` does not read the transcript and is unchanged
+- Modify: `api/internal/app/usecases/chat/internal/conversation/conversation.go` — drop the `Transcript` interface, its dependency field and `c.transcript.Forget` (`:58-75`, `:105`, `:126`, `:232`)
+- Delete: `api/internal/api/v0/endpoints/chat/handlers/{activity.go,activity_test.go,activity_components.go,pendingprompt.go,pendingprompt_test.go}`; `Messages`, `ToolPayload` and `Choices` (GET) from `handlers/chats.go` (594 lines; S3 T5 splits it into `chats_create.go`/`chats_read.go`/`chats_mutate.go`: if that has landed, `Messages`/`ToolPayload` go from the read part) and `handlers/answers.go` (keep `AnswerChoice`) and their tests
+- Modify: `api/internal/api/v0/endpoints/chat/routes.go`, `api/internal/api/v0/endpoints/home/routes.go` and their tests — drop the five GET routes (`/messages`, `/activity`, `/activity/:toolId/payload`, `/choices`, `/pending-prompt`) in both mounts; `api/internal/api/v0/route_audit_test.go` (integration tag; the read surface at `:427`, the home table at `:541`) drops them too
 - Modify: `api/internal/api/v0/dto/agent.go`, `agent_activity.go`, `agent_choice_frame.go`, `agent_event.go` (and their tests) — delete the activity, tool-call, subagent, interruption, choice-read, component, pending-prompt and ledger-page DTOs, the `AgentChatKind{MessageDelta,Plan,Choice,CompactionStarted,CompactionStopped,PromptSettled}` kinds and the frame fields only those frames carried, and the chat DTO's `session`
 - Modify: the publication code that emits the six lifecycle event frames (find with `grep -rn 'AgentChatKind\(MessageDelta\|Plan\|Choice\|Compaction\|PromptSettled\)' api/internal`) — delete those emissions; entity frames stay
 - Delete: the `domain` read shapes only the projector returned (S1 T7 kept `domain.Activity*` "until S2"; `scripts/deadcode-check.sh` lists the rest)
@@ -33,9 +35,10 @@ Before any build: free disk on the worktree's filesystem (`df -h .`); under 8 GB
 - [ ] **Step 1: Failing tests**
 
 ```go
-// conversation/chatlog_test.go, handoff_test.go
+// conversation/chatlog_test.go
 func TestChatLog_ReadsTextFromLedgerRows(t *testing.T)
-func TestHandoff_ReadsTextFromLedgerRows(t *testing.T)
+// domain/ledger (the test file of the source OpenAsks lands in)
+func TestState_OpenAsksListsAsksWithNoResolution(t *testing.T)   // the cases transcript's PendingChoicesOf tests cover move here
 // endpoints/chat/routes_test.go, endpoints/home routes test
 func TestRoutes_ServeNoTranscriptReads(t *testing.T) // the six paths are absent from both route tables
 ```
@@ -46,7 +49,8 @@ func TestRoutes_ServeNoTranscriptReads(t *testing.T) // the six paths are absent
 
 ```bash
 T=$(mktemp -d); cd api
-HOME=$T/home CROWBAR_HOME= go test -tags noEmbed ./internal/app/usecases/chat/... ./internal/api/... ./internal/domain/...
+HOME=$T/home CROWBAR_HOME= go test -tags noEmbed ./internal/app/usecases/chat/... ./internal/api/... ./internal/domain/... ./internal/app/
+HOME=$T/home CROWBAR_HOME= go test -tags 'integration noEmbed' -run 'TestRouteAudit' ./internal/api/v0/
 HOME=$T/home CROWBAR_HOME= go test -tags 'integration noEmbed' -count=1 -timeout 40m -run 'TestChatFeed_|TestRegression_|TestFakeProvider_|Chat|Agent' ./tests/
 go vet -tags 'integration noEmbed' ./tests/integration/... ./tests/kit/...   # vet only, never run
 golangci-lint run --build-tags noEmbed ./... && scripts/deadcode-check.sh && go vet -tags noEmbed ./...
@@ -64,7 +68,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```
 
-**Acceptance:** `grep -rn 'internal/transcript\|/activity\|pending-prompt' api/internal` finds nothing; `get_chat_log` and the handoff return the same texts as before for the recorded subagent session.
+**Acceptance:** `grep -rn 'internal/transcript\|/activity\|pending-prompt' api/internal` finds nothing; `get_chat_log` and the handoff return the same texts as before for the recorded subagent session; answering an ask, termwait and the answer desk behave as before (their tests unchanged and green).
 
 ---
 
@@ -147,17 +151,17 @@ golangci-lint run --build-tags noEmbed ./... && scripts/deadcode-check.sh && go 
 rm -rf $T
 ```
 
-- [ ] **Step 6: Live check in Tauri** (`make dev-desktop`; one dev instance; keep the window visible, an occluded webview throttles rAF).
+- [ ] **Step 6: Live check in the noVNC container** (isolated `CROWBAR_HOME` under the worktree's git-ignored `/.crowbar/`, R25 fake; one dev instance, started with the direct commands the handoff names, never make targets; keep the window visible, an occluded webview throttles rAF). The WebKitGTK height-animation check (index O3) is re-run by the USER on the desktop at the end of the branch.
   1. Resolve `CROWBAR_HOME` as the Makefile does (`<worktree>/.crowbar`) and refuse to continue unless the socket path starts with the worktree path; never touch `~/.crowbar/crowbar.sock` or `~/.crowbar/state`.
   2. Build the fake CLI into the scratchpad: `cd api && go build -tags integration -o "$SCRATCH/fakecli" ./tests/kit/fakecli`.
   3. Write `<worktree>/.crowbar/descriptors/fake.yaml` with `yq` from the shipped `claude.yaml`, applying exactly `kit.InstallFakeProvider`'s edits (S1 T1): `spawn.cmd` and `runtime.spawn.cmd` = the fake CLI; the dropped keys; `hooks_injection` = the four `set_env` steps with `FAKECLI_DIR` = `$SCRATCH/fake`. Restart the dev daemon if the provider list does not show `fake`.
-  4. Create a chat on `fake` in a scratch project. Send a prompt: dispatch `new InputEvent('beforeinput', { inputType: 'insertText', data: 'hello', bubbles: true, cancelable: true })` on `[data-slate-editor]` through `mcp__tauri__webview_execute_js`, then the named key Enter. If the editor does not take synthetic input, stop and ask the USER to type the prompts of steps 4–8.
+  4. Create a chat on `fake` in a scratch project. Send a prompt: dispatch `new InputEvent('beforeinput', { inputType: 'insertText', data: 'hello', bubbles: true, cancelable: true })` on `[data-slate-editor]` through the container browser's script tool, then the named key Enter. If the editor does not take synthetic input, stop and ask the USER to type the prompts of steps 4–8.
   5. Read the runner id and token from `$SCRATCH/fake/<runner>.json`, then post hooks with `curl --unix-socket <worktree>/.crowbar/crowbar.sock -H 'X-Crowbar-Runner-Token: …' http://crowbar/v0/…/chats/runners/<runner>/hooks/fake/<event>`: replay `api/tests/testdata/hooks/claude-subagent-session` with its session id rewritten to the chat's bound one, then hand-written payloads for a failed tool, an MCP call (`mcp__echo__shout`), an edit with a 3-line diff, a permission request (answer it with a click), task create/complete, pre/post compact, a notification, a stop failure, and a `SessionStart` with a new session id.
-  6. **Every row kind renders:** for each kind in the index vocabulary that a hook can produce, a row with `data-row-id` exists and has non-empty text (`webview_find_element` / `webview_dom_snapshot`). Reasoning and commentary are Codex-only and the fake speaks the Claude hook surface: record them as covered by T9's tests, and list the gap in the report.
-  7. **No remount flash:** before a streamed reply settles, install a `MutationObserver` on the scroller (`webview_execute_js`) and keep a reference to the reply's `[data-row-id]` element; after its complete row and `turn_ended`, the same element is connected and the observer recorded no removal of it.
+  6. **Every row kind renders:** for each kind in the index vocabulary that a hook can produce, a row with `data-row-id` exists and has non-empty text (the container browser's DOM snapshot). Reasoning and commentary are Codex-only and the fake speaks the Claude hook surface: record them as covered by T9's tests, and list the gap in the report.
+  7. **No remount flash:** before a streamed reply settles, install a `MutationObserver` on the scroller (script tool) and keep a reference to the reply's `[data-row-id]` element; after its complete row and `turn_ended`, the same element is connected and the observer recorded no removal of it.
   8. **Send / Esc-retract / Stop / resume:** Esc in the empty composer right after a send returns the text (step 4's prompt, before posting `user_prompt`); Stop during a replay shows "Stopping…" then "Interrupted · you stopped this turn"; kill the fake CLI's pid, send again → a new runner and the chat continues; restart the dev daemon → the feed resumes (new epoch, rows continue, no duplicate rows); create `$SCRATCH/fake/refuse-<session>` and resume → the lost-session row with "Start a new conversation".
   9. **Animations:** while a reply streams, `.chat-fresh-text` spans exist; a new row carries `data-arriving` in its first frames; sampling `scrollTop` on rAF for 500 ms while following shows intermediate values (an eased follow, not a jump); the working-line verb rotates. **Diagram fences (R26):** post assistant-text deltas that open a `mermaid` fence, stream its body over several frames, then close it: the block shows `data-state="skeleton"` while open, `diagram` once closed, on the same element, and sampling its height on rAF across the swap shows intermediate values; repeat with a reply that ends inside the fence: it settles as `code` with no skeleton left; repeat once with `excalidraw`.
-  10. **Long chat:** stop the dev daemon, `make seed-chat WORKSPACE_ID=<id> TURNS=200 TOOL_CALLS=5`, start it, open the chat: rows are visible on the first screenshot (no blank, symptom 6), scrolling to the top and back stays smooth (`mcp__tauri__webview_screenshot` before/after).
+  10. **Long chat:** stop the dev daemon, `cd api && CROWBAR_HOME=<that home> go run ./cmd/crowbar-seed-chat -workspace-id <id> -turns 200 -tool-calls 5`, start it, open the chat: rows are visible on the first screenshot (no blank, symptom 6), scrolling to the top and back stays smooth (screenshots before/after).
   11. Screenshots of steps 6–10 go to the scratchpad; the report lists each step's outcome.
 - [ ] **Step 7: Commit** the lowered baselines only.
 

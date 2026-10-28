@@ -28,7 +28,9 @@ Shared rules for T8–T10: rows render on `@/components/ui/*` with CSS-variable 
 - Modify: `web/src/features/agent/stores/lib/fold-rows.ts` — `family` on tool items; a `tool_call` of family `subagent` makes no tool item (T9's card takes its place)
 - Modify: `web/src/features/agent/transcript/agent-transcript.tsx` — renders `displayRows` (memoized on `order`, whose identity changes only when an item is added; `family` never changes, so grouping depends on nothing else)
 - Modify: `web/src/features/agent/lib/agent-activity.ts` — delete the tool helpers moved above
-- Modify: `web/src/features/agent/styles/transcript.css` — the verb shimmer keyframe and the family row spacing, on tokens
+- Modify: `web/src/features/agent/styles/transcript.css` (878 lines; CSS is exempt from the 500-line cap, index R19) — the verb shimmer keyframe and the family row spacing, on tokens
+- Create: the rows fixture of the recorded subagent session, generated, never hand-written or edited (handoff hard rule; pre-flight F15 ruling). A black-box test `TestFeedRows_RecordedSubagentSessionFixture` in `api/tests/chat_feed_test.go` replays `api/tests/testdata/hooks/claude-subagent-session` through the real HTTP hook ingress and translation (`turnChat.replayRange`, `regression_chat_transcript_test.go`), reads the result with `kit.FeedRows` (T11), replaces the run-specific values in code (chat id, runner and segment ids, timestamps → fixed placeholders) and compares it with `web/src/__tests__/__fixtures__/claude-subagent-session.rows.json`; with `-update-rows-fixture` (a test flag in that file) it writes the file instead. The fixture is created and refreshed only by `HOME=$T/home CROWBAR_HOME= go test -tags 'integration noEmbed' -count=1 -run TestFeedRows_RecordedSubagentSessionFixture ./tests/ -args -update-rows-fixture`, and the test fails on drift without the flag. Web tests load it and push each row through `chatStore.getState().applyFeedFrame`
+- Test: `web/src/__tests__/features/agent/transcript/recorded-session.test.tsx` — the recorded session's rows rendered through the transcript
 - Test: `web/src/__tests__/features/agent/transcript/lib/tool-family.test.ts`, `lib/tool-label.test.ts`, `lib/tool-runs.test.ts`, `rows/tool-row.test.tsx`, `rows/tool-run-row.test.tsx`
 
 - [ ] **Step 1: Failing tests**
@@ -51,6 +53,8 @@ it('reads Result unavailable for a tool its turn abandoned')
 it('loads the payload from the blob route only when expanded')
 // rows/tool-run-row.test.tsx
 it('names the newest call while live and summarizes the run once settled')
+// transcript/recorded-session.test.tsx (the generated fixture)
+it('symptom 8: every tool row of the recorded subagent session has a non-empty label')
 ```
 
 - [ ] **Step 2: Run; they FAIL.** `cd web && bunx vitest run src/__tests__/features/agent/transcript`
@@ -73,7 +77,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```
 
-**Acceptance:** every tool row in the S1 recorded Claude subagent session (`api/tests/testdata/hooks/claude-subagent-session`, rendered in a test from its rows) has a non-empty label; no label text is stored in the store.
+**Acceptance:** every tool row in the S1 recorded Claude subagent session (`api/tests/testdata/hooks/claude-subagent-session`, rendered in `recorded-session.test.tsx` from the generated rows fixture) has a non-empty label; no label text is stored in the store.
 
 ---
 
@@ -103,7 +107,7 @@ it('attaches child rows that precede their card bind')                  // Revie
 it('marks running cards interrupted when the turn is stopped')
 it('marks a card abandoned when its parent turn ends before it binds')
 // rows/subagent-card.test.tsx
-it('symptom 8: a subagent card shows its child tool rows and its result')   // replayed from the S1 recorded subagent session's rows
+it('symptom 8: a subagent card shows its child tool rows and its result')   // the generated rows fixture of the recorded subagent session (T8), pushed through applyFeedFrame
 it('derives the current action from the newest running child')
 it('shows Parent waiting while the parent addresses the subagent')
 // activity/working-line.test.tsx
@@ -140,7 +144,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```
 
-**Acceptance:** a Claude subagent's own tool calls are visible inside its card; the working line never guesses; `features/agent` has exactly one clock interval.
+**Acceptance:** a Claude subagent's own tool calls are visible inside its card; the working line never guesses; `features/agent` has one elapsed-time interval (`text-clock.ts`; the working-line verb rotation stays, R14).
 
 ---
 
@@ -154,8 +158,8 @@ Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 - Delete: `web/src/features/agent/lib/agent-activity.ts` and its test (everything left has moved)
 - Modify: `web/src/features/agent/stores/lib/fold-rows.ts` — an ask with a `toolId` sets `ToolItem.askId` while pending and `askNote` once resolved, and makes no top-level item; an ask with no tool is an `a:<askId>` item that renders as a one-line marker once resolved; a `turn_ended{interrupted}` turns its running tools `interrupted` (a `done` turn still reads `abandoned`); `stopping` is set by the Stop action and cleared by that turn's `turn_ended`
 - Modify: `web/src/features/agent/transcript/rows/tool-row.tsx` — `data-status="awaiting_approval"` and scroll-into-view while its ask is pending; the resolved note ("Allowed once", "Denied")
-- Modify: `web/src/features/agent/transcript/rows/marker-row.tsx` — `turn_failed`: headline, collapsible detail, Retry (re-sends the turn's prompt text through the outbox under a fresh request id, R27) and Open terminal; `turn_interrupted`: "Interrupted · you stopped this turn" (reasons `stopped`, `retracted`); `session_lost`: the reason and "Start a new conversation" (calls `resumeChat`, R13); `runner_exited` with a non-normal reason: the reason and Open terminal
-- Modify: `web/src/features/agent/lib/spawn-error.ts` — `describeSpawnError` maps code `session_lost` (R27) to "The session was lost" / "Start a new conversation to continue."; the fallback description never shows a daemon message's trailing sentinel text (`apperr: …`); the resume and switch toasts and "Start a new conversation" go through it (carry C27; the generic envelope is S3's, index O4)
+- Modify: `web/src/features/agent/transcript/rows/marker-row.tsx` — `turn_failed`: headline, collapsible detail, Retry (re-sends the turn's prompt text through the outbox under a fresh request id, R27) and Open terminal; `turn_interrupted`: "Interrupted · you stopped this turn" (reasons `stopped`, `retracted`); `session_lost`: the reason and "Start a new conversation" (calls `resumeChat`, R13); `runner_exited` with a non-normal reason: the reason and Open terminal (`retracted`, T2's `AgentExitRetracted`, is a normal reason: no marker)
+- Modify: `web/src/features/agent/lib/spawn-error.ts` — `describeSpawnError` maps code `session_lost` (R27) to "The session was lost" / "Start a new conversation to continue."; for `session_lost` it never shows `problem.message` (after S3 T1 a daemon message ends in its category text, e.g. `: conflict`); the resume and switch toasts and "Start a new conversation" go through it (carry C27; the generic envelope is S3's, index O4)
 - Note: an ask resolved `refused` (nobody answered in time; S1 `afa856c5`) reads "No answer in time" in the bound tool row's note
 - Modify: `web/src/features/agent/chat/agent-chat-view.tsx` — the Stop action sets `stopping` before the request; the working line shows "Stopping…" while it is set
 - Test: extend `web/src/__tests__/features/agent/composer/composer-choice.test.tsx` (795 lines today: under 500 per R19), `lib/spawn-error.test.ts`, `transcript/rows/tool-row.test.tsx`; create `transcript/rows/marker-row.test.tsx`, `composer/lib/ask-labels.test.ts`; delete `lib/agent-activity.test.ts`
@@ -176,6 +180,7 @@ it('offers Retry and Open terminal on a failed turn')
 it('reads Interrupted · you stopped this turn after Stop')
 it('shows Stopping… in the same render as the Stop click')
 it('offers Start a new conversation on a lost session')
+it('shows no marker for a runner that exited retracted')
 // lib/spawn-error.test.ts (extend)
 it('C27: says the session was lost for a session_lost refusal, with no raw daemon text')
 // composer/composer-choice.test.tsx

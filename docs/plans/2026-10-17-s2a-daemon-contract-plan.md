@@ -24,10 +24,12 @@ Already done by S1 and **not** part of this task (verify, then skip): `FeedDelta
 - Create: `api/internal/api/v0/endpoints/chat/handlers/blobs.go` and `blobs_test.go`
 - Modify: `api/internal/app/usecases/chat/feed.go` (beside `OpenFeed`) — `ReadBlob`, over `adapter/store/ledger.Blobs.Get(ref)` after `u.chats.GetChat` (wire the `*Blobs` through `assembly.go` if the usecase does not hold it yet; a required constructor argument, never a nil-checked setter)
 - Modify: `api/internal/api/v0/router.go` — `chats.GET("/:chatId/blobs/:ref", …)` beside the feed route (the flat `chats` group, not `chatScoped`)
-- Modify: `api/internal/app/usecases/chat/internal/runner/errors.go` — `ErrPromptSessionLost = fmt.Errorf("agent: the provider no longer has this chat's session: %w", apperr.ErrConflict)`
-- Modify: `api/internal/app/usecases/chat/internal/runner/prompts.go` — where a send ends with its prompt settled `reason: session_lost` (or the carrying spawn returned `ErrSpawnSessionRefused`), return `ErrPromptSessionLost` instead of `uncertainPromptOutcome(…)`; a send whose outcome truly is unknown keeps `ErrPromptOutcomeUnknown`
-- Modify: `api/internal/app/usecases/chat/runner.go` — re-export `ErrPromptSessionLost`; `PromptCodeSessionLost = "session_lost"`; `PromptErrorCode` maps both `ErrPromptSessionLost` and `ErrSpawnSessionRefused` to it (checked before the generic conflict cases)
-- Modify: `api/internal/api/v0/endpoints/chat/handlers/switch.go` — `Resume` answers through `writeCodedErr(ctx, err, agentusecase.PromptErrorCode(err))`, as `Switch` does
+- Modify: `api/internal/adapter/store/ledger/blobs.go` — export `ValidRef(ref string) bool` (the check `pathFor` does today: `sha256:` prefix, 64 hex); `pathFor` calls it, so there is one check
+- Modify: `api/internal/domain/problem/code.go` and `code_test.go` — `SessionLost Code = "session_lost"` among the specific codes; `Status()` → 409 beside `ChatBusy`
+- Modify: `web/src/lib/errors/problem.ts` — `'session_lost'` in `ProblemCode` (same spelling as the daemon's enum)
+- Modify: `api/internal/app/usecases/chat/internal/runner/errors.go` — `ErrPromptSessionLost = &problem.Error{Code: problem.SessionLost, Message: "agent: the provider no longer has this chat's session", Err: problem.ErrConflict}`; `ErrSpawnSessionRefused` becomes a `*problem.Error` with the same code (today a `fmt.Errorf` over `problem.ErrConflict`), so `Resume` and `Switch` carry `session_lost` through `libs.Fail` with no handler change (`handlers/switch.go` is not modified)
+- Modify: `api/internal/app/usecases/chat/internal/runner/prompts.go` — `spawnFailure` returns `ErrPromptSessionLost` when `errors.Is(err, ErrSpawnSessionRefused)`, instead of `uncertainPromptOutcome(…)`; a send whose outcome truly is unknown keeps `ErrPromptOutcomeUnknown`
+- Modify: `api/internal/app/usecases/chat/runner.go` — re-export `ErrPromptSessionLost` beside `ErrPromptOutcomeUnknown`
 - Test (black box): extend `api/tests/chat_feed_test.go` (blob read) and `api/tests/regression_chat_session_test.go` (session lost; 314 lines, stays ≤500)
 
 **Interfaces:**
@@ -36,12 +38,13 @@ Already done by S1 and **not** part of this task (verify, then skip): `FeedDelta
 package chat
 
 // ReadBlob returns a content-addressed payload a row of chatID refers to.
-// apperr.ErrNotFound for an unknown chat or a swept/unknown ref;
-// apperr invalid-argument for a ref that is not 64 lowercase hex characters.
+// problem.ErrNotFound for an unknown chat or a swept/unknown ref;
+// problem.ErrInvalidArgument for a ref that fails ledgerstore.ValidRef
+// ("sha256:" + 64 lowercase hex, exactly as rows carry it).
 func (u *Usecase) ReadBlob(ctx context.Context, chatID, ref string) ([]byte, error)
 ```
 
-Handler `GET /v0/chats/:chatId/blobs/:ref`: 200 with the bytes (`Content-Type: text/plain; charset=utf-8`), 400 for a malformed ref, 404 otherwise.
+Handler `GET /v0/chats/:chatId/blobs/:ref`: 200 with the bytes (`Content-Type: text/plain; charset=utf-8`), 400 for a malformed ref, 404 otherwise, answered through `libs.Fail`. The ref travels URL-encoded (`sha256%3A…`); gin decodes the path param.
 
 - [ ] **Step 1: Failing tests**
 
@@ -52,8 +55,13 @@ func TestBlobs_MalformedRefIs400(t *testing.T)
 func TestBlobs_UnknownRefIs404(t *testing.T)
 func TestBlobs_UnknownChatIs404(t *testing.T)
 
-// chat runner.go's test file (runner_test.go)
-func TestPromptErrorCode_ALostSessionIsSessionLost(t *testing.T)   // ErrPromptSessionLost and ErrSpawnSessionRefused → "session_lost"
+// runner/prompts_internal_test.go
+func TestSpawnFailure_ALostSessionIsSessionLost(t *testing.T)   // ErrSpawnSessionRefused → ErrPromptSessionLost, problem.CodeOf == session_lost, 409
+// domain/problem/code_test.go (extend)
+// session_lost answers 409
+
+// adapter/store/ledger/blobs_test.go (extend)
+func TestValidRef_AcceptsOnlyTheRefsRowsCarry(t *testing.T)   // sha256:<64 hex> yes; bare hex, upper case, short, other prefix no
 
 // api/tests/chat_feed_test.go
 func TestChatFeed_ToolPayloadIsReadableByItsRef(t *testing.T)
@@ -66,13 +74,14 @@ func TestRegression_C27_AResumeRefusedForALostSessionIsTypedSessionLost(t *testi
 // POST /resume on that chat → 409 {code: "session_lost"}
 ```
 
-- [ ] **Step 2: Run; they FAIL** (`ReadBlob`, the route and `session_lost` missing; the send answers `request_outcome_uncertain`).
-- [ ] **Step 3: Implement** `ReadBlob`, the handler and route; the error, its code and the resume mapping.
+- [ ] **Step 2: Run; they FAIL** (`ReadBlob`, the route, `ValidRef` and `session_lost` missing; the send answers `request_outcome_uncertain`).
+- [ ] **Step 3: Implement** `ValidRef`, `ReadBlob`, the handler and route; the code, the two sentinels and `spawnFailure`.
 - [ ] **Step 4: Run to green**
 
 ```bash
 T=$(mktemp -d); cd api
-HOME=$T/home CROWBAR_HOME= go test -tags noEmbed ./internal/app/usecases/chat/... ./internal/domain/ledger/... ./internal/api/...
+HOME=$T/home CROWBAR_HOME= go test -tags noEmbed ./internal/app/usecases/chat/... ./internal/domain/ledger/... ./internal/domain/problem/... ./internal/adapter/store/ledger/... ./internal/api/...
+HOME=$T/home CROWBAR_HOME= go test -tags 'integration noEmbed' -run 'TestRouteAudit' ./internal/api/v0/   # integration-tagged, not compiled by the line above; the flat blob route must break none of its audits
 HOME=$T/home CROWBAR_HOME= go test -tags 'integration noEmbed' -count=1 -run 'TestChatFeed_|TestRegression_C27_|TestRegression_Symptom2_' ./tests/
 golangci-lint run --build-tags noEmbed ./... && scripts/deadcode-check.sh && go vet -tags noEmbed ./...
 cd .. && node scripts/ratchet/file-size.mjs && node scripts/ratchet/counters.mjs; rm -rf $T
@@ -84,7 +93,9 @@ cd .. && node scripts/ratchet/file-size.mjs && node scripts/ratchet/counters.mjs
 git add api/internal/api/v0/endpoints/chat/handlers/blobs.go api/internal/api/v0/endpoints/chat/handlers/blobs_test.go \
   api/internal/api/v0/router.go api/internal/app/usecases/chat/feed.go api/internal/app/usecases/chat/runner.go \
   api/internal/app/usecases/chat/internal/runner/errors.go api/internal/app/usecases/chat/internal/runner/prompts.go \
-  api/internal/api/v0/endpoints/chat/handlers/switch.go api/tests/chat_feed_test.go api/tests/regression_chat_session_test.go  # + any test file touched
+  api/internal/app/usecases/chat/internal/runner/prompts_internal_test.go api/internal/domain/problem/code.go \
+  api/internal/domain/problem/code_test.go api/internal/adapter/store/ledger/blobs.go api/internal/adapter/store/ledger/blobs_test.go \
+  web/src/lib/errors/problem.ts api/tests/chat_feed_test.go api/tests/regression_chat_session_test.go  # + any test file touched
 git commit -m "feat(api): blobs by ref; a send refused for a lost session says session_lost
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -105,7 +116,7 @@ Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 - Modify: `api/internal/domain/ledger/prompt.go` and `turn.go` — the reason constant `ReasonRetracted = "retracted"` beside the existing prompt-settle reasons (`ReasonSessionLost`, …) and turn-end reasons (`ReasonStopped`, …); one constant, declared once, used by both rows. There is no `TurnRetracted` to delete (P3)
 - Modify: `api/internal/domain/agent_session.go` — `AgentExitRetracted` beside the other `AgentExit*` values
 - Create: `api/internal/api/v0/endpoints/chat/handlers/retract.go` and `retract_test.go`
-- Modify: `api/internal/api/v0/endpoints/chat/routes.go` and `routes_test.go` (`repoScoped.POST("/chats/:id/stop", …)` is the anchor), `api/internal/api/v0/endpoints/home/routes.go` and `routes_test.go` (`home.POST("/chats/:id/stop", h.RequireHomeWorkspace, ah.Stop)`) — `POST /chats/:id/prompts/:requestId/retract` beside `/stop`
+- Modify: `api/internal/api/v0/endpoints/chat/routes.go` and `routes_test.go` (`repoScoped.POST("/chats/:id/stop", …)` is the anchor), `api/internal/api/v0/endpoints/home/routes.go` and `routes_test.go` (`home.POST("/chats/:id/stop", h.RequireHomeWorkspace, ah.Stop)`; `TestHomeMountsEveryAgentRoute`) — `POST /chats/:id/prompts/:requestId/retract` beside `/stop`; `api/internal/api/v0/route_audit_test.go` (integration tag) lists it in both mounts
 - Modify: `api/internal/api/v0/dto/agent.go` — `AgentRetractDTO{State string \`json:"state"\`; Text string \`json:"text"\`}`
 - Test (black box): create `api/tests/regression_agent_retract_test.go`
 
@@ -125,13 +136,13 @@ type RetractResult struct {
 // runner it started is terminated gracefully and exits with AgentExitRetracted.
 // Delivered with its turn running: appends turn_ended{interrupted, reason:
 // retracted}, then signals the provider exactly as Stop does. Settled, or its
-// turn closed: apperr conflict. Unknown requestID: apperr not found.
+// turn closed: problem.ErrConflict. Unknown requestID: problem.ErrNotFound.
 func (rs *Runners) Retract(ctx context.Context, chatID, requestID string) (RetractResult, error)
 ```
 
 `Retract` sits beside `(*Runners).StopChat` (`runner/stop.go`); the facade `(*Usecase).Retract` sits beside `(*Usecase).StopChat` in `usecases/chat/runner.go`.
 
-Order inside `Retract`: decide from the chat's `ledger.State` under its writer, append the row, then act on the runner (terminate or signal) without waiting for confirmation (S1 R10). A later `UserPromptSubmit` for the retracted text is mapped as S1 maps any unmatched provider prompt: a provider-origin `user_message` and its `turn_started`. The handler maps conflict → 409 and not-found → 404, and answers `AgentRetractDTO`.
+Order inside `Retract`: decide from the chat's `ledger.State` under its writer, append the row, then act on the runner (terminate or signal) without waiting for confirmation (S1 R10). A later `UserPromptSubmit` for the retracted text is mapped as S1 maps any unmatched provider prompt: a provider-origin `user_message` and its `turn_started`. The handler answers errors through `libs.Fail` (conflict → 409, not found → 404) and success with `AgentRetractDTO`.
 
 - [ ] **Step 1: Failing tests**
 
@@ -169,7 +180,8 @@ func TestRegression_Symptom5_ALateAckAfterRetractIsRecordedAsAProviderTurn(t *te
 
 ```bash
 T=$(mktemp -d); cd api
-HOME=$T/home CROWBAR_HOME= go test -tags noEmbed ./internal/app/usecases/chat/... ./internal/domain/... ./internal/api/...
+HOME=$T/home CROWBAR_HOME= go test -tags noEmbed ./internal/app/usecases/chat/... ./internal/domain/... ./internal/api/...   # includes TestHomeMountsEveryAgentRoute (home routes_test.go)
+HOME=$T/home CROWBAR_HOME= go test -tags 'integration noEmbed' -run 'TestRouteAudit' ./internal/api/v0/   # the retract route joins both mounts' lists
 HOME=$T/home CROWBAR_HOME= go test -tags 'integration noEmbed' -count=1 -run 'TestRegression_Symptom5_|TestRegression_Symptom4_|Stop' ./tests/
 golangci-lint run --build-tags noEmbed ./... && scripts/deadcode-check.sh && go vet -tags noEmbed ./...
 cd .. && node scripts/ratchet/file-size.mjs && node scripts/ratchet/counters.mjs; rm -rf $T

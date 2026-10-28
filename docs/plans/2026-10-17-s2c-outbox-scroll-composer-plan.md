@@ -18,13 +18,14 @@
 
 **Files:**
 - Create: `web/src/features/agent/stores/lib/outbox.ts` — pure transitions over `OutboxItem[]` and `TurnFacts`: `enqueue`, `nextToSend`, `onSent`, `onSendFailed`, `onRowsApplied` (drops items whose `user_message` landed), `newestRetractable`
-- Create: `web/src/features/agent/stores/chat-outbox.ts` — the effects: `sendPrompt(chatId, text)`, `retractNewest(chatId): Promise<string | null>` (the text to restore, or null when it stopped instead), `retryPrompt`, `editPrompt`, `discardPrompt`, `discardUnsent(chatId)`; drains on enqueue, after every applied row frame and on `ready` (facts, never a clock); holds a feed attachment while the chat's outbox is non-empty (R17). Kept from `use-prompt-queue.ts` (P11): a steerable prompt goes out at once (`delivery: steer`) while a turn runs; the compaction hold; the image-upload hold (a prompt waits for its attachments' upload); the staged model/effort selection sent with the prompt. `retryPrompt` on a row whose prompt fact is `settled`, `refused` or `retracted`, or on an outbox item that failed with `session_lost`/`request_outcome_uncertain`, enqueues the text under a fresh request id (a new `p:<id>` item; the old row stays as history): the daemon refuses a settled id forever (S1 I4/C7)
+- Create: `web/src/features/agent/stores/chat-outbox.ts` — the effects: `sendPrompt(chatId, text)`, `retractNewest(chatId): Promise<string | null>` (the text to restore, or null when it stopped instead), `retryPrompt`, `editPrompt`, `discardPrompt`, `discardUnsent(chatId)`; drains on enqueue, after every applied row frame and on `ready` (facts, never a clock); holds a feed attachment while the chat's outbox is non-empty (R17). Kept from `use-prompt-queue.ts` (P11): a steerable prompt goes out at once (`delivery: steer`) while a turn runs; the compaction hold; the image-upload hold (a prompt waits for its attachments' upload); the staged model/effort selection sent with the prompt. `retryPrompt` on a row whose prompt fact is `settled`, `refused` or `retracted`, or on an outbox item that failed with `request_id_conflict`, `request_outcome_uncertain` or `session_lost` (read from `ApiError.problem.code`), enqueues the text under a fresh request id (a new `p:<id>` item; the old row stays as history): the daemon refuses a settled id forever (S1 I4/C7). An item that failed on a network error or a 5xx retries under the same request id (the daemon dedupes by request id). A send that fails before its `user_message` row toasts through `report()` (`lib/errors/report.ts`, S3 A2); `report` is not exported at `b79be6f2`, so the first task that imports it outside its module (S3 T3–T7 or this one) adds the `export` in the same commit (knip stays clean)
+- Modify: `web/src/lib/errors/report.ts` — `export` `report` if no earlier task has (see `chat-outbox.ts` above)
 - Modify: `web/src/features/agent/stores/chat-store.ts` — `outbox: Record<string, OutboxItem[]>`; `applyFeedFrame` calls the drain after rows change facts
 - Modify: `web/src/features/agent/transcript/rows/user-row.tsx` — draws an outbox item and a row item alike: `queued` and `sending`/`pending` show the sending mark, `failed` offers Retry and Edit, a queued item keeps today's queued-row actions; one component for every state so the key never changes component
 - Modify: `web/src/features/agent/transcript/agent-transcript.tsx` — the list is `order`, then `liveTail`, then the outbox ids not yet in `order`
 - Modify: `web/src/features/agent/chat/agent-chat-view.tsx`, `chat/use-chat-send.ts` (from T3) — Enter calls `sendPrompt`; the Escape branch (today `event.key === 'Escape' && working && live`) calls `retractNewest` and loads the returned text into the composer; `cancelUnsentPrompts` calls `discardUnsent`; the composer is an input whenever the chat exists, also while the runner spawns
 - Modify: `web/src/features/agent/components/agent-chat-pane.tsx` — queue counts from the outbox; the terminal-wait banner only from the entity's `terminalWait` (R20)
-- Delete (source and tests): `web/src/features/agent/hooks/use-prompt-queue.ts` (with its dead `request_already_accepted` branch and that branch's `agent-chat-view.test.tsx` case, carry C7, and the "may already have this message" wording), `lib/prompt-queue-persistence.ts`, `transcript/queued-row.tsx` (and its "text the provider may already have" comment); `getPendingPrompt` and any `queue` reads in `api/agent-api.ts`
+- Delete (source and tests): `web/src/features/agent/hooks/use-prompt-queue.ts` (with T3's interim feed wiring of `turnRevision`/`refreshMessages`/`onRefreshChat`, and the "may already have this message" wording; its `request_already_accepted` branch is already gone, `d22edc2f`), `lib/prompt-queue-persistence.ts`, `transcript/queued-row.tsx` (and its "text the provider may already have" comment); `getPendingPrompt` and any `queue` reads in `api/agent-api.ts`
 - Modify: `web/knip.json` (drop `use-prompt-queue.ts`, `prompt-queue-persistence.ts`), `web/eslint.config.js` (drop `use-prompt-queue.ts` from `MAX_LINES_BASELINE`)
 - Test: `web/src/__tests__/features/agent/stores/lib/outbox.test.ts`, `stores/chat-outbox.test.ts`, `transcript/rows/user-row.test.tsx`; extend `chat/agent-chat-view.test.tsx`
 
@@ -39,7 +40,8 @@ sending ──(POST 202)──▶ waits for its user_message row ─▶ leaves t
                                                            └─▶ refused (prompt_settled not consumed, reason ≠ retracted)
                                     any of pending/delivered ─▶ retracted (prompt_settled reason retracted, or turn_ended reason retracted)
 sending ──(409 chat_busy)──▶ queued   sending ──(409 session_lost)──▶ failed "The session was lost…" (Retry = fresh id; R27)
-sending ──(409 request_outcome_uncertain)──▶ failed (Retry = fresh id)   sending ──(other error)──▶ failed (Retry, Edit)
+sending ──(409 request_outcome_uncertain | request_id_conflict)──▶ failed (Retry = fresh id)
+sending ──(network error | 5xx)──▶ failed (Retry = same id: the daemon dedupes)   sending ──(other error)──▶ failed (Retry, Edit)
 row settled with reason session_lost ──▶ the user row reads "The session was lost. Start a new conversation to send this."
 Esc: queued → removed, text back · sending → retractOnAck, retract when the POST resolves
      pending, or delivered without output → POST retract, text back · delivered with output → Stop, no restore
@@ -56,6 +58,8 @@ it('keeps a prompt queued when the send answers busy')
 it('marks a prompt failed with the service reason on any other error')
 it('C27: a send refused with session_lost says the session was lost, never that the provider may have it')
 it('C27: Retry on a settled or refused prompt row sends the text under a fresh request id')
+it('C27: Retry after request_id_conflict uses a fresh request id')
+it('retries a send that failed on a network error under the same request id')
 it('steers a steerable prompt at once while a turn runs')            // P11
 it('hands the prompt to the rows once its user_message lands')
 it('sends the next prompt on the turn_ended row, never on a clock')   // vi.useFakeTimers: advancing time sends nothing
@@ -109,7 +113,7 @@ Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 **Files:**
 - Rewrite: `web/src/features/agent/hooks/use-transcript-anchor.ts` (879 lines) — under 300: stuck/unstuck from scroll events, follow through `createFollowScroll` when stuck and the virtualizer's total size grows, `pinItemToTop(itemId)` that returns the spacer height `max(0, viewport − header − (totalSize − itemStart))` from the virtualizer, position restore from `transcript-scroll-positions.ts`; delete `tailRoom`'s DOM measurement, `ARM_QUIET_MS`, `READER_INPUT_MS`, `PIN_SETTLE_GRACE_MS`, `armTimer`, `beginReveal`, the internal ResizeObservers that fed the loop
 - Modify: `web/src/features/agent/transcript/agent-transcript.tsx` — delete `SETTLE_QUIET_FRAMES`, the `settled` state and the hidden-until-settled style; render the spacer after the last row; the virtualizer adjusts scroll on size changes only for rows above the viewport; a feed in `status: 'error'` renders its error with a Retry that re-attaches the feed (never a blank list)
-- Delete (source and tests): `web/src/features/agent/hooks/use-scroll-frame-span.ts` (its 200 ms idle timer; T13 measures scroll frames in Tauri instead); the old `use-transcript-anchor.test.tsx` (1,687 lines, R19: replaced)
+- Delete (source and tests): `web/src/features/agent/hooks/use-scroll-frame-span.ts` (its 200 ms idle timer; T13 measures scroll frames in the live check instead); the old `use-transcript-anchor.test.tsx` (1,687 lines, R19: replaced)
 - Modify: `web/knip.json` (drop `use-transcript-anchor.ts`, `transcript-scroll-positions.ts` entries when clean), `web/eslint.config.js` (drop `use-transcript-anchor.ts` and its test from `MAX_LINES_BASELINE`)
 - Test: `web/src/__tests__/features/agent/hooks/use-transcript-anchor.test.tsx` (new, ≤500); extend `transcript/agent-transcript.test.tsx`; keep `hooks/lib/follow-scroll.test.ts` green unchanged
 
@@ -164,7 +168,7 @@ Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 - Modify: `web/knip.json` (drop `agent-empty-document.tsx` if clean), `web/eslint.config.js` (drop `agent-empty-document.test.tsx`, `chat-markdown-editor.test.tsx` from `MAX_LINES_BASELINE` once their replacements are under the cap)
 - Test: extend `web/src/__tests__/features/agent/composer/agent-composer.test.tsx` (795 lines, 4 `vi.mock`: bring under 500 and ≤3 mocks per R19/R29; cases for deleted props go), `composer/plate/chat-markdown-editor.test.tsx` (831 lines; likewise), `chat/agent-empty-document.test.tsx` (619 lines, 5 `vi.mock`; likewise), `chat/agent-chat-view.test.tsx`
 
-- [ ] **Step 1: Failing tests** (`vi.mock('@/features/agent/composer/plate/chat-composer-serialization', …)` wrapping the real module with a call counter; `vi.mock('@/features/agent/transcript/agent-transcript', …)` with a render counter)
+- [ ] **Step 1: Failing tests** (`vi.mock('@/features/agent/composer/plate/chat-composer-serialization', …)` and `vi.mock('@/features/agent/transcript/agent-transcript', …)` each wrap the real module (`importOriginal`) and count calls or renders; neither replaces it, so the T3/T5 cases in the same file keep the real transcript)
 
 ```ts
 // chat/agent-chat-view.test.tsx
@@ -178,7 +182,7 @@ it('reports empty and the slash query without producing markdown')
 it('loads restored markdown through setMarkdown')
 ```
 
-Type through the same input path `chat-markdown-editor.test.tsx` already uses. `agent-chat-view.test.tsx` stays at ≤3 `vi.mock`: its feed frames go through `chatStore.getState().applyFeedFrame`, never a mocked socket, leaving room for the API mock and these two.
+Type through the same input path `chat-markdown-editor.test.tsx` already uses. `agent-chat-view.test.tsx` stays at ≤3 `vi.mock`: it mocks only the API module, the serialization module and the transcript wrapper; it never mocks `@/lib/ws/manager` (its feed frames go through `chatStore.getState().applyFeedFrame`).
 
 - [ ] **Step 2: Run; they FAIL.**
 - [ ] **Step 3: Implement** the shape callback and handle, the placement prop, the empty-document cutover; delete the draft state and the duplicated editor code.
