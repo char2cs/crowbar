@@ -36,21 +36,23 @@ func File(
 	if r.ExitCode == 0 {
 		return parsePorcelain(r.Stdout)
 	}
-	if !inHead(ctx, repoPath, filePath) {
+	if missingFromHead(ctx, repoPath, filePath) {
 		return nil, fmt.Errorf("blame: file: %s: %w", filePath, gitdomain.ErrNoHistory)
 	}
 	return nil, fmt.Errorf("blame: file: exit %d: %s", r.ExitCode, strings.TrimSpace(r.Stderr))
 }
 
-// inHead reports whether HEAD holds filePath, decided by exit code rather than
-// blame's localised stderr: --quiet --verify exits 1 for a missing path or an
-// unborn HEAD, and 128 when git itself fails.
-func inHead(
+// missingFromHead reports whether HEAD lacks filePath (or there is no HEAD).
+// batch-check answers "<name> missing" on stdout with exit 0, so neither a
+// failed git nor one that never started, nor localised stderr, can pass.
+func missingFromHead(
 	ctx context.Context,
 	repoPath string,
 	filePath string,
 ) bool {
-	return gitRunner(ctx, repoPath, "rev-parse", "--verify", "--quiet", "HEAD:./"+filePath).ExitCode != 1
+	name := "HEAD:./" + filePath
+	r := exec.GitWithStdin(ctx, repoPath, name+"\n", "cat-file", "--batch-check")
+	return r.ExitCode == 0 && strings.TrimRight(r.Stdout, "\n") == name+" missing"
 }
 
 // parseCommitHeader extracts the SHA and result line number from a porcelain

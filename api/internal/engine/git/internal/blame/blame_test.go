@@ -111,7 +111,25 @@ func TestFile_NotExist_ReturnsError(t *testing.T) {
 	commitFile(t, dir, "real.txt", "content\n", "add file")
 
 	_, err := blame.File(context.Background(), dir, "nonexistent.txt")
-	require.Error(t, err)
+	require.ErrorIs(t, err, gitdomain.ErrNoHistory)
+}
+
+// Only a path HEAD lacks is unblamed; any other failure stays an error.
+func TestFile_FailureWithHistory(t *testing.T) {
+	deleted := initRepo(t)
+	commitFile(t, deleted, "gone.txt", "content\n", "add file")
+	require.NoError(t, os.Remove(filepath.Join(deleted, "gone.txt")))
+
+	for name, c := range map[string]struct{ dir, path string }{
+		"committed file deleted from disk": {deleted, "gone.txt"},
+		"git never starts":                 {filepath.Join(t.TempDir(), "no-such-worktree"), "a.txt"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := blame.File(context.Background(), c.dir, c.path)
+			require.Error(t, err)
+			assert.NotErrorIs(t, err, gitdomain.ErrNoHistory)
+		})
+	}
 }
 
 func TestFile_NoHistory(t *testing.T) {
