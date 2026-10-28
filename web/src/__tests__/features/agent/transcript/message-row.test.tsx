@@ -1,16 +1,12 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import type {
-  AgentChatMessage,
-  AgentChatMessageRole,
-  AgentProvider,
-} from '@/features/agent/api/agent-api'
+import type { AgentChatMessage, AgentProvider } from '@/features/agent/api/agent-api'
 import { turnTimestampLabel } from '@/features/agent/lib/turn-time'
 import { MessageRow } from '@/features/agent/transcript/message-row'
 
 const providers = [{ id: 'claude', displayName: 'Claude' }] as AgentProvider[]
 
-function row(role: AgentChatMessageRole, text: string) {
+function row(role: AgentChatMessage['role'], text: string) {
   const message: AgentChatMessage = {
     turnId: 't1',
     sequence: 1,
@@ -437,7 +433,7 @@ describe('MessageRow', () => {
   // recorded something the agent acted on, and a client too old to name it is
   // not a reason to hide it.
   it('still renders a role it has never heard of', () => {
-    row('something_new' as AgentChatMessageRole, 'recorded anyway')
+    row('something_new' as AgentChatMessage['role'], 'recorded anyway')
     expect(screen.getByText('recorded anyway')).toBeInTheDocument()
   })
 })

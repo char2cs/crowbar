@@ -109,9 +109,7 @@ export interface FolderPlacement {
 
 /** One folder mutation's answer: the row asked about, plus every sibling a
  *  dense renumber moved alongside it (folders and workspaces share one
- *  sibling space). Apply all of it — matches `agent-api.ts`'s
- *  `createChatFolder`/`updateChatFolder`, which read the same
- *  `{folder, shifted}` envelope off the same backend route family. */
+ *  sibling space). Apply all of it. */
 interface FolderWriteResult {
   folder: FolderDTO
   /** The shifted FOLDER siblings. */

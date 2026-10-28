@@ -477,34 +477,6 @@ describe('agent-api', () => {
     expect(p[0]).toMatchObject({ id: 'claude', displayName: 'Claude' })
   })
 
-  // The selection write. BOTH halves travel on EVERY call and '' clears one back
-  // to the provider's own default — a partial write could store a pair that was
-  // never jointly valid, since which effort levels exist is a property of the model.
-  it('setChatSelection PATCHes the whole selection', async () => {
-    apiFetch.mockResolvedValue(undefined)
-    await api.setChatSelection('w1', 'c1', 'gpt-5.6-luna', 'max')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/repos/r1/chats/c1/selection', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'gpt-5.6-luna', effort: 'max' }),
-    })
-  })
-
-  it("setChatSelection sends '' rather than omitting a cleared half", async () => {
-    apiFetch.mockResolvedValue(undefined)
-    await api.setChatSelection('w1', 'c1', '', '')
-    expect(apiFetch.mock.calls[0][1]).toMatchObject({
-      body: JSON.stringify({ model: '', effort: '' }),
-    })
-  })
-
-  it('setChatSelection lets the endpoint status reach the caller', async () => {
-    // 400 (not in the catalogue) and 422 (no provider yet) are both the caller's
-    // to SHOW; the client must not swallow either into a silent no-op.
-    apiFetch.mockRejectedValueOnce(new Error('bad request'))
-    await expect(api.setChatSelection('w1', 'c1', 'nope', '')).rejects.toThrow('bad request')
-  })
-
   it('listProviders returns [] when the backend responds with no body', async () => {
     apiFetch.mockResolvedValue(undefined)
     const p = await api.listProviders('w1')
@@ -890,82 +862,6 @@ describe('agent-api', () => {
     it('listChatFolders returns [] when the backend responds with no body', async () => {
       apiFetch.mockResolvedValueOnce(undefined)
       expect(await api.listChatFolders('w1')).toEqual([])
-    })
-
-    it('createChatFolder POSTs {name, parentId} and unwraps {folder, shifted}', async () => {
-      apiFetch.mockResolvedValueOnce({
-        folder: { id: 'f9', workspaceId: 'w1', title: 'New folder', parentId: '', order: 0 },
-        shifted: [{ id: 'f1', workspaceId: 'w1', title: 'F1', parentId: '', order: 1 }],
-      })
-      const { folder, shifted } = await api.createChatFolder('w1', 'New folder', '')
-      expect(apiFetch.mock.calls[0][0]).toBe('/v0/projects/p1/repos/r1/chats/folders')
-      expect(apiFetch.mock.calls[0][1]).toMatchObject({
-        method: 'POST',
-        body: JSON.stringify({ name: 'New folder', parentId: '' }),
-      })
-      expect(folder).toMatchObject({ id: 'f9', name: 'New folder', order: 0 })
-      // The dense renumber's collateral — every sibling it displaced.
-      expect(shifted).toEqual([{ id: 'f1', workspaceId: 'w1', name: 'F1', parentId: '', order: 1 }])
-    })
-
-    it('createChatFolder defaults shifted to [] when the backend omits the field', async () => {
-      apiFetch.mockResolvedValueOnce({
-        folder: { id: 'f9', workspaceId: 'w1', title: 'X', parentId: '', order: 0 },
-      })
-      const { shifted } = await api.createChatFolder('w1', 'X', '')
-      expect(shifted).toEqual([])
-    })
-
-    it('createChatFolder defaults shifted to [] when the backend sends shifted: null', async () => {
-      apiFetch.mockResolvedValueOnce({
-        folder: { id: 'f9', workspaceId: 'w1', title: 'X', parentId: '', order: 0 },
-        shifted: null,
-      })
-      const { shifted } = await api.createChatFolder('w1', 'X', '')
-      expect(shifted).toEqual([])
-    })
-
-    it('updateChatFolder PATCHes only the named fields (a partial patch) and unwraps the same envelope', async () => {
-      apiFetch.mockResolvedValueOnce({
-        folder: { id: 'f1', workspaceId: 'w1', title: 'Renamed', parentId: '', order: 0 },
-        shifted: [],
-      })
-      const { folder } = await api.updateChatFolder('w1', 'f1', { name: 'Renamed' })
-      expect(apiFetch.mock.calls[0][0]).toBe('/v0/projects/p1/repos/r1/chats/folders/f1')
-      expect(apiFetch.mock.calls[0][1]).toMatchObject({
-        method: 'PATCH',
-        body: JSON.stringify({ name: 'Renamed' }),
-      })
-      expect(folder.name).toBe('Renamed')
-    })
-
-    it('updateChatFolder PATCHes a re-parent + reorder patch verbatim', async () => {
-      apiFetch.mockResolvedValueOnce({
-        folder: { id: 'f1', workspaceId: 'w1', title: 'F1', parentId: 'f2', order: 3 },
-        shifted: [],
-      })
-      await api.updateChatFolder('w1', 'f1', { parentId: 'f2', order: 3 })
-      expect(apiFetch.mock.calls[0][1]).toMatchObject({
-        body: JSON.stringify({ parentId: 'f2', order: 3 }),
-      })
-    })
-
-    it('deleteChatFolder DELETEs and defaults to [] when the backend responds with a null body', async () => {
-      apiFetch.mockResolvedValueOnce(null)
-      const shifted = await api.deleteChatFolder('w1', 'f1')
-      expect(apiFetch.mock.calls[0]).toEqual([
-        '/v0/projects/p1/repos/r1/chats/folders/f1',
-        { method: 'DELETE' },
-      ])
-      expect(shifted).toEqual([])
-    })
-
-    it('deleteChatFolder returns the promoted-children shift the delete triggered', async () => {
-      apiFetch.mockResolvedValueOnce({
-        shifted: [{ id: 'f2', workspaceId: 'w1', title: 'F2', parentId: '', order: 0 }],
-      })
-      const shifted = await api.deleteChatFolder('w1', 'f1')
-      expect(shifted).toEqual([{ id: 'f2', workspaceId: 'w1', name: 'F2', parentId: '', order: 0 }])
     })
 
     it('setChatPlacement PATCHes {parentId, order} to the placement route and unwraps {chat, shifted}', async () => {

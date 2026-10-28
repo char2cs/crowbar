@@ -35,7 +35,7 @@ export function chatBase(wsId: string): string {
 /** One conversation a chat has hosted — append-only history, oldest first. It is
  *  what a "segment" really was, minus everything that described a process (no
  *  status, no PTY, no runner id), so it cannot drift from reality. */
-export interface ChatConversation {
+interface ChatConversation {
   chatId: string
   providerId: string
   sessionId: string
@@ -144,7 +144,7 @@ export type ChatPhase = 'dormant' | 'starting' | 'live' | 'switching' | 'stoppin
 
 /** The resume-ladder rung a runner launched on: the provider's own session,
  *  a fresh one handed Crowbar's transcript, or nothing to continue. */
-export type SessionRung = 'session' | 'transcript' | 'fresh'
+type SessionRung = 'session' | 'transcript' | 'fresh'
 
 export interface ChatSession {
   rung?: SessionRung
@@ -232,7 +232,7 @@ export interface AgentChatDetail extends AgentChat {
  * render as SOMETHING rather than vanish: consumers switch on the known members
  * and fall back for the rest, never assuming the union is exhaustive.
  */
-export type AgentChatMessageRole = 'user' | 'assistant' | 'harness' | 'notice'
+type AgentChatMessageRole = 'user' | 'assistant' | 'harness' | 'notice'
 
 /** One authoritative, hook-confirmed message in a Crowbar chat. */
 export interface AgentChatMessage {
@@ -283,7 +283,7 @@ export interface AgentPromptResult {
   terminalSessionId: string
 }
 
-export type SlashCatalogCompleteness = 'complete' | 'model_visible' | 'plugin_only'
+type SlashCatalogCompleteness = 'complete' | 'model_visible' | 'plugin_only'
 
 export interface SlashCatalogItem {
   id: string
@@ -506,7 +506,7 @@ export async function listChatMessages(
   }
 }
 
-export type ToolCallStatus = 'running' | 'ok' | 'error' | 'declined' | 'abandoned'
+type ToolCallStatus = 'running' | 'ok' | 'error' | 'declined' | 'abandoned'
 
 /** One tool the agent ran. The payloads are NOT here: a coding agent produces
  *  hundreds of KB per turn and almost none of it is ever opened, so each side is
@@ -541,7 +541,7 @@ export interface AgentToolCall {
 }
 
 /** One closed turn of a subagent's own nested conversation. */
-export interface AgentSubagentMessage {
+interface AgentSubagentMessage {
   text: string
   at: string
 }
@@ -560,7 +560,7 @@ export interface AgentSubagent {
   messages?: AgentSubagentMessage[]
 }
 
-export type InterruptionKind =
+type InterruptionKind =
   | 'permission'
   | 'notification'
   | 'elicitation'
@@ -695,14 +695,14 @@ export interface AgentActivity {
  *  Every field is OPTIONAL because "not reported" and "zero" are different facts:
  *  a gauge rendering 0% for something the provider never sent is a lie, so an
  *  absent field must render as no gauge rather than an empty one. */
-export interface AgentContextUsage {
+interface AgentContextUsage {
   capacityTokens?: number
   usedTokens?: number
   usedPercent?: number
   remainingPercent?: number
 }
 
-export interface AgentRateLimit {
+interface AgentRateLimit {
   id: string
   label?: string
   usedPercent?: number
@@ -883,9 +883,8 @@ export async function getPendingPrompt(
  *  choosing a row never mutates the chat until the user actually sends. A
  *  provider that differs from the chat's current one is switched to (killing
  *  the outgoing CLI and spawning the new one) as part of this same request —
- *  see the backend's Usecase.SubmitPrompt for the exact ordering. See
- *  setChatSelection's own doc comment — the same 400/422 contract applies
- *  here for an invalid pair. */
+ *  see the backend's Usecase.SubmitPrompt for the exact ordering. An invalid
+ *  pair is a 400 (outside the provider's catalogue) or a 422 (no provider yet). */
 export async function submitAgentPrompt(
   wsId: string,
   id: string,
@@ -1016,7 +1015,7 @@ export const PERMISSION_LEVEL_OPTIONS: ReadonlyArray<{
 ]
 
 /** One problem the daemon's descriptor validator found. */
-export interface DescriptorFinding {
+interface DescriptorFinding {
   rule: string
   severity: 'error' | 'warning'
   /** YAML path, e.g. `session.locate.glob[0]`. */
@@ -1249,33 +1248,6 @@ export async function switchToNative(wsId: string, id: string): Promise<void> {
   })
 }
 
-/**
- * Write the chat's sticky model + effort selection.
- *
- * BOTH halves travel on EVERY write, and '' clears one back to the provider's own
- * default. That is the endpoint's contract, not a convenience: which effort levels
- * exist is a property of the MODEL, so a partial write could store a pair that was
- * never jointly valid. Callers that change the model must therefore decide what
- * happens to the effort in the same call — see AgentModelPicker, which clears an
- * effort the new model does not declare rather than sending it on.
- *
- * 202 with no body on success. A value outside the provider's declared catalogue
- * is a 400 and a chat with no provider yet is a 422; both arrive as an ApiError
- * carrying that status, and both are the caller's to SHOW rather than swallow.
- */
-export async function setChatSelection(
-  wsId: string,
-  id: string,
-  model: string,
-  effort: string,
-): Promise<void> {
-  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/selection`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, effort }),
-  })
-}
-
 export async function renameChat(wsId: string, id: string, title: string): Promise<void> {
   await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/rename`, {
     method: 'POST',
@@ -1313,54 +1285,6 @@ export async function deleteChat(wsId: string, id: string, init?: RequestInit): 
 export async function listChatFolders(wsId: string): Promise<AgentChatFolder[]> {
   const raw = await apiFetch<AgentChatFolderWire[]>(`${chatBase(wsId)}/folders`)
   return (raw ?? []).map(mapFolder)
-}
-
-export async function createChatFolder(
-  wsId: string,
-  name: string,
-  parentId: string,
-): Promise<{ folder: AgentChatFolder; shifted: AgentChatFolder[] }> {
-  const raw = await apiFetch<{ folder: AgentChatFolderWire } & Partial<FolderShift>>(
-    `${chatBase(wsId)}/folders`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, parentId }),
-    },
-  )
-  return { folder: mapFolder(raw.folder), shifted: mapShift(raw) }
-}
-
-/** Rename, re-parent or reorder a folder. Only the named fields are written. */
-export async function updateChatFolder(
-  wsId: string,
-  folderId: string,
-  patch: { name?: string; parentId?: string; order?: number },
-): Promise<{ folder: AgentChatFolder; shifted: AgentChatFolder[] }> {
-  const raw = await apiFetch<{ folder: AgentChatFolderWire } & Partial<FolderShift>>(
-    `${chatBase(wsId)}/folders/${encodeURIComponent(folderId)}`,
-    {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
-    },
-  )
-  return { folder: mapFolder(raw.folder), shifted: mapShift(raw) }
-}
-
-// Deleting a folder PROMOTES its children to the folder's own parent — a folder
-// holds no conversation, so the chats outlive it. That is deliberately unlike
-// deleting a CHAT, which takes its threads with it.
-export async function deleteChatFolder(
-  wsId: string,
-  folderId: string,
-  init?: RequestInit,
-): Promise<AgentChatFolder[]> {
-  const raw = await apiFetch<Partial<FolderShift> | null>(
-    `${chatBase(wsId)}/folders/${encodeURIComponent(folderId)}`,
-    { method: 'DELETE', ...init },
-  )
-  return mapShift(raw)
 }
 
 /** Move a chat: under `parentId` (a chat, a folder, or '' for the root) at `order`. */

@@ -28,22 +28,18 @@ import { createWorkspaceStore } from '@/features/workspace/stores/workspace-stor
 import { IS_MAC } from '@/utils/platform'
 import { chatLedgerStore } from '@/features/agent/stores/chat-ledger-store'
 
-const { listMessagesFn, submitPromptFn, slashCatalogFn, setSelectionFn, stopChatFn } = vi.hoisted(
-  () => ({
-    listMessagesFn: vi.fn(),
-    submitPromptFn: vi.fn(),
-    slashCatalogFn: vi.fn(),
-    setSelectionFn: vi.fn(),
-    stopChatFn: vi.fn(),
-  }),
-)
+const { listMessagesFn, submitPromptFn, slashCatalogFn, stopChatFn } = vi.hoisted(() => ({
+  listMessagesFn: vi.fn(),
+  submitPromptFn: vi.fn(),
+  slashCatalogFn: vi.fn(),
+  stopChatFn: vi.fn(),
+}))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
   getPendingPrompt: vi.fn().mockResolvedValue(null),
   listChatMessages: (...args: unknown[]) => listMessagesFn(...args),
   submitAgentPrompt: (...args: unknown[]) => submitPromptFn(...args),
   getSlashCatalog: (...args: unknown[]) => slashCatalogFn(...args),
-  setChatSelection: (...args: unknown[]) => setSelectionFn(...args),
   listChatActivity: (...args: unknown[]) => activityFn(...args),
   stopChat: (...args: unknown[]) => stopChatFn(...args),
   getChatTelemetry: (...args: unknown[]) => telemetryFn(...args),
@@ -362,8 +358,6 @@ beforeEach(() => {
   listMessagesFn.mockReset()
   submitPromptFn.mockReset()
   slashCatalogFn.mockReset()
-  setSelectionFn.mockReset()
-  setSelectionFn.mockResolvedValue(undefined)
   stopChatFn.mockReset()
   stopChatFn.mockResolvedValue(undefined)
   listMessagesFn.mockImplementation(
@@ -1593,12 +1587,11 @@ describe('AgentChatView model + effort selection', () => {
     expect(screen.getByTestId('agent-selection-picker')).toBeInTheDocument()
   })
 
-  // The picker never writes selection itself any more — see
+  // The picker never writes selection itself — see
   // agent-selection-picker.test.tsx for its own local-staging behavior. This
-  // file's job is the OTHER half: proving AgentChatView never calls
-  // setChatSelection on a mere pick, and that the pick travels on the NEXT
-  // send instead (submitAgentPrompt's model/effort args), atomically.
-  it('a pick updates the chat owner locally without ever calling setChatSelection', async () => {
+  // file's job is the OTHER half: the pick travels on the NEXT send
+  // (submitAgentPrompt's model/effort args), atomically.
+  it('a pick updates the chat owner locally', async () => {
     const onSelectionChange = vi.fn()
     setup({ providers: selectable, model: 'gpt-5.6-sol', effort: 'ultra', onSelectionChange })
     await composer()
@@ -1611,7 +1604,6 @@ describe('AgentChatView model + effort selection', () => {
     // default" row to clear back to instead. gpt-5.6-luna is still codex —
     // the picker's OWN provider (the row's section), staged alongside it.
     expect(onSelectionChange).toHaveBeenCalledWith('codex', 'gpt-5.6-luna', 'low')
-    expect(setSelectionFn).not.toHaveBeenCalled()
   })
 
   it('carries the staged model/effort onto the NEXT send, atomically with the prompt', async () => {
@@ -1630,7 +1622,6 @@ describe('AgentChatView model + effort selection', () => {
       'gpt-5.6-luna',
       'high',
     )
-    expect(setSelectionFn).not.toHaveBeenCalled()
   })
 
   // '' on the wire is a PICK of the provider's own default, not silence —
