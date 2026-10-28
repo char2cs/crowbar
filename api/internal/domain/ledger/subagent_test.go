@@ -72,9 +72,10 @@ func TestFold_ASubagentOutlivesItsParentTurnAndKeepsTheChatBusy(t *testing.T) {
 	assert.Equal(t, ledger.SubagentUsage{Tokens: 9, ToolUses: 2}, a.Usage)
 }
 
-// A subagent still running when its turn's keys are pushed out is forgotten
-// once it ends, as one already over then was: nothing names that turn again.
-func TestFold_ASubagentEndingAfterItsTurnIsForgottenGoesWithIt(t *testing.T) {
+// forgottenAgent is a chat whose subagent A, spawned in T1, still runs after
+// T1's keys were pushed out by two later turns.
+func forgottenAgent(t *testing.T) ledger.State {
+	t.Helper()
 	st := ledger.Fold("c1", sequenced(t,
 		turnStart(t, "T1"),
 		spawned(t, "", ledger.SubagentStart, "tool-1"),
@@ -83,13 +84,65 @@ func TestFold_ASubagentEndingAfterItsTurnIsForgottenGoesWithIt(t *testing.T) {
 	))
 	_, kept := st.SubagentOf("A")
 	require.True(t, kept, "precondition: a running subagent outlives its turn's keys")
+	return st
+}
 
-	stop := subagent(t, "A", ledger.SubagentStop)
-	stop.Seq = st.Head() + 1
-	st.Apply(stop)
+func applyNext(st *ledger.State, r ledger.Row) {
+	r.Seq = st.Head() + 1
+	st.Apply(r)
+}
+
+func endOf(t *testing.T, phase, status, result string) ledger.Row {
+	t.Helper()
+	return scoped(t, ledger.KindSubagent, "T1", "A", ledger.SubagentBody{Phase: phase, Status: status, Result: result})
+}
+
+// A subagent of a forgotten turn goes once nothing more can reach it: its
+// result is recorded, or it failed or was interrupted.
+func TestFold_ASubagentOfAForgottenTurnGoesOnceSettled(t *testing.T) {
+	for name, end := range map[string]ledger.Row{
+		"stopped with its result": endOf(t, ledger.SubagentStop, "", "found it"),
+		"failed":                  endOf(t, ledger.SubagentStop, string(ledger.SubagentFailed), ""),
+		"interrupted":             endOf(t, ledger.SubagentStop, string(ledger.SubagentInterrupted), ""),
+	} {
+		t.Run(name, func(t *testing.T) {
+			st := forgottenAgent(t)
+
+			applyNext(&st, end)
+
+			_, kept := st.SubagentOf("A")
+			assert.False(t, kept, "its turn was forgotten and nothing more will name it")
+		})
+	}
+}
+
+// A spawn its turn abandoned goes with that turn's keys.
+func TestFold_AnAbandonedSpawnGoesWithItsTurn(t *testing.T) {
+	st := ledger.Fold("c1", sequenced(t,
+		turnStart(t, "T1"), spawned(t, "", ledger.SubagentStart, "tool-1"),
+		ended(t, "T1"), turnStart(t, "T2"), ended(t, "T2"), turnStart(t, "T3"),
+	))
+
+	_, kept := st.SpawnedBy("tool-1")
+	assert.False(t, kept)
+}
+
+// A background subagent that stops before it hands its result back is kept
+// for the hand-back, so the result lands in it rather than in a ghost.
+func TestFold_AForgottenTurnsSubagentWaitsForItsHandBack(t *testing.T) {
+	st := forgottenAgent(t)
+
+	applyNext(&st, endOf(t, ledger.SubagentStop, "", ""))
+
+	a, kept := st.SubagentOf("A")
+	require.True(t, kept, "its hand-back is still to come")
+	assert.Equal(t, ledger.SubagentDone, a.Status)
+	assert.Equal(t, "tool-1", a.SpawnToolID)
+
+	applyNext(&st, endOf(t, ledger.SubagentResult, "", "found"))
 
 	_, kept = st.SubagentOf("A")
-	assert.False(t, kept, "its turn was forgotten, so its end lets it go")
+	assert.False(t, kept, "the hand-back settled it")
 }
 
 func TestFold_AnUnboundSubagentIsAbandonedWhenItsTurnEnds(t *testing.T) {

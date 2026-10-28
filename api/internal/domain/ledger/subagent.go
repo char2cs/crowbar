@@ -248,14 +248,28 @@ func (b *SubagentBook) finish(r Row, body SubagentBody) {
 	b.put(key, a)
 }
 
-// put stores a, unless it is over and its turn was forgotten: nothing will
-// name it again, as forgetTurn found of those already over.
+// put stores a, unless its turn was forgotten and it is settled: nothing will
+// name it again.
 func (b *SubagentBook) put(key string, a Subagent) {
-	if a.forgotten && !a.Status.Live() {
+	if a.forgotten && a.settled() {
 		delete(b.agents, key)
 		return
 	}
 	b.agents[key] = a
+}
+
+// settled reports whether nothing more reaches a: it ended without success,
+// or its result is in. A done one may still hand its result back.
+func (a Subagent) settled() bool {
+	switch a.Status {
+	case SubagentFailed, SubagentInterrupted, SubagentAbandoned:
+		return true
+	case SubagentDone:
+		return a.Result != ""
+	case SubagentStarting, SubagentRunning:
+		return false
+	}
+	return false
 }
 
 // endTurn abandons what the ending turn started and never bound, and marks
@@ -286,8 +300,8 @@ func (b *SubagentBook) interrupt(r Row, which func(Subagent) bool) {
 	}
 }
 
-// forgetTurn drops what turnID left that is over, and marks what still runs to
-// go when it ends: nothing will name that turn again.
+// forgetTurn drops what turnID left that is settled, and marks the rest to go
+// once settled: nothing will name that turn again.
 func (b *SubagentBook) forgetTurn(turnID string) {
 	for key, a := range b.agents {
 		if a.TurnID != turnID {
