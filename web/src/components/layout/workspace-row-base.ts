@@ -27,46 +27,8 @@ export const ROW_SHAPE =
 
 export const ROW_BASE = `${ROW_SHAPE} h-9 mx-1.5 my-0.5`
 
-// Shared selected/idle row variants so every sidebar row (workspaces, the repo
-// header) renders an identical active state — a raised, inset-lit surface when
-// selected and a flat hover-accent when not. Keep both in sync here, never inline.
-//
-// Deliberately the OTHER theme's surface, not this one's: `bg-background`/
-// `text-foreground` would just track the ambient theme like every other
-// token on the row, and the point of this one is that it doesn't — the
-// active row is meant to visibly break the theme it sits in (light sidebar,
-// dark active row; dark sidebar, light active row), so the thing that's
-// selected pops rather than blending in. `--background-inverse`/
-// `--foreground-inverse` (theme.css) are the other theme's own values,
-// literally, not derived from this theme's tokens. The border matches the
-// (inverted) background, same as it always matched `--background` before —
-// there is no visible border, it's there so the row's box-sizing agrees with
-// its own fill at the 1px edge.
-// The highlight itself (`--row-active-highlight`, theme.css) is production's
-// (develop) OWN `--elevated-highlight` recipe, unchanged in every respect
-// (plain `0_1px`, `color-mix` at 16%, zero blur) except which foreground it
-// mixes — `-inverse`, to pair with this row's deliberately inverted
-// background. Production's ROW_ACTIVE never inverts, so it just reuses
-// `--elevated-highlight` verbatim; see theme.css's doc on this token for why
-// every other version tried here (a separate before-overlay, a colored
-// accent, hand-tuned alpha/blur/offset) was solving a problem production's
-// own recipe never had.
-//
-// `outline` instead of `border` for the edge: a real `border` utility adds
-// its own width to the box (border-box eats it out of content on a fixed-
-// height row, fine — but a caller with no explicit height of its own, e.g.
-// Recents' multi-chat shell, has that width added STRAIGHT to its auto
-// height instead, measurably taller than every plain row even though the
-// color always matches the fill and the edge is never visible either way).
-// `outline` paints the identical 1px edge without ever participating in
-// layout, on any caller, explicit height or not.
-export const ROW_ACTIVE =
-  'outline outline-1 outline-background-inverse bg-background-inverse text-foreground-inverse shadow-xs shadow-black/10 ' +
-  'not-disabled:inset-shadow-[0_1px_var(--row-active-highlight)] ' +
-  'active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
-
 // Plain flat tokens, deliberately with NO CossUI top-highlight — that glossy
-// treatment (ROW_ACTIVE above, and view-row.tsx's own group-hover
+// treatment (view-row.tsx's showing tab and its own group-hover
 // treatment) is reserved for a row that IS the showing/selected surface, or a
 // grouped Recents SET being hovered as one unit. An ordinary tree row and its
 // own plain hover, and a merely has-a-view tree row, are neither of those —
@@ -216,8 +178,7 @@ export const ROW_SUB_ACTION_HOVER =
 // `ROW_SUB_ACTION_HOVER` (never in place of it) so `cn`'s tailwind-merge
 // dedupes only the conflicting color utilities and keeps every structural one
 // (`hidden`, `p-1.5`, the `group-*:inline-flex` triad, focus ring) intact.
-// The hover fill is a translucent wash of `--foreground-inverse` rather than
-// reusing `--row-active-highlight` (a 1px top EDGE, not a fill) — the same
+// The hover fill is a translucent wash of `--foreground-inverse` — the same
 // "mix a low-opacity foreground over the background" shape every ordinary
 // hover token already uses, just off the inverted pair so it lightens toward
 // white on a dark ground and darkens toward black on a light one, in step
