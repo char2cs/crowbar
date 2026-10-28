@@ -164,8 +164,11 @@ describe('HostsSettings', () => {
     fireEvent.change(screen.getByLabelText(/address/i), { target: { value: 'https://10.0.0.2/' } })
     fireEvent.click(screen.getByRole('button', { name: /continue/i }))
 
-    expect(await screen.findByRole('dialog')).toHaveTextContent(
-      'This address is already paired as homelab. Remove it in Settings → Hosts to pair it again.',
+    // The dialog says "Connecting…" until the probe answers.
+    await waitFor(() =>
+      expect(screen.getByRole('dialog')).toHaveTextContent(
+        'This address is already paired as homelab. Remove it in Settings → Hosts to pair it again.',
+      ),
     )
     expect(screen.queryByRole('button', { name: /confirm fingerprint/i })).toBeNull()
   })
