@@ -310,6 +310,25 @@ func TestService_SettlingPrunesPastTheNewest500(t *testing.T) {
 	assert.Equal(t, id, f.row(t, id).ID)
 }
 
+// A running row is never pruned: deleting it would lose its idempotency key.
+func TestService_SettlingNeverPrunesARunningOperation(t *testing.T) {
+	f := newFixture(t)
+	seed(t, f, "running", domain.OpRunning, epoch.Add(-48*time.Hour))
+	for i := range 500 {
+		seed(t, f, fmt.Sprintf("op-%03d", i), domain.OpSucceeded, epoch.Add(-time.Duration(1000-i)*time.Minute))
+	}
+	id := uuid.NewString()
+	_, err := f.svc.Start(context.Background(), pushSpec(id), succeed)
+	require.NoError(t, err)
+	f.until(t, id)
+	require.NoError(t, f.svc.Shutdown(context.Background()))
+
+	assert.Equal(t, domain.OpRunning, f.row(t, "running").State)
+	gone, err := f.store.FindByKey(context.Background(), "op-000")
+	require.NoError(t, err)
+	assert.Nil(t, gone)
+}
+
 func TestService_StartAfterShutdownIsUnavailable(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.svc.Shutdown(context.Background()))

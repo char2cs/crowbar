@@ -111,10 +111,11 @@ func (s *Service) Fail(
 	failure := problem.Of(cause)
 	op, run, err := s.admit(ctx, spec, domain.OpFailed, &failure)
 	if run != nil {
-		run.release()
+		// Before release, so a Shutdown that returns has no prune left in flight.
 		s.mu.Lock()
 		s.pruneLocked(ctx)
 		s.mu.Unlock()
+		run.release()
 	}
 	return op, err
 }
