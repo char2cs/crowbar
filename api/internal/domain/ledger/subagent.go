@@ -79,6 +79,8 @@ type Subagent struct {
 	runnerID string
 	// outlived: a main-scope turn end came after it started running.
 	outlived bool
+	// forgotten: its turn's keys were dropped while it was live.
+	forgotten bool
 }
 
 // SubagentBook folds the subagent rows of a chat into its subagents. It also
@@ -243,6 +245,16 @@ func (b *SubagentBook) finish(r Row, body SubagentBody) {
 	if body.Usage != nil && a.Usage == (SubagentUsage{}) {
 		a.Usage = *body.Usage
 	}
+	b.put(key, a)
+}
+
+// put stores a, unless it is over and its turn was forgotten: nothing will
+// name it again, as forgetTurn found of those already over.
+func (b *SubagentBook) put(key string, a Subagent) {
+	if a.forgotten && !a.Status.Live() {
+		delete(b.agents, key)
+		return
+	}
 	b.agents[key] = a
 }
 
@@ -261,7 +273,7 @@ func (b *SubagentBook) endTurn(r Row) {
 		default:
 			continue
 		}
-		b.agents[key] = a
+		b.put(key, a)
 	}
 }
 
@@ -269,14 +281,21 @@ func (b *SubagentBook) interrupt(r Row, which func(Subagent) bool) {
 	for key, a := range b.agents {
 		if a.Status.Live() && which(a) {
 			a.Status, a.EndedAt, a.EndSeq = SubagentInterrupted, r.At, r.Seq
-			b.agents[key] = a
+			b.put(key, a)
 		}
 	}
 }
 
-// forgetTurn drops what turnID left that is over: nothing will name it again.
+// forgetTurn drops what turnID left that is over, and marks what still runs to
+// go when it ends: nothing will name that turn again.
 func (b *SubagentBook) forgetTurn(turnID string) {
-	maps.DeleteFunc(b.agents, func(_ string, a Subagent) bool { return a.TurnID == turnID && !a.Status.Live() })
+	for key, a := range b.agents {
+		if a.TurnID != turnID {
+			continue
+		}
+		a.forgotten = true
+		b.put(key, a)
+	}
 	delete(b.runners, turnID)
 }
 

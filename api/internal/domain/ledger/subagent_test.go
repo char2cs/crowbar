@@ -72,6 +72,26 @@ func TestFold_ASubagentOutlivesItsParentTurnAndKeepsTheChatBusy(t *testing.T) {
 	assert.Equal(t, ledger.SubagentUsage{Tokens: 9, ToolUses: 2}, a.Usage)
 }
 
+// A subagent still running when its turn's keys are pushed out is forgotten
+// once it ends, as one already over then was: nothing names that turn again.
+func TestFold_ASubagentEndingAfterItsTurnIsForgottenGoesWithIt(t *testing.T) {
+	st := ledger.Fold("c1", sequenced(t,
+		turnStart(t, "T1"),
+		spawned(t, "", ledger.SubagentStart, "tool-1"),
+		spawned(t, "A", ledger.SubagentBound, "tool-1"),
+		ended(t, "T1"), turnStart(t, "T2"), ended(t, "T2"), turnStart(t, "T3"),
+	))
+	_, kept := st.SubagentOf("A")
+	require.True(t, kept, "precondition: a running subagent outlives its turn's keys")
+
+	stop := subagent(t, "A", ledger.SubagentStop)
+	stop.Seq = st.Head() + 1
+	st.Apply(stop)
+
+	_, kept = st.SubagentOf("A")
+	assert.False(t, kept, "its turn was forgotten, so its end lets it go")
+}
+
 func TestFold_AnUnboundSubagentIsAbandonedWhenItsTurnEnds(t *testing.T) {
 	st := ledger.Fold("c1", sequenced(t,
 		turnStart(t, "T1"), spawned(t, "", ledger.SubagentStart, "tool-1"),
