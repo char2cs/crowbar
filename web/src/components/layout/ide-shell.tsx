@@ -5,7 +5,6 @@ import { useNavigationHistory } from '@/features/tabs/hooks/use-navigation-histo
 import { SidebarBody } from './sidebar-body'
 import { SidebarFoot } from './sidebar-foot'
 import { SidebarProjectSwitcher } from './sidebar-project-switcher'
-import { ALL_HOSTS } from '@/features/hosts/lib/host-filter'
 import { useSidebarHostFilter } from './use-sidebar-host-filter'
 import { RemovalTray } from './removal-tray'
 import { SidebarTreeSurface } from './sidebar-tree-surface'
@@ -110,7 +109,7 @@ function IdeShellBody() {
                 activeProjectId={activeProjectIdFromRoute}
                 onActiveProjectChange={handleSelectProject}
                 creatingSpace={creatingSpace}
-                newSpaceHostId={hostFilter.shown === ALL_HOSTS ? undefined : hostFilter.shown}
+                newSpaceHostId={hostFilter.shown}
                 onCreateSpace={handleCreateSpace}
                 onCancelCreateSpace={handleCancelCreateSpace}
               />

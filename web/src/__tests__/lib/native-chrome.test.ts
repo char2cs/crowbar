@@ -81,7 +81,6 @@ describe('setNativeSidebar', () => {
     const sidebar = {
       focusedChatId: null,
       hosts: [],
-      shownHost: 'all',
       activeProjectId: null,
       projects: [],
       rows: [],

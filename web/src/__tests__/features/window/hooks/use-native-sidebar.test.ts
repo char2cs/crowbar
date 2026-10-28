@@ -104,7 +104,6 @@ describe('useNativeSidebar', () => {
       activeProjectId: null,
       projects: [],
       hosts: [],
-      shownHost: 'all',
       rows: [],
       active: [],
       collapsed: [],
@@ -218,24 +217,24 @@ describe('useNativeSidebar', () => {
 
     beforeEach(() => pairRemoteHost('h1', 'lab'))
 
-    it('pushes every project, and the hosts to choose from, while no host is chosen', () => {
-      mountSpread('p1')
-      expect(last().shownHost).toBe('all')
-      expect(last().projects.map((p) => p.id)).toEqual(['p1', 'p2', 'p3'])
+    it('pushes the active project’s host, and the hosts to choose from, while none is chosen', () => {
+      const { result } = mountSpread('p1')
+      expect(result.current.shownHost).toBe('local')
+      expect(last().projects.map((p) => p.id)).toEqual(['p1'])
       expect(last().hosts.map((h) => h.id)).toEqual(['local', 'h1'])
     })
 
     it('pushes only the chosen host’s projects', () => {
       useSidebarStore.setState({ hostFilter: 'h1' })
-      mountSpread('p2')
-      expect(last().shownHost).toBe('h1')
+      const { result } = mountSpread('p2')
+      expect(result.current.shownHost).toBe('h1')
       expect(last().projects.map((p) => p.id)).toEqual(['p2', 'p3'])
     })
 
     it('shows the host of the active project, wherever it was opened from', () => {
       useSidebarStore.setState({ hostFilter: 'h1' })
-      mountSpread('p1')
-      expect(last().shownHost).toBe('local')
+      const { result } = mountSpread('p1')
+      expect(result.current.shownHost).toBe('local')
       expect(last().projects.map((p) => p.id)).toEqual(['p1'])
     })
 

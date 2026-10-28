@@ -1,5 +1,4 @@
 import type { StateCreator } from 'zustand'
-import { ALL_HOSTS } from '@/features/hosts/lib/host-filter'
 import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
 
 // The sidebar's own UI state, apart from the repo tree it draws.
@@ -23,8 +22,8 @@ export interface SidebarUIState {
   /** The mode the user chose; what shows also depends on availability (sidebar-panel-tabs.ts). */
   activeTab: SidebarTab
   /**
-   * The host whose projects the switcher lists, or ALL_HOSTS. A preference only: what shows is
-   * `shownHostOf` (host-filter.ts), where the active project's host wins.
+   * The host whose projects the switcher lists; '' until one is chosen. A preference only: what
+   * shows is `shownHostOf` (host-filter.ts), where the active project's host wins.
    */
   hostFilter: string
   /** Fold a Chats-panel row away, or open it again. */
@@ -39,7 +38,7 @@ export function initialSidebarUIState(): Persisted {
   return {
     collapsedChatRows: new Set<string>(),
     activeTab: 'chats',
-    hostFilter: ALL_HOSTS,
+    hostFilter: '',
   }
 }
 

@@ -30,9 +30,10 @@ function useHostStatusVersion(hostIds: readonly string[]): number {
 /**
  * Feeds the phone's Hosts settings tab (a webview with no IPC) while the native settings sheet is
  * up: every paired host, pushed whole on each change. Revoke runs here, where the IPC is, with
- * the desktop's own flow (its questions are asked natively over the sheet).
+ * the desktop's own flow (its questions are asked natively over the sheet); a host picked to
+ * show is the chat list's own `selectHost` intent.
  */
-export function NativeHostsSettingsFeed() {
+export function NativeHostsSettingsFeed({ shownHost }: { shownHost: string | null }) {
   const navigate = useNavigate()
   const hosts = useHostConfigStore((s) => s.hosts)
   const hostStreams = useConnectionStore((s) => s.hostStreams)
@@ -52,8 +53,9 @@ export function NativeHostsSettingsFeed() {
         state: stateOf(h.id),
       })),
       revoking: [...revoking],
+      shownHost,
     })
-  }, [hosts, hostStreams, statusVersion, revoking])
+  }, [hosts, hostStreams, statusVersion, revoking, shownHost])
 
   const revoke = (id: string) => {
     const host = hosts.find((h) => h.id === id)

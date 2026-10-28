@@ -26,6 +26,12 @@ afterEach(() => {
   })
 })
 
+/** The button that shows `name`'s projects: the row's own, not its Revoke. */
+const rowChoice = (name: string) =>
+  screen
+    .queryAllByRole('button')
+    .find((b) => b.textContent?.includes(name) && !b.hasAttribute('aria-label'))
+
 describe('MobileSettingsPage', () => {
   // The phone has no editor, file tree settings, browser or keyboard of its own to configure.
   it('offers only the tabs that apply to the phone, with search and Appearance first', async () => {
@@ -97,6 +103,7 @@ describe('MobileSettingsPage', () => {
       shell.__crowbarHostsSettings!({
         hosts: [{ id: 'h1', name: 'dockerlab', endpoint: 'https://lab:7777', state: 'up' }],
         revoking: [],
+        shownHost: null,
       }),
     )
     expect(screen.getByText('dockerlab')).toBeInTheDocument()
@@ -106,5 +113,30 @@ describe('MobileSettingsPage', () => {
     expect(posted).toHaveBeenCalledWith({ type: 'revokeHost', id: 'h1' })
     fireEvent.click(screen.getByRole('button', { name: 'Add host' }))
     expect(posted).toHaveBeenCalledWith({ type: 'addHost' })
+    // One host: nothing to choose between, so no row is a choice.
+    expect(rowChoice('dockerlab')).toBeUndefined()
+  })
+
+  // The phone's chat list has no host control: Settings is where its host is chosen.
+  it('marks the host the chat list shows, and sends the one tapped', async () => {
+    render(<MobileSettingsPage />)
+    openTab('Hosts')
+    await waitFor(() => expect(posted).toHaveBeenCalledWith({ type: 'hostsSettingsReady' }))
+    act(() =>
+      shell.__crowbarHostsSettings!({
+        hosts: [
+          { id: 'h1', name: 'dockerlab', endpoint: 'https://lab:7777', state: 'up' },
+          { id: 'h2', name: 'studio', endpoint: 'https://studio:7777', state: 'down' },
+        ],
+        revoking: [],
+        shownHost: 'h1',
+      }),
+    )
+    const shown = rowChoice('dockerlab')
+    expect(shown).toHaveAttribute('aria-current', 'true')
+    expect(shown).toHaveTextContent('Current')
+    expect(rowChoice('studio')).not.toHaveAttribute('aria-current')
+    fireEvent.click(rowChoice('studio')!)
+    expect(posted).toHaveBeenCalledWith({ type: 'selectHost', id: 'h2' })
   })
 })

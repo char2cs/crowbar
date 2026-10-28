@@ -49,7 +49,7 @@ export function MobileShell() {
   useLaunchDraft(route.activeProjectId, route.homeWorkspaceId, navigate)
   useCloseChatListOnNavigation()
   useMobileNativeChrome({ ide: hasChat })
-  const { importRepoRowId, closeImport } = useNativeSidebar({
+  const { importRepoRowId, closeImport, shownHost } = useNativeSidebar({
     activeProjectId: route.activeProjectId,
     projects: route.allProjects,
     onSelectProject: route.handleSelectProject,
@@ -73,7 +73,7 @@ export function MobileShell() {
       {isSettingsOpen && hasNativeChrome() && agentsHostId && (
         <AgentsSettingsFeed key={agentsHostId} hostId={agentsHostId} />
       )}
-      {isSettingsOpen && hasNativeChrome() && <NativeHostsSettingsFeed />}
+      {isSettingsOpen && hasNativeChrome() && <NativeHostsSettingsFeed shownHost={shownHost} />}
       <SettingsDialog
         // The phone app's own sheet presents Settings off the same `isSettingsOpen`.
         isOpen={isSettingsOpen && !hasNativeChrome()}

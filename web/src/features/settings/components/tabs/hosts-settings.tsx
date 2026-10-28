@@ -22,18 +22,24 @@ interface HostRowProps<H extends HostSummary> {
   isLocal: boolean
   revoking: boolean
   onRevoke: (host: H) => void
+  /** Whether this is the host the chat list shows; absent where the list offers no choice. */
+  current?: boolean
+  onShow?: (host: H) => void
 }
 
 const SECONDARY = 'ui-font ui-text-sm truncate text-muted-foreground'
 
-function HostRow<H extends HostSummary>({ host, isLocal, revoking, onRevoke }: HostRowProps<H>) {
+function HostRow<H extends HostSummary>({
+  host,
+  isLocal,
+  revoking,
+  onRevoke,
+  current,
+  onShow,
+}: HostRowProps<H>) {
   const { state } = useHostView(host.id)
-
-  return (
-    <div
-      data-testid="host-row"
-      className="flex items-center gap-3 rounded-lg px-1 py-2 transition-colors hover:bg-muted/50"
-    >
+  const summary = (
+    <>
       <HostStatusIcon hostId={host.id} state={state} className="text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <div className="ui-font ui-text-sm truncate text-foreground">{host.name}</div>
@@ -43,6 +49,29 @@ function HostRow<H extends HostSummary>({ host, isLocal, revoking, onRevoke }: H
           {state !== 'up' && ` · ${hostDotLabel(state)}`}
         </div>
       </div>
+      {current && (
+        <span className="ui-font ui-text-sm shrink-0 text-muted-foreground">Current</span>
+      )}
+    </>
+  )
+
+  return (
+    <div
+      data-testid="host-row"
+      className="flex items-center gap-3 rounded-lg px-1 py-2 transition-colors hover:bg-muted/50"
+    >
+      {onShow ? (
+        <button
+          type="button"
+          aria-current={current || undefined}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+          onClick={() => onShow(host)}
+        >
+          {summary}
+        </button>
+      ) : (
+        summary
+      )}
       {!isLocal && (
         <Button
           type="button"
@@ -71,6 +100,9 @@ interface HostsSettingsViewProps<H extends HostSummary> {
   onRevoke: (host: H) => void
   onAdd: () => void
   addHostRef?: Ref<HTMLButtonElement>
+  /** The host the chat list shows, where Settings is the place to choose it (the phone). */
+  shownHost?: string | null
+  onShowHost?: (host: H) => void
   children?: ReactNode
 }
 
@@ -83,8 +115,11 @@ export function HostsSettingsView<H extends HostSummary>({
   onRevoke,
   onAdd,
   addHostRef,
+  shownHost,
+  onShowHost,
   children,
 }: HostsSettingsViewProps<H>) {
+  const choosing = shownHost != null && onShowHost !== undefined
   return (
     <div className="space-y-4">
       <div className="mb-2 px-1 py-1.5">
@@ -101,6 +136,8 @@ export function HostsSettingsView<H extends HostSummary>({
             isLocal={false}
             revoking={revoking.has(host.id)}
             onRevoke={onRevoke}
+            current={choosing && host.id === shownHost}
+            onShow={choosing ? onShowHost : undefined}
           />
         ))}
       </div>

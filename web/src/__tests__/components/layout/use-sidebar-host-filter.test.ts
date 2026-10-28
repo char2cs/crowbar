@@ -45,14 +45,14 @@ function setup(activeProjectId: string | undefined, projects = PROJECTS) {
 
 beforeEach(() => {
   resetHostWorld()
-  useSidebarStore.setState({ hostFilter: 'all' })
+  useSidebarStore.setState({ hostFilter: '' })
 })
 
 describe('useSidebarHostFilter', () => {
   it('changes nothing with the local machine alone', () => {
     const { result } = setup('a', [projectOn('a', 'local'), projectOn('a2', 'local')])
     expect(result.current.hostIds).toEqual(['local'])
-    expect(result.current.shown).toBe('all')
+    expect(result.current.shown).toBeUndefined()
     expect(result.current.shownProjects.map((p) => p.id)).toEqual(['a', 'a2'])
   })
 
@@ -66,10 +66,10 @@ describe('useSidebarHostFilter', () => {
       expect(setup('a').result.current.hostIds).toEqual(['local', 'h1', 'h2'])
     })
 
-    it('lists every project for all hosts', () => {
+    it('lists the active project’s host before any host is chosen', () => {
       const { result } = setup('a')
-      expect(result.current.shown).toBe('all')
-      expect(result.current.shownProjects).toEqual(PROJECTS)
+      expect(result.current.shown).toBe('local')
+      expect(result.current.shownProjects.map((p) => p.id)).toEqual(['a'])
     })
 
     it('lists only the chosen host’s projects', () => {
@@ -98,15 +98,6 @@ describe('useSidebarHostFilter', () => {
       expect(result.current.shown).toBe('h2')
       act(() => result.current.selectHost('h1'))
       expect(onSelectProject).toHaveBeenCalledExactlyOnceWith('b-new')
-    })
-
-    it('choosing all hosts opens nothing', () => {
-      useSidebarStore.setState({ hostFilter: 'h1' })
-      const { result, onSelectProject } = setup('b-old')
-      act(() => result.current.selectHost('all'))
-      expect(useSidebarStore.getState().hostFilter).toBe('all')
-      expect(onSelectProject).not.toHaveBeenCalled()
-      expect(result.current.shownProjects).toEqual(PROJECTS)
     })
 
     // A deep link, the palette, the Recents view or a notification all just move the route.

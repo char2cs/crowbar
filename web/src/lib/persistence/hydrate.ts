@@ -23,7 +23,6 @@ import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
 import { fetchHomeChats, fetchRepoChats, fetchRepos, isNotFoundError } from '@/lib/api'
 import { awaitHost } from '@/lib/host-unavailability'
 import { isDraftChatId } from '@/features/agent/lib/draft-chat'
-import { ALL_HOSTS } from '@/features/hosts/lib/host-filter'
 import { loadSidebarUI } from './sidebar-ui'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { parseSidebarTab } from '@/lib/store/sidebar-ui'
@@ -297,6 +296,6 @@ export async function hydrateSidebar(): Promise<void> {
     // replays as "nothing folded", the product default (see schemas.ts).
     collapsedChatRows: new Set(sidebarUI.collapsedChatRows ?? []),
     activeTab: parseSidebarTab(sidebarUI.activeTab),
-    hostFilter: sidebarUI.hostFilter ?? ALL_HOSTS,
+    hostFilter: sidebarUI.hostFilter ?? '',
   })
 }

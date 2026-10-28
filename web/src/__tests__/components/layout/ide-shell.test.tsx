@@ -112,7 +112,7 @@ vi.mock('@/features/settings/components/settings-dialog', () => ({
 const { sidebarState } = vi.hoisted(() => ({
   sidebarState: {
     repos: [] as unknown[],
-    hostFilter: 'all',
+    hostFilter: '',
     setHostFilter: vi.fn(),
     deleteWorkspace: vi.fn(),
     setActiveTab: vi.fn(),
@@ -172,7 +172,7 @@ describe('IDEShell', () => {
     router.navigate = vi.fn()
     useProjectDataStore.setState({ data: idle() })
     sidebarState.repos = []
-    sidebarState.hostFilter = 'all'
+    sidebarState.hostFilter = ''
     resetHostWorld()
     workspaceViewMock.mockClear()
     sidebarState.setActiveTab.mockClear()

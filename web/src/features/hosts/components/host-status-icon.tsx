@@ -51,6 +51,21 @@ export function HostStatusDot({
   )
 }
 
+/** The status dot on its own, beside a label that names the host; the state is said in words to
+ *  assistive tech, and colour carries it on screen. */
+export function HostDot({ state }: { state: HostDotState }) {
+  const tone = hostTone(state)
+  return (
+    <span
+      data-host-state={state}
+      data-host-tone={tone}
+      role="img"
+      aria-label={hostDotLabel(state)}
+      className={cn('size-1.5 shrink-0 rounded-full', DOT_FILL[tone])}
+    />
+  )
+}
+
 /** A computer with its host's status dot, the dot labelled in words. */
 export function HostStatusIcon({
   hostId,

@@ -27,7 +27,6 @@ import { openHomeDraft } from '@/components/layout/home-actions'
 import { handleCreate } from '@/components/layout/create-actions'
 import { handleOpen } from '@/components/layout/open-actions'
 import { useSidebarHostFilter } from '@/components/layout/use-sidebar-host-filter'
-import { ALL_HOSTS } from '@/features/hosts/lib/host-filter'
 import { hostStatusOf, subscribeHostStatusOf } from '@/features/hosts/lib/host-status'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { LOCAL_HOST, type HostDotState } from '@/features/hosts/types'
@@ -71,7 +70,6 @@ const EMPTY: NativeSidebar = {
   activeProjectId: null,
   projects: [],
   hosts: [],
-  shownHost: ALL_HOSTS,
   rows: [],
   active: [],
   collapsed: [],
@@ -338,7 +336,6 @@ export function useNativeSidebar({
             : (hostConfigs.find((h) => h.id === id)?.name ?? id),
         state: hostState(id),
       })),
-      shownHost: shown,
       rows: rows.map((row) => ({
         ...icons.row(row),
         working: row.working || chatWorking(row),
@@ -442,5 +439,5 @@ export function useNativeSidebar({
   })
   useEffect(() => onNativeChromeIntent(onIntent), [])
 
-  return { importRepoRowId, closeImport: () => setImportRepoRowId(null) }
+  return { importRepoRowId, closeImport: () => setImportRepoRowId(null), shownHost: shown ?? null }
 }

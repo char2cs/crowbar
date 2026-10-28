@@ -44,15 +44,21 @@ beforeEach(() => {
 
 describe('NativeHostsSettingsFeed', () => {
   it('pushes every paired host with its endpoint and status', () => {
-    render(<NativeHostsSettingsFeed />)
+    render(<NativeHostsSettingsFeed shownHost={null} />)
     expect(last().hosts).toEqual([
       { id: 'h1', name: 'dockerlab', endpoint: 'https://lab:7777', state: expect.any(String) },
     ])
     expect(last().revoking).toEqual([])
+    expect(last().shownHost).toBeNull()
+  })
+
+  it('says which host the chat list shows', () => {
+    render(<NativeHostsSettingsFeed shownHost="h1" />)
+    expect(last().shownHost).toBe('h1')
   })
 
   it('asks natively before revoking, and keeps the host on no', async () => {
-    render(<NativeHostsSettingsFeed />)
+    render(<NativeHostsSettingsFeed shownHost={null} />)
     send({ type: 'revokeHost', id: 'h1' })
     await waitFor(() =>
       expect(chrome.confirm).toHaveBeenCalledWith(
@@ -64,7 +70,7 @@ describe('NativeHostsSettingsFeed', () => {
   })
 
   it('puts Settings away and opens pairing for Add host', () => {
-    render(<NativeHostsSettingsFeed />)
+    render(<NativeHostsSettingsFeed shownHost={null} />)
     send({ type: 'addHost' })
     expect(useUIState.getState().isSettingsOpen).toBe(false)
     expect(navigate).toHaveBeenCalledWith({ to: '/add-host' })

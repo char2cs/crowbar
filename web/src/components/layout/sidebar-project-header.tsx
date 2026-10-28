@@ -3,7 +3,6 @@ import { GearIcon } from '@phosphor-icons/react'
 import { SidebarToggleIcon } from '@/components/ui/sidebar-toggle-icon'
 import { Button } from '@/components/ui/button'
 import { useSidebar } from '@/components/ui/sidebar'
-import { ALL_HOSTS } from '@/features/hosts/lib/host-filter'
 import { useSettingsStore } from '@/features/settings/store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { IS_MAC } from '@/utils/platform'
@@ -14,8 +13,9 @@ import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
 const NO_HOSTS: readonly string[] = []
 
 interface SidebarProjectHeaderProps {
-  /** The hosts the project list can be narrowed to; the control shows only for two or more. */
+  /** The hosts the project list can show; the control shows only for two or more. */
   hostIds?: readonly string[]
+  /** The host whose projects the list shows; none while there is no choice to make. */
   shownHost?: string
   onSelectHost?: (hostId: string) => void
 }
@@ -30,7 +30,7 @@ interface SidebarProjectHeaderProps {
  */
 export const SidebarProjectHeader = memo(function SidebarProjectHeader({
   hostIds = NO_HOSTS,
-  shownHost = ALL_HOSTS,
+  shownHost,
   onSelectHost,
 }: SidebarProjectHeaderProps) {
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
@@ -86,7 +86,7 @@ export const SidebarProjectHeader = memo(function SidebarProjectHeader({
       {IS_MAC && !isRight && <div className="relative z-10 w-[72px] shrink-0" />}
       {settings}
       <div className="relative z-10 flex min-w-0 flex-1 justify-center">
-        {onSelectHost && (
+        {onSelectHost && shownHost !== undefined && (
           <SidebarHostPicker hostIds={hostIds} shown={shownHost} onSelect={onSelectHost} />
         )}
       </div>

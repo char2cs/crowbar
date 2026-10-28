@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  ALL_HOSTS,
   landingProject,
   projectsOnHost,
   shownHostOf,
@@ -35,8 +34,12 @@ describe('sidebarHostIds', () => {
 })
 
 describe('shownHostOf', () => {
-  it('shows every host while the filter says all', () => {
-    expect(shownHostOf(ALL_HOSTS, HOSTS, PROJECTS, 'b')).toBe(ALL_HOSTS)
+  it('shows the active project’s host before any host is chosen', () => {
+    expect(shownHostOf('', HOSTS, PROJECTS, 'b')).toBe('h1')
+  })
+
+  it('shows the first host before any is chosen or a project is active', () => {
+    expect(shownHostOf('', HOSTS, PROJECTS, undefined)).toBe('local')
   })
 
   it('shows the chosen host while the active project is on it', () => {
@@ -57,18 +60,23 @@ describe('shownHostOf', () => {
     expect(shownHostOf('h3', [...HOSTS, 'h3'], PROJECTS, 'a')).toBe('h3')
   })
 
-  it('shows all once the chosen host is no longer paired', () => {
-    expect(shownHostOf('gone', HOSTS, PROJECTS, 'a')).toBe(ALL_HOSTS)
+  it('shows the active project’s host once the chosen host is no longer paired', () => {
+    expect(shownHostOf('gone', HOSTS, PROJECTS, 'c')).toBe('h2')
   })
 
-  it('shows all when there is only one host, whatever was saved', () => {
-    expect(shownHostOf('local', ['local'], [project('a', 'local')], 'a')).toBe(ALL_HOSTS)
+  // A record written when the switcher could show every host at once.
+  it('reads a saved "all" as no choice', () => {
+    expect(shownHostOf('all', HOSTS, PROJECTS, 'b')).toBe('h1')
+  })
+
+  it('shows no host when there is only one, whatever was saved', () => {
+    expect(shownHostOf('local', ['local'], [project('a', 'local')], 'a')).toBeUndefined()
   })
 })
 
 describe('projectsOnHost', () => {
-  it('keeps every project for all hosts', () => {
-    expect(projectsOnHost(PROJECTS, ALL_HOSTS)).toBe(PROJECTS)
+  it('keeps every project when no host is shown', () => {
+    expect(projectsOnHost(PROJECTS, undefined)).toBe(PROJECTS)
   })
 
   it('keeps one host’s projects in order', () => {

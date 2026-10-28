@@ -20,8 +20,14 @@ export function MobileHostsSettings() {
       <HostsSettingsView
         hosts={hosts ?? []}
         showLocal={false}
-        description="Add a machine running the Crowbar daemon to reach it from this phone."
+        description={
+          snapshot?.shownHost
+            ? 'Tap a host to show its projects. Add a machine running the Crowbar daemon to reach it from this phone.'
+            : 'Add a machine running the Crowbar daemon to reach it from this phone.'
+        }
         revoking={revoking}
+        shownHost={snapshot?.shownHost}
+        onShowHost={(host) => postToShell('hosts', { type: 'selectHost', id: host.id })}
         onRevoke={(host) => postToShell('hosts', { type: 'revokeHost', id: host.id })}
         onAdd={() => postToShell('hosts', { type: 'addHost' })}
       />

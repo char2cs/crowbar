@@ -24,7 +24,7 @@ beforeEach(() => {
   useSidebarStore.setState({
     collapsedChatRows: new Set<string>(),
     activeTab: 'chats',
-    hostFilter: 'all',
+    hostFilter: '',
   })
 })
 
@@ -83,7 +83,7 @@ describe('collapsedChatRows', () => {
     expect(saveSidebarUI).toHaveBeenLastCalledWith({
       collapsedChatRows: ['f1'],
       activeTab: 'git',
-      hostFilter: 'all',
+      hostFilter: '',
     })
   })
 })
@@ -102,7 +102,7 @@ describe('activeTab', () => {
     expect(saveSidebarUI).toHaveBeenLastCalledWith({
       collapsedChatRows: ['f1'],
       activeTab: 'files',
-      hostFilter: 'all',
+      hostFilter: '',
     })
   })
 
@@ -114,8 +114,8 @@ describe('activeTab', () => {
 
 // The host filter shares the record with the folds and the mode, so every write carries all three.
 describe('hostFilter', () => {
-  it('defaults to every host', () => {
-    expect(getInitialState().hostFilter).toBe('all')
+  it('defaults to no host chosen', () => {
+    expect(getInitialState().hostFilter).toBe('')
   })
 
   it('setHostFilter persists the choice alongside the folds and the mode', () => {
@@ -141,7 +141,8 @@ describe('hostFilter', () => {
   })
 
   it('choosing the host already chosen writes nothing', () => {
-    useSidebarStore.getState().setHostFilter('all')
+    useSidebarStore.setState({ hostFilter: 'h1' })
+    useSidebarStore.getState().setHostFilter('h1')
     expect(saveSidebarUI).not.toHaveBeenCalled()
   })
 })

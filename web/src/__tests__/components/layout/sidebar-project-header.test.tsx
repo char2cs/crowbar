@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
@@ -63,7 +63,7 @@ describe('SidebarProjectHeader', () => {
   })
 })
 
-describe('SidebarProjectHeader host filter', () => {
+describe('SidebarProjectHeader host picker', () => {
   const hostIds = ['local', 'h1', 'h2']
 
   beforeEach(() => {
@@ -71,54 +71,49 @@ describe('SidebarProjectHeader host filter', () => {
     pairRemoteHost('h2', 'Laptop')
   })
 
-  it('has no host control with only the local machine', () => {
-    render(<SidebarProjectHeader hostIds={['local']} shownHost="all" onSelectHost={vi.fn()} />)
+  it('has no host control while there is no host to choose', () => {
+    render(<SidebarProjectHeader hostIds={['local']} onSelectHost={vi.fn()} />)
     expect(screen.queryByRole('button', { name: /^host/i })).toBeNull()
     expect(screen.getAllByRole('button')).toHaveLength(2)
   })
 
-  it('names what it shows on the control, between Settings and the toggle', () => {
-    render(<SidebarProjectHeader hostIds={hostIds} shownHost="all" onSelectHost={vi.fn()} />)
-    const labels = screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'))
-    expect(labels).toEqual(['Settings', 'Host: All hosts', 'Hide sidebar'])
-  })
-
-  it('names the chosen host on the control', () => {
+  it('names the shown host on the control, between Settings and the toggle', () => {
     render(<SidebarProjectHeader hostIds={hostIds} shownHost="h1" onSelectHost={vi.fn()} />)
+    const labels = screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'))
+    expect(labels).toEqual(['Settings', 'Host: Build box', 'Hide sidebar'])
     expect(screen.getByRole('button', { name: 'Host: Build box' })).toHaveTextContent('Build box')
   })
 
-  it('lists all hosts, the local machine and every paired host with its state', async () => {
+  it('says the shown host’s state in words', () => {
+    render(<SidebarProjectHeader hostIds={hostIds} shownHost="h1" onSelectHost={vi.fn()} />)
+    const picker = screen.getByRole('button', { name: 'Host: Build box' })
+    expect(within(picker).getByRole('img')).toHaveAccessibleName('Status unknown')
+  })
+
+  it('lists the local machine and every paired host, marking the shown one', async () => {
     const user = userEvent.setup()
     render(<SidebarProjectHeader hostIds={hostIds} shownHost="h1" onSelectHost={vi.fn()} />)
     await user.click(screen.getByRole('button', { name: 'Host: Build box' }))
-    const items = await screen.findAllByRole('menuitemradio')
+    const items = await screen.findAllByRole('menuitem')
     expect(items.map((i) => i.textContent)).toEqual([
-      'All hosts',
-      expect.stringContaining('Local'),
-      expect.stringContaining('Build box'),
-      expect.stringContaining('Laptop'),
+      'LocalThis machine',
+      'Build boxh1.example:3737Current',
+      'Laptoph2.example:3737',
     ])
-    expect(await screen.findByRole('menuitemradio', { name: /Build box/ })).toBeChecked()
+    expect(screen.getByRole('menuitem', { name: /Build box/ })).toHaveAttribute(
+      'aria-current',
+      'true',
+    )
     expect(screen.getByTestId('host-status-h2')).toBeInTheDocument()
   })
 
-  it('reports the host chosen', async () => {
-    const user = userEvent.setup()
-    const onSelectHost = vi.fn()
-    render(<SidebarProjectHeader hostIds={hostIds} shownHost="all" onSelectHost={onSelectHost} />)
-    await user.click(screen.getByRole('button', { name: 'Host: All hosts' }))
-    await user.click(await screen.findByRole('menuitemradio', { name: /Laptop/ }))
-    expect(onSelectHost).toHaveBeenCalledExactlyOnceWith('h2')
-    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
-  })
-
-  it('reports all hosts chosen', async () => {
+  it('reports the host chosen and closes', async () => {
     const user = userEvent.setup()
     const onSelectHost = vi.fn()
     render(<SidebarProjectHeader hostIds={hostIds} shownHost="h1" onSelectHost={onSelectHost} />)
     await user.click(screen.getByRole('button', { name: 'Host: Build box' }))
-    await user.click(await screen.findByRole('menuitemradio', { name: 'All hosts' }))
-    expect(onSelectHost).toHaveBeenCalledExactlyOnceWith('all')
+    await user.click(await screen.findByRole('menuitem', { name: /Laptop/ }))
+    expect(onSelectHost).toHaveBeenCalledExactlyOnceWith('h2')
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
   })
 })

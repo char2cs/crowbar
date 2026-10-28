@@ -84,8 +84,6 @@ export type NativeSidebar = {
   activeProjectId: string | null
   projects: Project[]
   hosts: { id: string; name: string; state: HostDotState }[]
-  /** The host whose projects `projects` lists, or 'all'; the page offers a choice among `hosts`. */
-  shownHost: string
   /** The active project's rows, flat and parentId-linked, live facts resolved. */
   rows: SidebarRow[]
   /** The rows above that have an agent running, pinned at the top: a view over `rows`. */
@@ -125,6 +123,8 @@ export type NativeRowAction = {
 export type NativeHostsSettings = {
   hosts: { id: string; name: string; endpoint: string; state: HostDotState }[]
   revoking: string[]
+  /** The host whose projects the chat list shows, null while there is no other to choose. */
+  shownHost: string | null
 }
 
 /** The Agents settings page's content: one host's agents, as the main webview holds them. */

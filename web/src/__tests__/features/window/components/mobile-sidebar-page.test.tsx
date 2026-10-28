@@ -1,5 +1,4 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MobileSidebarPage } from '@/features/window/components/mobile-sidebar-page'
 import type { NativeSidebar } from '@/lib/native-chrome'
@@ -26,7 +25,6 @@ const snapshot: NativeSidebar = {
   activeProjectId: 'p1',
   projects: [{ id: 'p1', name: 'Crowbar Seed', hostId: 'h1' } as Project],
   hosts: [{ id: 'h1', name: 'dockerlab', state: 'up' }],
-  shownHost: 'all',
   rows: [
     row({
       id: 'c-repo',
@@ -228,39 +226,17 @@ describe('MobileSidebarPage', () => {
     expect(images.length).toBe(2)
   })
 
-  describe('host filter', () => {
-    const two: NativeSidebar = {
+  // The phone chooses its host in Settings: the list has no host control, however many there are.
+  it('has no host control, even with two hosts', () => {
+    render(<MobileSidebarPage />)
+    push({
       ...snapshot,
       hosts: [
         { id: 'h1', name: 'dockerlab', state: 'up' },
         { id: 'h2', name: 'studio', state: 'down' },
       ],
-    }
-
-    it('has no host control with a single host', () => {
-      render(<MobileSidebarPage />)
-      push(snapshot)
-      expect(screen.queryByTestId('sidebar-host-picker')).toBeNull()
     })
-
-    it('puts the host control over the project switcher, naming what is shown', () => {
-      render(<MobileSidebarPage />)
-      push({ ...two, shownHost: 'h2' })
-      const picker = screen.getByRole('button', { name: 'Host: studio' })
-      const switcher = screen.getByTestId('sidebar-project-switcher')
-      expect(
-        picker.compareDocumentPosition(switcher) & Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBeTruthy()
-    })
-
-    it('sends the host chosen back to the shell', async () => {
-      const user = userEvent.setup()
-      render(<MobileSidebarPage />)
-      push(two)
-      await user.click(screen.getByRole('button', { name: 'Host: All hosts' }))
-      await user.click(await screen.findByRole('menuitemradio', { name: /studio/ }))
-      expect(posted).toHaveBeenCalledWith({ type: 'selectHost', id: 'h2' })
-    })
+    expect(screen.queryByTestId('sidebar-host-picker')).toBeNull()
   })
 
   describe('dragging a row', () => {

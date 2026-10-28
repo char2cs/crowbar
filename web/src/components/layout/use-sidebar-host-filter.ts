@@ -1,6 +1,5 @@
 import { useCallback, useMemo } from 'react'
 import {
-  ALL_HOSTS,
   landingProject,
   projectsOnHost,
   shownHostOf,
@@ -29,7 +28,6 @@ export function useSidebarHostFilter(
   const selectHost = useCallback(
     (hostId: string) => {
       useSidebarStore.getState().setHostFilter(hostId)
-      if (hostId === ALL_HOSTS) return
       if (projects.find((p) => p.id === activeProjectId)?.hostId === hostId) return
       const landing = landingProject(projects, hostId)
       if (landing) onSelectProject(landing.id)
