@@ -45,15 +45,8 @@ vi.mock('@/features/agent/api/agent-chat-reads', async () => {
     getPendingPrompt: vi.fn().mockResolvedValue(null),
   }
 })
-vi.mock('@/features/agent/api/agent-chat-creates', async () => {
-  const actual = await vi.importActual<typeof import('@/features/agent/api/agent-chat-creates')>(
-    '@/features/agent/api/agent-chat-creates',
-  )
-  return {
-    ...actual,
-    createChat,
-  }
-})
+import * as createsApi from '@/features/agent/api/agent-chat-creates'
+vi.spyOn(createsApi, 'createChat').mockImplementation(createChat)
 vi.mock('@/features/agent/lib/spawn-error', () => ({ toastSpawnFailure }))
 vi.mock('@/features/agent/hooks/use-chat-presentation', () => ({ presetChatLandingPresentation }))
 

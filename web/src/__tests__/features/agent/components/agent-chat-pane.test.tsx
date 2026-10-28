@@ -63,16 +63,14 @@ vi.mock('@/features/agent/api/agent-chat-reads', () => ({
   listChatMessages: (...a: unknown[]) => listMessagesFn(...a),
   getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
 }))
-vi.mock('@/features/agent/api/agent-chat-commands', () => ({
-  switchProvider: (...a: unknown[]) => switchProviderFn(...a),
-  resumeChat: (...a: unknown[]) => resumeChatFn(...a),
-  submitAgentPrompt: (...a: unknown[]) => submitPromptFn(...a),
-  switchToTerminal: (...a: unknown[]) => switchToTerminalFn(...a),
-  switchToNative: (...a: unknown[]) => switchToNativeFn(...a),
-}))
-vi.mock('@/features/agent/api/agent-chat-activity', () => ({
-  listChatActivity: (...a: unknown[]) => activityFn(...a),
-}))
+import * as commandsApi from '@/features/agent/api/agent-chat-commands'
+vi.spyOn(commandsApi, 'switchProvider').mockImplementation(switchProviderFn)
+vi.spyOn(commandsApi, 'resumeChat').mockImplementation(resumeChatFn)
+vi.spyOn(commandsApi, 'submitAgentPrompt').mockImplementation(submitPromptFn)
+vi.spyOn(commandsApi, 'switchToTerminal').mockImplementation(switchToTerminalFn)
+vi.spyOn(commandsApi, 'switchToNative').mockImplementation(switchToNativeFn)
+import * as activityApi from '@/features/agent/api/agent-chat-activity'
+vi.spyOn(activityApi, 'listChatActivity').mockImplementation(activityFn)
 
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: (...a: unknown[]) => toastErrorFn(...a) },

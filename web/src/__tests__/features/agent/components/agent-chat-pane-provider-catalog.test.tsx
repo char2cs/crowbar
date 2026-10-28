@@ -49,16 +49,14 @@ vi.mock('@/features/agent/api/agent-chat-reads', () => ({
   listChatMessages: (...a: unknown[]) => listMessagesFn(...a),
   getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
 }))
-vi.mock('@/features/agent/api/agent-chat-commands', () => ({
-  switchProvider: (...a: unknown[]) => switchProviderFn(...a),
-  resumeChat: (...a: unknown[]) => resumeChatFn(...a),
-  submitAgentPrompt: (...a: unknown[]) => submitPromptFn(...a),
-  switchToTerminal: (...a: unknown[]) => switchToTerminalFn(...a),
-  switchToNative: (...a: unknown[]) => switchToNativeFn(...a),
-}))
-vi.mock('@/features/agent/api/agent-providers-api', () => ({
-  listProviders: (...a: unknown[]) => listProvidersFn(...a),
-}))
+import * as commandsApi from '@/features/agent/api/agent-chat-commands'
+vi.spyOn(commandsApi, 'switchProvider').mockImplementation(switchProviderFn)
+vi.spyOn(commandsApi, 'resumeChat').mockImplementation(resumeChatFn)
+vi.spyOn(commandsApi, 'submitAgentPrompt').mockImplementation(submitPromptFn)
+vi.spyOn(commandsApi, 'switchToTerminal').mockImplementation(switchToTerminalFn)
+vi.spyOn(commandsApi, 'switchToNative').mockImplementation(switchToNativeFn)
+import * as providersApi from '@/features/agent/api/agent-providers-api'
+vi.spyOn(providersApi, 'listProviders').mockImplementation(listProvidersFn)
 
 vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
   saveReconnect: (...a: unknown[]) => saveReconnectFn(...a),

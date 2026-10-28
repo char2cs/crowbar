@@ -35,16 +35,11 @@ vi.mock('@/features/agent/api/agent-chat-reads', async (importOriginal) => {
     getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
   }
 })
-vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/features/agent/api/agent-chat-commands')>()
-  return {
-    ...actual,
-    switchProvider: vi.fn(),
-    resumeChat: vi.fn(),
-    submitAgentPrompt: vi.fn(),
-    switchToTerminal: (...a: unknown[]) => switchToTerminalFn(...a),
-  }
-})
+import * as commandsApi from '@/features/agent/api/agent-chat-commands'
+vi.spyOn(commandsApi, 'switchProvider').mockImplementation(vi.fn())
+vi.spyOn(commandsApi, 'resumeChat').mockImplementation(vi.fn())
+vi.spyOn(commandsApi, 'submitAgentPrompt').mockImplementation(vi.fn())
+vi.spyOn(commandsApi, 'switchToTerminal').mockImplementation(switchToTerminalFn)
 
 vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({ saveReconnect: vi.fn() }))
 vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: vi.fn() } }))

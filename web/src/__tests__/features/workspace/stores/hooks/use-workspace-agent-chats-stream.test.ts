@@ -111,12 +111,12 @@ vi.mock('@/features/agent/api/agent-chat-reads', () => ({
   listChatFolders: (...a: unknown[]) => listChatFoldersFn(...a),
   mapChat: (c: unknown) => c,
 }))
-vi.mock('@/features/agent/api/agent-providers-api', () => ({
-  listProviders: (...a: unknown[]) => listProvidersFn(...a),
-}))
-vi.mock('@/features/agent/api/agent-chat-activity', () => ({
-  mapChoice: (c: unknown) => ({ answerable: false, options: [], ...(c as object) }),
-}))
+import * as providersApi from '@/features/agent/api/agent-providers-api'
+vi.spyOn(providersApi, 'listProviders').mockImplementation(listProvidersFn)
+import * as activityApi from '@/features/agent/api/agent-chat-activity'
+vi.spyOn(activityApi, 'mapChoice').mockImplementation((c) =>
+  Object.assign({ answerable: false, options: [] }, c),
+)
 
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: {

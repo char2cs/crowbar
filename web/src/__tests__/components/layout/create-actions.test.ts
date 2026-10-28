@@ -20,10 +20,8 @@ vi.mock('@/features/agent/api/agent-chat-creates', async (importOriginal) => ({
   createChat,
   createChatWithOwnWorktree,
 }))
-vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-commands')>()),
-  deleteChat,
-}))
+import * as commandsApi from '@/features/agent/api/agent-chat-commands'
+vi.spyOn(commandsApi, 'deleteChat').mockImplementation(deleteChat)
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: toastError, success: vi.fn(), info: vi.fn() },
 }))

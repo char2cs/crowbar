@@ -41,13 +41,9 @@ vi.mock('@/features/agent/api/agent-chat-reads', () => ({
   getSlashCatalog: (...args: unknown[]) => slashCatalogFn(...args),
   getChatTelemetry: (...args: unknown[]) => telemetryFn(...args),
 }))
-vi.mock('@/features/agent/api/agent-chat-commands', () => ({
-  submitAgentPrompt: (...args: unknown[]) => submitPromptFn(...args),
-  stopChat: (...args: unknown[]) => stopChatFn(...args),
-}))
-vi.mock('@/features/agent/api/agent-chat-activity', () => ({
-  listChatActivity: (...args: unknown[]) => activityFn(...args),
-}))
+import * as commandsApi from '@/features/agent/api/agent-chat-commands'
+vi.spyOn(commandsApi, 'submitAgentPrompt').mockImplementation(submitPromptFn)
+vi.spyOn(commandsApi, 'stopChat').mockImplementation(stopChatFn)
 
 // The prompt box is a Plate editor, and **jsdom never delivers a keydown to a
 // Slate editable** — measured: window- and document-capture see the event, the
@@ -151,6 +147,8 @@ const providers: AgentProvider[] = [
 
 let initialMessages: AgentChatMessage[]
 const activityFn = vi.fn()
+import * as activityApi from '@/features/agent/api/agent-chat-activity'
+vi.spyOn(activityApi, 'listChatActivity').mockImplementation(activityFn)
 const telemetryFn = vi.fn()
 const emptyActivity = { toolCalls: [], subagents: [], interruptions: [], choices: [] }
 let incrementalMessages: AgentChatMessage[]
