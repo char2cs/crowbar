@@ -3,12 +3,10 @@
 package tests
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -16,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/tests/kit"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
 // unnumberedStubProviderDescriptorYAML streams answers with no index: its
@@ -142,58 +140,45 @@ func TestChatFeed_ResumeSendsOnlyNewerRows(t *testing.T) {
 	assert.Equal(t, head.Epoch, ready.Epoch, "one daemon, one epoch")
 }
 
-// postHookAsync posts a hook as l's CLI from a goroutine, reporting what went wrong.
-func postHookAsync(h *harness, l kit.Launch, base, provider, event, payload string) error {
-	url := fmt.Sprintf("%s%s/chats/runners/%s/hooks/%s/%s", h.url, base, l.RunnerID, provider, event)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, strings.NewReader(payload))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("X-Crowbar-Runner-Token", l.Token)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := h.server.Client().Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s: status %d", event, resp.StatusCode)
-	}
-	return nil
-}
-
-func TestChatFeed_RowsCommittedWhileAttachingAreNeitherLostNorDoubled(t *testing.T) {
+// An attach landing after a row that holds a stream committed, but before the
+// ingress let the stream go, replays the row once and never shows that stream
+// again as a live answer. The row is appended past the ingress to hold that
+// window open.
+func TestChatFeed_AnAttachInsideACommitWindowShowsNoGhostAnswer(t *testing.T) {
 	h := newHarness(t)
-	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
-	imported := importWritableWorkspace(t, h)
-	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
-	postHook(t, h, repoBase(imported), "streamstub", runnerID, "session_start", `{"session_id":"sess-1"}`)
-	postHook(t, h, repoBase(imported), "streamstub", runnerID, "user_prompt", `{"session_id":"sess-1","prompt":"go"}`)
-
-	posted := make(chan error, 1)
-	l := stubLaunch(t, h, "streamstub", runnerID)
-	go func() {
-		for i := range 30 {
-			if err := postHookAsync(h, l, repoBase(imported), "streamstub", "message_delta",
-				delta("msg-one", i, false, fmt.Sprintf("part %d ", i))); err != nil {
-				posted <- err
-				return
-			}
-		}
-		posted <- nil
-	}()
-	conn := dialFeed(t, h, chatID, 0)
-	require.NoError(t, <-posted)
-	_, head := untilReady(t, dialFeed(t, h, chatID, 0))
-
-	var seqs []int64
-	for len(seqs) == 0 || seqs[len(seqs)-1] < head.Seq {
-		if f := nextFeedFrame(t, conn); f.Type == "row" {
-			seqs = append(seqs, f.Row.Seq)
-		}
+	_, chatID, post := newFeedChat(t, h, "unnumberedstub", unnumberedStubProviderDescriptorYAML)
+	post("session_start", `{"session_id":"sess-1"}`)
+	post("user_prompt", `{"session_id":"sess-1","prompt":"go"}`)
+	say := func(id, text string) {
+		post("message_delta", `{"session_id":"sess-1","turn_id":"turn-1","message_id":"`+id+`","delta":"`+text+`"}`)
 	}
+	say("m-1", "hel")
+	say("m-2", "wor")
+	chatLedger := h.app.Repositories.ChatLedger
+	st, err := chatLedger.State(t.Context(), chatID)
+	require.NoError(t, err)
+	turn, ok := st.LastTurn()
+	require.True(t, ok, "precondition: the turn is streaming")
+	whole, err := ledger.NewRow(ledger.KindAssistantText, turn.ID, "",
+		ledger.AssistantText{MessageID: "m-1", Index: ledger.IndexComplete, Text: "hello"})
+	require.NoError(t, err)
+	committed, _, err := chatLedger.Append(t.Context(), chatID, whole)
+	require.NoError(t, err)
 
-	assert.Equal(t, contiguous(1, head.Seq), seqs, "each row once, in order, across the attach")
+	conn := dialFeed(t, h, chatID, 0)
+	seqs, ready := untilReady(t, conn)
+
+	assert.Equal(t, contiguous(1, ready.Seq), seqs, "each row once, in order")
+	assert.Equal(t, committed[0].Seq, ready.Seq, "the replay reaches the row that holds m-1")
+	snap := nextFeedFrame(t, conn)
+	require.Equal(t, "delta", snap.Type)
+	assert.Equal(t, "m-2", snap.Delta.ID, "m-1 is its row's now, not a live answer")
+	assert.True(t, snap.Delta.Replace)
+	assert.Equal(t, "wor", snap.Delta.Text)
+	post("tool_pre", `{"session_id":"sess-1","tool_use_id":"tool-1","tool_name":"Bash"}`)
+	next := nextFeedFrame(t, conn)
+	require.Equal(t, "row", next.Type, "the snapshot is m-2 alone")
+	assert.Equal(t, ready.Seq+1, next.Row.Seq, "live rows continue from the head")
 }
 
 func TestChatFeed_UnnumberedDeltasAreLiveOnly(t *testing.T) {
