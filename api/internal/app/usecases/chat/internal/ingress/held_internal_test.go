@@ -174,13 +174,29 @@ func TestIngress_AHandBackBeforeItsBindLandsInTheBoundSubagent(t *testing.T) {
 	assert.Zero(t, f.unclaimedCount(t))
 }
 
-// A held hand-back nothing binds is still recorded once nothing is starting:
-// its result is never dead-lettered.
+// A held hand-back nothing binds is still recorded once nothing is starting,
+// after a turn end or a runner exit: its result is never dead-lettered.
 func TestIngress_AHeldHandBackNothingBindsIsRecorded(t *testing.T) {
 	f := apiChild(t)
 	f.api(t, handBack("child", "found it"))
 
 	f.api(t, engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, SessionID: "main", TurnID: "pt-1"})
+
+	child, ok := f.state(t).SubagentOf("child")
+	require.True(t, ok)
+	assert.Equal(t, "found it", child.Result)
+	assert.Zero(t, f.unclaimedCount(t))
+}
+
+func TestIngress_AHeldHandBackIsRecordedWhenItsRunnerExits(t *testing.T) {
+	f := apiChild(t)
+	f.api(t, handBack("child", "found it"))
+	_, _, err := f.ledger.Do(t.Context(), testChat, func(st ledger.State) ([]ledger.Row, error) {
+		return ledger.Exit(st, ledger.RunnerExited{RunnerID: "run-1", Reason: "exited"}, ledger.ReasonRunnerExited)
+	})
+	require.NoError(t, err)
+
+	f.r.Retire(testChat, "run-1")
 
 	child, ok := f.state(t).SubagentOf("child")
 	require.True(t, ok)
