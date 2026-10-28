@@ -16,7 +16,7 @@ import (
 func TestStore_DeadLetterCountReadsAnIndex(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	_, err = Open(db, time.Now)
+	_, err = Open(t.Context(), db, time.Now)
 	require.NoError(t, err)
 
 	var plan []struct{ Detail string }

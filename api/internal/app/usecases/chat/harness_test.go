@@ -1122,7 +1122,7 @@ func newFixtureUsing(
 	lineage := tree.NewLineage(agentusecase.NewHomeCorrectedTreeChats(usedChats, nodes, folders))
 	ledgerDB, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	chatLedger, err := ledgerstore.Open(ledgerDB, time.Now)
+	chatLedger, err := ledgerstore.Open(t.Context(), ledgerDB, time.Now)
 	require.NoError(t, err)
 	blobs, err := ledgerstore.OpenBlobs(t.TempDir())
 	require.NoError(t, err)

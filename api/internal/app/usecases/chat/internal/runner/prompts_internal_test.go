@@ -196,7 +196,7 @@ func newTestLedger(tb testing.TB) *ledgerstore.Store {
 	tb.Helper()
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(tb, err)
-	l, err := ledgerstore.Open(db, time.Now)
+	l, err := ledgerstore.Open(tb.Context(), db, time.Now)
 	require.NoError(tb, err)
 	return l
 }

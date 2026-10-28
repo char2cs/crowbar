@@ -151,7 +151,7 @@ func newLedger(t *testing.T) (*ledgerstore.Store, *transcript.Projector) {
 	require.NoError(t, err)
 	var mu sync.Mutex
 	now := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
-	chatLedger, err := ledgerstore.Open(db, func() time.Time {
+	chatLedger, err := ledgerstore.Open(t.Context(), db, func() time.Time {
 		mu.Lock()
 		defer mu.Unlock()
 		now = now.Add(time.Millisecond)

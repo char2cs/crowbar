@@ -13,7 +13,7 @@ import (
 
 func TestStore_DeadLettersKeepThePayloadTruncatedAt64KiB(t *testing.T) {
 	db := openDB(t, filepath.Join(t.TempDir(), ledgerstore.FileName))
-	s, err := ledgerstore.Open(db, clock)
+	s, err := ledgerstore.Open(t.Context(), db, clock)
 	require.NoError(t, err)
 	payload := make([]byte, 70000)
 
@@ -35,7 +35,7 @@ func TestStore_DeadLettersKeepThePayloadTruncatedAt64KiB(t *testing.T) {
 
 // Dead letters are counted by why they were kept, and go with their chat.
 func TestStore_DeadLettersAreCountedByReasonAndForgottenWithTheirChat(t *testing.T) {
-	s, err := ledgerstore.Open(openDB(t, filepath.Join(t.TempDir(), ledgerstore.FileName)), clock)
+	s, err := ledgerstore.Open(t.Context(), openDB(t, filepath.Join(t.TempDir(), ledgerstore.FileName)), clock)
 	require.NoError(t, err)
 	for _, d := range []ledgerstore.DeadLetter{{ChatID: "c1", Reason: "a"}, {ChatID: "c1", Reason: "b"}, {ChatID: "c2", Reason: "a"}} {
 		require.NoError(t, s.DeadLetter(t.Context(), d))
@@ -57,7 +57,7 @@ func TestStore_DeadLettersOlderThanTheRetentionArePurgedAtOpen(t *testing.T) {
 	db := openDB(t, filepath.Join(t.TempDir(), ledgerstore.FileName))
 	now := fixedNow
 	at := func() time.Time { return now }
-	s, err := ledgerstore.Open(db, at)
+	s, err := ledgerstore.Open(t.Context(), db, at)
 	require.NoError(t, err)
 	for _, d := range []ledgerstore.DeadLetter{
 		{Reason: "unknown_runner"}, {ChatID: "c1", Reason: "foreign_conversation"},
@@ -68,7 +68,7 @@ func TestStore_DeadLettersOlderThanTheRetentionArePurgedAtOpen(t *testing.T) {
 	require.NoError(t, s.DeadLetter(t.Context(), ledgerstore.DeadLetter{Reason: "unknown_runner"}))
 
 	now = fixedNow.Add(ledgerstore.DeadLetterRetention + time.Second)
-	s, err = ledgerstore.Open(db, at)
+	s, err = ledgerstore.Open(t.Context(), db, at)
 	require.NoError(t, err)
 
 	count, err := s.DeadLetterCount(t.Context(), "unknown_runner", "foreign_conversation")
@@ -80,14 +80,14 @@ func TestStore_DeadLettersOlderThanTheRetentionArePurgedAtOpen(t *testing.T) {
 // opens, since the ledger matters more than its dead letters.
 func TestStore_AFailedDeadLetterPurgeStillOpens(t *testing.T) {
 	db := openDB(t, filepath.Join(t.TempDir(), ledgerstore.FileName))
-	s, err := ledgerstore.Open(db, clock)
+	s, err := ledgerstore.Open(t.Context(), db, clock)
 	require.NoError(t, err)
 	require.NoError(t, s.DeadLetter(t.Context(), ledgerstore.DeadLetter{Reason: "unknown_runner"}))
 	require.NoError(t, db.Exec(`CREATE TRIGGER keep_letters BEFORE DELETE ON ledger_dead_letters
 		BEGIN SELECT RAISE(ABORT, 'kept'); END`).Error)
 	later := func() time.Time { return fixedNow.Add(ledgerstore.DeadLetterRetention + time.Second) }
 
-	s, err = ledgerstore.Open(db, later)
+	s, err = ledgerstore.Open(t.Context(), db, later)
 
 	require.NoError(t, err)
 	count, err := s.DeadLetterCount(t.Context(), "unknown_runner")

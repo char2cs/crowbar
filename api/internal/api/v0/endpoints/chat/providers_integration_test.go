@@ -42,7 +42,7 @@ func newProviderServer(
 	t.Cleanup(agentsEngine.Close)
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	chatLedger, err := ledgerstore.Open(db, time.Now)
+	chatLedger, err := ledgerstore.Open(t.Context(), db, time.Now)
 	require.NoError(t, err)
 	uc := agentusecase.New(agentusecase.Deps{
 		Agents:        agentsEngine,

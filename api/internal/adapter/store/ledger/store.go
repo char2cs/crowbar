@@ -49,15 +49,15 @@ type chatWriter struct {
 // Open creates the ledger tables on db if they are missing, and purges the
 // dead letters older than their retention: a daemon boot is the store's one
 // maintenance point.
-func Open(db *gorm.DB, clock func() time.Time) (*Store, error) {
+func Open(ctx context.Context, db *gorm.DB, clock func() time.Time) (*Store, error) {
 	for _, ddl := range schema {
 		if err := db.Exec(ddl).Error; err != nil {
 			return nil, fmt.Errorf("ledger: open: create schema: %w", err)
 		}
 	}
 	s := &Store{db: db, clock: clock, writers: map[string]*chatWriter{}}
-	if err := s.purgeDeadLetters(context.Background()); err != nil {
-		slog.Warn("ledger: open: purge dead letters (best-effort, the next open retries)", "err", err)
+	if err := s.purgeDeadLetters(ctx); err != nil {
+		slog.WarnContext(ctx, "ledger: open: purge dead letters (best-effort, the next open retries)", "err", err)
 	}
 	return s, nil
 }

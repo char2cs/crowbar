@@ -39,7 +39,7 @@ func closeDB(t *testing.T, db *gorm.DB) {
 
 func newStore(t *testing.T) *ledgerstore.Store {
 	t.Helper()
-	s, err := ledgerstore.Open(openDB(t, filepath.Join(t.TempDir(), ledgerstore.FileName)), clock)
+	s, err := ledgerstore.Open(t.Context(), openDB(t, filepath.Join(t.TempDir(), ledgerstore.FileName)), clock)
 	require.NoError(t, err)
 	return s
 }
@@ -241,7 +241,7 @@ func TestStore_StateSurvivesReopenWithManyRows(t *testing.T) {
 	ctx := context.Background()
 	db, err := storesqlite.OpenDB(path)
 	require.NoError(t, err)
-	s, err := ledgerstore.Open(db, clock)
+	s, err := ledgerstore.Open(t.Context(), db, clock)
 	require.NoError(t, err)
 
 	batch := make([]ledger.Row, 0, 100)
@@ -264,7 +264,7 @@ func TestStore_StateSurvivesReopenWithManyRows(t *testing.T) {
 	require.Equal(t, int64(5001), before.Head())
 	closeDB(t, db)
 
-	reopened, err := ledgerstore.Open(openDB(t, path), clock)
+	reopened, err := ledgerstore.Open(t.Context(), openDB(t, path), clock)
 	require.NoError(t, err)
 	after, err := reopened.State(ctx, "c1")
 	require.NoError(t, err)
@@ -409,7 +409,7 @@ func TestStore_WatchIsWokenByTheNextCommitToThatChatOnly(t *testing.T) {
 func TestStore_ReportsAClosedDatabase(t *testing.T) {
 	db, err := storesqlite.OpenDB(filepath.Join(t.TempDir(), ledgerstore.FileName))
 	require.NoError(t, err)
-	s, err := ledgerstore.Open(db, clock)
+	s, err := ledgerstore.Open(t.Context(), db, clock)
 	require.NoError(t, err)
 	ctx := context.Background()
 	_, _, err = s.Append(ctx, "warm", prompt(t, "r1", "a"))
@@ -431,7 +431,7 @@ func TestStore_ReportsAClosedDatabase(t *testing.T) {
 	require.NoError(t, err, "a failed write leaves the cached state as it was")
 	assert.Equal(t, int64(1), st.Head())
 
-	_, err = ledgerstore.Open(db, clock)
+	_, err = ledgerstore.Open(t.Context(), db, clock)
 	require.Error(t, err)
 }
 

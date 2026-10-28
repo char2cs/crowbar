@@ -30,7 +30,7 @@ func openAsk(t *testing.T) *ledgerstore.Store {
 	t.Helper()
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	l, err := ledgerstore.Open(db, time.Now)
+	l, err := ledgerstore.Open(t.Context(), db, time.Now)
 	require.NoError(t, err)
 	asked, err := ledger.NewRow(ledger.KindAsk, "T-1", "", ledger.Ask{AskID: "ask-1", Event: "permission"})
 	require.NoError(t, err)

@@ -177,7 +177,7 @@ func New(
 		return nil, fmt.Errorf("repositories: node event store: %w", err)
 	}
 	c.Node = nodeStore
-	if c.ChatLedger, err = ledgerstore.Open(adapters.ChatLedgerDB(), time.Now); err != nil {
+	if c.ChatLedger, err = ledgerstore.Open(ctx, adapters.ChatLedgerDB(), time.Now); err != nil {
 		return nil, fmt.Errorf("repositories: chat ledger: %w", err)
 	}
 	// Tool payloads live beside the state directory, swept by its retention.

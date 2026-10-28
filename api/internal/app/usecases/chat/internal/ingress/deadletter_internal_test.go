@@ -30,7 +30,7 @@ func TestDeadLetter_RecordsTheReasonAndTheRunner(t *testing.T) {
 func TestRefusals_CountsTheRefusedNotTheAcknowledged(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	store, err := ledgerstore.Open(db, time.Now)
+	store, err := ledgerstore.Open(t.Context(), db, time.Now)
 	require.NoError(t, err)
 	in := New(Deps{Ledger: store})
 	for _, reason := range []string{reasonForeign, reasonNotRecorded, reasonUnknownRunner, reasonWriteFailed} {

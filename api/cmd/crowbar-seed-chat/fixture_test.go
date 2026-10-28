@@ -32,7 +32,7 @@ func TestSeedChat_WritesTheRequestedTurnsAndToolCalls(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "seed-test-chat", chatID)
 
-	l, err := ledgerstore.Open(adapters.ChatLedgerDB(), time.Now)
+	l, err := ledgerstore.Open(t.Context(), adapters.ChatLedgerDB(), time.Now)
 	require.NoError(t, err)
 	rows, err := l.Read(ctx, chatID, 0, 0)
 	require.NoError(t, err)

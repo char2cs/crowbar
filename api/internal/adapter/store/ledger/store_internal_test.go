@@ -16,7 +16,7 @@ import (
 func TestStore_ViewHoldsTheChatsWriter(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	s, err := Open(db, time.Now)
+	s, err := Open(t.Context(), db, time.Now)
 	require.NoError(t, err)
 
 	require.NoError(t, s.View(t.Context(), "c1", func(ledger.State) error {

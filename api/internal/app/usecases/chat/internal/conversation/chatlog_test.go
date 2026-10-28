@@ -67,7 +67,7 @@ func (l askedLock) Lock(ctx context.Context, chatID string) (func(), error) {
 func TestAppendNote_LandsAfterTheHookHoldingTheChat(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	l, err := ledgerstore.Open(db, time.Now)
+	l, err := ledgerstore.Open(t.Context(), db, time.Now)
 	require.NoError(t, err)
 	locks, asking := ingress.NewLocks(), make(chan string, 1)
 	c := &Conversations{writes: ingress.NewWriter(l, askedLock{Locks: locks, asked: asking})}

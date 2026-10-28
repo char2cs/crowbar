@@ -107,7 +107,7 @@ func seedChat(ctx context.Context, adapters *adapter.Container, opts seedOptions
 		now = now.Add(100 * time.Millisecond)
 		return now
 	}
-	chatLedger, err := ledgerstore.Open(adapters.ChatLedgerDB(), clock)
+	chatLedger, err := ledgerstore.Open(ctx, adapters.ChatLedgerDB(), clock)
 	if err != nil {
 		return "", fmt.Errorf("crowbar-seed-chat: ledger: %w", err)
 	}

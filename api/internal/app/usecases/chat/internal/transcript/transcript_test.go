@@ -36,7 +36,7 @@ func newBook(t *testing.T) *book {
 	require.NoError(t, err)
 	var mu sync.Mutex
 	now := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
-	store, err := ledgerstore.Open(db, func() time.Time {
+	store, err := ledgerstore.Open(t.Context(), db, func() time.Time {
 		mu.Lock()
 		defer mu.Unlock()
 		now = now.Add(time.Second)
@@ -299,7 +299,7 @@ func cachedHistory(tb testing.TB, n, next int) (*transcript.Projector, []ledger.
 	tb.Helper()
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(tb, err)
-	store, err := ledgerstore.Open(db, time.Now)
+	store, err := ledgerstore.Open(tb.Context(), db, time.Now)
 	require.NoError(tb, err)
 	rows := make([]ledger.Row, 0, n+6)
 	for turn := 0; len(rows) < n; turn++ {

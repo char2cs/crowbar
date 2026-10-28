@@ -110,7 +110,7 @@ func newWiringFixture(t *testing.T) *Usecase {
 	t.Cleanup(agentsEngine.Close)
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	chatLedger, err := ledgerstore.Open(db, time.Now)
+	chatLedger, err := ledgerstore.Open(t.Context(), db, time.Now)
 	require.NoError(t, err)
 	blobs, err := ledgerstore.OpenBlobs(t.TempDir())
 	require.NoError(t, err)

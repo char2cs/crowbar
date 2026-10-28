@@ -179,7 +179,7 @@ func newRecorderFixture(t *testing.T, provider string) *recorderFixture {
 	home := t.TempDir()
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	store, err := ledgerstore.Open(db, time.Now)
+	store, err := ledgerstore.Open(t.Context(), db, time.Now)
 	require.NoError(t, err)
 	blobDir := t.TempDir()
 	blobs, err := ledgerstore.OpenBlobs(blobDir)

@@ -245,7 +245,7 @@ func appendTurn(t *testing.T, l *ledgerstore.Store, chatID, runnerID string) {
 func TestReconcileRunnersOnBoot_OneChatsFailureLeavesTheOthersReconciled(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	l, err := ledgerstore.Open(db, time.Now)
+	l, err := ledgerstore.Open(t.Context(), db, time.Now)
 	require.NoError(t, err)
 	require.NoError(t, db.Exec(`CREATE TRIGGER refuse_exit BEFORE INSERT ON chat_ledger
 		WHEN NEW.kind = 'runner_exited' AND NEW.chat_id = 'chat-a' BEGIN SELECT RAISE(ABORT, 'boom'); END`).Error)

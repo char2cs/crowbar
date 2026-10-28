@@ -69,7 +69,7 @@ func capture(match func(slog.Record) bool) (*slog.Logger, *[]slog.Record) {
 func held(t *testing.T, h home.Home, chatID string) []ledger.Row {
 	t.Helper()
 	var rows []ledger.Row
-	require.NoError(t, withStore(h, func(s *ledgerstore.Store) error {
+	require.NoError(t, withStore(t.Context(), h, func(s *ledgerstore.Store) error {
 		var err error
 		rows, err = s.Read(context.Background(), chatID, 0, 0)
 		return err
@@ -79,7 +79,7 @@ func held(t *testing.T, h home.Home, chatID string) []ledger.Row {
 
 func appendTo(t *testing.T, h home.Home, chatID string, rows ...ledger.Row) {
 	t.Helper()
-	require.NoError(t, withStore(h, func(s *ledgerstore.Store) error {
+	require.NoError(t, withStore(t.Context(), h, func(s *ledgerstore.Store) error {
 		_, _, err := s.Append(context.Background(), chatID, rows...)
 		return err
 	}))
@@ -112,7 +112,7 @@ func TestApply_AnImportAStoppedAttemptCommittedIsConverted(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA())
 	want := convert(t, chatA(), nobody)
-	require.NoError(t, withStore(h, func(s *ledgerstore.Store) error {
+	require.NoError(t, withStore(t.Context(), h, func(s *ledgerstore.Store) error {
 		return s.Import(context.Background(), "chat-a", want.Rows)
 	}))
 

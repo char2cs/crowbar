@@ -93,7 +93,7 @@ func apply(ctx context.Context, env migrate.Env, cp *migrate.Checkpoints, conver
 		return cmp.Or(oldest(a).Compare(oldest(b)), cmp.Compare(a.ChatID, b.ChatID))
 	})
 	var counts migrate.Counts
-	err = withStore(env.Home, func(store *ledgerstore.Store) error {
+	err = withStore(ctx, env.Home, func(store *ledgerstore.Store) error {
 		var err error
 		counts, err = convertAll(ctx, env.Log, store, cp, chats, converted)
 		return err
@@ -182,7 +182,7 @@ func verify(ctx context.Context, h home.Home, converted map[string]map[string]bo
 	if len(converted) == 0 {
 		return nil
 	}
-	return withStore(h, func(store *ledgerstore.Store) error {
+	return withStore(ctx, h, func(store *ledgerstore.Store) error {
 		for _, chatID := range slices.Sorted(maps.Keys(converted)) {
 			st, err := store.State(ctx, chatID)
 			if err != nil {
@@ -197,7 +197,7 @@ func verify(ctx context.Context, h home.Home, converted map[string]map[string]bo
 }
 
 // withStore runs fn over the home's chat ledger, closed before it returns.
-func withStore(h home.Home, fn func(*ledgerstore.Store) error) error {
+func withStore(ctx context.Context, h home.Home, fn func(*ledgerstore.Store) error) error {
 	if err := os.MkdirAll(h.Store(), 0o700); err != nil {
 		return fmt.Errorf("chatledger: open the ledger: %w", err)
 	}
@@ -209,7 +209,7 @@ func withStore(h home.Home, fn func(*ledgerstore.Store) error) error {
 	if err != nil {
 		return fmt.Errorf("chatledger: open the ledger: %w", err)
 	}
-	store, err := ledgerstore.Open(db, time.Now)
+	store, err := ledgerstore.Open(ctx, db, time.Now)
 	if err == nil {
 		err = fn(store)
 	}
