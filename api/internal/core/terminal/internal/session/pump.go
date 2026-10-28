@@ -22,6 +22,11 @@ const foregroundSampleInterval = 250 * time.Millisecond
 // deltas emit immediately; bursts coalesce to at most one frame per interval.
 const minEmitInterval = 8 * time.Millisecond
 
+// resizeSettle is how long a resize waits for the next one before its keyframe goes out.
+// It spans three dropped frames of a 60 Hz window drag, while a reloaded client that
+// re-attached at the old width is stale for only this long.
+const resizeSettle = 50 * time.Millisecond
+
 // pumpStep is the production critical section for one PTY output chunk. Under s.mu it
 // writes the chunk into the model, lets the frame clock emit the model-derived frame, and
 // then — last, debounced — samples the foreground process group so neither the ioctl nor
@@ -98,18 +103,32 @@ func (s *Session) resetModelLocked() {
 // immediately (so interactive echo is never batched); otherwise it arms — or
 // leaves armed — a single trailing timer that fires exactly at the interval
 // boundary, coalescing an arbitrarily long burst of chunks into one frame per
-// interval. Caller holds s.mu. Returns whether it emitted synchronously
-// (false means a trailing timer now owns the pending delta).
-func (s *Session) scheduleEmitLocked() bool {
+// interval. An armed timer owns the pending frame, so output during a resize's
+// settle window joins it. Caller holds s.mu.
+func (s *Session) scheduleEmitLocked() {
+	if s.emitTimer != nil {
+		return // trailing emit already armed
+	}
 	if s.now().Sub(s.lastEmitAt) >= minEmitInterval {
 		s.lastEmitAt = s.now()
 		s.emitFrameLocked()
-		return true
+		return
 	}
-	if s.emitTimer != nil {
-		return false // trailing emit already armed
-	}
-	delay := minEmitInterval - s.now().Sub(s.lastEmitAt)
+	s.armEmitTimerLocked(minEmitInterval - s.now().Sub(s.lastEmitAt))
+}
+
+// settleEmitLocked (re)arms the trailing emit resizeSettle from now, so a burst of resizes
+// sends one keyframe after the last of them. Caller holds s.mu.
+func (s *Session) settleEmitLocked() {
+	s.stopEmitTimerLocked()
+	s.armEmitTimerLocked(resizeSettle)
+}
+
+// armEmitTimerLocked arms the single trailing emit timer to fire after delay. Caller holds s.mu
+// and has checked that no timer is armed.
+func (s *Session) armEmitTimerLocked(
+	delay time.Duration,
+) {
 	// Capture the timer's own identity so a stale, lock-blocked callback can
 	// only clear ITS OWN handle: if an explicit stop (stopEmitTimerLocked) had
 	// already nil'd s.emitTimer and a NEWER timer t2 was armed before this
@@ -142,7 +161,6 @@ func (s *Session) scheduleEmitLocked() bool {
 	// under the lock; the callback only ever fires after AfterFunc returns
 	// with delay > 0, but this ordering removes any reliance on that timing.
 	s.emitTimer = t
-	return false
 }
 
 // stopEmitTimerLocked cancels an armed trailing emit timer, if any, without

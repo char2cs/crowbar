@@ -261,9 +261,8 @@ func (e *terminalEngine) readPump(
 
 		switch msg.Type {
 		case "resize":
-			// Resize also invalidates the diff base, so the frame the app's SIGWINCH
-			// redraw produces is a keyframe. The model reflows as the client's xterm
-			// does, so the keyframe matches what the client already shows.
+			// Resize sends every client a keyframe at the new size. The model reflows as
+			// the client's xterm does, so it matches what a live client already shows.
 			if err := s.Resize(msg.Cols, msg.Rows); err != nil {
 				slog.Warn("terminal: input: resize dropped", "session", s.ID(), "err", err)
 			}

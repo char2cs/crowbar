@@ -172,13 +172,20 @@ func (s *Session) Resize(
 	if err := pty.Setsize(s.ptmx, &pty.Winsize{Cols: cols, Rows: rows}); err != nil {
 		return fmt.Errorf("session: resize: %w", err)
 	}
+	if int(cols) == s.cols && int(rows) == s.rows {
+		return nil
+	}
 	s.cols, s.rows = int(cols), int(rows)
 	s.mutateModelLocked(func() { s.model.Resize(int(cols), int(rows)) })
-	// A resize can never be expressed as an absolute-addressed diff (the grid
-	// dimensions themselves changed); force the next frame to be a full keyframe.
+	// A resize can never be expressed as an absolute-addressed diff. The frame clock sends the
+	// keyframe once the resizes settle, since an app idle on SIGWINCH prints nothing; with no
+	// client, the next attach primes the invalidated emitter.
 	s.emitter.Invalidate()
 	s.dirty = true
 	s.lastBlob = nil
+	if len(s.clients) > 0 {
+		s.settleEmitLocked()
+	}
 	return nil
 }
 

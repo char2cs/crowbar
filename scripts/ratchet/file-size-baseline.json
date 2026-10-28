@@ -60,7 +60,7 @@
   "api/internal/app/usecases/worktree/worktree_test.go": 711,
   "api/internal/core/paths/worktreepath/worktreepath.go": 508,
   "api/internal/core/terminal/internal/model/vt_serializer_test.go": 616,
-  "api/internal/core/terminal/internal/session/session_modeldriven_test.go": 589,
+  "api/internal/core/terminal/internal/session/session_modeldriven_test.go": 546,
   "api/internal/core/terminal/internal/session/session_test.go": 818,
   "api/internal/core/terminal/lifecycle.go": 753,
   "api/internal/core/terminal/terminal_test.go": 1165,
