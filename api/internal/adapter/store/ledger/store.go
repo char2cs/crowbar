@@ -45,14 +45,20 @@ type chatWriter struct {
 	changed chan struct{}
 }
 
-// Open creates the ledger tables on db if they are missing.
+// Open creates the ledger tables on db if they are missing, and purges the
+// dead letters older than their retention: a daemon boot is the store's one
+// maintenance point.
 func Open(db *gorm.DB, clock func() time.Time) (*Store, error) {
 	for _, ddl := range schema {
 		if err := db.Exec(ddl).Error; err != nil {
 			return nil, fmt.Errorf("ledger: open: create schema: %w", err)
 		}
 	}
-	return &Store{db: db, clock: clock, writers: map[string]*chatWriter{}}, nil
+	s := &Store{db: db, clock: clock, writers: map[string]*chatWriter{}}
+	if err := s.purgeDeadLetters(context.Background()); err != nil {
+		return nil, fmt.Errorf("ledger: open: %w", err)
+	}
+	return s, nil
 }
 
 // Subscribe adds fn to the subscribers every later commit is published to.
@@ -289,44 +295,4 @@ func claimSession(tx *gorm.DB, chatID string, r ledger.Row) error {
 		return fmt.Errorf("%s %s: %w", body.Provider, body.SessionID, ErrSessionClaimed)
 	}
 	return nil
-}
-
-// maxDeadLetterPayload bounds what one dead letter keeps of its hook's payload.
-const maxDeadLetterPayload = 64 << 10
-
-// DeadLetter is a hook the ingress could not place: who sent it, what it was,
-// why it was refused, and its payload.
-type DeadLetter struct {
-	ChatID, RunnerID, Provider, Event, Reason string
-	Payload                                   []byte
-}
-
-// DeadLetter records d, keeping at most 64 KiB of its payload.
-func (s *Store) DeadLetter(ctx context.Context, d DeadLetter) error {
-	payload, truncated := d.Payload, false
-	if len(payload) > maxDeadLetterPayload {
-		payload, truncated = payload[:maxDeadLetterPayload], true
-	}
-	if payload == nil {
-		payload = []byte{}
-	}
-	err := s.db.WithContext(ctx).Exec(
-		`INSERT INTO ledger_dead_letters (at, chat_id, runner_id, provider, event, reason, payload, truncated)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		s.clock().UnixMicro(), d.ChatID, d.RunnerID, d.Provider, d.Event, d.Reason, payload, truncated,
-	).Error
-	if err != nil {
-		return fmt.Errorf("ledger: dead letter: %w", err)
-	}
-	return nil
-}
-
-// DeadLetterCount is how many dead letters were kept for one of reasons.
-func (s *Store) DeadLetterCount(ctx context.Context, reasons ...string) (int, error) {
-	var n int
-	err := s.db.WithContext(ctx).Raw(`SELECT count(*) FROM ledger_dead_letters WHERE reason IN ?`, reasons).Scan(&n).Error
-	if err != nil {
-		return 0, fmt.Errorf("ledger: dead letter count: %w", err)
-	}
-	return n, nil
 }

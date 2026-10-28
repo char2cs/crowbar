@@ -435,46 +435,6 @@ func TestStore_ReportsAClosedDatabase(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestStore_DeadLettersKeepThePayloadTruncatedAt64KiB(t *testing.T) {
-	db := openDB(t, filepath.Join(t.TempDir(), ledgerstore.FileName))
-	s, err := ledgerstore.Open(db, clock)
-	require.NoError(t, err)
-	payload := make([]byte, 70000)
-
-	require.NoError(t, s.DeadLetter(t.Context(), ledgerstore.DeadLetter{
-		RunnerID: "r1", Provider: "p", Event: "tool_pre", Reason: "unknown_runner", Payload: payload,
-	}))
-
-	var stored struct {
-		Length    int
-		Truncated bool
-		ChatID    string
-	}
-	require.NoError(t, db.Raw(`SELECT length(payload) AS length, truncated, chat_id FROM ledger_dead_letters`).
-		Scan(&stored).Error)
-	assert.Equal(t, 65536, stored.Length)
-	assert.True(t, stored.Truncated)
-	assert.Empty(t, stored.ChatID, "a runner Crowbar does not know names no chat")
-}
-
-// Dead letters are counted by why they were kept, and go with their chat.
-func TestStore_DeadLettersAreCountedByReasonAndForgottenWithTheirChat(t *testing.T) {
-	s, err := ledgerstore.Open(openDB(t, filepath.Join(t.TempDir(), ledgerstore.FileName)), clock)
-	require.NoError(t, err)
-	for _, d := range []ledgerstore.DeadLetter{{ChatID: "c1", Reason: "a"}, {ChatID: "c1", Reason: "b"}, {ChatID: "c2", Reason: "a"}} {
-		require.NoError(t, s.DeadLetter(t.Context(), d))
-	}
-
-	require.NoError(t, s.Forget(t.Context(), "c1"))
-
-	count, err := s.DeadLetterCount(t.Context(), "a", "b")
-	require.NoError(t, err)
-	assert.Equal(t, 1, count, "c2's alone are left")
-	count, err = s.DeadLetterCount(t.Context(), "b")
-	require.NoError(t, err)
-	assert.Zero(t, count)
-}
-
 func TestStore_ViewReportsItsFunctionsError(t *testing.T) {
 	boom := errors.New("boom")
 	assert.ErrorIs(t, newStore(t).View(context.Background(), "c1", func(ledger.State) error { return boom }), boom)
