@@ -5,6 +5,9 @@ import {
 } from '@/lib/persistence/hydrate'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { seedProjectList } from '@/lib/store/projects'
+import { hydrateHomeTree } from '@/lib/store/home-tree'
+import { getVisibleProjectIds } from '@/lib/store/project-visibility'
+import { hydrateHomeWorkspace } from '@/features/workspace/lib/home-workspace-resolver'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { dataOf } from '@/lib/loadable'
 import { prefetchVisibleChats } from '@/features/agent/lib/prefetch-visible-chats'
@@ -61,6 +64,7 @@ export async function hydrateCriticalStores(): Promise<void> {
   // Layout hydration to the first transcript row shown; AgentTranscript closes it.
   if (chatSurface) markStart('chat:first-row')
   await remoteHosts
+  await hydrateHomeState()
   // The one network step, deliberately not awaited: members stay unplaced until it answers.
   void placeRestoredChatMembers()
   await useWorkspaceListStore.getState().fetch()
@@ -79,6 +83,13 @@ export async function hydrateCriticalStores(): Promise<void> {
 function prepareRemoteHosts(): Promise<unknown> {
   if (!hasPairedRemote(useHostConfigStore.getState())) return seedProjectList()
   return Promise.all([hostsRegistered(), seedProjectList()])
+}
+
+/** Every known project's last-answered home workspace and tree, so project home and its
+ *  restored chat panes draw from them while the host is unreachable. */
+async function hydrateHomeState(): Promise<void> {
+  const projectIds = [...getVisibleProjectIds()]
+  await Promise.all(projectIds.flatMap((id) => [hydrateHomeWorkspace(id), hydrateHomeTree(id)]))
 }
 
 function showsChat(): boolean {

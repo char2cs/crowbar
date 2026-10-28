@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { fetchHomeWorkspace } from '@/lib/api'
 import { isHostResolved, subscribeHostResolution } from '@/lib/host-resolve'
 import { hostUnavailability } from '@/lib/host-unavailability'
+import { loadCache, saveCache } from '@/lib/persistence/cache-store'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
 
 /**
@@ -44,7 +45,18 @@ export interface HomeWorkspaceState {
    */
   localPath: string | null
   error: boolean
+  /** Held from IndexedDB, not yet confirmed by GET /home: shown while the host is unreachable. */
+  stale: boolean
 }
+
+/** What survives a restart: the home workspace as `GET /home` last answered it. */
+interface CachedHomeWorkspace {
+  wsId: string
+  owningChatId: string | null
+  localPath: string | null
+}
+
+const cacheKey = (projectId: string) => `home-workspace:${projectId}`
 
 // Stable sentinel so useSyncExternalStore's snapshot never changes identity
 // while nothing has resolved yet (a fresh `{}` literal every call would loop).
@@ -53,6 +65,7 @@ const UNRESOLVED: HomeWorkspaceState = {
   owningChatId: null,
   localPath: null,
   error: false,
+  stale: false,
 }
 
 const states = new Map<string, HomeWorkspaceState>()
@@ -83,17 +96,18 @@ function subscribe(listener: () => void): () => void {
  */
 export function ensureHomeWorkspaceResolved(projectId: string): void {
   const current = states.get(projectId)
-  if ((current?.wsId && current.owningChatId) || inflight.has(projectId)) return
+  if ((current?.wsId && current.owningChatId && !current.stale) || inflight.has(projectId)) return
   if (!isHostResolved({ projectId })) return awaitHost(projectId)
   inflight.add(projectId)
   fetchHomeWorkspace(projectId)
     .then((ws) => {
-      states.set(projectId, {
+      const resolved = {
         wsId: ws.id,
         owningChatId: ws.owningChatId || null,
         localPath: ws.localPath || null,
-        error: false,
-      })
+      }
+      states.set(projectId, { ...resolved, error: false, stale: false })
+      void saveCache<CachedHomeWorkspace>('workspaces-data', cacheKey(projectId), resolved)
       // Recorded here, outside any render, before anyone hears the id: a scope write from a
       // render body re-renders whatever already subscribes to it, mid-render.
       recordWorkspaceScope({
@@ -106,7 +120,7 @@ export function ensureHomeWorkspaceResolved(projectId: string): void {
     .catch(() => {
       // A re-read for the owner keeps the workspace it already knows.
       if (states.get(projectId)?.wsId) return
-      states.set(projectId, { wsId: null, owningChatId: null, localPath: null, error: true })
+      states.set(projectId, { ...UNRESOLVED, error: true })
     })
     .finally(() => {
       inflight.delete(projectId)
@@ -133,7 +147,21 @@ function awaitHost(projectId: string): void {
 function failPending(projectId: string): void {
   const current = states.get(projectId)
   if (current?.wsId || current?.error) return
-  states.set(projectId, { wsId: null, owningChatId: null, localPath: null, error: true })
+  states.set(projectId, { ...UNRESOLVED, error: true })
+  notify()
+}
+
+/**
+ * Holds the cached home workspace of `projectId` and records its scope, so a restored home
+ * pane resolves its host while GET /home is unreachable. The network stays the authority:
+ * the state is `stale` until it answers, and an answer already in is never overwritten.
+ */
+export async function hydrateHomeWorkspace(projectId: string): Promise<void> {
+  const cached = await loadCache<CachedHomeWorkspace>('workspaces-data', cacheKey(projectId))
+  if (!cached || states.get(projectId)?.wsId) return
+  const { wsId, owningChatId, localPath } = cached.data
+  states.set(projectId, { wsId, owningChatId, localPath, error: false, stale: true })
+  recordWorkspaceScope({ projectId, repoId: '', wsId, owningChatId: owningChatId ?? undefined })
   notify()
 }
 

@@ -42,14 +42,6 @@ const chat: ChatDTO = {
   title: 'Fix the thing',
 }
 
-/** Resolves once both reads have settled — a real signal off the mocks. */
-function whenBothSettled(): Promise<void> {
-  return Promise.allSettled([
-    fetchHomeChats.mock.results[0]?.value,
-    fetchHomeFolders.mock.results[0]?.value,
-  ]).then(() => undefined)
-}
-
 beforeEach(() => {
   subscribers.clear()
   fetchHomeChats.mockReset()
@@ -63,11 +55,9 @@ describe('subscribeHomeTree with one half failing', () => {
     fetchHomeChats.mockResolvedValue([chat])
     fetchHomeFolders.mockRejectedValue(new Error('500 folders'))
     const dispose = subscribeHomeTree('p1')
-    await whenBothSettled()
-    // One more turn for the store write that follows the reads.
-    await Promise.resolve()
-
-    expect(useHomeTreeStore.getState().trees['p1']?.chats.map((c) => c.id)).toEqual(['c1'])
+    await vi.waitFor(() => {
+      expect(useHomeTreeStore.getState().trees['p1']?.chats.map((c) => c.id)).toEqual(['c1'])
+    })
     dispose()
   })
 })
