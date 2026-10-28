@@ -65,7 +65,8 @@ func TestScripted_ASecondMessageContinuesTheSession(t *testing.T) {
 
 			sessions := map[string]bool{}
 			for _, e := range r.logged("prompt") {
-				sessions[e["session"].(string)] = true
+				session, _ := e["session"].(string)
+				sessions[session] = true
 			}
 			assert.Len(t, sessions, 1, "both prompts reached one vendor session")
 			assert.Empty(t, r.logged("refused"))

@@ -115,7 +115,7 @@ func TestScripted_SlowHook(t *testing.T) {
 			require.NoError(t, r.send(chatID, "take your time"))
 			r.eventually(func() bool { return r.working(chatID) }, "the turn never opened")
 
-			assert.ErrorIs(t, r.send(chatID, "are you done?"), agentusecase.ErrPromptBusy)
+			require.ErrorIs(t, r.send(chatID, "are you done?"), agentusecase.ErrPromptBusy)
 
 			r.eventually(func() bool {
 				return slices.Contains(r.said(chatID), "assistant: slowly") && !r.working(chatID)

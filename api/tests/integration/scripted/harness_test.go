@@ -69,7 +69,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	bin := filepath.Join(dir, "crowbar")
-	build := exec.Command("go", "build", "-tags", "noEmbed", "-o", bin, "./cmd/crowbar")
+	build := exec.CommandContext(context.Background(), "go", "build", "-tags", "noEmbed", "-o", bin, "./cmd/crowbar")
 	build.Dir = apiRoot()
 	if out, err := build.CombinedOutput(); err != nil {
 		panic(fmt.Sprintf("build crowbar: %v\n%s", err, out))
@@ -147,7 +147,7 @@ func bootDaemon(t *testing.T, home string) *daemon {
 	v0.New(container, eng).Register(router.Group("/v0"))
 	ln, err := transports.NewSocket("unix://")
 	require.NoError(t, err)
-	go func() { _ = http.Serve(ln, router) }() //nolint:gosec // test server on a private unix socket
+	go func() { _ = http.Serve(ln, router) }()
 	return &daemon{t: t, app: container, eng: eng, adapters: adapters, session: session, ln: ln, hooks: hooks}
 }
 
@@ -330,16 +330,6 @@ func (r *rig) logged(kind string) []logEntry {
 		}
 	}
 	return out
-}
-
-// prompted reports whether a fake CLI received a prompt containing text.
-func (r *rig) prompted(text string) bool {
-	for _, e := range r.logged("prompt") {
-		if s, _ := e["text"].(string); strings.Contains(s, text) {
-			return true
-		}
-	}
-	return false
 }
 
 // dump is everything the fake CLIs logged, for a failure message.

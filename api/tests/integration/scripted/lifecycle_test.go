@@ -68,7 +68,7 @@ func TestScripted_DeleteMidTurn(t *testing.T) {
 			assert.Less(t, time.Since(started), 15*time.Second, "a delete is bounded")
 
 			_, err := r.runners().LiveRunnerForChat(context.Background(), chatID)
-			assert.ErrorIs(t, err, agentusecase.ErrNoLiveRunner, "a runner outlived its chat")
+			require.ErrorIs(t, err, agentusecase.ErrNoLiveRunner, "a runner outlived its chat")
 			_, err = r.d.app.Usecases.AgentChat.ChatSnapshot(context.Background(), chatID)
 			assert.Error(t, err, "the chat is gone")
 		})
@@ -113,7 +113,8 @@ func TestScripted_TwoChatsInOneWorktreeKeepTheirOwnSessions(t *testing.T) {
 			r.eventually(func() bool { return len(r.said(b)) == 2 && !r.working(b) }, "chat B's turn")
 			sessionOf := map[string]any{}
 			for _, e := range r.logged("prompt") {
-				sessionOf[e["text"].(string)] = e["session"]
+				text, _ := e["text"].(string)
+				sessionOf[text] = e["session"]
 			}
 			require.NotEqual(t, sessionOf["remember the word PELICAN"], sessionOf["I am chat B"])
 			for _, chat := range []string{a, b} {
@@ -126,7 +127,8 @@ func TestScripted_TwoChatsInOneWorktreeKeepTheirOwnSessions(t *testing.T) {
 			r.eventually(func() bool { return len(r.said(b)) == 4 && !r.working(b) }, "chat B's revive")
 
 			for _, e := range r.logged("prompt") {
-				sessionOf[e["text"].(string)] = e["session"]
+				text, _ := e["text"].(string)
+				sessionOf[text] = e["session"]
 			}
 			assert.Equal(t, sessionOf["remember the word PELICAN"], sessionOf["A again"], "A resumed A's session")
 			assert.Equal(t, sessionOf["I am chat B"], sessionOf["B again"], "B resumed B's session")

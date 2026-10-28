@@ -3,6 +3,7 @@
 package scripted_test
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -98,7 +99,7 @@ func record(cli, kind string, fields map[string]any) {
 // payload on stdin, waiting for it; its stdout is the hook's verdict.
 func runHook(command string, payload map[string]any) string {
 	body, _ := json.Marshal(payload)
-	cmd := exec.Command("sh", "-c", command) //nolint:gosec // the command is the daemon's own hook wiring
+	cmd := exec.CommandContext(context.Background(), "sh", "-c", command)
 	cmd.Stdin = strings.NewReader(string(body))
 	out, _ := cmd.Output()
 	return strings.TrimSpace(string(out))
