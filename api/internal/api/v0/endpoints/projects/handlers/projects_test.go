@@ -11,8 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,6 +19,7 @@ import (
 	projecthandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func TestMain(

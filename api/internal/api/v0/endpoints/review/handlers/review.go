@@ -4,14 +4,13 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // reviewErrorStatus maps a usecase error to an HTTP status: a genuine

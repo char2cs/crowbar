@@ -6,14 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func newProjectUsecase(

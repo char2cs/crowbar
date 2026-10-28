@@ -11,8 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
@@ -22,6 +20,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 

@@ -17,13 +17,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	asynxModels "github.com/char2cs/asynx/models"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
-
 	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
+	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 const defaultReconcileTimeout = 2 * time.Minute

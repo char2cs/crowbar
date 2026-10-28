@@ -9,12 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/manager"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/registry"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/semtok"

@@ -58,8 +58,7 @@ func (h *Handlers) Stage(
 	now := time.Now()
 	for _, p := range paths {
 		if err := h.git.StageFile(reqCtx, wsID, p, now); err != nil {
-			status, msg := libs.StatusAndMessage(err)
-			libs.WriteErr(ctx, status, msg)
+			libs.Fail(ctx, err)
 			return
 		}
 	}
@@ -92,8 +91,7 @@ func (h *Handlers) StageHunk(
 	}
 
 	if err := h.git.StageHunk(reqCtx, wsID, body.Path, body.HunkID, time.Now()); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -115,8 +113,7 @@ func (h *Handlers) Unstage(
 	now := time.Now()
 	for _, p := range paths {
 		if err := h.git.UnstageFile(reqCtx, wsID, p, now); err != nil {
-			status, msg := libs.StatusAndMessage(err)
-			libs.WriteErr(ctx, status, msg)
+			libs.Fail(ctx, err)
 			return
 		}
 	}
@@ -149,8 +146,7 @@ func (h *Handlers) UnstageHunk(
 	}
 
 	if err := h.git.UnstageHunk(reqCtx, wsID, body.Path, body.HunkID, time.Now()); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -172,8 +168,7 @@ func (h *Handlers) Discard(
 	now := time.Now()
 	for _, p := range paths {
 		if err := h.git.Discard(reqCtx, wsID, p, now); err != nil {
-			status, msg := libs.StatusAndMessage(err)
-			libs.WriteErr(ctx, status, msg)
+			libs.Fail(ctx, err)
 			return
 		}
 	}
@@ -203,8 +198,7 @@ func (h *Handlers) Commit(
 	}
 
 	if err := h.git.Commit(reqCtx, wsID, body.Subject, body.Body, time.Now()); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -281,8 +275,7 @@ func (h *Handlers) CreateBranch(
 	}
 
 	if err := h.git.CreateBranch(reqCtx, wsID, body.Name, "", false, time.Now()); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -314,8 +307,7 @@ func (h *Handlers) RenameBranch(
 	}
 
 	if err := h.git.RenameBranch(reqCtx, wsID, body.From, body.To, time.Now()); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -341,8 +333,7 @@ func (h *Handlers) DeleteBranch(
 	}
 
 	if err := h.git.DeleteBranch(reqCtx, wsID, body.Name, time.Now()); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -369,8 +360,7 @@ func (h *Handlers) Switch(
 	}
 
 	if err := h.git.SwitchBranch(reqCtx, wsID, body.Branch, time.Now()); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -397,8 +387,7 @@ func (h *Handlers) Reset(
 	}
 
 	if err := h.git.Reset(reqCtx, wsID, body.Mode, "", time.Now()); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -502,8 +491,7 @@ func (h *Handlers) ResolveHunk(
 		body.ResolvedContent,
 		time.Now(),
 	); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -518,8 +506,7 @@ func (h *Handlers) OperationContinue(
 	wsID := h.workspaceID(ctx)
 
 	if err := h.git.OperationContinue(reqCtx, wsID, time.Now()); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -534,8 +521,7 @@ func (h *Handlers) OperationAbort(
 	wsID := h.workspaceID(ctx)
 
 	if err := h.git.OperationAbort(reqCtx, wsID, time.Now()); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 

@@ -7,13 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	enginemcp "github.com/char2cs/crowbar/api/internal/engine/mcp"
 )
 

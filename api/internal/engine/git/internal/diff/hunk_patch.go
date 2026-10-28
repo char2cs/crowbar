@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // ErrStaleHunk is returned when hunkID no longer matches any current diff hunk.

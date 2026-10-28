@@ -7,11 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	store "github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/avatar"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // Usecase is the read + roll-up surface for the Project entity.

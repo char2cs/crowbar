@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	fileusecase "github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // HomeWorkspaces is the workspace surface the home handlers need.

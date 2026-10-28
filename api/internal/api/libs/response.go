@@ -19,6 +19,8 @@ import (
 	"os"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // Envelope is the uniform response body returned by every v0 handler.
@@ -30,10 +32,8 @@ import (
 type Envelope struct {
 	Success bool   `json:"success"`
 	Error   string `json:"error,omitempty"`
-	// Code is a stable machine-readable failure category for endpoints whose
-	// recovery UX must distinguish errors sharing one HTTP status. Existing
-	// errors omit it and retain their wire shape.
-	Code string `json:"code,omitempty"`
+	// Code is the failure's problem code, the one thing a client branches on.
+	Code problem.Code `json:"code,omitempty"`
 	Data any    `json:"data,omitempty"`
 }
 
@@ -100,9 +100,28 @@ func WriteAccepted(
 	c.Writer.WriteHeaderNow()
 }
 
-// WriteErr writes an error response with the given HTTP status. The envelope
-// sets success:false and carries message as a non-null error string; data is
-// omitted.
+// Fail writes err as a failure: the status of its problem code, its whole
+// chain as the message, and the data its coded error carries.
+func Fail(
+	c *gin.Context,
+	err error,
+) {
+	p := problem.Of(err)
+	status := p.Code.Status()
+	noteFailure(c, status, p.Message)
+	c.JSON(
+		status,
+		Envelope{
+			Success: false,
+			Error:   p.Message,
+			Code:    p.Code,
+			Data:    problem.DataOf(err),
+		},
+	)
+}
+
+// WriteErr writes a failure a handler decided on itself, with no error behind
+// it; its code is the category of status.
 func WriteErr(
 	c *gin.Context,
 	status int,
@@ -114,27 +133,7 @@ func WriteErr(
 		Envelope{
 			Success: false,
 			Error:   message,
-		},
-	)
-}
-
-// WriteErrCode writes a failure with both a human-readable message and a stable
-// machine-readable code. Use it only when the client has distinct recovery
-// actions for errors sharing an HTTP status (for example prompt busy vs an
-// uncertain delivery outcome).
-func WriteErrCode(
-	c *gin.Context,
-	status int,
-	code string,
-	message string,
-) {
-	noteFailure(c, status, message)
-	c.JSON(
-		status,
-		Envelope{
-			Success: false,
-			Error:   message,
-			Code:    code,
+			Code:    problem.CategoryFor(status),
 		},
 	)
 }

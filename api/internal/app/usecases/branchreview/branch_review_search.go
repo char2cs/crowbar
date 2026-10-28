@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // SearchDiff finds query in the CONTENT of the workspace's branch diff and

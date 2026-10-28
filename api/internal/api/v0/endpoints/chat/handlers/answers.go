@@ -48,8 +48,7 @@ func (h *Handlers) AnswerChoice(ctx *gin.Context) {
 		body.OptionIDs, body.Reason, body.Content,
 	)
 	if err != nil {
-		status, message := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, message)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteMutationOK(ctx, http.StatusOK, ctx.Param("choiceId"))

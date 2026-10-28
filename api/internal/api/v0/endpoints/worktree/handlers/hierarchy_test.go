@@ -6,14 +6,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // childChat is the chat these tests address, resolving to the workspace named

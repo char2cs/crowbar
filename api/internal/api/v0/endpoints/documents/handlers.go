@@ -2,7 +2,6 @@ package documents
 
 import (
 	"context"
-	"errors"
 	"net"
 	"net/http"
 	"time"
@@ -11,15 +10,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/domain"
-)
-
-// The error codes a client tells the document refusals apart by.
-const (
-	// HostDocumentRequiresLocalTransport refuses a host document asked for off
-	// the local socket.
-	HostDocumentRequiresLocalTransport = "host_document_requires_local_transport"
-	// DaemonStateDocument refuses a path inside the daemon's state directory.
-	DaemonStateDocument = "daemon_state_document"
 )
 
 // Documents is the file usecase surface the handlers need.
@@ -61,7 +51,7 @@ func (h *handlers) Read(
 	}
 	doc, err := h.docs.ReadDocument(ctx.Request.Context(), target, transportOf(ctx.Request))
 	if err != nil {
-		documentError(ctx, err)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, doc)
@@ -89,7 +79,7 @@ func (h *handlers) Write(
 	}
 	ref, err := h.docs.WriteDocument(ctx.Request.Context(), target, body.Content, body.Encoding, transportOf(ctx.Request), time.Now())
 	if err != nil {
-		documentError(ctx, err)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, ref)
@@ -106,7 +96,7 @@ func (h *handlers) Watch(
 		return
 	}
 	if _, err := h.docs.HostDocument(ctx.Request.Context(), path, transportOf(ctx.Request)); err != nil {
-		documentError(ctx, err)
+		libs.Fail(ctx, err)
 		return
 	}
 	h.stream(ctx)
@@ -134,19 +124,4 @@ func transportOf(
 		return domain.TransportLocal
 	}
 	return domain.TransportRemote
-}
-
-func documentError(
-	ctx *gin.Context,
-	err error,
-) {
-	status, msg := libs.StatusAndMessage(err)
-	switch {
-	case errors.Is(err, domain.ErrHostDocumentNeedsLocalTransport):
-		libs.WriteErrCode(ctx, status, HostDocumentRequiresLocalTransport, msg)
-	case errors.Is(err, domain.ErrDaemonStateDocument):
-		libs.WriteErrCode(ctx, status, DaemonStateDocument, msg)
-	default:
-		libs.WriteErr(ctx, status, msg)
-	}
 }

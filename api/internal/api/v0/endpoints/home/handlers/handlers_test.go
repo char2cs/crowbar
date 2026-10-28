@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/mock"
@@ -18,6 +19,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers"
 	fileusecase "github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // ── HomeReader mock ────────────────────────────────────────────────────────────
@@ -269,4 +271,13 @@ func TestRequireHomeWorkspace_AbortsChainOnFailure(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 	require.False(t, called)
 	reader.AssertExpectations(t)
+}
+
+// missingFile is the error the fs engine hands up for a path that is not there:
+// the os error itself, whose errno alone makes it a 404.
+func missingFile(t *testing.T) error {
+	t.Helper()
+	_, err := os.Lstat(filepath.Join(t.TempDir(), "ghost.txt"))
+	require.Error(t, err)
+	return fmt.Errorf("file: copy: %w", err)
 }

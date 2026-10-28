@@ -6,11 +6,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
-	"github.com/char2cs/crowbar/api/internal/engine/agents"
-
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 var (

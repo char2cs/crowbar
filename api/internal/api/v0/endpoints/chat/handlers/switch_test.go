@@ -13,6 +13,7 @@ import (
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // TestSwitch_Success proves Switch decodes {provider}, calls SwitchProvider
@@ -83,7 +84,7 @@ func TestSwitch_WrongWorkspace404s(
 }
 
 // TestSwitch_UsecaseError proves a SwitchProvider failure surfaces as a mapped
-// error response via StatusAndMessage rather than a bare 200.
+// error response via libs.Fail rather than a bare 200.
 func TestSwitch_UsecaseError(
 	t *testing.T,
 ) {
@@ -115,7 +116,7 @@ func TestSwitch_ABusyChatIsRefusedWithTheBusyCode(t *testing.T) {
 		Code string `json:"code"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
-	assert.Equal(t, agentusecase.PromptCodeBusy, envelope.Code)
+	assert.Equal(t, string(problem.ChatBusy), envelope.Code)
 }
 
 // TestHandoff_Success proves Handoff calls AssembleHandoff for the path id and

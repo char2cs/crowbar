@@ -3,9 +3,8 @@ package answerdesk
 import (
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 

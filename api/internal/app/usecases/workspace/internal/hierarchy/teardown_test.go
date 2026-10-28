@@ -11,6 +11,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace/internal/hierarchy"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // A delete never destroys work that exists nowhere else unless the request
@@ -28,10 +29,9 @@ func TestDeleteCascade_WithoutConsentRefusesOverUnmergedCommitsAndTouchesNothing
 
 	err := uc.DeleteCascade(context.Background(), "root", domain.KeepWorkAtRisk)
 
-	var risk *domain.WorkAtRiskError
-	require.ErrorAs(t, err, &risk)
 	require.ErrorIs(t, err, domain.ErrWorkAtRisk)
-	assert.Equal(t, []domain.WorkAtRisk{{WorkspaceID: "child", Branch: "feature/b", UnmergedCommits: 2}}, risk.Workspaces)
+	assert.Equal(t, map[string]any{"workAtRisk": []domain.WorkAtRisk{{WorkspaceID: "child", Branch: "feature/b", UnmergedCommits: 2}}},
+		problem.DataOf(err))
 	assert.Empty(t, *deleted, "no row goes")
 	assert.Zero(t, countOp(g.ops(), "WorktreeRemove"), "no worktree goes")
 	assert.Zero(t, countOp(g.ops(), "ForceDeleteBranch"), "no branch goes")

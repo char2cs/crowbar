@@ -7,13 +7,12 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/google/uuid"
 
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 

@@ -8,14 +8,13 @@ import (
 	"testing"
 	"testing/synctest"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 

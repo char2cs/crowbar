@@ -5,12 +5,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	apptree "github.com/char2cs/crowbar/api/internal/app/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // stubListChats answers tree.Chats.ListChats and LoadChat from a fixed row

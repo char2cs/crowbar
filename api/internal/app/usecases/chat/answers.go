@@ -5,12 +5,11 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 

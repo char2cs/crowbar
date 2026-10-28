@@ -9,7 +9,7 @@ import (
 // ErrFolderNotFound is returned when a project import targets a path that does
 // not exist on disk. The import validates the path before persisting anything,
 // so a nonexistent folder leaves no project behind. Handlers map it to HTTP
-// 404 via libs.StatusAndMessage; the message stays free of filesystem
+// 404 via its problem code; the message stays free of filesystem
 // internals on purpose.
 var ErrFolderNotFound = problem.New(problem.NotFound, "folder does not exist")
 
@@ -19,7 +19,7 @@ var ErrFolderNotFound = problem.New(problem.NotFound, "folder does not exist")
 // branches: whichever imports second gets a placeholder for every branch the
 // first already claimed — a repository that looks imported but can manage
 // nothing. One folder therefore belongs to exactly one project. Handlers map it
-// to HTTP 409 via libs.StatusAndMessage, and it is wrapped with the name of the
+// to HTTP 409 via its problem code, and it is wrapped with the name of the
 // project that already has the folder so the message says where to look.
 var ErrRepoAlreadyImported = problem.New(problem.Conflict, "this folder is already added as a repository")
 

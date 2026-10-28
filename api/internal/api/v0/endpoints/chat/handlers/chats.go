@@ -109,8 +109,7 @@ func (h *Handlers) Create(
 
 	chatID, _, err := h.folders.CreateChat(rctx, wsID, body.Provider, body.ParentID, worktree, body.Surface)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	// Same reasoning as PlaceChat's own call to this (folders.go): the new
@@ -209,8 +208,7 @@ func (h *Handlers) importSpec(
 	}
 	repo, err := h.repos.FindByKey(ctx.Request.Context(), ctx.Param("repoId"))
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return agentusecase.ImportSpec{}, false
 	}
 	if repo == nil {
@@ -251,8 +249,7 @@ func (h *Handlers) List(
 
 	chats, err := h.listChats(rctx, ctx.Param("wsId"), ctx.Param("repoId"))
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -264,8 +261,7 @@ func (h *Handlers) List(
 	}
 	snaps, err := h.chats.ChatSnapshotsOf(rctx, ids)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	runtimes := make(map[string]dto.ChatRuntime, len(chats))
@@ -315,14 +311,12 @@ func (h *Handlers) Get(
 
 	snap, rt, err := h.chatSnapshot(ctx.Request.Context(), chat.ID)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	rt.Conversations, err = h.runners.ConversationsForChat(ctx.Request.Context(), chat.ID)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -390,8 +384,7 @@ func (h *Handlers) requireChatInWorkspace(
 ) (domain.Chat, bool) {
 	chat, err := h.chats.GetChat(ctx.Request.Context(), chatID)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return domain.Chat{}, false
 	}
 	if !h.chatInMountScope(ctx, chat) {
@@ -474,8 +467,7 @@ func (h *Handlers) Rename(
 	}
 
 	if err := h.chats.RenameChat(rctx, id, body.Title, source); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteAccepted(ctx)
@@ -507,15 +499,13 @@ func (h *Handlers) Promote(
 
 	promoted, err := h.chats.Promote(ctx.Request.Context(), id)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
 	_, rt, err := h.chatSnapshot(ctx.Request.Context(), promoted.ID)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -554,8 +544,7 @@ func (h *Handlers) SetSelection(
 	}
 
 	if err := h.chats.SetChatSelection(rctx, id, body.Model, body.Effort); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteAccepted(ctx)
@@ -594,7 +583,7 @@ func (h *Handlers) Delete(
 
 	removed, err := h.folders.DeleteChat(rctx, id, libs.DeleteConsentOf(ctx))
 	if err != nil {
-		libs.WriteDeleteErr(ctx, err)
+		libs.Fail(ctx, err)
 		return
 	}
 	for _, folderID := range removed.Folders {

@@ -41,8 +41,7 @@ func (h *Handlers) DidOpen(
 		req.Text,
 	)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	libs.WriteQueryOK(c, syncOK{OK: true})
@@ -73,8 +72,7 @@ func (h *Handlers) DidChange(
 		req.Text,
 	)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	libs.WriteQueryOK(c, syncOK{OK: true})
@@ -104,8 +102,7 @@ func (h *Handlers) DidClose(
 		req.Path,
 	)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	libs.WriteQueryOK(c, syncOK{OK: true})

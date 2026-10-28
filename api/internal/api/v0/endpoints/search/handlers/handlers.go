@@ -5,12 +5,11 @@ package handlers
 import (
 	"context"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
 )
 

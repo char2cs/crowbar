@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // Read once, plan the whole change in memory, write only the rows that moved.

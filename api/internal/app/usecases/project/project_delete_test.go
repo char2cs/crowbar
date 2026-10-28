@@ -7,13 +7,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 type fakeDeleteProjects struct {
@@ -477,9 +476,8 @@ func TestBeginDelete_WithoutConsentRefusesOverWorkAtRiskBeforeRecordingIntent(t 
 	repo := f.repos.repos[0]
 
 	_, err := f.uc.BeginRepoDelete(context.Background(), repo, domain.KeepWorkAtRisk)
-	var refused *domain.WorkAtRiskError
-	require.ErrorAs(t, err, &refused)
-	assert.Equal(t, []domain.WorkAtRisk{risk}, refused.Workspaces)
+	require.ErrorIs(t, err, domain.ErrWorkAtRisk)
+	assert.Equal(t, map[string]any{"workAtRisk": []domain.WorkAtRisk{risk}}, problem.DataOf(err))
 
 	_, err = f.uc.BeginDelete(context.Background(), "p1", domain.KeepWorkAtRisk)
 	require.ErrorIs(t, err, domain.ErrWorkAtRisk)

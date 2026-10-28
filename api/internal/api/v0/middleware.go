@@ -38,8 +38,7 @@ func scopeRepoToPath(reader repoScopeReader) gin.HandlerFunc {
 		}
 		repo, err := reader.FindByKey(c.Request.Context(), repoID)
 		if err != nil {
-			status, msg := libs.StatusAndMessage(err)
-			libs.WriteErr(c, status, msg)
+			libs.Fail(c, err)
 			c.Abort()
 			return
 		}
@@ -81,8 +80,7 @@ func scopeWorkspaceToPath(reader workspaceScopeReader) gin.HandlerFunc {
 		}
 		ws, err := reader.Get(c.Request.Context(), wsID)
 		if err != nil {
-			status, msg := libs.StatusAndMessage(err)
-			libs.WriteErr(c, status, msg)
+			libs.Fail(c, err)
 			c.Abort()
 			return
 		}

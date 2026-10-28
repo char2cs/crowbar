@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	asynxstore "github.com/char2cs/asynx/store"
@@ -24,6 +22,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 type broadcastSpy struct {

@@ -8,7 +8,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -32,8 +31,7 @@ func (h *Handlers) Messages(ctx *gin.Context) {
 
 	page, err := h.chats.ReadMessages(ctx.Request.Context(), chat.ID, after, before, limit)
 	if err != nil {
-		status, message := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, message)
+		libs.Fail(ctx, err)
 		return
 	}
 	items := make([]dto.AgentMessageDTO, 0, len(page.Items))
@@ -96,7 +94,7 @@ func (h *Handlers) SubmitPrompt(ctx *gin.Context) {
 		body.Provider, selection,
 	)
 	if err != nil {
-		writeCodedErr(ctx, err, agentusecase.PromptErrorCode(err))
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, dto.PromptSubmissionDTO{
@@ -112,7 +110,7 @@ func (h *Handlers) SlashCatalog(ctx *gin.Context) {
 	}
 	catalog, err := h.runners.SlashCatalog(ctx.Request.Context(), chat.ID)
 	if err != nil {
-		writeCodedErr(ctx, err, agentusecase.CatalogErrorCode(err))
+		libs.Fail(ctx, err)
 		return
 	}
 	items := make([]dto.SlashCatalogItemDTO, 0, len(catalog.Items))
@@ -146,19 +144,6 @@ func intQuery(ctx *gin.Context, name string) (int, bool) {
 		return 0, false
 	}
 	return value, true
-}
-
-func writeCodedErr(
-	ctx *gin.Context,
-	err error,
-	code string,
-) {
-	status, message := libs.StatusAndMessage(err)
-	if code == "" {
-		libs.WriteErr(ctx, status, message)
-		return
-	}
-	libs.WriteErrCode(ctx, status, code, message)
 }
 
 // derefOr reads an optional wire string, treating absence as "".

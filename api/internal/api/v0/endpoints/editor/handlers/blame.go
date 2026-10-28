@@ -44,8 +44,7 @@ func (h *Handlers) Blame(
 		return
 	}
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	libs.WriteQueryOK(c, dto.BlameEntryDTOList(entries))

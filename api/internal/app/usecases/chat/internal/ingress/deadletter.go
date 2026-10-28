@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 

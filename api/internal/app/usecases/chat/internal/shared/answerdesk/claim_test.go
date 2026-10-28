@@ -8,13 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // A relay whose budget runs out prints nothing, and the desk closes its question

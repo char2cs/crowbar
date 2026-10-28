@@ -47,8 +47,7 @@ func (h *Handlers) applyRename(
 		return errBadRequest
 	}
 	if _, err := h.hierarchy.RenameBranch(c.Request.Context(), id, *branch); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return err
 	}
 	return nil

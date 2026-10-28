@@ -87,7 +87,7 @@ func TestLog_InvalidSkip(
 }
 
 // TestLog_UnknownRef pins that an unresolvable ref maps to 404 via
-// StatusAndMessage's enginegit.ErrBranchNotFound category.
+// enginegit.ErrBranchNotFound's not_found code.
 func TestLog_UnknownRef(
 	t *testing.T,
 ) {

@@ -134,8 +134,7 @@ func (h *Handlers) List(
 ) {
 	projects, err := h.reader.List(c.Request.Context())
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	libs.WriteQueryOK(c, dto.ProjectDTOList(projects))
@@ -147,8 +146,7 @@ func (h *Handlers) Detail(
 ) {
 	project, err := h.reader.Get(c.Request.Context(), c.Param("projectId"))
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	libs.WriteQueryOK(c, dto.ProjectDTOFrom(project))
@@ -193,8 +191,7 @@ func (h *Handlers) Patch(
 
 	if body.Order != nil {
 		if _, err := h.reader.Reorder(ctx, projectID, *body.Order); err != nil {
-			status, msg := libs.StatusAndMessage(err)
-			libs.WriteErr(c, status, msg)
+			libs.Fail(c, err)
 			return
 		}
 		h.broadcastAll(ctx)
@@ -272,7 +269,7 @@ func (h *Handlers) Delete(
 	consent := libs.DeleteConsentOf(c)
 	marked, err := h.deleter.BeginDelete(c.Request.Context(), id, consent)
 	if err != nil {
-		libs.WriteDeleteErr(c, err)
+		libs.Fail(c, err)
 		return
 	}
 	h.broadcast(dto.ProjectDTOFrom(marked))
@@ -311,8 +308,7 @@ func (h *Handlers) rename(
 	}
 	updated, err := h.reader.Update(ctx, projectID, project.Update{Name: &name})
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return false
 	}
 	if broadcast {

@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // WorkspaceSyncer is the workspace surface the file usecase uses to resolve a

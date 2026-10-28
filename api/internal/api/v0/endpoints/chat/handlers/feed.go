@@ -53,8 +53,7 @@ func (h *Feed) Handle(c *gin.Context) {
 	defer cancel()
 	frames, err := h.feeds.OpenFeed(ctx, c.Param("chatId"), since)
 	if err != nil {
-		status, message := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, message)
+		libs.Fail(c, err)
 		return
 	}
 	ws.Stream(c, frames, encodeFeedFrame)

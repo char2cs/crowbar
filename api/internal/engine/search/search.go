@@ -18,9 +18,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/crowbar/api/internal/core/safego"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"github.com/char2cs/crowbar/api/internal/engine/search/internal/ignore"
 	"github.com/char2cs/crowbar/api/internal/engine/search/internal/match"
 	"github.com/char2cs/crowbar/api/internal/engine/search/internal/replace"

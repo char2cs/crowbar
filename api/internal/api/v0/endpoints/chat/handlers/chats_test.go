@@ -10,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,6 +18,7 @@ import (
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
@@ -1251,7 +1250,7 @@ func TestGet_RepoMount_ARowWithNoResolvableGroundIsStillServed(
 }
 
 // TestGet_ChatNotFound proves an unknown chat id 404s via the
-// agentchat.ErrNotFound -> StatusAndMessage mapping.
+// agentchat.ErrNotFound -> not_found mapping.
 func TestGet_ChatNotFound(
 	t *testing.T,
 ) {

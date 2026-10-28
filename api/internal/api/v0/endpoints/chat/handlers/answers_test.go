@@ -7,13 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func answerRequest(t *testing.T, body string) (*gin.Context, *httptest.ResponseRecorder) {

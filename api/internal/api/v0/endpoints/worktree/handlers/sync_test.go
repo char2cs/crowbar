@@ -4,11 +4,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // TestSync_Returns202 asserts the fail-fast/good-path-async contract: a sync of

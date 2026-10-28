@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
@@ -18,6 +16,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat/handlers"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // fakeFeeds opens a feed of the frames it holds, for the one chat it knows.

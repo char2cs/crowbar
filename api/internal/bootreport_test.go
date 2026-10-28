@@ -9,7 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal"
+	"github.com/char2cs/crowbar/api/internal/core/bootgate"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
@@ -80,4 +82,12 @@ func TestReport_NamesTheStepThatIsRunning(t *testing.T) {
 	assert.Equal(t, "Crowbar is upgrading its data (step 1 of 6: workspace-paths-table)", refusals[0].Error)
 	assert.Equal(t, "Crowbar is upgrading its data (step 2 of 6: chat-ledger)", refusals[1].Error)
 	assert.Equal(t, "Crowbar is upgrading its data (step 6 of 6: hook-deliveries)", refusals[5].Error)
+}
+
+// The gate spells its refusal codes itself, to stay free of dependencies; they
+// must still be problem codes, which the client treats as daemon states.
+func TestBootReport_RefusalCodesAreProblemCodes(t *testing.T) {
+	assert.Equal(t, "daemon_"+string(bootgate.StateMigrating), string(problem.DaemonMigrating))
+	assert.Equal(t, "daemon_"+string(bootgate.StateHalted), string(problem.DaemonHalted))
+	assert.Equal(t, http.StatusServiceUnavailable, problem.DaemonMigrating.Status())
 }

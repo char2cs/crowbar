@@ -19,8 +19,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/google/uuid"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
@@ -30,6 +28,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 

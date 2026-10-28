@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"errors"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -212,65 +211,6 @@ var (
 	ErrPromptUnsupported        = runner.ErrPromptUnsupported
 	ErrPromptSessionUnavailable = runner.ErrPromptSessionUnavailable
 )
-
-const (
-	PromptCodeBusy              = "chat_busy"
-	PromptCodeOutcomeUnknown    = "request_outcome_uncertain"
-	PromptCodeRequestIDConflict = "request_id_conflict"
-	PromptCodeUnsupported       = "prompt_submit_unsupported"
-	PromptCodeSessionRequired   = "live_tui_required"
-)
-
-const (
-	CatalogCodeUnsupported = "catalog_unsupported"
-	CatalogCodeTimeout     = "catalog_timeout"
-	CatalogCodeUnavailable = "catalog_command_unavailable"
-	CatalogCodeOutputLimit = "catalog_output_limit"
-	CatalogCodeCommand     = "catalog_command_failed"
-	CatalogCodeMalformed   = "catalog_malformed_output"
-	CatalogCodeSuperseded  = "catalog_superseded"
-)
-
-// PromptErrorCode returns the stable machine-readable API code for a prompt
-// submission or provider switch error. The human message may evolve; clients
-// branch only on this.
-func PromptErrorCode(err error) string {
-	switch {
-	case errors.Is(err, ErrPromptBusy):
-		return PromptCodeBusy
-	case errors.Is(err, ErrPromptOutcomeUnknown):
-		return PromptCodeOutcomeUnknown
-	case errors.Is(err, ErrPromptRequestIDConflict):
-		return PromptCodeRequestIDConflict
-	case errors.Is(err, ErrPromptUnsupported):
-		return PromptCodeUnsupported
-	case errors.Is(err, ErrPromptSessionUnavailable):
-		return PromptCodeSessionRequired
-	default:
-		return ""
-	}
-}
-
-func CatalogErrorCode(err error) string {
-	switch {
-	case errors.Is(err, ErrSlashCatalogUnsupported):
-		return CatalogCodeUnsupported
-	case errors.Is(err, ErrSlashCatalogTimeout):
-		return CatalogCodeTimeout
-	case errors.Is(err, ErrSlashCatalogUnavailable):
-		return CatalogCodeUnavailable
-	case errors.Is(err, ErrSlashCatalogOutputLimit):
-		return CatalogCodeOutputLimit
-	case errors.Is(err, ErrSlashCatalogCommand):
-		return CatalogCodeCommand
-	case errors.Is(err, ErrSlashCatalogMalformed):
-		return CatalogCodeMalformed
-	case errors.Is(err, ErrSlashCatalogSuperseded):
-		return CatalogCodeSuperseded
-	default:
-		return ""
-	}
-}
 
 // The vendor CLI's lifecycle. Everything here is USER-INITIATED, which is what
 // separates it from the hook ingress: it may block, it may refuse, and it decides

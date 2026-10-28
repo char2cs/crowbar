@@ -15,7 +15,6 @@ import (
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 )
 

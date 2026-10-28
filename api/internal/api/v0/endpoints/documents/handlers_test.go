@@ -13,14 +13,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/documents"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // recordingDocuments answers every call with err (or the target, resolved as
@@ -242,8 +241,8 @@ func TestWrite_PassesTheBodyAndAnswersTheResolvedRef(t *testing.T) {
 // rather than by message text.
 func TestRefusals_CarryTheirCodes(t *testing.T) {
 	for err, code := range map[error]string{
-		domain.ErrHostDocumentNeedsLocalTransport: documents.HostDocumentRequiresLocalTransport,
-		domain.ErrDaemonStateDocument:             documents.DaemonStateDocument,
+		domain.ErrHostDocumentNeedsLocalTransport: "host_document_requires_local_transport",
+		domain.ErrDaemonStateDocument:             "daemon_state_document",
 	} {
 		srv := httptest.NewServer(newRouter(&recordingDocuments{err: err}))
 		status, env := send(t, srv.Client(), http.MethodGet, srv.URL+"/v0/documents/content?path=%2Fx", "")
@@ -262,7 +261,7 @@ func TestWatch_RefusesOffTheLocalSocketBeforeTheStream(t *testing.T) {
 	status, env := send(t, srv.Client(), http.MethodGet, srv.URL+"/v0/documents/ws?path=%2Ftmp%2Fa.md", "")
 
 	assert.Equal(t, http.StatusForbidden, status)
-	assert.Equal(t, documents.HostDocumentRequiresLocalTransport, env.Code)
+	assert.Equal(t, "host_document_requires_local_transport", env.Code)
 	assert.False(t, reached.Load(), "a refused watch never reaches the stream")
 }
 

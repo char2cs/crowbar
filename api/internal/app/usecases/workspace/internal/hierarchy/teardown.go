@@ -124,7 +124,7 @@ func (u *hierarchyUsecase) refuseLoss(
 		return err
 	}
 	if len(risks) > 0 {
-		return &domain.WorkAtRiskError{Workspaces: risks}
+		return domain.WorkAtRisked(risks)
 	}
 	return nil
 }

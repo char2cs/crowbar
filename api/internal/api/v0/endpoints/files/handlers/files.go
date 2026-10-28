@@ -2,13 +2,11 @@ package handlers
 
 import (
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -23,7 +21,7 @@ func (h *Handlers) Tree(
 
 	nodes, err := h.files.Tree(rctx, wsID, dirPath, nil)
 	if err != nil {
-		fileError(ctx, err)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -61,12 +59,12 @@ func (h *Handlers) Create(
 	switch body.Type {
 	case "dir", "directory":
 		if err := h.files.CreateDir(rctx, wsID, body.Path, now); err != nil {
-			fileError(ctx, err)
+			libs.Fail(ctx, err)
 			return
 		}
 	default:
 		if err := h.files.CreateFile(rctx, wsID, body.Path, now); err != nil {
-			fileError(ctx, err)
+			libs.Fail(ctx, err)
 			return
 		}
 	}
@@ -101,7 +99,7 @@ func (h *Handlers) Copy(
 	}
 
 	if err := h.files.Copy(rctx, wsID, body.SourcePath, body.DestPath, time.Now()); err != nil {
-		fileError(ctx, err)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -131,7 +129,7 @@ func (h *Handlers) Rename(
 	}
 
 	if err := h.files.Rename(rctx, wsID, body.Path, body.NewPath, time.Now()); err != nil {
-		fileError(ctx, err)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -159,25 +157,9 @@ func (h *Handlers) Delete(
 	}
 
 	if err := h.files.Delete(rctx, wsID, body.Path, time.Now()); err != nil {
-		fileError(ctx, err)
+		libs.Fail(ctx, err)
 		return
 	}
 
 	libs.WriteMutationOK(ctx, http.StatusOK, body.Path)
-}
-
-// fileError maps file usecase errors to HTTP responses. Typed sentinels (e.g.
-// problem.ErrLocked -> 409, fs.ErrNotExist -> 404) go through the shared
-// libs.StatusAndMessage mapping; untyped not-found errors fall back to a
-// message sniff for 404.
-func fileError(
-	ctx *gin.Context,
-	err error,
-) {
-	status, msg := libs.StatusAndMessage(err)
-	if status == http.StatusInternalServerError &&
-		(strings.Contains(msg, "not found") || strings.Contains(msg, "no such file")) {
-		status = http.StatusNotFound
-	}
-	libs.WriteErr(ctx, status, msg)
 }

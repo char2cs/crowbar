@@ -7,8 +7,6 @@ import (
 	"io"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/google/uuid"
 	"golang.org/x/sync/singleflight"
@@ -18,6 +16,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 

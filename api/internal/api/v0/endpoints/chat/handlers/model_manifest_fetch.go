@@ -14,8 +14,7 @@ func (h *Handlers) GetModelManifestFetchEnabled(
 ) {
 	enabled, err := h.providers.ModelManifestFetchEnabled(ctx.Request.Context())
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, gin.H{"enabled": enabled})
@@ -34,8 +33,7 @@ func (h *Handlers) PutModelManifestFetchEnabled(
 	}
 	err := h.providers.SetModelManifestFetchEnabled(ctx.Request.Context(), body.Enabled)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, gin.H{"enabled": body.Enabled})

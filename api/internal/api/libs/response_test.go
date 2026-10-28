@@ -2,6 +2,8 @@ package libs_test
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
+	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func newCtx(
@@ -123,4 +127,58 @@ func TestWriteErr(t *testing.T) {
 	assert.Equal(t, false, body["success"])
 	assert.Equal(t, "workspace not found", body["error"])
 	assert.NotContains(t, body, "data")
+}
+
+func TestWriteErr_AlwaysSetsTheCategoryCode(t *testing.T) {
+	ctx, rec := newCtx(t)
+	libs.WriteErr(ctx, http.StatusNotFound, "x")
+	assert.Equal(t, "not_found", decode(t, rec.Body.Bytes())["code"])
+
+	ctx, rec = newCtx(t)
+	libs.WriteErr(ctx, http.StatusTeapot, "x")
+	assert.Equal(t, "internal", decode(t, rec.Body.Bytes())["code"])
+}
+
+// A delete refused over work at risk keeps the wire shape the client's
+// workAtRiskOf reads: code work_at_risk and data.workAtRisk.
+func TestFail_WritesTheCodeItsStatusAndData(t *testing.T) {
+	ctx, rec := newCtx(t)
+	refused := domain.WorkAtRisked([]domain.WorkAtRisk{
+		{WorkspaceID: "w1", Branch: "feature/x", UncommittedFiles: 2, UnmergedCommits: 1},
+	})
+
+	libs.Fail(ctx, fmt.Errorf("delete cascade: %w", refused))
+
+	assert.Equal(t, http.StatusConflict, rec.Code)
+	body := decode(t, rec.Body.Bytes())
+	assert.Equal(t, "work_at_risk", body["code"])
+	assert.Contains(t, body["error"], "feature/x (2 uncommitted files, 1 unmerged commits)")
+	data, ok := body["data"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{map[string]any{
+		"workspaceId": "w1", "branch": "feature/x", "uncommittedFiles": 2.0, "unmergedCommits": 1.0,
+	}}, data["workAtRisk"])
+}
+
+func TestFail_AnyOtherErrorCarriesItsCodeAndNoData(t *testing.T) {
+	ctx, rec := newCtx(t)
+
+	libs.Fail(ctx, fmt.Errorf("x: %w", problem.ErrNotFound))
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	body := decode(t, rec.Body.Bytes())
+	assert.Equal(t, "not_found", body["code"])
+	assert.Equal(t, "x: not found", body["error"])
+	assert.NotContains(t, body, "data")
+}
+
+func TestFail_AnUncodedErrorIsInternal(t *testing.T) {
+	ctx, rec := newCtx(t)
+
+	libs.Fail(ctx, errors.New("boom"))
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	body := decode(t, rec.Body.Bytes())
+	assert.Equal(t, "internal", body["code"])
+	assert.Equal(t, "boom", body["error"])
 }

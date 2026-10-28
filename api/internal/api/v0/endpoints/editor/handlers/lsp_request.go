@@ -114,8 +114,7 @@ func (h *Handlers) Rename(
 		req.NewName,
 	)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	libs.WriteQueryOK(c, edit)
@@ -191,8 +190,7 @@ func writeRaw(
 	err error,
 ) {
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	if len(raw) == 0 {
@@ -208,8 +206,7 @@ func writeLocations(
 	err error,
 ) {
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	if locations == nil {

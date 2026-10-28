@@ -61,8 +61,7 @@ func (h *Handlers) PlaceWorkspace(
 	placed, shifted, err := h.placer.PlaceWorkspace(ctx.Request.Context(), wsID,
 		agentusecase.PlaceInput{ParentID: body.ParentID, Order: body.Order})
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	// The moved branch's own row and every Node-written sibling the densify

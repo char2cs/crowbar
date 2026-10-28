@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -19,6 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace/internal/hierarchy"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	engineprovider "github.com/char2cs/crowbar/api/internal/engine/provider"
 )

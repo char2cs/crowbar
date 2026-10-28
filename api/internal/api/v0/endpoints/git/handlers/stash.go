@@ -27,8 +27,7 @@ func (h *Handlers) StashPush(
 	}
 
 	if err := h.git.StashPush(reqCtx, wsID, body.Message, time.Now()); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -52,8 +51,7 @@ func (h *Handlers) StashApply(
 
 	stashID := strconv.Itoa(body.Index)
 	if err := h.git.StashApply(reqCtx, wsID, stashID, time.Now()); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -77,8 +75,7 @@ func (h *Handlers) StashPop(
 
 	stashID := strconv.Itoa(body.Index)
 	if err := h.git.StashPop(reqCtx, wsID, stashID, time.Now()); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -128,8 +125,7 @@ func (h *Handlers) StashDrop(
 
 	stashID := strconv.Itoa(index)
 	if err := h.git.StashDrop(reqCtx, wsID, stashID, time.Now()); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 

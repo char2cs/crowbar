@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 
 	"github.com/gin-gonic/gin"
@@ -17,6 +15,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat/handlers"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // fakeChatTree records each call and returns canned results, so the handlers'

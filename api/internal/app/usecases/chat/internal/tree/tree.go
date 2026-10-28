@@ -36,11 +36,10 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 type chatFolderUsecase struct {

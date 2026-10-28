@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/gin-gonic/gin"
 
 	"github.com/stretchr/testify/assert"
@@ -13,6 +11,7 @@ import (
 
 	worktreehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/worktree/handlers"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // POST .../chats/:id/lock — the user's own lock decision.

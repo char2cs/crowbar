@@ -7,14 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func seqRow(seq int64) ledger.Row { return ledger.Row{ChatID: "c1", Seq: seq, Kind: ledger.KindMarker} }

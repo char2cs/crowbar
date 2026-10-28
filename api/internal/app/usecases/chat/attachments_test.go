@@ -4,13 +4,12 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	repoattachments "github.com/char2cs/crowbar/api/internal/app/repositories/chat/attachments"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func pngBytes() []byte {

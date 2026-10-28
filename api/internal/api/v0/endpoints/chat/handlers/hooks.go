@@ -39,8 +39,7 @@ func (h *Handlers) HTTPHook(
 	reply, err := h.turns.Hook(ctx.Request.Context(), runnerID, ctx.Param("provider"), ctx.Param("event"),
 		raw, engineagents.ChannelHooks)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	if len(reply.Body) > 0 {
@@ -65,8 +64,7 @@ func (h *Handlers) holdForAnswer(
 		if errors.Is(err, rctx.Err()) {
 			return
 		}
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	if len(answer.Stdout) == 0 {

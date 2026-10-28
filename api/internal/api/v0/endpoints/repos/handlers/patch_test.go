@@ -9,8 +9,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,6 +17,7 @@ import (
 	repohandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // fakeUpdater records the UpdateRepo call and returns a canned repo/error so the

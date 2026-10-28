@@ -14,6 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -144,7 +145,7 @@ func TestSubmitPrompt_ConflictCarriesStableMachineCode(t *testing.T) {
 	require.Equal(t, http.StatusConflict, rec.Code)
 	var envelope libs.Envelope
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
-	assert.Equal(t, agentusecase.PromptCodeOutcomeUnknown, envelope.Code)
+	assert.Equal(t, problem.RequestOutcomeUncertain, envelope.Code)
 }
 
 func TestMessagesAndPrompt_DenyCrossWorkspaceChat(t *testing.T) {
@@ -189,12 +190,12 @@ func TestSlashCatalog_ErrorsCarryStableCodeAndStatus(t *testing.T) {
 	cases := []struct {
 		err    error
 		status int
-		code   string
+		code   problem.Code
 	}{
-		{agentusecase.ErrSlashCatalogUnsupported, http.StatusUnprocessableEntity, agentusecase.CatalogCodeUnsupported},
-		{agentusecase.ErrSlashCatalogUnavailable, http.StatusFailedDependency, agentusecase.CatalogCodeUnavailable},
-		{agentusecase.ErrSlashCatalogTimeout, http.StatusGatewayTimeout, agentusecase.CatalogCodeTimeout},
-		{agentusecase.ErrSlashCatalogMalformed, http.StatusBadGateway, agentusecase.CatalogCodeMalformed},
+		{agentusecase.ErrSlashCatalogUnsupported, http.StatusUnprocessableEntity, problem.CatalogUnsupported},
+		{agentusecase.ErrSlashCatalogUnavailable, http.StatusFailedDependency, problem.CatalogCommandUnavailable},
+		{agentusecase.ErrSlashCatalogTimeout, http.StatusGatewayTimeout, problem.CatalogTimeout},
+		{agentusecase.ErrSlashCatalogMalformed, http.StatusBadGateway, problem.CatalogMalformedOutput},
 	}
 	for _, tc := range cases {
 		ctx, rec := newTestContext(t, http.MethodGet, "/slash-catalog", nil)

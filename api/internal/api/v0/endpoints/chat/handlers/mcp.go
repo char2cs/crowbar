@@ -48,8 +48,7 @@ func (h *Handlers) MCP(
 
 	out, send, err := h.providers.DispatchMCP(rctx, segID, body.Token, body.RPC)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	if !send {

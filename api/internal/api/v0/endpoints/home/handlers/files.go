@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -20,7 +19,7 @@ func (h *Handlers) FileTree(c *gin.Context) {
 	dirPath := c.DefaultQuery("path", ".")
 	nodes, err := h.files.Tree(c.Request.Context(), ws.ID, dirPath, nil)
 	if err != nil {
-		homeFileError(c, err)
+		libs.Fail(c, err)
 		return
 	}
 	if nodes == nil {
@@ -51,12 +50,12 @@ func (h *Handlers) CreateFile(c *gin.Context) {
 	switch body.Type {
 	case "dir", "directory":
 		if err := h.files.CreateDir(c.Request.Context(), ws.ID, body.Path, now); err != nil {
-			homeFileError(c, err)
+			libs.Fail(c, err)
 			return
 		}
 	default:
 		if err := h.files.CreateFile(c.Request.Context(), ws.ID, body.Path, now); err != nil {
-			homeFileError(c, err)
+			libs.Fail(c, err)
 			return
 		}
 	}
@@ -85,7 +84,7 @@ func (h *Handlers) CopyFile(c *gin.Context) {
 		return
 	}
 	if err := h.files.Copy(c.Request.Context(), ws.ID, body.SourcePath, body.DestPath, time.Now()); err != nil {
-		homeFileError(c, err)
+		libs.Fail(c, err)
 		return
 	}
 	libs.WriteMutationOK(c, http.StatusCreated, body.DestPath)
@@ -114,7 +113,7 @@ func (h *Handlers) RenameFile(c *gin.Context) {
 		return
 	}
 	if err := h.files.Rename(c.Request.Context(), ws.ID, body.Path, body.NewPath, time.Now()); err != nil {
-		homeFileError(c, err)
+		libs.Fail(c, err)
 		return
 	}
 	libs.WriteMutationOK(c, http.StatusOK, body.NewPath)
@@ -137,18 +136,8 @@ func (h *Handlers) DeleteFile(c *gin.Context) {
 		return
 	}
 	if err := h.files.Delete(c.Request.Context(), ws.ID, body.Path, time.Now()); err != nil {
-		homeFileError(c, err)
+		libs.Fail(c, err)
 		return
 	}
 	libs.WriteMutationOK(c, http.StatusOK, body.Path)
-}
-
-// homeFileError maps file usecase errors to HTTP responses.
-func homeFileError(c *gin.Context, err error) {
-	status, msg := libs.StatusAndMessage(err)
-	if status == http.StatusInternalServerError &&
-		(strings.Contains(msg, "not found") || strings.Contains(msg, "no such file")) {
-		status = http.StatusNotFound
-	}
-	libs.WriteErr(c, status, msg)
 }

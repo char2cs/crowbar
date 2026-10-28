@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/asynx"
 	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/assert"
@@ -19,6 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func newAdapter(

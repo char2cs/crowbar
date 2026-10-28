@@ -1,7 +1,5 @@
 package problem
 
-import "fmt"
-
 // Problem is a failure as the client reads it.
 type Problem struct {
 	Code    Code   `json:"code"`
@@ -33,12 +31,6 @@ func (e *Error) Unwrap() error { return e.Err }
 // New is a coded error with no cause: the form of a sentinel.
 func New(code Code, message string) *Error {
 	return &Error{Code: code, Message: message}
-}
-
-// Errorf is a coded error built like fmt.Errorf; a %w operand stays in its chain.
-func Errorf(code Code, format string, args ...any) error {
-	wrapped := fmt.Errorf(format, args...)
-	return &Error{Code: code, Err: wrapped}
 }
 
 // The category sentinels.

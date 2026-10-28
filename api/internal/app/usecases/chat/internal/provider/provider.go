@@ -16,11 +16,10 @@ import (
 	"regexp"
 	"sort"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )

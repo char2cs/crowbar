@@ -8,11 +8,10 @@ import (
 	"os"
 	"sync"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 

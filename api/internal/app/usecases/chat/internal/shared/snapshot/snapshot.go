@@ -28,10 +28,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 

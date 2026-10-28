@@ -3,7 +3,7 @@
 // (read, write, create, rename, delete, tree). It rejects absolute paths and
 // any path that escapes the workspace root via ".." traversal or a symlink
 // pointing outside the root, returning ErrPathEscapesWorkspace so the handler
-// layer maps it to a 4xx (see internal/api/libs.StatusAndMessage).
+// layer maps it to a 4xx (see its problem code).
 //
 // Security finding R1: before this package, fs ops did a bare
 // filepath.Join(root, rel) with no containment check, so "../" or absolute

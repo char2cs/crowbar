@@ -45,8 +45,7 @@ func (h *Handlers) UploadAttachment(ctx *gin.Context) {
 		ID: id, OriginalName: originalName, Data: data,
 	})
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryWithStatus(ctx, http.StatusCreated, dto.ChatAttachmentDTO{
@@ -169,8 +168,7 @@ func (h *Handlers) Attachment(ctx *gin.Context) {
 	}
 	data, contentType, err := h.turns.ReadAttachment(ctx.Request.Context(), chat.ID, ctx.Param("file"))
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	ctx.Header("Cache-Control", "no-cache")

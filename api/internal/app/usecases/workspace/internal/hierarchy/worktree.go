@@ -7,8 +7,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
@@ -19,6 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	engineprovider "github.com/char2cs/crowbar/api/internal/engine/provider"
 )
@@ -105,7 +104,7 @@ type Usecase interface {
 	) (domain.Workspace, error)
 	// DeleteCascade removes rootID and its unlocked descendants. Without
 	// consent it refuses, touching nothing, when that would destroy work that
-	// exists nowhere else (a *domain.WorkAtRiskError).
+	// exists nowhere else (domain.WorkAtRisked).
 	DeleteCascade(
 		ctx context.Context,
 		rootID string,

@@ -28,8 +28,7 @@ func (h *Handlers) UploadDescriptor(ctx *gin.Context) {
 	}
 	report, err := h.providers.InstallDescriptor(ctx.Request.Context(), raw)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, report)
@@ -46,8 +45,7 @@ func (h *Handlers) Providers(
 ) {
 	providers, err := h.providers.ResolveProviders(ctx.Request.Context())
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, providerDTOs(providers))
@@ -60,8 +58,7 @@ func (h *Handlers) DescriptorReports(
 ) {
 	reports, err := h.providers.DescriptorReports(ctx.Request.Context())
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, reports)
@@ -114,8 +111,7 @@ func (h *Handlers) UpdateProviderPreferences(
 
 	resolved, err := h.providers.ReplaceProviderPreferences(ctx.Request.Context(), prefs)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, providerDTOs(resolved))

@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // commitSHAPattern is the only shape a scoping commit may take.

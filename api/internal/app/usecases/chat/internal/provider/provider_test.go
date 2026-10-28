@@ -6,14 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/provider"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )

@@ -6,13 +6,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 

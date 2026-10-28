@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
@@ -22,6 +20,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // ChatUsecase owns the chat aggregate — its identity, title, model selection

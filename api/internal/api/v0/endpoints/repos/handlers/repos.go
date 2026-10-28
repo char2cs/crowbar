@@ -13,8 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
@@ -25,6 +23,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
 
@@ -318,8 +317,7 @@ func (h *Handlers) List(
 ) {
 	repos, err := h.store.FindAll(c.Request.Context())
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	// The route is hierarchical, so the project is a PATH parameter. Reading it
@@ -344,13 +342,11 @@ func (h *Handlers) Detail(
 ) {
 	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("repoId"))
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	if repo == nil {
-		status, msg := libs.StatusAndMessage(problem.ErrNotFound)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, problem.ErrNotFound)
 		return
 	}
 	libs.WriteQueryOK(c, dto.RepoDTOFrom(*repo, h.placementOf(c.Request.Context(), repo.ID)))
@@ -410,8 +406,7 @@ func (h *Handlers) Create(
 		return
 	}
 	if err := h.importer.CheckRepoImportable(c.Request.Context(), body.ProjectID, body.Path); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	libs.WriteAccepted(c)
@@ -507,8 +502,7 @@ func (h *Handlers) Patch(
 	}
 	updated, err := h.updater.UpdateRepo(c.Request.Context(), c.Param("repoId"), update)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	// The DECIDED placement, never a re-read: the Node projection folds after
@@ -576,8 +570,7 @@ func (h *Handlers) DeleteRepo(
 	repoID := c.Param("repoId")
 	repo, err := h.store.FindByKey(c.Request.Context(), repoID)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	if repo == nil {
@@ -594,7 +587,7 @@ func (h *Handlers) DeleteRepo(
 	consent := libs.DeleteConsentOf(c)
 	marked, err := h.deleter.BeginRepoDelete(c.Request.Context(), *repo, consent)
 	if err != nil {
-		libs.WriteDeleteErr(c, err)
+		libs.Fail(c, err)
 		return
 	}
 	h.broadcast(dto.RepoDTOFrom(marked, h.placementOf(c.Request.Context(), repoID)))

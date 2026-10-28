@@ -26,8 +26,7 @@ func (h *Handlers) SetChatPermissionLevel(
 	}
 	err := h.answers.SetChatPermissionLevel(ctx.Request.Context(), chat.ID, body.Level)
 	if err != nil {
-		status, message := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, message)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteMutationOK(ctx, http.StatusOK, chat.ID)

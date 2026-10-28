@@ -79,7 +79,7 @@ func TestRegression_RepoScopeGuard_404OnMissingRepo(t *testing.T) {
 
 // TestRegression_RepoScopeGuard_ReturnsMappedErrorOnReaderFailure proves a
 // repository-lookup error (a storage read failure, not a missing repo) is
-// mapped through libs.StatusAndMessage and aborts the chain, rather than
+// mapped through libs.Fail and aborts the chain, rather than
 // falling through to the generic 404 a nil repo gets or reaching the handler.
 func TestRegression_RepoScopeGuard_ReturnsMappedErrorOnReaderFailure(t *testing.T) {
 	reader := &fakeRepoReader{err: errors.New("read model unavailable")}
@@ -170,7 +170,7 @@ func TestRegression_ScopeGuard_AllowsMatchingScope(t *testing.T) {
 
 // TestRegression_ScopeGuard_ReturnsMappedErrorOnReaderFailure proves a
 // workspace-lookup error (a storage read failure, not a missing workspace) is
-// mapped through libs.StatusAndMessage and aborts the chain, rather than
+// mapped through libs.Fail and aborts the chain, rather than
 // falling through to the generic 404 a project/repo mismatch gets or reaching
 // the handler.
 func TestRegression_ScopeGuard_ReturnsMappedErrorOnReaderFailure(t *testing.T) {

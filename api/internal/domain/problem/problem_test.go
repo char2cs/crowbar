@@ -78,11 +78,3 @@ func TestCodeOf_AWrappedCategoryStillMatches(t *testing.T) {
 	assert.Equal(t, problem.ChatBusy, problem.CodeOf(fmt.Errorf("submit: %w", busy)))
 	assert.Equal(t, "agent: chat is busy: conflict", busy.Error())
 }
-
-func TestErrorf_CodesTheFormattedChain(t *testing.T) {
-	err := problem.Errorf(problem.IDConflict, "chat %s: %w", "c1", problem.ErrConflict)
-
-	assert.Equal(t, problem.IDConflict, problem.CodeOf(err))
-	assert.Equal(t, "chat c1: conflict", err.Error())
-	assert.ErrorIs(t, err, problem.ErrConflict)
-}

@@ -8,10 +8,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	asynxModels "github.com/char2cs/asynx/models"
-
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
@@ -20,6 +17,7 @@ import (
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 	provider "github.com/char2cs/crowbar/api/internal/engine/provider"
 )

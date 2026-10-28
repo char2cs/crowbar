@@ -19,8 +19,7 @@ func (h *Handlers) Status(
 
 	status, err := h.git.Status(rctx, id)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -44,8 +43,7 @@ func (h *Handlers) Diff(
 
 	diffs, err := h.git.Diff(rctx, id, staged)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -76,8 +74,7 @@ func (h *Handlers) Log(
 
 	commits, err := h.git.Log(rctx, id, limit, skip)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -93,8 +90,7 @@ func (h *Handlers) Branches(
 
 	branches, err := h.git.Branches(rctx, id)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -110,8 +106,7 @@ func (h *Handlers) Stashes(
 
 	stashes, err := h.git.Stashes(rctx, id)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -127,8 +122,7 @@ func (h *Handlers) Conflicts(
 
 	files, err := h.git.ConflictedFiles(rctx, id)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -150,8 +144,7 @@ func (h *Handlers) ConflictHunks(
 
 	hunks, err := h.git.ConflictHunks(rctx, id, filePath)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -173,8 +166,7 @@ func (h *Handlers) CommitDiff(
 
 	diff, err := h.git.CommitDiff(rctx, id, sha)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 

@@ -4,9 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // PlaceWorkspace moves a workspace's own row within its repo's tree —

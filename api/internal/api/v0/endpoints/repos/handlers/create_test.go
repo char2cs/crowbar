@@ -513,9 +513,9 @@ func (f *fakeRepoDeleter) ids() []string {
 // and announces nothing: no intent was recorded. The discard header retries it.
 func TestDeleteRepo_WorkAtRiskIsRefusedUntilTheDiscardHeaderConfirmsIt(t *testing.T) {
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
-	deleter := &fakeRepoDeleter{refuse: &domain.WorkAtRiskError{Workspaces: []domain.WorkAtRisk{
+	deleter := &fakeRepoDeleter{refuse: domain.WorkAtRisked([]domain.WorkAtRisk{
 		{WorkspaceID: "w1", Branch: "feature/x", UnmergedCommits: 1},
-	}}}
+	})}
 	bc := newRecordingRepoBroadcaster()
 	h := repohandlers.NewWithDeps(store, nil, nil, bc.push, unusedHome).WithRepoDeleter(deleter)
 	r := gin.New()

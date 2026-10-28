@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // RenameBranch renames a managed workspace's branch. The workspace does not

@@ -3,7 +3,10 @@ package handlers_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -44,10 +47,12 @@ func TestFileHandlers_ErrorPaths(
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodDelete, "/v0/workspaces/ws1/files?path=a.go", nil).Code)
 }
 
+// The fs engine hands up the os error itself; its errno alone makes it a 404.
 func TestFileHandlers_NotFoundError(
 	t *testing.T,
 ) {
-	r := newRouter(errFiles{err: errors.New("file not found")})
+	_, missing := os.Lstat(filepath.Join(t.TempDir(), "missing"))
+	r := newRouter(errFiles{err: fmt.Errorf("file: tree: %w", missing)})
 
 	assert.Equal(t, http.StatusNotFound, do(r, http.MethodGet, "/v0/workspaces/ws1/files/tree?path=missing", nil).Code)
 }

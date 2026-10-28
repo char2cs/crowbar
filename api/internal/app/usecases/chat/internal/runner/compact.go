@@ -4,11 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // compactStartEvent is the canonical outbound event a provider declares when Crowbar

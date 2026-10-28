@@ -3,9 +3,8 @@ package runner
 import (
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 var (

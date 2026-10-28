@@ -7,7 +7,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 )
 
 // Switch handles POST .../repos/:repoId/chats/:id/switch: terminates
@@ -35,7 +34,7 @@ func (h *Handlers) Switch(
 
 	newSegID, err := h.runners.SwitchProvider(rctx, id, body.Provider)
 	if err != nil {
-		writeCodedErr(ctx, err, agentusecase.PromptErrorCode(err))
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -60,8 +59,7 @@ func (h *Handlers) Resume(
 
 	segID, err := h.runners.ResumeChat(rctx, id)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -86,8 +84,7 @@ func (h *Handlers) Stop(
 	}
 
 	if err := h.runners.StopChat(rctx, id); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -109,8 +106,7 @@ func (h *Handlers) Close(
 	}
 
 	if err := h.runners.CloseChat(rctx, id); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -134,8 +130,7 @@ func (h *Handlers) Handoff(
 
 	handoff, err := h.chats.AssembleHandoff(rctx, id)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -147,8 +142,7 @@ func (h *Handlers) Handoff(
 // absent, not the chat.
 func (h *Handlers) Compact(ctx *gin.Context) {
 	if err := h.runners.Compact(ctx.Request.Context(), ctx.Param("id")); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteMutationOK(ctx, http.StatusAccepted, ctx.Param("id"))
@@ -165,8 +159,7 @@ func (h *Handlers) SwitchToTerminal(ctx *gin.Context) {
 	}
 	termSessID, err := h.runners.SwitchToTerminal(ctx.Request.Context(), id)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteMutationOK(ctx, http.StatusOK, termSessID)
@@ -180,8 +173,7 @@ func (h *Handlers) SwitchToNative(ctx *gin.Context) {
 		return
 	}
 	if err := h.runners.SwitchToNative(ctx.Request.Context(), id); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteAccepted(ctx)

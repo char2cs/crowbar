@@ -44,8 +44,7 @@ func (h *Handlers) ChatLock(
 		return
 	}
 	if _, err := h.reader.SetLock(c.Request.Context(), id, body.Locked); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	c.Status(http.StatusNoContent)

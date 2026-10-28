@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // WorktreeCreator is the narrow write port Promote needs from the worktree

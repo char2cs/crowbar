@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -20,6 +18,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func TestMain(

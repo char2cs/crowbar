@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/stretchr/testify/assert"
+
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // TestThreadHandlers_NotFound asserts a not-found store error maps to 404 on the

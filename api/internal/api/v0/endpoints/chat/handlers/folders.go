@@ -127,8 +127,7 @@ func (h *Handlers) ListFolders(
 		rows, err = h.folders.ListInRepo(ctx.Request.Context(), repoID)
 	}
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, h.folderDTOList(ctx, rows))
@@ -155,8 +154,7 @@ func (h *Handlers) CreateFolder(
 	}
 	created, shifted, err := h.folders.Create(ctx.Request.Context(), in)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	h.announceFolders(wsID, shifted, "folder_updated")
@@ -184,8 +182,7 @@ func (h *Handlers) PatchFolder(
 	}
 	updated, shifted, err := h.applyFolderPatch(ctx.Request.Context(), ctx.Param("folderId"), body)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	h.announceFolders(wsID, append(shifted, updated), "folder_updated")
@@ -236,8 +233,7 @@ func (h *Handlers) DeleteFolder(
 	}
 	promoted, err := h.folders.Delete(ctx.Request.Context(), id)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	h.announceFolders(wsID, promoted, "folder_updated")
@@ -272,8 +268,7 @@ func (h *Handlers) PlaceChat(
 	if wsID == "" {
 		chat, err := h.chats.GetChat(ctx.Request.Context(), ctx.Param("id"))
 		if err != nil {
-			status, msg := libs.StatusAndMessage(err)
-			libs.WriteErr(ctx, status, msg)
+			libs.Fail(ctx, err)
 			return
 		}
 		wsID = chat.WorkspaceID
@@ -281,8 +276,7 @@ func (h *Handlers) PlaceChat(
 	placed, shifted, err := h.folders.PlaceChat(ctx.Request.Context(), wsID, ctx.Param("id"),
 		agentusecase.PlaceInput{ParentID: body.ParentID, Order: body.Order})
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	h.announceFolders(wsID, shifted, "folder_updated")
@@ -303,8 +297,7 @@ func (h *Handlers) PlaceChat(
 	h.broadcastFolder(placed.ID, wsID, "placement_set")
 	_, rt, err := h.chatSnapshot(ctx.Request.Context(), placed.ID)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, placeChatResponse{
@@ -325,8 +318,7 @@ func (h *Handlers) folderInScope(
 	}
 	f, err := h.folders.FolderScope(ctx.Request.Context(), ctx.Param("folderId"))
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return false
 	}
 	if !f.InHome(ctx.Param("wsId")) {

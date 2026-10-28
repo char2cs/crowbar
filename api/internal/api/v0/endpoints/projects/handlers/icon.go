@@ -149,8 +149,7 @@ func (h *Handlers) saveIcon(
 ) {
 	updated, err := h.reader.Update(c.Request.Context(), projectID, in)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	h.broadcast(dto.ProjectDTOFrom(updated))

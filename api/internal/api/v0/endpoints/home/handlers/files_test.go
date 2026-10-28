@@ -371,7 +371,7 @@ func TestCopyFile_UsecaseError_Returns404WhenNotFound(t *testing.T) {
 	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
 	files := &mockFiles{}
 	files.On("Copy", mock.Anything, "ws-1", "ghost.txt", "ghost copy.txt", mock.AnythingOfType("time.Time")).
-		Return(errors.New("no such file or directory"))
+		Return(missingFile(t))
 
 	h := handlers.New(reader, files, stubWork{})
 	r.POST("/projects/:projectId/home/files/copy", h.CopyFile)
@@ -490,7 +490,7 @@ func TestRenameFile_UsecaseError_Returns404WhenNotFound(t *testing.T) {
 	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
 	files := &mockFiles{}
 	files.On("Rename", mock.Anything, "ws-1", "ghost.txt", "new.txt", mock.AnythingOfType("time.Time")).
-		Return(errors.New("no such file or directory"))
+		Return(missingFile(t))
 
 	h := handlers.New(reader, files, stubWork{})
 	r.PATCH("/projects/:projectId/home/files", h.RenameFile)

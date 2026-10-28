@@ -159,8 +159,7 @@ func (h *Handlers) ExecuteCommand(
 		req.Arguments,
 	)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	libs.WriteQueryOK(c, result)
@@ -209,8 +208,7 @@ func (h *Handlers) DidSave(
 		req.Path,
 	)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	libs.WriteQueryOK(c, syncOK{OK: true})
@@ -244,8 +242,7 @@ func (h *Handlers) Restart(
 	if _, req, ok := h.bindPath(c); ok {
 		status, err := h.lsp.Restart(c.Request.Context(), h.lspOwnerID(c), req.Path)
 		if err != nil {
-			code, msg := libs.StatusAndMessage(err)
-			libs.WriteErr(c, code, msg)
+			libs.Fail(c, err)
 			return
 		}
 		libs.WriteQueryOK(c, status)

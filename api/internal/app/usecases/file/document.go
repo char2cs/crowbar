@@ -10,10 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 )
 

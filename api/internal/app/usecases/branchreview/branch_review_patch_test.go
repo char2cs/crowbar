@@ -7,14 +7,13 @@ import (
 	"io"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func TestBranchReview_GetPatch_UsesTheSameDiffRefAsGetFiles(t *testing.T) {

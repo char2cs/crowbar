@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // The cascade that takes a chat's threads and worktrees with it.
@@ -172,7 +171,7 @@ func (u *chatFolderUsecase) refuseLoss(
 		return err
 	}
 	if len(risks) > 0 {
-		return &domain.WorkAtRiskError{Workspaces: risks}
+		return domain.WorkAtRisked(risks)
 	}
 	return nil
 }

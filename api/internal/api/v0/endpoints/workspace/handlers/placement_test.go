@@ -8,8 +8,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,6 +15,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspace/handlers"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func TestMain(
@@ -160,7 +159,7 @@ func TestPlaceWorkspace_RejectsMalformedBody(t *testing.T) {
 }
 
 // A PlaceWorkspace ErrNotFound refusal (a workspaceID with no real repo
-// scope — see its own doc) maps to 404, the same status libs.StatusAndMessage
+// scope — see its own doc) maps to 404, the same status libs.Fail
 // already gives the identical refusal on the chat placement route.
 func TestPlaceWorkspace_NotFoundMapsTo404(t *testing.T) {
 	placer := &fakePlacer{err: problem.ErrNotFound}

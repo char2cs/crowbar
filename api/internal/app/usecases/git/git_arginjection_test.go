@@ -6,13 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/api/libs"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // TestRegression_GitArgInjection_Reset_RejectsBadMode proves that a reset mode
@@ -32,7 +30,7 @@ func TestRegression_GitArgInjection_Reset_RejectsBadMode(t *testing.T) {
 		err := uc.Reset(ctx, "w1", mode, "HEAD", now)
 		require.Error(t, err, "mode %q must be rejected", mode)
 		require.ErrorIs(t, err, problem.ErrInvalidArgument, "mode %q", mode)
-		status, _ := libs.StatusAndMessage(err)
+		status := problem.CodeOf(err).Status()
 		assert.Equal(t, http.StatusBadRequest, status, "mode %q must map to 400", mode)
 	}
 	assert.False(t, syncer.Synced, "a rejected reset must not resync")
@@ -87,7 +85,7 @@ func TestRegression_GitArgInjection_Merge_RejectsDashBranch(t *testing.T) {
 	for _, branch := range []string{"--exec=touch /tmp/pwn", "-X", "--output=/tmp/x"} {
 		err := uc.Merge(ctx, "w1", branch, now)
 		require.ErrorIs(t, err, problem.ErrInvalidArgument, "branch %q", branch)
-		status, _ := libs.StatusAndMessage(err)
+		status := problem.CodeOf(err).Status()
 		assert.Equal(t, http.StatusBadRequest, status)
 	}
 	assert.False(t, syncer.Synced)
@@ -123,7 +121,7 @@ func TestRegression_GitArgInjection_Rebase_RejectsDashOnto(t *testing.T) {
 	for _, onto := range []string{"--exec=touch /tmp/pwn", "--onto=evil", "-i"} {
 		err := uc.Rebase(ctx, "w1", onto, now)
 		require.ErrorIs(t, err, problem.ErrInvalidArgument, "onto %q", onto)
-		status, _ := libs.StatusAndMessage(err)
+		status := problem.CodeOf(err).Status()
 		assert.Equal(t, http.StatusBadRequest, status)
 	}
 	assert.False(t, syncer.Synced)
@@ -196,7 +194,7 @@ func TestRegression_GitArgInjection_CommitDiff_RejectsBadSha(t *testing.T) {
 	for _, sha := range []string{"--output=/tmp/pwn", "-O/tmp/x", "HEAD;rm -rf /"} {
 		_, err := uc.CommitDiff(ctx, "w1", sha)
 		require.ErrorIs(t, err, problem.ErrInvalidArgument, "sha %q", sha)
-		status, _ := libs.StatusAndMessage(err)
+		status := problem.CodeOf(err).Status()
 		assert.Equal(t, http.StatusBadRequest, status)
 	}
 }

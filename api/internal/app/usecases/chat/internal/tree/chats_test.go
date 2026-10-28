@@ -5,14 +5,13 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // TestDeleteChat_RefusesAFolderID pins the asymmetry this package's own doc
@@ -1087,9 +1086,8 @@ func TestDeleteChat_WithoutConsentRefusesOverWorkAtRiskBeforeReapingAnything(t *
 
 	_, err := uc.DeleteChat(context.Background(), "root", domain.KeepWorkAtRisk)
 
-	var refused *domain.WorkAtRiskError
-	require.ErrorAs(t, err, &refused)
-	assert.Equal(t, []domain.WorkAtRisk{risk}, refused.Workspaces)
+	require.ErrorIs(t, err, domain.ErrWorkAtRisk)
+	assert.Equal(t, map[string]any{"workAtRisk": []domain.WorkAtRisk{risk}}, problem.DataOf(err))
 	assert.Empty(t, reaper.Reaped, "not even the clean child is reaped")
 	assert.Empty(t, chats.Purged)
 	assert.Len(t, roster.Rows, 2)

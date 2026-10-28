@@ -29,8 +29,7 @@ func (h *Handlers) Activity(ctx *gin.Context) {
 
 	activity, err := h.turns.ReadActivity(ctx.Request.Context(), chat.ID, int64(after), limit)
 	if err != nil {
-		status, message := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, message)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -163,8 +162,7 @@ func (h *Handlers) Choices(ctx *gin.Context) {
 	}
 	choices, err := h.turns.ReadPendingChoices(ctx.Request.Context(), chat.ID)
 	if err != nil {
-		status, message := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, message)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, h.choiceDTOs(chat.ID, choices))
@@ -193,8 +191,7 @@ func (h *Handlers) ToolPayload(ctx *gin.Context) {
 		return
 	}
 	if err != nil {
-		status, message := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, message)
+		libs.Fail(ctx, err)
 		return
 	}
 

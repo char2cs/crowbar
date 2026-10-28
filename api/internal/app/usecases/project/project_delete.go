@@ -9,12 +9,11 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	asynxModels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // DeleteProjectStore is the project persistence surface the delete usecase
@@ -117,7 +116,7 @@ type DeleteDeps struct {
 // minus anything that is not the project's to remove (see removeProjectDir).
 //
 // Without consent, a delete that would destroy work existing nowhere else is
-// refused by Begin* before any intent is recorded (a *domain.WorkAtRiskError),
+// refused by Begin* before any intent is recorded (domain.WorkAtRisked),
 // and the teardown enforces the same rule; Resume never has consent.
 type DeleteUsecase interface {
 	// BeginDelete records a project's delete intent — Deleting set, LastError
@@ -307,7 +306,7 @@ func (u *projectDelete) refuseProjectLoss(
 }
 
 // refuseLoss answers a delete without consent before it records anything: a
-// *domain.WorkAtRiskError naming every workspace of repos whose work it would
+// domain.WorkAtRisked error naming every workspace of repos whose work it would
 // destroy, or nil.
 func (u *projectDelete) refuseLoss(
 	ctx context.Context,
@@ -323,7 +322,7 @@ func (u *projectDelete) refuseLoss(
 	}
 	if len(risks) > 0 {
 		sort.Slice(risks, func(i, j int) bool { return risks[i].Branch < risks[j].Branch })
-		return &domain.WorkAtRiskError{Workspaces: risks}
+		return domain.WorkAtRisked(risks)
 	}
 	return nil
 }

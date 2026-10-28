@@ -2,7 +2,6 @@ package git
 
 import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/diff"
 )
 

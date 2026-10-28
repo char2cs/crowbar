@@ -44,8 +44,7 @@ func (h *Handlers) Import(c *gin.Context) {
 	}
 	repo, err := h.repos.FindByKey(c.Request.Context(), c.Param("repoId"))
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	if repo == nil {

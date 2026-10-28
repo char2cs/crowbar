@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func TestExecuteCommand_ForwardsTheCommandAndRelativizesItsEdits(t *testing.T) {

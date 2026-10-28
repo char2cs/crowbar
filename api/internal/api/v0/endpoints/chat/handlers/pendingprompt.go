@@ -16,8 +16,7 @@ func (h *Handlers) PendingPrompt(ctx *gin.Context) {
 	}
 	pending, found, err := h.runners.PendingPrompt(ctx.Request.Context(), chat.ID)
 	if err != nil {
-		status, message := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, message)
+		libs.Fail(ctx, err)
 		return
 	}
 	if !found {

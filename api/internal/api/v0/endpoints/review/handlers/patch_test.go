@@ -10,12 +10,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/middleware"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"github.com/char2cs/crowbar/api/internal/perf"
 )
 

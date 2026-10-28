@@ -7,12 +7,11 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/transcript"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 

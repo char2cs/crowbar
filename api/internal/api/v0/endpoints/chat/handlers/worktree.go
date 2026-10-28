@@ -465,8 +465,7 @@ func (h *Handlers) Workspaces(
 	}
 	rows, err := h.worktrees.ListInRepo(rctx, projectID, repoID)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 

@@ -105,7 +105,7 @@ func TestMCP_BadJSONIs400(
 	assert.Empty(t, uc.dispatchMCPCalls)
 }
 
-// TestMCP_MapsUsecaseErrorsThroughStatusAndMessage proves the handler defers
+// TestMCP_MapsUsecaseErrorsThroughTheirProblemCode proves the handler defers
 // status selection to the shared mapper rather than hardcoding 500, using
 // agentusecase.ErrNoLiveRunner as a stand-in for any mapped sentinel.
 //
@@ -115,7 +115,7 @@ func TestMCP_BadJSONIs400(
 // as a 200 whose JSON-RPC result carries isError. A tool failure is data for the
 // model, not an HTTP fault. This test exists for the day DispatchMCP grows a
 // mapped error, so that error does not silently become a 500.
-func TestMCP_MapsUsecaseErrorsThroughStatusAndMessage(
+func TestMCP_MapsUsecaseErrorsThroughTheirProblemCode(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{dispatchMCPErr: agentusecase.ErrNoLiveRunner}

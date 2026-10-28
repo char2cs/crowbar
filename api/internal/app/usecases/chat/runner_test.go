@@ -16,8 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,6 +27,7 @@ import (
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -3209,24 +3208,31 @@ func TestSubmitPrompt_ARetryAfterAConfirmedDeliveryReturnsTheOriginal(t *testing
 
 // ─── from agent_errors_test.go ────────────────────────────────────────
 
-func TestPromptErrorCode_NamesEveryPromptFailure(t *testing.T) {
+// Each prompt and catalogue refusal carries its own code, wrapped or not, so
+// the client branches on the code rather than the prose.
+func TestPromptAndCatalogRefusals_CarryDistinctCodes(t *testing.T) {
 	testCases := []struct {
 		err  error
-		want string
+		want problem.Code
 	}{
-		{agentusecase.ErrPromptBusy, agentusecase.PromptCodeBusy},
-		{agentusecase.ErrPromptOutcomeUnknown, agentusecase.PromptCodeOutcomeUnknown},
-		{agentusecase.ErrPromptRequestIDConflict, agentusecase.PromptCodeRequestIDConflict},
-		{agentusecase.ErrPromptUnsupported, agentusecase.PromptCodeUnsupported},
-		{agentusecase.ErrPromptSessionUnavailable, agentusecase.PromptCodeSessionRequired},
+		{agentusecase.ErrPromptBusy, problem.ChatBusy},
+		{agentusecase.ErrPromptOutcomeUnknown, problem.RequestOutcomeUncertain},
+		{agentusecase.ErrPromptRequestIDConflict, problem.RequestIDConflict},
+		{agentusecase.ErrPromptUnsupported, problem.PromptSubmitUnsupported},
+		{agentusecase.ErrPromptSessionUnavailable, problem.LiveTUIRequired},
+		{agentusecase.ErrSlashCatalogUnsupported, problem.CatalogUnsupported},
+		{agentusecase.ErrSlashCatalogTimeout, problem.CatalogTimeout},
+		{agentusecase.ErrSlashCatalogUnavailable, problem.CatalogCommandUnavailable},
+		{agentusecase.ErrSlashCatalogOutputLimit, problem.CatalogOutputLimit},
+		{agentusecase.ErrSlashCatalogCommand, problem.CatalogCommandFailed},
+		{agentusecase.ErrSlashCatalogMalformed, problem.CatalogMalformedOutput},
+		{agentusecase.ErrSlashCatalogSuperseded, problem.CatalogSuperseded},
 	}
-	seen := map[string]struct{}{}
+	seen := map[problem.Code]struct{}{}
 	for _, tc := range testCases {
-		t.Run(tc.want, func(t *testing.T) {
-			assert.Equal(t, tc.want, agentusecase.PromptErrorCode(tc.err))
-
-			assert.Equal(t, tc.want,
-				agentusecase.PromptErrorCode(fmt.Errorf("agent: submit prompt: %w", tc.err)))
+		t.Run(string(tc.want), func(t *testing.T) {
+			assert.Equal(t, tc.want, problem.CodeOf(tc.err))
+			assert.Equal(t, tc.want, problem.CodeOf(fmt.Errorf("agent: submit prompt: %w", tc.err)))
 		})
 		_, dup := seen[tc.want]
 		assert.False(t, dup, "codes must be distinct: %s", tc.want)
@@ -3234,40 +3240,11 @@ func TestPromptErrorCode_NamesEveryPromptFailure(t *testing.T) {
 	}
 }
 
-func TestPromptErrorCode_HasNoCodeForAnUnrelatedFailure(t *testing.T) {
-	assert.Empty(t, agentusecase.PromptErrorCode(errors.New("disk gone")))
-	assert.Empty(t, agentusecase.PromptErrorCode(nil))
-}
-
-func TestCatalogErrorCode_NamesEveryCatalogueFailure(t *testing.T) {
-	testCases := []struct {
-		err  error
-		want string
-	}{
-		{agentusecase.ErrSlashCatalogUnsupported, agentusecase.CatalogCodeUnsupported},
-		{agentusecase.ErrSlashCatalogTimeout, agentusecase.CatalogCodeTimeout},
-		{agentusecase.ErrSlashCatalogUnavailable, agentusecase.CatalogCodeUnavailable},
-		{agentusecase.ErrSlashCatalogOutputLimit, agentusecase.CatalogCodeOutputLimit},
-		{agentusecase.ErrSlashCatalogCommand, agentusecase.CatalogCodeCommand},
-		{agentusecase.ErrSlashCatalogMalformed, agentusecase.CatalogCodeMalformed},
-		{agentusecase.ErrSlashCatalogSuperseded, agentusecase.CatalogCodeSuperseded},
-	}
-	seen := map[string]struct{}{}
-	for _, tc := range testCases {
-		t.Run(tc.want, func(t *testing.T) {
-			assert.Equal(t, tc.want, agentusecase.CatalogErrorCode(tc.err))
-			assert.Equal(t, tc.want,
-				agentusecase.CatalogErrorCode(fmt.Errorf("agent: slash catalog: %w", tc.err)))
-		})
-		_, dup := seen[tc.want]
-		assert.False(t, dup, "codes must be distinct: %s", tc.want)
-		seen[tc.want] = struct{}{}
-	}
-}
-
-func TestCatalogErrorCode_HasNoCodeForAnUnrelatedFailure(t *testing.T) {
-	assert.Empty(t, agentusecase.CatalogErrorCode(errors.New("disk gone")))
-	assert.Empty(t, agentusecase.CatalogErrorCode(nil))
+// A coded refusal still matches its category, which callers test with errors.Is.
+func TestPromptRefusals_StillMatchTheirCategory(t *testing.T) {
+	require.ErrorIs(t, agentusecase.ErrPromptBusy, problem.ErrConflict)
+	require.ErrorIs(t, agentusecase.ErrPromptUnsupported, problem.ErrUnprocessable)
+	require.ErrorIs(t, agentusecase.ErrSlashCatalogUnavailable, engineterminal.ErrCommandNotFound)
 }
 
 // ─── from terminal_wait_test.go ───────────────────────────────────────

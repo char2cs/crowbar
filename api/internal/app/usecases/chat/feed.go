@@ -7,12 +7,11 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // The frame types a chat feed sends. A feed ends after a resync or a deleted.

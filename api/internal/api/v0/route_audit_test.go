@@ -11,8 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
@@ -21,6 +19,7 @@ import (
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/core/logring"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // workspaceGetter is the read the real workspace repository (and this stub)

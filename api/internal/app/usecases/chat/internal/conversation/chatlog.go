@@ -6,13 +6,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/google/uuid"
 
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // The message page bounds ReadMessages serves under: a caller that asks for

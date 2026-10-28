@@ -10,9 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // WSConn is the WebSocket abstraction implemented by gorilla/websocket connections.

@@ -26,9 +26,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/convert"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/manager"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/registry"

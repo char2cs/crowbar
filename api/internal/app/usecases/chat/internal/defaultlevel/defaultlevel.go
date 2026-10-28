@@ -6,10 +6,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
-
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // Valid is Crowbar's own closed set of level names — the ONLY thing this
