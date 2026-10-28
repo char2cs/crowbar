@@ -5,6 +5,7 @@ import { RecentsViewRow } from '@/components/sidebar/view-row'
 import { useSidebarDrag } from '@/components/sidebar/hooks/use-sidebar-drag'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
+import { newDraftChatId } from '@/features/agent/lib/draft-chat'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import {
   resetWindowPaneStoreForTests,
@@ -282,6 +283,17 @@ describe('RecentsViewRow', () => {
       expect(screen.getByTestId('recents-row-chat-9')).toBeInTheDocument()
       screen.getByRole('button', { name: 'Close view' }).click()
       expect(props.onClose).toHaveBeenCalledWith(viewOf('chat-9'))
+    })
+
+    // A new thread has no chat on the daemon until its first prompt: nothing is coming to name it.
+    it('names an unsent new thread untitled, not loading', () => {
+      const draft = newDraftChatId()
+      actions().openChat(draft, { workspaceId: 'ws-1' })
+      renderBand()
+      expect(
+        within(screen.getByTestId(`recents-row-${draft}`)).getByText(UNTITLED_CHAT_LABEL),
+      ).toBeInTheDocument()
+      expect(screen.queryByText('Loading…')).toBeNull()
     })
   })
 })

@@ -13,6 +13,7 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { viewMembers } from '@/features/panes/lib/view-state'
 import type { ViewMember } from '@/features/panes/types/pane'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { isDraftChatId } from '@/features/agent/lib/draft-chat'
 
 const NO_ICON: Partial<ChatIconFields> = {}
 const LOADING_CHAT_LABEL = 'Loading…'
@@ -35,7 +36,9 @@ export function useMemberRow(
     parentId: null,
     order: 0,
     // The tree's own fallback: both rows name an untitled chat alike.
-    label: chat.title || (known ? UNTITLED_CHAT_LABEL : LOADING_CHAT_LABEL),
+    // An unsent new thread has no chat to wait for: it is untitled, as it will be once sent.
+    label:
+      chat.title || (known || isDraftChatId(chatId) ? UNTITLED_CHAT_LABEL : LOADING_CHAT_LABEL),
     labelProvisional: !chat.title,
     workspaceId: chat.workspaceId,
     working: chat.working,
