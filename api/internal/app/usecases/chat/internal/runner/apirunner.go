@@ -77,11 +77,11 @@ func (rs *Runners) forkOrAdopt(
 func (rs *Runners) adoptAPIConn(ctx context.Context, req forkRequest) error {
 	//nolint:contextcheck // the exit outlives the request; its values must not reach it.
 	if !rs.watchAPIConnExit(req.runnerID, req.crowbarHome, req.tmpDir) {
-		rs.abandonAdoptedSpawn(ctx, req)
+		rs.abandonUnforked(ctx, req.runnerID, req.paths())
 		return fmt.Errorf("agent: spawn runner: api connection vanished before its exit could be watched")
 	}
 	if err := rs.carryPromptOverAPIConn(ctx, req); err != nil {
-		rs.abandonAdoptedSpawn(ctx, req)
+		rs.abandonUnforked(ctx, req.runnerID, req.paths())
 		return err
 	}
 	return nil
@@ -109,12 +109,6 @@ func (rs *Runners) carryPromptOverAPIConn(ctx context.Context, req forkRequest) 
 		return fmt.Errorf("%w: %w", ErrSpawnPromptUndeliverable, err)
 	}
 	return nil
-}
-
-func (rs *Runners) abandonAdoptedSpawn(ctx context.Context, req forkRequest) {
-	rs.apiConns.drop(req.runnerID)
-	rs.agents.ForgetRunner(req.runnerID)
-	reapRunnerDir(ctx, req.crowbarHome, req.tmpDir)
 }
 
 // handOverAPIConn marks runnerID's connection as being torn down in favour of

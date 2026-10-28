@@ -148,6 +148,7 @@ func TestSpawnRunner_DescriptorResolveFailure_ReturnsTheResolveError(t *testing.
 
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "resolve descriptor")
+	assert.NoDirExists(t, filepath.Join(chatsDir, "runners", "runner-1-missing-test"), "no runner dir outlives the refusal")
 }
 
 // okHooksDescriptor is a minimal, entirely valid hooks-transport descriptor —
@@ -246,6 +247,26 @@ func TestSpawnRunner_ACarriedPushThatFindsTheSessionGoneLosesIt(t *testing.T) {
 	assert.False(t, h.rs.HasLiveAPIConnection("runner-1"), "the connection is dropped")
 }
 
+// An adopting spawn whose connection has no process to watch has no exit to
+// reap it, so the spawn does: no connection, surface entry or dir is left.
+func TestSpawnRunner_AnAdoptionWithNothingToWatchReapsWhatItSetUp(t *testing.T) {
+	h := newSpawnHarness(t, engineagents.SurfaceChat)
+	require.NoError(t, os.MkdirAll(filepath.Join(h.home, "descriptors"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(h.home, "descriptors", apiLoseProvider+".yaml"),
+		[]byte(apiLoseTestDescriptor), 0o600))
+	h.rs.ledger = turnedTestLedger(t, apiLoseProvider, "S1")
+	conn, _ := apiLoseConn(t, h.rs, refusedResume)
+	conn.tctx = engineagents.TemplateCtx{Session: "S1"}
+
+	_, err := h.rs.spawnRunner(t.Context(), h.chatID, "ws-1", apiLoseProvider,
+		spawnInput{runnerID: "runner-1", promptMessage: "hi"}, false)
+
+	require.ErrorContains(t, err, "vanished")
+	assert.False(t, h.rs.HasLiveAPIConnection("runner-1"))
+	assert.False(t, surfaceKept(h.rs, "runner-1"), "the surface entry is dropped")
+	assert.NoDirExists(t, filepath.Join(h.home, "runners", "runner-1-"+apiLoseProvider))
+}
+
 // A send whose launch finds its session refused by the connection forks
 // nothing: its plan resumes that session, and the prompt it carried is settled.
 func TestSubmitPrompt_ALaunchWhoseSessionTheConnectionRefusesForksNothing(t *testing.T) {
@@ -295,6 +316,7 @@ func TestSpawnRunner_ASecondRunnerOnALiveChatIsRefusedBeforeItForks(t *testing.T
 
 	require.ErrorIs(t, err, ErrChatHasLiveRunner)
 	assert.Empty(t, h.term.created, "nothing forked")
+	assert.NoDirExists(t, filepath.Join(h.home, "runners", "runner-1-claude"), "the refused spawn's dir is reaped")
 	live, err := h.rs.LiveRunnerForChat(t.Context(), "chat-1")
 	require.NoError(t, err)
 	assert.Equal(t, "runner-0", live.ID)
@@ -344,8 +366,12 @@ func TestSpawnRunner_ARefusedPreForkSpawnReapsItsDirAndSurface(t *testing.T) {
 
 	require.ErrorIs(t, err, ErrSpawnSessionRefused)
 	assert.NoDirExists(t, filepath.Join(h.home, "runners", "runner-1-carrier-test"))
-	h.rs.surfaces.mu.Lock()
-	_, kept := h.rs.surfaces.byRun["runner-1"]
-	h.rs.surfaces.mu.Unlock()
-	assert.False(t, kept, "the refused runner's surface entry is dropped")
+	assert.False(t, surfaceKept(h.rs, "runner-1"), "the refused runner's surface entry is dropped")
+}
+
+func surfaceKept(rs *Runners, runnerID string) bool {
+	rs.surfaces.mu.Lock()
+	defer rs.surfaces.mu.Unlock()
+	_, kept := rs.surfaces.byRun[runnerID]
+	return kept
 }

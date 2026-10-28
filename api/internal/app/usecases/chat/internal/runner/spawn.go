@@ -96,10 +96,12 @@ func (rs *Runners) spawnRunner(
 
 	descriptor, err := rs.agents.Get(ctx, crowbarHome, providerID)
 	if err != nil {
+		rs.abandonUnforked(ctx, runnerID, paths)
 		return "", fmt.Errorf("agent: spawn runner: resolve descriptor: %w", err)
 	}
 	launch, sessionSteps, err := rs.spawnLaunch(ctx, chatID, descriptor, in.launch)
 	if err != nil {
+		rs.abandonUnforked(ctx, runnerID, paths)
 		return "", err
 	}
 
@@ -181,7 +183,7 @@ func (rs *Runners) spawnRunner(
 	if err := rs.live.add(engineagents.Runner{
 		ID: runnerID, WorkspaceID: workspaceID, ProviderID: providerID, CurrentChatID: chatID,
 	}); err != nil {
-		rs.agents.ForgetRunner(runnerID)
+		rs.abandonUnforked(ctx, runnerID, paths)
 		return "", err
 	}
 	// The surface this process lands on, recorded before anything can ask
@@ -275,7 +277,7 @@ func (rs *Runners) forkCLI(
 	if err == nil {
 		return termSessID, nil
 	}
-	rs.abandonUnforked(ctx, req.runnerID, spawnPaths{crowbarHome: req.crowbarHome, tmpDir: req.tmpDir})
+	rs.abandonUnforked(ctx, req.runnerID, req.paths())
 
 	// A CLI that is not installed is the ONE spawn failure the user can act on, so
 	// it travels as its own sentinel (→ 424, a named message in the UI) rather than
@@ -396,6 +398,11 @@ type forkRequest struct {
 	apiSelection  engineagents.Selection
 	// resume is how this process's exit tells a refusal of its session.
 	resume resumeWatch
+}
+
+// paths are the runner's own paths a failed spawn reaps.
+func (req forkRequest) paths() spawnPaths {
+	return spawnPaths{crowbarHome: req.crowbarHome, tmpDir: req.tmpDir}
 }
 
 // teardownForked ends the CLI a spawn forked before it failed, and returns cause.
