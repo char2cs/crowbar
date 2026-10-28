@@ -1,9 +1,14 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/lib/errors/api-error'
 import { OperationFailedError } from '@/lib/errors/operation-failed'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { applyOperationFrame, useOperationsStore, type Operation } from '@/lib/store/operations'
-import { runOperation, whenSettled, type OperationReply } from '@/lib/store/run-operation'
+import {
+  dismissOperation,
+  runOperation,
+  whenSettled,
+  type OperationReply,
+} from '@/lib/store/run-operation'
 
 const push = {
   kind: 'git.push',
@@ -193,5 +198,30 @@ describe('whenSettled', () => {
     applyOperationFrame(server('op-p', { state: 'succeeded', version: 2 }))
 
     await expect(done).resolves.toMatchObject({ state: 'succeeded' })
+  })
+})
+
+afterEach(() => vi.unstubAllGlobals())
+
+describe('dismissOperation', () => {
+  it('asks the daemon to dismiss and keeps the dismissed row it answers', async () => {
+    const failed = server('op-x', { state: 'failed', version: 3 })
+    applyOperationFrame(failed)
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ success: true, data: { ...failed, dismissed: true, version: 4 } }),
+        ),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await dismissOperation('op-x')
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/v0\/operations\/op-x$/),
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+    expect(ops()['op-x']).toMatchObject({ dismissed: true, version: 4 })
   })
 })

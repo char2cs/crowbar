@@ -1,3 +1,4 @@
+import { apiFetch } from '@/lib/api/fetch'
 import { OperationFailedError } from '@/lib/errors/operation-failed'
 import { problemOf, type Problem } from '@/lib/errors/problem'
 import { isEntityPresent, subscribeEntityPresence } from '@/lib/store/entity-presence'
@@ -119,4 +120,14 @@ export function whenSettled(opId: string): Promise<Operation> {
     stops.push(useOperationsStore.subscribe(check), subscribeEntityPresence(check))
     check()
   })
+}
+
+/** Clears a settled operation's reason; the daemon records the dismissal. */
+export async function dismissOperation(opId: string): Promise<void> {
+  const held = useOperationsStore.getState().ops[opId]
+  if (held?.local) {
+    putLocalOperation({ ...held, dismissed: true })
+    return
+  }
+  applyOperationFrame(await apiFetch<Operation>(`/v0/operations/${opId}`, { method: 'DELETE' }))
 }

@@ -51,7 +51,9 @@ function put(s: OperationsState, op: Operation): OperationsState {
   const latestFor = { ...s.latestFor }
   for (const id of namedIds(op)) {
     const newest = s.ops[latestFor[id]]
-    if (!newest || newest.id === op.id || newest.createdAt <= op.createdAt) latestFor[id] = op.id
+    // By time, not text: stamps differ in offset and fractional precision.
+    if (!newest || newest.id === op.id || Date.parse(newest.createdAt) <= Date.parse(op.createdAt))
+      latestFor[id] = op.id
   }
   return { ops: { ...s.ops, [op.id]: op }, latestFor }
 }
@@ -75,10 +77,10 @@ export function putLocalOperation(op: Operation): void {
   })
 }
 
-/** The reason the newest operation naming `entityId` failed, or null. */
+/** The reason the newest operation naming `entityId` failed, or null once the user dismissed it. */
 export function selectEntityProblem(s: OperationsState, entityId: string): Problem | null {
   const op = s.ops[s.latestFor[entityId]]
-  if (!op || op.state !== 'failed') return null
+  if (!op || op.state !== 'failed' || op.dismissed) return null
   const item = op.items.find((i) => i.ref.id === entityId)
   if (item && op.subject.id !== entityId) return item.error ?? null
   return op.error ?? null

@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { BranchSection } from '@/features/git/components/branch-section'
 import type { GitFile } from '@/features/git/types/git-types'
 import { pushChanges } from '@/features/git/api/git-remotes-api'
@@ -122,4 +122,44 @@ describe('BranchSection', () => {
 
     expect(await screen.findByText(/origin does not appear to be a git repository/)).toBeDefined()
   })
+
+  // The user pushed from a terminal: nothing is left to push, so Retry has
+  // nothing to do, and the reason must still be clearable.
+  it('a failed push the user resolved elsewhere can be dismissed', async () => {
+    const failed = {
+      id: 'op-old',
+      kind: 'git.push',
+      subject: { kind: 'workspace' as const, id: 'w1' },
+      projectId: 'p1',
+      label: 'Push epoch/first-pr',
+      state: 'failed' as const,
+      items: [],
+      dismissed: false,
+      version: 3,
+      createdAt: '2026-10-28T13:00:00Z',
+      updatedAt: '2026-10-28T13:00:00Z',
+      error: { code: 'internal' as const, message: 'rejected by the remote' },
+    }
+    act(() => applyOperationFrame(failed))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ success: true, data: { ...failed, dismissed: true, version: 4 } }),
+        ),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    render(<BranchSection {...base} ahead={0} />)
+    expect(screen.getByText(/rejected by the remote/)).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+
+    await waitFor(() => expect(screen.queryByText(/rejected by the remote/)).toBeNull())
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/v0\/operations\/op-old$/),
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+  })
 })
+
+afterEach(() => vi.unstubAllGlobals())

@@ -8,7 +8,8 @@ import { resolveBranchAction } from '../lib/branch-action'
 import { pushChanges, pullChanges } from '../api/git-remotes-api'
 import { rebaseOntoParent } from '@/lib/api/workspace'
 import { selectEntityProblem, useOperationsStore } from '@/lib/store/operations'
-import { runOperation, whenSettled } from '@/lib/store/run-operation'
+import { dismissOperation, runOperation, whenSettled } from '@/lib/store/run-operation'
+import { report } from '@/lib/errors/report'
 import type { GitFile } from '../types/git-types'
 import { requestGitRefresh } from '../stores/git-refresh'
 
@@ -35,6 +36,7 @@ export function BranchSection({
   const [rebasing, setRebasing] = useState(false)
   // The workspace's last failed operation owns the reason; a later success clears it.
   const remoteError = useOperationsStore((s) => selectEntityProblem(s, wsId)?.message ?? null)
+  const remoteOpId = useOperationsStore((s) => s.latestFor[wsId])
   const [rebaseError, setRebaseError] = useState<string | null>(null)
 
   const action = resolveBranchAction({
@@ -202,6 +204,23 @@ export function BranchSection({
           >
             Retry
           </button>
+          {remoteError && remoteOpId && (
+            <>
+              {' · '}
+              {/* Retry may not apply, e.g. the user pushed from a terminal since. */}
+              <button
+                type="button"
+                className="underline"
+                onClick={() =>
+                  void dismissOperation(remoteOpId).catch((e: unknown) =>
+                    report(e, { action: 'Dismiss' }),
+                  )
+                }
+              >
+                Dismiss
+              </button>
+            </>
+          )}
         </p>
       )}
 

@@ -102,4 +102,31 @@ describe('operations store', () => {
     applyOperationFrame(op({ state: 'succeeded', version: 3 }))
     expect(selectEntityBusy(state(), 'ws1')).toBe(false)
   })
+
+  it('the newest operation is by time, whatever the offset or precision its timestamp is written in', () => {
+    applyOperationFrame(op({ id: 'later', state: 'failed', createdAt: '2026-10-28T12:30:00Z' }))
+    // 21:00+09:00 is 12:00Z, earlier, though it sorts after as text.
+    applyOperationFrame(
+      op({ id: 'earlier', state: 'succeeded', createdAt: '2026-10-28T21:00:00.5+09:00' }),
+    )
+    expect(state().latestFor.ws1).toBe('later')
+
+    applyOperationFrame(
+      op({ id: 'newest', state: 'succeeded', createdAt: '2026-10-28T12:30:00.1Z' }),
+    )
+    expect(state().latestFor.ws1).toBe('newest')
+  })
+
+  it('a dismissed failure no longer names its entity a problem', () => {
+    applyOperationFrame(op({ state: 'failed', error: { code: 'internal', message: 'gone' } }))
+    applyOperationFrame(
+      op({
+        state: 'failed',
+        version: 2,
+        dismissed: true,
+        error: { code: 'internal', message: 'gone' },
+      }),
+    )
+    expect(selectEntityProblem(state(), 'ws1')).toBeNull()
+  })
 })

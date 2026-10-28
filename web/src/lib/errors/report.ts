@@ -18,7 +18,7 @@ function isCancellation(error: unknown): boolean {
 }
 
 /** Tells the user an action failed and why, in the daemon's own words. */
-function report(error: unknown, context: ReportContext): void {
+export function report(error: unknown, context: ReportContext): void {
   // A failed operation was already toasted by the operations watcher.
   if (isCancellation(error) || error instanceof OperationFailedError) return
   const problem = problemOf(error)
