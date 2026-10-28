@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/blame"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
@@ -113,6 +114,25 @@ func TestFile_NotExist_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestFile_NoHistory(t *testing.T) {
+	committed := initRepo(t)
+	commitFile(t, committed, "real.txt", "content\n", "add file")
+	require.NoError(t, os.WriteFile(filepath.Join(committed, "new.txt"), []byte("x\n"), 0o600))
+	unborn := initRepo(t)
+	require.NoError(t, os.WriteFile(filepath.Join(unborn, "a.txt"), []byte("x\n"), 0o600))
+
+	for name, c := range map[string]struct{ dir, path string }{
+		"untracked file":    {committed, "new.txt"},
+		"untitled buffer":   {committed, "untitled:Untitled-1"},
+		"repo with no HEAD": {unborn, "a.txt"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := blame.File(context.Background(), c.dir, c.path)
+			require.ErrorIs(t, err, gitdomain.ErrNoHistory)
+		})
+	}
+}
+
 func TestFile_SingleLine(t *testing.T) {
 	dir := initRepo(t)
 	commitFile(t, dir, "one.txt", "only line\n", "single line commit")
@@ -150,6 +170,7 @@ func TestFile_InjectedExecError(
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "blame: file")
+	assert.NotErrorIs(t, err, gitdomain.ErrNoHistory, "a failing git is not an unblamed file")
 }
 
 func TestIsCommitHeader_ShortSHA(

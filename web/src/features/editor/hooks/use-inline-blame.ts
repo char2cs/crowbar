@@ -3,7 +3,7 @@
  * from the daemon's /blame. Loaded once per file (cached in the blame store,
  * invalidated on save); hidden while the buffer has unsaved edits, since
  * blame's line numbers describe the file on disk. A host document (no
- * workspace) has no repository to blame.
+ * workspace) has no repository to blame, and an untitled buffer no file.
  */
 import { useEffect } from 'react'
 import type * as Monaco from 'monaco-editor'
@@ -11,6 +11,7 @@ import { blameKey, loadBlame, useGitBlameStore } from '@/features/git/stores/git
 import type { BlameEntry } from '@/features/git/api/git-blame-api'
 import { workspaceRef } from '@/lib/api/documents'
 import { findDocumentBuffer } from '../documents/open-document'
+import { isUntitledRef } from '../documents/document-ref'
 import { useSettingsStore } from '@/features/settings/store'
 import { dataOf } from '@/lib/loadable'
 import { formatRelativeDate } from '@/utils/date'
@@ -34,7 +35,8 @@ export function useInlineBlame(
   workspaceId: string | null,
   filePath: string,
 ): void {
-  const enabled = useSettingsStore((s) => s.settings.inlineBlame)
+  const enabled =
+    useSettingsStore((s) => s.settings.inlineBlame) && !isUntitledRef({ path: filePath })
   const key = workspaceId === null ? '' : blameKey(workspaceId, filePath)
   const blame = useGitBlameStore((s) => s.blame[key])
 

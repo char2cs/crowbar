@@ -33,11 +33,24 @@ func File(
 	// be read as a git option (e.g. `--output=<path>` writing an arbitrary file);
 	// `git blame --porcelain -- <path>` treats everything after `--` as a path.
 	r := gitRunner(ctx, repoPath, "blame", "--porcelain", "--", filePath)
-	if r.ExitCode != 0 {
-		return nil, fmt.Errorf("blame: file: exit %d: %s", r.ExitCode, strings.TrimSpace(r.Stderr))
+	if r.ExitCode == 0 {
+		return parsePorcelain(r.Stdout)
 	}
+	if !inHead(ctx, repoPath, filePath) {
+		return nil, fmt.Errorf("blame: file: %s: %w", filePath, gitdomain.ErrNoHistory)
+	}
+	return nil, fmt.Errorf("blame: file: exit %d: %s", r.ExitCode, strings.TrimSpace(r.Stderr))
+}
 
-	return parsePorcelain(r.Stdout)
+// inHead reports whether HEAD holds filePath, decided by exit code rather than
+// blame's localised stderr: --quiet --verify exits 1 for a missing path or an
+// unborn HEAD, and 128 when git itself fails.
+func inHead(
+	ctx context.Context,
+	repoPath string,
+	filePath string,
+) bool {
+	return gitRunner(ctx, repoPath, "rev-parse", "--verify", "--quiet", "HEAD:./"+filePath).ExitCode != 1
 }
 
 // parseCommitHeader extracts the SHA and result line number from a porcelain

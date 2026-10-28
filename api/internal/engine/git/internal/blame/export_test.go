@@ -35,7 +35,7 @@ func errRunner(
 	_ string,
 	_ ...string,
 ) exec.Result {
-	return exec.Result{ExitCode: 1, Stderr: "injected runner error"}
+	return exec.Result{ExitCode: 128, Stderr: "injected runner error"}
 }
 
 // SetErrorRunner replaces gitRunner with a failing stub for the duration of a test.
