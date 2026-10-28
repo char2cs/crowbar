@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
@@ -110,6 +110,7 @@ describe('SidebarProjectHeader host filter', () => {
     await user.click(screen.getByRole('button', { name: 'Host: All hosts' }))
     await user.click(await screen.findByRole('menuitemradio', { name: /Laptop/ }))
     expect(onSelectHost).toHaveBeenCalledExactlyOnceWith('h2')
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
   })
 
   it('reports all hosts chosen', async () => {

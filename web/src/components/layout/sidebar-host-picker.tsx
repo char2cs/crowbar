@@ -27,7 +27,7 @@ interface SidebarHostPickerProps {
 function HostRow({ hostId }: { hostId: string }) {
   const { name, state } = useHostView(hostId)
   return (
-    <DropdownMenuRadioItem value={hostId}>
+    <DropdownMenuRadioItem value={hostId} closeOnClick>
       <HostStatusIcon hostId={hostId} state={state} />
       <span className="min-w-0 flex-1 truncate">{name ?? hostId}</span>
       {/* The dot's words and tone, as Settings and Create Space say them. */}
@@ -66,7 +66,7 @@ export function SidebarHostPicker({ hostIds, shown, onSelect, className }: Sideb
       </DropdownMenuTrigger>
       <DropdownMenuContent align="center" className="w-max min-w-48">
         <DropdownMenuRadioGroup value={shown} onValueChange={(hostId) => onSelect(hostId)}>
-          <DropdownMenuRadioItem value={ALL_HOSTS}>
+          <DropdownMenuRadioItem value={ALL_HOSTS} closeOnClick>
             <StackIcon aria-hidden="true" className="size-4" />
             <span className="flex-1">All hosts</span>
           </DropdownMenuRadioItem>
