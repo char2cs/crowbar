@@ -132,6 +132,15 @@ async function liveTab(chatId: string, tabId: string): Promise<void> {
   await ensureWebview(tabId, PARKED_RECT, true)
 }
 
+/** `liveTab`, and when that makes the webview, its first page load too: an op that
+ *  answers before then would hand the agent a blank page. */
+async function loadedTab(chatId: string, tabId: string, limits: AgentLimits): Promise<void> {
+  const settled =
+    webviewCreated(tabId) === undefined ? nextLoadEnd(tabId, afterMs(limits.loadMs)) : undefined
+  await liveTab(chatId, tabId)
+  await settled
+}
+
 async function openTab(chatId: string, args: Record<string, unknown>, limits: AgentLimits) {
   const group = pane(chatId)
   const url = args.url === undefined ? undefined : parseUrl(args.url)
@@ -146,7 +155,7 @@ async function openTab(chatId: string, args: Record<string, unknown>, limits: Ag
       { type: 'browser', url, workspaceId: group.workspaceId },
       { paneId: group.id },
     )
-  if (url) await liveTab(chatId, id)
+  if (url) await loadedTab(chatId, id, limits)
   return { tab: id, reused: false }
 }
 
@@ -155,7 +164,7 @@ async function navigateTab(chatId: string, tabId: string, url: string, limits: A
   // A webview that does not exist yet is made at the new url; only a live one is sent there.
   const wasLive = webviewCreated(tabId) !== undefined
   windowPaneStore.getState().bufferActions.setBrowserLocation(tabId, { url })
-  await liveTab(chatId, tabId)
+  await loadedTab(chatId, tabId, limits)
   if (wasLive) {
     const settled = nextLoadEnd(tabId, afterMs(limits.loadMs))
     await browserApi.navigate(tabId, url)

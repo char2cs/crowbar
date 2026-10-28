@@ -36,6 +36,11 @@ const req = (chatId: string, op: string, tab = '', args: Record<string, unknown>
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // A new webview reports its first load, as the native one does.
+  api.open.mockImplementation(async (id: string) => {
+    state().bufferActions.setBrowserLocation(id, { loading: true })
+    state().bufferActions.setBrowserLocation(id, { loading: false })
+  })
   resetWindowPaneStoreForTests()
   state().paneActions.setActiveProject('p1')
   state().paneActions.openChat('chat-a', { workspaceId: 'ws-a' })
@@ -68,6 +73,15 @@ describe('open', () => {
     }
     expect(second.tab).not.toBe(first)
     expect(listTabs().filter((t) => t.chatId === 'chat-a')).toHaveLength(2)
+  })
+
+  it('answers once the new tab has loaded its page', async () => {
+    api.open.mockImplementation(async (id: string) => {
+      state().bufferActions.setBrowserLocation(id, { loading: true })
+      setTimeout(() => state().bufferActions.setBrowserLocation(id, { loading: false, title: 'A' }))
+    })
+    const tab = await openFor('chat-a')
+    expect(state().bufferActions.getBufferById(tab)).toMatchObject({ loading: false, title: 'A' })
   })
 
   it('opens a blank tab when no url is given', async () => {
