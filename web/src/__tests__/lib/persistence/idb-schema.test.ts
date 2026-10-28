@@ -119,6 +119,27 @@ describe('idb schema v10', () => {
   })
 })
 
+describe('idb schema v11', () => {
+  it('indexes chat-history by fetchedAt in a fresh database', async () => {
+    const db = await getDB()
+    expect(Array.from(db.transaction('chat-history').store.indexNames)).toEqual(['fetchedAt'])
+  })
+
+  it('adds the index to an existing v10 database without losing its transcripts', async () => {
+    const v10 = await openDB('crowbar', 10, {
+      upgrade(db) {
+        db.createObjectStore('chat-history', { keyPath: 'key' })
+      },
+    })
+    await v10.put('chat-history', { key: 'c1', data: { messages: [] }, fetchedAt: 5 })
+    v10.close()
+
+    const db = await getDB()
+
+    expect(await db.getAllFromIndex('chat-history', 'fetchedAt', 5)).toHaveLength(1)
+  })
+})
+
 describe('branch-review viewed state', () => {
   it('round-trips a workspace viewed map and keeps workspaces apart', async () => {
     await saveBranchReviewViewed('ws1', { 'a.ts': 'M|3|1' })

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { resetDB } from '@/lib/persistence/idb'
+import { loadChatHistory, saveChatHistory } from '@/lib/persistence/chat-history'
 import {
   upsertEntity,
   getAllEntities,
@@ -87,6 +88,17 @@ describe('entity-cache', () => {
     expect(await getAllEntities<WorkspaceDTO>('crowbar_workspaces')).toHaveLength(1)
     await removeEntity('crowbar_workspaces', 'w1')
     expect(await getAllEntities<WorkspaceDTO>('crowbar_workspaces')).toHaveLength(0)
+  })
+
+  it("removing a chat row also removes its cached transcript, and only that chat's", async () => {
+    await upsertEntity('crowbar_chats', { id: 'c1' })
+    await saveChatHistory('c1', { messages: [], hasOlder: false })
+    await saveChatHistory('c2', { messages: [], hasOlder: false })
+
+    await removeEntity('crowbar_chats', 'c1')
+
+    expect(await loadChatHistory('c1')).toBeUndefined()
+    expect(await loadChatHistory('c2')).toBeDefined()
   })
 
   it('round-trips across every entity store', async () => {

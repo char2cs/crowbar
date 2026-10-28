@@ -6,7 +6,6 @@ export type CacheStoreName =
   | 'git-data'
   | 'file-tree-data'
   | 'branch-review-data'
-  | 'chat-history'
   | 'projects-data'
   | 'chats-data'
 

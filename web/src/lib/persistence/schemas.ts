@@ -107,7 +107,9 @@ export interface CrowbarDB extends DBSchema {
   'git-data': { key: string; value: CachedRecord<unknown> }
   'file-tree-data': { key: string; value: CachedRecord<unknown> }
   'branch-review-data': { key: string; value: CachedRecord<unknown> }
-  'chat-history': { key: string; value: CachedRecord<unknown> }
+  // The newest page of each chat's transcript, keyed by chatId (see chat-history.ts).
+  // fetchedAt is indexed so the cap evicts the least recently written chats.
+  'chat-history': { key: string; value: CachedRecord<unknown>; indexes: { fetchedAt: number } }
   'projects-data': { key: string; value: CachedRecord<unknown> }
   'chats-data': { key: string; value: CachedRecord<unknown> }
   // §6 entity cache (v7) — complete DTOs keyed by their own id. WS frames

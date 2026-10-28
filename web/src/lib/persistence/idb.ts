@@ -82,8 +82,8 @@ async function openDatabase(): Promise<IDBPDatabase<CrowbarDB>> {
 }
 
 async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
-  return openDB<CrowbarDB>('crowbar', 10, {
-    upgrade(db, oldVersion) {
+  return openDB<CrowbarDB>('crowbar', 11, {
+    upgrade(db, oldVersion, _newVersion, transaction) {
       // Retired stores are no longer in CrowbarDB; the upgrade chain still
       // creates and then drops them, so it goes through the untyped handle.
       const raw = db as unknown as IDBDatabase
@@ -155,6 +155,13 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
         // settings store) or workspace-hierarchy (the daemon owns parents).
         for (const name of ['ui-preferences', 'workspace-hierarchy']) {
           if (raw.objectStoreNames.contains(name)) raw.deleteObjectStore(name)
+        }
+      }
+      if (oldVersion < 11) {
+        // Lets the transcript cache evict its oldest chats without reading values.
+        // Guarded: a hand-built database that skipped v5 has no such store.
+        if (db.objectStoreNames.contains('chat-history')) {
+          transaction.objectStore('chat-history').createIndex('fetchedAt', 'fetchedAt')
         }
       }
     },

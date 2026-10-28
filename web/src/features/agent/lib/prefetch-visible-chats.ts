@@ -32,6 +32,8 @@ async function load(wsId: string, chatId: string): Promise<void> {
   if (!(await awaitHost({ wsId }))) return
   const { loadInitial, evict } = chatLedgerStore.getState()
   await loadInitial(wsId, chatId)
-  // A failed prefetch must not show its error before the view retries.
-  if (chatLedgerStore.getState().ledgers[chatId]?.status === 'error') evict(chatId)
+  // A failed prefetch must not show its error before the view retries, but a
+  // ledger holding a cached transcript has something to show meanwhile.
+  const ledger = chatLedgerStore.getState().ledgers[chatId]
+  if (ledger?.status === 'error' && ledger.messages.length === 0) evict(chatId)
 }

@@ -1,6 +1,7 @@
 import { createStore } from 'zustand'
 import { listChatMessages, type AgentChatMessage } from '@/features/agent/api/agent-api'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { loadChatHistory, saveChatHistory } from '@/lib/persistence/chat-history'
 
 const MESSAGE_PAGE_SIZE = 100
 const EMPTY_MESSAGES: AgentChatMessage[] = []
@@ -84,8 +85,29 @@ export const chatLedgerStore = createStore<ChatLedgerState>()((set, get) => {
       return ledger ? { ledgers: { ...state.ledgers, [chatId]: { ...ledger, ...change } } } : state
     })
 
+  // IndexedDB keeps the newest page of each chat so a chat reads offline. Persisting
+  // here covers everything that reaches the ledger: only persisted rows do, never
+  // streaming deltas, so each write is a settled message.
+  const persist = (chatId: string) => {
+    const ledger = get().ledgers[chatId]
+    if (!ledger) return
+    void saveChatHistory(chatId, {
+      messages: ledger.messages.slice(-MESSAGE_PAGE_SIZE),
+      hasOlder: ledger.hasOlder || ledger.messages.length > MESSAGE_PAGE_SIZE,
+    })
+  }
+
   const fetchFirstPage = async (wsId: string, chatId: string, generation: number) => {
     const isCurrent = () => get().ledgers[chatId]?.generation === generation
+    // The cached page paints while the network answers; a page that lands first
+    // wins, and one that lands later replaces it.
+    const hydrated = loadChatHistory(chatId).then((cached) => {
+      const ledger = get().ledgers[chatId]
+      if (!cached || !isCurrent() || ledger.status !== 'loading' || ledger.messages.length > 0) {
+        return
+      }
+      patch(chatId, withMerged({ ...ledger, hasOlder: cached.hasOlder }, cached.messages))
+    })
     try {
       const page = await listChatMessages(wsId, chatId, { limit: MESSAGE_PAGE_SIZE })
       if (!isCurrent()) return
@@ -102,7 +124,9 @@ export const chatLedgerStore = createStore<ChatLedgerState>()((set, get) => {
         error: null,
         pending: null,
       })
+      persist(chatId)
     } catch (err) {
+      await hydrated
       if (!isCurrent()) return
       patch(chatId, {
         status: 'error',
@@ -134,7 +158,9 @@ export const chatLedgerStore = createStore<ChatLedgerState>()((set, get) => {
       if (!ledger) return EMPTY_MESSAGES
       let next = withMerged(ledger, incoming)
       if (older) next = { ...next, oldestCursor: older.oldestCursor, hasOlder: older.hasMore }
-      if (next !== ledger) patch(chatId, next)
+      if (next === ledger) return next.messages
+      patch(chatId, next)
+      if (!older) persist(chatId)
       return next.messages
     },
     setError: (chatId, error) => {
