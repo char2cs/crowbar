@@ -75,3 +75,22 @@ func TestStore_DeadLettersOlderThanTheRetentionArePurgedAtOpen(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, count, "only the letter younger than the retention is kept")
 }
+
+// A purge that fails leaves the letters for the next open: the store still
+// opens, since the ledger matters more than its dead letters.
+func TestStore_AFailedDeadLetterPurgeStillOpens(t *testing.T) {
+	db := openDB(t, filepath.Join(t.TempDir(), ledgerstore.FileName))
+	s, err := ledgerstore.Open(db, clock)
+	require.NoError(t, err)
+	require.NoError(t, s.DeadLetter(t.Context(), ledgerstore.DeadLetter{Reason: "unknown_runner"}))
+	require.NoError(t, db.Exec(`CREATE TRIGGER keep_letters BEFORE DELETE ON ledger_dead_letters
+		BEGIN SELECT RAISE(ABORT, 'kept'); END`).Error)
+	later := func() time.Time { return fixedNow.Add(ledgerstore.DeadLetterRetention + time.Second) }
+
+	s, err = ledgerstore.Open(db, later)
+
+	require.NoError(t, err)
+	count, err := s.DeadLetterCount(t.Context(), "unknown_runner")
+	require.NoError(t, err)
+	assert.Equal(t, 1, count, "the purge did not run, and nothing else was lost")
+}

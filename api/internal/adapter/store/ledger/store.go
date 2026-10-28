@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sync"
 	"time"
@@ -56,7 +57,7 @@ func Open(db *gorm.DB, clock func() time.Time) (*Store, error) {
 	}
 	s := &Store{db: db, clock: clock, writers: map[string]*chatWriter{}}
 	if err := s.purgeDeadLetters(context.Background()); err != nil {
-		return nil, fmt.Errorf("ledger: open: %w", err)
+		slog.Warn("ledger: open: purge dead letters (best-effort, the next open retries)", "err", err)
 	}
 	return s, nil
 }
