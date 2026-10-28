@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -28,7 +30,7 @@ type WSConn interface {
 
 // ErrSessionNotFound is returned when an operation targets a session ID that is
 // not registered (never existed, or has ended).
-var ErrSessionNotFound = errors.New("terminal: session not found")
+var ErrSessionNotFound = problem.New(problem.NotFound, "terminal: session not found")
 
 // ErrShuttingDown is returned by the session-birth paths (Create, CreateCommand,
 // and the restore inside Attach) once Shutdown has begun draining. Birthing a
@@ -42,7 +44,7 @@ var ErrShuttingDown = errors.New("terminal: engine is shutting down")
 // machine, not a server fault, and it is classified here — where the exec actually
 // fails — so callers never have to string-match exec's error text to tell "this CLI
 // is not installed" apart from a genuine spawn failure.
-var ErrCommandNotFound = errors.New("terminal: command not found")
+var ErrCommandNotFound = problem.New(problem.FailedDependency, "terminal: command not found")
 
 // Exit is how a command session's process ended: its exit code (-1 when
 // unknown) and the text on its screen at the end.

@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -152,7 +153,7 @@ func TestCompact_APITransport_NoLiveConnIsUnavailable(t *testing.T) {
 
 	err := rs.Compact(context.Background(), "chat-1")
 	require.Error(t, err)
-	require.ErrorIs(t, err, apperr.ErrUnavailable)
+	require.ErrorIs(t, err, problem.ErrUnavailable)
 }
 
 // TestRegression_CompactIsRefusedOnTheProvidersOwnTerminal: compaction is a
@@ -194,6 +195,6 @@ func TestCompact_IsOfferedOnCrowbarsOwnChatSurface(t *testing.T) {
 	// No live connection, so this still refuses — but on availability, not
 	// on the surface, which is the distinction under test.
 	err := rs.Compact(context.Background(), "chat-1")
-	require.ErrorIs(t, err, apperr.ErrUnavailable)
+	require.ErrorIs(t, err, problem.ErrUnavailable)
 	require.NotErrorIs(t, err, ErrCompactionOffSurface)
 }

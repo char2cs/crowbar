@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -243,7 +244,7 @@ func (u *fileUsecase) CreateDir(
 
 // Copy duplicates a file or directory byte-faithfully and resyncs the working
 // tree. Locked (protected-branch) workspaces reject the write with
-// apperr.ErrLocked, same as every other mutation.
+// problem.ErrLocked, same as every other mutation.
 func (u *fileUsecase) Copy(
 	ctx context.Context,
 	wsID string,
@@ -316,7 +317,7 @@ func (u *fileUsecase) writePath(
 		return "", fmt.Errorf("file: load workspace: %w", err)
 	}
 	if ws.Status == domain.WorkspaceStatusLocked {
-		return "", fmt.Errorf("file: write: workspace locked: %w", apperr.ErrLocked)
+		return "", fmt.Errorf("file: write: workspace locked: %w", problem.ErrLocked)
 	}
 	return ws.WorktreePath, nil
 }

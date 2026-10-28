@@ -1,5 +1,17 @@
 package domain
 
+import "github.com/char2cs/crowbar/api/internal/domain/problem"
+
+// ErrHostDocumentNeedsLocalTransport refuses a file outside every workspace to
+// a request that did not arrive on the local socket: it is the local user's only.
+var ErrHostDocumentNeedsLocalTransport = problem.New(problem.HostDocumentRequiresLocalTransport,
+	"a host document is served only over the local socket")
+
+// ErrDaemonStateDocument refuses a document under the daemon's own state
+// directory, whose live databases a save would corrupt.
+var ErrDaemonStateDocument = problem.New(problem.DaemonStateDocument,
+	"the daemon's own state cannot be opened as a document")
+
 // DocumentAuthority names what serves a document: a workspace's worktree, or
 // the host filesystem outside every worktree.
 type DocumentAuthority string

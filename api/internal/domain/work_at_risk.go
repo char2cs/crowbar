@@ -1,9 +1,10 @@
 package domain
 
 import (
-	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // DeleteConsent says whether a delete may destroy work that exists nowhere
@@ -32,7 +33,7 @@ func (w WorkAtRisk) Lost() bool {
 }
 
 // ErrWorkAtRisk is the sentinel a WorkAtRiskError unwraps to.
-var ErrWorkAtRisk = errors.New("delete would destroy work that exists nowhere else")
+var ErrWorkAtRisk = problem.New(problem.WorkAtRisk, "delete would destroy work that exists nowhere else")
 
 // WorkAtRiskError refuses a delete made without consent, naming every
 // workspace whose work it would have destroyed. Nothing was touched.

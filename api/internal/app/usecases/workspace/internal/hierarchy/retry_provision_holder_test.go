@@ -78,7 +78,7 @@ func TestRetryProvision_HolderResolveError(t *testing.T) {
 
 // TestRetryProvision_DeriveWorktreePathError proves a path-derivation failure
 // (here: an empty ProjectID, which worktreepath.Derive rejects) is surfaced
-// as apperr.ErrInvalidArgument rather than reaching git at all.
+// as problem.ErrInvalidArgument rather than reaching git at all.
 func TestRetryProvision_DeriveWorktreePathError(t *testing.T) {
 	ws := placeholderWS("ph", "r1", "", "develop")
 	g := &fakeGit{} // Free: no holder

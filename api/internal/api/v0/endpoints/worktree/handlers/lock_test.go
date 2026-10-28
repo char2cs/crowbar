@@ -4,13 +4,14 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	worktreehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/worktree/handlers"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -75,7 +76,7 @@ func TestLock_RejectsAMalformedBody(t *testing.T) {
 
 func TestLock_404sOnAWorkspaceThatIsNotThere(t *testing.T) {
 	reader := &fakeReader{}
-	worktrees := &fakeWorktrees{err: apperr.ErrNotFound}
+	worktrees := &fakeWorktrees{err: problem.ErrNotFound}
 
 	rec := do(lockRouter(reader, worktrees), http.MethodPost, chatBase+"/lock", `{"locked":true}`)
 
@@ -87,7 +88,7 @@ func TestLock_SurfacesARefusalSynchronously(t *testing.T) {
 	// The home workspace and a placeholder with no worktree are both refused by
 	// the aggregate. The user pressed a menu item; the answer belongs in the
 	// response, not on a stream.
-	reader := &fakeReader{lockErr: apperr.ErrInvalidArgument}
+	reader := &fakeReader{lockErr: problem.ErrInvalidArgument}
 
 	rec := do(lockRouter(reader, heldWorkspace()), http.MethodPost, chatBase+"/lock", `{"locked":false}`)
 

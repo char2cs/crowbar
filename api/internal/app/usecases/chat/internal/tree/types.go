@@ -63,7 +63,7 @@ type Chats interface {
 		order int,
 	) (domain.Chat, error)
 	// SetOrder reports a chatID a concurrent delete has already purged as
-	// apperr.ErrNotFound: a densify plans a whole level from one snapshot, and a
+	// problem.ErrNotFound: a densify plans a whole level from one snapshot, and a
 	// row that vanished before the write reached it needs no order any more, so
 	// writeRow treats this sentinel as nothing to do rather than a failure.
 	SetOrder(
@@ -313,7 +313,7 @@ type Usecase interface {
 		homeID string,
 	) ([]domain.Chat, error)
 	// FolderScope answers a folder's stored identity (its repo or home
-	// scope), or apperr.ErrNotFound — the fact a mount checks before it
+	// scope), or problem.ErrNotFound — the fact a mount checks before it
 	// lets a caller rename, move or delete the row.
 	FolderScope(
 		ctx context.Context,
@@ -476,7 +476,7 @@ type Usecase interface {
 	// PlaceWorkspace moves a workspace's own row within its repo's tree — a
 	// locked branch and an ordinary fork alike, see checkWorkspaceMove and
 	// PlaceWorkspace's own doc for why this is not gated on
-	// domain.Workspace.RendersAsBranch. It refuses with apperr.ErrNotFound
+	// domain.Workspace.RendersAsBranch. It refuses with problem.ErrNotFound
 	// only for a workspaceID with no real repo scope (a nonexistent id, or
 	// the project's own home workspace).
 	PlaceWorkspace(

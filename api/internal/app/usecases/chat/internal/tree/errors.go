@@ -1,6 +1,10 @@
 package tree
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+)
 
 // ErrCycle is returned when a move would put a row inside its own subtree —
 // under itself, under a folder it contains, or under a chat threaded off it. The
@@ -9,20 +13,20 @@ import "errors"
 // unreachable: a chat's parent is what it reads, so a chat inside its own subtree
 // is a context walk that never terminates at the root. The guard runs before any
 // write, so the tree is never briefly cyclic. Handlers map it to 409.
-var ErrCycle = errors.New("usecases: a chat or folder cannot be moved inside itself")
+var ErrCycle = problem.New(problem.Conflict, "usecases: a chat or folder cannot be moved inside itself")
 
 // ErrCrossWorkspace is returned when a CHAT's parent belongs to a different
 // workspace. A folder carries no workspace and so can never trigger it — only a
 // row threading under another CHAT can. A cross-workspace thread would mean
 // reading turns from a workspace the user is not in. Handlers map it to 409.
-var ErrCrossWorkspace = errors.New("usecases: a chat and its chat parent must be in the same workspace")
+var ErrCrossWorkspace = problem.New(problem.Conflict, "usecases: a chat and its chat parent must be in the same workspace")
 
 // ErrCrossRepo is returned when a FOLDER's parent resolves to a different repo
 // scope — "" (project-home) counts as its own scope here, distinct from every
 // real repo id. The folder-scoping golden rule: a folder may only be created or
 // moved under a parent that shares its own repo, the same way ErrCrossWorkspace
 // already holds a chat to its own workspace. Handlers map it to 409.
-var ErrCrossRepo = errors.New("usecases: a folder and its parent must share the same repo")
+var ErrCrossRepo = problem.New(problem.Conflict, "usecases: a folder and its parent must share the same repo")
 
 // ErrCrossContext is the golden rule's finer grain, returned when a folder
 // MOVE would cross from one context to another even within the same repo —
@@ -32,7 +36,7 @@ var ErrCrossRepo = errors.New("usecases: a folder and its parent must share the 
 // order: Project -> Repo -> Locked branch -> Parent unlocked branch. A
 // folder moves freely within whichever one it already sits under; never
 // across. Handlers map it to 409.
-var ErrCrossContext = errors.New("usecases: a folder cannot move to a different context")
+var ErrCrossContext = problem.New(problem.Conflict, "usecases: a folder cannot move to a different context")
 
 // ErrForkChainSplit is returned when a WORKSPACE placement would file a fork's
 // own row outside the space its fork parent owns — a folder, or another
@@ -46,7 +50,7 @@ var ErrCrossContext = errors.New("usecases: a folder cannot move to a different 
 // its fork parent regardless, so the drag answers 200 and visibly does nothing.
 // Changing what a fork hangs off is the reparent route's job. Handlers map it
 // to 409.
-var ErrForkChainSplit = errors.New("usecases: a workspace cannot be filed away from its fork parent")
+var ErrForkChainSplit = problem.New(problem.Conflict, "usecases: a workspace cannot be filed away from its fork parent")
 
 // ErrNotAContainer is returned when a move or create names a REPO as its
 // parent/folder id. A repo's own Node row rides through this package's
@@ -66,7 +70,7 @@ var ErrNotAContainer = errors.New("usecases: a repo cannot be filed into")
 // nameless folder is an unlabelled box the user cannot tell apart from any
 // other; it is refused at the usecase boundary so the API and any future caller
 // share one rule. Handlers map it to 400.
-var ErrNameRequired = errors.New("usecases: chat folder name is required")
+var ErrNameRequired = problem.New(problem.InvalidArgument, "usecases: chat folder name is required")
 
 // ErrWorkspaceUnprovisioned is returned when a create names a workspace that
 // has no worktree on disk — a PLACEHOLDER (hierarchy.ErrParentUnprovisioned's
@@ -78,4 +82,4 @@ var ErrNameRequired = errors.New("usecases: chat folder name is required")
 // anything is minted, so the create-row error path shows the real reason.
 // Handlers map it to 409 — the row is not in a state where this can be done,
 // not a malformed request.
-var ErrWorkspaceUnprovisioned = errors.New("usecases: this branch has no worktree yet")
+var ErrWorkspaceUnprovisioned = problem.New(problem.Conflict, "usecases: this branch has no worktree yet")

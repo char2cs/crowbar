@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	repoattachments "github.com/char2cs/crowbar/api/internal/app/repositories/chat/attachments"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 )
@@ -70,7 +71,7 @@ func TestUploadAttachment_StoreFailure_ReturnsWrappedError(t *testing.T) {
 		ID: "not an id!", OriginalName: "photo.png", Data: pngBytes(),
 	})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 	assert.Contains(t, err.Error(), "upload attachment:")
 }
 

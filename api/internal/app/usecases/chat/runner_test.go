@@ -16,11 +16,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
@@ -862,7 +863,7 @@ func TestResumeChat_NothingHasEverRunHere_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, agentusecase.ErrChatProviderUnknown)
 	assert.Contains(t, err.Error(), "no longer records which provider it ran")
-	assert.ErrorIs(t, err, apperr.ErrNotFound,
+	require.ErrorIs(t, err, problem.ErrNotFound,
 		"and it still maps to the 404 the old sentinel did, never a 500")
 	assert.NotErrorIs(t, err, agentusecase.ErrNoLiveRunner,
 		"a missing RUNNER is the expected dormant state, and is not what failed")
@@ -1439,7 +1440,7 @@ func TestSubmitPrompt_RejectsNULBeforeJournalOrTUITeardown(t *testing.T) {
 	terminatedCount := len(f.term.terminatedIDs())
 
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "invalid\x00argv", uuid.NewString(), "", nil)
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 	assert.Equal(t, spawnCount, f.term.callCount(), "invalid input must not start a replacement")
 	assert.Len(t, f.term.terminatedIDs(), terminatedCount, "invalid input must not touch the outgoing TUI")
 	live, liveErr := f.liveRunnerFor(t, chatID)
@@ -1783,7 +1784,7 @@ func TestSubmitPrompt_RejectsBadInputBeforeTouchingAnything(t *testing.T) {
 
 			_, err := f.usecase.SubmitPrompt(f.ctx, chatID, tc.text, tc.request, "", nil)
 
-			require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+			require.ErrorIs(t, err, problem.ErrInvalidArgument)
 			assert.Equal(t, spawns, f.term.callCount(), "no replacement was started")
 			assert.Len(t, f.term.terminatedIDs(), terminated, "the live CLI was not touched")
 			live, liveErr := f.liveRunnerFor(t, chatID)
@@ -2003,7 +2004,7 @@ func TestCompact_AProviderWithNoGestureIsNotFound(t *testing.T) {
 	err := f.usecase.Compact(f.ctx, chatID)
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 	assert.Equal(t, before, f.term.callCount(),
 		"a provider that cannot compact must have nothing sent to it")
 }
@@ -2031,7 +2032,7 @@ func TestCompact_ResolvesCwdThroughTheAncestorWalkForABubble(t *testing.T) {
 
 	err := f.usecase.Compact(f.ctx, bubbleID)
 
-	require.ErrorIs(t, err, apperr.ErrNotFound,
+	require.ErrorIs(t, err, problem.ErrNotFound,
 		"must still refuse for the provider's OWN missing gesture, exactly as an ordinary chat would")
 	assert.Equal(t, "ws1", f.ws.lastWorkspaceID,
 		"must resolve the bubble's cwd through its workspace-owning ancestor, not its own empty WorkspaceID")
@@ -3954,7 +3955,7 @@ var sessionOps = []sessionOp{
 		// The CLI takes what it is sent; a switch parked on the prompt waits for that.
 		if ok && live.ID == sub.RunnerID {
 			err := f.usecase.IngestHook(f.ctx, live.ID, live.ProviderID, "user_prompt", mustJSON(t, map[string]any{"prompt": "step"}))
-			if !endsRunner(w.rival) || !errors.Is(err, apperr.ErrNotFound) { // a rival stop may take the runner first
+			if !endsRunner(w.rival) || !errors.Is(err, problem.ErrNotFound) { // a rival stop may take the runner first
 				assert.NoError(t, err)
 			}
 		}

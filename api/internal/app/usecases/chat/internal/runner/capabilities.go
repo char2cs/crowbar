@@ -13,7 +13,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -52,7 +53,7 @@ func (rs *Runners) TelemetryOnChatSurface(ctx context.Context, chatID string) bo
 // what makes the gate enforced rather than merely honoured.
 var ErrCompactionOffSurface = fmt.Errorf(
 	"agent: compaction is offered on Crowbar's own chat, not the provider's terminal: %w",
-	apperr.ErrUnprocessable,
+	problem.ErrUnprocessable,
 )
 
 // chatCapabilityContext resolves the pair every chat-scoped capability needs:

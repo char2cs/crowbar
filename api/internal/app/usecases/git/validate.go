@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // resetModes is the allowlist of git reset modes the API accepts. The mode is
@@ -28,7 +28,7 @@ func validateResetMode(
 	if _, ok := resetModes[mode]; !ok {
 		return fmt.Errorf(
 			"%w: reset mode %q is not one of soft, mixed, hard, keep, merge",
-			apperr.ErrInvalidArgument, mode,
+			problem.ErrInvalidArgument, mode,
 		)
 	}
 	return nil
@@ -55,13 +55,13 @@ func validateOperand(
 	if strings.HasPrefix(operand, "-") {
 		return fmt.Errorf(
 			"%w: %s %q must not begin with '-'",
-			apperr.ErrInvalidArgument, label, operand,
+			problem.ErrInvalidArgument, label, operand,
 		)
 	}
 	if !isRefShaped(operand) {
 		return fmt.Errorf(
 			"%w: %s %q is not a valid git ref/revision",
-			apperr.ErrInvalidArgument, label, operand,
+			problem.ErrInvalidArgument, label, operand,
 		)
 	}
 	return nil

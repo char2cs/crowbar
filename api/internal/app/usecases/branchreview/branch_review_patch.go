@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // GetPatch streams ONE file's unified patch from the workspace's branch diff
@@ -37,7 +37,7 @@ func (u *branchReviewUsecase) GetPatch(
 	w io.Writer,
 ) (int, bool, error) {
 	if path == "" {
-		return 0, false, fmt.Errorf("branch review: patch: %w: path is required", apperr.ErrInvalidArgument)
+		return 0, false, fmt.Errorf("branch review: patch: %w: path is required", problem.ErrInvalidArgument)
 	}
 	ws, err := u.workspaces.Get(ctx, wsID)
 	if err != nil {

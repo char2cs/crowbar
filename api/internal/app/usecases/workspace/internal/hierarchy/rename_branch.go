@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -38,7 +39,7 @@ func (u *hierarchyUsecase) RenameBranch(
 	newBranch = strings.TrimSpace(newBranch)
 	if newBranch == "" {
 		return domain.Workspace{}, fmt.Errorf(
-			"rename branch: blank branch name: %w", apperr.ErrInvalidArgument)
+			"rename branch: blank branch name: %w", problem.ErrInvalidArgument)
 	}
 	ws, err := u.workspaces.Get(ctx, wsID)
 	if err != nil {

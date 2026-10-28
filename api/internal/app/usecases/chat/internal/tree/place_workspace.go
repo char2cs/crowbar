@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -19,7 +20,7 @@ import (
 // rather than checkChatMove's same-workspace one — see checkWorkspaceMove's
 // own doc for why.
 //
-// It refuses with apperr.ErrNotFound only for a workspaceID RepoOf cannot
+// It refuses with problem.ErrNotFound only for a workspaceID RepoOf cannot
 // resolve to a real repo — a nonexistent id, or the project's own HOME
 // workspace (RepoOf answers "" for it; it is never a member of a repo's
 // tree at all, and the frontend already never calls this for it — see
@@ -43,7 +44,7 @@ func (u *chatFolderUsecase) PlaceWorkspace(
 	}
 	if repoID == "" {
 		return domain.Chat{}, nil, fmt.Errorf(
-			"agent chat folder: place workspace %s: %w", workspaceID, apperr.ErrNotFound)
+			"agent chat folder: place workspace %s: %w", workspaceID, problem.ErrNotFound)
 	}
 	// nodeID is whichever Node row the PANEL actually reads this row's
 	// position from, not always workspaceID itself. mergeHomeNode's own

@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -41,11 +42,11 @@ func (c *Conversations) validateSelection(
 	discovered := agent.Capabilities().ModelDiscovery
 	if model != "" && !engineagents.Allowed(agent.Models(), discovered, model) {
 		return fmt.Errorf("agent: set chat selection: %q declares no model %q: %w",
-			agent.ID(), model, apperr.ErrInvalidArgument)
+			agent.ID(), model, problem.ErrInvalidArgument)
 	}
 	if effort != "" && !engineagents.Allowed(agent.Efforts(model), discovered, effort) {
 		return fmt.Errorf("agent: set chat selection: %q declares no effort %q for model %q: %w",
-			agent.ID(), effort, model, apperr.ErrInvalidArgument)
+			agent.ID(), effort, model, problem.ErrInvalidArgument)
 	}
 	return nil
 }
@@ -67,7 +68,7 @@ func (c *Conversations) SetChatPermissionLevel(
 	}
 	if !contains(agent.PermissionLevels(), level) {
 		return fmt.Errorf("agent: set chat permission level: %q declares no level %q: %w",
-			agent.ID(), level, apperr.ErrInvalidArgument)
+			agent.ID(), level, problem.ErrInvalidArgument)
 	}
 	if _, err := c.chats.SetPermissionLevel(ctx, chatID, level); err != nil {
 		return fmt.Errorf("agent: set chat permission level: save: %w", err)
@@ -98,7 +99,7 @@ func (c *Conversations) chatAgent(
 // runner's while there is one (mid-switch the incoming runner is already the
 // truth), else the chat's own durable vendor — domain.Chat.ProviderID, seeded at
 // birth, restated on every spawn and backfilled once at boot for rows that
-// predate it. Refuses with apperr.ErrUnprocessable when no provider has ever
+// predate it. Refuses with problem.ErrUnprocessable when no provider has ever
 // been recorded.
 func (c *Conversations) ChatProviderID(
 	ctx context.Context,
@@ -113,7 +114,7 @@ func (c *Conversations) ChatProviderID(
 	}
 	if chat.ProviderID == "" {
 		return "", fmt.Errorf("agent: chat provider: no provider has ever run on this chat: %w",
-			apperr.ErrUnprocessable)
+			problem.ErrUnprocessable)
 	}
 	return chat.ProviderID, nil
 }

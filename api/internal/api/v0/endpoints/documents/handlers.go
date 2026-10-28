@@ -10,7 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -143,9 +142,9 @@ func documentError(
 ) {
 	status, msg := libs.StatusAndMessage(err)
 	switch {
-	case errors.Is(err, apperr.ErrHostDocumentNeedsLocalTransport):
+	case errors.Is(err, domain.ErrHostDocumentNeedsLocalTransport):
 		libs.WriteErrCode(ctx, status, HostDocumentRequiresLocalTransport, msg)
-	case errors.Is(err, apperr.ErrDaemonStateDocument):
+	case errors.Is(err, domain.ErrDaemonStateDocument):
 		libs.WriteErrCode(ctx, status, DaemonStateDocument, msg)
 	default:
 		libs.WriteErr(ctx, status, msg)

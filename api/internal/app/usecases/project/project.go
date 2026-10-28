@@ -7,8 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	store "github.com/char2cs/crowbar/api/internal/adapter/store"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/avatar"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -37,7 +38,7 @@ type Usecase interface {
 
 	// UpdateRepo applies a partial repository update — display name, sidebar
 	// order, owning project — in one load-mutate-save, returning the updated
-	// Repository so the caller can broadcast its DTO. Returns apperr.ErrNotFound
+	// Repository so the caller can broadcast its DTO. Returns problem.ErrNotFound
 	// when no repo has the given id, or when a requested project does not exist.
 	//
 	// A rename touches the LABEL only. Repository.PathSlug — the repo's on-disk
@@ -60,7 +61,7 @@ type Usecase interface {
 
 	// Update applies a partial project update — display name, icon — in one
 	// load-mutate-save, returning the updated Project so the caller can broadcast
-	// its DTO. Returns apperr.ErrNotFound when no project has the given id.
+	// its DTO. Returns problem.ErrNotFound when no project has the given id.
 	//
 	// A rename touches the LABEL only. Project.Path — where the project actually
 	// lives on disk, chosen once at import — is deliberately left as loaded, for
@@ -289,7 +290,7 @@ func (u *projectUsecase) Get(
 		return domain.Project{}, fmt.Errorf("project: get: %w", err)
 	}
 	if p == nil {
-		return domain.Project{}, fmt.Errorf("project: get: id %s: %w", id, apperr.ErrNotFound)
+		return domain.Project{}, fmt.Errorf("project: get: id %s: %w", id, problem.ErrNotFound)
 	}
 	return *p, nil
 }
@@ -341,7 +342,7 @@ func (u *projectUsecase) UpdateRepo(
 		return RepoUpdated{}, fmt.Errorf("project: update repo: %w", err)
 	}
 	if repo == nil {
-		return RepoUpdated{}, fmt.Errorf("project: update repo: id %s: %w", repoID, apperr.ErrNotFound)
+		return RepoUpdated{}, fmt.Errorf("project: update repo: id %s: %w", repoID, problem.ErrNotFound)
 	}
 	if err := refuseProjectMove(*repo, in.ProjectID); err != nil {
 		return RepoUpdated{}, err
@@ -476,7 +477,7 @@ func (u *projectUsecase) validateRepoFolder(
 	}
 	if folder == nil || folder.RepoID != "" {
 		return fmt.Errorf(
-			"project: update repo: %s is not a project-home folder: %w", folderID, apperr.ErrInvalidArgument,
+			"project: update repo: %s is not a project-home folder: %w", folderID, problem.ErrInvalidArgument,
 		)
 	}
 	return nil
@@ -500,7 +501,7 @@ func refuseProjectMove(
 	}
 	return fmt.Errorf(
 		"project: update repo: a repository cannot change projects; remove it and import it into %s: %w",
-		*projectID, apperr.ErrConflict,
+		*projectID, problem.ErrConflict,
 	)
 }
 
@@ -810,7 +811,7 @@ func (u *projectUsecase) Reorder(
 		return domain.Project{}, fmt.Errorf("project: reorder: list: %w", err)
 	}
 	if !containsID(projectIndex(rows), projectID) {
-		return domain.Project{}, fmt.Errorf("project: reorder: id %s: %w", projectID, apperr.ErrNotFound)
+		return domain.Project{}, fmt.Errorf("project: reorder: id %s: %w", projectID, problem.ErrNotFound)
 	}
 	for _, moved := range place(projectIndex(rows), projectID, &order) {
 		rows[moved.at].Order = moved.order
@@ -820,7 +821,7 @@ func (u *projectUsecase) Reorder(
 	}
 	updated, err := u.projects.FindByKey(ctx, projectID)
 	if err != nil || updated == nil {
-		return domain.Project{}, fmt.Errorf("project: reorder: id %s: %w", projectID, apperr.ErrNotFound)
+		return domain.Project{}, fmt.Errorf("project: reorder: id %s: %w", projectID, problem.ErrNotFound)
 	}
 	return *updated, nil
 }
@@ -836,12 +837,12 @@ func (u *projectUsecase) Update(
 		return domain.Project{}, fmt.Errorf("project: update: load %s: %w", projectID, err)
 	}
 	if row == nil {
-		return domain.Project{}, fmt.Errorf("project: update: id %s: %w", projectID, apperr.ErrNotFound)
+		return domain.Project{}, fmt.Errorf("project: update: id %s: %w", projectID, problem.ErrNotFound)
 	}
 	if in.Name != nil {
 		name := strings.TrimSpace(*in.Name)
 		if name == "" {
-			return domain.Project{}, fmt.Errorf("project: update: name is empty: %w", apperr.ErrInvalidArgument)
+			return domain.Project{}, fmt.Errorf("project: update: name is empty: %w", problem.ErrInvalidArgument)
 		}
 		row.Name = name
 	}

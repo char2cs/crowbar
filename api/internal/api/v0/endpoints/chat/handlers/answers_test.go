@@ -7,11 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -46,7 +47,7 @@ func TestAnswerChoice_ForwardsThePicksVerbatim(t *testing.T) {
 }
 
 func TestAnswerChoice_APromptNobodyIsWaitingOnIsAConflict(t *testing.T) {
-	uc := &fakeAgentUsecase{answerErr: apperr.ErrConflict}
+	uc := &fakeAgentUsecase{answerErr: problem.ErrConflict}
 	ctx, rec := answerRequest(t, `{"optionIds":["allow"]}`)
 
 	newChatHandlers(inWorkspace(uc)).AnswerChoice(ctx)
@@ -92,7 +93,7 @@ func TestHTTPHook_AHeldAskNobodyDecidedAnswersEmpty(t *testing.T) {
 }
 
 func TestHTTPHook_AFailedWaitIsMapped(t *testing.T) {
-	uc := &fakeAgentUsecase{validToken: "tok", hookAsk: "c1", pendingAwait: true, awaitErr: apperr.ErrUnavailable}
+	uc := &fakeAgentUsecase{validToken: "tok", hookAsk: "c1", pendingAwait: true, awaitErr: problem.ErrUnavailable}
 	ctx, rec := newHTTPHookContext(t, "tok", []byte(`{}`))
 
 	newChatHandlers(uc).HTTPHook(ctx)

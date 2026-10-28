@@ -2,9 +2,10 @@ package chat
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
+
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -54,18 +55,18 @@ type WorktreeCreator interface {
 // ErrNoForkParent is returned when chatID has no ancestor carrying a
 // workspace to fork from: a bubble at the panel root, or one whose every
 // ancestor is workspace-less too. There is nothing to promote it under.
-var ErrNoForkParent = errors.New("agent: chat has no fork parent to promote from")
+var ErrNoForkParent = problem.New(problem.Conflict, "agent: chat has no fork parent to promote from")
 
 // ErrAlreadyPromoted is returned when chatID already has a workspace. Only a
 // bubble (WorkspaceID == "") can be promoted — model spec §4.2's "worktree is
 // never demoted" cuts the other direction too: promotion fills an empty slot
 // exactly once.
-var ErrAlreadyPromoted = errors.New("agent: chat already has a workspace")
+var ErrAlreadyPromoted = problem.New(problem.Conflict, "agent: chat already has a workspace")
 
 // ErrNothingToPromote is returned when chatID has never had a live runner or a
 // conversation: there is no "current provider" for the respawn step to resume
 // as.
-var ErrNothingToPromote = errors.New("agent: chat has no provider to promote with")
+var ErrNothingToPromote = problem.New(problem.Conflict, "agent: chat has no provider to promote with")
 
 // Promote fills a bubble's empty workspace slot: a new worktree forked from
 // the chat's resolved fork parent, with the chat's current provider respawned

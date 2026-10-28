@@ -6,10 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat/attachments"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 	"github.com/char2cs/crowbar/api/internal/testutil"
@@ -47,12 +48,12 @@ func TestStore_CollapsesSpacesAndParensInTheOriginalName(t *testing.T) {
 
 func TestStore_RefusesAnInvalidID(t *testing.T) {
 	_, _, err := attachments.Store(t.TempDir(), "../escape", "a.png", []byte("x"))
-	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	assert.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 func TestStore_RefusesABlankOriginalName(t *testing.T) {
 	_, _, err := attachments.Store(t.TempDir(), "ab12", "", []byte("x"))
-	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	assert.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 func TestStore_RefusesOversizeData(t *testing.T) {
@@ -66,7 +67,7 @@ func TestStore_RefusesACollidingFilename(t *testing.T) {
 	_, _, err := attachments.Store(dir, "ab12", "photo.png", []byte("first"))
 	require.NoError(t, err)
 	_, _, err = attachments.Store(dir, "ab12", "photo.png", []byte("second"))
-	assert.ErrorIs(t, err, apperr.ErrConflict)
+	assert.ErrorIs(t, err, problem.ErrConflict)
 }
 
 func TestRead_RoundTripsStoredBytes(t *testing.T) {
@@ -286,17 +287,17 @@ func TestRead_FileTooLargeIsNotFound(t *testing.T) {
 func TestStore_OriginalNameBecomesEmptyAfterSanitization(t *testing.T) {
 	// Names that sanitize to empty should be rejected
 	_, _, err := attachments.Store(t.TempDir(), "ab12", ".", []byte("x"))
-	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	assert.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 func TestStore_OriginalNameWithDoubleDotsBecomesEmpty(t *testing.T) {
 	_, _, err := attachments.Store(t.TempDir(), "ab12", "..", []byte("x"))
-	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	assert.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 func TestStore_OriginalNameAsPathSeparator(t *testing.T) {
 	_, _, err := attachments.Store(t.TempDir(), "ab12", "/", []byte("x"))
-	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	assert.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 func TestRead_OpenErrorReturnsNotFound(t *testing.T) {
@@ -326,7 +327,7 @@ func TestStore_MkdirAllFailureReturnsError(t *testing.T) {
 	_, _, err = attachments.Store(blockingFile, "ab12", "test.png", []byte("data"))
 	assert.Error(t, err)
 	// Should NOT be a conflict error - it's an MkdirAll failure
-	assert.NotErrorIs(t, err, apperr.ErrConflict)
+	assert.NotErrorIs(t, err, problem.ErrConflict)
 }
 
 func TestStore_OpenFileFailureReturnsError(t *testing.T) {
@@ -342,5 +343,5 @@ func TestStore_OpenFileFailureReturnsError(t *testing.T) {
 	_, _, err = attachments.Store(dir, "ab12", "test.png", []byte("data"))
 	assert.Error(t, err)
 	// Should NOT be a conflict error - it's a create/permission failure
-	assert.NotErrorIs(t, err, apperr.ErrConflict)
+	assert.NotErrorIs(t, err, problem.ErrConflict)
 }

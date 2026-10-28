@@ -7,13 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/asynx"
 	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -678,7 +679,7 @@ func TestGetHomeForProject_Found(t *testing.T) {
 func TestGetHomeForProject_NotFound(t *testing.T) {
 	_, repo := newRepo(t)
 	_, err := repo.GetHomeForProject(context.Background(), "nonexistent-project")
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 func TestWorkspace_List_StorageError(t *testing.T) {

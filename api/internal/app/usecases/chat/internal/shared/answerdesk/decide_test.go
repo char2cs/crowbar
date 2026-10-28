@@ -3,10 +3,11 @@ package answerdesk_test
 import (
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -34,7 +35,7 @@ func TestDecide_RefusesAnAnswerThatNamesNoOption(t *testing.T) {
 
 	_, err := answerdesk.Decide(permission(), nil, "", nil)
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 func TestDecide_RefusesAnOptionTheChoiceDoesNotOffer(t *testing.T) {
@@ -42,7 +43,7 @@ func TestDecide_RefusesAnOptionTheChoiceDoesNotOffer(t *testing.T) {
 
 	_, err := answerdesk.Decide(permission(), []string{"opt-nonsense"}, "", nil)
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 // Allow-and-deny is not a decision, and no provider's answer format can carry it.
@@ -61,7 +62,7 @@ func TestDecide_RefusesOptionsOfTwoKinds(t *testing.T) {
 
 	_, err := answerdesk.Decide(choice, []string{"opt-allow", "opt-deny"}, "", nil)
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 	assert.Contains(t, err.Error(), "one kind")
 }
 

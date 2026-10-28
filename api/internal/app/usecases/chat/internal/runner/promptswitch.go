@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -110,11 +111,11 @@ func (rs *Runners) validateSelectionForProvider(
 	discovered := agent.Capabilities().ModelDiscovery
 	if model != "" && !engineagents.Allowed(agent.Models(), discovered, model) {
 		return fmt.Errorf("agent: set chat selection: %q declares no model %q: %w",
-			agent.ID(), model, apperr.ErrInvalidArgument)
+			agent.ID(), model, problem.ErrInvalidArgument)
 	}
 	if effort != "" && !engineagents.Allowed(agent.Efforts(model), discovered, effort) {
 		return fmt.Errorf("agent: set chat selection: %q declares no effort %q for model %q: %w",
-			agent.ID(), effort, model, apperr.ErrInvalidArgument)
+			agent.ID(), effort, model, problem.ErrInvalidArgument)
 	}
 	return nil
 }

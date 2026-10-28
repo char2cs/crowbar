@@ -13,12 +13,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/documents"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -67,7 +68,7 @@ func (r *recordingDocuments) HostDocument(
 ) (domain.DocumentRef, error) {
 	r.target, r.transport = domain.DocumentRef{Path: path}, transport
 	if transport != domain.TransportLocal {
-		return domain.DocumentRef{}, apperr.ErrHostDocumentNeedsLocalTransport
+		return domain.DocumentRef{}, domain.ErrHostDocumentNeedsLocalTransport
 	}
 	if r.err != nil {
 		return domain.DocumentRef{}, r.err
@@ -241,8 +242,8 @@ func TestWrite_PassesTheBodyAndAnswersTheResolvedRef(t *testing.T) {
 // rather than by message text.
 func TestRefusals_CarryTheirCodes(t *testing.T) {
 	for err, code := range map[error]string{
-		apperr.ErrHostDocumentNeedsLocalTransport: documents.HostDocumentRequiresLocalTransport,
-		apperr.ErrDaemonStateDocument:             documents.DaemonStateDocument,
+		domain.ErrHostDocumentNeedsLocalTransport: documents.HostDocumentRequiresLocalTransport,
+		domain.ErrDaemonStateDocument:             documents.DaemonStateDocument,
 	} {
 		srv := httptest.NewServer(newRouter(&recordingDocuments{err: err}))
 		status, env := send(t, srv.Client(), http.MethodGet, srv.URL+"/v0/documents/content?path=%2Fx", "")
@@ -286,7 +287,7 @@ func TestWatch_OnTheLocalSocketAHostPathReachesTheStream(t *testing.T) {
 
 func TestWatch_AWorkspaceOrNonCanonicalPathIsABadRequest(t *testing.T) {
 	var reached atomic.Bool
-	docs := &recordingDocuments{err: apperr.ErrInvalidArgument}
+	docs := &recordingDocuments{err: problem.ErrInvalidArgument}
 	client := serveUnix(t, newWatchRouter(docs, func(*gin.Context) { reached.Store(true) }))
 
 	status, _ := send(t, client, http.MethodGet, "http://unix/v0/documents/ws?path=%2Frepo%2Fa.md", "")

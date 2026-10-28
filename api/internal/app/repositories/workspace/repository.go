@@ -169,7 +169,7 @@ type Workspace interface {
 		repoID string,
 	) ([]domain.Workspace, error)
 	// GetHomeForProject returns the home workspace for the given project.
-	// Returns apperr.ErrNotFound if no home workspace exists yet.
+	// Returns problem.ErrNotFound if no home workspace exists yet.
 	GetHomeForProject(
 		ctx context.Context,
 		projectID string,

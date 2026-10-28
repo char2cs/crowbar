@@ -10,11 +10,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/middleware"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/perf"
 )
 
@@ -194,7 +195,7 @@ func TestReviewHandlers_GetPatch_MissingPathIsBadRequest(t *testing.T) {
 func TestReviewHandlers_GetPatch_EngineLevelEmptyPathGuardIsA400(t *testing.T) {
 	uc := stubUsecase{
 		patch: func(_ context.Context, _, _, _ string, _ int, _ io.Writer) (int, bool, error) {
-			return 0, false, fmt.Errorf("branch review: patch: %w: path is required", apperr.ErrInvalidArgument)
+			return 0, false, fmt.Errorf("branch review: patch: %w: path is required", problem.ErrInvalidArgument)
 		},
 	}
 	rec := getPatch(routerFor(uc), httptest.NewRecorder(), "?path=a.go")
@@ -234,7 +235,7 @@ func TestReviewHandlers_GetPatch_FailureBeforeAnyWriteIsAJSONEnvelope(t *testing
 func TestReviewHandlers_GetPatch_NotFoundBeforeAnyWrite(t *testing.T) {
 	uc := stubUsecase{
 		patch: func(_ context.Context, _, _, _ string, _ int, _ io.Writer) (int, bool, error) {
-			return 0, false, apperr.ErrNotFound
+			return 0, false, problem.ErrNotFound
 		},
 	}
 	rec := getPatch(routerFor(uc), httptest.NewRecorder(), "?path=a.go")

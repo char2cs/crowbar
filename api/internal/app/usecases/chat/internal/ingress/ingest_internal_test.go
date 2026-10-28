@@ -9,13 +9,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
@@ -268,12 +269,12 @@ func TestRecorder_AHookOfAChatGoneIsRefused(t *testing.T) {
 	nowhere := f.runner
 	nowhere.CurrentChatID = ""
 	_, _, err := f.r.Dispatch(t.Context(), nowhere, f.agent, ev, nil, engineagents.ChannelHooks)
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 
 	deleted := f.runner
 	deleted.CurrentChatID = "chat-deleted"
 	_, _, err = f.r.Dispatch(t.Context(), deleted, f.agent, ev, nil, engineagents.ChannelHooks)
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 
 	f.r.chats = fakeChats{err: errors.New("disk")}
 	_, _, err = f.dispatch(t, ev)
@@ -429,10 +430,10 @@ func TestRecorder_TelemetryIsHeldAndPushed(t *testing.T) {
 	assert.Equal(t, 1, f.feed.telemetry)
 
 	err := f.r.RecordTelemetry(t.Context(), f.runner, f.agent, []byte(`not json`))
-	require.ErrorIs(t, err, apperr.ErrUnprocessable)
+	require.ErrorIs(t, err, problem.ErrUnprocessable)
 	gone := f.runner
 	gone.CurrentChatID = ""
-	require.ErrorIs(t, f.r.RecordTelemetry(t.Context(), gone, f.agent, []byte(`{}`)), apperr.ErrNotFound)
+	require.ErrorIs(t, f.r.RecordTelemetry(t.Context(), gone, f.agent, []byte(`{}`)), problem.ErrNotFound)
 }
 
 func TestRecorder_DescriptorIsTheRunnersProviders(t *testing.T) {

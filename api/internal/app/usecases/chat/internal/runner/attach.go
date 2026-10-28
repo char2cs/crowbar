@@ -8,7 +8,8 @@ import (
 	"os"
 	"sync"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
@@ -94,11 +95,11 @@ func (rs *Runners) ShowingNativeView(runnerID string) bool {
 // ErrNoNativeTerminal is SwitchToTerminal's refusal for a provider with no
 // TUI to move to: neither a PTY of its own, an attach, nor a terminal surface
 // it can start on.
-var ErrNoNativeTerminal = fmt.Errorf("agent: provider has no native terminal to show: %w", apperr.ErrUnprocessable)
+var ErrNoNativeTerminal = fmt.Errorf("agent: provider has no native terminal to show: %w", problem.ErrUnprocessable)
 
 // ErrTurnInProgress refuses a surface move that would hand over or relaunch
 // the process mid-turn; a process that serves both surfaces moves any time.
-var ErrTurnInProgress = fmt.Errorf("agent: provider cannot hand a live turn to its native view: %w", apperr.ErrConflict)
+var ErrTurnInProgress = fmt.Errorf("agent: provider cannot hand a live turn to its native view: %w", problem.ErrConflict)
 
 // SwitchToTerminal moves chatID onto its provider's own TUI and returns the
 // terminal session that TUI is. How depends on what the runner is now:

@@ -10,7 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
@@ -90,14 +91,14 @@ func (u *fileUsecase) HostDocument(
 	transport domain.Transport,
 ) (domain.DocumentRef, error) {
 	if transport != domain.TransportLocal {
-		return domain.DocumentRef{}, fmt.Errorf("file: host document: %w", apperr.ErrHostDocumentNeedsLocalTransport)
+		return domain.DocumentRef{}, fmt.Errorf("file: host document: %w", domain.ErrHostDocumentNeedsLocalTransport)
 	}
 	ref, err := u.resolveDocument(ctx, domain.DocumentRef{Path: path}, transport)
 	if err != nil {
 		return domain.DocumentRef{}, err
 	}
 	if ref.Authority != domain.DocumentAuthorityHost || ref.Path != path {
-		return domain.DocumentRef{}, fmt.Errorf("file: host document %q: not a canonical host path: %w", path, apperr.ErrInvalidArgument)
+		return domain.DocumentRef{}, fmt.Errorf("file: host document %q: not a canonical host path: %w", path, problem.ErrInvalidArgument)
 	}
 	return ref, nil
 }
@@ -115,7 +116,7 @@ func (u *fileUsecase) resolveDocument(
 		return domain.DocumentRef{Authority: domain.DocumentAuthorityWorkspace, WorkspaceID: target.WorkspaceID, Path: target.Path}, nil
 	}
 	if !filepath.IsAbs(target.Path) {
-		return domain.DocumentRef{}, fmt.Errorf("file: document %q: no workspace and not absolute: %w", target.Path, apperr.ErrInvalidArgument)
+		return domain.DocumentRef{}, fmt.Errorf("file: document %q: no workspace and not absolute: %w", target.Path, problem.ErrInvalidArgument)
 	}
 	canon := safepath.Canonical(target.Path)
 	if err := u.refuseDaemonState(canon); err != nil {
@@ -129,7 +130,7 @@ func (u *fileUsecase) resolveDocument(
 		return domain.DocumentRef{Authority: domain.DocumentAuthorityWorkspace, WorkspaceID: owner.ID, Path: rel}, nil
 	}
 	if transport != domain.TransportLocal {
-		return domain.DocumentRef{}, fmt.Errorf("file: document: %w", apperr.ErrHostDocumentNeedsLocalTransport)
+		return domain.DocumentRef{}, fmt.Errorf("file: document: %w", domain.ErrHostDocumentNeedsLocalTransport)
 	}
 	return domain.DocumentRef{Authority: domain.DocumentAuthorityHost, Path: canon}, nil
 }
@@ -149,7 +150,7 @@ func (u *fileUsecase) refuseDaemonState(
 		return fmt.Errorf("file: document: crowbar home: %w", err)
 	}
 	if hits, _ := safepath.Locate(canon, []string{h.State()}); len(hits) > 0 {
-		return fmt.Errorf("file: document %s: %w", canon, apperr.ErrDaemonStateDocument)
+		return fmt.Errorf("file: document %s: %w", canon, domain.ErrDaemonStateDocument)
 	}
 	return nil
 }

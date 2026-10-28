@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	asynxstore "github.com/char2cs/asynx/store"
@@ -17,7 +19,6 @@ import (
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	wscmds "github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store/projections"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -94,14 +95,14 @@ func TestReconciler_OnOpen_DedupsRepeatOpens(t *testing.T) {
 }
 
 // TestReconciler_OnOpen_SkipsOnNotFound proves idempotency: a vanished workspace
-// (derive returns apperr.ErrNotFound) is a no-op — no command is sent and no
+// (derive returns problem.ErrNotFound) is a no-op — no command is sent and no
 // frame is broadcast (spec §3.8 "skip on ErrNotFound").
 func TestReconciler_OnOpen_SkipsOnNotFound(t *testing.T) {
 	derive := func(
 		_ context.Context,
 		_ string,
 	) (asynxModels.Command[domain.Workspace], error) {
-		return nil, fmt.Errorf("gone: %w", apperr.ErrNotFound)
+		return nil, fmt.Errorf("gone: %w", problem.ErrNotFound)
 	}
 	var sendCalls int32
 	sendWait := func(
@@ -209,7 +210,7 @@ func TestReconciler_OnOpen_RefusedOnceDraining(t *testing.T) {
 }
 
 // TestReconciler_Reconcile_DeriveErrorAbortsBeforeSend proves that a real derive
-// error (anything other than apperr.ErrNotFound) stops before SendWait and
+// error (anything other than problem.ErrNotFound) stops before SendWait and
 // before broadcast — reconcile must not fold a command it never derived.
 func TestReconciler_Reconcile_DeriveErrorAbortsBeforeSend(t *testing.T) {
 	derive := func(context.Context, string) (asynxModels.Command[domain.Workspace], error) {

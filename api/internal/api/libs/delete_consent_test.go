@@ -7,11 +7,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -53,7 +54,7 @@ func TestWriteDeleteErr_ARefusalOverWorkAtRiskCarriesTheList(t *testing.T) {
 func TestWriteDeleteErr_AnyOtherErrorMapsAsUsual(t *testing.T) {
 	ctx, rec := newCtx(t)
 
-	libs.WriteDeleteErr(ctx, fmt.Errorf("x: %w", apperr.ErrNotFound))
+	libs.WriteDeleteErr(ctx, fmt.Errorf("x: %w", problem.ErrNotFound))
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Nil(t, decode(t, rec.Body.Bytes())["code"])

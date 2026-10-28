@@ -167,7 +167,7 @@ func (h *Handlers) Delete(
 }
 
 // fileError maps file usecase errors to HTTP responses. Typed sentinels (e.g.
-// apperr.ErrLocked -> 409, fs.ErrNotExist -> 404) go through the shared
+// problem.ErrLocked -> 409, fs.ErrNotExist -> 404) go through the shared
 // libs.StatusAndMessage mapping; untyped not-found errors fall back to a
 // message sniff for 404.
 func fileError(

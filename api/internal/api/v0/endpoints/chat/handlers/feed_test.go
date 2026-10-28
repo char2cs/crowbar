@@ -9,13 +9,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat/handlers"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 )
 
@@ -28,7 +29,7 @@ type fakeFeeds struct {
 
 func (f *fakeFeeds) OpenFeed(_ context.Context, chatID string, since int64) (<-chan agentusecase.FeedFrame, error) {
 	if chatID != "chat-1" {
-		return nil, fmt.Errorf("chat feed: %s: %w", chatID, apperr.ErrNotFound)
+		return nil, fmt.Errorf("chat feed: %s: %w", chatID, problem.ErrNotFound)
 	}
 	f.since, f.opened = since, true
 	out := make(chan agentusecase.FeedFrame, len(f.frames))

@@ -16,8 +16,9 @@ import (
 	"regexp"
 	"sort"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -27,7 +28,7 @@ import (
 // ErrProviderDisabled is returned when a request names a provider the user has
 // switched off. It is an invalid argument rather than a not-found: the provider
 // exists, and the user chose not to use it.
-var ErrProviderDisabled = fmt.Errorf("agent: provider disabled: %w", apperr.ErrInvalidArgument)
+var ErrProviderDisabled = fmt.Errorf("agent: provider disabled: %w", problem.ErrInvalidArgument)
 
 var descriptorID = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
@@ -38,19 +39,19 @@ func (p *Providers) InstallDescriptor(_ context.Context, raw []byte) (descriptor
 	if !report.OK() {
 		for _, finding := range report.Findings {
 			if finding.Severity == descriptorcheck.SeverityError {
-				return report, fmt.Errorf("agent: descriptor line %d: %s: %w", finding.Line, finding.Message, apperr.ErrUnprocessable)
+				return report, fmt.Errorf("agent: descriptor line %d: %s: %w", finding.Line, finding.Message, problem.ErrUnprocessable)
 			}
 		}
 	}
 	if !descriptorID.MatchString(report.ID) {
-		return report, fmt.Errorf("agent: descriptor id must start with a lowercase letter and contain only lowercase letters, digits, underscores or hyphens: %w", apperr.ErrUnprocessable)
+		return report, fmt.Errorf("agent: descriptor id must start with a lowercase letter and contain only lowercase letters, digits, underscores or hyphens: %w", problem.ErrUnprocessable)
 	}
 	home, err := p.home()
 	if err != nil {
 		return report, fmt.Errorf("agent: descriptor home: %w", err)
 	}
 	if home == "" {
-		return report, fmt.Errorf("agent: descriptor home is empty: %w", apperr.ErrUnprocessable)
+		return report, fmt.Errorf("agent: descriptor home is empty: %w", problem.ErrUnprocessable)
 	}
 	sources, err := descriptorcheck.Sources(home)
 	if err != nil {
@@ -58,7 +59,7 @@ func (p *Providers) InstallDescriptor(_ context.Context, raw []byte) (descriptor
 	}
 	for _, source := range sources {
 		if source.ID == report.ID {
-			return report, fmt.Errorf("agent: provider %q already exists: %w", report.ID, apperr.ErrInvalidArgument)
+			return report, fmt.Errorf("agent: provider %q already exists: %w", report.ID, problem.ErrInvalidArgument)
 		}
 	}
 	dir := filepath.Join(home, "descriptors")
@@ -68,7 +69,7 @@ func (p *Providers) InstallDescriptor(_ context.Context, raw []byte) (descriptor
 	path := filepath.Join(dir, report.ID+".yaml")
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // G304: path is under daemon-owned home and the descriptor id is validated above.
 	if os.IsExist(err) {
-		return report, fmt.Errorf("agent: provider %q already exists: %w", report.ID, apperr.ErrInvalidArgument)
+		return report, fmt.Errorf("agent: provider %q already exists: %w", report.ID, problem.ErrInvalidArgument)
 	}
 	if err != nil {
 		return report, fmt.Errorf("agent: create descriptor: %w", err)
@@ -156,7 +157,7 @@ func (p *Providers) RequireProviderEnabled(
 		return fmt.Errorf("agent: provider %q: home: %w", providerID, err)
 	}
 	if err := p.gate.Require(home, providerID); err != nil {
-		return fmt.Errorf("agent: provider %q: %w: %w", providerID, err, apperr.ErrUnprocessable)
+		return fmt.Errorf("agent: provider %q: %w: %w", providerID, err, problem.ErrUnprocessable)
 	}
 	return nil
 }
@@ -268,7 +269,7 @@ func (p *Providers) ReplaceProviderPreferences(
 	for _, pref := range prefs {
 		if _, ok := known[pref.ProviderID]; !ok {
 			return nil, fmt.Errorf("agent: replace provider preferences: unknown provider %q: %w",
-				pref.ProviderID, apperr.ErrInvalidArgument)
+				pref.ProviderID, problem.ErrInvalidArgument)
 		}
 		submitted[pref.ProviderID] = struct{}{}
 	}

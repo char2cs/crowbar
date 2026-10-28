@@ -7,11 +7,13 @@ import (
 	"os"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	asynxmodels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
@@ -45,7 +47,7 @@ func TestStatusAndMessageMapping(t *testing.T) {
 	}{
 		{
 			name:   "not found app",
-			err:    apperr.ErrNotFound,
+			err:    problem.ErrNotFound,
 			status: http.StatusNotFound,
 		},
 		{
@@ -105,7 +107,7 @@ func TestStatusAndMessageMapping(t *testing.T) {
 		},
 		{
 			name:   "app workspace locked",
-			err:    apperr.ErrLocked,
+			err:    problem.ErrLocked,
 			status: http.StatusConflict,
 		},
 		{
@@ -190,12 +192,12 @@ func TestStatusAndMessageMapping(t *testing.T) {
 		},
 		{
 			name:   "host document off the local socket",
-			err:    apperr.ErrHostDocumentNeedsLocalTransport,
+			err:    domain.ErrHostDocumentNeedsLocalTransport,
 			status: http.StatusForbidden,
 		},
 		{
 			name:   "daemon state as a document",
-			err:    apperr.ErrDaemonStateDocument,
+			err:    domain.ErrDaemonStateDocument,
 			status: http.StatusForbidden,
 		},
 		{
@@ -225,7 +227,7 @@ func TestStatusAndMessageMapping(t *testing.T) {
 		},
 		{
 			name:   "service unavailable",
-			err:    apperr.ErrUnavailable,
+			err:    problem.ErrUnavailable,
 			status: http.StatusServiceUnavailable,
 		},
 		{
@@ -247,7 +249,7 @@ func TestStatusAndMessageMapping(t *testing.T) {
 func TestStatusAndMessageWrapped(t *testing.T) {
 	wrapped := fmt.Errorf(
 		"usecase: load: %w",
-		apperr.ErrNotFound,
+		problem.ErrNotFound,
 	)
 
 	status, msg := libs.StatusAndMessage(wrapped)
@@ -259,7 +261,7 @@ func TestStatusAndMessageWrapped(t *testing.T) {
 func TestStatusAndMessageWrappedLocked(t *testing.T) {
 	wrapped := fmt.Errorf(
 		"git: mutate: workspace locked: %w",
-		apperr.ErrLocked,
+		problem.ErrLocked,
 	)
 
 	status, msg := libs.StatusAndMessage(wrapped)
@@ -348,7 +350,7 @@ func TestStatusAndMessage_CommandNotFoundIs424(t *testing.T) {
 // production while a bare-value test stayed green.
 func TestStatusAndMessage_FailedDependencyIs424(t *testing.T) {
 	err := fmt.Errorf("agent: spawn runner: provider process exited during startup: %w",
-		apperr.ErrFailedDependency)
+		problem.ErrFailedDependency)
 
 	status, msg := libs.StatusAndMessage(err)
 

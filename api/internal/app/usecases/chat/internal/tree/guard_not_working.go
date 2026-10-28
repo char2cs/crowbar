@@ -2,11 +2,12 @@ package tree
 
 import (
 	"context"
-	"errors"
 	"fmt"
+
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-var ErrSubtreeWorking = errors.New("tree: a working chat refuses this verb")
+var ErrSubtreeWorking = problem.New(problem.Conflict, "tree: a working chat refuses this verb")
 
 // Busy answers whether a chat is working.
 type Busy interface {

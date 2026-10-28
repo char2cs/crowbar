@@ -7,10 +7,12 @@
 // retry, reads delegate to the store-package read-model projection.
 package node
 
-import "errors"
+import (
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+)
 
 // ErrNotFound is returned when no node exists for a requested id. The read-model
 // store keeps its own local sentinel (to avoid an import cycle back into this
 // package) and event_store.go bridges it to this one via mapNotFound, so every
 // EventStore caller sees this single sentinel.
-var ErrNotFound = errors.New("node: not found")
+var ErrNotFound = problem.New(problem.NotFound, "node: not found")

@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 
 	"github.com/gin-gonic/gin"
@@ -14,7 +16,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat/handlers"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -350,7 +351,7 @@ func TestListFolders_ScopesToTheURLRepo(t *testing.T) {
 }
 
 func TestListFolders_SurfacesAStoreError(t *testing.T) {
-	tree := &fakeChatTree{err: apperr.ErrNotFound}
+	tree := &fakeChatTree{err: problem.ErrNotFound}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodGet, "/chats/folders", nil)
 	ctx.Params = folderParams()
@@ -492,7 +493,7 @@ func TestDeleteFolder_AnnouncesThePromotedRowsThenTheTombstone(t *testing.T) {
 }
 
 func TestDeleteFolder_NotFoundIs404(t *testing.T) {
-	tree := &fakeChatTree{err: apperr.ErrNotFound}
+	tree := &fakeChatTree{err: problem.ErrNotFound}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodDelete, "/chats/folders/f1", nil)
 	ctx.Params = folderParams(gin.Param{Key: "folderId", Value: "f1"})
@@ -603,7 +604,7 @@ func TestPlaceChat_NoPathWorkspace_ResolvesWorkspaceFromTheChatItself(t *testing
 // reaching the tree usecase with a guessed workspace.
 func TestPlaceChat_NoPathWorkspace_GetChatErrorSurfaces(t *testing.T) {
 	tree := &fakeChatTree{}
-	uc := &fakeAgentUsecase{getChatErr: apperr.ErrNotFound}
+	uc := &fakeAgentUsecase{getChatErr: problem.ErrNotFound}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/c2/placement", []byte(`{"parentId":"c1"}`))
 	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}, {Key: "id", Value: "c2"}}

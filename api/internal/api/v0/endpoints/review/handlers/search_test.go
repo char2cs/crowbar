@@ -8,10 +8,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
@@ -143,7 +144,7 @@ func TestReviewHandlers_SearchDiff_MalformedParamsAreBadRequests(t *testing.T) {
 // is the client's mistake and must not read as a daemon failure.
 func TestReviewHandlers_SearchDiff_InvalidRegexIsBadRequest(t *testing.T) {
 	uc := stubUsecase{
-		searchErr: fmt.Errorf("branch review: search: %w: bad pattern", apperr.ErrInvalidArgument),
+		searchErr: fmt.Errorf("branch review: search: %w: bad pattern", problem.ErrInvalidArgument),
 	}
 	rec := getSearch(routerFor(uc), "?q=a(b&regex=true")
 
@@ -151,7 +152,7 @@ func TestReviewHandlers_SearchDiff_InvalidRegexIsBadRequest(t *testing.T) {
 }
 
 func TestReviewHandlers_SearchDiff_NotFound(t *testing.T) {
-	rec := getSearch(routerFor(stubUsecase{searchErr: apperr.ErrNotFound}), "?q=e")
+	rec := getSearch(routerFor(stubUsecase{searchErr: problem.ErrNotFound}), "?q=e")
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

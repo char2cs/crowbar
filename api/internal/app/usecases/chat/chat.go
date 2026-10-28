@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/conversation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/defaultlevel"
@@ -64,7 +65,7 @@ type ChatUsecase interface {
 	) error
 
 	// RenameByRunner retitles the chat a live runner is on; a runner that is
-	// not live is apperr.ErrNotFound.
+	// not live is problem.ErrNotFound.
 	RenameByRunner(
 		ctx context.Context,
 		runnerID, title, source string,
@@ -125,7 +126,7 @@ type ChatUsecase interface {
 
 	// SetChatSelection records the model and effort the chat's next CLI is to be
 	// launched with, refusing a value the resolved provider does not declare with
-	// apperr.ErrInvalidArgument.
+	// problem.ErrInvalidArgument.
 	SetChatSelection(
 		ctx context.Context,
 		chatID string,
@@ -296,10 +297,10 @@ func (u *Usecase) RenameByRunner(
 
 // PurgeChat hard-deletes a chat and retires every CLI still on it.
 //
-// tree.Agent's contract (this is one of its implementations) is apperr.ErrNotFound
+// tree.Agent's contract (this is one of its implementations) is problem.ErrNotFound
 // for "nothing to purge" — conversations.PurgeChat answers not-found in its own
 // repository-local sentinel instead, since it has never had a reason to know about
-// apperr. This is the seam where that gets translated, so purgeAll's tolerance for
+// problem. This is the seam where that gets translated, so purgeAll's tolerance for
 // a chat that never minted an aggregate actually has something to match against.
 func (u *Usecase) PurgeChat(
 	ctx context.Context,
@@ -307,7 +308,7 @@ func (u *Usecase) PurgeChat(
 ) error {
 	err := u.conversations.PurgeChat(ctx, chatID)
 	if errors.Is(err, agentchat.ErrNotFound) {
-		return fmt.Errorf("%w: %w", err, apperr.ErrNotFound)
+		return fmt.Errorf("%w: %w", err, problem.ErrNotFound)
 	}
 	if err == nil {
 		u.feeds.deleted(chatID)

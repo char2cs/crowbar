@@ -7,10 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	enginemcp "github.com/char2cs/crowbar/api/internal/engine/mcp"
@@ -118,7 +119,7 @@ func TestSpawnChat_RefusesDisabledProvider(t *testing.T) {
 
 	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "codex")
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument,
+	require.ErrorIs(t, err, problem.ErrInvalidArgument,
 		"a disabled provider must be refused with a 4xx-mapping sentinel")
 	assert.Zero(t, f.term.callCount(), "no vendor CLI may be launched for a disabled provider")
 }
@@ -149,7 +150,7 @@ func TestSwitchProvider_RefusesDisabledTarget(t *testing.T) {
 
 	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 	assert.Equal(t, 1, f.term.callCount(), "the disabled target must never be spawned")
 	assert.Empty(t, f.term.terminateRequestIDs(),
 		"a refused switch must not quit the CLI the chat still has")

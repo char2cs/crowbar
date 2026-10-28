@@ -2,16 +2,17 @@ package diff
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 // ErrStaleHunk is returned when hunkID no longer matches any current diff hunk.
 // The frontend re-fetches the diff and retries (04 §4).
-var ErrStaleHunk = errors.New("diff: stale_hunk: hunk not found in current diff")
+var ErrStaleHunk = problem.New(problem.Conflict, "diff: stale_hunk: hunk not found in current diff")
 
 // HunkPatch returns a minimal patch containing only the hunk identified by
 // hunkID, suitable for piping to `git apply --cached` (04 §4).

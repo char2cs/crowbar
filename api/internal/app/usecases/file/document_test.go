@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -43,7 +44,7 @@ func withRows(
 				return ws, nil
 			}
 		}
-		return domain.Workspace{}, apperr.ErrNotFound
+		return domain.Workspace{}, problem.ErrNotFound
 	}
 }
 
@@ -156,7 +157,7 @@ func TestDocument_MissingWorktreeStillClaimsItsPaths(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, workspaceRef("w1", "src/a.md"), doc.DocumentRef)
 	_, err = uc.WriteDocument(ctx, target, "x", "", domain.TransportLocal, time.Now())
-	require.ErrorIs(t, err, apperr.ErrLocked)
+	require.ErrorIs(t, err, problem.ErrLocked)
 
 	doc, err = uc.ReadDocument(ctx, domain.DocumentRef{Path: filepath.Join(p, "repo", "wt-sibling.md")}, domain.TransportRemote)
 	require.NoError(t, err)
@@ -224,14 +225,14 @@ func TestDocument_FirmlinkAliasHasTheOneIdentity(t *testing.T) {
 	ctx := context.Background()
 	state := domain.DocumentRef{Path: filepath.Join(alias(home), "state", "global.db")}
 	_, err := uc.ReadDocument(ctx, state, domain.TransportLocal)
-	require.ErrorIs(t, err, apperr.ErrDaemonStateDocument)
+	require.ErrorIs(t, err, domain.ErrDaemonStateDocument)
 	_, err = uc.WriteDocument(ctx, state, "x", "", domain.TransportLocal, time.Now())
-	require.ErrorIs(t, err, apperr.ErrDaemonStateDocument)
+	require.ErrorIs(t, err, domain.ErrDaemonStateDocument)
 
 	doc := domain.DocumentRef{Path: filepath.Join(alias(wt), "a.md")}
 	withRows(syncer, domain.Workspace{ID: "w1", WorktreePath: wt, Status: domain.WorkspaceStatusLocked})
 	_, err = uc.WriteDocument(ctx, doc, "x", "", domain.TransportLocal, time.Now())
-	require.ErrorIs(t, err, apperr.ErrLocked)
+	require.ErrorIs(t, err, problem.ErrLocked)
 
 	withRows(syncer, domain.Workspace{ID: "w1", WorktreePath: wt})
 	fs.WriteContentFn = func(_, _, _, _ string) error { return nil }
@@ -246,9 +247,9 @@ func TestDocument_RelativePathWithoutWorkspaceIsABadRequest(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := uc.ReadDocument(ctx, domain.DocumentRef{Path: "a.md"}, domain.TransportLocal)
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 	_, err = uc.WriteDocument(ctx, domain.DocumentRef{Path: "a.md"}, "x", "", domain.TransportLocal, time.Now())
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 func TestReadDocument_HostNeedsTheLocalTransport(t *testing.T) {
@@ -262,7 +263,7 @@ func TestReadDocument_HostNeedsTheLocalTransport(t *testing.T) {
 	target := domain.DocumentRef{Path: "/elsewhere/a.md"}
 
 	_, err := uc.ReadDocument(context.Background(), target, domain.TransportRemote)
-	require.ErrorIs(t, err, apperr.ErrHostDocumentNeedsLocalTransport)
+	require.ErrorIs(t, err, domain.ErrHostDocumentNeedsLocalTransport)
 	assert.Empty(t, read, "a refused read must never touch the disk")
 
 	doc, err := uc.ReadDocument(context.Background(), target, domain.TransportLocal)
@@ -285,7 +286,7 @@ func TestWriteDocument_HostNeedsTheLocalTransportAndNeverResyncs(t *testing.T) {
 	target := domain.DocumentRef{Authority: domain.DocumentAuthorityHost, Path: "/elsewhere/a.bin"}
 
 	_, err := uc.WriteDocument(context.Background(), target, "AA==", "base64", domain.TransportRemote, time.Now())
-	require.ErrorIs(t, err, apperr.ErrHostDocumentNeedsLocalTransport)
+	require.ErrorIs(t, err, domain.ErrHostDocumentNeedsLocalTransport)
 	assert.Empty(t, wrote)
 
 	ref, err := uc.WriteDocument(context.Background(), target, "AA==", "base64", domain.TransportLocal, time.Now())
@@ -302,9 +303,9 @@ func TestDocument_DaemonStateIsRefusedEvenLocally(t *testing.T) {
 	target := domain.DocumentRef{Path: filepath.Join(home, "state", "global.db")}
 
 	_, err := uc.ReadDocument(ctx, target, domain.TransportLocal)
-	require.ErrorIs(t, err, apperr.ErrDaemonStateDocument)
+	require.ErrorIs(t, err, domain.ErrDaemonStateDocument)
 	_, err = uc.WriteDocument(ctx, target, "x", "", domain.TransportLocal, time.Now())
-	require.ErrorIs(t, err, apperr.ErrDaemonStateDocument)
+	require.ErrorIs(t, err, domain.ErrDaemonStateDocument)
 }
 
 // TestDocument_DanglingLinkInStateIsRefused pins the guard on a path no
@@ -322,7 +323,7 @@ func TestDocument_DanglingLinkInStateIsRefused(t *testing.T) {
 	target := domain.DocumentRef{Path: filepath.Join(alias, "state", "global.db-journal")}
 
 	_, err := uc.WriteDocument(context.Background(), target, "x", "", domain.TransportLocal, time.Now())
-	require.ErrorIs(t, err, apperr.ErrDaemonStateDocument)
+	require.ErrorIs(t, err, domain.ErrDaemonStateDocument)
 }
 
 func TestHostDocument_AnswersTheCanonicalHostRefOverTheLocalTransport(t *testing.T) {
@@ -352,13 +353,13 @@ func TestHostDocument_RefusesWhatItWouldNotWatch(t *testing.T) {
 	ctx := context.Background()
 
 	_, err = uc.HostDocument(ctx, filepath.Join(outside, "a.md"), domain.TransportRemote)
-	require.ErrorIs(t, err, apperr.ErrHostDocumentNeedsLocalTransport)
+	require.ErrorIs(t, err, domain.ErrHostDocumentNeedsLocalTransport)
 	_, err = uc.HostDocument(ctx, filepath.Join(wt, "a.md"), domain.TransportLocal)
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument, "a workspace document")
+	require.ErrorIs(t, err, problem.ErrInvalidArgument, "a workspace document")
 	_, err = uc.HostDocument(ctx, filepath.Join(link, "a.md"), domain.TransportLocal)
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument, "a symlinked-parent spelling")
+	require.ErrorIs(t, err, problem.ErrInvalidArgument, "a symlinked-parent spelling")
 	_, err = uc.HostDocument(ctx, filepath.Join(home, "state", "global.db"), domain.TransportLocal)
-	require.ErrorIs(t, err, apperr.ErrDaemonStateDocument)
+	require.ErrorIs(t, err, domain.ErrDaemonStateDocument)
 }
 
 func TestWriteDocument_WorkspaceWritesThenResyncs(t *testing.T) {
@@ -391,7 +392,7 @@ func TestWriteDocument_WorkspaceFailuresNeverResync(t *testing.T) {
 	lockedWorkspace(syncer)
 	fs.WriteContentFn = func(_, _, _, _ string) error { return nil }
 	_, err = uc.WriteDocument(ctx, workspaceRef("w1", "a.go"), "d", "", domain.TransportLocal, time.Now())
-	require.ErrorIs(t, err, apperr.ErrLocked)
+	require.ErrorIs(t, err, problem.ErrLocked)
 	assert.False(t, syncer.Synced, "locked rejection must not mutate or resync")
 }
 

@@ -14,10 +14,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -393,7 +394,7 @@ func TestResumeChat_ASessionTheConnectionRefusesFailsTheResume(t *testing.T) {
 	_, err := h.rs.ResumeChat(ctx, h.chatID)
 
 	require.ErrorIs(t, err, engineagents.ErrAPISessionLost)
-	require.ErrorIs(t, err, apperr.ErrConflict, "the chat's session is gone, not the daemon")
+	require.ErrorIs(t, err, problem.ErrConflict, "the chat's session is gone, not the daemon")
 	assert.Empty(t, h.term.created, "no PTY resumes the lost session")
 	assert.Equal(t, []string{"initialize", "thread/resume"}, askedCalls(t, asked))
 	c, _ := chatState(t, h.rs.ledger).Conversation("carrier-test")

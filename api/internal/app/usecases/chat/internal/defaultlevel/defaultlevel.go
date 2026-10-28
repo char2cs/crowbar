@@ -6,8 +6,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -60,7 +61,7 @@ func (d *DefaultLevel) Set(
 	level string,
 ) error {
 	if !Valid(level) {
-		return fmt.Errorf("%w: unknown permission level %q", apperr.ErrInvalidArgument, level)
+		return fmt.Errorf("%w: unknown permission level %q", problem.ErrInvalidArgument, level)
 	}
 	if err := d.prefs.Save(ctx, domain.AgentPermissionDefault{
 		ID: domain.DefaultPermissionLevelKey, Level: level,

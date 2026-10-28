@@ -5,10 +5,11 @@ package handlers
 import (
 	"context"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
 )
@@ -58,5 +59,5 @@ func (h *Handlers) resolveWorkspace(
 	if ws, ok := reqscope.Workspace(ctx); ok {
 		return ws, nil
 	}
-	return domain.Workspace{}, apperr.ErrNotFound
+	return domain.Workspace{}, problem.ErrNotFound
 }

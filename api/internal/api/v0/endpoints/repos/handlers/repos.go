@@ -13,13 +13,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/icons"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/internal/detached"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -348,7 +349,7 @@ func (h *Handlers) Detail(
 		return
 	}
 	if repo == nil {
-		status, msg := libs.StatusAndMessage(apperr.ErrNotFound)
+		status, msg := libs.StatusAndMessage(problem.ErrNotFound)
 		libs.WriteErr(c, status, msg)
 		return
 	}

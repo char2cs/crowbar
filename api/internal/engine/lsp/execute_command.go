@@ -5,7 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/convert"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/server"
@@ -23,7 +24,7 @@ func (e *engine) ExecuteCommand(
 	params := convert.ExecuteCommandParams(command, arguments)
 	_, err := e.serve(ctx, wsID, worktreePath, filePath, func(reqCtx context.Context, srv server.Server) error {
 		if !srv.CanExecute(command) {
-			return fmt.Errorf("%w: the language server does not run %q", apperr.ErrInvalidArgument, command)
+			return fmt.Errorf("%w: the language server does not run %q", problem.ErrInvalidArgument, command)
 		}
 		result, edits, err := srv.ExecuteCommand(reqCtx, params)
 		if err != nil {

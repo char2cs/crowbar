@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	gituc "github.com/char2cs/crowbar/api/internal/app/usecases/git"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -380,9 +381,9 @@ func TestGitUsecase_Writes_RejectLockedWorkspace(t *testing.T) {
 	}
 	git.AnyWriteOK()
 
-	require.ErrorIs(t, uc.Commit(ctx, "w1", "m", "b", now), apperr.ErrLocked)
-	require.ErrorIs(t, uc.StageFile(ctx, "w1", "f", now), apperr.ErrLocked)
-	require.ErrorIs(t, uc.Merge(ctx, "w1", "b", now), apperr.ErrLocked)
+	require.ErrorIs(t, uc.Commit(ctx, "w1", "m", "b", now), problem.ErrLocked)
+	require.ErrorIs(t, uc.StageFile(ctx, "w1", "f", now), problem.ErrLocked)
+	require.ErrorIs(t, uc.Merge(ctx, "w1", "b", now), problem.ErrLocked)
 	assert.False(t, syncer.Synced, "locked rejection must not mutate or resync")
 }
 

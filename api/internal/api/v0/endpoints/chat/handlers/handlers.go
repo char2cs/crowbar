@@ -89,7 +89,7 @@ type ChatUsecase interface {
 
 	// SetChatSelection writes chatID's sticky model and reasoning-effort choice.
 	// Empty clears back to the provider's default; a value outside the provider's
-	// declared catalogue is refused with apperr.ErrInvalidArgument (→ 400).
+	// declared catalogue is refused with problem.ErrInvalidArgument (→ 400).
 	SetChatSelection(
 		ctx context.Context,
 		chatID, model, effort string,
@@ -308,7 +308,7 @@ type AnswerUsecase interface {
 	// AnswerChoice records a human's decision and hands it to the relay blocking the
 	// provider's gate. optionIDs name what was picked; reason and content carry the
 	// free-form parts a provider accepts (a deny message, an elicitation's filled-in
-	// form). It fails with apperr.ErrConflict when no relay is waiting, because an
+	// form). It fails with problem.ErrConflict when no relay is waiting, because an
 	// answer that reaches nobody must never be reported as delivered.
 	AnswerChoice(
 		ctx context.Context,
@@ -332,7 +332,7 @@ type AnswerUsecase interface {
 	// SetChatPermissionLevel overrides chatID's trust dial for the rest of its
 	// lifetime, independent of the global default (see
 	// ProviderUsecase.DefaultPermissionLevel). Refuses a level the chat's
-	// current provider does not declare, with apperr.ErrInvalidArgument (→ 400).
+	// current provider does not declare, with problem.ErrInvalidArgument (→ 400).
 	SetChatPermissionLevel(
 		ctx context.Context,
 		chatID string,
@@ -360,7 +360,7 @@ type ProviderUsecase interface {
 
 	// ReplaceProviderPreferences rewrites the whole global preference table from the
 	// submitted ordered set (array position → priority), validating ids against the
-	// catalog (unknown → apperr.ErrInvalidArgument → 400) and returning the freshly
+	// catalog (unknown → problem.ErrInvalidArgument → 400) and returning the freshly
 	// resolved list. It backs PUT /v0/settings/chat/providers.
 	ReplaceProviderPreferences(
 		ctx context.Context,

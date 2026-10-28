@@ -18,6 +18,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/char2cs/crowbar/api/internal/engine/search/internal/ignore"
 	"github.com/char2cs/crowbar/api/internal/engine/search/internal/match"
@@ -26,15 +28,15 @@ import (
 )
 
 // ErrLocked is returned by Replace when the workspace is locked.
-var ErrLocked = errors.New("workspace is locked")
+var ErrLocked = problem.New(problem.Locked, "workspace is locked")
 
 // ErrPathOutsideWorkspace is returned by Replace when the file scope resolves
 // to a path outside the repository root.
-var ErrPathOutsideWorkspace = errors.New("path is outside the workspace")
+var ErrPathOutsideWorkspace = problem.New(problem.InvalidArgument, "path is outside the workspace")
 
 // ErrBadPattern is returned by Replace (and Search) when the query cannot be
 // compiled into a valid regular expression.
-var ErrBadPattern = errors.New("invalid search pattern")
+var ErrBadPattern = problem.New(problem.InvalidArgument, "invalid search pattern")
 
 const (
 	defaultMaxResults = 1000

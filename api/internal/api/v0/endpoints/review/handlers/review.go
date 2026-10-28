@@ -4,12 +4,13 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
@@ -21,10 +22,10 @@ import (
 func reviewErrorStatus(
 	err error,
 ) int {
-	if errors.Is(err, apperr.ErrNotFound) {
+	if errors.Is(err, problem.ErrNotFound) {
 		return http.StatusNotFound
 	}
-	if errors.Is(err, apperr.ErrInvalidArgument) {
+	if errors.Is(err, problem.ErrInvalidArgument) {
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError

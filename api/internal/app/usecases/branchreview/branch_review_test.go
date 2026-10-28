@@ -8,12 +8,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
@@ -34,7 +35,7 @@ func TestBranchReview_Get_MissingWorkspace_IsNotFound(t *testing.T) {
 	uc := newTestUsecase(wsMock, &mockReviewThread{}, mocks.NewRepositoryStore(), &mockGitEngine{})
 
 	_, err := uc.Get(ctx, "nope")
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 // --- local workspace mock ---
@@ -1065,7 +1066,7 @@ func TestBranchReview_GetFiles_InternalGitError_IsNotNotFound(t *testing.T) {
 
 	_, err := uc.GetFiles(ctx, "ws1", "")
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, apperr.ErrNotFound)
+	assert.NotErrorIs(t, err, problem.ErrNotFound)
 }
 
 func (m *mockWorkspace) SetLock(

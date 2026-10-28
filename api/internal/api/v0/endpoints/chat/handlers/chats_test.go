@@ -10,12 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -1578,12 +1579,12 @@ func TestSetSelection_BadJSON(
 }
 
 // TestSetSelection_RejectedValueSurfacesAs400: a value outside the provider's
-// declared catalogue is a client error, and the mapped apperr must reach the
+// declared catalogue is a client error, and the mapped problem must reach the
 // client as one rather than as an opaque 500.
 func TestSetSelection_RejectedValueSurfacesAs400(
 	t *testing.T,
 ) {
-	uc := &fakeAgentUsecase{selectionErr: fmt.Errorf("no such model: %w", apperr.ErrInvalidArgument)}
+	uc := &fakeAgentUsecase{selectionErr: fmt.Errorf("no such model: %w", problem.ErrInvalidArgument)}
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"model":"telepathy"}`)

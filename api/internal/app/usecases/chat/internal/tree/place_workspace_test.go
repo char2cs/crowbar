@@ -12,10 +12,11 @@ import (
 	"context"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -128,7 +129,7 @@ func TestPlaceWorkspace_RefusesTheProjectHomeWorkspace(t *testing.T) {
 
 	_, _, err := uc.PlaceWorkspace(context.Background(), "home-ws", tree.PlaceInput{Order: index(0)})
 
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 // A workspaceID RepoOf cannot resolve at all (never Set on the fake, the
@@ -139,7 +140,7 @@ func TestPlaceWorkspace_RefusesAnUnknownWorkspaceID(t *testing.T) {
 
 	_, _, err := uc.PlaceWorkspace(context.Background(), "no-such-workspace", tree.PlaceInput{Order: index(0)})
 
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 // THE adversarial case this fix exists for (mirrors

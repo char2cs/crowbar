@@ -6,11 +6,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/provider"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -79,11 +80,11 @@ func TestInstallDescriptor_AddsAProviderAndRejectsInvalidOrExisting(t *testing.T
 	require.NoError(t, err)
 	assert.Contains(t, ids(providers), "customagent")
 	_, err = table.InstallDescriptor(t.Context(), raw)
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 	_, err = table.InstallDescriptor(t.Context(), shipped)
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 	_, err = table.InstallDescriptor(t.Context(), []byte("id: broken\n"))
-	require.ErrorIs(t, err, apperr.ErrUnprocessable)
+	require.ErrorIs(t, err, problem.ErrUnprocessable)
 	_, err = os.Stat(filepath.Join(home, "descriptors", "broken.yaml"))
 	assert.True(t, os.IsNotExist(err))
 }
@@ -138,7 +139,7 @@ func TestRequireProviderEnabled_RefusesADescriptorWithAnError(t *testing.T) {
 	err = table.RequireProviderEnabled(t.Context(), "acme")
 
 	require.ErrorIs(t, err, descriptorcheck.ErrBlocked)
-	require.ErrorIs(t, err, apperr.ErrUnprocessable)
+	require.ErrorIs(t, err, problem.ErrUnprocessable)
 	assert.Contains(t, err.Error(), "is a shell")
 	assert.NoError(t, table.RequireProviderEnabled(t.Context(), "codex"), "the shipped codex is untouched")
 }
@@ -303,7 +304,7 @@ func TestReplaceProviderPreferences_RefusesAnUnknownProvider(t *testing.T) {
 		{ProviderID: "telepathy"},
 	})
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 // Disabled is a decision the table records and ResolveProviders reports, but
@@ -321,7 +322,7 @@ func TestRequireProviderEnabled_RefusesADisabledProvider(t *testing.T) {
 	err = table.RequireProviderEnabled(t.Context(), "claude")
 
 	require.ErrorIs(t, err, provider.ErrProviderDisabled)
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument, "handlers answer 400 off this class")
+	require.ErrorIs(t, err, problem.ErrInvalidArgument, "handlers answer 400 off this class")
 	assert.NoError(t, table.RequireProviderEnabled(t.Context(), "codex"))
 	assert.NoError(t, table.RequireProviderEnabled(t.Context(), "never-preferenced"),
 		"a provider with no row is enabled")

@@ -4,9 +4,10 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -37,7 +38,7 @@ func TestSyncMissingWorkspace_4xx(
 	t *testing.T,
 ) {
 	reader := &fakeReader{}
-	r, _ := newChatRouter(reader, &fakeHierarchy{}, &fakeWorktrees{err: apperr.ErrNotFound})
+	r, _ := newChatRouter(reader, &fakeHierarchy{}, &fakeWorktrees{err: problem.ErrNotFound})
 
 	rec := do(r, http.MethodPost, chatBase+"/sync", "")
 	assert.Equal(t, http.StatusNotFound, rec.Code)

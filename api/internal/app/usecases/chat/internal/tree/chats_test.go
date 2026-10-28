@@ -5,10 +5,11 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -28,7 +29,7 @@ func TestDeleteChat_RefusesAFolderID(t *testing.T) {
 
 	_, err := uc.DeleteChat(context.Background(), "spikes", domain.KeepWorkAtRisk)
 
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 	assert.Empty(t, chats.Purged, "a folder id must never reach the chat cascade")
 }
 
@@ -42,7 +43,7 @@ func TestPlaceChat_RefusesAFolderID(t *testing.T) {
 
 	_, _, err := uc.PlaceChat(context.Background(), "", "spikes", tree.PlaceInput{ParentID: name("ideas")})
 
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 	assert.Equal(t, "", folderRow(t, uc, "spikes").ParentID, "nothing may have moved")
 }
 
@@ -351,7 +352,7 @@ func TestCreateChat_AFailedCleanupStillReportsTheOriginalFailure(t *testing.T) {
 
 	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	assert.ErrorContains(t, err, "claude is not installed")
-	assert.NotErrorIs(t, err, apperr.ErrNotFound)
+	assert.NotErrorIs(t, err, problem.ErrNotFound)
 }
 
 // CreateChat's ownWorktree branch (model spec §4.1/§5.1): mint and place the
@@ -825,14 +826,14 @@ func TestPlaceChat_RefusesAChatFromAnotherWorkspace(t *testing.T) {
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "c-other", WorkspaceID: "ws-2"})
 
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c-other", tree.PlaceInput{})
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 func TestPlaceChat_RefusesAnUnknownChat(t *testing.T) {
 	_, uc := newUsecase(t)
 
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "nowhere", tree.PlaceInput{})
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 func TestPlaceChat_SurfacesASnapshotFailure(t *testing.T) {

@@ -4,10 +4,11 @@ import (
 	"context"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace/internal/hierarchy"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
@@ -21,7 +22,7 @@ func TestDeleteCascade_RootNotFound(t *testing.T) {
 	}
 	uc := hierarchy.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	err := uc.DeleteCascade(context.Background(), "missing-root", domain.KeepWorkAtRisk)
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 // TestDeleteCascade_RemoveOneError_Propagates proves that (unlike a git-side

@@ -5,10 +5,11 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 )
 
@@ -51,7 +52,7 @@ func TestPutDefaultPermissionLevel_RejectsAMalformedBody(t *testing.T) {
 }
 
 func TestPutDefaultPermissionLevel_SurfacesAnUnknownLevel(t *testing.T) {
-	uc := &fakeAgentUsecase{setDefaultLevelErr: apperr.ErrInvalidArgument}
+	uc := &fakeAgentUsecase{setDefaultLevelErr: problem.ErrInvalidArgument}
 	ctx, rec := newTestContext(t, http.MethodPut, "/v0/settings/chat/permission-level",
 		[]byte(`{"level":"yolo"}`))
 

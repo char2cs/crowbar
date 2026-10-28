@@ -4,9 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/google/uuid"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -52,7 +53,7 @@ func (rs *Runners) Compact(ctx context.Context, chatID string) error {
 	})
 	if !ok {
 		return fmt.Errorf(
-			"agent: compact: %q declares no compaction gesture: %w", providerID, apperr.ErrNotFound,
+			"agent: compact: %q declares no compaction gesture: %w", providerID, problem.ErrNotFound,
 		)
 	}
 
@@ -61,7 +62,7 @@ func (rs *Runners) Compact(ctx context.Context, chatID string) error {
 		if text == "" {
 			return fmt.Errorf(
 				"agent: compact: %q declares compact_start with no text: %w",
-				providerID, apperr.ErrInvalidArgument,
+				providerID, problem.ErrInvalidArgument,
 			)
 		}
 		if _, err := rs.SubmitPrompt(ctx, chatID, text, uuid.NewString()); err != nil {
@@ -79,7 +80,7 @@ func (rs *Runners) Compact(ctx context.Context, chatID string) error {
 		return fmt.Errorf(
 			"agent: compact: %q compacts over the %q wire, which needs a live api "+
 				"connection this chat does not currently have: %w",
-			providerID, wire, apperr.ErrUnavailable,
+			providerID, wire, problem.ErrUnavailable,
 		)
 	}
 	if err := conn.driver.Send(ctx, compactStartEvent, nil); err != nil {

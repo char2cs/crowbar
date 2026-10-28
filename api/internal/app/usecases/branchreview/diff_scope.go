@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -60,7 +61,7 @@ func (u *branchReviewUsecase) resolveScopeRef(
 	if commit != "" && !commitSHAPattern.MatchString(commit) {
 		return "", fmt.Errorf(
 			"branch review: %w: commit must be a hex object name",
-			apperr.ErrInvalidArgument,
+			problem.ErrInvalidArgument,
 		)
 	}
 	if ws.Provisioning == domain.WorkspacePlaceholder {

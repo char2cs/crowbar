@@ -3,7 +3,8 @@ package answerdesk
 import (
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -21,13 +22,13 @@ func Decide(
 ) (engineagents.AnswerDecision, error) {
 	if len(optionIDs) == 0 {
 		return engineagents.AnswerDecision{}, fmt.Errorf(
-			"%w: an answer must name at least one option", apperr.ErrInvalidArgument,
+			"%w: an answer must name at least one option", problem.ErrInvalidArgument,
 		)
 	}
 	decision := engineagents.AnswerDecision{Reason: reason, Content: content}
 	answers, err := choice.ResolvePicks(optionIDs)
 	if err != nil {
-		return engineagents.AnswerDecision{}, fmt.Errorf("%w: %w", apperr.ErrInvalidArgument, err)
+		return engineagents.AnswerDecision{}, fmt.Errorf("%w: %w", problem.ErrInvalidArgument, err)
 	}
 	if len(answers) == 0 {
 		decision.Key = optionIDs[0]
@@ -60,7 +61,7 @@ func decisionKey(answers []domain.ChoiceAnswer) (string, error) {
 		for _, option := range answer.Picked {
 			if key != "" && key != option.Kind {
 				return "", fmt.Errorf(
-					"%w: an answer must pick options of one kind", apperr.ErrInvalidArgument,
+					"%w: an answer must pick options of one kind", problem.ErrInvalidArgument,
 				)
 			}
 			key = option.Kind

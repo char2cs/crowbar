@@ -30,7 +30,7 @@ type ProviderUsecase interface {
 	// ReplaceProviderPreferences overwrites the whole preference table and
 	// returns the resolved list the caller should broadcast. A provider the
 	// submission omits reverts to its default rather than keeping a stale
-	// priority. Returns apperr.ErrInvalidArgument when a row names a provider no
+	// priority. Returns problem.ErrInvalidArgument when a row names a provider no
 	// descriptor declares.
 	ReplaceProviderPreferences(
 		ctx context.Context,
@@ -91,7 +91,7 @@ var _ ProviderUsecase = (*Usecase)(nil)
 // decorates, so a stale tab, a second window, or the command line would
 // otherwise launch a provider the user turned off.
 //
-// It wraps apperr.ErrInvalidArgument, so handlers answer 400 through the
+// It wraps problem.ErrInvalidArgument, so handlers answer 400 through the
 // existing sentinel mapping with no new case.
 var ErrProviderDisabled = provider.ErrProviderDisabled
 

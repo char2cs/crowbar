@@ -7,9 +7,10 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/google/uuid"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -102,21 +103,21 @@ func normalisePromptRequest(
 	text, clientRequestID string,
 ) (string, error) {
 	if strings.TrimSpace(text) == "" {
-		return "", fmt.Errorf("agent: submit prompt: text is required: %w", apperr.ErrInvalidArgument)
+		return "", fmt.Errorf("agent: submit prompt: text is required: %w", problem.ErrInvalidArgument)
 	}
 	if len([]byte(text)) > maxReactPromptBytes {
 		return "", fmt.Errorf("agent: submit prompt: text exceeds %d bytes: %w",
-			maxReactPromptBytes, apperr.ErrInvalidArgument)
+			maxReactPromptBytes, problem.ErrInvalidArgument)
 	}
 
 	if strings.IndexByte(text, 0) >= 0 {
 		return "", fmt.Errorf("agent: submit prompt: text contains an unsupported NUL byte: %w",
-			apperr.ErrInvalidArgument)
+			problem.ErrInvalidArgument)
 	}
 	requestUUID, err := uuid.Parse(clientRequestID)
 	if err != nil {
 		return "", fmt.Errorf("agent: submit prompt: clientRequestId must be a UUID: %w",
-			apperr.ErrInvalidArgument)
+			problem.ErrInvalidArgument)
 	}
 	return requestUUID.String(), nil
 }

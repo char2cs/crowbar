@@ -9,9 +9,10 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	asynxModels "github.com/char2cs/asynx/models"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -177,7 +178,7 @@ func (u *projectDelete) BeginDelete(
 		return domain.Project{}, fmt.Errorf("project delete: find project: %w", err)
 	}
 	if p == nil {
-		return domain.Project{}, fmt.Errorf("project delete: id %s: %w", id, apperr.ErrNotFound)
+		return domain.Project{}, fmt.Errorf("project delete: id %s: %w", id, problem.ErrNotFound)
 	}
 	if consent == domain.KeepWorkAtRisk {
 		if lossErr := u.refuseProjectLoss(ctx, id); lossErr != nil {
@@ -432,7 +433,7 @@ func (u *projectDelete) forgetNode(
 // alreadyGone reports an error meaning the thing being removed no longer
 // exists — for a delete, success.
 func alreadyGone(err error) bool {
-	return errors.Is(err, apperr.ErrNotFound) || errors.Is(err, asynxModels.ErrValidation)
+	return errors.Is(err, problem.ErrNotFound) || errors.Is(err, asynxModels.ErrValidation)
 }
 
 // removeProjectDir removes ~/.crowbar/projects/<P> — except what is not the

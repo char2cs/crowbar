@@ -6,12 +6,12 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // ErrNotWaiting refuses an answer whose relay stopped waiting first: its budget
 // ran out, it was released, or another answer claimed it.
-var ErrNotWaiting = fmt.Errorf("%w: this prompt can no longer be answered from Crowbar", apperr.ErrConflict)
+var ErrNotWaiting = fmt.Errorf("%w: this prompt can no longer be answered from Crowbar", problem.ErrConflict)
 
 // Await blocks the relay held on askID until a person answers, claimed by exactly
 // one relay; until its budget runs out, closing the question as onExpiry, what the

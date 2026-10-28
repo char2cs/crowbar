@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 )
 
 func TestExecuteCommand_ForwardsTheCommandAndRelativizesItsEdits(t *testing.T) {
@@ -49,7 +49,7 @@ func TestExecuteCommand_RejectsACommandTheServerDoesNotRun(t *testing.T) {
 	e := buildEngine(t, fake)
 
 	_, err := e.ExecuteCommand(context.Background(), ws, tree, goF, "java.show.references", nil)
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 	assert.Empty(t, fake.requests())
 }
 

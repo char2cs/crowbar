@@ -9,13 +9,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	repohandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -110,7 +111,7 @@ func (f fakeNodeReader) Forget(_ context.Context, id string) error {
 func (f fakeNodeReader) GetNode(_ context.Context, id string) (domain.Node, error) {
 	n, ok := f[id]
 	if !ok {
-		return domain.Node{}, apperr.ErrNotFound
+		return domain.Node{}, problem.ErrNotFound
 	}
 	return n, nil
 }
@@ -155,7 +156,7 @@ func TestPatchRepo_EmptyName_400(t *testing.T) {
 // TestPatchRepo_NotFound_404 pins that an unknown repo (updater returns
 // ErrNotFound) surfaces as a 404, not a 500.
 func TestPatchRepo_NotFound_404(t *testing.T) {
-	upd := &fakeUpdater{err: apperr.ErrNotFound}
+	upd := &fakeUpdater{err: problem.ErrNotFound}
 	var frames []dto.RepoDTO
 	rec := doPatch(patchRouter(t, upd, &frames), "/v0/projects/p1/repos/missing",
 		map[string]string{"name": "Whatever"})

@@ -13,31 +13,32 @@
 package safepath
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // ErrPathEscapesWorkspace is returned when a workspace-relative path is
 // absolute, traverses above the workspace root, or resolves (via a symlink)
 // to a location outside the root. The api libs error mapper maps it to HTTP
 // 400 Bad Request.
-var ErrPathEscapesWorkspace = errors.New("path escapes the workspace")
+var ErrPathEscapesWorkspace = problem.New(problem.InvalidArgument, "path escapes the workspace")
 
 // ErrNotAbsolute is returned by the host-path reader and writer for a path that
 // is not absolute and clean: only a path the usecase resolved reaches the disk.
-var ErrNotAbsolute = errors.New("path is not absolute")
+var ErrNotAbsolute = problem.New(problem.InvalidArgument, "path is not absolute")
 
 // ErrDanglingSymlink is returned for a write through a symlink whose target does
 // not exist: creating it could put a file anywhere the link points.
-var ErrDanglingSymlink = errors.New("symlink target does not exist")
+var ErrDanglingSymlink = problem.New(problem.InvalidArgument, "symlink target does not exist")
 
 // ErrFileTooLarge is returned by the content reader when a file exceeds the
 // maxReadBytes cap (25 MiB). The api libs error mapper maps it to HTTP 413
 // Request Entity Too Large (hardening finding R16).
-var ErrFileTooLarge = errors.New("file too large")
+var ErrFileTooLarge = problem.New(problem.TooLarge, "file too large")
 
 // Resolve validates that rel is a safe path inside root and returns the
 // cleaned absolute path (filepath.Join(root, rel)) to operate on. rel must be

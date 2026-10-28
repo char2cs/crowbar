@@ -11,8 +11,9 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -20,9 +21,9 @@ import (
 
 var (
 	// ErrUnknownRunner is a hook from a runner no live table or chat holds.
-	ErrUnknownRunner = fmt.Errorf("ingress: unknown runner: %w", apperr.ErrNotFound)
+	ErrUnknownRunner = fmt.Errorf("ingress: unknown runner: %w", problem.ErrNotFound)
 	// ErrUnmappable is a hook its runner's descriptor cannot map.
-	ErrUnmappable = fmt.Errorf("ingress: unmappable hook: %w", apperr.ErrUnprocessable)
+	ErrUnmappable = fmt.Errorf("ingress: unmappable hook: %w", problem.ErrUnprocessable)
 )
 
 // Reply is what the sender of a placed hook is answered with.
@@ -171,9 +172,9 @@ func (i *Ingress) record(ctx context.Context, h hook, runner engineagents.Runner
 		return i.deadLetter(ctx, h, chatID, reasonInternal)
 	case errors.Is(err, seam.ErrHookNotRecorded):
 		return i.deadLetter(ctx, h, chatID, reasonNotRecorded)
-	case errors.Is(err, apperr.ErrUnprocessable):
+	case errors.Is(err, problem.ErrUnprocessable):
 		return i.refuse(ctx, h, chatID, reasonUnmappable, fmt.Errorf("%w: %s: %w", ErrUnmappable, h.event, err))
-	case errors.Is(err, apperr.ErrNotFound):
+	case errors.Is(err, problem.ErrNotFound):
 		return i.refuse(ctx, h, chatID, reasonUnknownChat, fmt.Errorf("ingress: %s: %w", h.event, err))
 	}
 	return i.refuse(ctx, h, chatID, reasonWriteFailed, fmt.Errorf("ingress: %s: %w", h.event, err))

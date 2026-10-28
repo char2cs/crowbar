@@ -1,13 +1,13 @@
 package repositories
 
 import (
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"context"
 	"errors"
 	"fmt"
 
 	asynxModels "github.com/char2cs/asynx/models"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
@@ -148,7 +148,7 @@ func (c *Container) forgetNode(
 // exists: a not-found, or asynx refusing to Forget an aggregate that is already
 // Forgotten. For a delete cascade both are success.
 func alreadyGone(err error) bool {
-	return errors.Is(err, apperr.ErrNotFound) ||
+	return errors.Is(err, problem.ErrNotFound) ||
 		errors.Is(err, agentchat.ErrNotFound) ||
 		errors.Is(err, asynxModels.ErrValidation)
 }

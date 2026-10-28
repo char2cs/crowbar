@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -16,7 +18,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -334,7 +335,7 @@ func TestDeleteThread_BroadcastsTombstone(t *testing.T) {
 // 404. (Note: the real ax.Forget path returns a validation error, not
 // ErrNotFound — see TestThreadMutations_Validation_400 for that production path.)
 func TestDeleteThread_NotFound(t *testing.T) {
-	store := &fakeStore{err: apperr.ErrNotFound}
+	store := &fakeStore{err: problem.ErrNotFound}
 	bc := &fakeBroadcaster{}
 	r := newRouter(store, bc)
 

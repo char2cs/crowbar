@@ -4,13 +4,14 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -28,7 +29,7 @@ func newUUID() string {
 func threadErrorStatus(
 	err error,
 ) int {
-	if errors.Is(err, apperr.ErrNotFound) {
+	if errors.Is(err, problem.ErrNotFound) {
 		return http.StatusNotFound
 	}
 	if errors.Is(err, asynxModels.ErrValidation) {

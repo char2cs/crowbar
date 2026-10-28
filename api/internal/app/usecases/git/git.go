@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -309,7 +310,7 @@ func (u *gitUsecase) writePath(
 		return "", fmt.Errorf("git: load workspace: %w", err)
 	}
 	if ws.Status == domain.WorkspaceStatusLocked {
-		return "", fmt.Errorf("git: mutate: workspace locked: %w", apperr.ErrLocked)
+		return "", fmt.Errorf("git: mutate: workspace locked: %w", problem.ErrLocked)
 	}
 	return ws.WorktreePath, nil
 }

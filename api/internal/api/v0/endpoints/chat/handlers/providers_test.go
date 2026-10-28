@@ -6,12 +6,13 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
@@ -185,10 +186,10 @@ func TestUpdateProviderPreferences_BadJSON(t *testing.T) {
 }
 
 // TestUpdateProviderPreferences_UnknownProvider_MapsTo400 proves an
-// apperr.ErrInvalidArgument from the usecase (an unknown provider id) surfaces as
+// problem.ErrInvalidArgument from the usecase (an unknown provider id) surfaces as
 // a 400.
 func TestUpdateProviderPreferences_UnknownProvider_MapsTo400(t *testing.T) {
-	uc := &fakeAgentUsecase{replaceErr: apperr.ErrInvalidArgument}
+	uc := &fakeAgentUsecase{replaceErr: problem.ErrInvalidArgument}
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"providers":[{"id":"nope","disabled":false}]}`)

@@ -5,11 +5,12 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -124,7 +125,7 @@ func TestBranchReview_GetFiles_MissingWorkspace_IsNotFound(t *testing.T) {
 	uc := newTestUsecase(wsMock, noopThreads(), mocks.NewRepositoryStore(), &mockGitEngine{})
 
 	_, err := uc.GetFiles(ctx, "nope", "")
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 func TestBranchReview_GetFiles_ReviewFilesError(t *testing.T) {
@@ -143,5 +144,5 @@ func TestBranchReview_GetFiles_ReviewFilesError(t *testing.T) {
 
 	_, err := uc.GetFiles(ctx, "ws1", "")
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, apperr.ErrNotFound)
+	assert.NotErrorIs(t, err, problem.ErrNotFound)
 }

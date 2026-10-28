@@ -8,11 +8,12 @@ import (
 	"testing"
 	"testing/synctest"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -171,7 +172,7 @@ func TestHook_UnknownRunnerIsNotFoundAndDeadLettered(t *testing.T) {
 	_, err := f.ingress.Hook(t.Context(), "runner-gone", "p", "tool_pre", []byte(`{}`), engineagents.ChannelHooks)
 
 	require.ErrorIs(t, err, ErrUnknownRunner)
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 	assert.Equal(t, []string{reasonUnknownRunner}, f.reasons())
 	assert.Equal(t, "runner-gone", f.ledger.letters[0].RunnerID)
 	assert.Empty(t, f.turns.dispatched)
@@ -184,7 +185,7 @@ func TestHook_UnmappablePayloadRecordsAMarkerAndIsRefused(t *testing.T) {
 	_, err := f.ingress.Hook(t.Context(), "runner-1", "p", "user_prompt", []byte(`{}`), engineagents.ChannelHooks)
 
 	require.ErrorIs(t, err, ErrUnmappable)
-	require.ErrorIs(t, err, apperr.ErrUnprocessable)
+	require.ErrorIs(t, err, problem.ErrUnprocessable)
 	require.Len(t, f.turns.marked, 1, "one marker on the runner's chat")
 	marker, decodeErr := ledger.DecodeBody[ledger.Marker](f.turns.marked[0])
 	require.NoError(t, decodeErr)
@@ -337,15 +338,15 @@ func TestHook_AHookThatCouldNotBeRecordedIsRefusedAndDeadLettered(t *testing.T) 
 			reason: reasonNoDescriptor,
 		},
 		"its chat is gone": {
-			set:    func(f fixture) { f.turns.err = fmt.Errorf("chat: %w", apperr.ErrNotFound) },
-			reason: reasonUnknownChat, want: apperr.ErrNotFound,
+			set:    func(f fixture) { f.turns.err = fmt.Errorf("chat: %w", problem.ErrNotFound) },
+			reason: reasonUnknownChat, want: problem.ErrNotFound,
 		},
 		"its rows did not commit": {
 			set:    func(f fixture) { f.turns.err = errors.New("ledger write failed") },
 			reason: reasonWriteFailed,
 		},
 		"its telemetry cannot be parsed": {
-			set:    func(f fixture) { f.turns.err = fmt.Errorf("telemetry: %w", apperr.ErrUnprocessable) },
+			set:    func(f fixture) { f.turns.err = fmt.Errorf("telemetry: %w", problem.ErrUnprocessable) },
 			reason: reasonUnmappable, want: ErrUnmappable,
 		},
 	} {
@@ -414,11 +415,11 @@ func TestHook_AnAcknowledgedHookIsDeadLetteredOrRefused(t *testing.T) {
 func TestHook_AnUnmappableHookOfAChatGoneMarksNothing(t *testing.T) {
 	f := newFixture()
 	f.descriptors.agent.err = fmt.Errorf("message: %w", engineagents.ErrRequiredFieldMissing)
-	f.turns.err = fmt.Errorf("chat: %w", apperr.ErrNotFound)
+	f.turns.err = fmt.Errorf("chat: %w", problem.ErrNotFound)
 
 	_, err := f.ingress.Hook(t.Context(), "runner-1", "p", "user_prompt", []byte(`{}`), engineagents.ChannelHooks)
 
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 	assert.Empty(t, f.turns.marked, "a purged chat gets no marker")
 	assert.Equal(t, []string{reasonUnknownChat}, f.reasons())
 }

@@ -8,10 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -200,7 +201,7 @@ func TestAnswer_ARelayReleasedFirstRefusesTheAnswerAndRecordsNothing(t *testing.
 		return true, nil
 	})
 
-	require.ErrorIs(t, err, apperr.ErrConflict, "a relay that stopped waiting cannot be answered")
+	require.ErrorIs(t, err, problem.ErrConflict, "a relay that stopped waiting cannot be answered")
 	require.ErrorIs(t, err, answerdesk.ErrNotWaiting)
 	assert.False(t, answered)
 	assert.False(t, asked, "an answer its CLI never got is never recorded")

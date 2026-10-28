@@ -10,7 +10,6 @@ import (
 
 	asynxmodels "github.com/char2cs/asynx/models"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	repoattachments "github.com/char2cs/crowbar/api/internal/app/repositories/chat/attachments"
 	noderepo "github.com/char2cs/crowbar/api/internal/app/repositories/node"
@@ -18,6 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
@@ -30,7 +30,7 @@ import (
 // The mapping is open for extension: new categories are added by appending
 // guard clauses. The categories are:
 //
-//   - 404 Not Found      — apperr.ErrNotFound, engineterminal.ErrSessionNotFound,
+//   - 404 Not Found      — problem.ErrNotFound, engineterminal.ErrSessionNotFound,
 //     asynxmodels.ErrNotFound (the asynx aggregate-not-found sentinel surfaced
 //     by the aggregate usecases), fs.ErrNotExist (the raw filesystem
 //     not-found error wrapped up from the fs engine),
@@ -51,7 +51,7 @@ import (
 //     workspace root via ".." or a symlink — the fs engine containment guard),
 //     safepath.ErrNotAbsolute (a host path that is not absolute and clean),
 //     safepath.ErrDanglingSymlink (a write through a link to nothing),
-//     apperr.ErrInvalidArgument (an unsafe/invalid git operand or reset mode
+//     problem.ErrInvalidArgument (an unsafe/invalid git operand or reset mode
 //     rejected at the usecase boundary before it can reach the git engine —
 //     see the git write validator), fs.ErrInvalid (an invalid fs-engine
 //     operand, e.g. a copy destination inside its own source directory), and
@@ -61,16 +61,16 @@ import (
 //     rejected because the file exceeds the 25 MiB cap; hardening R16).
 //   - 403 Forbidden       — enginegit.ErrAuthFailed (remote rejected the
 //     supplied credentials on push/pull/fetch; a forbidden-style auth failure,
-//     not a transport outage), apperr.ErrHostDocumentNeedsLocalTransport (a
+//     not a transport outage), domain.ErrHostDocumentNeedsLocalTransport (a
 //     file outside every workspace asked for off the local socket) and
-//     apperr.ErrDaemonStateDocument (a document under the daemon's own state).
+//     domain.ErrDaemonStateDocument (a document under the daemon's own state).
 //   - 424 Failed Dependency — engineterminal.ErrCommandNotFound (the vendor CLI
 //     a spawn needs — claude, codex — is not installed on this machine or is not
-//     executable) and apperr.ErrFailedDependency (a CLI that IS installed but
+//     executable) and problem.ErrFailedDependency (a CLI that IS installed but
 //     failed to come up — above all one that exited during startup, so the chat
 //     never got the live TUI it asked for). A broken dependency the USER can fix,
 //     not a server fault.
-//   - 409 Conflict        — apperr.ErrLocked (a write against a locked,
+//   - 409 Conflict        — problem.ErrLocked (a write against a locked,
 //     provider-protected workspace; 04 §5, 05 §3/§4), fs.ErrExist (an fs
 //     mutation whose destination already exists, e.g. a copy landing on an
 //     existing path), enginesearch.ErrLocked,
@@ -130,8 +130,8 @@ func StatusAndMessage(
 	}
 
 	if errors.Is(err, enginegit.ErrAuthFailed) ||
-		errors.Is(err, apperr.ErrHostDocumentNeedsLocalTransport) ||
-		errors.Is(err, apperr.ErrDaemonStateDocument) {
+		errors.Is(err, domain.ErrHostDocumentNeedsLocalTransport) ||
+		errors.Is(err, domain.ErrDaemonStateDocument) {
 		return http.StatusForbidden, err.Error()
 	}
 
@@ -152,7 +152,7 @@ func StatusAndMessage(
 	// of the 500 bucket precisely because it is the ONE spawn failure the user can act
 	// on, and it has to reach them as words rather than as a button that does nothing.
 	if errors.Is(err, engineterminal.ErrCommandNotFound) ||
-		errors.Is(err, apperr.ErrFailedDependency) {
+		errors.Is(err, problem.ErrFailedDependency) {
 		return http.StatusFailedDependency, err.Error()
 	}
 
@@ -163,18 +163,18 @@ func StatusAndMessage(
 	if errors.Is(err, asynxmodels.ErrValidation) {
 		return http.StatusUnprocessableEntity, err.Error()
 	}
-	if errors.Is(err, apperr.ErrUnprocessable) {
+	if errors.Is(err, problem.ErrUnprocessable) {
 		return http.StatusUnprocessableEntity, err.Error()
 	}
-	if errors.Is(err, apperr.ErrTimeout) {
+	if errors.Is(err, problem.ErrTimeout) {
 		return http.StatusGatewayTimeout, err.Error()
 	}
-	if errors.Is(err, apperr.ErrBadGateway) {
+	if errors.Is(err, problem.ErrBadGateway) {
 		return http.StatusBadGateway, err.Error()
 	}
 
 	// A full asynx shard queue did not accept the mutation; the client may retry.
-	if errors.Is(err, apperr.ErrUnavailable) || errors.Is(err, asynxmodels.ErrQueueFull) {
+	if errors.Is(err, problem.ErrUnavailable) || errors.Is(err, asynxmodels.ErrQueueFull) {
 		return http.StatusServiceUnavailable, err.Error()
 	}
 
@@ -189,7 +189,7 @@ func StatusAndMessage(
 func isNotFound(
 	err error,
 ) bool {
-	return errors.Is(err, apperr.ErrNotFound) ||
+	return errors.Is(err, problem.ErrNotFound) ||
 		errors.Is(err, engineterminal.ErrSessionNotFound) ||
 		errors.Is(err, asynxmodels.ErrNotFound) ||
 		errors.Is(err, fs.ErrNotExist) ||
@@ -212,7 +212,7 @@ func isBadRequest(
 		errors.Is(err, safepath.ErrPathEscapesWorkspace) ||
 		errors.Is(err, safepath.ErrNotAbsolute) ||
 		errors.Is(err, safepath.ErrDanglingSymlink) ||
-		errors.Is(err, apperr.ErrInvalidArgument) ||
+		errors.Is(err, problem.ErrInvalidArgument) ||
 		errors.Is(err, fs.ErrInvalid) ||
 		errors.Is(err, agentusecase.ErrTreeNameRequired) ||
 		errors.Is(err, enginegit.ErrNoRemote)
@@ -245,8 +245,8 @@ func isConflict(
 // A table rather than a chain of errors.Is: adding a sentinel should be one line
 // in a list, not another branch in a function that already has eighteen.
 var conflictSentinels = []error{
-	apperr.ErrLocked,
-	apperr.ErrConflict,
+	problem.ErrLocked,
+	problem.ErrConflict,
 	enginesearch.ErrLocked,
 	fs.ErrExist,
 	workspace.ErrParentLocked,

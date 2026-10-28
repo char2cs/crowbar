@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -14,7 +16,7 @@ import (
 var (
 	// ErrUnauthorized means the caller could not be established at all: a bad
 	// token, a dead runner, or a runner with no current chat.
-	ErrUnauthorized = errors.New("agenttools: unauthorized")
+	ErrUnauthorized = problem.New(problem.Forbidden, "agenttools: unauthorized")
 	// ErrOutOfScope means the caller is real but asked about something outside
 	// what its position in the workspace tree permits.
 	ErrOutOfScope = errors.New("agenttools: out of scope")

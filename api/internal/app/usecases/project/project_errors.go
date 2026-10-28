@@ -1,13 +1,17 @@
 package project
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+)
 
 // ErrFolderNotFound is returned when a project import targets a path that does
 // not exist on disk. The import validates the path before persisting anything,
 // so a nonexistent folder leaves no project behind. Handlers map it to HTTP
 // 404 via libs.StatusAndMessage; the message stays free of filesystem
 // internals on purpose.
-var ErrFolderNotFound = errors.New("folder does not exist")
+var ErrFolderNotFound = problem.New(problem.NotFound, "folder does not exist")
 
 // ErrRepoAlreadyImported is returned when a repo folder another project has
 // already imported is added again. A branch can be checked out in only one
@@ -17,7 +21,7 @@ var ErrFolderNotFound = errors.New("folder does not exist")
 // nothing. One folder therefore belongs to exactly one project. Handlers map it
 // to HTTP 409 via libs.StatusAndMessage, and it is wrapped with the name of the
 // project that already has the folder so the message says where to look.
-var ErrRepoAlreadyImported = errors.New("this folder is already added as a repository")
+var ErrRepoAlreadyImported = problem.New(problem.Conflict, "this folder is already added as a repository")
 
 // ErrNoNodesWired is returned when an import runs on a usecase whose Node
 // surface (NodePlacements) was never wired — for a repo's own row (Task 3) and,

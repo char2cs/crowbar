@@ -3,11 +3,12 @@ package defaultlevel_test
 import (
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/defaultlevel"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -47,5 +48,5 @@ func TestSet_RejectsAnUnknownLevel(t *testing.T) {
 
 	err := table.Set(t.Context(), "yolo")
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }

@@ -14,7 +14,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 )
 
@@ -55,10 +56,10 @@ func sanitizeName(name string) string {
 // Store writes data as a new attachment under dir (a chat's AttachmentsDir),
 // named "<id>-<sanitized originalName>", creating dir if needed.
 //
-// Refuses with apperr.ErrInvalidArgument for an invalid id or a blank
+// Refuses with problem.ErrInvalidArgument for an invalid id or a blank
 // original name (a caller with no filename — a clipboard paste — must
 // synthesize one first, see SyntheticName), with safepath.ErrFileTooLarge
-// over MaxBytes, and with apperr.ErrConflict when the target filename
+// over MaxBytes, and with problem.ErrConflict when the target filename
 // already exists: the id is client-generated per attachment, so a collision
 // means the SAME id was submitted twice, and overwriting silently would let
 // a second upload invisibly replace bytes a message may already reference.
@@ -67,11 +68,11 @@ func Store(
 	data []byte,
 ) (fileName, contentType string, err error) {
 	if !ValidID(id) {
-		return "", "", fmt.Errorf("attachments: invalid id: %w", apperr.ErrInvalidArgument)
+		return "", "", fmt.Errorf("attachments: invalid id: %w", problem.ErrInvalidArgument)
 	}
 	base := sanitizeName(originalName)
 	if base == "" {
-		return "", "", fmt.Errorf("attachments: original name required: %w", apperr.ErrInvalidArgument)
+		return "", "", fmt.Errorf("attachments: original name required: %w", problem.ErrInvalidArgument)
 	}
 	if len(data) > MaxBytes {
 		return "", "", fmt.Errorf("attachments: %w", safepath.ErrFileTooLarge)
@@ -87,7 +88,7 @@ func Store(
 	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return "", "", fmt.Errorf("attachments: %q already exists: %w", fileName, apperr.ErrConflict)
+			return "", "", fmt.Errorf("attachments: %q already exists: %w", fileName, problem.ErrConflict)
 		}
 		return "", "", fmt.Errorf("attachments: create: %w", err)
 	}
@@ -149,7 +150,7 @@ func ContentType(data []byte) string {
 }
 
 // ErrNotFound reports that no attachment exists at the requested reference.
-var ErrNotFound = errors.New("attachments: not found")
+var ErrNotFound = problem.New(problem.NotFound, "attachments: not found")
 
 // Read returns fileName's bytes and sniffed content type from dir, or
 // ErrNotFound. Stat-rejected and capped exactly like icons.Serve: dir holds

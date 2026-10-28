@@ -73,7 +73,7 @@ func (h *Handlers) DescriptorReports(
 // replaces the whole preference table (upsert submitted, delete omitted) and
 // returns the freshly resolved list so the client reconciles from server truth
 // with no second fetch. An unknown provider id is rejected 400 by the usecase
-// (apperr.ErrInvalidArgument) before any row is written.
+// (problem.ErrInvalidArgument) before any row is written.
 func (h *Handlers) UpdateProviderPreferences(
 	ctx *gin.Context,
 ) {

@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -45,7 +46,7 @@ func (u *chatFolderUsecase) loadChat(
 	}
 	if chat.WorkspaceID != workspaceID {
 		return domain.Chat{}, fmt.Errorf(
-			"agent chat folder: chat %s is not in workspace %s: %w", chatID, workspaceID, apperr.ErrNotFound,
+			"agent chat folder: chat %s is not in workspace %s: %w", chatID, workspaceID, problem.ErrNotFound,
 		)
 	}
 	return u.correctHomePlacement(ctx, chat)
@@ -314,7 +315,7 @@ func (u *chatFolderUsecase) writeRow(
 			// aggregate: a concurrent delete can purge this very row between the
 			// two. It needs no order because it no longer exists, so that race is
 			// not this write's failure to report.
-			if errors.Is(err, apperr.ErrNotFound) {
+			if errors.Is(err, problem.ErrNotFound) {
 				return nil, nil
 			}
 			return nil, fmt.Errorf("agent chat folder: order chat %s: %w", id, err)

@@ -5,7 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -39,9 +40,9 @@ type AnswerUsecase interface {
 	// options into the provider's own answer format and hands that to the relay
 	// holding the prompt open.
 	//
-	// Returns ErrNoLongerWaiting (an apperr.ErrConflict) when no relay is still
+	// Returns ErrNoLongerWaiting (an problem.ErrConflict) when no relay is still
 	// holding the prompt — its CLI has moved on, so it can no longer be answered
-	// from Crowbar — and apperr.ErrInvalidArgument when the provider cannot
+	// from Crowbar — and problem.ErrInvalidArgument when the provider cannot
 	// express the decision.
 	AnswerChoice(
 		ctx context.Context,
@@ -63,7 +64,7 @@ type AnswerUsecase interface {
 	// SetChatPermissionLevel overrides chatID's trust dial for the rest of its
 	// lifetime, independent of the global default (see
 	// ProviderUsecase.DefaultPermissionLevel). Refuses a level the chat's
-	// current provider does not declare, with apperr.ErrInvalidArgument.
+	// current provider does not declare, with problem.ErrInvalidArgument.
 	SetChatPermissionLevel(
 		ctx context.Context,
 		chatID string,
@@ -133,7 +134,7 @@ func (u *Usecase) AnswerChoice(
 		return err
 	}
 	if !found {
-		return fmt.Errorf("%w: this prompt is no longer pending", apperr.ErrConflict)
+		return fmt.Errorf("%w: this prompt is no longer pending", problem.ErrConflict)
 	}
 
 	decision, err := answerdesk.Decide(choice, optionIDs, reason, content)
@@ -141,7 +142,7 @@ func (u *Usecase) AnswerChoice(
 		return err
 	}
 	if !slot.Keys.Accepts(decision.Key) {
-		return fmt.Errorf("%w: this provider cannot express that answer", apperr.ErrInvalidArgument)
+		return fmt.Errorf("%w: this provider cannot express that answer", problem.ErrInvalidArgument)
 	}
 	agent, err := u.agentForChat(ctx, chatID)
 	if err != nil {
@@ -162,7 +163,7 @@ func (u *Usecase) AnswerChoice(
 	case err != nil:
 		return fmt.Errorf("agent: answer choice: %w", err)
 	case !answered:
-		return fmt.Errorf("%w: this prompt is no longer pending", apperr.ErrConflict)
+		return fmt.Errorf("%w: this prompt is no longer pending", problem.ErrConflict)
 	}
 	return nil
 }

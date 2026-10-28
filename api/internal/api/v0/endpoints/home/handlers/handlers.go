@@ -7,12 +7,13 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	fileusecase "github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -165,7 +166,7 @@ func (h *Handlers) resolveHome(c *gin.Context) (domain.Workspace, bool) {
 	if err == nil {
 		return ws, true
 	}
-	if errors.Is(err, apperr.ErrNotFound) {
+	if errors.Is(err, problem.ErrNotFound) {
 		libs.WriteErr(c, http.StatusNotFound, "home workspace not found")
 		return domain.Workspace{}, false
 	}

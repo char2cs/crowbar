@@ -12,10 +12,10 @@ import (
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat/internal/store"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // CreateInput seeds a new AgentChat: identity, kind, workspace, clock, and the
@@ -377,7 +377,7 @@ func (r *eventSourced) SetPlacement(
 	return evt.Aggregate, nil
 }
 
-// SetOrder reports a target that no longer exists as apperr.ErrNotFound rather
+// SetOrder reports a target that no longer exists as problem.ErrNotFound rather
 // than the command's raw validation failure: a densify plans a whole level from
 // one snapshot, and a chat a concurrent delete purged out from under it needs
 // no order any more, which its caller can only tell apart from a genuine
@@ -390,7 +390,7 @@ func (r *eventSourced) SetOrder(
 	evt, err := r.ax.Send(ctx, commands.SetOrder{ID: chatID, Order: order})
 	if err != nil {
 		if errors.Is(err, commands.ErrNoSuchChat) {
-			return domain.Chat{}, fmt.Errorf("agentchat: set order: %w", apperr.ErrNotFound)
+			return domain.Chat{}, fmt.Errorf("agentchat: set order: %w", problem.ErrNotFound)
 		}
 		return domain.Chat{}, fmt.Errorf("agentchat: set order: %w", err)
 	}

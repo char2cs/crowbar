@@ -36,9 +36,10 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/google/uuid"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -256,7 +257,7 @@ func (u *chatFolderUsecase) FolderScope(
 		return domain.Folder{}, fmt.Errorf("agent chat folder: %s: %w", id, err)
 	}
 	if f == nil {
-		return domain.Folder{}, fmt.Errorf("agent chat folder: %s: %w", id, apperr.ErrNotFound)
+		return domain.Folder{}, fmt.Errorf("agent chat folder: %s: %w", id, problem.ErrNotFound)
 	}
 	return *f, nil
 }
@@ -336,7 +337,7 @@ func (u *chatFolderUsecase) discardFolder(
 
 // Rename resolves id through the Folders store — the only place a folder's
 // identity lives now, home-scoped or repo-scoped alike — and refuses an id
-// that does not name one with apperr.ErrNotFound (a chat id, or a genuinely
+// that does not name one with problem.ErrNotFound (a chat id, or a genuinely
 // unknown one).
 func (u *chatFolderUsecase) Rename(
 	ctx context.Context,
@@ -352,7 +353,7 @@ func (u *chatFolderUsecase) Rename(
 		return domain.Chat{}, fmt.Errorf("agent chat folder: rename %s: %w", id, ferr)
 	}
 	if f == nil {
-		return domain.Chat{}, fmt.Errorf("agent chat folder: %s: %w", id, apperr.ErrNotFound)
+		return domain.Chat{}, fmt.Errorf("agent chat folder: %s: %w", id, problem.ErrNotFound)
 	}
 	f.Name = clean
 	if err := u.folders.Save(ctx, *f); err != nil {
@@ -380,7 +381,7 @@ func (u *chatFolderUsecase) Move(
 		return domain.Chat{}, nil, fmt.Errorf("agent chat folder: move %s: %w", id, ferr)
 	}
 	if f == nil {
-		return domain.Chat{}, nil, fmt.Errorf("agent chat folder: %s: %w", id, apperr.ErrNotFound)
+		return domain.Chat{}, nil, fmt.Errorf("agent chat folder: %s: %w", id, problem.ErrNotFound)
 	}
 	// A folder minted before Node rows existed has none; the plan marks it
 	// fresh and this move mints it at the decided slot.
@@ -427,7 +428,7 @@ func (u *chatFolderUsecase) Delete(
 		return nil, fmt.Errorf("agent chat folder: delete %s: %w", id, ferr)
 	}
 	if f == nil {
-		return nil, fmt.Errorf("agent chat folder: %s: %w", id, apperr.ErrNotFound)
+		return nil, fmt.Errorf("agent chat folder: %s: %w", id, problem.ErrNotFound)
 	}
 	n, nErr := u.nodes.GetNode(ctx, f.ID)
 	current := homeFolderView(*f, n)

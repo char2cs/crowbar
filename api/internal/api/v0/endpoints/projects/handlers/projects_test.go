@@ -11,13 +11,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	projecthandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects/handlers"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -468,7 +469,7 @@ func TestDeleteNotFound(
 ) {
 	bc := newRecordingBroadcaster()
 	rec := do(
-		newRouterFull(&fakeReader{}, &fakeImporter{}, &fakeDeleter{beginErr: apperr.ErrNotFound}, bc),
+		newRouterFull(&fakeReader{}, &fakeImporter{}, &fakeDeleter{beginErr: problem.ErrNotFound}, bc),
 		http.MethodDelete,
 		"/v0/projects/nope",
 		"",
@@ -546,7 +547,7 @@ func TestPatch_MalformedBodyIs400(t *testing.T) {
 }
 
 func TestPatch_UnknownProjectIs404(t *testing.T) {
-	reader := &fakeReader{reorderErr: apperr.ErrNotFound}
+	reader := &fakeReader{reorderErr: problem.ErrNotFound}
 	bc := newRecordingBroadcaster()
 	r := newRouterFull(reader, &fakeImporter{}, &fakeDeleter{}, bc)
 
@@ -629,7 +630,7 @@ func TestPatchStillRequiresSomethingToDo(t *testing.T) {
 func TestPatchSurfacesAFailedRename(t *testing.T) {
 	// The store refused. Without propagating, the caller gets a 204 and the
 	// sidebar shows the new name until the next WS frame puts the old one back.
-	reader := &fakeReader{updateErr: apperr.ErrNotFound}
+	reader := &fakeReader{updateErr: problem.ErrNotFound}
 	bc := newRecordingBroadcaster()
 	r := newRouterFull(reader, &fakeImporter{}, &fakeDeleter{}, bc)
 

@@ -6,11 +6,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -103,5 +104,5 @@ func (h *Handlers) worktreeForRepo(
 			return ws.WorktreePath, nil
 		}
 	}
-	return "", apperr.ErrNotFound
+	return "", problem.ErrNotFound
 }

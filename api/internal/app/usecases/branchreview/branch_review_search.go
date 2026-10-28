@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
@@ -61,7 +62,7 @@ func validateSearchPattern(
 		return nil
 	}
 	if _, err := regexp.Compile(query); err != nil {
-		return fmt.Errorf("branch review: search: %w: %w", apperr.ErrInvalidArgument, err)
+		return fmt.Errorf("branch review: search: %w: %w", problem.ErrInvalidArgument, err)
 	}
 	return nil
 }

@@ -9,12 +9,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	fileusecase "github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -150,7 +151,7 @@ func TestGetHome_Returns404WhenNotFound(t *testing.T) {
 
 	reader := &mockHomeReader{}
 	reader.On("GetHomeForProject", mock.Anything, "proj-missing").
-		Return(domain.Workspace{}, apperr.ErrNotFound)
+		Return(domain.Workspace{}, problem.ErrNotFound)
 
 	h := handlers.New(reader, nil, stubWork{})
 	r.GET("/projects/:projectId/home", h.Get)

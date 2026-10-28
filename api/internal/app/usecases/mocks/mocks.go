@@ -8,8 +8,10 @@ import (
 	"sort"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	asynxModels "github.com/char2cs/asynx/models"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
@@ -229,7 +231,7 @@ func NewWorkspacePlacements() *WorkspacePlacements {
 
 // GetHomeForProject mirrors the real workspace repository's own scan: the
 // one row in Rows whose ProjectID matches and whose Kind is
-// WorkspaceKindHome, or apperr.ErrNotFound.
+// WorkspaceKindHome, or problem.ErrNotFound.
 func (s *WorkspacePlacements) GetHomeForProject(
 	ctx context.Context,
 	projectID string,
@@ -239,7 +241,7 @@ func (s *WorkspacePlacements) GetHomeForProject(
 			return w, nil
 		}
 	}
-	return domain.Workspace{}, apperr.ErrNotFound
+	return domain.Workspace{}, problem.ErrNotFound
 }
 
 // NodePlacements is a fake project.NodePlacements: it holds every repo-kind
@@ -1422,7 +1424,7 @@ type AgentChatPlacements struct {
 	SetErr             error
 	OrderErr           error
 	PurgeErr           error
-	// PurgeNotFoundID makes PurgeChat answer apperr.ErrNotFound for this one
+	// PurgeNotFoundID makes PurgeChat answer problem.ErrNotFound for this one
 	// id specifically (still recorded into Purged, same as a real not-found
 	// still marks the row as gone) — a chat that exists at the TREE level
 	// but never minted a conversation aggregate, the case purgeAll's own
@@ -1472,7 +1474,7 @@ type AgentChatPlacements struct {
 	// OrderNotFoundIDs simulates a SetOrder call landing on a chat whose
 	// aggregate a CONCURRENT request has already purged — the densify read it as
 	// a sibling still needing an index, but by the time the write reaches it the
-	// row is gone. Real SetOrder reports this as apperr.ErrNotFound.
+	// row is gone. Real SetOrder reports this as problem.ErrNotFound.
 	OrderNotFoundIDs map[string]bool
 	// NextID is the id the next MintChat hands back, so a test can name the chat a
 	// create is about to make instead of discovering it from the return value.
@@ -1593,7 +1595,7 @@ func (s *AgentChatPlacements) GetChat(
 			return s.projected(c), nil
 		}
 	}
-	return domain.Chat{}, apperr.ErrNotFound
+	return domain.Chat{}, problem.ErrNotFound
 }
 
 // LoadChat is the log fold: it answers with the row as it actually stands,
@@ -1610,7 +1612,7 @@ func (s *AgentChatPlacements) LoadChat(
 			return c, nil
 		}
 	}
-	return domain.Chat{}, apperr.ErrNotFound
+	return domain.Chat{}, problem.ErrNotFound
 }
 
 func (s *AgentChatPlacements) SetPlacement(
@@ -1646,7 +1648,7 @@ func (s *AgentChatPlacements) SetOrder(
 		return domain.Chat{}, s.OrderErr
 	}
 	if s.OrderNotFoundIDs[chatID] {
-		return domain.Chat{}, fmt.Errorf("set order: %w", apperr.ErrNotFound)
+		return domain.Chat{}, fmt.Errorf("set order: %w", problem.ErrNotFound)
 	}
 	s.Ordered = append(s.Ordered, OrderWrite{ChatID: chatID, Order: order})
 	for i := range s.Rows {
@@ -1676,7 +1678,7 @@ func (s *AgentChatPlacements) SetType(
 			return s.Rows[i], nil
 		}
 	}
-	return domain.Chat{}, apperr.ErrNotFound
+	return domain.Chat{}, problem.ErrNotFound
 }
 
 // Create mints a bare, unplaced row — the panel-root folder MintChat already
@@ -1710,7 +1712,7 @@ func (s *AgentChatPlacements) SetTitle(
 			return s.Rows[i], nil
 		}
 	}
-	return domain.Chat{}, apperr.ErrNotFound
+	return domain.Chat{}, problem.ErrNotFound
 }
 
 // Forget erases a row outright — what a folder delete calls instead of
@@ -1749,7 +1751,7 @@ func (s *AgentChatPlacements) PurgeChat(
 	}
 	s.Rows = kept
 	if chatID == s.PurgeNotFoundID {
-		return apperr.ErrNotFound
+		return problem.ErrNotFound
 	}
 	return nil
 }

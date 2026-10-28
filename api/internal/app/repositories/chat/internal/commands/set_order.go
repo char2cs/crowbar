@@ -12,7 +12,7 @@ import (
 // ErrNoSuchChat marks Validate's nil-aggregate branch specifically, distinct
 // from its other ErrValidation causes (a negative order): those are caller
 // mistakes, this is a chat a concurrent delete has already purged, and the
-// repository maps it to apperr.ErrNotFound so a densify can tell the two apart.
+// repository maps it to problem.ErrNotFound so a densify can tell the two apart.
 var ErrNoSuchChat = errors.New("no chat")
 
 // SetOrder writes a chat's index within the sibling space it is already in, and

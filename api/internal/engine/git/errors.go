@@ -1,7 +1,7 @@
 package git
 
 import (
-	"errors"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/diff"
 )
@@ -9,16 +9,16 @@ import (
 // Sentinel errors returned by the git engine. Callers use errors.Is to
 // distinguish failure modes and map them to structured API responses.
 var (
-	ErrConflict               = errors.New("git: conflict")
-	ErrRejectedNonFastForward = errors.New("git: rejected_non_fast_forward")
-	ErrNothingToCommit        = errors.New("git: nothing_to_commit")
-	ErrDirtyTree              = errors.New("git: dirty_tree")
-	ErrHasChildren            = errors.New("git: has_children")
-	ErrAuthFailed             = errors.New("git: auth_failed")
-	ErrBranchAlreadyExists    = errors.New("git: branch_already_exists")
-	ErrBranchNotFound         = errors.New("git: branch_not_found")
-	ErrNoRemote               = errors.New("git: no_remote")
-	ErrNonFastForward         = errors.New("git: non_fast_forward")
+	ErrConflict               = problem.New(problem.Conflict, "git: conflict")
+	ErrRejectedNonFastForward = problem.New(problem.Conflict, "git: rejected_non_fast_forward")
+	ErrNothingToCommit        = problem.New(problem.Conflict, "git: nothing_to_commit")
+	ErrDirtyTree              = problem.New(problem.Conflict, "git: dirty_tree")
+	ErrHasChildren            = problem.New(problem.Conflict, "git: has_children")
+	ErrAuthFailed             = problem.New(problem.Forbidden, "git: auth_failed")
+	ErrBranchAlreadyExists    = problem.New(problem.Conflict, "git: branch_already_exists")
+	ErrBranchNotFound         = problem.New(problem.NotFound, "git: branch_not_found")
+	ErrNoRemote               = problem.New(problem.InvalidArgument, "git: no_remote")
+	ErrNonFastForward         = problem.New(problem.Conflict, "git: non_fast_forward")
 )
 
 // ErrStaleHunk re-exports the diff subpackage's stale-hunk sentinel so callers

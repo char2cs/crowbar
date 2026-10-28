@@ -9,11 +9,12 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -344,7 +345,7 @@ func TestAnswer_RefusesAnOptionThePromptNeverOffered(t *testing.T) {
 	_, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
 	err := f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"not-an-option"}, "", nil)
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 func TestAnswer_RefusesAnEmptyDecision(t *testing.T) {
@@ -353,7 +354,7 @@ func TestAnswer_RefusesAnEmptyDecision(t *testing.T) {
 	_, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
 	err := f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, nil, "", nil)
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 func TestAnswer_RefusesPicksOfDifferentKinds(t *testing.T) {
@@ -362,7 +363,7 @@ func TestAnswer_RefusesPicksOfDifferentKinds(t *testing.T) {
 	_, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
 	err := f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow", "deny"}, "", nil)
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 func TestAnswer_RefusesADecisionTheProviderCannotExpress(t *testing.T) {
@@ -380,7 +381,7 @@ func TestAnswer_RefusesADecisionTheProviderCannotExpress(t *testing.T) {
 	require.NotEmpty(t, suggestion, "claude's permission carries suggestions")
 
 	err := f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{suggestion}, "", nil)
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 func TestAnswer_RefusesAnUnknownChatOrPrompt(t *testing.T) {
@@ -521,7 +522,7 @@ func TestAnswer_APromptSweptByItsToolCompletingCanNoLongerBeAnswered(t *testing.
 	require.Empty(t, pendingChoices(t, f, chatID))
 
 	err := f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil)
-	require.ErrorIs(t, err, apperr.ErrConflict)
+	require.ErrorIs(t, err, problem.ErrConflict)
 }
 
 func TestAnswer_AnotherChatsRelayDoesNotMakeAPromptAnswerable(t *testing.T) {
@@ -556,7 +557,7 @@ func TestAnswer_AFailedPendingReadIsAnError(t *testing.T) {
 	err := f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil)
 	require.NoError(t, f.ledgerDB.Exec(`ALTER TABLE unreadable RENAME TO chat_ledger`).Error)
 	require.ErrorContains(t, err, "no such table")
-	assert.NotErrorIs(t, err, apperr.ErrConflict)
+	assert.NotErrorIs(t, err, problem.ErrConflict)
 }
 
 func TestAnswer_AnUnrecordableDecisionIsNotHandedToTheRelay(t *testing.T) {
@@ -637,12 +638,12 @@ func TestRegression_APartialAnswerToAMultiQuestionPromptIsRefused(t *testing.T) 
 	err := f.usecase.AnswerChoice(
 		f.ctx, chatID, choice.ID, []string{pick(t, choice, 0, 0)}, "", nil,
 	)
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument,
+	require.ErrorIs(t, err, problem.ErrInvalidArgument,
 		"one answer to three questions is not an answer")
 
 	err = f.usecase.AnswerChoice(f.ctx, chatID, choice.ID,
 		[]string{pick(t, choice, 0, 0), pick(t, choice, 1, 0)}, "", nil)
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument, "two of three is not an answer either")
+	require.ErrorIs(t, err, problem.ErrInvalidArgument, "two of three is not an answer either")
 
 	assert.Len(t, pendingChoices(t, f, chatID), 1)
 	stillWaiting := f.usecase.HoldsAnswer(ask)
@@ -666,7 +667,7 @@ func TestAnswer_RefusesTwoPicksOnASingleSelectQuestion(t *testing.T) {
 		pick(t, choice, 1, 0), pick(t, choice, 2, 0),
 	}, "", nil)
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 func TestAnswer_AQuestionWithNoTextOfItsOwnIsNotGivenAnInventedKey(t *testing.T) {

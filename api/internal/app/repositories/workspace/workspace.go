@@ -10,7 +10,6 @@ import (
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/reactors"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/reconcile"
@@ -19,6 +18,7 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // workspace is the singleton-backed workspace aggregate repository. One
@@ -463,7 +463,7 @@ func (w *workspace) RegisterDeleteReactor(
 }
 
 // GetHomeForProject scans all workspaces for the project and returns the one
-// whose Kind is WorkspaceKindHome. Returns apperr.ErrNotFound when absent.
+// whose Kind is WorkspaceKindHome. Returns problem.ErrNotFound when absent.
 func (w *workspace) GetHomeForProject(ctx context.Context, projectID string) (domain.Workspace, error) {
 	all, err := w.List(ctx)
 	if err != nil {
@@ -474,5 +474,5 @@ func (w *workspace) GetHomeForProject(ctx context.Context, projectID string) (do
 			return ws, nil
 		}
 	}
-	return domain.Workspace{}, fmt.Errorf("get home for project %q: %w", projectID, apperr.ErrNotFound)
+	return domain.Workspace{}, fmt.Errorf("get home for project %q: %w", projectID, problem.ErrNotFound)
 }

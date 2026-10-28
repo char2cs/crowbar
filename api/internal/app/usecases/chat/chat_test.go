@@ -11,13 +11,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 	"gopkg.in/yaml.v3"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/core/config"
@@ -354,10 +355,10 @@ func TestPurgeChat_UnknownChat_ReturnsWrappedError(t *testing.T) {
 
 // TestPurgeChat_UnknownChat_AlsoAnswersApperrNotFound is the regression for a
 // live bug: tree.Agent's contract (Usecase is one of its implementations) is
-// apperr.ErrNotFound for "nothing to purge" — that's what purgeAll's cascade
+// problem.ErrNotFound for "nothing to purge" — that's what purgeAll's cascade
 // tolerance checks for — but this method used to hand back only the
 // conversations package's own agentchat.ErrNotFound, wrapped. purgeAll's
-// errors.Is(err, apperr.ErrNotFound) never matched a real not-found, so
+// errors.Is(err, problem.ErrNotFound) never matched a real not-found, so
 // deleting a parent with one never-minted descendant, or a chat whose
 // aggregate never got created, failed the whole delete with the raw
 // "agentchat: not found" chain surfaced straight to the user.
@@ -366,7 +367,7 @@ func TestPurgeChat_UnknownChat_AlsoAnswersApperrNotFound(t *testing.T) {
 
 	err := f.usecase.PurgeChat(f.ctx, "does-not-exist")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 	assert.ErrorIs(t, err, agentchat.ErrNotFound, "the original cause stays inspectable too")
 }
 
@@ -1166,7 +1167,7 @@ func TestSetChatSelection_RefusesAValueOutsideTheDeclaredCatalogue(t *testing.T)
 		t.Run(tc.name, func(t *testing.T) {
 			err := f.usecase.SetChatSelection(f.ctx, chatID, tc.model, tc.effort)
 
-			require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+			require.ErrorIs(t, err, problem.ErrInvalidArgument)
 			assert.Contains(t, err.Error(), tc.wantMsg)
 			assert.Empty(t, f.chat(t, chatID).Model, "a refused write must store nothing")
 		})
@@ -1231,7 +1232,7 @@ func TestSetChatSelection_RefusesWhereTheProviderDeclaresNoCatalogue(t *testing.
 
 	err := f.usecase.SetChatSelection(f.ctx, chatID, "gpt-5", "")
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 func TestSetChatSelection_UnknownChatIsNotFound(t *testing.T) {
@@ -1281,7 +1282,7 @@ runtime:
 	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", "max"))
 	err := f.usecase.SetChatSelection(f.ctx, chatID, "sonnet", "max")
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 func TestSpawn_UnselectedChatSpawnsIdenticalArgv(t *testing.T) {
@@ -1425,7 +1426,7 @@ func TestSubmitPrompt_RefusesAndNeverSpawnsOnAnInvalidStagedSelection(t *testing
 
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "go", uuid.NewString(), "", &domain.ChatSelection{Model: "gpt-5", Effort: ""})
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 	assert.Equal(t, callsBefore, f.term.callCount(), "an invalid selection must not spawn a replacement runner")
 }
 
@@ -1795,7 +1796,7 @@ func TestSetChatSelection_AChatNoProviderHasEverRunOnIsUnprocessable(t *testing.
 
 	err = f.usecase.SetChatSelection(f.ctx, chatID, "opus", "")
 
-	require.ErrorIs(t, err, apperr.ErrUnprocessable)
+	require.ErrorIs(t, err, problem.ErrUnprocessable)
 
 	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "", ""))
 }

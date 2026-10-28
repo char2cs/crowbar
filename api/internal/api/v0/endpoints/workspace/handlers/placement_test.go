@@ -8,12 +8,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspace/handlers"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -162,7 +163,7 @@ func TestPlaceWorkspace_RejectsMalformedBody(t *testing.T) {
 // scope — see its own doc) maps to 404, the same status libs.StatusAndMessage
 // already gives the identical refusal on the chat placement route.
 func TestPlaceWorkspace_NotFoundMapsTo404(t *testing.T) {
-	placer := &fakePlacer{err: apperr.ErrNotFound}
+	placer := &fakePlacer{err: problem.ErrNotFound}
 	r := newRouter(placer)
 
 	rec := do(r, http.MethodPatch, base, map[string]any{"order": 0})

@@ -7,13 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -172,7 +173,7 @@ func (s stubChatWorkspaces) Resolve(
 	_ context.Context,
 	_ string,
 ) (domain.Workspace, error) {
-	return domain.Workspace{}, apperr.ErrNotFound
+	return domain.Workspace{}, problem.ErrNotFound
 }
 
 func (s stubChatWorkspaces) WorkspacesForChats(

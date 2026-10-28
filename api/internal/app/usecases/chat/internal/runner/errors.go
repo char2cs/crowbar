@@ -1,28 +1,28 @@
 package runner
 
 import (
-	"errors"
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
 var (
-	ErrSlashCatalogUnsupported = fmt.Errorf("agent: provider does not support deterministic slash catalog discovery: %w", apperr.ErrUnprocessable)
-	ErrSlashCatalogTimeout     = fmt.Errorf("agent: slash catalog discovery timed out: %w", apperr.ErrTimeout)
-	ErrSlashCatalogUnavailable = fmt.Errorf("agent: provider command for slash catalog discovery is unavailable: %w", engineterminal.ErrCommandNotFound)
-	ErrSlashCatalogOutputLimit = fmt.Errorf("agent: slash catalog command exceeded its safe output limit: %w", apperr.ErrBadGateway)
-	ErrSlashCatalogCommand     = fmt.Errorf("agent: slash catalog provider command failed: %w", apperr.ErrBadGateway)
-	ErrSlashCatalogMalformed   = fmt.Errorf("agent: slash catalog provider output was malformed: %w", apperr.ErrBadGateway)
-	ErrSlashCatalogSuperseded  = fmt.Errorf("agent: slash catalog request was superseded by a newer request: %w", apperr.ErrConflict)
+	ErrSlashCatalogUnsupported = &problem.Error{Code: problem.CatalogUnsupported, Message: "agent: provider does not support deterministic slash catalog discovery", Err: problem.ErrUnprocessable}
+	ErrSlashCatalogTimeout     = &problem.Error{Code: problem.CatalogTimeout, Message: "agent: slash catalog discovery timed out", Err: problem.ErrTimeout}
+	ErrSlashCatalogUnavailable = &problem.Error{Code: problem.CatalogCommandUnavailable, Message: "agent: provider command for slash catalog discovery is unavailable", Err: engineterminal.ErrCommandNotFound}
+	ErrSlashCatalogOutputLimit = &problem.Error{Code: problem.CatalogOutputLimit, Message: "agent: slash catalog command exceeded its safe output limit", Err: problem.ErrBadGateway}
+	ErrSlashCatalogCommand     = &problem.Error{Code: problem.CatalogCommandFailed, Message: "agent: slash catalog provider command failed", Err: problem.ErrBadGateway}
+	ErrSlashCatalogMalformed   = &problem.Error{Code: problem.CatalogMalformedOutput, Message: "agent: slash catalog provider output was malformed", Err: problem.ErrBadGateway}
+	ErrSlashCatalogSuperseded  = &problem.Error{Code: problem.CatalogSuperseded, Message: "agent: slash catalog request was superseded by a newer request", Err: problem.ErrConflict}
 )
 
 // ErrStopped is returned by a switch or resume that was parked (on the
 // outgoing turn, or on a prompt delivery) when the user pressed Stop. Stop
 // preempts the parked request rather than queueing behind it (invariant A2),
 // and the preempted request has changed nothing.
-var ErrStopped = fmt.Errorf("agent: the chat was stopped while this request waited: %w", apperr.ErrConflict)
+var ErrStopped = fmt.Errorf("agent: the chat was stopped while this request waited: %w", problem.ErrConflict)
 
 // ErrProviderExitedDuringStartup is returned when a provider's vendor CLI died
 // before its runner_started row could commit.
@@ -33,54 +33,54 @@ var ErrStopped = fmt.Errorf("agent: the chat was stopped while this request wait
 // the caller a chat with a corpse behind it would be a chat whose pane attaches to
 // a PTY that is already gone.
 //
-// It wraps apperr.ErrFailedDependency (424), the same class as a vendor CLI that
+// It wraps problem.ErrFailedDependency (424), the same class as a vendor CLI that
 // is not installed at all: the request was well-formed and the daemon is healthy,
 // and what failed is a dependency the user can act on — an expired login, a broken
 // install, a CLI that refuses this workspace.
 var ErrProviderExitedDuringStartup = fmt.Errorf(
-	"agent: spawn runner: provider process exited during startup: %w", apperr.ErrFailedDependency,
+	"agent: spawn runner: provider process exited during startup: %w", problem.ErrFailedDependency,
 )
 
 // ErrSpawnSessionRefused is a spawn whose provider refused the session it
 // resumes. That session is lost, and the chat's next launch starts a fresh one.
 var ErrSpawnSessionRefused = fmt.Errorf(
-	"agent: spawn runner: the provider refused the session this chat resumes: %w", apperr.ErrConflict,
+	"agent: spawn runner: the provider refused the session this chat resumes: %w", problem.ErrConflict,
 )
 
 // ErrNoLiveRunner is a chat with no CLI on it: dormant, the normal state
 // between runs, so a reader treats it as an answer rather than a failure.
-var ErrNoLiveRunner = errors.New("agent: chat has no live runner")
+var ErrNoLiveRunner = problem.New(problem.NotFound, "agent: chat has no live runner")
 
 // ErrChatHasLiveRunner refuses a second CLI on a chat: one runner per chat is
 // the live table's key.
-var ErrChatHasLiveRunner = fmt.Errorf("agent: chat already has a live runner: %w", apperr.ErrConflict)
+var ErrChatHasLiveRunner = fmt.Errorf("agent: chat already has a live runner: %w", problem.ErrConflict)
 
 // ErrChatProviderUnknown is returned when a dormant chat cannot be resumed
 // because the chat records no provider. It is the PROVIDER that is missing, not
 // a runner (a dormant chat has none by definition), so the client asks which
 // provider to start instead of picking one. It keeps the 404.
 var ErrChatProviderUnknown = fmt.Errorf(
-	"agent: this chat no longer records which provider it ran: %w", apperr.ErrNotFound,
+	"agent: this chat no longer records which provider it ran: %w", problem.ErrNotFound,
 )
 
 var (
 	// ErrPromptBusy means the chat is working, or holds a prompt the provider has
 	// not acknowledged yet.
-	ErrPromptBusy = fmt.Errorf("agent: chat is busy: %w", apperr.ErrConflict)
+	ErrPromptBusy = &problem.Error{Code: problem.ChatBusy, Message: "agent: chat is busy", Err: problem.ErrConflict}
 
 	// ErrPromptRequestIDConflict means one clientRequestId was reused for different
 	// prompt text, or for a prompt already settled. Reusing an id can never
 	// silently submit a different operation.
-	ErrPromptRequestIDConflict = fmt.Errorf("agent: client request id was already used for a different prompt: %w", apperr.ErrConflict)
+	ErrPromptRequestIDConflict = &problem.Error{Code: problem.RequestIDConflict, Message: "agent: client request id was already used for a different prompt", Err: problem.ErrConflict}
 
 	// ErrPromptOutcomeUnknown means a CLI may have received the prompt but Crowbar
 	// cannot confirm it did. Retrying automatically could duplicate a prompt the
 	// provider accepted.
-	ErrPromptOutcomeUnknown = fmt.Errorf("agent: prior prompt delivery outcome is uncertain; inspect the chat before retrying with a new request id: %w", apperr.ErrConflict)
+	ErrPromptOutcomeUnknown = &problem.Error{Code: problem.RequestOutcomeUncertain, Message: "agent: prior prompt delivery outcome is uncertain; inspect the chat before retrying with a new request id", Err: problem.ErrConflict}
 
 	// ErrPromptUnsupported leaves the native terminal fully usable while telling
 	// React that this provider has no declarative restart-TUI submission mapping.
-	ErrPromptUnsupported = fmt.Errorf("agent: provider does not support React prompt submission: %w", apperr.ErrUnprocessable)
+	ErrPromptUnsupported = &problem.Error{Code: problem.PromptSubmitUnsupported, Message: "agent: provider does not support React prompt submission", Err: problem.ErrUnprocessable}
 
 	// ErrSpawnPromptUndeliverable means a spawn was handed a user message and
 	// could not get it to any carrier. A spawn carries a prompt in exactly one
@@ -90,10 +90,10 @@ var (
 	// message nowhere is what silently lost a user's prompt (see
 	// carryPromptOverAPIConn), and the caller settles the prompt, which keeps the
 	// text in the client's own queue.
-	ErrSpawnPromptUndeliverable = fmt.Errorf("agent: spawn runner: the prompt this spawn carries reached no carrier: %w", apperr.ErrBadGateway)
+	ErrSpawnPromptUndeliverable = fmt.Errorf("agent: spawn runner: the prompt this spawn carries reached no carrier: %w", problem.ErrBadGateway)
 
 	// ErrPromptSessionUnavailable means there is no live native TUI to replace.
 	// A live lazy TUI need not have announced a session yet; that is a safe fresh
 	// submission, not this error.
-	ErrPromptSessionUnavailable = fmt.Errorf("agent: chat has no live provider TUI for prompt submission: %w", apperr.ErrUnprocessable)
+	ErrPromptSessionUnavailable = &problem.Error{Code: problem.LiveTUIRequired, Message: "agent: chat has no live provider TUI for prompt submission", Err: problem.ErrUnprocessable}
 )

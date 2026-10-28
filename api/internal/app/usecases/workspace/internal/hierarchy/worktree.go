@@ -7,10 +7,11 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/cascade"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/holder"
@@ -500,7 +501,7 @@ func ownWorktreeOrDefault(
 // candidate whose WORKSPACE ROOT (the <slug>/<branch> directory, one level up
 // from the worktree leaf) collides case-insensitively with an existing sibling
 // workspace root (spec §3.9, decision 13), surfacing the clash as
-// apperr.ErrInvalidArgument. siblingWorktreePaths lists sibling workspace roots
+// problem.ErrInvalidArgument. siblingWorktreePaths lists sibling workspace roots
 // (branch-leaf directories) directly under the slug dir, so the clash check
 // compares like with like via worktreepath.WorkspaceRoot rather than the full
 // worktree path (which would never case-match a sibling root now that both
@@ -528,7 +529,7 @@ func (u *hierarchyUsecase) deriveWorktreePath(
 	// rather than refusing a name the user has abandoned.
 	pathBranch, err := worktreepath.FreePathBranch(home, projectID, slug, branch, siblings)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", apperr.ErrInvalidArgument, err)
+		return "", fmt.Errorf("%w: %w", problem.ErrInvalidArgument, err)
 	}
 	path, err := worktreepath.Derive(home, projectID, slug, pathBranch)
 	if err != nil {
@@ -556,7 +557,7 @@ func (u *hierarchyUsecase) resolveSlug(
 		return "", err
 	}
 	if repo == nil {
-		return "", apperr.ErrNotFound
+		return "", problem.ErrNotFound
 	}
 	if remoteURL != "" {
 		repo.RemoteURL = remoteURL
@@ -1472,7 +1473,7 @@ func (u *hierarchyUsecase) DeleteCascade(
 	// A tombstone awaiting its reactor is already gone: a second delete
 	// event would run the teardown twice.
 	if !ok || root.Status == domain.WorkspaceStatusDeleted {
-		return fmt.Errorf("delete cascade: workspace %s: %w", rootID, apperr.ErrNotFound)
+		return fmt.Errorf("delete cascade: workspace %s: %w", rootID, problem.ErrNotFound)
 	}
 	if root.Status == domain.WorkspaceStatusLocked {
 		return ErrWorkspaceLocked

@@ -7,7 +7,8 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/core/safego"
@@ -50,11 +51,11 @@ var errFeedEnded = errors.New("chat feed: ended while attaching")
 
 // OpenFeed is chatID's feed: rows after since, ready, a snapshot of its live
 // streams, then live frames. It registers before reading the head, so a row
-// committed meanwhile is sent once; an unknown chat is apperr.ErrNotFound.
+// committed meanwhile is sent once; an unknown chat is problem.ErrNotFound.
 func (u *Usecase) OpenFeed(ctx context.Context, chatID string, since int64) (<-chan FeedFrame, error) {
 	if _, err := u.chats.GetChat(ctx, chatID); err != nil {
 		if errors.Is(err, agentchat.ErrNotFound) {
-			return nil, fmt.Errorf("chat feed: %s: %w: %w", chatID, err, apperr.ErrNotFound)
+			return nil, fmt.Errorf("chat feed: %s: %w: %w", chatID, err, problem.ErrNotFound)
 		}
 		return nil, fmt.Errorf("chat feed: %s: %w", chatID, err)
 	}

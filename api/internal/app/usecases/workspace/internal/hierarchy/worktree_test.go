@@ -9,11 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace/internal/hierarchy"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -2671,7 +2672,7 @@ func TestDeleteRepoWorkspaces_UsesTheCallersPathWhenTheRepoRowIsGone(t *testing.
 					return w, nil
 				}
 			}
-			return domain.Workspace{}, apperr.ErrNotFound
+			return domain.Workspace{}, problem.ErrNotFound
 		},
 		DeleteFn: func(_ context.Context, id string) error {
 			deleted = append(deleted, id)
@@ -2741,7 +2742,7 @@ func TestDeleteRepoWorkspaces_HandlesPlaceholdersAndBranchlessRows(t *testing.T)
 					return w, nil
 				}
 			}
-			return domain.Workspace{}, apperr.ErrNotFound
+			return domain.Workspace{}, problem.ErrNotFound
 		},
 		DeleteFn: func(_ context.Context, id string) error {
 			deleted = append(deleted, id)

@@ -4,15 +4,15 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/stretchr/testify/assert"
 )
 
 // TestThreadHandlers_NotFound asserts a not-found store error maps to 404 on the
 // read and mutation paths that resolve an existing thread.
 func TestThreadHandlers_NotFound(t *testing.T) {
-	store := &fakeStore{err: apperr.ErrNotFound}
+	store := &fakeStore{err: problem.ErrNotFound}
 	bc := &fakeBroadcaster{}
 	r := newRouter(store, bc)
 

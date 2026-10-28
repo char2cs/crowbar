@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -82,7 +83,7 @@ func (i *Ingress) unmappable(ctx context.Context, h hook, runner engineagents.Ru
 	}
 	err = i.record(ctx, h, runner, func() error {
 		err := i.turns.Mark(context.WithoutCancel(ctx), runner, row)
-		if err != nil && !errors.Is(err, apperr.ErrNotFound) {
+		if err != nil && !errors.Is(err, problem.ErrNotFound) {
 			slog.ErrorContext(ctx, "ingress: mark an unmappable hook", "chat_id", chatID, "event", h.event, "err", err)
 			return nil
 		}

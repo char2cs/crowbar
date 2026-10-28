@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -198,11 +199,11 @@ func TestFileUsecase_Writes_RejectLockedWorkspace(t *testing.T) {
 	fs.RenameFn = func(_, _, _ string) error { return nil }
 	fs.DeleteFn = func(_, _ string) error { return nil }
 
-	require.ErrorIs(t, uc.CreateFile(ctx, "w1", "a.go", now), apperr.ErrLocked)
-	require.ErrorIs(t, uc.CreateDir(ctx, "w1", "sub", now), apperr.ErrLocked)
-	require.ErrorIs(t, uc.Copy(ctx, "w1", "a.go", "a copy.go", now), apperr.ErrLocked)
-	require.ErrorIs(t, uc.Rename(ctx, "w1", "a.go", "b.go", now), apperr.ErrLocked)
-	require.ErrorIs(t, uc.Delete(ctx, "w1", "a.go", now), apperr.ErrLocked)
+	require.ErrorIs(t, uc.CreateFile(ctx, "w1", "a.go", now), problem.ErrLocked)
+	require.ErrorIs(t, uc.CreateDir(ctx, "w1", "sub", now), problem.ErrLocked)
+	require.ErrorIs(t, uc.Copy(ctx, "w1", "a.go", "a copy.go", now), problem.ErrLocked)
+	require.ErrorIs(t, uc.Rename(ctx, "w1", "a.go", "b.go", now), problem.ErrLocked)
+	require.ErrorIs(t, uc.Delete(ctx, "w1", "a.go", now), problem.ErrLocked)
 	assert.False(t, syncer.Synced, "locked rejection must not mutate or resync")
 }
 

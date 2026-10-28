@@ -7,11 +7,12 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review/handlers"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -66,7 +67,7 @@ func newErrRouter(uc handlers.ReviewUsecase) *gin.Engine {
 func TestReviewHandlers_NotFound(
 	t *testing.T,
 ) {
-	r := newErrRouter(errUsecase{err: apperr.ErrNotFound})
+	r := newErrRouter(errUsecase{err: problem.ErrNotFound})
 
 	assert.Equal(t, http.StatusNotFound, do(r, http.MethodGet, "/v0/chats/chat1/review", nil).Code)
 	assert.Equal(t, http.StatusNotFound, do(r, http.MethodGet, "/v0/chats/chat1/review/files", nil).Code)

@@ -28,7 +28,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -107,7 +108,7 @@ type chatState struct {
 }
 
 // ErrDeleted is a chat whose delete this owner has applied.
-var ErrDeleted = fmt.Errorf("agent: chat snapshot: chat deleted: %w", apperr.ErrNotFound)
+var ErrDeleted = fmt.Errorf("agent: chat snapshot: chat deleted: %w", problem.ErrNotFound)
 
 // deletedCap bounds the deleted-chat memory: a late event trails its delete
 // by the fan-out's goroutine scheduling, not by a thousand later deletes.

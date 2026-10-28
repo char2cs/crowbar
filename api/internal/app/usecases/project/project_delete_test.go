@@ -7,10 +7,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -211,7 +212,7 @@ func (f *deleteFixture) seedProject() {
 
 func TestProjectDelete_NotFound(t *testing.T) {
 	f := newDeleteFixture(t)
-	assert.ErrorIs(t, f.uc.Delete(context.Background(), "missing", domain.KeepWorkAtRisk), apperr.ErrNotFound)
+	assert.ErrorIs(t, f.uc.Delete(context.Background(), "missing", domain.KeepWorkAtRisk), problem.ErrNotFound)
 }
 
 // Every repo's workspaces go through the repo cascade — the one lifecycle path

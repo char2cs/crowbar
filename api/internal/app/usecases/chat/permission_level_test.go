@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -17,7 +18,7 @@ func TestSetChatPermissionLevel_RejectsAnUnknownLevel(t *testing.T) {
 
 	err := f.usecase.SetChatPermissionLevel(f.ctx, chatID, "yolo")
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 func TestSetChatPermissionLevel_RejectsAnUnknownChat(t *testing.T) {
@@ -52,7 +53,7 @@ func TestSetChatPermissionLevel_RejectsALevelTheProviderDoesNotDeclare(t *testin
 
 	err := f.usecase.SetChatPermissionLevel(f.ctx, chatID, "guarded")
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 // TestRegression_SpawnChatSeedsThePermissionLevelFromTheCurrentGlobalDefault

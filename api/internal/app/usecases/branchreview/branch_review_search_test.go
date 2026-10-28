@@ -5,11 +5,12 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -60,7 +61,7 @@ func TestBranchReview_SearchDiff_InvalidRegex_IsInvalidArgumentAndNeverReachesGi
 
 	_, _, err := uc.SearchDiff(ctx, "ws1", "", "a(b", gitdomain.SearchOpts{Regex: true})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 	assert.False(t, called)
 }
 
@@ -95,7 +96,7 @@ func TestBranchReview_SearchDiff_MissingWorkspace_IsNotFound(t *testing.T) {
 
 	_, _, err := uc.SearchDiff(ctx, "missing", "", "todo", gitdomain.SearchOpts{Limit: 10})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 func TestBranchReview_SearchDiff_EngineFailurePropagates(t *testing.T) {
@@ -110,6 +111,6 @@ func TestBranchReview_SearchDiff_EngineFailurePropagates(t *testing.T) {
 
 	_, _, err := uc.SearchDiff(ctx, "ws1", "", "todo", gitdomain.SearchOpts{Limit: 10})
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, apperr.ErrNotFound)
-	assert.NotErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.NotErrorIs(t, err, problem.ErrNotFound)
+	assert.NotErrorIs(t, err, problem.ErrInvalidArgument)
 }

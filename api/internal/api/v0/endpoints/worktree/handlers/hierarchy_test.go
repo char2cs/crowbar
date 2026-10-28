@@ -6,10 +6,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -66,7 +67,7 @@ func TestMergeIntoParentMissingWorkspace_4xx(
 	t *testing.T,
 ) {
 	hierarchy := &fakeHierarchy{}
-	r, _ := newChatRouter(&fakeReader{}, hierarchy, &fakeWorktrees{err: apperr.ErrNotFound})
+	r, _ := newChatRouter(&fakeReader{}, hierarchy, &fakeWorktrees{err: problem.ErrNotFound})
 	rec := do(r, http.MethodPost, chatBase+"/merge-into-parent", `{"strategy":"merge"}`)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
@@ -136,7 +137,7 @@ func TestReparentMissingWorkspace_4xx(
 	t *testing.T,
 ) {
 	hierarchy := &fakeHierarchy{}
-	r, _ := newChatRouter(&fakeReader{}, hierarchy, &fakeWorktrees{err: apperr.ErrNotFound})
+	r, _ := newChatRouter(&fakeReader{}, hierarchy, &fakeWorktrees{err: problem.ErrNotFound})
 	rec := do(r, http.MethodPost, chatBase+"/reparent", `{"newParentId":"np"}`)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
@@ -173,7 +174,7 @@ func TestDetachHolder_Returns202(t *testing.T) {
 }
 
 func TestRetryProvisionMissingWorkspace_4xx(t *testing.T) {
-	r, _ := newChatRouter(&fakeReader{}, &fakeHierarchy{}, &fakeWorktrees{err: apperr.ErrNotFound})
+	r, _ := newChatRouter(&fakeReader{}, &fakeHierarchy{}, &fakeWorktrees{err: problem.ErrNotFound})
 	rec := do(r, http.MethodPost, chatBase+"/retry-provision", "")
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
@@ -327,7 +328,7 @@ func TestRebaseOntoParentMissingWorkspace_4xx(
 	t *testing.T,
 ) {
 	hierarchy := &fakeHierarchy{}
-	r, h := newChatRouter(&fakeReader{}, hierarchy, &fakeWorktrees{err: apperr.ErrNotFound})
+	r, h := newChatRouter(&fakeReader{}, hierarchy, &fakeWorktrees{err: problem.ErrNotFound})
 
 	rec := do(r, http.MethodPost, chatBase+"/rebase-onto-parent", "")
 

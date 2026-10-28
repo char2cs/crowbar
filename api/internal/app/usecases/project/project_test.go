@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -99,7 +100,7 @@ func TestProjectUsecase_Get_NotFound(t *testing.T) {
 
 	_, err := uc.Get(ctx, "missing")
 	assert.Error(t, err)
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 // TestProjectUsecase_Get_StoreError covers a lookup failure (e.g. a DB error),
@@ -112,7 +113,7 @@ func TestProjectUsecase_Get_StoreError(t *testing.T) {
 
 	_, err := uc.Get(ctx, "p1")
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, apperr.ErrNotFound, "a lookup failure is not a not-found")
+	assert.NotErrorIs(t, err, problem.ErrNotFound, "a lookup failure is not a not-found")
 }
 
 // TestProjectUsecase_List_StoreError covers List surfacing the underlying
@@ -203,7 +204,7 @@ func TestProjectUsecase_UpdateRepo_NotFound(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := uc.UpdateRepo(ctx, "missing", project.RepoUpdate{Name: name("Whatever")})
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 func TestProjectUsecase_TouchProjectActivity_SaveFails_LogsNotPanics(t *testing.T) {
@@ -251,7 +252,7 @@ func TestProjectUsecase_UpdateRejectsABlankName(t *testing.T) {
 	blank := "   "
 	_, err := uc.Update(ctx, "p1", project.Update{Name: &blank})
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 	stored, _ := projects.FindByKey(ctx, "p1")
 	assert.Equal(t, "harbour", stored.Name, "a refused rename must not have been written")
 }
@@ -301,7 +302,7 @@ func TestProjectUsecase_UpdateUnknownProject(t *testing.T) {
 	name := "nope"
 	_, err := uc.Update(context.Background(), "missing", project.Update{Name: &name})
 
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 func TestProjectUsecase_UpdateSurfacesAFailedLoad(t *testing.T) {

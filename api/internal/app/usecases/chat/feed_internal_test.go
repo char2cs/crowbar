@@ -7,10 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -273,7 +274,7 @@ func TestOpenFeed_AnUnknownChatIsNotFound(t *testing.T) {
 
 	_, err := u.OpenFeed(t.Context(), "nope", 0)
 
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 func TestOpenFeed_AChatPurgedWhileItOpensEndsDeleted(t *testing.T) {

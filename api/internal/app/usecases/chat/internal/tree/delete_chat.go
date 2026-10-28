@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -31,7 +32,7 @@ func (u *chatFolderUsecase) DeleteChat(
 		return ChatDeletion{}, fmt.Errorf("agent chat folder: delete chat %s: %w", chatID, err)
 	}
 	if current.Type == domain.ChatTypeFolder {
-		return ChatDeletion{}, fmt.Errorf("agent chat folder: %s is a folder: %w", chatID, apperr.ErrNotFound)
+		return ChatDeletion{}, fmt.Errorf("agent chat folder: %s is a folder: %w", chatID, problem.ErrNotFound)
 	}
 	snapshot, err := u.workspaceSnapshotAround(ctx, current.WorkspaceID, current)
 	if err != nil {
@@ -99,7 +100,7 @@ func (u *chatFolderUsecase) reapWorktrees(
 	}
 	for _, row := range reap {
 		err = u.reaper.DeleteWorkspace(ctx, row.WorkspaceID, consent)
-		if err == nil || errors.Is(err, apperr.ErrNotFound) {
+		if err == nil || errors.Is(err, problem.ErrNotFound) {
 			continue
 		}
 		// A locked DESCENDANT is kept, same as one a surviving chat still holds:
@@ -239,7 +240,7 @@ func (u *chatFolderUsecase) purgeAll(
 ) error {
 	for _, id := range ids {
 		err := u.agent.PurgeChat(ctx, id)
-		if err != nil && !errors.Is(err, apperr.ErrNotFound) {
+		if err != nil && !errors.Is(err, problem.ErrNotFound) {
 			return fmt.Errorf("agent chat folder: purge chat %s: %w", id, err)
 		}
 		snapshot.drop(id)

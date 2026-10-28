@@ -6,9 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/google/uuid"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -82,13 +83,13 @@ func (c *Conversations) ReadMessages(
 	after, before, limit int,
 ) (domain.LedgerPage, error) {
 	if after < 0 || before < 0 || (after > 0 && before > 0) {
-		return domain.LedgerPage{}, fmt.Errorf("agent: read messages: invalid cursor: %w", apperr.ErrInvalidArgument)
+		return domain.LedgerPage{}, fmt.Errorf("agent: read messages: invalid cursor: %w", problem.ErrInvalidArgument)
 	}
 	if limit == 0 {
 		limit = defaultMessagePageLimit
 	}
 	if limit < 1 || limit > maxMessagePageLimit {
-		return domain.LedgerPage{}, fmt.Errorf("agent: read messages: limit must be between 1 and %d: %w", maxMessagePageLimit, apperr.ErrInvalidArgument)
+		return domain.LedgerPage{}, fmt.Errorf("agent: read messages: limit must be between 1 and %d: %w", maxMessagePageLimit, problem.ErrInvalidArgument)
 	}
 	if _, err := c.chats.GetChat(ctx, chatID); err != nil {
 		return domain.LedgerPage{}, fmt.Errorf("agent: read messages: chat: %w", err)

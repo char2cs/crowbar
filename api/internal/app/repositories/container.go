@@ -13,7 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
@@ -23,6 +22,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // Container holds the aggregate repositories (each owning its read model).
@@ -416,7 +416,7 @@ func (c *Container) rebroadcast(
 ) {
 	ws, err := c.Workspace.Get(ctx, wsID)
 	if err != nil {
-		if !errors.Is(err, apperr.ErrNotFound) {
+		if !errors.Is(err, problem.ErrNotFound) {
 			slog.WarnContext(ctx, "repositories: rebroadcast: get workspace "+
 				"(client overlay may be stale until the next event)",
 				"workspace_id", wsID, "err", err)

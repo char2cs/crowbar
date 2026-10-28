@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/manager"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/registry"
@@ -495,7 +496,7 @@ func TestDidOpen_RefusesADocumentOutsideTheWorktree(t *testing.T) {
 		e, spawns := buildCountingEngine(t, fake)
 
 		err := e.DidOpen(context.Background(), ws, tree, path, "go", "package main")
-		require.ErrorIs(t, err, apperr.ErrInvalidArgument, path)
+		require.ErrorIs(t, err, problem.ErrInvalidArgument, path)
 		assert.Empty(t, fake.notifies(), "%s: nothing reaches the server", path)
 		assert.Equal(t, 0, spawns.count(), "%s: no server is spawned for it", path)
 	}

@@ -11,8 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/promptsigil"
@@ -26,7 +27,7 @@ import (
 
 // errChatGone is a hook from a runner placed on no chat, or on one deleted
 // under it: nothing records it, and a CLI's turn is never resurrected by one.
-var errChatGone = fmt.Errorf("agent: hook: the runner's chat is gone: %w", apperr.ErrNotFound)
+var errChatGone = fmt.Errorf("agent: hook: the runner's chat is gone: %w", problem.ErrNotFound)
 
 // RecorderRunners is what a hook needs from the runner lifecycle. Nothing here
 // may take the chat's lock: a hook is recorded under it already.
@@ -382,7 +383,7 @@ func (r *Recorder) RecordTelemetry(
 	}
 	report, err := agent.ParseTelemetry(raw, time.Now())
 	if err != nil {
-		return fmt.Errorf("agent: telemetry: %w: %w", apperr.ErrUnprocessable, err)
+		return fmt.Errorf("agent: telemetry: %w: %w", problem.ErrUnprocessable, err)
 	}
 	if report.Empty() {
 		return nil

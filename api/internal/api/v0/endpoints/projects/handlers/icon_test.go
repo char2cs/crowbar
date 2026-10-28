@@ -10,10 +10,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/gin-gonic/gin"
 
 	projecthandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects/handlers"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -238,7 +239,7 @@ var errNoHome = errors.New("no crowbar home")
 func unusedHome() (string, error) { return "", errNoHome }
 
 func TestIconRoutes404WhenTheProjectIsGone(t *testing.T) {
-	reader := &fakeReader{getErr: apperr.ErrNotFound}
+	reader := &fakeReader{getErr: problem.ErrNotFound}
 	broken := brokenHomeRouter(reader)
 
 	for _, tc := range []struct{ method, target string }{
@@ -296,7 +297,7 @@ func TestDeleteIconStillClearsTheRecordWithNoResolvableHome(t *testing.T) {
 
 func TestIconMutationsSurfaceAFailedWrite(t *testing.T) {
 	r, reader, _ := iconRouter(t)
-	reader.updateErr = apperr.ErrNotFound
+	reader.updateErr = problem.ErrNotFound
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPut, "/v0/projects/p1/icon/emoji", strings.NewReader(`{"emoji":"🦊"}`))
@@ -324,7 +325,7 @@ func TestGetIcon404sWhenTheHomeCannotBeResolved(t *testing.T) {
 func TestIconMutations404OnAnUnknownProject(t *testing.T) {
 	// Every mutation checks the project exists before touching bytes or store.
 	r, reader, _ := iconRouter(t)
-	reader.getErr = apperr.ErrNotFound
+	reader.getErr = problem.ErrNotFound
 
 	cases := []struct {
 		name, method, target, body, ctype string

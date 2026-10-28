@@ -7,12 +7,13 @@ import (
 	"io"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/google/uuid"
 	"golang.org/x/sync/singleflight"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -25,17 +26,17 @@ import (
 // holds, or one whose materialisation failed. There is nothing to diff, and the
 // empty path is not a directory git may be pointed at. Handlers map it to 409:
 // the row is not in a state where this can be done, not a bad request.
-var ErrWorkspaceUnprovisioned = errors.New("usecases: this branch has no worktree yet")
+var ErrWorkspaceUnprovisioned = problem.New(problem.Conflict, "usecases: this branch has no worktree yet")
 
 // asNotFound maps an engine-level not-found signal (asynx Get on a missing
 // aggregate, or a command rejected because the target aggregate does not exist)
-// to the shared apperr.ErrNotFound sentinel, leaving genuine internal failures
+// to the shared problem.ErrNotFound sentinel, leaving genuine internal failures
 // untouched so handlers map them to 500 rather than 404.
 func asNotFound(
 	err error,
 ) error {
 	if errors.Is(err, asynxModels.ErrNotFound) || errors.Is(err, asynxModels.ErrValidation) {
-		return fmt.Errorf("%w: %w", apperr.ErrNotFound, err)
+		return fmt.Errorf("%w: %w", problem.ErrNotFound, err)
 	}
 	return err
 }
@@ -277,7 +278,7 @@ func (u *branchReviewUsecase) resolveBase(
 		return "", err
 	}
 	if repo == nil {
-		return "", fmt.Errorf("branch review: repo %s not found: %w", ws.RepoID, apperr.ErrNotFound)
+		return "", fmt.Errorf("branch review: repo %s not found: %w", ws.RepoID, problem.ErrNotFound)
 	}
 	return repo.DefaultBranch, nil
 }

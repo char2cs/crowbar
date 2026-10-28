@@ -17,9 +17,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	asynxModels "github.com/char2cs/asynx/models"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
@@ -31,7 +32,7 @@ const defaultReconcileTimeout = 2 * time.Minute
 // for one workspace and returns the PURE sync command that folds the re-derived
 // reality into aggregate state. All IO lives HERE (decision 9); the returned
 // command does none (decision 9). A vanished workspace is signalled by wrapping
-// apperr.ErrNotFound, which the reconciler treats as an idempotent skip.
+// problem.ErrNotFound, which the reconciler treats as an idempotent skip.
 type DeriveFunc func(
 	ctx context.Context,
 	wsID string,
@@ -162,14 +163,14 @@ func (r *Reconciler) run(
 
 // reconcile re-derives reality, folds it via a pure SendWait, then broadcasts the
 // corrected frame. It is idempotent by construction: a vanished workspace
-// (apperr.ErrNotFound) and a non-applicable transition (asynxmodels.ErrValidation)
+// (problem.ErrNotFound) and a non-applicable transition (asynxmodels.ErrValidation)
 // are both silent no-ops (spec §3.8).
 func (r *Reconciler) reconcile(
 	ctx context.Context,
 	wsID string,
 ) {
 	cmd, err := r.derive(ctx, wsID)
-	if errors.Is(err, apperr.ErrNotFound) {
+	if errors.Is(err, problem.ErrNotFound) {
 		return
 	}
 	if err != nil {

@@ -9,11 +9,12 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -42,7 +43,7 @@ func deadLetters(t *testing.T, f testFixture) int {
 func refusedHook(t *testing.T, f testFixture, runnerID, provider, kind string, payload map[string]any) {
 	t.Helper()
 	err := f.usecase.IngestHook(f.ctx, runnerID, provider, kind, mustJSON(t, payload))
-	require.ErrorIs(t, err, apperr.ErrUnprocessable)
+	require.ErrorIs(t, err, problem.ErrUnprocessable)
 	f.wait()
 }
 
@@ -51,7 +52,7 @@ func refusedHook(t *testing.T, f testFixture, runnerID, provider, kind string, p
 func lateHook(t *testing.T, f testFixture, runnerID, provider, kind string, payload map[string]any) {
 	t.Helper()
 	err := f.usecase.IngestHook(f.ctx, runnerID, provider, kind, mustJSON(t, payload))
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 	f.wait()
 }
 
@@ -763,7 +764,7 @@ func TestObservation_AHookFromARunnerPlacedNowhereIsRefused(t *testing.T) {
 	err := f.usecase.IngestHook(f.ctx, runnerID, "claude", engineagents.HookToolPre,
 		mustJSON(t, map[string]any{"tool_use_id": "t1", "tool_name": "Bash"}))
 
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 func TestRegression_ADeadCLIDoesNotLeaveItsToolsRunningForever(t *testing.T) {

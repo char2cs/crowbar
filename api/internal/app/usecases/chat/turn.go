@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/transcript"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -135,7 +136,7 @@ type HookReply = ingress.Reply
 
 // ErrToolPayloadGone is a tool call's payload that was never stored or is
 // stored no more.
-var ErrToolPayloadGone = fmt.Errorf("agent: tool payload is no longer available: %w", apperr.ErrNotFound)
+var ErrToolPayloadGone = fmt.Errorf("agent: tool payload is no longer available: %w", problem.ErrNotFound)
 
 // maxActivityPage caps a page of activity turns and tool calls.
 const maxActivityPage = 500

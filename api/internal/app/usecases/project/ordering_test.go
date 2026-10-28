@@ -5,10 +5,11 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -363,7 +364,7 @@ func TestUpdateRepo_RefusesARepoInternalFolder(t *testing.T) {
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 
 	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{FolderID: name("repo-folder")})
-	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 
 	assert.Empty(t, nodes.Placed, "a refused move leaves the repo where it was")
 	assert.Empty(t, nodes.Ordered, "a refused move leaves the repo where it was")
@@ -381,7 +382,7 @@ func TestUpdateRepo_RefusesANonFolderTarget(t *testing.T) {
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 
 	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{FolderID: name("some-chat")})
-	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	assert.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 func TestUpdateRepo_RefusesAnUnknownFolder(t *testing.T) {
@@ -391,7 +392,7 @@ func TestUpdateRepo_RefusesAnUnknownFolder(t *testing.T) {
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 
 	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{FolderID: name("missing")})
-	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	assert.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 // A repo that LEAVES a folder closes the gap it left behind, exactly as
@@ -439,7 +440,7 @@ func TestReorder_UnknownProjectIs404(t *testing.T) {
 	_, _, uc := newProjectUsecase(t)
 
 	_, err := uc.Reorder(context.Background(), "missing", 0)
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 func TestUpdateRepo_SurfacesAStoreError(t *testing.T) {
@@ -473,7 +474,7 @@ func TestUpdateRepo_ProjectMoveIsRefusedAndWritesNothing(t *testing.T) {
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1", Name: "old"}))
 
 	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{ProjectID: name("p2"), Name: name("new")})
-	require.ErrorIs(t, err, apperr.ErrConflict)
+	require.ErrorIs(t, err, problem.ErrConflict)
 	row, err := repos.FindByKey(ctx, "r1")
 	require.NoError(t, err)
 	assert.Equal(t, domain.Repository{ID: "r1", ProjectID: "p1", Name: "old"}, *row)
@@ -517,7 +518,7 @@ func TestReorder_MissingAfterTheWriteIs404(t *testing.T) {
 	projects.FindErr = errors.New("row read failed")
 
 	_, err := uc.Reorder(ctx, "b", 0)
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 // TestReorder_ListStoreError covers Reorder surfacing a failure reading the
@@ -539,7 +540,7 @@ func TestUpdateRepo_LookupStoreError(t *testing.T) {
 
 	_, err := uc.UpdateRepo(context.Background(), "r1", project.RepoUpdate{Name: name("x")})
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, apperr.ErrNotFound)
+	assert.NotErrorIs(t, err, problem.ErrNotFound)
 }
 
 // TestUpdateRepo_DensifySaveError covers densifyRepos surfacing a failure

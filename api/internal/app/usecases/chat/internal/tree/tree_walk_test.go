@@ -5,7 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	apptree "github.com/char2cs/crowbar/api/internal/app/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
@@ -49,7 +50,7 @@ func (s stubListChats) LoadChat(_ context.Context, id string) (domain.Chat, erro
 			return row, nil
 		}
 	}
-	return domain.Chat{}, apperr.ErrNotFound
+	return domain.Chat{}, problem.ErrNotFound
 }
 
 func treeFrom(

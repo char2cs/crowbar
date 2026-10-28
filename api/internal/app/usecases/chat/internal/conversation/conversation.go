@@ -19,10 +19,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+
 	"github.com/google/uuid"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
@@ -181,7 +182,7 @@ func (c *Conversations) RenameByRunner(
 ) error {
 	runner, ok := c.runners.RunnerByID(runnerID)
 	if !ok {
-		return fmt.Errorf("agent: rename by runner: runner %s is not live: %w", runnerID, apperr.ErrNotFound)
+		return fmt.Errorf("agent: rename by runner: runner %s is not live: %w", runnerID, problem.ErrNotFound)
 	}
 	return c.RenameChat(ctx, runner.CurrentChatID, title, source)
 }
