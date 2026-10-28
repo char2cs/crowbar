@@ -832,7 +832,11 @@
   position: relative;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  /* The wrap scrolls, not `.doc`: the send handle is a sibling of `.doc` and must
+     scroll with the text it rides under. Both sides of `lastLineTop` move together,
+     so it still measures correctly. */
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 /* Same affordance as `.pill.drop-target`, drawn as an inset overlay rather
    than a border: the pill's own border IS its edge, but the document has no
