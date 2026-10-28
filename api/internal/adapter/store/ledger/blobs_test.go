@@ -215,3 +215,46 @@ func TestOpenBlobs_ReportsAnUncreatableRoot(t *testing.T) {
 
 	assert.Error(t, err)
 }
+
+// unreadableBlob puts a payload, then swaps its file for a non-empty directory
+// so it can neither be read nor deleted.
+func unreadableBlob(t *testing.T) (*ledgerstore.Blobs, string) {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "content")
+	s, err := ledgerstore.OpenBlobs(root)
+	require.NoError(t, err)
+	ref, err := s.Put([]byte("tool output"))
+	require.NoError(t, err)
+	digest := strings.TrimPrefix(ref, ledgerstore.RefPrefix)
+	path := filepath.Join(root, digest[:2], digest[2:4], digest)
+	require.NoError(t, os.Remove(path))
+	require.NoError(t, os.MkdirAll(filepath.Join(path, "child"), 0o700))
+	return s, ref
+}
+
+func TestBlobsGet_AnUnreadableBlobIsAnErrorNotAMissingOne(t *testing.T) {
+	s, ref := unreadableBlob(t)
+
+	_, err := s.Get(ref)
+
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ledgerstore.ErrBlobNotFound)
+}
+
+func TestBlobsCollect_ReportsABlobItCannotDelete(t *testing.T) {
+	s, ref := unreadableBlob(t)
+
+	assert.Error(t, s.Collect(ref, inUse(false)))
+}
+
+func TestBlobsPut_ReportsAFanOutDirectoryItCannotCreate(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "content")
+	s, err := ledgerstore.OpenBlobs(root)
+	require.NoError(t, err)
+	sum := sha256.Sum256([]byte("payload"))
+	require.NoError(t, os.WriteFile(filepath.Join(root, hex.EncodeToString(sum[:])[:2]), nil, 0o600))
+
+	_, err = s.Put([]byte("payload"))
+
+	assert.Error(t, err)
+}

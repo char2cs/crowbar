@@ -2,11 +2,13 @@ package ledger_test
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
@@ -98,4 +100,25 @@ func TestRead_ARunnersStartNamesItsChatUntilTheChatIsForgotten(t *testing.T) {
 	_, _, ok, err = s.RunnerStart(ctx, "r1")
 	require.NoError(t, err)
 	assert.False(t, ok, "a purged chat's runner is unknown")
+}
+
+func TestRead_BlobRefsSkipsRowsThatAreNotToolCallsAndToolCallsItCannotDecode(t *testing.T) {
+	db := openDB(t, filepath.Join(t.TempDir(), ledgerstore.FileName))
+	s, err := ledgerstore.Open(t.Context(), db, clock)
+	require.NoError(t, err)
+	ctx := context.Background()
+	call, err := ledger.NewRow(ledger.KindToolCall, "T1", "", ledger.ToolCall{
+		ToolID: "tool-1", Phase: ledger.ToolPost, InputRef: "sha256:in",
+	})
+	require.NoError(t, err)
+	_, _, err = s.Append(ctx, "c1", prompt(t, "r1", "a"), call)
+	require.NoError(t, err)
+	require.NoError(t, db.Exec(
+		`INSERT INTO chat_ledger (chat_id, seq, kind, turn_id, scope, at, body) VALUES (?, 3, ?, '', '', 0, ?)`,
+		"c1", string(ledger.KindToolCall), []byte("not json"),
+	).Error)
+
+	refs, err := s.BlobRefs(ctx, "c1")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"sha256:in"}, refs)
 }
