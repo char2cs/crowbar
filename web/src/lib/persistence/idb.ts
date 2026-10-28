@@ -208,12 +208,15 @@ const ENTITY_STORES = [
   'crowbar_chats',
 ] as const
 
-/** Clears every crowbar_* entity store. Best-effort: IDB failures no-op. */
+// Cached transcripts hold message DTOs, so they go with the entity rows.
+const WIPED_STORES = [...ENTITY_STORES, 'chat-history'] as const
+
+/** Clears every crowbar_* entity store and the cached transcripts. Best-effort: IDB failures no-op. */
 export async function wipeEntityCache(): Promise<void> {
   try {
     const db = await getDB()
-    const tx = db.transaction(ENTITY_STORES, 'readwrite')
-    await Promise.all(ENTITY_STORES.map((name) => tx.objectStore(name).clear()))
+    const tx = db.transaction(WIPED_STORES, 'readwrite')
+    await Promise.all(WIPED_STORES.map((name) => tx.objectStore(name).clear()))
     await tx.done
   } catch {
     /* best-effort wipe — ignore IDB failures */
