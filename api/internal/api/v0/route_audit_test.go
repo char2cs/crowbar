@@ -98,13 +98,8 @@ func specRoutes() []string {
 		"GET /v0/projects/:projectId/repos",
 		"POST /v0/projects/:projectId/repos",
 		"GET " + repo,
-		// §2.2 Workspaces (+hierarchy) — GONE. The chat-scoped API spec's §8 step
-		// 6 deleted the whole `workspaces` endpoint group: list and detail became
-		// the chat DTO's own worktree field, create and import became POST
-		// .../chats and .../chats/import-batch, delete became DELETE
-		// .../chats/:id, and the seven lifecycle verbs moved onto .../chats/:id
-		// (listed in extraRoutes below). Their absence is asserted directly by
-		// TestRouteAudit_NoWorkspaceGroupRoutes.
+		// §2.2 Workspaces: gone, moved onto .../chats (spec §8 step 6); their
+		// absence is TestRouteAudit_NoWorkspaceGroupRoutes'.
 		// §2.3 Chats — chat WebSocket surface removed per D11; chat domain, repo
 		// CRUD, and usecase remain dormant TODO (routes not remounted in this PR).
 		// §2.4 Files (chat-scoped API spec §4.2's SHARED bucket, §8 step 4/6):
@@ -201,6 +196,8 @@ func specRoutes() []string {
 		// poll, and this mount resolves a workspace (chatScoped's own
 		// resolveChatWorktree) where the repo-wide list scope resolves none.
 		"GET " + chat + "/ws",
+		"GET " + chat + "/feed",
+		"GET " + chat + "/blobs/:ref",
 		// §2.10 Search, chat-scoped (chat-scoped API spec §4.2's SHARED bucket,
 		// §8 step 4c/6): the flat chat prefix is the only surface left; the old
 		// .../workspaces/:wsId/search twin is gone.
@@ -580,6 +577,9 @@ func extraRoutes() []string {
 		// /system/prerequisites rather than inside the entity hierarchy.
 		"GET /v0/system/perf",
 		"POST /v0/system/perf",
+		// Operations are process-wide rows, so they mount top-level too.
+		"GET /v0/operations",
+		"DELETE /v0/operations/:id",
 	}
 }
 
@@ -824,7 +824,7 @@ func TestRouteAudit_NoWorkspaceScopedGroupRoutes(t *testing.T) {
 		"GET " + ws + "/identity",
 		"GET " + ws + "/provider",
 	}
-	require.Len(t, deleted, 63, "the seven groups mounted sixty-three :wsId routes; all must be checked")
+	require.Len(t, deleted, 62, "the seven groups' sixty-two :wsId routes left to check; all must be")
 	for _, r := range deleted {
 		_, ok := got[r]
 		assert.Falsef(t, ok, "deleted workspace-scoped group route is still registered: %s", r)

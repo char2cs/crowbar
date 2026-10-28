@@ -18,15 +18,8 @@ vi.mock('@/features/agent/api/agent-chat-reads', () => ({
   getPendingPrompt: (...args: unknown[]) => getPendingPrompt(...args),
 }))
 
-// REGRESSION, reported live: "photos attachments are not loaded instantly...
-// let's not wait for them." Once a photo shows an instant local preview
-// (insertPendingImageInto/settlePendingImageInto, chat-markdown-editor.tsx)
-// instead of waiting for its upload, sending has to wait for the SWAP
-// instead — a `blob:` url is meaningless outside this browser session, and
-// the agent could never fetch it. `enqueue` (usePromptQueue) refuses to
-// queue a draft that still contains one; this is that check's own pure
-// predicate, unit-tested directly the same way `isPromptTextWithinLimit`
-// (prompt-queue-persistence.ts) already is.
+// A `blob:` preview url means nothing outside this browser, so a draft still
+// holding one must wait for its upload's swap before it is sent.
 describe('hasPendingImageUpload', () => {
   it('is true for a draft containing a pending image placeholder', () => {
     expect(hasPendingImageUpload('check this out ![photo.png](blob:local-preview-id) thanks')).toBe(
@@ -90,19 +83,9 @@ function mount(initialProps: PromptQueueOptions) {
   return renderHook((props: PromptQueueOptions) => usePromptQueue(props), { initialProps })
 }
 
-// REGRESSION, reported live: "when compacting, a queued message gets sent right
-// away, which stops the compacting action."
-//
-// The composer promises this in so many words — resolveComposerState's kind 7 is
-// "compacting — busy; prompts queue", and the placeholder reads "Compacting…
-// your message will be queued". The FIFO dispatcher did not honour it, because
-// it was never told: `usePromptQueue` was handed `working` alone, and a bare
-// /compact opens no tracked turn (see AgentChatsState.compacting), so the
-// aggregate folds the entire compaction as IDLE. The head passed the busy guard
-// on the very next render and went to the CLI mid-compaction, aborting it.
-//
-// Nothing here is timing-based: the dispatch promise is settled by hand, and
-// every busy edge is an explicit rerender.
+// A compaction is busy even though it opens no tracked turn: a queued prompt
+// sent mid-compaction aborts it. Dispatch promises settle by hand; every busy
+// edge is an explicit rerender.
 describe('usePromptQueue during a compaction', () => {
   beforeEach(() => {
     submitAgentPrompt.mockReset()
@@ -295,12 +278,8 @@ describe('usePromptQueue when the daemon retires a delivery', () => {
   })
 })
 
-// REGRESSION, reported live against codex: "User's turns after some time of idle
-// is lost, and does not record anywhere." A crashed tab, a cleared localStorage or
-// an idle reload can wipe this queue's own record of a prompt that the backend
-// still has outstanding. On becoming visible the queue asks the backend directly
-// and recovers anything it has no record of, as an ordinary outcome_uncertain row
-// with the same retry/edit affordances any other unconfirmed prompt gets.
+// A wiped queue record of a prompt the backend still holds is recovered from the
+// backend as an ordinary outcome_uncertain row.
 describe('usePromptQueue recovering a lost prompt from the backend', () => {
   beforeEach(() => {
     submitAgentPrompt.mockReset()
@@ -385,13 +364,8 @@ describe('usePromptQueue recovering a lost prompt from the backend', () => {
   })
 })
 
-// '' IS A PICK — "the provider's own default", a real value the daemon
-// stores as distinct from any declared model — so it has to reach the wire
-// as '' and nothing else. Coercing an item that staged NOTHING to '' at
-// dispatch (as this once did) made the two indistinguishable, which left the
-// daemon only one safe reading of '': "absent, keep what you have". A chat
-// pinned to a model then had no way back to the default at all, since the
-// picker no longer PATCHes .../selection on its own.
+// '' is a pick (the provider's own default), distinct from staging nothing,
+// so each reaches the wire as itself.
 describe('usePromptQueue staged selection', () => {
   beforeEach(() => {
     submitAgentPrompt.mockReset()
@@ -583,6 +557,30 @@ describe('usePromptQueue while the agent is working', () => {
 
     expect(submitAgentPrompt).toHaveBeenCalledTimes(2)
     expect(submitAgentPrompt.mock.calls[1]?.[3]).not.toBe(firstId)
+    expect(result.current.queue.map((item) => item.state)).toEqual(['awaiting_turn'])
+  })
+
+  it('parks a send refused for a lost session under a fresh id, in its own words', async () => {
+    submitAgentPrompt
+      .mockRejectedValueOnce(new ApiError('agent: session gone: conflict', 409, 'session_lost'))
+      .mockResolvedValueOnce({ runnerId: 'r2' })
+    const { result } = mount(options())
+
+    await act(async () => {
+      result.current.enqueue('keep my words')
+    })
+    const firstId = submitAgentPrompt.mock.calls[0]?.[3]
+    const parked = result.current.queue[0]
+    expect(parked).toMatchObject({ state: 'failed', text: 'keep my words' })
+    expect(parked?.clientRequestId).not.toBe(firstId)
+    expect(parked?.error).not.toMatch(/agent:|conflict|may already have/)
+
+    await act(async () => {
+      result.current.retry(parked?.clientRequestId as string)
+    })
+
+    expect(submitAgentPrompt).toHaveBeenCalledTimes(2)
+    expect(submitAgentPrompt.mock.calls[1]?.[3]).toBe(parked?.clientRequestId)
     expect(result.current.queue.map((item) => item.state)).toEqual(['awaiting_turn'])
   })
 })

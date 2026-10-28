@@ -437,10 +437,8 @@ export function usePromptQueue(options: PromptQueueOptions) {
           item.text,
           item.clientRequestId,
           item.provider ?? '',
-          // Passed THROUGH, never coerced: `undefined` is "staged nothing"
-          // and '' is a pick of the provider's own default. Flattening the
-          // first into the second put both on the wire as "" and left the
-          // daemon no way to tell them apart.
+          // Passed through: `undefined` is "staged nothing", '' is a pick of
+          // the provider's own default, and the daemon must tell them apart.
           item.model,
           item.effort,
         )
@@ -470,24 +468,25 @@ export function usePromptQueue(options: PromptQueueOptions) {
               error:
                 'The provider became busy before this prompt could start. It will wait for idle.',
             }))
-          } else if (code === 'request_outcome_uncertain') {
-            // The daemon cannot prove what became of this id and will refuse it
-            // forever, so a Retry on it can only conflict. Park the text under a
-            // fresh id the daemon has never seen; sending it is still the
-            // person's explicit Retry, never automatic.
+          } else if (code === 'request_outcome_uncertain' || code === 'session_lost') {
+            // The daemon refuses this id forever (an unprovable outcome, or a lost
+            // session it settled), so park the text under a fresh id; sending it
+            // is still the person's explicit Retry, never automatic.
             let freshId: string
             try {
               freshId = requestId()
             } catch {
               freshId = item.clientRequestId
             }
+            const lost = code === 'session_lost'
             mark(item.clientRequestId, (current) => ({
               ...current,
               clientRequestId: freshId,
-              state: 'outcome_uncertain',
+              state: lost ? 'failed' : 'outcome_uncertain',
               submittedAt: undefined,
-              error:
-                'The provider may already have this message. Retry sends it again as a new request.',
+              error: lost
+                ? 'The session was lost, so the provider never got this. Retry sends it to a new session.'
+                : 'The provider may already have this message. Retry sends it again as a new request.',
             }))
             refreshMessages()
           } else if (code === 'request_id_conflict') {

@@ -320,5 +320,6 @@ func TestChatFeed_ToolPayloadIsReadableByItsRef(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 	assert.JSONEq(t, `{"command":"ls -la"}`, string(body))
-	_ = h.raw(http.MethodGet, "/v0/chats/"+chatID+"/blobs/not-a-ref", nil, http.StatusBadRequest).Body.Close()
+	bad := h.raw(http.MethodGet, "/v0/chats/"+chatID+"/blobs/not-a-ref", nil, http.StatusBadRequest)
+	require.NoError(t, bad.Body.Close())
 }
