@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ViewTabsRow } from '@/features/tabs/components/view-tabs-row'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
@@ -44,6 +44,7 @@ beforeEach(() => {
         chats: [
           { id: 'chat-1', repoId: 'r1', title: 'Chat One', order: 0, workspaceId: 'ws-1' },
           { id: 'chat-2', repoId: 'r1', title: 'Chat Two', order: 1, workspaceId: 'ws-1' },
+          { id: 'chat-3', repoId: 'r1', title: 'Chat Three', order: 2, workspaceId: 'ws-1' },
         ],
       },
     ],
@@ -141,5 +142,29 @@ describe('ViewTabsRow', () => {
     const readout = screen.getByText(/beta 0\.0\.0-beta\.1/)
     const toggle = screen.getByRole('button', { name: 'Show sidebar' })
     expect(readout.compareDocumentPosition(toggle)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+
+  it('dragging a tab onto another carries only the chats it holds now, not ones it once held', () => {
+    actions().openChat('chat-1', { workspaceId: 'ws-1' })
+    act(() => actions().dropChatOnPane('chat-2', paneOf('chat-1'), 'right', 'ws-1'))
+    actions().openChat('chat-3', { workspaceId: 'ws-1' })
+    render(<ViewTabsRow />)
+    act(() => actions().closePane(paneOf('chat-2')))
+    expect(chatPaneIndex(windowPaneStore.getState().panes).has('chat-2')).toBe(false)
+
+    const grab = within(screen.getByTestId('recents-row-chat-1')).getByRole('treeitem')
+    const target = within(screen.getByTestId('recents-row-chat-3')).getByRole('treeitem')
+    const box = { left: 0, right: 100, top: 0, bottom: 32, width: 100, height: 32 }
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(box as DOMRect)
+    document.elementsFromPoint = () => [target]
+    Element.prototype.setPointerCapture = () => {}
+
+    fireEvent.pointerDown(grab, { button: 0, clientX: 300, clientY: 10, pointerId: 1 })
+    fireEvent.pointerMove(window, { clientX: 50, clientY: 16, buttons: 1 })
+    fireEvent.pointerUp(window, { clientX: 50, clientY: 16 })
+
+    const open = chatPaneIndex(windowPaneStore.getState().panes)
+    expect(open.has('chat-1') && open.has('chat-3')).toBe(true)
+    expect(open.has('chat-2')).toBe(false)
   })
 })

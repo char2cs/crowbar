@@ -11,7 +11,8 @@ import { DropIndicator } from '@/components/layout/drop-indicator'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { BuildReadout } from '@/components/layout/build-readout'
 import { useProjectViewIds } from '@/features/panes/hooks/use-project-view-ids'
-import { viewMembers } from '@/features/panes/lib/view-state'
+import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
+import { viewChatIds, viewMembers } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { useSidebarStore } from '@/lib/store/sidebar'
@@ -37,21 +38,20 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
   const { rowRef, isAtLeftEdge, isAtRightEdge, isAtTopEdge } = usePaneTopRowEdges([sidebarPosition])
   const scrollRef = useRef<HTMLDivElement>(null)
-  const rowsRef = useRef(new Map<string, { row: SidebarRowType; viewId: string }>())
-  const registerRow = (row: SidebarRowType, viewId: string) => {
-    rowsRef.current.set(row.id, { row, viewId })
+  const rowsRef = useRef(new Map<string, SidebarRowType>())
+  const registerRow = (row: SidebarRowType) => {
+    rowsRef.current.set(row.id, row)
   }
   const drag = useSidebarDrag({
     scrollRef,
     // A tab moves as a whole: grabbing any chat of a split carries them all.
+    // Membership is read from the pane store at grab time, so a chat closed
+    // out of the split is not carried back; `rowsRef` only supplies row data.
     subjectsFor: (rowId) => {
-      const viewId = rowsRef.current.get(rowId)?.viewId
+      const { panes, views } = windowPaneStore.getState()
+      const viewId = panes[chatPaneIndex(panes).get(rowId) ?? '']?.viewId
       if (!viewId) return []
-      const rows: SidebarRowType[] = []
-      for (const entry of rowsRef.current.values()) {
-        if (entry.viewId === viewId) rows.push(entry.row)
-      }
-      return rows
+      return viewChatIds({ panes, views }, viewId).flatMap((id) => rowsRef.current.get(id) ?? [])
     },
     onDrop: performSidebarDrop,
     onPaneDrop: performSidebarPaneDrop,

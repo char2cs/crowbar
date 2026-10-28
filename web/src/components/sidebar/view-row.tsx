@@ -65,7 +65,7 @@ export function RecentsViewRow({
   onFocus: (viewId: string) => void
   onClose: (viewId: string) => void
   drag: SidebarDrag
-  registerRow: (row: SidebarRowType, viewId: string) => void
+  registerRow: (row: SidebarRowType) => void
 }) {
   const members = useStore(
     windowPaneStore,
@@ -96,8 +96,6 @@ export function RecentsViewRow({
             workspaceId={workspaceId ?? ''}
             hasView={!isShowing}
             isSet={isSet}
-            // Fades the label under the ×.
-            viewId={viewId}
             fadesForClose={isLast}
             separated={!isLast && !isShowing}
             onOpen={() => onFocus(viewId)}
@@ -139,7 +137,6 @@ function RecentsMemberRow({
   workspaceId,
   hasView,
   isSet,
-  viewId,
   fadesForClose,
   separated,
   onOpen,
@@ -152,14 +149,13 @@ function RecentsMemberRow({
   hasView: boolean
   /** One of 2+ chats sharing the shell: no icon. */
   isSet: boolean
-  viewId: string
   /** The tab's trailing member: its end fades under the ×. */
   fadesForClose: boolean
   /** Draws the hairline between this member and the next. */
   separated: boolean
   onOpen: () => void
   drag: SidebarDrag
-  registerRow: (row: SidebarRowType, viewId: string) => void
+  registerRow: (row: SidebarRowType) => void
 }) {
   const row = useMemberRow(chatId, workspaceId, hasView)
 
@@ -168,7 +164,7 @@ function RecentsMemberRow({
       data-testid={`recents-row-${row.id}`}
       // A ref callback, not a render-body call: render must stay pure.
       ref={(el) => {
-        if (el) registerRow(row, viewId)
+        if (el) registerRow(row)
       }}
       // Flex item: without `min-w-0 flex-1` it shrinks to its label. The
       // shell paints the hover, not the row.
