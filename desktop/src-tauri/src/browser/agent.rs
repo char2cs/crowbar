@@ -8,6 +8,8 @@ use tauri::{AppHandle, Runtime};
 use super::find;
 #[cfg(target_os = "macos")]
 use super::webkit;
+#[cfg(target_os = "linux")]
+use super::webkitgtk as webkit;
 
 /// Longest script a command accepts.
 const MAX_BODY_BYTES: usize = 1 << 20;
@@ -25,13 +27,13 @@ pub struct Png {
     pub height: u32,
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod webkit {
     use super::Png;
     use tauri::{Runtime, Webview};
     use tokio::sync::oneshot;
 
-    const UNSUPPORTED: &str = "agent browser control is only supported on macOS";
+    const UNSUPPORTED: &str = "agent browser control is only supported on macOS and Linux";
 
     pub fn call_async<R: Runtime>(
         _: &Webview<R>,

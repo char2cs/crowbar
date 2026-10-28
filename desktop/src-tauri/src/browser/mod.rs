@@ -8,6 +8,8 @@ mod events;
 mod park;
 #[cfg(target_os = "macos")]
 mod webkit;
+#[cfg(target_os = "linux")]
+mod webkitgtk;
 
 pub use agent::*;
 pub use clipboard::*;
