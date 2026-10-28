@@ -3,6 +3,7 @@ package operation_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -225,37 +226,88 @@ func TestService_APanickingWorkFailsTheOperation(t *testing.T) {
 	assert.Equal(t, problem.Problem{Code: problem.Internal, Message: "internal error: boom"}, *last.Error)
 }
 
-func TestService_ShutdownWaitsThenInterruptsWhatIsLeft(t *testing.T) {
+// A graceful stop cancels at once: work in flight at quit must not eat the
+// writer drain the terminal and the aggregates still need.
+func TestService_ShutdownCancelsAndRecordsTheWorkInterrupted(t *testing.T) {
 	f := newFixture(t)
-	finished, blocked := uuid.NewString(), uuid.NewString()
-	release := make(chan struct{})
+	id := uuid.NewString()
 	started := make(chan struct{})
-
-	_, err := f.svc.Start(context.Background(), pushSpec(finished), func(context.Context, operation.Progress) error {
-		<-release
-		return nil
-	})
-	require.NoError(t, err)
-	shut := make(chan error, 1)
-	go func() { shut <- f.svc.Shutdown(context.Background()) }()
-	close(release)
-	require.NoError(t, <-shut)
-	assert.Equal(t, domain.OpSucceeded, f.row(t, finished).State, "graceful work is waited for")
-
-	g := newFixture(t)
-	_, err = g.svc.Start(context.Background(), pushSpec(blocked), func(ctx context.Context, _ operation.Progress) error {
+	_, err := f.svc.Start(context.Background(), pushSpec(id), func(ctx context.Context, _ operation.Progress) error {
 		close(started)
 		<-ctx.Done()
 		return ctx.Err()
 	})
 	require.NoError(t, err)
 	<-started
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	require.NoError(t, g.svc.Shutdown(ctx))
-	row := g.row(t, blocked)
+
+	require.NoError(t, f.svc.Shutdown(context.Background()))
+
+	row := f.row(t, id)
 	assert.Equal(t, domain.OpFailed, row.State)
 	assert.Equal(t, problem.Interrupted, row.Error.Code)
+}
+
+func TestService_ShutdownReturnsWhenItsCtxEndsThoughWorkIgnoresCancel(t *testing.T) {
+	f := newFixture(t)
+	release := make(chan struct{})
+	started := make(chan struct{})
+	_, err := f.svc.Start(context.Background(), pushSpec(uuid.NewString()), func(context.Context, operation.Progress) error {
+		close(started)
+		<-release
+		return nil
+	})
+	require.NoError(t, err)
+	<-started
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	require.ErrorIs(t, f.svc.Shutdown(ctx), context.Canceled)
+	close(release)
+}
+
+// Every admitted operation is cancellable the moment Start returns, so a stop
+// racing a start never leaves work it did not cancel.
+func TestService_ShutdownRacingStartsCancelsEveryAdmittedOperation(t *testing.T) {
+	for range 50 {
+		f := newFixture(t)
+		admitted := make(chan string, 1)
+		go func() {
+			op, err := f.svc.Start(context.Background(), pushSpec(""), func(ctx context.Context, _ operation.Progress) error {
+				<-ctx.Done()
+				return ctx.Err()
+			})
+			if err != nil {
+				op.ID = ""
+			}
+			admitted <- op.ID
+		}()
+		require.NoError(t, f.svc.Shutdown(context.Background()))
+		if id := <-admitted; id != "" {
+			require.NoError(t, f.svc.Shutdown(context.Background()))
+			assert.Equal(t, domain.OpFailed, f.row(t, id).State)
+		}
+	}
+}
+
+// The service keeps the cap as operations settle, not only at boot.
+func TestService_SettlingPrunesPastTheNewest500(t *testing.T) {
+	f := newFixture(t)
+	for i := range 500 {
+		seed(t, f, fmt.Sprintf("op-%03d", i), domain.OpSucceeded, epoch.Add(-time.Duration(1000-i)*time.Minute))
+	}
+	id := uuid.NewString()
+	_, err := f.svc.Start(context.Background(), pushSpec(id), succeed)
+	require.NoError(t, err)
+	f.until(t, id)
+	require.NoError(t, f.svc.Shutdown(context.Background()))
+
+	all, err := f.store.FindAll(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, all, 500)
+	gone, err := f.store.FindByKey(context.Background(), "op-000")
+	require.NoError(t, err)
+	assert.Nil(t, gone, "the oldest settled row goes")
+	assert.Equal(t, id, f.row(t, id).ID)
 }
 
 func TestService_StartAfterShutdownIsUnavailable(t *testing.T) {

@@ -75,23 +75,13 @@ func (s *Service) Start(
 	spec Spec,
 	work Work,
 ) (domain.Operation, error) {
-	op, fresh, err := s.admit(ctx, spec, domain.OpAccepted, nil)
-	if err != nil || !fresh {
+	op, run, err := s.admit(context.WithoutCancel(ctx), spec, domain.OpAccepted, nil)
+	if err != nil || run == nil {
 		return op, err
 	}
-	workCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	s.mu.Lock()
-	s.cancels[&cancel] = struct{}{}
-	s.mu.Unlock()
 	go func() {
-		defer s.work.Done()
-		defer func() {
-			s.mu.Lock()
-			delete(s.cancels, &cancel)
-			s.mu.Unlock()
-			cancel()
-		}()
-		s.execute(workCtx, op, work)
+		defer run.release()
+		s.execute(run.ctx, op, work)
 	}()
 	return op, nil
 }
@@ -103,11 +93,12 @@ func (s *Service) Run(
 	spec Spec,
 	work Work,
 ) (domain.Operation, error) {
-	op, fresh, err := s.admit(ctx, spec, domain.OpAccepted, nil)
-	if err != nil || !fresh {
+	op, run, err := s.admit(ctx, spec, domain.OpAccepted, nil)
+	if err != nil || run == nil {
 		return op, err
 	}
-	defer s.work.Done()
+	defer run.release()
+	// Boot runs it before anything can stop the service, so the caller's ctx is its ctx.
 	return s.execute(ctx, op, work), nil
 }
 
@@ -118,9 +109,12 @@ func (s *Service) Fail(
 	cause error,
 ) (domain.Operation, error) {
 	failure := problem.Of(cause)
-	op, fresh, err := s.admit(ctx, spec, domain.OpFailed, &failure)
-	if fresh {
-		s.work.Done()
+	op, run, err := s.admit(ctx, spec, domain.OpFailed, &failure)
+	if run != nil {
+		run.release()
+		s.mu.Lock()
+		s.pruneLocked(ctx)
+		s.mu.Unlock()
 	}
 	return op, err
 }
@@ -160,70 +154,73 @@ func (s *Service) Snapshot(ctx context.Context) ([]domain.Operation, error) {
 	return ops, nil
 }
 
-// Shutdown waits for running work; when ctx ends first it cancels what is
-// left, which settles as interrupted. Later Starts are refused.
+// Shutdown refuses later Starts and cancels running work at once, which
+// settles as interrupted; it waits for that work until ctx ends. Work that
+// ignores cancel (a git lock wait) is left behind rather than eat the drain.
 func (s *Service) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	s.stopping = true
+	for cancel := range s.cancels {
+		(*cancel)()
+	}
 	s.mu.Unlock()
 	done := make(chan struct{})
 	go func() {
 		s.work.Wait()
 		close(done)
 	}()
+	var waitErr error
 	select {
 	case <-done:
 	case <-ctx.Done():
-		// Cancelled work kills its git process, so this wait is short.
-		s.cancelAll()
-		<-done
+		waitErr = fmt.Errorf("operation: shutdown: work still running: %w", ctx.Err())
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return errors.Join(s.saveErrs...)
+	return errors.Join(append(slices.Clone(s.saveErrs), waitErr)...)
 }
 
-func (s *Service) cancelAll() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for cancel := range s.cancels {
-		(*cancel)()
-	}
+// admitted is a new operation's work context, cancellable by Shutdown from
+// the moment admit returns; release ends it.
+type admitted struct {
+	ctx     context.Context
+	release func()
 }
 
 // admit applies the key rules and, for a new key, saves the first row in
-// state; fresh reports a new row, which holds one count on s.work.
+// state and returns its work context, which holds one count on s.work.
 func (s *Service) admit(
 	ctx context.Context,
 	spec Spec,
 	state domain.OperationState,
 	failure *problem.Problem,
-) (domain.Operation, bool, error) {
+) (domain.Operation, *admitted, error) {
 	id, err := operationID(spec.ID)
 	if err != nil {
-		return domain.Operation{}, false, err
+		return domain.Operation{}, nil, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.stopping {
-		return domain.Operation{}, false, &problem.Error{Code: problem.Unavailable, Message: "Crowbar is stopping"}
+		return domain.Operation{}, nil, &problem.Error{Code: problem.Unavailable, Message: "Crowbar is stopping"}
 	}
 	known, err := s.store.FindByKey(ctx, id)
 	if err != nil {
-		return domain.Operation{}, false, fmt.Errorf("operation: find %s: %w", id, err)
+		return domain.Operation{}, nil, fmt.Errorf("operation: find %s: %w", id, err)
 	}
 	if known != nil {
 		if known.Kind != spec.Kind || known.Subject != spec.Subject {
-			return domain.Operation{}, false, &problem.Error{
+			return domain.Operation{}, nil, &problem.Error{
 				Code:    problem.OperationIDConflict,
 				Message: fmt.Sprintf("operation %s is a %s of %s %s", id, known.Kind, known.Subject.Kind, known.Subject.ID),
 			}
 		}
-		return *known, false, nil
+		// Same key, kind and subject is the same request whatever its body (R3).
+		return *known, nil, nil
 	}
 	if spec.Validate != nil {
 		if err := spec.Validate(ctx); err != nil {
-			return domain.Operation{}, false, err
+			return domain.Operation{}, nil, err
 		}
 	}
 	now := s.clock()
@@ -232,10 +229,19 @@ func (s *Service) admit(
 		State: state, Items: append([]domain.OperationItem{}, spec.Items...), Error: failure, CreatedAt: now,
 	}
 	if err := s.saveLocked(ctx, &op); err != nil {
-		return domain.Operation{}, false, err
+		return domain.Operation{}, nil, err
 	}
+	// Registered under mu with the stopping check, so no Shutdown misses it.
+	workCtx, cancel := context.WithCancel(ctx)
+	s.cancels[&cancel] = struct{}{}
 	s.work.Add(1)
-	return op, true, nil
+	return op, &admitted{ctx: workCtx, release: func() {
+		s.mu.Lock()
+		delete(s.cancels, &cancel)
+		s.mu.Unlock()
+		cancel()
+		s.work.Done()
+	}}, nil
 }
 
 func operationID(key string) (string, error) {
@@ -258,6 +264,9 @@ func (s *Service) execute(
 	run.update(func(o *domain.Operation) { o.State = domain.OpRunning })
 	err := call(ctx, op.Kind, run, work)
 	run.update(func(o *domain.Operation) { settle(ctx, o, err) })
+	s.mu.Lock()
+	s.pruneLocked(ctx)
+	s.mu.Unlock()
 	return run.snapshot()
 }
 
