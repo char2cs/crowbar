@@ -2,6 +2,6 @@
   "go.discarded-errors": 0,
   "go.timers": 20,
   "web.empty-catch": 33,
-  "web.swallowed-promise": 27,
+  "web.swallowed-promise": 25,
   "web.timers": 84
 }

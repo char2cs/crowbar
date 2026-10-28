@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 import { bestEffort } from '@/lib/best-effort'
 import { isTauri } from '@/lib/crowbar-bridge'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'

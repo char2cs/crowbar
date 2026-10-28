@@ -20,7 +20,7 @@ import {
   pendingChoices,
 } from '@/features/agent/lib/agent-activity'
 import { PermissionLevelSwitcher } from '@/features/agent/composer/permission-level-switcher'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@/lib/errors/api-error'
 
 // The verbs an elicitation is answered with. They are the PROVIDER's own words
 // (MCP's accept / decline / cancel) and they go in `optionIds` — a prompt with no

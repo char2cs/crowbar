@@ -19,7 +19,7 @@ const { subscribe, unsubscribes } = vi.hoisted(() => {
   return { subscribe, unsubscribes }
 })
 
-vi.mock('@/lib/api', () => ({ apiFetch }))
+vi.mock('@/lib/api/fetch', () => ({ apiFetch }))
 vi.mock('@/lib/ws/manager', () => ({ wsManager: { subscribe } }))
 
 import { LspClient } from '@/features/editor/lsp/lsp-client'

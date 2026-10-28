@@ -26,7 +26,7 @@ import {
   placeRestoredChatMembers,
   upgradeWindowPaneLayout,
 } from '@/lib/persistence/hydrate'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@/lib/errors/api-error'
 import { loadDrafts } from '@/features/editor/documents/draft-store'
 import { getDB, resetDB } from '@/lib/persistence/idb'
 import {

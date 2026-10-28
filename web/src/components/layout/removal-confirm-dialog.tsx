@@ -7,7 +7,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import type { WorkAtRisk } from '@/lib/api'
+import type { WorkAtRisk } from '@/lib/errors/api-error'
 import type { RemovalEntry } from '@/lib/store/sidebar-removal'
 
 /**

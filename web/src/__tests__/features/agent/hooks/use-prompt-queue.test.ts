@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChatMessage } from '@/features/agent/api/agent-api'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@/lib/errors/api-error'
 import {
   hasPendingImageUpload,
   usePromptQueue,

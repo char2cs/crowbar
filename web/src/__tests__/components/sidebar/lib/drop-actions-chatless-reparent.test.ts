@@ -10,8 +10,8 @@ const { toastError, apiFetch } = vi.hoisted(() => ({
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: toastError, info: vi.fn(), success: vi.fn() },
 }))
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/api')>()),
+vi.mock('@/lib/api/fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/fetch')>()),
   apiFetch,
 }))
 vi.mock('@/lib/api/sidebar-placement', () => ({

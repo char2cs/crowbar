@@ -13,7 +13,7 @@ import {
   savePromptQueue,
   type PromptQueueItem,
 } from '@/features/agent/lib/prompt-queue-persistence'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@/lib/errors/api-error'
 
 const BUSY_RECHECK_MS = 1_000
 const AWAITING_TERMINAL_HINT_MS = 6_000
@@ -464,9 +464,8 @@ export function usePromptQueue(options: PromptQueueOptions) {
         refreshMessages()
       } catch (error) {
         if (error instanceof ApiError && error.status === 409) {
-          const code = error.code
-          const definitelyBusy =
-            code === 'chat_busy' || (!code && /\b(busy|working)\b/i.test(error.message))
+          const code: string = error.problem.code
+          const definitelyBusy = code === 'chat_busy'
           if (code === 'request_already_accepted') {
             // Dedupe proved the original restart succeeded. There is nothing to
             // resend and no need for a runner result: wait for hook evidence.
@@ -528,7 +527,7 @@ export function usePromptQueue(options: PromptQueueOptions) {
           if (
             error instanceof ApiError &&
             error.status === 422 &&
-            error.code === 'prompt_submit_unsupported'
+            error.problem.code === 'prompt_submit_unsupported'
           )
             onSubmitUnavailable()
           mark(item.clientRequestId, (current) => ({

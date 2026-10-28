@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 import { gitBaseForWorkspace } from '@/lib/workspace-scope-url'
 import type { GitCommit } from '../types/git-types'
 

@@ -1,8 +1,8 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // apiFetch is the HTTP boundary every write ends at; its body names the workspace.
-vi.mock('@/lib/api', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api')
+vi.mock('@/lib/api/fetch', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/api/fetch')>('@/lib/api/fetch')
   return { ...actual, apiFetch: vi.fn() }
 })
 
@@ -17,7 +17,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOri
 const { formatDocumentWithLsp } = vi.hoisted(() => ({ formatDocumentWithLsp: vi.fn() }))
 vi.mock('@/features/editor/lsp/format-buffer', () => ({ formatDocumentWithLsp }))
 import { MONACO_LOAD_MS, openTestDocument } from '@/__tests__/__fixtures__/documents'
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 import { loadEditorHost } from '@/features/editor/host/editor-host'
 import {
   QUIET_PERIOD_MS,

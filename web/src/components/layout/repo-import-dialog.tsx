@@ -11,7 +11,8 @@ import {
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { apiFetch, getRepoPullRequests } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
+import { getRepoPullRequests } from '@/lib/api'
 import { computeImportPlan, type BranchEntry, type PRLink } from '@/lib/import/parent-plan'
 
 const IMPORT_ROW_HEIGHT = 30

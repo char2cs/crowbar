@@ -24,7 +24,7 @@ vi.mock('@/components/ui/avatar', () => ({
 }))
 
 const apiFetch = vi.fn().mockResolvedValue(undefined)
-vi.mock('@/lib/api', () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
+vi.mock('@/lib/api/fetch', () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
 
 const openDialog = vi.fn()
 vi.mock('@/lib/native-dialog', () => ({

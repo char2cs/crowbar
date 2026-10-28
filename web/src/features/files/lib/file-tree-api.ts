@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 import { filesBaseForWorkspace } from '@/lib/workspace-scope-url'
 import type { AppFile } from '@/features/file-system/types/app'
 

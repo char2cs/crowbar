@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid'
 import { chatBase } from '@/features/agent/api/agent-api'
-import { API_BASE } from '@/lib/api'
+import { API_BASE } from '@/lib/api/fetch'
 
 export interface UploadedChatAttachment {
   ref: string

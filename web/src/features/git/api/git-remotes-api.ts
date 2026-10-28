@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 import { gitBaseForWorkspace } from '@/lib/workspace-scope-url'
 
 export interface GitRemoteActionResult {

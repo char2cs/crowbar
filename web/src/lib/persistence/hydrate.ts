@@ -18,7 +18,8 @@ import {
 import { getFirstLeafId } from '@/features/panes/utils/pane-layout'
 import { putDrafts } from '@/features/editor/documents/draft-store'
 import { restoreDocuments } from '@/features/editor/documents/restore-documents'
-import { fetchHomeChats, fetchRepoChats, fetchRepos, isNotFoundError } from '@/lib/api'
+import { fetchHomeChats, fetchRepoChats, fetchRepos } from '@/lib/api'
+import { isNotFoundError } from '@/lib/errors/api-error'
 import { loadSidebarUI } from './sidebar-ui'
 import { useSidebarStore } from '@/lib/store/sidebar'
 

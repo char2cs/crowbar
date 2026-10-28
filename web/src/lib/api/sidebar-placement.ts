@@ -1,4 +1,5 @@
-import { apiFetch, folderDTOFromWire, type ChatsFolderWireDTO } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
+import { folderDTOFromWire, type ChatsFolderWireDTO } from '@/lib/api/wire'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import type { FolderDTO } from '@/lib/types'
 

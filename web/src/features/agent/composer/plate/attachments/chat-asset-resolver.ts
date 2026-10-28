@@ -1,5 +1,5 @@
 import { chatBase } from '@/features/agent/api/agent-api'
-import { API_BASE } from '@/lib/api'
+import { API_BASE } from '@/lib/api/fetch'
 import type { MarkdownAssetInfo } from '@/features/editor/markdown/plate/markdown-asset'
 
 /** A chat-attachment logical reference, as stored in a message's markdown

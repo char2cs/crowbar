@@ -36,7 +36,8 @@ import {
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { ApiError, DISCARD_WORK_INIT, type WorkAtRisk } from '@/lib/api'
+import { ApiError, type WorkAtRisk } from '@/lib/errors/api-error'
+import { DISCARD_WORK_INIT } from '@/lib/api'
 
 /**
  * COMMITTING A REMOVAL — the one step that destroys anything.

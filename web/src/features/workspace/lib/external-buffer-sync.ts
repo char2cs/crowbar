@@ -1,4 +1,4 @@
-import { isNotFoundError } from '@/lib/api'
+import { isNotFoundError } from '@/lib/errors/api-error'
 import {
   documentWatchEndpoint,
   readDocument,

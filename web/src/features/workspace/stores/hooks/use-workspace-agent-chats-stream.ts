@@ -25,7 +25,7 @@ import { chatWorkspaceIn } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { resolveChatProjectId } from '@/features/panes/lib/chat-project'
-import { isNotFoundError } from '@/lib/api'
+import { isNotFoundError } from '@/lib/errors/api-error'
 import {
   isLatestProviderWrite,
   providerWriteGeneration,

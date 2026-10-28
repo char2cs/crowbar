@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { DaemonHealthListener } from '@/features/window/components/daemon-health-listener'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 import { toast } from '@/features/window/stores/toast-store'
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: {
@@ -14,7 +14,7 @@ vi.mock('@/features/window/stores/toast-store', () => ({
   },
 }))
 
-vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }))
+vi.mock('@/lib/api/fetch', () => ({ apiFetch: vi.fn() }))
 
 const handlers = new Map<string, (event: { payload: unknown }) => void>()
 const unlistenSpies: Array<ReturnType<typeof vi.fn>> = []

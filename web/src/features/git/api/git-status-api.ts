@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 import { gitBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { toast } from '@/features/window/stores/toast-store'
 import type { GitHunk, GitStatus } from '../types/git-types'

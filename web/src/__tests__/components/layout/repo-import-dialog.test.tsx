@@ -12,7 +12,6 @@ import * as api from '@/lib/api'
 
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof api>()),
-  apiFetch: vi.fn(),
   getRepoPullRequests: vi.fn(),
 }))
 
@@ -43,13 +42,16 @@ beforeEach(() => {
 
 afterEach(() => {
   HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect
+  vi.unstubAllGlobals()
 })
 
 function mockBranches(
   branches: Array<{ name: string; isProtected?: boolean; hasWorkspace?: boolean }>,
 ) {
-  vi.mocked(api.apiFetch).mockResolvedValue(
-    branches.map((b) => ({ isProtected: false, hasWorkspace: false, ...b })),
+  const data = branches.map((b) => ({ isProtected: false, hasWorkspace: false, ...b }))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify({ success: true, data }))),
   )
 }
 

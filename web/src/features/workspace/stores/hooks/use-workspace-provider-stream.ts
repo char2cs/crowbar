@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { subscribeEntityStream } from '@/lib/ws/entity-stream'
-import { fetchWorkspace, workspaceDTOFromWorktreeFrame } from '@/lib/api'
+import { fetchWorkspace } from '@/lib/api'
+import { workspaceDTOFromWorktreeFrame } from '@/lib/api/wire'
 import { getOwningChatId } from '@/lib/workspace-scope'
 import { chatBase } from '@/lib/workspace-scope-url'
 import { syncSidebarFromCache } from '@/lib/store/sidebar-sync'

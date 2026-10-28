@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const apiFetch = vi.fn()
 const themeListeners = new Set<() => void>()
 
-vi.mock('@/lib/api', () => ({
+vi.mock('@/lib/api/fetch', () => ({
   apiFetch: (path: string, init?: RequestInit) => apiFetch(path, init),
 }))
 

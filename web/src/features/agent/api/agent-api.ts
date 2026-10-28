@@ -2,7 +2,7 @@ import {
   getDefaultChatPresentation,
   type LandingChatPresentation,
 } from '@/features/settings/lib/chat-presentation'
-import { API_BASE, apiFetch } from '@/lib/api'
+import { API_BASE, apiFetch } from '@/lib/api/fetch'
 import { repoChatsBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 import {

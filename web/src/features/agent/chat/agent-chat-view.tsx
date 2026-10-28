@@ -21,7 +21,7 @@ import {
   type SlashCatalogItem,
 } from '@/features/agent/api/agent-api'
 import { markEnd, markStart } from '@/lib/perf/instrumentation'
-import { isNotFoundError } from '@/lib/api'
+import { isNotFoundError } from '@/lib/errors/api-error'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import { SubagentShelf } from '@/features/agent/activity/subagent-shelf'
 import { AgentComposer } from '@/features/agent/composer/agent-composer'

@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@/lib/errors/api-error'
 import { useSlashCatalog } from '@/features/agent/hooks/use-slash-catalog'
 
 const getSlashCatalog = vi.fn()

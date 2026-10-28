@@ -24,7 +24,7 @@ import {
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
 import { toast } from '@/features/window/stores/toast-store'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@/lib/errors/api-error'
 
 const A = workspaceRef('ws-1', 'src/a.ts')
 

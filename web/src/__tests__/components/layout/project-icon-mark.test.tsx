@@ -5,8 +5,8 @@ import { ProjectIconMark, EditableProjectIcon } from '@/components/layout/projec
 import { assetURL } from '@/lib/api'
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/api')>()),
+vi.mock('@/lib/api/fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/fetch')>()),
   apiFetch,
 }))
 

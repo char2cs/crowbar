@@ -170,7 +170,7 @@ import {
   useAgentProvidersStore,
 } from '@/features/settings/stores/agent-providers-store'
 import { setWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@/lib/errors/api-error'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 
 type Frame = {

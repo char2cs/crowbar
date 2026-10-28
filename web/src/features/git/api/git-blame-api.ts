@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 import { getOwningChatId } from '@/lib/workspace-scope'
 import { chatBase, isHomeWorkspace } from '@/lib/workspace-scope-url'
 

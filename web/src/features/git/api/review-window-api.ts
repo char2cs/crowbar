@@ -1,4 +1,4 @@
-import { apiFetch, apiFetchRaw } from '@/lib/api'
+import { apiFetch, apiFetchRaw } from '@/lib/api/fetch'
 import { reviewBaseForWorkspace } from '@/lib/workspace-scope-url'
 
 // The WINDOWED branch-review client: geometry, one file's patch, and search.

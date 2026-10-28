@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/api', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api')
+vi.mock('@/lib/api/fetch', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/api/fetch')>('@/lib/api/fetch')
   return { ...actual, apiFetch: vi.fn() }
 })
 
-import { apiFetch, ApiError } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
+import { ApiError } from '@/lib/errors/api-error'
 import { exists, moveFile, readDirectory } from '@/features/file-system/controllers/platform'
 import { setWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 

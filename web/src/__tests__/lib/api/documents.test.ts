@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/api')>()),
+vi.mock('@/lib/api/fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/fetch')>()),
   apiFetch: vi.fn(),
 }))
 
-import { ApiError, apiFetch } from '@/lib/api'
+import { ApiError } from '@/lib/errors/api-error'
+import { apiFetch } from '@/lib/api/fetch'
 import {
   HOST_DOCUMENT_TRANSPORT_CODE,
   readDocument,
@@ -54,7 +55,7 @@ describe('readDocument', () => {
 
     await expect(readDocument({ absolutePath: '/etc/hosts' })).rejects.toMatchObject({
       status: 403,
-      code: 'host_document_requires_local_transport',
+      problem: { code: 'host_document_requires_local_transport' },
     })
   })
 })

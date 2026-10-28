@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { describeSpawnError } from '@/features/agent/lib/spawn-error'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@/lib/errors/api-error'
 
 describe('describeSpawnError', () => {
   it('names the missing CLI on a 424 and tells the user what to do about it', () => {

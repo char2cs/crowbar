@@ -8,14 +8,14 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Route as RootRoute } from '@/routes/__root'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 
 // The sync engine needs a daemon; the root's halt handling does not.
 vi.mock('@/components/app-sync-provider', () => ({
   AppSyncProvider: ({ children }: { children: React.ReactNode }) => children,
 }))
 
-vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }))
+vi.mock('@/lib/api/fetch', () => ({ apiFetch: vi.fn() }))
 
 const handlers = new Map<string, (event: { payload: unknown }) => void>()
 

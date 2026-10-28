@@ -1,4 +1,5 @@
-import { DISCARD_WORK_INIT, deleteProject, deleteRepo, workAtRiskOf } from '@/lib/api'
+import { DISCARD_WORK_INIT, deleteProject, deleteRepo } from '@/lib/api'
+import { workAtRiskOf } from '@/lib/errors/api-error'
 import { deleteFolder, deleteHomeFolder } from '@/lib/api/sidebar-placement'
 import { deleteChat } from '@/features/agent/api/agent-api'
 import { getOwningChatId } from '@/lib/workspace-scope'

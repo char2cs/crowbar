@@ -1,4 +1,4 @@
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@/lib/errors/api-error'
 import {
   DAEMON_STATE_DOCUMENT_CODE,
   HOST_DOCUMENT_TRANSPORT_CODE,
@@ -77,13 +77,13 @@ function targetLabel(target: DocumentTarget): { path: string; name: string } {
 /** Why the daemon refuses this client a document; null for any other failure. */
 export function documentRefusal(error: unknown): { title: string; message: string } | null {
   if (!(error instanceof ApiError) || error.status !== 403) return null
-  if (error.code === HOST_DOCUMENT_TRANSPORT_CODE) {
+  if (error.problem.code === HOST_DOCUMENT_TRANSPORT_CODE) {
     return {
       title: "Can't open this file here",
       message: 'Files outside your workspaces open only in the Crowbar desktop app.',
     }
   }
-  if (error.code === DAEMON_STATE_DOCUMENT_CODE) {
+  if (error.problem.code === DAEMON_STATE_DOCUMENT_CODE) {
     return { title: "Can't open this file", message: "It holds Crowbar's own state." }
   }
   return null

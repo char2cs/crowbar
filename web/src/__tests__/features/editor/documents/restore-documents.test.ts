@@ -15,7 +15,7 @@ vi.mock('@/features/editor/host/editor-host', async (importOriginal) => {
 })
 
 import { MONACO_LOAD_MS, WATCH_LIMIT_REFUSAL } from '@/__tests__/__fixtures__/documents'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@/lib/errors/api-error'
 import { HOST_DOCUMENT_TRANSPORT_CODE, workspaceRef, type DocumentRef } from '@/lib/api/documents'
 import { documentUri } from '@/features/editor/documents/document-ref'
 import { documentText, savedDocumentText } from '@/features/editor/documents/document-text'

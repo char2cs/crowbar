@@ -4,7 +4,7 @@
 // make. Everything is addressed by the workspace the caller names — the
 // buffer's own — never by whichever workspace is active.
 
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 import { wsManager } from '@/lib/ws/manager'
 import { isHomeWorkspace, lspBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'

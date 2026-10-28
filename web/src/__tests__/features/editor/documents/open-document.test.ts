@@ -16,7 +16,7 @@ vi.mock('@/lib/crowbar-bridge', async (importOriginal) => ({
 }))
 
 import { MONACO_LOAD_MS, WATCH_LIMIT_REFUSAL } from '@/__tests__/__fixtures__/documents'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@/lib/errors/api-error'
 import {
   HOST_DOCUMENT_TRANSPORT_CODE,
   workspaceRef,

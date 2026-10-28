@@ -5,7 +5,7 @@ import {
   searchReviewDiff,
   DIFF_TRUNCATED_HEADER,
 } from '@/features/git/api/review-window-api'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@/lib/errors/api-error'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
 
 // The windowed review routes are addressed through the chat owning the

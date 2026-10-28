@@ -27,7 +27,7 @@ vi.mock('@/features/window/stores/toast-store', () => ({
   },
 }))
 
-const { ApiError } = await import('@/lib/api')
+const { ApiError } = await import('@/lib/errors/api-error')
 const { HOST_DOCUMENT_TRANSPORT_CODE, workspaceRef } = await import('@/lib/api/documents')
 const { documentText, markDocumentSaved, onExternalText, replaceDocumentText, savedDocumentText } =
   await import('@/features/editor/documents/document-text')

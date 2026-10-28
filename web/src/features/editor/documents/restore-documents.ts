@@ -1,4 +1,4 @@
-import { isNotFoundError } from '@/lib/api'
+import { isNotFoundError } from '@/lib/errors/api-error'
 import { readDocument, type DocumentRef } from '@/lib/api/documents'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { workspaceNames } from '@/lib/workspace/workspace-branch'

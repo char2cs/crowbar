@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 import { themeRegistry } from '@/extensions/themes/theme-registry'
 import { readTerminalThemePayload } from '../hooks/use-terminal-theme'
 

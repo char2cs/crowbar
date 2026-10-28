@@ -1,4 +1,5 @@
-import { apiFetch, isNotFoundError } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
+import { isNotFoundError } from '@/lib/errors/api-error'
 import { filesBaseForWorkspace } from '@/lib/workspace-scope-url'
 
 // This module holds the REAL file operations. Everything here talks to the

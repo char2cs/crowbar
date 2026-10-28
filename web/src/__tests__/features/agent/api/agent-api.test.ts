@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const apiFetch = vi.fn()
-vi.mock('@/lib/api', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }))
+vi.mock('@/lib/api/fetch', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }))
 // Only the scope REGISTRY is faked; the URL builders themselves run for real,
 // so these assertions pin the actual paths this client dials rather than a
 // stand-in shape. 'w1' carries a real repo, so chatBase builds the Task-17

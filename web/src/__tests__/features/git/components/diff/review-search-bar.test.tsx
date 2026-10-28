@@ -14,7 +14,7 @@ import {
   ReviewSearchBar,
   SEARCH_DEBOUNCE_MS,
 } from '@/features/git/components/diff/review-search-bar'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@/lib/errors/api-error'
 
 const searchMock = vi.mocked(searchReviewDiff)
 

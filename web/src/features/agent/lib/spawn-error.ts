@@ -1,4 +1,5 @@
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@/lib/errors/api-error'
+import { problemOf } from '@/lib/errors/problem'
 import { toast } from '@/features/window/stores/toast-store'
 
 /** HTTP 424 Failed Dependency — the daemon could not find the provider's vendor CLI
@@ -37,13 +38,13 @@ export function describeSpawnError(
         `Install it and make sure it’s on your PATH, then try again.`,
     }
   }
-  if (err instanceof ApiError && err.code === CHAT_BUSY) {
+  if (err instanceof ApiError && err.problem.code === CHAT_BUSY) {
     return {
       message: `Can’t ${action} ${providerName} while the chat is working`,
       description: 'Wait for the current turn to finish, or stop it, then try again.',
     }
   }
-  const detail = err instanceof Error ? err.message : String(err)
+  const detail = problemOf(err).message
   return {
     message: `Couldn’t ${action} ${providerName} chat`,
     description: detail,

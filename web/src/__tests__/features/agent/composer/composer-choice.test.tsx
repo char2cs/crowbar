@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentActivity, AgentChoice } from '@/features/agent/api/agent-api'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
 import { NO_ACTIVITY } from '@/features/agent/lib/agent-activity'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@/lib/errors/api-error'
 
 const { answerChoiceFn, setChatPermissionLevelFn } = vi.hoisted(() => ({
   answerChoiceFn: vi.fn(),

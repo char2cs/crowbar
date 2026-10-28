@@ -85,7 +85,6 @@ vi.mock('@/lib/store/project-visibility', async (importOriginal) => {
 })
 
 vi.mock('@/lib/api', () => ({
-  API_BASE: '',
   fetchRepos: (...args: unknown[]) => fetchRepos(...args),
   fetchWorkspaces: (...args: unknown[]) => fetchWorkspaces(...args),
   fetchFolders: (...args: unknown[]) => fetchFolders(...args),

@@ -19,7 +19,7 @@ import {
   getScrollPosition,
   setScrollPosition,
 } from '@/features/agent/hooks/lib/transcript-scroll-positions'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@/lib/errors/api-error'
 import { __resetPerfForTests } from '@/lib/perf/instrumentation'
 import { ESTIMATED_ROW_HEIGHT } from '@/features/agent/transcript/agent-transcript'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'

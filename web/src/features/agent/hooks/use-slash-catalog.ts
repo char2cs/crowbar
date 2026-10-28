@@ -4,7 +4,7 @@ import {
   type SlashCatalog,
   type SlashCatalogItem,
 } from '@/features/agent/api/agent-api'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@/lib/errors/api-error'
 
 const SLASH_DEBOUNCE_MS = 150
 

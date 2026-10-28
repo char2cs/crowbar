@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { pushChanges, pullChanges } from '@/features/git/api/git-remotes-api'
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
-vi.mock('@/lib/api', () => ({ apiFetch }))
+vi.mock('@/lib/api/fetch', () => ({ apiFetch }))
 // git is addressed through the chat holding the worktree now, never through the
 // workspace: the api module resolves the base via gitBaseForWorkspace.
 vi.mock('@/lib/workspace-scope-url', () => ({

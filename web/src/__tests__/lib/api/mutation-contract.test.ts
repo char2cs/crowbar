@@ -1,12 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import {
-  postProject,
-  postRepo,
-  renameRepo,
-  importBranches,
-  renameWorkspaceBranch,
-  apiFetch,
-} from '@/lib/api'
+import { postProject, postRepo, renameRepo, importBranches, renameWorkspaceBranch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 
 // §3/§7: every entity mutation is hierarchical and fire-and-forget — the daemon

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { WorkAtRisk } from '@/lib/api'
+import type { WorkAtRisk } from '@/lib/errors/api-error'
 
 /**
  * The removal tray: rows that are on their way out but have not gone yet.

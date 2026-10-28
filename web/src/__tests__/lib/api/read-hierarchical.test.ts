@@ -1,13 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import {
-  fetchRepos,
-  fetchWorkspace,
-  fetchWorkspaces,
-  apiFetch,
-  workspaceDTOFromChat,
-  workspaceDTOFromWorktreeFrame,
-} from '@/lib/api'
-import type { RepoChatWireDTO } from '@/lib/api'
+import { fetchRepos, fetchWorkspace, fetchWorkspaces } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
+import { workspaceDTOFromChat, workspaceDTOFromWorktreeFrame } from '@/lib/api/wire'
+import type { RepoChatWireDTO } from '@/lib/api/wire'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import type { ChatWorktreeDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 

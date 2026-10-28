@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // (POST/PATCH/DELETE .../files). This locks the request shapes.
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 
-vi.mock('@/lib/api', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }))
+vi.mock('@/lib/api/fetch', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }))
 vi.mock('@/lib/workspace-scope-url', () => ({
   filesBaseForWorkspace: (wsId: string) => `/v0/chats/chat-for-${wsId}/files`,
 }))

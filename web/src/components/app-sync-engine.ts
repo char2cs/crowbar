@@ -6,13 +6,8 @@ import { getVisibleProjectIds } from '@/lib/store/project-visibility'
 import { toSidebarRepo } from '@/lib/store/build-repo-tree'
 import { subscribeHomeTree } from '@/lib/store/home-tree'
 import { dataOf } from '@/lib/loadable'
-import {
-  fetchFolders,
-  fetchRepoChats,
-  fetchRepos,
-  fetchWorkspaces,
-  workspaceDTOFromWorktreeFrame,
-} from '@/lib/api'
+import { fetchFolders, fetchRepoChats, fetchRepos, fetchWorkspaces } from '@/lib/api'
+import { workspaceDTOFromWorktreeFrame } from '@/lib/api/wire'
 import { subscribeEntityStream, type EntityChange } from '@/lib/ws/entity-stream'
 import { isStructuralChatFolderFrame } from '@/lib/ws/structural-chat-folder-frame'
 import { getAllEntities, removeEntity, upsertEntity } from '@/lib/persistence/entity-cache'
