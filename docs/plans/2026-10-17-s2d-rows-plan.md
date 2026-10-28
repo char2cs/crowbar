@@ -4,7 +4,7 @@
 
 **Goal:** Every row kind S1 writes has one renderer that shows the detail S1 records: tool and MCP rows by family with live and settled labels and run grouping (T8); the subagent card, the todo strip, the working line and reasoning (T9); approvals, turn failures, interrupts and a lost session (T10). Closes symptom 8.
 
-**Architecture:** See the index, `docs/plans/2026-10-17-s2-chatstore-plan.md` (R8, R11, R13, R14, D6, D7). Requires T1–T7. All labels are computed on the client from row fields and never stored twice (additions §4 A).
+**Architecture:** See the index, `docs/plans/2026-10-17-s2-chatstore-plan.md` (R8, R11, R13, R14, R27, R29, D6, D7). Requires T1–T7 and T11 (index, Task order). Each task also runs `node scripts/ratchet/file-size.mjs` and `counters.mjs` and states its loc deltas (R1). All labels are computed on the client from row fields and never stored twice (additions §4 A).
 
 **Tech Stack:** React 19, `@/components/ui/*`, CSS-variable tokens, phosphor icons, shiki (lazy) for code, Plate (static) for markdown, vitest + Testing Library.
 
@@ -66,10 +66,11 @@ cd web && bun run knip && bun run lint:baselines && bun run lint:doctor
 - [ ] **Step 5: Commit**
 
 ```bash
-git add web
+git add <every created, modified and deleted path, by name>
 git commit -m "feat(web): tool and MCP rows by family with run grouping
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```
 
 **Acceptance:** every tool row in the S1 recorded Claude subagent session (`api/tests/testdata/hooks/claude-subagent-session`, rendered in a test from its rows) has a non-empty label; no label text is stored in the store.
@@ -132,29 +133,32 @@ cd web && bun run knip && bun run lint:baselines && bun run lint:doctor
 - [ ] **Step 5: Commit**
 
 ```bash
-git add web
+git add <every created, modified and deleted path, by name>
 git commit -m "feat(web): subagent cards, todo strip, working line and reasoning from rows
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```
 
 **Acceptance:** a Claude subagent's own tool calls are visible inside its card; the working line never guesses; `features/agent` has exactly one clock interval.
 
 ---
 
-### Task 10: Approvals, turn failures, interrupt, lost session (F, G, H, R13)
+### Task 10: Approvals, turn failures, interrupt, lost session (F, G, H, R13, R27)
 
 **Goal:** Pending asks render as a card stack docked over the composer, with the target and input the ask carries; the bound tool row shows it is awaiting approval and, once resolved, carries a one-line note instead of a separate row. A failed turn is a row with Retry and Open terminal. Stop shows "Stopping…" in the same frame and "Interrupted · you stopped this turn" when the row lands. A lost session offers "Start a new conversation".
 
 **Files:**
-- Rewrite: `web/src/features/agent/composer/composer-choice.tsx` and `composer/composer-choice-controls.tsx` (split in T3) — the card stack: header `<verb> <provider> … i/n`; body by the bound tool's family (command in a mono block plus its description; an edit's diff preview; `server · tool` and formatted args for MCP; questions and forms keep today's controls); number keys pick an option; Enter means allow-once only while the card has focus; answers through `answerChoice` as today, showing a 400 or 409 as today
+- Rewrite: `web/src/features/agent/composer/composer-choice.tsx` and `composer/composer-choice-controls.tsx` (split in T0) — the card stack: header `<verb> <provider> … i/n`; body by the bound tool's family (command in a mono block plus its description; an edit's diff preview; `server · tool` and formatted args for MCP; questions and forms keep today's controls); the args come from the ask's own `toolInput`/`toolTarget`/`mcpServer` (S1 T8b): when `toolInputTruncated` is true, `toolInput` is a JSON *string* holding the input's leading text, shown as text with a "truncated" note, never parsed as the object; an ask with `answerable: false` shows its question without answer buttons; number keys pick an option; Enter means allow-once only while the card has focus; answers through `answerChoice` as today, showing a 400 or 409 as today
 - Create: `web/src/features/agent/composer/lib/ask-labels.ts` — `optionLabel`, `pickedOptionLabels`, `describeResolvedChoice`, `choiceQuestions` (moved from `lib/agent-activity.ts`)
 - Delete: `web/src/features/agent/lib/agent-activity.ts` and its test (everything left has moved)
 - Modify: `web/src/features/agent/stores/lib/fold-rows.ts` — an ask with a `toolId` sets `ToolItem.askId` while pending and `askNote` once resolved, and makes no top-level item; an ask with no tool is an `a:<askId>` item that renders as a one-line marker once resolved; a `turn_ended{interrupted}` turns its running tools `interrupted` (a `done` turn still reads `abandoned`); `stopping` is set by the Stop action and cleared by that turn's `turn_ended`
 - Modify: `web/src/features/agent/transcript/rows/tool-row.tsx` — `data-status="awaiting_approval"` and scroll-into-view while its ask is pending; the resolved note ("Allowed once", "Denied")
-- Modify: `web/src/features/agent/transcript/rows/marker-row.tsx` — `turn_failed`: headline, collapsible detail, Retry (re-sends the turn's prompt text through the outbox) and Open terminal; `turn_interrupted`: "Interrupted · you stopped this turn" (reasons `stopped`, `retracted`); `session_lost`: the reason and "Start a new conversation" (calls `resumeChat`, R13); `runner_exited` with a non-normal reason: the reason and Open terminal
+- Modify: `web/src/features/agent/transcript/rows/marker-row.tsx` — `turn_failed`: headline, collapsible detail, Retry (re-sends the turn's prompt text through the outbox under a fresh request id, R27) and Open terminal; `turn_interrupted`: "Interrupted · you stopped this turn" (reasons `stopped`, `retracted`); `session_lost`: the reason and "Start a new conversation" (calls `resumeChat`, R13); `runner_exited` with a non-normal reason: the reason and Open terminal
+- Modify: `web/src/features/agent/lib/spawn-error.ts` — `describeSpawnError` maps code `session_lost` (R27) to "The session was lost" / "Start a new conversation to continue."; the fallback description never shows a daemon message's trailing sentinel text (`apperr: …`); the resume and switch toasts and "Start a new conversation" go through it (carry C27; the generic envelope is S3's, index O4)
+- Note: an ask resolved `refused` (nobody answered in time; S1 `afa856c5`) reads "No answer in time" in the bound tool row's note
 - Modify: `web/src/features/agent/chat/agent-chat-view.tsx` — the Stop action sets `stopping` before the request; the working line shows "Stopping…" while it is set
-- Test: extend `web/src/__tests__/features/agent/composer/composer-choice.test.tsx` (under 500 per R19), `transcript/rows/tool-row.test.tsx`; create `transcript/rows/marker-row.test.tsx`, `composer/lib/ask-labels.test.ts`; delete `lib/agent-activity.test.ts`
+- Test: extend `web/src/__tests__/features/agent/composer/composer-choice.test.tsx` (795 lines today: under 500 per R19), `lib/spawn-error.test.ts`, `transcript/rows/tool-row.test.tsx`; create `transcript/rows/marker-row.test.tsx`, `composer/lib/ask-labels.test.ts`; delete `lib/agent-activity.test.ts`
 
 - [ ] **Step 1: Failing tests**
 
@@ -172,6 +176,10 @@ it('offers Retry and Open terminal on a failed turn')
 it('reads Interrupted · you stopped this turn after Stop')
 it('shows Stopping… in the same render as the Stop click')
 it('offers Start a new conversation on a lost session')
+// lib/spawn-error.test.ts (extend)
+it('C27: says the session was lost for a session_lost refusal, with no raw daemon text')
+// composer/composer-choice.test.tsx
+it('shows a truncated tool input as text, not as parsed arguments')
 ```
 
 - [ ] **Step 2: Run; they FAIL.**
@@ -187,10 +195,11 @@ cd web && bun run knip && bun run lint:baselines && bun run lint:doctor
 - [ ] **Step 5: Commit**
 
 ```bash
-git add web
+git add <every created, modified and deleted path, by name>
 git commit -m "feat(web): approval card stack, failure and interrupt rows, lost-session action
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```
 
 **Acceptance:** every additions-design element A–J has a renderer fed only by rows, live text and the outbox; `web/src/features/agent/lib/` holds no activity code.

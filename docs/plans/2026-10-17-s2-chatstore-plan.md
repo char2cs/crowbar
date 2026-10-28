@@ -1,10 +1,10 @@
 # S2 — Window-level ChatStore fed by push: Implementation Plan (index)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Tasks are strictly sequential: each one assumes every earlier task, and all of S1, is committed.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Tasks run in the order of "Task order" below: each one assumes every earlier task in that order, and all of S1 (T1–T13 and the S1 final-review fix dispatch), is committed.
 
 **Goal:** One window-level `ChatStore`, filled only by S1's per-chat feed (rows by `seq`, plus an ephemeral delta side channel) and the scope lifecycle feed. It renders each row kind with one renderer under a stable key, and sends prompts through an outbox state machine that only ledger facts advance, with `retract` so Esc after send gives the prompt back. Every chat poll, the streaming copy, client prompt persistence, the chat slice in workspace stores, remount-on-settle and the daemon's R13 read projection are deleted.
 
-**Architecture:** `features/agent/stores/` holds the ChatStore: lifecycle entities per chat (`chats`), a per-chat feed state (`feeds`: rows folded into items keyed by stable id, one order key, turn facts, live text) and the outbox. Every component subscribes with a narrow selector to the one slice it draws, so a delta re-renders its streaming row and nothing else. The daemon gains three small contract changes (append-only deltas, `answerable` on asks, a blob read route) and one verb (`retract`); S2 ends by deleting the read projection S1 kept for the old client.
+**Architecture:** `features/agent/stores/` holds the ChatStore: lifecycle entities per chat (`chats`), a per-chat feed state (`feeds`: rows folded into items keyed by stable id, one order key, turn facts, live text) and the outbox. Every component subscribes with a narrow selector to the one slice it draws, so a delta re-renders its streaming row and nothing else. The feed is the only source of message state on the client: no REST transcript read, no lifecycle message frame and no second store survives T3 (R28). S1 already shipped the final delta shape, the post-`ready` snapshot and `answerable` on asks (S2 ledger P3), so the daemon gains only a blob read route, a typed session-lost send error (C27) and one verb (`retract`); S2 ends by deleting the read projection S1 kept for the old client.
 
 **Tech Stack:** React 19, zustand (vanilla `createStore` + a selector hook), `@tanstack/react-virtual`, Plate (the only markdown renderer), `@/components/ui/*`, phosphor icons, shiki, vitest + Testing Library (`web/src/__tests__/`), Go (`api/`, `-tags noEmbed`), gin, gorilla/websocket, testify, `api/tests` black-box suite over S1's `kit.FakeProvider`.
 
@@ -14,13 +14,31 @@
 
 | File | Tasks |
 |---|---|
-| `docs/plans/2026-10-17-s2a-daemon-contract-plan.md` | T1 feed contract for the client · T2 `retract` |
-| `docs/plans/2026-10-17-s2b-store-and-feed-plan.md` | T3 the transcript comes from the feed (symptoms 4, 7) · T4 chat entities move to the ChatStore |
-| `docs/plans/2026-10-17-s2c-outbox-scroll-composer-plan.md` | T5 outbox and Esc → retract (symptom 5) · T6 scroll without a settle gate (symptom 6) · T7 one composer that serializes on send (symptom 7) |
-| `docs/plans/2026-10-17-s2d-rows-plan.md` | T8 tool and MCP rows (A, B) · T9 subagent card, todo strip, working line, reasoning (C, D, E, J; symptom 8) · T10 approvals, errors, interrupt, lost session (F, G, H) |
+| `docs/plans/2026-10-17-s2a-daemon-contract-plan.md` | T1 blobs by ref and the typed session-lost send error (C27) · T2 `retract` |
+| `docs/plans/2026-10-17-s2b-store-and-feed-plan.md` | T0 mechanical pre-split (P13) · T3 the transcript comes from the feed (symptoms 4, 7; streaming diagram fences) · T4 chat entities move to the ChatStore |
+| `docs/plans/2026-10-17-s2c-outbox-scroll-composer-plan.md` | T5 outbox and Esc → retract (symptom 5; C27 web half) · T6 scroll without a settle gate (symptom 6) · T7 one composer that serializes on send (symptom 7) |
+| `docs/plans/2026-10-17-s2d-rows-plan.md` | T8 tool and MCP rows (A, B) · T9 subagent card, todo strip, working line, reasoning (C, D, E, J; symptom 8) · T10 approvals, errors, interrupt, lost session (F, G, H; C27 toasts, truncated ToolInput) |
 | `docs/plans/2026-10-17-s2e-deletion-and-gate-plan.md` | T11 delete the daemon's R13 projection · T12 chat-surface hygiene pass · T13 gate |
 
-13 tasks, one commit each. T3 is the large cutover: the transcript, its live text and every REST read move to the feed together, because the old row list joins messages and tool calls that the feed delivers as one ordered stream.
+13 tasks plus the T0 pre-split, one commit each. T3 is the large cutover: the transcript, its live text and every REST read move to the feed together, because the old row list joins messages and tool calls that the feed delivers as one ordered stream.
+
+## Task order (S2 ledger P2, P13)
+
+T1 → T2 → T0 → T3 → T4 → T5 → **T11** → T6 → T7 → T8 → T9 → T10 → T12 → T13. T11 runs right after T5 (P2): once T5 has moved the last REST read (`getPendingPrompt`, kept by T3 per P12) onto rows, nothing reads the projector, and deleting it early stops later tasks from leaning on it. T0 is a behaviour-free split of the oversize files T3–T5 rewrite, so the T3 diff shows only the cutover.
+
+Dependencies outside S2: all of S1, including its final-review fix dispatch (C25, C28, C30, and the `adapter/store/ledger` coverage lane, which touches the blob store T1 reads). S2 does **not** depend on S4; S4 depends on S2 (S4b replaces R15's `url` resolver with `holdScope('chat:<id>')`, S4c deletes T4's `chats`/`byWorkspace`/`scopes`/`telemetry`). S3's error envelope work (S3 D1) owns the generic "raw daemon text in a toast" class; S2 fixes only the session-lost and resume/switch cases C27 names.
+
+## Refresh notes (2026-10-28, at `d8404d2e`)
+
+What changed under this plan since it was written at `94d001ddd`, and is folded into the task text below:
+
+- S1 T10 shipped `GET /v0/chats/:chatId/feed?since=N` with R3's exact delta shape (`api/internal/app/usecases/chat/internal/ingress/live.go` `FeedDelta`), the post-`ready` `Replace` snapshot (`Recorder.Snapshot`) and the frames `row`/`ready{epoch,seq}`/`delta`/`resync{seq}`/`deleted`. A `since` beyond the head answers `resync{seq: head}` then closes 4000 (S1 ledger ruling); an attach failure answers `resync{seq: since}`; a client over 1,024 unread frames gets `resync{seq: last sent}`; a purge ends with `deleted` and 4001. A plain GET is a 400. A long tool output streams a 64 KiB tail window (`toolOutputWindow`), cut by a `Replace`.
+- S1 T7/T8b wrote `answerable` on ask rows (`api/internal/domain/ledger/ask.go`), and `ask_resolved` gained `refused` (an ask nobody answered in time; web `afa856c5`). `TurnRetracted` was never added (P3).
+- S1 T11 retired the relay: HTTP hooks are the only ingress (`POST …/chats/runners/:segid/hooks/:provider/:event`, header `X-Crowbar-Runner-Token`). S1 T12 (migration step 6) converts legacy chats into rows, and `cmd/crowbar-seed-chat` already writes ledger rows (spec issue 10 is closed).
+- The web chat surface is unchanged in substance: `web.chat-surface` 21,131 (was 21,130), the same 16 timers. `agent-api.ts`'s reads are named `listChatMessages`/`listChatActivity` (not `getChat*`); `streaming-message-batcher.ts` lives in `web/src/features/workspace/stores/hooks/lib/`.
+- `wsManager`'s transport `onclose` carries no close code (`web/src/lib/ws/manager.ts`, `tauri-transport.ts`), so the client acts on the `resync`/`deleted` frame, never on 4000/4001 (R15, R28).
+- The chat transcript renders mermaid fences as plain code today (`ChatCodeBlockElement` handles only excalidraw and text attachments; `MermaidDiagram` lives in `features/editor/markdown/plate/`). R26 adds diagram rendering with the streaming skeleton.
+- The S2 ledger's rulings P1–P36 (adopted, user-accepted 2026-10-18) were never folded into this text; the ones that change a task are folded below (P1 → R1, P2/P13 → task order, P3 → T1, P7–P12 → T3/T5, P26 → T13, P31 → disk). Carries C7 and C27 and the M8 fix (already landed in S1 T5: `3f4561ba`, `spawn-error.ts` maps `chat_busy`) are folded into T1, T5 and T10.
 
 ---
 
@@ -37,43 +55,47 @@ Every task's requirements include these. Quoted from the specs, `CLAUDE.md` and 
 - Store patterns: `useChatStore((s) => s.narrow.field)` with a narrow selector, never a bare `useChatStore()`; `chatStore.getState()` only inside event handlers and `useEffect` bodies; stores never import from `components/` or any `*.tsx`; a selector never returns a fresh array or object (keep indexes in the store, or use `useShallow`).
 - Files: kebab-case component files; every file a task creates or edits is ≤500 lines when the task commits (R19). Comments explain *why* in ≤3 lines (R18).
 - Tests: in `web/src/__tests__/` mirroring `src`, `@/` imports, extend the unit's test file, ≤3 `vi.mock` per file, no Tailwind-class assertions, no reading `src/` text, no sleeps (`waitFor`, fake timers, resolved promises). Go: one test file per source file, `require.Eventually`/channels, no `time.Sleep`, every backend bug gets a black-box `TestRegression_*`.
-- Running tests: targeted only, never the full suite. Web: `cd web && bunx vitest run <paths>`. Types: `cd web && bun tsc --noEmit` (never `bunx tsc`: that resolves a different package). Before each web commit also: `bunx eslint <touched paths> --max-warnings 0`, `bunx prettier --check <touched paths>`, `bun run knip`, `bun run lint:baselines`, `bun run lint:doctor`. Go: `cd api && go test -tags noEmbed ./internal/<pkg>/...`, black box `go test -tags 'integration noEmbed' -count=1 -run '<regex>' ./tests/`, then `make lint`, `make deadcode`, `go vet -tags noEmbed ./...`.
+- Running tests: targeted only, never the full suite. Web: `cd web && bunx vitest run <paths>`. Types: `cd web && bun tsc --noEmit` (never `bunx tsc`: that resolves a different package). Before each web commit also: `bunx eslint <touched paths> --max-warnings 0`, `bunx prettier --check <touched paths>`, `bun run knip`, `bun run lint:baselines`, `bun run lint:doctor`. Go, always with an isolated home: `T=$(mktemp -d) && cd api && HOME=$T/home CROWBAR_HOME= go test -tags noEmbed ./internal/<pkg>/...`; black box (bbx) `HOME=$T/home CROWBAR_HOME= go test -tags 'integration noEmbed' -count=1 -run '<regex>' ./tests/` (`-timeout 40m` for a wide regex; `-race` on targeted tests only); then `golangci-lint run --build-tags noEmbed ./...`, `scripts/deadcode-check.sh`, `go vet -tags noEmbed ./...` from `api/`. Never `go test ./...`, `make pr-checks`/`test-integration`/`test-coverage`, or `-tags integration` on `./tests/integration/...` or `./tests/kit/...` (vet only).
 - Baselines only shrink. A task that fixes a file listed in `web/knip.json` `ignoreIssues`, a `*_BASELINE` list in `web/eslint.config.js` or `api/deadcode-baseline.txt` deletes that entry in the same commit (`check-knip.mjs` and `check-eslint-baselines.mjs` fail on a stale entry). Never add an entry.
-- Safety: never connect to `~/.crowbar/crowbar.sock` or open anything under `~/.crowbar/state`; dev runs use the worktree's `CROWBAR_HOME` (`make dev`, `make dev-desktop`). Never read or write `~/.claude` or `~/.codex`. Real provider CLIs only in scratch dirs with `env -i`. Check `df -h /System/Volumes/Data` before any build or `bun install`; under 8 GB free, stop and report. Never bare `git stash`. Never push. No scratch files inside the worktree (sibling sessions commit with `git add -A`); scratch goes in the session scratchpad.
+- Safety: never connect to `~/.crowbar/crowbar.sock` or open anything under `~/.crowbar/state`; dev runs use the worktree's `CROWBAR_HOME` (`make dev`, `make dev-desktop`). Never read or write `~/.claude` or `~/.codex`. No real provider CLI runs anywhere in S2 (handoff hard rule); the live check uses the fake CLI (R25). Check free disk on the worktree's filesystem (`df -h .`; on macOS `df -h /System/Volumes/Data`) before any build or `bun install`; under 8 GB free, stop and report (P31: before T3's `bun install` too). No provider names in non-test Go code or comments. Never bare `git stash`, never `git rebase -i`. Never push. Stage by explicit path (`git add <paths>`, never `git add web`/`api`/`-A`). No scratch files inside the worktree; scratch goes in the session scratchpad. Commit messages end with the trailer the handoff names (`Co-Authored-By: …` and `Claude-Session: …`).
 
 ## Rulings (open decisions resolved for S2)
 
 | # | Decision | Ruling |
 |---|---|---|
-| R1 | `make ratchet` per task | Tasks do not run it: `runGate` fails on any unwritten shrink, so it would fail after every deleting task. Each task checks the 500-line cap with `wc -l` on what it touched. T13 runs `make ratchet ARGS=--update` once against the post-S1 baselines, then `make ratchet`, and commits the lower numbers. A task that edits files outside `web/src/features/agent` must not grow that file's module: it states the net line change per module in its commit body. |
+| R1 | Ratchets per task (amended by P1, CLAUDE.md and the red loc-budgets base) | Every task runs `node scripts/ratchet/file-size.mjs` and `node scripts/ratchet/counters.mjs` (both green at base). Any `grew`/`added` fails the task. `runGate` also exits 1 on an unwritten shrink, so a task that deleted code runs the same script with `--update` (it refuses growth and writes only shrinks) and commits the lowered `file-size-baseline.json`/`counters-baseline.json` with the task, as S1 did (e.g. `cae02572`). `loc-budgets` is red at base (handoff §4, S1 R7: at `d8404d2e` web.core, web.sidebar, web.editor, web.tests, web.total and most go.* keys are over), so `--update` refuses it: a task runs `node scripts/ratchet/loc-budgets.mjs` read-only and states, in its commit body, the delta against its base for every key it touched; it never makes a key it touched rise. Each task checks the 500-line cap with `wc -l` on what it touched. T13 makes the final write-back of every gate. |
 | R2 | Where the ChatStore lives | `web/src/features/agent/stores/` (chat-surface). `CLAUDE.md` says server-adjacent "conversations" go in `lib/store/`, but `features/agent/stores/chat-ledger-store.ts` already sets this precedent, and moving chat code into the sidebar module would hide it from the chat-surface budget. |
-| R3 | Delta frames (S1 `FeedDelta.text` is everything so far, which is O(L²) on the wire: symptom 7) | T1: `delta{id, turnId, scope, stream, n, text, replace}`. `n` is the frame's 1-based position in its stream; `text` is only the new suffix, or everything so far when `replace` is true (a non-prefix rewrite, or the snapshot every live stream gets right after `ready`). The client appends when `n == last+1`, replaces on `replace`, ignores `n <= last`. `id` is the message id for `answer`/`reasoning` and the tool id for `tool_output`/`diff`. |
-| R4 | Whether Crowbar can answer an ask (S1 rows lack it; the `/choices` GET carried it) | T1: the `ask` body gains `answerable` (bool), set by the mapper from its hold decision. It never changes on the row: a CLI that hangs up, the bound tool's post, or the turn ending each write `ask_resolved`. |
-| R5 | Tool input/output after `/activity/:toolId/payload` goes | T1: `GET /v0/chats/:chatId/blobs/:ref` on the flat `chats` group (no worktree needed). `ref` must be 64 lowercase hex (else 400); unknown chat or swept blob → 404. Blobs are content-addressed and local to this user's daemon, so cross-chat reads are not a privilege boundary; the chat id only scopes the URL. |
-| R6 | `retract` (report §4.2, additions H; S1 has `TurnRetracted` with no writer) | T2: `POST …/chats/:id/prompts/:requestId/retract`. Pending prompt → `prompt_settled{consumed:false, reason: retracted}`, and a runner started with that prompt (`delivery: restart`) is terminated (`runner_exited{reason: retracted}`); response `{state: "retracted", text}`. Delivered with its turn running → `turn_ended{interrupted, reason: retracted}`, then the provider is signalled exactly as Stop does (S1 R10); response `{state: "interrupted", text}`. Settled prompt or closed turn → 409. Unknown request → 404. A provider acknowledgement that lands after a retract is recorded as what it is: a provider-origin `user_message` and its `turn_started`. `TurnRetracted` is deleted (the reason field carries it). |
-| R7 | Who owns the outbox | The client, in the ChatStore, per architecture §5 and additions §I: `queued` and `sending` exist only in memory; from the `user_message` row on, the prompt's state is read from rows (`pending → delivered → settled | refused | retracted`). Persistence is deleted: an unsent prompt does not survive an app reload (decision D1). |
+| R3 | Delta frames | **Shipped by S1 T10** (P3): `delta{id, turnId, scope, stream, n, text, replace}`. `n` is the frame's 1-based position in its stream; `text` is only the new suffix, or everything so far when `replace` is true (a non-prefix rewrite, a tool-output window cut, or the snapshot every live stream gets right after `ready`). The client appends when `n == last+1`, replaces on `replace`, ignores `n <= last` (and, with no `replace`, an `n > last+1` gap: the next `replace` or the item's row repairs it). `id` is the message id for `answer`/`reasoning` and the tool id for `tool_output`/`diff`. S2 changes nothing on the daemon side. |
+| R4 | Whether Crowbar can answer an ask | **Shipped by S1** (`ledger.Ask.Answerable`, `json:"answerable"`). It never changes on the row: a CLI that hangs up, the bound tool's post, an expiry (`refused`) or the turn ending each write `ask_resolved`. |
+| R5 | Tool input/output after `/activity/:toolId/payload` goes | T1: `GET /v0/chats/:chatId/blobs/:ref` on the flat `chats` group beside `/:chatId/feed` (no worktree needed). `ref` must be 64 lowercase hex (else 400); unknown chat or swept blob → 404. It reads `adapter/store/ledger.Blobs.Get(ref)` after checking the chat exists. Blobs are content-addressed and local to this user's daemon, so cross-chat reads are not a privilege boundary; the chat id only scopes the URL. |
+| R6 | `retract` (report §4.2, additions H) | T2: `POST …/chats/:id/prompts/:requestId/retract`. Pending prompt → `prompt_settled{consumed:false, reason: retracted}`, and a runner started with that prompt (`delivery: restart`) is terminated (`runner_exited{reason: retracted}`); response `{state: "retracted", text}`. Delivered with its turn running → `turn_ended{interrupted, reason: retracted}`, then the provider is signalled exactly as Stop does (S1 R10); response `{state: "interrupted", text}`. Settled prompt or closed turn → 409. Unknown request → 404. A provider acknowledgement that lands after a retract is recorded as what it is: a provider-origin `user_message` and its `turn_started`. `TurnRetracted` does not exist (P3); the reason field carries it. |
+| R7 | Who owns the outbox | The client, in the ChatStore, per architecture §5 and additions §I: `queued` and `sending` exist only in memory; from the `user_message` row on, the prompt's state is read from rows (`pending → delivered → settled | refused | retracted`). Persistence is deleted: an unsent prompt does not survive an app reload (decision D1, accepted only with P11: a steerable prompt is sent at once with `delivery: steer` and so persists as its `user_message` row; only a prompt held by the outbox, i.e. not steerable, is memory-only). P11 also keeps the compaction hold, the image-upload hold and the staged model/effort selection that `use-prompt-queue.ts` has today. |
 | R8 | Item identity and order | Item ids: `p:<requestId>` (Crowbar prompt; the same key from the optimistic echo through settle), `u:<seq>` (provider-origin prompt), `m:<turnId>:<messageId>` (assistant text), `r:<turnId>:<messageId>` (reasoning), `t:<toolId>` (tool), `s:<spawnToolId>` (subagent card, keyed by the call that spawned it so binding never changes the key; it takes that call's place, and the spawning `tool_call` makes no tool item; a subagent with no spawning call: `s:<scope>`), `a:<askId>` (ask), `k:<seq>` (marker, turn end, failure, lost session). Order is the `seq` of the item's first row and never changes. An item known only from live deltas sits in a live tail after the ordered list and moves into the order, same key, when its first row lands. Rows in a subagent scope are the card's children, never top-level items. |
 | R9 | Busy | The pane reads turn facts from its own fold of rows (running turn, pending prompts, open asks, live subagents). Sidebar and tabs, which have no feed, read the entity's server-folded `working` from lifecycle frames. No client code writes `working`. |
 | R10 | Telemetry and providers | Telemetry moves to `ChatStore.telemetry[chatId]`: the lifecycle `telemetry` frame, plus one GET when a feed attaches; a value with an older `observedAt` never replaces a newer one. Providers are read from the window-level `useAgentProvidersStore`; the per-workspace copy and its 3× retry + toast are deleted (D5). |
 | R11 | Remount on settle | A text row picks its renderer once, at mount: an item that is not settled when its row mounts keeps the live Plate editor (with the fresh-word fade) until that row unmounts; an item settled at mount renders static. Settling changes the item's data, never the component. Virtualizer unmount/remount on scroll is not a settle. |
 | R12 | Scroll anchoring: report §4.4 says "CSS bottom anchoring", the user's rule says preserve the eased follow | Keep `hooks/lib/follow-scroll.ts` for follow-at-bottom (a rAF animation, not a timer). Delete the reveal/visibility settle gate (`SETTLE_QUIET_FRAMES`), the measured tail-room padding, `ARM_QUIET_MS`, `READER_INPUT_MS`, `PIN_SETTLE_GRACE_MS`, the arm timer and `use-scroll-frame-span`. Pin-to-top becomes a spacer computed from the virtualizer's own offsets (never measured DOM padding). `overflow-anchor` keeps a reader's position while rows above change size. |
-| R13 | Lost session (S1 R5 leaves the affordance to S2) | A `session_lost` row renders as a marker with one action, "Start a new conversation", which calls the existing `resumeChat` (the next prompt starts fresh, as S1 R5 does). Rebinding to another session id is S8's (decision D3). |
+| R13 | Lost session (S1 R5 leaves the affordance to S2) | A `session_lost` row renders as a marker with one action, "Start a new conversation", which calls the existing `resumeChat` (the next prompt starts fresh, as S1 R5 does). Rebinding to another session id is S8's (decision D3). A send, resume or switch the daemon refuses because the session is lost answers the typed code `session_lost` (R27); the web never shows the "may already have this message" wording or raw daemon text for it. |
 | R14 | "Zero polling loops" | At T13 the only `setTimeout`/`setInterval` matches under `web/src/features/agent` are: the shared 1 s text clock (`activity/lib/text-clock.ts`, writes `textContent`, no re-render), the working-line verb rotation, and `use-slash-catalog`'s input debounce. Feed reconnects use `wsManager`'s existing backoff (R15); no new timer anywhere. |
-| R15 | Resuming a feed with `since=seq` through `wsManager` (its URL is fixed at subscribe) | T3: `wsManager.subscribe(endpoint, cb, url?)` takes an optional `() => string` evaluated at every (re)open; the endpoint string stays the channel key. The feed passes `() => /v0/chats/<id>/feed?since=<feed.seq>`. Close 4000 (resync) reconnects through the same path; 4001 (deleted) drops the feed. |
+| R15 | Resuming a feed with `since=seq` through `wsManager` (its URL is fixed at subscribe) | T3: `wsManager.subscribe(endpoint, cb, url?)` takes an optional `() => string` evaluated at every (re)open; the endpoint string stays the channel key. The feed passes `() => /v0/chats/<id>/feed?since=<feed.seq>`. The manager's `onclose` carries no close code, so the client acts on the frame the daemon sends before closing, never on 4000/4001: `resync{seq}` with `seq == feed.seq` reconnects through the manager's existing backoff with `since=feed.seq`; `resync{seq}` with `seq < feed.seq` (a `since` beyond the daemon's head: the client is ahead of a reset ledger) drops the feed state and reattaches with `since=0`; `deleted` drops the feed and unsubscribes, so the manager does not reopen it. The manager's `{ reconnected: true }` callback is ignored by the feed (its replay is the `since`). S4b later replaces this resolver with `holdScope` (S4 A2). |
 | R16 | Lifecycle subscriptions | T4: one `wsManager` subscription per lifecycle endpoint (`${chatBase(wsId)}/ws`), refcounted by the workspace views that need it, applied by one reducer into `ChatStore.chats`. Today every mounted workspace applies every frame of its repo into its own copy (K-fold). After T11 the lifecycle feed carries entity frames only. |
 | R17 | Feed lifetime | A chat's feed is attached while a view of it is mounted or its outbox is non-empty. Detaching drops its feed state; re-attaching replays from `since=0`. No LRU, no cache. |
 | R18 | Comments (33% of `features/agent` is comment lines) | A task that edits a file brings that file's comments to the ≤3-line *why* rule: narratives, incident history and restated code are deleted. T12 applies the rule to the files no earlier task touched. Comment trimming never changes code. |
 | R19 | 500-line cap | A task that edits a production or test file over 500 lines brings it under 500 in that task, split by responsibility and named for what each part exports. An oversize test file whose source is rewritten is replaced, not split: its cases for deleted behaviour go, the remaining ones move to the test file of the source they exercise. Outside `features/agent` (`review-thread-item.tsx` in T4), the split is offset by R18 so the module does not grow. |
 | R20 | The 6 s "terminal may be waiting" hint in `use-prompt-queue.ts` | Deleted: it is a timer guessing a fact the daemon reports. The banner shows when the chat entity carries `terminalWait` (S1 keeps termwait's detection). Decision D4. |
 | R21 | Command URLs | Commands (send, stop, retract, answer, resume, settings) keep today's repo/home-scoped routes, built from the chat entity's own `workspaceId`, never from an ambient workspace. The new reads (feed, blobs) are flat. Unifying the URLs is S4's. |
-| R22 | Runner moves | S1 R6 removed runner moves between chats. T4 deletes `followRunner` and the `moved` frame case; if `grep -rn '"moved"' api/internal` still finds a lifecycle kind at T4, stop and report. |
+| R22 | Runner moves | S1 R6 removed runner moves between chats; at `d8404d2e` no lifecycle kind `moved` exists (`grep -n 'AgentChatKind' api/internal/api/v0/dto/*.go` lists none; `domain.AgentExitMoved` is an exit reason, not a frame kind). T4 deletes `followRunner`, the `moved` frame case and `'moved'` in `web/src/lib/ws/chat-frame-kinds.ts`; if that dto grep finds a `moved` kind at T4, stop and report. |
 | R23 | Activity components (`/activity` `components`, `lib/activity-components.ts`, `activity-component-row.tsx`, `endpoints/chat/handlers/activity_components.go`) | A second projection of the same facts. T3 deletes the client half, T11 the server half. One renderer per row kind replaces it. |
 | R24 | Optional turn fold ("Worked for 42s · 9 tool calls", additions A) | Not in S2 (decision D6). |
-| R25 | The live check's provider | The S1 T1 fake CLI, built into the session scratchpad; its descriptor is written into the dev home (`<worktree>/.crowbar/descriptors/`, git-ignored) from the shipped `claude.yaml` by the same edits `kit.InstallFakeProvider` makes; hooks are posted with `curl --unix-socket` to the dev daemon's socket in that home. Nothing of the driver is committed (T13). |
+| R25 | The live check's provider | The S1 T1 fake CLI (`api/tests/kit/fakecli`), built into the session scratchpad; its descriptor is written into the dev home (`<worktree>/.crowbar/descriptors/`, git-ignored) from the shipped `claude.yaml` by the same edits `kit.InstallFakeProvider` (`api/tests/kit/fakeprovider.go`) makes: the fake as `spawn.cmd` and `runtime.spawn.cmd`, the dropped keys, and `hooks_injection` = the four `set_env` steps `FAKECLI_DIR`, `FAKECLI_SEG={segid}`, `FAKECLI_TOKEN={runner_token}`, `FAKECLI_HOOK={hook_curl} {hook_url}`. Hooks are posted over HTTP (the only ingress since S1 T11) with `curl --unix-socket` to the dev daemon's socket in that home. Nothing of the driver is committed (T13). |
+| R26 | Diagram fences while a message streams (user requirement 2026-10-18, S2 ledger) | T3. A `mermaid` or `excalidraw` fence that is still open in a text item that is not settled renders as a skeleton placeholder: never partial code, never a parse or render attempt. When the fence closes, the diagram renders once (one mermaid render call, one scene parse). If the item settles with the fence still open, the block renders as plain code; a skeleton never outlives its stream. "Open" is derived from the item's own text (the last fence of the source has no closing line), never stored: the owner is the text, and settled-ness is the item's. The skeleton and the diagram/code share one wrapper element that reserves the skeleton's height and animates the height change with the Web Animations API (`element.animate`, height from → to; the reduced-motion kill-switch covers it), so neither transition snaps; no `content-visibility`, no timer. Mermaid in chat reuses `MermaidDiagram` (`features/editor/markdown/plate/mermaid-diagram.tsx`, already error-contained by `04e0373fc`); excalidraw keeps `ExcalidrawPreview`. |
+| R27 | Typed session-lost send error (carry C27; S1 C24 re-review 2 Q3, re-review 3) | T1 (daemon): a prompt the daemon refuses because its session is lost (the ledger settles it `reason: session_lost`, or the spawn fails with `ErrSpawnSessionRefused`) returns `ErrPromptSessionLost` (wraps `apperr.ErrConflict`, 409), code `session_lost` from `PromptErrorCode`, instead of `ErrPromptOutcomeUnknown`. `Resume` answers through `writeCodedErr` like `Switch` and `SubmitPrompt`, so its 409 carries the code too. T5 (web outbox): Retry on a row whose prompt fact is `settled`, `refused` or `retracted` (an abandoned prompt) mints a fresh request id (a new `p:<id>` item; the old row stays as history), and a refusal carrying `session_lost`, or a prompt whose settle reason is `session_lost`, reads "The session was lost. Start a new conversation to send this." never "The provider may already have this message…". T10 (toasts): `describeSpawnError` maps `session_lost` to its own words, and no resume/switch toast shows raw daemon text ending in `apperr: …`. |
+| R28 | One source of message state | The per-chat feed is the only input to transcript content, live text and prompt state on the client. After T3 nothing reads `/messages`, `/activity`, payload, `/choices` (GET) or lifecycle `message_delta`/`plan`/`choice`/`compaction_*` frames; after T5 nothing reads `/pending-prompt`; after T11 the daemon serves none of them. T3's acceptance greps for every old store and hook (`chatLedgerStore`, `useChatMessages`, `useAgentActivity`, `streamingMessages`, `notifyAgentChatMessages`, `prefetchVisibleChats`, `listChatMessages`, `listChatActivity`, `getToolPayload`) and finds none outside deleted files. The outbox holds only what has no row yet (`queued`/`sending`/`failed`); an item with a `user_message` row is never also an outbox item. |
+| R29 | Test mocks | ≤3 `vi.mock` per file (CLAUDE.md). Files that exceed it today and that S2 rewrites or folds into must come under it in that task, not grow: `components/agent-chat-pane.test.tsx` (7, T4), `composer/agent-composer.test.tsx` (4, T7), `chat/agent-empty-document.test.tsx` (5, T7). Prefer seeding `chatStore` and pushing frames through `applyFeedFrame` over mocking modules. |
 
 ## Decisions that change what the user sees
 
-Each is ruled above so the plan can proceed; the user may overturn any of them before the task that implements it.
+Each is ruled above so the plan can proceed. The user accepted all of them on 2026-10-18 ("Agreed with everything"), with the ledger's amendments: D1 only with P11 (R7), D5 → a Retry action on the failed provider state (no timer).
 
 | # | Change | Task | Alternative |
 |---|---|---|---|
@@ -81,14 +103,15 @@ Each is ruled above so the plan can proceed; the user may overturn any of them b
 | D2 | Esc in an empty composer acts on your newest prompt: still queued → back into the composer; sent but not delivered → retracted, back into the composer; delivered with no output yet → the turn is interrupted and the text comes back; once output has arrived → Esc stops the turn and the text stays in the transcript. | T5 | Esc only ever stops, never restores. |
 | D3 | A lost session shows "Start a new conversation" and nothing else; picking another session to rebind waits for S8. | T10 | Ship a session picker in S2. |
 | D4 | The "terminal may be waiting" hint no longer appears after 6 s on its own; the banner shows only when the daemon detects a terminal prompt. | T5 | Keep a client hint (needs a timer, which the rules forbid). |
-| D5 | A failed provider-list load no longer retries 3× and toasts; the provider picker shows the store's failed state. | T4 | A Retry action on that state (small, additive). |
+| D5 | A failed provider-list load no longer retries 3× and toasts; the provider picker shows the store's failed state with a Retry action (ledger ruling). | T4 | — |
+| D9 | A mermaid fence in a chat reply renders as a diagram (today: plain code); while it streams, mermaid and excalidraw fences show a skeleton (R26). | T3 | — (user requirement) |
 | D6 | No "Worked for Ns · N tool calls" fold of a finished turn. | — | Add it in S2 (T8, ~80 lines). |
 | D7 | Tool rows by family with run grouping and edit diffs open by default when ≤12 lines changed; subagent cards replace the Agent tool row; a todo strip docks above the composer; reasoning persists as a collapsed "Thought for Ns" row; approvals become a card stack docked over the composer; a failed turn is a row with Retry and Open terminal; an interrupted turn shows "Interrupted · you stopped this turn". | T8–T10 | These are the additions design as written; listed so they are not a surprise. |
 | D8 | The first prompt of an empty chat is typed into the same composer as every other prompt, placed where the empty-chat document is today. The layout and the move to the dock on send stay; the separate first-prompt editor goes. | T7 | Keep two editors. |
 
 ## Shared vocabulary
 
-**Wire, `web/src/features/agent/api/chat-rows.ts`** (TypeScript mirror of S1's `ledger.Row` and T10's frames, as amended by T1):
+**Wire, `web/src/features/agent/api/chat-rows.ts`** (TypeScript mirror of S1's `ledger.Row`, `api/internal/domain/ledger/*.go` bodies and `usecases/chat/feed.go` frames as shipped at `d8404d2e`; T3 checks each field against those structs' JSON tags before writing it. Not to be confused with the dead `features/agent/tree/lib/chat-rows.ts`, which T4 deletes):
 
 ```ts
 export interface LedgerRow<K extends RowKind = RowKind> {
@@ -102,29 +125,29 @@ export interface LedgerRow<K extends RowKind = RowKind> {
 }
 export type RowKind = keyof RowBodies
 export interface RowBodies {
-  user_message: { requestId: string; text: string; origin: 'crowbar' | 'provider'; delivery?: 'restart' | 'steer' | 'api' }
-  turn_started: { requestId?: string; providerTurnId?: string; runnerId: string }
-  prompt_settled: { requestId: string; consumed: boolean; reason: string }
-  turn_ended: { status: 'done' | 'interrupted'; reason?: string; effort?: string }
+  user_message: { requestId?: string; text: string; origin: 'crowbar' | 'provider' | 'harness' | 'note'; delivery?: 'restart' | 'steer' | 'api'; runnerId?: string; dispatch?: string }
+  turn_started: { requestId?: string; providerTurnId?: string; runnerId?: string; provider?: string; sessionId?: string; persists?: 'turn_start' | 'turn_end' }
+  prompt_settled: { requestId: string; consumed: boolean; reason: string } // reasons: provider_builtin, not_acknowledged, runner_exited, daemon_restart, delivery_failed, session_lost, + retracted (T2)
+  turn_ended: { status: 'done' | 'interrupted'; reason?: string; runnerId?: string; effort?: string; diff?: string }
   turn_failed: { reason: string; detail?: string }
   session_bound: { provider: string; sessionId: string; cause: 'assigned' | 'announced' | 'fresh'; previous?: string }
   session_lost: { provider: string; sessionId: string; reason: string }
-  runner_started: { runnerId: string; provider: string; terminalSession?: string }
-  runner_exited: { runnerId: string; reason: string; exitCode?: number }
-  assistant_text: { messageId: string; index: number; final?: boolean; text: string; phase?: '' | 'commentary' }
-  reasoning: { messageId: string; text: string }
-  marker: { kind: MarkerKind; detail?: string }
-  tool_call: ToolCallBody // S1 T7–T9 fields: toolId, phase, name, kind, target, locations, inputRef, resultRef, status, error, durationMs, diff, spawnsScope, title, mcpServer, mcpTool, exitCode, interrupted, addressesScope
-  ask: AskBody // S1 T7/T8 fields + answerable (T1)
-  ask_resolved: { askId: string; resolution: 'answered' | 'proceeded' | 'abandoned'; optionIds?: string[] }
+  runner_started: { runnerId: string; provider: string; terminalSession: string; launchModel: string; launchEffort: string; launchPermissionLevel: string; resumeSessionId: string }
+  runner_exited: { runnerId: string; reason: string; exitCode: number }
+  assistant_text: { messageId: string; index: number; final?: boolean; text: string; phase?: '' | 'commentary'; reply?: string } // index -1 = complete; reply: the reply this message joins
+  reasoning: { messageId?: string; text: string }
+  marker: { kind: MarkerKind; detail?: string; providerTurnId?: string } // MarkerKind: ledger/marker.go (session_changed, session_conflict, dead_letter, compaction_started/_ended, stopped, provider_switched, model_changed, effort_changed, notification)
+  tool_call: ToolCallBody // ledger/tool.go: toolId, phase (pre|post|fail), name, kind, title, target, locations, inputRef, resultRef, status, error, durationMs, diff, mcpServer, mcpTool, exitCode, interrupted, inputKey, spawnsScope, addressesScope
+  ask: AskBody // ledger/ask.go: askId, event, kind, promptId, toolId, toolName, title, question, mode, multi, options, questions, schema, detail, toolTarget, toolInput (JSON; a JSON *string* of the leading text when toolInputTruncated), toolInputTruncated, mcpServer, inputKey, answerable
+  ask_resolved: { askId: string; resolution: 'answered' | 'proceeded' | 'refused' | 'abandoned'; optionIds?: string[] }
   subagent: { phase: 'start' | 'stop' | 'bound' | 'result'; spawnToolId?: string; type?: string; title?: string; status?: string; result?: string; usage?: { tokens?: number; toolUses?: number; durationMs?: number } }
-  plan: { op: 'replace' | 'upsert'; items: PlanItem[] }
+  plan: { op: 'replace' | 'upsert'; items: PlanItem[] } // PlanItem: { id?, text, detail?, status? }
 }
 export type FeedFrame =
   | { type: 'row'; row: LedgerRow }
-  | { type: 'ready'; epoch: string; seq: number }
+  | { type: 'ready'; epoch: string; seq?: number }
   | { type: 'delta'; delta: FeedDelta }
-  | { type: 'resync'; seq: number }
+  | { type: 'resync'; seq?: number } // Go `omitempty`: an absent seq is 0 (same for ready on an empty chat)
   | { type: 'deleted' }
 export interface FeedDelta {
   id: string
@@ -203,21 +226,22 @@ export function useChatStore<T>(selector: (s: ChatStoreState) => T): T
 | Deleted | Task | Files (sources and their tests) |
 |---|---|---|
 | Ledger poll | T3 | `web/src/features/agent/hooks/use-chat-messages.ts`, `stores/chat-ledger-store.ts`, `lib/prefetch-visible-chats.ts` (+ its call in `web/src/lib/boot.ts`) |
-| Activity poll | T3 | `hooks/use-agent-activity.ts`, `lib/activity-components.ts`, `transcript/activity-component-row.tsx`, `transcript/lib/flatten-transcript-rows.ts`, the `getChatActivity`/`getToolPayload`/`getChatMessages`/pending-choice reads in `api/agent-api.ts` |
+| Activity poll | T3 | `hooks/use-agent-activity.ts`, `lib/activity-components.ts` (its test sits at `web/src/__tests__/features/agent/activity-components.test.ts`, not in the mirror), `transcript/activity-component-row.tsx`, `transcript/lib/flatten-transcript-rows.ts`, the `listChatActivity`/`getToolPayload`/`listChatMessages`/pending-choice reads in `api/agent-api.ts` (`getPendingPrompt` goes in T5, P12) |
 | Busy poll | T5 | `hooks/use-prompt-queue.ts` (`BUSY_RECHECK_MS` interval, `AWAITING_TERMINAL_HINT_MS` timeout) |
-| Streaming copy | T3 | slice fields `streamingMessages`, `streamingReasoning`, `streamingToolOutput`, `streamingPlan`, `streamingDiff` and their setters; `web/src/features/workspace/stores/streaming-message-batcher.ts`; the `message_delta`/`plan`/`choice`/`compaction_*`/`prompt_settled` cases in `use-workspace-agent-chats-stream.ts` |
+| Streaming copy | T3 | slice fields `streamingMessages`, `streamingReasoning`, `streamingToolOutput`, `streamingPlan`, `streamingDiff` and their setters; `web/src/features/workspace/stores/hooks/lib/streaming-message-batcher.ts`; the `message_delta`/`plan`/`choice`/`compaction_*`/`prompt_settled` cases in `use-workspace-agent-chats-stream.ts` |
 | Client prompt persistence | T5 | `lib/prompt-queue-persistence.ts`, `transcript/queued-row.tsx` (its rendering moves into the one user row) |
-| Chat slice in workspace stores | T3 (event half), T4 (rest) | `web/src/features/workspace/stores/slices/agent-chats-slice.ts`, `stores/hooks/use-workspace-agent-chats-stream.ts`, `readChatWorking`/`isChatWorking`/`subscribeChatWorking` in `workspace-store-registry.ts`, the `agentChats` key in `workspace-store.ts`/`.types.ts`; `hooks/use-pane-session.ts`, `lib/session-status.ts`, `hooks/use-agent-telemetry.ts`; dead `tree/lib/chat-rows.ts`, `tree/lib/chat-search.ts` |
+| Chat slice in workspace stores | T3 (event half), T4 (rest) | `web/src/features/workspace/stores/slices/agent-chats-slice.ts`, `stores/hooks/use-workspace-agent-chats-stream.ts`, `readChatWorking`/`isChatWorking`/`subscribeChatWorking` in `workspace-store-registry.ts`, the `agentChats` key in `workspace-store.ts`/`.types.ts`; `hooks/use-pane-session.ts`, `lib/session-status.ts` (with the dead `describeRung`, carry C7), `hooks/use-agent-telemetry.ts`; dead `tree/lib/chat-rows.ts`, `tree/lib/chat-search.ts` |
+| Dead prompt branches (carry C7) | T5 | the `request_already_accepted` branch in `use-prompt-queue.ts` (the daemon no longer sends it) and its `agent-chat-view.test.tsx` case, gone with the hook |
 | Remount on settle | T3 | the `streaming ? <MarkdownMessage> : <MarkdownMessageStatic>` swap in `transcript/message-row.tsx` (R11); index keys |
 | Scroll feedback loop | T6 | the settle gate, tail-room measurement and timers in `hooks/use-transcript-anchor.ts`, `hooks/use-scroll-frame-span.ts` |
 | Duplicate first-prompt composer | T7 | `chat/agent-empty-document.tsx` editor half |
-| R13 read shapes + LRU projection | T3 (client), T11 (daemon) | `api/internal/app/usecases/chat/internal/transcript/` (whole package); handlers for `/messages`, `/activity`, `/activity/:toolId/payload`, `/choices` GET, `/pending-prompt`; `handlers/activity_components.go`; their DTOs in `api/internal/api/v0/dto/agent.go`; lifecycle event frames; chat DTO `session` |
+| R13 read shapes + LRU projection | T3/T5 (client), T11 (daemon) | `api/internal/app/usecases/chat/internal/transcript/` (whole package); handlers for `/messages`, `/activity`, `/activity/:toolId/payload`, `/choices` GET, `/pending-prompt` in both the repo mount (`endpoints/chat/routes.go`) and the home mount (`endpoints/home/routes.go`); `handlers/activity_components.go`; their DTOs in `api/internal/api/v0/dto/` (`agent.go`, `agent_activity.go`, `agent_choice_frame.go`, the event kinds in `agent_event.go`); lifecycle event frames; chat DTO `session` |
 
 ## Module keys (`scripts/ratchet/modules.json`) and counters
 
 | Key | Direction | Why |
 |---|---|---|
-| `web.chat-surface` | falls 21,130 → ≤ 12,000 | the gate |
+| `web.chat-surface` | falls 21,131 → ≤ 12,000 | the gate (R26 adds the diagram fence path; it is paid for inside the module) |
 | `web.workspace-panes` | falls (≈ −1,300) | slice, workspace stream hook, batcher, registry scans deleted |
 | `web.sidebar` | falls slightly | `readChatWorking` subscriptions become one selector |
 | `web.git-review` | must not rise | `review-thread-item.tsx` split (R19) offset by comment trimming |
@@ -229,31 +253,33 @@ export function useChatStore<T>(selector: (s: ChatStoreState) => T): T
 | `go.dto` | falls | activity, choice, pending-prompt, component, `session` DTOs |
 | `go.http` | ≈ 0 | routes deleted (−) vs retract and blobs routes (+) |
 | `go.tests` | falls | the projector's and read handlers' tests |
-| `web.timers` (counter) | falls by ≥ 12 | 16 matches in `features/agent` today; 3 remain (R14) |
+| `web.timers` (counter) | falls by ≥ 12 (84 → ≤ 72) | 16 matches in `features/agent` today; 3 remain (R14) |
 | `web.empty-catch`, `web.swallowed-promise` | must not rise | the feed has no swallowed errors: a failed attach is `status: 'error'` |
 
-## Gate baseline (measured at `94d001ddd`, today's HEAD)
+## Gate baseline (re-measured at `d8404d2e`, 2026-10-28)
 
-Committed ratchet baselines (`scripts/ratchet/*-baseline.json` at HEAD): `web.chat-surface` 21,130 · `web.workspace-panes` 14,211 · `web.sidebar` 18,562 · `web.core` 5,979 · `web.git-review` 5,890 · `web.total` 105,828 · `web.tests` 113,678 · `go.chat` 38,317 · `go.dto` 2,165 · `go.http` 10,606 · `web.timers` 87. S1 does not touch `web/`, so the web numbers are also the post-S1 numbers; the Go keys are compared against whatever S1's T13 committed.
+Committed ratchet baselines (`scripts/ratchet/*-baseline.json`) still hold the S0 numbers: `web.chat-surface` 21,130 · `web.workspace-panes` 14,211 · `web.sidebar` 18,562 · `web.core` 5,979 · `web.git-review` 5,890 · `web.total` 105,828 · `web.tests` 113,678 · `go.chat` 38,317 · `go.dto` 2,165 · `go.http` 10,606 · `web.timers` 84 (counters).
 
-`web/src/features/agent` today (physical lines, as the ratchet counts them; comment = lines starting `//`, `*` or `/*`):
+Measured now (`node scripts/ratchet/loc-budgets.mjs`, read-only; it exits red): `web.chat-surface` 21,131 (+1) · `web.workspace-panes` 14,018 · `web.sidebar` 18,566 (+4) · `web.core` 6,058 (+79) · `web.git-review` 5,890 · `web.total` 106,191 (+363) · `web.tests` 116,743 (+3,065) · `go.chat` 32,230 · `go.dto` 2,171 (+6) · `go.http` 10,830 (+224) · `go.total` 129,700 (+1,738). Counters are green (`web.timers` 84, `go.timers` 21). The red keys are S1/S5/S6 growth waiting on the user's R7 ruling; S2 never raises them and reports its delta per R1.
+
+`web/src/features/agent` now (physical lines, as the ratchet counts them; comment = lines starting `//`, `*` or `/*`):
 
 | Directory | Lines | Comment | Code (no blank/comment) | T13 target |
 |---|---|---|---|---|
 | `activity` | 647 | 158 | 455 | ≤ 560 |
 | `api` | 1,490 | 624 | 772 | ≤ 600 |
 | `chat` | 1,944 | 654 | 1,209 | ≤ 700 |
-| `components` | 1,485 | 580 | 838 | ≤ 700 |
-| `composer` | 5,392 | 1,634 | 3,434 | ≤ 3,900 |
+| `components` | 1,480 | 580 | 833 | ≤ 700 |
+| `composer` | 5,387 | 1,630 | 3,433 | ≤ 3,900 |
 | `controls` | 877 | 187 | 649 | ≤ 720 |
 | `hooks` | 3,122 | 1,249 | 1,704 | ≤ 600 |
-| `lib` | 1,151 | 304 | 760 | ≤ 150 |
+| `lib` | 1,162 | 305 | 769 | ≤ 150 |
 | `shared` | 241 | 31 | 183 | ≤ 230 |
 | `stores` | 160 | 18 | 132 | ≤ 1,050 |
 | `terminal` | 228 | 59 | 161 | ≤ 210 |
 | `transcript` | 3,915 | 1,329 | 2,427 | ≤ 2,450 |
 | `tree` | 478 | 173 | 272 | 0 |
-| **total** | **21,130** | **7,000** | **12,996** | **≤ 12,000** (the targets sum to 11,870) |
+| **total** | **21,131** | **6,997** | **12,999** | **≤ 12,000** (the targets sum to 11,870) |
 
 Timers in `features/agent` today (16 matches of `\b(setTimeout|setInterval)\b`): `use-agent-activity.ts` 4, `use-chat-messages.ts` 2, `use-prompt-queue.ts` 2, `use-transcript-anchor.ts` 2, `use-scroll-frame-span.ts` 2, `working-line.tsx` 2, `subagent-shelf.tsx` 1, `use-slash-catalog.ts` 1.
 
@@ -261,12 +287,14 @@ Timers in `features/agent` today (16 matches of `\b(setTimeout|setInterval)\b`):
 
 The inputs the spec implies but no feature test exercises, most likely to bite first. Each has a test in the owning task.
 
-1. **A row committed while the feed attaches.** S1's replay dedupes on the server; the client must still apply each `seq` once and in order across a reconnect with `since`. Tests: T3 `applies a row once when it arrives in replay and live`, `resumes with since=seq after a 4000 close`.
+1. **A row committed while the feed attaches.** S1's replay dedupes on the server; the client must still apply each `seq` once and in order across a reconnect with `since`. Tests: T3 `applies a row once when it arrives in replay and live`, `resumes with since=seq after a resync frame naming the feed seq`.
 2. **The settle that used to remount.** A text item streams, its complete row lands, the turn ends: the same DOM node must stay mounted with the live editor (R11). Test: T3 `keeps the live renderer mounted when a streamed reply settles` (asserts the row element is the same node before and after).
 3. **Esc racing delivery.** Esc while the POST is in flight, and Esc at the moment `turn_started` lands. Tests: T5 `retracts after the send resolves when Esc came first`, `restores the text when the retract answers retracted even though turn_started arrived`; T2 `TestRegression_Symptom5_ALateAckAfterRetractIsRecordedAsAProviderTurn`.
 4. **Daemon restart under a live chat.** A new `epoch` on `ready`: rows continue by `seq`, but live text is gone and must be dropped, not left frozen. Test: T3 `drops live text when ready carries a new epoch`.
 5. **A long chat re-attached** (R17 drops feed state on detach). 5,000 rows replayed must fold without per-row re-sorting or re-rendering the list per row. Test: T3 `folds 5000 replayed rows into one order without re-rendering per row` (counts list commits with `React.Profiler`).
 6. **Scoped rows before their card.** A child tool row whose scope's card has not been created yet (S1 R15 buffers on the server, but a `subagent{bound}` can follow the child rows by `seq` on replay). Test: T9 `attaches child rows that precede their card's bind`.
+7. **A diagram fence split across deltas.** The opening fence, the body and the closing fence arrive in different frames, sometimes mid-line (` `` ` then `` `mermaid ``), and a reply can end with the fence open. Tests: T3 `shows a skeleton while a mermaid fence is open and renders the diagram once when it closes`, `falls back to plain code when the stream ends inside the fence`, `keeps the block element and animates its height from skeleton to diagram`.
+8. **A client ahead of the daemon.** After a daemon reset the feed answers `resync{seq: head}` with `head < feed.seq`; reconnecting with the same `since` would loop. Test: T3 `rebuilds from since=0 when resync names a seq behind the feed`.
 
 ## Spec issues found while planning
 
@@ -279,5 +307,20 @@ The inputs the spec implies but no feature test exercises, most likely to bite f
 7. `CLAUDE.md` says "conversations" live in `lib/store/`; the existing chat ledger store lives in `features/agent/stores/`. Settled by R2.
 8. `CLAUDE.md` lists `bunx tsc --noEmit` as a CI check; `bunx tsc` resolves a different npm package. Use `bun tsc --noEmit`.
 9. `features/agent ≤ 12k` is reachable only if rewritten and remaining files follow the comment rule: today's code without comments and blanks is already 12,996 lines. T12 exists for that; if T13 still misses, it reports the per-directory gap and never moves code out of `features/agent`.
-10. S1 T7 deletes the activity aggregate but does not list `api/cmd/crowbar-seed-chat`, which writes it. S2 assumes S1 left that command appending ledger rows; T13's long-chat check uses it. If it does not compile at T13, stop and report.
+10. ~~S1 T7 deletes the activity aggregate but does not list `api/cmd/crowbar-seed-chat`.~~ Closed: the command writes ledger rows (`cmd/crowbar-seed-chat/fixture_test.go` checks the kinds). T13's long-chat check uses it.
 11. Additions §4 A–J name third-party products as references; S2's tasks describe the behaviour only.
+12. The feed's frames use Go `omitempty` on `seq`: a `ready` of an empty chat and a `resync` at 0 carry no `seq`. The client reads absent as 0 (vocabulary).
+13. `wsManager` cannot see close codes; R15 acts on frames instead.
+14. Chat never rendered mermaid; R26/D9 make it render, with the skeleton rule.
+15. Three test files S2 folds into hold more than 3 `vi.mock` today (R29).
+
+## Open rulings (from the 2026-10-28 refresh; none blocks dispatch)
+
+| # | Question | Recommendation |
+|---|---|---|
+| O1 | The pre-flight file (`.superpowers/sdd/2026-10-17-s2-chatstore-plan/preflight.md`, P1–P36) did not survive the move to the cloud; only the ledger's one-line summaries of P1–P3, P7–P13, P26, P31 did. R1, R7, T0, T3 and T5 fold those summaries as read here (e.g. P11 "steerable prompts persist as ledger rows" read as: a steerable prompt goes out at once with `delivery: steer`). | Dispatch on this text. If the controller still holds `preflight.md`, diff its P4–P6, P14–P25, P27–P30, P32–P36 against the task text before T3. |
+| O2 | T4 builds `ChatStore.chats/byWorkspace/scopes/telemetry` and R15's `url` resolver; S4 (b, c) deletes both. | Keep T4 and R15 as planned: S4 waits on S3 T8 and its own refresh, and leaving the K-fold workspace slice in place until then keeps symptom-adjacent bugs alive. Keep T4's entity half minimal (no features beyond today's), so S4c's delete is mechanical. |
+| O3 | R26's "no snap" is checked in jsdom only through `element.animate` being called with from/to heights on the same node; the visual result needs the live check. | Add the fence to T13 step 9 (done below) and accept jsdom's structural assertion as the unit test. If the WebKitGTK webview lacks the Web Animations API height interpolation, fall back to a CSS `transition: height` on an explicit pixel height set from the measured skeleton (no timer). |
+| O4 | C27's "no raw `apperr: conflict` text" is wider than chat: every `StatusAndMessage` message carries the sentinel's text. | S2 fixes the cases C27 names (session-lost send/resume/switch, via the code). The generic envelope (strip sentinel text from messages, or map codes in one place) is S3's (D1/report()); record it in the S3 refresh. |
+| O5 | Should the client cap a `tool_output` live text? The daemon windows it (64 KiB tail; once it passes 2× the window it sends a `replace` with the tail). | No client cap: the daemon's `replace` bounds it. T3's fold test covers a `replace` after appends. |
+| O6 | S1's gate missed (S1 ledger, T13 Step 3) and a "post-S2/S4 shrink pass" is queued; `loc-budgets` is red for keys S2 touches (`web.core` +79, `web.sidebar` +4, `web.tests`). | S2 must not grow them (R1) and T13 reports them; it does not try to repay S1/S5 growth. |

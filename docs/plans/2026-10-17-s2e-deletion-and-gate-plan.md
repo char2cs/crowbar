@@ -4,13 +4,13 @@
 
 **Goal:** The daemon stops serving what only the old client read: S1's LRU transcript projector, its endpoints and the lifecycle event frames (T11). The files of `features/agent` that no earlier task touched follow the comment rule (T12). The S2 gate is measured and checked live in the desktop app (T13).
 
-**Architecture:** See the index, `docs/plans/2026-10-17-s2-chatstore-plan.md` (R1, R14, R18, R19, R23, R25, gate baseline). Requires T1–T10.
+**Architecture:** See the index, `docs/plans/2026-10-17-s2-chatstore-plan.md` (R1, R14, R18, R19, R23, R25, R28, gate baseline). T11 requires T1–T5 and runs right after T5 (P2, index Task order); T12 and T13 require T1–T10.
 
 **Tech Stack:** Go, gin, testify, `api/tests`; web toolchain; Tauri MCP (`mcp__tauri__*`) for the live check.
 
 **Spec:** S1 R13 ("S2 deletes them"); architecture §11 row S2 (gate); additions §5 (budgets).
 
-Before any build: `df -h /System/Volumes/Data`; under 8 GB free, stop and report.
+Before any build: free disk on the worktree's filesystem (`df -h .`); under 8 GB free, stop and report. Go tests always run with `T=$(mktemp -d)`, `HOME=$T/home CROWBAR_HOME=` (index, Global Constraints).
 
 ---
 
@@ -19,16 +19,16 @@ Before any build: `df -h /System/Volumes/Data`; under 8 GB free, stop and report
 **Goal:** The ledger is read only through the feed, the blob route, and the two server-side readers that need text (`get_chat_log`, the handoff), which fold rows directly with `ledger.Messages`. The LRU projector, `/messages`, `/activity`, `/activity/:toolId/payload`, the `/choices` GET, `/pending-prompt`, the activity components and the lifecycle `message_delta`, `plan`, `choice`, `compaction_started`, `compaction_stopped`, `prompt_settled` frames are deleted, with the chat DTO's `session`.
 
 **Files:**
-- Delete: `api/internal/app/usecases/chat/internal/transcript/` (whole package and tests) and its publication subscriber and wiring in `api/internal/app/usecases/chat/assembly.go`
-- Modify: `api/internal/app/usecases/chat/internal/conversation/{chatlog.go,handoff.go}` and tests — read `Store.Read(chatID)` and fold with `ledger.Messages(rows)`
-- Delete: `api/internal/api/v0/endpoints/chat/handlers/{activity.go,activity_test.go,activity_components.go,pendingprompt.go,pendingprompt_test.go}`; `Messages` and `Choices` (GET) from `handlers/chats.go` and `handlers/answers.go` (keep `AnswerChoice`) and their tests
-- Modify: `api/internal/api/v0/endpoints/chat/routes.go`, `api/internal/api/v0/endpoints/home/routes.go` and their tests — drop the six GET routes in both mounts
-- Modify: `api/internal/api/v0/dto/agent.go` — delete the activity, tool-call, subagent, interruption, choice-read, component, pending-prompt and ledger-page DTOs, the lifecycle frame fields only those frames carried, and the chat DTO's `session`
-- Modify: the publication code that emits the six lifecycle event frames (find with `grep -rn '"message_delta"\|"prompt_settled"\|"compaction_started"' api/internal`) — delete those emissions; entity frames stay
-- Delete: the `domain` read shapes only the projector returned (S1 T7 kept `domain.Activity*` "until S2"; `make deadcode` lists the rest)
-- Modify: `web/src/lib/ws/chat-frame-kinds.ts` — drop the six deleted kinds and `moved`; `web/src/features/agent/api/` — drop any frame type members that only those frames carried
-- Create: `api/tests/kit/feed.go` (`//go:build integration`) — `FeedRows(t, baseURL, chatID string) []ledger.Row` (dial `since=0`, read until `ready`)
-- Modify: every black-box test that asserted through the deleted reads (`grep -rln '/messages\|/activity\|/choices\|pending-prompt' api/tests`) — assert on `kit.FeedRows` instead; oversize files only lose lines (S1 R17)
+- Delete: `api/internal/app/usecases/chat/internal/transcript/` (whole package and tests) and its users: the projector embed and the `MessageDelta`/choice publication in `api/internal/app/usecases/chat/ledger_feed.go` (`u.transcript.Apply`, `transcript.PendingChoicesOf`), its wiring in `assembly.go`, and its use in `turn.go`; entity frames (`working`, `terminal_wait`, `telemetry`, `worktree_state`) stay
+- Modify: `api/internal/app/usecases/chat/internal/conversation/{chatlog.go,handoff.go}` and tests — today they read `c.transcript.ChatTurns`/`c.transcript.Messages`; read the ledger (`Store.Read(ctx, chatID, after, limit)`, paged) and fold with the domain's message fold (`ledger.MessageFold`)
+- Delete: `api/internal/api/v0/endpoints/chat/handlers/{activity.go,activity_test.go,activity_components.go,pendingprompt.go,pendingprompt_test.go}`; `Messages`, `ToolPayload` and `Choices` (GET) from `handlers/chats.go` and `handlers/answers.go` (keep `AnswerChoice`) and their tests
+- Modify: `api/internal/api/v0/endpoints/chat/routes.go`, `api/internal/api/v0/endpoints/home/routes.go` and their tests — drop the five GET routes (`/messages`, `/activity`, `/activity/:toolId/payload`, `/choices`, `/pending-prompt`) in both mounts
+- Modify: `api/internal/api/v0/dto/agent.go`, `agent_activity.go`, `agent_choice_frame.go`, `agent_event.go` (and their tests) — delete the activity, tool-call, subagent, interruption, choice-read, component, pending-prompt and ledger-page DTOs, the `AgentChatKind{MessageDelta,Plan,Choice,CompactionStarted,CompactionStopped,PromptSettled}` kinds and the frame fields only those frames carried, and the chat DTO's `session`
+- Modify: the publication code that emits the six lifecycle event frames (find with `grep -rn 'AgentChatKind\(MessageDelta\|Plan\|Choice\|Compaction\|PromptSettled\)' api/internal`) — delete those emissions; entity frames stay
+- Delete: the `domain` read shapes only the projector returned (S1 T7 kept `domain.Activity*` "until S2"; `scripts/deadcode-check.sh` lists the rest)
+- Modify: `web/src/lib/ws/chat-frame-kinds.ts` — drop the six deleted kinds (`moved` went in T4); `web/src/features/agent/api/` — drop any frame type members that only those frames carried
+- Create: `api/tests/kit/feed.go` (`//go:build integration`) — `FeedRows(t, baseURL, chatID string) []ledger.Row` (dial `since=0`, read until `ready`), unless `api/tests/chat_feed_test.go` already has such a helper: then move that helper into the kit rather than writing a second one
+- Modify: every black-box test that asserted through the deleted reads (`grep -rln '/messages\|/activity\|/choices\|pending-prompt' api/tests`; at `d8404d2e` about 14 files in `api/tests/` plus `tests/integration/threads/threads_test.go` and `tests/integration/scripted/livemodel_test.go`, which are vet-only) — assert on `kit.FeedRows` instead; delete `regression_pending_prompt_test.go`'s cases for the deleted route, keeping any that assert prompt state through rows; oversize files only lose lines (S1 R17)
 
 - [ ] **Step 1: Failing tests**
 
@@ -45,22 +45,26 @@ func TestRoutes_ServeNoTranscriptReads(t *testing.T) // the six paths are absent
 - [ ] **Step 4: Run to green**
 
 ```bash
-cd api && go test -tags noEmbed ./internal/app/usecases/chat/... ./internal/api/... ./internal/domain/...
-cd api && go test -tags 'integration noEmbed' -count=1 -run 'TestChatFeed_|TestRegression_Symptom|TestFakeProvider_|TestRegression_AGrowingMessage|Chat|Agent' ./tests/
-make lint && make deadcode && (cd api && go vet -tags noEmbed ./...)
-cd web && bun tsc --noEmit && bunx vitest run src/__tests__/lib/ws src/__tests__/lib/store && bun run knip
+T=$(mktemp -d); cd api
+HOME=$T/home CROWBAR_HOME= go test -tags noEmbed ./internal/app/usecases/chat/... ./internal/api/... ./internal/domain/...
+HOME=$T/home CROWBAR_HOME= go test -tags 'integration noEmbed' -count=1 -timeout 40m -run 'TestChatFeed_|TestRegression_|TestFakeProvider_|Chat|Agent' ./tests/
+go vet -tags 'integration noEmbed' ./tests/integration/... ./tests/kit/...   # vet only, never run
+golangci-lint run --build-tags noEmbed ./... && scripts/deadcode-check.sh && go vet -tags noEmbed ./...
+cd ../web && bun tsc --noEmit && bunx vitest run src/__tests__/lib/ws src/__tests__/lib/store && bun run knip
+cd .. && node scripts/ratchet/file-size.mjs && node scripts/ratchet/counters.mjs; rm -rf $T
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add api web
+git add <every created, modified and deleted path, by name; deletions with git rm>
 git commit -m "refactor(api): delete the transcript projection and the reads only the old client used
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```
 
-**Acceptance:** `grep -rn 'transcript.New\|/activity\|pending-prompt' api/internal` finds nothing; `get_chat_log` and the handoff return the same texts as before for the recorded subagent session.
+**Acceptance:** `grep -rn 'internal/transcript\|/activity\|pending-prompt' api/internal` finds nothing; `get_chat_log` and the handoff return the same texts as before for the recorded subagent session.
 
 ---
 
@@ -81,10 +85,11 @@ The fade, the follow and every animation are untouched: this task deletes commen
 - [ ] **Step 4: Commit**
 
 ```bash
-git add web
+git add <every modified and created path, by name>
 git commit -m "chore(web): chat-surface comments state why in three lines
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```
 
 ---
@@ -97,17 +102,19 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Modify: `scripts/ratchet/loc-budgets-baseline.json`, `scripts/ratchet/counters-baseline.json`, `scripts/ratchet/file-size-baseline.json` (written by `--update`, lower only)
 - Nothing else is committed. The live-check driver lives in the session scratchpad (R25).
 
-- [ ] **Step 1: Disk.** `df -h /System/Volumes/Data`; under 8 GB free, stop and report.
+- [ ] **Step 1: Disk.** `df -h .` (macOS: `/System/Volumes/Data`); under 8 GB free, stop and report.
 - [ ] **Step 2: Ratchet.**
 
 ```bash
-make ratchet ARGS=--update      # must report only shrinks; growth is a failure to fix, never to update
-make ratchet
+node --test scripts/ratchet/*.test.mjs
+for g in file-size counters loc-budgets; do node scripts/ratchet/$g.mjs --update; done   # writes only shrinks; read the output: a `grew` line is a failure to fix
+node scripts/ratchet/file-size.mjs && node scripts/ratchet/counters.mjs
+node scripts/ratchet/loc-budgets.mjs   # red at base for keys S2 does not own (index, Gate baseline); report, never raise
 node -e "const b=require('./scripts/ratchet/loc-budgets-baseline.json');console.log('chat-surface',b['web.chat-surface']);process.exit(b['web.chat-surface']<=12000?0:1)"
-node -e "const b=require('./scripts/ratchet/counters-baseline.json');console.log('web.timers',b['web.timers']);process.exit(b['web.timers']<=75?0:1)"
+node -e "const b=require('./scripts/ratchet/counters-baseline.json');console.log('web.timers',b['web.timers']);process.exit(b['web.timers']<=72?0:1)"
 ```
 
-If `web.chat-surface` is over 12,000, report the per-directory numbers against the index's targets and stop; never move code out of `features/agent`.
+If `web.chat-surface` is over 12,000, report physical and code-only lines per directory against the index's targets and bring the cut list to the USER (P26; no blank-line squeezing); never move code out of `features/agent`. List every red loc key with its delta against the S2 base.
 
 - [ ] **Step 3: Zero polling loops.** The timer matches under `features/agent` are exactly the R14 allowlist:
 
@@ -133,9 +140,11 @@ CI also runs `bun run test:coverage` over the full suite; S2 does not run it loc
 - [ ] **Step 5: Go checks.**
 
 ```bash
-cd api && go test -tags noEmbed ./internal/app/usecases/chat/... ./internal/domain/... ./internal/api/...
-cd api && go test -tags 'integration noEmbed' -count=1 -run 'TestRegression_Symptom|TestChatFeed_|TestFakeProvider_' ./tests/
-make lint && make deadcode && (cd api && go vet -tags noEmbed ./...)
+T=$(mktemp -d); cd api
+HOME=$T/home CROWBAR_HOME= go test -tags noEmbed ./internal/app/usecases/chat/... ./internal/domain/... ./internal/api/...
+HOME=$T/home CROWBAR_HOME= go test -tags 'integration noEmbed' -count=1 -run 'TestRegression_Symptom|TestRegression_C27_|TestChatFeed_|TestFakeProvider_' ./tests/
+golangci-lint run --build-tags noEmbed ./... && scripts/deadcode-check.sh && go vet -tags noEmbed ./... && go vet -tags 'integration noEmbed' ./tests/integration/... ./tests/kit/...
+rm -rf $T
 ```
 
 - [ ] **Step 6: Live check in Tauri** (`make dev-desktop`; one dev instance; keep the window visible, an occluded webview throttles rAF).
@@ -147,7 +156,7 @@ make lint && make deadcode && (cd api && go vet -tags noEmbed ./...)
   6. **Every row kind renders:** for each kind in the index vocabulary that a hook can produce, a row with `data-row-id` exists and has non-empty text (`webview_find_element` / `webview_dom_snapshot`). Reasoning and commentary are Codex-only and the fake speaks the Claude hook surface: record them as covered by T9's tests, and list the gap in the report.
   7. **No remount flash:** before a streamed reply settles, install a `MutationObserver` on the scroller (`webview_execute_js`) and keep a reference to the reply's `[data-row-id]` element; after its complete row and `turn_ended`, the same element is connected and the observer recorded no removal of it.
   8. **Send / Esc-retract / Stop / resume:** Esc in the empty composer right after a send returns the text (step 4's prompt, before posting `user_prompt`); Stop during a replay shows "Stopping…" then "Interrupted · you stopped this turn"; kill the fake CLI's pid, send again → a new runner and the chat continues; restart the dev daemon → the feed resumes (new epoch, rows continue, no duplicate rows); create `$SCRATCH/fake/refuse-<session>` and resume → the lost-session row with "Start a new conversation".
-  9. **Animations:** while a reply streams, `.chat-fresh-text` spans exist; a new row carries `data-arriving` in its first frames; sampling `scrollTop` on rAF for 500 ms while following shows intermediate values (an eased follow, not a jump); the working-line verb rotates.
+  9. **Animations:** while a reply streams, `.chat-fresh-text` spans exist; a new row carries `data-arriving` in its first frames; sampling `scrollTop` on rAF for 500 ms while following shows intermediate values (an eased follow, not a jump); the working-line verb rotates. **Diagram fences (R26):** post assistant-text deltas that open a `mermaid` fence, stream its body over several frames, then close it: the block shows `data-state="skeleton"` while open, `diagram` once closed, on the same element, and sampling its height on rAF across the swap shows intermediate values; repeat with a reply that ends inside the fence: it settles as `code` with no skeleton left; repeat once with `excalidraw`.
   10. **Long chat:** stop the dev daemon, `make seed-chat WORKSPACE_ID=<id> TURNS=200 TOOL_CALLS=5`, start it, open the chat: rows are visible on the first screenshot (no blank, symptom 6), scrolling to the top and back stays smooth (`mcp__tauri__webview_screenshot` before/after).
   11. Screenshots of steps 6–10 go to the scratchpad; the report lists each step's outcome.
 - [ ] **Step 7: Commit** the lowered baselines only.
@@ -156,7 +165,8 @@ make lint && make deadcode && (cd api && go vet -tags noEmbed ./...)
 git add scripts/ratchet/loc-budgets-baseline.json scripts/ratchet/counters-baseline.json scripts/ratchet/file-size-baseline.json
 git commit -m "chore(ratchet): S2 gate lowers the chat-surface and timer baselines
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```
 
-**Acceptance:** `web.chat-surface` ≤ 12,000; `web.timers` ≤ 75 with exactly the R14 allowlist under `features/agent`; every `symptom 4`–`symptom 8` test and every `TestRegression_Symptom5_`/`Symptom7_` test green; the live check's eleven steps reported with screenshots, the Codex-only gap named.
+**Acceptance:** `web.chat-surface` ≤ 12,000; `web.timers` ≤ 72 with exactly the R14 allowlist under `features/agent`; every `symptom 4`–`symptom 8` test, every `C27` test and every `TestRegression_Symptom5_`/`TestRegression_C27_` test green; the live check's eleven steps reported with screenshots, the Codex-only gap named.

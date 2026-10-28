@@ -4,7 +4,7 @@
 
 **Goal:** Sending is an outbox that only rows advance, with Esc mapped to `retract` (T5). The transcript shows its rows on the first frame and follows the bottom with the eased follow, with no settle gate and no measured padding (T6). One composer serves every prompt, including the first, and serializes markdown once, on send (T7).
 
-**Architecture:** See the index, `docs/plans/2026-10-17-s2-chatstore-plan.md` (R6, R7, R11, R12, R14, R17, R20, D1, D2, D4, D8). Requires T1–T4.
+**Architecture:** See the index, `docs/plans/2026-10-17-s2-chatstore-plan.md` (R6, R7, R11, R12, R14, R17, R20, R27, R29, D1, D2, D4, D8). Requires T1–T4 (and T0). T11 runs right after T5 (index, Task order); T6 and T7 assume it.
 
 **Tech Stack:** React 19, zustand, `@tanstack/react-virtual`, Plate, vitest + Testing Library.
 
@@ -14,17 +14,17 @@
 
 ### Task 5: The outbox and Esc → retract
 
-**Goal:** A prompt is in the transcript in the same render as Enter, under the key it keeps until it settles (`p:<requestId>`). The outbox sends one prompt at a time, when the rows say the chat can take it, and hands the prompt to the rows once its `user_message` lands. Esc in an empty composer retracts the newest prompt and puts its text back (D2). The busy recheck, the 6 s terminal hint and prompt persistence are deleted. Closes symptom 5 ("Escape only acts when working && live … the queue has no cancel in-flight → back to draft transition").
+**Goal:** A prompt is in the transcript in the same render as Enter, under the key it keeps until it settles (`p:<requestId>`). The outbox sends one prompt at a time, when the rows say the chat can take it, and hands the prompt to the rows once its `user_message` lands. Esc in an empty composer retracts the newest prompt and puts its text back (D2). The busy recheck, the 6 s terminal hint, prompt persistence and the last REST prompt read (`getPendingPrompt`, kept by T3 per P12) are deleted. Retry on an abandoned prompt mints a fresh request id, and a lost session is said as such (R27, carry C27). Closes symptom 5 ("Escape only acts when working && live … the queue has no cancel in-flight → back to draft transition").
 
 **Files:**
 - Create: `web/src/features/agent/stores/lib/outbox.ts` — pure transitions over `OutboxItem[]` and `TurnFacts`: `enqueue`, `nextToSend`, `onSent`, `onSendFailed`, `onRowsApplied` (drops items whose `user_message` landed), `newestRetractable`
-- Create: `web/src/features/agent/stores/chat-outbox.ts` — the effects: `sendPrompt(chatId, text)`, `retractNewest(chatId): Promise<string | null>` (the text to restore, or null when it stopped instead), `retryPrompt`, `editPrompt`, `discardPrompt`, `discardUnsent(chatId)`; drains on enqueue, after every applied row frame and on `ready` (facts, never a clock); holds a feed attachment while the chat's outbox is non-empty (R17)
+- Create: `web/src/features/agent/stores/chat-outbox.ts` — the effects: `sendPrompt(chatId, text)`, `retractNewest(chatId): Promise<string | null>` (the text to restore, or null when it stopped instead), `retryPrompt`, `editPrompt`, `discardPrompt`, `discardUnsent(chatId)`; drains on enqueue, after every applied row frame and on `ready` (facts, never a clock); holds a feed attachment while the chat's outbox is non-empty (R17). Kept from `use-prompt-queue.ts` (P11): a steerable prompt goes out at once (`delivery: steer`) while a turn runs; the compaction hold; the image-upload hold (a prompt waits for its attachments' upload); the staged model/effort selection sent with the prompt. `retryPrompt` on a row whose prompt fact is `settled`, `refused` or `retracted`, or on an outbox item that failed with `session_lost`/`request_outcome_uncertain`, enqueues the text under a fresh request id (a new `p:<id>` item; the old row stays as history): the daemon refuses a settled id forever (S1 I4/C7)
 - Modify: `web/src/features/agent/stores/chat-store.ts` — `outbox: Record<string, OutboxItem[]>`; `applyFeedFrame` calls the drain after rows change facts
 - Modify: `web/src/features/agent/transcript/rows/user-row.tsx` — draws an outbox item and a row item alike: `queued` and `sending`/`pending` show the sending mark, `failed` offers Retry and Edit, a queued item keeps today's queued-row actions; one component for every state so the key never changes component
 - Modify: `web/src/features/agent/transcript/agent-transcript.tsx` — the list is `order`, then `liveTail`, then the outbox ids not yet in `order`
 - Modify: `web/src/features/agent/chat/agent-chat-view.tsx`, `chat/use-chat-send.ts` (from T3) — Enter calls `sendPrompt`; the Escape branch (today `event.key === 'Escape' && working && live`) calls `retractNewest` and loads the returned text into the composer; `cancelUnsentPrompts` calls `discardUnsent`; the composer is an input whenever the chat exists, also while the runner spawns
 - Modify: `web/src/features/agent/components/agent-chat-pane.tsx` — queue counts from the outbox; the terminal-wait banner only from the entity's `terminalWait` (R20)
-- Delete (source and tests): `web/src/features/agent/hooks/use-prompt-queue.ts`, `lib/prompt-queue-persistence.ts`, `transcript/queued-row.tsx`; the `queue` reads in `api/agent-api.ts`, if any remain
+- Delete (source and tests): `web/src/features/agent/hooks/use-prompt-queue.ts` (with its dead `request_already_accepted` branch and that branch's `agent-chat-view.test.tsx` case, carry C7, and the "may already have this message" wording), `lib/prompt-queue-persistence.ts`, `transcript/queued-row.tsx` (and its "text the provider may already have" comment); `getPendingPrompt` and any `queue` reads in `api/agent-api.ts`
 - Modify: `web/knip.json` (drop `use-prompt-queue.ts`, `prompt-queue-persistence.ts`), `web/eslint.config.js` (drop `use-prompt-queue.ts` from `MAX_LINES_BASELINE`)
 - Test: `web/src/__tests__/features/agent/stores/lib/outbox.test.ts`, `stores/chat-outbox.test.ts`, `transcript/rows/user-row.test.tsx`; extend `chat/agent-chat-view.test.tsx`
 
@@ -38,20 +38,25 @@ sending ──(POST 202)──▶ waits for its user_message row ─▶ leaves t
           pending (user_message) ─▶ delivered (turn_started) ─▶ settled (prompt_settled consumed)
                                                            └─▶ refused (prompt_settled not consumed, reason ≠ retracted)
                                     any of pending/delivered ─▶ retracted (prompt_settled reason retracted, or turn_ended reason retracted)
-sending ──(409 busy)──▶ queued        sending ──(other error)──▶ failed (Retry, Edit)
+sending ──(409 chat_busy)──▶ queued   sending ──(409 session_lost)──▶ failed "The session was lost…" (Retry = fresh id; R27)
+sending ──(409 request_outcome_uncertain)──▶ failed (Retry = fresh id)   sending ──(other error)──▶ failed (Retry, Edit)
+row settled with reason session_lost ──▶ the user row reads "The session was lost. Start a new conversation to send this."
 Esc: queued → removed, text back · sending → retractOnAck, retract when the POST resolves
      pending, or delivered without output → POST retract, text back · delivered with output → Stop, no restore
 ```
 
 A retracted prompt's item leaves `order` when its turn produced no output; with output it stays, under its divider.
 
-- [ ] **Step 1: Failing tests** (one `vi.mock('@/features/agent/api/agent-api')`; feed frames pushed through `chatStore.getState().applyFeedFrame`)
+- [ ] **Step 1: Failing tests** (one `vi.mock` of the agent API module T0 split out for commands; feed frames pushed through `chatStore.getState().applyFeedFrame`; ≤3 `vi.mock` per file, R29)
 
 ```ts
 // stores/lib/outbox.test.ts
 it('sends the head only when no turn runs and no prompt is pending')
 it('keeps a prompt queued when the send answers busy')
 it('marks a prompt failed with the service reason on any other error')
+it('C27: a send refused with session_lost says the session was lost, never that the provider may have it')
+it('C27: Retry on a settled or refused prompt row sends the text under a fresh request id')
+it('steers a steerable prompt at once while a turn runs')            // P11
 it('hands the prompt to the rows once its user_message lands')
 it('sends the next prompt on the turn_ended row, never on a clock')   // vi.useFakeTimers: advancing time sends nothing
 // stores/chat-outbox.test.ts
@@ -86,10 +91,11 @@ cd web && bun run knip && bun run lint:baselines && bun run lint:doctor
 - [ ] **Step 5: Commit**
 
 ```bash
-git add web
+git add <every created, modified and deleted path, by name>
 git commit -m "feat(web): outbox driven by ledger rows; Esc retracts the newest prompt
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```
 
 **Acceptance:** `grep -rn "setInterval\|setTimeout" web/src/features/agent/stores web/src/features/agent/chat` finds nothing; Esc gives back the text in every state of the diagram that the report routes to `draft`.
@@ -134,10 +140,11 @@ cd web && bun run knip && bun run lint:baselines && bun run lint:doctor
 - [ ] **Step 5: Commit**
 
 ```bash
-git add web
+git add <every created, modified and deleted path, by name>
 git commit -m "fix(web): transcript rows show on the first frame; scroll follows without a settle loop
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```
 
 **Acceptance:** no `visibility` or `opacity` gate on the list; `use-transcript-anchor.ts` has no `setTimeout` and no `ResizeObserver` of its own; the follow still eases.
@@ -155,7 +162,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Modify: `web/src/features/agent/chat/agent-empty-document.tsx` — keeps the empty-chat layout and signpost; its own editor, attachment upload, Excalidraw takeover, drop handling and plus button are deleted, and it hosts the one composer in `placement="document"`; `lastLineTop` stays the arrival animation's origin on first send
 - Modify: `web/src/features/agent/hooks/use-prompt-history.ts`, `hooks/use-slash-catalog.ts` — inputs from the composer's shape (no markdown)
 - Modify: `web/knip.json` (drop `agent-empty-document.tsx` if clean), `web/eslint.config.js` (drop `agent-empty-document.test.tsx`, `chat-markdown-editor.test.tsx` from `MAX_LINES_BASELINE` once their replacements are under the cap)
-- Test: extend `web/src/__tests__/features/agent/composer/agent-composer.test.tsx` (bring under 500 per R19: cases for deleted props go), `composer/plate/chat-markdown-editor.test.tsx` (likewise), `chat/agent-empty-document.test.tsx` (likewise), `chat/agent-chat-view.test.tsx`
+- Test: extend `web/src/__tests__/features/agent/composer/agent-composer.test.tsx` (795 lines, 4 `vi.mock`: bring under 500 and ≤3 mocks per R19/R29; cases for deleted props go), `composer/plate/chat-markdown-editor.test.tsx` (831 lines; likewise), `chat/agent-empty-document.test.tsx` (619 lines, 5 `vi.mock`; likewise), `chat/agent-chat-view.test.tsx`
 
 - [ ] **Step 1: Failing tests** (`vi.mock('@/features/agent/composer/plate/chat-composer-serialization', …)` wrapping the real module with a call counter; `vi.mock('@/features/agent/transcript/agent-transcript', …)` with a render counter)
 
@@ -186,10 +193,11 @@ cd web && bun run knip && bun run lint:baselines && bun run lint:doctor
 - [ ] **Step 5: Commit**
 
 ```bash
-git add web
+git add <every created, modified and deleted path, by name>
 git commit -m "perf(web): one composer serializes on send; typing re-renders only the composer
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DG5r7UkKfKiDuXTdNTGTXK"
 ```
 
 **Acceptance:** a keystroke produces one composer render and zero markdown serializations; there is one Plate composer editor in `features/agent`.
