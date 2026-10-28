@@ -95,8 +95,10 @@ function isPrimaryModifier(event: { metaKey: boolean; ctrlKey: boolean }): boole
   return IS_MAC ? event.metaKey : event.ctrlKey
 }
 
-// Registers the one link provider for a terminal. Links activate only with the
-// primary modifier held; the underline and pointer cursor follow the same gate.
+// Registers the one link provider for a terminal, and the handler for OSC 8
+// hyperlinks (escape-sequence links xterm detects itself). Links activate only
+// with the primary modifier held; for provider links the underline and pointer
+// cursor follow the same gate (xterm always decorates OSC 8 links).
 export function registerTerminalLinks(
   terminal: Terminal,
   options: TerminalLinksOptions,
@@ -118,15 +120,25 @@ export function registerTerminalLinks(
   element?.addEventListener('mousemove', onModifierEvent)
   window.addEventListener('blur', onBlur)
 
+  const activateUrl = (url: string, event: MouseEvent) =>
+    options.onUrl(url, { x: event.clientX, y: event.clientY })
+
   const activate = (found: FoundLink, event: MouseEvent) => {
     if (!isPrimaryModifier(event)) return
     if (found.kind === 'url') {
-      options.onUrl(found.text, { x: event.clientX, y: event.clientY })
+      activateUrl(found.text, event)
       return
     }
     const resolved = resolveFileLinkPath(found.path ?? found.text, options.getRoot())
     if (resolved) options.openFile(resolved, found.line)
     else options.onUnresolved?.(found.text)
+  }
+
+  // Without a handler xterm activates OSC 8 links on a plain click.
+  terminal.options.linkHandler = {
+    activate: (event, url) => {
+      if (isPrimaryModifier(event)) activateUrl(url, event)
+    },
   }
 
   const provider = terminal.registerLinkProvider({
@@ -167,6 +179,7 @@ export function registerTerminalLinks(
   return {
     dispose() {
       provider.dispose()
+      terminal.options.linkHandler = null
       element?.removeEventListener('keydown', onModifierEvent)
       element?.removeEventListener('keyup', onModifierEvent)
       element?.removeEventListener('mousemove', onModifierEvent)

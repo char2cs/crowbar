@@ -178,6 +178,38 @@ describe('registerTerminalLinks activation', () => {
   })
 })
 
+describe('registerTerminalLinks OSC 8 hyperlinks', () => {
+  const range = { start: { x: 1, y: 1 }, end: { x: 5, y: 1 } }
+  const activate = (terminal: Terminal, event: MouseEvent) => {
+    const handler = terminal.options.linkHandler
+    if (!handler) throw new Error('no OSC 8 link handler installed')
+    handler.activate(event, 'https://a.test/x', range)
+  }
+
+  it('does nothing on a plain click', () => {
+    const { terminal, options } = setup(40)
+
+    activate(terminal, click())
+
+    expect(options.onUrl).not.toHaveBeenCalled()
+  })
+
+  it('hands a modifier-click to onUrl with the pointer position', () => {
+    const { terminal, options } = setup(40)
+
+    activate(terminal, click({ metaKey: true }))
+
+    expect(options.onUrl).toHaveBeenCalledExactlyOnceWith('https://a.test/x', { x: 40, y: 50 })
+  })
+
+  it('stops handling links once disposed', () => {
+    const { terminal } = setup(40)
+    cleanup[0]()
+
+    expect(terminal.options.linkHandler).toBeFalsy()
+  })
+})
+
 describe('registerTerminalLinks affordance', () => {
   it('shows underline and pointer only while the modifier is held over the link', async () => {
     const { terminal, linksAt } = setup(40)
