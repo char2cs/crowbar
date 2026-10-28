@@ -6,10 +6,19 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 }))
 
 import { toast } from '@/features/window/stores/toast-store'
-import { useConnectionStore, resetConnectionState } from '@/lib/ws/connection-store'
+import {
+  useConnectionStore,
+  resetConnectionState,
+  reportChannelState,
+  reportMigrating,
+} from '@/lib/ws/connection-store'
 import { ConnectionIndicator } from '@/components/layout/connection-indicator'
 
 const SHOW_DELAY_MS = 500
+
+function shown() {
+  return vi.mocked(toast.show).mock.calls.map(([opts]) => opts)
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -121,5 +130,58 @@ describe('ConnectionIndicator', () => {
     )
     expect(keysUsed).toEqual(new Set(['connection-indicator']))
     expect(toast.show).toHaveBeenCalledTimes(6) // 3x warning + 3x success
+  })
+
+  it('a migrating daemon shows its step instead of Reconnecting', () => {
+    render(<ConnectionIndicator />)
+
+    act(() => {
+      reportChannelState('/v0/ws/git', false)
+      reportMigrating({
+        message: 'Crowbar is upgrading its data (step 2 of 5: chat-ledger)',
+        step: { index: 2, total: 5, name: 'chat-ledger' },
+      })
+    })
+    act(() => {
+      vi.advanceTimersByTime(SHOW_DELAY_MS)
+    })
+
+    expect(shown()).toEqual([
+      expect.objectContaining({
+        message: 'Crowbar is upgrading its data',
+        description: 'Step 2 of 5: chat-ledger',
+        key: 'connection-indicator',
+        duration: 0,
+      }),
+    ])
+  })
+
+  it('the upgrade toast gives way to Reconnected when a socket opens', () => {
+    render(<ConnectionIndicator />)
+    act(() => {
+      reportChannelState('/v0/ws/git', false)
+      reportMigrating({ message: 'm', step: { index: 1, total: 2, name: 'chat-ledger' } })
+    })
+
+    act(() => {
+      reportChannelState('/v0/ws/git', true)
+    })
+
+    expect(toast.dismissByKey).toHaveBeenCalledWith('connection-indicator')
+    expect(shown().at(-1)).toEqual(
+      expect.objectContaining({ message: 'Reconnected', key: 'connection-indicator' }),
+    )
+  })
+
+  it('a daemon starting before its first step says Crowbar is starting', () => {
+    render(<ConnectionIndicator />)
+
+    act(() => {
+      reportMigrating({ message: 'Crowbar is starting' })
+    })
+
+    expect(shown()).toEqual([
+      expect.objectContaining({ message: 'Crowbar is starting', description: undefined }),
+    ])
   })
 })

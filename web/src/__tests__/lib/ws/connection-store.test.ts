@@ -31,13 +31,16 @@ class MockWebSocket {
 vi.stubGlobal('WebSocket', MockWebSocket)
 
 const { createWSManager } = await import('@/lib/ws/manager')
-const { useConnectionStore, resetConnectionState } = await import('@/lib/ws/connection-store')
+const { useConnectionStore, resetConnectionState, reportChannelState, reportDaemonRefusal } =
+  await import('@/lib/ws/connection-store')
+const { useDaemonHaltStore } = await import('@/features/window/stores/daemon-halt-store')
 
 const status = () => useConnectionStore.getState().status
 
 beforeEach(() => {
   MockWebSocket.instances = []
   resetConnectionState()
+  useDaemonHaltStore.getState().clear()
 })
 
 describe('connection store', () => {
@@ -108,5 +111,40 @@ describe('connection store', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('a daemon_migrating refusal is a state, not a drop', () => {
+    reportChannelState('/a', false)
+    reportDaemonRefusal({ code: 'daemon_migrating', message: 'Crowbar is starting' })
+
+    expect(status()).toBe('migrating')
+    expect(useConnectionStore.getState().migrating).toEqual({ message: 'Crowbar is starting' })
+  })
+
+  it('a daemon_halted refusal halts the daemon-halt store with its reason', () => {
+    reportChannelState('/a', false)
+    reportDaemonRefusal({ code: 'daemon_halted', message: 'layout 9 is newer' })
+
+    expect(useDaemonHaltStore.getState().message).toBe('layout 9 is newer')
+    expect(status()).toBe('disconnected')
+  })
+
+  it('an open socket clears the migrating state', () => {
+    reportChannelState('/a', false)
+    reportDaemonRefusal({ code: 'daemon_migrating', message: 'Crowbar is starting' })
+    reportChannelState('/a', true)
+
+    expect(status()).toBe('connected')
+    expect(useConnectionStore.getState().migrating).toBeNull()
+    reportChannelState('/a', false)
+    expect(status()).toBe('disconnected')
+  })
+
+  it('a refusal while a socket is open does not change the status', () => {
+    reportChannelState('/a', true)
+    reportDaemonRefusal({ code: 'daemon_migrating', message: 'Crowbar is starting' })
+
+    expect(status()).toBe('connected')
+    expect(useConnectionStore.getState().migrating).toBeNull()
   })
 })

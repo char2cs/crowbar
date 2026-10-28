@@ -1,14 +1,7 @@
 import { useEffect } from 'react'
-import { apiFetch } from '@/lib/api/fetch'
-import { bestEffort } from '@/lib/best-effort'
 import { isTauri } from '@/lib/crowbar-bridge'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 import { toast } from '@/features/window/stores/toast-store'
-
-interface DaemonHealth {
-  status?: string
-  detail?: { message?: string }
-}
 
 /**
  * Mount-once bridge from the desktop supervisor's daemon lifecycle events to
@@ -22,21 +15,14 @@ interface DaemonHealth {
  *
  * `daemon:halted` is a daemon that is alive but refused to open its home; its
  * payload is the reason. It goes to the halt store, which the root renders in
- * place of every route, and `daemon:restarted` clears it. The daemon halts
- * before this page mounts, so mounting also asks it, the owner — in the
- * browser too, where no supervisor announces anything.
+ * place of every route, and `daemon:restarted` clears it. A halt from before
+ * this page mounted reaches the same store through the first refused request
+ * or socket (lib/api/fetch, lib/ws/daemon-probe).
  */
 export function DaemonHealthListener() {
   useEffect(() => {
+    if (!isTauri()) return
     let disposed = false
-    const isDisposed = () => disposed
-    if (!isTauri()) {
-      readHalt(isDisposed)
-      return () => {
-        disposed = true
-      }
-    }
-
     const unlistens: Array<() => void> = []
 
     void (async () => {
@@ -74,8 +60,6 @@ export function DaemonHealthListener() {
         if (disposed) unlisten()
         else unlistens.push(unlisten)
       }
-      if (disposed) return
-      readHalt(isDisposed)
     })()
 
     return () => {
@@ -85,18 +69,4 @@ export function DaemonHealthListener() {
   }, [])
 
   return null
-}
-
-/** Asks the daemon whether it halted, and records a halt it reports. */
-function readHalt(isDisposed: () => boolean) {
-  bestEffort(
-    apiFetch<DaemonHealth | undefined>('/v0/health').then((health) => {
-      if (!isDisposed() && health?.status === 'halted') {
-        useDaemonHaltStore
-          .getState()
-          .halt(health.detail?.message ?? 'the daemon halted without saying why')
-      }
-    }),
-    'daemon health read',
-  )
 }

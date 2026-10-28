@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apiFetch } from '@/lib/api/fetch'
 import { ApiError } from '@/lib/errors/api-error'
 import { noteDaemonChange } from '@/lib/transport/daemon-changes'
+import { resetConnectionState, useConnectionStore } from '@/lib/ws/connection-store'
+import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 
 // A retry config that runs instantly (no real backoff sleeps) so the suite stays
 // fast while still exercising the real attempt-counting logic.
@@ -280,4 +282,40 @@ describe('apiFetch refusals', () => {
     expect(err.problem).toEqual({ code: 'chat_busy', message: 'busy' })
     expect(err.data).toEqual({ n: 1 })
   })
+
+  it('a daemon_migrating refusal reports the state before it throws', async () => {
+    resetConnectionState()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(refusal('daemon_migrating', 'Crowbar is starting')),
+    )
+
+    const seen = await apiFetch('/v0/projects', undefined, fastRetry(1)).catch(
+      () => useConnectionStore.getState().migrating,
+    )
+
+    expect(seen).toEqual({ message: 'Crowbar is starting' })
+    resetConnectionState()
+  })
+
+  // A daemon that halts before the page loads announces it to nobody: the
+  // first request it refuses is how the browser learns of the halt.
+  it('a daemon_halted refusal halts the daemon before it throws', async () => {
+    useDaemonHaltStore.getState().clear()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(refusal('daemon_halted', 'layout 9 is newer')))
+
+    const seen = await apiFetch('/v0/projects', undefined, fastRetry(1)).catch(
+      () => useDaemonHaltStore.getState().message,
+    )
+
+    expect(seen).toBe('layout 9 is newer')
+    useDaemonHaltStore.getState().clear()
+  })
 })
+
+function refusal(code: string, error: string): Response {
+  return new Response(JSON.stringify({ success: false, error, code }), {
+    status: 503,
+    statusText: 'Service Unavailable',
+  })
+}

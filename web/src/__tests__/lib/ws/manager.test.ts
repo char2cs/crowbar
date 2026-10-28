@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { probeDaemon } from '@/lib/ws/daemon-probe'
+
+vi.mock('@/lib/ws/daemon-probe', () => ({ probeDaemon: vi.fn(() => Promise.resolve()) }))
 
 class MockWebSocket {
   // vi.stubGlobal replaces the real WebSocket, so the mock must carry the
@@ -35,6 +38,7 @@ class MockWebSocket {
 
 beforeEach(() => {
   MockWebSocket.instances = []
+  vi.mocked(probeDaemon).mockClear()
 })
 
 vi.stubGlobal('WebSocket', MockWebSocket)
@@ -331,6 +335,35 @@ describe('WSManager', () => {
     } finally {
       vi.doUnmock('@/lib/ws/url')
       vi.resetModules()
+    }
+  })
+
+  it('a socket that closes before it opened probes the daemon once', () => {
+    const mgr = createWSManager()
+    const unsubscribe = mgr.subscribe('/v0/ws/git', vi.fn())
+
+    MockWebSocket.instances[0].simulateClose()
+
+    expect(probeDaemon).toHaveBeenCalledTimes(1)
+    unsubscribe()
+  })
+
+  it('a socket that closed after opening does not probe until a reconnect fails', () => {
+    vi.useFakeTimers()
+    try {
+      const mgr = createWSManager()
+      const unsubscribe = mgr.subscribe('/v0/ws/git', vi.fn())
+      MockWebSocket.instances[0].simulateOpen()
+      MockWebSocket.instances[0].simulateClose()
+      expect(probeDaemon).not.toHaveBeenCalled()
+
+      vi.advanceTimersByTime(1000)
+      MockWebSocket.instances[1].simulateClose()
+
+      expect(probeDaemon).toHaveBeenCalledTimes(1)
+      unsubscribe()
+    } finally {
+      vi.useRealTimers()
     }
   })
 })

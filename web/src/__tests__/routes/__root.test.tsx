@@ -8,14 +8,11 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Route as RootRoute } from '@/routes/__root'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
-import { apiFetch } from '@/lib/api/fetch'
 
 // The sync engine needs a daemon; the root's halt handling does not.
 vi.mock('@/components/app-sync-provider', () => ({
   AppSyncProvider: ({ children }: { children: React.ReactNode }) => children,
 }))
-
-vi.mock('@/lib/api/fetch', () => ({ apiFetch: vi.fn() }))
 
 const handlers = new Map<string, (event: { payload: unknown }) => void>()
 
@@ -50,7 +47,6 @@ describe('the root route', () => {
   beforeEach(() => {
     handlers.clear()
     useDaemonHaltStore.getState().clear()
-    vi.mocked(apiFetch).mockResolvedValue({ status: 'ok' })
     tauriWindow.__TAURI_INTERNALS__ = {}
   })
   afterEach(() => {
@@ -74,15 +70,6 @@ describe('the root route', () => {
 
     expect(await screen.findByText(/could not start/i)).toBeTruthy()
     expect(screen.getByText(REASON)).toBeTruthy()
-    expect(screen.queryByText('first-run screen')).toBeNull()
-  })
-
-  it('shows the halt screen when the daemon was already halted before the page mounted', async () => {
-    vi.mocked(apiFetch).mockResolvedValue({ status: 'halted', detail: { message: REASON } })
-
-    renderRootOn('/oobe')
-
-    expect(await screen.findByText(REASON)).toBeTruthy()
     expect(screen.queryByText('first-run screen')).toBeNull()
   })
 

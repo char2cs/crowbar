@@ -3,7 +3,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { DaemonHealthListener } from '@/features/window/components/daemon-health-listener'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 import { toast } from '@/features/window/stores/toast-store'
-import { apiFetch } from '@/lib/api/fetch'
 
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: {
@@ -13,8 +12,6 @@ vi.mock('@/features/window/stores/toast-store', () => ({
     error: vi.fn(),
   },
 }))
-
-vi.mock('@/lib/api/fetch', () => ({ apiFetch: vi.fn() }))
 
 const handlers = new Map<string, (event: { payload: unknown }) => void>()
 const unlistenSpies: Array<ReturnType<typeof vi.fn>> = []
@@ -37,7 +34,6 @@ describe('DaemonHealthListener', () => {
     unlistenSpies.length = 0
     vi.clearAllMocks()
     useDaemonHaltStore.getState().clear()
-    vi.mocked(apiFetch).mockResolvedValue({ status: 'ok' })
     // isTauri() keys off this global; the listener must be active in Tauri.
     tauriWindow.__TAURI_INTERNALS__ = {}
   })
@@ -79,36 +75,6 @@ describe('DaemonHealthListener', () => {
     expect(useDaemonHaltStore.getState().message).toBeNull()
   })
 
-  it('reads a halt the daemon announced before this page could listen', async () => {
-    vi.mocked(apiFetch).mockResolvedValue({
-      status: 'halted',
-      detail: { message: 'layout 9 is newer than this Crowbar knows' },
-    })
-    render(<DaemonHealthListener />)
-
-    await waitFor(() =>
-      expect(useDaemonHaltStore.getState().message).toBe(
-        'layout 9 is newer than this Crowbar knows',
-      ),
-    )
-    expect(apiFetch).toHaveBeenCalledWith('/v0/health')
-  })
-
-  it('records nothing for a daemon that is serving or still migrating', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce({ status: 'migrating' })
-    const { unmount } = render(<DaemonHealthListener />)
-    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
-    await vi.mocked(apiFetch).mock.results[0].value
-    unmount()
-
-    vi.mocked(apiFetch).mockResolvedValueOnce({ status: 'ok' })
-    render(<DaemonHealthListener />)
-    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
-    await vi.mocked(apiFetch).mock.results[1].value
-
-    expect(useDaemonHaltStore.getState().message).toBeNull()
-  })
-
   it('unsubscribes every listener on unmount', async () => {
     const { unmount } = render(<DaemonHealthListener />)
     await waitFor(() => expect(handlers.size).toBe(4))
@@ -117,21 +83,5 @@ describe('DaemonHealthListener', () => {
     await waitFor(() => {
       for (const unlisten of unlistenSpies) expect(unlisten).toHaveBeenCalled()
     })
-  })
-
-  it('reads a halt in the browser too, where no supervisor announces one', async () => {
-    delete tauriWindow.__TAURI_INTERNALS__
-    vi.mocked(apiFetch).mockResolvedValue({
-      status: 'halted',
-      detail: { message: 'layout 9 is newer than this Crowbar knows' },
-    })
-    render(<DaemonHealthListener />)
-
-    await waitFor(() =>
-      expect(useDaemonHaltStore.getState().message).toBe(
-        'layout 9 is newer than this Crowbar knows',
-      ),
-    )
-    expect(handlers.size).toBe(0)
   })
 })

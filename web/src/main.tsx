@@ -15,6 +15,7 @@ import { initializeIconThemes } from '@/extensions/icon-themes/icon-theme-initia
 import { installPerfObserver, perfEnabled, pushPerfEntry } from '@/lib/perf/instrumentation'
 import { prefetchEditorChunks } from '@/features/panes/components/prefetch-editor-chunks'
 import { hydrateCriticalStores } from '@/lib/boot'
+import { installGlobalReporting } from '@/lib/errors/report'
 import './index.css'
 
 // Must run before anything else in boot: markStart/markEnd calls elsewhere
@@ -22,6 +23,12 @@ import './index.css'
 // observer is installed, but once installed it self-gates via perfEnabled()
 // so this is a safe unconditional call in every build.
 installPerfObserver()
+
+// Every rejection nothing handled reaches the user, not only the console.
+const uninstallGlobalReporting = installGlobalReporting()
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => uninstallGlobalReporting())
+}
 
 // Required for Zustand stores that use immer middleware with Set/Map state
 enableMapSet()

@@ -3,6 +3,7 @@ import { isTauri } from '@/lib/crowbar-bridge'
 import { wsUrl, isWebSocketCapable } from './url'
 import { reportChannelState, reportChannelGone } from './connection-store'
 import { TauriWebSocket } from './tauri-transport'
+import { probeDaemon } from './daemon-probe'
 import { noteDaemonChange } from '@/lib/transport/daemon-changes'
 
 type Callback = (data: unknown) => void
@@ -131,6 +132,9 @@ export function createWSManager(): WSManager {
       // closing after a reconnect must not flag the endpoint as down.
       const live = channels.get(endpoint) === ch
       if (live) reportChannelState(endpoint, false)
+      // Refused before it opened: the daemon may be up but not serving, and only
+      // its health route says why (a dropped open socket is just a drop).
+      if (live && !ch.everOpen) void probeDaemon()
       refuse(ch.waiters, endpoint, 'closed before it opened', ch.failure)
       if (ch.callbacks.size === 0) return
       if (live && ch.everOpen)

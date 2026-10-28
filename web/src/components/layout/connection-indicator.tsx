@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { useConnectionStore } from '@/lib/ws/connection-store'
+import { useConnectionStore, type Migrating } from '@/lib/ws/connection-store'
 import { toast } from '@/features/window/stores/toast-store'
 
 // Fixed dedup key: every warning/recovery toast for this component reuses it,
@@ -26,11 +26,31 @@ const SHOW_DELAY_MS = 500
  * resolved duration is `> 0`, so `0` opts a toast out of it entirely — and it
  * is dismissed only here, the instant a channel reconnects, never by a timer.
  */
+// Without a step the daemon is only starting (every boot passes through
+// migrating), so its own message is the title, never "upgrading its data".
+function migratingToast(migrating: Migrating) {
+  const { step } = migrating
+  return {
+    type: 'info' as const,
+    message: step ? 'Crowbar is upgrading its data' : migrating.message,
+    description: step ? `Step ${step.index} of ${step.total}: ${step.name}` : undefined,
+    key: TOAST_KEY,
+    duration: 0,
+  }
+}
+
 export function ConnectionIndicator() {
   const status = useConnectionStore((state) => state.status)
+  const migrating = useConnectionStore((state) => state.migrating)
   const shownRef = useRef(false)
 
   useEffect(() => {
+    // A migrating daemon is shown at once and updated in place as steps advance.
+    if (status === 'migrating' && migrating) {
+      shownRef.current = true
+      toast.show(migratingToast(migrating))
+      return
+    }
     if (status !== 'disconnected') {
       if (shownRef.current) {
         shownRef.current = false
@@ -62,7 +82,7 @@ export function ConnectionIndicator() {
     }, SHOW_DELAY_MS)
 
     return () => clearTimeout(timer)
-  }, [status])
+  }, [status, migrating])
 
   return null
 }

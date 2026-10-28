@@ -1,5 +1,6 @@
 import { daemonChanges, noteDaemonChange } from '@/lib/transport/daemon-changes'
 import { ApiError } from '@/lib/errors/api-error'
+import { reportDaemonRefusal } from '@/lib/ws/connection-store'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
 export const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
@@ -92,12 +93,15 @@ export async function apiFetchRaw(
       if (errorBody === null) {
         throw new ApiError(`${res.status} ${res.statusText}`, res.status, 'internal')
       }
-      throw new ApiError(
+      const refusal = new ApiError(
         errorBody.error ?? `${res.status} ${res.statusText}`,
         res.status,
         typeof errorBody.code === 'string' ? errorBody.code : undefined,
         errorBody.data,
       )
+      // A daemon that is migrating or halted refuses everything; that is its state, not this call's.
+      reportDaemonRefusal(refusal.problem)
+      throw refusal
     }
     return res
   }
