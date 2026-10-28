@@ -18,7 +18,7 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 }))
 
 import { handleCreate } from '@/components/layout/create-actions'
-import { handleCreateHomeThread } from '@/components/layout/home-actions'
+import { openHomeDraft } from '@/components/layout/home-actions'
 import { FIRST_PROMPT, draftPaneId } from '@/__tests__/__fixtures__/draft-thread'
 import { promoteDraftThread } from '@/components/layout/draft-promote'
 import {
@@ -113,7 +113,7 @@ describe('a pending thread row is placed where the daemon will append it', () =>
       ],
     })
 
-    await handleCreate('c-a', 'thread', vi.fn())
+    await handleCreate('c-a', 'thread', vi.fn(), undefined, undefined, true)
     void promoteDraftThread(draftPaneId()!, FIRST_PROMPT)
 
     const [entry] = usePendingCreatesStore.getState().entries
@@ -144,7 +144,7 @@ describe('a pending thread row is placed where the daemon will append it', () =>
     })
 
     windowPaneStore.setState({ activeProjectId: 'p1' })
-    await handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
+    await openHomeDraft('p1', 'home-ws-1', vi.fn())
     void promoteDraftThread(draftPaneId()!, FIRST_PROMPT)
 
     const [entry] = usePendingCreatesStore.getState().entries

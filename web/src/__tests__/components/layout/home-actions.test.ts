@@ -42,7 +42,10 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 }))
 
 import { handleCreate } from '@/components/layout/create-actions'
-import { handleCreateHomeThread as openHomeDraft } from '@/components/layout/home-actions'
+import {
+  handleCreateHomeThread as createHomeThreadNow,
+  openHomeDraft,
+} from '@/components/layout/home-actions'
 import { promoteDraftThread } from '@/components/layout/draft-promote'
 import { FIRST_PROMPT, draftPaneId } from '@/__tests__/__fixtures__/draft-thread'
 import { loadPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
@@ -302,6 +305,21 @@ describe('handleCreateHomeThread', () => {
 
     expect(toastError).toHaveBeenCalledOnce()
     expect(navigate).not.toHaveBeenCalled()
+  })
+
+  // The desktop creates the thread outright, so its pane has a real chat to pick a model for.
+  it('creates the chat and opens it at once on the desktop, with no draft', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    setActiveWorkspaceId('home-ws-1')
+
+    await createHomeThreadNow('p1', 'home-ws-1', vi.fn())
+
+    expect(createChat).toHaveBeenCalledOnce()
+    expect(draftPaneId()).toBeUndefined()
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('chat-1')
   })
 
   // New thread opens a blank draft and creates nothing: the chat, its sidebar

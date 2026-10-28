@@ -63,6 +63,8 @@ export interface RowMenuHandlers {
   fork: (row: SidebarRow) => void
   /** The phone confirms natively first, so a removal there commits at once instead of draining. */
   removeAtOnce?: boolean
+  /** The phone opens a new thread as a draft, created on its first send. */
+  draftThreads?: boolean
 }
 
 const ACTIONS: Record<RowMenuActionId, Omit<RowMenuAction, 'id'>> = {
@@ -239,7 +241,14 @@ export function runRowMenuAction(
     case 'retry':
       return retry(row)
     case 'new-thread':
-      void handleCreate(row.id, 'thread', handlers.navigate)
+      void handleCreate(
+        row.id,
+        'thread',
+        handlers.navigate,
+        undefined,
+        undefined,
+        handlers.draftThreads,
+      )
       return
     case 'fork':
       return handlers.fork(row)

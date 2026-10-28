@@ -23,7 +23,7 @@ import { dropTargetRow, rowDropTargets } from '@/components/sidebar/lib/row-drop
 import { killAgent, killAgentConfirmation } from '@/features/agent/lib/kill-agent'
 import { useNativeReadout } from '@/components/layout/use-readout-lines'
 import { hostNetStateOf } from '@/components/layout/build-readout-lines'
-import { handleCreateHomeThread } from '@/components/layout/home-actions'
+import { openHomeDraft } from '@/components/layout/home-actions'
 import { handleCreate } from '@/components/layout/create-actions'
 import { handleOpen } from '@/components/layout/open-actions'
 import { useSidebarHostFilter } from '@/components/layout/use-sidebar-host-filter'
@@ -385,7 +385,7 @@ export function useNativeSidebar({
           toast.error("Can't start a new thread yet")
           return
         }
-        void handleCreateHomeThread(projectId, homeWsId, navigate)
+        void openHomeDraft(projectId, homeWsId, navigate)
         return
       case 'selectProject':
         onSelectProject(intent.id)
@@ -408,6 +408,7 @@ export function useNativeSidebar({
           },
           fork: (target) => void forkNatively(target, navigate),
           removeAtOnce: true,
+          draftThreads: true,
         }
         if (intent.actionId === KILL_AGENT) {
           const { sessions: live, attached: counts } = useActiveSessionsStore.getState()
