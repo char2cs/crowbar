@@ -1,13 +1,7 @@
 import { getDB } from './idb'
 import type { CrowbarDB, CachedRecord } from './schemas'
 
-export type CacheStoreName =
-  | 'workspaces-data'
-  | 'git-data'
-  | 'file-tree-data'
-  | 'branch-review-data'
-  | 'projects-data'
-  | 'chats-data'
+export type CacheStoreName = 'workspaces-data' | 'projects-data'
 
 // The cache layer is strictly best-effort: it must NEVER break the data flow.
 // A missing object store (stale schema), a quota error, or a private-mode

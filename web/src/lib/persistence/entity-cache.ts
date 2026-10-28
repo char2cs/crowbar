@@ -9,12 +9,7 @@ import { getDB } from './idb'
 // (stale schema), a quota error, or a private-mode restriction degrades to a
 // no-op / empty read so the caller still functions off the live WS/GET path.
 export type EntityStoreName =
-  | 'crowbar_projects'
-  | 'crowbar_repos'
-  | 'crowbar_workspaces'
-  | 'crowbar_threads'
-  | 'crowbar_folders'
-  | 'crowbar_chats'
+  'crowbar_projects' | 'crowbar_repos' | 'crowbar_workspaces' | 'crowbar_folders' | 'crowbar_chats'
 
 export async function upsertEntity<T extends { id: string }>(
   store: EntityStoreName,

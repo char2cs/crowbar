@@ -81,8 +81,16 @@ async function openDatabase(): Promise<IDBPDatabase<CrowbarDB>> {
   }
 }
 
+const RETIRED_V12 = [
+  'git-data',
+  'file-tree-data',
+  'branch-review-data',
+  'chats-data',
+  'crowbar_threads',
+]
+
 async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
-  return openDB<CrowbarDB>('crowbar', 11, {
+  return openDB<CrowbarDB>('crowbar', 12, {
     upgrade(db, oldVersion, _newVersion, transaction) {
       // Retired stores are no longer in CrowbarDB; the upgrade chain still
       // creates and then drops them, so it goes through the untyped handle.
@@ -118,12 +126,12 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
           'branch-review-data',
           'chat-history',
           'projects-data',
-        ] as const) {
-          db.createObjectStore(name, { keyPath: 'key' })
+        ]) {
+          raw.createObjectStore(name, { keyPath: 'key' })
         }
       }
       if (oldVersion < 6) {
-        db.createObjectStore('chats-data', { keyPath: 'key' })
+        raw.createObjectStore('chats-data', { keyPath: 'key' })
       }
       if (oldVersion < 7) {
         // §6 entity cache: complete DTOs keyed by their own id (additive).
@@ -132,8 +140,8 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
           'crowbar_repos',
           'crowbar_workspaces',
           'crowbar_threads',
-        ] as const) {
-          db.createObjectStore(name, { keyPath: 'id' })
+        ]) {
+          raw.createObjectStore(name, { keyPath: 'id' })
         }
       }
       if (oldVersion < 8) {
@@ -164,6 +172,12 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
           transaction.objectStore('chat-history').createIndex('fetchedAt', 'fetchedAt')
         }
       }
+      if (oldVersion < 12) {
+        // Retired: declared but never read or written by anything.
+        for (const name of RETIRED_V12) {
+          if (raw.objectStoreNames.contains(name)) raw.deleteObjectStore(name)
+        }
+      }
     },
   })
 }
@@ -190,7 +204,6 @@ const ENTITY_STORES = [
   'crowbar_projects',
   'crowbar_repos',
   'crowbar_workspaces',
-  'crowbar_threads',
   'crowbar_folders',
   'crowbar_chats',
 ] as const

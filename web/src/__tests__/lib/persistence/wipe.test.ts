@@ -20,7 +20,6 @@ async function seedAllStores(): Promise<void> {
   await upsertEntity('crowbar_projects', { id: 'p' })
   await upsertEntity('crowbar_repos', { id: 'r' })
   await upsertEntity('crowbar_workspaces', { id: 'w' })
-  await upsertEntity('crowbar_threads', { id: 't' })
   await upsertEntity('crowbar_folders', { id: 'f' })
 }
 
@@ -31,7 +30,6 @@ describe('wipeEntityCache', () => {
     expect(await getAllEntities('crowbar_projects')).toHaveLength(0)
     expect(await getAllEntities('crowbar_repos')).toHaveLength(0)
     expect(await getAllEntities('crowbar_workspaces')).toHaveLength(0)
-    expect(await getAllEntities('crowbar_threads')).toHaveLength(0)
     expect(await getAllEntities('crowbar_folders')).toHaveLength(0)
   })
 })
@@ -58,7 +56,6 @@ describe('maybeWipeOnVersionChange', () => {
     expect(await getAllEntities('crowbar_projects')).toHaveLength(1)
     expect(await getAllEntities('crowbar_repos')).toHaveLength(1)
     expect(await getAllEntities('crowbar_workspaces')).toHaveLength(1)
-    expect(await getAllEntities('crowbar_threads')).toHaveLength(1)
     expect(await getAllEntities('crowbar_folders')).toHaveLength(1)
   })
 

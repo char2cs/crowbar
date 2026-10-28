@@ -105,12 +105,10 @@ describe('entity-cache', () => {
     await upsertEntity('crowbar_projects', { id: 'p' })
     await upsertEntity('crowbar_repos', { id: 'r' })
     await upsertEntity('crowbar_workspaces', { id: 'w' })
-    await upsertEntity('crowbar_threads', { id: 't' })
     await upsertEntity('crowbar_folders', { id: 'f' })
     expect(await getAllEntities('crowbar_projects')).toHaveLength(1)
     expect(await getAllEntities('crowbar_repos')).toHaveLength(1)
     expect(await getAllEntities('crowbar_workspaces')).toHaveLength(1)
-    expect(await getAllEntities('crowbar_threads')).toHaveLength(1)
     // A store the schema knows about but the DB was never upgraded to create
     // reads back empty rather than throwing (upsertEntity is best-effort), so
     // this length is the only thing that can catch a missed version bump.
