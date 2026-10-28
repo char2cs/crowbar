@@ -100,7 +100,7 @@ func (f steerFixture) launchCount(t *testing.T) int {
 	if errors.Is(err, os.ErrNotExist) {
 		return 0
 	}
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	return strings.Count(string(raw), "launched")
 }
 

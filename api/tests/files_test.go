@@ -235,7 +235,7 @@ func TestRegression_UnicodeSpellingsAreOneDocument(t *testing.T) {
 
 // refusal makes a request the daemon must refuse with 403 and answers the error
 // envelope's machine-readable code.
-func refusal(t *testing.T, h *harness, method string, path string, body any) string {
+func refusal(t *testing.T, h *harness, method, path string, body any) string {
 	t.Helper()
 	resp := h.raw(method, path, body, http.StatusForbidden)
 	defer func() { require.NoError(t, resp.Body.Close()) }()

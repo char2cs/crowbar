@@ -115,9 +115,9 @@ func (f *agentFrames) awaitChat(
 }
 
 // awaitConversation waits for a frame whose chat snapshot shows chatID bound to sessionID.
-func (f *agentFrames) awaitConversation(chatID, sessionID string) map[string]any {
+func (f *agentFrames) awaitConversation(chatID, sessionID string) {
 	f.t.Helper()
-	return f.await(
+	f.await(
 		func(m map[string]any) bool { return boundTo(m, chatID, sessionID) },
 		fmt.Sprintf("chat %s bound to session %s", chatID, sessionID),
 	)
