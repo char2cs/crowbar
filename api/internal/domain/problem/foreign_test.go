@@ -40,6 +40,8 @@ func TestCodeOf_ForeignErrors(t *testing.T) {
 		{asynxmodels.ErrPipelineFailed, problem.Conflict},
 		{asynxmodels.ErrQueueFull, problem.Unavailable},
 		{asynxmodels.ErrShuttingDown, problem.Unavailable},
+		{asynxmodels.ErrDeliveryParked, problem.Unavailable},
+		{asynxmodels.ErrForgetInProgress, problem.Conflict},
 		{context.DeadlineExceeded, problem.Timeout},
 	}
 	for _, tc := range cases {

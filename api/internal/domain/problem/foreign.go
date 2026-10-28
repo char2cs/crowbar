@@ -20,6 +20,10 @@ var foreign = []struct {
 	{asynxmodels.ErrPipelineFailed, Conflict},
 	{asynxmodels.ErrQueueFull, Unavailable},
 	{asynxmodels.ErrShuttingDown, Unavailable},
+	// A parked aggregate refuses until the daemon restarts; one being forgotten
+	// is going away under a concurrent delete.
+	{asynxmodels.ErrDeliveryParked, Unavailable},
+	{asynxmodels.ErrForgetInProgress, Conflict},
 	{context.DeadlineExceeded, Timeout},
 }
 
