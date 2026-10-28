@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 // Invariant (spec §7-E): the cursor lands on the right line after a
 // cross-file reveal. The old jump paths placed it from a 100–150 ms timer by
@@ -16,9 +16,16 @@ vi.mock('@/lib/api/documents', async (importOriginal) => ({
   },
 }))
 
+import { createRef, StrictMode } from 'react'
+import { renderHook } from '@testing-library/react'
 import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
+import { EditorManager, type IEditorLike } from '@/features/editor/lib/editor-manager'
+import type { IModelLike } from '@/features/editor/documents/document-registry'
+import { usePaneEditorController } from '@/features/editor/hooks/use-pane-editor-controller'
+import { isEditorContent } from '@/features/panes/types/pane-content'
+import { documentRefOf } from '@/features/editor/documents/document-ref'
 import { activeEditors } from '@/features/editor/lib/active-editor-context'
-import { loadEditorHost } from '@/features/editor/host/editor-host'
+import { getEditorHost, loadEditorHost } from '@/features/editor/host/editor-host'
 import { documentUri } from '@/features/editor/documents/document-ref'
 import { revealInEditor } from '@/features/editor/lib/reveal'
 import {
@@ -50,6 +57,63 @@ function showInPane(paneId: string, path: string, editor: unknown, workspaceId =
 }
 function show(paneId: string, doc: DocumentRef, editor: unknown) {
   activeEditors.set(paneId, { paneId, uri: documentUri(doc), filePath: doc.path, editor })
+}
+
+interface Caret {
+  startLineNumber: number
+}
+
+/** A widget whose caret lives in its view state, as Monaco's does. */
+function caretEditor(): IEditorLike & { caret: Caret | null } {
+  let model: IModelLike | null = null
+  const ed = {
+    caret: null as Caret | null,
+    setModel: (m: IModelLike | null) => void (model = m),
+    getModel: () => model,
+    saveViewState: () => ({ caret: ed.caret }),
+    restoreViewState: (state: unknown) => void (ed.caret = (state as { caret: Caret }).caret),
+    layout: () => {},
+    dispose: () => {},
+    raw: () => raw,
+  }
+  const raw = {
+    getModel: () => model,
+    setSelection: (caret: Caret) => void (ed.caret = caret),
+    revealPositionInCenterIfOutsideViewport: () => {},
+    focus: () => {},
+    onDidChangeModelContent: () => ({ dispose: () => {} }),
+    onDidChangeCursorSelection: () => ({ dispose: () => {} }),
+  }
+  return ed
+}
+
+/** The pane's editor surface, minus Monaco: a real manager and controller in StrictMode. */
+function mountPaneEditor(paneId: string) {
+  const created: ReturnType<typeof caretEditor>[] = []
+  const editors = { create: () => created[created.push(caretEditor()) - 1] }
+  const manager = new EditorManager(editors, getEditorHost()!.documents)
+  const container = createRef<HTMLElement>()
+  ;(container as { current: HTMLElement }).current = document.createElement('div')
+  const view = renderHook(
+    () =>
+      usePaneEditorController(paneId, container, {
+        store: windowPaneStore,
+        selectActiveBuffer: (state) => {
+          const id = state.panes[paneId]?.activeEditorTabId
+          const buffer = state.buffers.find((b) => b.id === id)
+          return buffer && isEditorContent(buffer) ? { doc: documentRefOf(buffer) } : null
+        },
+        manager,
+        registry: activeEditors,
+        onDidOpen: (listener) => getEditorHost()!.documents.onDidOpen(listener),
+        mountPane: (el) => manager.mountPane(paneId, el),
+        unmountPane: () => manager.unmountPane(paneId),
+        syncCursorAndSelection: () => {},
+      }),
+    { wrapper: StrictMode },
+  )
+  onTestFinished(() => view.unmount())
+  return { created, manager }
 }
 
 // Opening a closed file opens its Monaco model.
@@ -96,6 +160,27 @@ describe('revealInEditor', () => {
       lineNumber: 1201,
       column: 5,
     })
+  })
+
+  it('the first open lands on its line in the widget that survives the mount', async () => {
+    readDisk.mockResolvedValue('cold text')
+    const paneId = windowPaneStore.getState().activePaneId
+
+    const pending = revealInEditor({
+      doc: workspaceRef('ws-1', 'src/cold-three.ts'),
+      position: { line: 8, character: 0 },
+    })
+    // No editor is mounted yet: the pane's surface mounts once the tab is active.
+    await vi.waitFor(() => {
+      const state = windowPaneStore.getState()
+      expect(state.panes[paneId]?.activeEditorTabId).toBeTruthy()
+    })
+    const { created, manager } = mountPaneEditor(paneId)
+
+    expect(await pending).not.toBeNull()
+    expect(created).toHaveLength(2) // StrictMode disposed the first widget
+    const live = created.find((ed) => manager.getEditor(paneId) === ed)
+    expect(live?.caret?.startLineNumber).toBe(9)
   })
 
   it('switches to an already-open buffer without re-reading it', async () => {

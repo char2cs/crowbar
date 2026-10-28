@@ -69,6 +69,10 @@ export class EditorManager {
   unmountPane(paneId: string): void {
     const pane = this.panes.get(paneId)
     if (!pane) return
+    // A remounted widget (same pane) picks up where this one was, cursor included.
+    if (pane.currentUri && pane.editor.getModel()) {
+      this.viewState.set(this.vsKey(paneId, pane.currentUri), pane.editor.saveViewState())
+    }
     pane.editor.dispose()
     this.panes.delete(paneId)
   }

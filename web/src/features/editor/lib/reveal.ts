@@ -3,7 +3,7 @@
  * go-to-definition, references, jump-list Back/Forward and "open at line".
  *
  * The cursor is placed once the pane's retained Monaco widget actually shows
- * the target model ({@link editorReadyFor}), not after a guessed delay: the old
+ * the target model ({@link placeWhenShown}), not after a guessed delay: the old
  * 100–150 ms timers raced the lazy editor chunk and the model swap, and placed
  * the cursor by a character offset computed from whichever buffer happened to
  * be active — the wrong file on a slow switch, the wrong line on a large one.
@@ -26,12 +26,35 @@ export interface RevealTarget {
   beforeShow?: (bufferId: string) => void
 }
 
+function placeCursor(editor: CodeEditor, target: RevealTarget): void {
+  if (target.position) {
+    const position = {
+      lineNumber: target.position.line + 1,
+      column: target.position.character + 1,
+    }
+    editor.setSelection({
+      startLineNumber: position.lineNumber,
+      startColumn: position.column,
+      endLineNumber: position.lineNumber,
+      endColumn: position.column,
+    })
+    editor.revealPositionInCenterIfOutsideViewport(position)
+  }
+  editor.focus()
+}
+
 /**
- * Resolves with the pane's editor once it shows `uri`, or null if the pane
- * moves to another tab (or the buffer closes) first. No timeout: the pane
- * either shows the buffer or the user navigated away.
+ * Places the cursor in the pane's editor the moment it shows `uri` and resolves
+ * with that editor, or null if the pane moves to another tab (or the buffer
+ * closes) first. No timeout: the pane either shows the buffer or the user
+ * navigated away.
  */
-function editorReadyFor(paneId: string, uri: string, bufferId: string): Promise<CodeEditor | null> {
+function placeWhenShown(
+  paneId: string,
+  uri: string,
+  bufferId: string,
+  target: RevealTarget,
+): Promise<CodeEditor | null> {
   return new Promise((resolve) => {
     const cleanups: Array<() => void> = []
     let settled = false
@@ -55,7 +78,11 @@ function editorReadyFor(paneId: string, uri: string, bufferId: string): Promise<
     // By uri, not path: one window registry sees every document.
     own(
       activeEditors.subscribe(paneId, (ctx) => {
-        if (ctx?.uri === uri && ctx.editor) settle(ctx.editor as CodeEditor)
+        if (settled || ctx?.uri !== uri || !ctx.editor) return
+        // Placed inside the notification, before dev (StrictMode) can remount the
+        // widget: the manager hands its view state, cursor included, to the survivor.
+        placeCursor(ctx.editor as CodeEditor, target)
+        settle(ctx.editor as CodeEditor)
       }),
     )
     if (abandoned()) settle(null)
@@ -63,27 +90,13 @@ function editorReadyFor(paneId: string, uri: string, bufferId: string): Promise<
   })
 }
 
-function placeCursor(editor: CodeEditor, target: RevealTarget): void {
-  if (target.position) {
-    const position = {
-      lineNumber: target.position.line + 1,
-      column: target.position.character + 1,
-    }
-    editor.setSelection({
-      startLineNumber: position.lineNumber,
-      startColumn: position.column,
-      endLineNumber: position.lineNumber,
-      endColumn: position.column,
-    })
-    editor.revealPositionInCenterIfOutsideViewport(position)
-  }
-  editor.focus()
-}
-
 /**
  * Open (or switch to) `target.doc` and place the cursor. Resolves with the
- * editor showing it, or null when the document could not be opened (the open
- * reports why) or the user navigated away before it showed.
+ * editor the cursor was placed in, or null when the document could not be
+ * opened (the open reports why) or the user navigated away before it showed.
+ * A remount (dev StrictMode's first mount) may since have replaced that editor:
+ * the survivor restores the cursor from the pane's view state, and
+ * usePaneEditorSatellites focuses it when it shows the model on the active surface.
  */
 export async function revealInEditor(target: RevealTarget): Promise<CodeEditor | null> {
   const bufferId = await openDocument(target.doc, { beforeShow: target.beforeShow })
@@ -94,7 +107,5 @@ export async function revealInEditor(target: RevealTarget): Promise<CodeEditor |
   const paneId = state.panes[state.activePaneId]?.editorTabIds.includes(bufferId)
     ? state.activePaneId
     : (state.paneActions.getPaneByEditorTabId(bufferId)?.id ?? state.activePaneId)
-  const editor = await editorReadyFor(paneId, documentUri(documentRefOf(buffer)), bufferId)
-  if (editor) placeCursor(editor, target)
-  return editor
+  return placeWhenShown(paneId, documentUri(documentRefOf(buffer)), bufferId, target)
 }

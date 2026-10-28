@@ -105,6 +105,15 @@ describe('EditorManager', () => {
     expect(documents.get(A)!.dispose).not.toHaveBeenCalled()
   })
 
+  it('a remounted pane restores where its disposed widget was in the document', () => {
+    const { ea, m } = setup('p1')
+    m.showBuffer('p1', A)
+    m.unmountPane('p1')
+    m.mountPane('p1', {} as HTMLElement)
+    m.showBuffer('p1', A)
+    expect(ea.created[1].restoreViewState).toHaveBeenCalledWith({ for: A })
+  })
+
   it('getRawEditor exposes the underlying editor for a mounted pane', () => {
     const { m } = setup()
     expect(m.getRawEditor('p1')).toBeNull()
