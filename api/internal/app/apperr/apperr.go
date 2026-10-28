@@ -25,12 +25,8 @@ var ErrLocked = errors.New("apperr: workspace locked")
 // HTTP 400 via errors.Is, rejecting the request before it reaches the engine.
 var ErrInvalidArgument = errors.New("apperr: invalid argument")
 
-// ErrUnavailable signals that a mutation could not be accepted because the
-// backing asynx shard queue is full (asynxmodels.ErrQueueFull). Once the
-// per-aggregate writeMu is gone (asynx-alignment refactor), one shared asynx
-// instance absorbs concurrent Sends under load, so a shard queue can fill; the
-// workspace repo wraps this sentinel so handlers map it to HTTP 503 via
-// errors.Is, telling the client to retry.
+// ErrUnavailable signals a request that cannot be served right now (a compact
+// with no live connection); handlers map it to 503, so the client may retry.
 var ErrUnavailable = errors.New("apperr: service unavailable")
 
 // ErrConflict signals that a syntactically valid request conflicts with a

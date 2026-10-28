@@ -31,9 +31,6 @@ func newAdapter(
 	return c
 }
 
-// wsAx builds a real workspace asynx over the adapter's singleton per-type event
-// store, shutting it down before the adapter closes (the asynx sits on the ES
-// handle the adapter owns).
 // wsAx builds axWorkspace over ad with ad's read model as its durable subscriber.
 func wsAx(
 	t *testing.T,

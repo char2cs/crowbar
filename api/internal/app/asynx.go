@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -39,11 +40,7 @@ func newAsynx[T any](
 			slog.ErrorContext(ctx, "asynx publish error",
 				"aggregate", evt.AggregateID, "event", evt.EventName, "version", evt.Version, "err", err)
 		}).
-		WithDeliveryErrorHandler(func(ctx context.Context, evt asynxModels.Event[T], err error, attempt int) {
-			slog.ErrorContext(ctx, "asynx durable delivery failed; retrying",
-				"aggregate", evt.AggregateID, "event", evt.EventName, "version", evt.Version,
-				"attempt", attempt, "err", err)
-		})
+		WithDeliveryErrorHandler(logDeliveryError[T])
 	for _, opt := range opts {
 		opt(b)
 	}
@@ -89,4 +86,21 @@ func newAggregates(
 		return nil, fmt.Errorf("app: asynx node: %w", err)
 	}
 	return &ax, nil
+}
+
+// logDeliveryError reports a failed durable attempt; the one that ran out of
+// attempts parks the aggregate until a restart, so it says that, not "retrying".
+func logDeliveryError[T any](
+	ctx context.Context,
+	evt asynxModels.Event[T],
+	err error,
+	attempt int,
+) {
+	msg := "asynx durable delivery failed; retrying"
+	if errors.Is(err, asynxModels.ErrDeliveryParked) {
+		msg = "asynx durable delivery parked until the next restart"
+	}
+	slog.ErrorContext(ctx, msg,
+		"aggregate", evt.AggregateID, "event", evt.EventName, "version", evt.Version,
+		"attempt", attempt, "err", err)
 }

@@ -18,7 +18,7 @@
   "api/internal/api/v0/route_audit_test.go": 965,
   "api/internal/app/repositories/chat/event_store_test.go": 541,
   "api/internal/app/repositories/container_test.go": 608,
-  "api/internal/app/repositories/workspace/workspace_test.go": 935,
+  "api/internal/app/repositories/workspace/workspace_test.go": 932,
   "api/internal/app/usecases/branchreview/branch_review_test.go": 1078,
   "api/internal/app/usecases/chat/answers_test.go": 804,
   "api/internal/app/usecases/chat/chat_test.go": 2101,

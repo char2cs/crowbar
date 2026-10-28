@@ -2970,9 +2970,9 @@ func TestRegression_SpawnRefusedAfterTheChatWasWritten_ForgetsTheChat(t *testing
 			assert.Empty(t, runnerID)
 			f.wait()
 
-			kinds := f.bcKinds(t) // Forget supersedes frames still queued, so only the ends are fixed
-			assert.Equal(t, []string{"created", "deleted"}, []string{kinds[0], kinds[len(kinds)-1]},
-				"the chat was written and then taken back out — not merely never written")
+			// Forget supersedes frames still queued, so the middle one may be gone.
+			assert.Contains(t, [][]string{{"created", "deleted"}, {"created", "permission_level_set", "deleted"}},
+				f.bcKinds(t), "the chat was written and then taken back out — not merely never written")
 
 			var born string
 			for _, frame := range f.bc.snapshot() {

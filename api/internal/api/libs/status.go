@@ -224,9 +224,7 @@ func isBadRequest(
 func isConflict(
 	err error,
 ) bool {
-	// asynxmodels.ErrPipelineFailed surfaced after the workspace repo's OCC retries
-	// are exhausted is an unrecoverable optimistic-concurrency/version collision →
-	// 409 Conflict (asynx-alignment refactor, spec §3.5 ErrPipelineFailed→409).
+	// asynxmodels.ErrPipelineFailed is a version collision on append → 409.
 	if errors.Is(err, asynxmodels.ErrPipelineFailed) {
 		return true
 	}

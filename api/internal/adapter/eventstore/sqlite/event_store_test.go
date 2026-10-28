@@ -3,11 +3,16 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/char2cs/asynx"
 	"github.com/char2cs/asynx/models"
+	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/char2cs/asynx/store/storetest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -194,4 +199,50 @@ func TestEventStore_InMemoryStoreServesATransaction(t *testing.T) {
 	blobs, err := s.ReadFrom(context.Background(), "events:a", 1)
 	require.NoError(t, err)
 	assert.Len(t, blobs, 1)
+}
+
+type thing struct {
+	Name string `json:"name"`
+}
+
+// A delivery committed with its event but never handled (a crash between the
+// two) is redelivered by the next Build over the reopened file, then acked.
+func TestEventStore_APendingDeliverySurvivesAReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.db")
+	ctx := context.Background()
+	evt, err := json.Marshal(map[string]any{
+		"id": "e1", "event_name": "thing.created.a", "version": 1, "schema_version": 1,
+		"occurred_at": time.Unix(1, 0).UTC(),
+		"patches":     []map[string]any{{"op": "replace", "path": "/name", "value": "x"}},
+	})
+	require.NoError(t, err)
+	first, err := NewEventStore(path)
+	require.NoError(t, err)
+	require.NoError(t, first.Atomically(ctx, func(tx models.Tx) error {
+		return errors.Join(tx.Append(ctx, "events:a", 1, evt), tx.EnqueueDelivery(ctx, "a", 1))
+	}))
+	closer, ok := first.(*eventStore)
+	require.True(t, ok)
+	require.NoError(t, closer.Close())
+
+	s := openAt(t, path)
+	got := make(chan thing, 1)
+	ax, err := asynx.New[thing]().WithEventStore(s).WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithSubscriber(asynx.Topic("thing.*"), func(_ context.Context, e models.Event[thing]) error {
+			got <- e.Aggregate
+			return nil
+		}).Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, ax.Shutdown(context.Background())) })
+
+	select {
+	case th := <-got:
+		assert.Equal(t, "x", th.Name)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the pending delivery was never redelivered")
+	}
+	require.Eventually(t, func() bool {
+		pending, err := s.PendingDeliveries(ctx, 10)
+		return err == nil && len(pending) == 0
+	}, 10*time.Second, 5*time.Millisecond, "the redelivered event must be acked")
 }
