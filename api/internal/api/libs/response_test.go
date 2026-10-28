@@ -113,6 +113,33 @@ func TestWriteAccepted(t *testing.T) {
 	assert.Empty(t, rec.Body.Bytes())
 }
 
+func TestWriteOperation_Answers202WithTheOperation(t *testing.T) {
+	ctx, rec := newCtx(t)
+	op := domain.Operation{ID: "o1", Kind: domain.OpGitPush, State: domain.OpAccepted, Version: 1}
+
+	libs.WriteOperation(ctx, op)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	var env struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Operation domain.Operation `json:"operation"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	assert.True(t, env.Success)
+	assert.Equal(t, op, env.Data.Operation)
+}
+
+func TestIdempotencyKey_ReadsTheHeader(t *testing.T) {
+	ctx, _ := newCtx(t)
+	ctx.Request = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", nil)
+	assert.Empty(t, libs.IdempotencyKey(ctx))
+
+	ctx.Request.Header.Set("Idempotency-Key", "k1")
+	assert.Equal(t, "k1", libs.IdempotencyKey(ctx))
+}
+
 func TestWriteErr(t *testing.T) {
 	ctx, rec := newCtx(t)
 

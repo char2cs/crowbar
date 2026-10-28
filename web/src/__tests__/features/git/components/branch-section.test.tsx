@@ -1,7 +1,9 @@
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { BranchSection } from '@/features/git/components/branch-section'
 import type { GitFile } from '@/features/git/types/git-types'
+import { pushChanges } from '@/features/git/api/git-remotes-api'
+import { applyOperationFrame, useOperationsStore } from '@/lib/store/operations'
 
 // Stub the heavy children so this test isolates BranchSection's own rendering.
 vi.mock('@/features/git/components/commit-box', () => ({
@@ -10,9 +12,28 @@ vi.mock('@/features/git/components/commit-box', () => ({
 vi.mock('@/features/git/components/merge-popover', () => ({
   MergePopover: ({ trigger }: { trigger: React.ReactElement }) => trigger,
 }))
+// The HTTP transport: each call answers 202 with the operation it started.
+const { accepted } = vi.hoisted(() => ({
+  accepted: (wsId: string, opId: string) =>
+    Promise.resolve({
+      operation: {
+        id: opId,
+        kind: 'git.push',
+        subject: { kind: 'workspace' as const, id: wsId },
+        projectId: 'p1',
+        label: 'Push epoch/first-pr',
+        state: 'accepted' as const,
+        items: [],
+        dismissed: false,
+        version: 1,
+        createdAt: '2026-10-28T12:00:00Z',
+        updatedAt: '2026-10-28T12:00:00Z',
+      },
+    }),
+}))
 vi.mock('@/features/git/api/git-remotes-api', () => ({
-  pushChanges: vi.fn().mockResolvedValue({ success: true }),
-  pullChanges: vi.fn().mockResolvedValue({ success: true }),
+  pushChanges: vi.fn(accepted),
+  pullChanges: vi.fn(accepted),
 }))
 
 const base = {
@@ -78,5 +99,27 @@ describe('BranchSection', () => {
     expect(screen.getByText(/1 ahead, 1 behind/)).toBeDefined()
     // Pull-before-push: you can't push while behind, so Pull is the action.
     expect(screen.getByRole('button', { name: /Pull/ })).toBeDefined()
+  })
+
+  it('push starts a git.push operation and a failure shows its reason', async () => {
+    render(<BranchSection {...base} ahead={1} />)
+    fireEvent.click(screen.getByRole('button', { name: /Push/ }))
+
+    await waitFor(() => expect(pushChanges).toHaveBeenCalled())
+    const opId = vi.mocked(pushChanges).mock.calls[0][1]
+    expect(useOperationsStore.getState().ops[opId]).toMatchObject({ kind: 'git.push' })
+    expect(await screen.findByRole('button', { name: /Pushing/ })).toBeDisabled()
+
+    act(() => {
+      const held = useOperationsStore.getState().ops[opId]
+      applyOperationFrame({
+        ...held,
+        state: 'failed',
+        version: held.version + 1,
+        error: { code: 'internal', message: 'origin does not appear to be a git repository' },
+      })
+    })
+
+    expect(await screen.findByText(/origin does not appear to be a git repository/)).toBeDefined()
   })
 })

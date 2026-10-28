@@ -131,9 +131,8 @@ async function parseBody(res: Response): Promise<EnvelopeBody | null> {
 }
 
 async function readEnvelope(res: Response): Promise<Envelope> {
-  // An empty 204/202 (a write accepted with no payload) is success with no data.
-  const empty = res.status === 204 || res.status === 202
-  const body = empty ? null : await parseBody(res)
+  // A 204, or a 202 with no body (a write accepted with no payload), is success with no data.
+  const body = res.status === 204 ? null : await parseBody(res)
   return { status: res.status, statusText: res.statusText, body }
 }
 

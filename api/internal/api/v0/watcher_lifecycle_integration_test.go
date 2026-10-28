@@ -112,6 +112,7 @@ func (fileProbe) PushGit(_ string, _ gitdomain.GitStatus)      {}
 
 func (fileProbe) PushAgentChatFolder(_, _, _ string) {}
 func (fileProbe) PushPlacementChanged()              {}
+func (fileProbe) PushOperation(domain.Operation)     {}
 
 func (fileProbe) PushAgentChatPromptSettled(_, _, _ string, _ bool) {}
 

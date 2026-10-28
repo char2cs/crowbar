@@ -1,4 +1,5 @@
 import { ApiError } from '@/lib/errors/api-error'
+import { OperationFailedError } from '@/lib/errors/operation-failed'
 import { problemOf } from '@/lib/errors/problem'
 import { toastManager } from '@/lib/toast-manager'
 import { reportDaemonRefusal } from '@/lib/ws/connection-store'
@@ -18,7 +19,8 @@ function isCancellation(error: unknown): boolean {
 
 /** Tells the user an action failed and why, in the daemon's own words. */
 function report(error: unknown, context: ReportContext): void {
-  if (isCancellation(error)) return
+  // A failed operation was already toasted by the operations watcher.
+  if (isCancellation(error) || error instanceof OperationFailedError) return
   const problem = problemOf(error)
   // A migrating or halted daemon has its own screen; a toast per refused call would bury it.
   if (problem.code === 'daemon_migrating' || problem.code === 'daemon_halted') {
@@ -37,7 +39,11 @@ function report(error: unknown, context: ReportContext): void {
 export function installGlobalReporting(target: Window = window): () => void {
   const onRejection = (event: Event) => {
     const reason: unknown = (event as PromiseRejectionEvent).reason
-    if (reason instanceof ApiError || isCancellation(reason)) {
+    if (
+      reason instanceof ApiError ||
+      reason instanceof OperationFailedError ||
+      isCancellation(reason)
+    ) {
       report(reason, { action: UNEXPECTED })
       return
     }

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installGlobalReporting } from '@/lib/errors/report'
 import { ApiError } from '@/lib/errors/api-error'
+import { OperationFailedError } from '@/lib/errors/operation-failed'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 import { toastManager } from '@/lib/toast-manager'
 
@@ -41,6 +42,12 @@ describe('report', () => {
 
     reject(new DOMException('aborted', 'AbortError'))
     reject(canceled)
+
+    expect(toastManager.add).not.toHaveBeenCalled()
+  })
+
+  it('ignores an OperationFailedError, which the operations watcher already showed', () => {
+    reject(new OperationFailedError({ code: 'conflict', message: 'held' }, 'op1'))
 
     expect(toastManager.add).not.toHaveBeenCalled()
   })

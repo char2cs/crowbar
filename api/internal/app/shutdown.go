@@ -50,6 +50,9 @@ func (c *Container) Shutdown(
 	// moment the agent tool counters are ever read.
 	c.logAgentToolUsage()
 
+	// Operation work commits events and runs git, so it ends while the reactors and aggregates still run.
+	opsErr := c.Operations.Shutdown(ctx)
+
 	// Before the PTYs die: their exits record daemon_restart, not exited.
 	shutdownAgentRunners(c.Usecases)
 	c.quiesceTerminal(ctx)
@@ -67,6 +70,7 @@ func (c *Container) Shutdown(
 	drain.Gate.Wait(ctx)
 
 	return errors.Join(
+		opsErr,
 		c.axWorkspace.Shutdown(ctx),
 		c.axReviewThread.Shutdown(ctx),
 		c.axAgentChat.Shutdown(ctx),

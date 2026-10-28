@@ -44,6 +44,7 @@ func (s *capturingSubscriber) PushFile(e domain.FileChangeEvent)            { s.
 
 func (s *capturingSubscriber) PushAgentChatFolder(_, _, _ string) {}
 func (s *capturingSubscriber) PushPlacementChanged()              {}
+func (s *capturingSubscriber) PushOperation(domain.Operation)     {}
 func (s *capturingSubscriber) PushAgentChatTerminalWait(_, _ string, _ *dto.AgentTerminalWaitDTO) {
 }
 

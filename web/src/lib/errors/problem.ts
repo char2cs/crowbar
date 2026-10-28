@@ -1,4 +1,5 @@
 import { ApiError } from '@/lib/errors/api-error'
+import { OperationFailedError } from '@/lib/errors/operation-failed'
 
 /** The daemon's closed code enum (`domain/problem`), same spelling, plus the
  *  desktop proxy's own `daemon_unavailable`. */
@@ -48,7 +49,7 @@ export interface Problem {
 
 /** Any thrown value as a Problem, so every surface words a failure the same way. */
 export function problemOf(error: unknown): Problem {
-  if (error instanceof ApiError) return error.problem
+  if (error instanceof ApiError || error instanceof OperationFailedError) return error.problem
   if (error instanceof Error) return { code: 'internal', message: error.message }
   return { code: 'internal', message: String(error) }
 }

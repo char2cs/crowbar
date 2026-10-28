@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -103,20 +104,11 @@ func (stubGit) ResolveHunk(_ context.Context, _, _, _ string, _ gitdomain.Confli
 func (stubGit) OperationContinue(_ context.Context, _ string, _ time.Time) error { return nil }
 func (stubGit) OperationAbort(_ context.Context, _ string, _ time.Time) error    { return nil }
 
-type stubLastErrors struct{}
+type stubOps struct{}
 
-func (stubLastErrors) SetLastError(
-	_ context.Context,
-	id string,
-	message string,
-) (domain.Workspace, error) {
-	return domain.Workspace{ID: id, LastError: message}, nil
+func (stubOps) Start(context.Context, operation.Spec, operation.Work) (domain.Operation, error) {
+	return domain.Operation{}, nil
 }
-
-type stubWork struct{}
-
-func (stubWork) BeginWork(_ context.Context, _ string) {}
-func (stubWork) EndWork(_ context.Context, _ string)   {}
 
 func passthrough(
 	rest gin.HandlerFunc,
@@ -183,8 +175,7 @@ func registerChatScoped(
 	git.Register(
 		v0.Group("/chats/:chatId"),
 		stubGit{},
-		stubLastErrors{},
-		stubWork{},
+		stubOps{},
 		func(_ *gin.Context) {},
 		passthrough,
 	)

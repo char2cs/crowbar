@@ -1,5 +1,4 @@
 {
-  "api/internal/api/v0/container.go": 875,
   "api/internal/api/v0/container_push_internal_test.go": 642,
   "api/internal/api/v0/endpoints/chat/handlers/activity_test.go": 677,
   "api/internal/api/v0/endpoints/chat/handlers/chats.go": 594,
@@ -8,7 +7,6 @@
   "api/internal/api/v0/endpoints/chat/handlers/handlers.go": 591,
   "api/internal/api/v0/endpoints/chat/handlers/hooks_test.go": 706,
   "api/internal/api/v0/endpoints/chat/routes_test.go": 577,
-  "api/internal/api/v0/endpoints/git/handlers/write.go": 529,
   "api/internal/api/v0/endpoints/home/handlers/files_test.go": 588,
   "api/internal/api/v0/endpoints/projects/handlers/projects_test.go": 678,
   "api/internal/api/v0/endpoints/repos/handlers/create_test.go": 592,
@@ -137,7 +135,6 @@
   "web/src/components/sidebar/lib/drop-actions.ts": 999,
   "web/src/components/sidebar/lib/row-actions.ts": 671,
   "web/src/components/sidebar/lib/rows-from-repo.ts": 702,
-  "web/src/components/sidebar/sidebar-row.tsx": 680,
   "web/src/components/ui/dropdown.tsx": 725,
   "web/src/components/ui/emoji-toolbar-button.tsx": 561,
   "web/src/components/ui/font-color-toolbar-button.tsx": 515,

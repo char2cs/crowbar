@@ -7,8 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/internal/detached"
 	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -50,54 +50,30 @@ type Git interface {
 	OperationAbort(ctx context.Context, wsID string, now time.Time) error
 }
 
-// LastErrorSetter records the message from a failed background git op on the
-// workspace entity so the failure is delivered on the workspace WebSocket stream
-// (00 §4: errors live on the entity, never a separate WS frame). It is satisfied
-// by the workspace repository, wired in router.go.
-type LastErrorSetter interface {
-	SetLastError(
+// Operations starts the slow git verbs as operations. It is satisfied by the
+// operation service.
+type Operations interface {
+	Start(
 		ctx context.Context,
-		id string,
-		message string,
-	) (domain.Workspace, error)
+		spec operation.Spec,
+		work operation.Work,
+	) (domain.Operation, error)
 }
 
-// WorkSignal brackets a workspace's background git-op window so the daemon
-// serves a real Working overlay on the workspace entity (spinner in the tree).
-// It is satisfied by the repositories container, wired in router.go.
-type WorkSignal interface {
-	BeginWork(
-		ctx context.Context,
-		wsID string,
-	)
-	EndWork(
-		ctx context.Context,
-		wsID string,
-	)
-}
-
-// Handlers holds the git usecase, the workspace error sink for slow-op failures,
-// the working-overlay signal, and exposes HTTP handler methods.
+// Handlers holds the git usecase and the operation service the slow verbs run on.
 type Handlers struct {
-	git        Git
-	lastErrors LastErrorSetter
-	working    WorkSignal
-	// async owns the detached runAsync ops (see runAsync / Shutdown).
-	async detached.Ops
+	git Git
+	ops Operations
 }
 
-// New builds a Handlers from the git usecase, the workspace error sink that
-// surfaces slow-op async failures on the workspace entity, and the
-// working-overlay signal that marks the entity while a slow git op runs.
+// New builds a Handlers from the git usecase and the operation service.
 func New(
 	git Git,
-	lastErrors LastErrorSetter,
-	working WorkSignal,
+	ops Operations,
 ) *Handlers {
 	return &Handlers{
-		git:        git,
-		lastErrors: lastErrors,
-		working:    working,
+		git: git,
+		ops: ops,
 	}
 }
 

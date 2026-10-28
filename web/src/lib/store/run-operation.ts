@@ -1,0 +1,122 @@
+import { OperationFailedError } from '@/lib/errors/operation-failed'
+import { problemOf, type Problem } from '@/lib/errors/problem'
+import { isEntityPresent, subscribeEntityPresence } from '@/lib/store/entity-presence'
+import {
+  applyOperationFrame,
+  putLocalOperation,
+  useOperationsStore,
+  type EntityRef,
+  type Operation,
+  type OperationItem,
+} from '@/lib/store/operations'
+
+/** What a request that starts an operation answers: the daemon's operation
+ *  (202), or the items it created inside the request. */
+export type OperationReply = { operation: Operation } | { items: OperationItem[] }
+
+export interface OperationStart {
+  kind: string
+  subject: EntityRef
+  projectId: string
+  label: string
+  items?: OperationItem[]
+}
+
+/** The header that carries an operation's client-minted id. */
+export function operationHeaders(opId: string): Record<string, string> {
+  return { 'Idempotency-Key': opId }
+}
+
+function settleLocal(id: string, change: Partial<Operation>): void {
+  const held = useOperationsStore.getState().ops[id]
+  if (!held?.local) return
+  putLocalOperation({ ...held, ...change, updatedAt: new Date().toISOString() })
+}
+
+/** Records the operation locally at once, then sends it under its id. */
+export function runOperation(
+  start: OperationStart,
+  send: (opId: string) => Promise<OperationReply | undefined>,
+): Operation {
+  const now = new Date().toISOString()
+  const local: Operation = {
+    ...start,
+    id: crypto.randomUUID(),
+    state: 'accepted',
+    items: start.items ?? [],
+    dismissed: false,
+    version: 0,
+    createdAt: now,
+    updatedAt: now,
+    local: true,
+  }
+  putLocalOperation(local)
+  void send(local.id).then(
+    (reply) => {
+      if (reply && 'operation' in reply) applyOperationFrame(reply.operation)
+      else settleLocal(local.id, { state: 'succeeded', items: reply?.items ?? local.items })
+    },
+    (err: unknown) => settleLocal(local.id, { state: 'failed', error: problemOf(err) }),
+  )
+  return local
+}
+
+/** The kind of entity an operation of `kind` creates, whose arrival it waits for. */
+function createdKinds(kind: string): EntityRef['kind'][] {
+  switch (kind) {
+    case 'branch.import':
+    case 'chat.create':
+      return ['chat']
+    case 'branch.create':
+      return ['chat', 'workspace']
+    case 'repo.create':
+      return ['repo']
+    case 'project.create':
+      return ['project']
+    default:
+      return []
+  }
+}
+
+function landed(op: Operation): boolean {
+  if (op.kind.endsWith('.delete')) return op.items.every((item) => !isEntityPresent(item.ref))
+  const kinds = new Set(createdKinds(op.kind))
+  return op.items
+    .filter((item) => kinds.has(item.ref.kind) && item.state !== 'failed')
+    .every((item) => isEntityPresent(item.ref))
+}
+
+function failureOf(op: Operation): Problem {
+  return (
+    op.error ??
+    op.items.find((item) => item.error)?.error ?? {
+      code: 'internal',
+      message: `${op.label} failed`,
+    }
+  )
+}
+
+/** Resolves once the operation succeeded and what it created (or deleted) is
+ *  in the stores; rejects with its reason when it failed. No timeout: each
+ *  outcome is a fact the daemon sends. */
+export function whenSettled(opId: string): Promise<Operation> {
+  return new Promise((resolve, reject) => {
+    const stops: (() => void)[] = []
+    let done = false
+    const check = () => {
+      if (done) return
+      const op = useOperationsStore.getState().ops[opId]
+      if (!op) return
+      if (op.state === 'failed') {
+        done = true
+        reject(new OperationFailedError(failureOf(op), opId))
+      } else if (op.state === 'succeeded' && landed(op)) {
+        done = true
+        resolve(op)
+      }
+      if (done) stops.forEach((stop) => stop())
+    }
+    stops.push(useOperationsStore.subscribe(check), subscribeEntityPresence(check))
+    check()
+  })
+}

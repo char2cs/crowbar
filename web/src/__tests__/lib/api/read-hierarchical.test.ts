@@ -320,4 +320,14 @@ describe('apiFetch 202 handling', () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 202 }))
     await expect(apiFetch('/v0/projects/p1/repos', { method: 'POST' })).resolves.toBeUndefined()
   })
+
+  it('a 202 that carries the operation it started answers that operation', async () => {
+    const operation = { id: 'op1', kind: 'git.push', state: 'accepted', version: 1 }
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: { operation } }), { status: 202 }),
+    )
+    await expect(apiFetch('/v0/chats/c1/git/push', { method: 'POST' })).resolves.toEqual({
+      operation,
+    })
+  })
 })

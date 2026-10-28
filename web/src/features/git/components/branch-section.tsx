@@ -7,6 +7,8 @@ import { MergePopover } from './merge-popover'
 import { resolveBranchAction } from '../lib/branch-action'
 import { pushChanges, pullChanges } from '../api/git-remotes-api'
 import { rebaseOntoParent } from '@/lib/api/workspace'
+import { selectEntityProblem, useOperationsStore } from '@/lib/store/operations'
+import { runOperation, whenSettled } from '@/lib/store/run-operation'
 import type { GitFile } from '../types/git-types'
 import { requestGitRefresh } from '../stores/git-refresh'
 
@@ -31,7 +33,8 @@ export function BranchSection({
 }: BranchSectionProps) {
   const [remoteBusy, setRemoteBusy] = useState(false)
   const [rebasing, setRebasing] = useState(false)
-  const [remoteError, setRemoteError] = useState<string | null>(null)
+  // The workspace's last failed operation owns the reason; a later success clears it.
+  const remoteError = useOperationsStore((s) => selectEntityProblem(s, wsId)?.message ?? null)
   const [rebaseError, setRebaseError] = useState<string | null>(null)
 
   const action = resolveBranchAction({
@@ -59,21 +62,26 @@ export function BranchSection({
     }
   }
 
+  // Push and pull run as operations, busy until the daemon settles one.
   const runRemote = async (kind: 'push' | 'pull') => {
     setRemoteBusy(true)
-    setRemoteError(null)
-    try {
-      const res = kind === 'push' ? await pushChanges(wsId) : await pullChanges(wsId)
-      if (res.success) {
-        requestGitRefresh(wsId)
-      } else {
-        setRemoteError(res.error || `Failed to ${kind}`)
-      }
-    } catch (e) {
-      setRemoteError(e instanceof Error ? e.message : `Failed to ${kind}`)
-    } finally {
-      setRemoteBusy(false)
-    }
+    const send = kind === 'push' ? pushChanges : pullChanges
+    const op = runOperation(
+      {
+        kind: `git.${kind}`,
+        subject: { kind: 'workspace', id: wsId },
+        projectId: '',
+        label: kind === 'push' ? 'Push' : 'Pull',
+      },
+      (opId) => send(wsId, opId),
+    )
+    // A failure is the store's to show; only a success refreshes.
+    const succeeded = await whenSettled(op.id).then(
+      () => true,
+      () => false,
+    )
+    setRemoteBusy(false)
+    if (succeeded) requestGitRefresh(wsId)
   }
 
   const statusLine = (() => {
@@ -185,7 +193,6 @@ export function BranchSection({
             className="underline"
             onClick={() => {
               if (remoteError && (action.remote === 'push' || action.remote === 'pull')) {
-                setRemoteError(null)
                 void runRemote(action.remote)
               } else if (rebaseError) {
                 setRebaseError(null)

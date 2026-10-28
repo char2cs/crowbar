@@ -20,8 +20,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
+
+// IdempotencyKeyHeader carries the client-minted id of the operation a request starts.
+const IdempotencyKeyHeader = "Idempotency-Key"
 
 // Envelope is the uniform response body returned by every v0 handler.
 //
@@ -34,7 +38,7 @@ type Envelope struct {
 	Error   string `json:"error,omitempty"`
 	// Code is the failure's problem code, the one thing a client branches on.
 	Code problem.Code `json:"code,omitempty"`
-	Data any    `json:"data,omitempty"`
+	Data any          `json:"data,omitempty"`
 }
 
 // mutationData is the fixed data shape returned by mutation responses: the id
@@ -98,6 +102,32 @@ func WriteAccepted(
 ) {
 	c.Status(http.StatusAccepted)
 	c.Writer.WriteHeaderNow()
+}
+
+// operationData is the data shape of a route that hands its work to an operation.
+type operationData struct {
+	Operation domain.Operation `json:"operation"`
+}
+
+// WriteOperation answers 202 with the operation the request started.
+func WriteOperation(
+	c *gin.Context,
+	op domain.Operation,
+) {
+	c.JSON(
+		http.StatusAccepted,
+		Envelope{
+			Success: true,
+			Data:    operationData{Operation: op},
+		},
+	)
+}
+
+// IdempotencyKey is the operation id the client minted, or "" for none.
+func IdempotencyKey(
+	c *gin.Context,
+) string {
+	return c.GetHeader(IdempotencyKeyHeader)
 }
 
 // Fail writes err as a failure: the status of its problem code, its whole

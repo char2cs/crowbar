@@ -13,6 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/health"
 	homePkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/identity"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/operations"
 	projectsPkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/provider"
 	reposPkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
@@ -69,6 +70,7 @@ func (c *Container) Register(
 	// Top-level, non-entity-scoped routes stay on rg (outside /projects).
 	health.Register(rg, c.app.Usecases.AgentTurn)
 	system.Register(rg)
+	operations.Register(rg, c.app.Operations, c.operations.Handle)
 	if c.logs != nil {
 		console.Register(rg, c.logs)
 	}
@@ -224,14 +226,13 @@ func (c *Container) Register(
 	// is gone (spec §8 step 6) — and needs no workspace reader, because
 	// chatScoped's resolveChatWorktree middleware has already resolved the
 	// worktree before the handlers run.
-	c.detached = append(c.detached, git.Register(
+	git.Register(
 		chatScoped,
 		c.app.Usecases.Git,
-		c.app.Repositories.Workspace,
-		c.app.Repositories,
+		c.app.Operations,
 		c.git.Handle,
 		ws.DualServe,
-	))
+	)
 	// Terminal is the first group to move onto the flat chat prefix (spec §8
 	// step 3): /v0/chats/:chatId/terminals[...]. It needs no workspace reader —
 	// chatScoped's resolveChatWorktree already resolved one onto the request

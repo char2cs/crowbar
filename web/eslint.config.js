@@ -42,7 +42,6 @@ const MAX_LINES_BASELINE = [
   'src/components/sidebar/lib/drop-actions.ts',
   'src/components/sidebar/lib/row-actions.ts',
   'src/components/sidebar/lib/rows-from-repo.ts',
-  'src/components/sidebar/sidebar-row.tsx',
   'src/components/ui/dropdown.tsx',
   'src/components/ui/table-icons.tsx',
   'src/components/ui/table-node.tsx',

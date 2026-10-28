@@ -108,7 +108,7 @@ func gitRouterForScopes(
 	git handlers.Git,
 ) *gin.Engine {
 	t.Helper()
-	h := handlers.New(git, &fakeLastErrors{}, noopWork{})
+	h := handlers.New(git, newOps(func(domain.Operation) {}))
 	r := gin.New()
 
 	chatScoped := r.Group("/v0/chats/:chatId")
@@ -176,7 +176,7 @@ func TestChatScopedWrite_ActsOnTheResolvedWorktree(t *testing.T) {
 }
 
 // TestChatScopedAsyncWrite_ActsOnTheResolvedWorktree covers the 202 + detached
-// goroutine path (runAsync), where the workspace id is captured into a closure
+// operation path, where the workspace id is captured into a closure
 // that outlives the request. It is the shape most likely to have kept a stale
 // read of the URL param.
 func TestChatScopedAsyncWrite_ActsOnTheResolvedWorktree(t *testing.T) {

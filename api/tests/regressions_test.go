@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // This file pins backend contracts that broke in the field during the UX QA
@@ -1076,11 +1078,9 @@ func TestRegression_PullingParentUpdatesChildDiffWithoutManualSync(t *testing.T)
 	// now equals the child's own tip and its diff must collapse to +0/-0. Nothing syncs
 	// the child explicitly; only the pull's cascade can refresh it. git moved onto the
 	// flat chat prefix (spec §8 step 4): pull through the base's OWN owning chat.
-	pullConn := repoChatsWS(h, imported)
-	pull := h.raw(http.MethodPost, "/v0/chats/"+baseChatID+"/git/pull", nil, http.StatusAccepted)
-	_ = pull.Body.Close()
-	waitForWorkComplete(t, pullConn, baseID)
-	// waitForWorkComplete only proves the PARENT's pull finished. The child's
+	pull := startOperation(t, h, "/v0/chats/"+baseChatID+"/git/pull")
+	require.Equal(t, domain.OpSucceeded, awaitOperation(t, h, pull.ID, operationSettled).State)
+	// The operation settling only proves the PARENT's pull finished. The child's
 	// refresh is the CASCADE off that pull — a post-commit reactor in its own
 	// goroutine — so the parent going idle says nothing about whether the child
 	// has been resynced yet. Join the reactors before reading the child, which

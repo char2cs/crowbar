@@ -30,6 +30,11 @@ type fakeSubscriber struct {
 	messageDeltas    []messageDeltaPush
 	choices          [][]dto.AgentChoiceDTO
 	placements       int
+	operations       []domain.Operation
+}
+
+func (f *fakeSubscriber) PushOperation(op domain.Operation) {
+	f.operations = append(f.operations, op)
 }
 
 func (f *fakeSubscriber) PushPlacementChanged() {
@@ -369,6 +374,20 @@ func TestHub_BroadcastPlacementChanged_FansOut(t *testing.T) {
 
 	assert.Equal(t, 1, a.placements)
 	assert.Equal(t, 1, b.placements)
+}
+
+func TestHub_BroadcastOperation_FansOut(t *testing.T) {
+	h := hub.NewHub()
+	a := &fakeSubscriber{}
+	b := &fakeSubscriber{}
+	h.Register(a)
+	h.Register(b)
+
+	op := domain.Operation{ID: "o1", Kind: domain.OpGitPush, State: domain.OpFailed, Version: 3}
+	h.BroadcastOperation(op)
+
+	assert.Equal(t, []domain.Operation{op}, a.operations)
+	assert.Equal(t, []domain.Operation{op}, b.operations)
 }
 
 func TestHub_NoSubscribers_DoesNotPanic(t *testing.T) {

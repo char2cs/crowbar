@@ -19,6 +19,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -35,7 +36,9 @@ type Container struct {
 	GORM         *GORMStores
 	Usecases     *usecases.Container
 	Realtime     *realtime.Service
-	crowbarHome  string
+	// Operations runs the work routes hand off after answering 202.
+	Operations  *operation.Service
+	crowbarHome string
 
 	// engines is retained for ONE reason: Shutdown must quiesce the terminal engine
 	// (kill every PTY and JOIN the exit callbacks those deaths fire) BEFORE it drains
@@ -106,6 +109,7 @@ func New(
 		Repositories:   repos,
 		GORM:           gormStores,
 		Usecases:       ucs,
+		Operations:     operation.New(gormStores.Operations, h.BroadcastOperation, time.Now),
 		crowbarHome:    crowbarHome,
 		engines:        engines,
 		axWorkspace:    ax.workspace,
@@ -114,6 +118,10 @@ func New(
 		axNode:         ax.node,
 	}
 
+	// Before the API opens: nothing a restart interrupted may still read as running.
+	if err := c.Operations.Recover(ctx); err != nil {
+		return nil, c.abandon(ctx, fmt.Errorf("app: %w", err))
+	}
 	if err := startBootSweep(ctx, repos); err != nil {
 		return nil, c.abandon(ctx, err)
 	}

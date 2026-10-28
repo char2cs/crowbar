@@ -6,8 +6,6 @@
 package git
 
 import (
-	"context"
-
 	"github.com/gin-gonic/gin"
 
 	githandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers"
@@ -31,18 +29,16 @@ import (
 // WebSocket upgrade is routed to gitWS) — the dedicated /ws/git route is gone
 // (W7-2).
 //
-// It returns the handlers' Shutdown, which waits for the work they detach.
+// The slow verbs (push, fetch, pull, merge, rebase) run as operations on ops.
 func Register(
 	chatScoped *gin.RouterGroup,
 	gitSvc githandlers.Git,
-	lastErrors githandlers.LastErrorSetter,
-	working githandlers.WorkSignal,
+	ops githandlers.Operations,
 	gitWS gin.HandlerFunc,
 	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
-) func(context.Context) error {
-	h := githandlers.New(gitSvc, lastErrors, working)
+) {
+	h := githandlers.New(gitSvc, ops)
 	mount(chatScoped, "/git", h, gitWS, dispatch)
-	return h.Shutdown
 }
 
 // mount registers the 32-route git surface under prefix on rg. It is the

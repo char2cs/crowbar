@@ -16,6 +16,7 @@ import { installPerfObserver, perfEnabled, pushPerfEntry } from '@/lib/perf/inst
 import { prefetchEditorChunks } from '@/features/panes/components/prefetch-editor-chunks'
 import { hydrateCriticalStores } from '@/lib/boot'
 import { installGlobalReporting } from '@/lib/errors/report'
+import { startOperationsStream } from '@/lib/store/operations-stream'
 import './index.css'
 
 // Must run before anything else in boot: markStart/markEnd calls elsewhere
@@ -28,6 +29,12 @@ installPerfObserver()
 const uninstallGlobalReporting = installGlobalReporting()
 if (import.meta.hot) {
   import.meta.hot.dispose(() => uninstallGlobalReporting())
+}
+
+// Every operation's outcome reaches the operations store, whatever is mounted.
+const stopOperationsStream = startOperationsStream()
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => stopOperationsStream())
 }
 
 // Required for Zustand stores that use immer middleware with Set/Map state
