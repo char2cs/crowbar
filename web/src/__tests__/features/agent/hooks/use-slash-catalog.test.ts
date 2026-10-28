@@ -5,7 +5,7 @@ import { useSlashCatalog } from '@/features/agent/hooks/use-slash-catalog'
 
 const getSlashCatalog = vi.fn()
 
-vi.mock('@/features/agent/api/agent-api', () => ({
+vi.mock('@/features/agent/api/agent-chat-reads', () => ({
   getSlashCatalog: (...args: unknown[]) => getSlashCatalog(...args),
 }))
 

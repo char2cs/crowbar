@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { AgentSelectionPicker } from '@/features/agent/controls/agent-selection-picker'
 
 const claude: AgentProvider = {
@@ -357,7 +357,7 @@ describe('AgentSelectionPicker', () => {
     }
   })
 
-  // agent-api.ts's own doc on `AgentProvider.efforts`: "Read it as
+  // agent-providers-api.ts's own doc on `AgentProvider.efforts`: "Read it as
   // efforts[model] where model is '' when the chat has no selection" — a
   // real, backend-resolved entry, not a gap. `effortLevelsFor` does exactly
   // that lookup with no special-casing of '' at all, so a caller handing the

@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { describe, expect, it } from 'vitest'
-import type { AgentChat } from '@/features/agent/api/agent-api'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 import { ChatColumnHeader } from '@/features/tabs/components/chat-column-header'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'

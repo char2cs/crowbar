@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
-import { listChatMessages, type AgentChatMessage } from '@/features/agent/api/agent-api'
+import { listChatMessages, type AgentChatMessage } from '@/features/agent/api/agent-chat-reads'
 import { chatLedgerStore } from '@/features/agent/stores/chat-ledger-store'
 
 const MESSAGE_PAGE_SIZE = 100

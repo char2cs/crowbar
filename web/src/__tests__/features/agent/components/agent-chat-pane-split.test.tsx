@@ -15,7 +15,8 @@
 import { createElement, type ReactNode } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentChat, AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
@@ -25,16 +26,22 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
   useEffectiveChordMap: () => ({}),
 }))
 
-vi.mock('@/features/agent/api/agent-api', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/features/agent/api/agent-api')>()
+vi.mock('@/features/agent/api/agent-chat-reads', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/agent/api/agent-chat-reads')>()
   return {
     ...actual,
     getChat: (...a: unknown[]) => getChatFn(...a),
+    listChatMessages: vi.fn(),
+    getSlashCatalog: vi.fn(),
+  }
+})
+vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/agent/api/agent-chat-commands')>()
+  return {
+    ...actual,
     switchProvider: vi.fn(),
     resumeChat: vi.fn(),
-    listChatMessages: vi.fn(),
     submitAgentPrompt: vi.fn(),
-    getSlashCatalog: vi.fn(),
   }
 })
 

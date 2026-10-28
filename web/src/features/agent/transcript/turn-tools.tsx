@@ -2,7 +2,11 @@ import { useState } from 'react'
 import { CaretRightIcon } from '@phosphor-icons/react'
 import { occurrenceKeys } from '@/features/agent/lib/occurrence-keys'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
-import type { AgentChoice, AgentSubagent, AgentToolCall } from '@/features/agent/api/agent-api'
+import type {
+  AgentChoice,
+  AgentSubagent,
+  AgentToolCall,
+} from '@/features/agent/api/agent-chat-activity'
 import { TurnDiffPreview } from '@/features/agent/activity/turn-diff-preview'
 import { formatElapsed } from '@/features/agent/activity/lib/shelf-fit'
 import { describeResolvedChoice, formatDuration, tailOf } from '@/features/agent/lib/agent-activity'
@@ -163,17 +167,9 @@ export function elapsedMs(startedAt: string, endedAt: string): number {
   return Date.parse(endedAt) - Date.parse(startedAt)
 }
 
-/**
- * What the agent DID to produce a reply, under the reply.
- *
- * Finished calls only — anything still running belongs to the turn in flight
- * (AgentLiveTurnTools), not to a turn that has already been answered.
- *
- * `wsId`/`chatId` are optional and gate ONE thing: whether a finished call's own
- * request/result bytes can be opened in place. Omitting them (every caller before
- * this existed, and every test) degrades to exactly the old plain row — the
- * payload was always fetchable from the API, just never reachable from here.
- */
+/** What the agent DID to produce a reply: finished calls only (running ones are
+ *  AgentLiveTurnTools'). `wsId`/`chatId` gate whether a call's request/result
+ *  bytes can be opened in place. */
 export function AgentTurnTools({
   callsByTurn,
   turnId,

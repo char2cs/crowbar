@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { SlashCatalogItem } from '@/features/agent/api/agent-api'
+import type { SlashCatalogItem } from '@/features/agent/api/agent-chat-reads'
 import type { SlashCatalogState } from '@/features/agent/hooks/use-slash-catalog'
 import { cn } from '@/lib/utils'
 

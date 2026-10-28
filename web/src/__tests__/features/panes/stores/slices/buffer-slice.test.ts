@@ -33,7 +33,7 @@ const { closeChat, deleteChat } = vi.hoisted(() => ({
   deleteChat: vi.fn(async () => {}),
 }))
 
-vi.mock('@/features/agent/api/agent-api', () => ({
+vi.mock('@/features/agent/api/agent-chat-commands', () => ({
   closeChat,
   deleteChat,
 }))

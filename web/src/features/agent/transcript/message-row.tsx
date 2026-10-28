@@ -1,6 +1,7 @@
 import { memo } from 'react'
 import { cn } from '@/lib/utils'
-import type { AgentChatMessage, AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentChatMessage } from '@/features/agent/api/agent-chat-reads'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { Button } from '@/components/ui/button'
 import { ProviderIcon } from '@/components/ui/provider-icon'
 import { CopyIcon } from '@/features/agent/shared/agent-icons'

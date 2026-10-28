@@ -1,11 +1,11 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentChatMessage } from '@/features/agent/api/agent-api'
+import type { AgentChatMessage } from '@/features/agent/api/agent-chat-reads'
 import { useChatMessages } from '@/features/agent/hooks/use-chat-messages'
 import { chatLedgerStore } from '@/features/agent/stores/chat-ledger-store'
 
 const { listChatMessagesFn } = vi.hoisted(() => ({ listChatMessagesFn: vi.fn() }))
-vi.mock('@/features/agent/api/agent-api', () => ({
+vi.mock('@/features/agent/api/agent-chat-reads', () => ({
   getPendingPrompt: vi.fn().mockResolvedValue(null),
   listChatMessages: listChatMessagesFn,
 }))

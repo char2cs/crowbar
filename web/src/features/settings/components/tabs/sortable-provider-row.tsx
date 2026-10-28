@@ -6,7 +6,7 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/utils/cn'
 import { PROVIDER_COLUMN_CELL } from './provider-columns'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 
 interface SortableProviderRowProps {
   provider: AgentProvider

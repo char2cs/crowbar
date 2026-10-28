@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { AgentActivity, AgentChoice } from '@/features/agent/api/agent-api'
+import type { AgentActivity, AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import {
   acceptsTyping,
   resolveComposerState,

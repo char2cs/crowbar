@@ -1,7 +1,11 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AgentChoice, AgentSubagent, AgentToolCall } from '@/features/agent/api/agent-api'
-import * as agentApi from '@/features/agent/api/agent-api'
+import type {
+  AgentChoice,
+  AgentSubagent,
+  AgentToolCall,
+} from '@/features/agent/api/agent-chat-activity'
+import * as agentApi from '@/features/agent/api/agent-chat-activity'
 import {
   AgentLiveTurnTools,
   AgentToolCallEntry,

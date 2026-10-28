@@ -8,7 +8,7 @@ import {
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 
 const { listChatMessagesFn } = vi.hoisted(() => ({ listChatMessagesFn: vi.fn() }))
-vi.mock('@/features/agent/api/agent-api', () => ({ listChatMessages: listChatMessagesFn }))
+vi.mock('@/features/agent/api/agent-chat-reads', () => ({ listChatMessages: listChatMessagesFn }))
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))

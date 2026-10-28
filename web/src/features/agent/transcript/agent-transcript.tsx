@@ -16,12 +16,12 @@ import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type {
   AgentActivity,
-  AgentChatMessage,
   AgentChoice,
-  AgentProvider,
   AgentSubagent,
   AgentToolCall,
-} from '@/features/agent/api/agent-api'
+} from '@/features/agent/api/agent-chat-activity'
+import type { AgentChatMessage } from '@/features/agent/api/agent-chat-reads'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import {
   activityComponents,
   type ActivityComponent,

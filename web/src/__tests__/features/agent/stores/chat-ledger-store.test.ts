@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentChatMessage, AgentChatMessagesPage } from '@/features/agent/api/agent-api'
+import type { AgentChatMessage, AgentChatMessagesPage } from '@/features/agent/api/agent-chat-reads'
 import { chatLedgerStore } from '@/features/agent/stores/chat-ledger-store'
 import {
   resetWindowPaneStoreForTests,
@@ -7,7 +7,7 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 
 const { listChatMessagesFn } = vi.hoisted(() => ({ listChatMessagesFn: vi.fn() }))
-vi.mock('@/features/agent/api/agent-api', () => ({ listChatMessages: listChatMessagesFn }))
+vi.mock('@/features/agent/api/agent-chat-reads', () => ({ listChatMessages: listChatMessagesFn }))
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))

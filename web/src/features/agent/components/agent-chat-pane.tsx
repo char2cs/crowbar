@@ -8,12 +8,12 @@ import { useStore } from 'zustand'
 import { TrashIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
+import { getChat } from '@/features/agent/api/agent-chat-reads'
 import {
-  getChat,
   switchProvider,
   switchToNative,
   switchToTerminal,
-} from '@/features/agent/api/agent-api'
+} from '@/features/agent/api/agent-chat-commands'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { AGENT_CYCLE_PROVIDER, AGENT_TOGGLE_VIEW_MODE } from '@/features/keymaps/registry'
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'

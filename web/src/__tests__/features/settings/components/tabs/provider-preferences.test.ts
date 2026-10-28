@@ -5,7 +5,7 @@ import {
   providerDisabledMap,
   reorderProviderIds,
 } from '@/features/settings/components/tabs/provider-preferences'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 
 const provider = (id: string, enabled: boolean, mcpEnabled = true): AgentProvider => ({
   id,

@@ -1,7 +1,7 @@
 import type { CSSProperties, MouseEvent, Ref } from 'react'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { ProviderSwitchDropdown } from '@/features/agent/components/provider-switch-dropdown'
 import { ViewSwitcher } from '@/features/agent/controls/view-switcher'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'

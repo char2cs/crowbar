@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import type { AgentChatMessage, AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentChatMessage } from '@/features/agent/api/agent-chat-reads'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { turnTimestampLabel } from '@/features/agent/lib/turn-time'
 import { MessageRow } from '@/features/agent/transcript/message-row'
 

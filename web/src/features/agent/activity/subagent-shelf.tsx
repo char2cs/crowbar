@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { SubagentIcon } from '@/features/agent/shared/agent-icons'
-import type { AgentActivity } from '@/features/agent/api/agent-api'
+import type { AgentActivity } from '@/features/agent/api/agent-chat-activity'
 import { fitShelf, formatElapsed, type ShelfToken } from '@/features/agent/activity/lib/shelf-fit'
 import { cn } from '@/lib/utils'
 

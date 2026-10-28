@@ -6,7 +6,7 @@ import type {
   AgentChoice,
   AgentInterruption,
   AgentToolCall,
-} from '@/features/agent/api/agent-api'
+} from '@/features/agent/api/agent-chat-activity'
 import { WorkingLine } from '@/features/agent/activity/working-line'
 import { NO_ACTIVITY } from '@/features/agent/lib/agent-activity'
 

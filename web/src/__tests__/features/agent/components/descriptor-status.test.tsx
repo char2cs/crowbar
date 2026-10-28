@@ -4,7 +4,7 @@ import { DescriptorStatus } from '@/features/agent/components/descriptor-status'
 
 const { getDescriptorReportsFn } = vi.hoisted(() => ({ getDescriptorReportsFn: vi.fn() }))
 
-vi.mock('@/features/agent/api/agent-api', () => ({
+vi.mock('@/features/agent/api/agent-providers-api', () => ({
   getDescriptorReports: (...a: unknown[]) => getDescriptorReportsFn(...a),
 }))
 

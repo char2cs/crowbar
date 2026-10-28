@@ -3,7 +3,8 @@ import { act, render } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
 import { nanoid } from 'nanoid'
-import type { AgentChat, AgentChatDetail, AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentChat, AgentChatDetail } from '@/features/agent/api/agent-chat-reads'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import {
@@ -40,14 +41,16 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
   useEffectiveChordMap: () => ({ 'agent.toggleViewMode': 'mod+/' }),
 }))
 
-vi.mock('@/features/agent/api/agent-api', () => ({
+vi.mock('@/features/agent/api/agent-chat-reads', () => ({
   getPendingPrompt: vi.fn().mockResolvedValue(null),
   getChat: (...a: unknown[]) => getChatFn(...a),
+  listChatMessages: (...a: unknown[]) => listMessagesFn(...a),
+  getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
+}))
+vi.mock('@/features/agent/api/agent-chat-commands', () => ({
   switchProvider: (...a: unknown[]) => switchProviderFn(...a),
   resumeChat: (...a: unknown[]) => resumeChatFn(...a),
-  listChatMessages: (...a: unknown[]) => listMessagesFn(...a),
   submitAgentPrompt: (...a: unknown[]) => submitPromptFn(...a),
-  getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
   switchToTerminal: (...a: unknown[]) => switchToTerminalFn(...a),
   switchToNative: (...a: unknown[]) => switchToNativeFn(...a),
 }))

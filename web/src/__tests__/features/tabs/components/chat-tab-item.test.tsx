@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import type { AgentChat } from '@/features/agent/api/agent-api'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 import { CHAT_TITLE_PENDING_LABEL } from '@/features/agent/hooks/use-chat-title'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { ChatTabItem } from '@/features/tabs/components/chat-tab-item'

@@ -1,4 +1,4 @@
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import type { DividerTag } from '@/features/agent/transcript/lib/flatten-transcript-rows'
 
 function tagLabel(tag: DividerTag, providers: AgentProvider[]): string {

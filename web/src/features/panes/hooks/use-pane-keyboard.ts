@@ -6,11 +6,11 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { showingLayout } from '@/features/panes/lib/view-state'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
+import { createChat } from '@/features/agent/api/agent-chat-creates'
 import {
-  createChat,
   createSurfaceFor,
   providerCanStartOnTerminal,
-} from '@/features/agent/api/agent-api'
+} from '@/features/agent/api/agent-providers-api'
 import { selectEnabledProviders } from '@/features/workspace/stores/slices/agent-chats-slice'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { presetChatLandingPresentation } from '@/features/agent/hooks/use-chat-presentation'

@@ -30,7 +30,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   fetchRepos: vi.fn().mockResolvedValue([]),
 }))
-vi.mock('@/features/agent/api/agent-api', () => ({ setChatPlacement: vi.fn() }))
+vi.mock('@/features/agent/api/agent-chat-commands', () => ({ setChatPlacement: vi.fn() }))
 const { getHomeWorkspaceId } = vi.hoisted(() => ({ getHomeWorkspaceId: vi.fn() }))
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId,

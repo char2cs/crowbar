@@ -3,7 +3,7 @@ import type {
   AgentChoice,
   AgentSubagent,
   AgentToolCall,
-} from '@/features/agent/api/agent-api'
+} from '@/features/agent/api/agent-chat-activity'
 
 /** Provider-neutral activity vocabulary shared by the rich activity surface. */
 type ActivityComponentKind =

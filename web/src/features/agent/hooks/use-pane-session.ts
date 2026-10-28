@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { useStore } from 'zustand'
-import { resumeChat } from '@/features/agent/api/agent-api'
+import { resumeChat } from '@/features/agent/api/agent-chat-commands'
 import type { ComposerRevival } from '@/features/agent/composer/lib/composer-state'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { describeDormant, describeRung, sessionView } from '@/features/agent/lib/session-status'

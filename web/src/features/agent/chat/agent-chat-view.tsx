@@ -13,13 +13,11 @@ import { DndScope } from '@/features/agent/chat/dnd-scope'
 import {
   compactChat,
   stopChat,
-  type AgentChatMessage,
-  type AgentChoice,
-  type AgentInterruption,
   type AgentPromptResult,
-  type AgentProvider,
-  type SlashCatalogItem,
-} from '@/features/agent/api/agent-api'
+} from '@/features/agent/api/agent-chat-commands'
+import type { AgentChatMessage, SlashCatalogItem } from '@/features/agent/api/agent-chat-reads'
+import type { AgentChoice, AgentInterruption } from '@/features/agent/api/agent-chat-activity'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { markEnd, markStart } from '@/lib/perf/instrumentation'
 import { isNotFoundError } from '@/lib/errors/api-error'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
@@ -508,7 +506,7 @@ export function AgentChatView({
   // The last CONFIRMED launch model — what a live runner actually reported
   // running as — kept around after `live` drops instead of being lost with
   // it. AgentChat.launchModel is absent exactly when liveRunnerId is (see its
-  // own doc in agent-api.ts), so the backend gives up this fact the moment a
+  // own doc in agent-chat-reads.ts), so the backend gives up this fact the moment a
   // turn's runner goes idle/exits; without remembering it here the picker had
   // nothing left to show but a guess.
   const [lastConfirmedModel, setLastConfirmedModel] = useState('')

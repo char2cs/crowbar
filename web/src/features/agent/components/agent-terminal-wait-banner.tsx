@@ -1,6 +1,6 @@
 import { TerminalIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
-import { TERMINAL_WAIT_TRUST } from '@/features/agent/api/agent-api'
+import { TERMINAL_WAIT_TRUST } from '@/features/agent/api/agent-chat-reads'
 
 interface AgentTerminalWaitBannerProps {
   /** Crowbar's own name for the prompt, or '' when it knows only that one is up. */

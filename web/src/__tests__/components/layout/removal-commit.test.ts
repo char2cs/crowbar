@@ -6,7 +6,7 @@ vi.mock('@/lib/persistence/sidebar-ui', () => ({
 }))
 
 const deleteChat = vi.fn().mockResolvedValue(undefined)
-vi.mock('@/features/agent/api/agent-api', () => ({
+vi.mock('@/features/agent/api/agent-chat-commands', () => ({
   deleteChat: (...a: unknown[]) => deleteChat(...a),
 }))
 const deleteRepo = vi.fn().mockResolvedValue(undefined)

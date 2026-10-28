@@ -1,4 +1,4 @@
-import type { AgentTelemetry } from '@/features/agent/api/agent-api'
+import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 import { cn } from '@/lib/utils'
 
 /** Past this, the bar warns — the point where a compaction is imminent and a

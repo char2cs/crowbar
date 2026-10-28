@@ -4,14 +4,13 @@ import {
   chatBase,
   listChats,
   getChat,
-  listProviders,
   listChatFolders,
   mapChat,
-  mapChoice,
   type AgentChat,
-  type AgentChoice,
   type AgentTelemetry,
-} from '@/features/agent/api/agent-api'
+} from '@/features/agent/api/agent-chat-reads'
+import { listProviders } from '@/features/agent/api/agent-providers-api'
+import { mapChoice, type AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import {
   runnerLeft,
   startedWorking,
@@ -59,7 +58,7 @@ function providerOn(st: WorkspaceSnapshot, chatId: string): string {
 }
 
 // One wire frame on the agent feed (chatBase(wsId)/ws — repo-scoped, or the
-// /home mount for a project-home workspace; see agent-api.ts's chatBase).
+// /home mount for a project-home workspace; see agent-chat-reads.ts's chatBase).
 //
 // EVERY chat and runner lifecycle frame carries the chat's whole versioned
 // snapshot (`chat`, `version`), built by the daemon's one snapshot owner under
@@ -109,7 +108,7 @@ interface AgentStreamEvent {
  * no pane — and the live views that are not chat state at all.
  */
 export function useWorkspaceAgentChatsStream(wsId: string): void {
-  // `chatBase(wsId)` below (agent-api.ts) throws the instant project/repo scope
+  // `chatBase(wsId)` below (agent-chat-reads.ts) throws the instant project/repo scope
   // is missing entirely. This hook runs for EVERY mounted workspace, so it is
   // exactly the effect a force-mounted, never-navigated-to workspace hits first.
   // Wait rather than crash; see useWorkspaceScopeReady's own doc.

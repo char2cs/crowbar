@@ -35,7 +35,7 @@ import {
   persistSettings,
 } from '@/features/settings/lib/settings-persistence'
 import type { Settings } from '@/features/settings/types/settings'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import {
   destroyWorkspaceStore,
   getOrCreateWorkspaceStore,

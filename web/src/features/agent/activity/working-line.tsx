@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
-import type { AgentActivity } from '@/features/agent/api/agent-api'
+import type { AgentActivity } from '@/features/agent/api/agent-chat-activity'
 import {
   blockedOn,
   blocksOnAPerson,

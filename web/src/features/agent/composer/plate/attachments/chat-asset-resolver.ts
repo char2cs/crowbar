@@ -1,4 +1,4 @@
-import { chatBase } from '@/features/agent/api/agent-api'
+import { chatBase } from '@/features/agent/api/agent-chat-reads'
 import { API_BASE } from '@/lib/api/fetch'
 import type { MarkdownAssetInfo } from '@/features/editor/markdown/plate/markdown-asset'
 
@@ -21,7 +21,7 @@ export function parseChatAttachmentRef(ref: string): ParsedChatAttachmentRef | n
 }
 
 /** Built through `chatBase` — the same hierarchical, project/repo-scoped
- *  builder every other chat endpoint in `agent-api.ts` uses — not a flat
+ *  builder every other chat endpoint in `features/agent/api` uses — not a flat
  *  `/workspaces/{wsId}/...` path. `chatBase` throws when `wsId`'s
  *  project/repo scope was never recorded (see `workspaceBase`); that is
  *  swallowed here rather than propagated, so this stays a total function

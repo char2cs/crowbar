@@ -4,7 +4,7 @@ import {
   AgentReturnToChatNotice,
   AgentTerminalWaitBanner,
 } from '@/features/agent/components/agent-terminal-wait-banner'
-import { TERMINAL_WAIT_TRUST } from '@/features/agent/api/agent-api'
+import { TERMINAL_WAIT_TRUST } from '@/features/agent/api/agent-chat-reads'
 
 describe('AgentTerminalWaitBanner', () => {
   it('names the prompt when Crowbar recognises it', () => {

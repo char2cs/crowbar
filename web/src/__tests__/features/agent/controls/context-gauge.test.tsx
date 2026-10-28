@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { AgentTelemetry } from '@/features/agent/api/agent-api'
+import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 import { AgentContextGauge } from '@/features/agent/controls/context-gauge'
 
 function telemetry(overrides: Partial<AgentTelemetry> = {}): AgentTelemetry {

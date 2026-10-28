@@ -1,4 +1,4 @@
-import type { ChatPhase, ChatSession } from '@/features/agent/api/agent-api'
+import type { ChatPhase, ChatSession } from '@/features/agent/api/agent-chat-reads'
 
 /**
  * The pane's view of a chat's session, derived from the daemon's snapshot and

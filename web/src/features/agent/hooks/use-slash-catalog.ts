@@ -3,7 +3,7 @@ import {
   getSlashCatalog,
   type SlashCatalog,
   type SlashCatalogItem,
-} from '@/features/agent/api/agent-api'
+} from '@/features/agent/api/agent-chat-reads'
 import { ApiError } from '@/lib/errors/api-error'
 
 const SLASH_DEBOUNCE_MS = 150

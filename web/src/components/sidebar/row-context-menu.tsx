@@ -24,7 +24,7 @@ import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { handleCreate } from '@/components/layout/create-actions'
 import { handleTrashRepo } from '@/components/layout/trash-actions'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
-import { providerCanStartOnTerminal } from '@/features/agent/api/agent-api'
+import { providerCanStartOnTerminal } from '@/features/agent/api/agent-providers-api'
 import { toast } from '@/features/window/stores/toast-store'
 
 interface SidebarRowContextMenuProps {

@@ -4,7 +4,7 @@ import {
   type AgentActivity,
   type AgentChoice,
   listChatActivity,
-} from '@/features/agent/api/agent-api'
+} from '@/features/agent/api/agent-chat-activity'
 import {
   NO_ACTIVITY,
   runningSubagents,

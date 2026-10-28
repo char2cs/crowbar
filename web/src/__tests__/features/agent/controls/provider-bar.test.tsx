@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import type { AgentProvider, AgentTelemetry } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
+import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 import { ProviderBar } from '@/features/agent/controls/provider-bar'
 
 const provider: AgentProvider = {

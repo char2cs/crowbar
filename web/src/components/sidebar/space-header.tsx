@@ -25,7 +25,7 @@ import { EditableProjectIcon } from '@/components/layout/project-icon-mark'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
 import { performRenameProject } from '@/components/sidebar/lib/row-actions'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
-import { providerCanStartOnTerminal } from '@/features/agent/api/agent-api'
+import { providerCanStartOnTerminal } from '@/features/agent/api/agent-providers-api'
 import type { Project } from '@/lib/types'
 
 interface SpaceHeaderProps {

@@ -1,4 +1,4 @@
-import type { AgentChat } from '@/features/agent/api/agent-api'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 

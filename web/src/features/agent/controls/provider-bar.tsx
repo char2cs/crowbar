@@ -1,4 +1,5 @@
-import type { AgentProvider, AgentTelemetry } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
+import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 import { AgentContextGauge } from '@/features/agent/controls/context-gauge'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'

@@ -1,4 +1,4 @@
-import type { AgentChatMessage } from '@/features/agent/api/agent-api'
+import type { AgentChatMessage } from '@/features/agent/api/agent-chat-reads'
 import type { ActivityComponent } from '@/features/agent/lib/activity-components'
 
 /** One boundary event drawn as a pill inside an `event-divider` row. Several

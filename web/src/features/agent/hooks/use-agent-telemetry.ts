@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { getChatTelemetry, type AgentTelemetry } from '@/features/agent/api/agent-api'
+import { getChatTelemetry, type AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 

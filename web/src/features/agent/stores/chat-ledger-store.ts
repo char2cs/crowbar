@@ -1,5 +1,5 @@
 import { createStore } from 'zustand'
-import { listChatMessages, type AgentChatMessage } from '@/features/agent/api/agent-api'
+import { listChatMessages, type AgentChatMessage } from '@/features/agent/api/agent-chat-reads'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 
 const MESSAGE_PAGE_SIZE = 100

@@ -1,7 +1,7 @@
 import { DISCARD_WORK_INIT, deleteProject, deleteRepo } from '@/lib/api'
 import { workAtRiskOf } from '@/lib/errors/api-error'
 import { deleteFolder, deleteHomeFolder } from '@/lib/api/sidebar-placement'
-import { deleteChat } from '@/features/agent/api/agent-api'
+import { deleteChat } from '@/features/agent/api/agent-chat-commands'
 import { getOwningChatId } from '@/lib/workspace-scope'
 import { owningChatIdOfWorkspace } from '@/components/sidebar/lib/branch-row-id'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'

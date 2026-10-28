@@ -4,14 +4,14 @@ import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Radio, RadioGroup } from '@/components/ui/radio-group'
-import {
-  answerChoice,
-  type AgentActivity,
-  type AgentChoice,
-  type AgentChoiceOption,
-  type AgentChoiceQuestion,
-  type PermissionLevel,
-} from '@/features/agent/api/agent-api'
+import { answerChoice } from '@/features/agent/api/agent-chat-commands'
+import type {
+  AgentActivity,
+  AgentChoice,
+  AgentChoiceOption,
+  AgentChoiceQuestion,
+} from '@/features/agent/api/agent-chat-activity'
+import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
 import {
   choiceDetail,
   choiceQuestions,

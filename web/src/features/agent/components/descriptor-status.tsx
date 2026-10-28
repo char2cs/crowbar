@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
-import { getDescriptorReports } from '@/features/agent/api/agent-api'
-import type { DescriptorReport } from '@/features/agent/api/agent-api'
+import { getDescriptorReports } from '@/features/agent/api/agent-providers-api'
+import type { DescriptorReport } from '@/features/agent/api/agent-providers-api'
 
 type Load =
   { state: 'loading' } | { state: 'failed' } | { state: 'ready'; reports: DescriptorReport[] }

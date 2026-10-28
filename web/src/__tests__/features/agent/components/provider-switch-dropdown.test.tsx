@@ -2,7 +2,7 @@ import { createElement, forwardRef } from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ProviderSwitchDropdown } from '@/features/agent/components/provider-switch-dropdown'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 
 // jsdom has no ResizeObserver; the shared Dropdown only needs
 // construct/observe/disconnect to reposition its menu on open.

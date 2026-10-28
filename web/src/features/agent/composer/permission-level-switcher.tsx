@@ -1,9 +1,9 @@
 import { useCallback, useRef, useState } from 'react'
 import {
   PERMISSION_LEVEL_OPTIONS,
-  setChatPermissionLevel,
   type PermissionLevel,
-} from '@/features/agent/api/agent-api'
+} from '@/features/agent/api/agent-providers-api'
+import { setChatPermissionLevel } from '@/features/agent/api/agent-chat-commands'
 import { toast } from '@/features/window/stores/toast-store'
 import {
   Select,

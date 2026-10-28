@@ -1,5 +1,5 @@
 import type { PaneGroup } from '@/features/panes/types/pane'
-import { closeChat } from '@/features/agent/api/agent-api'
+import { closeChat } from '@/features/agent/api/agent-chat-commands'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { requestWorkspaceEviction } from '@/features/workspace/lib/workspace-eviction-request'
 

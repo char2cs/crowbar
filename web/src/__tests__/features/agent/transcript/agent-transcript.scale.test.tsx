@@ -1,6 +1,6 @@
 import { render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentChatMessage } from '@/features/agent/api/agent-api'
+import type { AgentChatMessage } from '@/features/agent/api/agent-chat-reads'
 import { AgentTranscript, ESTIMATED_ROW_HEIGHT } from '@/features/agent/transcript/agent-transcript'
 
 // Counts every call of a row's component. Deliberately a plain function, not

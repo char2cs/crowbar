@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { __resetPerfForTests, markStart } from '@/lib/perf/instrumentation'
-import type { AgentChatMessage, AgentToolCall } from '@/features/agent/api/agent-api'
+import type { AgentChatMessage } from '@/features/agent/api/agent-chat-reads'
+import type { AgentToolCall } from '@/features/agent/api/agent-chat-activity'
 import { activityComponents } from '@/features/agent/lib/activity-components'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import {
@@ -1081,14 +1082,9 @@ describe('AgentTranscript: pinning the turn a prompt actually started', () => {
     }
   }
 
-  // REGRESSION: the wiring effect's very first run, on a freshly-mounted
-  // pane, sees an EMPTY queue — `newest` (null) already equals
-  // `pinnedRequestId.current`'s own initial value (also null) — so an
-  // equality check placed before the "have I run before" bookkeeping
-  // returned early without ever recording that the first run happened. The
-  // user's actual first send then read its own run as "inherited" (a
-  // restore, not a send) and never pinned — silently losing pin-to-top for
-  // the single most common case, the first prompt in a chat's lifetime.
+  // REGRESSION: the first run on a fresh pane sees an empty queue and returned
+  // before recording that it ran, so the first send read as a restore and never
+  // pinned.
   it('pins the very first prompt sent in a freshly-mounted pane', () => {
     const { rerender } = draw([], { queue: [] })
     expect(pinTurnToTopCalls).toEqual([])

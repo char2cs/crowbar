@@ -3,11 +3,11 @@ import type { WorkspaceState } from '../workspace-store.types'
 import type {
   AgentChat,
   AgentChatFolder,
-  AgentChoice,
-  AgentProvider,
   AgentTelemetry,
   AgentTerminalWait,
-} from '@/features/agent/api/agent-api'
+} from '@/features/agent/api/agent-chat-reads'
+import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 import {
   applySnapshot,

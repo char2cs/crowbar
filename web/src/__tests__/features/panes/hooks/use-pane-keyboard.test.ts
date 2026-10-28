@@ -36,13 +36,21 @@ const { createChat, toastSpawnFailure, presetChatLandingPresentation } = vi.hois
 // providerCanStartOnTerminal runs for REAL (vi.importActual): it is the
 // gate under test in the cases below, so a stub would make those assertions
 // meaningless — only createChat/getPendingPrompt are faked.
-vi.mock('@/features/agent/api/agent-api', async () => {
-  const actual = await vi.importActual<typeof import('@/features/agent/api/agent-api')>(
-    '@/features/agent/api/agent-api',
+vi.mock('@/features/agent/api/agent-chat-reads', async () => {
+  const actual = await vi.importActual<typeof import('@/features/agent/api/agent-chat-reads')>(
+    '@/features/agent/api/agent-chat-reads',
   )
   return {
     ...actual,
     getPendingPrompt: vi.fn().mockResolvedValue(null),
+  }
+})
+vi.mock('@/features/agent/api/agent-chat-creates', async () => {
+  const actual = await vi.importActual<typeof import('@/features/agent/api/agent-chat-creates')>(
+    '@/features/agent/api/agent-chat-creates',
+  )
+  return {
+    ...actual,
     createChat,
   }
 })
@@ -117,13 +125,8 @@ vi.mock('@/features/workspace/stores/workspace-context', () => ({
   useWorkspaceStore: () => fakeStore,
 }))
 
-// Task 26: panes/buffers moved off the per-workspace store onto the
-// window-level singleton — usePaneKeyboard reads activePaneId/panes/buffers/
-// paneActions/bufferActions off `windowPaneStore` now, and only agentChats/
-// workspaceId/setActiveAgentChatId off `useWorkspaceStore()`. Both mocks point
-// at the SAME `fakeState` object (it already carries every field either read
-// site needs), so the `setPaneState`/`setBottomPaneState` helpers below that
-// mutate `fakeState.panes` etc. in place are observed by both.
+// Both mocks (windowPaneStore and useWorkspaceStore) point at the SAME
+// `fakeState`, so the helpers below that mutate it in place are seen by both.
 vi.mock('@/features/panes/stores/window-pane-store', () => ({
   // Not a direct `fakeStore` reference: `vi.mock` factories run at import-
   // hoist time, before this file's own `const fakeStore = ...` below has
@@ -146,12 +149,8 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
   }),
 }))
 
-// ensurePaneChatThenOpen (the Law 3 fix — TAB_NEW_TERMINAL/TAB_NEW_FILE must
-// attach a pane's WORKSPACE's real owning chat before opening a terminal/file
-// into it, never mint a redundant new one) runs for REAL here. Its one real
-// dependency, getOwningChatId, is mocked below; `getOrCreateWorkspaceStore`/
-// createChat are no longer on this path at all — see pane-command-actions.ts.
-// Only splitActiveEditorGroup stays a bare stub — it is unrelated to this fix.
+// ensurePaneChatThenOpen runs for REAL: a new terminal/file attaches the pane
+// workspace's real owning chat (getOwningChatId, mocked below), never a new one.
 vi.mock('@/features/panes/utils/pane-command-actions', async () => {
   const actual = await vi.importActual<
     typeof import('@/features/panes/utils/pane-command-actions')

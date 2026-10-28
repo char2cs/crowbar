@@ -1,4 +1,5 @@
-import { createChat, createSurfaceFor, type AgentProvider } from '@/features/agent/api/agent-api'
+import { createChat } from '@/features/agent/api/agent-chat-creates'
+import { createSurfaceFor, type AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { presetChatLandingPresentation } from '@/features/agent/hooks/use-chat-presentation'
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
@@ -131,18 +132,9 @@ export async function startThread(spec: ThreadCreate): Promise<void> {
   await spec.onCreated?.(chatId)
 }
 
-/**
- * The provider a new chat is started with, or null — having SAID SO — when
- * there is none.
- *
- * Both create paths used to return silently here. A silent return is
- * indistinguishable from a dead button, and it is the shape both halves of "the
- * fork and thread buttons do nothing" took: one because it genuinely had no
- * providers to find (see the thread branch's own note), the other because a
- * real outage empties this list (`use-workspace-agent-chats-stream.ts` toasts
- * once for that, but only for a MOUNTED workspace — the sidebar can be the only
- * thing on screen). A precondition that stops a click has to be visible.
- */
+/** The provider a new chat is started with, or null — having SAID SO — when
+ *  there is none: a silent return here is indistinguishable from a dead button,
+ *  and the sidebar may be the only thing on screen to say it. */
 export function enabledProvider(): AgentProvider | null {
   const provider = useAgentProvidersStore.getState().providers.find((p) => p.enabled)
   if (provider) return provider

@@ -36,8 +36,10 @@ const {
   updateDefaultPermissionLevelFn: vi.fn(),
 }))
 
-vi.mock('@/features/agent/api/agent-api', () => ({
+vi.mock('@/features/agent/api/agent-chat-reads', () => ({
   getPendingPrompt: vi.fn().mockResolvedValue(null),
+}))
+vi.mock('@/features/agent/api/agent-providers-api', () => ({
   updateProviderPreferences: (...a: unknown[]) => updateProviderPreferencesFn(...a),
   listProviders: (...a: unknown[]) => listProvidersFn(...a),
   listGlobalProviders: (...a: unknown[]) => listGlobalProvidersFn(...a),
@@ -77,7 +79,7 @@ import {
   setActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
 import { setActiveWorkspaceStoreForTests } from '@/features/workspace/stores/workspace-store-registry'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 
 const provider = (
   id: string,
@@ -758,23 +760,9 @@ describe('ProvidersSettings', () => {
     })
   })
 
-  // ── Default permission level ────────────────────────────────────────
-  // A backend-synced setting (not the localStorage `updateSetting` path the
-  // rest of this tab's siblings use for chat presentation): the daemon reads
-  // it the moment a chat starts, so this row talks straight to
-  // GET/PUT /v0/settings/chat/permission-level.
-  //
-  // The trigger shows the raw value ('guarded', not 'Guarded') until the
-  // popup has been opened at least once — same base-ui quirk documented in
-  // appearance-settings.test.tsx's Color Theme picker — so assertions on the
-  // closed trigger check the raw PermissionLevel string.
-  //
-  // base-ui's Select popup keeps every item mounted (for measurement) but
-  // marks the whole popup `inert` — `pointer-events: none` — until `open`
-  // has actually propagated, one tick behind the trigger's own click. A
-  // click landing inside that window is a real no-op in the browser too, so
-  // the test waits for the popup to become interactive rather than papering
-  // over it with a raw DOM event that would pass even against a dead menu.
+  // ── Default permission level (GET/PUT /v0/settings/chat/permission-level) ──
+  // The closed trigger shows the raw value until first opened, and base-ui marks
+  // the popup `inert` for a tick, so tests wait for it to become interactive.
   async function selectPermissionLevelOption(
     user: ReturnType<typeof userEvent.setup>,
     value: string,

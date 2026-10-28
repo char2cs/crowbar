@@ -4,8 +4,10 @@ import { ToolPayloadPanel } from '@/features/agent/transcript/tool-payload-panel
 
 const getToolPayloadFn = vi.hoisted(() => vi.fn())
 
-vi.mock('@/features/agent/api/agent-api', () => ({
+vi.mock('@/features/agent/api/agent-chat-reads', () => ({
   getPendingPrompt: vi.fn().mockResolvedValue(null),
+}))
+vi.mock('@/features/agent/api/agent-chat-activity', () => ({
   getToolPayload: (...args: unknown[]) => getToolPayloadFn(...args),
 }))
 

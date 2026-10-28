@@ -1,4 +1,5 @@
-import type { AgentActivity, AgentChoice, AgentTerminalWait } from '@/features/agent/api/agent-api'
+import type { AgentActivity, AgentChoice } from '@/features/agent/api/agent-chat-activity'
+import type { AgentTerminalWait } from '@/features/agent/api/agent-chat-reads'
 import { pendingChoices } from '@/features/agent/lib/agent-activity'
 
 /**

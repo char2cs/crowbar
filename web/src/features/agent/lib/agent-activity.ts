@@ -5,7 +5,7 @@ import type {
   AgentChoiceQuestion,
   AgentInterruption,
   AgentToolCall,
-} from '@/features/agent/api/agent-api'
+} from '@/features/agent/api/agent-chat-activity'
 
 /** The empty activity, so a caller never has to null-check four lists. */
 export const NO_ACTIVITY: AgentActivity = {

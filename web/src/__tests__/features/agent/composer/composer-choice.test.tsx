@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { AgentActivity, AgentChoice } from '@/features/agent/api/agent-api'
+import type { AgentActivity, AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
 import { NO_ACTIVITY } from '@/features/agent/lib/agent-activity'
 import { ApiError } from '@/lib/errors/api-error'
@@ -12,10 +12,14 @@ const { answerChoiceFn, setChatPermissionLevelFn } = vi.hoisted(() => ({
   setChatPermissionLevelFn: vi.fn(),
 }))
 
-vi.mock('@/features/agent/api/agent-api', () => ({
+vi.mock('@/features/agent/api/agent-chat-reads', () => ({
   getPendingPrompt: vi.fn().mockResolvedValue(null),
+}))
+vi.mock('@/features/agent/api/agent-chat-commands', () => ({
   answerChoice: (...args: unknown[]) => answerChoiceFn(...args),
   setChatPermissionLevel: (...args: unknown[]) => setChatPermissionLevelFn(...args),
+}))
+vi.mock('@/features/agent/api/agent-providers-api', () => ({
   PERMISSION_LEVEL_OPTIONS: [
     { value: 'guarded', label: 'Guarded' },
     { value: 'trusted', label: 'Trusted' },
@@ -168,10 +172,8 @@ describe('ComposerChoice that can be answered', () => {
 })
 
 describe('ComposerChoice that cannot be answered from here', () => {
-  // pending && !answerable is a REAL question — the CLI is asking it at its own
-  // terminal — so it is drawn in full, with nothing on it that would reach nobody.
-  // Why it can't be answered here isn't said — the bar just offers the one thing
-  // that still works, and only when there's a handler to make that button real.
+  // pending && !answerable is a REAL question asked at the CLI's own terminal, so
+  // it is drawn in full with nothing on it that would reach nobody.
   it('draws the whole question read-only, with no action when there is nowhere to send it', () => {
     draw({ answerable: false })
 
@@ -618,12 +620,9 @@ describe('ComposerChoice permission-level switcher', () => {
     expect(screen.getByTestId('chat-permission-level-trigger')).toBeInTheDocument()
   })
 
-  // terminalOnly: nothing here can answer it, so a dial for THIS chat's future
-  // approvals has no controls to sit beside and does not appear either. A real
-  // `onOpenTerminal` is required to even reach the terminalOnly branch — with
-  // none given, `.acts` renders nothing at all (see the pre-existing "offers
-  // the terminal when the chat can open one" test above), which would make
-  // this assertion pass for the wrong reason.
+  // terminalOnly: nothing here can answer it, so the dial does not appear. A real
+  // `onOpenTerminal` is required to reach that branch, or this passes for the
+  // wrong reason.
   it('does not appear when the prompt cannot be answered from here', () => {
     const onOpenTerminal = vi.fn()
     render(

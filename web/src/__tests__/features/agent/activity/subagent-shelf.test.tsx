@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import type { AgentActivity, AgentSubagent } from '@/features/agent/api/agent-api'
+import type { AgentActivity, AgentSubagent } from '@/features/agent/api/agent-chat-activity'
 import { SubagentShelf } from '@/features/agent/activity/subagent-shelf'
 import { NO_ACTIVITY } from '@/features/agent/lib/agent-activity'
 

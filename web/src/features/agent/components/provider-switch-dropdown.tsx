@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { CaretUpDown } from '@phosphor-icons/react'
 import { Dropdown, dropdownTriggerClassName } from '@/components/ui/dropdown'
 import { ProviderIcon } from '@/components/ui/provider-icon'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 
 // The trigger's width AND its menu's — one number so they cannot drift apart. The shared
 // dropdown's 240px default ballooned the menu far wider than the trigger beneath it;

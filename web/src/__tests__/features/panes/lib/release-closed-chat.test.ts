@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/features/agent/api/agent-api', () => ({
+vi.mock('@/features/agent/api/agent-chat-commands', () => ({
   closeChat: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
@@ -8,7 +8,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 }))
 
 import { releaseClosedChat } from '@/features/panes/lib/release-closed-chat'
-import { closeChat } from '@/features/agent/api/agent-api'
+import { closeChat } from '@/features/agent/api/agent-chat-commands'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { subscribeWorkspaceEviction } from '@/features/workspace/lib/workspace-eviction-request'
 import type { PaneGroup } from '@/features/panes/types/pane'

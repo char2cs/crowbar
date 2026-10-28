@@ -75,7 +75,7 @@ vi.mock('@/lib/api/sidebar-placement', () => ({
 vi.mock('@/lib/api/workspace', () => ({
   reparentWorkspace: vi.fn(),
 }))
-vi.mock('@/features/agent/api/agent-api', () => ({
+vi.mock('@/features/agent/api/agent-chat-commands', () => ({
   // Echoes the call's own args back as `{chat, shifted}` the same way
   // `placeFolder`'s mock above does — `fireRowPlacementCall`'s 'chat' case
   // applies `chat.parentId`/`chat.order` straight to the sidebar store now
@@ -113,7 +113,7 @@ import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { useProjectDataStore } from '@/lib/store/projects'
 import { idle, success } from '@/lib/loadable'
 import { reparentWorkspace } from '@/lib/api/workspace'
-import { setChatPlacement } from '@/features/agent/api/agent-api'
+import { setChatPlacement } from '@/features/agent/api/agent-chat-commands'
 import { toast } from '@/features/window/stores/toast-store'
 import {
   getOrCreateWorkspaceStore,
@@ -138,7 +138,7 @@ import {
 import { showingLayout, viewChatIds } from '@/features/panes/lib/view-state'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { nextVersion, seedChats } from '@/__tests__/__fixtures__/agent-chat'
-import type { AgentChat } from '@/features/agent/api/agent-api'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 
 /**
  * `performSidebarDrop` — the row-to-row half of spec §8.1 (Task 33). Adapts

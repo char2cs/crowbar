@@ -21,8 +21,8 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
   postWorkspace,
 }))
-vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/agent/api/agent-api')>()),
+vi.mock('@/features/agent/api/agent-chat-creates', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-creates')>()),
   createChat,
   createChatWithOwnWorktree,
 }))

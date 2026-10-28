@@ -1,4 +1,4 @@
-import type { AgentChat, AgentTerminalWait } from '@/features/agent/api/agent-api'
+import type { AgentChat, AgentTerminalWait } from '@/features/agent/api/agent-chat-reads'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
 /**

@@ -6,7 +6,7 @@ import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
 import { loadEditorHost } from '@/features/editor/host/editor-host'
 import type { EditorContent } from '@/features/panes/types/pane-content'
-import type { AgentChat } from '@/features/agent/api/agent-api'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import {

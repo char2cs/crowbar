@@ -18,7 +18,7 @@ import {
   placeFolder,
   placeHomeFolder,
 } from '@/lib/api/sidebar-placement'
-import { renameChat } from '@/features/agent/api/agent-api'
+import { renameChat } from '@/features/agent/api/agent-chat-commands'
 import { toast } from '@/features/window/stores/toast-store'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'

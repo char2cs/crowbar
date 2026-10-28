@@ -1,5 +1,5 @@
 import { arrayMove } from '@dnd-kit/sortable'
-import type { AgentProvider, ProviderPreference } from '@/features/agent/api/agent-api'
+import type { AgentProvider, ProviderPreference } from '@/features/agent/api/agent-providers-api'
 
 // Pure mappings behind the Providers settings tab. The tab reads its live list
 // from the active workspace store and, on any change, PUTs the COMPLETE ordered

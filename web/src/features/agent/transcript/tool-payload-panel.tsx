@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getToolPayload } from '@/features/agent/api/agent-api'
+import { getToolPayload } from '@/features/agent/api/agent-chat-activity'
 
 interface Side {
   label: string

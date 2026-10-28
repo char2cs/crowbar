@@ -5,12 +5,9 @@ import {
   selectEnabledProviders,
 } from '@/features/workspace/stores/slices/agent-chats-slice'
 import type { WorkspaceState } from '@/features/workspace/stores/workspace-store.types'
-import type {
-  AgentChat,
-  AgentChatFolder,
-  AgentChoice,
-  AgentProvider,
-} from '@/features/agent/api/agent-api'
+import type { AgentChat, AgentChatFolder } from '@/features/agent/api/agent-chat-reads'
+import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'
 import {
   chatSnapshot,

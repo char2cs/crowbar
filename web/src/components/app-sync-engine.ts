@@ -370,7 +370,7 @@ export function useAppSyncEngine(): void {
       // already gates this whole function behind), so it is the one place
       // that can hear a structural frame regardless of any open tab —
       // chatBase(wsId)/ws resolves to this SAME repo-scoped URL (see
-      // agent-api.ts's chatBase → repoChatsBaseForWorkspace), so this reuses
+      // agent-chat-reads.ts's chatBase → repoChatsBaseForWorkspace), so this reuses
       // the identical multiplexed connection rather than opening a second one.
       const unsubscribeFrames = wsManager.subscribe(
         `/v0/projects/${projectId}/repos/${repoId}/chats/ws`,

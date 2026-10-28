@@ -14,11 +14,11 @@ import { toast } from '@/features/window/stores/toast-store'
 import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import * as api from '@/lib/api'
 import * as sidebarPlacement from '@/lib/api/sidebar-placement'
-import * as agentApi from '@/features/agent/api/agent-api'
+import * as agentApi from '@/features/agent/api/agent-chat-commands'
 import * as homeWorkspaceResolver from '@/features/workspace/lib/home-workspace-resolver'
 
-vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
-  ...(await importOriginal<typeof agentApi>()),
+vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-commands')>()),
   renameChat: vi.fn().mockResolvedValue(undefined),
 }))
 

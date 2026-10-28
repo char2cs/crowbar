@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
 
-import type { AgentChat } from '@/features/agent/api/agent-api'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 import {
   applySnapshot,
   reduceChatFrame,
@@ -104,13 +104,17 @@ vi.mock('@/lib/ws/manager', () => ({
 // chatBase is the real repo-scoped/home URL builder — the hook must go through
 // it, not re-derive the shape itself. Faked here so the rest of this file stays
 // agnostic of the URL shape; the first tests below assert the composition.
-vi.mock('@/features/agent/api/agent-api', () => ({
+vi.mock('@/features/agent/api/agent-chat-reads', () => ({
   chatBase: (...a: unknown[]) => chatBaseFn(...a),
   listChats: (...a: unknown[]) => listChatsFn(...a),
   getChat: (...a: unknown[]) => getChatFn(...a),
-  listProviders: (...a: unknown[]) => listProvidersFn(...a),
   listChatFolders: (...a: unknown[]) => listChatFoldersFn(...a),
   mapChat: (c: unknown) => c,
+}))
+vi.mock('@/features/agent/api/agent-providers-api', () => ({
+  listProviders: (...a: unknown[]) => listProvidersFn(...a),
+}))
+vi.mock('@/features/agent/api/agent-chat-activity', () => ({
   mapChoice: (c: unknown) => ({ answerable: false, options: [], ...(c as object) }),
 }))
 
@@ -236,7 +240,7 @@ function captureCb(callIndex = 0): (frame: Frame) => void {
   return call[1]
 }
 
-// Mirrors agent-api.ts's own chatBase branching: 'ws-home' is a project-home
+// Mirrors agent-chat-reads.ts's own chatBase branching: 'ws-home' is a project-home
 // workspace (repoId ''), everything else carries a real repo.
 const fakeChatBase = (id: string) =>
   id === 'ws-home' ? '/v0/projects/p1/home/chats' : '/v0/projects/p1/repos/r1/chats'
@@ -311,7 +315,7 @@ beforeEach(() => {
 })
 
 describe('useWorkspaceAgentChatsStream', () => {
-  it('subscribes to chatBase(wsId)/ws — the same repo-scoped base agent-api.ts REST calls use', () => {
+  it('subscribes to chatBase(wsId)/ws — the same repo-scoped base the agent API REST calls use', () => {
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     expect(chatBaseFn).toHaveBeenCalledWith('w1')
     expect(subscribe).toHaveBeenCalledWith(
@@ -321,11 +325,11 @@ describe('useWorkspaceAgentChatsStream', () => {
   })
 
   // The gap this closes: the hook used to build `${workspaceBase(wsId)}/chats/ws`
-  // itself, independently of agent-api.ts's chatBase — so Task 17's rescope left
+  // itself, independently of agent-chat-reads.ts's chatBase — so Task 17's rescope left
   // this one WS subscription still dialing the removed `/workspaces/:wsId/chats/ws`
-  // route for every non-home workspace even after agent-api.ts's own REST calls
+  // route for every non-home workspace even after the agent API's own REST calls
   // were fixed. Going through chatBase means this can never drift from the REST
-  // routes again; chatBase's own branching is unit-tested in agent-api.test.ts.
+  // routes again; chatBase's own branching is unit-tested in agent-chat-reads.test.ts.
   it('builds the repo-scoped WS URL for a non-home workspace, and the unchanged home shape for a home one', () => {
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     expect(subscribe).toHaveBeenCalledWith(
@@ -344,18 +348,9 @@ describe('useWorkspaceAgentChatsStream', () => {
     )
   })
 
-  // Live-reported: WorkspaceHost force-mounts a workspace's effects the
-  // instant pane/Recents state names it — regardless of `active`, and
-  // regardless of whether the sidebar's own repo fetch has recorded that
-  // workspace's scope yet (a genuine race, most reproducible right after a
-  // cold boot). This hook used to call `chatBase(wsId)` — agent-api.ts's
-  // `repoChatsBaseForWorkspace`, which falls through to `workspaceBase` and
-  // throws for an entirely unrecorded scope — completely unguarded, tripping
-  // the ErrorBoundary with "no project/repo scope recorded for workspace …"
-  // for whichever background workspace lost that race. `chatBaseFn` stays
-  // mocked (this file's own convention — see its own doc), so these assert
-  // the hook's OWN gating rather than the real URL shape: with no scope
-  // recorded, `subscribe`/`listChatsFn`/`listProvidersFn` must never fire.
+  // A workspace's effects can mount before its scope is recorded, and an
+  // unguarded `chatBase` threw into the ErrorBoundary. With no scope recorded,
+  // `subscribe`/`listChatsFn`/`listProvidersFn` must never fire.
   describe('scope readiness', () => {
     it('does not subscribe or fetch when the workspace scope is not yet recorded', async () => {
       __resetWorkspaceScopesForTest()

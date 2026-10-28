@@ -15,10 +15,13 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
   postWorkspace,
 }))
-vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/agent/api/agent-api')>()),
+vi.mock('@/features/agent/api/agent-chat-creates', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-creates')>()),
   createChat,
   createChatWithOwnWorktree,
+}))
+vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-commands')>()),
   deleteChat,
 }))
 vi.mock('@/features/window/stores/toast-store', () => ({
@@ -130,20 +133,9 @@ describe('a chat row does not borrow another row kind’s refusal', () => {
   })
 })
 
-// Task 8: "create workspace" now mints the workspace AND its first chat
-// atomically (POST .../chats {ownWorktree: true}) instead of the old
-// chat-less postWorkspace — a bare branch row today, with a separate child
-// chat row only once something ELSE later starts a conversation in it. One
-// call now produces both at once (model spec §4.1, "one command replaces
-// every create path").
-//
-// The parentId these send is a WORKSPACE id ('home-1', the repo's default
-// checkout) when the fixture records no owning chat for it. The daemon
-// accepts that shape as-is: it resolves the id through the workspace's own
-// anchor row (validate.go resolveRow / walk.go's fork-parent walk), answers
-// 201, and the new fork's git parent IS that workspace, its branch the one
-// typed here (api/tests TestRegression_SidebarForkWithWorkspaceIdAsParent).
-// No wire change on this side.
+// "Create workspace" mints the workspace AND its first chat in one call. The
+// parentId may be a WORKSPACE id with no owning chat: the daemon resolves it
+// (api/tests TestRegression_SidebarForkWithWorkspaceIdAsParent).
 describe('creating a workspace off the repo-home row', () => {
   it('calls the atomic own-worktree endpoint, not postWorkspace', async () => {
     useAgentProvidersStore.setState({

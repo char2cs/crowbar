@@ -13,8 +13,8 @@ vi.mock('@/lib/api/fetch', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api/fetch')>()),
   apiFetch,
 }))
-vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/agent/api/agent-api')>()),
+vi.mock('@/features/agent/api/agent-chat-creates', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-creates')>()),
   createChat,
   createChatWithOwnWorktree,
 }))

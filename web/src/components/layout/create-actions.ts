@@ -1,5 +1,5 @@
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import { createChatWithOwnWorktree } from '@/features/agent/api/agent-api'
+import { createChatWithOwnWorktree } from '@/features/agent/api/agent-chat-creates'
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { usePendingCreatesStore } from '@/lib/store/pending-creates'

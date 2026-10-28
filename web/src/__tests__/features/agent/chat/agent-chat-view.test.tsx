@@ -4,10 +4,10 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   AgentChatMessage,
-  AgentProvider,
   AgentTelemetry,
   SlashCatalog,
-} from '@/features/agent/api/agent-api'
+} from '@/features/agent/api/agent-chat-reads'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'
 import {
   createPromptStash,
@@ -35,14 +35,18 @@ const { listMessagesFn, submitPromptFn, slashCatalogFn, stopChatFn } = vi.hoiste
   stopChatFn: vi.fn(),
 }))
 
-vi.mock('@/features/agent/api/agent-api', () => ({
+vi.mock('@/features/agent/api/agent-chat-reads', () => ({
   getPendingPrompt: vi.fn().mockResolvedValue(null),
   listChatMessages: (...args: unknown[]) => listMessagesFn(...args),
-  submitAgentPrompt: (...args: unknown[]) => submitPromptFn(...args),
   getSlashCatalog: (...args: unknown[]) => slashCatalogFn(...args),
-  listChatActivity: (...args: unknown[]) => activityFn(...args),
-  stopChat: (...args: unknown[]) => stopChatFn(...args),
   getChatTelemetry: (...args: unknown[]) => telemetryFn(...args),
+}))
+vi.mock('@/features/agent/api/agent-chat-commands', () => ({
+  submitAgentPrompt: (...args: unknown[]) => submitPromptFn(...args),
+  stopChat: (...args: unknown[]) => stopChatFn(...args),
+}))
+vi.mock('@/features/agent/api/agent-chat-activity', () => ({
+  listChatActivity: (...args: unknown[]) => activityFn(...args),
 }))
 
 // The prompt box is a Plate editor, and **jsdom never delivers a keydown to a
@@ -300,31 +304,9 @@ async function enterPrompt(text: string) {
 
 const promptStashChord = IS_MAC ? { metaKey: true } : { ctrlKey: true }
 
-// The transcript's historical rows are windowed (`@tanstack/react-virtual`),
-// and jsdom has no layout engine, which breaks the virtualiser two ways:
-//
-//  - The scroll container measures 0px tall, and a virtualiser told its
-//    viewport is zero pixels windows down to NOTHING — `calculateRange` bails
-//    on `outerSize === 0` before overscan is ever applied, so not one message
-//    mounts.
-//  - Every ROW measures 0px too, so every row's `start` is 0 and the range's
-//    binary search — which returns on the first exact hit — lands in the
-//    MIDDLE of the list, silently unmounting the oldest half.
-//
-// These are ledger suites: they assert on the messages the ledger merged, so
-// the window has to cover the whole conversation, not a viewport's worth. A
-// nominal 1px per row keeps the starts strictly increasing (so the search finds
-// index 0), and an absurdly tall viewport keeps the window's far end past the
-// newest message. Rows shown/hidden by the WINDOW are agent-transcript.test.tsx's
-// subject, not this file's.
-//
-// Everything else (the dock's own measurement, the composer handle's drag
-// geometry) keeps jsdom's zeros, so nothing but the window changes here.
-//
-// The row height deliberately MATCHES the transcript's own `estimateSize`
-// (imported above, not re-hardcoded), so the first measurement of every row
-// reports no change and the virtualiser never notifies — one render pass for
-// a 200-message ledger instead of two.
+// jsdom has no layout, so the windowed transcript would mount nothing (0px
+// viewport) or half the rows (0px rows). 1px rows matching `estimateSize` and a
+// tall viewport keep the whole ledger mounted in one render pass.
 const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
 
 function fakeRect(width: number, height: number): DOMRect {
@@ -1686,7 +1668,7 @@ describe('AgentChatView model + effort selection', () => {
   // silently rather than rejecting.
   //
   // `selectable`'s own `efforts['']` entry (declared above) is the real,
-  // documented contract for "no model chosen yet" (agent-api.ts's own doc
+  // documented contract for "no model chosen yet" (agent-providers-api.ts's own doc
   // on `AgentProvider.efforts`) — a picker seeing the RAW '' value finds
   // it and draws the slider; a picker seeing the label "Default" does not,
   // which is exactly why this could not be driven before the fix.
@@ -1857,7 +1839,7 @@ describe('AgentChatView model + effort selection', () => {
 
   // THE BUG: even after a turn completes, the trigger read bare "Default"
   // with no clue which model actually answered — Crowbar already receives
-  // that fact via telemetry (agent-api.ts's `AgentTelemetry.model`), it was
+  // that fact via telemetry (agent-chat-reads.ts's `AgentTelemetry.model`), it was
   // just never shown. Display only: the SELECTION stays '' throughout (see
   // the next test).
   it('shows the telemetry-reported model next to Default once a report arrives, with no sticky pick', async () => {

@@ -11,8 +11,8 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
   postWorkspace,
 }))
-vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/agent/api/agent-api')>()),
+vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-commands')>()),
   deleteChat,
 }))
 // `handleOpen`'s home branch reads this directly (see `resolveHomeRow`) —

@@ -3,8 +3,8 @@ import {
   getDefaultPermissionLevel,
   PERMISSION_LEVEL_OPTIONS,
   updateDefaultPermissionLevel,
-} from '@/features/agent/api/agent-api'
-import type { PermissionLevel } from '@/features/agent/api/agent-api'
+} from '@/features/agent/api/agent-providers-api'
+import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
 import { toast } from '@/features/window/stores/toast-store'
 import {
   Select,

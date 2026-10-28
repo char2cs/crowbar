@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { AgentChatMessage } from '@/features/agent/api/agent-api'
+import type { AgentChatMessage } from '@/features/agent/api/agent-chat-reads'
 import type { ActivityComponent } from '@/features/agent/lib/activity-components'
 import {
   flattenTranscriptRows,

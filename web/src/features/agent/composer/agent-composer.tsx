@@ -1,11 +1,9 @@
 import type { DragEvent, KeyboardEvent } from 'react'
 import { useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import type {
-  AgentActivity,
-  AgentTerminalWait,
-  PermissionLevel,
-} from '@/features/agent/api/agent-api'
+import type { AgentActivity } from '@/features/agent/api/agent-chat-activity'
+import type { AgentTerminalWait } from '@/features/agent/api/agent-chat-reads'
+import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
 import { AttachFileModal } from '@/features/agent/composer/attach-file-modal'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
 import { ComposerField } from '@/features/agent/composer/composer-field'

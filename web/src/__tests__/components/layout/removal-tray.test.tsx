@@ -56,8 +56,8 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 // cascades the worktree teardown now, so there is no workspace DELETE left to
 // spy on. Note the argument order: `deleteChat(wsId, chatId)`, where the first
 // is only the workspace the URL is scoped by.
-vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/agent/api/agent-api')>()),
+vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-commands')>()),
   deleteChat: vi.fn(() => Promise.resolve()),
 }))
 
@@ -85,7 +85,7 @@ vi.mock('@/lib/api/sidebar-placement', () => ({
 }))
 
 import { deleteRepo } from '@/lib/api'
-import { deleteChat } from '@/features/agent/api/agent-api'
+import { deleteChat } from '@/features/agent/api/agent-chat-commands'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import { deleteFolder } from '@/lib/api/sidebar-placement'
 import { idle, success } from '@/lib/loadable'

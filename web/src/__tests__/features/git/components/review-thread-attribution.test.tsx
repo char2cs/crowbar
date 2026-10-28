@@ -33,7 +33,8 @@ import {
   destroyWorkspaceStore,
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
-import type { AgentChat, AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import type {
   ReviewMessage,
   ReviewThread,

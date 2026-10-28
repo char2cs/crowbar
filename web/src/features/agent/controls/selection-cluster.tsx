@@ -1,4 +1,4 @@
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { AgentSelectionPicker } from '@/features/agent/controls/agent-selection-picker'
 import { ViewSwitcher } from '@/features/agent/controls/view-switcher'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'

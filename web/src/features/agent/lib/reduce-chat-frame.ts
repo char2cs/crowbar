@@ -1,4 +1,4 @@
-import type { AgentChat } from '@/features/agent/api/agent-api'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 
 /**
  * THE ONE RULE FOR WRITING A CHAT (spec §7-A target 1, invariant A6).

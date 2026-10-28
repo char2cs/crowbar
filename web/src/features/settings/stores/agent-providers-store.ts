@@ -1,6 +1,6 @@
 import { create } from 'zustand'
-import { listProviders } from '@/features/agent/api/agent-api'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import { listProviders } from '@/features/agent/api/agent-providers-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 
 /**
  * What the app knows about the agent providers RIGHT NOW — kept apart from

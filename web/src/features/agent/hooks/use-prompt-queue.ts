@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  getPendingPrompt,
-  submitAgentPrompt,
-  type AgentChatMessage,
-  type AgentPromptResult,
-} from '@/features/agent/api/agent-api'
+import { getPendingPrompt, type AgentChatMessage } from '@/features/agent/api/agent-chat-reads'
+import { submitAgentPrompt, type AgentPromptResult } from '@/features/agent/api/agent-chat-commands'
 import {
   canPersistPromptQueue,
   isPromptTextWithinLimit,

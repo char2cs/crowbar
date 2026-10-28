@@ -5,7 +5,7 @@ import type {
   AgentChoice,
   AgentInterruption,
   AgentToolCall,
-} from '@/features/agent/api/agent-api'
+} from '@/features/agent/api/agent-chat-activity'
 import {
   blockedOn,
   choiceDetail,

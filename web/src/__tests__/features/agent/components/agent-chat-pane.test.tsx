@@ -2,7 +2,8 @@ import { createElement } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
-import type { AgentChat, AgentChatDetail, AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentChat, AgentChatDetail } from '@/features/agent/api/agent-chat-reads'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { ApiError } from '@/lib/errors/api-error'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
@@ -56,17 +57,21 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
 // Actions).
 vi.mock('@/utils/platform', () => ({ IS_MAC: true }))
 
-vi.mock('@/features/agent/api/agent-api', () => ({
+vi.mock('@/features/agent/api/agent-chat-reads', () => ({
   getPendingPrompt: vi.fn().mockResolvedValue(null),
   getChat: (...a: unknown[]) => getChatFn(...a),
+  listChatMessages: (...a: unknown[]) => listMessagesFn(...a),
+  getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
+}))
+vi.mock('@/features/agent/api/agent-chat-commands', () => ({
   switchProvider: (...a: unknown[]) => switchProviderFn(...a),
   resumeChat: (...a: unknown[]) => resumeChatFn(...a),
-  listChatMessages: (...a: unknown[]) => listMessagesFn(...a),
-  listChatActivity: (...a: unknown[]) => activityFn(...a),
   submitAgentPrompt: (...a: unknown[]) => submitPromptFn(...a),
-  getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
   switchToTerminal: (...a: unknown[]) => switchToTerminalFn(...a),
   switchToNative: (...a: unknown[]) => switchToNativeFn(...a),
+}))
+vi.mock('@/features/agent/api/agent-chat-activity', () => ({
+  listChatActivity: (...a: unknown[]) => activityFn(...a),
 }))
 
 vi.mock('@/features/window/stores/toast-store', () => ({
@@ -330,20 +335,9 @@ function deferred<T>() {
 }
 
 // ── Harness ──────────────────────────────────────────────────────────
-// Task 26 fix round 1 (I6): panes are window-level now (windowPaneStore), not
-// part of the per-workspace store `seedWorkspace` returns. PaneHost is exactly
-// what pane-container.tsx does: read the `PaneGroup`, feed its chatId/runnerId
-// back in as props. That closes the loop the feature IS — the pane is the
-// moving target, and AgentChatPane is what moves it.
-//
-// This harness used to construct a fake 'agentChat' BUFFER instead, a type Task
-// 1 deleted from PaneContent's union — so it exercised `repointAgentChatBuffer`
-// against a shape no production caller could produce, and carried an explicit
-// caveat saying so. The final fix wave deleted that action and moved
-// AgentChatPane onto `paneActions.setPaneChat(paneId, ...)`; the harness now
-// holds a REAL `PaneGroup` and the caveat is gone with it — every repoint
-// assertion below runs the same write, through the same `paneId` prop,
-// pane-container.tsx passes in production.
+// PaneHost does what pane-container.tsx does: read the window-level `PaneGroup`
+// and feed its chatId/runnerId back in, so every repoint assertion runs the
+// same `setPaneChat` write production does.
 
 // A real `PaneGroup` carries no workspace id (pane-container reads it from the
 // ambient WorkspaceStoreContext), so the harness keeps it beside the pane

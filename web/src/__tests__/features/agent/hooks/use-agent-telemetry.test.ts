@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { AgentChat, AgentTelemetry } from '@/features/agent/api/agent-api'
+import type { AgentChat, AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 import { limitResetsAt, useAgentTelemetry } from '@/features/agent/hooks/use-agent-telemetry'
 import {
   destroyWorkspaceStore,
@@ -11,7 +11,7 @@ import { writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 const { getChatTelemetryFn } = vi.hoisted(() => ({ getChatTelemetryFn: vi.fn() }))
 
-vi.mock('@/features/agent/api/agent-api', () => ({
+vi.mock('@/features/agent/api/agent-chat-reads', () => ({
   getPendingPrompt: vi.fn().mockResolvedValue(null),
   getChatTelemetry: (...args: unknown[]) => getChatTelemetryFn(...args),
 }))

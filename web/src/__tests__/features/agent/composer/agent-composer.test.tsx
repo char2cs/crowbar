@@ -11,7 +11,7 @@ import {
 } from '@/features/agent/api/upload-chat-attachment'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import { NO_ACTIVITY } from '@/features/agent/lib/agent-activity'
-import type { AgentChoice } from '@/features/agent/api/agent-api'
+import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import { saveExcalidrawDesign } from '@/features/agent/composer/lib/excalidraw-design-persistence'
 import type { ParsedExcalidrawScene } from '@/features/agent/composer/plate/attachments/excalidraw-scene'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'

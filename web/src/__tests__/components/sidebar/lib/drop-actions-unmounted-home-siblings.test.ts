@@ -27,7 +27,7 @@ vi.mock('@/lib/api/sidebar-placement', () => ({
   placeRepo: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock('@/lib/api/workspace', () => ({ reparentWorkspace: vi.fn() }))
-vi.mock('@/features/agent/api/agent-api', () => ({
+vi.mock('@/features/agent/api/agent-chat-commands', () => ({
   setChatPlacement: vi.fn(
     async (workspaceId: string, chatId: string, patch: { parentId?: string; order?: number }) => ({
       chat: { id: chatId, workspaceId, parentId: patch.parentId ?? '', order: patch.order ?? 0 },
@@ -42,7 +42,7 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 }))
 
 import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
-import { setChatPlacement } from '@/features/agent/api/agent-api'
+import { setChatPlacement } from '@/features/agent/api/agent-chat-commands'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'

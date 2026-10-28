@@ -17,8 +17,8 @@ import {
   listGlobalProviders,
   updateProviderPreferences,
   uploadDescriptor,
-} from '@/features/agent/api/agent-api'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+} from '@/features/agent/api/agent-providers-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { DescriptorStatus } from '@/features/agent/components/descriptor-status'
 import {
   beginProviderWrite,

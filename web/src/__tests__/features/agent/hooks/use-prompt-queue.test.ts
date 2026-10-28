@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentChatMessage } from '@/features/agent/api/agent-api'
+import type { AgentChatMessage } from '@/features/agent/api/agent-chat-reads'
 import { ApiError } from '@/lib/errors/api-error'
 import {
   hasPendingImageUpload,
@@ -11,8 +11,10 @@ import {
 const submitAgentPrompt = vi.fn()
 const getPendingPrompt = vi.fn()
 
-vi.mock('@/features/agent/api/agent-api', () => ({
+vi.mock('@/features/agent/api/agent-chat-commands', () => ({
   submitAgentPrompt: (...args: unknown[]) => submitAgentPrompt(...args),
+}))
+vi.mock('@/features/agent/api/agent-chat-reads', () => ({
   getPendingPrompt: (...args: unknown[]) => getPendingPrompt(...args),
 }))
 
@@ -191,20 +193,9 @@ describe('usePromptQueue during a compaction', () => {
   })
 })
 
-// REGRESSION, reported live against codex: "User's turns after some time of idle
-// is lost, and does not record anywhere."
-//
-// The daemon retires a delivery that produced no turn and announces it. That
-// announcement used to say only "this is over", and the queue answered by
-// deleting the item — which deletes the user's TEXT, from this queue and, on the
-// same tick, from localStorage. At that moment the queued item is the only copy
-// of what the user typed anywhere in the system: the daemon's delivery journal
-// records a hash of the prompt and never the text, and by definition nothing
-// reached the ledger. The words were unrecoverable, and no error was shown.
-//
-// The frame now distinguishes the two cases. Nothing here is timing-based.
-// Send is the only lifecycle intent: the daemon revives a dormant chat itself,
-// so the queue dispatches to it rather than waiting for a CLI to appear.
+// REGRESSION: a retired delivery used to delete the queued item — the only copy
+// of the user's text (the journal keeps a hash). The frame now distinguishes
+// the two cases; nothing here is timing-based.
 describe('usePromptQueue on a dormant chat', () => {
   beforeEach(() => {
     submitAgentPrompt.mockReset()

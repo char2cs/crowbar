@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { AgentChat } from '@/features/agent/api/agent-api'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 import { chatTitleIn } from '@/features/agent/hooks/use-chat-title'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 

@@ -1,7 +1,8 @@
 import { createElement } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentChat, AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
@@ -22,19 +23,25 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
 // on GitHub Actions).
 vi.mock('@/utils/platform', () => ({ IS_MAC: true }))
 
-vi.mock('@/features/agent/api/agent-api', async (importOriginal) => {
+vi.mock('@/features/agent/api/agent-chat-reads', async (importOriginal) => {
   // Partial: the module also exports the TERMINAL_WAIT_* constants the banner
   // reads, and stubbing those away would make it silently take its fallback
   // wording on every render — a green test over a broken banner.
-  const actual = await importOriginal<typeof import('@/features/agent/api/agent-api')>()
+  const actual = await importOriginal<typeof import('@/features/agent/api/agent-chat-reads')>()
   return {
     ...actual,
     getChat: (...a: unknown[]) => getChatFn(...a),
+    listChatMessages: (...a: unknown[]) => listMessagesFn(...a),
+    getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
+  }
+})
+vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/agent/api/agent-chat-commands')>()
+  return {
+    ...actual,
     switchProvider: vi.fn(),
     resumeChat: vi.fn(),
-    listChatMessages: (...a: unknown[]) => listMessagesFn(...a),
     submitAgentPrompt: vi.fn(),
-    getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
     switchToTerminal: (...a: unknown[]) => switchToTerminalFn(...a),
   }
 })
@@ -448,19 +455,8 @@ describe('AgentChatPane — waiting in the terminal', () => {
   })
 
   // ── Doesn't render under the chat's own overlay header ──────────────
-  //
-  // ChatColumnHeader and ChatOnlyPaneHeader (pane-top-row.tsx) float
-  // `position: absolute; top: 0` with no fill of their own, so nothing about
-  // the pane's DOM stops pinned-near-top content from landing at that exact
-  // same y=0 and sitting underneath the header's own real, clickable 44px
-  // (Mac) hit-box. `--agent-header-clearance` (on `.agent-chat.chat`) is the
-  // ONE mechanism that pushes it clear — `AgentEmptyDocument`'s own
-  // `place()`/`lastLineTop` reads the same number, so the banner riding
-  // inside it clears the header exactly as the ordinary control row does.
-  // `belowOverlayHeader` is pane-container's own answer to "is an overlay
-  // header actually floating above me" — passed false by default (the
-  // collapsed 'tabs' presentation's small in-flow ChatBranchHeader already
-  // reserves its own space, so there is nothing to clear there).
+  // `--agent-header-clearance` is the one mechanism that keeps pinned-near-top
+  // content clear of an overlay header; `belowOverlayHeader` says one floats here.
   it('clears the overlay header row when one floats above this pane', async () => {
     const store = seed()
     await renderPane(store, { belowOverlayHeader: true })

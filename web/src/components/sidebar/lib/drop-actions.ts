@@ -42,7 +42,7 @@ import {
   placeRepo,
 } from '@/lib/api/sidebar-placement'
 import { reparentWorkspace } from '@/lib/api/workspace'
-import { setChatPlacement } from '@/features/agent/api/agent-api'
+import { setChatPlacement } from '@/features/agent/api/agent-chat-commands'
 import {
   resolveHomeOwnerId,
   rowsFromRepo,

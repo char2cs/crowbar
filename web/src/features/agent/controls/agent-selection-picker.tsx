@@ -3,7 +3,7 @@ import { MagnifyingGlass as Search } from '@phosphor-icons/react'
 import { Dropdown } from '@/components/ui/dropdown'
 import { Input } from '@/components/ui/input'
 import { ProviderIcon } from '@/components/ui/provider-icon'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { CheckIcon, UpDownIcon } from '@/features/agent/shared/agent-icons'
 import { cn } from '@/lib/utils'
 
