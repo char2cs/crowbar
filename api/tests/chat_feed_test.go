@@ -5,7 +5,9 @@ package tests
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"testing"
 	"time"
@@ -40,11 +42,36 @@ runtime:
     format: json
 `
 
+// inputStubProviderDescriptorYAML records what a tool call was given.
+const inputStubProviderDescriptorYAML = `id: inputstub
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  user_prompt:
+    in: user_prompt
+    map:
+      message: prompt
+  tool_pre:
+    in: tool_pre
+    map:
+      session_id: session_id
+      tool_id:    tool_use_id
+      tool_name:  tool_name
+      tool_input: tool_input
+runtime:
+  transport: hooks
+  hooks:
+    format: json
+`
+
 type feedFrame struct {
 	Type string `json:"type"`
 	Row  *struct {
-		Seq  int64  `json:"seq"`
-		Kind string `json:"kind"`
+		Seq  int64           `json:"seq"`
+		Kind string          `json:"kind"`
+		Body json.RawMessage `json:"body"`
 	} `json:"row"`
 	Epoch string `json:"epoch"`
 	Seq   int64  `json:"seq"`
@@ -266,4 +293,32 @@ func TestChatFeed_DeletingTheChatEndsItsFeed(t *testing.T) {
 	require.Nil(t, gone)
 	require.NoError(t, resp.Body.Close())
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode, "an erased chat has no feed")
+}
+
+func TestChatFeed_ToolPayloadIsReadableByItsRef(t *testing.T) {
+	h := newHarness(t)
+	_, chatID, post := newFeedChat(t, h, "inputstub", inputStubProviderDescriptorYAML)
+	post("session_start", `{"session_id":"sess-1"}`)
+	post("user_prompt", `{"session_id":"sess-1","prompt":"list"}`)
+	conn := dialFeed(t, h, chatID, 0)
+	untilReady(t, conn)
+
+	post("tool_pre", `{"session_id":"sess-1","tool_use_id":"tool-1","tool_name":"Bash","tool_input":{"command":"ls -la"}}`)
+	var call struct {
+		InputRef string `json:"inputRef"`
+	}
+	for call.InputRef == "" {
+		f := nextFeedFrame(t, conn)
+		if f.Type == "row" && f.Row.Kind == "tool_call" {
+			require.NoError(t, json.Unmarshal(f.Row.Body, &call))
+			require.NotEmpty(t, call.InputRef, "the tool_call row names its input: %s", f.Row.Body)
+		}
+	}
+
+	resp := h.raw(http.MethodGet, "/v0/chats/"+chatID+"/blobs/"+url.PathEscape(call.InputRef), nil, http.StatusOK)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	assert.JSONEq(t, `{"command":"ls -la"}`, string(body))
+	_ = h.raw(http.MethodGet, "/v0/chats/"+chatID+"/blobs/not-a-ref", nil, http.StatusBadRequest).Body.Close()
 }

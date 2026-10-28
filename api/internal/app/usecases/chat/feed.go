@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sync"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/core/safego"
@@ -61,6 +62,29 @@ func (u *Usecase) OpenFeed(ctx context.Context, chatID string, since int64) (<-c
 	return u.feeds.open(ctx, chatID, since, func(emit func(FeedFrame) bool) error {
 		return u.attachFeed(ctx, chatID, since, emit)
 	}), nil
+}
+
+// ReadBlob is a payload a row of chatID names by ref: problem.ErrNotFound for an
+// unknown chat or a ref no blob is stored under, problem.ErrInvalidArgument for
+// a ref no row could carry.
+func (u *Usecase) ReadBlob(ctx context.Context, chatID, ref string) ([]byte, error) {
+	if !ledgerstore.ValidRef(ref) {
+		return nil, fmt.Errorf("chat blob: %q: %w", ref, problem.ErrInvalidArgument)
+	}
+	if _, err := u.chats.GetChat(ctx, chatID); err != nil {
+		if errors.Is(err, agentchat.ErrNotFound) {
+			return nil, fmt.Errorf("chat blob: %s: %w: %w", chatID, err, problem.ErrNotFound)
+		}
+		return nil, fmt.Errorf("chat blob: %s: %w", chatID, err)
+	}
+	data, err := u.blobs.Get(ref)
+	if errors.Is(err, ledgerstore.ErrBlobNotFound) {
+		return nil, fmt.Errorf("chat blob: %s: %w: %w", ref, err, problem.ErrNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("chat blob: %s: %w", ref, err)
+	}
+	return data, nil
 }
 
 // attachFeed replays chatID's rows after since up to its head, then sends the

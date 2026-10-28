@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -298,4 +300,23 @@ func TestOpenFeed_ASinceBeyondTheHeadResyncsFromTheHead(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []FeedFrame{{Type: FeedResync, Seq: 2}}, drain(out))
+}
+
+func TestReadBlob_ReadsARefOfAKnownChat(t *testing.T) {
+	u := newWiringFixture(t)
+	u.chats = knownChats{id: "c1"}
+	ref, err := u.blobs.Put([]byte(`{"command":"ls"}`))
+	require.NoError(t, err)
+	unknown := ledgerstore.RefPrefix + strings.Repeat("0", 64)
+
+	got, err := u.ReadBlob(t.Context(), "c1", ref)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"command":"ls"}`, string(got))
+
+	_, err = u.ReadBlob(t.Context(), "nope", ref)
+	require.ErrorIs(t, err, problem.ErrNotFound, "an unknown chat")
+	_, err = u.ReadBlob(t.Context(), "c1", unknown)
+	require.ErrorIs(t, err, problem.ErrNotFound, "a ref no blob is stored under")
+	_, err = u.ReadBlob(t.Context(), "c1", strings.TrimPrefix(ref, ledgerstore.RefPrefix))
+	require.ErrorIs(t, err, problem.ErrInvalidArgument, "a ref rows never carry")
 }

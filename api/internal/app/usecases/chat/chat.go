@@ -80,6 +80,8 @@ type ChatUsecase interface {
 
 	// OpenFeed is the chat's row feed from since: see Usecase.OpenFeed.
 	OpenFeed(ctx context.Context, chatID string, since int64) (<-chan FeedFrame, error)
+	// ReadBlob is a payload the chat's rows name: see Usecase.ReadBlob.
+	ReadBlob(ctx context.Context, chatID, ref string) ([]byte, error)
 
 	// ListChats returns every chat the daemon knows, across all workspaces.
 	ListChats(

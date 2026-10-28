@@ -81,6 +81,10 @@ func (f *fakeChatUsecase) OpenFeed(context.Context, string, int64) (<-chan agent
 	panic("unused")
 }
 
+func (f *fakeChatUsecase) ReadBlob(context.Context, string, string) ([]byte, error) {
+	panic("unused")
+}
+
 func (f *fakeChatUsecase) CwdWorkspaceID(context.Context, string) (string, bool, error) {
 	panic("unused")
 }

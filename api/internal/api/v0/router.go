@@ -120,6 +120,7 @@ func (c *Container) Register(
 	// The chat's row feed reads only its ledger, so it mounts outside chatScoped:
 	// a home or bubble chat, with no worktree to resolve, has a feed too.
 	chats.GET("/:chatId/feed", chathandlers.NewFeed(c.app.Usecases.AgentChat).Handle)
+	chats.GET("/:chatId/blobs/:ref", chathandlers.NewBlobs(c.app.Usecases.AgentChat).Handle)
 
 	c.detached = append(c.detached, projectsPkg.Register(
 		rg,

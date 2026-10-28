@@ -116,11 +116,18 @@ func (s *Blobs) remove(ref string) error {
 	return nil
 }
 
-func (s *Blobs) pathFor(ref string) (path, dir string) {
+// ValidRef reports whether ref is spelled as Put spells one: RefPrefix and the
+// payload's sha256 in lower-case hex.
+func ValidRef(ref string) bool {
 	digest, ok := strings.CutPrefix(ref, RefPrefix)
-	if !ok || len(digest) != sha256.Size*2 || !isHex(digest) {
+	return ok && len(digest) == sha256.Size*2 && isHex(digest)
+}
+
+func (s *Blobs) pathFor(ref string) (path, dir string) {
+	if !ValidRef(ref) {
 		return "", ""
 	}
+	digest := ref[len(RefPrefix):]
 	dir = filepath.Join(s.root, digest[:2], digest[2:4])
 	return filepath.Join(dir, digest), dir
 }

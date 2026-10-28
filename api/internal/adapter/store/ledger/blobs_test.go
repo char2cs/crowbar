@@ -258,3 +258,22 @@ func TestBlobsPut_ReportsAFanOutDirectoryItCannotCreate(t *testing.T) {
 
 	assert.Error(t, err)
 }
+
+func TestValidRef_AcceptsOnlyTheRefsRowsCarry(t *testing.T) {
+	ref, err := newBlobs(t).Put([]byte("payload"))
+	require.NoError(t, err)
+	digest := strings.TrimPrefix(ref, ledgerstore.RefPrefix)
+
+	assert.True(t, ledgerstore.ValidRef(ref), "a ref Put hands out")
+	for name, bad := range map[string]string{
+		"bare hex":     digest,
+		"upper case":   ledgerstore.RefPrefix + strings.ToUpper(digest),
+		"short":        ref[:len(ref)-1],
+		"long":         ref + "0",
+		"other prefix": "sha1:" + digest,
+		"a path":       ledgerstore.RefPrefix + "../" + digest[3:],
+		"empty":        "",
+	} {
+		assert.False(t, ledgerstore.ValidRef(bad), name)
+	}
+}
