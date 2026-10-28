@@ -10,6 +10,7 @@ type PageIntent = Extract<
     type:
       | 'selectRow'
       | 'selectProject'
+      | 'selectHost'
       | 'toggleFold'
       | 'openSettings'
       | 'toggleProvider'

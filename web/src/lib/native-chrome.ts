@@ -84,6 +84,8 @@ export type NativeSidebar = {
   activeProjectId: string | null
   projects: Project[]
   hosts: { id: string; name: string; state: HostDotState }[]
+  /** The host whose projects `projects` lists, or 'all'; the page offers a choice among `hosts`. */
+  shownHost: string
   /** The active project's rows, flat and parentId-linked, live facts resolved. */
   rows: SidebarRow[]
   /** The rows above that have an agent running, pinned at the top: a view over `rows`. */
@@ -235,6 +237,7 @@ export type NativeChromeIntent =
   | { type: 'selectRow'; id: string }
   | { type: 'newThread' }
   | { type: 'selectProject'; id: string }
+  | { type: 'selectHost'; id: string }
   | { type: 'toggleFold'; id: string }
   | { type: 'toggleProvider'; id: string; enabled: boolean }
   | { type: 'toggleProviderTools'; id: string; enabled: boolean }

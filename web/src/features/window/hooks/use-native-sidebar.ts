@@ -26,9 +26,11 @@ import { hostNetStateOf } from '@/components/layout/build-readout-lines'
 import { handleCreateHomeThread } from '@/components/layout/home-actions'
 import { handleCreate } from '@/components/layout/create-actions'
 import { handleOpen } from '@/components/layout/open-actions'
+import { useSidebarHostFilter } from '@/components/layout/use-sidebar-host-filter'
+import { ALL_HOSTS } from '@/features/hosts/lib/host-filter'
 import { hostStatusOf, subscribeHostStatusOf } from '@/features/hosts/lib/host-status'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import type { HostDotState } from '@/features/hosts/types'
+import { LOCAL_HOST, type HostDotState } from '@/features/hosts/types'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useMobileScreenStore } from '@/features/window/stores/mobile-screen-store'
 import { toast } from '@/features/window/stores/toast-store'
@@ -60,7 +62,7 @@ import { projectAssetURL } from '@/lib/project-url'
 
 interface NativeSidebarProps {
   activeProjectId: string | undefined
-  projects: readonly Project[]
+  projects: Project[]
   onSelectProject: (projectId: string) => void
 }
 
@@ -69,6 +71,7 @@ const EMPTY: NativeSidebar = {
   activeProjectId: null,
   projects: [],
   hosts: [],
+  shownHost: ALL_HOSTS,
   rows: [],
   active: [],
   collapsed: [],
@@ -284,6 +287,11 @@ export function useNativeSidebar({
 }: NativeSidebarProps) {
   const navigate = useNavigate()
   const projectId = activeProjectId ?? null
+  const { hostIds, shown, shownProjects, selectHost } = useSidebarHostFilter(
+    projects,
+    activeProjectId,
+    onSelectProject,
+  )
   const rows = useActiveProjectRows(projectId)
   const collapsed = useSidebarStore((s) => s.collapsedChatRows)
   const focusedChatId = useStore(windowPaneStore, (s) => s.panes[s.activePaneId]?.chatId ?? null)
@@ -321,8 +329,16 @@ export function useNativeSidebar({
     setNativeSidebar({
       focusedChatId,
       activeProjectId: projectId,
-      projects: projects.map(icons.project),
-      hosts: hostConfigs.map((h) => ({ id: h.id, name: h.name, state: hostState(h.id) })),
+      projects: shownProjects.map(icons.project),
+      hosts: hostIds.map((id) => ({
+        id,
+        name:
+          id === LOCAL_HOST.id
+            ? LOCAL_HOST.name
+            : (hostConfigs.find((h) => h.id === id)?.name ?? id),
+        state: hostState(id),
+      })),
+      shownHost: shown,
       rows: rows.map((row) => ({
         ...icons.row(row),
         working: row.working || chatWorking(row),
@@ -344,7 +360,9 @@ export function useNativeSidebar({
     collapsed,
     focusedChatId,
     projectId,
-    projects,
+    shownProjects,
+    hostIds,
+    shown,
     hostConfigs,
     hostStreams,
     live,
@@ -371,6 +389,9 @@ export function useNativeSidebar({
         return
       case 'selectProject':
         onSelectProject(intent.id)
+        return
+      case 'selectHost':
+        selectHost(intent.id)
         return
       case 'toggleFold':
         useSidebarStore.getState().toggleChatRow(intent.id)

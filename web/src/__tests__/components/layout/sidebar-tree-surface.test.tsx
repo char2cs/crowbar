@@ -58,6 +58,7 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
 import { getInitialState, useSidebarStore, type Chat, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { planRemoval } from '@/components/layout/removal-plan'
@@ -268,6 +269,28 @@ describe('SidebarTreeSurface — creatingSpace swaps SpaceScroller for CreateSpa
     )
     expect(await screen.findByTestId('create-space-panel')).toBeInTheDocument()
     expect(screen.queryByTestId('space-scroll-region')).not.toBeInTheDocument()
+  })
+
+  it('opens the create form on the host it is told', async () => {
+    useHostConfigStore.setState({
+      hosts: [
+        { id: 'h1', name: 'homelab-prox', endpoint: '', pairedFingerprint: '', clientId: '' },
+      ],
+    })
+    render(
+      <SidebarTreeSurface
+        projects={[projectA]}
+        activeProjectId="p1"
+        onActiveProjectChange={vi.fn()}
+        creatingSpace
+        newSpaceHostId="h1"
+        onCreateSpace={vi.fn()}
+        onCancelCreateSpace={vi.fn()}
+      />,
+    )
+    expect(await screen.findByRole('combobox', { name: /daemon/i })).toHaveTextContent(
+      'homelab-prox',
+    )
   })
 
   it('Cancel calls onCancelCreateSpace', async () => {

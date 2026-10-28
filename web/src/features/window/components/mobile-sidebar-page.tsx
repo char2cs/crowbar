@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { SidebarHostPicker } from '@/components/layout/sidebar-host-picker'
 import { SidebarProjectSwitcher } from '@/components/layout/sidebar-project-switcher'
 import { sidebarRowTree } from '@/components/sidebar/lib/row-tree'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
@@ -18,6 +19,7 @@ const CLEAR_FLOATING_BUTTONS_PB = 'pb-[calc(env(safe-area-inset-bottom)+84px)]'
 const selectRow = (id: string) => postToShell('sidebar', { type: 'selectRow', id })
 const toggleFold = (id: string) => postToShell('sidebar', { type: 'toggleFold', id })
 const selectProject = (id: string) => postToShell('sidebar', { type: 'selectProject', id })
+const selectHost = (id: string) => postToShell('sidebar', { type: 'selectHost', id })
 const openSettings = () => postToShell('sidebar', { type: 'openSettings' })
 
 // The page owns the hold; the shell only presents the menu for the row it is told of.
@@ -45,6 +47,8 @@ export function MobileSidebarPage() {
     [snapshot?.hosts],
   )
 
+  const hostIds = useMemo(() => snapshot?.hosts.map((h) => h.id) ?? [], [snapshot?.hosts])
+
   const running = useMemo(() => {
     const byId = new Map(snapshot?.rows.map((r) => [r.id, r]))
     return snapshot?.active.flatMap(({ id }) => byId.get(id) ?? []) ?? []
@@ -54,6 +58,15 @@ export function MobileSidebarPage() {
     <div className="relative flex h-dvh flex-col overflow-hidden bg-chrome-bg pt-[env(safe-area-inset-top)] text-foreground">
       {snapshot && (
         <HostViewsContext value={hostViews}>
+          {/* The page has no header line: the host filter takes the one above the switcher. */}
+          <div className="flex shrink-0 justify-start px-2 empty:hidden">
+            <SidebarHostPicker
+              hostIds={hostIds}
+              shown={snapshot.shownHost}
+              onSelect={selectHost}
+              className="h-10 text-sm"
+            />
+          </div>
           <RowMetricsContext value={TOUCH_ROW_METRICS}>
             <SidebarProjectSwitcher
               projects={snapshot.projects}

@@ -139,6 +139,17 @@ describe('CreateSpacePanel — daemon picker', () => {
     expect(create).not.toHaveAccessibleDescription()
   })
 
+  it('starts on the host it is opened for, so a space is made where the sidebar is looking', () => {
+    useHostConfigStore.setState({ hosts: [host({ id: 'h1', name: 'homelab-prox' })] })
+    render(<CreateSpacePanel defaultHostId="h1" onCreate={vi.fn()} onCancel={vi.fn()} />)
+    expect(daemonTrigger()).toHaveTextContent('homelab-prox')
+  })
+
+  it('starts on Local when no host is asked for', () => {
+    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
+    expect(daemonTrigger()).toHaveTextContent('Local')
+  })
+
   it("creating a space passes the selected daemon's hostId to the create call", async () => {
     useHostConfigStore.setState({ hosts: [host({ id: 'h1', name: 'homelab-prox' })] })
     getOrCreateHostRuntime('h1').getState().setStatus('up')

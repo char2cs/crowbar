@@ -5,6 +5,8 @@ import { useNavigationHistory } from '@/features/tabs/hooks/use-navigation-histo
 import { SidebarBody } from './sidebar-body'
 import { SidebarFoot } from './sidebar-foot'
 import { SidebarProjectSwitcher } from './sidebar-project-switcher'
+import { ALL_HOSTS } from '@/features/hosts/lib/host-filter'
+import { useSidebarHostFilter } from './use-sidebar-host-filter'
 import { RemovalTray } from './removal-tray'
 import { SidebarTreeSurface } from './sidebar-tree-surface'
 import { useSpaceSwitcherKeyboard } from '@/features/keymaps/hooks/use-space-switcher-keyboard'
@@ -73,6 +75,11 @@ function IdeShellBody() {
     [allProjects, handleSelectProject],
   )
   useSpaceSwitcherKeyboard(allProjects.length, handleSpaceSwitcherSelect)
+  const hostFilter = useSidebarHostFilter(
+    allProjects,
+    activeProjectIdFromRoute,
+    handleSelectProject,
+  )
   const hasNavScreen = useSidebarNavStore((s) => s.stack.length > 0)
 
   // SidebarPeek is a wrapper, not a branch: it renders in every state and only
@@ -80,11 +87,17 @@ function IdeShellBody() {
   const sidebarContent = (
     <SidebarPeek hidden={!sidebarOpen} side={sidebarSide} width={preferredWidth}>
       <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-transparent select-none">
-        {!hasNavScreen && <SidebarProjectHeader />}
+        {!hasNavScreen && (
+          <SidebarProjectHeader
+            hostIds={hostFilter.hostIds}
+            shownHost={hostFilter.shown}
+            onSelectHost={hostFilter.selectHost}
+          />
+        )}
         <SidebarBody
           projectSwitcher={
             <SidebarProjectSwitcher
-              projects={allProjects}
+              projects={hostFilter.shownProjects}
               activeProjectId={activeProjectIdFromRoute}
               onSelectProject={handleSelectProject}
               onAddProject={handleAddProject}
@@ -97,6 +110,7 @@ function IdeShellBody() {
                 activeProjectId={activeProjectIdFromRoute}
                 onActiveProjectChange={handleSelectProject}
                 creatingSpace={creatingSpace}
+                newSpaceHostId={hostFilter.shown === ALL_HOSTS ? undefined : hostFilter.shown}
                 onCreateSpace={handleCreateSpace}
                 onCancelCreateSpace={handleCancelCreateSpace}
               />

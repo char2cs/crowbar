@@ -76,6 +76,8 @@ export interface SidebarUI {
   /** The sidebar's last mode. Untyped on disk: an older build wrote modes that
    *  no longer exist, so hydrate parses it (`parseSidebarTab`). */
   activeTab?: string
+  /** The host whose projects the switcher lists, or 'all'. Absent on an older record. */
+  hostFilter?: string
   updatedAt: number
 }
 

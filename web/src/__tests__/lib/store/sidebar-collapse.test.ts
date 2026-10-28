@@ -21,7 +21,11 @@ import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarStore.setState({ collapsedChatRows: new Set<string>(), activeTab: 'chats' })
+  useSidebarStore.setState({
+    collapsedChatRows: new Set<string>(),
+    activeTab: 'chats',
+    hostFilter: 'all',
+  })
 })
 
 /**
@@ -70,13 +74,17 @@ describe('collapsedChatRows', () => {
   it('never writes a retired key back into the record', () => {
     useSidebarStore.getState().toggleChatRow('f1')
     const record = saveSidebarUI.mock.calls[0][0] as Record<string, unknown>
-    expect(Object.keys(record).sort()).toEqual(['activeTab', 'collapsedChatRows'])
+    expect(Object.keys(record).sort()).toEqual(['activeTab', 'collapsedChatRows', 'hostFilter'])
   })
 
   it('persists the fold without dropping the mode from the record', () => {
     useSidebarStore.setState({ activeTab: 'git' })
     useSidebarStore.getState().toggleChatRow('f1')
-    expect(saveSidebarUI).toHaveBeenLastCalledWith({ collapsedChatRows: ['f1'], activeTab: 'git' })
+    expect(saveSidebarUI).toHaveBeenLastCalledWith({
+      collapsedChatRows: ['f1'],
+      activeTab: 'git',
+      hostFilter: 'all',
+    })
   })
 })
 
@@ -94,11 +102,46 @@ describe('activeTab', () => {
     expect(saveSidebarUI).toHaveBeenLastCalledWith({
       collapsedChatRows: ['f1'],
       activeTab: 'files',
+      hostFilter: 'all',
     })
   })
 
   it('selecting the mode already showing writes nothing', () => {
     useSidebarStore.getState().setActiveTab('chats')
+    expect(saveSidebarUI).not.toHaveBeenCalled()
+  })
+})
+
+// The host filter shares the record with the folds and the mode, so every write carries all three.
+describe('hostFilter', () => {
+  it('defaults to every host', () => {
+    expect(getInitialState().hostFilter).toBe('all')
+  })
+
+  it('setHostFilter persists the choice alongside the folds and the mode', () => {
+    useSidebarStore.setState({ activeTab: 'git' })
+    useSidebarStore.getState().toggleChatRow('f1')
+    useSidebarStore.getState().setHostFilter('h1')
+    expect(useSidebarStore.getState().hostFilter).toBe('h1')
+    expect(saveSidebarUI).toHaveBeenLastCalledWith({
+      collapsedChatRows: ['f1'],
+      activeTab: 'git',
+      hostFilter: 'h1',
+    })
+  })
+
+  it('a fold or a mode change keeps the saved choice', () => {
+    useSidebarStore.getState().setHostFilter('h1')
+    useSidebarStore.getState().setActiveTab('files')
+    expect(saveSidebarUI).toHaveBeenLastCalledWith({
+      collapsedChatRows: [],
+      activeTab: 'files',
+      hostFilter: 'h1',
+    })
+  })
+
+  it('choosing the host already chosen writes nothing', () => {
+    useSidebarStore.getState().setHostFilter('all')
     expect(saveSidebarUI).not.toHaveBeenCalled()
   })
 })
