@@ -63,33 +63,12 @@ func New(
 	adapters *adapter.Container,
 	post migrate.PostOpenRunner,
 ) (*Container, error) {
-	axReviewThread, err := newAsynx[domain.ReviewThread](adapters.ReviewThreadES(), adapters.ReviewThreadSS())
+	h := hub.NewHub()
+	rm, err := repositories.OpenReadModels(adapters, func(string) { h.BroadcastPlacementChanged() })
 	if err != nil {
-		return nil, fmt.Errorf("app: asynx review thread: %w", err)
+		return nil, fmt.Errorf("app: %w", err)
 	}
-	// One eager axWorkspace singleton over the per-type event log, routing every
-	// workspace id to a shard by hash (decision 1) — replaces the per-entity
-	// AsynxFactory the repository used to resolve per workspace.
-	// SchemaVersion/StripRetiredPlacementFields: real production workspaces
-	// dragged or reordered before the sidebar-placement-unification migration
-	// carry /order and /folderId patches domain.Workspace no longer has fields
-	// for — see StripRetiredPlacementFields's own doc.
-	axWorkspace, err := newAsynx[domain.Workspace](adapters.WorkspaceES(), adapters.WorkspaceSS(),
-		func(b *asynx.Builder[domain.Workspace]) {
-			b.WithSchemaVersion(workspace.SchemaVersion).
-				WithUpcaster(1, workspace.StripRetiredPlacementFields)
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("app: asynx workspace: %w", err)
-	}
-	// axAgentChat is the per-type singleton over state/events/agent_chat.db; its
-	// projections are registered via repositories.New -> agentchat.NewEventSourced.
-	axAgentChat, err := newAsynx[domain.Chat](adapters.AgentChatES(), adapters.AgentChatSS())
-	if err != nil {
-		return nil, fmt.Errorf("app: asynx agent chat: %w", err)
-	}
-	axNode, err := newAxNode(adapters)
+	ax, err := newAggregates(adapters, rm)
 	if err != nil {
 		return nil, err
 	}
@@ -99,19 +78,8 @@ func New(
 		return nil, err
 	}
 
-	h := hub.NewHub()
 	chatSnapshots := newChatSnapshots(h)
-	repos, err := newRepositoriesContainer(
-		ctx,
-		adapters,
-		h,
-		chatSnapshots,
-		axReviewThread,
-		axWorkspace,
-		axAgentChat,
-		axNode,
-		engines,
-	)
+	repos, err := newRepositoriesContainer(ctx, adapters, rm, h, chatSnapshots, ax, engines)
 	if err != nil {
 		return nil, err
 	}
@@ -140,10 +108,10 @@ func New(
 		Usecases:       ucs,
 		crowbarHome:    crowbarHome,
 		engines:        engines,
-		axWorkspace:    axWorkspace,
-		axReviewThread: axReviewThread,
-		axAgentChat:    axAgentChat,
-		axNode:         axNode,
+		axWorkspace:    ax.workspace,
+		axReviewThread: ax.reviewThread,
+		axAgentChat:    ax.agentChat,
+		axNode:         ax.node,
 	}
 
 	if err := startBootSweep(ctx, repos); err != nil {
@@ -214,54 +182,32 @@ type threadBroadcaster interface {
 	)
 }
 
-// newAxNode builds the Node position aggregate's per-type singleton, mirroring
-// axAgentChat's own construction. Purely additive (2026-09-08
-// sidebar-placement-unification, Task 1): nothing else sends Node commands
-// yet — later tasks migrate existing placement logic onto it one vertical
-// slice at a time. Split out of New only to keep that constructor within its
-// length budget.
-func newAxNode(
-	adapters *adapter.Container,
-) (asynx.Asynx[domain.Node], error) {
-	axNode, err := newAsynx[domain.Node](adapters.NodeES(), adapters.NodeSS())
-	if err != nil {
-		return nil, fmt.Errorf("app: asynx node: %w", err)
-	}
-	return axNode, nil
-}
-
 // newRepositoriesContainer builds the repository layer from every per-type
-// asynx singleton and the injected app-layer seams. The agent aggregates
-// announce; the fanout built here decides what a client is told — the hub
-// still reaches the repository layer for workspace frames, which are outside
-// this subsystem. Node's live-update watch is nil; its saved placements reach
-// the hub with the chats' through BroadcastPlacementChanged. Split out of New only to keep that constructor
-// within its length budget, mirroring newAgentWiring/newProjectImport in
-// usecases/container.go.
+// asynx singleton and its read model. The fanout built here decides what a
+// client is told; node's live watch is nil (its placements reach the hub with
+// the chats' through BroadcastPlacementChanged).
 func newRepositoriesContainer(
 	ctx context.Context,
 	adapters *adapter.Container,
+	rm *repositories.ReadModels,
 	h *hub.Hub,
 	chatSnapshots *agentusecase.ChatSnapshots,
-	axReviewThread asynx.Asynx[domain.ReviewThread],
-	axWorkspace asynx.Asynx[domain.Workspace],
-	axAgentChat asynx.Asynx[domain.Chat],
-	axNode asynx.Asynx[domain.Node],
+	ax *aggregates,
 	engines *engine.Container,
 ) (*repositories.Container, error) {
 	agentFanout := agentusecase.NewFanout(chatSnapshots)
 	repos, err := repositories.New(
 		ctx,
 		adapters,
+		rm,
 		h,
-		axReviewThread,
-		axWorkspace,
-		axAgentChat,
-		axNode,
+		ax.reviewThread,
+		ax.workspace,
+		ax.agentChat,
+		ax.node,
 		engines.Git,
 		agentFanout.ChatWatch(),
 		nil,
-		func(string) { h.BroadcastPlacementChanged() },
 	)
 	if err != nil {
 		return nil, fmt.Errorf("app: repositories: %w", err)

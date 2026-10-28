@@ -3,6 +3,7 @@ package projections
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,33 +19,37 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// newRegistered builds a real asynx over a temp event store, a durable Store over
-// a temp read-model DB, and registers the save-only store projection on it — the
-// production shape (one RegisterStore per singleton), driven over throwaway DBs.
+// newRegistered builds a real asynx over a temp event store with the store
+// projection as its durable subscriber, the production shape.
 func newRegistered(
 	t *testing.T,
 ) (context.Context, asynx.Asynx[domain.Workspace], *Store) {
 	t.Helper()
+	st := newTestStore(t)
+	ctx, ax := buildOver(t, st)
+	return ctx, ax, st
+}
+
+func buildOver(
+	t *testing.T,
+	st *Store,
+) (context.Context, asynx.Asynx[domain.Workspace]) {
+	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Workspace]().
+	b := asynx.New[domain.Workspace]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithDeliveryRetry(time.Millisecond, time.Millisecond)
+	Subscriber(st)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-	st, err := NewStore(db)
-	require.NoError(t, err)
-
-	require.NoError(t, RegisterStore(st, ax))
-	return context.Background(), ax, st
+	t.Cleanup(func() { require.NoError(t, ax.Shutdown(context.Background())) })
+	return context.Background(), ax
 }
 
-func TestRegisterStore_CreatePersistsRowInReadModel(t *testing.T) {
+func TestWorkspaceProjection_CreatePersistsRowInReadModel(t *testing.T) {
 	ctx, ax, st := newRegistered(t)
 	_, err := ax.SendWait(ctx, wscmds.CreateWorkspace{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "main", Now: time.Unix(1, 0).UTC(),
@@ -68,7 +73,7 @@ func TestRegisterStore_CreatePersistsRowInReadModel(t *testing.T) {
 	assert.Equal(t, domain.WorkspaceStatusNew, got.Status)
 }
 
-func TestRegisterStore_DeletedTombstonePersistsThenForgetDropsRow(t *testing.T) {
+func TestWorkspaceProjection_ForgetDeletesTheRow(t *testing.T) {
 	ctx, ax, st := newRegistered(t)
 	_, err := ax.SendWait(ctx, wscmds.CreateWorkspace{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "main", Now: time.Unix(1, 0).UTC(),
@@ -86,7 +91,7 @@ func TestRegisterStore_DeletedTombstonePersistsThenForgetDropsRow(t *testing.T) 
 	require.NotNil(t, got)
 	assert.Equal(t, domain.WorkspaceStatusDeleted, got.Status)
 
-	// Forget runs the projection's synchronous OnForget row-delete → row is gone.
+	// Forget delivers its marker to the durable subscriber, which drops the row.
 	require.NoError(t, ax.Forget(ctx, "w1"))
 	got, err = st.Get(ctx, "w1")
 	require.NoError(t, err)
@@ -96,30 +101,67 @@ func TestRegisterStore_DeletedTombstonePersistsThenForgetDropsRow(t *testing.T) 
 	assert.Empty(t, all)
 }
 
-// fakeAx is a minimal asynx stub that fails Subscribe / OnForget on demand.
-type fakeAx struct {
-	asynx.Asynx[domain.Workspace]
-	subscribeErr error
-	forgetErr    error
-	subscribeCnt int
+// failFirstSave fails the first Save, then signals every Save that succeeds.
+type failFirstSave struct {
+	inner
+	failed atomic.Bool
+	saved  chan struct{}
 }
 
-func (f *fakeAx) Subscribe(
-	_ string,
-	_ asynxModels.ProjectionHandler[domain.Workspace],
-	_ ...asynxModels.SubscriptionOpt[domain.Workspace],
-) (string, error) {
-	f.subscribeCnt++
-	if f.subscribeCnt == 1 {
-		return "", f.subscribeErr
+type inner interface {
+	Save(ctx context.Context, row workspaceRow) error
+	Delete(ctx context.Context, key string) error
+	FindByKey(ctx context.Context, key string) (*workspaceRow, error)
+	FindAll(ctx context.Context) ([]workspaceRow, error)
+}
+
+func (f *failFirstSave) Save(ctx context.Context, row workspaceRow) error {
+	if f.failed.CompareAndSwap(false, true) {
+		return errors.New("injected save failure")
 	}
-	return "sub-id", nil
+	if err := f.inner.Save(ctx, row); err != nil {
+		return err
+	}
+	f.saved <- struct{}{}
+	return nil
 }
 
-func (f *fakeAx) OnForget(
-	_ asynxModels.ForgetHandler[domain.Workspace],
-) (string, error) {
-	return "", f.forgetErr
+func TestWorkspaceProjection_ASaveFailureIsRetriedNotDropped(t *testing.T) {
+	st := newTestStore(t)
+	flaky := &failFirstSave{inner: st.inner, saved: make(chan struct{}, 16)}
+	st.inner = flaky
+	ctx, ax := buildOver(t, st)
+
+	_, err := ax.SendWait(ctx, wscmds.CreateWorkspace{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "main", Now: time.Unix(1, 0).UTC(),
+		Provisioning: domain.WorkspacePlaceholder,
+	})
+	require.NoError(t, err)
+
+	select {
+	case <-flaky.saved:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the failed save was never retried")
+	}
+	got, err := st.Get(ctx, "w1")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "main", got.Branch)
+}
+
+// Upstream can redeliver a Forget marker at startup; the second one finds no row.
+func TestWorkspaceProjection_AForgetDeliveredTwiceIsANoOp(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	require.NoError(t, st.save(ctx, domain.Workspace{ID: "w1"}))
+	marker := asynxModels.Event[domain.Workspace]{AggregateID: "w1", EventName: asynxModels.ForgetEventName}
+
+	require.NoError(t, st.handle(ctx, marker))
+	require.NoError(t, st.handle(ctx, marker))
+
+	got, err := st.Get(ctx, "w1")
+	require.NoError(t, err)
+	assert.Nil(t, got)
 }
 
 func newTestStore(
@@ -133,19 +175,7 @@ func newTestStore(
 	return st
 }
 
-func TestRegisterStore_SubscribeError(t *testing.T) {
-	err := RegisterStore(newTestStore(t), &fakeAx{subscribeErr: errors.New("bus down")})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "workspace store projection: subscribe")
-}
-
-func TestRegisterStore_OnForgetError(t *testing.T) {
-	err := RegisterStore(newTestStore(t), &fakeAx{forgetErr: errors.New("bus down")})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "workspace store projection: on forget")
-}
-
-// errInner fails every storage call; the projection must log and not panic.
+// errInner fails every storage call.
 type errInner struct{ err error }
 
 func (e *errInner) Save(context.Context, workspaceRow) error { return e.err }
@@ -155,57 +185,11 @@ func (e *errInner) FindByKey(context.Context, string) (*workspaceRow, error) {
 }
 func (e *errInner) FindAll(context.Context) ([]workspaceRow, error) { return nil, e.err }
 
-func TestStoreProjector_SaveError_DoesNotPanic(t *testing.T) {
-	p := &storeProjector{store: &Store{inner: &errInner{err: errors.New("db down")}}}
-	p.onEvent(context.Background(), asynxModels.Event[domain.Workspace]{Aggregate: domain.Workspace{ID: "w1"}})
-}
-
-func TestStoreProjector_ForgetError_DoesNotPanic(t *testing.T) {
-	p := &storeProjector{store: &Store{inner: &errInner{err: errors.New("db down")}}}
-	p.onForget(context.Background(), asynxModels.Event[domain.Workspace]{Aggregate: domain.Workspace{ID: "w1"}})
-}
-
-// flakyInner fails the first failsLeft saves with a transient disk I/O error,
-// then succeeds — exercising saveWithRetry's transient-retry path.
-type flakyInner struct {
-	failsLeft int
-	saved     []workspaceRow
-}
-
-func (f *flakyInner) Save(_ context.Context, row workspaceRow) error {
-	if f.failsLeft > 0 {
-		f.failsLeft--
-		return errors.New("disk I/O error")
-	}
-	f.saved = append(f.saved, row)
-	return nil
-}
-func (f *flakyInner) Delete(context.Context, string) error { return nil }
-func (f *flakyInner) FindByKey(context.Context, string) (*workspaceRow, error) {
-	return nil, nil
-}
-func (f *flakyInner) FindAll(context.Context) ([]workspaceRow, error) { return nil, nil }
-
-func TestStoreProjector_SaveRetriesTransientIOError(t *testing.T) {
-	fi := &flakyInner{failsLeft: 2}
-	p := &storeProjector{store: &Store{inner: fi}}
-	p.onEvent(context.Background(), asynxModels.Event[domain.Workspace]{Aggregate: domain.Workspace{ID: "w1"}})
-	require.Len(t, fi.saved, 1, "save must succeed after retrying the transient disk I/O errors")
-}
-
-// TestStoreProjector_SaveExhaustsRetriesOnPersistentIOError proves the retry
-// bound is actually a bound: three straight transient failures must stop
-// retrying and surface the last error, not retry forever or fall through
-// silently as success.
-func TestStoreProjector_SaveExhaustsRetriesOnPersistentIOError(t *testing.T) {
-	fi := &flakyInner{failsLeft: 3}
-	p := &storeProjector{store: &Store{inner: fi}}
-
-	err := p.saveWithRetry(context.Background(), domain.Workspace{ID: "w1"})
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "disk I/O error")
-	assert.Empty(t, fi.saved, "a save that never succeeds within the retry bound must not report success")
+func TestWorkspaceProjection_AStorageFailureIsReturned(t *testing.T) {
+	st := &Store{inner: &errInner{err: errors.New("db down")}, announced: map[string]struct{}{}}
+	ctx := context.Background()
+	require.Error(t, st.handle(ctx, asynxModels.Event[domain.Workspace]{Aggregate: domain.Workspace{ID: "w1"}}))
+	assert.Error(t, st.handle(ctx, asynxModels.Event[domain.Workspace]{AggregateID: "w1", EventName: asynxModels.ForgetEventName}))
 }
 
 func TestNewStore_ErrorOnBadDB(t *testing.T) {

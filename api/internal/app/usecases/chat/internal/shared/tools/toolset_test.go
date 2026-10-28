@@ -452,20 +452,16 @@ func newPerfWorkspaces(
 	reconciler workspace.ReconcileOnOpener,
 ) *countingWorkspaces {
 	b.Helper()
-	ax, err := asynx.New[domain.Workspace]().
-		WithEventStore(adapters.WorkspaceES()).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+	rm, err := workspace.OpenReadModel(adapters.WorkspaceView())
+	require.NoError(b, err)
+	axb := asynx.New[domain.Workspace]().
+		WithEventStore(adapters.WorkspaceES()).WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	workspace.Subscriber(rm)(axb)
+	ax, err := axb.Build()
 	require.NoError(b, err)
 	b.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
-	repo, err := workspace.New(
-		ax,
-		adapters.WorkspaceES(),
-		adapters.WorkspaceView(),
-		workspace.WithReconciler(reconciler),
-	)
+	repo, err := workspace.New(ax, adapters.WorkspaceES(), rm, workspace.WithReconciler(reconciler))
 	require.NoError(b, err)
 	return &countingWorkspaces{Workspace: repo}
 }
@@ -477,15 +473,16 @@ func newPerfThreads(
 	b.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(b, err)
-	ax, err := asynx.New[domain.ReviewThread]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+	rm, err := reviewthread.OpenReadModel(adapters.ReviewThreadView())
+	require.NoError(b, err)
+	axb := asynx.New[domain.ReviewThread]().
+		WithEventStore(es).WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	reviewthread.Subscriber(rm)(axb)
+	ax, err := axb.Build()
 	require.NoError(b, err)
 	b.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
-	threads, err := reviewthread.New(ax, es, adapters.ReviewThreadView(), func(domain.ReviewThread) {})
+	threads, err := reviewthread.New(ax, es, rm, func(domain.ReviewThread) {})
 	require.NoError(b, err)
 	return threads
 }
@@ -495,20 +492,16 @@ func newPerfChatStore(
 	adapters *adapter.Container,
 ) agentchat.EventStore {
 	b.Helper()
-	ax, err := asynx.New[domain.Chat]().
-		WithEventStore(adapters.AgentChatES()).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+	rm, err := agentchat.OpenReadModel(adapters.AgentChatReadDB())
+	require.NoError(b, err)
+	axb := asynx.New[domain.Chat]().
+		WithEventStore(adapters.AgentChatES()).WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	agentchat.Subscriber(rm)(axb)
+	ax, err := axb.Build()
 	require.NoError(b, err)
 	b.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
-	store, err := agentchat.NewEventSourced(
-		ax,
-		adapters.AgentChatES(),
-		adapters.AgentChatReadDB(),
-		func(agentchat.ChatEvent) {},
-	)
+	store, err := agentchat.NewEventSourced(ax, adapters.AgentChatES(), rm, func(agentchat.ChatEvent) {})
 	require.NoError(b, err)
 	return store
 }

@@ -10,7 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -52,9 +51,11 @@ func TestSeedChat_IsBornOnARegisteredProvider(t *testing.T) {
 	chatID, err := seedChat(ctx, adapters, seedOptions{WorkspaceID: "ws-1", Turns: 1, ToolCallsPerTurn: 1})
 	require.NoError(t, err)
 
-	axAgentChat, err := buildAsynx[domain.Chat](adapters.AgentChatES(), adapters.AgentChatSS())
+	readModel, err := agentchat.OpenReadModel(adapters.AgentChatReadDB())
 	require.NoError(t, err)
-	chatStore, err := agentchat.NewEventSourced(axAgentChat, adapters.AgentChatES(), adapters.AgentChatReadDB(), nil)
+	axAgentChat, err := buildAsynx(adapters.AgentChatES(), adapters.AgentChatSS(), agentchat.Subscriber(readModel))
+	require.NoError(t, err)
+	chatStore, err := agentchat.NewEventSourced(axAgentChat, adapters.AgentChatES(), readModel, nil)
 	require.NoError(t, err)
 	chat, err := chatStore.GetChat(ctx, chatID)
 	require.NoError(t, err)

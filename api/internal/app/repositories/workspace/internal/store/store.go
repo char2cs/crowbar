@@ -1,7 +1,6 @@
 // Package store owns the workspace read model: the durable, queryable projection
-// of the aggregate at state/store/workspace.db. New builds the read model over
-// the read-pool DB and registers the SAVE-ONLY store projection on the singleton
-// axWorkspace (spec §3.5/§3.7, decision 5). Unlike the retired per-entity store
+// of the aggregate at state/store/workspace.db, fed by the save-only store
+// projection registered as axWorkspace's durable subscriber (decision 5). Unlike the retired per-entity store
 // it does NO eager reconcile on open — a normal boot re-opens the durable read
 // model with zero replay; read-model repair is lazy (Tasks 9/11): the per-request
 // ListOrRebuild heals a lost model on first access via whole-model asynx.Replay,
@@ -17,7 +16,6 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
-	gormdb "gorm.io/gorm"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store/projections"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -48,7 +46,7 @@ type Store interface {
 	) (*domain.Workspace, error)
 	// Drop deletes id's durable row directly. It exists for the one row the
 	// projection can no longer delete: a tombstone whose aggregate was already
-	// Forgotten before its OnForget row delete landed.
+	// Forgotten before its marker's row delete landed.
 	Drop(
 		ctx context.Context,
 		id string,
@@ -78,24 +76,15 @@ type service struct {
 	ax    asynx.Asynx[domain.Workspace]
 }
 
-// New builds the durable read model over db (state/store/workspace.db) and
-// registers the save-only store projection on ax, once, for the singleton
-// axWorkspace. It performs no reconcile: read-model repair is lazy (Tasks 9/11).
-// es is the same per-type event log ax wraps, retained so ListOrRebuild can reach
-// its serialize.AggregateLister capability for the whole-model rebuild (§3.7).
+// New builds the workspace read model over st, which the instance ax already
+// delivers to as a durable subscriber (projections.Subscriber). es is the log
+// ax wraps, kept so ListOrRebuild can enumerate its aggregates (§3.7).
 func New(
-	db *gormdb.DB,
+	st *projections.Store,
 	es asynxModels.Store,
 	ax asynx.Asynx[domain.Workspace],
-) (Store, error) {
-	st, err := projections.NewStore(db)
-	if err != nil {
-		return nil, fmt.Errorf("workspace store: %w", err)
-	}
-	if err := projections.RegisterStore(st, ax); err != nil {
-		return nil, fmt.Errorf("workspace store: %w", err)
-	}
-	return &service{store: st, es: es, ax: ax}, nil
+) Store {
+	return &service{store: st, es: es, ax: ax}
 }
 
 // RegisterHub registers the hub (WS fan-out) projection over s's own

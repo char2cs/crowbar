@@ -26,18 +26,20 @@ func newStoreWithDeps(
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.ReviewThread]().
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	proj, err := store.Open(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.ReviewThread]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	store.Subscriber(proj)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
-	st, err := store.New(db, es, ax, func(domain.ReviewThread) {})
+	st, err := store.New(proj, es, ax, func(domain.ReviewThread) {})
 	require.NoError(t, err)
 	return context.Background(), st, ax, db
 }
@@ -174,20 +176,22 @@ func (f *fakeReplayES) AggregateIDs(context.Context) ([]string, error) {
 func TestStore_List_RebuildEnumerationError(t *testing.T) {
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.ReviewThread]().
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	proj, err := store.Open(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.ReviewThread]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	store.Subscriber(proj)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
 	// Inject an event log whose AggregateIDs enumeration fails; an empty read model
 	// then routes List into rebuild, which surfaces the enumeration error.
-	st, err := store.New(db, &fakeReplayES{err: errors.New("boom")}, ax, func(domain.ReviewThread) {})
+	st, err := store.New(proj, &fakeReplayES{err: errors.New("boom")}, ax, func(domain.ReviewThread) {})
 	require.NoError(t, err)
 
 	_, err = st.List(context.Background())

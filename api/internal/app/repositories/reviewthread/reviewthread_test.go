@@ -16,9 +16,7 @@ import (
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
-	rtcmds "github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -57,17 +55,20 @@ func newRepoWithDeps(
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.ReviewThread]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
+	rm, err := reviewthread.OpenReadModel(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.ReviewThread]().
+		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	reviewthread.Subscriber(rm)(b)
+	ax, err := b.Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 	cap := &captureBroadcast{}
-	repo, err := reviewthread.New(ax, es, db, cap.push)
+	repo, err := reviewthread.New(ax, es, rm, cap.push)
 	require.NoError(t, err)
 	return context.Background(), repo, db, cap
 }
@@ -268,11 +269,9 @@ func TestReviewThread_DeleteThread_ErrorOnMissing(t *testing.T) {
 	assert.Error(t, err, "forgetting an aggregate that was never opened is a caller bug, not a no-op")
 }
 
-// TestReviewThread_ConcurrentReplies_NoWriteMu_OCC proves the writeMu deletion
-// (decision 10) for reviewthread: many replies targeting the SAME thread at once
-// must ALL commit via Send + OCC retry (shard routing + (id,version) uniqueness +
-// bounded retry), with no hand-rolled serialize.KeyedMutex. Run with -race.
-func TestReviewThread_ConcurrentReplies_NoWriteMu_OCC(t *testing.T) {
+// Many replies to one thread at once all commit with no retry: asynx serializes
+// an aggregate's commands, so each one simply waits its turn.
+func TestReviewThread_ConcurrentRepliesAllCommitInTurn(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
 	_, err := repo.Open(ctx, reviewthread.OpenInput{
@@ -300,7 +299,7 @@ func TestReviewThread_ConcurrentReplies_NoWriteMu_OCC(t *testing.T) {
 			failed++
 		}
 	}
-	require.Zero(t, failed, "%d/%d concurrent same-aggregate replies failed under OCC (no writeMu)", failed, n)
+	require.Zero(t, failed, "%d/%d concurrent same-aggregate replies failed", failed, n)
 
 	// The aggregate folds cleanly from the log after the storm.
 	got, err := repo.Get(ctx, "t1")
@@ -376,58 +375,6 @@ func TestReviewThread_HubBroadcastsBareAggregate(t *testing.T) {
 	assert.Equal(t, opened.Status, frame.Status)
 	require.Len(t, frame.Messages, 1)
 	assert.Equal(t, "first", frame.Messages[0].Body)
-}
-
-// TestReviewThread_OccSendErrorDisposition pins the terminal error-disposition
-// contract (spec §3.5, decision 10) against a fake send: ErrPipelineFailed is
-// retried exactly MaxOCCAttempts then surfaced (→ 409); ErrValidation is never
-// retried (→ 422); ErrQueueFull is never retried and is translated to
-// apperr.ErrUnavailable (→ 503). All classified via errors.Is.
-func TestReviewThread_OccSendErrorDisposition(t *testing.T) {
-	ctx := context.Background()
-	cmd := rtcmds.ResolveReviewThread{ID: "t1"}
-
-	t.Run("ErrPipelineFailed retried then surfaced", func(t *testing.T) {
-		calls := 0
-		send := func(context.Context, asynxModels.Command[domain.ReviewThread]) (asynxModels.Event[domain.ReviewThread], error) {
-			calls++
-			return asynxModels.Event[domain.ReviewThread]{}, fmt.Errorf("boom: %w", asynxModels.ErrPipelineFailed)
-		}
-		_, err := reviewthread.OccSend(ctx, send, cmd)
-		require.ErrorIs(t, err, asynxModels.ErrPipelineFailed)
-		assert.Equal(t, reviewthread.MaxOCCAttempts, calls)
-	})
-
-	t.Run("ErrValidation never retried", func(t *testing.T) {
-		calls := 0
-		send := func(context.Context, asynxModels.Command[domain.ReviewThread]) (asynxModels.Event[domain.ReviewThread], error) {
-			calls++
-			return asynxModels.Event[domain.ReviewThread]{}, fmt.Errorf("nope: %w", asynxModels.ErrValidation)
-		}
-		_, err := reviewthread.OccSend(ctx, send, cmd)
-		require.ErrorIs(t, err, asynxModels.ErrValidation)
-		assert.Equal(t, 1, calls)
-	})
-
-	t.Run("ErrQueueFull translated to unavailable, never retried", func(t *testing.T) {
-		calls := 0
-		send := func(context.Context, asynxModels.Command[domain.ReviewThread]) (asynxModels.Event[domain.ReviewThread], error) {
-			calls++
-			return asynxModels.Event[domain.ReviewThread]{}, fmt.Errorf("full: %w", asynxModels.ErrQueueFull)
-		}
-		_, err := reviewthread.OccSend(ctx, send, cmd)
-		require.ErrorIs(t, err, apperr.ErrUnavailable)
-		assert.Equal(t, 1, calls)
-	})
-
-	t.Run("success returns immediately", func(t *testing.T) {
-		send := func(_ context.Context, c asynxModels.Command[domain.ReviewThread]) (asynxModels.Event[domain.ReviewThread], error) {
-			return asynxModels.Event[domain.ReviewThread]{Aggregate: domain.ReviewThread{ID: c.AggregateID()}}, nil
-		}
-		evt, err := reviewthread.OccSend(ctx, send, cmd)
-		require.NoError(t, err)
-		assert.Equal(t, "t1", evt.Aggregate.ID)
-	})
 }
 
 func TestReviewThread_List_StorageError(t *testing.T) {
@@ -524,43 +471,13 @@ func TestReviewThread_DeleteMessage_ErrorOnRootComment(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestReviewThread_OccSend_UnrecognizedErrorSurfacedImmediately pins occSend's
-// default disposition (spec §3.5, decision 10): an error that is none of the
-// three classified sentinels is neither retried nor translated — it is
-// exactly the terminal-error branch the switch's default case exists for.
-func TestReviewThread_OccSend_UnrecognizedErrorSurfacedImmediately(t *testing.T) {
-	ctx := context.Background()
-	cmd := rtcmds.ResolveReviewThread{ID: "t1"}
-	sentinel := fmt.Errorf("unclassified failure")
-	calls := 0
-	send := func(context.Context, asynxModels.Command[domain.ReviewThread]) (asynxModels.Event[domain.ReviewThread], error) {
-		calls++
-		return asynxModels.Event[domain.ReviewThread]{}, sentinel
-	}
-
-	_, err := reviewthread.OccSend(ctx, send, cmd)
-
-	require.ErrorIs(t, err, sentinel)
-	assert.Equal(t, 1, calls, "an unclassified error must not be retried")
-}
-
-func TestReviewThread_New_ErrorOnBadDB(t *testing.T) {
-	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	ax, err := asynx.New[domain.ReviewThread]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
+func TestReviewThread_OpenReadModel_ErrorOnBadDB(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = reviewthread.New(ax, es, db, func(domain.ReviewThread) {})
-	assert.Error(t, err)
+	_, err = reviewthread.OpenReadModel(db)
+	require.Error(t, err)
 }

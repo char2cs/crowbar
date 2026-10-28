@@ -2936,9 +2936,8 @@ func TestSpawnChat_StartRunnerFailure_TearsDownCLIAndWraps(t *testing.T) {
 		"a CLI nothing points at must never be left running")
 }
 
-// A spawn refused after the chat was written (a CLI exiting at startup, a runner
-// row that will not commit) forgets the chat. The frames prove it was created
-// first, so the test cannot pass by failing earlier.
+// A spawn refused after the chat was written (a CLI exiting at startup, a runner row
+// that will not commit) forgets the chat. The frames prove it was created first.
 func TestRegression_SpawnRefusedAfterTheChatWasWritten_ForgetsTheChat(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -2971,7 +2970,8 @@ func TestRegression_SpawnRefusedAfterTheChatWasWritten_ForgetsTheChat(t *testing
 			assert.Empty(t, runnerID)
 			f.wait()
 
-			assert.Equal(t, []string{"created", "permission_level_set", "deleted"}, f.bcKinds(t),
+			kinds := f.bcKinds(t) // Forget supersedes frames still queued, so only the ends are fixed
+			assert.Equal(t, []string{"created", "deleted"}, []string{kinds[0], kinds[len(kinds)-1]},
 				"the chat was written and then taken back out — not merely never written")
 
 			var born string

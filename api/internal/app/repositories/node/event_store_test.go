@@ -2,7 +2,6 @@ package node_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -17,7 +16,6 @@ import (
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	nodecmds "github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -50,19 +48,21 @@ func newRepoWithDeps(
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Node]().
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	rm, err := nodecmds.OpenReadModel(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.Node]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	nodecmds.Subscriber(rm)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
 	cap := &captureBroadcast{}
-	repo, err := nodecmds.NewEventSourced(ax, es, db, cap.watch)
+	repo, err := nodecmds.NewEventSourced(ax, es, rm, cap.watch)
 	require.NoError(t, err)
 	return context.Background(), repo, db, cap
 }
@@ -244,17 +244,20 @@ func TestNode_HubBroadcastsNodeIDAndKind(t *testing.T) {
 func TestNode_HubToleratesANilWatch(t *testing.T) {
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Node]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
+	rm, err := nodecmds.OpenReadModel(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.Node]().
+		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	nodecmds.Subscriber(rm)(b)
+	ax, err := b.Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
-	repo, err := nodecmds.NewEventSourced(ax, es, db, nil)
+	repo, err := nodecmds.NewEventSourced(ax, es, rm, nil)
 	require.NoError(t, err)
 
 	assert.NotPanics(t, func() {
@@ -267,11 +270,8 @@ func TestNode_HubToleratesANilWatch(t *testing.T) {
 // TestNode_ConcurrentCreate_OneWins runs, mirroring agentchat's own race test.
 const concurrentCreateTrials = 10
 
-// TestNode_ConcurrentCreate_OneWins exercises the OCC retry contract (no
-// per-aggregate writeMu) under a REAL race: two Creates of the SAME id, fired
-// concurrently via errgroup. Exactly one commits; the loser is rejected by
-// Validate ("exists", wrapping asynxModels.ErrValidation) rather than left as
-// an unresolved ErrPipelineFailed.
+// Two Creates of the SAME id race: exactly one commits and the loser, run after
+// it, is refused by Validate (asynxModels.ErrValidation), never ErrPipelineFailed.
 func TestNode_ConcurrentCreate_OneWins(t *testing.T) {
 	ctx, repo, _, _ := newRepoWithDeps(t)
 
@@ -306,103 +306,14 @@ func TestNode_ConcurrentCreate_OneWins(t *testing.T) {
 	}
 }
 
-// TestNode_OccSendErrorDisposition pins the terminal error-disposition contract
-// against a fake send: ErrPipelineFailed is retried exactly MaxOCCAttempts then
-// surfaced (→ 409); ErrValidation is never retried (→ 422); ErrQueueFull is
-// never retried and is translated to apperr.ErrUnavailable (→ 503). All
-// classified via errors.Is. Mirrors agentchat's own OCC disposition test.
-func TestNode_OccSendErrorDisposition(t *testing.T) {
-	ctx := context.Background()
-	cmd := setOrderCmd{}
-
-	t.Run("ErrPipelineFailed retried then surfaced", func(t *testing.T) {
-		calls := 0
-		send := func(context.Context, asynxModels.Command[domain.Node]) (asynxModels.Event[domain.Node], error) {
-			calls++
-			return asynxModels.Event[domain.Node]{}, fmt.Errorf("boom: %w", asynxModels.ErrPipelineFailed)
-		}
-		_, err := nodecmds.OccSend(ctx, send, cmd)
-		require.ErrorIs(t, err, asynxModels.ErrPipelineFailed)
-		assert.Equal(t, nodecmds.MaxOCCAttempts, calls)
-	})
-
-	t.Run("ErrValidation never retried", func(t *testing.T) {
-		calls := 0
-		send := func(context.Context, asynxModels.Command[domain.Node]) (asynxModels.Event[domain.Node], error) {
-			calls++
-			return asynxModels.Event[domain.Node]{}, fmt.Errorf("nope: %w", asynxModels.ErrValidation)
-		}
-		_, err := nodecmds.OccSend(ctx, send, cmd)
-		require.ErrorIs(t, err, asynxModels.ErrValidation)
-		assert.Equal(t, 1, calls)
-	})
-
-	t.Run("ErrQueueFull translated to unavailable, never retried", func(t *testing.T) {
-		calls := 0
-		send := func(context.Context, asynxModels.Command[domain.Node]) (asynxModels.Event[domain.Node], error) {
-			calls++
-			return asynxModels.Event[domain.Node]{}, fmt.Errorf("full: %w", asynxModels.ErrQueueFull)
-		}
-		_, err := nodecmds.OccSend(ctx, send, cmd)
-		require.ErrorIs(t, err, apperr.ErrUnavailable)
-		assert.Equal(t, 1, calls)
-	})
-
-	t.Run("success returns immediately", func(t *testing.T) {
-		send := func(_ context.Context, c asynxModels.Command[domain.Node]) (asynxModels.Event[domain.Node], error) {
-			return asynxModels.Event[domain.Node]{Aggregate: domain.Node{ID: c.AggregateID()}}, nil
-		}
-		evt, err := nodecmds.OccSend(ctx, send, cmd)
-		require.NoError(t, err)
-		assert.Equal(t, "n1", evt.Aggregate.ID)
-	})
-
-	t.Run("unclassified error surfaced as-is, not retried", func(t *testing.T) {
-		calls := 0
-		sentinel := errors.New("driver: connection reset")
-		send := func(context.Context, asynxModels.Command[domain.Node]) (asynxModels.Event[domain.Node], error) {
-			calls++
-			return asynxModels.Event[domain.Node]{}, sentinel
-		}
-		_, err := nodecmds.OccSend(ctx, send, cmd)
-		require.ErrorIs(t, err, sentinel)
-		assert.Equal(t, 1, calls, "an unclassified error must not be retried")
-	})
-}
-
-// setOrderCmd is a minimal asynxModels.Command[domain.Node] fake for
-// TestNode_OccSendErrorDisposition, which only needs AggregateID.
-type setOrderCmd struct{}
-
-func (setOrderCmd) AggregateID() string         { return "n1" }
-func (setOrderCmd) EventName() string           { return "node.order_set.n1" }
-func (setOrderCmd) ShouldSnapshot() bool        { return false }
-func (setOrderCmd) Validate(*domain.Node) error { return nil }
-func (setOrderCmd) EmitEvent(current *domain.Node) domain.Node {
-	if current == nil {
-		return domain.Node{}
-	}
-	return *current
-}
-
-func TestNode_NewEventSourced_ErrorOnBadDB(t *testing.T) {
-	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	ax, err := asynx.New[domain.Node]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
+func TestNode_OpenReadModel_ErrorOnBadDB(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = nodecmds.NewEventSourced(ax, es, db, func(nodecmds.NodeEvent) {})
+	_, err = nodecmds.OpenReadModel(db)
 	require.Error(t, err)
 }
 
@@ -475,17 +386,20 @@ func (p *nodePlacementLog) entries() []string {
 func TestNode_PlacementWatchFiresAfterTheReadModelSaved(t *testing.T) {
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Node]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	log := &nodePlacementLog{}
-	repo, err := nodecmds.NewEventSourced(ax, es, db, nil, nodecmds.WithPlacementWatch(log.record))
+	rm, err := nodecmds.OpenReadModel(db, nodecmds.WithPlacementWatch(log.record))
+	require.NoError(t, err)
+	b := asynx.New[domain.Node]().
+		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	nodecmds.Subscriber(rm)(b)
+	ax, err := b.Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+	repo, err := nodecmds.NewEventSourced(ax, es, rm, nil)
 	require.NoError(t, err)
 	log.repo = repo
 	ctx := context.Background()

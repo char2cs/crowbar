@@ -4,13 +4,14 @@ go 1.26.2
 
 require (
 	github.com/bmatcuk/doublestar/v4 v4.10.3
-	github.com/char2cs/asynx v0.8.1
+	github.com/char2cs/asynx v1.1.0
 	github.com/charmbracelet/ultraviolet v0.0.0-20260622092850-f39628c8a989
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/charmbracelet/x/vt v0.0.0-20260629091435-9c70f75e26a4
 	github.com/creack/pty v1.1.24
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/gin-gonic/gin v1.12.0
+	github.com/glebarez/go-sqlite v1.21.2
 	github.com/glebarez/sqlite v1.11.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
@@ -39,7 +40,6 @@ require (
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.12 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
-	github.com/glebarez/go-sqlite v1.21.2 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.30.1 // indirect

@@ -951,18 +951,18 @@ func newChatStore(
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Chat]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-
-	repo, err := agentchat.NewEventSourced(ax, es, db, watch)
+	rm, err := agentchat.OpenReadModel(db)
+	require.NoError(t, err)
+	axb := asynx.New[domain.Chat]().
+		WithEventStore(es).WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	agentchat.Subscriber(rm)(axb)
+	ax, err := axb.Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+	repo, err := agentchat.NewEventSourced(ax, es, rm, watch)
 	require.NoError(t, err)
 	return repo, ax.WaitPublish
 }

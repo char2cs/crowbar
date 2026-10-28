@@ -2,7 +2,6 @@ package chat_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -18,9 +17,7 @@ import (
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	accmds "github.com/char2cs/crowbar/api/internal/app/repositories/chat/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -58,19 +55,21 @@ func newRepoWithDeps(
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Chat]().
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	rm, err := chat.OpenReadModel(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.Chat]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	chat.Subscriber(rm)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
 	cap := &captureBroadcast{}
-	repo, err := chat.NewEventSourced(ax, es, db, cap.watch)
+	repo, err := chat.NewEventSourced(ax, es, rm, cap.watch)
 	require.NoError(t, err)
 	return context.Background(), repo, db, cap
 }
@@ -214,20 +213,8 @@ func TestAgentChat_HubBroadcastsChatIDAndKind(t *testing.T) {
 // repeated chances to surface any nondeterminism.
 const concurrentCreateTrials = 10
 
-// TestAgentChat_ConcurrentCreate_OneWins exercises the OCC retry contract (no
-// per-aggregate writeMu) under a REAL race, on the one command that can still collide
-// on a single chat aggregate: two Creates of the SAME id, fired concurrently via
-// errgroup. Exactly one commits; the loser is rejected by Validate ("exists", wrapping
-// asynxModels.ErrValidation) rather than left as an unresolved ErrPipelineFailed.
-//
-// (Its predecessor raced two OpenSegments against the chat's ≤1-active-segment
-// invariant. That invariant — and the segment itself — is gone: a chat holds no process
-// state to conflict over, which is exactly why the torn switch that bricked a chat
-// cannot happen. The OCC contract it proved still matters, so the race is retargeted at
-// the command that still has one.)
-//
-// Run with -race. No sleeps: the goroutines are joined by errgroup.Wait, and the read is
-// preceded by WaitQuiescentForTest (asynx WaitPublish), never a timing guess.
+// Two Creates of the SAME id race: exactly one commits and the loser, run after
+// it, is refused by Validate (asynxModels.ErrValidation), never ErrPipelineFailed.
 func TestAgentChat_ConcurrentCreate_OneWins(t *testing.T) {
 	ctx, repo, _, _ := newRepoWithDeps(t)
 	now := time.Unix(1000, 0).UTC()
@@ -265,92 +252,14 @@ func TestAgentChat_ConcurrentCreate_OneWins(t *testing.T) {
 	}
 }
 
-// TestAgentChat_OccSendErrorDisposition pins the terminal error-disposition
-// contract against a fake send: ErrPipelineFailed is retried exactly
-// MaxOCCAttempts then surfaced (→ 409); ErrValidation is never retried
-// (→ 422); ErrQueueFull is never retried and is translated to
-// apperr.ErrUnavailable (→ 503). All classified via errors.Is.
-func TestAgentChat_OccSendErrorDisposition(t *testing.T) {
-	ctx := context.Background()
-	cmd := accmds.SetTitle{ChatID: "c1", Title: "t", Source: "user"}
-
-	t.Run("ErrPipelineFailed retried then surfaced", func(t *testing.T) {
-		calls := 0
-		send := func(context.Context, asynxModels.Command[domain.Chat]) (asynxModels.Event[domain.Chat], error) {
-			calls++
-			return asynxModels.Event[domain.Chat]{}, fmt.Errorf("boom: %w", asynxModels.ErrPipelineFailed)
-		}
-		_, err := chat.OccSend(ctx, send, cmd)
-		require.ErrorIs(t, err, asynxModels.ErrPipelineFailed)
-		assert.Equal(t, chat.MaxOCCAttempts, calls)
-	})
-
-	t.Run("ErrValidation never retried", func(t *testing.T) {
-		calls := 0
-		send := func(context.Context, asynxModels.Command[domain.Chat]) (asynxModels.Event[domain.Chat], error) {
-			calls++
-			return asynxModels.Event[domain.Chat]{}, fmt.Errorf("nope: %w", asynxModels.ErrValidation)
-		}
-		_, err := chat.OccSend(ctx, send, cmd)
-		require.ErrorIs(t, err, asynxModels.ErrValidation)
-		assert.Equal(t, 1, calls)
-	})
-
-	t.Run("ErrQueueFull translated to unavailable, never retried", func(t *testing.T) {
-		calls := 0
-		send := func(context.Context, asynxModels.Command[domain.Chat]) (asynxModels.Event[domain.Chat], error) {
-			calls++
-			return asynxModels.Event[domain.Chat]{}, fmt.Errorf("full: %w", asynxModels.ErrQueueFull)
-		}
-		_, err := chat.OccSend(ctx, send, cmd)
-		require.ErrorIs(t, err, apperr.ErrUnavailable)
-		assert.Equal(t, 1, calls)
-	})
-
-	t.Run("success returns immediately", func(t *testing.T) {
-		send := func(_ context.Context, c asynxModels.Command[domain.Chat]) (asynxModels.Event[domain.Chat], error) {
-			return asynxModels.Event[domain.Chat]{Aggregate: domain.Chat{ID: c.AggregateID()}}, nil
-		}
-		evt, err := chat.OccSend(ctx, send, cmd)
-		require.NoError(t, err)
-		assert.Equal(t, "c1", evt.Aggregate.ID)
-	})
-
-	// An error that is none of the three classified sentinels — a context
-	// cancellation, a driver-level failure, anything occSend was not written to
-	// retry — must fall through the switch's default and be surfaced AS-IS on the
-	// very first attempt, never mistaken for the retryable ErrPipelineFailed case.
-	t.Run("unclassified error surfaced as-is, not retried", func(t *testing.T) {
-		calls := 0
-		sentinel := errors.New("driver: connection reset")
-		send := func(context.Context, asynxModels.Command[domain.Chat]) (asynxModels.Event[domain.Chat], error) {
-			calls++
-			return asynxModels.Event[domain.Chat]{}, sentinel
-		}
-		_, err := chat.OccSend(ctx, send, cmd)
-		require.ErrorIs(t, err, sentinel)
-		assert.Equal(t, 1, calls, "an unclassified error must not be retried")
-	})
-}
-
-func TestAgentChat_NewEventSourced_ErrorOnBadDB(t *testing.T) {
-	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	ax, err := asynx.New[domain.Chat]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
+func TestAgentChat_OpenReadModel_ErrorOnBadDB(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = chat.NewEventSourced(ax, es, db, func(chat.ChatEvent) {})
+	_, err = chat.OpenReadModel(db)
 	require.Error(t, err)
 }
 
@@ -500,11 +409,8 @@ func TestGetChat_AReadFailureIsNotAMiss(t *testing.T) {
 }
 
 // TestAgentChat_MutationsOnUnknownChat_SurfaceTheCommandsValidationError pins the
-// "agentchat: <verb>: %w" wrap every ordinary async-Send mutation applies around
-// sendWithOCC's result: each command's own Validate refuses a chat that does not
-// exist with asynxModels.ErrValidation (never retried, per the OCC disposition
-// contract), and the repository method must let that error surface rather than
-// swallowing it — the caller needs the 422, not a silent zero-value Chat.
+// "agentchat: <verb>: %w" wrap every async-Send mutation applies: a command's
+// Validate refusal (asynxModels.ErrValidation) surfaces, so the caller gets the 422.
 func TestAgentChat_MutationsOnUnknownChat_SurfaceTheCommandsValidationError(t *testing.T) {
 	ctx, repo := newRepo(t)
 
@@ -597,17 +503,20 @@ func (p *placementLog) entries() []string {
 func TestAgentChat_PlacementWatchFiresAfterTheReadModelSaved(t *testing.T) {
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Chat]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	log := &placementLog{}
-	repo, err := chat.NewEventSourced(ax, es, db, nil, chat.WithPlacementWatch(log.record))
+	rm, err := chat.OpenReadModel(db, chat.WithPlacementWatch(log.record))
+	require.NoError(t, err)
+	b := asynx.New[domain.Chat]().
+		WithEventStore(es).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	chat.Subscriber(rm)(b)
+	ax, err := b.Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+	repo, err := chat.NewEventSourced(ax, es, rm, nil)
 	require.NoError(t, err)
 	log.repo = repo
 	ctx := context.Background()

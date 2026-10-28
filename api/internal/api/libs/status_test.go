@@ -228,6 +228,11 @@ func TestStatusAndMessageMapping(t *testing.T) {
 			err:    apperr.ErrUnavailable,
 			status: http.StatusServiceUnavailable,
 		},
+		{
+			name:   "a full asynx queue is service unavailable",
+			err:    fmt.Errorf("workspace: send: %w", asynxmodels.ErrQueueFull),
+			status: http.StatusServiceUnavailable,
+		},
 	}
 
 	for _, tc := range cases {

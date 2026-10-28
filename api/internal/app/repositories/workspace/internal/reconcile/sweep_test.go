@@ -24,16 +24,15 @@ import (
 // state the boot orphan-sweep exists to reap (a reactor that died mid-cascade,
 // spec §3.8). Sweep reads the read model directly and re-drives the idempotent
 // purge for the deleted row ONLY: its worktree is rm'd, its aggregate Forgotten,
-// and its read-model row dropped (via Forget's OnForget), converging to the
+// and its read-model row dropped (via Forget's marker), converging to the
 // delete invariant (no row, no worktree) — while the clean workspace and its
 // worktree are left untouched.
 func TestSweep_ReapsDeletedLingering_LeavesCleanIntact(t *testing.T) {
-	ctx, ax := newAx(t)
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	st, err := projections.NewStore(db)
 	require.NoError(t, err)
-	require.NoError(t, projections.RegisterStore(st, ax))
+	ctx, ax := newAx(t, st)
 
 	root := t.TempDir()
 	paths := map[string]string{
@@ -62,7 +61,7 @@ func TestSweep_ReapsDeletedLingering_LeavesCleanIntact(t *testing.T) {
 	require.Equal(t, domain.WorkspaceStatusDeleted, tomb.Status)
 
 	// purge re-drives the same idempotent teardown a delete reactor would: rm -rf
-	// the worktree, then Forget the aggregate (OnForget drops the read-model row).
+	// the worktree, then Forget the aggregate (its marker drops the read-model row).
 	var purged []string
 	purge := func(ctx context.Context, tomb domain.Workspace) error {
 		purged = append(purged, tomb.ID)
@@ -81,7 +80,7 @@ func TestSweep_ReapsDeletedLingering_LeavesCleanIntact(t *testing.T) {
 
 	gone, err := st.Get(ctx, "del")
 	require.NoError(t, err)
-	assert.Nil(t, gone, "the deleted row must be reaped (Forget's OnForget drops it)")
+	assert.Nil(t, gone, "the deleted row must be reaped (Forget's marker drops it)")
 	_, statErr := os.Stat(filepath.Join(root, "del"))
 	assert.True(t, os.IsNotExist(statErr), "the lingering worktree must be rm'd")
 	exists, err := ax.Exists(ctx, "del")

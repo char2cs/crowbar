@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -18,7 +19,7 @@ func TestNewEventStore_IsSynchronousNormal(t *testing.T) {
 	es, ok := s.(*eventStore)
 	require.True(t, ok, "NewEventStore returned %T", s)
 	var mode int
-	require.NoError(t, es.db.Raw("PRAGMA synchronous").Scan(&mode).Error)
+	require.NoError(t, es.db.QueryRowContext(context.Background(), "PRAGMA synchronous").Scan(&mode))
 	assert.Equal(t, 1, mode)
 }
 

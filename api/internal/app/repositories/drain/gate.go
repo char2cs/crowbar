@@ -86,10 +86,9 @@ func (g *Gate) wakeSettled() {
 	}
 }
 
-// Hold parks every goroutine admitted from now on at Proceed until Release. It is the
-// quiesce barrier's half of the bargain with asynx's WaitPublish, which REFUSES any
-// dispatch made while it waits: a reactor admitted by a handler that wait is draining
-// must not start producing into it, so it is held at the door and let go after.
+// Hold parks every goroutine admitted from now on at Proceed until Release, so a
+// quiesce round's WaitPublish, which waits only for what was already queued, is
+// not chasing a reactor that keeps producing; the reactor runs between rounds.
 func (g *Gate) Hold() {
 	g.mu.Lock()
 	defer g.mu.Unlock()

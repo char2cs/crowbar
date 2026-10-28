@@ -15,40 +15,6 @@ const (
 	prodSnapshotBytes = 672
 )
 
-// BenchmarkSnapshotRead_Old_ReadFrom_On reproduces the asynx v0.7.0 read hot
-// path that the perf audit found was 25.8% of daemon CPU: Reader.Load did
-// eventStore.ReadFrom("snapshots:"+id, 0) — a gorm.Find that MATERIALISES every
-// snapshot blob ever written for the aggregate (here prodSnapshotBlobs of them)
-// only to keep the last. This benchmark seeds that many blobs under the
-// snapshots: key and times one full ReadFrom, the exact O(n) operation v0.8.0
-// removed.
-func BenchmarkSnapshotRead_Old_ReadFrom_On(b *testing.B) {
-	s, err := NewEventStore(":memory:")
-	if err != nil {
-		b.Fatal(err)
-	}
-	ctx := context.Background()
-	key := "snapshots:ws-heavy"
-	blob := bytes.Repeat([]byte("x"), prodSnapshotBytes)
-	for v := 1; v <= prodSnapshotBlobs; v++ {
-		if err := s.Append(ctx, key, int64(v), blob); err != nil {
-			b.Fatal(err)
-		}
-	}
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		blobs, err := s.ReadFrom(ctx, key, 0)
-		if err != nil {
-			b.Fatal(err)
-		}
-		if len(blobs) != prodSnapshotBlobs {
-			b.Fatalf("want %d blobs, got %d", prodSnapshotBlobs, len(blobs))
-		}
-	}
-}
-
 // BenchmarkSnapshotRead_New_Get reproduces the asynx v0.8.0 read hot path:
 // SnapshotStore.Get(id) reads the single upserted row keyed by aggregateID.
 // The store is seeded by upserting the same prodSnapshotBlobs versions, which

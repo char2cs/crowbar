@@ -137,8 +137,3 @@ func TestStorage_NewStorageStore_BadDB(t *testing.T) {
 	_, err = newStorageStore(db)
 	require.Error(t, err)
 }
-
-func TestIsTransientIOError(t *testing.T) {
-	assert.True(t, isTransientIOError(errors.New("disk I/O error")))
-	assert.False(t, isTransientIOError(errors.New("some other error")))
-}

@@ -2,7 +2,6 @@ package reviewthread
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -10,26 +9,10 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread/internal/store"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
-
-// maxOCCAttempts bounds optimistic-concurrency retries on ErrPipelineFailed
-// (decision 10): with writeMu deleted, concurrent Sends to one thread aggregate
-// version-collide, so the losers retry — Send re-reads the current version each
-// attempt, so a retry converges. ErrValidation is NEVER retried; ErrQueueFull is
-// surfaced as apperr.ErrUnavailable.
-//
-// The bound must exceed the worst-case number of concurrent writers to a single
-// aggregate: asynx (v0.7.0+) enforces real OCC — each version slot is won by
-// exactly one writer, so N contenders converge in at most N attempts (monotonic
-// progress, not timing-dependent). Before v0.7.0 the collision never fired, so
-// this was effectively untested; the ConcurrentReplies stress test (n=32) now
-// exercises it for real. 64 covers any realistic same-thread reply burst with
-// margin; production contention on one thread is a handful.
-const maxOCCAttempts = 64
 
 // BroadcastFunc is an alias for the store-layer broadcast type, exposed so the
 // repositories container can wire it without importing the internal store package.
@@ -126,82 +109,48 @@ type ReviewThread interface {
 
 // reviewThread is the singleton-backed review-thread aggregate repository. One
 // axReviewThread routes every thread id to a shard by hash; there is no writeMu
-// (per-aggregate safety is shard routing + (id,version) uniqueness + OCC retry).
+// (asynx serializes each aggregate's commands).
 type reviewThread struct {
 	ax    asynx.Asynx[domain.ReviewThread]
 	store store.Store
 }
 
-// New builds the singleton-backed ReviewThread repository over axReviewThread, the
-// reviewthread read-model DB (state/store/review_thread.db), and the hub broadcast
-// fan-out. es is the per-type event log axReviewThread wraps
-// (state/events/review_thread.db), retained so the read model can heal itself via
-// whole-model lazy Replay on first access after a loss (§3.7). It registers the
-// save-only store projection AND the hub projection on axReviewThread via
-// store.New.
+// ReadModel is the read model's write side (state/store/review_thread.db). It is opened before the
+// asynx instance so it can be that instance's durable subscriber.
+type ReadModel = store.Projection
+
+// OpenReadModel opens the read model over storeDB.
+func OpenReadModel(
+	storeDB *gormdb.DB,
+) (*ReadModel, error) {
+	rm, err := store.Open(storeDB)
+	if err != nil {
+		return nil, fmt.Errorf("reviewthread: read model: %w", err)
+	}
+	return rm, nil
+}
+
+// Subscriber is the builder option that makes rm the instance's durable subscriber.
+func Subscriber(
+	rm *ReadModel,
+) func(*asynx.Builder[domain.ReviewThread]) {
+	return store.Subscriber(rm)
+}
+
+// New builds the repository over ax, which must have been built with
+// Subscriber(rm), and the hub broadcast fan-out. es is the log ax wraps,
+// kept so the read model can heal itself by lazy Replay (§3.7).
 func New(
 	ax asynx.Asynx[domain.ReviewThread],
 	es asynxModels.Store,
-	storeDB *gormdb.DB,
+	rm *ReadModel,
 	broadcast BroadcastFunc,
 ) (ReviewThread, error) {
-	st, err := store.New(storeDB, es, ax, broadcast)
+	st, err := store.New(rm, es, ax, broadcast)
 	if err != nil {
 		return nil, fmt.Errorf("reviewthread: store: %w", err)
 	}
 	return &reviewThread{ax: ax, store: st}, nil
-}
-
-// sendFunc issues one command attempt against the aggregate.
-type sendFunc func(
-	ctx context.Context,
-	cmd asynxModels.Command[domain.ReviewThread],
-) (asynxModels.Event[domain.ReviewThread], error)
-
-// occSend runs send with OCC retry and the terminal error disposition contract
-// (spec §3.5, decision 10):
-//
-//   - success                → returned immediately.
-//   - ErrValidation          → surfaced immediately, NEVER retried (→ 422).
-//   - ErrQueueFull           → translated to apperr.ErrUnavailable (→ 503),
-//     NEVER retried: a full shard queue is backpressure, not a version race.
-//   - ErrPipelineFailed      → retried up to maxOCCAttempts; still failing after
-//     the retries is an unrecoverable optimistic-concurrency collision, surfaced
-//     as ErrPipelineFailed (→ 409).
-//   - any other error        → surfaced as-is.
-//
-// All classification is via errors.Is, never string compare.
-func occSend(
-	ctx context.Context,
-	send sendFunc,
-	cmd asynxModels.Command[domain.ReviewThread],
-) (asynxModels.Event[domain.ReviewThread], error) {
-	var lastErr error
-	for range maxOCCAttempts {
-		evt, err := send(ctx, cmd)
-		if err == nil {
-			return evt, nil
-		}
-		switch {
-		case errors.Is(err, asynxModels.ErrValidation):
-			return asynxModels.Event[domain.ReviewThread]{}, err
-		case errors.Is(err, asynxModels.ErrQueueFull):
-			return asynxModels.Event[domain.ReviewThread]{}, fmt.Errorf("reviewthread: send: %w", apperr.ErrUnavailable)
-		case errors.Is(err, asynxModels.ErrPipelineFailed):
-			lastErr = err
-		default:
-			return asynxModels.Event[domain.ReviewThread]{}, err
-		}
-	}
-	return asynxModels.Event[domain.ReviewThread]{}, lastErr
-}
-
-// sendWithOCC dispatches cmd to the singleton axReviewThread with OCC retry.
-func (r *reviewThread) sendWithOCC(
-	ctx context.Context,
-	cmd asynxModels.Command[domain.ReviewThread],
-) (asynxModels.Event[domain.ReviewThread], error) {
-	return occSend(ctx, r.ax.Send, cmd)
 }
 
 func (r *reviewThread) Open(
@@ -209,7 +158,7 @@ func (r *reviewThread) Open(
 	in OpenInput,
 	now time.Time,
 ) (domain.ReviewThread, error) {
-	evt, err := r.sendWithOCC(ctx, commands.OpenReviewThread{
+	evt, err := r.ax.Send(ctx, commands.OpenReviewThread{
 		ID:         in.ID,
 		WsID:       in.WsID,
 		FilePath:   in.FilePath,
@@ -236,7 +185,7 @@ func (r *reviewThread) Reply(
 	in ReplyInput,
 	now time.Time,
 ) (domain.ReviewThread, error) {
-	evt, err := r.sendWithOCC(ctx, commands.ReplyReviewThread{
+	evt, err := r.ax.Send(ctx, commands.ReplyReviewThread{
 		ID:         in.ID,
 		MessageID:  in.MessageID,
 		Author:     in.Author,
@@ -258,7 +207,7 @@ func (r *reviewThread) EditMessage(
 	messageID string,
 	body string,
 ) (domain.ReviewThread, error) {
-	evt, err := r.sendWithOCC(ctx, commands.EditReviewMessage{
+	evt, err := r.ax.Send(ctx, commands.EditReviewMessage{
 		ID:        id,
 		MessageID: messageID,
 		Body:      body,
@@ -274,7 +223,7 @@ func (r *reviewThread) DeleteMessage(
 	id string,
 	messageID string,
 ) (domain.ReviewThread, error) {
-	evt, err := r.sendWithOCC(ctx, commands.DeleteReviewMessage{
+	evt, err := r.ax.Send(ctx, commands.DeleteReviewMessage{
 		ID:        id,
 		MessageID: messageID,
 	})
@@ -302,7 +251,7 @@ func (r *reviewThread) Resolve(
 	ctx context.Context,
 	id string,
 ) (domain.ReviewThread, error) {
-	evt, err := r.sendWithOCC(ctx, commands.ResolveReviewThread{ID: id})
+	evt, err := r.ax.Send(ctx, commands.ResolveReviewThread{ID: id})
 	if err != nil {
 		return domain.ReviewThread{}, fmt.Errorf("reviewthread: resolve: %w", err)
 	}
@@ -313,7 +262,7 @@ func (r *reviewThread) Reopen(
 	ctx context.Context,
 	id string,
 ) (domain.ReviewThread, error) {
-	evt, err := r.sendWithOCC(ctx, commands.ReopenReviewThread{ID: id})
+	evt, err := r.ax.Send(ctx, commands.ReopenReviewThread{ID: id})
 	if err != nil {
 		return domain.ReviewThread{}, fmt.Errorf("reviewthread: reopen: %w", err)
 	}

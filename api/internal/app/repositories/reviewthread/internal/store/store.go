@@ -1,10 +1,7 @@
 // Package store owns the reviewthread read model: the durable, queryable
-// projection of the aggregate at state/store/review_thread.db. New builds the read
-// model over the read-pool DB and registers TWO distinct projections on the
-// singleton axReviewThread (spec §3.5/§3.7, decision 5): the SAVE-ONLY store
-// projection here (store.go) folds evt.Aggregate into the durable read model and,
-// on Forget, deletes the row; the hub projection (hub.go) owns WS fan-out. The two
-// derive independently from evt.Aggregate and cannot drift.
+// projection of the aggregate at state/store/review_thread.db. Two projections
+// derive from the same stream: the save-only Projection here, axReviewThread's
+// durable subscriber, and the live hub projection (hub.go).
 //
 // Unlike the retired half-aligned store it does NO eager reconcile on open — a
 // normal boot re-opens the durable read model with zero replay. Read-model repair
@@ -65,29 +62,36 @@ type service struct {
 	ax      asynx.Asynx[domain.ReviewThread]
 }
 
-// New builds the durable read model over db (state/store/review_thread.db) and
-// registers both read-side projections on ax, once, for the singleton
-// axReviewThread: the save-only store projection (this file) and the hub broadcast
-// projection (hub.go). It performs no reconcile — read-model repair is lazy. es is
-// the same per-type event log ax wraps, retained so List can reach its
-// serialize.AggregateLister capability for the whole-model rebuild (§3.7).
-func New(
+// Projection is the read model's write side. It is opened before
+// axReviewThread so it can be that instance's durable subscriber.
+type Projection struct {
+	storage storage
+}
+
+// Open opens the read model over db (state/store/review_thread.db).
+func Open(
 	db *gormdb.DB,
-	es asynxModels.Store,
-	ax asynx.Asynx[domain.ReviewThread],
-	broadcast BroadcastFunc,
-) (Store, error) {
+) (*Projection, error) {
 	st, err := newStorageStore(db)
 	if err != nil {
 		return nil, fmt.Errorf("reviewthread store: %w", err)
 	}
-	if err := registerStoreProjection(st, ax); err != nil {
-		return nil, fmt.Errorf("reviewthread store: projections: %w", err)
-	}
+	return &Projection{storage: st}, nil
+}
+
+// New builds the read model over p, whose instance ax was built with
+// Subscriber(p), and registers the hub projection on ax. es is the log ax
+// wraps, kept so List can rebuild a lost model (§3.7).
+func New(
+	p *Projection,
+	es asynxModels.Store,
+	ax asynx.Asynx[domain.ReviewThread],
+	broadcast BroadcastFunc,
+) (Store, error) {
 	if err := registerHubProjection(ax, broadcast); err != nil {
 		return nil, fmt.Errorf("reviewthread store: projections: %w", err)
 	}
-	return &service{storage: st, es: es, ax: ax}, nil
+	return &service{storage: p.storage, es: es, ax: ax}, nil
 }
 
 // List returns the durable read model, first healing it via a whole-model lazy
@@ -189,66 +193,29 @@ func filterByWorkspace(
 	return result
 }
 
-// registerStoreProjection subscribes the SAVE-ONLY read-model projection to every
-// review_thread event on the singleton axReviewThread: it folds evt.Aggregate into
-// the durable read model and, on Forget, deletes the aggregate's row (a cheap,
-// synchronous OnForget row-delete — spec §3.6, no fs/git/network io). Unlike the
-// retired combined projector it does NOT broadcast; the hub projection (hub.go)
-// owns fan-out (decision 5). Designed to register ONCE on the singleton.
-func registerStoreProjection(
-	st storage,
-	ax asynx.Asynx[domain.ReviewThread],
-) error {
-	p := &storeProjector{storage: st}
-	if _, err := ax.Subscribe(asynx.Topic("review_thread.*"), p.onEvent); err != nil {
-		return fmt.Errorf("reviewthread store projection: subscribe: %w", err)
+// Subscriber registers p as axReviewThread's durable subscriber: a failed save
+// is retried by asynx, and parks the aggregate, instead of being logged and
+// dropped. The Forget marker deletes the row; a missing row is no error.
+func Subscriber(
+	p *Projection,
+) func(*asynx.Builder[domain.ReviewThread]) {
+	return func(b *asynx.Builder[domain.ReviewThread]) {
+		b.WithSubscriber(asynx.Topic("review_thread.*"), p.handle)
 	}
-	if _, err := ax.OnForget(p.onForget); err != nil {
-		return fmt.Errorf("reviewthread store projection: on forget: %w", err)
+}
+
+func (p *Projection) handle(
+	ctx context.Context,
+	evt asynxModels.Event[domain.ReviewThread],
+) error {
+	if evt.EventName == asynxModels.ForgetEventName {
+		if err := p.storage.Delete(ctx, evt.AggregateID); err != nil {
+			return fmt.Errorf("reviewthread store projection: delete %q: %w", evt.AggregateID, err)
+		}
+		return nil
+	}
+	if err := p.storage.Save(ctx, evt.Aggregate); err != nil {
+		return fmt.Errorf("reviewthread store projection: save %q: %w", evt.Aggregate.ID, err)
 	}
 	return nil
-}
-
-type storeProjector struct {
-	storage storage
-}
-
-func (p *storeProjector) onEvent(
-	ctx context.Context,
-	evt asynxModels.Event[domain.ReviewThread],
-) {
-	if err := p.saveWithRetry(ctx, evt.Aggregate); err != nil {
-		slog.ErrorContext(ctx, "reviewthread store projection: save", "id", evt.Aggregate.ID, "err", err)
-	}
-}
-
-func (p *storeProjector) saveWithRetry(
-	ctx context.Context,
-	th domain.ReviewThread,
-) error {
-	var err error
-	for range 3 {
-		if err = p.storage.Save(ctx, th); err == nil {
-			return nil
-		}
-		if !isTransientIOError(err) {
-			return err
-		}
-	}
-	return err
-}
-
-func isTransientIOError(
-	err error,
-) bool {
-	return strings.Contains(err.Error(), "disk I/O error")
-}
-
-func (p *storeProjector) onForget(
-	ctx context.Context,
-	evt asynxModels.Event[domain.ReviewThread],
-) {
-	if err := p.storage.Delete(ctx, evt.Aggregate.ID); err != nil {
-		slog.ErrorContext(ctx, "reviewthread store projection: delete", "id", evt.Aggregate.ID, "err", err)
-	}
 }

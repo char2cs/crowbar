@@ -11,38 +11,12 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
-	gormdb "gorm.io/gorm"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat/internal/store"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
-
-// maxOCCAttempts bounds optimistic-concurrency retries on ErrPipelineFailed:
-// with no per-aggregate writeMu, concurrent Sends to one chat aggregate can
-// version-collide, so the losers retry — Send re-reads the current version
-// each attempt, so a retry converges. ErrValidation is NEVER retried;
-// ErrQueueFull is surfaced as apperr.ErrUnavailable. Mirrors reviewthread's OCC
-// contract (spec decision 10).
-const maxOCCAttempts = 8
-
-// WatchFunc and ChatEvent are aliases for the store-layer watch seam, exposed so
-// callers wire it without importing the internal store package directly.
-//
-// The repository ANNOUNCES what happened; it does not decide what the frontend is
-// told. That decision lives in usecases/chat/internal/fanout.
-type (
-	WatchFunc = store.WatchFunc
-	ChatEvent = store.ChatEvent
-	Option    = store.Option
-)
-
-// WithPlacementWatch is told, once the read model holds it, of every chat whose
-// parent, workspace or type changed, or that was deleted.
-func WithPlacementWatch(watch func(chatID string)) Option {
-	return store.WithPlacementWatch(watch)
-}
 
 // CreateInput seeds a new AgentChat: identity, kind, workspace, clock, and the
 // two durable CHOICES a chat is born with — its landing view and its vendor. It
@@ -64,7 +38,7 @@ type CreateInput struct {
 }
 
 // EventStore is the asynx-backed AgentChat aggregate repository: mutations
-// dispatch the command layer with optimistic-concurrency retry (sendWithOCC),
+// dispatch the command layer (asynx serializes each aggregate's commands),
 // reads delegate to the store package's read-model projection. It is the sole
 // AgentChat repository — the agent usecase sends every mutation through it. The
 // chat holds no process fact: the CLI talking to it is the runner aggregate's.
@@ -264,82 +238,25 @@ type EventStore interface {
 }
 
 // eventSourced is the asynx-backed EventStore implementation. There is no
-// writeMu: per-aggregate safety comes from asynx shard routing plus
-// (id,version) optimistic concurrency and the sendWithOCC retry below.
+// writeMu: asynx serializes each aggregate's commands.
 type eventSourced struct {
 	ax    asynx.Asynx[domain.Chat]
 	store store.Store
 }
 
-// NewEventSourced builds the asynx-backed AgentChat EventStore over ax (the
-// singleton axAgentChat), es (the same per-type event log ax wraps, retained
-// so the read model can self-heal via whole-model lazy Replay), and storeDB
-// (state/store/agent_chat.db). It delegates to store.New to register the
-// read-model and hub projections on ax, once, for the singleton.
+// NewEventSourced builds the repository over ax, which must have been built with
+// Subscriber(rm). es is the log ax wraps, kept for the lazy rebuild.
 func NewEventSourced(
 	ax asynx.Asynx[domain.Chat],
 	es asynxModels.Store,
-	storeDB *gormdb.DB,
+	rm *ReadModel,
 	watch WatchFunc,
-	opts ...Option,
 ) (EventStore, error) {
-	st, err := store.New(storeDB, es, ax, watch, opts...)
+	st, err := store.New(rm, es, ax, watch)
 	if err != nil {
 		return nil, fmt.Errorf("agentchat: store: %w", err)
 	}
 	return &eventSourced{ax: ax, store: st}, nil
-}
-
-// sendFunc issues one command attempt against the aggregate.
-type sendFunc func(
-	ctx context.Context,
-	cmd asynxModels.Command[domain.Chat],
-) (asynxModels.Event[domain.Chat], error)
-
-// occSend runs send with OCC retry and the terminal error disposition
-// contract (mirrors reviewthread's occSend):
-//
-//   - success                → returned immediately.
-//   - ErrValidation          → surfaced immediately, NEVER retried (→ 422).
-//   - ErrQueueFull           → translated to apperr.ErrUnavailable (→ 503),
-//     NEVER retried: a full shard queue is backpressure, not a version race.
-//   - ErrPipelineFailed      → retried up to maxOCCAttempts; still failing
-//     after the retries is an unrecoverable optimistic-concurrency collision,
-//     surfaced as ErrPipelineFailed (→ 409).
-//   - any other error        → surfaced as-is.
-//
-// All classification is via errors.Is, never string compare.
-func occSend(
-	ctx context.Context,
-	send sendFunc,
-	cmd asynxModels.Command[domain.Chat],
-) (asynxModels.Event[domain.Chat], error) {
-	var lastErr error
-	for range maxOCCAttempts {
-		evt, err := send(ctx, cmd)
-		if err == nil {
-			return evt, nil
-		}
-		switch {
-		case errors.Is(err, asynxModels.ErrValidation):
-			return asynxModels.Event[domain.Chat]{}, err
-		case errors.Is(err, asynxModels.ErrQueueFull):
-			return asynxModels.Event[domain.Chat]{}, fmt.Errorf("agentchat: send: %w", apperr.ErrUnavailable)
-		case errors.Is(err, asynxModels.ErrPipelineFailed):
-			lastErr = err
-		default:
-			return asynxModels.Event[domain.Chat]{}, err
-		}
-	}
-	return asynxModels.Event[domain.Chat]{}, lastErr
-}
-
-// sendWithOCC dispatches cmd to the singleton axAgentChat with OCC retry.
-func (r *eventSourced) sendWithOCC(
-	ctx context.Context,
-	cmd asynxModels.Command[domain.Chat],
-) (asynxModels.Event[domain.Chat], error) {
-	return occSend(ctx, r.ax.Send, cmd)
 }
 
 // Create is the only command on the SendWait path; see the EventStore interface doc.
@@ -347,7 +264,7 @@ func (r *eventSourced) Create(
 	ctx context.Context,
 	in CreateInput,
 ) (domain.Chat, error) {
-	evt, err := occSend(ctx, r.ax.SendWait, commands.Create{
+	evt, err := r.ax.SendWait(ctx, commands.Create{
 		ID:          in.ID,
 		WorkspaceID: in.WorkspaceID,
 		RepoID:      in.RepoID,
@@ -368,7 +285,7 @@ func (r *eventSourced) SetTitle(
 	title string,
 	source string,
 ) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.SetTitle{ChatID: chatID, Title: title, Source: source})
+	evt, err := r.ax.Send(ctx, commands.SetTitle{ChatID: chatID, Title: title, Source: source})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set title: %w", err)
 	}
@@ -381,7 +298,7 @@ func (r *eventSourced) SetSelection(
 	model string,
 	effort string,
 ) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.SetSelection{ChatID: chatID, Model: model, Effort: effort})
+	evt, err := r.ax.Send(ctx, commands.SetSelection{ChatID: chatID, Model: model, Effort: effort})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set selection: %w", err)
 	}
@@ -393,7 +310,7 @@ func (r *eventSourced) SetPermissionLevel(
 	chatID string,
 	level string,
 ) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.SetPermissionLevel{ChatID: chatID, Level: level, Explicit: true})
+	evt, err := r.ax.Send(ctx, commands.SetPermissionLevel{ChatID: chatID, Level: level, Explicit: true})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set permission level: %w", err)
 	}
@@ -405,7 +322,7 @@ func (r *eventSourced) SetSurface(
 	chatID string,
 	surface string,
 ) (domain.Chat, error) {
-	evt, err := occSend(ctx, r.ax.SendWait, commands.SetSurface{ChatID: chatID, Surface: surface})
+	evt, err := r.ax.SendWait(ctx, commands.SetSurface{ChatID: chatID, Surface: surface})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set surface: %w", err)
 	}
@@ -417,7 +334,7 @@ func (r *eventSourced) SetProvider(
 	chatID string,
 	providerID string,
 ) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.SetProvider{ChatID: chatID, ProviderID: providerID})
+	evt, err := r.ax.Send(ctx, commands.SetProvider{ChatID: chatID, ProviderID: providerID})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set provider: %w", err)
 	}
@@ -429,7 +346,7 @@ func (r *eventSourced) SeedPermissionLevel(
 	chatID string,
 	level string,
 ) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.SetPermissionLevel{ChatID: chatID, Level: level, Explicit: false})
+	evt, err := r.ax.Send(ctx, commands.SetPermissionLevel{ChatID: chatID, Level: level, Explicit: false})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: seed permission level: %w", err)
 	}
@@ -453,7 +370,7 @@ func (r *eventSourced) SetPlacement(
 	parentID string,
 	order int,
 ) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.SetPlacement{ID: chatID, ParentID: parentID, Order: order})
+	evt, err := r.ax.Send(ctx, commands.SetPlacement{ID: chatID, ParentID: parentID, Order: order})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set placement: %w", err)
 	}
@@ -470,7 +387,7 @@ func (r *eventSourced) SetOrder(
 	chatID string,
 	order int,
 ) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.SetOrder{ID: chatID, Order: order})
+	evt, err := r.ax.Send(ctx, commands.SetOrder{ID: chatID, Order: order})
 	if err != nil {
 		if errors.Is(err, commands.ErrNoSuchChat) {
 			return domain.Chat{}, fmt.Errorf("agentchat: set order: %w", apperr.ErrNotFound)
@@ -486,7 +403,7 @@ func (r *eventSourced) SetWorkspace(
 	chatID string,
 	workspaceID string,
 ) (domain.Chat, error) {
-	evt, err := occSend(ctx, r.ax.SendWait, commands.SetWorkspace{ID: chatID, WorkspaceID: workspaceID})
+	evt, err := r.ax.SendWait(ctx, commands.SetWorkspace{ID: chatID, WorkspaceID: workspaceID})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set workspace: %w", err)
 	}
@@ -499,7 +416,7 @@ func (r *eventSourced) SetType(
 	chatID string,
 	chatType domain.ChatType,
 ) (domain.Chat, error) {
-	evt, err := occSend(ctx, r.ax.SendWait, commands.SetType{ID: chatID, Type: chatType})
+	evt, err := r.ax.SendWait(ctx, commands.SetType{ID: chatID, Type: chatType})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set type: %w", err)
 	}

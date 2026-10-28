@@ -2,6 +2,8 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/char2cs/asynx/models"
@@ -22,157 +24,247 @@ func (eventEntry) TableName() string {
 	return "events"
 }
 
-type eventStore struct {
-	db *gorm.DB
+// The receipts and deliveries tables are new in v1; events keeps its schema.
+var v1Tables = []string{
+	`CREATE TABLE IF NOT EXISTS receipts (
+		command_id TEXT PRIMARY KEY,
+		accepted INTEGER NOT NULL,
+		aggregate_id TEXT NOT NULL,
+		event_id TEXT NOT NULL,
+		version INTEGER NOT NULL,
+		rejection TEXT NOT NULL
+	)`,
+	`CREATE TABLE IF NOT EXISTS deliveries (
+		seq INTEGER PRIMARY KEY AUTOINCREMENT,
+		aggregate_id TEXT NOT NULL,
+		version INTEGER NOT NULL,
+		UNIQUE(aggregate_id, version)
+	)`,
 }
 
-// NewEventStore returns a GORM-backed asynx event store at path. Pins to a single
-// connection (serialized writes), enables WAL journal mode with a 5-second
-// busy timeout so concurrent openers don't deadlock, and checkpoints the WAL on Close.
+// eventStoreConns lets reads and acks run beside the one open write
+// transaction (WAL admits one writer and many readers).
+const eventStoreConns = 4
+
+type eventStore struct {
+	db *sql.DB
+}
+
+// NewEventStore returns an asynx event store over the SQLite database at path.
+// Write transactions begin IMMEDIATE so two writers queue on the busy timeout
+// instead of failing a lock upgrade.
 func NewEventStore(
 	path string,
 ) (models.Store, error) {
-	db, err := gorm.Open(sqlite.Open(storesqlite.DSN(path)), &gorm.Config{
+	db, err := gorm.Open(sqlite.Open(eventStoreDSN(path)), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("eventstore: open: %w", err)
 	}
-
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, fmt.Errorf("eventstore: db: %w", err)
 	}
-	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxOpenConns(maxConns(path))
 
 	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
-		return nil, fmt.Errorf("eventstore: journal_mode: %w", err)
+		return nil, errors.Join(fmt.Errorf("eventstore: journal_mode: %w", err), sqlDB.Close())
 	}
-	if err := db.Exec("PRAGMA busy_timeout=5000").Error; err != nil {
-		return nil, fmt.Errorf("eventstore: busy_timeout: %w", err)
-	}
-
 	if err := db.AutoMigrate(&eventEntry{}); err != nil {
-		return nil, fmt.Errorf("eventstore: migrate: %w", err)
+		return nil, errors.Join(fmt.Errorf("eventstore: migrate: %w", err), sqlDB.Close())
 	}
-
-	return &eventStore{db: db}, nil
+	for _, ddl := range v1Tables {
+		if err := db.Exec(ddl).Error; err != nil {
+			return nil, errors.Join(fmt.Errorf("eventstore: migrate: %w", err), sqlDB.Close())
+		}
+	}
+	return &eventStore{db: sqlDB}, nil
 }
 
-func (s *eventStore) Append(
-	ctx context.Context,
-	aggregateID string,
-	version int64,
-	data []byte,
-) error {
-	result := s.db.WithContext(ctx).Create(&eventEntry{
-		AggregateID: aggregateID,
-		Version:     version,
-		Data:        data,
-	})
-	if result.Error != nil {
-		return fmt.Errorf("%w: version conflict (%s, v%d)", models.ErrPipelineFailed, aggregateID, version)
+func eventStoreDSN(
+	path string,
+) string {
+	return storesqlite.DSN(path) + "&_pragma=busy_timeout(5000)&_txlock=immediate"
+}
+
+// An in-memory SQLite database belongs to one connection, so it cannot be pooled.
+func maxConns(
+	path string,
+) int {
+	if path == ":memory:" {
+		return 1
 	}
-	return nil
+	return eventStoreConns
 }
 
 func (s *eventStore) ReadFrom(
 	ctx context.Context,
-	aggregateID string,
+	streamID string,
 	fromVersion int64,
 ) ([][]byte, error) {
-	var entries []eventEntry
-	err := s.db.WithContext(ctx).
-		Where("aggregate_id = ? AND version >= ?", aggregateID, fromVersion).
-		Order("version ASC").
-		Find(&entries).Error
-	if err != nil {
-		return nil, fmt.Errorf("eventstore: read from: %w", err)
-	}
-	return toBlobs(entries), nil
+	return s.readBlobs(ctx, "eventstore: read from",
+		"SELECT data FROM events WHERE aggregate_id = ? AND version >= ? ORDER BY version",
+		streamID, fromVersion)
 }
 
 func (s *eventStore) ReadRange(
 	ctx context.Context,
-	aggregateID string,
+	streamID string,
 	fromVersion int64,
 	count int64,
 ) ([][]byte, error) {
-	var entries []eventEntry
-	err := s.db.WithContext(ctx).
-		Where("aggregate_id = ? AND version >= ?", aggregateID, fromVersion).
-		Order("version ASC").
-		Limit(int(count)).
-		Find(&entries).Error
-	if err != nil {
-		return nil, fmt.Errorf("eventstore: read range: %w", err)
-	}
-	return toBlobs(entries), nil
+	return s.readBlobs(ctx, "eventstore: read range",
+		"SELECT data FROM events WHERE aggregate_id = ? AND version >= ? ORDER BY version LIMIT ?",
+		streamID, fromVersion, count)
 }
 
-// AggregateIDs returns the distinct aggregate ids that have at least one event in
-// the store. It backs the global read-model reconcile-on-open for the chat and
-// reviewthread aggregates, whose single store holds every aggregate's events:
-// enumerating the ids lets the read model replay each one from the authoritative
-// event log after a crash dropped a projection.
+func (s *eventStore) readBlobs(
+	ctx context.Context,
+	op string,
+	query string,
+	args ...any,
+) (blobs [][]byte, err error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+	defer func() { err = errors.Join(err, rows.Close()) }()
+	blobs = [][]byte{}
+	for rows.Next() {
+		var data []byte
+		if err := rows.Scan(&data); err != nil {
+			return nil, fmt.Errorf("%s: scan: %w", op, err)
+		}
+		blobs = append(blobs, data)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+	return blobs, nil
+}
+
+// AggregateIDs returns the distinct stream ids that hold at least one event.
+// It backs the read-model reconcile-on-open for stores holding many aggregates.
 func (s *eventStore) AggregateIDs(
 	ctx context.Context,
-) ([]string, error) {
-	var ids []string
-	err := s.db.WithContext(ctx).
-		Model(&eventEntry{}).
-		Distinct().
-		Pluck("aggregate_id", &ids).Error
+) (ids []string, err error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("eventstore: aggregate ids: %w", err)
+	}
+	rows, err := s.db.QueryContext(ctx, "SELECT DISTINCT aggregate_id FROM events")
 	if err != nil {
+		return nil, fmt.Errorf("eventstore: aggregate ids: %w", err)
+	}
+	defer func() { err = errors.Join(err, rows.Close()) }()
+	ids = []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("eventstore: aggregate ids: scan: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("eventstore: aggregate ids: %w", err)
 	}
 	return ids, nil
 }
 
-func (s *eventStore) Count(
+func (s *eventStore) GetReceipt(
 	ctx context.Context,
-	aggregateID string,
-	fromVersion int64,
-) (int64, error) {
-	var count int64
-	err := s.db.WithContext(ctx).
-		Model(&eventEntry{}).
-		Where("aggregate_id = ? AND version >= ?", aggregateID, fromVersion).
-		Count(&count).Error
-	if err != nil {
-		return 0, fmt.Errorf("eventstore: count: %w", err)
+	commandID string,
+) (models.Receipt, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return models.Receipt{}, false, fmt.Errorf("eventstore: get receipt: %w", err)
 	}
-	return count, nil
+	var r models.Receipt
+	err := s.db.QueryRowContext(ctx,
+		"SELECT accepted, aggregate_id, event_id, version, rejection FROM receipts WHERE command_id = ?",
+		commandID,
+	).Scan(&r.Accepted, &r.AggregateID, &r.EventID, &r.Version, &r.Rejection)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.Receipt{}, false, nil
+	}
+	if err != nil {
+		return models.Receipt{}, false, fmt.Errorf("eventstore: get receipt: %w", err)
+	}
+	return r, true, nil
 }
 
-func (s *eventStore) Delete(
+func (s *eventStore) PendingDeliveries(
+	ctx context.Context,
+	limit int,
+) (pending []models.Delivery, err error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("eventstore: pending deliveries: %w", err)
+	}
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT aggregate_id, version FROM deliveries ORDER BY seq LIMIT ?", limit)
+	if err != nil {
+		return nil, fmt.Errorf("eventstore: pending deliveries: %w", err)
+	}
+	defer func() { err = errors.Join(err, rows.Close()) }()
+	pending = []models.Delivery{}
+	for rows.Next() {
+		var d models.Delivery
+		if err := rows.Scan(&d.AggregateID, &d.Version); err != nil {
+			return nil, fmt.Errorf("eventstore: pending deliveries: scan: %w", err)
+		}
+		pending = append(pending, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("eventstore: pending deliveries: %w", err)
+	}
+	return pending, nil
+}
+
+func (s *eventStore) AckDelivery(
 	ctx context.Context,
 	aggregateID string,
+	version int64,
 ) error {
-	result := s.db.WithContext(ctx).
-		Where("aggregate_id = ?", aggregateID).
-		Delete(&eventEntry{})
-	if result.Error != nil {
-		return fmt.Errorf("eventstore: delete: %w", result.Error)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("eventstore: ack delivery: %w", err)
+	}
+	_, err := s.db.ExecContext(ctx,
+		"DELETE FROM deliveries WHERE aggregate_id = ? AND version = ?", aggregateID, version)
+	if err != nil {
+		return fmt.Errorf("eventstore: ack delivery: %w", err)
+	}
+	return nil
+}
+
+func (s *eventStore) Atomically(
+	ctx context.Context,
+	fn func(tx models.Tx) error,
+) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("eventstore: atomically: %w", err)
+	}
+	sqlTx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("eventstore: begin: %w", err)
+	}
+	if err := fn(&tx{tx: sqlTx}); err != nil {
+		if rbErr := sqlTx.Rollback(); rbErr != nil {
+			return errors.Join(err, fmt.Errorf("eventstore: rollback: %w", rbErr))
+		}
+		return err
+	}
+	if err := sqlTx.Commit(); err != nil {
+		return fmt.Errorf("eventstore: commit: %w", err)
 	}
 	return nil
 }
 
 // Close checkpoints the WAL and releases the file handle.
 func (s *eventStore) Close() error {
-	sqlDB, err := s.db.DB()
-	if err != nil {
+	if err := s.db.Close(); err != nil {
 		return fmt.Errorf("eventstore: close: %w", err)
 	}
-	return sqlDB.Close()
-}
-
-func toBlobs(
-	entries []eventEntry,
-) [][]byte {
-	result := make([][]byte, len(entries))
-	for i, e := range entries {
-		result[i] = e.Data
-	}
-	return result
+	return nil
 }

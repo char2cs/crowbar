@@ -28,8 +28,8 @@ const (
 	defaultRetryCap       = 2 * time.Second
 )
 
-// Forgetter purges an aggregate's event log; its synchronous OnForget drops the
-// read-model row. asynx.Asynx satisfies it.
+// Forgetter purges an aggregate's event log; its marker drops the read-model
+// row. asynx.Asynx satisfies it.
 type Forgetter interface {
 	Forget(
 		ctx context.Context,
@@ -68,9 +68,8 @@ func NewPurger(
 // placeholder has none; a shared checkout is the user's); the aggregate is Forgotten LAST, so a failure anywhere earlier
 // leaves the tombstone for the next re-drive.
 //
-// Forget's OnForget drops the read-model row. When the aggregate is ALREADY
-// Forgotten (ErrValidation) that projection will never run again — a crash
-// between the Forget and its row delete leaves exactly this state — so the row
+// Forget's marker drops the read-model row. When the aggregate is ALREADY
+// Forgotten (ErrValidation) that projection will never run again, so the row
 // is dropped here directly. Without it the tombstone outlived every boot sweep.
 func (p *Purger) Purge(
 	ctx context.Context,
@@ -132,19 +131,18 @@ func WithReactorTimeout(
 // the id-suffixed event); a bare "workspace.deleted" would never fire, silently
 // leaking every deleted worktree (spec §3.6).
 //
-// For each event the reactor detaches into its own goroutine (joined to the drain
-// gate for graceful shutdown) so the purge outlives the triggering request and so
-// axWorkspace.Forget — itself a SendWait that re-enters the same shard's
-// dispatcher — cannot deadlock against the projection-bus goroutine that invoked
-// the handler.
+// Each purge runs in its own goroutine (joined to the drain gate) under root, not
+// the handler's ctx: asynx refuses a Forget made from inside the handler of the
+// same aggregate (ErrForgetFromHandler), and WithoutCancel would keep that mark.
 func RegisterDeleteReactor(
+	root context.Context,
 	ax asynx.Asynx[domain.Workspace],
 	storeReader StoreReader,
 	purger *Purger,
 	gate *drain.Gate,
 	opts ...Opt,
 ) error {
-	r := newDeleteReactor(storeReader, purger, gate, opts...)
+	r := newDeleteReactor(root, storeReader, purger, gate, opts...)
 	if _, err := ax.Subscribe(asynx.Topic("workspace.deleted.*"), r.onEvent); err != nil {
 		return fmt.Errorf("workspace delete reactor: subscribe: %w", err)
 	}
@@ -152,6 +150,7 @@ func RegisterDeleteReactor(
 }
 
 type deleteReactor struct {
+	root        context.Context
 	storeReader StoreReader
 	purger      *Purger
 	gate        *drain.Gate
@@ -161,12 +160,14 @@ type deleteReactor struct {
 }
 
 func newDeleteReactor(
+	root context.Context,
 	storeReader StoreReader,
 	purger *Purger,
 	gate *drain.Gate,
 	opts ...Opt,
 ) *deleteReactor {
 	r := &deleteReactor{
+		root:        root,
 		storeReader: storeReader,
 		purger:      purger,
 		gate:        gate,
@@ -181,7 +182,7 @@ func newDeleteReactor(
 }
 
 func (r *deleteReactor) onEvent(
-	ctx context.Context,
+	_ context.Context,
 	evt asynxModels.Event[domain.Workspace],
 ) {
 	wsID := evt.AggregateID
@@ -193,16 +194,14 @@ func (r *deleteReactor) onEvent(
 	if !r.gate.Enter() {
 		return
 	}
-	go r.run(ctx, wsID)
+	go r.run(wsID) //nolint:contextcheck // the purge must not inherit the handler ctx: asynx refuses a Forget made from it (ErrForgetFromHandler)
 }
 
 func (r *deleteReactor) run(
-	ctx context.Context,
 	wsID string,
 ) {
 	defer r.gate.Leave()
-	bg := context.WithoutCancel(ctx)
-	bg, cancel := context.WithTimeout(bg, r.timeout)
+	bg, cancel := context.WithTimeout(context.WithoutCancel(r.root), r.timeout)
 	defer cancel()
 	// Parked while a quiesce drains the bus (drain.Gate.Hold); never in production.
 	if !r.gate.Proceed(bg) {

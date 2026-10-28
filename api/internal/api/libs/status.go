@@ -173,10 +173,8 @@ func StatusAndMessage(
 		return http.StatusBadGateway, err.Error()
 	}
 
-	// apperr.ErrUnavailable is a full asynx shard queue (ErrQueueFull) surfaced by
-	// the workspace repo under load: the mutation was not accepted and the client
-	// should retry, so it is 503 Service Unavailable.
-	if errors.Is(err, apperr.ErrUnavailable) {
+	// A full asynx shard queue did not accept the mutation; the client may retry.
+	if errors.Is(err, apperr.ErrUnavailable) || errors.Is(err, asynxmodels.ErrQueueFull) {
 		return http.StatusServiceUnavailable, err.Error()
 	}
 

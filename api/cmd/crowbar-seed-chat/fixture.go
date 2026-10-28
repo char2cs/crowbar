@@ -35,21 +35,30 @@ type seedOptions struct {
 	ToolCallsPerTurn int
 }
 
-// buildAsynx mirrors internal/app.newAsynx, which is unexported and lives in
-// a package this command cannot import — this command is its own main
-// package, same as cmd/crowbar-seed.
-func buildAsynx[T any](es asynxModels.Store, ss asynxModels.SnapshotStore) (asynx.Asynx[T], error) {
-	return asynx.New[T]().
+// buildAsynx mirrors internal/app.newAsynx (unexported, in a package this
+// main package cannot import), with the same options.
+func buildAsynx[T any](
+	es asynxModels.Store,
+	ss asynxModels.SnapshotStore,
+	opts ...func(*asynx.Builder[T]),
+) (asynx.Asynx[T], error) {
+	b := asynx.New[T]().
 		WithEventStore(es).
 		WithSnapshotStore(ss).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		WithPanicHandler(func(ctx context.Context, evt asynxModels.Event[T], p any) {
-			slog.ErrorContext(ctx, "crowbar-seed-chat: projection panic", "event", evt.EventName, "panic", p)
+			slog.ErrorContext(ctx, "crowbar-seed-chat: handler panic", "event", evt.EventName, "panic", p)
 		}).
 		WithPublishErrorHandler(func(ctx context.Context, evt asynxModels.Event[T], err error) {
 			slog.ErrorContext(ctx, "crowbar-seed-chat: publish error", "event", evt.EventName, "err", err)
 		}).
-		Build()
+		WithDeliveryErrorHandler(func(ctx context.Context, evt asynxModels.Event[T], err error, attempt int) {
+			slog.ErrorContext(ctx, "crowbar-seed-chat: delivery failed", "event", evt.EventName, "attempt", attempt, "err", err)
+		})
+	for _, opt := range opts {
+		opt(b)
+	}
+	return b.Build()
 }
 
 // firstProvider is the id of the first descriptor registered under homeDir.
@@ -81,13 +90,15 @@ func seedChat(ctx context.Context, adapters *adapter.Container, opts seedOptions
 		}
 	}
 
-	axAgentChat, err := buildAsynx[domain.Chat](adapters.AgentChatES(), adapters.AgentChatSS())
+	readModel, err := agentchat.OpenReadModel(adapters.AgentChatReadDB())
+	if err != nil {
+		return "", fmt.Errorf("crowbar-seed-chat: chat read model: %w", err)
+	}
+	axAgentChat, err := buildAsynx(adapters.AgentChatES(), adapters.AgentChatSS(), agentchat.Subscriber(readModel))
 	if err != nil {
 		return "", fmt.Errorf("crowbar-seed-chat: asynx agent chat: %w", err)
 	}
-	chatStore, err := agentchat.NewEventSourced(
-		axAgentChat, adapters.AgentChatES(), adapters.AgentChatReadDB(), nil,
-	)
+	chatStore, err := agentchat.NewEventSourced(axAgentChat, adapters.AgentChatES(), readModel, nil)
 	if err != nil {
 		return "", fmt.Errorf("crowbar-seed-chat: chat store: %w", err)
 	}

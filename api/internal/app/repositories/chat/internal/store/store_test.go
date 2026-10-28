@@ -27,18 +27,20 @@ func newStoreWithDeps(
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Chat]().
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	proj, err := store.Open(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.Chat]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	store.Subscriber(proj)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
-	st, err := store.New(db, es, ax, func(store.ChatEvent) {})
+	st, err := store.New(proj, es, ax, func(store.ChatEvent) {})
 	require.NoError(t, err)
 	return context.Background(), st, ax, db
 }
@@ -176,18 +178,20 @@ func (f *fakeReplayES) AggregateIDs(context.Context) ([]string, error) {
 func TestStore_Read_RebuildEnumerationError(t *testing.T) {
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Chat]().
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	proj, err := store.Open(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.Chat]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	store.Subscriber(proj)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
-	st, err := store.New(db, &fakeReplayES{err: errors.New("boom")}, ax, func(store.ChatEvent) {})
+	st, err := store.New(proj, &fakeReplayES{err: errors.New("boom")}, ax, func(store.ChatEvent) {})
 	require.NoError(t, err)
 
 	_, err = st.ListChats(context.Background())
@@ -204,18 +208,20 @@ func TestStore_Read_RebuildEnumerationError(t *testing.T) {
 func TestStore_Rebuild_SkipsUnreplayableAggregate(t *testing.T) {
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Chat]().
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	proj, err := store.Open(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.Chat]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	store.Subscriber(proj)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
-	st, err := store.New(db, es, ax, func(store.ChatEvent) {})
+	st, err := store.New(proj, es, ax, func(store.ChatEvent) {})
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -226,7 +232,9 @@ func TestStore_Rebuild_SkipsUnreplayableAggregate(t *testing.T) {
 	// command — stands in for any unreadable/corrupt entry in the shared event
 	// log (asynx's own InternalEvent envelope, not a raw domain.Chat blob, so
 	// this must fail json.Unmarshal on that envelope, not on domain.Chat itself).
-	require.NoError(t, es.Append(ctx, "events:poison", 1, []byte("{not valid json")))
+	require.NoError(t, es.Atomically(ctx, func(tx asynxModels.Tx) error {
+		return tx.Append(ctx, "events:poison", 1, []byte("{not valid json"))
+	}))
 
 	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM agent_chats_read").Error)
 
@@ -239,14 +247,14 @@ func TestStore_Rebuild_SkipsUnreplayableAggregate(t *testing.T) {
 	assert.ElementsMatch(t, []string{"c1", "c2"}, ids)
 }
 
-func TestNew_StorageError(t *testing.T) {
+func TestOpen_StorageError(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = store.New(db, nil, nil, func(store.ChatEvent) {})
+	_, err = store.Open(db)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentchat store")
 }
@@ -274,22 +282,26 @@ func TestStore_GetChat_EmptyIDIsNotFound(t *testing.T) {
 func TestStore_GetChat_HealFailsOnCorruptEvent(t *testing.T) {
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Chat]().
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	proj, err := store.Open(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.Chat]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	store.Subscriber(proj)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
-	st, err := store.New(db, es, ax, func(store.ChatEvent) {})
+	st, err := store.New(proj, es, ax, func(store.ChatEvent) {})
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	require.NoError(t, es.Append(ctx, "events:poison", 1, []byte("{not valid json")))
+	require.NoError(t, es.Atomically(ctx, func(tx asynxModels.Tx) error {
+		return tx.Append(ctx, "events:poison", 1, []byte("{not valid json"))
+	}))
 
 	_, err = st.GetChat(ctx, "poison")
 	require.Error(t, err)
@@ -313,38 +325,26 @@ func TestStore_ListByWorkspace_PropagatesReadFailure(t *testing.T) {
 	require.Error(t, err)
 }
 
-// minimalStore is an asynxModels.Store that implements none of the OPTIONAL
-// serialize.AggregateLister capability — standing in for any event-store
-// adapter that cannot enumerate its own aggregate ids.
-type minimalStore struct{}
-
-func (minimalStore) Append(context.Context, string, int64, []byte) error { return nil }
-func (minimalStore) ReadFrom(context.Context, string, int64) ([][]byte, error) {
-	return nil, nil
-}
-
-func (minimalStore) ReadRange(context.Context, string, int64, int64) ([][]byte, error) {
-	return nil, nil
-}
-func (minimalStore) Delete(context.Context, string) error { return nil }
-
 // TestStore_Rebuild_NoOpWhenEventStoreCannotEnumerate proves rebuild degrades
 // to a harmless no-op — an empty list, no error — rather than panicking on a
 // failed type assertion, when the underlying event store adapter offers no
 // serialize.AggregateLister capability at all.
 func TestStore_Rebuild_NoOpWhenEventStoreCannotEnumerate(t *testing.T) {
-	ax, err := asynx.New[domain.Chat]().
-		WithEventStore(minimalStore{}).
+	es := asynxstore.New() // the in-memory store cannot enumerate its aggregates
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	proj, err := store.Open(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.Chat]().
+		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	store.Subscriber(proj)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
-	st, err := store.New(db, minimalStore{}, ax, func(store.ChatEvent) {})
+	st, err := store.New(proj, es, ax, func(store.ChatEvent) {})
 	require.NoError(t, err)
 
 	list, err := st.ListChats(context.Background())
@@ -396,7 +396,9 @@ func TestStore_Rebuild_SkipsNonEventKey(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 
-	st, err := store.New(db, extraKeyLister{Store: es, extra: "snapshots:ghost"}, ax, func(store.ChatEvent) {})
+	proj, err := store.Open(db)
+	require.NoError(t, err)
+	st, err := store.New(proj, extraKeyLister{Store: es, extra: "snapshots:ghost"}, ax, func(store.ChatEvent) {})
 	require.NoError(t, err)
 
 	list, err := st.ListChats(ctx)

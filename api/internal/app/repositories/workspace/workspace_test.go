@@ -34,19 +34,23 @@ func newAdapter(
 // wsAx builds a real workspace asynx over the adapter's singleton per-type event
 // store, shutting it down before the adapter closes (the asynx sits on the ES
 // handle the adapter owns).
+// wsAx builds axWorkspace over ad with ad's read model as its durable subscriber.
 func wsAx(
 	t *testing.T,
 	ad *adapter.Container,
-) asynx.Asynx[domain.Workspace] {
+) (asynx.Asynx[domain.Workspace], *workspace.ReadModel) {
 	t.Helper()
-	ax, err := asynx.New[domain.Workspace]().
+	rm, err := workspace.OpenReadModel(ad.WorkspaceView())
+	require.NoError(t, err)
+	b := asynx.New[domain.Workspace]().
 		WithEventStore(ad.WorkspaceES()).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	workspace.Subscriber(rm)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-	return ax
+	return ax, rm
 }
 
 func buildRepo(
@@ -54,7 +58,8 @@ func buildRepo(
 	ad *adapter.Container,
 ) workspace.Workspace {
 	t.Helper()
-	repo, err := workspace.New(wsAx(t, ad), ad.WorkspaceES(), ad.WorkspaceView())
+	ax, rm := wsAx(t, ad)
+	repo, err := workspace.New(ax, ad.WorkspaceES(), rm)
 	require.NoError(t, err)
 	return repo
 }
@@ -266,13 +271,8 @@ func TestPersistence_AcrossReopen(t *testing.T) {
 
 	first, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
-	ax1, err := asynx.New[domain.Workspace]().
-		WithEventStore(first.WorkspaceES()).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	repo1, err := workspace.New(ax1, first.WorkspaceES(), first.WorkspaceView())
+	ax1, rm1 := wsAx(t, first)
+	repo1, err := workspace.New(ax1, first.WorkspaceES(), rm1)
 	require.NoError(t, err)
 
 	_, err = repo1.Create(ctx, workspace.CreateInput{
@@ -590,22 +590,18 @@ func TestCreate_PersistsIsDefault(t *testing.T) {
 func TestWorkspace_New_NilGuards(t *testing.T) {
 	ad := newAdapter(t, t.TempDir())
 
-	_, err := workspace.New(nil, ad.WorkspaceES(), ad.WorkspaceView())
+	ax, rm := wsAx(t, ad)
+	_, err := workspace.New(nil, ad.WorkspaceES(), rm)
 	assert.Error(t, err, "nil asynx must error")
 
-	_, err = workspace.New(wsAx(t, ad), nil, ad.WorkspaceView())
+	_, err = workspace.New(ax, nil, rm)
 	assert.Error(t, err, "nil event store must error")
 
-	_, err = workspace.New(wsAx(t, ad), ad.WorkspaceES(), nil)
-	assert.Error(t, err, "nil store db must error")
+	_, err = workspace.New(ax, ad.WorkspaceES(), nil)
+	assert.Error(t, err, "nil read model must error")
 }
 
-// TestWorkspace_New_ErrorFromUnderlyingStore proves New surfaces a failure from
-// store.New itself, distinct from the four nil-dependency guards above: every
-// dependency here is non-nil, but the store's read-model DB connection is
-// already closed, so New must still fail rather than hand back a repo backed by
-// a dead connection.
-func TestWorkspace_New_ErrorFromUnderlyingStore(t *testing.T) {
+func TestWorkspace_OpenReadModel_ErrorFromAClosedDB(t *testing.T) {
 	ad := newAdapter(t, t.TempDir())
 
 	storeDB := ad.WorkspaceView()
@@ -613,7 +609,7 @@ func TestWorkspace_New_ErrorFromUnderlyingStore(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = workspace.New(wsAx(t, ad), ad.WorkspaceES(), storeDB)
+	_, err = workspace.OpenReadModel(storeDB)
 	assert.Error(t, err)
 }
 
@@ -744,6 +740,7 @@ func TestWorkspace_Sweep_RedrivesThePurgeForEveryResidualDeletedRow(t *testing.T
 	registrar, ok := repo.(workspace.DeleteReactorRegistrar)
 	require.True(t, ok)
 	require.NoError(t, registrar.RegisterDeleteReactor(
+		ctx,
 		func(_ context.Context, wsID string) error { purged = append(purged, wsID); return nil },
 		func(_ context.Context, tomb domain.Workspace) error {
 			removed = append(removed, tomb.WorktreePath)
@@ -808,7 +805,8 @@ func buildRepoWithReconciler(
 	r workspace.ReconcileOnOpener,
 ) workspace.Workspace {
 	t.Helper()
-	repo, err := workspace.New(wsAx(t, ad), ad.WorkspaceES(), ad.WorkspaceView(), workspace.WithReconciler(r))
+	ax, rm := wsAx(t, ad)
+	repo, err := workspace.New(ax, ad.WorkspaceES(), rm, workspace.WithReconciler(r))
 	require.NoError(t, err)
 	return repo
 }
@@ -848,7 +846,7 @@ func TestList_DoesNotTriggerReconcile(t *testing.T) {
 // the 5-minute sweep. Without it every visit appended an event and a snapshot
 // whether or not the provider had moved — 43,970 of 44,068 provider_synced events
 // in a real home carried an empty patch set — and each one bumped the aggregate
-// version that OCC and the delete cascade contend on.
+// version.
 //
 // The polls below differ only in their timestamp, which is the sweep's steady
 // state and the case a version-bumping no-op hides in. Each broadcast frame costs

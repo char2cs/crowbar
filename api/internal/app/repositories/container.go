@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
-	asynxModels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
@@ -20,7 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/purge"
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 
@@ -85,17 +83,6 @@ type Container struct {
 	drainCancel context.CancelFunc
 }
 
-// ReactorDrain is the shared shutdown handle for every post-commit reactor
-// wireCallbacks registered. The app layer's ordered graceful shutdown (Task 15)
-// closes the gate (Cancel) so reactors stop starting new work, then waits on WG
-// (bounded by the shutdown deadline) before the adapter closes the DBs. Ctx is the
-// cancelable parent the gate is derived from (decisions 9 + 11).
-type ReactorDrain struct {
-	Ctx    context.Context
-	Gate   *drain.Gate
-	Cancel context.CancelFunc
-}
-
 // New builds all aggregate repositories, wiring each projection's broadcast into
 // the hub. The workspace aggregate is backed by the singleton axWorkspace (one
 // instance per type, routing every id by shard hash) built by the app layer; its
@@ -104,11 +91,12 @@ type ReactorDrain struct {
 // state/store/review_thread.db. The agentchat aggregate owns its central
 // per-type read model at state/store/agent_chat.db. The workspace-delete
 // cascade's chat purge, Container.PurgeChat, is assigned by the app layer once
-// the chat usecase exists; see the field's doc comment. placementWatch hears
-// every chat and node placement once its read model holds it (nil: nobody).
+// the chat usecase exists; see the field's doc comment. rm holds the read
+// models the asynx instances were built to deliver to (OpenReadModels).
 func New(
 	ctx context.Context,
 	adapters *adapter.Container,
+	rm *ReadModels,
 	h hub.WebSocketHub,
 	axReviewThread asynx.Asynx[domain.ReviewThread],
 	axWorkspace asynx.Asynx[domain.Workspace],
@@ -117,7 +105,6 @@ func New(
 	git wsusecase.MergeConflictBatchChecker,
 	chatWatch agentchat.WatchFunc,
 	nodeWatch node.WatchFunc,
-	placementWatch func(id string),
 ) (*Container, error) {
 	c := &Container{
 		hub: h, git: git, inflight: map[string]int{},
@@ -125,7 +112,7 @@ func New(
 		axWorkspace: axWorkspace, axReviewThread: axReviewThread, axAgentChat: axAgentChat,
 		axNode: axNode,
 	}
-	ws, err := workspace.New(axWorkspace, adapters.WorkspaceES(), adapters.WorkspaceView())
+	ws, err := workspace.New(axWorkspace, adapters.WorkspaceES(), rm.Workspace)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +131,7 @@ func New(
 	// state/store/review_thread.db (Task 12), no longer the shared view.db: pass
 	// ReviewThreadView() as the read-model DB while keeping ReviewThreadES() for the
 	// lazy AggregateLister Replay (§3.7).
-	rt, err := reviewthread.New(axReviewThread, adapters.ReviewThreadES(), adapters.ReviewThreadView(), func(domain.ReviewThread) {})
+	rt, err := reviewthread.New(axReviewThread, adapters.ReviewThreadES(), rm.ReviewThread, func(domain.ReviewThread) {})
 	if err != nil {
 		return nil, err
 	}
@@ -157,10 +144,7 @@ func New(
 	// commands emit is fanned out here by the hub projection. The usecase no
 	// longer broadcasts manually (that double-broadcast was retired at cutover),
 	// so this projection is the one and only WS feed for agent chats.
-	agentChat, err := agentchat.NewEventSourced(
-		axAgentChat, adapters.AgentChatES(), adapters.AgentChatReadDB(), chatWatch,
-		agentchat.WithPlacementWatch(placementWatch),
-	)
+	agentChat, err := agentchat.NewEventSourced(axAgentChat, adapters.AgentChatES(), rm.AgentChat, chatWatch)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: agent chat event store: %w", err)
 	}
@@ -169,10 +153,7 @@ func New(
 		return nil, fmt.Errorf("repositories: agent working overlay: %w", err)
 	}
 
-	nodeStore, err := node.NewEventSourced(
-		axNode, adapters.NodeES(), adapters.NodeReadDB(), nodeWatch,
-		node.WithPlacementWatch(placementWatch),
-	)
+	nodeStore, err := node.NewEventSourced(axNode, adapters.NodeES(), rm.Node, nodeWatch)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: node event store: %w", err)
 	}
@@ -208,160 +189,6 @@ func (c *Container) WaitQuiescent() {
 	c.axReviewThread.WaitPublish()
 	c.axAgentChat.WaitPublish()
 	c.axNode.WaitPublish()
-}
-
-// QuiesceReactors is WaitQuiescent for a mutation whose effect lands OUTSIDE the
-// aggregate — a delete cascade, a pull's child resync: every projection drained AND
-// every post-commit reactor the drained events admitted run to completion, round
-// after round until a round admits none. asynx's WaitPublish REFUSES any dispatch
-// made while it waits, so a reactor must never be producing during a drain: the
-// door is held (drain.Gate.Hold) so a reactor admitted by a drained handler parks,
-// the ones already running are waited out first, and the parked ones run only
-// between rounds. ctx is the caller's escape hatch, not a synchronisation device.
-func (c *Container) QuiesceReactors(
-	ctx context.Context,
-) {
-	gate := c.drainGate
-	gate.Hold()
-	defer gate.Release()
-	for {
-		gate.WaitRunning(ctx)
-		c.WaitQuiescent()
-		gate.WaitRunning(ctx)
-		if gate.Parked() == 0 || ctx.Err() != nil {
-			return
-		}
-		gate.Release()
-		gate.Hold()
-	}
-}
-
-// wireCallbacks registers the app-level cross-aggregate reactions on the singleton
-// asynx instances (spec §3.6), mirroring quiver's container wireCallbacks. It
-// creates and stores the shared drain WaitGroup + cancelable drain context every
-// reactor it registers joins (decisions 9 + 11), reachable by the app layer via
-// Drain() for the ordered graceful shutdown (Task 15). Today it registers the
-// workspace delete reactor (Task 8) with the composed forgetDependents cascade
-// (review threads + agent chats, Task 12) and the bounded fs worktree delete; the
-// two hub projections are already registered at construction (workspace hub in
-// New above via RegisterHubProjection; reviewthread hub inside reviewthread.New),
-// so re-registering them here would double-subscribe and double-broadcast — they
-// are deliberately left where the live wiring puts them.
-func (c *Container) wireCallbacks(
-	ctx context.Context,
-	crowbarHome string,
-) error {
-	c.drainGate = drain.New()
-	//nolint:gosec // G118: drainCancel is deliberately retained on the container and invoked later by the app layer's graceful shutdown via Drain().Cancel, not leaked.
-	c.drainCtx, c.drainCancel = context.WithCancel(ctx)
-
-	// The reactor lives under workspace/internal (unimportable from this out-of-tree
-	// container), so it is registered through the repository's own seam, which
-	// builds the one Purger the reactor and the boot sweep share. A new dependent
-	// aggregate's cascade is added by composing it into forgetDependents rather
-	// than by widening the purger itself.
-	registrar, ok := c.Workspace.(workspace.DeleteReactorRegistrar)
-	if !ok {
-		return fmt.Errorf("workspace repository does not support delete-reactor registration")
-	}
-	if err := registrar.RegisterDeleteReactor(c.forgetDependents, purge.WorktreeRemover(crowbarHome, c.Workspace.List), c.drainGate); err != nil {
-		return fmt.Errorf("delete reactor: %w", err)
-	}
-	return nil
-}
-
-// Drain exposes the shared reactor drain handle so the app layer's ordered graceful
-// shutdown (Task 15) can quiesce every reactor wireCallbacks registered: Cancel
-// closes the gate, then it waits on WG (bounded by the shutdown deadline) before the
-// adapter closes the DBs (decisions 9 + 11).
-func (c *Container) Drain() ReactorDrain {
-	return ReactorDrain{Ctx: c.drainCtx, Gate: c.drainGate, Cancel: c.drainCancel}
-}
-
-// forgetReviewThreads is the review-thread half of the workspace delete cascade
-// (spec §3.6): every review thread anchored to the deleted workspace is Forgotten,
-// and each Forget's synchronous OnForget drops that thread's read-model row. It is
-// injected into the async delete reactor by wireCallbacks and runs post-commit, off
-// the synchronous write path.
-func (c *Container) forgetReviewThreads(
-	ctx context.Context,
-	wsID string,
-) error {
-	threads, err := c.ReviewThread.ListByWorkspace(ctx, wsID)
-	if err != nil {
-		return fmt.Errorf("repositories: delete cascade: list review threads for %q: %w", wsID, err)
-	}
-	for _, t := range threads {
-		if err := c.ReviewThread.DeleteThread(ctx, t.ID); err != nil {
-			return fmt.Errorf("repositories: delete cascade: forget review thread %q: %w", t.ID, err)
-		}
-	}
-	return nil
-}
-
-// forgetDependents removes everything a deleted workspace owns besides its root
-// on disk (which the Purger removes next) — invariant D5: review threads, every
-// chat anchored to it through the chat usecase's own PurgeChat, the chats' Node
-// rows, and the workspace's own Node row. It is the one callback the Purger runs
-// first, for the reactor and the boot sweep alike. Every step tolerates what an
-// earlier, interrupted run (or a concurrent user delete of the same chat)
-// already removed, so a re-drive converges; any other failure aborts the purge
-// and leaves the tombstone for the next re-drive.
-func (c *Container) forgetDependents(
-	ctx context.Context,
-	wsID string,
-) error {
-	if err := c.forgetReviewThreads(ctx, wsID); err != nil {
-		return err
-	}
-	if err := c.purgeWorkspaceChats(ctx, wsID); err != nil {
-		return err
-	}
-	return c.forgetNode(ctx, wsID)
-}
-
-// purgeWorkspaceChats hard-deletes every chat anchored to the workspace, with
-// its Node row.
-func (c *Container) purgeWorkspaceChats(
-	ctx context.Context,
-	wsID string,
-) error {
-	chats, err := c.AgentChat.ListByWorkspace(ctx, wsID)
-	if err != nil {
-		return fmt.Errorf("repositories: delete cascade: list agent chats for %q: %w", wsID, err)
-	}
-	if len(chats) > 0 && c.PurgeChat == nil {
-		return fmt.Errorf("repositories: delete cascade: no chat purge wired")
-	}
-	for _, chat := range chats {
-		if err := c.PurgeChat(ctx, chat.ID); err != nil && !alreadyGone(err) {
-			return fmt.Errorf("repositories: delete cascade: purge chat %q: %w", chat.ID, err)
-		}
-		if err := c.forgetNode(ctx, chat.ID); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// forgetNode drops id's Node row, tolerating one that is already gone.
-func (c *Container) forgetNode(
-	ctx context.Context,
-	id string,
-) error {
-	if err := c.Node.Forget(ctx, id); err != nil && !alreadyGone(err) {
-		return fmt.Errorf("repositories: delete cascade: forget node %q: %w", id, err)
-	}
-	return nil
-}
-
-// alreadyGone reports an error that means the thing being removed no longer
-// exists: a not-found, or asynx refusing to Forget an aggregate that is already
-// Forgotten. For a delete cascade both are success.
-func alreadyGone(err error) bool {
-	return errors.Is(err, apperr.ErrNotFound) ||
-		errors.Is(err, agentchat.ErrNotFound) ||
-		errors.Is(err, asynxModels.ErrValidation)
 }
 
 // enrichFrame builds the WS frame for ws: it attaches the two derived overlays

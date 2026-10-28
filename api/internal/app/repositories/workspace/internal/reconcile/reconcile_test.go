@@ -248,17 +248,22 @@ func TestReconciler_Reconcile_SendWaitErrorAbortsBroadcast(t *testing.T) {
 	assert.Empty(t, spy.all(), "a real SendWait error must never reach broadcast")
 }
 
+// newAx builds axWorkspace; a non-nil st is its durable read model.
 func newAx(
 	t *testing.T,
+	st *projections.Store,
 ) (context.Context, asynx.Asynx[domain.Workspace]) {
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Workspace]().
+	b := asynx.New[domain.Workspace]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	if st != nil {
+		projections.Subscriber(st)(b)
+	}
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 	return context.Background(), ax
@@ -270,12 +275,11 @@ func newAx(
 // folds into state/store/workspace.db), then broadcasts the corrected frame. This
 // is the end-to-end "reconcile updates the read model + broadcasts" of §3.8.
 func TestReconciler_OnOpen_UpdatesReadModelAndBroadcasts(t *testing.T) {
-	ctx, ax := newAx(t)
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	st, err := projections.NewStore(db)
 	require.NoError(t, err)
-	require.NoError(t, projections.RegisterStore(st, ax))
+	ctx, ax := newAx(t, st)
 
 	_, err = ax.SendWait(ctx, wscmds.CreateWorkspace{
 		ID:           "w1",

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
@@ -164,11 +165,10 @@ func (b *baseEra) appendPatch(
 		"patches":        json.RawMessage(patches),
 	})
 	require.NoError(b.t, err)
-	require.NoError(b.t, es.Append(ctx, "events:"+id, version, evt))
+	require.NoError(b.t, es.Atomically(ctx, func(tx asynxModels.Tx) error {
+		return tx.Append(ctx, "events:"+id, version, evt)
+	}))
 }
 
-// eventLog is the part of an asynx event store the seed writes through.
-type eventLog interface {
-	Append(ctx context.Context, aggregateID string, version int64, data []byte) error
-	ReadFrom(ctx context.Context, aggregateID string, fromVersion int64) ([][]byte, error)
-}
+// eventLog is the asynx event store the seed writes through.
+type eventLog = asynxModels.Store

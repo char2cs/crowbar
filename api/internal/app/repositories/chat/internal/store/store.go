@@ -1,11 +1,7 @@
 // Package store owns the agentchat read model: the durable, queryable
-// projection of the domain.Chat aggregate at state/store/agent_chat.db.
-// New builds the read model over the read-pool DB and registers TWO distinct
-// projections on the singleton axAgentChat (mirrors reviewthread): the
-// SAVE-ONLY store projection here (store.go) folds evt.Aggregate into the
-// durable read model and, on Forget, deletes the row; the hub projection
-// (hub.go) owns WS fan-out, broadcasting a (chatID, kind) frame per event. The
-// two derive independently from the same event stream and cannot drift.
+// projection of the domain.Chat aggregate at state/store/agent_chat.db. Two
+// projections derive from the same stream: the save-only Projection here,
+// axAgentChat's durable subscriber, and the live hub projection (hub.go).
 //
 // Like reviewthread it does NO eager reconcile on open — a normal boot re-opens
 // the durable read model with zero replay. Read-model repair is lazy: every read
@@ -83,34 +79,42 @@ type service struct {
 	ax      asynx.Asynx[domain.Chat]
 }
 
-// New builds the durable read model over db (state/store/agent_chat.db) and
-// registers both read-side projections on ax, once, for the singleton
-// axAgentChat: the save-only store projection (this file) and the hub
-// broadcast projection (hub.go). It performs no reconcile — read-model repair
-// is lazy. es is the same per-type event log ax wraps, retained so reads can
-// reach its serialize.AggregateLister capability for the whole-model rebuild.
-func New(
+// Projection is the read model's write side. It is opened before the asynx
+// instance so it can be that instance's durable subscriber (Subscriber).
+type Projection struct {
+	storage   storage
+	placement func(id string)
+}
+
+// Open opens the read model over db (state/store/agent_chat.db).
+func Open(
 	db *gormdb.DB,
-	es asynxModels.Store,
-	ax asynx.Asynx[domain.Chat],
-	watch WatchFunc,
 	opts ...Option,
-) (Store, error) {
+) (*Projection, error) {
 	st, err := newStorageStore(db)
 	if err != nil {
 		return nil, fmt.Errorf("agentchat store: %w", err)
 	}
-	p := &storeProjector{storage: st}
+	p := &Projection{storage: st}
 	for _, opt := range opts {
 		opt(p)
 	}
-	if err := registerStoreProjection(p, ax); err != nil {
-		return nil, fmt.Errorf("agentchat store: projections: %w", err)
-	}
+	return p, nil
+}
+
+// New builds the read model over p, whose instance ax was built with
+// Subscriber(p), and registers the hub projection on ax. es is the log ax
+// wraps, kept for the lazy whole-model rebuild.
+func New(
+	p *Projection,
+	es asynxModels.Store,
+	ax asynx.Asynx[domain.Chat],
+	watch WatchFunc,
+) (Store, error) {
 	if err := registerHubProjection(ax, watch); err != nil {
 		return nil, fmt.Errorf("agentchat store: projections: %w", err)
 	}
-	return &service{storage: st, es: es, ax: ax}, nil
+	return &service{storage: p.storage, es: es, ax: ax}, nil
 }
 
 // GetChat returns the chat for id via an O(1) keyed lookup — T10 puts this on
@@ -264,51 +268,45 @@ func (s *service) foldReplayed(
 	}
 }
 
-// registerStoreProjection subscribes the SAVE-ONLY read-model projection to
-// every agentchat event on the singleton axAgentChat: it folds evt.Aggregate
-// into the durable read model and, on Forget, deletes the aggregate's row (a
-// cheap, synchronous OnForget row-delete, no fs/git/network io). It does NOT
-// broadcast — Task 8's hub projection owns fan-out. Designed to register ONCE on
-// the singleton.
-func registerStoreProjection(
-	p *storeProjector,
-	ax asynx.Asynx[domain.Chat],
-) error {
-	if _, err := ax.Subscribe(asynx.Topic("agentchat.*"), p.onEvent); err != nil {
-		return fmt.Errorf("agentchat store projection: subscribe: %w", err)
+// Subscriber registers p as the instance's durable subscriber: a failed save is
+// retried by asynx, and parks the aggregate, instead of being logged and
+// dropped. The Forget marker deletes the row; a missing row is no error.
+func Subscriber(
+	p *Projection,
+) func(*asynx.Builder[domain.Chat]) {
+	return func(b *asynx.Builder[domain.Chat]) {
+		b.WithSubscriber(asynx.Topic("agentchat.*"), p.handle)
 	}
-	if _, err := ax.OnForget(p.onForget); err != nil {
-		return fmt.Errorf("agentchat store projection: on forget: %w", err)
-	}
-	return nil
-}
-
-type storeProjector struct {
-	storage   storage
-	placement func(chatID string)
 }
 
 // Option configures the store projection.
-type Option func(*storeProjector)
+type Option func(*Projection)
 
 // WithPlacementWatch announces every chat whose parent, workspace or type the
 // projection just saved, or whose row it deleted. It runs after the write, so
 // a listener re-reading the read model sees the new placement.
 func WithPlacementWatch(watch func(chatID string)) Option {
-	return func(p *storeProjector) { p.placement = watch }
+	return func(p *Projection) { p.placement = watch }
 }
 
-func (p *storeProjector) onEvent(
+func (p *Projection) handle(
 	ctx context.Context,
 	evt asynxModels.Event[domain.Chat],
-) {
-	if err := p.saveWithRetry(ctx, evt.Aggregate); err != nil {
-		slog.ErrorContext(ctx, "agentchat store projection: save", "id", evt.Aggregate.ID, "err", err)
-		return
+) error {
+	if evt.EventName == asynxModels.ForgetEventName {
+		if err := p.storage.Delete(ctx, evt.AggregateID); err != nil {
+			return fmt.Errorf("agentchat store projection: delete %q: %w", evt.AggregateID, err)
+		}
+		p.announcePlacement(evt.AggregateID)
+		return nil
+	}
+	if err := p.storage.Save(ctx, evt.Aggregate); err != nil {
+		return fmt.Errorf("agentchat store projection: save %q: %w", evt.Aggregate.ID, err)
 	}
 	if placementChanged(evt.PreviousAggregate, evt.Aggregate) {
 		p.announcePlacement(evt.Aggregate.ID)
 	}
+	return nil
 }
 
 func placementChanged(
@@ -321,43 +319,10 @@ func placementChanged(
 		before.Type != after.Type
 }
 
-func (p *storeProjector) announcePlacement(
+func (p *Projection) announcePlacement(
 	chatID string,
 ) {
 	if p.placement != nil {
 		p.placement(chatID)
 	}
-}
-
-func (p *storeProjector) saveWithRetry(
-	ctx context.Context,
-	chat domain.Chat,
-) error {
-	var err error
-	for range 3 {
-		if err = p.storage.Save(ctx, chat); err == nil {
-			return nil
-		}
-		if !isTransientIOError(err) {
-			return err
-		}
-	}
-	return err
-}
-
-func isTransientIOError(
-	err error,
-) bool {
-	return strings.Contains(err.Error(), "disk I/O error")
-}
-
-func (p *storeProjector) onForget(
-	ctx context.Context,
-	evt asynxModels.Event[domain.Chat],
-) {
-	if err := p.storage.Delete(ctx, evt.Aggregate.ID); err != nil {
-		slog.ErrorContext(ctx, "agentchat store projection: delete", "id", evt.Aggregate.ID, "err", err)
-		return
-	}
-	p.announcePlacement(evt.Aggregate.ID)
 }

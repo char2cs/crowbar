@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
+	asynxModels "github.com/char2cs/asynx/models"
 	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,20 +30,6 @@ import (
 
 var errFake = errors.New("fake error")
 
-func ax[T any](
-	t *testing.T,
-) asynx.Asynx[T] {
-	t.Helper()
-	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	a, err := asynx.New[T]().WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
-	return a
-}
-
 func newAdapter(
 	t *testing.T,
 ) *adapter.Container {
@@ -53,58 +40,60 @@ func newAdapter(
 	return c
 }
 
-// wsAx builds the singleton workspace asynx over the adapter's per-type event
-// store — the same handle workspace.New/store.New project onto.
-func wsAx(
+func buildAx[T any](
 	t *testing.T,
-	ad *adapter.Container,
-) asynx.Asynx[domain.Workspace] {
+	es asynxModels.Store,
+	subscriber func(*asynx.Builder[T]),
+) asynx.Asynx[T] {
 	t.Helper()
-	a, err := asynx.New[domain.Workspace]().
-		WithEventStore(ad.WorkspaceES()).
+	b := asynx.New[T]().WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	subscriber(b)
+	a, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
 	return a
 }
 
-// agentChatAx builds the singleton agentchat asynx over the adapter's per-type
-// event store — the same handle agentchat.NewEventSourced/store.New project
-// onto (Task 9, additive).
-func agentChatAx(
-	t *testing.T,
-	ad *adapter.Container,
-) asynx.Asynx[domain.Chat] {
-	t.Helper()
-	a, err := asynx.New[domain.Chat]().
-		WithEventStore(ad.AgentChatES()).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
-	return a
+// aggregates are ad's read models and the asynx instances built to deliver to
+// them, as the app layer wires them.
+type aggregates struct {
+	rm   *repositories.ReadModels
+	rt   asynx.Asynx[domain.ReviewThread]
+	ws   asynx.Asynx[domain.Workspace]
+	chat asynx.Asynx[domain.Chat]
+	node asynx.Asynx[domain.Node]
 }
 
-// nodeAx builds the singleton node asynx over the adapter's per-type event
-// store, mirroring agentChatAx. It must read the SAME log repositories.New
-// hands node.NewEventSourced, or the repo's projections would be registered on
-// a different instance than the one under test.
-func nodeAx(
+func newAggregates(
 	t *testing.T,
 	ad *adapter.Container,
-) asynx.Asynx[domain.Node] {
+	placementWatch func(id string),
+) aggregates {
 	t.Helper()
-	a, err := asynx.New[domain.Node]().
-		WithEventStore(ad.NodeES()).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+	rm, err := repositories.OpenReadModels(ad, placementWatch)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
-	return a
+	es, err := eventsqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	return aggregates{
+		rm:   rm,
+		rt:   buildAx(t, es, reviewthread.Subscriber(rm.ReviewThread)),
+		ws:   buildAx(t, ad.WorkspaceES(), workspace.Subscriber(rm.Workspace)),
+		chat: buildAx(t, ad.AgentChatES(), agentchat.Subscriber(rm.AgentChat)),
+		node: buildAx(t, ad.NodeES(), node.Subscriber(rm.Node)),
+	}
+}
+
+func newRepos(
+	t *testing.T,
+	ad *adapter.Container,
+	h hub.WebSocketHub,
+	placementWatch func(id string),
+) (*repositories.Container, error) {
+	t.Helper()
+	a := newAggregates(t, ad, placementWatch)
+	return repositories.New(context.Background(), ad, a.rm, h, a.rt, a.ws, a.chat, a.node, nil, noChatWatch, noNodeWatch)
 }
 
 // noChatWatch / noNodeWatch are the announcement seams for tests that assert
@@ -163,20 +152,7 @@ func newContainer(
 	h hub.WebSocketHub,
 ) *repositories.Container {
 	t.Helper()
-	ad := newAdapter(t)
-	c, err := repositories.New(
-		context.Background(),
-		ad,
-		h,
-		ax[domain.ReviewThread](t),
-		wsAx(t, ad),
-		agentChatAx(t, ad),
-		nodeAx(t, ad),
-		nil,
-		noChatWatch,
-		noNodeWatch,
-		nil,
-	)
+	c, err := newRepos(t, newAdapter(t), h, nil)
 	require.NoError(t, err)
 	return c
 }
@@ -191,18 +167,11 @@ func TestContainer_New_BuildsRepos(t *testing.T) {
 
 func TestContainer_New_NilWorkspaceAxReturnsError(t *testing.T) {
 	ad := newAdapter(t)
+	a := newAggregates(t, ad, nil)
 	_, err := repositories.New(
-		context.Background(),
-		ad,
-		hub.NewHub(),
-		ax[domain.ReviewThread](t),
-		nil, // nil axWorkspace → workspace.New rejects
-		agentChatAx(t, ad),
-		nodeAx(t, ad),
-		nil,
-		noChatWatch,
-		noNodeWatch,
-		nil,
+		context.Background(), ad, a.rm, hub.NewHub(),
+		a.rt, nil /* nil axWorkspace → workspace.New rejects */, a.chat, a.node,
+		nil, noChatWatch, noNodeWatch,
 	)
 	assert.Error(t, err)
 }
@@ -419,7 +388,7 @@ func TestContainer_ListWorkspaces_ListErrorPropagates(t *testing.T) {
 func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), nodeAx(t, ad), nil, noChatWatch, noNodeWatch, nil)
+	c, err := newRepos(t, ad, &captureHub{}, nil)
 	require.NoError(t, err)
 
 	// A real MANAGED worktree UNDER the crowbar home: the delete reactor's rm is
@@ -482,7 +451,7 @@ func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 func TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), nodeAx(t, ad), nil, noChatWatch, noNodeWatch, nil)
+	c, err := newRepos(t, ad, &captureHub{}, nil)
 	require.NoError(t, err)
 
 	// The user's real checkout, OUTSIDE the crowbar home (an adopted worktree).
@@ -625,13 +594,7 @@ func TestRegression_DeleteCascade_ToleratesAChatAlreadyPurged(t *testing.T) {
 func TestContainer_New_PlacementWatchHearsChatsAndNodes(t *testing.T) {
 	ad := newAdapter(t)
 	heard := make(chan string, 4)
-	c, err := repositories.New(
-		context.Background(), ad, hub.NewHub(),
-		ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad),
-		nodeAx(t, ad), nil,
-		noChatWatch, noNodeWatch,
-		func(id string) { heard <- id },
-	)
+	c, err := newRepos(t, ad, hub.NewHub(), func(id string) { heard <- id })
 	require.NoError(t, err)
 
 	_, err = c.AgentChat.Create(context.Background(), agentchat.CreateInput{

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -36,32 +37,57 @@ func (h *captureHub) count() int {
 	return len(h.rows)
 }
 
-// newProjected registers BOTH the save-only store projection and the hub broadcast
-// projection on a real asynx over throwaway DBs — the production shape (one of each
-// per singleton).
+// newProjected builds a real asynx over throwaway DBs with the store projection
+// as its durable subscriber and the hub projection live, the production shape.
 func newProjected(
 	t *testing.T,
 ) (context.Context, asynx.Asynx[domain.ReviewThread], storage, *captureHub) {
 	t.Helper()
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	p, err := Open(db)
+	require.NoError(t, err)
+	ctx, ax, h := buildOver(t, p)
+	return ctx, ax, p.storage, h
+}
+
+func buildOver(
+	t *testing.T,
+	p *Projection,
+) (context.Context, asynx.Asynx[domain.ReviewThread], *captureHub) {
+	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.ReviewThread]().
+	b := asynx.New[domain.ReviewThread]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithDeliveryRetry(time.Millisecond, time.Millisecond)
+	Subscriber(p)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-	st, err := newStorageStore(db)
-	require.NoError(t, err)
-
+	t.Cleanup(func() { require.NoError(t, ax.Shutdown(context.Background())) })
 	h := &captureHub{}
-	require.NoError(t, registerStoreProjection(st, ax))
 	require.NoError(t, registerHubProjection(ax, h.push))
-	return context.Background(), ax, st, h
+	return context.Background(), ax, h
+}
+
+// failFirstSave fails the first Save, then signals every Save that succeeds.
+type failFirstSave struct {
+	storage
+	failed atomic.Bool
+	saved  chan struct{}
+}
+
+func (f *failFirstSave) Save(ctx context.Context, th domain.ReviewThread) error {
+	if f.failed.CompareAndSwap(false, true) {
+		return errors.New("injected save failure")
+	}
+	if err := f.storage.Save(ctx, th); err != nil {
+		return err
+	}
+	f.saved <- struct{}{}
+	return nil
 }
 
 func TestStoreProjection_CreateUpsertsRow(t *testing.T) {
@@ -86,7 +112,7 @@ func TestHubProjection_CreateBroadcastsBareAggregate(t *testing.T) {
 	assert.GreaterOrEqual(t, h.count(), 1, "hub projection must broadcast the frame")
 }
 
-func TestStoreProjection_ForgetDeletesRow(t *testing.T) {
+func TestReviewThreadProjection_ForgetDeletesTheRow(t *testing.T) {
 	ctx, ax, st, _ := newProjected(t)
 	_, err := ax.SendWait(ctx, rtcmds.OpenReviewThread{
 		ID: "t1", WsID: "w1", MessageID: "m1", Now: time.Unix(1, 0).UTC(),
@@ -104,7 +130,6 @@ type fakeAx struct {
 	asynx.Asynx[domain.ReviewThread]
 	subscribeErr error
 	forgetErr    error
-	subscribeCnt int
 }
 
 func (f *fakeAx) Subscribe(
@@ -112,11 +137,7 @@ func (f *fakeAx) Subscribe(
 	_ asynxModels.ProjectionHandler[domain.ReviewThread],
 	_ ...asynxModels.SubscriptionOpt[domain.ReviewThread],
 ) (string, error) {
-	f.subscribeCnt++
-	if f.subscribeCnt == 1 {
-		return "", f.subscribeErr
-	}
-	return "sub-id", nil
+	return "", f.subscribeErr
 }
 
 func (f *fakeAx) OnForget(
@@ -125,49 +146,68 @@ func (f *fakeAx) OnForget(
 	return "", f.forgetErr
 }
 
-func TestRegisterStoreProjection_SubscribeError(t *testing.T) {
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-	st, err := newStorageStore(db)
-	require.NoError(t, err)
-	err = registerStoreProjection(st, &fakeAx{subscribeErr: errors.New("bus down")})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "reviewthread store projection: subscribe")
-}
-
-func TestRegisterStoreProjection_OnForgetError(t *testing.T) {
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-	st, err := newStorageStore(db)
-	require.NoError(t, err)
-	err = registerStoreProjection(st, &fakeAx{forgetErr: errors.New("bus down")})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "reviewthread store projection: on forget")
-}
-
 func TestRegisterHubProjection_SubscribeError(t *testing.T) {
 	err := registerHubProjection(&fakeAx{subscribeErr: errors.New("bus down")}, func(domain.ReviewThread) {})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "reviewthread hub projection: subscribe")
 }
 
-func TestStoreProjector_OnEvent_SaveError_DoesNotPanic(t *testing.T) {
-	ctx := context.Background()
-	p := &storeProjector{storage: &storageStore{inner: &errInner{err: errors.New("db down")}}}
-	p.onEvent(ctx, asynxModels.Event[domain.ReviewThread]{Aggregate: domain.ReviewThread{ID: "t1"}})
+func TestReviewThreadProjection_ASaveFailureIsRetriedNotDropped(t *testing.T) {
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	p, err := Open(db)
+	require.NoError(t, err)
+	flaky := &failFirstSave{storage: p.storage, saved: make(chan struct{}, 16)}
+	p.storage = flaky
+	ctx, ax, _ := buildOver(t, p)
+
+	_, err = ax.SendWait(ctx, rtcmds.OpenReviewThread{
+		ID: "t1", WsID: "w1", MessageID: "m1", FilePath: "a.go", Now: time.Unix(1, 0).UTC(),
+	})
+	require.NoError(t, err)
+
+	select {
+	case <-flaky.saved:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the failed save was never retried")
+	}
+	row, err := flaky.FindByKey(ctx, "t1")
+	require.NoError(t, err)
+	require.NotNil(t, row)
+	assert.Equal(t, "a.go", row.FilePath)
 }
 
-func TestStoreProjector_OnForget_DeleteError_DoesNotPanic(t *testing.T) {
+// Upstream can redeliver a Forget marker at startup; the second one finds no row.
+func TestReviewThreadProjection_AForgetDeliveredTwiceIsANoOp(t *testing.T) {
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	p, err := Open(db)
+	require.NoError(t, err)
 	ctx := context.Background()
-	p := &storeProjector{storage: &storageStore{inner: &errInner{err: errors.New("db down")}}}
-	p.onForget(ctx, asynxModels.Event[domain.ReviewThread]{Aggregate: domain.ReviewThread{ID: "t1"}})
+	require.NoError(t, p.storage.Save(ctx, domain.ReviewThread{ID: "t1", WsID: "w1"}))
+	marker := asynxModels.Event[domain.ReviewThread]{AggregateID: "t1", EventName: asynxModels.ForgetEventName}
+
+	require.NoError(t, p.handle(ctx, marker))
+	require.NoError(t, p.handle(ctx, marker))
+
+	row, err := p.storage.FindByKey(ctx, "t1")
+	require.NoError(t, err)
+	assert.Nil(t, row)
+}
+
+func TestReviewThreadProjection_AStorageFailureIsReturned(t *testing.T) {
+	ctx := context.Background()
+	p := &Projection{storage: &storageStore{inner: &errInner{err: errors.New("db down")}}}
+	require.Error(t, p.handle(ctx, asynxModels.Event[domain.ReviewThread]{Aggregate: domain.ReviewThread{ID: "t1"}}))
+	assert.Error(t, p.handle(ctx, asynxModels.Event[domain.ReviewThread]{AggregateID: "t1", EventName: asynxModels.ForgetEventName}))
 }
 
 func TestNew_ProjectionsError(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	ax := &fakeAx{subscribeErr: errors.New("bus down")}
-	_, err = New(db, nil, ax, func(domain.ReviewThread) {})
+	p, err := Open(db)
+	require.NoError(t, err)
+	_, err = New(p, nil, &fakeAx{subscribeErr: errors.New("bus down")}, func(domain.ReviewThread) {})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "reviewthread store: projections")
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/char2cs/asynx/models"
+	"github.com/char2cs/asynx/store/storetest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,6 +29,15 @@ func rowCount(t *testing.T, s models.SnapshotStore, aggregateID string) int64 {
 		Where("aggregate_id = ?", aggregateID).
 		Count(&n).Error)
 	return n
+}
+
+func TestSnapshotStore_Conformance(t *testing.T) {
+	storetest.RunSnapshots(t, func(t *testing.T) models.SnapshotStore {
+		t.Helper()
+		s, err := NewSnapshotStore(filepath.Join(t.TempDir(), "snapshots.db"))
+		require.NoError(t, err)
+		return s
+	})
 }
 
 func TestNewSnapshotStore_InvalidPath_ReturnsError(t *testing.T) {

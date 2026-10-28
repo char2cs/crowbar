@@ -50,28 +50,34 @@ func newBenchReviewHarness(
 	// ── event stores (in-memory SQLite) ──────────────────────────────────────
 	rtES, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(b, err)
-	axRT, err := asynx.New[domain.ReviewThread]().
+	rtRM, err := reviewthread.OpenReadModel(adapters.ReviewThreadView())
+	require.NoError(b, err)
+	rtB := asynx.New[domain.ReviewThread]().
 		WithEventStore(rtES).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	reviewthread.Subscriber(rtRM)(rtB)
+	axRT, err := rtB.Build()
 	require.NoError(b, err)
 	b.Cleanup(func() { _ = axRT.Shutdown(ctx) })
 
 	// ── GORM DB (the adapter's global view) ───────────────────────────────────
 	db := adapters.GlobalView()
 
-	wsAx, err := asynx.New[domain.Workspace]().
+	rm, err := workspace.OpenReadModel(adapters.WorkspaceView())
+	require.NoError(b, err)
+	axb := asynx.New[domain.Workspace]().
 		WithEventStore(adapters.WorkspaceES()).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	workspace.Subscriber(rm)(axb)
+	wsAx, err := axb.Build()
 	require.NoError(b, err)
 	b.Cleanup(func() { _ = wsAx.Shutdown(ctx) })
-	workspaces, err := workspace.New(wsAx, adapters.WorkspaceES(), adapters.WorkspaceView())
+	workspaces, err := workspace.New(wsAx, adapters.WorkspaceES(), rm)
 	require.NoError(b, err)
 
-	threads, err := reviewthread.New(axRT, rtES, adapters.ReviewThreadView(), func(domain.ReviewThread) {})
+	threads, err := reviewthread.New(axRT, rtES, rtRM, func(domain.ReviewThread) {})
 	require.NoError(b, err)
 
 	repoStore, err := storesqlite.NewFromDB[domain.Repository, string](db)

@@ -10,8 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -270,68 +268,32 @@ func unmarshalWorkspace(
 	return &ws, nil
 }
 
-// RegisterStore subscribes the read-model projection to every workspace event on
-// the singleton axWorkspace: it folds evt.Aggregate into the durable read model,
-// then announces it on the hub when one is registered, and on Forget deletes
-// the aggregate's row (a cheap, synchronous OnForget row-delete — spec §3.6, no
-// fs/git/network io). It is designed to register ONCE on the singleton.
-func RegisterStore(
+// Subscriber registers st as a durable subscriber on the workspace builder: a
+// failed save is retried by asynx, and parks the aggregate, instead of being
+// logged and dropped. The Forget marker deletes the row; a missing row is no error.
+func Subscriber(
 	st *Store,
-	ax asynx.Asynx[domain.Workspace],
-) error {
-	p := &storeProjector{store: st}
-	if _, err := ax.Subscribe(asynx.Topic("workspace.*"), p.onEvent); err != nil {
-		return fmt.Errorf("workspace store projection: subscribe: %w", err)
+) func(*asynx.Builder[domain.Workspace]) {
+	return func(b *asynx.Builder[domain.Workspace]) {
+		b.WithSubscriber(asynx.Topic("workspace.*"), st.handle)
 	}
-	if _, err := ax.OnForget(p.onForget); err != nil {
-		return fmt.Errorf("workspace store projection: on forget: %w", err)
-	}
-	return nil
 }
 
-type storeProjector struct {
-	store *Store
-}
-
-func (p *storeProjector) onEvent(
+func (s *Store) handle(
 	ctx context.Context,
 	evt asynxModels.Event[domain.Workspace],
-) {
-	if err := p.saveWithRetry(ctx, evt.Aggregate); err != nil {
-		slog.ErrorContext(ctx, "workspace store projection: save", "id", evt.Aggregate.ID, "err", err)
+) error {
+	if evt.EventName == asynxModels.ForgetEventName {
+		if err := s.delete(ctx, evt.AggregateID); err != nil {
+			return fmt.Errorf("workspace store projection: delete %q: %w", evt.AggregateID, err)
+		}
+		return nil
 	}
-	if announce := p.store.announce.Load(); announce != nil {
+	if err := s.save(ctx, evt.Aggregate); err != nil {
+		return fmt.Errorf("workspace store projection: save %q: %w", evt.Aggregate.ID, err)
+	}
+	if announce := s.announce.Load(); announce != nil {
 		(*announce)(ctx, evt.Aggregate)
 	}
-}
-
-func (p *storeProjector) saveWithRetry(
-	ctx context.Context,
-	ws domain.Workspace,
-) error {
-	var err error
-	for range 3 {
-		if err = p.store.save(ctx, ws); err == nil {
-			return nil
-		}
-		if !isTransientIOError(err) {
-			return err
-		}
-	}
-	return err
-}
-
-func isTransientIOError(
-	err error,
-) bool {
-	return strings.Contains(err.Error(), "disk I/O error")
-}
-
-func (p *storeProjector) onForget(
-	ctx context.Context,
-	evt asynxModels.Event[domain.Workspace],
-) {
-	if err := p.store.delete(ctx, evt.Aggregate.ID); err != nil {
-		slog.ErrorContext(ctx, "workspace store projection: delete", "id", evt.Aggregate.ID, "err", err)
-	}
+	return nil
 }

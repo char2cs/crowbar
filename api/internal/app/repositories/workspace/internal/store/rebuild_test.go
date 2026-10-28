@@ -16,6 +16,7 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	wscmds "github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store/projections"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -48,19 +49,20 @@ func newServiceOver(
 	ctx := context.Background()
 	realES, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Workspace]().
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	pst, err := projections.NewStore(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.Workspace]().
 		WithEventStore(realES).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	projections.Subscriber(pst)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(ctx) })
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
-	st, err := store.New(db, es, ax)
-	require.NoError(t, err)
+	st := store.New(pst, es, ax)
 	return ctx, st, ax
 }
 
@@ -110,19 +112,20 @@ func TestListOrRebuild_RebuildsWhenModelEmptyButLogNonEmpty(t *testing.T) {
 
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Workspace]().
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	pst, err := projections.NewStore(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.Workspace]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	projections.Subscriber(pst)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(ctx) })
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
-	st, err := store.New(db, es, ax)
-	require.NoError(t, err)
+	st := store.New(pst, es, ax)
 
 	// Seed two workspaces. SendWait makes the store projection deterministic.
 	for _, id := range []string{"w1", "w2"} {
@@ -168,19 +171,20 @@ func TestListOrRebuild_EmptyLogReturnsEmpty(t *testing.T) {
 
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Workspace]().
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	pst, err := projections.NewStore(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.Workspace]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	projections.Subscriber(pst)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(ctx) })
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
-	st, err := store.New(db, es, ax)
-	require.NoError(t, err)
+	st := store.New(pst, es, ax)
 
 	rows, err := st.ListOrRebuild(ctx)
 	require.NoError(t, err)
@@ -197,24 +201,27 @@ func TestListOrRebuild_ReplayErrorAbortsTheWholeRebuild(t *testing.T) {
 
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Workspace]().
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	pst, err := projections.NewStore(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.Workspace]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	projections.Subscriber(pst)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(ctx) })
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
-	st, err := store.New(db, es, ax)
-	require.NoError(t, err)
+	st := store.New(pst, es, ax)
 
 	// A "poison" aggregate whose stored bytes were never written by a domain.Workspace
 	// command — asynx's own envelope, not a raw domain.Workspace blob, so Replay must
 	// fail decoding it rather than folding garbage into the read model.
-	require.NoError(t, es.Append(ctx, "events:poison", 1, []byte("{not valid json")))
+	require.NoError(t, es.Atomically(ctx, func(tx asynxModels.Tx) error {
+		return tx.Append(ctx, "events:poison", 1, []byte("{not valid json"))
+	}))
 
 	_, err = st.ListOrRebuild(ctx)
 
@@ -232,19 +239,20 @@ func TestListOrRebuild_FoldErrorDuringReplayIsLoggedNotSurfaced(t *testing.T) {
 
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Workspace]().
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	pst, err := projections.NewStore(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.Workspace]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	projections.Subscriber(pst)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(ctx) })
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
-	st, err := store.New(db, es, ax)
-	require.NoError(t, err)
+	st := store.New(pst, es, ax)
 
 	_, err = ax.SendWait(ctx, wscmds.CreateWorkspace{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "main", Now: time.Unix(1, 0).UTC(),

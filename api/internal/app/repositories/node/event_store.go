@@ -13,19 +13,10 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/node/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/node/internal/store"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
-
-// maxOCCAttempts bounds optimistic-concurrency retries on ErrPipelineFailed:
-// with no per-aggregate writeMu, concurrent Sends to one node aggregate can
-// version-collide, so the losers retry — Send re-reads the current version
-// each attempt, so a retry converges. ErrValidation is NEVER retried;
-// ErrQueueFull is surfaced as apperr.ErrUnavailable. Mirrors agentchat's OCC
-// contract.
-const maxOCCAttempts = 8
 
 // WatchFunc and NodeEvent are aliases for the store-layer watch seam, exposed so
 // callers wire it without importing the internal store package directly.
@@ -45,7 +36,7 @@ func WithPlacementWatch(watch func(nodeID string)) Option {
 }
 
 // EventStore is the asynx-backed Node aggregate repository: mutations dispatch
-// the command layer with optimistic-concurrency retry (sendWithOCC), reads
+// the command layer (asynx serializes each aggregate's commands), reads
 // delegate to the store package's read-model projection. It is the sole Node
 // repository — every later task that mints, moves or reaps a sidebar row's
 // position sends through this surface.
@@ -133,74 +124,48 @@ type EventStore interface {
 }
 
 // eventSourced is the asynx-backed EventStore implementation. There is no
-// writeMu: per-aggregate safety comes from asynx shard routing plus
-// (id,version) optimistic concurrency and the sendWithOCC retry below.
+// writeMu: asynx serializes each aggregate's commands.
 type eventSourced struct {
 	ax    asynx.Asynx[domain.Node]
 	store store.Store
 }
 
-// NewEventSourced builds the asynx-backed Node EventStore over ax (the
-// singleton axNode), es (the same per-type event log ax wraps, retained so the
-// read model can self-heal via whole-model lazy Replay), and storeDB
-// (state/store/node.db). It delegates to store.New to register the read-model
-// and hub projections on ax, once, for the singleton.
+// ReadModel is the read model's write side (state/store/node.db). It is opened before the
+// asynx instance so it can be that instance's durable subscriber.
+type ReadModel = store.Projection
+
+// OpenReadModel opens the read model over storeDB.
+func OpenReadModel(
+	storeDB *gormdb.DB,
+	opts ...Option,
+) (*ReadModel, error) {
+	rm, err := store.Open(storeDB, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("node: read model: %w", err)
+	}
+	return rm, nil
+}
+
+// Subscriber is the builder option that makes rm the instance's durable subscriber.
+func Subscriber(
+	rm *ReadModel,
+) func(*asynx.Builder[domain.Node]) {
+	return store.Subscriber(rm)
+}
+
+// NewEventSourced builds the repository over ax, which must have been built with
+// Subscriber(rm). es is the log ax wraps, kept for the lazy rebuild.
 func NewEventSourced(
 	ax asynx.Asynx[domain.Node],
 	es asynxModels.Store,
-	storeDB *gormdb.DB,
+	rm *ReadModel,
 	watch WatchFunc,
-	opts ...Option,
 ) (EventStore, error) {
-	st, err := store.New(storeDB, es, ax, watch, opts...)
+	st, err := store.New(rm, es, ax, watch)
 	if err != nil {
 		return nil, fmt.Errorf("node: store: %w", err)
 	}
 	return &eventSourced{ax: ax, store: st}, nil
-}
-
-// sendFunc issues one command attempt against the aggregate.
-type sendFunc func(
-	ctx context.Context,
-	cmd asynxModels.Command[domain.Node],
-) (asynxModels.Event[domain.Node], error)
-
-// occSend runs send with OCC retry and the terminal error disposition contract
-// (mirrors agentchat's occSend):
-//
-//   - success                → returned immediately.
-//   - ErrValidation          → surfaced immediately, NEVER retried (→ 422).
-//   - ErrQueueFull           → translated to apperr.ErrUnavailable (→ 503),
-//     NEVER retried: a full shard queue is backpressure, not a version race.
-//   - ErrPipelineFailed      → retried up to maxOCCAttempts; still failing
-//     after the retries is an unrecoverable optimistic-concurrency collision,
-//     surfaced as ErrPipelineFailed (→ 409).
-//   - any other error        → surfaced as-is.
-//
-// All classification is via errors.Is, never string compare.
-func occSend(
-	ctx context.Context,
-	send sendFunc,
-	cmd asynxModels.Command[domain.Node],
-) (asynxModels.Event[domain.Node], error) {
-	var lastErr error
-	for range maxOCCAttempts {
-		evt, err := send(ctx, cmd)
-		if err == nil {
-			return evt, nil
-		}
-		switch {
-		case errors.Is(err, asynxModels.ErrValidation):
-			return asynxModels.Event[domain.Node]{}, err
-		case errors.Is(err, asynxModels.ErrQueueFull):
-			return asynxModels.Event[domain.Node]{}, fmt.Errorf("node: send: %w", apperr.ErrUnavailable)
-		case errors.Is(err, asynxModels.ErrPipelineFailed):
-			lastErr = err
-		default:
-			return asynxModels.Event[domain.Node]{}, err
-		}
-	}
-	return asynxModels.Event[domain.Node]{}, lastErr
 }
 
 // Create is deliberately the ONLY command on the SendWait path — see the
@@ -212,7 +177,7 @@ func (r *eventSourced) Create(
 	parentID string,
 	order int,
 ) (domain.Node, error) {
-	evt, err := occSend(ctx, r.ax.SendWait, commands.Create{
+	evt, err := r.ax.SendWait(ctx, commands.Create{
 		ID: id, Kind: kind, ParentID: parentID, Order: order,
 	})
 	if err != nil {
@@ -254,7 +219,7 @@ func (r *eventSourced) SetOrder(
 	id string,
 	order int,
 ) error {
-	if _, err := occSend(ctx, r.ax.SendWait, commands.SetOrder{ID: id, Order: order}); err != nil {
+	if _, err := r.ax.SendWait(ctx, commands.SetOrder{ID: id, Order: order}); err != nil {
 		return fmt.Errorf("node: set order: %w", err)
 	}
 	return nil
@@ -266,7 +231,7 @@ func (r *eventSourced) SetPlacement(
 	parentID string,
 	order int,
 ) error {
-	if _, err := occSend(ctx, r.ax.SendWait, commands.SetPlacement{ID: id, ParentID: parentID, Order: order}); err != nil {
+	if _, err := r.ax.SendWait(ctx, commands.SetPlacement{ID: id, ParentID: parentID, Order: order}); err != nil {
 		return fmt.Errorf("node: set placement: %w", err)
 	}
 	return nil

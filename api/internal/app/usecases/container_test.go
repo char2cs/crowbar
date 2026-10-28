@@ -24,6 +24,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -34,13 +35,15 @@ import (
 func newTestAsynx[T any](
 	t *testing.T,
 	es asynxModels.Store,
+	subscriber func(*asynx.Builder[T]),
 ) asynx.Asynx[T] {
 	t.Helper()
-	ax, err := asynx.New[T]().
+	b := asynx.New[T]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	subscriber(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 	return ax
@@ -58,18 +61,20 @@ func newContainerDeps(
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
+	rm, err := repositories.OpenReadModels(adapters, nil)
+	require.NoError(t, err)
 	repos, err := repositories.New(
 		context.Background(),
 		adapters,
+		rm,
 		hub.NewHub(),
-		newTestAsynx[domain.ReviewThread](t, adapters.ReviewThreadES()),
-		newTestAsynx[domain.Workspace](t, adapters.WorkspaceES()),
-		newTestAsynx[domain.Chat](t, adapters.AgentChatES()),
-		newTestAsynx[domain.Node](t, adapters.NodeES()),
+		newTestAsynx(t, adapters.ReviewThreadES(), reviewthread.Subscriber(rm.ReviewThread)),
+		newTestAsynx(t, adapters.WorkspaceES(), workspace.Subscriber(rm.Workspace)),
+		newTestAsynx(t, adapters.AgentChatES(), agentchat.Subscriber(rm.AgentChat)),
+		newTestAsynx(t, adapters.NodeES(), node.Subscriber(rm.Node)),
 		nil, // git conflict-checker not exercised by this test
 		noChatWatch,
 		noNodeWatch,
-		nil,
 	)
 	require.NoError(t, err)
 
