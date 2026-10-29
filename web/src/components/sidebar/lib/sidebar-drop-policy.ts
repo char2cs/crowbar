@@ -9,6 +9,7 @@ import {
   type DropPolicy,
 } from '@/components/tree-dnd/drop-core'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { selectEntityBusy, useOperationsStore } from '@/lib/store/operations'
 import { isWorkspaceLockedInSidebar } from '@/lib/store/repo-tree'
 import { isChatWorking } from '@/features/workspace/stores/workspace-store-registry'
 import {
@@ -194,10 +195,9 @@ export function levelWorkspaceOfBranchRow(
  * chat with no worktree") — reparenting a fork across repos makes no sense,
  * but a bubble chat pinned to nothing on disk can move freely.
  *
- * Working-row refusal (spec §8.3) reads `SidebarRow.working`, refusing every
- * mode when any dragged row is working — the UI mirror of the backend plan's
- * `guardNotWorking`, duplicated here deliberately since a drag needs to
- * refuse before a network round trip, not after.
+ * Working-row refusal (spec §8.3) refuses every mode when a dragged row is
+ * working or its workspace has an operation running — mirroring the daemon's
+ * own refusals, so a drag is refused before a round trip, not after.
  *
  * A protected branch (`drop-rules.ts`'s old locked rule, ~line 82-93) owns a
  * worktree pinned to its parent, so it may reorder among its own siblings and
@@ -210,7 +210,9 @@ export function levelWorkspaceOfBranchRow(
  */
 export function allowedModes(subjects: readonly SidebarRow[], target: DropTargetRow): AllowedModes {
   if (subjects.length === 0) return NO_MODES
-  if (subjects.some((s) => s.working)) return NO_MODES
+  const ops = useOperationsStore.getState()
+  if (subjects.some((s) => s.working || (s.workspaceId && selectEntityBusy(ops, s.workspaceId))))
+    return NO_MODES
   // Never drop a row onto itself.
   if (subjects.some((s) => s.id === target.id)) return NO_MODES
   // A mixed-kind selection is not a thing the sidebar can express; refuse

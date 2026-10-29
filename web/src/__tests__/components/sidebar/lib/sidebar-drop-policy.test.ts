@@ -18,10 +18,10 @@ import {
 } from '@/features/workspace/stores/workspace-store-registry'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+import { useOperationsStore } from '@/lib/store/operations'
+import { runOperation, type OperationReply } from '@/lib/store/run-operation'
 
-// `resolveHomeRowScope` (home-tree.ts) reads this to name the project a
-// resolved home row belongs to — a real async fetch+cache round trip these
-// tests have no reason to exercise.
+// `resolveHomeRowScope` (home-tree.ts) reads this; its fetch is not under test.
 const { getHomeWorkspaceId } = vi.hoisted(() => ({ getHomeWorkspaceId: vi.fn() }))
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId,
@@ -60,11 +60,9 @@ function makeRow(over: Partial<SidebarRow> & { id: string }): SidebarRow {
 
 describe('SIDEBAR_DROP_POLICY', () => {
   beforeEach(() => {
-    // The workspace-store registry is MODULE state that outlives a test, and
-    // the chat cases below seed a live `agentChats.working` map into it — left
-    // behind, that would refuse a drag in a later case for a reason that case
-    // never set up.
+    // Module state outliving a test would refuse a later drag for no reason it set up.
     destroyWorkspaceStore('ws-1')
+    useOperationsStore.setState({ ops: {}, latestFor: {} })
     vi.clearAllMocks()
     useHomeTreeStore.setState({ trees: {} })
     // repo-1 and repo-2 share proj-1; repo-3 is a different project entirely.
@@ -111,6 +109,21 @@ describe('SIDEBAR_DROP_POLICY', () => {
     const subject = makeRow({ id: 'ws-1', working: true })
     const target = makeRow({ id: 'home-1' })
     expect(SIDEBAR_DROP_POLICY.allowedModes([subject], target)).toEqual(NO_MODES)
+  })
+
+  // Drop A under B, then A under C before B settled: the second move must wait.
+  it('a workspace whose move is still running allows no second drop', async () => {
+    const subject = makeRow({ id: 'ws-1' })
+    const target = makeRow({ id: 'home-1' })
+    let land!: (reply: OperationReply) => void
+    const start = { kind: 'workspace.reparent', projectId: 'proj-1', label: 'Move' }
+    runOperation({ ...start, subject: { kind: 'workspace', id: 'ws-1' } }, () => {
+      return new Promise<OperationReply>((resolve) => (land = resolve))
+    })
+    expect(allowedModes([subject], target)).toEqual(NO_MODES)
+
+    land({ items: [] })
+    await vi.waitFor(() => expect(allowedModes([subject], target)).not.toEqual(NO_MODES))
   })
 
   it('cross-project drag is refused', () => {
@@ -341,15 +354,9 @@ describe('SIDEBAR_DROP_POLICY', () => {
     expect(SIDEBAR_DROP_POLICY.allowedModes([subject], sameAnchorFolder)).toEqual(ALL_MODES)
   })
 
-  // Live-reported: "I still can't move stuff into this done folder... Crowbar
-  // just doesn't allow me to move branches inside there (threads can!)."
-  // Filing a locked branch into a FOLDER that already sits right beside it is
-  // a pure `placeWorkspace` folder-edge write (`PlaceWorkspace`'s own Go doc:
-  // "unconditional on lock status") — it never touches `Workspace.ParentID`,
-  // so refusing it here was overly broad: the row's own re-parent refusal has
-  // nothing to say about a folder move that changes no lineage at all. A
-  // sibling of a different KIND (a branch, above) still only reorders — only
-  // a FOLDER sibling gets the extra `into`.
+  // Filing a locked branch into a FOLDER beside it is a pure folder-edge write
+  // (`PlaceWorkspace`: "unconditional on lock status") that changes no lineage,
+  // so only a FOLDER sibling gets the extra `into`; a branch sibling reorders.
   it('a locked row may still be filed INTO a folder sitting right beside it — no lineage change', () => {
     const subject = makeRow({ id: 'ws-locked', workspaceId: 'ws-locked', parentId: 'home-1' })
     const siblingFolder = makeRow({
@@ -478,16 +485,9 @@ describe('SIDEBAR_DROP_POLICY', () => {
     expect(SIDEBAR_DROP_POLICY.edgeBandFor).toBe(edgeBandFor)
   })
 
-  // The repo-scope walk resolved NOTHING for a chat subject or target and so
-  // refused every mode — which, back when every chat row in the app was drawn
-  // by RecentsBand, refused every Recents-entry drag there was and left spec
-  // §8.1's own target table (middle of a Recents entry / above-below one) with
-  // no reachable implementation.
-  //
-  // `Repo` does hold chats now, but the exemption is unchanged and is NOT an
-  // artifact of that: a chat is workspace-scoped for placement, and §8.3 makes
-  // cross-repo drag legal precisely for a row that owns no worktree — so
-  // resolving one against the same-repo rule would refuse what the spec allows.
+  // A chat is workspace-scoped for placement, and §8.3 makes cross-repo drag
+  // legal for a row that owns no worktree, so the same-repo rule would refuse
+  // what the spec allows.
   describe('chat rows are workspace-scoped, not repo-scoped', () => {
     const chatRow = (id: string, over: Partial<SidebarRow> = {}) =>
       makeRow({ id, kind: 'chat', ownsWorktree: false, workspaceId: 'ws-1', ...over })
@@ -559,14 +559,8 @@ describe('SIDEBAR_DROP_POLICY', () => {
       )
     })
 
-    // 2026-09-09, caught live as "can't put a chat right at the bottom of
-    // the tree list" whenever a branch row (a repo's own header, a locked
-    // branch, or an ordinary fork) happened to occupy that position: chats
-    // and branches share one dense order space at every level this drag
-    // reaches, so a chat may reorder PAST one — `planChatDropOntoBranch`
-    // (drop-actions.ts) computes that index over the SAME combined tree
-    // that renders it. "Into" still refuses: a branch is not one of a
-    // chat's threads, and that half of the old refusal stays correct.
+    // Chats and branches share one dense order space at every level, so a chat
+    // may reorder PAST a branch row; "into" refuses (a branch is not a thread).
     it('lets a chat reorder past a branch row on its own level, but never thread into one', () => {
       // ws-1 sits under repo-1's header: its level is the repo's own checkout.
       expect(

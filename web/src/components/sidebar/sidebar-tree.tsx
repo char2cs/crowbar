@@ -81,22 +81,9 @@ function SidebarTreeRow({
     [wsId, row.id],
   )
   const chatWorking = useSyncExternalStore(subscribe, getSnapshot)
-  // TWO LIVE SIGNALS AT TWO GRAINS, UNIONED — not a fallback, and not two
-  // sources disagreeing about one fact.
-  //
-  //   `chatWorking`  — THIS conversation is mid-turn. Exact, per-chat, and the
-  //                    only one that can ever be true for a bubble. Requires
-  //                    the workspace to be mounted (its `working` map is filled
-  //                    by that workspace's own chats stream).
-  //   `row.working`  — the WORKTREE has work in flight (`Workspace.working`,
-  //                    pushed live on `worktree_state` frames over the repo-wide
-  //                    chat feed, which stays open while the repo shows rows).
-  //                    Coarser, but answers for a workspace nobody has opened.
-  //
-  // Neither subsumes the other, and both mean the same thing to a reader —
-  // "this row is busy" — so the row spins if either says so. `row.working`
-  // arrives as a hard `false` on every `chat`-kind row by construction
-  // (`rows-from-repo.ts`), so for a bubble this is purely the chat signal.
+  // `chatWorking` is THIS conversation mid-turn (needs the workspace mounted);
+  // `row.working` is any agent chat of the worktree mid-turn, which also answers
+  // for an unopened workspace. Operation work spins via selectEntityBusy instead.
   const working = chatWorking || row.working
   // hasViewIdle: this IS the tree's render path (SidebarRow's own doc on the
   // prop) — a row with a view reads as active/open here, never grey. See
