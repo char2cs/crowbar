@@ -1,5 +1,5 @@
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
-import { apiFetch } from '@/lib/api/fetch'
+import { API_BASE, apiFetch } from '@/lib/api/fetch'
 import { repoChatsBaseForWorkspace } from '@/lib/workspace-scope-url'
 
 // Agentic-chat REST client. A chat is no longer addressed through its
@@ -392,6 +392,19 @@ export async function listChatMessages(
     hasMore: raw?.hasMore ?? false,
     items,
   }
+}
+
+/** One content-addressed payload a row names (`sha256:…`); null once swept. */
+export async function readBlob(
+  chatId: string,
+  ref: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const url = `/v0/chats/${encodeURIComponent(chatId)}/blobs/${encodeURIComponent(ref)}`
+  const response = await fetch(`${API_BASE}${url}`, { signal })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`blob ${ref}: ${response.status}`)
+  return response.text()
 }
 
 /** What the provider itself reported about cost and capacity.
