@@ -87,10 +87,9 @@ type ChatResolver interface {
 	) ([]domain.Chat, error)
 }
 
-// WorkSignal is the daemon's working read: an agent chat in the workspace is
-// mid-turn (the repositories Container satisfies it). The home workspace is
-// served by THIS endpoint, so it stamps Working itself or its REST read would
-// disagree with the WS frames the container enriches for it.
+// WorkSignal is whether an agent chat in a workspace is mid-turn. The home
+// workspace's only REST read is here, so it stamps Working itself to agree
+// with the WS frames the repositories Container enriches.
 type WorkSignal interface {
 	// WorkingFor reports whether an agent chat in the workspace is mid-turn.
 	WorkingFor(

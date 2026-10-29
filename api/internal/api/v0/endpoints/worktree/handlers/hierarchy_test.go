@@ -49,6 +49,14 @@ func TestMergeIntoParent_AnswersItsOperation(
 	assert.Equal(t, gitdomain.MergeStrategySquash, hierarchy.gotStrategy)
 }
 
+// A parent that cannot be named leaves the label at the verb and branch.
+func TestMergeIntoParent_AnUnknownParentIsLeftOutOfTheLabel(t *testing.T) {
+	r, ops := newChatRouter(&fakeReader{}, &fakeHierarchy{}, childChat())
+	rec := do(r, http.MethodPost, chatBase+"/merge-into-parent", `{"strategy":"squash"}`)
+	assert.Equal(t, "Merge feature/child", accepted(t, rec).Label)
+	ops.settled(t, rec)
+}
+
 func TestMergeIntoParentBadJSON(
 	t *testing.T,
 ) {

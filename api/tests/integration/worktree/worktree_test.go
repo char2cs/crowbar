@@ -545,8 +545,8 @@ func (s *WorktreeSuite) TestWorktree_asyncOpSettlesItsOperation() {
 	_, chatID, _ := s.createChild("feature/working-overlay")
 	resp := s.Env.POST(t, s.repoChatBase(chatID)+"/sync", map[string]any{})
 	op := s.Env.AwaitOperation(t, resp, 10*time.Second)
-	s.Assert().Equal(domain.OpWorkspaceSync, op.Kind)
-	s.Assert().Equal(domain.OpSucceeded, op.State)
+	s.Equal(domain.OpWorkspaceSync, op.Kind)
+	s.Equal(domain.OpSucceeded, op.State)
 }
 
 // TestWorktree_reparentWithChildrenRejected verifies the has_children guard. The
@@ -568,7 +568,7 @@ func (s *WorktreeSuite) TestWorktree_reparentWithChildrenRejected() {
 	resp := s.Env.POST(t, s.repoChatBase(childChatID)+"/reparent", map[string]any{
 		"newParentId": parentBID,
 	})
-	s.Assert().Equal(domain.OpFailed, s.Env.AwaitOperation(t, resp, 5*time.Second).State)
+	s.Equal(domain.OpFailed, s.Env.AwaitOperation(t, resp, 5*time.Second).State)
 
 	childTipAfterRejection := kit.RevParse(t, childPath, "HEAD")
 	s.Assert().Equal(childTipBefore, childTipAfterRejection, "rejected reparent must not mutate git")
@@ -597,7 +597,7 @@ func (s *WorktreeSuite) TestRegression_ReparentOntoSelfRejected() {
 	op := s.Env.AwaitOperation(t, resp, 5*time.Second)
 	s.Require().Equal(domain.OpFailed, op.State)
 	s.Require().NotNil(op.Error)
-	s.Assert().Contains(op.Error.Message, "itself", "self-parent must be rejected with a clear error")
+	s.Contains(op.Error.Message, "itself", "self-parent must be rejected with a clear error")
 
 	reloaded := s.getWorkspace(childChatID)
 	s.Assert().Equal(s.parentID, reloaded["parentId"], "self-parent must not change the parent")

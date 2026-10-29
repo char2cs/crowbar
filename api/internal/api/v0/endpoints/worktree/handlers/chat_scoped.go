@@ -72,21 +72,24 @@ func (h *Handlers) startOn(
 	libs.WriteOperation(c, op)
 }
 
-// branchOf names workspace id by its branch for a label; "" when it cannot be read.
-func (h *Handlers) branchOf(
+// relLabel is "<head> <rel> <branch of id>", or head alone when id's branch
+// cannot be read: a label is never left dangling.
+func (h *Handlers) relLabel(
 	ctx context.Context,
+	head string,
+	rel string,
 	id string,
 ) string {
 	all, err := h.reader.List(ctx)
 	if err != nil {
-		return ""
+		return head
 	}
 	for _, ws := range all {
-		if ws.ID == id {
-			return ws.Branch
+		if ws.ID == id && ws.Branch != "" {
+			return head + " " + rel + " " + ws.Branch
 		}
 	}
-	return ""
+	return head
 }
 
 // renameBranchRequest is the PATCH .../chats/:id/branch body: the whole of what

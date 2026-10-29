@@ -88,6 +88,16 @@ export function selectEntityProblem(s: OperationsState, entityId: string): Probl
   return op.error ?? null
 }
 
+/** Every entity whose newest operation failed, keyed to that reason (shallow-stable). */
+export function selectProblems(s: OperationsState): Record<string, Problem> {
+  const problems: Record<string, Problem> = {}
+  for (const entityId of Object.keys(s.latestFor)) {
+    const problem = selectEntityProblem(s, entityId)
+    if (problem) problems[entityId] = problem
+  }
+  return problems
+}
+
 /** Whether an operation naming `entityId` is still accepted or running. */
 export function selectEntityBusy(s: OperationsState, entityId: string): boolean {
   for (const op of Object.values(s.ops)) {

@@ -21,7 +21,8 @@ import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { performSidebarPaneDrop } from '@/components/sidebar/lib/pane-drop-actions'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { selectEntityProblem, useOperationsStore } from '@/lib/store/operations'
+import { selectProblems, useOperationsStore } from '@/lib/store/operations'
+import { useShallow } from 'zustand/react/shallow'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { toast } from '@/features/window/stores/toast-store'
 import { SidebarTreeChrome } from './sidebar-tree-chrome'
@@ -169,12 +170,9 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
   // once here and reused by both `allRows` (chrome) and `rowsForProjectFn`
   // (the actual render path) rather than redone in each.
   // A placeholder row explains itself with its newest failed operation.
-  const ops = useOperationsStore((s) => s.ops)
-  const latestFor = useOperationsStore((s) => s.latestFor)
-  const problemOf = useCallback(
-    (wsId: string) => selectEntityProblem({ ops, latestFor }, wsId),
-    [ops, latestFor],
-  )
+  // Shallow: rows re-derive only when some reason changes, not on every frame.
+  const problems = useOperationsStore(useShallow(selectProblems))
+  const problemOf = useCallback((wsId: string) => problems[wsId] ?? null, [problems])
   const repoRows = useMemo(
     () =>
       attachRemovalState(

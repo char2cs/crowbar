@@ -668,10 +668,8 @@ export function walkTreeIntoRows(
         hasView: false,
         ...workspaceIconFields(node.workspace, ownDefaultBranch, problemOf(node.workspace.id)),
       })
-      // Children hang off the row's OWN id (the owning chat's, when resolved),
-      // so a thread filed under the workspace arrives at the visible row. The
-      // RAW `node.workspace.id` is the ancestor: a nested folder must resolve
-      // to the real workspace `createChat` posts to, not the owning chat.
+      // Children hang off the row's own id (its owning chat's) so they reach the
+      // visible row; the RAW workspace id is the ancestor `createChat` posts to.
       walkTreeIntoRows(
         rows,
         node.children,

@@ -186,13 +186,9 @@ func (c *Container) WaitQuiescent() {
 	c.axNode.WaitPublish()
 }
 
-// enrichFrame builds the WS frame for ws: it attaches the two derived overlays
-// that are NOT part of the event-sourced aggregate — Working (an agent chat
-// mid-turn) and the merge-eligibility overlay (CanMergeLocally/ParentBranch,
-// resolved off the hot path from the row's repo-scoped siblings, spec §10) —
-// and returns the wire DTO. It is the SINGLE enrichment both the hub projection
-// (RegisterHubProjection) and the agent-turn rebroadcasts converge on, so the
-// emitted frame is identical regardless of trigger (spec §3.5).
+// enrichFrame adds the overlays the aggregate lacks — Working (an agent chat
+// mid-turn) and merge eligibility (spec §10) — in the ONE place the hub
+// projection and the agent-turn rebroadcasts share, so their frames agree.
 func (c *Container) enrichFrame(
 	ctx context.Context,
 	ws domain.Workspace,

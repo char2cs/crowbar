@@ -73,7 +73,7 @@ func (h *Handlers) ChatMergeIntoParent(
 	if !ok {
 		return
 	}
-	label := "Merge " + ws.Branch + " into " + h.branchOf(c.Request.Context(), ws.ParentID)
+	label := h.relLabel(c.Request.Context(), "Merge "+ws.Branch, "into", ws.ParentID)
 	h.startOn(c, ws, domain.OpWorkspaceMergeIntoParent, label, func(ctx context.Context) error {
 		result, mergeErr := h.hierarchy.MergeIntoParent(ctx, ws.ID, body.Strategy)
 		if mergeErr != nil {
@@ -139,7 +139,7 @@ func (h *Handlers) ChatRebaseOntoParent(
 	if !ok {
 		return
 	}
-	label := "Rebase " + ws.Branch + " onto " + h.branchOf(c.Request.Context(), ws.ParentID)
+	label := h.relLabel(c.Request.Context(), "Rebase "+ws.Branch, "onto", ws.ParentID)
 	h.startOn(c, ws, domain.OpWorkspaceRebaseOntoParent, label, func(ctx context.Context) error {
 		_, err := h.hierarchy.RebaseOntoParent(ctx, ws.ID)
 		return err
@@ -171,7 +171,7 @@ func (h *Handlers) ChatReparent(
 	if !ok {
 		return
 	}
-	label := "Move " + ws.Branch + " under " + h.branchOf(c.Request.Context(), body.NewParentID)
+	label := h.relLabel(c.Request.Context(), "Move "+ws.Branch, "under", body.NewParentID)
 	h.startOn(c, ws, domain.OpWorkspaceReparent, label, func(ctx context.Context) error {
 		_, err := h.hierarchy.Reparent(ctx, ws.ID, body.NewParentID)
 		return err

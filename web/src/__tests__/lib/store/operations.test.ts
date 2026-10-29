@@ -4,6 +4,7 @@ import {
   putLocalOperation,
   selectEntityBusy,
   selectEntityProblem,
+  selectProblems,
   useOperationsStore,
   type Operation,
 } from '@/lib/store/operations'
@@ -71,6 +72,20 @@ describe('operations store', () => {
 
     applyOperationFrame(op({ id: 'op2', state: 'succeeded', createdAt: '2026-10-28T12:01:00Z' }))
     expect(selectEntityProblem(state(), 'ws1')).toBeNull()
+  })
+
+  // Shallow-equal across frames that change no reason, so the sidebar does not re-derive.
+  it('selectProblems keys each failing entity to its reason, by reference', () => {
+    const held = { code: 'conflict' as const, message: 'held' }
+    applyOperationFrame(op({ state: 'failed', error: held }))
+    const before = selectProblems(state())
+    expect(before).toEqual({ ws1: held })
+
+    applyOperationFrame(
+      op({ id: 'op9', subject: { kind: 'workspace', id: 'ws2' }, state: 'running' }),
+    )
+    expect(selectProblems(state()).ws1).toBe(before.ws1)
+    expect(selectProblems(state())).not.toHaveProperty('ws2')
   })
 
   it('selectEntityProblem returns a failed item error for the item ref', () => {

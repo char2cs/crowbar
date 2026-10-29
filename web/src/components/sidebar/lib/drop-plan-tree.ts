@@ -218,10 +218,8 @@ export function planTreeRowDrop(
       if (repo.workspaces.find((w) => w.id === nextFork)?.provisioning === 'placeholder') {
         throw new Error("That branch hasn't been checked out yet — try again once it has")
       }
-      // The reparent has to LAND before the index it was promised is asked
-      // for; `fireRowPlacementCall` waits for its operation to settle. It
-      // clears any folder edge, so the follow-up carries one back only when
-      // landing inside one.
+      // `fireRowPlacementCall` places only once the reparent settled; the
+      // reparent clears any folder edge, so the follow-up carries one back.
       const reparentFolderId = containerKind === 'folder' ? containerId : undefined
       calls.push({ kind: 'reparent', projectId, repoId, wsId: subject.id, parentId: nextFork })
       calls.push({
