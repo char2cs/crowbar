@@ -155,6 +155,24 @@ describe('WSManager', () => {
     }
   })
 
+  it('reopens with the url resolver evaluated at reconnect time', () => {
+    vi.useFakeTimers()
+    try {
+      const mgr = createWSManager()
+      let since = 0
+      const cb = vi.fn()
+      mgr.subscribe('/v0/chats/c1/feed', cb, () => `/v0/chats/c1/feed?since=${since}`)
+      expect(MockWebSocket.instances[0].url).toContain('/v0/chats/c1/feed?since=0')
+      since = 7
+      MockWebSocket.instances[0].simulateClose()
+      vi.advanceTimersByTime(1000)
+      expect(MockWebSocket.instances[1].url).toContain('/v0/chats/c1/feed?since=7')
+      expect(mgr.subscribed('/v0/chats/c1/feed')).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('backs off across consecutive failed reconnects', () => {
     vi.useFakeTimers()
     try {

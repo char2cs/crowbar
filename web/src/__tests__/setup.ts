@@ -260,8 +260,8 @@ vi.mock('@/lib/ws/manager', async (importOriginal) => {
   const held = new Map<string, number>()
   const hold = (endpoint: string, n: number) => held.set(endpoint, (held.get(endpoint) ?? 0) + n)
   const wsManager: typeof real = {
-    subscribe: (endpoint, cb) => {
-      if (!watch(endpoint)) return real.subscribe(endpoint, cb)
+    subscribe: (endpoint, cb, url) => {
+      if (!watch(endpoint)) return real.subscribe(endpoint, cb, url)
       hold(endpoint, 1)
       return () => void hold(endpoint, -1)
     },

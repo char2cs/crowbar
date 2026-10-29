@@ -32,6 +32,8 @@ interface Channel {
   callbacks: Set<Callback>
   reconnectDelay: number
   endpoint: string
+  /** The transport URL, read at every (re)open; the endpoint stays the channel key. */
+  url?: () => string
   /** Waiting on this socket's open; once it has closed, on the reconnect's, which takes them. */
   waiters: Waiter[]
   everOpen: boolean
@@ -47,7 +49,7 @@ export function createTransport(endpoint: string): WSLike {
 }
 
 export interface WSManager {
-  subscribe(endpoint: string, cb: Callback): () => void
+  subscribe(endpoint: string, cb: Callback, url?: () => string): () => void
   send(endpoint: string, data: unknown): void
   /**
    * Resolves once `endpoint`'s socket is open, at once if it is. Rejects, with the
@@ -87,12 +89,18 @@ export function createWSManager(): WSManager {
 
   /** `resumed`: this socket replaces a dropped one, so its open is the moment
    *  the stream is back and subscribers must refetch what they missed. */
-  function open(endpoint: string, reconnectDelay = 1000, resumed = false): Channel {
+  function open(
+    endpoint: string,
+    url: (() => string) | undefined,
+    reconnectDelay = 1000,
+    resumed = false,
+  ): Channel {
     const ch: Channel = {
-      socket: createTransport(endpoint),
+      socket: createTransport(url?.() ?? endpoint),
       callbacks: new Set(),
       reconnectDelay,
       endpoint,
+      url,
       waiters: [],
       everOpen: false,
     }
@@ -153,7 +161,7 @@ export function createWSManager(): WSManager {
         }
         // Carry the (doubled) backoff into the new channel so repeated
         // failures actually back off instead of restarting at the base delay.
-        const fresh = open(endpoint, Math.min(ch.reconnectDelay * 2, 30_000), true)
+        const fresh = open(endpoint, ch.url, Math.min(ch.reconnectDelay * 2, 30_000), true)
         fresh.callbacks = ch.callbacks
         fresh.waiters = ch.waiters.splice(0)
         channels.set(endpoint, fresh)
@@ -165,7 +173,7 @@ export function createWSManager(): WSManager {
   }
 
   return {
-    subscribe(endpoint, cb) {
+    subscribe(endpoint, cb, url) {
       // The active transport may not be able to carry a WebSocket (e.g. the
       // desktop's crowbar:// unix-socket scheme). Constructing one throws and
       // crashes startup, so skip the live channel entirely — mark it gone so
@@ -174,7 +182,7 @@ export function createWSManager(): WSManager {
         reportChannelGone(endpoint)
         return () => {}
       }
-      const ch = channels.get(endpoint) ?? open(endpoint)
+      const ch = channels.get(endpoint) ?? open(endpoint, url)
       ch.callbacks.add(cb)
       return () => {
         ch.callbacks.delete(cb)
