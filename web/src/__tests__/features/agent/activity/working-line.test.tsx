@@ -1,261 +1,58 @@
 import { render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type {
-  AgentActivity,
-  AgentChoice,
-  AgentInterruption,
-  AgentToolCall,
-} from '@/features/agent/api/agent-chat-activity'
 import { WorkingLine } from '@/features/agent/activity/working-line'
-import { NO_ACTIVITY } from '@/features/agent/lib/agent-activity'
-
-function tool(overrides: Partial<AgentToolCall> = {}): AgentToolCall {
-  return {
-    id: 't1',
-    turnId: 'turn-1',
-    seq: 1,
-    name: 'Bash',
-    status: 'running',
-    hasRequest: false,
-    hasResult: false,
-    startedAt: '2026-08-17T12:00:00Z',
-    ...overrides,
-  }
-}
-
-function activity(overrides: Partial<AgentActivity> = {}): AgentActivity {
-  return { ...NO_ACTIVITY, ...overrides }
-}
-
-function choice(overrides: Partial<AgentChoice> = {}): AgentChoice {
-  return {
-    id: 'k1',
-    turnId: 'turn-1',
-    seq: 1,
-    kind: 'tool_permission',
-    toolName: 'Bash',
-    options: [{ id: 'allow', kind: 'allow', label: 'Allow' }],
-    pending: true,
-    answerable: true,
-    at: '2026-08-18T12:00:00Z',
-    ...overrides,
-  }
-}
-
-function interruption(overrides: Partial<AgentInterruption> = {}): AgentInterruption {
-  return {
-    id: 'i1',
-    turnId: 'turn-1',
-    seq: 1,
-    kind: 'permission',
-    at: '2026-08-18T12:00:00Z',
-    ...overrides,
-  }
-}
 
 describe('WorkingLine', () => {
   afterEach(() => {
     vi.useRealTimers()
   })
 
-  // Matches formatElapsed's own "m:ss, the way a stopwatch reads" — a turn
-  // running past a minute used to read as a bare, ever-growing second count
-  // ("65s") instead of rolling over.
   it('reads the live elapsed clock as m:ss, not a bare second count', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-18T12:01:05Z'))
-    render(<WorkingLine working activity={NO_ACTIVITY} since="2026-08-18T12:00:00Z" />)
+    render(<WorkingLine working since="2026-08-18T12:00:00Z" />)
     expect(screen.getByText('· 1:05')).toBeInTheDocument()
   })
 
   it('pads a single-digit second under a minute the same stopwatch way', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-18T12:00:08Z'))
-    render(<WorkingLine working activity={NO_ACTIVITY} since="2026-08-18T12:00:00Z" />)
+    render(<WorkingLine working since="2026-08-18T12:00:00Z" />)
     expect(screen.getByText('· 0:08')).toBeInTheDocument()
   })
 
   it('renders nothing at all when the chat is idle', () => {
-    const { container } = render(<WorkingLine activity={NO_ACTIVITY} working={false} />)
+    const { container } = render(<WorkingLine working={false} />)
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('degrades to the plain working line when a provider reports no activity', () => {
-    render(<WorkingLine activity={NO_ACTIVITY} working />)
+  it('shows the plain working line when the agent reports nothing else', () => {
+    render(<WorkingLine working />)
     expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
     expect(screen.queryByRole('list')).not.toBeInTheDocument()
   })
 
-  // The tool calls left this component: they are transcript rows now
-  // (AgentLiveTurnTools), so a call outlives the moment it happened to be
-  // running. Naming them HERE as well would draw every one of them twice.
-  it('names no tool calls — the transcript keeps them now', () => {
-    render(
-      <WorkingLine
-        working
-        activity={activity({
-          toolCalls: [
-            tool({ id: 't1', name: 'Grep', target: 'engine/**/*.yaml' }),
-            tool({ id: 't2', seq: 2, name: 'Read', target: 'protocol.go' }),
-          ],
-        })}
-      />,
-    )
-    expect(screen.queryByText('Grep · engine/**/*.yaml')).not.toBeInTheDocument()
-    expect(screen.queryByText('Read · protocol.go')).not.toBeInTheDocument()
-  })
-
-  // A chat waiting on a person is not working, and the two used to look the same.
-  it('says nothing at all while a prompt is open — not "working…", not a second banner', () => {
-    const { container } = render(
-      <WorkingLine working activity={activity({ choices: [choice()] })} />,
-    )
+  // A chat waiting on a person is not working; the composer speaks for the ask.
+  it('says nothing at all while an ask holds the composer', () => {
+    const { container } = render(<WorkingLine working asking />)
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('stays quiet for a prompt nobody here can answer', () => {
-    const { container } = render(
-      <WorkingLine working activity={activity({ choices: [choice({ answerable: false })] })} />,
-    )
-    expect(container).toBeEmptyDOMElement()
-  })
-
-  // This test's NAME has always said "says the agent is BLOCKED"; its assertion
-  // said the opposite — that the strip renders nothing at all. Nothing else
-  // renders in its place either: toDividerTag maps permission, notification and
-  // elicitation to null, so the spinner vanished and the chat looked dead with no
-  // explanation anywhere on screen. That is the "we lose track of whether codex is
-  // working" report.
-  it('says the agent is BLOCKED rather than working', () => {
-    render(<WorkingLine working activity={activity({ interruptions: [interruption()] })} />)
-
-    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
-    expect(screen.getByText(/waiting for your permission/i)).toBeInTheDocument()
-  })
-
-  // The original bug this quieting exists to prevent: a blocked agent must not
-  // look busy. A blocked line carries no spinner and no rotating verb.
-  it('shows no spinner and no working verb while blocked', () => {
-    render(<WorkingLine working activity={activity({ interruptions: [interruption()] })} />)
-
-    expect(screen.queryByText(/…$/)).not.toBeInTheDocument()
-    expect(screen.getByTestId('agent-activity-strip')).toHaveAttribute('data-blocked', 'true')
-  })
-
-  // THE REGRESSION. `notification` is the CLI's own idle ping ("Claude is
-  // waiting for your input"), not a real block — unlike permission and
-  // elicitation, nothing is actually paused on it. The backend only leaves
-  // one open when it lands while its activity aggregate still thinks a turn
-  // is in flight, which a CLI backgrounding a subagent can race — and
-  // `working` here being true is Crowbar's own real-time word that the chat
-  // is genuinely still busy. Reported live: the spinner going dark under a
-  // background agent that was still visibly running, replaced by a stale
-  // "waiting for your input" banner.
-  it('keeps the spinner lit through a stray notification — it never blocks anything', () => {
-    render(
-      <WorkingLine
-        working
-        activity={activity({ interruptions: [interruption({ kind: 'notification' })] })}
-      />,
-    )
-
-    expect(screen.getByTestId('agent-activity-strip')).not.toHaveAttribute('data-blocked')
-    expect(screen.queryByText(/waiting for your input/i)).not.toBeInTheDocument()
-  })
-
-  it('names what an elicitation is waiting for', () => {
-    render(
-      <WorkingLine
-        working
-        activity={activity({
-          interruptions: [interruption({ kind: 'elicitation', detail: 'Pick a database' })],
-        })}
-      />,
-    )
-    expect(screen.getByText('Pick a database')).toBeInTheDocument()
-  })
-
-  // The composer renders pendingChoices[0], so a pending choice already speaks for
-  // the block — two voices saying it is one too many.
-  it('stays quiet when a pending choice is already speaking for the block', () => {
-    const { container } = render(
-      <WorkingLine
-        working
-        activity={activity({ interruptions: [interruption()], choices: [choice()] })}
-      />,
-    )
-    expect(container).toBeEmptyDOMElement()
-  })
-
-  // An interruption Crowbar raised about ITSELF is not a wait on a person: the
-  // agent is still working and the transcript already draws a pill for it.
-  it('keeps working through an interruption that is not a wait on a person', () => {
-    render(
-      <WorkingLine
-        working
-        activity={activity({ interruptions: [interruption({ kind: 'model_changed' })] })}
-      />,
-    )
-    const strip = screen.getByTestId('agent-activity-strip')
-    expect(strip).toBeInTheDocument()
-    expect(strip).not.toHaveAttribute('data-blocked', 'true')
-  })
-
-  // An idle chat carrying a stale unresolved interruption must not claim to be
-  // waiting on anything — it is not mid-turn at all.
-  it('stays quiet when the chat is not working, however it is blocked', () => {
-    const { container } = render(
-      <WorkingLine working={false} activity={activity({ interruptions: [interruption()] })} />,
-    )
-    expect(container).toBeEmptyDOMElement()
-  })
-
-  it('returns to the working line once the interruption resolves', () => {
-    render(
-      <WorkingLine
-        working
-        activity={activity({
-          interruptions: [interruption({ resolvedAt: '2026-08-18T12:00:05Z' })],
-        })}
-      />,
-    )
-    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
-  })
-
-  it('goes back to the working line once the prompt is resolved', () => {
-    render(<WorkingLine working activity={activity({ choices: [choice({ pending: false })] })} />)
-    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
-  })
-
-  // Compaction is not a wait on a PERSON, unlike every other interruption kind
-  // above — it keeps the working line instead of going quiet. Driven by
-  // `compactingLive`, NEVER by `activity`: a compaction's ledger interruption
-  // record is born already resolved (a bare /compact prompt never opens a
-  // tracked turn), so `blockedOn(activity)` can never observe one open — this
-  // prop is the only thing that can turn this branch on in production.
   it('keeps working during compaction, with a fixed verb instead of the rotating list', () => {
-    render(<WorkingLine working activity={NO_ACTIVITY} compactingLive />)
-    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
+    render(<WorkingLine working compacting />)
     expect(screen.getByText('Compacting…')).toBeInTheDocument()
   })
 
-  // An explicit /compact never opens a tracked turn (it is delivered as a
-  // bare prompt the CLI never confirms via user_prompt), so `working` stays
-  // FALSE for the entire compaction — live-confirmed on dev-desktop. Gating
-  // on `working` alone would hide this branch for exactly the case it exists
-  // to cover.
-  it('shows Compacting even when working is false — a /compact never opens a tracked turn', () => {
-    render(<WorkingLine working={false} activity={NO_ACTIVITY} compactingLive />)
-    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
+  // A /compact opens no turn, so `working` stays false the whole way through.
+  it('shows Compacting even when no turn is running', () => {
+    render(<WorkingLine working={false} compacting />)
     expect(screen.getByText('Compacting…')).toBeInTheDocument()
   })
 
-  // The agent's own words replace the flavour verb in the heading; the verb list
-  // is only the fallback for when it says nothing.
   it("headlines the agent's own words instead of a flavour verb", () => {
-    render(<WorkingLine working activity={activity()} reasoning="**Clarifying** the wording" />)
-    const verb = screen.getByTestId('agent-activity-strip').querySelector('.verb')
+    render(<WorkingLine working reasoning="**Clarifying** the wording" />)
+    const verb = screen.getByTestId('agent-working-heading')
     expect(verb).toHaveTextContent('Clarifying the wording')
     expect(verb).not.toHaveTextContent('…')
     expect(screen.queryByTestId('agent-reasoning')).not.toBeInTheDocument()
@@ -265,60 +62,35 @@ describe('WorkingLine', () => {
     render(
       <WorkingLine
         working
-        activity={activity()}
         reasoning={'**Checking the schema**\n\nThe table has no index on chat_id.'}
       />,
     )
-    const strip = screen.getByTestId('agent-activity-strip')
-    expect(strip.querySelector('.verb')).toHaveTextContent('Checking the schema')
+    expect(screen.getByTestId('agent-working-heading')).toHaveTextContent('Checking the schema')
     const body = screen.getByTestId('agent-reasoning')
-    expect(body).toHaveClass('reasoning-subtitle')
     expect(body).toHaveTextContent('The table has no index on chat_id.')
     expect(body).not.toHaveTextContent('Checking the schema')
   })
 
   it("updates the heading as the agent's words change and falls back when they stop", () => {
-    const { rerender } = render(<WorkingLine working activity={activity()} reasoning="First" />)
-    const verb = () => screen.getByTestId('agent-activity-strip').querySelector('.verb')
+    const { rerender } = render(<WorkingLine working reasoning="First" />)
+    const verb = () => screen.getByTestId('agent-working-heading')
     expect(verb()).toHaveTextContent('First')
-    rerender(<WorkingLine working activity={activity()} reasoning="Second" />)
+    rerender(<WorkingLine working reasoning="Second" />)
     expect(verb()).toHaveTextContent('Second')
-    rerender(<WorkingLine working activity={activity()} />)
+    rerender(<WorkingLine working />)
     expect(verb()).toHaveTextContent(/…$/)
   })
 
-  it('says nothing about thinking when the agent reports none', () => {
-    render(<WorkingLine working activity={activity()} />)
-    expect(screen.queryByTestId('agent-reasoning')).not.toBeInTheDocument()
-  })
-
-  // Compaction is a known, named operation — a stale thought from the turn before
-  // it must not sit under "Compacting…".
+  // A stale thought from the turn before must not sit under "Compacting…".
   it('hides the thought while compacting', () => {
-    render(<WorkingLine working activity={activity()} reasoning="old thought" compactingLive />)
+    render(<WorkingLine working reasoning="old thought" compacting />)
     expect(screen.queryByTestId('agent-reasoning')).not.toBeInTheDocument()
   })
 
-  // The whole point of quieting for a block is that the agent is NOT working;
-  // a thought left over from before it would contradict that.
-  it('hides the thought when blocked on a person', () => {
-    render(
-      <WorkingLine
-        working
-        activity={activity({ interruptions: [interruption()] })}
-        reasoning="old thought"
-      />,
-    )
-    expect(screen.queryByTestId('agent-reasoning')).not.toBeInTheDocument()
-  })
-
-  // Statuses reaching the component are CROWBAR'S words, already translated from
-  // the provider's own by its descriptor.
   it("shows the agent's own to-do list with the active step marked", () => {
     render(
       <WorkingLine
         working
-        activity={activity()}
         plan={[
           { text: 'Run the command', status: 'done' },
           { text: 'Summarise it', status: 'active' },
@@ -328,7 +100,6 @@ describe('WorkingLine', () => {
     )
     const list = screen.getByTestId('agent-plan')
     expect(list).toHaveTextContent('Run the command')
-    expect(list).toHaveTextContent('Summarise it')
     const active = [...list.querySelectorAll('li')].filter(
       (li) => li.getAttribute('data-status') === 'active',
     )
@@ -336,47 +107,14 @@ describe('WorkingLine', () => {
     expect(active[0]).toHaveTextContent('Summarise it')
   })
 
-  // A status the descriptor's map did not name is still a step: dropping it
-  // would silently shorten the plan.
+  // Dropping a step whose status the descriptor did not map would shorten the plan.
   it('still renders a step whose status it does not recognise', () => {
-    render(
-      <WorkingLine
-        working
-        activity={activity()}
-        plan={[{ text: 'Mystery', status: 'whoKnows' }]}
-      />,
-    )
+    render(<WorkingLine working plan={[{ text: 'Mystery', status: 'whoKnows' }]} />)
     expect(screen.getByTestId('agent-plan')).toHaveTextContent('Mystery')
   })
 
-  it('shows no plan when the agent reports none', () => {
-    render(<WorkingLine working activity={activity()} />)
-    expect(screen.queryByTestId('agent-plan')).not.toBeInTheDocument()
-  })
-
   it('lists nothing while compacting — there is nothing to enumerate', () => {
-    render(<WorkingLine working activity={activity({ toolCalls: [tool()] })} compactingLive />)
+    render(<WorkingLine working compacting plan={[{ text: 'Step', status: 'active' }]} />)
     expect(screen.queryByRole('list')).not.toBeInTheDocument()
-  })
-
-  // The ledger's own compaction interruption is dead weight for this branch —
-  // it is ALWAYS already resolved by the time anything reads it, so it must
-  // never be able to turn the compacting branch on by itself.
-  it('does not compact off a ledger interruption alone — the ledger record is always already resolved', () => {
-    const { container } = render(
-      <WorkingLine
-        working
-        activity={activity({ interruptions: [interruption({ kind: 'compaction' })] })}
-      />,
-    )
-    // This used to assert an EMPTY container, which held only because every
-    // unresolved interruption blanked the line outright. That blanking was the
-    // "we lose track of whether it is working" bug, so the assertion now states
-    // what this test is actually about: a ledger compaction record must not turn
-    // the Compacting branch on. A compaction is not a wait on a PERSON either, so
-    // an ordinary working line beside it is correct — the chat really is working.
-    expect(container).not.toBeEmptyDOMElement()
-    expect(screen.queryByText(/compacting/i)).not.toBeInTheDocument()
-    expect(screen.getByTestId('agent-activity-strip')).not.toHaveAttribute('data-blocked', 'true')
   })
 })

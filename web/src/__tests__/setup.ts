@@ -252,17 +252,20 @@ if (typeof navigator !== 'undefined' && !navigator.clipboard) {
 }
 
 // No daemon answers a test: a host document's watch socket opens at once and hears nothing,
-// so every open path reaches its read. Every other endpoint keeps the real manager.
+// so every open path reaches its read; a chat's feed replays nothing and is ready, so it
+// shows what the test seeded into chatStore. Every other endpoint keeps the real manager.
 vi.mock('@/lib/ws/manager', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/ws/manager')>()
   const real = actual.wsManager
-  const watch = (endpoint: string) => endpoint.startsWith('/v0/documents/ws?')
+  const feed = (endpoint: string) => /^\/v0\/chats\/[^/]+\/feed$/.test(endpoint)
+  const watch = (endpoint: string) => endpoint.startsWith('/v0/documents/ws?') || feed(endpoint)
   const held = new Map<string, number>()
   const hold = (endpoint: string, n: number) => held.set(endpoint, (held.get(endpoint) ?? 0) + n)
   const wsManager: typeof real = {
     subscribe: (endpoint, cb, url) => {
       if (!watch(endpoint)) return real.subscribe(endpoint, cb, url)
       hold(endpoint, 1)
+      if (feed(endpoint)) cb({ type: 'ready', epoch: 'test' })
       return () => void hold(endpoint, -1)
     },
     send: (endpoint, data) => real.send(endpoint, data),

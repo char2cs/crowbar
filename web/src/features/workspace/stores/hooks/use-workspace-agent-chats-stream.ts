@@ -10,13 +10,11 @@ import {
   type AgentTelemetry,
 } from '@/features/agent/api/agent-chat-reads'
 import { listProviders } from '@/features/agent/api/agent-providers-api'
-import { mapChoice, type AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import {
   runnerLeft,
   startedWorking,
   type ChatFrameOutcome,
 } from '@/features/agent/lib/reduce-chat-frame'
-import { createStreamingMessageBatcher } from '@/features/workspace/stores/hooks/lib/streaming-message-batcher'
 import { getWorkspaceScope, useWorkspaceScopeReady } from '@/lib/workspace-scope'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
@@ -66,9 +64,8 @@ function providerOn(st: WorkspaceSnapshot, chatId: string): string {
 // newer version wins (reduce-chat-frame.ts) — and never refetches a chat, never
 // guesses from the kind, and never orders reads by when it asked.
 //
-// The frames that carry NO snapshot are the live views of a turn in progress
-// (message_delta, plan, telemetry, choice, compaction_*, prompt_settled), the worktree
-// state, the folder frames, and the delete (which carries only its version).
+// The frames that carry NO snapshot are a turn's live views (each chat's feed
+// owns them), telemetry, the worktree state, the folder frames, and the delete.
 interface AgentStreamEvent {
   /** The chat the frame is about. */
   chatId: string
@@ -81,23 +78,8 @@ interface AgentStreamEvent {
   /** The chat's whole snapshot, and the version that orders it. */
   chat?: AgentChat
   version?: number
-  /** The client request id of one prompt that is over, on `prompt_settled`. */
-  clientRequestId?: string
-  /** Whether anything proved the provider took that prompt — see
-   *  AgentChatsState.settledPrompts/abandonedPrompts. Absent reads as false,
-   *  which is the answer that preserves the user's text. */
-  promptConsumed?: boolean
-  /** An assistant message still being produced, on `message_delta` — the text
-   *  SO FAR. `kind` is absent for the answer, `reasoning` for a thought,
-   *  `tool_output` for a running tool's output. */
-  message?: { id: string; text: string; kind?: string; startedAt?: string }
-  /** The agent's own running to-do list, on `plan` — always the whole list. */
-  plan?: { text: string; status: string }[]
   /** The provider's newest usage report, on `telemetry`. */
   telemetry?: AgentTelemetry
-  /** Every prompt the chat is blocked on, on `choice` — whole, and absent once
-   *  none is. A socket's first frames restate each chat already waiting. */
-  choices?: AgentChoice[]
 }
 
 /**
@@ -130,13 +112,6 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       const repoId = getWorkspaceScope(wsId)?.repoId
       if (repoId) useFolderSignalStore.getState().bump(repoId)
     }
-
-    // `message_delta` fires once per streamed token, each its own top-level WS
-    // callback — outside anything React batches. This collapses them into one
-    // store write per chat per frame.
-    const streamingMessages = createStreamingMessageBatcher((chatId, message) =>
-      stateOf().setAgentChatStreamingMessage(chatId, message),
-    )
 
     // The list read. Every row is a versioned snapshot applied under the same
     // rule a frame is, so it can land in any order relative to the feed: a row
@@ -327,18 +302,6 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       const left = runnerLeft(outcome)
       if (left) releaseRunner(left, ev.chatId)
       if (startedWorking(outcome) && before.agentChats.listSeeded) adoptIfViewless(ev.chatId)
-      if (ev.kind === 'turn_started' || ev.kind === 'turn_stopped') {
-        // The thinking, the running tool's output, the plan and diff belong to
-        // the turn that just changed state. Deliberately NOT clearing
-        // streamingMessages: an interrupted turn's CLI can keep producing and
-        // complete on its own schedule; entries leave only once the ledger
-        // holds them (useChatMessages).
-        const st = stateOf()
-        st.setAgentChatStreamingReasoning(ev.chatId, null)
-        st.setAgentChatStreamingToolOutput(ev.chatId, null)
-        st.setAgentChatStreamingPlan(ev.chatId, null)
-        st.setAgentChatStreamingDiff(ev.chatId, null)
-      }
     }
 
     void seedChats()
@@ -349,17 +312,11 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       // Reconnect sentinel emitted by the manager after a socket drop+reopen —
       // reseed so pushes missed during the outage aren't lost.
       if (frame && typeof frame === 'object' && 'reconnected' in frame) {
-        // Invalidate transcript pages synchronously, before the repair GET: a
-        // complete turn can be idle before and after the outage.
-        stateOf().notifyAgentChatMessages()
         void seedChats()
         // Every folder frame dropped during the outage is a rearrangement this
         // client never heard about, and nothing else would ever ask again.
         void seedFolders()
         bumpTreeSignal()
-        // A prompt that resolved during the outage was never announced; the new
-        // socket's first frames restate the ones still pending.
-        stateOf().resetAgentChatChoices()
         // The outage that dropped the socket is the same one that can have
         // emptied the providers, and this is the signal the daemon is back.
         void seedProviders()
@@ -377,75 +334,18 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       // A chat row is a TREE row (design spec §3.1), so the sidebar has to hear
       // about a structural change exactly as it hears about a folder.
       if (!NON_STRUCTURAL_CHAT_KINDS.has(ev.kind)) bumpTreeSignal()
-      const st = stateOf()
-      // ANY other chat frame while this chat is marked compacting is proof the
-      // compaction is over — a new turn, a delta, a snapshot. An idle snapshot
-      // clears it too (the slice). No timer.
-      if (
-        ev.kind !== 'compaction_started' &&
-        ev.kind !== 'compaction_stopped' &&
-        st.agentChats.compacting[ev.chatId]
-      ) {
-        st.setAgentChatCompacting(ev.chatId, false)
-      }
+      // A turn's live views are each chat's own feed (chat-feed.ts).
       switch (ev.kind) {
         case 'message_delta':
-          if (!ev.message) return
-          // A THOUGHT, not the answer: nothing in the ledger will ever match it,
-          // so it must never reach streamingMessages.
-          if (ev.message.kind === 'reasoning') {
-            st.setAgentChatStreamingReasoning(ev.chatId, {
-              id: ev.message.id,
-              text: ev.message.text,
-            })
-            return
-          }
-          // A running tool's output — same contract as a thought.
-          if (ev.message.kind === 'tool_output') {
-            st.setAgentChatStreamingToolOutput(ev.chatId, {
-              id: ev.message.id,
-              text: ev.message.text,
-            })
-            return
-          }
-          if (ev.message.kind === 'diff') {
-            if (ev.message.text === '') {
-              st.setAgentChatStreamingDiff(ev.chatId, null)
-              return
-            }
-            st.setAgentChatStreamingDiff(ev.chatId, {
-              id: ev.message.id,
-              text: ev.message.text,
-            })
-            return
-          }
-          streamingMessages.schedule(ev.chatId, ev.message)
-          return
         case 'plan':
-          st.setAgentChatStreamingPlan(ev.chatId, ev.plan ?? null)
+        case 'choice':
+        case 'compaction_started':
+        case 'compaction_stopped':
+        case 'prompt_settled':
+        case 'worktree_state':
           return
         case 'telemetry':
-          st.setAgentChatTelemetry(ev.chatId, ev.telemetry ?? null)
-          return
-        case 'choice':
-          st.setAgentChatChoices(ev.chatId, (ev.choices ?? []).map(mapChoice))
-          return
-        case 'compaction_started':
-          // The ledger's own record of a compaction is born resolved, so this
-          // live push is the only place "in progress" is observable.
-          st.setAgentChatCompacting(ev.chatId, true)
-          return
-        case 'compaction_stopped':
-          st.setAgentChatCompacting(ev.chatId, false)
-          return
-        case 'prompt_settled':
-          // Released one way or the other by whether the CLI provably took the
-          // prompt: only then is the queued text spent and safe to discard.
-          if (!ev.clientRequestId) return
-          if (ev.promptConsumed) st.setAgentChatPromptSettled(ev.chatId, ev.clientRequestId)
-          else st.setAgentChatPromptAbandoned(ev.chatId, ev.clientRequestId)
-          return
-        case 'worktree_state':
+          stateOf().setAgentChatTelemetry(ev.chatId, ev.telemetry ?? null)
           return
         default:
           applyLifecycle(ev)
@@ -455,7 +355,6 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     return () => {
       cancelled = true
       unsubscribe()
-      streamingMessages.dispose()
     }
   }, [wsId, scopeReady])
 }

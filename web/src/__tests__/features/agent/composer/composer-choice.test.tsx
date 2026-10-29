@@ -2,9 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { AgentActivity, AgentChoice } from '@/features/agent/api/agent-chat-activity'
+import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
-import { NO_ACTIVITY } from '@/features/agent/lib/agent-activity'
 import { ApiError } from '@/lib/errors/api-error'
 
 const { answerChoiceFn, setChatPermissionLevelFn } = vi.hoisted(() => ({
@@ -61,37 +60,16 @@ function choice(overrides: Partial<AgentChoice> = {}): AgentChoice {
   }
 }
 
-function activity(overrides: Partial<AgentActivity> = {}): AgentActivity {
-  return { ...NO_ACTIVITY, ...overrides }
-}
-
-/** The second line is DERIVED now: a permission's target is read off the tool
- *  call it gates, not handed in, so a test that wants one supplies the call. */
+/** A permission's target comes from the fold: the ask's own, else its tool call's. */
 function draw(overrides: Partial<AgentChoice> = {}, detail = '') {
   const subject = choice(overrides)
-  const gating: AgentActivity = detail
-    ? activity({
-        toolCalls: [
-          {
-            id: 'gated',
-            turnId: subject.turnId,
-            seq: 1,
-            name: subject.toolName ?? 'Bash',
-            target: detail,
-            status: 'running',
-            hasRequest: false,
-            hasResult: false,
-            startedAt: '2026-08-18T12:00:00Z',
-          },
-        ],
-      })
-    : NO_ACTIVITY
   return render(
     <ComposerChoice
       wsId="w1"
       chatId="c1"
-      activity={gating}
+      pending={1}
       choice={subject}
+      toolTarget={detail}
       providerLabel="Claude"
       permissionLevels={['guarded', 'trusted', 'full-auto']}
     />,
@@ -193,7 +171,7 @@ describe('ComposerChoice that cannot be answered from here', () => {
         wsId="w1"
         chatId="c1"
         choice={choice({ answerable: false })}
-        activity={NO_ACTIVITY}
+        pending={1}
         providerLabel="Claude"
         onOpenTerminal={onOpenTerminal}
       />,
@@ -225,7 +203,7 @@ describe('ComposerChoice failures', () => {
       <ComposerChoice
         wsId="w1"
         chatId="c1"
-        activity={NO_ACTIVITY}
+        pending={1}
         choice={choice()}
         providerLabel="Claude"
         onOpenTerminal={onOpenTerminal}
@@ -263,7 +241,7 @@ describe('ComposerChoice failures', () => {
       <ComposerChoice
         wsId="w1"
         chatId="c1"
-        activity={NO_ACTIVITY}
+        pending={1}
         choice={choice()}
         providerLabel="Claude"
         onOpenTerminal={onOpenTerminal}
@@ -329,7 +307,7 @@ describe('ComposerChoice suggestions', () => {
       <ComposerChoice
         wsId="w1"
         chatId="c1"
-        activity={NO_ACTIVITY}
+        pending={1}
         choice={choice({
           options: [
             { id: 'allow', kind: 'allow', label: 'Allow' },
@@ -492,7 +470,7 @@ describe('ComposerChoice with several questions', () => {
         wsId="w1"
         chatId="c1"
         choice={choice({ ...threeQuestions, id: 'k2' })}
-        activity={NO_ACTIVITY}
+        pending={1}
         providerLabel="Claude"
       />,
     )
@@ -572,7 +550,7 @@ describe('ComposerChoice elicitation', () => {
       <ComposerChoice
         wsId="w1"
         chatId="c1"
-        activity={NO_ACTIVITY}
+        pending={1}
         choice={choice(elicitation)}
         providerLabel="Claude"
         onOpenTerminal={onOpenTerminal}
@@ -630,7 +608,7 @@ describe('ComposerChoice permission-level switcher', () => {
         wsId="w1"
         chatId="c1"
         choice={choice({ answerable: false })}
-        activity={NO_ACTIVITY}
+        pending={1}
         providerLabel="Claude"
         onOpenTerminal={onOpenTerminal}
       />,
@@ -646,13 +624,7 @@ describe('ComposerChoice permission-level switcher', () => {
   // three unconditionally would put up a control the write would 400 on.
   it('does not appear for a provider whose descriptor declares no levels', () => {
     render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        choice={choice()}
-        activity={NO_ACTIVITY}
-        providerLabel="Claude"
-      />,
+      <ComposerChoice wsId="w1" chatId="c1" choice={choice()} pending={1} providerLabel="Claude" />,
     )
 
     expect(screen.queryByTestId('chat-permission-level-trigger')).toBeNull()
@@ -665,7 +637,7 @@ describe('ComposerChoice permission-level switcher', () => {
         wsId="w1"
         chatId="c1"
         choice={choice()}
-        activity={NO_ACTIVITY}
+        pending={1}
         providerLabel="Codex"
         permissionLevels={['trusted', 'full-auto']}
       />,
@@ -710,7 +682,7 @@ describe('ComposerChoice permission-level switcher', () => {
         wsId="w1"
         chatId="persist-1"
         choice={choice()}
-        activity={NO_ACTIVITY}
+        pending={1}
         providerLabel="Claude"
         permissionLevels={['guarded', 'trusted', 'full-auto']}
       />,
@@ -730,7 +702,7 @@ describe('ComposerChoice permission-level switcher', () => {
         wsId="w1"
         chatId="persist-1"
         choice={choice()}
-        activity={NO_ACTIVITY}
+        pending={1}
         providerLabel="Claude"
         permissionLevels={['guarded', 'trusted', 'full-auto']}
       />,
@@ -745,7 +717,7 @@ describe('ComposerChoice permission-level switcher', () => {
         wsId="w1"
         chatId="persist-2"
         choice={choice({ id: 'k2' })}
-        activity={NO_ACTIVITY}
+        pending={1}
         providerLabel="Claude"
         permissionLevels={['guarded', 'trusted', 'full-auto']}
       />,
@@ -762,15 +734,8 @@ describe('ComposerChoice permission-level switcher', () => {
 describe('ComposerChoice with more than one choice pending', () => {
   it('says a second one is waiting, without drawing a second card', () => {
     const shown = choice({ id: 'k1', seq: 1 })
-    const other = choice({ id: 'k2', seq: 2, toolName: 'Write' })
     render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        activity={activity({ choices: [shown, other] })}
-        choice={shown}
-        providerLabel="Claude"
-      />,
+      <ComposerChoice wsId="w1" chatId="c1" pending={2} choice={shown} providerLabel="Claude" />,
     )
 
     expect(screen.getByTestId('agent-choice-queue-depth')).toHaveTextContent('+1 more waiting')
@@ -780,13 +745,7 @@ describe('ComposerChoice with more than one choice pending', () => {
 
   it('says nothing when it is the only one', () => {
     render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        activity={activity({ choices: [choice()] })}
-        choice={choice()}
-        providerLabel="Claude"
-      />,
+      <ComposerChoice wsId="w1" chatId="c1" pending={1} choice={choice()} providerLabel="Claude" />,
     )
 
     expect(screen.queryByTestId('agent-choice-queue-depth')).not.toBeInTheDocument()

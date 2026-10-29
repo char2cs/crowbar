@@ -1,3 +1,4 @@
+import { chatStore } from '@/features/agent/stores/chat-store'
 import { createElement } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -6,9 +7,8 @@ import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
-const { getChatFn, listMessagesFn, slashCatalogFn, switchToTerminalFn } = vi.hoisted(() => ({
+const { getChatFn, slashCatalogFn, switchToTerminalFn } = vi.hoisted(() => ({
   getChatFn: vi.fn(),
-  listMessagesFn: vi.fn(),
   slashCatalogFn: vi.fn(),
   switchToTerminalFn: vi.fn(),
 }))
@@ -31,7 +31,6 @@ vi.mock('@/features/agent/api/agent-chat-reads', async (importOriginal) => {
   return {
     ...actual,
     getChat: (...a: unknown[]) => getChatFn(...a),
-    listChatMessages: (...a: unknown[]) => listMessagesFn(...a),
     getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
   }
 })
@@ -211,11 +210,10 @@ const surfaceToggle = () => screen.getByRole('tab', { name: 'Terminal' })
 beforeEach(() => {
   resetChatPresentationMemoryForTests()
   getChatFn.mockReset()
-  listMessagesFn.mockReset()
+  chatStore.setState({ feeds: {} })
   slashCatalogFn.mockReset()
   switchToTerminalFn.mockReset()
   switchToTerminalFn.mockResolvedValue('term-session-1')
-  listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
   slashCatalogFn.mockResolvedValue({
     providerId: 'claude',
     completeness: 'model_visible',

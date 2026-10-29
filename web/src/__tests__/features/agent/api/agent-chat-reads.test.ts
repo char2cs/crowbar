@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const apiFetch = vi.fn()
-vi.mock('@/lib/api/fetch', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }))
+vi.mock('@/lib/api/fetch', () => ({ API_BASE: '', apiFetch: (...a: unknown[]) => apiFetch(...a) }))
 // Only the scope REGISTRY is faked; the URL builders themselves run for real,
 // so these assertions pin the actual paths this client dials rather than a
 // stand-in shape. 'w1' carries a real repo, so chatBase builds the Task-17
@@ -166,60 +166,28 @@ describe('agent-chat-reads', () => {
     expect(chat.conversations).toEqual([])
   })
 
-  it('reads the newest hook-ledger page and grounds cursor fields', async () => {
-    apiFetch.mockResolvedValue({
-      cursor: 12,
-      oldestCursor: 11,
-      hasMore: true,
-      items: [
-        {
-          sequence: 11,
-          role: 'user',
-          providerId: 'codex',
-          text: 'Explain this',
-          at: '2026-08-16T00:00:00Z',
-        },
-        {
-          sequence: 12,
-          role: 'assistant',
-          providerId: 'codex',
-          text: 'Sure.',
-          at: '2026-08-16T00:00:01Z',
-        },
-      ],
-    })
-    const page = await api.listChatMessages('w1', 'chat/1')
-    expect(apiFetch).toHaveBeenCalledWith(
-      '/v0/projects/p1/repos/r1/chats/chat%2F1/messages?limit=100',
-      {
-        signal: undefined,
-      },
+  it('reads a payload a row names by its blob ref, and null once it is swept', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('full output'))
+      .mockResolvedValueOnce(new Response('', { status: 404 }))
+    const controller = new AbortController()
+    await expect(api.readBlob('chat/1', 'sha256:ab', controller.signal)).resolves.toBe(
+      'full output',
     )
-    expect(page).toMatchObject({ cursor: 12, oldestCursor: 11, hasMore: true })
-    expect(page.items.map((item) => item.sequence)).toEqual([11, 12])
+    const [url, init] = fetchSpy.mock.calls[0]
+    expect(url).toBe('/v0/chats/chat%2F1/blobs/sha256%3Aab')
+    expect(init).toEqual({ signal: controller.signal })
+    await expect(api.readBlob('c1', 'sha256:gone')).resolves.toBeNull()
+    fetchSpy.mockRestore()
   })
 
-  it('carries incremental and older paging cursors plus a cancellation signal', async () => {
-    const controller = new AbortController()
-    apiFetch.mockResolvedValue({ cursor: 9, oldestCursor: 4, hasMore: false, items: [] })
-    await api.listChatMessages('w1', 'c1', {
-      after: 4,
-      limit: 25,
-      signal: controller.signal,
-    })
-    expect(apiFetch).toHaveBeenCalledWith(
-      '/v0/projects/p1/repos/r1/chats/c1/messages?after=4&limit=25',
-      {
-        signal: controller.signal,
-      },
-    )
-    await api.listChatMessages('w1', 'c1', { before: 10, limit: 25 })
-    expect(apiFetch).toHaveBeenLastCalledWith(
-      '/v0/projects/p1/repos/r1/chats/c1/messages?before=10&limit=25',
-      {
-        signal: undefined,
-      },
-    )
+  it('throws on a blob read that failed for any other reason', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('', { status: 500 }))
+    await expect(api.readBlob('c1', 'sha256:ab')).rejects.toThrow('500')
+    fetchSpy.mockRestore()
   })
 
   it('loads a cancellable slash catalog with no read retry/cache layer', async () => {

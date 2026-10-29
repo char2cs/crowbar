@@ -261,15 +261,6 @@ export interface AgentChatMessage {
   at: string
 }
 
-/** A bounded ledger page. `cursor` is the newest returned sequence and
- *  `oldestCursor` is the anchor used to page upward. */
-export interface AgentChatMessagesPage {
-  cursor: number
-  oldestCursor: number
-  hasMore: boolean
-  items: AgentChatMessage[]
-}
-
 type SlashCatalogCompleteness = 'complete' | 'model_visible' | 'plugin_only'
 
 export interface SlashCatalogItem {
@@ -361,37 +352,6 @@ export async function getChat(
     signal,
   })
   return { ...mapChat(raw), conversations: raw.conversations ?? [] }
-}
-
-export interface ListChatMessagesOptions {
-  after?: number
-  before?: number
-  limit?: number
-  signal?: AbortSignal
-}
-
-/** Read hook-confirmed messages. Omitting both cursors asks for the newest page;
- *  `after` incrementally catches up and `before` pages older messages. */
-export async function listChatMessages(
-  wsId: string,
-  id: string,
-  options: ListChatMessagesOptions = {},
-): Promise<AgentChatMessagesPage> {
-  const query = new URLSearchParams()
-  if (options.after !== undefined) query.set('after', String(options.after))
-  if (options.before !== undefined) query.set('before', String(options.before))
-  query.set('limit', String(options.limit ?? 100))
-  const raw = await apiFetch<AgentChatMessagesPage>(
-    `${chatBase(wsId)}/${encodeURIComponent(id)}/messages?${query}`,
-    { signal: options.signal },
-  )
-  const items = raw?.items ?? []
-  return {
-    cursor: raw?.cursor ?? items.at(-1)?.sequence ?? 0,
-    oldestCursor: raw?.oldestCursor ?? items[0]?.sequence ?? 0,
-    hasMore: raw?.hasMore ?? false,
-    items,
-  }
 }
 
 /** One content-addressed payload a row names (`sha256:…`); null once swept. */

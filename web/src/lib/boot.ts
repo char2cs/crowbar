@@ -6,7 +6,6 @@ import {
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { dataOf } from '@/lib/loadable'
-import { prefetchVisibleChats } from '@/features/agent/lib/prefetch-visible-chats'
 import { preloadAgentChatPane } from '@/features/panes/lib/chat-surface-loader'
 import { showingLayout } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -54,9 +53,6 @@ export async function hydrateCriticalStores(): Promise<void> {
   void placeRestoredChatMembers()
   await useWorkspaceListStore.getState().fetch()
   useSidebarStore.getState().setRepos(dataOf(useWorkspaceListStore.getState().data) ?? [])
-  // setRepos recorded each workspace's scope, which the messages URL needs. Not
-  // awaited: the first page loads while the chat surface's chunks do.
-  void prefetchVisibleChats()
   await hydrateSidebar()
   await chatSurface?.catch(() => {})
 }

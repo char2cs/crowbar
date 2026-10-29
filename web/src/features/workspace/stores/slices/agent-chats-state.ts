@@ -4,7 +4,6 @@ import type {
   AgentTelemetry,
   AgentTerminalWait,
 } from '@/features/agent/api/agent-chat-reads'
-import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import type { ChatFrame, ChatFrameOutcome } from '@/features/agent/lib/reduce-chat-frame'
 import type { ParsedExcalidrawScene } from '@/features/agent/composer/plate/attachments/excalidraw-scene'
@@ -62,131 +61,11 @@ export interface AgentChatsState {
    */
   terminalWaits: Record<string, AgentTerminalWait>
   /**
-   * Which chats are LIVE mid-compaction right now, keyed by chat id. PRESENCE
-   * is the verdict, same convention as terminalWaits.
-   *
-   * Driven ENTIRELY by the `compaction_started`/`compaction_stopped` WS
-   * frames (use-workspace-agent-chats-stream.ts) — never by the ledger's own
-   * interruption record. That record is born already resolved (a bare
-   * /compact prompt never opens a tracked turn), so it can never answer "is
-   * one happening right now"; only the live push can. The stream also
-   * self-heals this on any other lifecycle frame and a bounded timeout,
-   * because compact_post is not reliable — see the stream's own comments.
-   *
-   * A THIRD backstop lives in seedAgentChats: both of the above require the
-   * app to still be running to fire, so a compaction_stopped lost for good
-   * (the app closed for the whole compaction window) leaves this stuck true
-   * forever without it. seedAgentChats clears — never sets — an entry once
-   * its own fresh `working` comes back false, since a chat cannot genuinely
-   * be mid-compaction and idle at once.
-   */
-  compacting: Record<string, boolean>
-  /**
-   * Client request ids the daemon has reported as SETTLED: delivered to a CLI,
-   * and over, without ever having produced a turn.
-   *
-   * The composer's pending queue normally resolves an item when the prompt it sent
-   * turns up in the ledger as a user message. A provider's own built-in command
-   * never produces one — the CLI handles it and announces nothing — so the item
-   * would wait forever on evidence that is not coming. This is the other way an
-   * item can be resolved.
-   *
-   * Bounded to the most recent SETTLED_PROMPTS_PER_CHAT per chat. An id only
-   * matters while the queue still holds it, and the queue is itself capped, so
-   * anything older than that window is already unreachable.
-   */
-  settledPrompts: Record<string, string[]>
-  /**
-   * Client request ids the daemon has reported as over WITHOUT any proof the
-   * provider ever took them — its delivery timeout expiring, and nothing else.
-   *
-   * Kept apart from settledPrompts because the two call for opposite treatment.
-   * A settled prompt is spent and its queue item can go; an abandoned one is a
-   * prompt that may never have been seen at all, and its queue item holds the
-   * only surviving copy of what the user typed — the daemon's journal records a
-   * hash of the text and never the text itself, and nothing reached the ledger.
-   * Dropping those ids the way settled ones are dropped is what silently erased
-   * a user's message after an idle gap.
-   *
-   * Bounded per chat exactly like settledPrompts, and for the same reason.
-   */
-  abandonedPrompts: Record<string, string[]>
-  /**
-   * The assistant message(s) each chat is CURRENTLY producing, if any.
-   *
-   * An ARRAY, not a single slot: a turn can have more than one message item
-   * open (Codex splits a reply across several `agentMessage` items with
-   * distinct ids; Claude's turns only ever have one, so this is always
-   * length-0-or-1 for it). Upserted by id, never overwritten wholesale — a
-   * new item starting must not silently drop an earlier one still streaming.
-   *
-   * Transient by design and never persisted: entries are dropped ONLY once
-   * the message lands in the ledger (compared by text — see useChatMessages),
-   * never on a new turn starting — "interrupted" is a graceful request, not
-   * a kill, so the stopped turn's CLI can keep producing and complete on its
-   * own schedule after a different turn has already begun. Keeping it out
-   * of the ledger is what stops roughly 1.4 durable writes a second per
-   * streaming chat to store text that is superseded a moment later.
-   */
-  streamingMessages: Record<string, { id: string; text: string; startedAt?: string }[]>
-  /**
-   * What the agent is THINKING right now, keyed by chat — the current thinking
-   * block only, never a history.
-   *
-   * Separate from streamingMessages on purpose. A thought is not an answer: it is
-   * never recorded in the ledger, so useChatMessages' prune-against-the-ledger
-   * pass could never retire it, and rendering it as an assistant bubble would put
-   * the model's reasoning into the transcript as though it had said it out loud.
-   *
-   * A reasoning model spends most of a hard turn here emitting nothing else, so
-   * this is the difference between a chat that looks busy and one that looks dead.
-   * Cleared on every turn edge — it belongs to the turn that produced it.
-   */
-  streamingReasoning: Record<string, { id: string; text: string }>
-  /**
-   * A running tool's output as it is produced, keyed by chat — the newest tool
-   * only. `id` is the tool call it belongs to, so a client can put the lines
-   * under the right running row.
-   *
-   * Live-only for the same reason as streamingReasoning: the tool's FULL output
-   * lands once, on the completed tool call, and keeping every line of every
-   * build in the ledger would multiply the transcript for text nobody scrolls
-   * back to. Cleared on every turn edge.
-   */
-  streamingToolOutput: Record<string, { id: string; text: string }>
-  /**
-   * The agent's own running to-do list for the current turn, keyed by chat.
-   *
-   * Restated WHOLESALE by the server on every update — the newest list is the
-   * entire truth, so this is a replace, never a merge, and there is no ordering
-   * or diffing for a client to get wrong. Live-only and cleared at the turn edge,
-   * for the same reason as streamingReasoning: a plan for a turn in progress is a
-   * view of it, not a record.
-   */
-  streamingPlan: Record<string, { text: string; status: string }[]>
-  /** The newest complete unified diff for the current turn. */
-  streamingDiff: Record<string, { id: string; text: string }>
-  /**
    * The provider's newest usage report per chat — context, rate limits, cost.
    * Written by the `telemetry` frame the daemon pushes as each report lands, and
    * once by the gauge's own first read; never polled.
    */
   telemetry: Record<string, AgentTelemetry>
-  /**
-   * The prompts each chat is BLOCKED on right now — permissions, questions,
-   * elicitations — keyed by chat.
-   *
-   * Written whole by the `choice` frame (and by the snapshot a connecting socket
-   * is sent), so a chat that was hidden when one opened already holds it the
-   * first time it is shown. Absent means none; resolved prompts are history and
-   * come from the activity read, never from here.
-   */
-  choices: Record<string, AgentChoice[]>
-  /** Monotonic notification counter. It advances for every server turn state
-   *  write even when React batches a fast true→false pair into one render, and
-   *  on an authoritative reconnect reseed because a complete idle→idle turn
-   *  may have occurred while the socket was down. */
-  turnRevision: Record<string, number>
   /**
    * A one-shot "open the takeover with this scene" signal, keyed by chat id —
    * how an Edit button on a diagram rendered deep in a chat's transcript
@@ -221,67 +100,13 @@ export interface AgentChatsSlice {
    * confirms each before forgetting it.
    */
   seedAgentChats: (chats: AgentChat[]) => string[]
-  /** Invalidate every mounted chat transcript after a socket outage. This is
-   * independent of the reconnect GET so even a failed/superseded read cannot
-   * hide a complete idle-to-idle turn that happened while disconnected. */
-  notifyAgentChatMessages: () => void
   /** Apply one chat snapshot from a single-chat read, under the version rule. */
   applyAgentChat: (chat: AgentChat) => ChatFrameOutcome
   /** Apply one chat frame off the feed — the ONE writer of chat state. */
   applyAgentChatFrame: (frame: ChatFrame) => ChatFrameOutcome
   removeAgentChat: (chatId: string) => void
-  /** Write — or clear, with false — whether a chat is LIVE mid-compaction
-   *  right now. See AgentChatsState.compacting for why this must never be
-   *  derived from the ledger. */
-  setAgentChatCompacting: (chatId: string, active: boolean) => void
-  /** Record that one delivered prompt is over without having produced a turn. */
-  setAgentChatPromptSettled: (chatId: string, clientRequestId: string) => void
-  /** Record one prompt the daemon retired with no proof the provider took it.
-   *  The queue KEEPS its text and surfaces a failure — see abandonedPrompts. */
-  setAgentChatPromptAbandoned: (chatId: string, clientRequestId: string) => void
-  /** Upsert (by id) one message a chat is mid-way through saying, or clear
-   *  ALL of a chat's in-flight messages with null (a new turn starting). */
-  setAgentChatStreamingMessage: (
-    chatId: string,
-    message: { id: string; text: string; startedAt?: string } | null,
-  ) => void
-  /** Replace (or clear, with null) the thinking block a chat is mid-way through.
-   *  Only the latest is kept — see AgentChatsState.streamingReasoning. */
-  setAgentChatStreamingReasoning: (
-    chatId: string,
-    block: { id: string; text: string } | null,
-  ) => void
-  /** Replace (or clear, with null) the live output of the tool a chat is
-   *  currently running. See AgentChatsState.streamingToolOutput. */
-  setAgentChatStreamingToolOutput: (
-    chatId: string,
-    block: { id: string; text: string } | null,
-  ) => void
-  /** Replace (or clear, with null) the agent's running to-do list for a chat.
-   *  Always a whole list — see AgentChatsState.streamingPlan. */
-  setAgentChatStreamingPlan: (
-    chatId: string,
-    steps: { text: string; status: string }[] | null,
-  ) => void
-  setAgentChatStreamingDiff: (chatId: string, diff: { id: string; text: string } | null) => void
   /** Replace (or clear, with null) the provider's newest usage report. */
   setAgentChatTelemetry: (chatId: string, report: AgentTelemetry | null) => void
-  /** Replace the prompts a chat is blocked on; an empty list clears them. */
-  setAgentChatChoices: (chatId: string, choices: AgentChoice[]) => void
-  /** Forget every chat's prompts. A reconnect does this before the new socket's
-   *  snapshot restates the ones still pending, so none that resolved during the
-   *  outage survives it. */
-  resetAgentChatChoices: () => void
-  /** Drop the given ids' entries once the ledger has recorded them for real —
-   *  see useChatMessages' streamingBubbles for the matching id computation
-   *  this is the store-side twin of. NOT a blanket clear on a turn boundary:
-   *  that was tried and reverted (use-workspace-agent-chats-stream.ts),
-   *  because an interrupted runner's stream can legitimately keep growing
-   *  after a new turn starts, and wiping the array on turn_stopped/started
-   *  deleted a reply that was still arriving. Pruning by CONFIRMED id instead
-   *  is what keeps the array bounded without that regression: an entry is
-   *  only ever removed once its own content is durably persisted elsewhere. */
-  pruneAgentChatStreamingMessages: (chatId: string, ids: string[]) => void
   /** Signal the composer to open the takeover, preloaded with this scene —
    *  see AgentChatsState.excalidrawEditRequests. */
   requestExcalidrawEdit: (chatId: string, scene: ParsedExcalidrawScene) => void
@@ -328,17 +153,7 @@ export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
   listSeeded: false,
   working: {},
   terminalWaits: {},
-  compacting: {},
-  settledPrompts: {},
-  abandonedPrompts: {},
-  streamingMessages: {},
-  streamingReasoning: {},
-  streamingToolOutput: {},
-  streamingPlan: {},
-  streamingDiff: {},
   telemetry: {},
-  choices: {},
-  turnRevision: {},
   excalidrawEditRequests: {},
   order: [],
   activeChatId: null,

@@ -3,18 +3,12 @@ import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
 import { answerChoice } from '@/features/agent/api/agent-chat-commands'
 import type {
-  AgentActivity,
   AgentChoice,
   AgentChoiceOption,
   AgentChoiceQuestion,
 } from '@/features/agent/api/agent-chat-activity'
 import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
-import {
-  choiceDetail,
-  choiceQuestions,
-  describeChoice,
-  pendingChoices,
-} from '@/features/agent/lib/agent-activity'
+import { choiceDetail, choiceQuestions, describeChoice } from '@/features/agent/lib/agent-activity'
 import { PermissionLevelSwitcher } from '@/features/agent/composer/permission-level-switcher'
 import { ApiError } from '@/lib/errors/api-error'
 import {
@@ -107,8 +101,9 @@ function freshCard(choiceId: string): CardState {
 export function ComposerChoice({
   wsId,
   chatId,
-  activity,
+  pending,
   choice,
+  toolTarget,
   providerLabel,
   permissionLevels,
   onOpenTerminal,
@@ -116,10 +111,11 @@ export function ComposerChoice({
 }: {
   wsId: string
   chatId: string
-  /** The feed the second line is read off: a permission carries the tool's NAME
-   *  but never its target, which is reported on the call it gates. */
-  activity: AgentActivity
+  /** How many asks are pending, this one included. */
+  pending: number
   choice: AgentChoice
+  /** What a permission is about to touch, from the call it gates. */
+  toolTarget?: string
   providerLabel: string
   /** This chat's current provider's own declared levels — see
    *  PermissionLevelSwitcher's own doc for why an absent/empty list hides it. */
@@ -127,14 +123,9 @@ export function ComposerChoice({
   onOpenTerminal?: () => void
   showQueueDepth?: boolean
 }) {
-  const detail = choiceDetail(activity, choice)
-  // The bar is one occupant, always the OLDEST pending prompt (see
-  // resolveComposerState) — a second simultaneous one (a parallel subagent's
-  // own ask, most measured) used to just vanish with no sign it existed at
-  // all. This is not a second card: it is the one thing missing from the
-  // "invisible" report — proof there IS another decision waiting, once this
-  // one is answered.
-  const queued = pendingChoices(activity).filter((c) => c.id !== choice.id).length
+  const detail = choiceDetail(choice, toolTarget)
+  // The bar shows one ask; a parallel subagent's own ask must not vanish unseen.
+  const queued = pending - 1
   const [stored, setStored] = useState<CardState>(() => freshCard(choice.id))
   // Read through the stamp rather than resetting in an effect: an effect runs
   // AFTER the paint, so there would be one frame in which the previous prompt's

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
 
 import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
@@ -19,20 +19,9 @@ const {
   seedAgentChats,
   applyAgentChat,
   applyAgentChatFrame,
-  notifyAgentChatMessages,
   seedAgentChatFolders,
   removeAgentChat,
-  setAgentChatCompacting,
   setAgentChatTelemetry,
-  setAgentChatChoices,
-  resetAgentChatChoices,
-  setAgentChatPromptSettled,
-  setAgentChatPromptAbandoned,
-  setAgentChatStreamingMessage,
-  setAgentChatStreamingReasoning,
-  setAgentChatStreamingToolOutput,
-  setAgentChatStreamingPlan,
-  setAgentChatStreamingDiff,
   setAgentProviders,
   retargetPane,
   setPaneRunner,
@@ -51,20 +40,9 @@ const {
   seedAgentChats: vi.fn(),
   applyAgentChat: vi.fn(),
   applyAgentChatFrame: vi.fn(),
-  notifyAgentChatMessages: vi.fn(),
   seedAgentChatFolders: vi.fn(),
   removeAgentChat: vi.fn(),
-  setAgentChatCompacting: vi.fn(),
   setAgentChatTelemetry: vi.fn(),
-  setAgentChatChoices: vi.fn(),
-  resetAgentChatChoices: vi.fn(),
-  setAgentChatPromptSettled: vi.fn(),
-  setAgentChatPromptAbandoned: vi.fn(),
-  setAgentChatStreamingMessage: vi.fn(),
-  setAgentChatStreamingReasoning: vi.fn(),
-  setAgentChatStreamingToolOutput: vi.fn(),
-  setAgentChatStreamingPlan: vi.fn(),
-  setAgentChatStreamingDiff: vi.fn(),
   setAgentProviders: vi.fn(),
   retargetPane: vi.fn(),
   setPaneRunner: vi.fn(),
@@ -83,9 +61,6 @@ type FakePane = { id: string; chatId: string | null; runnerId: string | null }
 let storeChats: AgentChat[] = []
 let storeListSeeded = false
 let storeProviders: Array<{ id: string; displayName: string; icon: string }> = []
-// Mutated by the setAgentChatCompacting mock below — the hook's own self-heal
-// check READS this back, so a write-only spy would not exercise that path.
-let storeCompacting: Record<string, boolean> = {}
 let panes: Record<string, FakePane> = {}
 
 const openPane = (id: string, chatId: string, runnerId: string): FakePane => ({
@@ -128,25 +103,13 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
         chats: storeChats,
         listSeeded: storeListSeeded,
         providers: storeProviders,
-        compacting: storeCompacting,
       },
       seedAgentChats,
       applyAgentChat,
       applyAgentChatFrame,
-      notifyAgentChatMessages,
       seedAgentChatFolders,
       removeAgentChat,
-      setAgentChatCompacting,
       setAgentChatTelemetry,
-      setAgentChatChoices,
-      resetAgentChatChoices,
-      setAgentChatPromptSettled,
-      setAgentChatPromptAbandoned,
-      setAgentChatStreamingMessage,
-      setAgentChatStreamingReasoning,
-      setAgentChatStreamingToolOutput,
-      setAgentChatStreamingPlan,
-      setAgentChatStreamingDiff,
       setAgentProviders,
     }),
   }),
@@ -250,11 +213,6 @@ beforeEach(() => {
   storeChats = []
   storeListSeeded = false
   storeProviders = []
-  storeCompacting = {}
-  setAgentChatCompacting.mockImplementation((chatId: string, active: boolean) => {
-    if (active) storeCompacting[chatId] = true
-    else delete storeCompacting[chatId]
-  })
   // The slice's chat writes, over the real reducer.
   applyAgentChat.mockImplementation((c: AgentChat) => {
     const next = applySnapshot(storeChats, c)
@@ -734,217 +692,18 @@ describe('useWorkspaceAgentChatsStream', () => {
   // Regression (shipped and reverted): clearing streamingMessages on a turn
   // edge threw away the still-alive output of an interrupted CLI that goes on to
   // complete its OWN turn. Only the ledger dedup retires those entries.
-  it('neither turn_started nor turn_stopped touch streamingMessages — only the ledger dedup does', async () => {
-    renderHook(() => useWorkspaceAgentChatsStream('w1'))
-    await flush()
-    const onFrame = captureCb()
-
-    onFrame(live('turn_started', 'c1', { working: true }))
-    onFrame(live('turn_stopped', 'c1', { working: false }))
-
-    expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
-  })
-
-  describe('message_delta batching', () => {
-    const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve))
-
-    it('does not write to the store synchronously — it waits for the next frame', async () => {
+  // A turn's live views are each chat's own feed: this stream writes none of them.
+  it.each(['message_delta', 'plan', 'choice', 'compaction_started', 'prompt_settled'])(
+    'leaves a %s frame to the chat feed',
+    async (kind) => {
       renderHook(() => useWorkspaceAgentChatsStream('w1'))
       await flush()
-      const onFrame = captureCb()
 
-      onFrame({
-        chatId: 'c1',
-        workspaceId: 'w1',
-        kind: 'message_delta',
-        message: { id: 'm1', text: 'Bui' },
-      })
+      captureCb()({ chatId: 'c1', workspaceId: 'w1', kind })
 
-      expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
-      await nextFrame()
-      expect(setAgentChatStreamingMessage).toHaveBeenCalledWith('c1', { id: 'm1', text: 'Bui' })
-    })
-
-    // A THOUGHT is not an answer. It rides the same frame kind, tagged, and must
-    // never reach streamingMessages: nothing in the ledger will ever match it, so
-    // useChatMessages' prune-against-the-ledger pass could not retire it and it
-    // would sit in the transcript as an assistant bubble forever.
-    it('routes a reasoning delta to its own slot, never to the message stream', async () => {
-      renderHook(() => useWorkspaceAgentChatsStream('w1'))
-      await flush()
-      const onFrame = captureCb()
-
-      onFrame({
-        chatId: 'c1',
-        workspaceId: 'w1',
-        kind: 'message_delta',
-        message: { id: 'rs_1', text: '**Clarifying**', kind: 'reasoning' },
-      })
-      await nextFrame()
-
-      expect(setAgentChatStreamingReasoning).toHaveBeenCalledWith('c1', {
-        id: 'rs_1',
-        text: '**Clarifying**',
-      })
-      expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
-    })
-
-    it("routes a tool's output delta to its own slot", async () => {
-      renderHook(() => useWorkspaceAgentChatsStream('w1'))
-      await flush()
-      const onFrame = captureCb()
-
-      onFrame({
-        chatId: 'c1',
-        workspaceId: 'w1',
-        kind: 'message_delta',
-        message: { id: 'call_1', text: 'line 1\n', kind: 'tool_output' },
-      })
-      await nextFrame()
-
-      expect(setAgentChatStreamingToolOutput).toHaveBeenCalledWith('c1', {
-        id: 'call_1',
-        text: 'line 1\n',
-      })
-      expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
-    })
-
-    it('routes a complete diff update to its own slot', async () => {
-      renderHook(() => useWorkspaceAgentChatsStream('w1'))
-      await flush()
-      const onFrame = captureCb()
-
-      onFrame({
-        chatId: 'c1',
-        workspaceId: 'w1',
-        kind: 'message_delta',
-        message: { id: 'turn-1', text: 'diff --git a/a b/a', kind: 'diff' },
-      })
-
-      expect(setAgentChatStreamingDiff).toHaveBeenCalledWith('c1', {
-        id: 'turn-1',
-        text: 'diff --git a/a b/a',
-      })
-      expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
-    })
-
-    it('clears the live diff when the provider replaces it with an empty snapshot', async () => {
-      renderHook(() => useWorkspaceAgentChatsStream('w1'))
-      await flush()
-      const onFrame = captureCb()
-
-      onFrame({
-        chatId: 'c1',
-        workspaceId: 'w1',
-        kind: 'message_delta',
-        message: { id: 'turn-1', text: '', kind: 'diff' },
-      })
-
-      expect(setAgentChatStreamingDiff).toHaveBeenCalledWith('c1', null)
-    })
-
-    // The plan arrives WHOLESALE — the newest list is the entire truth, so this
-    // is a replace and a missed frame costs nothing.
-    it("replaces the agent's to-do list wholesale", async () => {
-      renderHook(() => useWorkspaceAgentChatsStream('w1'))
-      await flush()
-      const onFrame = captureCb()
-
-      onFrame({
-        chatId: 'c1',
-        workspaceId: 'w1',
-        kind: 'plan',
-        plan: [
-          { text: 'Run the command', status: 'active' },
-          { text: 'Summarise', status: 'pending' },
-        ],
-      })
-
-      expect(setAgentChatStreamingPlan).toHaveBeenCalledWith('c1', [
-        { text: 'Run the command', status: 'active' },
-        { text: 'Summarise', status: 'pending' },
-      ])
-    })
-
-    // The thought belongs to the turn that produced it — a stale one outliving
-    // its turn would claim the agent is mid-thought when it has already answered.
-    it('drops the thought at a turn edge', async () => {
-      renderHook(() => useWorkspaceAgentChatsStream('w1'))
-      await flush()
-      const onFrame = captureCb()
-
-      onFrame(live('turn_stopped', 'c1', { working: false }))
-
-      expect(setAgentChatStreamingReasoning).toHaveBeenCalledWith('c1', null)
-    })
-
-    it('drops the previous turn diff at a turn edge', async () => {
-      renderHook(() => useWorkspaceAgentChatsStream('w1'))
-      await flush()
-      const onFrame = captureCb()
-
-      onFrame(live('turn_stopped', 'c1', { working: false }))
-
-      expect(setAgentChatStreamingDiff).toHaveBeenCalledWith('c1', null)
-    })
-
-    it('collapses several deltas arriving before the frame into one write, with the latest text', async () => {
-      renderHook(() => useWorkspaceAgentChatsStream('w1'))
-      await flush()
-      const onFrame = captureCb()
-
-      onFrame({
-        chatId: 'c1',
-        workspaceId: 'w1',
-        kind: 'message_delta',
-        message: { id: 'm1', text: 'B' },
-      })
-      onFrame({
-        chatId: 'c1',
-        workspaceId: 'w1',
-        kind: 'message_delta',
-        message: { id: 'm1', text: 'Bu' },
-      })
-      onFrame({
-        chatId: 'c1',
-        workspaceId: 'w1',
-        kind: 'message_delta',
-        message: { id: 'm1', text: 'Bui' },
-      })
-      await nextFrame()
-
-      expect(setAgentChatStreamingMessage).toHaveBeenCalledTimes(1)
-      expect(setAgentChatStreamingMessage).toHaveBeenCalledWith('c1', { id: 'm1', text: 'Bui' })
-    })
-
-    it('ignores a frame missing the message payload', async () => {
-      renderHook(() => useWorkspaceAgentChatsStream('w1'))
-      await flush()
-      const onFrame = captureCb()
-
-      onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'message_delta' })
-      await nextFrame()
-
-      expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
-    })
-
-    it('drops a still-pending delta on unmount rather than writing it late', async () => {
-      const { unmount } = renderHook(() => useWorkspaceAgentChatsStream('w1'))
-      await flush()
-      const onFrame = captureCb()
-
-      onFrame({
-        chatId: 'c1',
-        workspaceId: 'w1',
-        kind: 'message_delta',
-        message: { id: 'm1', text: 'Bui' },
-      })
-      unmount()
-      await nextFrame()
-
-      expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
-    })
-  })
+      expect(applyAgentChatFrame).not.toHaveBeenCalled()
+    },
+  )
 
   it('deleted removes the chat AND the pane holding it (spec §9)', async () => {
     setPanes(openPane('p1', 'c1', 'c1-r'), openPane('p2', 'other', 'other-r'))
@@ -1170,7 +929,7 @@ describe('useWorkspaceAgentChatsStream', () => {
   // dropped. Its rows apply under the same version rule; a chat it omits is a
   // SUSPECT, confirmed gone only by a definite not-found on the chat itself.
 
-  it('reconnect applies the newer list and invalidates transcripts', async () => {
+  it('reconnect applies the newer list', async () => {
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
     listChatsFn.mockResolvedValue([chat('c1', { working: true, version: ++clock })])
@@ -1178,22 +937,7 @@ describe('useWorkspaceAgentChatsStream', () => {
     captureCb()({ reconnected: true })
     await flush()
 
-    expect(notifyAgentChatMessages).toHaveBeenCalledTimes(1)
     expect(held('c1')?.working).toBe(true)
-  })
-
-  it('reconnect invalidates current transcripts even when its repair GET fails', async () => {
-    renderHook(() => useWorkspaceAgentChatsStream('w1'))
-    await flush()
-    notifyAgentChatMessages.mockClear()
-    seedAgentChats.mockClear()
-    listChatsFn.mockRejectedValueOnce(new Error('daemon restarted again'))
-
-    captureCb()({ reconnected: true })
-    await flush()
-
-    expect(notifyAgentChatMessages).toHaveBeenCalledTimes(1)
-    expect(seedAgentChats).not.toHaveBeenCalled()
   })
 
   it('reconnect forgets a chat deleted during the outage, and its pane', async () => {
@@ -1605,66 +1349,6 @@ describe('useWorkspaceAgentChatsStream', () => {
   })
 })
 
-// ── compaction_started / compaction_stopped: the live "Compacting…" edge ──
-//
-// The ledger's own interruption record for a compaction is born already
-// resolved (a bare /compact prompt never opens a tracked turn), so these two
-// frames are the ONLY place "in progress" is ever observable — see
-// AgentChatsState.compacting's doc comment. compact_post is not reliable, so
-// ANY other chat frame arriving while marked compacting clears it, and so does
-// an idle snapshot (the slice). No timer: a chat that goes silent is idle, and
-// its next snapshot says so.
-
-afterEach(() => {
-  vi.useRealTimers()
-})
-
-it('marks the chat compacting on compaction_started', () => {
-  renderHook(() => useWorkspaceAgentChatsStream('w1'))
-
-  captureCb()({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_started' })
-
-  expect(setAgentChatCompacting).toHaveBeenCalledWith('c1', true)
-})
-
-it('clears compacting on compaction_stopped', () => {
-  renderHook(() => useWorkspaceAgentChatsStream('w1'))
-  const onFrame = captureCb()
-
-  onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_started' })
-  onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_stopped' })
-
-  expect(setAgentChatCompacting).toHaveBeenLastCalledWith('c1', false)
-})
-
-// This is the PRIMARY self-heal path, and the one that matters most in
-// practice: compact_post rarely arrives, but the next real thing that
-// happens to the chat (a turn starting, in this test) always does.
-it('self-heals off ANY other chat frame when compact_post never arrives', () => {
-  renderHook(() => useWorkspaceAgentChatsStream('w1'))
-  const onFrame = captureCb()
-
-  onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_started' })
-  expect(setAgentChatCompacting).toHaveBeenLastCalledWith('c1', true)
-
-  // No compaction_stopped ever arrives — instead, ordinary chat life resumes.
-  onFrame(live('turn_started', 'c1', { working: true }))
-
-  expect(setAgentChatCompacting).toHaveBeenLastCalledWith('c1', false)
-})
-
-// A frame for a DIFFERENT chat must never clear c1's own compacting state —
-// self-heal is scoped per chat, same as every other map in this store.
-it('does not self-heal off a frame for a different chat', () => {
-  renderHook(() => useWorkspaceAgentChatsStream('w1'))
-  const onFrame = captureCb()
-
-  onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'compaction_started' })
-  onFrame(live('turn_started', 'c2', { working: true }))
-
-  expect(setAgentChatCompacting).not.toHaveBeenCalledWith('c1', false)
-})
-
 // ── telemetry: the usage gauge rides the feed; nothing polls for it ──
 
 it('writes the pushed usage report through on a telemetry frame', () => {
@@ -1682,81 +1366,4 @@ it('writes the pushed usage report through on a telemetry frame', () => {
     source: 'statusline',
   })
   expect(getChatFn).not.toHaveBeenCalled()
-})
-
-// ── choice: the prompts a chat is blocked on ride the feed; nothing reads for them ──
-
-it('writes the pushed prompts through on a choice frame, whatever chat is on screen', () => {
-  renderHook(() => useWorkspaceAgentChatsStream('w1'))
-
-  captureCb()({
-    chatId: 'c1',
-    workspaceId: 'w1',
-    kind: 'choice',
-    choices: [{ id: 'k1', kind: 'tool_permission', pending: true }],
-  })
-
-  expect(setAgentChatChoices).toHaveBeenCalledWith('c1', [
-    expect.objectContaining({ id: 'k1', pending: true, answerable: false, options: [] }),
-  ])
-  expect(getChatFn).not.toHaveBeenCalled()
-})
-
-it('clears a chat on a choice frame that carries none', () => {
-  renderHook(() => useWorkspaceAgentChatsStream('w1'))
-
-  captureCb()({ chatId: 'c1', workspaceId: 'w1', kind: 'choice' })
-
-  expect(setAgentChatChoices).toHaveBeenCalledWith('c1', [])
-})
-
-it('forgets every chat’s prompts on a reconnect, for the new socket to restate', async () => {
-  renderHook(() => useWorkspaceAgentChatsStream('w1'))
-  await flush()
-
-  captureCb()({ reconnected: true })
-
-  expect(resetAgentChatChoices).toHaveBeenCalledTimes(1)
-})
-
-// ── prompt_settled: which way a retired delivery is released ──
-//
-// REGRESSION, reported live against codex: "User's turns after some time of
-// idle is lost, and does not record anywhere." A retired delivery used to be
-// announced as a bare "this is over", and the composer's queue answered by
-// deleting the item — along with the user's text, which at that moment exists
-// nowhere else in the system (the daemon's journal keeps a hash of the prompt,
-// never the text, and by definition nothing reached the ledger).
-//
-// `promptConsumed` is what separates a built-in the CLI demonstrably ran from
-// the daemon's delivery timeout simply expiring. This is the frame-to-store
-// mapping that has to carry it.
-
-it('records a consumed prompt as settled, which lets the queue drop it', () => {
-  renderHook(() => useWorkspaceAgentChatsStream('w1'))
-
-  captureCb()({
-    chatId: 'c1',
-    workspaceId: 'w1',
-    kind: 'prompt_settled',
-    clientRequestId: 'req-1',
-    promptConsumed: true,
-  })
-
-  expect(setAgentChatPromptSettled).toHaveBeenCalledWith('c1', 'req-1')
-  expect(setAgentChatPromptAbandoned).not.toHaveBeenCalled()
-})
-
-it('records an unproven prompt as abandoned, so the queue keeps the text', () => {
-  renderHook(() => useWorkspaceAgentChatsStream('w1'))
-
-  captureCb()({
-    chatId: 'c1',
-    workspaceId: 'w1',
-    kind: 'prompt_settled',
-    clientRequestId: 'req-1',
-  })
-
-  expect(setAgentChatPromptAbandoned).toHaveBeenCalledWith('c1', 'req-1')
-  expect(setAgentChatPromptSettled).not.toHaveBeenCalled()
 })

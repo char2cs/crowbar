@@ -1,7 +1,6 @@
 import type { DragEvent, KeyboardEvent } from 'react'
 import { useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import type { AgentActivity } from '@/features/agent/api/agent-chat-activity'
 import type { AgentTerminalWait } from '@/features/agent/api/agent-chat-reads'
 import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
 import { AttachFileModal } from '@/features/agent/composer/attach-file-modal'
@@ -27,13 +26,15 @@ import {
 import { isMultiline } from '@/features/agent/composer/lib/handle-geometry'
 import { useAttachmentUpload } from '@/features/agent/composer/lib/use-attachment-upload'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
+import type { AskItem } from '@/features/agent/stores/lib/transcript-items'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { cn } from '@/lib/utils'
 
 interface AgentComposerProps {
   wsId: string
   chatId: string
-  activity: AgentActivity
+  /** The asks still pending, oldest first. */
+  asks: AskItem[]
   providerLabel: string
   /** This chat's current provider's own declared levels, for the permission
    *  switcher a permission choice offers. Undefined/empty hides the switcher. */
@@ -192,7 +193,7 @@ export function AgentComposer(props: AgentComposerProps) {
     submitUnavailable: props.submitUnavailable,
     terminalWait: props.terminalWait,
     compacting: props.compacting,
-    activity: props.activity,
+    asks: props.asks,
     haltedMessage: props.haltedMessage,
     haltedResetsAt: props.haltedResetsAt,
   })
@@ -209,13 +210,14 @@ export function AgentComposer(props: AgentComposerProps) {
     case 'choices':
       return (
         <div className="choice-stack" data-testid="agent-choice-stack">
-          {state.choices.map((choice) => (
+          {state.asks.map((ask) => (
             <ComposerChoice
-              key={choice.id}
+              key={ask.id}
               wsId={props.wsId}
               chatId={props.chatId}
-              activity={props.activity}
-              choice={choice}
+              pending={state.asks.length}
+              choice={ask.choice}
+              toolTarget={ask.toolTarget}
               providerLabel={props.providerLabel}
               permissionLevels={props.permissionLevels}
               onOpenTerminal={props.onOpenTerminal}

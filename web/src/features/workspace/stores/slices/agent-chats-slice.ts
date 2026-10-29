@@ -15,10 +15,6 @@ import {
   INITIAL_AGENT_CHATS_STATE,
 } from './agent-chats-state'
 
-// The queue that reads these is itself capped, so an id older than this window is
-// already unreachable by anything that could act on it.
-const SETTLED_PROMPTS_PER_CHAT = 20
-
 const orderKey = (wsId: string) => `crowbar:agent-chat-order:${wsId}`
 
 function loadOrder(wsId: string): string[] {
@@ -83,18 +79,10 @@ function mirror(
   outcome: Extract<ChatFrameOutcome, { kind: 'applied' }>,
 ): void {
   const { chat } = outcome
-  // turnRevision advances on a REAL working transition only — the prompt
-  // queue reads an advance while idle as an authoritative idle edge.
-  if ((state.working[chat.id] === true) !== chat.working) {
-    if (chat.working) state.working[chat.id] = true
-    else delete state.working[chat.id]
-    state.turnRevision[chat.id] = (state.turnRevision[chat.id] ?? 0) + 1
-  }
+  if (chat.working) state.working[chat.id] = true
+  else delete state.working[chat.id]
   if (chat.terminalWait) state.terminalWaits[chat.id] = chat.terminalWait
   else delete state.terminalWaits[chat.id]
-  // A chat cannot be mid-compaction and idle at once: an idle snapshot proves
-  // a lost compaction_stopped stale.
-  if (!chat.working) delete state.compacting[chat.id]
 }
 
 export const createAgentChatsSlice: StateCreator<
@@ -136,14 +124,6 @@ export const createAgentChatsSlice: StateCreator<
     return vanished
   },
 
-  notifyAgentChatMessages: () => {
-    set((s) => {
-      for (const chat of s.agentChats.chats) {
-        s.agentChats.turnRevision[chat.id] = (s.agentChats.turnRevision[chat.id] ?? 0) + 1
-      }
-    })
-  },
-
   // Both appliers reduce the PLAIN (frozen) state outside the Immer draft, so
   // the outcome handed back — previous row included — is never a revoked proxy.
   applyAgentChat: (chat) => {
@@ -181,17 +161,7 @@ export const createAgentChatsSlice: StateCreator<
       s.agentChats.chats = s.agentChats.chats.filter((c) => c.id !== chatId)
       delete s.agentChats.working[chatId]
       delete s.agentChats.terminalWaits[chatId]
-      delete s.agentChats.compacting[chatId]
-      delete s.agentChats.settledPrompts[chatId]
-      delete s.agentChats.abandonedPrompts[chatId]
-      delete s.agentChats.streamingMessages[chatId]
-      delete s.agentChats.streamingReasoning[chatId]
-      delete s.agentChats.streamingToolOutput[chatId]
-      delete s.agentChats.streamingPlan[chatId]
-      delete s.agentChats.streamingDiff[chatId]
       delete s.agentChats.telemetry[chatId]
-      delete s.agentChats.choices[chatId]
-      delete s.agentChats.turnRevision[chatId]
       delete s.agentChats.excalidrawEditRequests[chatId]
       s.agentChats.order = s.agentChats.order.filter((id) => id !== chatId)
       if (s.agentChats.activeChatId === chatId) s.agentChats.activeChatId = null
@@ -201,111 +171,10 @@ export const createAgentChatsSlice: StateCreator<
     clearScrollPosition(chatId)
   },
 
-  setAgentChatCompacting: (chatId, active) =>
-    set((s) => {
-      if (active) s.agentChats.compacting[chatId] = true
-      else delete s.agentChats.compacting[chatId]
-    }),
-
-  setAgentChatPromptSettled: (chatId, clientRequestId) =>
-    set((s) => {
-      const seen = s.agentChats.settledPrompts[chatId] ?? []
-      if (seen.includes(clientRequestId)) return
-      s.agentChats.settledPrompts[chatId] = [...seen, clientRequestId].slice(
-        -SETTLED_PROMPTS_PER_CHAT,
-      )
-    }),
-
-  setAgentChatPromptAbandoned: (chatId, clientRequestId) =>
-    set((s) => {
-      const seen = s.agentChats.abandonedPrompts[chatId] ?? []
-      if (seen.includes(clientRequestId)) return
-      s.agentChats.abandonedPrompts[chatId] = [...seen, clientRequestId].slice(
-        -SETTLED_PROMPTS_PER_CHAT,
-      )
-    }),
-
-  setAgentChatStreamingMessage: (chatId, message) =>
-    set((s) => {
-      if (!message) {
-        delete s.agentChats.streamingMessages[chatId]
-        return
-      }
-      // In-place upsert on the Immer draft, not a rebuild — the array is
-      // expected to hold at most a handful of concurrently-open items, so
-      // this find is O(open items), and mutating avoids reallocating the
-      // array on every token the way `.map()`/spread would.
-      const list = (s.agentChats.streamingMessages[chatId] ??= [])
-      const existing = list.find((m) => m.id === message.id)
-      if (existing) {
-        existing.text = message.text
-        existing.startedAt = message.startedAt
-      } else list.push(message)
-    }),
-
-  setAgentChatStreamingReasoning: (chatId, block) =>
-    set((s) => {
-      if (!block) {
-        delete s.agentChats.streamingReasoning[chatId]
-        return
-      }
-      s.agentChats.streamingReasoning[chatId] = block
-    }),
-
-  setAgentChatStreamingToolOutput: (chatId, block) =>
-    set((s) => {
-      if (!block) {
-        delete s.agentChats.streamingToolOutput[chatId]
-        return
-      }
-      s.agentChats.streamingToolOutput[chatId] = block
-    }),
-
-  setAgentChatStreamingPlan: (chatId, steps) =>
-    set((s) => {
-      if (!steps || steps.length === 0) {
-        delete s.agentChats.streamingPlan[chatId]
-        return
-      }
-      s.agentChats.streamingPlan[chatId] = steps
-    }),
-
-  setAgentChatStreamingDiff: (chatId, diff) =>
-    set((s) => {
-      if (!diff || diff.text === '') {
-        delete s.agentChats.streamingDiff[chatId]
-        return
-      }
-      s.agentChats.streamingDiff[chatId] = diff
-    }),
-
   setAgentChatTelemetry: (chatId, report) =>
     set((s) => {
       if (report) s.agentChats.telemetry[chatId] = report
       else delete s.agentChats.telemetry[chatId]
-    }),
-
-  setAgentChatChoices: (chatId, choices) =>
-    set((s) => {
-      if (choices.length > 0) s.agentChats.choices[chatId] = choices
-      else delete s.agentChats.choices[chatId]
-    }),
-
-  resetAgentChatChoices: () =>
-    set((s) => {
-      s.agentChats.choices = {}
-    }),
-
-  pruneAgentChatStreamingMessages: (chatId, ids) =>
-    set((s) => {
-      if (ids.length === 0) return
-      const list = s.agentChats.streamingMessages[chatId]
-      if (!list) return
-      const drop = new Set(ids)
-      const kept = list.filter((m) => !drop.has(m.id))
-      if (kept.length === list.length) return
-      if (kept.length === 0) delete s.agentChats.streamingMessages[chatId]
-      else s.agentChats.streamingMessages[chatId] = kept
     }),
 
   requestExcalidrawEdit: (chatId, scene) =>

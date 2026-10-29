@@ -1,3 +1,5 @@
+import { chatStore } from '@/features/agent/stores/chat-store'
+import { seedFeed, spokenIn } from '@/__tests__/__fixtures__/ledger-rows'
 import { createElement } from 'react'
 import { act, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -16,7 +18,6 @@ import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
 const {
   getChatFn,
   resumeChatFn,
-  listMessagesFn,
   submitPromptFn,
   slashCatalogFn,
   saveReconnectFn,
@@ -28,7 +29,6 @@ const {
 } = vi.hoisted(() => ({
   getChatFn: vi.fn(),
   resumeChatFn: vi.fn(),
-  listMessagesFn: vi.fn(),
   submitPromptFn: vi.fn(),
   slashCatalogFn: vi.fn(),
   saveReconnectFn: vi.fn(),
@@ -46,7 +46,6 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
 vi.mock('@/features/agent/api/agent-chat-reads', () => ({
   getPendingPrompt: vi.fn().mockResolvedValue(null),
   getChat: (...a: unknown[]) => getChatFn(...a),
-  listChatMessages: (...a: unknown[]) => listMessagesFn(...a),
   getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
 }))
 import * as commandsApi from '@/features/agent/api/agent-chat-commands'
@@ -211,7 +210,6 @@ beforeEach(() => {
   for (const f of [
     getChatFn,
     resumeChatFn,
-    listMessagesFn,
     submitPromptFn,
     slashCatalogFn,
     saveReconnectFn,
@@ -223,12 +221,8 @@ beforeEach(() => {
   ]) {
     f.mockReset()
   }
-  listMessagesFn.mockResolvedValue({
-    cursor: 1,
-    oldestCursor: 1,
-    hasMore: false,
-    items: [{ id: 'm1', role: 'user', text: 'hi', createdAt: '', cursor: 1 }],
-  })
+  chatStore.setState({ feeds: {} })
+  for (const id of ['c1', 'c2', 'c3']) seedFeed(id, spokenIn(id))
   slashCatalogFn.mockResolvedValue([])
   listProvidersFn.mockResolvedValue(providers)
   useAgentProvidersStore.setState({ providers: [], status: 'idle' })

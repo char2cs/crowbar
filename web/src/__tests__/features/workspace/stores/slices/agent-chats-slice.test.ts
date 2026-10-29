@@ -6,7 +6,6 @@ import {
 } from '@/features/workspace/stores/slices/agent-chats-slice'
 import type { WorkspaceState } from '@/features/workspace/stores/workspace-store.types'
 import type { AgentChat, AgentChatFolder } from '@/features/agent/api/agent-chat-reads'
-import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'
 import {
@@ -42,104 +41,6 @@ describe('agent-chats-slice', () => {
   // dropped the first item's still-growing text from the live view (it was
   // always safe server-side, so the ledger "reconciled" it back a moment
   // later — but the transcript visibly lost a paragraph until then).
-
-  it('setAgentChatStreamingMessage upserts by id — a second id does not drop the first', () => {
-    const s = createWorkspaceStore('w1')
-
-    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'first paragraph' })
-    s.getState().setAgentChatStreamingMessage('c1', { id: 'm2', text: 'second item' })
-
-    expect(s.getState().agentChats.streamingMessages['c1']).toEqual([
-      { id: 'm1', text: 'first paragraph' },
-      { id: 'm2', text: 'second item' },
-    ])
-  })
-
-  it('setAgentChatStreamingMessage replaces the SAME id in place, preserving order', () => {
-    const s = createWorkspaceStore('w1')
-
-    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'first paragraph' })
-    s.getState().setAgentChatStreamingMessage('c1', { id: 'm2', text: 'second' })
-    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'first paragraph, growing' })
-
-    expect(s.getState().agentChats.streamingMessages['c1']).toEqual([
-      { id: 'm1', text: 'first paragraph, growing' },
-      { id: 'm2', text: 'second' },
-    ])
-  })
-
-  it('setAgentChatStreamingMessage(chatId, null) clears every entry for that chat', () => {
-    const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'a' })
-    s.getState().setAgentChatStreamingMessage('c1', { id: 'm2', text: 'b' })
-
-    s.getState().setAgentChatStreamingMessage('c1', null)
-
-    expect(s.getState().agentChats.streamingMessages['c1']).toBeUndefined()
-  })
-
-  it('does not touch another chat entirely — no cross-chat clobbering', () => {
-    const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'chat one' })
-
-    s.getState().setAgentChatStreamingMessage('c2', { id: 'm2', text: 'chat two' })
-
-    expect(s.getState().agentChats.streamingMessages['c1']).toEqual([
-      { id: 'm1', text: 'chat one' },
-    ])
-  })
-
-  // ── pruneAgentChatStreamingMessages: the bounded-growth fix ───────────────
-  // streamingMessages[chatId] only ever grew: entries land via
-  // setAgentChatStreamingMessage, and nothing removed one once its content
-  // was durably confirmed in the ledger — a real unbounded-memory-growth
-  // issue over a very long chat session. This is the targeted prune the
-  // store side needed instead of a blanket clear on a turn boundary (that
-  // was tried and reverted: an interrupted runner's stream can legitimately
-  // keep growing after a new turn starts, so wiping the whole array there
-  // deleted a reply still arriving).
-
-  it('pruneAgentChatStreamingMessages drops only the given ids, keeping the rest', () => {
-    const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'first' })
-    s.getState().setAgentChatStreamingMessage('c1', { id: 'm2', text: 'second' })
-    s.getState().setAgentChatStreamingMessage('c1', { id: 'm3', text: 'third' })
-
-    s.getState().pruneAgentChatStreamingMessages('c1', ['m1', 'm3'])
-
-    expect(s.getState().agentChats.streamingMessages['c1']).toEqual([{ id: 'm2', text: 'second' }])
-  })
-
-  it('pruneAgentChatStreamingMessages deletes the chat entry entirely once it empties out', () => {
-    const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'first' })
-
-    s.getState().pruneAgentChatStreamingMessages('c1', ['m1'])
-
-    expect(s.getState().agentChats.streamingMessages['c1']).toBeUndefined()
-  })
-
-  it('pruneAgentChatStreamingMessages is a no-op for an id that is not present', () => {
-    const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'first' })
-
-    s.getState().pruneAgentChatStreamingMessages('c1', ['not-there'])
-
-    expect(s.getState().agentChats.streamingMessages['c1']).toEqual([{ id: 'm1', text: 'first' }])
-  })
-
-  it('pruneAgentChatStreamingMessages does not touch another chat', () => {
-    const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatStreamingMessage('c1', { id: 'm1', text: 'chat one' })
-    s.getState().setAgentChatStreamingMessage('c2', { id: 'm1', text: 'chat two' })
-
-    s.getState().pruneAgentChatStreamingMessages('c1', ['m1'])
-
-    expect(s.getState().agentChats.streamingMessages['c1']).toBeUndefined()
-    expect(s.getState().agentChats.streamingMessages['c2']).toEqual([
-      { id: 'm1', text: 'chat two' },
-    ])
-  })
 
   // Scroll positions themselves are no longer part of this store — see
   // transcript-scroll-positions.test.ts. removeAgentChat's own delegation to
@@ -247,58 +148,6 @@ describe('agent-chats-slice', () => {
     expect(vanished).toEqual(['stale'])
   })
 
-  // ── seedAgentChats: reconciling a stuck `compacting` flag ──────────────────
-  // Regression: `compacting` is driven ENTIRELY by the live compaction_started/
-  // compaction_stopped WS frames (there is no ledger record to fall back on —
-  // see AgentChatsState.compacting's own doc comment), and unlike `working` and
-  // `terminalWaits` it was never reconciled by this reseed at all. If the
-  // compaction_stopped edge — and the local 60s backstop timer racing it — are
-  // BOTH lost (the app is closed for the whole compaction window, then reopened),
-  // nothing ever clears it: reported live as "/compact finished, closed the chat
-  // mid-compaction, reopened it, and Crowbar still thinks it's compacting."
-  // A chat the fresh GET reports as NOT working cannot possibly still be
-  // compacting (compaction keeps the chat busy the same as any other turn), so
-  // that is the same proof the live self-heal already trusts for any other
-  // frame, applied here to the GET this reseed IS reading.
-
-  it("seedAgentChats clears a stuck `compacting` flag once the authoritative reseed shows the chat isn't busy — the missed compact_post/closed-app case", () => {
-    const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatCompacting('c1', true)
-
-    s.getState().seedAgentChats([{ ...chat('c1', '2026-01-01T00:00:00Z'), working: false }])
-
-    expect(s.getState().agentChats.compacting.c1).toBeUndefined()
-  })
-
-  it('seedAgentChats leaves `compacting` alone while the fresh reseed still shows the chat busy', () => {
-    const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatCompacting('c1', true)
-
-    s.getState().seedAgentChats([{ ...chat('c1', '2026-01-01T00:00:00Z'), working: true }])
-
-    expect(s.getState().agentChats.compacting.c1).toBe(true)
-  })
-
-  it('notifyAgentChatMessages advances every current chat revision independently of reconnect GETs', () => {
-    const s = createWorkspaceStore('w1')
-    s.getState().seedAgentChats([
-      { ...chat('c1', '2026-01-01T00:00:00Z'), working: false },
-      { ...chat('c2', '2026-01-02T00:00:00Z'), working: false },
-    ])
-
-    expect(s.getState().agentChats.turnRevision).toEqual({})
-
-    // An idle -> idle turn can complete while the socket is down, so folded
-    // `working` alone cannot reveal it. Reconnect explicitly invalidates every
-    // surviving chat's message page, even when the folded state did not change.
-    s.getState().notifyAgentChatMessages()
-
-    expect(s.getState().agentChats.turnRevision).toEqual({ c1: 1, c2: 1 })
-
-    s.getState().notifyAgentChatMessages()
-    expect(s.getState().agentChats.turnRevision).toEqual({ c1: 2, c2: 2 })
-  })
-
   it('seedAgentChats REPORTS chats absent from the response instead of dropping them', () => {
     const s = createWorkspaceStore('w1')
     s.getState().applyAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
@@ -337,7 +186,6 @@ describe('agent-chats-slice', () => {
     const s = createWorkspaceStore('w1')
     s.getState().applyAgentChat({ ...chat('c1', '2026-01-01T00:00:00Z'), working: true })
     s.getState().setAgentChatTelemetry('c1', { observedAt: '', source: 'callback' })
-    s.getState().setAgentChatStreamingPlan('c1', [{ text: 'a', status: 'pending' }])
 
     const outcome = s.getState().applyAgentChatFrame({ chatId: 'c1', kind: 'deleted' })
 
@@ -346,29 +194,6 @@ describe('agent-chats-slice', () => {
     expect(st.chats).toHaveLength(0)
     expect(st.working.c1).toBeUndefined()
     expect(st.telemetry.c1).toBeUndefined()
-    expect(st.streamingPlan.c1).toBeUndefined()
-    expect(st.turnRevision.c1).toBeUndefined()
-  })
-
-  it('holds a chat’s pushed prompts whole, clears them with an empty list, and drops them with the chat', () => {
-    const s = createWorkspaceStore('w1')
-    const prompt = { id: 'k1', pending: true } as AgentChoice
-    s.getState().applyAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
-
-    s.getState().setAgentChatChoices('c1', [prompt])
-    expect(s.getState().agentChats.choices.c1).toEqual([prompt])
-
-    s.getState().setAgentChatChoices('c1', [])
-    expect(s.getState().agentChats.choices.c1).toBeUndefined()
-
-    s.getState().setAgentChatChoices('c1', [prompt])
-    s.getState().setAgentChatChoices('c2', [prompt])
-    s.getState().resetAgentChatChoices()
-    expect(s.getState().agentChats.choices).toEqual({})
-
-    s.getState().setAgentChatChoices('c1', [prompt])
-    s.getState().removeAgentChat('c1')
-    expect(s.getState().agentChats.choices.c1).toBeUndefined()
   })
 
   it('a chat first seen on a frame joins the top of a saved arrangement', () => {
@@ -400,10 +225,8 @@ describe('agent-chats-slice', () => {
     const s = createWorkspaceStore('w1')
     setChatWorking(s, 'c1', true)
     expect(s.getState().agentChats.working.c1).toBe(true)
-    expect(s.getState().agentChats.turnRevision.c1).toBe(1)
     setChatWorking(s, 'c1', false)
     expect(s.getState().agentChats.working.c1).toBeUndefined()
-    expect(s.getState().agentChats.turnRevision.c1).toBe(2)
     s.getState().setAgentProviders([
       {
         id: 'claude',
@@ -425,29 +248,6 @@ describe('agent-chats-slice', () => {
     expect(s.getState().agentChats.activeChatId).toBe('c1')
   })
 
-  // THE REGRESSION, reported live 2026-09-12: a "chat_busy" queued prompt
-  // resent itself into a still-generating turn, corrupting its output mid-
-  // stream. Root cause: use-prompt-queue.ts treats every turnRevision advance
-  // while `working` reads false as an authoritative idle edge and releases
-  // the queue's busy barrier — but a periodic reconcile poll re-announcing
-  // the SAME value it already had (working stayed true; or a stale false
-  // reading it merely re-confirmed) bumped the revision anyway, on a call
-  // that carried no real transition at all.
-  it('re-announcing the same working value is a no-op — it must not advance turnRevision', () => {
-    const s = createWorkspaceStore('w1')
-    setChatWorking(s, 'c1', true)
-    expect(s.getState().agentChats.turnRevision.c1).toBe(1)
-
-    setChatWorking(s, 'c1', true)
-    expect(s.getState().agentChats.working.c1).toBe(true)
-    expect(s.getState().agentChats.turnRevision.c1).toBe(1)
-
-    setChatWorking(s, 'c1', false)
-    expect(s.getState().agentChats.turnRevision.c1).toBe(2)
-    setChatWorking(s, 'c1', false)
-    expect(s.getState().agentChats.turnRevision.c1).toBe(2)
-  })
-
   it('working map defaults to idle (undefined) for chats never toggled', () => {
     const s = createWorkspaceStore('w1')
     expect(s.getState().agentChats.working['never-touched']).toBeUndefined()
@@ -465,7 +265,6 @@ describe('agent-chats-slice', () => {
 
     expect(s.getState().agentChats.chats).toHaveLength(0)
     expect(s.getState().agentChats.working.c1).toBeUndefined()
-    expect(s.getState().agentChats.turnRevision.c1).toBeUndefined()
     expect(localStorage.getItem(promptQueueStorageKey('w2', 'c1'))).toBeNull()
     expect(s.getState().agentChats.order).toEqual([])
     expect(s.getState().agentChats.activeChatId).toBeNull()

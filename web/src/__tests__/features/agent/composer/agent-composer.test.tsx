@@ -10,8 +10,7 @@ import {
   type UploadedChatAttachment,
 } from '@/features/agent/api/upload-chat-attachment'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
-import { NO_ACTIVITY } from '@/features/agent/lib/agent-activity'
-import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
+import { askItem } from '@/__tests__/__fixtures__/ledger-rows'
 import { saveExcalidrawDesign } from '@/features/agent/composer/lib/excalidraw-design-persistence'
 import type { ParsedExcalidrawScene } from '@/features/agent/composer/plate/attachments/excalidraw-scene'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
@@ -61,7 +60,7 @@ type AgentComposerProps = Parameters<typeof AgentComposer>[0]
 const baseProps: AgentComposerProps = {
   wsId: 'w1',
   chatId: 'c1',
-  activity: NO_ACTIVITY,
+  asks: [],
   providerLabel: 'Claude',
   live: true,
   working: false,
@@ -326,47 +325,14 @@ describe('AgentComposer', () => {
   // reaches `case 'choice'` (and thus never the input/handle branch) once a
   // pending choice is waiting.
   it('renders the choice card instead of the field when a choice is pending', () => {
-    draw({
-      activity: {
-        ...NO_ACTIVITY,
-        choices: [
-          {
-            id: 'k1',
-            turnId: 't1',
-            seq: 1,
-            kind: 'tool_permission',
-            toolName: 'Bash',
-            options: [{ id: 'allow', kind: 'allow', label: 'Allow' }],
-            pending: true,
-            answerable: true,
-            at: '2026-08-18T12:00:00Z',
-          },
-        ],
-      },
-    })
+    draw({ asks: [askItem({ turnId: 't1' })] })
 
     expect(screen.getByRole('group')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Send prompt' })).toBeNull()
   })
 
   it('renders every simultaneous pending choice', () => {
-    const first = {
-      id: 'k1',
-      turnId: 't1',
-      seq: 1,
-      kind: 'tool_permission',
-      toolName: 'Bash',
-      options: [{ id: 'allow', kind: 'allow', label: 'Allow' }],
-      pending: true,
-      answerable: true,
-      at: '2026-08-18T12:00:00Z',
-    } satisfies AgentChoice
-    draw({
-      activity: {
-        ...NO_ACTIVITY,
-        choices: [first, { ...first, id: 'k2', seq: 2, toolName: 'Write' }],
-      },
-    })
+    draw({ asks: [askItem({ id: 'k1' }), askItem({ id: 'k2', seq: 2, toolName: 'Write' })] })
 
     expect(screen.getAllByTestId('agent-choice-prompt')).toHaveLength(2)
     expect(screen.getByTestId('agent-choice-stack')).toBeInTheDocument()

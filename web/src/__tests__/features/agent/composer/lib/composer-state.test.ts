@@ -1,38 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
-import type { AgentActivity, AgentChoice } from '@/features/agent/api/agent-chat-activity'
+import { askItem } from '@/__tests__/__fixtures__/ledger-rows'
 import {
   acceptsTyping,
   resolveComposerState,
   type ComposerInputs,
 } from '@/features/agent/composer/lib/composer-state'
-import { NO_ACTIVITY } from '@/features/agent/lib/agent-activity'
-
-function choice(overrides: Partial<AgentChoice> = {}): AgentChoice {
-  return {
-    id: 'k1',
-    turnId: 'turn-1',
-    seq: 1,
-    kind: 'tool_permission',
-    toolName: 'Bash',
-    options: [{ id: 'allow', kind: 'allow', label: 'Allow' }],
-    pending: true,
-    answerable: true,
-    at: '2026-08-18T12:00:00Z',
-    ...overrides,
-  }
-}
-
-function activity(overrides: Partial<AgentActivity> = {}): AgentActivity {
-  return { ...NO_ACTIVITY, ...overrides }
-}
 
 function inputs(overrides: Partial<ComposerInputs> = {}): ComposerInputs {
   return {
     live: true,
     submitUnavailable: false,
     compacting: false,
-    activity: NO_ACTIVITY,
+    asks: [],
     ...overrides,
   }
 }
@@ -43,9 +23,7 @@ describe('resolveComposerState', () => {
   })
 
   it('is a signpost with no runner, whatever else is true', () => {
-    const state = resolveComposerState(
-      inputs({ live: false, activity: activity({ choices: [choice()] }) }),
-    )
+    const state = resolveComposerState(inputs({ live: false, asks: [askItem()] }))
     expect(state).toMatchObject({ kind: 'signpost', reason: 'dormant' })
   })
 
@@ -78,7 +56,7 @@ describe('resolveComposerState', () => {
     const state = resolveComposerState(
       inputs({
         terminalWait: { kind: 'workspace_trust' },
-        activity: activity({ choices: [choice()] }),
+        asks: [askItem()],
       }),
     )
     expect(state).toMatchObject({ kind: 'signpost', reason: 'terminal_wait' })
@@ -90,39 +68,20 @@ describe('resolveComposerState', () => {
     expect(state).toMatchObject({ message: expect.stringMatching(/only its terminal can give/i) })
   })
 
-  it('returns every pending choice in stable sequence order', () => {
-    const state = resolveComposerState(
-      inputs({
-        activity: activity({
-          choices: [choice({ id: 'new', seq: 9 }), choice({ id: 'old', seq: 2 })],
-        }),
-      }),
-    )
-    expect(state).toMatchObject({
-      kind: 'choices',
-      choices: [{ id: 'old' }, { id: 'new' }],
-    })
+  it('hands over every pending ask, in the order the fold keeps them', () => {
+    const asks = [askItem({ id: 'old' }), askItem({ id: 'new' })]
+    expect(resolveComposerState(inputs({ asks }))).toEqual({ kind: 'choices', asks })
   })
 
   // Hiding an unanswerable prompt is what made a blocked agent look frozen.
-  it('still surfaces a choice this provider cannot receive an answer for', () => {
-    const state = resolveComposerState(
-      inputs({ activity: activity({ choices: [choice({ answerable: false })] }) }),
-    )
-    expect(state).toMatchObject({ kind: 'choices', choices: [{ answerable: false }] })
-  })
-
-  it('ignores a resolved choice', () => {
-    expect(
-      resolveComposerState(
-        inputs({ activity: activity({ choices: [choice({ pending: false })] }) }),
-      ),
-    ).toEqual({ kind: 'input' })
+  it('still surfaces an ask this provider cannot receive an answer for', () => {
+    const asks = [askItem({ answerable: false })]
+    expect(resolveComposerState(inputs({ asks }))).toMatchObject({ kind: 'choices' })
   })
 
   it('puts a pending choice ahead of a halt', () => {
     const state = resolveComposerState(
-      inputs({ activity: activity({ choices: [choice()] }), haltedMessage: 'limit reached' }),
+      inputs({ asks: [askItem()], haltedMessage: 'limit reached' }),
     )
     expect(state.kind).toBe('choices')
   })

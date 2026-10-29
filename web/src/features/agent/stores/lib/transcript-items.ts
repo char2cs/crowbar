@@ -42,6 +42,8 @@ export interface AskItem extends ItemBase {
   kind: 'ask'
   scope: string
   choice: AgentChoice
+  /** What a permission is about to touch: the ask's own, else its tool call's. */
+  toolTarget: string
 }
 
 export type MarkerName =

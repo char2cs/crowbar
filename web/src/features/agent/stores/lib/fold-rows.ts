@@ -353,6 +353,7 @@ const applyAsk: Apply<'ask'> = (fold, row) => {
     at: row.at,
   })
   const known = fold.item<AskItem>(id)
+  const tool = body.toolId ? fold.item<ToolItem>(toolItemId(body.toolId)) : undefined
   fold.put({
     kind: 'ask',
     id,
@@ -361,6 +362,7 @@ const applyAsk: Apply<'ask'> = (fold, row) => {
     at: row.at,
     scope,
     choice,
+    toolTarget: body.toolTarget || tool?.body.target || '',
   })
   if (!fold.facts.openAsks.includes(id)) fold.set('openAsks', [...fold.facts.openAsks, id])
   if (!known) fold.place(id, scope)

@@ -31,7 +31,6 @@ vi.mock('@/features/agent/api/agent-chat-reads', async (importOriginal) => {
   return {
     ...actual,
     getChat: (...a: unknown[]) => getChatFn(...a),
-    listChatMessages: vi.fn(),
     getSlashCatalog: vi.fn(),
   }
 })

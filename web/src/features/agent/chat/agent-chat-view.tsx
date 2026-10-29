@@ -1,29 +1,19 @@
-import {
-  useCallback,
-  useEffect,
-  useEffectEvent,
-  useImperativeHandle,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
-import { layoutHeight } from '@/lib/layout-size'
-import type { KeyboardEvent, ReactNode, Ref } from 'react'
+import { useEffect, useImperativeHandle, useRef, useState } from 'react'
+import type { CSSProperties, KeyboardEvent, ReactNode, Ref } from 'react'
+import { markEnd, markStart } from '@/lib/perf/instrumentation'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
 import {
   compactChat,
   stopChat,
   type AgentPromptResult,
 } from '@/features/agent/api/agent-chat-commands'
-import type { AgentChatMessage, SlashCatalogItem } from '@/features/agent/api/agent-chat-reads'
-import type { AgentChoice, AgentInterruption } from '@/features/agent/api/agent-chat-activity'
+import type { SlashCatalogItem } from '@/features/agent/api/agent-chat-reads'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
-import { markEnd, markStart } from '@/lib/perf/instrumentation'
-import { isNotFoundError } from '@/lib/errors/api-error'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import { SubagentShelf } from '@/features/agent/activity/subagent-shelf'
 import { AgentComposer } from '@/features/agent/composer/agent-composer'
 import {
+  acceptsTyping,
   resolveComposerState,
   type ComposerRevival,
 } from '@/features/agent/composer/lib/composer-state'
@@ -34,39 +24,25 @@ import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attac
 import { ProviderBar } from '@/features/agent/controls/provider-bar'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
 import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
-import type { DividerTag } from '@/features/agent/transcript/lib/flatten-transcript-rows'
 import {
   AgentEmptyDocument,
   type AgentEmptyDocumentHandle,
 } from '@/features/agent/chat/agent-empty-document'
-import { playArrival } from '@/features/agent/chat/lib/arrival-animation'
-import { measureScrollbarWidth } from '@/features/agent/chat/lib/scrollbar-width'
-import {
-  advanceTypeToFocus,
-  EMPTY_TYPE_BUFFER,
-  isFocusInEditable,
-  type TypeBuffer,
-} from '@/features/agent/chat/lib/type-to-focus'
-import { useAgentActivity } from '@/features/agent/hooks/use-agent-activity'
+import { handleComposerKey } from '@/features/agent/chat/lib/composer-keys'
+import { useChatSend } from '@/features/agent/chat/use-chat-send'
+import { useConfirmedModel } from '@/features/agent/chat/use-confirmed-model'
+import { useComposerDraft } from '@/features/agent/chat/use-composer-draft'
+import { useComposerFacts } from '@/features/agent/chat/use-composer-facts'
+import { useDock } from '@/features/agent/chat/use-dock'
+import { useTypeToFocus } from '@/features/agent/chat/use-type-to-focus'
+import { useChatFeed } from '@/features/agent/hooks/use-chat-feed'
 import { useAgentTelemetry, limitResetsAt } from '@/features/agent/hooks/use-agent-telemetry'
-import { useChatMessages } from '@/features/agent/hooks/use-chat-messages'
 import {
   getScrollPosition,
   setScrollPosition,
 } from '@/features/agent/hooks/lib/transcript-scroll-positions'
 import { usePromptHistory } from '@/features/agent/hooks/use-prompt-history'
-import { usePromptQueue } from '@/features/agent/hooks/use-prompt-queue'
-import { useSlashCatalog } from '@/features/agent/hooks/use-slash-catalog'
-import {
-  addPromptStash,
-  createPromptStash,
-  loadPromptStashes,
-  matchesPromptStashShortcut,
-  savePromptStashes,
-  type PromptStash,
-} from '@/features/agent/composer/lib/prompt-stash-persistence'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
 import '@/features/agent/styles/composer.css'
 import '@/features/agent/styles/transcript.css'
@@ -82,259 +58,60 @@ export interface AgentChatViewHandle {
 export interface AgentChatViewProps {
   wsId: string
   chatId: string
-  /** The chat's REAL, live provider — what its CLI actually is right now.
-   *  Drives everything that can only mean something about a live process
-   *  (the slash catalog probe, submit-availability resets). Never a staged
-   *  pick — see `provider` below for that. */
+  /** The chat's live provider: what its CLI is now, never a staged pick. */
   providerId: string
   providers: AgentProvider[]
-  /**
-   * Is this chat on the PROVIDER'S OWN TERMINAL right now (the daemon's
-   * `chat.surface`, not the local view the pane happens to be showing)?
-   *
-   * Compaction is a Crowbar native-chat affordance, not a provider capability
-   * the TUI is missing: on that surface the user types the provider's own
-   * gesture themselves, and the daemon refuses a Crowbar-issued one outright.
-   * So the control is ABSENT there — the house rule the gauge states for
-   * itself, never a greyed-out button. Provider-independent, claude included.
-   */
+  /** On the provider's own terminal the daemon refuses a Crowbar compaction. */
   onTerminalSurface?: boolean
   /** A switch is already running, or the pane is mid-delivery. */
   switchDisabled?: boolean
-  working: boolean
-  /** Is this chat LIVE mid-compaction right now — see WorkingLine's own prop
-   *  doc for why this cannot be derived from `activity`. Feeds both the
-   *  transcript's WorkingLine and the composer's own compacting state — one
-   *  live source for both, where each used to read (or, for the composer,
-   *  still needs) the ledger's permanently-dead-for-this interruption. */
-  compacting?: boolean
-  /** Increments for every lifecycle frame, including a batched fast turn. */
-  turnRevision: number
   live: boolean
-  /** A send may be dispatched now: the chat is live, or dormant and revived
-   *  by the send itself (server-side). False while the daemon places a CLI. */
+  /** A send may be dispatched now: live, or dormant and revived by the send. */
   canSend: boolean
-  /** The daemon still placing a CLI this pane did not ask for. */
   revival?: ComposerRevival
-  /** One line on how the conversation continues (why it is dormant, or that
-   *  it continued from Crowbar's transcript). */
+  /** How the conversation continues (why it is dormant, or from what). */
   sessionNote?: string
-  /** False while the native terminal presentation is selected. */
   active: boolean
-  /** False for a retained, hidden tab. Network polling pauses in that state. */
   visible: boolean
-  /** The chat list has not landed, so the controls around the transcript are
-   *  not final: the transcript waits to be shown rather than move under them. */
+  /** The chat list has not landed, so the surrounding controls are not final. */
   awaitingList?: boolean
-  /** False when another PANE has focus — see agent-chat-pane.tsx's own prop
-   *  doc. Distinct from `active`/`visible` above, which are both about THIS
-   *  chat's own presentation/tab state and say nothing about which of
-   *  several panes (e.g. a split, all showing chats in the same workspace)
-   *  the user is actually looking at. */
   isActivePane: boolean
   onOpenTerminal: () => void
-  /** Whether the daemon has POSITIVELY established that this chat's CLI is
-   *  blocked on a prompt Crowbar cannot answer. */
+  /** The daemon found the CLI blocked on a prompt Crowbar cannot answer. */
   terminalWaiting?: boolean
   terminalWaitKind?: string
-  /** How far pinned-near-top content in this view must clear the pane's
-   *  floating overlay header (PaneTopRow's `chat-blur overlay` variant,
-   *  ChatOnlyPaneHeader/ChatColumnHeader) — the SAME value
-   *  agent-chat-pane.tsx already computes for its own reviving/idle/wait
-   *  banners (`headerClearancePx` there). That header paints no fill and
-   *  reserves no flex space of its own (`position: absolute; top: 0`), so
-   *  nothing below it knows the header is there unless told — the blank
-   *  chat's document needs this to keep its own pinned/unscrolled content
-   *  from rendering underneath the header's real click target. Defaults to
-   *  0 (no overlay header) for callers — tests, mostly — that don't thread a
-   *  real pane geometry through.
-   *
-   *  NOT what the transcript uses any more — see `transcriptHeaderClearancePx`
-   *  below. This number is sized to the header's own clickable row, which is
-   *  right for opaque content (a banner, the empty-document's control bar)
-   *  but 28px short of the header's actual EdgeDissolve reach: text left
-   *  resting in that gap is not covered, but still renders visibly blurred. */
+  /** The overlay header's clickable row, for opaque content under it. */
   headerClearancePx?: number
-  /** The TRANSCRIPT's own, larger clearance: the header's full EdgeDissolve
-   *  zone (agent-chat-pane.tsx's `CHAT_BLUR_ZONE_PX`, mirroring
-   *  pane-top-row.tsx's `ROW_HEIGHT_PX + CHAT_BLUR_EXTRA_PX` — 100px Mac /
-   *  90px elsewhere), not just the header's clickable row `headerClearancePx`
-   *  above covers. Handed to `AgentTranscript` in place of `headerClearancePx`
-   *  so a reply resting between the two numbers clears the dissolve's own
-   *  heavier blur layers instead of rendering visibly out of focus under
-   *  them. Defaults to 0, same as `headerClearancePx`, for the same reason. */
+  /** The header's full dissolve reach, which scrolled text must clear. */
   transcriptHeaderClearancePx?: number
-  /** Client request ids the daemon has reported as delivered-and-over. */
-  settledPrompts?: string[]
-  /** Retired with no proof the provider took them — the queue keeps their text.
-   *  See AgentChatsState.abandonedPrompts. */
-  abandonedPrompts?: string[]
-  /** The message(s) the agent is mid-way through saying — see useChatMessages. */
-  streamingMessages?: { id: string; text: string; startedAt?: string }[]
-  /** The agent's in-flight thinking — live-only, never in the ledger.
-   *  See AgentChatsState.streamingReasoning. */
-  reasoning?: string
-  /** The running tool's live output — see WorkingLine's own prop doc. */
-  toolOutput?: { id: string; text: string }
-  /** The agent's own to-do list — see WorkingLine's own prop doc. */
-  plan?: { text: string; status: string }[]
-  /** The prompts the daemon says the agent is blocked on — see
-   *  AgentChatsState.choices. */
-  pendingChoices?: AgentChoice[]
-  /** The newest complete unified diff for the current turn. */
-  diff?: { id: string; text: string }
-  /** Prune confirmed ids out of the store's own streamingMessages[chatId] —
-   *  see useChatMessages' onStreamingSettled for why this is safe where a
-   *  turn-boundary clear was not. */
-  onStreamingSettled?: (ids: string[]) => void
   onPromptSpawned?: (result: AgentPromptResult) => void | Promise<void>
   onPromptDispatchStart?: () => void
   onPromptDispatchSettled?: () => void
-  /** Re-read the server-folded busy value after a stale 409. */
-  onRefreshChat: () => Promise<boolean>
   onQueueCountChange?: (count: number) => void
   onCancelableQueueCountChange?: (count: number) => void
   onDeliveryPendingChange?: (pending: boolean) => void
-  /** Nothing has ever been said in this chat yet — `AgentEmptyDocument` is
-   *  standing in for the dock, so the composer (and anything that lives only
-   *  inside it, like a reviving/idle signpost) does not exist to be read. */
+  /** Nothing has been said yet: the empty document stands in for the dock. */
   onBlankChange?: (blank: boolean) => void
-  /** The pane's own reviving/idle/trust-wait signpost, already resolved and
-   *  rendered — `AgentEmptyDocument` has no way to know a runner's own
-   *  attach state or a terminal wait, so the pane decides which (if any) and
-   *  hands the finished node down. Occupies `AgentEmptyDocument`'s own
-   *  control-bar slot in place of the model/effort/attach/send row; the
-   *  populated-chat surface has no use for it (that state renders as
-   *  `AgentComposer`'s own signpost instead) and never receives it. */
+  /** The pane's own signpost for a blank chat, in the empty document's control slot. */
   blankSignpost?: ReactNode
-  /** The daemon has confirmed this chat id does not exist (404 on its own
-   *  messages) — never a transient failure, so retrying can't help. */
-  onChatGone?: () => void
-  /** The EFFECTIVE provider / model / effort right now: the chat's real
-   *  provider and sticky selection, or a staged pick on top of them if the
-   *  picker has one (the caller owns which — see AgentChatPane's
-   *  `stagedSelection`). `provider` '' means "use `providerId` as-is" — see
-   *  its own doc above for why the two are never the same prop. This is what
-   *  the trigger shows AND what travels with the next enqueue; the picker
-   *  itself never writes selection or switches provider, so
-   *  `onSelectionChange` below only ever updates local staged state, never
-   *  the server. */
+  /** The effective provider/model/effort: the chat's, or a staged pick over it. */
   provider: string
-  /** The chat's sticky model / effort selection. '' means unset. */
   model: string
   effort: string
-  /** What the LIVE runner actually spawned MODEL as — '' on a dormant chat.
-   *  Wins over the sticky selection above once the chat is live (still shown
-   *  in the same interactive picker), since a request and its resolved argv
-   *  can differ. Effort has no equivalent prop: it is not fixed at spawn the
-   *  way model is, so its displayed value falls back to a turn's own report
-   *  only once the sticky/staged selection above is unset — see
-   *  `latestTurnEffort` below. */
+  /** What the live runner spawned as; '' on a dormant chat. */
   launchModel?: string
-  /** Whether this pane can SPEAK FOR the chat's selection — false while the
-   *  chat list is still in flight, when `model`/`effort` above are merely
-   *  their '' fallbacks rather than the chat's own answer. It matters
-   *  because '' is a real pick on the wire ("the provider's own default"),
-   *  so a send from a pane with no authoritative copy must stage NOTHING
-   *  rather than an empty pair the daemon would honour as a clear. Defaults
-   *  to true: an ordinary pane speaks for its chat. */
+  /** False until the chat list lands: '' would then read as a deliberate clear. */
   selectionKnown?: boolean
   onSelectionChange: (provider: string, model: string, effort: string) => void
-  /** A staged pick this file just sent WAS ACCEPTED — see
-   *  usePromptQueue's `onSelectionCommitted` for the exact contract. */
   onSelectionCommitted?: (model: string, effort: string) => void
-  /** Which surface the pane is showing, and how to change it. */
   presentation: ChatPresentation
   splitEnabled: boolean
   onSelectPresentation: (next: ChatPresentation) => void
   ref?: Ref<AgentChatViewHandle>
 }
 
-/** The provider's last word on why the chat stopped.
- *
- *  A `notice` is only the CURRENT state while nothing has happened after it — the
- *  next turn's own messages are the evidence that it no longer applies, so this
- *  reads the tail of the ledger rather than searching it. */
-function haltedBy(messages: AgentChatMessage[]): AgentChatMessage | undefined {
-  const last = messages.at(-1)
-  return last?.role === 'notice' ? last : undefined
-}
-
-/** A message's or interruption's real display position — `displayOrder` when the
- *  backend reserved one, `sequence`/`seq` otherwise. Never compare `sequence`
- *  against `seq` (or either against the other's raw field) directly: an
- *  interruption recorded late (a switch's grace period, a gracefully-finishing
- *  stopped turn) can mint a `seq` that sorts it after activity it logically
- *  preceded — the exact reordering `displayOrder` exists to prevent. */
-function displayOrderOf(item: { sequence: number; displayOrder?: number }): number
-function displayOrderOf(item: { seq: number; displayOrder?: number }): number
-function displayOrderOf(item: { sequence?: number; seq?: number; displayOrder?: number }): number {
-  return item.displayOrder ?? item.sequence ?? item.seq ?? 0
-}
-
-/** The six interruption kinds the transcript draws a boundary pill for, mapped
- *  to that pill's own shape. `null` for everything else (permission,
- *  notification, elicitation) — those are answered inline, never a divider. */
-function toDividerTag(interruption: AgentInterruption): DividerTag | null {
-  const id = interruption.id
-  switch (interruption.kind) {
-    case 'compaction':
-      return { kind: 'compaction', id, trigger: interruption.detail || 'auto' }
-    case 'stopped':
-      return { kind: 'interrupted', id }
-    // Crowbar's own GUESS, not an observed Stop click — kept as its own tag
-    // rather than folded into 'interrupted' so the pill never claims a person
-    // did something nobody actually did.
-    case 'inferred':
-      return { kind: 'inferred-interrupt', id }
-    case 'provider_switched':
-      return { kind: 'provider', id, detail: interruption.detail ?? '' }
-    case 'model_changed':
-      return { kind: 'model', id, detail: interruption.detail ?? '' }
-    case 'effort_changed':
-      return { kind: 'effort', id, detail: interruption.detail ?? '' }
-    default:
-      return null
-  }
-}
-
-/** Interruption kinds allowed to draw at the FOOT of the transcript when
- *  nothing yet follows them — every other kind (a provider/model/effort
- *  switch) only ever renders anchored above a later message. `stopped`: a
- *  person cut the turn short. `compaction`: the ledger's own record is born
- *  already resolved (compact.go — no turn ever opens for it), so without
- *  this the pill never appeared until whatever was typed next dragged it
- *  along as an `eventsBefore` anchor instead — reported live as the divider
- *  only showing up once you sent a follow-up message. `inferred`: same
- *  born-already-resolved shape as `stopped` (AbandonMessageInferredInterrupt
- *  opens and resolves it in one call), and it is exactly the silently-aborted
- *  turn with nothing typed after it that this whole kind exists to catch. */
-const TRAILING_INTERRUPTION_KINDS = new Set(['stopped', 'compaction', 'inferred'])
-
-// `DndScope` (dnd-scope.tsx) is `AgentChatView`'s one attachment drag scope —
-// attachment reordering (attachment-drag-handle.tsx) only works under one,
-// and this is the real common ancestor of
-// every Plate tree that can render an attachment node live: the
-// transcript's streaming `MarkdownMessage` (via `transcript` below) and the
-// composer's `ChatMarkdownEditor` (via `AgentComposer`/`AgentEmptyDocument`
-// further down). Deliberately NOT wrapping the settled transcript:
-// `MarkdownMessageStatic` renders through `chatComposerPluginsStatic`, whose
-// code-block/link node components never call `useAttachmentDraggable` at all
-// (see chat-composer-plugins.ts's `STATIC_NODE_OVERRIDES`), so a settled
-// message never needs this context — costs nothing extra to cover it anyway,
-// but the real gate is in the plugin set, not here.
-
-/**
- * The chat surface: a transcript, and one bar under it.
- *
- * This file ASSEMBLES. Every piece of state it used to own lives in a hook, and
- * every piece of markup in a component — what is left is the wiring between
- * them, which is the only thing that genuinely belongs to "the chat view".
- */
-// Deliberately long for the reason above, not unfactored: splitting the wiring
-// itself into more components would scatter the one place that shows how the
-// hooks and pieces fit together, not simplify it. Flagged, not restructured.
-// react-doctor-disable-next-line react-doctor/no-giant-component
+/** The chat surface: a transcript and one bar under it, wired from the feed. */
+// react-doctor-disable-next-line react-doctor/no-giant-component -- the wiring between the view's hooks and parts is its one job
 export function AgentChatView({
   wsId,
   chatId,
@@ -342,9 +119,6 @@ export function AgentChatView({
   providers,
   onTerminalSurface = false,
   switchDisabled,
-  working,
-  compacting = false,
-  turnRevision,
   live,
   revival,
   canSend,
@@ -358,25 +132,14 @@ export function AgentChatView({
   terminalWaitKind,
   headerClearancePx = 0,
   transcriptHeaderClearancePx = 0,
-  settledPrompts,
-  abandonedPrompts,
-  streamingMessages,
-  reasoning,
-  toolOutput,
-  plan,
-  diff,
-  pendingChoices,
-  onStreamingSettled,
   onPromptSpawned,
   onPromptDispatchStart,
   onPromptDispatchSettled,
-  onRefreshChat,
   onQueueCountChange,
   onCancelableQueueCountChange,
   onDeliveryPendingChange,
   onBlankChange,
   blankSignpost,
-  onChatGone,
   provider: effectiveProviderId,
   model,
   effort,
@@ -389,424 +152,87 @@ export function AgentChatView({
   onSelectPresentation,
   ref,
 }: AgentChatViewProps) {
-  const activity = useAgentActivity(
-    wsId,
-    chatId,
-    working,
-    compacting,
-    visible,
-    turnRevision,
-    pendingChoices,
-  )
+  useChatFeed(chatId)
+  const facts = useComposerFacts(chatId)
+  const { working, compacting } = facts
   const telemetry = useAgentTelemetry(wsId, chatId, visible)
-  // Read exactly once, at construction — this component remounts wholesale
-  // on every chat switch (key={wsId:chatId} in AgentChatPane), so "once per
-  // component instance" already means "once per chat". A lazy useState
-  // initializer, not a plain read: the value has to be ready for the very
-  // FIRST render (it flows down into AgentTranscript's own mount-time
-  // scroll-restore effect), before any effect in this component tree could
-  // read it instead.
-  //
-  // Sourced from transcript-scroll-positions.ts, NOT the workspace store:
-  // destroyWorkspaceStore drops that store wholesale on every workspace
-  // switch, which silently discarded this across a switch away and back —
-  // see that module's own doc.
+  // Read once: the view remounts per chat, and the anchor restores on mount.
   const [initialScrollPosition] = useState(() => getScrollPosition(chatId))
-
-  const [draft, setDraft] = useState('')
-  const [promptStashes, setPromptStashes] = useState(() => loadPromptStashes(wsId, chatId))
-  const [stashPickerOpen, setStashPickerOpen] = useState(false)
-  // The box is UNCONTROLLED — a controlled contenteditable rebuilds itself under
-  // the caret — so text pushed in from outside arrives by REMOUNT.
-  //
-  // THE SEED CARRIES ITS OWN TEXT rather than pointing at `draft`, because the
-  // two are written by different things at nearly the same moment. The editor's
-  // onChange lands asynchronously, so sending a prompt could bump the seed and
-  // then have the outgoing text written back into `draft` before the new box
-  // mounted — which mounted it holding the message that had just been sent.
-  // Reading the seed's own text makes that ordering irrelevant.
-  const [seed, setSeed] = useState({ text: '', n: 0 })
-  // THE DOCK'S HEIGHT, published to CSS. The conversation runs UNDER the composer
-  // and fades out behind it, so the scroller has to reserve exactly the room the
-  // dock occupies — and the dock grows as the box does, so a constant would be
-  // wrong the moment anybody typed a second line.
-  const [dockHeight, setDockHeight] = useState(0)
-  const dockObserver = useRef<ResizeObserver | null>(null)
-  // THE SCROLLBAR'S OWN WIDTH, published to CSS the same way. The dissolve
-  // spans the full pane (see composer.css) so its blur reaches exactly as far
-  // as the transcript's real content does — never past it into the scrollbar
-  // track, which is what made the glass read as smudging the thumb itself.
-  const [scrollbarWidth, setScrollbarWidth] = useState(0)
-  useEffect(() => setScrollbarWidth(measureScrollbarWidth()), [])
-  // The excalidraw takeover portals here instead of rendering inline under
-  // the composer — the composer sits inside `.dock`, itself `position:
-  // absolute` and therefore ITS OWN containing block for any absolutely-
-  // positioned descendant regardless of `.dock`'s own (small, bottom-pinned)
-  // size. State, not a plain ref: AgentComposer needs the actual node to
-  // portal into, and a ref's `.current` isn't populated yet during the render
-  // that first needs it.
+  const dock = useDock()
   const [chatSurfaceEl, setChatSurfaceEl] = useState<HTMLElement | null>(null)
-  // The empty document's own handle, read exactly once — at the instant of the
-  // first send — so the arrival slide has something to arrive FROM. A ref, not
-  // state: nothing ever renders off it, and it must survive the very unmount
-  // (blank -> dock) that makes it useful.
   const emptyDocRef = useRef<AgentEmptyDocumentHandle>(null)
-  const arrivalOriginRef = useRef<DOMRect | null>(null)
-  // A ref CALLBACK, not a ref + effect: the dock is unmounted entirely on the
-  // blank surface, and a callback is told about that directly instead of the
-  // effect needing to depend on a branch decided further down the component.
-  const dockRef = useCallback((node: HTMLDivElement | null) => {
-    dockObserver.current?.disconnect()
-    if (!node) {
-      setDockHeight(0)
-      return
-    }
-    // Consumed at most once per mount, and only when a first send just fired —
-    // an already-populated chat that renders the dock straight away never sets
-    // this, so `playArrival` no-ops for every ordinary open.
-    playArrival(node, arrivalOriginRef.current)
-    arrivalOriginRef.current = null
-    // A ZERO here is never the dock's height, only the absence of a box: a
-    // workspace switched away from is retained but `display:none`
-    // (workspace-slot-style.ts), which fires this observer for every element
-    // under it at once. Publishing that as `--agent-dock-h` collapsed
-    // `.scroll`'s own bottom reservation, so the transcript came back from
-    // every workspace round-trip 86px shorter than it left, the offset the
-    // browser restores got clamped to that shorter range, and the transcript
-    // then glided back up to the bottom in view. The real unmount — the blank
-    // surface dropping the dock entirely — reports 0 through the `!node` branch
-    // above, which is the only place it means anything.
-    const report = () => {
-      const height = layoutHeight(node)
-      if (height > 0) setDockHeight(height)
-    }
-    report()
-    const observer = new ResizeObserver(report)
-    // False positive: this IS the cleanup path. dockRef is a stable ref callback
-    // (see the comment above), so React invokes it with node=null on unmount —
-    // the disconnect() above runs before every observe(), including that final
-    // null call.
-    // react-doctor-disable-next-line react-doctor/effect-needs-cleanup
-    observer.observe(node)
-    dockObserver.current = observer
-  }, [])
-  const seedDraft = useCallback((value: string) => {
-    setDraft(value)
-    setSeed((previous) => ({ text: value, n: previous.n + 1 }))
-  }, [])
   const [fieldHeight, setFieldHeight] = useState(20)
-  const [composerError, setComposerError] = useState('')
   const [submitUnavailable, setSubmitUnavailable] = useState(false)
-  // The view already remounts on a chatId change (key={wsId:chatId} in
-  // AgentChatPane), which would clear this for free — but NOT on a providerId
-  // change alone, which this effect also depends on and which the key does not
-  // cover. Real, needed reset; a key alone cannot replace it.
-  // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
+  // The key remounts on a chat change, not on a provider change alone.
+  // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- a provider switch must re-offer the input
   useEffect(() => setSubmitUnavailable(false), [chatId, providerId])
-  // The last CONFIRMED launch model — what a live runner actually reported
-  // running as — kept around after `live` drops instead of being lost with
-  // it. AgentChat.launchModel is absent exactly when liveRunnerId is (see its
-  // own doc in agent-chat-reads.ts), so the backend gives up this fact the moment a
-  // turn's runner goes idle/exits; without remembering it here the picker had
-  // nothing left to show but a guess.
-  const [lastConfirmedModel, setLastConfirmedModel] = useState('')
-  // Reset FIRST — a provider change invalidates whatever this held, and the
-  // ordering matters: both effects can fire in the same commit (a provider
-  // switch that lands a fresh launch report in one render), and effects run
-  // in declaration order, so this must run before the capture below or it
-  // would wipe out a value that same commit just confirmed. The view already
-  // remounts wholesale on a chatId change (key={wsId:chatId}); listed anyway
-  // to mirror submitUnavailable's own reset above.
-  // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
-  useEffect(() => setLastConfirmedModel(''), [chatId, providerId])
-  // Not derivable: this holds the LAST non-empty launchModel and must survive
-  // `launchModel` going absent when the runner goes idle (see its doc above).
-  // react-doctor-disable-next-line no-derived-state-effect
-  useEffect(() => {
-    // react-doctor-disable-next-line no-derived-state
-    if (live && launchModel) setLastConfirmedModel(launchModel)
-  }, [live, launchModel])
+  const confirmedModel = useConfirmedModel(`${chatId}:${providerId}`, live, launchModel)
 
-  // The queue baselines its evidence on the ledger's cursor and asks it to
-  // re-read after every dispatch; the ledger's recovery walk asks the queue what
-  // is still outstanding. Neither can be built before the other, so they meet
-  // through this ref instead of through a hook order that cannot exist.
-  const ledgerRef = useRef<{ cursor: number; refresh: () => void }>({
-    cursor: 0,
-    refresh: () => {},
-  })
-  const getBaseline = useCallback(() => ledgerRef.current.cursor, [])
-  const refreshMessages = useCallback(() => ledgerRef.current.refresh(), [])
-  const onSubmitUnavailable = useCallback(() => setSubmitUnavailable(true), [])
-
-  const prompts = usePromptQueue({
+  const prompts = useChatSend({
     wsId,
     chatId,
-    working,
+    facts,
     steerable: providers.find((candidate) => candidate.id === providerId)?.promptSteer === true,
-    compacting,
     live,
     canSend,
     active,
     visible,
-    turnRevision,
     terminalWaiting,
-    settledPrompts,
-    abandonedPrompts,
-    getBaseline,
-    refreshMessages,
     onPromptSpawned,
     onPromptDispatchStart,
     onPromptDispatchSettled,
-    onRefreshChat,
-    onSubmitUnavailable,
+    onSubmitUnavailable: () => setSubmitUnavailable(true),
     onSelectionCommitted,
+    onQueueCountChange,
+    onCancelableQueueCountChange,
+    onDeliveryPendingChange,
   })
 
-  const ledger = useChatMessages({
+  useEffect(() => markStart('chat.open'), [])
+  const opened = facts.status !== undefined && facts.status !== 'connecting'
+  useEffect(() => {
+    if (!opened) return
+    const raf = requestAnimationFrame(() => markEnd('chat.open'))
+    return () => cancelAnimationFrame(raf)
+  }, [opened])
+
+  const history = usePromptHistory(facts.userTexts)
+  const composer = useComposerDraft({
     wsId,
     chatId,
     providerId,
-    visible,
-    working,
-    turnRevision,
-    awaiting: prompts.deliveryPending,
-    streamingMessages,
-    onStreamingSettled,
-    onApply: prompts.reconcile,
-    pendingEvidence: prompts.pendingEvidence,
-    pendingBaselines: prompts.pendingBaselines,
-    onRecoveryExhausted: prompts.onRecoveryExhausted,
+    catalogActive: active && visible,
+    history,
   })
-  ledgerRef.current = { cursor: ledger.getCursor(), refresh: () => void ledger.refresh() }
-
-  // Cold-open span: opened once per mount (this view remounts per chat via
-  // `key={wsId:chatId}` in AgentChatPane), closed a frame after the ledger's
-  // first page has painted. Mirrors workspace.switch's hydrate-to-pixels
-  // pattern (workspace-view.tsx).
-  useEffect(() => {
-    markStart('chat.open')
-  }, [])
-
-  useEffect(() => {
-    if (ledger.loading) return
-    const raf = requestAnimationFrame(() => markEnd('chat.open'))
-    return () => cancelAnimationFrame(raf)
-  }, [ledger.loading])
-
-  // A parked tab stays mounted but is not asking for a catalogue: it probes the
-  // moment it is shown, so N retained chats cost one probe, not N.
-  const slash = useSlashCatalog({ wsId, chatId, providerId, active: active && visible, draft })
-
-  // The currently-loaded window of the person's own words, oldest first — what
-  // ArrowUp/ArrowDown actually walk. Never reaches past a page not yet loaded,
-  // same as a terminal's history running out at the start of the session.
-  const userTexts = useMemo(
-    () =>
-      ledger.messages.reduce<string[]>((texts, m) => {
-        if (m.role === 'user') texts.push(m.text)
-        return texts
-      }, []),
-    [ledger.messages],
-  )
-  const history = usePromptHistory(userTexts)
+  const { draft, seed, seedDraft, slash } = composer
 
   useImperativeHandle(ref, () => ({ cancelUnsentPrompts: prompts.cancelUnsentPrompts }), [
     prompts.cancelUnsentPrompts,
   ])
 
-  // These three notify an ANCESTOR outside this subtree (the tab strip's badge
-  // counts) of state usePromptQueue owns internally — there is no shared parent
-  // to lift the state INTO short of hoisting the whole queue hook, which is a
-  // real architecture change, not a quick fix. Flagged, deliberately deferred.
   const { queue } = prompts
-  // react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent
-  useEffect(() => onQueueCountChange?.(queue.length), [queue.length, onQueueCountChange])
-  useEffect(
-    // react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent
-    () => onCancelableQueueCountChange?.(prompts.cancelableCount),
-    [prompts.cancelableCount, onCancelableQueueCountChange],
-  )
-  useEffect(
-    // react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent
-    () => onDeliveryPendingChange?.(prompts.deliveryPending),
-    [prompts.deliveryPending, onDeliveryPendingChange],
-  )
+  // An empty chat is a writing surface, not an empty transcript; it stops being
+  // one the moment anything is in flight. Until the feed answers, which surface
+  // it is cannot be known, so the transcript's loading state stands alone.
+  const nothingYet = facts.empty && queue.length === 0
+  const blank = nothingYet && facts.status === 'live'
+  const settling = nothingYet && facts.status === 'connecting'
+  // react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent -- the pane's signpost reads it
+  useEffect(() => onBlankChange?.(blank), [blank, onBlankChange])
 
   const provider = providers.find((candidate) => candidate.id === providerId)
   const providerLabel = provider?.displayName ?? providerId
-  // The picker's OWN provider, model and effort catalogue must reflect a
-  // staged pick immediately — the whole point of staging is showing what
-  // WILL happen on the next send. Everything else above (providerLabel,
-  // slash catalog) stays on the REAL, live `provider`/`providerId`: a staged
-  // pick has not taken effect yet, so there is no live CLI to probe or label.
+  // The picker shows a staged pick at once; labels and the catalogue stay on the live CLI.
   const effectiveProvider = providers.find((candidate) => candidate.id === effectiveProviderId)
-  // `models` is catalogue/descriptor order, NOT a default flag (measured:
-  // codex's own catalog carries priority/visibility/default_reasoning_level
-  // but no per-model default) — position must never stand in for a
-  // confirmation. Nothing confirmed yet stays '' all the way down to the
-  // picker, which renders the literal word "Default" itself at display
-  // time (AgentSelectionPicker's `unsetLabel`) — same as `effectiveEffort`
-  // below. Baking that label into the VALUE here used to leak it: the
-  // picker's own effort slider echoes `model` straight back out on every
-  // effort pick, so a staged "Default" model would ship on the next send.
-  // Effort has no such fixed fallback: unlike model (pinned for the whole
-  // session, restart_tui), a provider can change its OWN reasoning effort
-  // turn to turn, and Crowbar only learns which one it actually used from
-  // that turn's own report (AgentChatMessage.effort — close_turn.go sets it
-  // from the provider's turn_stop hook, never guessed at session start).
-  // Used only once there is no sticky/staged pick to show instead — a
-  // catalogue-order guess would assert a level nobody confirmed, but the
-  // user's OWN pick is not a guess.
-  const latestTurnEffort = useMemo(() => {
-    for (let i = ledger.messages.length - 1; i >= 0; i--) {
-      const reported = ledger.messages[i].effort
-      if (reported) return reported
-    }
-    return ''
-  }, [ledger.messages])
-  // The sticky/staged selection FIRST — same "must reflect a staged pick
-  // immediately" rule provider/model already follow (see effectiveProvider's
-  // own comment above) — then the last turn's own report. Reversing this
-  // order (as it used to run) let the picker itself show "Default" no matter
-  // what was picked, since nothing had run a turn to confirm it yet: live-
-  // reported as "there is no way to change the effort slider," on Claude
-  // as much as Codex — every provider hits the same never-confirmed gap on
-  // a chat's first pick. Stays RAW ('' when neither exists) — see `model`'s
-  // own comment above for why the "Default" label may never reach this far.
-  const effectiveEffort = effort || latestTurnEffort
-  // What the provider's LAST turn actually answered with — display only, fed
-  // to the picker's `reportedModel` (never `model` itself: that prop is the
-  // `efforts['']` lookup key, and baking a resolved id into it is the exact
-  // defect that killed the slider before). telemetry, not a turn/message
-  // field: AgentChatMessage carries no model, only effort (see its own doc).
+  // The person's pick first, then what the last turn reported running at.
+  const effectiveEffort = effort || facts.latestEffort
   const reportedModel = telemetry?.model?.displayName || telemetry?.model?.id || ''
-  // The provider's stop reason occupies the BAR, so the transcript must not also
-  // render it as a row: it is one sentence, and saying it twice reads as the
-  // provider having stopped twice.
-  const halted = haltedBy(ledger.messages)
-  // Where the transcript draws its boundary pills — one merged wavy line per
-  // anchor rather than one full-width divider per event (a stop, a switch and
-  // a compaction landing on the same next message used to stack three
-  // identical lines). Interruptions and messages share ONE sequence space, so
-  // the anchor is simply the first message whose sequence is past the event's
-  // — and several events can share that anchor, which is why this sorts them
-  // ALL together first: a per-kind map (one for compaction, one for switches)
-  // has no way to recover which of two DIFFERENT kinds actually happened
-  // first, only this one, chronologically-sorted pass does.
-  //
-  // An event with nothing after it yet falls to `trailingTags` below instead
-  // — not every kind is allowed to draw there (see TRAILING_INTERRUPTION_KINDS).
-  const { eventsBefore, trailingTags } = useMemo(() => {
-    const marks: Record<number, DividerTag[]> = {}
-    // Latest wins per kind, same as a single trailing `stopped` always did:
-    // `relevant` is chronological, so a later push simply overwrites an
-    // earlier one of the same kind.
-    const trailingByKind = new Map<string, DividerTag>()
-    const relevant = activity.interruptions
-      .map((interruption) => ({ interruption, tag: toDividerTag(interruption) }))
-      .filter(
-        (entry): entry is { interruption: AgentInterruption; tag: DividerTag } =>
-          entry.tag !== null,
-      )
-      .sort((a, b) => displayOrderOf(a.interruption) - displayOrderOf(b.interruption))
-    for (const { interruption, tag } of relevant) {
-      const next = ledger.messages.find((m) => displayOrderOf(m) > displayOrderOf(interruption))
-      if (next) {
-        const list = marks[next.sequence] ?? []
-        list.push(tag)
-        marks[next.sequence] = list
-        continue
-      }
-      if (TRAILING_INTERRUPTION_KINDS.has(interruption.kind)) {
-        trailingByKind.set(tag.kind, tag)
-      }
-    }
-    return { eventsBefore: marks, trailingTags: [...trailingByKind.values()] }
-  }, [activity.interruptions, ledger.messages])
+  const terminalWait = terminalWaiting ? { kind: terminalWaitKind ?? '' } : undefined
+  const halted = facts.halted
 
-  const updateDraft = (value: string) => {
-    setDraft(value)
-    setComposerError('')
-    setStashPickerOpen(false)
-    slash.noteDraft(value)
-    // A real edit abandons wherever history recall had gotten to — the next
-    // ArrowUp starts a fresh walk from the newest turn, stashing THIS text.
-    history.reset()
-  }
-
-  const restorePromptStash = (item: PromptStash) => {
-    // The picker can remain mounted while a pointer/keyboard event changes the
-    // editor. Never let a delayed selection replace words that arrived after
-    // the picker opened.
-    if (draft.trim()) {
-      setStashPickerOpen(false)
-      setComposerError('Stash or clear the current draft before restoring another one.')
-      return
-    }
-    const remaining = promptStashes.filter((candidate) => candidate.id !== item.id)
-    if (!savePromptStashes(wsId, chatId, remaining)) {
-      setComposerError('Could not update saved prompt stashes. The current draft was not changed.')
-      return
-    }
-    setPromptStashes(remaining)
-    setStashPickerOpen(false)
-    seedDraft(item.markdown)
-    setComposerError('')
-    slash.noteDraft(item.markdown)
-    // Stash restoration is a new editing branch, never a continuation of an
-    // ArrowUp/ArrowDown walk through sent-message history.
-    history.reset()
-  }
-
-  const stashOrRestorePrompt = (markdown: string) => {
-    if (markdown.trim()) {
-      const item = createPromptStash(markdown)
-      if (!item) {
-        setComposerError('This draft is too large to stash.')
-        return
-      }
-      const next = addPromptStash(promptStashes, item)
-      if (!savePromptStashes(wsId, chatId, next)) {
-        setComposerError('Could not save this prompt stash. The current draft was not changed.')
-        return
-      }
-      setPromptStashes(next)
-      setStashPickerOpen(false)
-      seedDraft('')
-      setComposerError('')
-      slash.reset()
-      history.reset()
-      return
-    }
-
-    if (promptStashes.length === 0) return
-    if (promptStashes.length === 1) {
-      restorePromptStash(promptStashes[0])
-      return
-    }
-    setComposerError('')
-    setStashPickerOpen(true)
-  }
-
-  // `text` overrides the draft state for a surface that HOLDS its own text. The
-  // document is a contenteditable, so the character that triggered the submit may
-  // not have reached React yet — reading state there can enqueue the prompt one
-  // keystroke short, or empty. The element is the authority; state is the mirror.
+  // `text` is the box's own markdown: the keystroke that sent may not be in state yet.
   const enqueueDraft = (text?: string) => {
-    // `model`/`effort` are whatever the picker currently shows — the chat's
-    // sticky selection, or a staged override on top of it. `provider` follows
-    // the SAME "empty means unchanged" contract, but compares against the
-    // REAL `providerId`, not just staging: nothing staged, or staged back
-    // onto the provider the chat is already on, both send '' — an ordinary
-    // resend must not carry a provider value on every single message, even
-    // one the backend would no-op on. Baking these into the queue item now
-    // (not reading them again at dispatch) is what keeps a later pick from
-    // bleeding onto this message.
     const stagedProvider = effectiveProviderId === providerId ? '' : effectiveProviderId
-    // undefined, not '', when this pane cannot speak for the selection: ''
-    // is a PICK of the provider's own default and the daemon honours it as
-    // a clear. See `selectionKnown`'s own doc.
     const result = prompts.enqueue(
       text ?? draft,
       stagedProvider,
@@ -814,253 +240,99 @@ export function AgentChatView({
       selectionKnown ? effort : undefined,
     )
     if (!result.ok) {
-      setComposerError(result.error ?? '')
+      composer.setError(result.error ?? '')
       return
     }
-    // Only ever meaningful for the chat's FIRST send: `blank` reads the render
-    // this handler is still running in, before the queue push that is about to
-    // flip it. A later send has no empty document mounted to read a handle off
-    // — `emptyDocRef.current` is already null by then — so this is naturally a
-    // no-op for every send after the first, with nothing here needing to know
-    // which send it is.
-    if (blank) arrivalOriginRef.current = emptyDocRef.current?.getHandleRect() ?? null
+    // Only the first send has an empty document to slide the dock in from.
+    if (blank) dock.noteArrivalOrigin(emptyDocRef.current?.getHandleRect() ?? null)
     seedDraft('')
-    setComposerError('')
+    composer.setError('')
     slash.reset()
-    // A recalled-but-unedited history entry can be sent as-is; without this a
-    // later ArrowUp would resume from that stale index instead of the newest.
     history.reset()
   }
 
   const editPrompt = (item: PromptQueueItem) => {
     prompts.remove(item.clientRequestId)
     seedDraft(item.text)
-    setComposerError('')
+    composer.setError('')
     history.reset()
   }
 
-  // REGRESSION, live-verified: stopping a turn mid-GENERATION (as opposed to
-  // mid-tool-call) can make the CLI exit outright rather than resume idle —
-  // `live` drops, the composer swaps to its dormant signpost, and reattaching
-  // remounts the field from `seed`, not from `draft`. Before Stop could fire
-  // with text still in the box (see composer-handle.tsx), that remount always
-  // found an EMPTY seed and nothing was lost. Now it can find a STALE one —
-  // seeding wins, so whatever was mid-remount silently overwrote what the
-  // person had just typed, and `draft` (never told about any of this) was left
-  // pointing at text the box no longer held. Re-seeding with the box's own
-  // current text here means a remount forced by any of this has the right
-  // text to come back with, keeping `draft` and the box in agreement either way.
+  // Re-seed with the box's text: a stop can make the CLI exit and remount the field.
   const handleStop = () => {
     seedDraft(draft)
     void stopChat(wsId, chatId)
   }
 
-  // Fire-and-forget, same as handleStop above: compactChat's own doc is the
-  // provider's declared gesture, not a durable write Crowbar makes itself,
-  // and the ledger's compact_pre/compact_post pair (already live-pushed as
-  // `compacting`) is what actually reflects whether it happened.
-  const handleCompact = () => {
-    void compactChat(wsId, chatId)
-  }
-
-  const selectSlashItem = (item: SlashCatalogItem) => {
-    seedDraft(slash.accept(item))
-  }
+  const selectSlashItem = (item: SlashCatalogItem) => seedDraft(slash.accept(item))
 
   const handleKeyDown = (
     event: KeyboardEvent<HTMLDivElement>,
     readMarkdown: () => string,
     caret: CaretEdges,
-  ) => {
-    if (matchesPromptStashShortcut(event)) {
-      event.preventDefault()
-      event.stopPropagation()
-      stashOrRestorePrompt(readMarkdown())
-      return
-    }
-    if (event.key === 'Escape' && slash.open) {
-      event.preventDefault()
-      slash.close()
-      return
-    }
-    // Same condition as the composer's own stop button (`stopping = working &&
-    // canStop` in composer-handle.tsx, canStop === live here) — Esc is just
-    // another way to reach the same action, so it must agree on when that
-    // action is available.
-    if (event.key === 'Escape' && working && live) {
-      event.preventDefault()
-      handleStop()
-      return
-    }
-    if (
-      slash.open &&
-      slash.items.length > 0 &&
-      (event.key === 'ArrowDown' || event.key === 'ArrowUp')
-    ) {
-      event.preventDefault()
-      slash.move(event.key === 'ArrowDown' ? 1 : -1)
-      return
-    }
-    // Tab is the completion key, and it is unconditional while something is
-    // highlighted: it never sends, so it is the one keystroke a user can press
-    // without first working out what the picker currently thinks it has.
-    if (event.key === 'Tab' && !event.shiftKey && slash.highlighted) {
-      event.preventDefault()
-      selectSlashItem(slash.highlighted)
-      return
-    }
-    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-      event.preventDefault()
-      // Enter accepts a completion when there IS one, and otherwise sends. It
-      // used to be swallowed for as long as the picker was open, which does not
-      // survive the catalog being INCOMPLETE BY DECLARATION: no probe reports a
-      // provider's own built-ins, so /compact, /clear and /context match nothing
-      // and never will. Esc still closes the picker outright.
-      if (slash.highlighted) {
-        selectSlashItem(slash.highlighted)
-        return
-      }
-      // The BOX's text, not the draft state. See ChatMarkdownEditor.
-      enqueueDraft(readMarkdown())
-      return
-    }
-    // History recall — a terminal's own ArrowUp/ArrowDown, only at an edge the
-    // caret could not otherwise move past: intercepting anywhere else would
-    // hijack ordinary vertical movement through a wrapped or multi-line draft.
-    const plain = !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey
-    if (!slash.open && plain && event.key === 'ArrowUp' && caret.atStart) {
-      const recalled = history.recallOlder(readMarkdown())
-      if (recalled !== undefined) {
-        event.preventDefault()
-        seedDraft(recalled)
-      }
-      return
-    }
-    if (!slash.open && plain && event.key === 'ArrowDown' && caret.atEnd) {
-      const recalled = history.recallNewer()
-      if (recalled !== undefined) {
-        event.preventDefault()
-        seedDraft(recalled)
-      }
-    }
-  }
+  ) =>
+    handleComposerKey(
+      {
+        slash,
+        history,
+        canStop: working && live,
+        stop: handleStop,
+        stashOrRestore: composer.stashOrRestore,
+        selectSlashItem,
+        send: enqueueDraft,
+        recall: seedDraft,
+      },
+      event,
+      readMarkdown,
+      caret,
+    )
 
-  // Type anywhere in this chat and land in the composer — the way every other
-  // native chat surface people compare this one to already behaves. A WINDOW
-  // listener, because the whole point is that the box is NOT focused yet.
-  //
-  // Guarded exactly like the provider-cycle chord below (agent-chat-pane.tsx's
-  // own onCycleProvider effect): a retained (hidden) workspace stays mounted
-  // under display:none, and a window listener that only checked `active` and
-  // `visible` would still fire for a chat nobody is looking at — that class of
-  // bug already happened once for the chord. `isActivePane` covers the third
-  // axis (another PANE has focus — e.g. a split with several chats in the
-  // same workspace, where `active`/`visible`/wsId all agree): a normal prop,
-  // so gated in the effect's own guard/deps like `active`/`visible`, not
-  // reread inside the handler. `getActiveWorkspaceId` IS reread inside the
-  // handler, not the guard: the active workspace can change without this
-  // component re-rendering, unlike `isActivePane`.
-  const typeBufferRef = useRef<TypeBuffer>(EMPTY_TYPE_BUFFER)
-  const onTypeToFocusKey = useEffectEvent((event: globalThis.KeyboardEvent) => {
-    if (getActiveWorkspaceId() !== wsId) return
-    if (isFocusInEditable(document.activeElement)) return
-    // Nowhere for the redirected text to land — signpost/choice/halted render
-    // no field at all (see resolveComposerState) — so this leaves the buffer
-    // untouched rather than silently swallowing keystrokes into a draft no one
-    // can see.
-    const state = resolveComposerState({
+  const composerState = () =>
+    resolveComposerState({
       live: canSend,
       revival,
       submitUnavailable,
-      terminalWait: terminalWaiting ? { kind: terminalWaitKind ?? '' } : undefined,
+      terminalWait,
       compacting,
-      activity,
+      asks: facts.asks,
       haltedMessage: halted?.text,
       haltedResetsAt: limitResetsAt(telemetry),
     })
-    if (state.kind !== 'input' && state.kind !== 'compacting') return
-    const result = advanceTypeToFocus(typeBufferRef.current, event, Date.now())
-    typeBufferRef.current = result.buffer
-    if (result.action === 'redirect') {
-      event.preventDefault()
-      event.stopPropagation()
-      seedDraft(draft + result.text)
-    }
+  useTypeToFocus({
+    wsId,
+    watched: active && visible && isActivePane,
+    canType: () => acceptsTyping(composerState()),
+    onText: (text) => seedDraft(draft + text),
   })
-  useEffect(() => {
-    if (!active || !visible || !isActivePane) return
-    typeBufferRef.current = EMPTY_TYPE_BUFFER
-    const onKeyDown = (event: globalThis.KeyboardEvent) => onTypeToFocusKey(event)
-    window.addEventListener('keydown', onKeyDown, true)
-    return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [active, visible, isActivePane])
 
-  // A chat with nothing in it is a DIFFERENT SURFACE, not an empty transcript
-  // with a message box under it: the first thing it asks for is a description of
-  // the change, which is writing, so it gets the pane at writing size. It stops
-  // being one the instant anything is in flight — a queued prompt is already the
-  // beginning of a conversation, and so is a failed load worth retrying.
-  const nothingYet = ledger.messages.length === 0 && queue.length === 0
-  const blank = !ledger.error && nothingYet
-  // Same "notify an ancestor outside this subtree" shape as the queue-count
-  // effects above, and the same reason it is deferred rather than restructured.
-  // react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent
-  useEffect(() => onBlankChange?.(blank), [blank, onBlankChange])
-  // A 404 on this chat's OWN messages is the daemon saying it has never heard
-  // of this id — never transient, so the Retry button in AgentTranscript's
-  // error state can only ever fail again. Distinct from `!known` above: that
-  // fires while the chat LIST is still loading, this fires only once THIS
-  // chat's own read has come back negative.
-  useEffect(() => {
-    if (isNotFoundError(ledger.error)) onChatGone?.()
-  }, [ledger.error, onChatGone])
-  // WHICH SURFACE IS NOT KNOWN UNTIL THE FIRST PAGE LANDS, and guessing shows the
-  // wrong one: an empty ledger that has not answered yet is indistinguishable
-  // from a chat with history, so picking either paints a composer the reader then
-  // watches be replaced. The transcript's own loading state stands alone until
-  // the answer arrives — one transition instead of two.
-  const settling = ledger.loading && nothingYet
-
-  const selectionCluster = (
-    <SelectionCluster
-      provider={effectiveProvider}
-      providers={providers}
-      model={model}
-      effort={effectiveEffort}
-      reportedModel={reportedModel}
-      presentation={presentation}
-      splitEnabled={splitEnabled && provider?.hotswap === true}
-      showSwitcher={presentation !== 'terminal' && provider?.hasTerminal !== false}
-      handoverBlocked={!provider?.hotswap && working}
-      switchDisabled={switchDisabled}
-      onSelectionChange={onSelectionChange}
-      onSelectPresentation={onSelectPresentation}
-    />
-  )
+  // The empty document's cluster and the dock's bar offer the same controls.
+  const selection = {
+    provider: effectiveProvider,
+    providers,
+    effort: effectiveEffort,
+    reportedModel,
+    presentation,
+    splitEnabled: splitEnabled && provider?.hotswap === true,
+    showSwitcher: presentation !== 'terminal' && provider?.hasTerminal !== false,
+    handoverBlocked: !provider?.hotswap && working,
+    switchDisabled,
+    onSelectionChange,
+    onSelectPresentation,
+  }
 
   const transcript = (
     <AgentTranscript
-      wsId={wsId}
       chatId={chatId}
-      messages={ledger.messages}
-      streamingBubbles={ledger.streamingBubbles}
-      queue={queue}
       providers={providers}
-      activity={activity}
-      // WorkingLine itself now carves compaction out of its own "blocked on a
-      // person" check — excluding it here too used to be the only thing
-      // silencing it, and would make that carve-out unreachable.
+      queue={queue}
+      status={facts.status}
       working={working}
+      since={facts.since}
       compacting={compacting}
-      reasoning={reasoning}
-      toolOutput={toolOutput}
-      plan={plan}
-      diff={diff}
-      loading={ledger.loading}
-      error={ledger.error}
-      hasOlder={ledger.hasOlder}
-      onLoadOlder={() => void ledger.loadOlder()}
-      onRetryLoad={() => void ledger.loadInitial()}
+      reasoning={facts.reasoning}
+      plan={facts.plan}
+      asking={facts.asks.length > 0}
+      suppressId={halted?.id}
       onOpenTerminal={onOpenTerminal}
       onEditPrompt={editPrompt}
       onCancelPrompt={prompts.remove}
@@ -1068,89 +340,64 @@ export function AgentChatView({
       showTerminalHintFor={
         prompts.showAwaitingTerminalHint ? prompts.awaitingHead?.clientRequestId : undefined
       }
-      eventsBefore={eventsBefore}
-      suppressSequence={halted?.sequence}
-      trailingInterruption={trailingTags}
-      dockHeight={dockHeight}
+      dockHeight={dock.dockHeight}
       visible={visible}
       holdReveal={awaitingList}
       initialScrollPosition={initialScrollPosition}
       onScrollPositionChange={(position) => setScrollPosition(chatId, position)}
-      // The CSS var below covers `.scroll`'s own padding; the anchor's
-      // turn-pinning positions content at the top of the viewport in JS, where
-      // that padding is already scrolled away, so it needs the raw number too
-      // — the same reason AgentEmptyDocument takes it. This is
-      // `transcriptHeaderClearancePx` (the header's full dissolve-zone reach),
-      // NOT `headerClearancePx` (its narrower click-target) — AgentTranscript's
-      // own prop is still named `headerClearancePx` from its perspective, it
-      // is just fed the bigger, transcript-specific number here.
       headerClearancePx={transcriptHeaderClearancePx}
     />
   )
 
-  // Published as CSS vars on every `.agent-chat` root below rather than props
-  // threaded through AgentTranscript/AgentEmptyDocument's own CSS: both
-  // top-clearing rules (transcript.css's `.scroll`, composer.css's `.doc`)
-  // live under `.agent-chat` and pick theirs up by inheritance for free.
-  // Two DISTINCT vars, because the two surfaces need different amounts: the
-  // transcript needs the header's full EdgeDissolve reach or scrolled-behind
-  // text renders visibly blurred; composer/empty-document only need to clear
-  // the header's own clickable row. AgentEmptyDocument still needs
-  // `headerClearancePx` as a raw NUMBER too, for the JS layout math
-  // `lastLineTop` falls back to on a truly empty document — see its own prop.
+  // Two clearances: scrolled text must clear the header's whole dissolve, the
+  // composer and empty document only its clickable row.
   const headerClearanceStyle = {
     '--agent-header-clearance': `${headerClearancePx}px`,
     '--agent-transcript-header-clearance': `${transcriptHeaderClearancePx}px`,
-  } as React.CSSProperties
+  } as CSSProperties
 
-  if (settling) {
+  const stashPicker = composer.stashPickerOpen && (
+    <ComposerStashPicker
+      items={composer.stashes}
+      onSelect={composer.restoreStash}
+      onClose={composer.closeStashPicker}
+    />
+  )
+
+  if (settling || blank) {
     return (
       <DndScope>
         <ChatMarkdownAssetProvider wsId={wsId} chatId={chatId}>
           <section className="agent-chat chat" aria-label="Agent chat" style={headerClearanceStyle}>
-            {transcript}
-          </section>
-        </ChatMarkdownAssetProvider>
-      </DndScope>
-    )
-  }
-
-  if (blank) {
-    return (
-      <DndScope>
-        <ChatMarkdownAssetProvider wsId={wsId} chatId={chatId}>
-          <section className="agent-chat chat" aria-label="Agent chat" style={headerClearanceStyle}>
-            {stashPickerOpen && (
-              <div className="blank-stash-picker">
-                <ComposerStashPicker
-                  items={promptStashes}
-                  onSelect={restorePromptStash}
-                  onClose={() => setStashPickerOpen(false)}
+            {settling ? (
+              transcript
+            ) : (
+              <>
+                {stashPicker && <div className="blank-stash-picker">{stashPicker}</div>}
+                <AgentEmptyDocument
+                  ref={emptyDocRef}
+                  wsId={wsId}
+                  chatId={chatId}
+                  draft={seed.text}
+                  draftSeed={seed.n}
+                  hasText={draft.trim().length > 0}
+                  onDraftChange={composer.updateDraft}
+                  onSubmit={() => enqueueDraft()}
+                  onKeyDown={handleKeyDown}
+                  controls={<SelectionCluster {...selection} model={model} />}
+                  working={working}
+                  canStop={live}
+                  sending={prompts.deliveryPending}
+                  onStop={handleStop}
+                  headerClearancePx={headerClearancePx}
+                  banner={blankSignpost}
                 />
-              </div>
-            )}
-            <AgentEmptyDocument
-              ref={emptyDocRef}
-              wsId={wsId}
-              chatId={chatId}
-              draft={seed.text}
-              draftSeed={seed.n}
-              hasText={draft.trim().length > 0}
-              onDraftChange={updateDraft}
-              onSubmit={() => enqueueDraft()}
-              onKeyDown={handleKeyDown}
-              controls={selectionCluster}
-              working={working}
-              canStop={live}
-              sending={prompts.deliveryPending}
-              onStop={handleStop}
-              headerClearancePx={headerClearancePx}
-              banner={blankSignpost}
-            />
-            {composerError && (
-              <p className="meta composer-note" role="alert">
-                {composerError}
-              </p>
+                {composer.error && (
+                  <p className="meta composer-note" role="alert">
+                    {composer.error}
+                  </p>
+                )}
+              </>
             )}
           </section>
         </ChatMarkdownAssetProvider>
@@ -1168,28 +415,20 @@ export function AgentChatView({
           style={
             {
               ...headerClearanceStyle,
-              '--agent-dock-h': `${Math.round(dockHeight)}px`,
-              '--agent-scrollbar-w': `${scrollbarWidth}px`,
-            } as React.CSSProperties
+              '--agent-dock-h': `${Math.round(dock.dockHeight)}px`,
+              '--agent-scrollbar-w': `${dock.scrollbarWidth}px`,
+            } as CSSProperties
           }
         >
           {transcript}
-
           <div className="dissolve" aria-hidden="true">
             {DISSOLVE_LAYERS.map((_, i) => (
               <div key={i} className="dissolve-layer" />
             ))}
           </div>
-
-          <div ref={dockRef} className="dock">
-            <SubagentShelf activity={activity} />
-            {stashPickerOpen && (
-              <ComposerStashPicker
-                items={promptStashes}
-                onSelect={restorePromptStash}
-                onClose={() => setStashPickerOpen(false)}
-              />
-            )}
+          <div ref={dock.dockRef} className="dock">
+            <SubagentShelf subagents={facts.subagents} />
+            {stashPicker}
             {slash.open && (
               <ComposerSlashPicker
                 state={slash.state}
@@ -1206,7 +445,7 @@ export function AgentChatView({
             <AgentComposer
               wsId={wsId}
               chatId={chatId}
-              activity={activity}
+              asks={facts.asks}
               providerLabel={providerLabel}
               permissionLevels={provider?.permissionLevels}
               live={canSend}
@@ -1215,14 +454,14 @@ export function AgentChatView({
               compacting={compacting}
               sending={prompts.deliveryPending}
               submitUnavailable={submitUnavailable}
-              terminalWait={terminalWaiting ? { kind: terminalWaitKind ?? '' } : undefined}
+              terminalWait={terminalWait}
               haltedMessage={halted?.text}
               haltedResetsAt={limitResetsAt(telemetry)}
               canStop={live}
               draft={draft}
               fieldHeight={fieldHeight}
               slashOpen={slash.open}
-              onDraftChange={updateDraft}
+              onDraftChange={composer.updateDraft}
               onHeightChange={setFieldHeight}
               onKeyDown={handleKeyDown}
               onSend={() => enqueueDraft()}
@@ -1233,41 +472,21 @@ export function AgentChatView({
               takeoverContainer={chatSurfaceEl}
             />
             <ProviderBar
-              provider={effectiveProvider}
-              providers={providers}
-              switchDisabled={switchDisabled}
-              // THE PICK WINS, live or not. This chip says what the NEXT
-              // message will run as, which is the whole point of staging a
-              // pick locally: letting the runner's own launch report win
-              // while `live` (as this once did) painted the RUNNING model
-              // over the user's choice, so clicking a model on a live chat
-              // looked like it did nothing until the next send restarted the
-              // CLI. The launch report only FILLS THE GAP when nothing has
-              // been picked — falling back to the last model this chat
-              // actually CONFIRMED once `live` drops and the backend's own
-              // launchModel goes with it (see `lastConfirmedModel` above).
-              // Neither fallback guesses from catalogue order, and neither
-              // bakes in the "Default" label — see `model`'s own comment.
-              model={model || (live ? launchModel : lastConfirmedModel)}
-              effort={effectiveEffort}
-              reportedModel={reportedModel}
+              {...selection}
+              // The pick wins: this chip says what the next message runs as. The
+              // launch report only fills the gap, from the last one confirmed.
+              model={model || confirmedModel}
               telemetry={telemetry}
-              presentation={presentation}
-              splitEnabled={splitEnabled && provider?.hotswap === true}
               queued={queue.length}
               onCompact={
                 provider?.compaction && live && !compacting && !onTerminalSurface
-                  ? handleCompact
+                  ? () => void compactChat(wsId, chatId)
                   : undefined
               }
-              onSelectionChange={onSelectionChange}
-              onSelectPresentation={onSelectPresentation}
-              showSwitcher={presentation !== 'terminal' && provider?.hasTerminal !== false}
-              handoverBlocked={!provider?.hotswap && working}
             />
-            {(composerError || prompts.persistenceLost) && (
+            {(composer.error || prompts.persistenceLost) && (
               <p className="meta composer-note" role="alert">
-                {composerError ||
+                {composer.error ||
                   'Pending prompts cannot be saved on this device. Keep Crowbar open until they finish.'}
               </p>
             )}
