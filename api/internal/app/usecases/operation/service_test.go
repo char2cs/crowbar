@@ -398,3 +398,59 @@ func TestService_DismissingRunningWorkIsAConflict(t *testing.T) {
 	_, err = f.svc.Dismiss(context.Background(), uuid.NewString())
 	assert.Equal(t, problem.NotFound, problem.CodeOf(err))
 }
+
+func moveSpec(id string) operation.Spec {
+	return operation.Spec{
+		ID: id, Kind: domain.OpWorkspaceReparent, ProjectID: "p1", Label: "Move a under b",
+		Subject: domain.EntityRef{Kind: domain.EntityWorkspace, ID: "ws1"},
+	}
+}
+
+// Two hierarchy verbs on one workspace would race each other's git and rows:
+// the second is refused while the first runs, and admitted once it settled.
+func TestService_ASecondWorkspaceVerbWhileOneRunsIsRefused(t *testing.T) {
+	f := newFixture(t)
+	first := uuid.NewString()
+	release := make(chan struct{})
+	_, err := f.svc.Start(context.Background(), moveSpec(first), func(context.Context, operation.Progress) error {
+		<-release
+		return nil
+	})
+	require.NoError(t, err)
+
+	again, err := f.svc.Start(context.Background(), moveSpec(first), succeed)
+	require.NoError(t, err, "a retry of the running key is the same request")
+	assert.Equal(t, first, again.ID)
+	other := moveSpec(uuid.NewString())
+	other.Kind = domain.OpWorkspaceSync
+	_, err = f.svc.Start(context.Background(), other, succeed)
+	assert.Equal(t, problem.OperationRunning, problem.CodeOf(err))
+	push, err := f.svc.Start(context.Background(), pushSpec(uuid.NewString()), succeed)
+	require.NoError(t, err, "git verbs are not hierarchy verbs")
+	f.until(t, push.ID)
+
+	close(release)
+	f.until(t, first)
+	other.ID = uuid.NewString()
+	next, err := f.svc.Start(context.Background(), other, succeed)
+	require.NoError(t, err)
+	f.until(t, next.ID)
+}
+
+// The boot sweep that finishes a purge clears the failure it reported.
+func TestService_DismissFailedClearsTheSubjectsFailures(t *testing.T) {
+	f := newFixture(t)
+	ref := domain.EntityRef{Kind: domain.EntityWorkspace, ID: "ws1"}
+	purge, err := f.svc.Fail(context.Background(), operation.Spec{Kind: domain.OpWorkspacePurge, Subject: ref}, errors.New("busy"))
+	require.NoError(t, err)
+	<-f.frames
+	other, err := f.svc.Fail(context.Background(), pushSpec(""), errors.New("gone"))
+	require.NoError(t, err)
+	<-f.frames
+
+	require.NoError(t, f.svc.DismissFailed(context.Background(), domain.OpWorkspacePurge, ref))
+
+	assert.True(t, (<-f.frames).Dismissed)
+	assert.True(t, f.row(t, purge.ID).Dismissed)
+	assert.False(t, f.row(t, other.ID).Dismissed, "another kind's failure is not the purge's to clear")
+}

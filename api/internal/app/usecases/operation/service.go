@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -57,6 +58,8 @@ type Service struct {
 
 	work    sync.WaitGroup
 	cancels map[*context.CancelFunc]struct{}
+	// busy is the running hierarchy verb per workspace, guarded by mu.
+	busy map[domain.EntityRef]string
 }
 
 // New builds the service over the operations store; publish hears every saved row.
@@ -65,7 +68,10 @@ func New(
 	publish func(domain.Operation),
 	clock func() time.Time,
 ) *Service {
-	return &Service{store: opStore, publish: publish, clock: clock, cancels: map[*context.CancelFunc]struct{}{}}
+	return &Service{
+		store: opStore, publish: publish, clock: clock,
+		cancels: map[*context.CancelFunc]struct{}{}, busy: map[domain.EntityRef]string{},
+	}
 }
 
 // Start records spec as accepted and runs work detached from ctx. A key seen
@@ -145,6 +151,31 @@ func (s *Service) Dismiss(
 	return op, nil
 }
 
+// DismissFailed dismisses every failed kind operation naming subject: work the
+// daemon finished later, such as a purge the boot sweep completed.
+func (s *Service) DismissFailed(
+	ctx context.Context,
+	kind domain.OperationKind,
+	subject domain.EntityRef,
+) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ops, err := s.store.FindAll(ctx)
+	if err != nil {
+		return fmt.Errorf("operation: dismiss %s of %s: %w", kind, subject.ID, err)
+	}
+	for _, op := range ops {
+		if op.Kind != kind || op.Subject != subject || op.State != domain.OpFailed || op.Dismissed {
+			continue
+		}
+		op.Dismissed = true
+		if err := s.saveLocked(ctx, &op); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Snapshot is every retained operation, oldest change first.
 func (s *Service) Snapshot(ctx context.Context) ([]domain.Operation, error) {
 	ops, err := s.store.FindAll(ctx)
@@ -219,6 +250,12 @@ func (s *Service) admit(
 		// Same key, kind and subject is the same request whatever its body (R3).
 		return *known, nil, nil
 	}
+	holds := exclusive(spec.Kind) && state == domain.OpAccepted
+	if holds {
+		if err := s.refuseBusyLocked(ctx, spec.Subject); err != nil {
+			return domain.Operation{}, nil, err
+		}
+	}
 	if spec.Validate != nil {
 		if err := spec.Validate(ctx); err != nil {
 			return domain.Operation{}, nil, err
@@ -236,13 +273,49 @@ func (s *Service) admit(
 	workCtx, cancel := context.WithCancel(ctx)
 	s.cancels[&cancel] = struct{}{}
 	s.work.Add(1)
+	if holds {
+		s.busy[spec.Subject] = id
+	}
 	return op, &admitted{ctx: workCtx, release: func() {
 		s.mu.Lock()
 		delete(s.cancels, &cancel)
+		if holds && s.busy[spec.Subject] == id {
+			delete(s.busy, spec.Subject)
+		}
 		s.mu.Unlock()
 		cancel()
 		s.work.Done()
 	}}, nil
+}
+
+// exclusive kinds rewrite a workspace's branch, parent or worktree, so one runs
+// per workspace at a time. git.* verbs are not among them: git serialises those
+// itself, and a push beside a sync is legitimate.
+func exclusive(kind domain.OperationKind) bool {
+	return strings.HasPrefix(string(kind), "workspace.")
+}
+
+// refuseBusyLocked refuses subject while its hierarchy verb runs. The holder
+// is released after its terminal frame, so a settled row means free.
+func (s *Service) refuseBusyLocked(
+	ctx context.Context,
+	subject domain.EntityRef,
+) error {
+	holder, held := s.busy[subject]
+	if !held {
+		return nil
+	}
+	row, err := s.store.FindByKey(ctx, holder)
+	if err != nil {
+		return fmt.Errorf("operation: find %s: %w", holder, err)
+	}
+	if row != nil && settled(row.State) {
+		return nil
+	}
+	return &problem.Error{
+		Code:    problem.OperationRunning,
+		Message: fmt.Sprintf("%s %s is busy with operation %s", subject.Kind, subject.ID, holder),
+	}
 }
 
 func operationID(key string) (string, error) {
