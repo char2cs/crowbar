@@ -6,17 +6,22 @@ function reason(op: Operation): string | undefined {
   return (op.error ?? op.items.find((item) => item.error)?.error)?.message
 }
 
-/** Toasts each operation that fails while this window watches it, once. One
- *  already failed when first seen was shown before, or happened while away. */
+// A failure is news when it was seen running, or arrives failed on a live
+// frame (daemon-started work); one held at mount or sent in a snapshot is not.
+function isNews(op: Operation, before: OperationState | undefined, mounted: boolean): boolean {
+  if (op.state !== 'failed' || op.dismissed || before === 'failed') return false
+  return before !== undefined || (mounted && !op.snapshot)
+}
+
+/** Toasts each operation that fails while this window watches it, once. */
 export function OperationsWatcher() {
   useEffect(() => {
     const seen = new Map<string, OperationState>()
-    const look = (ops: Record<string, Operation>) => {
+    const look = (ops: Record<string, Operation>, mounted: boolean) => {
       for (const op of Object.values(ops)) {
         const before = seen.get(op.id)
         seen.set(op.id, op.state)
-        if (before === undefined || before === 'failed' || op.state !== 'failed' || op.dismissed)
-          continue
+        if (!isNews(op, before, mounted)) continue
         toast.show({
           key: op.id,
           type: 'error',
@@ -25,8 +30,8 @@ export function OperationsWatcher() {
         })
       }
     }
-    look(useOperationsStore.getState().ops)
-    return useOperationsStore.subscribe((s) => look(s.ops))
+    look(useOperationsStore.getState().ops, false)
+    return useOperationsStore.subscribe((s) => look(s.ops, true))
   }, [])
   return null
 }

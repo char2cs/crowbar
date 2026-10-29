@@ -33,6 +33,8 @@ export interface Operation {
   updatedAt: string
   /** Started by this client and not yet answered by the daemon. */
   local?: true
+  /** Sent on connect (the stream's snapshot), not as a live change. */
+  snapshot?: boolean
 }
 
 export interface OperationsState {

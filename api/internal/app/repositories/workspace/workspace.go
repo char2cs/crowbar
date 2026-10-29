@@ -440,11 +440,12 @@ func (w *workspace) BackfillProvisioning(
 // boot. It refuses to run before RegisterDeleteReactor has built the Purger.
 func (w *workspace) Sweep(
 	ctx context.Context,
+	onPurged func(ctx context.Context, wsID string),
 ) error {
 	if w.purger == nil {
 		return fmt.Errorf("workspace: sweep: no purger registered")
 	}
-	reconcile.NewSweeper(reconcile.SweepListFunc(w.readModel.List), w.purger.Purge).Sweep(ctx)
+	reconcile.NewSweeper(reconcile.SweepListFunc(w.readModel.List), w.purger.Purge).Sweep(ctx, onPurged)
 	return nil
 }
 

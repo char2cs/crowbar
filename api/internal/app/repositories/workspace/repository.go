@@ -202,6 +202,7 @@ type BootSweeper interface {
 	)
 	Sweep(
 		ctx context.Context,
+		onPurged func(ctx context.Context, wsID string),
 	) error
 }
 

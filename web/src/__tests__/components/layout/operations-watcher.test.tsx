@@ -52,10 +52,38 @@ describe('OperationsWatcher', () => {
     render(<OperationsWatcher />)
     act(() =>
       applyOperationFrame(
-        op({ id: 'op2', state: 'failed', error: { code: 'internal', message: 'snapshot' } }),
+        op({
+          id: 'op2',
+          state: 'failed',
+          snapshot: true,
+          error: { code: 'internal', message: 'snapshot' },
+        }),
       ),
     )
 
     expect(toast.show).not.toHaveBeenCalled()
+  })
+
+  // Work the daemon started on its own (a purge that gave up) is first seen failed.
+  it('toasts an operation first seen failed on a live frame', () => {
+    render(<OperationsWatcher />)
+    act(() =>
+      applyOperationFrame(
+        op({
+          id: 'op3',
+          label: 'Remove feature/a',
+          state: 'failed',
+          error: { code: 'internal', message: 'rm: busy' },
+        }),
+      ),
+    )
+
+    expect(toast.show).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: 'op3',
+        message: 'Remove feature/a failed',
+        description: 'rm: busy',
+      }),
+    )
   })
 })

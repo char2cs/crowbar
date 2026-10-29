@@ -757,7 +757,7 @@ func TestWorkspace_Sweep_RedrivesThePurgeForEveryResidualDeletedRow(t *testing.T
 
 	sweeper, ok := repo.(workspace.BootSweeper)
 	require.True(t, ok, "the concrete repo must satisfy BootSweeper")
-	require.NoError(t, sweeper.Sweep(ctx))
+	require.NoError(t, sweeper.Sweep(ctx, func(context.Context, string) {}))
 
 	assert.Equal(t, []string{"w1"}, purged, "only the residual deleted row is re-purged")
 	assert.Equal(t, []string{"/h/projects/p1/r/w1/worktree"}, removed,
@@ -771,7 +771,7 @@ func TestWorkspace_Sweep_RefusesWithoutAPurger(t *testing.T) {
 	ctx, repo := newRepo(t)
 	sweeper, ok := repo.(workspace.BootSweeper)
 	require.True(t, ok, "the workspace repository must be a BootSweeper")
-	require.Error(t, sweeper.Sweep(ctx))
+	require.Error(t, sweeper.Sweep(ctx, func(context.Context, string) {}))
 }
 
 // spyReconciler records the ids passed to OnOpen so a test can assert which read

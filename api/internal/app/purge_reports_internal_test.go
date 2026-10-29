@@ -47,5 +47,18 @@ func TestPurgeGaveUp_ATombNeverObservedIsNamedByTheWorkspace(t *testing.T) {
 
 	purgeGaveUp(ops)(context.Background(), "w1", nil, errors.New("await tombstone: deadline"))
 
-	assert.Equal(t, "Remove workspace", (<-frames).Label)
+	op := <-frames
+	assert.Equal(t, "Remove workspace", op.Label)
+	require.NotNil(t, op.Error)
+	assert.NotContains(t, op.Error.Message, "retries", "the sweep re-drives only a tombstone the read model holds")
+}
+
+func TestPurgeFinished_ClearsTheGiveUp(t *testing.T) {
+	ops, frames := recordingOps(t)
+	purgeGaveUp(ops)(context.Background(), "w1", &domain.Workspace{ID: "w1"}, errors.New("rm: busy"))
+	<-frames
+
+	purgeFinished(ops)(context.Background(), "w1")
+
+	assert.True(t, (<-frames).Dismissed)
 }

@@ -51,8 +51,10 @@ func NewSweeper(
 // is logged and aborts the sweep (there is nothing to iterate), and a per-id
 // purge failure is logged and skipped so one stuck row never blocks the rest. It
 // triggers NO lazy Replay — an empty model simply yields nothing to reap (§3.8).
+// onPurged hears each tombstone it finished, so a reported give-up can clear.
 func (s *Sweeper) Sweep(
 	ctx context.Context,
+	onPurged func(ctx context.Context, wsID string),
 ) {
 	rows, err := s.list(ctx)
 	if err != nil {
@@ -70,6 +72,8 @@ func (s *Sweeper) Sweep(
 		}
 		if err := s.purge(ctx, ws); err != nil {
 			slog.ErrorContext(ctx, "workspace boot orphan-sweep: purge", "id", ws.ID, "err", err)
+			continue
 		}
+		onPurged(ctx, ws.ID)
 	}
 }

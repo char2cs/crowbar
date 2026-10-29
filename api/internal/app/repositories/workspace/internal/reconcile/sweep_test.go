@@ -74,7 +74,7 @@ func TestSweep_ReapsDeletedLingering_LeavesCleanIntact(t *testing.T) {
 		return ax.Forget(ctx, tomb.ID)
 	}
 
-	NewSweeper(st.List, purge).Sweep(ctx)
+	NewSweeper(st.List, purge).Sweep(ctx, noPurged)
 
 	assert.Equal(t, []string{"del"}, purged, "only the deleted row must be purged")
 
@@ -110,7 +110,7 @@ func TestSweep_EmptyModel_NoReplay(t *testing.T) {
 	purgeCalled := false
 	purge := func(context.Context, domain.Workspace) error { purgeCalled = true; return nil }
 
-	NewSweeper(directList, purge).Sweep(context.Background())
+	NewSweeper(directList, purge).Sweep(context.Background(), noPurged)
 
 	assert.False(t, purgeCalled, "an empty model reaps nothing")
 	assert.Zero(t, replays, "the sweep must never trigger a lazy Replay")
@@ -131,7 +131,7 @@ func TestSweep_CleanModel_NoPurge(t *testing.T) {
 	var purged []string
 	purge := func(_ context.Context, ws domain.Workspace) error { purged = append(purged, ws.ID); return nil }
 
-	NewSweeper(list, purge).Sweep(context.Background())
+	NewSweeper(list, purge).Sweep(context.Background(), noPurged)
 
 	assert.Empty(t, purged, "a clean model must trigger no purge")
 	assert.Equal(t, 1, reads, "the read model is read directly exactly once")
@@ -147,7 +147,7 @@ func TestSweep_ListError_SkipsPurge(t *testing.T) {
 	purgeCalled := false
 	purge := func(context.Context, domain.Workspace) error { purgeCalled = true; return nil }
 
-	NewSweeper(list, purge).Sweep(context.Background())
+	NewSweeper(list, purge).Sweep(context.Background(), noPurged)
 
 	assert.False(t, purgeCalled, "a list failure must abort before any purge")
 }
@@ -172,8 +172,12 @@ func TestSweep_PurgeError_ContinuesToNextDeleted(t *testing.T) {
 		return nil
 	}
 
-	NewSweeper(list, purge).Sweep(context.Background())
+	var finished []string
+	NewSweeper(list, purge).Sweep(context.Background(), func(_ context.Context, id string) { finished = append(finished, id) })
 
+	assert.Equal(t, []string{"ok"}, finished, "only a purge that completed is reported finished")
 	assert.Equal(t, []string{"boom", "ok"}, purged,
 		"a failing purge is skipped, the clean row is never purged, and the next deleted row still is")
 }
+
+func noPurged(context.Context, string) {}
