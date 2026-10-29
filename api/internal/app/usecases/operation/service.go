@@ -236,19 +236,9 @@ func (s *Service) admit(
 	if s.stopping {
 		return domain.Operation{}, nil, &problem.Error{Code: problem.Unavailable, Message: "Crowbar is stopping"}
 	}
-	known, err := s.store.FindByKey(ctx, id)
-	if err != nil {
-		return domain.Operation{}, nil, fmt.Errorf("operation: find %s: %w", id, err)
-	}
-	if known != nil {
-		if known.Kind != spec.Kind || known.Subject != spec.Subject {
-			return domain.Operation{}, nil, &problem.Error{
-				Code:    problem.OperationIDConflict,
-				Message: fmt.Sprintf("operation %s is a %s of %s %s", id, known.Kind, known.Subject.Kind, known.Subject.ID),
-			}
-		}
-		// Same key, kind and subject is the same request whatever its body (R3).
-		return *known, nil, nil
+	known, err := s.knownLocked(ctx, id, spec)
+	if err != nil || known != nil {
+		return deref(known), nil, err
 	}
 	holds := exclusive(spec.Kind) && state == domain.OpAccepted
 	if holds {
@@ -286,6 +276,33 @@ func (s *Service) admit(
 		cancel()
 		s.work.Done()
 	}}, nil
+}
+
+// knownLocked is the operation already recorded under id, if any. Same key,
+// kind and subject is the same request whatever its body (R3).
+func (s *Service) knownLocked(
+	ctx context.Context,
+	id string,
+	spec Spec,
+) (*domain.Operation, error) {
+	known, err := s.store.FindByKey(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("operation: find %s: %w", id, err)
+	}
+	if known != nil && (known.Kind != spec.Kind || known.Subject != spec.Subject) {
+		return nil, &problem.Error{
+			Code:    problem.OperationIDConflict,
+			Message: fmt.Sprintf("operation %s is a %s of %s %s", id, known.Kind, known.Subject.Kind, known.Subject.ID),
+		}
+	}
+	return known, nil
+}
+
+func deref(op *domain.Operation) domain.Operation {
+	if op == nil {
+		return domain.Operation{}
+	}
+	return *op
 }
 
 // exclusive kinds rewrite a workspace's branch, parent or worktree, so one runs
