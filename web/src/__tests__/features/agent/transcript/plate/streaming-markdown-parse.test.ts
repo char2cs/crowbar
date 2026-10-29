@@ -6,6 +6,7 @@ import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-compos
 import { applyStreamedValue } from '@/features/agent/transcript/plate/streaming-value-patch'
 import {
   FRESH_CURSOR,
+  openDiagramFence,
   parseStreamingMarkdown,
   type StreamCursor,
 } from '@/features/agent/transcript/plate/streaming-markdown-parse'
@@ -200,5 +201,32 @@ describe('parseStreamingMarkdown', () => {
       chatMarkdownToValue,
     )
     expect(settled(second.value)).toEqual(settled(chatMarkdownToValue(b)))
+  })
+})
+
+describe('openDiagramFence', () => {
+  it('finds an open mermaid or excalidraw fence at the end of the text and nothing else', () => {
+    expect(openDiagramFence('intro\n\n```mermaid\ngraph TD\n', 0)).toBe('mermaid')
+    expect(openDiagramFence('~~~excalidraw\n{"type"', 0)).toBe('excalidraw')
+    expect(openDiagramFence('````mermaid\na\n```\nstill inside\n', 0)).toBe('mermaid')
+    expect(openDiagramFence('   ```mermaid\ngraph', 0)).toBe('mermaid')
+    expect(openDiagramFence('```mermaid\ngraph TD\n```\nafter\n', 0)).toBeNull()
+    expect(openDiagramFence('```python\nprint(1)\n', 0)).toBeNull()
+    expect(openDiagramFence('```mermaid\na\n```\n\n```go\nfunc', 0)).toBeNull()
+    expect(openDiagramFence('~~~mermaid\na\n```\n', 0)).toBe('mermaid')
+    expect(openDiagramFence('plain prose', 0)).toBeNull()
+  })
+
+  it('treats a half-typed diagram info string on an unfinished line as a diagram fence', () => {
+    expect(openDiagramFence('text\n\n```merm', 0)).toBe('mermaid')
+    expect(openDiagramFence('text\n\n```exc', 0)).toBe('excalidraw')
+    expect(openDiagramFence('text\n\n```py', 0)).toBeNull()
+    expect(openDiagramFence('text\n\n```mermaidx', 0)).toBeNull()
+  })
+
+  it('scans from the stream cursor offset', () => {
+    const md = 'settled\n\n```mermaid\ngraph TD\n'
+    expect(openDiagramFence(md, md.indexOf('```'))).toBe('mermaid')
+    expect(openDiagramFence(md, md.indexOf('graph'))).toBeNull()
   })
 })

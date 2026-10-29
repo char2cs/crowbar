@@ -28,6 +28,54 @@ const BACKWARD =
 
 type ChunkKind = 'plain' | 'list' | 'other'
 
+interface Fence {
+  char: string
+  length: number
+  info: string
+}
+
+/** The fence open after `line`: one opens on an opening line and closes on a
+ *  bare fence of its character at least as long. */
+function fenceAfter(fence: Fence | null, line: string): Fence | null {
+  const match = FENCE.exec(line)
+  if (!fence)
+    return match ? { char: match[1]![0]!, length: match[1]!.length, info: match[2]! } : null
+  const closes =
+    match &&
+    match[1]!.startsWith(fence.char) &&
+    match[1]!.length >= fence.length &&
+    match[2]!.trim() === ''
+  return closes ? null : fence
+}
+
+export type DiagramFence = 'mermaid' | 'excalidraw'
+const DIAGRAMS: DiagramFence[] = ['mermaid', 'excalidraw']
+
+/**
+ * The diagram language of the fence still open at the end of `md`, scanning
+ * from `from` (a stream cursor offset, never inside a fence). An opening line
+ * with no newline yet counts once its info string is a prefix of a diagram
+ * language, so a half-typed ```merm is a diagram, not code.
+ */
+export function openDiagramFence(md: string, from: number): DiagramFence | null {
+  let fence: Fence | null = null
+  let pos = from
+  let partial = false
+  while (pos < md.length) {
+    const nl = md.indexOf('\n', pos)
+    const line = md.slice(pos, nl === -1 ? md.length : nl).replace(/\r$/, '')
+    const opened = !fence
+    fence = fenceAfter(fence, line)
+    partial = opened && fence !== null && nl === -1
+    if (nl === -1) break
+    pos = nl + 1
+  }
+  if (!fence) return null
+  const lang = fence.info.trim().split(/\s/)[0]!.split(':')[0]!
+  if (partial) return (lang && DIAGRAMS.find((d) => d.startsWith(lang))) || null
+  return DIAGRAMS.find((d) => d === lang) ?? null
+}
+
 interface Scan {
   /** Start offsets of lines a settled prefix may end right before. */
   candidates: number[]
@@ -42,7 +90,7 @@ interface Scan {
  */
 function scanFrom(md: string, from: number): Scan {
   const candidates: number[] = []
-  let fence: { char: string; length: number } | null = null
+  let fence: Fence | null = null
   let afterBlank = false
   let kind: ChunkKind = 'plain'
   let pos = from
@@ -52,14 +100,8 @@ function scanFrom(md: string, from: number): Scan {
     const end = nl === -1 ? md.length : nl
     const line = md.slice(pos, end).replace(/\r$/, '')
     const blank = line.trim() === ''
-    const fenceMatch = FENCE.exec(line)
     if (fence) {
-      const closes =
-        fenceMatch &&
-        fenceMatch[1]!.startsWith(fence.char) &&
-        fenceMatch[1]!.length >= fence.length &&
-        fenceMatch[2]!.trim() === ''
-      if (closes) fence = null
+      fence = fenceAfter(fence, line)
     } else if (blank) {
       afterBlank = true
     } else {
@@ -76,7 +118,7 @@ function scanFrom(md: string, from: number): Scan {
       }
       afterBlank = false
       started = true
-      if (fenceMatch) fence = { char: fenceMatch[1]![0]!, length: fenceMatch[1]!.length }
+      fence = fenceAfter(null, line)
     }
     if (nl === -1) break
     pos = nl + 1

@@ -1,10 +1,23 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
+import { Plate, PlateContent, usePlateEditor } from 'platejs/react'
+import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
+import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-composer-serialization'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 
 afterEach(cleanup)
+
+/** The composer's own interactive editor: the transcript renders diagrams instead. */
+function ComposerDraft({ md }: { md: string }) {
+  const editor = usePlateEditor({ plugins: chatComposerPlugins, value: chatMarkdownToValue(md) })
+  return (
+    <Plate editor={editor} readOnly>
+      <PlateContent readOnly />
+    </Plate>
+  )
+}
 
 /** Under the real `DndScope`, as `AgentChatView` renders it. */
 function renderWithDnd(ui: React.ReactNode) {
@@ -69,7 +82,7 @@ describe('chat attachment images', () => {
   it('still hides the excalidraw PNG sibling, with no drag handle either', () => {
     const scene = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: {} })
     const md = `\`\`\`excalidraw:AbC123xy\n${scene}\n\`\`\`\n\n![diagram](chats/c1/attachments/diagram.png)`
-    renderWithDnd(<MarkdownMessage>{md}</MarkdownMessage>)
+    renderWithDnd(<ComposerDraft md={md} />)
 
     expect(document.querySelectorAll('img')).toHaveLength(0)
     // Only the excalidraw fence's OWN handle, none for the hidden PNG.

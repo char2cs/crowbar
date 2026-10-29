@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, type ReactNode } from 'react'
+import { useCallback, useContext, type ReactNode } from 'react'
 import { type TCodeBlockElement, NodeApi, PathApi } from 'platejs'
 import {
   PlateElement,
@@ -19,21 +19,17 @@ import { parseAttachmentLang } from './attachment-lang'
 import { parseExcalidrawScene, type ParsedExcalidrawScene } from './excalidraw-scene'
 import { TextAttachmentPill } from './text-attachment-pill'
 import { ExcalidrawPreview } from './excalidraw-preview'
+import { DiagramBlock, type DiagramTarget } from './diagram-block'
+import { StreamingFenceContext } from '@/features/agent/transcript/plate/streaming-fence'
+import type { DiagramFence } from '@/features/agent/transcript/plate/streaming-markdown-parse'
 
-/** A code block's full multi-line source, reconstructed from its `code_line`
- *  children — `NodeApi.string(element)` would concatenate lines with no
- *  separator. Same technique `mermaid-code-block.tsx`'s isMermaid branch
- *  already uses. */
+/** A code block's source; `NodeApi.string` would join its lines with no separator. */
 function codeBlockSource(element: TCodeBlockElement): string {
   return element.children.map((line) => NodeApi.string(line)).join('\n')
 }
 
-/** The scene a code block resolves to as an excalidraw fence, or `null` if
- *  it isn't one (wrong lang) or its content doesn't parse as a real scene —
- *  the single gate `resolveCodeBlockPreview`'s own excalidraw branch and
- *  `ChatMarkdownImageElement`'s sibling-suppression check both defer to, so
- *  "does this fence show a preview" and "does its PNG sibling hide itself"
- *  can never disagree. */
+/** The scene an excalidraw fence parses to, or null: the one gate both the
+ *  preview and its PNG sibling's suppression defer to, so they never disagree. */
 export function excalidrawSceneFromCodeBlock(
   element: TCodeBlockElement,
 ): ParsedExcalidrawScene | null {
@@ -42,28 +38,9 @@ export function excalidrawSceneFromCodeBlock(
   return parseExcalidrawScene(codeBlockSource(element))
 }
 
-/** The `url` of the `img` node immediately following this code block, if
- *  any — the Excalidraw kind's persisted-PNG sibling (fenced JSON, then
- *  `![diagram](ref)` right after, per the design spec).
- *
- * Uses `editor.api.findPath` rather than `props.path`: in the interactive
- * renderer `props.path` is sourced from Plate's `useNodePath`, which is
- * memoized on `[editor.api, node]` (`@platejs/core`'s `PluginElementWithPath`)
- * — per its own JSDoc, "if another node is updated in a way that affects
- * this node's path, this hook will not return the new path." `findPath` is
- * an unmemoized tree-walk, correct regardless of what else moved; the static
- * renderer needs no such care since it recomputes `path` fresh every render
- * regardless. (Empirically, slate-react's own `MemoizedElement` wrapper
- * bails out of re-rendering this node at all unless its OWN `element`
- * reference changes — which would invalidate `useNodePath`'s memo too — so
- * this staleness could not be reproduced through the normal rendering
- * pipeline in this library version; that is an internal implementation
- * detail of a dependency, not a documented contract, so it is not relied on
- * here. `findPath` matches Plate's own stated `useNodePath` caveat and costs
- * one extra tree-walk on an already-rare path.) The `!path` guard exists for
- * `findPath`'s own `Path | undefined` contract when the element isn't in the
- * tree at all — see `findFollowingImageRef`'s own unit test for that case,
- * exercised directly since a mounted document can't trigger it. */
+/** The `url` of the `img` right after this block (an excalidraw fence's PNG).
+ *  `findPath`, not `props.path`: Plate memoizes the latter and can hand back a
+ *  stale path after a sibling moves. */
 export function findFollowingImageRef(
   props: PlateElementProps<TCodeBlockElement>,
 ): string | undefined {
@@ -74,19 +51,9 @@ export function findFollowingImageRef(
   return node?.type === 'img' ? node.url : undefined
 }
 
-/**
- * Deletes an excalidraw fence AND its own persisted-PNG sibling together —
- * `excalidraw-takeover.tsx` inserts the two as one adjacent pair, one logical
- * attachment. Deleting only the fence (`useAttachmentDraggable`'s generic
- * `remove`, which knows nothing about this pairing) orphaned the image:
- * still `hidden` (`isExcalidrawPngSibling` never re-evaluates once its own
- * preceding fence is gone — slate-react does not re-render a node whose OWN
- * props are unchanged just because a SIBLING was removed), but very much
- * still in the document — and still sent, reappearing in the message the
- * person had just "deleted" it from. Removes the image FIRST, at its own
- * (unshifted) path, before removing the fence — the other order would
- * require re-deriving the image's path after the fence's removal shifts it.
- */
+/** Deletes an excalidraw fence and its PNG sibling as one attachment (deleting
+ *  the fence alone left the image hidden but still sent); the image goes first,
+ *  at its unshifted path. */
 function removeExcalidrawAttachment(editor: PlateEditor, element: TCodeBlockElement) {
   const path = editor.api.findPath(element)
   if (!path) return
@@ -100,37 +67,30 @@ function removeExcalidrawAttachment(editor: PlateEditor, element: TCodeBlockElem
   })
 }
 
-/** The raw code body, plus whichever kind-specific preview a fence resolves
- *  to (or `null` for a plain/unrecognized block) — the one piece of logic
- *  the draggable (interactive) and plain (static) renderers below must never
- *  be allowed to disagree on. */
+function codeBodyOf(props: PlateElementProps<TCodeBlockElement>): ReactNode {
+  return (
+    <pre className="overflow-x-auto rounded-md bg-muted/60 p-3 font-mono text-xs leading-relaxed [tab-size:2]">
+      <code>{props.children}</code>
+    </pre>
+  )
+}
+
+/** The code body and the kind-specific preview a fence resolves to, shared so
+ *  the interactive and static renderers never disagree. */
 function resolveCodeBlockPreview(props: PlateElementProps<TCodeBlockElement>): {
   codeBody: ReactNode
   preview: ReactNode
 } {
   const { element } = props
   const parsed = parseAttachmentLang(element.lang)
-
-  const codeBody = (
-    <pre className="overflow-x-auto rounded-md bg-muted/60 p-3 font-mono text-xs leading-relaxed [tab-size:2]">
-      <code>{props.children}</code>
-    </pre>
-  )
+  const codeBody = codeBodyOf(props)
 
   let preview: ReactNode = null
   if (parsed?.kind === 'text-attachment') {
     preview = <TextAttachmentPill text={codeBlockSource(element)} />
   } else {
-    // A bare `excalidraw` tag (no `:{id}` suffix) never comes from the
-    // composer — that path always mints one (excalidrawMarkdown, chat-
-    // attachment-markdown.ts) — but it's exactly what an AGENT writes when a
-    // reply includes a diagram: it has no way to know the id-suffix
-    // convention exists at all. Rather than requiring one, this falls back
-    // to content validation alone: parseExcalidrawScene's structural check
-    // (a real elements[]/appState shape) is already a strong enough guard
-    // against a fence that merely mentions "excalidraw" in prose — the same
-    // false-positive the id suffix exists to prevent for the composer's own
-    // fences, just proven a different way.
+    // An agent writes a bare `excalidraw` fence; the scene's structural check
+    // stands in for the id suffix the composer's own fences carry.
     const scene = excalidrawSceneFromCodeBlock(element)
     if (scene) preview = <ExcalidrawPreview scene={scene} pngRef={findFollowingImageRef(props)} />
   }
@@ -138,17 +98,68 @@ function resolveCodeBlockPreview(props: PlateElementProps<TCodeBlockElement>): {
   return { codeBody, preview }
 }
 
+function diagramKind(lang: string): DiagramFence | null {
+  if (lang === 'mermaid') return 'mermaid'
+  return lang === 'excalidraw' || parseAttachmentLang(lang)?.kind === 'excalidraw'
+    ? 'excalidraw'
+    : null
+}
+
+function isLastTopLevelBlock(props: PlateElementProps<TCodeBlockElement>): boolean {
+  const path = props.editor.api.findPath(props.element)
+  return path?.length === 1 && path[0] === props.editor.children.length - 1
+}
+
 /**
- * The draggable shell for an attachment preview — split into its own
- * component, rather than calling `useAttachmentDraggable` unconditionally
- * from `ChatCodeBlockElement` itself, so an ORDINARY, non-attachment code
- * block never mounts `useAttachmentDraggable` at all and therefore
- * never needs a `DndScope` ancestor either — only a fence that actually
- * resolved to a preview does. (Conditionally choosing WHICH component to
- * render is fine under the rules of hooks; conditionally calling a hook
- * from inside one component is not — this is why the branch lives one level
- * up, in `ChatCodeBlockElement`, rather than as an early return in here.)
+ * How a transcript reply's diagram fence renders, or null outside the
+ * transcript (the composer keeps its own code blocks). Only the document's
+ * last top-level block can be the fence its text leaves open; a half-typed
+ * info string (`merm`) is that fence too.
  */
+interface DiagramRoute {
+  kind: DiagramFence
+  target: DiagramTarget
+  scene?: ParsedExcalidrawScene
+}
+
+function useDiagramTarget(props: PlateElementProps<TCodeBlockElement>): DiagramRoute | null {
+  const fence = useContext(StreamingFenceContext)
+  if (!fence) return null
+  const lang = props.element.lang ?? ''
+  const open = fence.openFence
+  if (open && lang && open.startsWith(lang.split(':')[0]!) && isLastTopLevelBlock(props)) {
+    return { kind: open, target: fence.live ? 'skeleton' : 'code' }
+  }
+  const kind = diagramKind(lang)
+  if (!kind) return null
+  if (kind === 'mermaid') return { kind, target: 'diagram' }
+  const scene = excalidrawSceneFromCodeBlock(props.element) ?? undefined
+  return { kind, target: scene ? 'diagram' : 'code', scene }
+}
+
+function DiagramElement({
+  diagram,
+  ...props
+}: PlateElementProps<TCodeBlockElement> & { diagram: DiagramRoute }) {
+  return (
+    <PlateElement {...props}>
+      <DiagramBlock
+        kind={diagram.kind}
+        target={diagram.target}
+        source={codeBlockSource(props.element)}
+        preview={
+          diagram.scene && (
+            <ExcalidrawPreview scene={diagram.scene} pngRef={findFollowingImageRef(props)} />
+          )
+        }
+        code={codeBodyOf(props)}
+      />
+    </PlateElement>
+  )
+}
+
+/** The draggable shell for an attachment preview, its own component so a plain
+ *  code block never mounts `useAttachmentDraggable` (nor needs a `DndScope`). */
 function DraggableAttachmentBlock({
   preview,
   codeBody,
@@ -182,22 +193,11 @@ function DraggableAttachmentBlock({
   )
 }
 
-/**
- * Chat's fenced-code-block renderer, for the INTERACTIVE editor (the
- * composer, and the transcript's currently-streaming bubble — see
- * `chatComposerPlugins`, not its static derivative). A `text-attachment:{id}`
- * tag with a validly-shaped id, or an `excalidraw:{id}` / bare `excalidraw`
- * tag whose content parses as a real scene, renders a kind-specific preview,
- * reorderable via `AttachmentDragHandle`; anything else — including a bare
- * `text-attachment` tag with no id, or invalid Excalidraw JSON — falls
- * through to a plain code block, identical to before this task and with no
- * drag machinery at all.
- *
- * The raw block stays mounted whenever a preview renders over it — same
- * hidden-but-present technique `mermaid-code-block.tsx` uses — so Slate's
- * node<->DOM mapping is never disturbed.
- */
+/** Chat's code block for the interactive editor. An attachment fence renders its
+ *  preview over the still-mounted raw block, so Slate's node-DOM mapping holds. */
 export function ChatCodeBlockElement(props: PlateElementProps<TCodeBlockElement>) {
+  const diagram = useDiagramTarget(props)
+  if (diagram) return <DiagramElement {...props} diagram={diagram} />
   const { codeBody, preview } = resolveCodeBlockPreview(props)
 
   if (!preview) {
@@ -211,27 +211,17 @@ export function ChatCodeBlockElement(props: PlateElementProps<TCodeBlockElement>
   return <DraggableAttachmentBlock {...props} preview={preview} codeBody={codeBody} />
 }
 
-/**
- * The read-only/settled counterpart, registered on `chatComposerPluginsStatic`
- * (see chat-composer-plugins.ts). Same preview resolution as the interactive
- * renderer above, but never touches `useAttachmentDraggable` — a
- * settled message is read, not reordered, so it has no reason to require a
- * `DndScope` ancestor either.
- */
+/** The static counterpart: the same resolution, never draggable. */
 export function ChatCodeBlockElementStatic(props: PlateElementProps<TCodeBlockElement>) {
+  const diagram = useDiagramTarget(props)
+  if (diagram) return <DiagramElement {...props} diagram={diagram} />
   const { codeBody, preview } = resolveCodeBlockPreview(props)
 
   return (
     <PlateElement {...props} className="my-2">
       {preview ? (
-        // `inline-block`, not a plain block: the chat's very first turn
-        // renders full-width (`.frozen` in transcript.css), unlike an
-        // ordinary bubble which shrinks to its content — a plain block here
-        // would stretch to that full width right along with it, landing
-        // ExcalidrawPreview's own absolutely-positioned edit button off in
-        // the empty space past the diagram's real (narrower) edge instead of
-        // on its corner. Shrinking to content keeps this wrapper's width
-        // tied to the preview's own, in every context alike.
+        // inline-block: on the full-width first turn a block would stretch and
+        // leave the preview's edit button off the diagram's corner.
         <div className="chat-attachment-block inline-block">
           <div contentEditable={false} className="select-none">
             {preview}

@@ -1,7 +1,17 @@
 import { render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Plate, PlateContent, usePlateEditor } from 'platejs/react'
+import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
+import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-composer-serialization'
+import * as scenes from '@/features/agent/composer/plate/attachments/excalidraw-scene'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { __resetPerfForTests } from '@/lib/perf/instrumentation'
+
+const mermaid = vi.hoisted(() => ({
+  initialize: vi.fn(),
+  render: vi.fn(async () => ({ svg: '<svg data-testid="mermaid-svg"></svg>' })),
+}))
+vi.mock('mermaid', () => ({ default: mermaid }))
 
 /**
  * What an agent sends back, rendered.
@@ -252,5 +262,67 @@ describe('MarkdownMessage fade-in', () => {
       .map((s) => s.textContent)
       .join('')
     expect(animated).not.toContain('Building')
+  })
+})
+
+// A diagram fence split across deltas, mid-line too, through the real Plate path.
+describe('MarkdownMessage diagram fences', () => {
+  beforeEach(() => mermaid.render.mockClear())
+  const state = () => document.querySelector<HTMLElement>('.chat-diagram-block')?.dataset.state
+
+  it('shows a skeleton while a mermaid fence is open and renders the diagram once when it closes', async () => {
+    const steps = [
+      'Here:\n\n`',
+      'Here:\n\n``',
+      'Here:\n\n```merm',
+      'Here:\n\n```mermaid\ngraph TD\n',
+      'Here:\n\n```mermaid\ngraph TD\nA-->B\n',
+    ]
+    const { rerender } = render(<MarkdownMessage>{steps[0]!}</MarkdownMessage>)
+    for (const text of steps.slice(2)) {
+      rerender(<MarkdownMessage>{text}</MarkdownMessage>)
+      await waitFor(() => expect(state()).toBe('skeleton'))
+    }
+    expect(screen.queryByText(/A-->B/)?.closest('.hidden')).not.toBeNull()
+    rerender(<MarkdownMessage>{'Here:\n\n```mermaid\ngraph TD\nA-->B\n```\n'}</MarkdownMessage>)
+    expect(mermaid.render).not.toHaveBeenCalled()
+    await waitFor(() => expect(state()).toBe('diagram'), { timeout: 3000 })
+    expect(mermaid.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders a mermaid fence in a composer draft as code, as today', () => {
+    function Draft() {
+      const editor = usePlateEditor({
+        plugins: chatComposerPlugins,
+        value: chatMarkdownToValue('```mermaid\ngraph TD\n```'),
+      })
+      return (
+        <Plate editor={editor}>
+          <PlateContent />
+        </Plate>
+      )
+    }
+    render(<Draft />)
+    expect(document.querySelector('.chat-diagram-block')).toBeNull()
+    expect(screen.getByText('graph TD').closest('pre')).not.toBeNull()
+  })
+
+  it('shows a skeleton for an open excalidraw fence and never parses its partial scene', () => {
+    const parse = vi.spyOn(scenes, 'parseExcalidrawScene')
+    render(<MarkdownMessage>{'```excalidraw\n{"type":"excalidraw","elements":['}</MarkdownMessage>)
+    expect(state()).toBe('skeleton')
+    expect(parse).not.toHaveBeenCalled()
+    parse.mockRestore()
+  })
+
+  it('falls back to plain code when the stream ends inside the fence', async () => {
+    const text = 'Here:\n\n```mermaid\ngraph TD\n'
+    const { rerender } = render(<MarkdownMessage>{'Here:'}</MarkdownMessage>)
+    rerender(<MarkdownMessage>{text}</MarkdownMessage>)
+    await waitFor(() => expect(state()).toBe('skeleton'))
+    rerender(<MarkdownMessage settled>{text}</MarkdownMessage>)
+    expect(state()).toBe('code')
+    expect(document.querySelector('[data-slot="skeleton"]')).toBeNull()
+    expect(mermaid.render).not.toHaveBeenCalled()
   })
 })

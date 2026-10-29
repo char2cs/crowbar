@@ -175,7 +175,9 @@ function MessageRowComponent({
           streaming ? (
             <MarkdownMessage className="break-words">{message.text}</MarkdownMessage>
           ) : (
-            <MarkdownMessageStatic className="break-words">{message.text}</MarkdownMessageStatic>
+            <MarkdownMessageStatic diagrams className="break-words">
+              {message.text}
+            </MarkdownMessageStatic>
           )
         ) : harness ? (
           // Verbatim, in <code> — it's markup (`<task-notification>` is an HTML

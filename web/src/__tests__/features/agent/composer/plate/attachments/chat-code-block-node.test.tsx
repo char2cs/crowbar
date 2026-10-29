@@ -6,6 +6,9 @@ import type { TCodeBlockElement } from 'platejs'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
+import { Plate, PlateContent, usePlateEditor } from 'platejs/react'
+import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
+import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-composer-serialization'
 import {
   excalidrawSceneFromCodeBlock,
   findFollowingImageRef,
@@ -33,6 +36,16 @@ vi.mock(
     return { ...actual, ExcalidrawPreview: vi.fn(actual.ExcalidrawPreview) }
   },
 )
+
+/** The composer's own interactive editor: the transcript renders diagrams instead. */
+function ComposerDraft({ md }: { md: string }) {
+  const editor = usePlateEditor({ plugins: chatComposerPlugins, value: chatMarkdownToValue(md) })
+  return (
+    <Plate editor={editor} readOnly>
+      <PlateContent readOnly />
+    </Plate>
+  )
+}
 
 describe('chat attachment code blocks', () => {
   it('renders a plain code block for a bare ```text-attachment fence with no id', () => {
@@ -144,9 +157,9 @@ describe('chat attachment code blocks', () => {
   it('removing an excalidraw attachment also removes its own persisted-PNG sibling, not just the fence', async () => {
     const scene = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: {} })
     renderWithDnd(
-      <MarkdownMessage>
-        {`\`\`\`excalidraw:AbC123xy\n${scene}\n\`\`\`\n\n![diagram](chats/c1/attachments/x-diagram.png)`}
-      </MarkdownMessage>,
+      <ComposerDraft
+        md={`\`\`\`excalidraw:AbC123xy\n${scene}\n\`\`\`\n\n![diagram](chats/c1/attachments/x-diagram.png)`}
+      />,
     )
     // Two mounted-but-hidden raw nodes going in: the fence's own raw source,
     // and the PNG sibling's void placeholder (`ChatMarkdownImageElement`'s
