@@ -3,10 +3,12 @@ package runner
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // What a retract did to its prompt.
@@ -44,24 +46,34 @@ func (rs *Runners) Retract(ctx context.Context, chatID, requestID string) (Retra
 		r, err = retract(st, requestID)
 		return r.rows, err
 	})
+	retiring := false
 	v, live := rs.live.view(chatID)
+	if err == nil && live && r.carrier != "" && v.runner.ID == r.carrier {
+		retiring = rs.signal(ctx, v.runner, r)
+	}
 	unlock()
 	if err != nil {
 		return RetractResult{}, fmt.Errorf("agent: retract: %w", err)
 	}
-	if !live || r.carrier == "" || v.runner.ID != r.carrier {
+	if !retiring {
 		return r.result, nil
 	}
 	// Outside the lock, as Stop: the CLI's own hooks on the way down need it.
-	if r.result.State == RetractInterrupted && rs.interruptTurn(ctx, v.runner) {
-		return r.result, nil
-	}
-	if _, ok := rs.markEnding(v.runner, r.cause); ok {
-		if err := rs.endMarked(ctx, v.runner); err != nil {
-			return RetractResult{}, fmt.Errorf("agent: retract: %w", err)
-		}
+	if err := rs.endMarked(ctx, v.runner); err != nil {
+		return RetractResult{}, fmt.Errorf("agent: retract: %w", err)
 	}
 	return r.result, nil
+}
+
+// signal tells carrier's provider, under the chat's lock as Stop does, so no
+// send decides against it meanwhile: an interrupted turn ends in place where
+// it can; otherwise the CLI is marked ending, and true is its caller's to end.
+func (rs *Runners) signal(ctx context.Context, carrier agents.Runner, r retraction) bool {
+	if r.result.State == RetractInterrupted && rs.interruptTurn(ctx, carrier) {
+		return false
+	}
+	_, retiring := rs.markEnding(carrier, r.cause)
+	return retiring
 }
 
 // retract decides requestID's withdrawal from st.
@@ -87,6 +99,8 @@ func retract(st ledger.State, requestID string) (retraction, error) {
 	if err != nil {
 		return retraction{}, err
 	}
+	// Only this turn's subagents: one an earlier turn left running is not its to stop.
+	rows = slices.DeleteFunc(rows, func(row ledger.Row) bool { return row.TurnID != turn.ID })
 	ended, err := ledger.EndTurn(st, ledger.TurnStatusInterrupted, ledger.ReasonRetracted)
 	return retraction{
 		result: RetractResult{State: RetractInterrupted, Text: p.Text}, rows: append(rows, ended...),

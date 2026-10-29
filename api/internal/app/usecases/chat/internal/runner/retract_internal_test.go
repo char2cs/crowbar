@@ -193,3 +193,147 @@ func TestRetract_AnUnknownRequestIsNotFound(t *testing.T) {
 	assert.Equal(t, []ledger.Prompt{promptReceipt(t, rs.ledger, "r1")}, chatState(t, rs.ledger).PendingPrompts())
 	assert.Empty(t, term.signalled())
 }
+
+// gapLock runs gap once, right after the lock's next holder lets go: the first
+// path to take the chat after that holder.
+type gapLock struct {
+	ChatLock
+	gap func()
+}
+
+func (g *gapLock) Lock(ctx context.Context, chatID string) (func(), error) {
+	unlock, err := g.ChatLock.Lock(ctx, chatID)
+	gap := g.gap
+	g.gap = nil
+	if err != nil || gap == nil {
+		return unlock, err
+	}
+	return func() { unlock(); gap() }, nil
+}
+
+// A send that takes the chat the moment Retract lets go must find the
+// retracted prompt's CLI already ending, never deliver onto it.
+func TestRetract_ASendRightAfterARetractNeverLandsOnTheRetiringCLI(t *testing.T) {
+	rs, _ := retracting(t)
+	sent(t, rs, ledger.DeliveryRestart)
+	lock := &gapLock{ChatLock: rs.chatLock}
+	rs.chatLock = lock
+	lock.gap = func() { // what a send decides from: settledRunner's view
+		unlock, err := lock.Lock(t.Context(), "chat-1")
+		require.NoError(t, err)
+		defer unlock()
+		if v, _ := rs.live.view("chat-1"); !v.exiting {
+			appendRow(t, rs, ledger.KindUserMessage, "U-2", ledger.UserMessage{
+				RequestID: "r2", Text: "two", Origin: ledger.OriginCrowbar, Delivery: ledger.DeliveryAPI, RunnerID: "runner-1",
+			})
+		}
+	}
+
+	_, err := rs.Retract(t.Context(), "chat-1", "r1")
+
+	require.NoError(t, err)
+	_, sentTwo := chatState(t, rs.ledger).Receipt("r2")
+	assert.False(t, sentTwo, "the next send waits out the CLI the retract retires")
+}
+
+func TestRetract_ADeliveredPromptWhoseTurnClosedNeverEndsALaterTurn(t *testing.T) {
+	rs, term := retracting(t)
+	sent(t, rs, ledger.DeliveryRestart)
+	took(t, rs)
+	appendRow(t, rs, ledger.KindTurnEnded, "T-1", ledger.TurnEnded{Status: string(ledger.TurnStatusDone)})
+	appendRow(t, rs, ledger.KindTurnStarted, "T-2", ledger.TurnStarted{RunnerID: "runner-1"})
+
+	_, err := rs.Retract(t.Context(), "chat-1", "r1")
+
+	require.ErrorIs(t, err, problem.ErrConflict)
+	turn, running := chatState(t, rs.ledger).RunningTurn()
+	assert.True(t, running)
+	assert.Equal(t, "T-2", turn.ID, "the turn running now is not r1's")
+	assert.Empty(t, term.signalled())
+}
+
+// Mid-displace the chat's live CLI is the outgoing one, not r1's carrier.
+func TestRetract_APromptWhoseCarrierIsNotLiveYetLeavesTheOutgoingCLIAlone(t *testing.T) {
+	rs, term := retracting(t)
+	appendRow(t, rs, ledger.KindUserMessage, "U-1", ledger.UserMessage{
+		RequestID: "r1", Text: "rename it", Origin: ledger.OriginCrowbar, Delivery: ledger.DeliveryRestart, RunnerID: "runner-2",
+	})
+
+	got, err := rs.Retract(t.Context(), "chat-1", "r1")
+
+	require.NoError(t, err)
+	assert.Equal(t, RetractRetracted, got.State)
+	assert.Empty(t, term.signalled(), "the outgoing CLI's end is its displacer's")
+	v, _ := rs.live.view("chat-1")
+	assert.False(t, v.exiting)
+}
+
+func TestRetract_AnInterruptibleProviderKeepsItsCLIOnlyForADeliveredPrompt(t *testing.T) {
+	t.Run("delivered: interrupted in place", func(t *testing.T) {
+		rs, term := retracting(t)
+		asked, release := make(chan struct{}), make(chan struct{})
+		defer close(release)
+		rs.apiConns.set("runner-1", interruptServer(t, asked, release))
+		sent(t, rs, ledger.DeliveryAPI)
+		took(t, rs)
+
+		got, err := rs.Retract(t.Context(), "chat-1", "r1")
+
+		require.NoError(t, err)
+		assert.Equal(t, RetractInterrupted, got.State)
+		require.Empty(t, term.signalled(), "an interruptible provider keeps its CLI")
+		<-asked
+	})
+	t.Run("pending: the carrier is retired", func(t *testing.T) {
+		rs, term := retracting(t)
+		rs.apiConns.set("runner-1", interruptServer(t, make(chan struct{}), nil))
+		sent(t, rs, ledger.DeliveryRestart)
+
+		_, err := rs.Retract(t.Context(), "chat-1", "r1")
+
+		require.NoError(t, err)
+		assert.Len(t, term.signalled(), 1, "no turn runs to interrupt: the CLI carrying r1 goes")
+	})
+}
+
+// subagentOn records subagent scope live under turnID.
+func subagentOn(t *testing.T, rs *Runners, turnID, scope string) {
+	t.Helper()
+	row, err := ledger.NewRow(ledger.KindSubagent, turnID, scope, ledger.SubagentBody{Phase: ledger.SubagentStart, Type: "explorer"})
+	require.NoError(t, err)
+	_, _, err = rs.ledger.Append(t.Context(), "chat-1", row)
+	require.NoError(t, err)
+}
+
+func TestRetract_InterruptsTheRetractedTurnsSubagentsOnly(t *testing.T) {
+	t.Run("its own: interrupted, the chat takes the next prompt", func(t *testing.T) {
+		rs, _ := retracting(t)
+		sent(t, rs, ledger.DeliveryRestart)
+		took(t, rs)
+		subagentOn(t, rs, "T-1", "A")
+
+		_, err := rs.Retract(t.Context(), "chat-1", "r1")
+
+		require.NoError(t, err)
+		st := chatState(t, rs.ledger)
+		a, _ := st.SubagentOf("A")
+		assert.Equal(t, ledger.SubagentInterrupted, a.Status)
+		assert.False(t, st.Busy())
+	})
+	t.Run("an earlier turn's: still running, the chat still busy", func(t *testing.T) {
+		rs, _ := retracting(t)
+		appendRow(t, rs, ledger.KindTurnStarted, "T-0", ledger.TurnStarted{RunnerID: "runner-1"})
+		subagentOn(t, rs, "T-0", "B")
+		appendRow(t, rs, ledger.KindTurnEnded, "T-0", ledger.TurnEnded{Status: string(ledger.TurnStatusDone)})
+		sent(t, rs, ledger.DeliveryRestart)
+		took(t, rs)
+
+		_, err := rs.Retract(t.Context(), "chat-1", "r1")
+
+		require.NoError(t, err)
+		st := chatState(t, rs.ledger)
+		b, _ := st.SubagentOf("B")
+		assert.True(t, b.Status.Live(), "a background subagent of an earlier turn is not r1's to stop")
+		assert.True(t, st.Busy())
+	})
+}
