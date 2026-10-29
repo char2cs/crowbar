@@ -40,28 +40,28 @@ func (u *Usecase) SpawnChatWithOwnWorktree(
 	chatID string,
 	providerID string,
 	branch string,
-) (string, error) {
+) (string, string, error) {
 	forkParentID, ok, err := tree.ResolveForkParent(ctx, u.chats, u.folders, u.nodes, u.repoRoots, chatID)
 	if err != nil {
-		return "", fmt.Errorf("create chat: resolve fork parent: %w", err)
+		return "", "", fmt.Errorf("create chat: resolve fork parent: %w", err)
 	}
 	if !ok {
-		return "", fmt.Errorf("create chat %s: %w", chatID, ErrNoForkParent)
+		return "", "", fmt.Errorf("create chat %s: %w", chatID, ErrNoForkParent)
 	}
 	ws, err := u.worktree.CreateChildWorkspace(ctx, forkParentID, branch)
 	if err != nil {
-		return "", fmt.Errorf("create chat: create workspace: %w", err)
+		return "", "", fmt.Errorf("create chat: create workspace: %w", err)
 	}
 	if _, err := u.chats.SetWorkspace(ctx, chatID, ws.ID); err != nil {
-		return "", u.discardUnclaimedWorkspace(ctx, ws.ID,
+		return "", "", u.discardUnclaimedWorkspace(ctx, ws.ID,
 			fmt.Errorf("create chat: set workspace: %w", err))
 	}
 	runnerID, err := u.runners.StartRunner(ctx, chatID, providerID)
 	if err != nil {
-		return "", u.discardMintedWorkspace(ctx, chatID, ws.ID,
+		return "", "", u.discardMintedWorkspace(ctx, chatID, ws.ID,
 			fmt.Errorf("create chat: start runner: %w", err))
 	}
-	return runnerID, nil
+	return ws.ID, runnerID, nil
 }
 
 // discardUnclaimedWorkspace takes back a workspace CreateChildWorkspace just

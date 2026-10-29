@@ -49,6 +49,7 @@ type ChatUsecase interface {
 	// provider's own default landing — see domain.Chat.Surface.
 	MintChat(
 		ctx context.Context,
+		chatID string,
 		workspaceID string,
 		providerID string,
 		surface string,
@@ -273,11 +274,12 @@ type Usecase struct {
 // born on, and returns its id.
 func (u *Usecase) MintChat(
 	ctx context.Context,
+	chatID string,
 	workspaceID string,
 	providerID string,
 	surface string,
 ) (string, error) {
-	return u.conversations.MintChat(ctx, workspaceID, providerID, surface)
+	return u.conversations.MintChat(ctx, chatID, workspaceID, providerID, surface)
 }
 
 // RenameChat retitles a chat under the user > agent > derived precedence.

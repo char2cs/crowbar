@@ -5,41 +5,47 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // importRequest is the POST …/chats/import-batch body: the branches to import
-// as chats holding a worktree each. Each is PR-parented up to a
+// as chats holding a worktree each, the chat id the caller draws each under, and
+// whether their workspaces are created locked. Each is PR-parented up to a
 // protected/default root, with missing ancestors created (see
 // workspace.CreateFromImport).
 type importRequest struct {
-	Branches []string `json:"branches"`
+	Branches []importBranchRequest `json:"branches"`
+	Lock     bool                  `json:"lock"`
 }
 
-// Import handles POST /v0/projects/:projectId/repos/:repoId/chats/import-batch,
-// the sole mount since spec §8 step 6 deleted its …/workspaces/import twin. It
-// validates synchronously (repo present, branches non-empty), then answers 202
-// with the operation that resolves + creates the tree, named by the repo. Each
-// created chat arrives on the per-repo WebSocket stream, like a single create.
-//
-// It reads the repo from :repoId, the same param and the same store the
-// importing POST .../chats resolves through, which is the whole reason the
-// relocation off the workspace prefix was a mount change and not a rewrite.
+type importBranchRequest struct {
+	Name   string `json:"name"`
+	ChatID string `json:"chatId"`
+}
+
+// Import handles POST /v0/projects/:projectId/repos/:repoId/chats/import-batch.
+// What it can check before the work starts is a synchronous 4xx (body shape,
+// chat ids, repo present, default branch, branch on the remote); then it
+// answers 202 with the operation, one running item per branch named by its
+// chat, which the work settles branch by branch.
 func (h *Handlers) Import(c *gin.Context) {
 	var body importRequest
 	if err := c.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if len(body.Branches) == 0 {
-		libs.WriteErr(c, http.StatusBadRequest, "branches is required")
+	if err := checkImportBranches(body.Branches); err != nil {
+		libs.Fail(c, err)
 		return
 	}
 	repo, err := h.repos.FindByKey(c.Request.Context(), c.Param("repoId"))
@@ -51,51 +57,123 @@ func (h *Handlers) Import(c *gin.Context) {
 		libs.WriteErr(c, http.StatusNotFound, "repo not found")
 		return
 	}
-	// The chain walk TERMINATES at the default branch, so importing it creates
-	// nothing — and a 202 for work defined to do nothing is a silent hang: the
-	// caller's optimistic row is cleared only by a workspace that never arrives.
-	// Refuse it here, on the request path, where the caller can surface it.
-	for _, b := range body.Branches {
-		if b == repo.DefaultBranch {
-			libs.WriteErr(c, http.StatusConflict, fmt.Sprintf(
-				"%s is the repository's default branch — it is already the repo's home workspace", b,
-			))
-			return
-		}
+	names := branchNames(body.Branches)
+	// The chain walk TERMINATES at the default branch, so importing it would
+	// create nothing; refused here, where the caller can surface it.
+	if slices.Contains(names, repo.DefaultBranch) {
+		libs.WriteErr(c, http.StatusConflict, fmt.Sprintf(
+			"%s is the repository's default branch — it is already the repo's home workspace", repo.DefaultBranch,
+		))
+		return
 	}
-	// Same reasoning for a branch that is not on the remote at all — a stale
-	// picker offering a branch deleted since the list was fetched, or a
-	// hand-crafted request. Importing means "give me origin's branch", so
-	// without one there is nothing to import, and the refusal belongs on the
-	// request, where the caller is still looking.
-	if missing := h.branchesMissingFromRemote(c.Request.Context(), repo.Path, body.Branches); len(missing) > 0 {
+	// A branch not on the remote (a stale picker, a hand-crafted request) has
+	// nothing to import; the refusal belongs on the request.
+	if missing := h.branchesMissingFromRemote(c.Request.Context(), repo.Path, names); len(missing) > 0 {
 		libs.WriteErr(c, http.StatusBadRequest, fmt.Sprintf(
 			"not found on the remote: %s", strings.Join(missing, ", "),
 		))
 		return
 	}
+	h.startImport(c, repo, body)
+}
+
+func (h *Handlers) startImport(c *gin.Context, repo *domain.Repository, body importRequest) {
 	in := workspace.ImportInput{
 		RepoID:        repo.ID,
 		ProjectID:     repo.ProjectID,
 		RepoPath:      repo.Path,
 		RemoteURL:     repo.RemoteURL,
 		DefaultBranch: repo.DefaultBranch,
-		Branches:      body.Branches,
+		Lock:          body.Lock,
+	}
+	items := make([]domain.OperationItem, 0, len(body.Branches))
+	for _, b := range body.Branches {
+		in.Branches = append(in.Branches, workspace.ImportBranch(b))
+		items = append(items, domain.OperationItem{
+			Ref: domain.EntityRef{Kind: domain.EntityChat, ID: b.ChatID}, Label: b.Name, State: domain.OpRunning,
+		})
 	}
 	op, err := h.ops.Start(c.Request.Context(), operation.Spec{
 		ID:        libs.IdempotencyKey(c),
 		Kind:      domain.OpBranchImport,
 		Subject:   domain.EntityRef{Kind: domain.EntityRepo, ID: repo.ID},
 		ProjectID: repo.ProjectID,
-		Label:     importLabel(body.Branches),
-	}, func(ctx context.Context, _ operation.Progress) error {
-		return h.hierarchy.CreateFromImport(ctx, in)
+		Label:     importLabel(branchNames(body.Branches)),
+		Items:     items,
+		// Only for a new key: a retry after the first import made these chats
+		// gets the first operation back, not a refusal.
+		Validate: func(ctx context.Context) error { return h.chatIDsUnused(ctx, body.Branches) },
+	}, func(ctx context.Context, p operation.Progress) error {
+		return h.hierarchy.CreateFromImport(ctx, in, importProgress{p})
 	})
 	if err != nil {
 		libs.Fail(c, err)
 		return
 	}
 	libs.WriteOperation(c, op)
+}
+
+// checkImportBranches refuses an empty batch, a nameless branch, or a chat id
+// that is not a UUID or is given twice.
+func checkImportBranches(branches []importBranchRequest) error {
+	if len(branches) == 0 {
+		return &problem.Error{Code: problem.InvalidArgument, Message: "branches is required"}
+	}
+	seen := map[string]bool{}
+	for _, b := range branches {
+		if strings.TrimSpace(b.Name) == "" {
+			return &problem.Error{Code: problem.InvalidArgument, Message: "every branch needs a name"}
+		}
+		if _, err := uuid.Parse(b.ChatID); err != nil {
+			return &problem.Error{Code: problem.InvalidArgument, Message: fmt.Sprintf("chatId %q of %s is not a UUID", b.ChatID, b.Name)}
+		}
+		if seen[b.ChatID] {
+			return &problem.Error{Code: problem.InvalidArgument, Message: "chatId " + b.ChatID + " is given twice"}
+		}
+		seen[b.ChatID] = true
+	}
+	return nil
+}
+
+// chatIDsUnused refuses a chat id that already names a chat.
+func (h *Handlers) chatIDsUnused(ctx context.Context, branches []importBranchRequest) error {
+	for _, b := range branches {
+		_, err := h.chats.GetChat(ctx, b.ChatID)
+		if err == nil {
+			return &problem.Error{Code: problem.IDConflict, Message: fmt.Sprintf("chat %s already exists", b.ChatID)}
+		}
+		if problem.CodeOf(err) != problem.NotFound {
+			return fmt.Errorf("import: check chat %s: %w", b.ChatID, err)
+		}
+	}
+	return nil
+}
+
+// importProgress settles each branch's item from its outcome; an ancestor the
+// import added arrives as an item of its own.
+type importProgress struct {
+	p operation.Progress
+}
+
+func (ip importProgress) Branch(o workspace.ImportOutcome) {
+	item := domain.OperationItem{
+		Ref:   domain.EntityRef{Kind: domain.EntityChat, ID: o.ChatID},
+		Label: o.Branch,
+		State: domain.OpSucceeded,
+	}
+	if o.Err != nil {
+		failure := problem.Of(o.Err)
+		item.State, item.Error = domain.OpFailed, &failure
+	}
+	ip.p.Item(item)
+}
+
+func branchNames(branches []importBranchRequest) []string {
+	names := make([]string, 0, len(branches))
+	for _, b := range branches {
+		names = append(names, b.Name)
+	}
+	return names
 }
 
 // branchesMissingFromRemote refreshes the remote-tracking refs and returns the

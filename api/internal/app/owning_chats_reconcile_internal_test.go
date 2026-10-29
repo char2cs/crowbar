@@ -18,7 +18,7 @@ type fakeMinter struct {
 	attachErr error
 }
 
-func (f *fakeMinter) MintOwningChat(_ context.Context, parent string) (string, error) {
+func (f *fakeMinter) MintOwningChat(_ context.Context, _, parent string) (string, error) {
 	f.minted = append(f.minted, parent)
 	return "chat-" + parent, nil
 }

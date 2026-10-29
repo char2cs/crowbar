@@ -41,15 +41,16 @@ func newFakeOwningChats(uc hierarchy.Usecase) *fakeOwningChats {
 	return &fakeOwningChats{uc: uc, attached: map[string]string{}}
 }
 
-// ImportBranchAsChat mirrors production: mint the chat, create the workspace,
-// attach the two, discard the chat if the create failed.
+// ImportBranchAsChat mirrors production: mint the chat (as in.ChatID when
+// given), create the workspace, attach the two; a failure after the mint
+// returns the chat with it, for the caller's placeholder.
 func (f *fakeOwningChats) ImportBranchAsChat(
 	ctx context.Context,
 	in hierarchy.ImportedBranch,
-) (string, error) {
-	chatID, err := f.MintOwningChat(ctx, in.ParentWorkspaceID)
+) (string, string, error) {
+	chatID, err := f.MintOwningChat(ctx, in.ChatID, in.ParentWorkspaceID)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	ownWorktree := true
 	ws, err := f.uc.CreateChild(ctx, hierarchy.CreateChildInput{
@@ -64,18 +65,17 @@ func (f *fakeOwningChats) ImportBranchAsChat(
 		OwnWorktree:  &ownWorktree,
 	})
 	if err != nil {
-		_ = f.DiscardOwningChat(ctx, chatID)
-		return "", err
+		return chatID, "", err
 	}
 	if aErr := f.AttachOwningWorkspace(ctx, chatID, ws); aErr != nil {
-		_ = f.DiscardOwningChat(ctx, chatID)
-		return "", aErr
+		return chatID, "", aErr
 	}
-	return ws.ID, nil
+	return chatID, ws.ID, nil
 }
 
 func (f *fakeOwningChats) MintOwningChat(
 	_ context.Context,
+	chatID string,
 	_ string,
 ) (string, error) {
 	f.mu.Lock()
@@ -83,9 +83,19 @@ func (f *fakeOwningChats) MintOwningChat(
 	if f.mintErr != nil {
 		return "", f.mintErr
 	}
-	f.nextID++
-	chatID := fmt.Sprintf("chat-%d", f.nextID)
+	if chatID == "" {
+		f.nextID++
+		chatID = fmt.Sprintf("chat-%d", f.nextID)
+	}
 	f.minted = append(f.minted, chatID)
+	return chatID, nil
+}
+
+func (f *fakeOwningChats) OwnerOf(
+	_ context.Context,
+	workspaceID string,
+) (string, error) {
+	chatID, _ := f.ownerOf(workspaceID)
 	return chatID, nil
 }
 

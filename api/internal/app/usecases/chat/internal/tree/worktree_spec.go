@@ -52,3 +52,22 @@ type WorktreeSpec struct {
 // cannot import anything under this feature's internal tree. See the
 // branchimport package's own doc.
 type ImportSpec = branchimport.Spec
+
+// CreateChatInput is one CreateChat. ID is the id the caller already draws the
+// row under, or "" to mint one; a taken id is refused by the chat aggregate.
+type CreateChatInput struct {
+	ID          string
+	WorkspaceID string
+	ProviderID  string
+	ParentID    string
+	Worktree    WorktreeSpec
+	Surface     string
+}
+
+// CreatedChat is what a CreateChat made: the chat, the runner started on it,
+// and the workspace a fork or import minted for it ("" for a plain chat).
+type CreatedChat struct {
+	ChatID      string
+	RunnerID    string
+	WorkspaceID string
+}

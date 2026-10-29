@@ -21,7 +21,7 @@ import (
 // So they get the three verbs that make the chat come FIRST, and keep their own
 // rollback — which they must, because only they know what they built on disk:
 //
-//	chatID, err := chats.MintOwningChat(ctx, parentWorkspaceID)
+//	chatID, err := chats.MintOwningChat(ctx, "", parentWorkspaceID)
 //	ws, err := <git work + workspace row>          // fails → DiscardOwningChat
 //	err := chats.AttachOwningWorkspace(ctx, chatID, ws)
 //
@@ -45,16 +45,17 @@ import (
 // An empty parentWorkspaceID, or one whose Node row does not exist (an id no
 // live workspace answers to), places the new chat at the panel root — the
 // same answer forkParentOf gives a workspace whose recorded parent is no
-// longer there.
+// longer there. chatID names the chat, or "" mints one.
 func (u *chatFolderUsecase) MintOwningChat(
 	ctx context.Context,
+	chatID string,
 	parentWorkspaceID string,
 ) (string, error) {
 	parentChatID, err := u.owningChatOf(ctx, parentWorkspaceID)
 	if err != nil {
 		return "", err
 	}
-	chatID, err := u.agent.MintChat(ctx, "", "", "")
+	chatID, err = u.agent.MintChat(ctx, chatID, "", "", "")
 	if err != nil {
 		return "", fmt.Errorf("agent chat folder: mint owning chat: %w", err)
 	}

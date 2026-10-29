@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/google/uuid"
 
@@ -15,14 +14,36 @@ import (
 )
 
 // ImportInput carries a batch branch-import request: branches to import as
-// managed workspaces, PR-parented up to a protected/default root.
+// managed workspaces, PR-parented up to a protected/default root. Lock creates
+// the requested branches' workspaces locked.
 type ImportInput struct {
 	RepoID        string
 	ProjectID     string
 	RepoPath      string
 	RemoteURL     string
 	DefaultBranch string
-	Branches      []string
+	Branches      []ImportBranch
+	Lock          bool
+}
+
+// ImportBranch is one requested branch and the chat id the caller draws it under.
+type ImportBranch struct {
+	Name   string
+	ChatID string
+}
+
+// ImportProgress hears each branch's outcome as the import settles it.
+type ImportProgress interface {
+	Branch(o ImportOutcome)
+}
+
+// ImportOutcome is one branch's result: the chat that now holds it, the
+// workspace (a placeholder when Err is set), and why it failed.
+type ImportOutcome struct {
+	Branch      string
+	ChatID      string
+	WorkspaceID string
+	Err         error
 }
 
 // chainFor returns branch's ancestors-first chain of branches that must be
@@ -59,55 +80,64 @@ func chainFor(branch, defaultBranch string, base, existing map[string]string) []
 // default branch (parented under the repo home via an empty ParentID). It is
 // best-effort per branch: one branch's failure does not abort the batch.
 //
-// Every requested branch yields a ROW — that is the contract. A branch that
-// cannot be materialised (most often because a live worktree outside Crowbar
-// already has it checked out, which git refuses to duplicate) falls back to a
-// PLACEHOLDER row, the same shape the protected-branch import produces (spec
-// §3.3): an empty WorktreePath carrying HeldByPath, which the client renders
-// with a reason plus Retry / Detach… and toasts once. Dropping the branch
-// instead is what stranded the client's optimistic import row forever with
-// nothing surfaced: that row is cleared only when a workspace for the branch
-// arrives on the stream, and a 202'd batch has no other completion signal.
+// Every requested branch and every ancestor it adds is reported to p, once. A
+// branch that cannot be materialised (most often a worktree outside Crowbar
+// already has it checked out) still gets a PLACEHOLDER row (spec §3.3), owned
+// by the chat its attempt minted, and its outcome carries the cause.
 //
 // This is the deterministic, import-time counterpart to the poll-driven
 // provider.maybeReparentFromPR: it additionally CREATES missing parents and
 // sets ParentID at creation. Because it sets ParentID explicitly, the poll's
 // ParentID=="" guard leaves these rows untouched — no double-parenting.
-func (u *hierarchyUsecase) CreateFromImport(ctx context.Context, in ImportInput) error {
+func (u *hierarchyUsecase) CreateFromImport(ctx context.Context, in ImportInput, p ImportProgress) error {
 	// 1. Open-PR graph head→base (best-effort; empty on provider failure).
 	base := u.prBaseGraph(ctx, in.RepoPath)
 
-	// 2. Existing non-default workspaces: branch → id (matches hasWorkspace).
-	// Best-effort, like the PR graph: this map only decides PARENTING and where
-	// a chain walk terminates, and aborting here produced the one outcome the
-	// client cannot recover from — a 202'd batch with no row for any branch, so
-	// every optimistic import row spins forever with nothing surfaced (the async
-	// error rides runAsync's blank workspace id, which broadcastLastError drops).
-	// Degrading to an empty map imports everything flat instead, which the
-	// PR-poll reparent then corrects.
+	// 2. Existing non-default workspaces: branch → id. Best-effort, like the PR
+	// graph: it only decides parenting and where a chain walk stops, so a read
+	// failure imports flat, which the PR-poll reparent then corrects.
 	existing := u.existingBranchWorkspaces(ctx, in.RepoID)
 
-	// 3. Global creation order, parents-before-children, deduped.
-	order := creationOrder(in.Branches, in.DefaultBranch, base, existing)
+	requested := map[string]ImportBranch{}
+	names := make([]string, 0, len(in.Branches))
+	for _, b := range in.Branches {
+		requested[b.Name] = b
+		names = append(names, b.Name)
+		if wsID, ok := existing[b.Name]; ok {
+			p.Branch(u.existingOutcome(ctx, b.Name, wsID))
+		}
+	}
 
-	// 4. Create each node, resolving its parent from existing / just-created.
+	// 3. Global creation order, parents-before-children, deduped; 4. create each
+	// node, resolving its parent from existing / just-created.
 	created := map[string]string{}
-	var stranded []string
-	for _, branch := range order {
+	for _, branch := range creationOrder(names, in.DefaultBranch, base, existing) {
 		parentID, parentBranch := resolveImportParent(branch, in.DefaultBranch, base, existing, created)
-		id, err := u.createImportNode(ctx, in, branch, parentID, parentBranch)
-		if err != nil {
-			stranded = append(stranded, branch)
-			continue
+		ask, isRequested := requested[branch]
+		outcome := u.createImportNode(ctx, in, importNode{
+			branch: branch, chatID: ask.ChatID, parentID: parentID, parentBranch: parentBranch,
+			locked: isRequested && in.Lock,
+		})
+		if outcome.Err == nil && outcome.WorkspaceID != "" {
+			created[branch] = outcome.WorkspaceID
 		}
-		if id != "" {
-			created[branch] = id
-		}
+		p.Branch(outcome)
 	}
-	if len(stranded) > 0 {
-		return fmt.Errorf("import: no workspace row produced for %s", strings.Join(stranded, ", "))
+	return ctx.Err()
+}
+
+// existingOutcome reports a branch that already has workspace wsID: its chat
+// is the one that owns that workspace.
+func (u *hierarchyUsecase) existingOutcome(
+	ctx context.Context,
+	branch string,
+	wsID string,
+) ImportOutcome {
+	owner, err := u.owningChats.OwnerOf(ctx, wsID)
+	if err == nil && owner == "" {
+		err = fmt.Errorf("import: %s already has workspace %s, and no chat owns it", branch, wsID)
 	}
-	return nil
+	return ImportOutcome{Branch: branch, ChatID: owner, WorkspaceID: wsID, Err: err}
 }
 
 // prBaseGraph returns the open-PR head→base map used to parent imported
@@ -213,56 +243,87 @@ func resolveImportParent(
 	return "", defaultBranch
 }
 
-// createImportNode materialises one branch of the batch and returns its
-// workspace id. A branch that cannot be materialised falls back to a placeholder
-// row so it still reaches the client (see CreateFromImport); the returned error
-// is reserved for the one outcome that produces NO row at all.
-//
-// An empty id with a nil error means "already represented, nothing to record".
+// importNode is one branch of the batch's creation order: chatID is the
+// caller's for a requested branch, "" (daemon-minted) for an added ancestor.
+type importNode struct {
+	branch       string
+	chatID       string
+	parentID     string
+	parentBranch string
+	locked       bool
+}
+
+// createImportNode materialises one branch of the batch. A branch that cannot
+// be materialised falls back to a placeholder row owned by the chat the attempt
+// minted, and the outcome carries the cause (joined with the placeholder's own
+// failure when that fails too).
 func (u *hierarchyUsecase) createImportNode(
 	ctx context.Context,
 	in ImportInput,
-	branch string,
-	parentID string,
-	parentBranch string,
-) (string, error) {
+	node importNode,
+) ImportOutcome {
+	outcome := ImportOutcome{Branch: node.branch, ChatID: node.chatID}
 	if u.owningChats == nil {
-		return "", ErrNoOwningChats
+		outcome.Err = ErrNoOwningChats
+		return outcome
 	}
-	wsID, createErr := u.owningChats.ImportBranchAsChat(ctx, ImportedBranch{
+	chatID, wsID, createErr := u.owningChats.ImportBranchAsChat(ctx, ImportedBranch{
+		ChatID:            node.chatID,
 		RepoID:            in.RepoID,
 		ProjectID:         in.ProjectID,
 		RepoPath:          in.RepoPath,
 		RemoteURL:         in.RemoteURL,
-		Branch:            branch,
-		ParentWorkspaceID: parentID,
-		ParentBranch:      parentBranch,
+		Branch:            node.branch,
+		ParentWorkspaceID: node.parentID,
+		ParentBranch:      node.parentBranch,
+		ForceLocked:       node.locked,
 	})
+	if chatID != "" {
+		outcome.ChatID = chatID
+	}
 	if createErr == nil {
-		return wsID, nil
+		outcome.WorkspaceID = wsID
+		return outcome
+	}
+	// A branch that got a workspace since the batch began keeps that one; the
+	// chat this attempt minted owns nothing and goes.
+	if errors.Is(createErr, ErrBranchWorkspaceExists) {
+		return u.concurrentOutcome(ctx, in.RepoID, node.branch, chatID)
 	}
 	slog.WarnContext(ctx, "import: create workspace failed; falling back to a placeholder",
-		"branch", branch, "err", createErr)
-	// A branch that already has a workspace is not stranded and must not get a
-	// second row: the client's optimistic row matches on branch alone, so the row
-	// that already exists is what clears it.
-	if errors.Is(createErr, ErrBranchWorkspaceExists) {
-		return "", nil
+		"branch", node.branch, "err", createErr)
+	placeholder, phErr := u.importPlaceholder(ctx, in, node, outcome.ChatID)
+	outcome.WorkspaceID = placeholder.ID
+	outcome.Err = errors.Join(createErr, phErr)
+	return outcome
+}
+
+// concurrentOutcome reports branch as the workspace someone else created for
+// it, discarding the chat this attempt minted.
+func (u *hierarchyUsecase) concurrentOutcome(
+	ctx context.Context,
+	repoID string,
+	branch string,
+	mintedChatID string,
+) ImportOutcome {
+	if mintedChatID != "" {
+		if err := u.owningChats.DiscardOwningChat(ctx, mintedChatID); err != nil {
+			slog.WarnContext(ctx, "import: discard the chat of a branch imported concurrently",
+				"chat_id", mintedChatID, "err", err)
+		}
 	}
-	placeholder, phErr := u.importPlaceholder(ctx, in, branch, parentID, createErr)
-	if phErr != nil {
-		// Nothing landed for this branch — the only genuinely invisible outcome
-		// left, and the one the aggregated error reports.
-		slog.ErrorContext(ctx, "import: placeholder fallback failed; branch produced no row",
-			"branch", branch, "err", phErr)
-		return "", phErr
+	wsID, ok := u.existingBranchWorkspaces(ctx, repoID)[branch]
+	if !ok {
+		return ImportOutcome{Branch: branch, ChatID: mintedChatID, Err: ErrBranchWorkspaceExists}
 	}
-	return placeholder.ID, nil
+	return u.existingOutcome(ctx, branch, wsID)
 }
 
 // importPlaceholder records a branch that could not be materialised as a
 // placeholder workspace: a row with an EMPTY WorktreePath (the placeholder
 // signal) carrying the holder path when a live worktree is what blocked it.
+// chatID is the chat the failed attempt minted, which owns it; "" mints one
+// under node.chatID.
 //
 // It is deliberately NOT protected. The protected-branch import seeds its
 // placeholders locked to inherit every protection guard, but locked survives
@@ -271,54 +332,40 @@ func (u *hierarchyUsecase) createImportNode(
 // that matter here key off the empty WorktreePath, not the status: the
 // parent-tip ops refuse with ErrParentUnprovisioned and removeOne drops the row
 // without running git against "".
-//
-// A failure with no live holder has no reconstructable reason, so the cause is
-// persisted as LastError for the row to explain itself.
 func (u *hierarchyUsecase) importPlaceholder(
 	ctx context.Context,
 	in ImportInput,
-	branch string,
-	parentID string,
-	cause error,
+	node importNode,
+	chatID string,
 ) (domain.Workspace, error) {
-	if u.owningChats == nil {
-		return domain.Workspace{}, ErrNoOwningChats
+	if chatID == "" {
+		minted, err := u.owningChats.MintOwningChat(ctx, node.chatID, node.parentID)
+		if err != nil {
+			return domain.Workspace{}, fmt.Errorf("import: mint owning chat for %q: %w", node.branch, err)
+		}
+		chatID = minted
 	}
-	// Chat FIRST, even here — especially here. A placeholder is the row for a
-	// branch that could NOT be materialised, so it is the one an import is most
-	// likely to leave behind, and a placeholder nothing owns is invisible in
-	// exactly the way that hid the bug this change exists to close.
-	chatID, err := u.owningChats.MintOwningChat(ctx, parentID)
-	if err != nil {
-		return domain.Workspace{}, fmt.Errorf("import: mint owning chat for %q: %w", branch, err)
-	}
-	heldBy := u.resolveHolderPath(ctx, in.RepoPath, branch)
+	heldBy := u.resolveHolderPath(ctx, in.RepoPath, node.branch)
 	ws, err := u.workspaces.Create(ctx, workspace.CreateInput{
 		ID:           uuid.NewString(),
 		RepoID:       in.RepoID,
 		ProjectID:    in.ProjectID,
-		Branch:       branch,
-		ParentID:     parentID,
+		Branch:       node.branch,
+		ParentID:     node.parentID,
 		HeldByPath:   heldBy,
 		Provisioning: domain.WorkspacePlaceholder,
 	}, u.now())
 	if err != nil {
 		return domain.Workspace{}, u.discardOwningChat(ctx, chatID,
-			fmt.Errorf("import: create placeholder for %q: %w", branch, err))
+			fmt.Errorf("import: create placeholder for %q: %w", node.branch, err))
 	}
 	if nErr := u.mintWorkspaceNode(ctx, ws.ID); nErr != nil {
 		return domain.Workspace{}, u.discardUnownedWorkspace(ctx, chatID, ws,
-			fmt.Errorf("import: mint placeholder node for %q: %w", branch, nErr))
+			fmt.Errorf("import: mint placeholder node for %q: %w", node.branch, nErr))
 	}
 	if aErr := u.owningChats.AttachOwningWorkspace(ctx, chatID, ws); aErr != nil {
 		return domain.Workspace{}, u.discardUnownedWorkspace(ctx, chatID, ws,
-			fmt.Errorf("import: attach placeholder for %q: %w", branch, aErr))
-	}
-	if heldBy == "" && cause != nil {
-		if _, sErr := u.workspaces.SetLastError(ctx, ws.ID, cause.Error()); sErr != nil {
-			slog.WarnContext(ctx, "import: could not record placeholder cause",
-				"branch", branch, "err", sErr)
-		}
+			fmt.Errorf("import: attach placeholder for %q: %w", node.branch, aErr))
 	}
 	return ws, nil
 }

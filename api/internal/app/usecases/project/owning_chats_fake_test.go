@@ -37,6 +37,7 @@ func newFakeOwningChats() *fakeOwningChats {
 func (f *fakeOwningChats) MintOwningChat(
 	_ context.Context,
 	_ string,
+	_ string,
 ) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

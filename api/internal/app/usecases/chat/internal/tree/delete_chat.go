@@ -215,7 +215,7 @@ func (u *chatFolderUsecase) remintOwners(
 		parent, err := u.workspaces.VisibleForkParent(ctx, wsID)
 		var chatID string
 		if err == nil {
-			chatID, err = u.MintOwningChat(ctx, parent)
+			chatID, err = u.MintOwningChat(ctx, "", parent)
 		}
 		if err == nil {
 			err = u.AttachOwningWorkspace(ctx, chatID, domain.Workspace{ID: wsID})

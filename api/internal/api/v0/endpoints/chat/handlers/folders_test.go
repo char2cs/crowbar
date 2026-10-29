@@ -21,6 +21,8 @@ import (
 // fakeChatTree records each call and returns canned results, so the handlers'
 // HTTP contract can be pinned without a store.
 type fakeChatTree struct {
+	// createdWorkspace is the workspace a fork or import create answers.
+	createdWorkspace string
 	list     []domain.Chat
 	created  domain.Chat
 	renamed  domain.Chat
@@ -122,6 +124,7 @@ func (f *fakeChatTree) Delete(
 // own worktree. The parent is the half that decides whether the new chat is a
 // thread, so a handler that dropped it would still look like a working create.
 type createChatCall struct {
+	ID          string
 	WorkspaceID string
 	ProviderID  string
 	ParentID    string
@@ -134,22 +137,19 @@ type createChatCall struct {
 // tell a WorktreeImport from a plain chat (both flatten to OwnWorktree=false).
 func (f *fakeChatTree) CreateChat(
 	_ context.Context,
-	workspaceID string,
-	providerID string,
-	parentID string,
-	worktree agentusecase.WorktreeSpec,
-	surface string,
-) (string, string, error) {
+	in agentusecase.CreateChatInput,
+) (agentusecase.CreatedChat, error) {
 	f.gotCreate2 = createChatCall{
-		WorkspaceID: workspaceID,
-		ProviderID:  providerID,
-		ParentID:    parentID,
-		OwnWorktree: worktree.Mode == agentusecase.WorktreeFork,
+		ID:          in.ID,
+		WorkspaceID: in.WorkspaceID,
+		ProviderID:  in.ProviderID,
+		ParentID:    in.ParentID,
+		OwnWorktree: in.Worktree.Mode == agentusecase.WorktreeFork,
 	}
-	f.gotWorktree = worktree
-	f.gotSurface = surface
+	f.gotWorktree = in.Worktree
+	f.gotSurface = in.Surface
 	f.createChatCalls++
-	return f.placed.ID, "runner-1", f.err
+	return agentusecase.CreatedChat{ChatID: f.placed.ID, RunnerID: "runner-1", WorkspaceID: f.createdWorkspace}, f.err
 }
 
 func (f *fakeChatTree) PlaceChat(

@@ -74,7 +74,7 @@ func upgradeWithRunnerHistory(
 // before the vendor field existed carries.
 func providerlessChat(t *testing.T, h *harness, imported importedRepo) string {
 	t.Helper()
-	chatID, err := h.app.Usecases.AgentChat.MintChat(t.Context(), imported.workspaceID, "", "")
+	chatID, err := h.app.Usecases.AgentChat.MintChat(t.Context(), "", imported.workspaceID, "", "")
 	require.NoError(t, err)
 	return chatID
 }
@@ -206,7 +206,7 @@ func TestRegression_ResumeWithNoEvidenceAnywhereFailsHonestlyAndCreatesNoChat(t 
 	imported := importWritableWorkspace(t, h)
 
 	chatID, err := h.app.Usecases.AgentChat.MintChat(
-		t.Context(), imported.workspaceID, "", "")
+		t.Context(), "", imported.workspaceID, "", "")
 	require.NoError(t, err)
 	h.Quiesce()
 

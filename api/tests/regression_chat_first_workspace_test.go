@@ -106,7 +106,7 @@ func TestRegression_AnImportedBranchIsOwnedByAChatWithoutARestart(t *testing.T) 
 
 	conn := h.dial(f.repoBase() + "/chats/ws")
 	_ = h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
-		map[string]any{"branches": []string{branch}}, http.StatusAccepted).Body.Close()
+		importBranches(branch), http.StatusAccepted).Body.Close()
 	// No worktree_state frame ever reaches a freshly imported chat: pushChatWorktree
 	// drops it whenever the chat's SetWorkspace event has not yet reached the
 	// AgentChat projection (owningChatIDFor resolves "" and the push is skipped),

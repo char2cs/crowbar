@@ -334,8 +334,8 @@ func TestRegression_ImportParentsPRChainCreatingMissingBase(t *testing.T) {
 		RepoPath:      repoPath,
 		RemoteURL:     "https://github.com/test/integration-repo.git",
 		DefaultBranch: "main",
-		Branches:      []string{"feat/child"},
-	})
+		Branches:      branches("feat/child"),
+	}, &outcomes{})
 	require.NoError(t, err)
 	quiesce()
 

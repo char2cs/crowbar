@@ -1169,7 +1169,7 @@ func (e *Env) createWorkspaceWrites(
 		parentBranch = parent.Branch
 	}
 
-	mintedChatID, err := e.app.Usecases.AgentChatFolder.MintOwningChat(ctx, parentID)
+	mintedChatID, err := e.app.Usecases.AgentChatFolder.MintOwningChat(ctx, "", parentID)
 	require.NoError(t, err, "createWorkspace: mint the owning chat")
 
 	// Forced true for the same reason the live import path forces it: the

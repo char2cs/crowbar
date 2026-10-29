@@ -30,6 +30,7 @@ type OwningChats interface {
 	// under the chat owning parentWorkspaceID (empty for a repo-tree root).
 	MintOwningChat(
 		ctx context.Context,
+		chatID string,
 		parentWorkspaceID string,
 	) (string, error)
 	// AttachOwningWorkspace points a minted owning chat at the workspace it was
@@ -72,7 +73,7 @@ func (u *projectImport) createOwnedWorkspace(
 	if u.owningChats == nil {
 		return domain.Workspace{}, ErrNoOwningChats
 	}
-	chatID, err := u.owningChats.MintOwningChat(ctx, in.ParentID)
+	chatID, err := u.owningChats.MintOwningChat(ctx, "", in.ParentID)
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("mint owning chat: %w", err)
 	}

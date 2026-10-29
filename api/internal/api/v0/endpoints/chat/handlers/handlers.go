@@ -461,12 +461,8 @@ type ChatTreeUsecase interface {
 	// provider's own default landing — see domain.Chat.Surface.
 	CreateChat(
 		ctx context.Context,
-		workspaceID string,
-		providerID string,
-		parentID string,
-		worktree agentusecase.WorktreeSpec,
-		surface string,
-	) (chatID, runnerID string, err error)
+		in agentusecase.CreateChatInput,
+	) (agentusecase.CreatedChat, error)
 	PlaceChat(
 		ctx context.Context,
 		workspaceID string,

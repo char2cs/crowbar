@@ -292,7 +292,7 @@ func createWorktree(
 		parentBranch = parent.Branch
 	}
 
-	mintedChatID, err := h.app.Usecases.AgentChatFolder.MintOwningChat(ctx, parentID)
+	mintedChatID, err := h.app.Usecases.AgentChatFolder.MintOwningChat(ctx, "", parentID)
 	require.NoError(t, err, "createWorktree: mint the owning chat")
 
 	ownWorktree := true

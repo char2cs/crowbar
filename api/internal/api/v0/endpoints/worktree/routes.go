@@ -17,7 +17,8 @@ import (
 
 // Register mounts the chat-keyed worktree routes on the supplied repo-scoped
 // group. reader, hierarchy and repos back the verbs' reads and worktree
-// operations; ops runs the slow verbs as operations; remote lets the batch
+// operations; ops runs the slow verbs as operations; chats checks an import's
+// chat ids; remote lets the batch
 // import refuse an absent branch synchronously; worktrees resolves a chat to the
 // workspace behind its worktree (spec §3).
 //
@@ -45,10 +46,11 @@ func Register(
 	hierarchy worktreehandlers.Hierarchy,
 	repos worktreehandlers.Repos,
 	ops worktreehandlers.Operations,
+	chats worktreehandlers.Chats,
 	remote worktreehandlers.RemoteRefs,
 	worktrees worktreehandlers.Worktrees,
 ) {
-	h := worktreehandlers.New(reader, hierarchy, repos, ops).
+	h := worktreehandlers.New(reader, hierarchy, repos, ops, chats).
 		WithRemoteRefs(remote)
 	rg.POST("/chats/import-batch", h.Import)
 	// Without a resolver the verbs cannot answer which worktree a chat holds, so

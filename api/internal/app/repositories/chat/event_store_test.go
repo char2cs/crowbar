@@ -19,6 +19,7 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // captureBroadcast records every (chatID, workspaceID, kind) frame the hub
@@ -111,14 +112,13 @@ func TestAgentChat_CreateAndGetChat(t *testing.T) {
 	assert.Equal(t, "w1", got.WorkspaceID)
 }
 
-func TestAgentChat_Create_ErrorOnDuplicate(t *testing.T) {
+func TestAgentChat_Create_ADuplicateIsAnIDConflict(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1, 0).UTC()
 	createChat(t, ctx, repo, "c1", "w1", now)
 
 	_, err := repo.Create(ctx, chat.CreateInput{ID: "c1", WorkspaceID: "w1", Type: domain.ChatTypeChat, Now: now})
-	require.Error(t, err)
-	assert.ErrorIs(t, err, asynxModels.ErrValidation)
+	assert.Equal(t, problem.IDConflict, problem.CodeOf(err))
 }
 
 func TestAgentChat_GetChat_MissingBridgesToPackageErrNotFound(t *testing.T) {
@@ -214,7 +214,7 @@ func TestAgentChat_HubBroadcastsChatIDAndKind(t *testing.T) {
 const concurrentCreateTrials = 10
 
 // Two Creates of the SAME id race: exactly one commits and the loser, run after
-// it, is refused by Validate (asynxModels.ErrValidation), never ErrPipelineFailed.
+// it, is refused by Validate as an IDConflict, never ErrPipelineFailed.
 func TestAgentChat_ConcurrentCreate_OneWins(t *testing.T) {
 	ctx, repo, _, _ := newRepoWithDeps(t)
 	now := time.Unix(1000, 0).UTC()
@@ -240,7 +240,7 @@ func TestAgentChat_ConcurrentCreate_OneWins(t *testing.T) {
 				succeeded++
 				continue
 			}
-			require.ErrorIsf(t, e, asynxModels.ErrValidation,
+			require.Equalf(t, problem.IDConflict, problem.CodeOf(e),
 				"trial %d: a losing Create must be rejected by Validate, not left as an unresolved pipeline failure", trial)
 		}
 		require.Equalf(t, 1, succeeded, "trial %d: exactly one racing Create must commit; the other must be rejected", trial)

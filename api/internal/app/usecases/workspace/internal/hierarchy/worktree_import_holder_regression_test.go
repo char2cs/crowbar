@@ -112,8 +112,8 @@ func TestRegression_ImportBranchHeldByExternalWorktreeYieldsPlaceholder(t *testi
 		RepoPath:      repoPath,
 		RemoteURL:     "https://github.com/test/integration-repo.git",
 		DefaultBranch: "main",
-		Branches:      []string{"feature/x"},
-	})
+		Branches:      branches("feature/x"),
+	}, &outcomes{})
 	require.NoError(t, err, "a held branch is a recoverable outcome, not a batch failure")
 
 	_, all := readAll()
@@ -147,8 +147,8 @@ func TestRegression_ImportFreeBranchStillProvisionsRealWorktree(t *testing.T) {
 		RepoPath:      repoPath,
 		RemoteURL:     "https://github.com/test/integration-repo.git",
 		DefaultBranch: "main",
-		Branches:      []string{"feature/x"},
-	})
+		Branches:      branches("feature/x"),
+	}, &outcomes{})
 	require.NoError(t, err)
 
 	_, all := readAll()

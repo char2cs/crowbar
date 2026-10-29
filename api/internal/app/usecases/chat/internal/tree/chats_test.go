@@ -78,7 +78,7 @@ func TestCreateChat_AtTheRootIsPlacedAtTheNextSlot(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
 	chats.NextID = "c-new"
 
-	chatID, runnerID, err := uc.CreateChat(context.Background(), workspaceID, "claude", "", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	chatID, runnerID, err := createChat(context.Background(), uc, workspaceID, "claude", "", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 	assert.Equal(t, "c-new", chatID)
 	assert.Equal(t, "runner-c-new", runnerID)
@@ -95,8 +95,7 @@ func TestCreateChat_MintsWithTheRequestedLandingSurface(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(
-		context.Background(), workspaceID, "codex", "", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "terminal")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "codex", "", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "terminal")
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"terminal"}, chats.MintedSurfaces)
@@ -106,8 +105,7 @@ func TestCreateChat_NoSurfaceAskedForMintsTheProvidersDefault(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(
-		context.Background(), workspaceID, "claude", "", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{""}, chats.MintedSurfaces)
@@ -123,8 +121,7 @@ func TestRegression_CreateChat_MintsTheChatWithItsProvider(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(
-		context.Background(), workspaceID, "codex", "", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "codex", "", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"codex"}, chats.MintedProviders,
@@ -138,8 +135,7 @@ func TestRegression_CreateChat_OwnWorktreeMintsTheChatWithItsProvider(t *testing
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(
-		context.Background(), workspaceID, "codex", "",
+	_, _, err := createChat(context.Background(), uc, workspaceID, "codex", "",
 		tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
 
 	require.NoError(t, err)
@@ -159,7 +155,7 @@ func TestCreateChat_PlacesTheChatBeforeStartingItsCLI(t *testing.T) {
 	seedChat(chats, "c1", 1)
 	chats.NextID = "c-new"
 
-	chatID, runnerID, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	chatID, runnerID, err := createChat(context.Background(), uc, workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 	assert.Equal(t, "c-new", chatID)
 	assert.Equal(t, "runner-c-new", runnerID)
@@ -181,7 +177,7 @@ func TestCreateChat_InAFolderPlacesItThereToo(t *testing.T) {
 	seedFolder(t, uc, "spikes", "")
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "spikes", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "spikes", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 	assert.Equal(t, "spikes", nodeRowFor(t, nodes, "c-new").ParentID)
 }
@@ -194,7 +190,7 @@ func TestCreateChat_LandsAtTheEndOfItsParentsSiblingSpace(t *testing.T) {
 	seedThread(chats, "c2", "c1", 2)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 	assert.Equal(t, 1, nodeRowFor(t, nodes, "c-new").Order)
 }
@@ -225,7 +221,7 @@ func TestCreateChat_DoesNotReorderUnrelatedRootSiblings(t *testing.T) {
 	)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 
 	assert.Equal(t, 5, nodeRowFor(t, nodes, "bystander").Order,
@@ -250,7 +246,7 @@ func TestCreateChat_StillGoesThroughThePlacementPath(t *testing.T) {
 	seedChat(chats, "c1", 1)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, nodes.Rows, "the placement is written through Node, like any other repo-scoped row")
 }
@@ -262,7 +258,7 @@ func TestCreateChat_RefusesAnUnknownParentWithoutMintingAnything(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "nowhere", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "nowhere", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.Error(t, err)
 	assert.Empty(t, chats.Minted)
 	assert.Empty(t, chats.Started)
@@ -277,7 +273,7 @@ func TestCreateChat_AcceptsAFolderParentRegardlessOfProvenance(t *testing.T) {
 	seedFolder(t, uc, "f-other", "")
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "f-other", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "f-other", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	assert.NoError(t, err)
 }
 
@@ -286,7 +282,7 @@ func TestCreateChat_RefusesAChatParentInAnotherWorkspace(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "c-other", WorkspaceID: "ws-2"})
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c-other", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "c-other", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	assert.ErrorIs(t, err, tree.ErrCrossWorkspace)
 	assert.Empty(t, chats.Minted)
 }
@@ -295,7 +291,7 @@ func TestCreateChat_SurfacesASnapshotFailure(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.ListErr = errors.New("folders down")
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	assert.ErrorContains(t, err, "folders down")
 	assert.Empty(t, chats.Minted)
 }
@@ -305,7 +301,7 @@ func TestCreateChat_SurfacesAMintFailure(t *testing.T) {
 	seedChat(chats, "c1", 1)
 	chats.MintErr = errors.New("mint down")
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	assert.ErrorContains(t, err, "mint down")
 	assert.Empty(t, chats.Purged, "nothing was minted, so there is nothing to take back")
 }
@@ -322,7 +318,7 @@ func TestCreateChat_TakesTheChatBackOutWhenThePlacementFails(t *testing.T) {
 	chats.NextID = "c-new"
 	nodes.CreateErr = errors.New("placement down")
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	assert.ErrorContains(t, err, "placement down")
 	assert.Equal(t, []string{"c-new"}, chats.Purged)
 	assert.Empty(t, chats.Started, "and no CLI is started on a chat that is about to be erased")
@@ -334,7 +330,7 @@ func TestCreateChat_TakesTheChatBackOutWhenTheCLIFailsToStart(t *testing.T) {
 	chats.NextID = "c-new"
 	chats.StartErr = errors.New("claude is not installed")
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	assert.ErrorContains(t, err, "claude is not installed")
 	assert.Equal(t, []string{"c-new"}, chats.Purged)
 }
@@ -349,7 +345,7 @@ func TestCreateChat_AFailedCleanupStillReportsTheOriginalFailure(t *testing.T) {
 	chats.StartErr = errors.New("claude is not installed")
 	chats.PurgeErr = errors.New("purge down")
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	assert.ErrorContains(t, err, "claude is not installed")
 	assert.NotErrorIs(t, err, problem.ErrNotFound)
 }
@@ -379,7 +375,7 @@ func TestCreateChat_OwnWorktree_AtTheRootSkipsPlacementBeforeFillingTheSlot(t *t
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 
-	chatID, runnerID, err := uc.CreateChat(context.Background(), "some-other-ws", "claude", "", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
+	chatID, runnerID, err := createChat(context.Background(), uc, "some-other-ws", "claude", "", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
 	require.NoError(t, err)
 	assert.Equal(t, "c-new", chatID)
 	assert.Equal(t, "runner-c-new", runnerID)
@@ -400,7 +396,7 @@ func TestCreateChat_OwnWorktree_PlacesTheChatBeforeFillingItsSlot(t *testing.T) 
 	seedFolder(t, uc, "spikes", "")
 	chats.NextID = "c-new"
 
-	chatID, runnerID, err := uc.CreateChat(context.Background(), "some-other-ws", "claude", "spikes", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
+	chatID, runnerID, err := createChat(context.Background(), uc, "some-other-ws", "claude", "spikes", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
 	require.NoError(t, err)
 	assert.Equal(t, "c-new", chatID)
 	assert.Equal(t, "runner-c-new", runnerID)
@@ -417,7 +413,7 @@ func TestCreateChat_OwnWorktree_InAFolderPlacesItThereToo(t *testing.T) {
 	seedFolder(t, uc, "spikes", "")
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), "", "claude", "spikes", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
+	_, _, err := createChat(context.Background(), uc, "", "claude", "spikes", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
 	require.NoError(t, err)
 	assert.Equal(t, "spikes", chatRow(t, chats, "c-new").ParentID)
 }
@@ -428,7 +424,7 @@ func TestCreateChat_OwnWorktree_RefusesAnUnknownParentWithoutMintingAnything(t *
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), "", "claude", "nowhere", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
+	_, _, err := createChat(context.Background(), uc, "", "claude", "nowhere", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
 	require.Error(t, err)
 	assert.Empty(t, chats.Minted)
 	assert.Empty(t, chats.SpawnedOwnWorktree)
@@ -448,7 +444,7 @@ func TestCreateChat_OwnWorktree_AcceptsAWorktreeOwningChatParentInAnotherWorkspa
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "c-other", Type: domain.ChatTypeChat, WorkspaceID: "ws-2"})
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), "", "claude", "c-other", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
+	_, _, err := createChat(context.Background(), uc, "", "claude", "c-other", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
 	assert.NoError(t, err)
 	assert.Equal(t, "c-other", chatRow(t, chats, "c-new").ParentID)
 }
@@ -467,7 +463,7 @@ func TestCreateChat_RefusesAChatParentInAnotherWorkspaceEvenWithNoWorkspaceOfIts
 	chats, uc := newUsecase(t)
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "c-other", Type: domain.ChatTypeChat, WorkspaceID: "ws-2"})
 
-	_, _, err := uc.CreateChat(context.Background(), "", "claude", "c-other", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, "", "claude", "c-other", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	assert.ErrorIs(t, err, tree.ErrCrossWorkspace)
 	assert.Empty(t, chats.Minted)
 }
@@ -484,7 +480,7 @@ func TestCreateChat_OwnWorktree_AcceptsABranchParentInAnotherWorkspace(t *testin
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "b-other", Type: domain.ChatTypeBranch, WorkspaceID: "ws-2"})
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), "", "claude", "b-other", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
+	_, _, err := createChat(context.Background(), uc, "", "claude", "b-other", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
 	assert.NoError(t, err)
 }
 
@@ -497,7 +493,7 @@ func TestCreateChat_OwnWorktree_TakesTheChatBackOutWhenFillingTheSlotFails(t *te
 	chats.NextID = "c-new"
 	chats.SpawnOwnWorktreeErr = errors.New("no fork parent")
 
-	_, _, err := uc.CreateChat(context.Background(), "", "claude", "spikes", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
+	_, _, err := createChat(context.Background(), uc, "", "claude", "spikes", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
 	assert.ErrorContains(t, err, "no fork parent")
 	assert.Equal(t, []string{"c-new"}, chats.Purged)
 }
@@ -697,7 +693,7 @@ func TestCreateChat_TheNewChatIsWrittenAsAPlacement(t *testing.T) {
 	seedChat(chats, "c1", 1)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 
 	assert.Equal(t, "c1", nodeRowFor(t, nodes, "c-new").ParentID)

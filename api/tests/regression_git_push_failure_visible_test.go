@@ -28,7 +28,7 @@ func failingPush(
 	f.pushBranchToOrigin(t, "feature/a", "main", "a\n")
 	conn := h.dial(f.repoBase() + "/chats/ws")
 	resp := h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
-		map[string]any{"branches": []string{"feature/a"}}, http.StatusAccepted)
+		importBranches("feature/a"), http.StatusAccepted)
 	require.NoError(t, resp.Body.Close())
 	created := readUntil(t, conn, func(m map[string]any) bool { return m["kind"] == "workspace_set" })
 	wsID, _ := created["workspaceId"].(string)

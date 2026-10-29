@@ -175,7 +175,7 @@ func TestLive_CodexTerminalBeforeAnyTurnAndBack(t *testing.T) {
 func TestLive_TerminalChatsMoveToTheChat(t *testing.T) {
 	r, _ := newLiveRig(t)
 	ctx := context.Background()
-	codexChat, err := r.d.app.Usecases.AgentChat.MintChat(ctx, r.wsID, "codex", "terminal")
+	codexChat, err := r.d.app.Usecases.AgentChat.MintChat(ctx, "", r.wsID, "codex", "terminal")
 	require.NoError(t, err)
 	_, err = r.runners().StartRunner(ctx, codexChat, "codex")
 	require.NoError(t, err)

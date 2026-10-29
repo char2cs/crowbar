@@ -146,8 +146,8 @@ func TestCreateFromImport_Placeholder_MintsWorkspaceNode(t *testing.T) {
 	err := uc.CreateFromImport(context.Background(), hierarchy.ImportInput{
 		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo",
 		RemoteURL: "https://github.com/test/repo.git", DefaultBranch: "main",
-		Branches: []string{"feat/x"},
-	})
+		Branches: branches("feat/x"),
+	}, &outcomes{})
 	require.NoError(t, err, "a free branch that fails to materialise still yields a placeholder row")
 	require.NotEmpty(t, placeholderID)
 
@@ -321,13 +321,16 @@ func TestCreateFromImport_Placeholder_NodeMintFails_RollsBackWorkspaceAndChat(t 
 	uc := hierarchy.New(inner, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(), hierarchy.WithNodes(nodes))
 	chats := withOwningChats(uc)
 
+	got := &outcomes{}
 	err := uc.CreateFromImport(context.Background(), hierarchy.ImportInput{
 		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo",
 		RemoteURL: "https://github.com/test/repo.git", DefaultBranch: "main",
-		Branches: []string{"feat/x"},
-	})
+		Branches: branches("feat/x"),
+	}, got)
 
-	require.Error(t, err, "a placeholder whose own node row could not be minted produces no row at all")
+	require.NoError(t, err)
+	require.ErrorContains(t, got.of(t, "feat/x").Err, "node create boom",
+		"a placeholder whose own node row could not be minted is reported with why")
 	require.NotEmpty(t, createdID)
 	assert.Equal(t, []string{createdID}, deletedIDs,
 		"the placeholder whose own node row could not be minted must be taken back out")

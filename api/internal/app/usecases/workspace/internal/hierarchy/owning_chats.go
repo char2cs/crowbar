@@ -19,6 +19,8 @@ import (
 // where the new row is PLACED in the sidebar follows from the chat that owns
 // that workspace, which is the chat side's join to make, not this one's.
 type ImportedBranch struct {
+	// ChatID is the chat to mint for the branch; "" mints one.
+	ChatID            string
 	RepoID            string
 	ProjectID         string
 	RepoPath          string
@@ -46,17 +48,23 @@ type ImportedBranch struct {
 // the chat minted before it, and the rollback kept where the knowledge is.
 type OwningChats interface {
 	// ImportBranchAsChat mints the owning chat, creates the workspace for an
-	// existing branch, attaches the two, and returns the workspace id. A failure
-	// anywhere takes the chat back out.
+	// existing branch, attaches the two, and returns both ids. A failure after
+	// the mint still returns the chat, placed, for the caller's placeholder.
 	ImportBranchAsChat(
 		ctx context.Context,
 		in ImportedBranch,
-	) (workspaceID string, err error)
-	// MintOwningChat mints and places the chat that is about to own a workspace
-	// the caller builds itself, under the chat owning parentWorkspaceID.
+	) (chatID, workspaceID string, err error)
+	// MintOwningChat mints (as chatID, or a fresh id for "") and places the chat
+	// about to own a workspace the caller builds, under parentWorkspaceID's chat.
 	MintOwningChat(
 		ctx context.Context,
+		chatID string,
 		parentWorkspaceID string,
+	) (string, error)
+	// OwnerOf is the chat that owns workspaceID, "" when none does.
+	OwnerOf(
+		ctx context.Context,
+		workspaceID string,
 	) (string, error)
 	// AttachOwningWorkspace points a minted owning chat at the workspace it was
 	// minted for.

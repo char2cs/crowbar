@@ -127,6 +127,7 @@ type Agent interface {
 	// the provider's own default landing.
 	MintChat(
 		ctx context.Context,
+		chatID string,
 		workspaceID string,
 		providerID string,
 		surface string,
@@ -157,7 +158,7 @@ type Agent interface {
 		chatID string,
 		providerID string,
 		branch string,
-	) (runnerID string, err error)
+	) (workspaceID, runnerID string, err error)
 	// SpawnChatWithImportedWorktree is SpawnChatWithOwnWorktree's IMPORT
 	// counterpart, with the identical contract: chatID has already been minted
 	// and placed, and this fills its empty workspace slot — with a branch that
@@ -395,20 +396,20 @@ type Usecase interface {
 	// provider's own default landing — see domain.Chat.Surface.
 	CreateChat(
 		ctx context.Context,
-		workspaceID string,
-		providerID string,
-		parentID string,
-		worktree WorktreeSpec,
-		surface string,
-	) (chatID, runnerID string, err error)
+		in CreateChatInput,
+	) (CreatedChat, error)
 	// ImportBranchAsChat materialises one existing branch chat-first and hands
 	// back both ids: the chat minted for it and the workspace it now owns. It
 	// starts no vendor CLI — a batch import materialises rows, not conversations
 	// — and resolves its own placement from the spec's git lineage.
+	//
+	// chatID names the chat ("" mints one). A failure after the mint still
+	// returns the chat, placed: the caller keeps it as its placeholder's owner.
 	ImportBranchAsChat(
 		ctx context.Context,
+		chatID string,
 		spec ImportSpec,
-	) (chatID, workspaceID string, err error)
+	) (mintedChatID, workspaceID string, err error)
 	// MintOwningChat mints and places the chat that is about to own a workspace,
 	// for a creation path that builds the workspace itself. parentWorkspaceID is
 	// the git-lineage parent; the placement it resolves is that workspace's own
@@ -416,8 +417,9 @@ type Usecase interface {
 	// one call.
 	MintOwningChat(
 		ctx context.Context,
+		chatID string,
 		parentWorkspaceID string,
-	) (chatID string, err error)
+	) (string, error)
 	// AttachOwningWorkspace points a chat minted by MintOwningChat at the
 	// workspace it was minted for, retyping it as a branch row when the
 	// workspace is one the sidebar draws as a branch.

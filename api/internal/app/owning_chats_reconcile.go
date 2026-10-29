@@ -10,7 +10,7 @@ import (
 // owningChatMinter is the chat-first saga's own verbs (the Chats-panel tree
 // usecase): mint and place a chat, point it at its workspace, take it back.
 type owningChatMinter interface {
-	MintOwningChat(ctx context.Context, parentWorkspaceID string) (string, error)
+	MintOwningChat(ctx context.Context, chatID, parentWorkspaceID string) (string, error)
 	AttachOwningWorkspace(ctx context.Context, chatID string, ws domain.Workspace) error
 	DiscardOwningChat(ctx context.Context, chatID string) error
 }
@@ -77,7 +77,7 @@ func mintOwningChat(
 	minter owningChatMinter,
 	ws domain.Workspace,
 ) {
-	chatID, err := minter.MintOwningChat(ctx, ws.ParentID)
+	chatID, err := minter.MintOwningChat(ctx, "", ws.ParentID)
 	if err != nil {
 		slog.ErrorContext(ctx, "app: boot: mint the owning chat of an unowned workspace",
 			"workspace_id", ws.ID, "err", err)

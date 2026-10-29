@@ -34,8 +34,8 @@ func TestCreateFromImport_ResolveHolderPath_CrowbarHomeError(t *testing.T) {
 	err := uc.CreateFromImport(context.Background(), hierarchy.ImportInput{
 		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo",
 		RemoteURL: "https://github.com/test/repo.git", DefaultBranch: "main",
-		Branches: []string{"feat/x"},
-	})
+		Branches: branches("feat/x"),
+	}, &outcomes{})
 
 	require.NoError(t, err, "an unresolvable crowbar home must still yield a placeholder row, not a stranded batch")
 	assert.Empty(t, placeholder.WorktreePath, "the placeholder signal is an empty worktree path")
@@ -61,8 +61,8 @@ func TestCreateFromImport_ResolveHolderPath_HolderResolveError(t *testing.T) {
 	err := uc.CreateFromImport(context.Background(), hierarchy.ImportInput{
 		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo",
 		RemoteURL: "https://github.com/test/repo.git", DefaultBranch: "main",
-		Branches: []string{"feat/x"},
-	})
+		Branches: branches("feat/x"),
+	}, &outcomes{})
 
 	require.NoError(t, err, "a broken holder-resolve read must still yield a placeholder row")
 	assert.Empty(t, placeholder.WorktreePath)

@@ -24,7 +24,7 @@ func seedPlacedBubble(
 	parentID string,
 ) string {
 	t.Helper()
-	bubbleID, err := f.usecase.MintChat(f.ctx, "", "", "")
+	bubbleID, err := f.usecase.MintChat(f.ctx, "", "", "", "")
 	require.NoError(t, err)
 	_, err = f.chats.SetPlacement(f.ctx, bubbleID, parentID, 0)
 	require.NoError(t, err)
@@ -41,7 +41,7 @@ func TestSpawnChatWithOwnWorktree_FillsWorkspaceAndStartsTheCLI(t *testing.T) {
 	rootChatID, _ := f.spawn(t, "claude")
 	bubbleID := seedPlacedBubble(t, f, rootChatID)
 
-	runnerID, err := f.usecase.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
+	wsID, runnerID, err := f.usecase.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, runnerID)
 
@@ -50,6 +50,7 @@ func TestSpawnChatWithOwnWorktree_FillsWorkspaceAndStartsTheCLI(t *testing.T) {
 
 	after := f.chat(t, bubbleID)
 	assert.NotEmpty(t, after.WorkspaceID, "the slot must be filled")
+	assert.Equal(t, after.WorkspaceID, wsID, "the workspace it answers is the one it filled the slot with")
 
 	live, err := f.liveRunnerFor(t, bubbleID)
 	require.NoError(t, err)
@@ -67,7 +68,7 @@ func TestRegression_SpawnChatWithOwnWorktree_ForwardsTheRequestedBranchName(t *t
 	rootChatID, _ := f.spawn(t, "claude")
 	bubbleID := seedPlacedBubble(t, f, rootChatID)
 
-	_, err := f.usecase.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "feature/typed-name")
+	_, _, err := f.usecase.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "feature/typed-name")
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"feature/typed-name"}, f.wt.forkedBranches,
@@ -78,11 +79,11 @@ func TestRegression_SpawnChatWithOwnWorktree_ForwardsTheRequestedBranchName(t *t
 // same refusal Promote makes for the identical shape (TestPromote_NoForkParent_Refuses).
 func TestSpawnChatWithOwnWorktree_NoForkParent_Refuses(t *testing.T) {
 	f := newFixture(t)
-	bubbleID, err := f.usecase.MintChat(f.ctx, "", "", "")
+	bubbleID, err := f.usecase.MintChat(f.ctx, "", "", "", "")
 	require.NoError(t, err)
 	f.wait()
 
-	_, err = f.usecase.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
+	_, _, err = f.usecase.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
 
 	require.ErrorIs(t, err, agentusecase.ErrNoForkParent)
 	assert.Empty(t, f.wt.calls(), "must refuse before ever reaching the worktree usecase")
@@ -96,7 +97,7 @@ func TestSpawnChatWithOwnWorktree_CreateWorkspaceFailure_AbortsBeforeSettingTheW
 	bubbleID := seedPlacedBubble(t, f, rootChatID)
 	f.wt.err = errOwnWorktreeBoom
 
-	_, err := f.usecase.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
+	_, _, err := f.usecase.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
 
 	require.ErrorIs(t, err, errOwnWorktreeBoom)
 	chat := f.chat(t, bubbleID)
@@ -112,7 +113,7 @@ func TestSpawnChatWithOwnWorktree_SetWorkspaceFailure_DiscardsTheOrphanedWorkspa
 	bubbleID := seedPlacedBubble(t, f, rootChatID)
 	chats.failSetWorkspace = errOwnWorktreeBoom
 
-	_, err := f.usecase.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
+	_, _, err := f.usecase.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
 
 	require.ErrorIs(t, err, errOwnWorktreeBoom, "the caller is told the failure that happened")
 	assert.Equal(t, []string{"ws-child-1"}, f.wt.discards(),
@@ -132,7 +133,7 @@ func TestSpawnChatWithOwnWorktree_StartRunnerFailure_RollsTheWholeCreateBack(t *
 	bubbleID := seedPlacedBubble(t, f, rootChatID)
 	f.term.err = errOwnWorktreeBoom
 
-	_, err := f.usecase.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
+	_, _, err := f.usecase.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
 
 	require.Error(t, err)
 	assert.Empty(t, f.chat(t, bubbleID).WorkspaceID,
@@ -160,7 +161,7 @@ func TestSpawnChatWithOwnWorktree_StartRunnerFailureAndClearFailure_StillDiscard
 	f.term.err = errOwnWorktreeBoom
 	chats.failClearWorkspace = errors.New("own worktree: the slot-clear also failed")
 
-	_, err := f.usecase.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
+	_, _, err := f.usecase.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
 
 	require.Error(t, err)
 	assert.Equal(t, []string{"ws-child-1"}, f.wt.discards(),

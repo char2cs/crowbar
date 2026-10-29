@@ -14,41 +14,53 @@ import (
 
 func (u *chatFolderUsecase) CreateChat(
 	ctx context.Context,
-	workspaceID string,
-	providerID string,
-	parentID string,
-	worktree WorktreeSpec,
-	surface string,
-) (string, string, error) {
-	if worktree.Mode == WorktreeFork {
-		return u.createOwnWorktreeChat(ctx, providerID, parentID, worktree.Branch, surface)
+	in CreateChatInput,
+) (CreatedChat, error) {
+	switch in.Worktree.Mode {
+	case WorktreeFork:
+		return u.createOwnWorktreeChat(ctx, in)
+	case WorktreeImport:
+		return u.createImportChat(ctx, in)
+	case WorktreeNone:
 	}
-	if worktree.Mode == WorktreeImport {
-		chatID, _, runnerID, err := u.createImportedWorktreeChat(ctx, providerID, parentID, worktree.Import)
-		return chatID, runnerID, err
+	if err := u.checkWorkspaceProvisioned(ctx, in.WorkspaceID); err != nil {
+		return CreatedChat{}, err
 	}
-	if err := u.checkWorkspaceProvisioned(ctx, workspaceID); err != nil {
-		return "", "", err
-	}
-	if parentID != "" {
-		if err := u.checkNewChatParent(ctx, workspaceID, parentID, false); err != nil {
-			return "", "", err
+	if in.ParentID != "" {
+		if err := u.checkNewChatParent(ctx, in.WorkspaceID, in.ParentID, false); err != nil {
+			return CreatedChat{}, err
 		}
 	}
-	chatID, err := u.agent.MintChat(ctx, workspaceID, providerID, surface)
+	chatID, err := u.agent.MintChat(ctx, in.ID, in.WorkspaceID, in.ProviderID, in.Surface)
 	if err != nil {
-		return "", "", fmt.Errorf("agent chat folder: create chat: %w", err)
+		return CreatedChat{}, fmt.Errorf("agent chat folder: create chat: %w", err)
 	}
 	if _, _, pErr := u.placeChat(
-		ctx, workspaceID, chatID, PlaceInput{ParentID: &parentID}, false, true,
+		ctx, in.WorkspaceID, chatID, PlaceInput{ParentID: &in.ParentID}, false, true,
 	); pErr != nil {
-		return "", "", u.discard(ctx, chatID, pErr)
+		return CreatedChat{}, u.discard(ctx, chatID, pErr)
 	}
-	runnerID, err := u.agent.StartRunner(ctx, chatID, providerID)
+	runnerID, err := u.agent.StartRunner(ctx, chatID, in.ProviderID)
 	if err != nil {
-		return "", "", u.discard(ctx, chatID, err)
+		return CreatedChat{}, u.discard(ctx, chatID, err)
 	}
-	return chatID, runnerID, nil
+	return CreatedChat{ChatID: chatID, RunnerID: runnerID}, nil
+}
+
+// createImportChat is CreateChat's WorktreeImport branch: a single create the
+// user was told failed leaves no chat behind.
+func (u *chatFolderUsecase) createImportChat(
+	ctx context.Context,
+	in CreateChatInput,
+) (CreatedChat, error) {
+	chatID, ws, runnerID, err := u.createImportedWorktreeChat(ctx, in.ID, in.ProviderID, in.ParentID, in.Worktree.Import)
+	if err != nil && chatID != "" {
+		return CreatedChat{}, u.discard(ctx, chatID, err)
+	}
+	if err != nil {
+		return CreatedChat{}, err
+	}
+	return CreatedChat{ChatID: chatID, RunnerID: runnerID, WorkspaceID: ws.ID}, nil
 }
 
 // createOwnWorktreeChat is CreateChat's ownWorktree branch. It mints the chat
@@ -72,32 +84,29 @@ func (u *chatFolderUsecase) CreateChat(
 // resolves — must be fixed before its first CLI exists.
 func (u *chatFolderUsecase) createOwnWorktreeChat(
 	ctx context.Context,
-	providerID string,
-	parentID string,
-	branch string,
-	surface string,
-) (string, string, error) {
-	if parentID != "" {
-		if err := u.checkNewChatParent(ctx, "", parentID, true); err != nil {
-			return "", "", err
+	in CreateChatInput,
+) (CreatedChat, error) {
+	if in.ParentID != "" {
+		if err := u.checkNewChatParent(ctx, "", in.ParentID, true); err != nil {
+			return CreatedChat{}, err
 		}
 	}
-	chatID, err := u.agent.MintChat(ctx, "", providerID, surface)
+	chatID, err := u.agent.MintChat(ctx, in.ID, "", in.ProviderID, in.Surface)
 	if err != nil {
-		return "", "", fmt.Errorf("agent chat folder: create chat: %w", err)
+		return CreatedChat{}, fmt.Errorf("agent chat folder: create chat: %w", err)
 	}
-	if parentID != "" {
+	if in.ParentID != "" {
 		if _, _, pErr := u.placeChat(
-			ctx, "", chatID, PlaceInput{ParentID: &parentID}, true, true,
+			ctx, "", chatID, PlaceInput{ParentID: &in.ParentID}, true, true,
 		); pErr != nil {
-			return "", "", u.discard(ctx, chatID, pErr)
+			return CreatedChat{}, u.discard(ctx, chatID, pErr)
 		}
 	}
-	runnerID, err := u.agent.SpawnChatWithOwnWorktree(ctx, chatID, providerID, branch)
+	wsID, runnerID, err := u.agent.SpawnChatWithOwnWorktree(ctx, chatID, in.ProviderID, in.Worktree.Branch)
 	if err != nil {
-		return "", "", u.discard(ctx, chatID, err)
+		return CreatedChat{}, u.discard(ctx, chatID, err)
 	}
-	return chatID, runnerID, nil
+	return CreatedChat{ChatID: chatID, RunnerID: runnerID, WorkspaceID: wsID}, nil
 }
 
 // checkWorkspaceProvisioned refuses a create into a workspace with no worktree

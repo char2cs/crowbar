@@ -1793,6 +1793,7 @@ func (s *AgentChatPlacements) SpawnChat(
 
 func (s *AgentChatPlacements) MintChat(
 	ctx context.Context,
+	chatID string,
 	workspaceID string,
 	providerID string,
 	surface string,
@@ -1800,17 +1801,20 @@ func (s *AgentChatPlacements) MintChat(
 	if s.MintErr != nil {
 		return "", s.MintErr
 	}
+	if chatID == "" {
+		chatID = s.NextID
+	}
 	s.Minted = append(s.Minted, workspaceID)
 	s.MintedSurfaces = append(s.MintedSurfaces, surface)
 	s.MintedProviders = append(s.MintedProviders, providerID)
 	s.Rows = append(s.Rows, domain.Chat{
-		ID:          s.NextID,
+		ID:          chatID,
 		Type:        domain.ChatTypeChat,
 		WorkspaceID: workspaceID,
 		ProviderID:  providerID,
 		Surface:     surface,
 	})
-	return s.NextID, nil
+	return chatID, nil
 }
 
 func (s *AgentChatPlacements) StartRunner(
@@ -1839,9 +1843,9 @@ func (s *AgentChatPlacements) SpawnChatWithOwnWorktree(
 	chatID string,
 	providerID string,
 	branch string,
-) (string, error) {
+) (string, string, error) {
 	if s.SpawnOwnWorktreeErr != nil {
-		return "", s.SpawnOwnWorktreeErr
+		return "", "", s.SpawnOwnWorktreeErr
 	}
 	s.SpawnedOwnWorktree = append(s.SpawnedOwnWorktree, StartCall{
 		ChatID:        chatID,
@@ -1854,7 +1858,7 @@ func (s *AgentChatPlacements) SpawnChatWithOwnWorktree(
 			s.Rows[i].WorkspaceID = "ws-child-" + chatID
 		}
 	}
-	return "runner-" + chatID, nil
+	return "ws-child-" + chatID, "runner-" + chatID, nil
 }
 
 // SpawnChatWithImportedWorktree mirrors SpawnChatWithOwnWorktree for an

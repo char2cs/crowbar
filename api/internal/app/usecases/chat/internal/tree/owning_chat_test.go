@@ -56,7 +56,7 @@ func TestRegression_MintOwningChat_UnderARepoHeaderTakesTheRepoRootsNextSlot(t *
 	seedRepoHeaderLevel(chats, folders, nodes, gitStatus)
 	chats.NextID = "c-fork"
 
-	chatID, err := uc.MintOwningChat(context.Background(), "ws-home")
+	chatID, err := uc.MintOwningChat(context.Background(), "", "ws-home")
 
 	require.NoError(t, err)
 	row := chatRow(t, chats, chatID)
@@ -74,13 +74,13 @@ func TestRegression_MintOwningChat_TwoForksOffARepoHeaderTakeDistinctSlots(t *te
 	ctx := context.Background()
 
 	chats.NextID = "c-first"
-	first, err := uc.MintOwningChat(ctx, "ws-home")
+	first, err := uc.MintOwningChat(ctx, "", "ws-home")
 	require.NoError(t, err)
 	require.NoError(t, uc.AttachOwningWorkspace(ctx, first, domain.Workspace{ID: "ws-first"}))
 	gitStatus.SetRepo("ws-first", "repo-A")
 
 	chats.NextID = "c-second"
-	second, err := uc.MintOwningChat(ctx, "ws-home")
+	second, err := uc.MintOwningChat(ctx, "", "ws-home")
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, chatRow(t, chats, first).Order)

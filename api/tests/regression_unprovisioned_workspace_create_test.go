@@ -31,7 +31,7 @@ func heldBranchPlaceholder(
 
 	conn := h.dial(f.repoBase() + "/chats/ws")
 	_ = h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
-		map[string]any{"branches": []string{branch}}, http.StatusAccepted).Body.Close()
+		importBranches(branch), http.StatusAccepted).Body.Close()
 	created := readUntil(t, conn, func(m map[string]any) bool {
 		return m["kind"] == "workspace_set"
 	})

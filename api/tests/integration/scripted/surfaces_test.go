@@ -21,7 +21,7 @@ import (
 func TestScripted_CodexTerminalSurfaceBootsAndResumes(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
-	chatID, err := r.d.app.Usecases.AgentChat.MintChat(ctx, r.wsID, "codex", "terminal")
+	chatID, err := r.d.app.Usecases.AgentChat.MintChat(ctx, "", r.wsID, "codex", "terminal")
 	require.NoError(t, err)
 	_, err = r.runners().StartRunner(ctx, chatID, "codex")
 	require.NoError(t, err)
@@ -151,7 +151,7 @@ func TestScripted_SwitchProviderThenOpenTheTerminal(t *testing.T) {
 func TestScripted_CodexTerminalChatMovesToTheChat(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
-	chatID, err := r.d.app.Usecases.AgentChat.MintChat(ctx, r.wsID, "codex", "terminal")
+	chatID, err := r.d.app.Usecases.AgentChat.MintChat(ctx, "", r.wsID, "codex", "terminal")
 	require.NoError(t, err)
 	_, err = r.runners().StartRunner(ctx, chatID, "codex")
 	require.NoError(t, err)

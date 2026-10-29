@@ -61,10 +61,7 @@ type Usecase interface {
 	) (domain.Workspace, error)
 	// CreateFromImport batch-imports branches as managed workspaces, PR-parented
 	// up to a protected/default root, creating missing ancestors (07 §import).
-	CreateFromImport(
-		ctx context.Context,
-		in ImportInput,
-	) error
+	CreateFromImport(ctx context.Context, in ImportInput, p ImportProgress) error
 	MergeIntoParent(
 		ctx context.Context,
 		childID string,
@@ -741,9 +738,8 @@ func (u *hierarchyUsecase) checkoutRemoteBranch(
 		slog.WarnContext(ctx, "create child: could not fetch origin branch; checking out from local remote-tracking ref",
 			"branch", in.Branch, "err", fetchErr)
 	}
-	// Read BEFORE the reset moves it; reported after, once origin's tip is known.
-	// No local branch is the one case where `-B` creates it; a local branch that
-	// already existed stays the user's (CreatedBranch false).
+	// Read BEFORE the reset moves it. No local branch is the one case where `-B`
+	// creates it; a local branch that already existed stays the user's.
 	localTip, err := provision.LocalTip(ctx, u.git, in.RepoPath, in.Branch)
 	if err != nil {
 		return addedWorktree{}, fmt.Errorf("create child: %w", err)

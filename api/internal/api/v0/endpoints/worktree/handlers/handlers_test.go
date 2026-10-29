@@ -18,6 +18,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func TestMain(
@@ -92,6 +93,7 @@ type fakeHierarchy struct {
 	gotRenameID  string
 	gotRenameTo  string
 	gotImport    workspace.ImportInput
+	outcomes     []workspace.ImportOutcome
 	importErr    error
 	importDone   chan struct{}
 	gotRebaseID  string
@@ -108,8 +110,12 @@ type fakeHierarchy struct {
 func (f *fakeHierarchy) CreateFromImport(
 	_ context.Context,
 	in workspace.ImportInput,
+	p workspace.ImportProgress,
 ) error {
 	f.gotImport = in
+	for _, o := range f.outcomes {
+		p.Branch(o)
+	}
 	if f.importDone != nil {
 		close(f.importDone)
 	}
@@ -199,6 +205,21 @@ func (f *fakeHierarchy) DetachHolder(
 	return domain.Workspace{}, f.detachErr
 }
 
+// fakeChats answers GetChat for the chat ids in taken; any other is not found.
+type fakeChats struct {
+	taken map[string]bool
+}
+
+func (f *fakeChats) GetChat(
+	_ context.Context,
+	id string,
+) (domain.Chat, error) {
+	if f.taken[id] {
+		return domain.Chat{ID: id}, nil
+	}
+	return domain.Chat{}, problem.ErrNotFound
+}
+
 type fakeRepos struct {
 	repo *domain.Repository
 	err  error
@@ -270,12 +291,18 @@ func accepted(t *testing.T, rec *httptest.ResponseRecorder) domain.Operation {
 func (o *recordedOps) settled(t *testing.T, rec *httptest.ResponseRecorder) domain.Operation {
 	t.Helper()
 	id := accepted(t, rec).ID
-	for op := range o.frames {
-		if op.ID == id && (op.State == domain.OpSucceeded || op.State == domain.OpFailed) {
-			return op
+	deadline := time.After(waitBound)
+	for {
+		select {
+		case op := <-o.frames:
+			if op.ID == id && (op.State == domain.OpSucceeded || op.State == domain.OpFailed) {
+				return op
+			}
+		case <-deadline:
+			t.Fatalf("operation %s never settled", id)
+			return domain.Operation{}
 		}
 	}
-	return domain.Operation{}
 }
 
 // newChatRouter mounts the nine surviving chat-keyed routes on ONE Handlers
@@ -288,7 +315,7 @@ func newChatRouter(
 ) (*gin.Engine, *recordedOps) {
 	r := gin.New()
 	ops := newRecordedOps()
-	h := worktreehandlers.New(reader, hierarchy, &fakeRepos{}, ops).
+	h := worktreehandlers.New(reader, hierarchy, &fakeRepos{}, ops, &fakeChats{}).
 		WithWorktrees(worktrees)
 	rg := r.Group("/v0/projects/:projectId/repos/:repoId")
 	rg.POST("/chats/import-batch", h.Import)
@@ -303,19 +330,22 @@ func newChatRouter(
 	return r, ops
 }
 
-// waitClosed blocks until done is closed. The close IS the "the background work
-// ran" signal, so a plain receive is the whole synchronisation: it returns the
-// instant the goroutine gets there, however loaded the machine. Background work
-// that never runs hangs here until `go test -timeout` fires and dumps the
-// goroutines — a real failure with a real stack, rather than a one-second guess
-// that goes red on a busy CI box.
+// waitClosed blocks until done is closed: the close IS the "the background
+// work ran" signal. The bound only turns a hang into a failure.
 func waitClosed(
 	t *testing.T,
 	done chan struct{},
 ) {
 	t.Helper()
-	<-done
+	select {
+	case <-done:
+	case <-time.After(waitBound):
+		t.Fatal("the background work never ran")
+	}
 }
+
+// waitBound caps a wait on a signal the code under test must send.
+const waitBound = 10 * time.Second
 
 func do(
 	r *gin.Engine,

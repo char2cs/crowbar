@@ -40,13 +40,9 @@ type stubChatTree struct{}
 
 func (stubChatTree) CreateChat(
 	_ context.Context,
-	_ string,
-	_ string,
-	_ string,
-	_ agentusecase.WorktreeSpec,
-	_ string,
-) (string, string, error) {
-	return "c1", "run-1", nil
+	_ agentusecase.CreateChatInput,
+) (agentusecase.CreatedChat, error) {
+	return agentusecase.CreatedChat{ChatID: "c1", RunnerID: "run-1"}, nil
 }
 
 func (stubChatTree) ListInRepo(

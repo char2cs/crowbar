@@ -18,8 +18,12 @@ import (
 // Reusing this scaffold is what makes that unrepresentable rather than merely
 // reconciled after the fact: the chat exists BEFORE the workspace does, and a
 // failure anywhere after the mint takes the chat back out.
+//
+// A failure after the mint returns the minted chat with it; what becomes of
+// that chat is the caller's (a single create discards it, a batch keeps it).
 func (u *chatFolderUsecase) createImportedWorktreeChat(
 	ctx context.Context,
+	chatID string,
 	providerID string,
 	parentID string,
 	spec ImportSpec,
@@ -33,7 +37,7 @@ func (u *chatFolderUsecase) createImportedWorktreeChat(
 			return "", domain.Workspace{}, "", err
 		}
 	}
-	chatID, err := u.agent.MintChat(ctx, "", providerID, "")
+	chatID, err = u.agent.MintChat(ctx, chatID, "", providerID, "")
 	if err != nil {
 		return "", domain.Workspace{}, "", fmt.Errorf("agent chat folder: import chat: %w", err)
 	}
@@ -42,11 +46,11 @@ func (u *chatFolderUsecase) createImportedWorktreeChat(
 	// placeChat plans against as soon as its worktree is attached. See
 	// placeOwningRow (owning_chat.go).
 	if pErr := u.placeOwningRow(ctx, chatID, parentID); pErr != nil {
-		return "", domain.Workspace{}, "", u.discard(ctx, chatID, pErr)
+		return chatID, domain.Workspace{}, "", pErr
 	}
 	ws, runnerID, err := u.agent.SpawnChatWithImportedWorktree(ctx, chatID, providerID, spec)
 	if err != nil {
-		return "", domain.Workspace{}, "", u.discard(ctx, chatID, err)
+		return chatID, domain.Workspace{}, "", err
 	}
 	return chatID, ws, runnerID, nil
 }
@@ -62,13 +66,11 @@ func (u *chatFolderUsecase) createImportedWorktreeChat(
 // still be serving the row as it stood before the workspace was attached.
 func (u *chatFolderUsecase) ImportBranchAsChat(
 	ctx context.Context,
+	chatID string,
 	spec ImportSpec,
 ) (string, string, error) {
-	chatID, ws, _, err := u.createImportedWorktreeChat(ctx, "", "", spec)
-	if err != nil {
-		return "", "", err
-	}
-	return chatID, ws.ID, nil
+	minted, ws, _, err := u.createImportedWorktreeChat(ctx, chatID, "", "", spec)
+	return minted, ws.ID, err
 }
 
 // importPlacement answers where an imported row is BORN, from the only thing a

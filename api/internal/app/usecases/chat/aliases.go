@@ -109,6 +109,9 @@ type (
 	WorktreeSpec = tree.WorktreeSpec
 	WorktreeMode = tree.WorktreeMode
 	ImportSpec   = tree.ImportSpec
+	// CreateChatInput and CreatedChat are CreateChat's request and answer.
+	CreateChatInput = tree.CreateChatInput
+	CreatedChat     = tree.CreatedChat
 )
 
 // The three worktree modes a create can ask for, re-exported alongside the

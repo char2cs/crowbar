@@ -251,7 +251,7 @@ func New(
 	// the wiring that makes the §0 orphan unrepresentable rather than merely
 	// reconciled: without it both importers refuse outright (ErrNoOwningChats)
 	// instead of falling back to a workspace-first create.
-	owningChats := hierarchyOwningChats{tree: agentic.chatTree}
+	owningChats := hierarchyOwningChats{tree: agentic.chatTree, chats: repos.AgentChat}
 	workspaceUsecase.SetOwningChats(owningChats)
 	projectImport.SetOwningChats(owningChats)
 	// Built inside newAgentWiring, where the chat tree's own delete already
@@ -856,71 +856,6 @@ func (w worktreeChildCreator) WorkAtRisk(
 	workspaceIDs []string,
 ) ([]domain.WorkAtRisk, error) {
 	return w.worktree.WorkAtRisk(ctx, workspaceIDs)
-}
-
-// hierarchyOwningChats adapts the Chats-panel tree usecase into the worktree
-// hierarchy's OwningChats seam (usecases/workspace.OwningChats) — the mirror of
-// worktreeChildCreator above, pointing the other way: that one lets a chat ask
-// for a worktree, this one makes every worktree the import path creates be born
-// under a chat.
-//
-// Three of the four verbs are the tree's own, unchanged. Only the import
-// differs, and only in shape: the hierarchy describes a branch in its OWN
-// vocabulary (workspace.ImportedBranch, which it declares because it is the
-// consumer) and wants back the one thing its chain walk records — the workspace
-// id — while the tree speaks its own ImportSpec and hands back both ids. This
-// is exactly the translation the container exists to do, and it is why neither
-// usecase has to import the other.
-//
-// The delegation is written out rather than embedded on purpose: an embedded
-// TreeUsecase would silently expose a SECOND ImportBranchAsChat with a
-// different signature, and which one a caller reached would depend on where it
-// was standing.
-type hierarchyOwningChats struct {
-	tree agentusecase.TreeUsecase
-}
-
-// ImportBranchAsChat implements workspace.OwningChats.
-func (h hierarchyOwningChats) ImportBranchAsChat(
-	ctx context.Context,
-	in workspace.ImportedBranch,
-) (string, error) {
-	_, workspaceID, err := h.tree.ImportBranchAsChat(ctx, agentusecase.ImportSpec{
-		RepoID:            in.RepoID,
-		ProjectID:         in.ProjectID,
-		RepoPath:          in.RepoPath,
-		RemoteURL:         in.RemoteURL,
-		Branch:            in.Branch,
-		ParentWorkspaceID: in.ParentWorkspaceID,
-		ParentBranch:      in.ParentBranch,
-		ForceLocked:       in.ForceLocked,
-	})
-	return workspaceID, err
-}
-
-// MintOwningChat implements workspace.OwningChats.
-func (h hierarchyOwningChats) MintOwningChat(
-	ctx context.Context,
-	parentWorkspaceID string,
-) (string, error) {
-	return h.tree.MintOwningChat(ctx, parentWorkspaceID)
-}
-
-// AttachOwningWorkspace implements workspace.OwningChats.
-func (h hierarchyOwningChats) AttachOwningWorkspace(
-	ctx context.Context,
-	chatID string,
-	ws domain.Workspace,
-) error {
-	return h.tree.AttachOwningWorkspace(ctx, chatID, ws)
-}
-
-// DiscardOwningChat implements workspace.OwningChats.
-func (h hierarchyOwningChats) DiscardOwningChat(
-	ctx context.Context,
-	chatID string,
-) error {
-	return h.tree.DiscardOwningChat(ctx, chatID)
 }
 
 // workspaceGetter is the minimal workspace-read surface agentWorkspaceReader

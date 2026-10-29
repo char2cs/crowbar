@@ -195,6 +195,7 @@ func (c *Container) Register(
 		c.app.Usecases.Workspace,
 		c.app.GORM.Repositories,
 		c.app.Operations,
+		c.app.Usecases.AgentChat,
 		c.eng.Git,
 		// The chat→worktree resolver (spec §3). It is the SAME value chatScoped's
 		// own middleware resolves through, so a verb reached through

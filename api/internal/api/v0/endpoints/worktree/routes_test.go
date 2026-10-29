@@ -64,6 +64,7 @@ type stubHierarchy struct{}
 func (stubHierarchy) CreateFromImport(
 	_ context.Context,
 	_ workspace.ImportInput,
+	_ workspace.ImportProgress,
 ) error {
 	return nil
 }
@@ -153,6 +154,7 @@ func registerOn(
 		stubRepos{},
 		stubOps{},
 		nil,
+		nil,
 		stubWorktrees{},
 	)
 }
@@ -237,6 +239,7 @@ func TestRegisterWithoutAResolverMountsOnlyTheImport(
 		stubHierarchy{},
 		stubRepos{},
 		stubOps{},
+		nil,
 		nil,
 		nil,
 	)

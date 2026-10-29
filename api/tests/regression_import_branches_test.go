@@ -148,7 +148,7 @@ func TestRegression_ImportBranchTakesRemoteContentNotDivergedLocal(t *testing.T)
 
 	conn := h.dial(f.repoBase() + "/chats/ws")
 	_ = h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
-		map[string]any{"branches": []string{branch}}, http.StatusAccepted).Body.Close()
+		importBranches(branch), http.StatusAccepted).Body.Close()
 	// No worktree_state frame ever reaches a freshly imported chat: pushChatWorktree
 	// drops it whenever the chat's SetWorkspace event has not yet reached the
 	// AgentChat projection (owningChatIDFor resolves "" and the push is skipped),
@@ -197,7 +197,7 @@ func TestRegression_ImportParentsUnderLockedDefaultBranchWorkspace(t *testing.T)
 
 	conn := h.dial(f.repoBase() + "/chats/ws")
 	_ = h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
-		map[string]any{"branches": []string{branch}}, http.StatusAccepted).Body.Close()
+		importBranches(branch), http.StatusAccepted).Body.Close()
 	// No worktree_state frame ever reaches a freshly imported chat (see the sibling
 	// test's comment on the same wait), and the bare workspace_set event carries no
 	// parentId at all — so this one reads back over REST once workspace_set proves
@@ -296,7 +296,7 @@ func TestRegression_RetryProvisionTakesRemoteContentNotDivergedLocal(t *testing.
 	// materialise it and must fall back to a placeholder row.
 	conn := h.dial(f.repoBase() + "/chats/ws")
 	_ = h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
-		map[string]any{"branches": []string{branch}}, http.StatusAccepted).Body.Close()
+		importBranches(branch), http.StatusAccepted).Body.Close()
 	// No worktree_state frame ever reaches a freshly imported chat (see the sibling
 	// tests' comment on the same wait); workspace_set is the reliable signal that
 	// the placeholder row now exists, materialised or not.
@@ -429,7 +429,7 @@ func TestRegression_ImportRejectsBranchMissingFromRemote(t *testing.T) {
 	f := newImportFixture(t, h)
 
 	resp := h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
-		map[string]any{"branches": []string{"feature/never-existed"}}, http.StatusBadRequest)
+		importBranches("feature/never-existed"), http.StatusBadRequest)
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)

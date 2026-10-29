@@ -854,7 +854,7 @@ func TestResumeChat_NoConversationButAProviderOfItsOwn_RevivesThatProvider(t *te
 func TestResumeChat_NothingHasEverRunHere_ReturnsError(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "", "")
+	chatID, err := f.usecase.MintChat(f.ctx, "", "ws1", "", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -2272,7 +2272,7 @@ func TestReconcileRunnersOnBoot_EmptyIsTheNormalAnswer(t *testing.T) {
 func TestReconcileRunnersOnBoot_WorkspacelessChatDoesNotBreakTheSweep(t *testing.T) {
 	f := newFixture(t)
 
-	bubbleID, err := f.usecase.MintChat(f.ctx, "", "", "")
+	bubbleID, err := f.usecase.MintChat(f.ctx, "", "", "", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -3680,7 +3680,7 @@ func TestRegression_SwitchingBackToTheChatsOwnProviderKeepsRecordingTheMarker(t 
 func TestRegression_SwitchProvider_ConvertingAChatWithNoResolvableProviderStillLeavesAMarker(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "", "")
+	chatID, err := f.usecase.MintChat(f.ctx, "", "ws1", "", "")
 	require.NoError(t, err)
 	f.wait()
 	require.Empty(t, f.chat(t, chatID).ProviderID,

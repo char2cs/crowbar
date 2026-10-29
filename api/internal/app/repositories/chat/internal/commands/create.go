@@ -7,6 +7,7 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // Create seeds a new AgentChat: an identity, a workspace and a clock. It carries
@@ -35,7 +36,7 @@ func (c Create) ShouldSnapshot() bool { return false }
 
 func (c Create) Validate(current *domain.Chat) error {
 	if current != nil {
-		return fmt.Errorf("create agent chat: exists: %w", asynxModels.ErrValidation)
+		return &problem.Error{Code: problem.IDConflict, Message: fmt.Sprintf("chat %s already exists", c.ID)}
 	}
 	if c.ID == "" {
 		return fmt.Errorf("create agent chat: missing ids: %w", asynxModels.ErrValidation)

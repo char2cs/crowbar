@@ -41,6 +41,7 @@ type Hierarchy interface {
 	CreateFromImport(
 		ctx context.Context,
 		in workspace.ImportInput,
+		p workspace.ImportProgress,
 	) error
 	MergeIntoParent(
 		ctx context.Context,
@@ -105,6 +106,14 @@ type Repos interface {
 	) (*domain.Repository, error)
 }
 
+// Chats reads a chat by id, so an import can refuse a chat id already taken.
+type Chats interface {
+	GetChat(
+		ctx context.Context,
+		id string,
+	) (domain.Chat, error)
+}
+
 // Operations starts the slow worktree verbs as operations. It is satisfied by
 // the operation service.
 type Operations interface {
@@ -140,23 +149,27 @@ type Handlers struct {
 	hierarchy Hierarchy
 	repos     Repos
 	ops       Operations
+	chats     Chats
 	remote    RemoteRefs
 	worktrees Worktrees
 }
 
 // New builds the worktree Handlers from the workspace read usecase, the
-// worktree hierarchy usecase, the repository store and the operation service.
+// worktree hierarchy usecase, the repository store, the operation service and
+// the chat reads an import checks its chat ids against.
 func New(
 	reader Reader,
 	hierarchy Hierarchy,
 	repos Repos,
 	ops Operations,
+	chats Chats,
 ) *Handlers {
 	return &Handlers{
 		reader:    reader,
 		hierarchy: hierarchy,
 		repos:     repos,
 		ops:       ops,
+		chats:     chats,
 	}
 }
 
