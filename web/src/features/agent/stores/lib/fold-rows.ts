@@ -453,7 +453,3 @@ export function applyRow(feed: ChatFeed, row: LedgerRow): ChatFeed {
   apply?.(fold, row, feed)
   return fold.finish(row.seq)
 }
-
-export function applyRows(feed: ChatFeed, rows: LedgerRow[]): ChatFeed {
-  return rows.reduce(applyRow, feed)
-}

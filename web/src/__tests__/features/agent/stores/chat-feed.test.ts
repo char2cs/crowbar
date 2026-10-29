@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FeedFrame } from '@/features/agent/api/chat-rows'
-import { attachFeed as attachReal, feedEndpoint } from '@/features/agent/stores/chat-feed'
+import { attachFeed as attachReal } from '@/features/agent/stores/chat-feed'
 import { chatStore } from '@/features/agent/stores/chat-store'
 import { delta, ledger } from '@/__tests__/__fixtures__/ledger-rows'
 
@@ -50,7 +50,7 @@ describe('attachFeed', () => {
     const a = attachFeed('chat-1')
     const b = attachFeed('chat-1')
     expect(subs).toHaveLength(1)
-    expect(subs[0]?.endpoint).toBe(feedEndpoint('chat-1'))
+    expect(subs[0]?.endpoint).toBe('/v0/chats/chat-1/feed')
     a()
     a()
     expect(open()).toHaveLength(1)
@@ -79,7 +79,7 @@ describe('attachFeed', () => {
     push({ type: 'row', row: l.prompt('r1', 'hi') })
     push({ type: 'ready', epoch: 'e1', seq: 1 })
     push({ type: 'resync', seq: 1 })
-    expect(subs[0]?.url?.()).toBe(`${feedEndpoint('chat-1')}?since=1`)
+    expect(subs[0]?.url?.()).toBe('/v0/chats/chat-1/feed?since=1')
     expect(feed()?.order).toEqual(['p:r1'])
   })
 
@@ -90,7 +90,7 @@ describe('attachFeed', () => {
     push({ type: 'row', row: l.prompt('r2', 'again') })
     push({ type: 'ready', epoch: 'e1', seq: 2 })
     push({ type: 'resync', seq: 1 })
-    expect(subs[0]?.url?.()).toBe(`${feedEndpoint('chat-1')}?since=0`)
+    expect(subs[0]?.url?.()).toBe('/v0/chats/chat-1/feed?since=0')
     expect(feed()?.order).toEqual([])
   })
 
@@ -99,7 +99,7 @@ describe('attachFeed', () => {
     const l = ledger()
     push({ type: 'row', row: l.prompt('r1', 'hi') })
     push({ type: 'resync', seq: 1 })
-    expect(subs[0]?.url?.()).toBe(`${feedEndpoint('chat-1')}?since=0`)
+    expect(subs[0]?.url?.()).toBe('/v0/chats/chat-1/feed?since=0')
     push({ type: 'row', row: ledger().prompt('r9', 'replayed') })
     push({ type: 'ready', epoch: 'e1', seq: 1 })
     expect(feed()?.order).toEqual(['p:r9'])

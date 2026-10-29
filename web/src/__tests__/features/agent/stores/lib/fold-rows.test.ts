@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { applyRow, applyRows, emptyFeed } from '@/features/agent/stores/lib/fold-rows'
+import { applyRow, emptyFeed } from '@/features/agent/stores/lib/fold-rows'
 import type { AskItem, TextItem, ToolItem } from '@/features/agent/stores/lib/transcript-items'
-import { ledger } from '@/__tests__/__fixtures__/ledger-rows'
+import { ledger, applyRows } from '@/__tests__/__fixtures__/ledger-rows'
 
 describe('applyRow', () => {
   it('orders items by the seq of their first row and never re-sorts', () => {

@@ -34,14 +34,6 @@ describe('agent-chats-slice', () => {
     expect(s.getState().agentChats.chats).toHaveLength(0)
   })
 
-  // ── streamingMessages: upsert by id, not one slot ─────────────────────────
-  // Regression: this used to be `Record<string, {id,text}>` — a single slot
-  // per chat, unconditionally overwritten. Codex can have more than one
-  // message item open in a turn; the second item's first delta silently
-  // dropped the first item's still-growing text from the live view (it was
-  // always safe server-side, so the ledger "reconciled" it back a moment
-  // later — but the transcript visibly lost a paragraph until then).
-
   // Scroll positions themselves are no longer part of this store — see
   // transcript-scroll-positions.test.ts. removeAgentChat's own delegation to
   // that module's clearScrollPosition is covered there, against the module

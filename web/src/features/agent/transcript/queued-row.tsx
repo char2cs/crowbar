@@ -33,7 +33,7 @@ export function QueuedRow({
    *  full-width hand the empty document opened with the whole time it is
    *  pending — never the dashed pending pill every later prompt gets — so
    *  sending it never flashes through a shape the reply won't match. See
-   *  `message-row.tsx`'s own `firstTurn`, which takes over once the ledger
+   *  `user-row.tsx`'s own `firstTurn`, which takes over once the ledger
    *  confirms it. */
   firstTurn?: boolean
   /** The delivery is old enough that the provider may be blocked on a prompt
@@ -58,7 +58,7 @@ export function QueuedRow({
       data-testid="queued-prompt"
     >
       {/* THE PROMPT TEXT ALWAYS, through the same markdown pipeline every
-          confirmed message renders through (see message-row.tsx) — a queued
+          confirmed message renders through (see user-row.tsx) — a queued
           prompt is what it was sent as, and un-rendering it back to source
           for the gap before the ledger confirms it would be the one row in
           the transcript that looks like a different message. An error is a

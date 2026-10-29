@@ -56,7 +56,7 @@ export interface ToolCallBody {
   addressesScope?: string
 }
 
-export interface AskBody {
+interface AskBody {
   askId: string
   event: string
   kind?: string

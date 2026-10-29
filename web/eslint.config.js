@@ -18,16 +18,13 @@ const MAX_LINES_BASELINE = [
   'src/__tests__/components/sidebar/sidebar-row.test.tsx',
   'src/__tests__/components/sidebar/space-header.test.tsx',
   'src/__tests__/components/sidebar/space-scroller.test.tsx',
-  'src/__tests__/features/agent/chat/agent-chat-view.test.tsx',
   'src/__tests__/features/agent/chat/agent-empty-document.test.tsx',
   'src/__tests__/features/agent/components/agent-chat-pane.test.tsx',
   'src/__tests__/features/agent/composer/agent-composer.test.tsx',
   'src/__tests__/features/agent/composer/composer-choice.test.tsx',
   'src/__tests__/features/agent/composer/plate/chat-markdown-editor.test.tsx',
   'src/__tests__/features/agent/composer/plate/chat-paste-plugin.test.tsx',
-  'src/__tests__/features/agent/hooks/use-chat-messages.test.ts',
   'src/__tests__/features/agent/hooks/use-transcript-anchor.test.tsx',
-  'src/__tests__/features/agent/transcript/agent-transcript.test.tsx',
   'src/__tests__/features/agent/transcript/plate/streaming-value-patch.test.ts',
   'src/__tests__/features/agent/tree/lib/chat-rows.test.ts',
   'src/__tests__/features/git/components/diff/use-review-annotations.test.tsx',
@@ -44,11 +41,8 @@ const MAX_LINES_BASELINE = [
   'src/components/ui/dropdown.tsx',
   'src/components/ui/table-icons.tsx',
   'src/components/ui/table-node.tsx',
-  'src/features/agent/chat/agent-chat-view.tsx',
-  'src/features/agent/components/agent-chat-pane.tsx',
   'src/features/agent/hooks/use-prompt-queue.ts',
   'src/features/agent/hooks/use-transcript-anchor.ts',
-  'src/features/agent/transcript/agent-transcript.tsx',
   'src/features/agent/transcript/plate/streaming-value-patch.ts',
   'src/features/file-explorer/file-explorer/hooks/use-file-explorer-context-menu.tsx',
   'src/features/tabs/components/tab-bar.tsx',
@@ -57,7 +51,6 @@ const MAX_LINES_BASELINE = [
 // Findings that predate these rules, in areas being rewritten by the
 // stabilization plan (docs/plans/2026-09-24-stabilization.md §7). Each entry
 // goes when its file is fixed; never add to these lists.
-const EXHAUSTIVE_DEPS_BASELINE = ['src/features/agent/transcript/agent-transcript.tsx']
 const UNDESCRIBED_DIRECTIVE_BASELINE = [
   'src/__tests__/features/terminal/hooks/use-terminal-connection.test.ts',
   'src/features/agent/transcript/plate/chat-fresh-text-plugin.tsx',
@@ -73,7 +66,6 @@ const NO_ASSERTION_BASELINE = [
 
 export const BASELINES = [
   { rule: 'max-lines', files: MAX_LINES_BASELINE },
-  { rule: 'react-hooks/exhaustive-deps', files: EXHAUSTIVE_DEPS_BASELINE },
   {
     rule: '@eslint-community/eslint-comments/require-description',
     files: UNDESCRIBED_DIRECTIVE_BASELINE,

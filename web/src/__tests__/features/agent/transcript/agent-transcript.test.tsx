@@ -64,7 +64,7 @@ function queued(clientRequestId: string, text: string): PromptQueueItem {
   return {
     clientRequestId,
     text,
-    state: 'sending',
+    state: 'submitting',
     createdAt: '2026-10-01T12:00:00Z',
     baselineSequence: 0,
   }

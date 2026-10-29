@@ -18,7 +18,7 @@ interface Attachment {
 
 const attachments = new Map<string, Attachment>()
 
-export const feedEndpoint = (chatId: string) => `/v0/chats/${encodeURIComponent(chatId)}/feed`
+const feedEndpoint = (chatId: string) => `/v0/chats/${encodeURIComponent(chatId)}/feed`
 
 function isFrame(data: unknown): data is FeedFrame {
   return typeof data === 'object' && data !== null && 'type' in data

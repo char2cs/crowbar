@@ -689,9 +689,6 @@ describe('useWorkspaceAgentChatsStream', () => {
     expect(listChatsFn).toHaveBeenCalledTimes(1)
   })
 
-  // Regression (shipped and reverted): clearing streamingMessages on a turn
-  // edge threw away the still-alive output of an interrupted CLI that goes on to
-  // complete its OWN turn. Only the ledger dedup retires those entries.
   // A turn's live views are each chat's own feed: this stream writes none of them.
   it.each(['message_delta', 'plan', 'choice', 'compaction_started', 'prompt_settled'])(
     'leaves a %s frame to the chat feed',

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { applyDelta, applyReady, fuller } from '@/features/agent/stores/lib/fold-live'
-import { applyRows, emptyFeed } from '@/features/agent/stores/lib/fold-rows'
-import { delta, ledger } from '@/__tests__/__fixtures__/ledger-rows'
+import { emptyFeed } from '@/features/agent/stores/lib/fold-rows'
+import { delta, ledger, applyRows } from '@/__tests__/__fixtures__/ledger-rows'
 
 const live = () => applyReady(emptyFeed(), 'epoch-1')
 

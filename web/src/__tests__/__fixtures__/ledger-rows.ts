@@ -1,7 +1,12 @@
 import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import type { FeedDelta, LedgerRow, RowBodies, RowKind } from '@/features/agent/api/chat-rows'
 import { applyFeedFrame } from '@/features/agent/stores/chat-store'
-import { askItemId, type AskItem } from '@/features/agent/stores/lib/transcript-items'
+import { applyRow } from '@/features/agent/stores/lib/fold-rows'
+import {
+  askItemId,
+  type AskItem,
+  type ChatFeed,
+} from '@/features/agent/stores/lib/transcript-items'
 
 /** Builds a chat's rows with consecutive seqs, as the daemon numbers them. */
 export function ledger(chatId = 'chat-1', from = 1) {
@@ -80,4 +85,9 @@ export function seedFeed(chatId: string, rows: LedgerRow[] = []) {
 export function spokenIn(chatId: string, reply = 'earlier turn'): LedgerRow[] {
   const l = ledger(chatId)
   return [l.start('turn-1'), l.text('turn-1', 'm1', 0, reply, true), l.end('turn-1')]
+}
+
+/** Folds rows in order, as a replay would. */
+export function applyRows(feed: ChatFeed, rows: LedgerRow[]): ChatFeed {
+  return rows.reduce(applyRow, feed)
 }
