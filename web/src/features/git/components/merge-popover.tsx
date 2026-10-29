@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Popover, PopoverTrigger, PopoverContent, PopoverTitle } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
@@ -9,14 +9,32 @@ import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-wor
 import {
   getActiveWorkspaceId,
   getWorkspaceStore,
+  subscribeActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
-import { isEntityPresent } from '@/lib/store/entity-presence'
+import { isEntityPresent, subscribeEntityPresence } from '@/lib/store/entity-presence'
 import { selectEntityBusy, useOperationsStore } from '@/lib/store/operations'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { getPostDeleteNavigationTarget } from '@/lib/store/repo-tree'
 import { runOperation, whenSettled } from '@/lib/store/run-operation'
 import { setMergeStrategy as patchMergeStrategy, mergeIntoParent } from '../api/review-api'
 import type { MergeStrategy } from '@/features/workspace/stores/slices/branch-review-slice'
+
+/** Calls `go` once `wsId` has left the sidebar, whichever frame lands first, while
+ *  the user still shows it; leaving it (or the returned stop) ends the wait. A
+ *  merge that kept the child never sees it leave, so it never navigates. */
+function whenChildLeaves(wsId: string, go: () => void): () => void {
+  const stops: (() => void)[] = []
+  const stop = () => stops.splice(0).forEach((s) => s())
+  const check = () => {
+    if (getActiveWorkspaceId() !== wsId) return stop()
+    if (isEntityPresent({ kind: 'workspace', id: wsId })) return
+    stop()
+    go()
+  }
+  stops.push(subscribeEntityPresence(check), subscribeActiveWorkspaceId(check))
+  check()
+  return stop
+}
 
 const STRATEGIES: { value: MergeStrategy; label: string; confirm: string; desc: string }[] = [
   {
@@ -73,6 +91,9 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
 
   // The merge runs as an operation: its failure is the operations watcher's to
   // show, and the redirect waits for the merge (and the fold) to land.
+  const stopWaiting = useRef<(() => void) | null>(null)
+  useEffect(() => () => stopWaiting.current?.(), [])
+
   const handleMerge = () => {
     if (busy) return
     let redirect: { projectId: string; repoId: string; wsId: string } | null = null
@@ -98,10 +119,12 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
     setOpen(false)
     void whenSettled(op.id).then(
       () => {
-        // Only off a child the merge folded away, and only if the user is still on it.
-        const left = getActiveWorkspaceId() !== wsId
-        if (!redirect || left || isEntityPresent({ kind: 'workspace', id: wsId })) return
-        void navigate({ to: '/ide/$projectId/$repoId/$wsId', params: redirect })
+        const target = redirect
+        if (!target) return
+        stopWaiting.current?.()
+        stopWaiting.current = whenChildLeaves(wsId, () => {
+          void navigate({ to: '/ide/$projectId/$repoId/$wsId', params: target })
+        })
       },
       () => undefined,
     )

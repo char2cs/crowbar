@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Button } from '@/components/ui/button'
@@ -18,13 +18,20 @@ vi.mock('@/features/git/api/review-api', () => ({
 }))
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => navigateMock }))
 
-/** The merge folded the child away: its workspace leaves the sidebar. */
-async function mergeFoldsTheChild() {
+/** The fold's frame: the child workspace leaves the sidebar. */
+function removeTheChild() {
   useSidebarStore.setState((s) => ({
     repos: s.repos.map((r) => ({ ...r, workspaces: r.workspaces.filter((w) => w.id !== 'w1') })),
   }))
+}
+
+/** The merge folded the child away before its operation settled. */
+async function mergeFoldsTheChild() {
+  removeTheChild()
   return { items: [] }
 }
+
+const settledOp = () => Object.values(useOperationsStore.getState().ops)[0]?.state
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -109,16 +116,45 @@ describe('MergePopover', () => {
     expect(navigateMock).not.toHaveBeenCalled()
   })
 
-  it('does not redirect once the user has moved to another workspace', async () => {
+  it('redirects when the fold frame arrives after the operation settled', async () => {
+    mergeIntoParent.mockResolvedValue({ items: [] })
     const user = userEvent.setup()
     renderPopover()
     await user.click(screen.getByRole('button', { name: 'Merge into develop' }))
-    setActiveWorkspaceId('elsewhere')
     await user.click(await screen.findByRole('button', { name: 'Create merge commit' }))
+    await waitFor(() => expect(settledOp()).toBe('succeeded'))
+    expect(navigateMock).not.toHaveBeenCalled()
 
-    await waitFor(() =>
-      expect(Object.values(useOperationsStore.getState().ops)[0]?.state).toBe('succeeded'),
-    )
+    act(() => removeTheChild())
+
+    expect(navigateMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not redirect once the user has moved to another workspace', async () => {
+    mergeIntoParent.mockResolvedValue({ items: [] })
+    const user = userEvent.setup()
+    renderPopover()
+    await user.click(screen.getByRole('button', { name: 'Merge into develop' }))
+    await user.click(await screen.findByRole('button', { name: 'Create merge commit' }))
+    await waitFor(() => expect(settledOp()).toBe('succeeded'))
+
+    act(() => setActiveWorkspaceId('elsewhere'))
+    act(() => removeTheChild())
+
+    expect(navigateMock).not.toHaveBeenCalled()
+  })
+
+  it('stops waiting for the fold once the popover is gone', async () => {
+    mergeIntoParent.mockResolvedValue({ items: [] })
+    const user = userEvent.setup()
+    const { unmount } = renderPopover()
+    await user.click(screen.getByRole('button', { name: 'Merge into develop' }))
+    await user.click(await screen.findByRole('button', { name: 'Create merge commit' }))
+    await waitFor(() => expect(settledOp()).toBe('succeeded'))
+
+    unmount()
+    act(() => removeTheChild())
+
     expect(navigateMock).not.toHaveBeenCalled()
   })
 
