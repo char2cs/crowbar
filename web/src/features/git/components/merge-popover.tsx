@@ -6,7 +6,12 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { RadioGroup, Radio } from '@/components/ui/radio-group'
 import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
-import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import {
+  getActiveWorkspaceId,
+  getWorkspaceStore,
+} from '@/features/workspace/stores/workspace-store-registry'
+import { isEntityPresent } from '@/lib/store/entity-presence'
+import { selectEntityBusy, useOperationsStore } from '@/lib/store/operations'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { getPostDeleteNavigationTarget } from '@/lib/store/repo-tree'
 import { runOperation, whenSettled } from '@/lib/store/run-operation'
@@ -47,6 +52,8 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
   const [deleteAfterMerge, setDeleteAfterMerge] = useState(true)
   const [strategyError, setStrategyError] = useState<string | null>(null)
   const navigate = useNavigate()
+  // One hierarchy verb at a time per workspace; the daemon refuses a second too.
+  const busy = useOperationsStore((s) => selectEntityBusy(s, wsId))
   const strategy = useWorkspaceStoreById(wsId, (s) => s.branchReview.mergeStrategy)
   const active = STRATEGIES.find((s) => s.value === strategy) ?? STRATEGIES[0]
 
@@ -67,6 +74,7 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
   // The merge runs as an operation: its failure is the operations watcher's to
   // show, and the redirect waits for the merge (and the fold) to land.
   const handleMerge = () => {
+    if (busy) return
     let redirect: { projectId: string; repoId: string; wsId: string } | null = null
     if (deleteAfterMerge) {
       const repos = useSidebarStore.getState().repos
@@ -90,7 +98,10 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
     setOpen(false)
     void whenSettled(op.id).then(
       () => {
-        if (redirect) void navigate({ to: '/ide/$projectId/$repoId/$wsId', params: redirect })
+        // Only off a child the merge folded away, and only if the user is still on it.
+        const left = getActiveWorkspaceId() !== wsId
+        if (!redirect || left || isEntityPresent({ kind: 'workspace', id: wsId })) return
+        void navigate({ to: '/ide/$projectId/$repoId/$wsId', params: redirect })
       },
       () => undefined,
     )
@@ -98,7 +109,7 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger render={trigger} />
+      <PopoverTrigger render={trigger} disabled={busy} />
       <PopoverContent align="start" className="w-64">
         <PopoverTitle className="text-sm">Merge into {parentBranch}</PopoverTitle>
         <p className="ui-text-xs mt-0.5 mb-3 text-muted-foreground">
@@ -127,7 +138,13 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
           <Checkbox checked={deleteAfterMerge} onChange={setDeleteAfterMerge} />
           <span className="ui-text-sm">Delete this workspace after merging</span>
         </label>
-        <Button variant="default" size="sm" className="w-full" onClick={handleMerge}>
+        <Button
+          variant="default"
+          size="sm"
+          className="w-full"
+          disabled={busy}
+          onClick={handleMerge}
+        >
           {active.confirm}
         </Button>
       </PopoverContent>

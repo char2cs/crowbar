@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { MergePopover } from '@/features/git/components/merge-popover'
 import { useOperationsStore } from '@/lib/store/operations'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
 const { patchMergeStrategy, mergeIntoParent, navigateMock } = vi.hoisted(() => ({
   patchMergeStrategy: vi.fn().mockResolvedValue('squash'),
@@ -17,9 +18,18 @@ vi.mock('@/features/git/api/review-api', () => ({
 }))
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => navigateMock }))
 
+/** The merge folded the child away: its workspace leaves the sidebar. */
+async function mergeFoldsTheChild() {
+  useSidebarStore.setState((s) => ({
+    repos: s.repos.map((r) => ({ ...r, workspaces: r.workspaces.filter((w) => w.id !== 'w1') })),
+  }))
+  return { items: [] }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
-  mergeIntoParent.mockResolvedValue({ items: [] })
+  mergeIntoParent.mockImplementation(mergeFoldsTheChild)
+  setActiveWorkspaceId('w1')
   useOperationsStore.setState({ ops: {}, latestFor: {} })
   useSidebarStore.setState({
     repos: [
@@ -84,6 +94,48 @@ describe('MergePopover', () => {
         params: { projectId: 'p1', repoId: 'r1', wsId: 'parent-ws' },
       }),
     )
+  })
+
+  it('a merge that kept the child (conflicts) does not redirect', async () => {
+    mergeIntoParent.mockResolvedValue({ items: [] })
+    const user = userEvent.setup()
+    renderPopover()
+    await user.click(screen.getByRole('button', { name: 'Merge into develop' }))
+    await user.click(await screen.findByRole('button', { name: 'Create merge commit' }))
+
+    await waitFor(() =>
+      expect(Object.values(useOperationsStore.getState().ops)[0]?.state).toBe('succeeded'),
+    )
+    expect(navigateMock).not.toHaveBeenCalled()
+  })
+
+  it('does not redirect once the user has moved to another workspace', async () => {
+    const user = userEvent.setup()
+    renderPopover()
+    await user.click(screen.getByRole('button', { name: 'Merge into develop' }))
+    setActiveWorkspaceId('elsewhere')
+    await user.click(await screen.findByRole('button', { name: 'Create merge commit' }))
+
+    await waitFor(() =>
+      expect(Object.values(useOperationsStore.getState().ops)[0]?.state).toBe('succeeded'),
+    )
+    expect(navigateMock).not.toHaveBeenCalled()
+  })
+
+  it('the merge cannot start while an operation on the workspace runs', async () => {
+    useOperationsStore.setState({
+      ops: {
+        busy: {
+          ...{ id: 'busy', kind: 'workspace.sync', subject: { kind: 'workspace', id: 'w1' } },
+          ...{ projectId: 'p1', label: 'Sync', state: 'running', items: [], dismissed: false },
+          ...{ version: 1, createdAt: '', updatedAt: '' },
+        },
+      },
+      latestFor: { w1: 'busy' },
+    })
+    renderPopover()
+
+    expect(screen.getByRole('button', { name: 'Merge into develop' })).toBeDisabled()
   })
 
   it('a failed merge does not redirect', async () => {
