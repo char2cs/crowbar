@@ -59,6 +59,18 @@ func (f fixture) until(t *testing.T, id string) []domain.Operation {
 	return got
 }
 
+// published takes the frame a synchronous call already emitted; none fails at once.
+func (f fixture) published(t *testing.T) domain.Operation {
+	t.Helper()
+	select {
+	case op := <-f.frames:
+		return op
+	default:
+		require.FailNow(t, "no frame published")
+		return domain.Operation{}
+	}
+}
+
 func (f fixture) row(t *testing.T, id string) domain.Operation {
 	t.Helper()
 	got, err := f.store.FindByKey(context.Background(), id)
@@ -443,14 +455,14 @@ func TestService_DismissFailedClearsTheSubjectsFailures(t *testing.T) {
 	ref := domain.EntityRef{Kind: domain.EntityWorkspace, ID: "ws1"}
 	purge, err := f.svc.Fail(context.Background(), operation.Spec{Kind: domain.OpWorkspacePurge, Subject: ref}, errors.New("busy"))
 	require.NoError(t, err)
-	<-f.frames
+	f.published(t)
 	other, err := f.svc.Fail(context.Background(), pushSpec(""), errors.New("gone"))
 	require.NoError(t, err)
-	<-f.frames
+	f.published(t)
 
 	require.NoError(t, f.svc.DismissFailed(context.Background(), domain.OpWorkspacePurge, ref))
 
-	assert.True(t, (<-f.frames).Dismissed)
+	assert.True(t, f.published(t).Dismissed)
 	assert.True(t, f.row(t, purge.ID).Dismissed)
 	assert.False(t, f.row(t, other.ID).Dismissed, "another kind's failure is not the purge's to clear")
 }
