@@ -1,0 +1,457 @@
+import { mapChoice } from '@/features/agent/api/agent-chat-activity'
+import type { LedgerRow, PlanItem, RowBodies, RowKind } from '@/features/agent/api/chat-rows'
+import { fuller, textOf } from '@/features/agent/stores/lib/fold-live'
+import {
+  askItemId,
+  markerItemId,
+  textItemId,
+  toolItemId,
+  userItemId,
+  type AskItem,
+  type ChatFeed,
+  type MarkerName,
+  type PromptFact,
+  type TextItem,
+  type ToolItem,
+  type ToolStatus,
+  type TranscriptItem,
+  type TurnFacts,
+} from '@/features/agent/stores/lib/transcript-items'
+
+const emptyFacts: TurnFacts = {
+  running: null,
+  prompts: {},
+  compacting: false,
+  openAsks: [],
+  liveSubagents: {},
+  plan: {},
+  lastExit: null,
+  sessionLost: null,
+  output: {},
+  ended: 0,
+  efforts: {},
+  providers: {},
+}
+
+export function emptyFeed(): ChatFeed {
+  return {
+    status: 'connecting',
+    epoch: '',
+    seq: 0,
+    order: [],
+    liveTail: [],
+    items: {},
+    live: {},
+    liveN: {},
+    liveReasoning: null,
+    scoped: {},
+    facts: emptyFacts,
+  }
+}
+
+// Markers a reader sees as a pill; the rest change facts only.
+const PILL_MARKERS = new Set([
+  'compaction_ended',
+  'provider_switched',
+  'model_changed',
+  'effort_changed',
+])
+
+/** One row's edits to a feed, copying each part on its first write so
+ *  everything the row leaves alone keeps its identity. */
+class Fold {
+  private items: Record<string, TranscriptItem> | null = null
+  private order: string[] | null = null
+  private liveTail: string[] | null = null
+  private scoped: Record<string, string[]> | null = null
+  private factsCopy: TurnFacts | null = null
+
+  constructor(private readonly base: ChatFeed) {}
+
+  item<T extends TranscriptItem>(id: string): T | undefined {
+    return (this.items ?? this.base.items)[id] as T | undefined
+  }
+
+  put(item: TranscriptItem) {
+    this.items ??= { ...this.base.items }
+    this.items[item.id] = item
+  }
+
+  get facts(): TurnFacts {
+    return this.factsCopy ?? this.base.facts
+  }
+
+  set<K extends keyof TurnFacts>(key: K, value: TurnFacts[K]) {
+    if (this.facts[key] === value) return
+    this.factsCopy ??= { ...this.base.facts }
+    this.factsCopy[key] = value
+  }
+
+  /** Places a new item: main scope in the order, a subagent's under its scope. */
+  place(id: string, scope: string) {
+    if (scope) {
+      this.scoped ??= { ...this.base.scoped }
+      this.scoped[scope] = [...(this.scoped[scope] ?? []), id]
+      return
+    }
+    const tail = this.liveTail ?? this.base.liveTail
+    if (tail.includes(id)) this.liveTail = tail.filter((other) => other !== id)
+    this.order ??= [...this.base.order]
+    this.order.push(id)
+  }
+
+  /** Every item of `ids` that `pick` changes. */
+  each<T extends TranscriptItem>(ids: string[], pick: (item: T) => T | null) {
+    for (const id of ids) {
+      const item = this.item<T>(id)
+      const next = item && pick(item)
+      if (next) this.put(next)
+    }
+  }
+
+  finish(seq: number): ChatFeed {
+    return {
+      ...this.base,
+      seq,
+      items: this.items ?? this.base.items,
+      order: this.order ?? this.base.order,
+      liveTail: this.liveTail ?? this.base.liveTail,
+      scoped: this.scoped ?? this.base.scoped,
+      facts: this.factsCopy ?? this.base.facts,
+    }
+  }
+}
+
+type Apply<K extends RowKind> = (fold: Fold, row: LedgerRow<K>, base: ChatFeed) => void
+
+const setPrompt = (fold: Fold, requestId: string, fact: PromptFact) => {
+  fold.set('prompts', { ...fold.facts.prompts, [requestId]: fact })
+}
+
+const markOutput = (fold: Fold, row: LedgerRow) => {
+  if (row.scope || !row.turnId || fold.facts.output[row.turnId]) return
+  fold.set('output', { ...fold.facts.output, [row.turnId]: true })
+}
+
+function marker(fold: Fold, row: LedgerRow, name: MarkerName, detail?: string, reason?: string) {
+  const id = markerItemId(row.seq)
+  fold.put({
+    kind: 'marker',
+    id,
+    seq: row.seq,
+    turnId: row.turnId,
+    at: row.at,
+    marker: name,
+    detail,
+    reason,
+  })
+  fold.place(id, '')
+}
+
+/** Ids of every item in `feed` that a turn end can still change. */
+function unsettled(feed: ChatFeed, fold: Fold, turnId: string | null): string[] {
+  const ids: string[] = []
+  for (const id of feed.order) {
+    const item = fold.item(id)
+    if (!item || (turnId !== null && item.turnId !== turnId)) continue
+    if (
+      (item.kind === 'text' && !item.settled) ||
+      (item.kind === 'tool' && item.status === 'running')
+    ) {
+      ids.push(id)
+    }
+  }
+  return ids
+}
+
+/** Settles the texts of `turnId` (every turn when null) and abandons its running tools. */
+function endTurn(fold: Fold, base: ChatFeed, turnId: string | null) {
+  fold.each<TextItem | ToolItem>(unsettled(base, fold, turnId), (item) => {
+    if (item.kind === 'text') return { ...item, settled: true }
+    return turnId === null ? null : { ...item, status: 'abandoned' }
+  })
+}
+
+const applyUserMessage: Apply<'user_message'> = (fold, row) => {
+  const { requestId, text, origin } = row.body
+  const id = userItemId(requestId, row.seq)
+  fold.put({
+    kind: 'user',
+    id,
+    seq: row.seq,
+    turnId: row.turnId,
+    at: row.at,
+    text,
+    origin,
+    requestId,
+  })
+  fold.place(id, '')
+  if (!requestId) return
+  const running = fold.facts.running
+  // A prompt steered into the running turn is delivered by its own row.
+  const steered = row.turnId && running?.turnId === row.turnId
+  setPrompt(
+    fold,
+    requestId,
+    steered ? { state: 'delivered', turnId: row.turnId! } : { state: 'pending', seq: row.seq },
+  )
+}
+
+const applyTurnStarted: Apply<'turn_started'> = (fold, row) => {
+  if (row.scope || !row.turnId) return
+  const { requestId, provider } = row.body
+  fold.set('running', { turnId: row.turnId, requestId, startedAt: row.at, seq: row.seq })
+  if (requestId) setPrompt(fold, requestId, { state: 'delivered', turnId: row.turnId })
+  if (provider) fold.set('providers', { ...fold.facts.providers, [row.turnId]: provider })
+}
+
+const applyPromptSettled: Apply<'prompt_settled'> = (fold, row) => {
+  const { requestId, consumed, reason } = row.body
+  if (consumed) setPrompt(fold, requestId, { state: 'settled' })
+  else if (reason === 'retracted') setPrompt(fold, requestId, { state: 'retracted' })
+  else setPrompt(fold, requestId, { state: 'refused', reason })
+}
+
+function closeRunning(fold: Fold, turnId: string | undefined) {
+  if (fold.facts.running && fold.facts.running.turnId === turnId) fold.set('running', null)
+}
+
+const applyTurnEnded: Apply<'turn_ended'> = (fold, row, base) => {
+  if (row.scope || !row.turnId) return
+  closeRunning(fold, row.turnId)
+  fold.set('ended', fold.facts.ended + 1)
+  if (row.body.effort) fold.set('efforts', { ...fold.facts.efforts, [row.turnId]: row.body.effort })
+  endTurn(fold, base, row.turnId)
+  if (row.body.status === 'interrupted')
+    marker(fold, row, 'turn_interrupted', undefined, row.body.reason)
+}
+
+const applyTurnFailed: Apply<'turn_failed'> = (fold, row, base) => {
+  if (row.scope || !row.turnId) return
+  closeRunning(fold, row.turnId)
+  endTurn(fold, base, row.turnId)
+  marker(fold, row, 'turn_failed', row.body.detail, row.body.reason)
+}
+
+const applyRunnerExited: Apply<'runner_exited'> = (fold, row, base) => {
+  const { runnerId, reason, exitCode } = row.body
+  fold.set('lastExit', { runnerId, reason, exitCode, seq: row.seq })
+  endTurn(fold, base, null)
+}
+
+const applySessionLost: Apply<'session_lost'> = (fold, row) => {
+  fold.set('sessionLost', { provider: row.body.provider, reason: row.body.reason, seq: row.seq })
+}
+
+const applyMarker: Apply<'marker'> = (fold, row) => {
+  const { kind, detail } = row.body
+  if (kind === 'compaction_started') fold.set('compacting', true)
+  if (kind === 'compaction_ended') fold.set('compacting', false)
+  if (!row.scope && PILL_MARKERS.has(kind)) marker(fold, row, kind, detail)
+}
+
+/** A message naming the reply its turn closed on is shown as that reply. */
+function joinedReply(fold: Fold, row: LedgerRow<'assistant_text'>): TextItem | undefined {
+  const { reply, messageId } = row.body
+  if (!reply || reply === messageId) return undefined
+  return fold.item<TextItem>(textItemId(row.turnId, reply))
+}
+
+const applyAssistantText: Apply<'assistant_text'> = (fold, row) => {
+  const scope = row.scope ?? ''
+  const { messageId, index, final, text, phase } = row.body
+  const id = textItemId(row.turnId, messageId)
+  const known = fold.item<TextItem>(id)
+  const item: TextItem = known
+    ? { ...known, chunks: { ...known.chunks } }
+    : {
+        kind: 'text',
+        id,
+        seq: row.seq,
+        turnId: row.turnId,
+        at: row.at,
+        messageId,
+        chunks: {},
+        text: '',
+        settled: false,
+        phase: '',
+      }
+  if (index === -1) {
+    item.complete = fuller(item.complete ?? '', text)
+    item.phase = phase || item.phase
+  } else if (!(index in item.chunks)) {
+    item.chunks[index] = text
+    if (final) item.finalIndex = index
+  }
+  const folded = textOf(item)
+  item.text = folded.text
+  item.settled = item.settled || folded.settled
+  if (known && known.seq === 0) item.seq = row.seq
+  fold.put(item)
+  markOutput(fold, row)
+  const target = joinedReply(fold, row)
+  if (target && (target.text.startsWith(item.text) || item.text.startsWith(target.text))) {
+    if (item.settled) fold.put({ ...target, text: fuller(target.text, item.text) })
+    return
+  }
+  if (!known || known.seq === 0) fold.place(id, scope)
+}
+
+function toolStatus(body: RowBodies['tool_call'], prev: ToolStatus | undefined): ToolStatus {
+  if (body.phase === 'post') return body.status === 'error' ? 'error' : 'ok'
+  if (body.phase === 'fail') {
+    if (body.interrupted) return 'interrupted'
+    return body.status === 'declined' ? 'declined' : 'error'
+  }
+  return prev ?? 'running'
+}
+
+const applyToolCall: Apply<'tool_call'> = (fold, row) => {
+  const scope = row.scope ?? ''
+  const id = toolItemId(row.body.toolId)
+  const known = fold.item<ToolItem>(id)
+  const body = known ? { ...known.body, ...row.body } : row.body
+  const status = toolStatus(row.body, known?.status)
+  fold.put(
+    known
+      ? { ...known, body, status }
+      : {
+          kind: 'tool',
+          id,
+          seq: row.seq,
+          turnId: row.turnId,
+          at: row.at,
+          toolId: row.body.toolId,
+          scope,
+          body,
+          status,
+        },
+  )
+  markOutput(fold, row)
+  if (!known) fold.place(id, scope)
+}
+
+const applyAsk: Apply<'ask'> = (fold, row) => {
+  const scope = row.scope ?? ''
+  const body = row.body
+  const id = askItemId(body.askId)
+  const choice = mapChoice({
+    id: body.askId,
+    turnId: row.turnId ?? '',
+    seq: row.seq,
+    kind: body.kind ?? body.event,
+    toolName: body.toolName,
+    title: body.title,
+    question: body.question,
+    mode: body.mode,
+    multi: body.multi,
+    options: body.options ?? [],
+    questions: body.questions,
+    schema: body.schema === undefined ? undefined : JSON.stringify(body.schema),
+    pending: true,
+    answerable: body.answerable,
+    at: row.at,
+  })
+  const known = fold.item<AskItem>(id)
+  fold.put({
+    kind: 'ask',
+    id,
+    seq: known?.seq ?? row.seq,
+    turnId: row.turnId,
+    at: row.at,
+    scope,
+    choice,
+  })
+  if (!fold.facts.openAsks.includes(id)) fold.set('openAsks', [...fold.facts.openAsks, id])
+  if (!known) fold.place(id, scope)
+}
+
+const applyAskResolved: Apply<'ask_resolved'> = (fold, row) => {
+  const id = askItemId(row.body.askId)
+  const known = fold.item<AskItem>(id)
+  if (known) {
+    const choice = {
+      ...known.choice,
+      pending: false,
+      resolution: row.body.resolution,
+      resolvedAt: row.at,
+      answeredOptionIds: row.body.optionIds,
+    }
+    fold.put({ ...known, choice })
+  }
+  if (fold.facts.openAsks.includes(id))
+    fold.set(
+      'openAsks',
+      fold.facts.openAsks.filter((other) => other !== id),
+    )
+}
+
+const applySubagent: Apply<'subagent'> = (fold, row) => {
+  const { phase, spawnToolId, type, title } = row.body
+  const spawnKey = spawnToolId ? `s:${spawnToolId}` : ''
+  const key = row.scope || spawnKey
+  if (!key) return
+  const live = { ...fold.facts.liveSubagents }
+  if (phase === 'start') live[key] = { scope: key, type, title, startedAt: row.at }
+  if (phase === 'bound' && row.scope && spawnKey && live[spawnKey]) {
+    live[row.scope] = { ...live[spawnKey], scope: row.scope }
+    delete live[spawnKey]
+  }
+  if (phase === 'stop' || phase === 'result') delete live[key]
+  fold.set('liveSubagents', live)
+}
+
+function upsert(items: PlanItem[], next: PlanItem[]): PlanItem[] {
+  const out = [...items]
+  for (const item of next) {
+    const at = item.id ? out.findIndex((other) => other.id === item.id) : -1
+    if (at >= 0) out[at] = item
+    else out.push(item)
+  }
+  return out
+}
+
+const applyPlan: Apply<'plan'> = (fold, row) => {
+  const scope = row.scope ?? ''
+  const { op, items } = row.body
+  const current = fold.facts.plan[scope] ?? []
+  fold.set('plan', {
+    ...fold.facts.plan,
+    [scope]: op === 'replace' ? items : upsert(current, items),
+  })
+}
+
+const ignore: Apply<RowKind> = () => {}
+
+const appliers: { [K in RowKind]: Apply<K> } = {
+  user_message: applyUserMessage,
+  turn_started: applyTurnStarted,
+  prompt_settled: applyPromptSettled,
+  turn_ended: applyTurnEnded,
+  turn_failed: applyTurnFailed,
+  session_bound: ignore,
+  session_lost: applySessionLost,
+  runner_started: ignore,
+  runner_exited: applyRunnerExited,
+  assistant_text: applyAssistantText,
+  reasoning: ignore,
+  marker: applyMarker,
+  tool_call: applyToolCall,
+  ask: applyAsk,
+  ask_resolved: applyAskResolved,
+  subagent: applySubagent,
+  plan: applyPlan,
+}
+
+/** Folds one row; a row at or below the feed's seq is already applied. */
+export function applyRow(feed: ChatFeed, row: LedgerRow): ChatFeed {
+  if (row.seq <= feed.seq) return feed
+  const fold = new Fold(feed)
+  const apply = appliers[row.kind] as Apply<RowKind> | undefined
+  apply?.(fold, row, feed)
+  return fold.finish(row.seq)
+}
+
+export function applyRows(feed: ChatFeed, rows: LedgerRow[]): ChatFeed {
+  return rows.reduce(applyRow, feed)
+}
