@@ -2,6 +2,7 @@ package tree_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -67,4 +69,31 @@ func TestRegression_PlaceChat_CountsALegacyNodelessLockedBranch(t *testing.T) {
 	assert.Equal(t, 0, anchor.Order)
 	assert.Equal(t, 1, nodeRowFor(t, nodes, "c2").Order)
 	assert.Equal(t, 2, nodeRowFor(t, nodes, "c1").Order)
+}
+
+// A workspace read that fails is a failed placement, not a zero value: a
+// branch drawn at the oldest slot or at the root would misplace the drop.
+func TestPlaceChat_AFailedAnchorReadIsReturned(t *testing.T) {
+	for label, fail := range map[string]func(*mocks.AgentWorkspaceGitStatus, error){
+		"created at":  func(g *mocks.AgentWorkspaceGitStatus, err error) { g.CreatedAtErr = err },
+		"fork parent": func(g *mocks.AgentWorkspaceGitStatus, err error) { g.ForkParentErr = err },
+	} {
+		t.Run(label, func(t *testing.T) {
+			chats, _, nodes, gitStatus, uc := newHomeUsecaseFull(t)
+			gitStatus.SetRepo(workspaceID, repoID)
+			gitStatus.SetDefault(repoID, workspaceID)
+			gitStatus.SetRepo("legacy-locked", repoID)
+			gitStatus.SetBranch("legacy-locked", true)
+			chats.Rows = append(chats.Rows,
+				domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: workspaceID, CreatedAt: time.Unix(300, 0)},
+			)
+			nodes.Rows = []domain.Node{{ID: "c1", Kind: domain.NodeKindChat, ParentID: "", Order: 1}}
+			cause := errors.New("workspace read down")
+			fail(gitStatus, cause)
+
+			_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c1", tree.PlaceInput{ParentID: name(""), Order: index(0)})
+
+			require.ErrorIs(t, err, cause)
+		})
+	}
 }

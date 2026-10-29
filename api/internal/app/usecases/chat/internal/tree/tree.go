@@ -385,8 +385,8 @@ func (u *chatFolderUsecase) Move(
 	// A folder minted before Node rows existed has none; the plan marks it
 	// fresh and this move mints it at the decided slot.
 	n, err := u.nodes.GetNode(ctx, f.ID)
-	if err != nil {
-		n = domain.Node{}
+	if err != nil && problem.CodeOf(err) != problem.NotFound {
+		return domain.Chat{}, nil, fmt.Errorf("agent chat folder: move %s: read node: %w", id, err)
 	}
 	current := homeFolderView(*f, n)
 	snapshot, err := u.globalSnapshotAround(ctx, current)

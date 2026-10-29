@@ -192,6 +192,21 @@ func TestMove_Home_ReparentsViaNode(t *testing.T) {
 	assert.Empty(t, chats.Ordered, "a home move never writes the chat aggregate")
 }
 
+// A Node read that fails is not a folder without a Node: minting a fresh one
+// would file the folder at a slot its real row does not hold.
+func TestMove_Home_ANodeLookupFailureIsReturned(t *testing.T) {
+	_, _, nodes, uc := newHomeUsecase(t)
+	ctx := context.Background()
+	a, _, err := uc.Create(ctx, tree.CreateInput{ID: "a", Name: "a"})
+	require.NoError(t, err)
+	cause := errors.New("node read down")
+	nodes.GetErr = cause
+
+	_, _, err = uc.Move(ctx, a.ID, tree.MoveInput{Order: index(0)})
+
+	require.ErrorIs(t, err, cause)
+}
+
 // A repo's own Node phantom row (mergeHomeForest's placeholder, purely so a
 // repo densifies alongside its home siblings) is NOT a legal container for
 // anything — hardened after an SDD review caught it reachable via a raw

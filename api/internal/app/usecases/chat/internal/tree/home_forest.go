@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // The Node-backed read side, home AND repo scope alike (2026-09-08
@@ -89,17 +90,18 @@ func workspaceAnchorView(
 	}
 }
 
-// anchorView is workspaceAnchorView with the workspace's own creation time.
+// anchorView is workspaceAnchorView with the workspace's own creation time; a
+// workspace that is gone ties as the oldest, a read that fails is returned.
 func (u *chatFolderUsecase) anchorView(
 	ctx context.Context,
 	workspaceID string,
 	n domain.Node,
-) domain.Chat {
+) (domain.Chat, error) {
 	createdAt, err := u.workspaces.CreatedAtOf(ctx, workspaceID)
-	if err != nil {
-		createdAt = time.Time{} // a workspace that no longer reads ties as the oldest
+	if err != nil && problem.CodeOf(err) != problem.NotFound {
+		return domain.Chat{}, fmt.Errorf("agent chat folder: read workspace %s: %w", workspaceID, err)
 	}
-	return workspaceAnchorView(workspaceID, n, createdAt)
+	return workspaceAnchorView(workspaceID, n, createdAt), nil
 }
 
 // nodePhantomType marks a repo's own Node row as it rides through this
@@ -270,7 +272,9 @@ func (u *chatFolderUsecase) mergeForest(
 	}
 	f := forest{rows: baseRows, homeIDs: homeIDs, fresh: map[string]bool{}, aliases: aliases}
 	f.addNodelessRepos(scope, nodeSeen)
-	u.addNodelessAnchors(ctx, &f, scope, nodeSeen)
+	if err := u.addNodelessAnchors(ctx, &f, scope, nodeSeen); err != nil {
+		return forest{}, err
+	}
 	// Decided over the CORRECTED rows: a Node-backed chat's raw ParentID is
 	// frozen at "", and only its live Node says where it really sits.
 	f.foreign = u.foreignAtRoot(ctx, f.rows, scope, aliases)
@@ -357,7 +361,8 @@ func (u *chatFolderUsecase) mergeHomeNode(
 		})
 		return true, "", nil
 	case domain.NodeKindWorkspace:
-		return u.mergeAnchorNode(ctx, n, baseRows), n.ID, nil
+		included, err := u.mergeAnchorNode(ctx, n, baseRows)
+		return included, n.ID, err
 	}
 	return false, "", nil
 }
@@ -370,13 +375,20 @@ func (u *chatFolderUsecase) mergeAnchorNode(
 	ctx context.Context,
 	n domain.Node,
 	baseRows *[]domain.Chat,
-) bool {
+) (bool, error) {
 	renders, err := u.workspaces.RendersAsBranch(ctx, n.ID)
-	if err != nil || !renders {
-		return false
+	if err != nil {
+		return false, fmt.Errorf("agent chat folder: read workspace %s: %w", n.ID, err)
 	}
-	*baseRows = append(*baseRows, u.anchorView(ctx, n.ID, n))
-	return true
+	if !renders {
+		return false, nil
+	}
+	anchor, err := u.anchorView(ctx, n.ID, n)
+	if err != nil {
+		return false, err
+	}
+	*baseRows = append(*baseRows, anchor)
+	return true, nil
 }
 
 // homeSnapshotAround is workspaceSnapshotAround's Node-backed body: rows,

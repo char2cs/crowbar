@@ -34,5 +34,16 @@ func TestRevParse_UnknownRef_ReturnsError(
 
 	_, err := e.RevParse(ctx, repo, "refs/heads/does-not-exist")
 
+	require.ErrorIs(t, err, git.ErrBranchNotFound)
+}
+
+func TestRevParse_AFailureOtherThanAbsenceIsNotBranchNotFound(
+	t *testing.T,
+) {
+	e := git.New()
+
+	_, err := e.RevParse(context.Background(), t.TempDir(), "HEAD")
+
 	require.Error(t, err)
+	assert.NotErrorIs(t, err, git.ErrBranchNotFound)
 }

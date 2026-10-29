@@ -76,10 +76,12 @@ func (u *chatFolderUsecase) PlaceWorkspace(
 	}
 	if current.ID == "" {
 		n, nErr := u.nodes.GetNode(ctx, nodeID)
-		if nErr != nil {
-			n = domain.Node{}
+		if nErr != nil && problem.CodeOf(nErr) != problem.NotFound {
+			return domain.Chat{}, nil, fmt.Errorf("agent chat folder: place workspace %s: read node: %w", nodeID, nErr)
 		}
-		current = u.anchorView(ctx, nodeID, n)
+		if current, err = u.anchorView(ctx, nodeID, n); err != nil {
+			return domain.Chat{}, nil, err
+		}
 	}
 	snapshot, err := u.globalSnapshotAround(ctx, current)
 	if err != nil {

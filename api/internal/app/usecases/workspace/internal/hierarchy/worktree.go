@@ -742,9 +742,12 @@ func (u *hierarchyUsecase) checkoutRemoteBranch(
 			"branch", in.Branch, "err", fetchErr)
 	}
 	// Read BEFORE the reset moves it; reported after, once origin's tip is known.
-	// An unresolvable local ref is the one case where `-B` creates the branch;
-	// a local branch that already existed stays the user's (CreatedBranch false).
-	localTip, localErr := u.git.RevParse(ctx, in.RepoPath, "refs/heads/"+in.Branch)
+	// No local branch is the one case where `-B` creates it; a local branch that
+	// already existed stays the user's (CreatedBranch false).
+	localTip, err := provision.LocalTip(ctx, u.git, in.RepoPath, in.Branch)
+	if err != nil {
+		return addedWorktree{}, fmt.Errorf("create child: %w", err)
+	}
 	forkPoint, err := u.git.WorktreeAddAtRef(ctx, in.RepoPath, path, in.Branch, "origin/"+in.Branch)
 	if err != nil {
 		return addedWorktree{}, fmt.Errorf("create child: worktree checkout: %w", err)
@@ -762,7 +765,7 @@ func (u *hierarchyUsecase) checkoutRemoteBranch(
 		slog.WarnContext(ctx, "create child: could not set upstream on imported branch; content is correct but ahead/behind may not report",
 			"branch", in.Branch, "err", err)
 	}
-	return addedWorktree{startSha: forkPoint, createdBranch: localErr != nil}, nil
+	return addedWorktree{startSha: forkPoint, createdBranch: localTip == ""}, nil
 }
 
 // adoptMainWorktree registers the repository's main worktree as a workspace

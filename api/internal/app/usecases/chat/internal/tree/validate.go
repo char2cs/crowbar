@@ -247,14 +247,24 @@ func (u *chatFolderUsecase) resolveRow(
 		return &row, nil
 	}
 	if n, nerr := u.nodes.GetNode(ctx, id); nerr == nil && n.Kind == domain.NodeKindWorkspace {
-		row := u.anchorView(ctx, id, n)
-		return &row, nil
+		return u.anchorRow(ctx, id, n)
 	}
 	if live, lerr := u.workspaces.Exists(ctx, id); lerr == nil && live {
-		row := u.anchorView(ctx, id, domain.Node{ID: id, Kind: domain.NodeKindWorkspace})
-		return &row, nil
+		return u.anchorRow(ctx, id, domain.Node{ID: id, Kind: domain.NodeKindWorkspace})
 	}
 	return nil, err // the ORIGINAL Chats.Get failure -- neither a folder, a workspace's own Node row nor a live workspace answers to id.
+}
+
+func (u *chatFolderUsecase) anchorRow(
+	ctx context.Context,
+	id string,
+	n domain.Node,
+) (*domain.Chat, error) {
+	row, err := u.anchorView(ctx, id, n)
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
 }
 
 // checkFolderContainer validates a folder's parent id: "" is the panel root

@@ -37,7 +37,11 @@ func (e *engine) revParse(
 	repoPath string,
 	rev string,
 ) (string, error) {
-	r := e.exec(ctx, repoPath, "rev-parse", rev)
+	r := e.exec(ctx, repoPath, "rev-parse", "--verify", "--quiet", rev)
+	// Under --verify --quiet absence alone exits 1 (fatal errors exit 128).
+	if r.ExitCode == 1 && strings.TrimSpace(r.Stdout) == "" {
+		return "", fmt.Errorf("rev-parse %s: %w", rev, ErrBranchNotFound)
+	}
 	if err := gitexec.RequireSuccess("rev-parse", r); err != nil {
 		return "", err
 	}

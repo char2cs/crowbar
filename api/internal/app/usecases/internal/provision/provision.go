@@ -6,8 +6,11 @@ package provision
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+
+	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
 // Git is the git surface a provision needs.
@@ -74,9 +77,9 @@ func fromOrigin(
 			"branch", branch, "err", err)
 	}
 	// Read BEFORE the -B reset moves it, to report a local tip it leaves behind.
-	localTip, err := git.RevParse(ctx, repoPath, "refs/heads/"+branch)
+	localTip, err := LocalTip(ctx, git, repoPath, branch)
 	if err != nil {
-		localTip = "" // no local branch: the reset leaves nothing behind
+		return "", err
 	}
 	sha, err := git.WorktreeAddAtRef(ctx, repoPath, path, branch, "origin/"+branch)
 	if err != nil {
@@ -88,6 +91,24 @@ func fromOrigin(
 			"branch", branch, "err", err)
 	}
 	return sha, nil
+}
+
+// LocalTip is branch's local head, or "" when there is no local branch. Any
+// other failure is returned: a tip that cannot be read is not an absent one.
+func LocalTip(
+	ctx context.Context,
+	git Git,
+	repoPath string,
+	branch string,
+) (string, error) {
+	tip, err := git.RevParse(ctx, repoPath, "refs/heads/"+branch)
+	if errors.Is(err, gitengine.ErrBranchNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read local tip of %q: %w", branch, err)
+	}
+	return tip, nil
 }
 
 // WarnOnDiscardedLocalTip logs the local branch tip a -B reset just moved off,
