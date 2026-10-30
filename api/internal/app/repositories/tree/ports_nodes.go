@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	asynxModels "github.com/char2cs/asynx/models"
-
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
@@ -19,17 +17,12 @@ func (p *Ports) Create(
 	parentID string,
 	order int,
 ) (tree.Node, error) {
-	if t, ok, err := p.treeOf(ctx, id); err != nil {
-		return tree.Node{}, err
-	} else if _, exists := t.Nodes[id]; ok && exists {
-		return tree.Node{}, fmt.Errorf("tree: create %s: exists: %w", id, asynxModels.ErrValidation)
-	}
 	at, err := p.placeIn(ctx, id, kind, "", parentID)
 	if err != nil {
 		return tree.Node{}, err
 	}
 	n := tree.Node{ID: id, Kind: kind, ParentID: parentID, Order: order}
-	if _, err := p.repo.Put(ctx, at, n); err != nil {
+	if _, err := p.repo.Create(ctx, at, n); err != nil {
 		return tree.Node{}, err
 	}
 	p.record(id, at)
@@ -80,33 +73,27 @@ func (p *Ports) ListAll(ctx context.Context) ([]tree.Node, error) {
 	return sortNodes(out), nil
 }
 
-// SetOrder writes id's index and keeps its parent as the tree holds it.
+// SetOrder writes id's index and keeps its parent as the tree holds it when
+// the write lands.
 func (p *Ports) SetOrder(ctx context.Context, id string, order int) error {
-	return p.reposition(ctx, "set order", id, func(n tree.Node) tree.Node {
-		n.Order = order
-		return n
-	})
+	at, held := p.holder(id)
+	if !held {
+		return noRow("set order", id)
+	}
+	if _, err := p.repo.Order(ctx, at, id, order); err != nil {
+		return fmt.Errorf("tree: set order %s: %w", id, err)
+	}
+	return nil
 }
 
 // SetPlacement writes id's parent and index.
 func (p *Ports) SetPlacement(ctx context.Context, id, parentID string, order int) error {
-	return p.reposition(ctx, "set placement", id, func(n tree.Node) tree.Node {
-		n.ParentID, n.Order = parentID, order
-		return n
-	})
-}
-
-func (p *Ports) reposition(ctx context.Context, op, id string, change func(tree.Node) tree.Node) error {
-	t, ok, err := p.treeOf(ctx, id)
-	if err != nil {
-		return err
+	at, held := p.holder(id)
+	if !held {
+		return noRow("set placement", id)
 	}
-	n, exists := t.Nodes[id]
-	if !ok || !exists {
-		return noRow(op, id)
-	}
-	if _, err := p.repo.Put(ctx, t.ProjectID, change(n)); err != nil {
-		return fmt.Errorf("tree: %s %s: %w", op, id, err)
+	if _, err := p.repo.Move(ctx, at, id, parentID, order); err != nil {
+		return fmt.Errorf("tree: set placement %s: %w", id, err)
 	}
 	return nil
 }

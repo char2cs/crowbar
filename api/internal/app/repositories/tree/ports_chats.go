@@ -47,14 +47,18 @@ func (p *Ports) SetChatPlacement(ctx context.Context, chatID, workspaceID string
 	return nil
 }
 
-// SetChatOrder writes chatID's index and keeps its parent as the tree holds it.
+// SetChatOrder writes chatID's index and keeps its parent as the tree holds it
+// when the write lands.
 func (p *Ports) SetChatOrder(ctx context.Context, chatID, workspaceID string, order int) error {
-	cur, err := p.ChatPlacement(ctx, chatID)
+	at, err := p.placeIn(ctx, chatID, tree.KindChat, workspaceID, "")
 	if err != nil {
 		return err
 	}
-	cur.Order = order
-	return p.SetChatPlacement(ctx, chatID, workspaceID, cur)
+	if _, err := p.repo.OrderChat(ctx, at, chatID, order); err != nil {
+		return err
+	}
+	p.record(chatID, at)
+	return nil
 }
 
 // AdoptChat moves chatID's records into its workspace's project once it has

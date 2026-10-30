@@ -64,6 +64,32 @@ func putNode(projectID string, n tree.Node) edit {
 	}}
 }
 
+// createNode mints n; a row the tree already holds is refused.
+func createNode(projectID string, n tree.Node) edit {
+	return edit{projectID: projectID, op: "put", apply: func(cur tree.Tree) (tree.Tree, error) {
+		if _, ok := cur.Nodes[n.ID]; ok {
+			return tree.Tree{}, fmt.Errorf("tree: create %s: exists: %w", n.ID, asynxModels.ErrValidation)
+		}
+		return putNode(projectID, n).apply(cur)
+	}}
+}
+
+// moveNode re-places the row the tree holds: kind and identity are its own, and
+// keepParent changes only its order, never restating a parent read earlier.
+func moveNode(projectID, id, parentID string, order int, keepParent bool) edit {
+	return edit{projectID: projectID, op: "put", apply: func(cur tree.Tree) (tree.Tree, error) {
+		n, ok := cur.Nodes[id]
+		if !ok {
+			return tree.Tree{}, fmt.Errorf("tree: place %s: no such node: %w", id, asynxModels.ErrValidation)
+		}
+		if !keepParent {
+			n.ParentID = parentID
+		}
+		n.Order = order
+		return putNode(projectID, n).apply(cur)
+	}}
+}
+
 func validNode(n tree.Node) error {
 	if n.ID == "" {
 		return fmt.Errorf("tree: put node: missing id: %w", asynxModels.ErrValidation)
@@ -121,6 +147,16 @@ func putChat(projectID, chatID string, p tree.Placement) edit {
 		}
 		cur.Chats[chatID] = p
 		return cur, nil
+	}}
+}
+
+// orderChat changes only the order of the chat's current placement; a chat
+// never placed is at its root.
+func orderChat(projectID, chatID string, order int) edit {
+	return edit{projectID: projectID, op: "chat_put", apply: func(cur tree.Tree) (tree.Tree, error) {
+		p := cur.Chats[chatID]
+		p.Order = order
+		return putChat(projectID, chatID, p).apply(cur)
 	}}
 }
 

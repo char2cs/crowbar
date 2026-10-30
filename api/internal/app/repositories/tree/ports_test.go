@@ -2,6 +2,7 @@ package tree_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	asynxModels "github.com/char2cs/asynx/models"
@@ -224,4 +225,86 @@ func ids(nodes []tree.Node) []string {
 		out[i] = n.ID
 	}
 	return out
+}
+
+// races is how many times each concurrency test races its two writes.
+const races = 200
+
+// raceEach runs a and b concurrently, races times, after reset each time, and
+// counts the rounds where stale reports a lost write.
+func raceEach(reset, a, b func(), stale func() bool) int {
+	lost := 0
+	for range races {
+		reset()
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); a() }()
+		go func() { defer wg.Done(); b() }()
+		wg.Wait()
+		if stale() {
+			lost++
+		}
+	}
+	return lost
+}
+
+// An order write changes only the order of the placement the tree holds when
+// it lands, so it never restates a parent a concurrent move replaced.
+func TestPorts_AnOrderWriteNeverUndoesAConcurrentChatMove(t *testing.T) {
+	ctx, repo := context.Background(), newRepo(t)
+	p := newPorts(t, repo, newWorld())
+	place := func(pl tree.Placement) { require.NoError(t, p.SetChatPlacement(ctx, "c-q", "ws-alpha", pl)) }
+
+	lost := raceEach(
+		func() { place(tree.Placement{ParentID: "f-old"}) },
+		func() { place(tree.Placement{ParentID: "f-new", Order: 5}) },
+		func() { require.NoError(t, p.SetChatOrder(ctx, "c-q", "ws-alpha", 1)) },
+		func() bool {
+			got, err := p.ChatPlacement(ctx, "c-q")
+			require.NoError(t, err)
+			return got.ParentID != "f-new"
+		})
+
+	assert.Zero(t, lost, "rounds where the move was undone")
+}
+
+func TestPorts_AnOrderWriteNeverUndoesAConcurrentNodeMove(t *testing.T) {
+	ctx, repo := context.Background(), newRepo(t)
+	p := newPorts(t, repo, newWorld())
+	_, err := p.Create(ctx, "ws-alpha", tree.KindWorkspace, "", 0)
+	require.NoError(t, err)
+
+	lost := raceEach(
+		func() { require.NoError(t, p.SetPlacement(ctx, "ws-alpha", "f-old", 0)) },
+		func() { require.NoError(t, p.SetPlacement(ctx, "ws-alpha", "f-new", 5)) },
+		func() { require.NoError(t, p.SetOrder(ctx, "ws-alpha", 1)) },
+		func() bool {
+			n, err := p.GetNode(ctx, "ws-alpha")
+			require.NoError(t, err)
+			return n.ParentID != "f-new"
+		})
+
+	assert.Zero(t, lost, "rounds where the move was undone")
+}
+
+// Two creates of one row race: exactly one wins, the other is refused.
+func TestPorts_ConcurrentCreatesOfOneRowRefuseTheSecond(t *testing.T) {
+	ctx, repo := context.Background(), newRepo(t)
+	p := newPorts(t, repo, newWorld())
+	var refused int
+	var mu sync.Mutex
+	create := func(parent string) func() {
+		return func() {
+			if _, err := p.Create(ctx, "ws-alpha", tree.KindWorkspace, parent, 0); err != nil {
+				require.ErrorIs(t, err, asynxModels.ErrValidation)
+				mu.Lock()
+				refused++
+				mu.Unlock()
+			}
+		}
+	}
+
+	raceEach(func() { require.NoError(t, p.Forget(ctx, "ws-alpha")) }, create("a"), create("b"), func() bool { return false })
+
+	assert.Equal(t, races, refused, "one create of every round is refused")
 }

@@ -48,6 +48,21 @@ func (r *Repository) Put(ctx context.Context, projectID string, n tree.Node) (tr
 	return r.send(ctx, putNode(projectID, n))
 }
 
+// Create mints a node; one the tree already holds is refused.
+func (r *Repository) Create(ctx context.Context, projectID string, n tree.Node) (tree.Tree, error) {
+	return r.send(ctx, createNode(projectID, n))
+}
+
+// Move re-places a node the tree holds; one it does not hold is refused.
+func (r *Repository) Move(ctx context.Context, projectID, id, parentID string, order int) (tree.Tree, error) {
+	return r.send(ctx, moveNode(projectID, id, parentID, order, false))
+}
+
+// Order changes a held node's order and keeps the parent it holds when it lands.
+func (r *Repository) Order(ctx context.Context, projectID, id string, order int) (tree.Tree, error) {
+	return r.send(ctx, moveNode(projectID, id, "", order, true))
+}
+
 // Delete removes a node; one the tree does not hold is tree.ErrUnknownNode.
 func (r *Repository) Delete(ctx context.Context, projectID, id string) (tree.Tree, error) {
 	return r.send(ctx, deleteNode(projectID, id))
@@ -71,6 +86,11 @@ func (r *Repository) PutChat(
 	p tree.Placement,
 ) (tree.Tree, error) {
 	return r.send(ctx, putChat(projectID, chatID, p))
+}
+
+// OrderChat changes a chat's order and keeps the parent it holds when it lands.
+func (r *Repository) OrderChat(ctx context.Context, projectID, chatID string, order int) (tree.Tree, error) {
+	return r.send(ctx, orderChat(projectID, chatID, order))
 }
 
 // DropChat removes a chat's own placement; none is no error.
