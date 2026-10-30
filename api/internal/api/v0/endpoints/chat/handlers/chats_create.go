@@ -173,10 +173,7 @@ func (h *Handlers) worktreeSpec(
 ) (agentusecase.WorktreeSpec, bool) {
 	none := agentusecase.WorktreeSpec{Mode: agentusecase.WorktreeNone}
 	if body.Import == nil {
-		if body.OwnWorktree && wsID == "" {
-			return agentusecase.WorktreeSpec{Mode: agentusecase.WorktreeFork, Branch: body.Branch}, true
-		}
-		return none, true
+		return forkSpec(ctx, body, wsID)
 	}
 	if body.OwnWorktree {
 		libs.WriteErr(ctx, http.StatusBadRequest,
@@ -193,6 +190,24 @@ func (h *Handlers) worktreeSpec(
 		return none, false
 	}
 	return agentusecase.WorktreeSpec{Mode: agentusecase.WorktreeImport, Import: spec}, true
+}
+
+// forkSpec answers a create with no import: none, or a fresh branch forked from
+// the parent row's worktree, which a create with no parent row cannot name.
+func forkSpec(
+	ctx *gin.Context,
+	body createRequest,
+	wsID string,
+) (agentusecase.WorktreeSpec, bool) {
+	none := agentusecase.WorktreeSpec{Mode: agentusecase.WorktreeNone}
+	if !body.OwnWorktree || wsID != "" {
+		return none, true
+	}
+	if body.ParentID == "" {
+		libs.WriteErr(ctx, http.StatusBadRequest, "a new branch forks from its parent row: parentId is required")
+		return none, false
+	}
+	return agentusecase.WorktreeSpec{Mode: agentusecase.WorktreeFork, Branch: body.Branch}, true
 }
 
 // importSpec describes the branch an importing create adopts, from the body's

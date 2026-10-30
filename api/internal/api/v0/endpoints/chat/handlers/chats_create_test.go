@@ -68,10 +68,23 @@ func TestCreate_AnOwnWorktreeCreateAnswersItsWorkspace(t *testing.T) {
 	tree := &fakeChatTree{placed: domain.Chat{ID: id}, createdWorkspace: "ws-new"}
 
 	rec := repoScopedCreate(t, newImportingHandlers(tree, importableRepo()),
-		`{"id":"`+id+`","provider":"claude","ownWorktree":true,"branch":"feat/x"}`)
+		`{"id":"`+id+`","provider":"claude","ownWorktree":true,"branch":"feat/x","parentId":"c-owner"}`)
 
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	gotID, gotWorkspace := createdBody(t, rec.Body.Bytes())
 	assert.Equal(t, id, gotID)
 	assert.Equal(t, "ws-new", gotWorkspace)
+}
+
+// A branch forks from its parent row's worktree; with no parent there is none,
+// which is the caller's mistake, not a conflict with the daemon's state.
+func TestCreate_AnOwnWorktreeCreateWithNoParentIsAnInvalidArgument(t *testing.T) {
+	tree := &fakeChatTree{createdWorkspace: "ws-new"}
+
+	rec := repoScopedCreate(t, newImportingHandlers(tree, importableRepo()),
+		`{"id":"`+uuid.NewString()+`","provider":"claude","ownWorktree":true}`)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), string(problem.InvalidArgument))
+	assert.Zero(t, tree.createChatCalls, "nothing is created without a parent to fork from")
 }

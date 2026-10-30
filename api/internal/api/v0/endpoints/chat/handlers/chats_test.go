@@ -269,7 +269,7 @@ func TestRegression_Create_ForwardsTheTypedBranchNameOnAnOwnWorktreeCreate(
 	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
 	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
 
-	body := []byte(`{"provider":"vendor-a","ownWorktree":true,"branch":"feature/typed-name"}`)
+	body := []byte(`{"provider":"vendor-a","ownWorktree":true,"branch":"feature/typed-name","parentId":"c-owner"}`)
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/chats", body)
 	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}}
 
