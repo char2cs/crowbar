@@ -45,12 +45,15 @@ type LegacyChat struct {
 
 // LegacyHome is every retired placement record with the facts that place it.
 type LegacyHome struct {
-	Nodes      []tree.Node
-	Folders    []tree.Folder
-	Chats      []LegacyChat
-	Workspaces []domain.Workspace
-	Repos      []domain.Repository
-	Projects   []domain.Project
+	Nodes   []tree.Node
+	Folders []tree.Folder
+	Chats   []LegacyChat
+	// UnreadChats are chats whose history does not replay: they still exist,
+	// listed from their row, but carry no placement of their own to copy.
+	UnreadChats []string
+	Workspaces  []domain.Workspace
+	Repos       []domain.Repository
+	Projects    []domain.Project
 }
 
 // legacyChat is the chat document as schema 1 wrote it, placement included.
@@ -82,7 +85,7 @@ func ReadLegacy(ctx context.Context, src LegacySources) (LegacyHome, error) {
 	if h.Repos, err = src.Repos(ctx); err != nil {
 		return LegacyHome{}, fmt.Errorf("migratetree: repos: %w", err)
 	}
-	if h.Chats, err = readChats(ctx, src.ChatLog); err != nil {
+	if h.Chats, h.UnreadChats, err = readChats(ctx, src.ChatLog); err != nil {
 		return LegacyHome{}, err
 	}
 	if h.Nodes, err = readNodes(ctx, src.NodeLog); err != nil {
@@ -94,22 +97,23 @@ func ReadLegacy(ctx context.Context, src LegacySources) (LegacyHome, error) {
 	return h, nil
 }
 
-func readChats(ctx context.Context, log asynxModels.Store) ([]LegacyChat, error) {
+func readChats(ctx context.Context, log asynxModels.Store) ([]LegacyChat, []string, error) {
 	ax, err := asynx.New[legacyChat]().WithEventStore(log).WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithSchemaVersion(agentchat.SchemaVersion).WithUpcaster(1, keepAll).Build()
 	if err != nil {
-		return nil, fmt.Errorf("migratetree: chat reader: %w", err)
+		return nil, nil, fmt.Errorf("migratetree: chat reader: %w", err)
 	}
 	defer shutdown(ctx, ax)
 	var out []LegacyChat
+	var unread []string
 	err = eachAggregate(ctx, log, func(id string) error {
 		c, err := ax.Get(ctx, id)
 		if errors.Is(err, asynxModels.ErrNotFound) {
 			return nil
 		}
 		if err != nil {
-			// The chat read model skips a chat it cannot fold; so does this.
-			slog.WarnContext(ctx, "migratetree: skip an unreplayable chat", "chat_id", id, "err", err)
+			slog.WarnContext(ctx, "migratetree: a chat's history does not replay", "chat_id", id, "err", err)
+			unread = append(unread, id)
 			return nil
 		}
 		out = append(out, LegacyChat{
@@ -118,7 +122,7 @@ func readChats(ctx context.Context, log asynxModels.Store) ([]LegacyChat, error)
 		})
 		return nil
 	})
-	return out, err
+	return out, unread, err
 }
 
 func readNodes(ctx context.Context, path string) ([]tree.Node, error) {

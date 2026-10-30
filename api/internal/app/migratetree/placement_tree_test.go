@@ -2,6 +2,7 @@ package migratetree
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
+	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	repotree "github.com/char2cs/crowbar/api/internal/app/repositories/tree"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
@@ -279,4 +281,48 @@ func TestPlacementTreeStep_ARowOfARecordAlreadyGoneIsNotCopied(t *testing.T) {
 	assert.Equal(t, tree.Empty(tree.Unplaced), treeOf(t, ports, tree.Unplaced))
 	assert.Equal(t, []migrate.Counts{{"nodes": 2, "folders": 0, "chats": 2, "dropped_orphans": 5, "rehung_to_root": 1}},
 		migratetest.Applied(t, l.h)[stepNumber])
+}
+
+// breakHistory makes chatID's second event one no replay can apply.
+func (l *legacy) breakHistory(t *testing.T, chatID string) {
+	t.Helper()
+	db, err := storesqlite.OpenDB(filepath.Join(l.h.Events(), "agent_chat.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			require.NoError(t, sqlDB.Close())
+		}
+	})
+	var raw []byte
+	require.NoError(t, db.Raw("SELECT data FROM events WHERE aggregate_id = ? AND version = 2",
+		"events:"+chatID).Row().Scan(&raw))
+	var evt map[string]any
+	require.NoError(t, json.Unmarshal(raw, &evt))
+	patches, _ := evt["patches"].([]any)
+	evt["patches"] = append(patches, map[string]any{"op": "remove", "path": "/no/such/path"})
+	broken, err := json.Marshal(evt)
+	require.NoError(t, err)
+	require.NoError(t, db.Exec("UPDATE events SET data = ? WHERE aggregate_id = ? AND version = 2",
+		broken, "events:"+chatID).Error)
+}
+
+// A chat whose history does not replay still exists: the sidebar lists it from
+// its row, so its position row is copied as written.
+func TestPlacementTreeStep_AChatWhoseHistoryDoesNotReplayKeepsItsRow(t *testing.T) {
+	l := newLegacy(t)
+	l.project("p1", "h1", time.Unix(100, 0))
+	l.folder(t, tree.Folder{ID: "f-ideas", Name: "Ideas", HomeID: "h1"})
+	l.chat(t, "c-draft", "h1", "", 0)
+	l.breakHistory(t, "c-draft")
+	l.nodes(t,
+		legacyNode{ID: "f-ideas", Kind: "folder"},
+		legacyNode{ID: "c-draft", Kind: "chat", ParentID: "f-ideas", Order: 1},
+	)
+	ports := l.ports(t)
+
+	require.NoError(t, l.boot(t, ports))
+
+	assert.Equal(t, tree.Node{ID: "c-draft", Kind: tree.KindChat, ParentID: "f-ideas", Order: 1},
+		treeOf(t, ports, "p1").Nodes["c-draft"])
+	assert.NotContains(t, migratetest.Applied(t, l.h)[stepNumber][0], "dropped_orphans")
 }

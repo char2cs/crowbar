@@ -139,6 +139,9 @@ func knownIDs(h LegacyHome, held tree.Tree) map[string]bool {
 	for _, c := range h.Chats {
 		known[c.ID] = true
 	}
+	for _, id := range h.UnreadChats {
+		known[id] = true
+	}
 	return known
 }
 
@@ -260,6 +263,9 @@ func newPlacer(h LegacyHome) *placer {
 	for _, c := range h.Chats {
 		pl.chatWS[c.ID], pl.known[c.ID] = c.WorkspaceID, true
 		pl.hang(c.ID, c.Placement.ParentID)
+	}
+	for _, id := range h.UnreadChats {
+		pl.chatWS[id], pl.known[id] = "", true
 	}
 	for _, f := range h.Folders {
 		if pl.scopeLives(f) {
