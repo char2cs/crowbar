@@ -227,13 +227,17 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
           onClick={onAddProject}
           variant="ghost"
           size="icon-sm"
-          // With several projects the `+` waits for the pointer or focus, without moving the tiles.
+          // With several projects the `+` is zero-width (and cancels the row's gap) until the
+          // row is hovered or holds focus; the row, not the `+`, owns the hover so it can't flicker.
           data-reveal={projects.length > 1 ? 'hover' : undefined}
           className={cn(
             TILE,
             'p-0 text-muted-foreground hover:bg-sidebar-element-hover',
-            'transition-opacity data-[reveal=hover]:opacity-0 data-[reveal=hover]:group-hover/switcher:opacity-100',
-            'data-[reveal=hover]:group-focus-within/switcher:opacity-100 data-[reveal=hover]:pointer-coarse:opacity-100',
+            'transition-[width,margin,opacity] duration-150 motion-reduce:transition-none',
+            'data-[reveal=hover]:-ml-2 data-[reveal=hover]:border-0 data-[reveal=hover]:w-0 data-[reveal=hover]:overflow-hidden data-[reveal=hover]:opacity-0',
+            'data-[reveal=hover]:group-hover/switcher:ml-0 data-[reveal=hover]:group-hover/switcher:border data-[reveal=hover]:group-hover/switcher:w-7 data-[reveal=hover]:group-hover/switcher:opacity-100',
+            'data-[reveal=hover]:group-focus-within/switcher:ml-0 data-[reveal=hover]:group-focus-within/switcher:border data-[reveal=hover]:group-focus-within/switcher:w-7 data-[reveal=hover]:group-focus-within/switcher:opacity-100',
+            'data-[reveal=hover]:pointer-coarse:ml-0 data-[reveal=hover]:pointer-coarse:border data-[reveal=hover]:pointer-coarse:w-7 data-[reveal=hover]:pointer-coarse:opacity-100',
           )}
           tooltip="Add space"
           tooltipSide="bottom"
