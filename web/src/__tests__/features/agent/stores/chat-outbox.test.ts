@@ -9,7 +9,7 @@ import {
   retryPrompt,
   sendPrompt,
 } from '@/features/agent/stores/chat-outbox'
-import { chatStore } from '@/features/agent/stores/chat-store'
+import { applyFeedFrame, chatStore } from '@/features/agent/stores/chat-store'
 import { ApiError } from '@/lib/errors/api-error'
 import * as errors from '@/lib/errors/report'
 
@@ -130,6 +130,17 @@ describe('chat outbox', () => {
     expect(retract).not.toHaveBeenCalled()
   })
 
+  it('keeps the text off the composer when the interrupted turn spoke before the answer', async () => {
+    const l = ledger('c1')
+    seedFeed('c1', [l.prompt('r1', 'stop that'), l.start('turn-1', 'r1')])
+    retract.mockImplementation(async () => {
+      seedFeed('c1', [l.text('turn-1', 'm1', 0, 'Already started')])
+      return { state: 'interrupted', text: 'stop that' }
+    })
+
+    await expect(retractNewest('w1', 'c1')).resolves.toBeNull()
+  })
+
   it('has nothing to act on in an idle chat', () => {
     const l = ledger('c1')
     seedFeed('c1', [l.prompt('r1', 'go'), l.start('turn-1', 'r1'), l.end('turn-1')])
@@ -198,6 +209,17 @@ describe('chat outbox', () => {
     seedFeed('c1', [l.end('turn-0')])
     expect(submit).toHaveBeenCalledTimes(1)
     expect(submit.mock.calls[0]?.slice(0, 3)).toEqual(['w1', 'c1', 'after this turn'])
+  })
+
+  it('holds the outbox while a reset ledger replays', () => {
+    const l = ledger('c1')
+    seedFeed('c1', [l.start('turn-0'), l.end('turn-0')])
+    act(() => applyFeedFrame('c1', { type: 'resync', seq: 0 }))
+    send('after the replay')
+    expect(submit).not.toHaveBeenCalled()
+
+    act(() => applyFeedFrame('c1', { type: 'ready', epoch: 'test' }))
+    expect(submit).toHaveBeenCalledTimes(1)
   })
 
   it('sends a prompt the daemon called busy again on the next row, under the same id', async () => {
