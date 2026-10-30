@@ -82,7 +82,7 @@ func TestAgentDelete_HardDeletesAndBroadcastsScopedDeleted(t *testing.T) {
 	chatID := createAgentChat(t, h, ws)
 	waitForChatFrame(t, frames, chatID, "created")
 
-	resp := h.raw(http.MethodDelete, repoBase(ws)+"/chats/"+chatID, nil, http.StatusNoContent)
+	resp := h.raw(http.MethodDelete, repoBase(ws)+"/chats/"+chatID, nil, http.StatusOK)
 	_ = resp.Body.Close()
 
 	deleted := waitForChatFrame(t, frames, chatID, "deleted")

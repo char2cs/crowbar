@@ -135,7 +135,7 @@ func TestRegression_TelemetryForgetPurgesTheDurableRowAcrossARestart(t *testing.
 	before := getTelemetry(t, h1, imported, chatID)
 	require.NotNil(t, before.Context, "precondition: the chat has a usage report")
 
-	h1.raw(http.MethodDelete, repoBase(imported)+"/chats/"+chatID, nil, http.StatusNoContent).Body.Close()
+	h1.raw(http.MethodDelete, repoBase(imported)+"/chats/"+chatID, nil, http.StatusOK).Body.Close()
 	waitForChatFrame(t, frames, chatID, "deleted")
 	h1.Quiesce()
 

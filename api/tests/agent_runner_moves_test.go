@@ -258,7 +258,7 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 		"precondition: Crowbar keeps its own plaintext copy of what was said")
 
 	// --- hard delete ---
-	resp := h.raw(http.MethodDelete, base+"/chats/"+doomed, nil, http.StatusNoContent)
+	resp := h.raw(http.MethodDelete, base+"/chats/"+doomed, nil, http.StatusOK)
 	_ = resp.Body.Close()
 	frames.awaitChat(doomed, "deleted")
 	frames.awaitRunner(doomedRunner, "exited") // its CLI ends with the chat

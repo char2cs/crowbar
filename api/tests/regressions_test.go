@@ -337,7 +337,7 @@ func TestRegression_GitDiscardRecoversFromStaleIndexLock(t *testing.T) {
 // inline before answering 201 with the CHAT's id — chats.go/own_worktree.go —
 // so there is no "learn the new id from a later WS frame" step left to pin, and
 // no HTTP route names a caller-chosen branch at all any more, spec §8 step 6).
-// DELETE is what survives that shape: it answers 204 once done, with the
+// DELETE is what survives that shape: it answers 200 once done, with the
 // outcome delivered on the stream, now via the chat that owns
 // the worktree (worktree/handlers, DeleteCascade through DeleteChat's reap).
 func TestRegression_WorkspaceDeleteBroadcastsDeletedStatus(t *testing.T) {
@@ -347,7 +347,7 @@ func TestRegression_WorkspaceDeleteBroadcastsDeletedStatus(t *testing.T) {
 
 	conn := repoChatsWS(h, imported)
 	resp := h.raw(http.MethodDelete, repoBase+"/chats/"+imported.chatID, nil,
-		http.StatusNoContent)
+		http.StatusOK)
 	_ = resp.Body.Close()
 
 	got := readUntilWorktree(t, conn, func(m map[string]any) bool {
@@ -420,7 +420,7 @@ func TestRegression_DeleteWorkspaceTombstones(t *testing.T) {
 
 	conn := repoChatsWS(h, imported)
 	resp := h.raw(http.MethodDelete, repoBase+"/chats/"+imported.chatID, nil,
-		http.StatusNoContent)
+		http.StatusOK)
 	_ = resp.Body.Close()
 	readUntilWorktree(t, conn, func(m map[string]any) bool {
 		return m["id"] == imported.workspaceID && m["status"] == "deleted"

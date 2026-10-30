@@ -184,7 +184,7 @@ func TestRegression_ChatDeleteCascadesToItsThreads(t *testing.T) {
 	// left for it to order.
 	inside := createChatFolder(t, h, base, "spikes", root)
 
-	resp := h.raw(http.MethodDelete, base+"/chats/"+root, nil, http.StatusNoContent)
+	resp := h.raw(http.MethodDelete, base+"/chats/"+root, nil, http.StatusOK)
 	_ = resp.Body.Close()
 	h.Quiesce()
 

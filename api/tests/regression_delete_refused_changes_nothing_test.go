@@ -136,7 +136,7 @@ func TestRegression_DeleteMainWithForkChildrenIsAllOrNothing(t *testing.T) {
 	status, body := deleteChat(t, h, m.repoBase(), m.mainOwner)
 	after := readDeleteWorld(t, h, m.importFixture)
 
-	require.Equalf(t, http.StatusAccepted, status, "%s", body)
+	require.Equalf(t, http.StatusOK, status, "%s", body)
 	assert.JSONEq(t, `{"success":true,"data":{"takenChatIds":["`+m.featureChat+`"]}}`, body,
 		"the reply names the chat taken beyond the selection")
 	requireNoDanglingLinks(t, after)

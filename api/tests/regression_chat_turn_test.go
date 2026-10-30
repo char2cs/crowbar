@@ -226,7 +226,7 @@ func TestRegression_ConcurrentHooksForOneChatAllLand(t *testing.T) {
 
 func TestRegression_HooksAfterChatDeleteAreRefusedNotResurrected(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
-	_ = c.h.raw(http.MethodDelete, repoBase(c.imported)+"/chats/"+c.chatID, nil, http.StatusNoContent).Body.Close()
+	_ = c.h.raw(http.MethodDelete, repoBase(c.imported)+"/chats/"+c.chatID, nil, http.StatusOK).Body.Close()
 	c.h.QuiesceReactors()
 	before := chatDeadLetters(t, c.h)
 
