@@ -81,8 +81,7 @@ export function useReviewFilesSummary(
         }
         setLoaded(true)
       } catch {
-        // The sidebar must not crash on a summary fetch failure; the caller
-        // keeps its status-projection fallback until a later tick succeeds.
+        return // polled: the status-projection fallback stays until a later tick succeeds
       }
     }
 

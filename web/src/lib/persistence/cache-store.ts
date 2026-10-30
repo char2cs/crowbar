@@ -26,7 +26,7 @@ export async function saveCache<T>(
     const db = await getDB()
     await db.put(store, { key, data, fetchedAt } as CrowbarDB[CacheStoreName]['value'])
   } catch {
-    /* best-effort cache write — ignore IDB failures */
+    return // a write that fails is a cache miss on the next read
   }
 }
 

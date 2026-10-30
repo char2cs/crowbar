@@ -25,7 +25,7 @@ export async function upsertEntity<T extends { id: string }>(
     // keyPath is 'id', so no explicit key argument.
     await db.put(store, dto as never)
   } catch {
-    /* best-effort cache write — ignore IDB failures */
+    return // a write that fails is a cache miss on the next read
   }
 }
 
@@ -52,6 +52,6 @@ export async function removeEntity(store: EntityStoreName, id: string): Promise<
     const db = await getDB()
     await db.delete(store, id)
   } catch {
-    /* best-effort cache delete — ignore IDB failures */
+    return // the daemon's snapshot replaces a row the cache failed to drop
   }
 }

@@ -110,8 +110,12 @@ async function inlineReferences(
   const resolved = new Map<string, Inlined>()
   await Promise.all(
     references.map(async (reference) => {
-      const inlined = await load(reference).catch(() => null)
-      if (inlined) resolved.set(reference, inlined)
+      try {
+        const inlined = await load(reference)
+        if (inlined) resolved.set(reference, inlined)
+      } catch {
+        return // an optional asset that fails stays as written; a toast per image would bury the preview
+      }
     }),
   )
   return resolved.size === 0 ? html : rewriteTags(html, resolved)

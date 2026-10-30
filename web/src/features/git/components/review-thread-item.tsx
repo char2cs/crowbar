@@ -245,7 +245,7 @@ export function ReviewThreadItem({
       await onEditMessage?.(thread.id, messageId, body)
       setEditingId(null)
     } catch {
-      // Keep the editor open (and the user's text) on failure; the handler toasts.
+      return // the handler toasted; the editor stays open with the user's text
     }
   }
 

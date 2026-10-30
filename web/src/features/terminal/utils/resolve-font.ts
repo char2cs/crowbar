@@ -149,7 +149,7 @@ async function ensureSymbolFallbackFontLoaded(fontSize: number): Promise<void> {
   try {
     await document.fonts.load(`${fontSize}px "${SYMBOL_FALLBACK_FONT}"`)
   } catch {
-    // Font missing/unavailable: the chain still degrades to a box, same as before.
+    return // a missing font leaves the chain to degrade to a box
   }
 }
 

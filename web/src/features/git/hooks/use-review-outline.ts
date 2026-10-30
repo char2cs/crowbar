@@ -72,9 +72,7 @@ export function useReviewOutline(wsId: string | null, commit?: string): UseRevie
         setOutline(next)
         setLoaded(true)
       } catch {
-        // The pane must not blank on an outline failure: the summary alone
-        // still renders every file, just with estimated rather than exact
-        // heights. A later tick can succeed.
+        return // polled: the summary still renders every file at estimated heights
       }
     }
 

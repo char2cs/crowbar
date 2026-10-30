@@ -231,6 +231,19 @@ function suppressNextClick(): void {
   setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0)
 }
 
+/** Whether the pointer was captured. A row deleted mid-press, or a pointerId the
+ *  browser no longer has down, throws; the drag still starts, and the stale-buttons
+ *  and blur recovery cover a release that leaves the webview. */
+function tryCapturePointer(target: Element, pointerId: number): boolean {
+  if (!target.isConnected) return false
+  try {
+    target.setPointerCapture(pointerId)
+    return true
+  } catch {
+    return false
+  }
+}
+
 function paintDropLine(el: HTMLDivElement | null, hit: Hit): void {
   if (!el) return
   if (hit?.kind !== 'row' || hit.row.mode === 'into') {
@@ -466,22 +479,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
     function beginDrag(e: MouseEvent): void {
       const pending = pendingRef.current!
       pendingRef.current = null
-      // Only if the row is still in the tree: a row deleted on the wire
-      // between the press and the threshold takes its element with it, and
-      // capturing a pointer on a detached node throws. Also wrapped: the
-      // browser throws the same NotFoundError for a still-connected node if
-      // this pointerId is no longer the one it has down (observed live) —
-      // losing capture here must not abort the rest of beginDrag below (the
-      // ghost/draggingRef/data-row-dragging setup), it only means a drag that
-      // exits the webview is more likely to lose its terminating pointerup,
-      // which the stale-buttons/blur recovery below now covers either way.
-      if (pending.target.isConnected) {
-        try {
-          pending.target.setPointerCapture(pending.pointerId)
-        } catch {
-          // Deliberately swallowed — see above.
-        }
-      }
+      tryCapturePointer(pending.target, pending.pointerId)
 
       const subjects = optionsRef.current.subjectsFor(pending.row.id)
       const drag: ActiveDrag = { subjects, pointer: { x: e.clientX, y: e.clientY } }

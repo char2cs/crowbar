@@ -1,6 +1,7 @@
 import { openDB } from 'idb'
 import type { IDBPDatabase } from 'idb'
 import type { CrowbarDB } from './schemas'
+import { readLocal, writeLocal } from '@/lib/local-storage'
 
 let _db: IDBPDatabase<CrowbarDB> | null = null
 // The IN-FLIGHT open, not just the settled one. Callers arrive together at
@@ -200,7 +201,7 @@ export async function wipeEntityCache(): Promise<void> {
     await Promise.all(ENTITY_STORES.map((name) => tx.objectStore(name).clear()))
     await tx.done
   } catch {
-    /* best-effort wipe — ignore IDB failures */
+    return // the old rows stay until the daemon's snapshot replaces them
   }
 }
 
@@ -210,17 +211,7 @@ export async function wipeEntityCache(): Promise<void> {
  * version; on a match this is a no-op. Call once at startup before seeding.
  */
 export async function maybeWipeOnVersionChange(): Promise<void> {
-  let stored: string | null
-  try {
-    stored = localStorage.getItem(CACHE_VERSION_KEY)
-  } catch {
-    stored = null
-  }
-  if (stored === CROWBAR_CACHE_VERSION) return
+  if (readLocal(CACHE_VERSION_KEY) === CROWBAR_CACHE_VERSION) return
   await wipeEntityCache()
-  try {
-    localStorage.setItem(CACHE_VERSION_KEY, CROWBAR_CACHE_VERSION)
-  } catch {
-    /* localStorage unavailable (private mode) — wipe still ran */
-  }
+  writeLocal(CACHE_VERSION_KEY, CROWBAR_CACHE_VERSION)
 }

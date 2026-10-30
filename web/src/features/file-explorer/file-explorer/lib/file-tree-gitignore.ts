@@ -65,7 +65,7 @@ function addGitIgnoreContent(matcher: IgnoreMatcher, content: string): void {
     try {
       matcher.add(line)
     } catch {
-      // Keep the rest of the file usable if a single malformed pattern is present.
+      continue // a malformed pattern is skipped so the rest of the file still applies
     }
   }
 }
