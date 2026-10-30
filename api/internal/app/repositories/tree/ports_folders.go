@@ -3,6 +3,7 @@ package tree
 import (
 	"cmp"
 	"context"
+	"errors"
 	"slices"
 
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
@@ -85,6 +86,9 @@ func (p *Ports) Delete(ctx context.Context, id string) error {
 		return nil
 	}
 	out, err := p.repo.DeleteFolder(ctx, t.ProjectID, id)
+	if errors.Is(err, tree.ErrUnknownNode) {
+		return nil // a concurrent delete removed it first
+	}
 	if err != nil {
 		return err
 	}

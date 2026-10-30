@@ -308,3 +308,29 @@ func TestPorts_ConcurrentCreatesOfOneRowRefuseTheSecond(t *testing.T) {
 
 	assert.Equal(t, races, refused, "one create of every round is refused")
 }
+
+// Two deletes of one row race: both answer nil, as a delete of a row already
+// gone does.
+func TestPorts_ConcurrentDeletesOfOneRowAreBothNoError(t *testing.T) {
+	ctx, repo := context.Background(), newRepo(t)
+	p := newPorts(t, repo, newWorld())
+	var mu sync.Mutex
+	var errs []error
+	record := func(err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	reset := func() {
+		_, err := p.Create(ctx, "ws-alpha", tree.KindWorkspace, "", 0)
+		require.NoError(t, err)
+		require.NoError(t, p.Save(ctx, tree.Folder{ID: "f-1", Name: "F", HomeID: "home-p1"}))
+	}
+	forget := func() { record(p.Forget(ctx, "ws-alpha")); record(p.Delete(ctx, "f-1")) }
+
+	raceEach(reset, forget, forget, func() bool { return false })
+
+	assert.Empty(t, errs)
+}
