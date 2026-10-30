@@ -3,5 +3,5 @@
   "go.timers": 20,
   "web.empty-catch": 33,
   "web.swallowed-promise": 24,
-  "web.timers": 76
+  "web.timers": 73
 }
