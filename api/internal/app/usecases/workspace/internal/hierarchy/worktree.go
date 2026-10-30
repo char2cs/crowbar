@@ -1108,7 +1108,51 @@ func (u *hierarchyUsecase) Reparent(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("reparent: new parent tip: %w", err)
 	}
-	return u.replayAndReparent(ctx, child, newParentID, tip)
+	oldParentBranch, err := u.parentBranch(ctx, child)
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("reparent: %w", err)
+	}
+	base, err := u.replayBase(ctx, child, oldParentBranch, tip)
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("reparent: %w", err)
+	}
+	return u.replayAndReparent(ctx, child, newParentID, tip, base)
+}
+
+// parentBranch is the branch of child's current parent, "" for a root.
+func (u *hierarchyUsecase) parentBranch(
+	ctx context.Context,
+	child domain.Workspace,
+) (string, error) {
+	if child.ParentID == "" {
+		return "", nil
+	}
+	parent, err := u.workspaces.Get(ctx, child.ParentID)
+	if err != nil {
+		return "", fmt.Errorf("get parent: %w", err)
+	}
+	return parent.Branch, nil
+}
+
+// replayBase is where a rebase of child starts replaying: its merge-base with
+// the first of refs that resolves, so every commit that ref lacks is kept. Not
+// the recorded fork point: an import records the branch's own tip there.
+func (u *hierarchyUsecase) replayBase(
+	ctx context.Context,
+	child domain.Workspace,
+	refs ...string,
+) (string, error) {
+	err := errors.New("no ref to replay from")
+	for _, ref := range refs {
+		if ref == "" {
+			continue
+		}
+		var base string
+		if base, err = u.git.MergeBase(ctx, child.WorktreePath, ref, child.Branch); err == nil {
+			return base, nil
+		}
+	}
+	return "", fmt.Errorf("replay base: %w", err)
 }
 
 // replayAndReparent tries to rebase the child onto the new parent's tip, then
@@ -1122,8 +1166,9 @@ func (u *hierarchyUsecase) replayAndReparent(
 	child domain.Workspace,
 	newParentID string,
 	tip string,
+	base string,
 ) (domain.Workspace, error) {
-	rebaseErr := u.git.RebaseOnto(ctx, child.WorktreePath, tip, child.ForkPointSha, child.Branch)
+	rebaseErr := u.git.RebaseOnto(ctx, child.WorktreePath, tip, base, child.Branch)
 	if rebaseErr == nil {
 		// Clean: the branch is genuinely based on the new parent's tip now.
 		return u.settleReparent(ctx, child, newParentID, tip)
@@ -1138,11 +1183,11 @@ func (u *hierarchyUsecase) replayAndReparent(
 	}
 	// Fork point = merge-base of the branch and the new parent, so diffs/summaries
 	// read against the new parent's lineage until a clean rebase finalizes it.
-	base, baseErr := u.git.MergeBase(ctx, child.WorktreePath, tip, child.Branch)
+	onPaper, baseErr := u.git.MergeBase(ctx, child.WorktreePath, tip, child.Branch)
 	if baseErr != nil {
 		return domain.Workspace{}, fmt.Errorf("reparent: merge-base: %w", baseErr)
 	}
-	return u.settleReparent(ctx, child, newParentID, base)
+	return u.settleReparent(ctx, child, newParentID, onPaper)
 }
 
 // settleReparent persists the child's new parent + fork point and resyncs its
@@ -1194,7 +1239,11 @@ func (u *hierarchyUsecase) RebaseOntoParent(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("rebase onto parent: parent tip: %w", err)
 	}
-	rebaseErr := u.git.RebaseOnto(ctx, child.WorktreePath, tip, child.ForkPointSha, child.Branch)
+	base, err := u.replayBase(ctx, child, tip)
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("rebase onto parent: %w", err)
+	}
+	rebaseErr := u.git.RebaseOnto(ctx, child.WorktreePath, tip, base, child.Branch)
 	if rebaseErr == nil {
 		// Clean: the child is genuinely integrated onto the parent.
 		return u.settleReparent(ctx, child, child.ParentID, tip)

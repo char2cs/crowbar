@@ -102,7 +102,7 @@ func TestRebaseOntoParent_CleanRebase_SettlesOntoParentTip(t *testing.T) {
 
 	_, err := uc.RebaseOntoParent(context.Background(), "c")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"RevParse", "RebaseOnto", "WorkingTreeSummary"}, g.ops())
+	assert.Equal(t, []string{"RevParse", "MergeBase", "RebaseOnto", "WorkingTreeSummary"}, g.ops())
 	assert.Equal(t, "c", rID)
 	assert.Equal(t, "p", rParent)
 	assert.Equal(t, "ptip", rSha, "the clean rebase settles onto the CURRENT parent tip")
@@ -148,7 +148,7 @@ func TestRebaseOntoParent_ConflictPersistsForkPointAndFlagsConflicts(t *testing.
 	require.Len(t, synced, 1)
 	assert.Equal(t, "c", synced[0].ID)
 	assert.True(t, synced[0].HasConflicts)
-	assert.Equal(t, []string{"RevParse", "RebaseOnto"}, g.ops(),
+	assert.Equal(t, []string{"RevParse", "MergeBase", "RebaseOnto"}, g.ops(),
 		"unlike the automatic Reparent, a conflicting RebaseOntoParent must NEVER abort — no OperationAbort call")
 }
 
@@ -179,4 +179,24 @@ func TestRebaseOntoParent_ConflictSetConflictsError(t *testing.T) {
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.RebaseOntoParent(context.Background(), "c")
 	require.ErrorIs(t, err, errBoom)
+}
+
+// TestRegression_RebaseOntoParentKeepsCommitsAStaleForkPointWouldDrop: with its
+// own tip recorded as its fork point, a branch rebased onto its parent was reset
+// to the parent's tip.
+func TestRegression_RebaseOntoParentKeepsCommitsAStaleForkPointWouldDrop(t *testing.T) {
+	h := newRealUsecase(t)
+	ctx := context.Background()
+	child := h.createChild(t, "feature/b", h.parentID, h.baseBranch)
+	commitInWorktree(t, child.WorktreePath, "b.txt", "b\n", "b work")
+	_, err := h.workspaces.UpdateForkPoint(ctx, child.ID, revParse(t, child.WorktreePath, "HEAD"))
+	require.NoError(t, err)
+	commitInWorktree(t, h.repoPath, "p.txt", "p\n", "parent moves on")
+	h.quiesce()
+
+	_, err = h.uc.RebaseOntoParent(ctx, child.ID)
+	require.NoError(t, err)
+
+	assert.Equal(t, "b work", trimNewline(gitRun(t, child.WorktreePath, "log", "--format=%s", h.baseBranch+"..HEAD")))
+	assert.Empty(t, gitRun(t, child.WorktreePath, "merge-base", "--is-ancestor", h.baseBranch, "HEAD"))
 }

@@ -34,9 +34,9 @@ func TestReparent_ConflictAbortsAndSettlesAtMergeBase(t *testing.T) {
 
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"RevParse", "RebaseOnto", "OperationAbort", "MergeBase", "WorkingTreeSummary"}, g.ops())
-	assert.Equal(t, []string{"/cw"}, g.calls[2].args, "the abort must run in the CHILD worktree")
-	assert.Equal(t, []string{"/cw", "ntip", "feat"}, g.calls[3].args, "merge-base of the new parent tip and the branch")
+	assert.Equal(t, []string{"RevParse", "MergeBase", "RebaseOnto", "OperationAbort", "MergeBase", "WorkingTreeSummary"}, g.ops())
+	assert.Equal(t, []string{"/cw"}, g.calls[3].args, "the abort must run in the CHILD worktree")
+	assert.Equal(t, []string{"/cw", "ntip", "feat"}, g.calls[4].args, "merge-base of the new parent tip and the branch")
 	assert.Equal(t, "c", rID)
 	assert.Equal(t, "np", rParent)
 	assert.Equal(t, "mergebase-sha", rSha, "the move lands at the MERGE-BASE, not the new parent's raw tip")
@@ -60,11 +60,12 @@ func TestReparent_ConflictAbortFails(t *testing.T) {
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.ErrorIs(t, err, errBoom)
 	assert.False(t, persisted, "a failed abort must never persist a partial move")
-	assert.NotContains(t, g.ops(), "MergeBase", "no merge-base attempt after a failed abort")
+	assert.Equal(t, []string{"RevParse", "MergeBase", "RebaseOnto", "OperationAbort"}, g.ops(),
+		"no merge-base attempt after a failed abort")
 }
 
 // TestReparent_ConflictMergeBaseFails proves a merge-base resolution failure
-// (after a successful abort) surfaces cleanly and never persists the move.
+// surfaces cleanly and never persists the move.
 func TestReparent_ConflictMergeBaseFails(t *testing.T) {
 	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
 	newParent := domain.Workspace{ID: "np", WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
@@ -120,4 +121,26 @@ func TestReparent_ResyncSummaryError_IsBestEffort(t *testing.T) {
 	out, err := uc.Reparent(context.Background(), "c", "np")
 	require.NoError(t, err, "a resync sync-write failure must not fail the reparent")
 	assert.Equal(t, "c", out.ID)
+}
+
+// TestRegression_ReparentKeepsCommitsAStaleForkPointWouldDrop: an imported
+// branch recorded its own tip as its fork point, so the rebase replayed nothing
+// and reset the branch onto its new parent. Homes already hold such rows.
+func TestRegression_ReparentKeepsCommitsAStaleForkPointWouldDrop(t *testing.T) {
+	h := newRealUsecase(t)
+	ctx := context.Background()
+	newParent := h.createChild(t, "feature/a", h.parentID, h.baseBranch)
+	commitInWorktree(t, newParent.WorktreePath, "a.txt", "a\n", "a work")
+	child := h.createChild(t, "feature/b", h.parentID, h.baseBranch)
+	commitInWorktree(t, child.WorktreePath, "b.txt", "b\n", "b work")
+	_, err := h.workspaces.UpdateForkPoint(ctx, child.ID, revParse(t, child.WorktreePath, "HEAD"))
+	require.NoError(t, err)
+	h.quiesce()
+
+	_, err = h.uc.Reparent(ctx, child.ID, newParent.ID)
+	require.NoError(t, err)
+
+	assert.Equal(t, "b work", trimNewline(gitRun(t, child.WorktreePath, "log", "--format=%s", "feature/a..HEAD")),
+		"the branch keeps its own commit, replayed onto the new parent")
+	assert.Empty(t, gitRun(t, child.WorktreePath, "merge-base", "--is-ancestor", "feature/a", "HEAD"))
 }

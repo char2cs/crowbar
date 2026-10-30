@@ -99,9 +99,21 @@ func (f importFixture) pushBranchToOrigin(
 	content string,
 ) string {
 	t.Helper()
+	return f.pushFileToOrigin(t, branch, base, "f.txt", content)
+}
+
+// pushFileToOrigin publishes branch @ base plus one commit writing content to file.
+func (f importFixture) pushFileToOrigin(
+	t *testing.T,
+	branch string,
+	base string,
+	file string,
+	content string,
+) string {
+	t.Helper()
 	runGit(t, f.seed, "checkout", "-B", branch, base)
-	require.NoError(t, writeFile(f.seed, "f.txt", content))
-	runGit(t, f.seed, "add", "f.txt")
+	require.NoError(t, writeFile(f.seed, file, content))
+	runGit(t, f.seed, "add", file)
 	runGit(t, f.seed, "commit", "-m", "on "+branch)
 	runGit(t, f.seed, "push", "-u", "origin", branch)
 	sha := strings.TrimSpace(runGitOut(t, f.seed, "rev-parse", "HEAD"))

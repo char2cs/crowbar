@@ -1874,7 +1874,7 @@ func TestReparent_AllowsLockedNewParent(t *testing.T) {
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"RevParse", "RebaseOnto", "WorkingTreeSummary"}, g.ops())
+	assert.Equal(t, []string{"RevParse", "MergeBase", "RebaseOnto", "WorkingTreeSummary"}, g.ops())
 }
 
 func TestReparent_RebasesOntoNewTipAndUpdatesAggregate(t *testing.T) {
@@ -1886,7 +1886,7 @@ func TestReparent_RebasesOntoNewTipAndUpdatesAggregate(t *testing.T) {
 		rID, rParent, rSha = id, parentID, forkPointSha
 		return domain.Workspace{ID: id}, nil
 	}
-	g := &fakeGit{revParseSha: "ntip"}
+	g := &fakeGit{revParseSha: "ntip", mergeBaseSha: "base"}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 
 	_, err := uc.Reparent(context.Background(), "c", "np")
@@ -1894,10 +1894,13 @@ func TestReparent_RebasesOntoNewTipAndUpdatesAggregate(t *testing.T) {
 	// A clean rebase settles the move and resyncs the child's working-tree summary
 	// against the new base, so a prior predicted-conflict status clears and the
 	// diff stats reflect the new parent.
-	assert.Equal(t, []string{"RevParse", "RebaseOnto", "WorkingTreeSummary"}, g.ops())
+	assert.Equal(t, []string{"RevParse", "MergeBase", "RebaseOnto", "WorkingTreeSummary"}, g.ops())
 	assert.Equal(t, []string{"/np", "HEAD"}, g.calls[0].args)
-	assert.Equal(t, []string{"/cw", "ntip", "fork", "feat"}, g.calls[1].args)
-	assert.Equal(t, []string{"/cw", "ntip"}, g.calls[2].args)
+	assert.Equal(t, []string{"/cw", "ntip", "feat"}, g.calls[1].args,
+		"a child with no parent row replays from its merge-base with the new tip")
+	assert.Equal(t, []string{"/cw", "ntip", "base", "feat"}, g.calls[2].args,
+		"the replay starts at the merge-base, never the recorded fork point")
+	assert.Equal(t, []string{"/cw", "ntip"}, g.calls[3].args)
 	assert.Equal(t, "c", rID)
 	assert.Equal(t, "np", rParent)
 	assert.Equal(t, "ntip", rSha)
