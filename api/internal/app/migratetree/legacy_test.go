@@ -67,8 +67,10 @@ func (l *legacy) project(id, homeID string, made time.Time) {
 		domain.Workspace{ID: homeID, ProjectID: id, Kind: domain.WorkspaceKindHome, CreatedAt: made})
 }
 
-func (l *legacy) workspace(id, projectID, repoID string) {
-	l.workspaces = append(l.workspaces, domain.Workspace{ID: id, ProjectID: projectID, RepoID: repoID})
+// branch is a workspace of the fixture's repo, in that repo's project.
+func (l *legacy) branch(id string) {
+	r := l.repos[0]
+	l.workspaces = append(l.workspaces, domain.Workspace{ID: id, ProjectID: r.ProjectID, RepoID: r.ID})
 }
 
 func (l *legacy) repo(id, projectID string) {

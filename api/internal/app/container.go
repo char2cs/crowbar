@@ -136,6 +136,8 @@ func New(
 	}
 	startRestoreTerminalSessions(ctx, ucs)
 	// Before the owner reconcile (a project home created here needs an owner).
+	// After the sweep and resumed deletes, which may purge before the Tree is
+	// seeded: placement-tree copies no row of a record already gone.
 	impls := postOpenImpls(newLegacyFuncs(repos, ucs, adapters.Home()), placement, legacySources(adapters, repos, gormStores))
 	if err := post.RunPostOpen(ctx, impls); err != nil {
 		return nil, c.abandon(ctx, fmt.Errorf("app: migrate: %w", err))

@@ -89,8 +89,8 @@ func pinned(t *testing.T) *legacy {
 	l.project("p1", "h1", time.Unix(100, 0))
 	l.project("p2", "h2", time.Unix(200, 0))
 	l.repo("r1", "p1")
-	l.workspace("ws-a", "p1", "r1")
-	l.workspace("ws-fork", "p1", "r1")
+	l.branch("ws-a")
+	l.branch("ws-fork")
 	l.folder(t, tree.Folder{ID: "f-repo", Name: "Repo F", RepoID: "r1"})
 	l.folder(t, tree.Folder{ID: "f-home", Name: "Home F", HomeID: "h1"})
 	l.folder(t, tree.Folder{ID: "f-legacy", Name: "Old"})
@@ -240,7 +240,7 @@ func TestPlacementTreeStep_ANodeUnderAParentNothingNamesHangsAtTheRoot(t *testin
 	l := newLegacy(t)
 	l.project("p1", "h1", time.Unix(100, 0))
 	l.repo("r1", "p1")
-	l.workspace("ws-a", "p1", "r1")
+	l.branch("ws-a")
 	l.nodes(t, legacyNode{ID: "ws-a", Kind: "workspace", ParentID: "gone", Order: 3})
 	ports := l.ports(t)
 
@@ -248,5 +248,35 @@ func TestPlacementTreeStep_ANodeUnderAParentNothingNamesHangsAtTheRoot(t *testin
 
 	assert.Equal(t, tree.Node{ID: "ws-a", Kind: tree.KindWorkspace, Order: 3}, treeOf(t, ports, "p1").Nodes["ws-a"])
 	assert.Equal(t, []migrate.Counts{{"nodes": 1, "folders": 0, "chats": 0, "rehung_to_root": 1}},
+		migratetest.Applied(t, l.h)[stepNumber])
+}
+
+// A row is copied only with the record it positions, and a folder only with its
+// scope: a delete that finished before the step ran leaves nothing in any Tree.
+func TestPlacementTreeStep_ARowOfARecordAlreadyGoneIsNotCopied(t *testing.T) {
+	l := newLegacy(t)
+	l.project("p1", "h1", time.Unix(100, 0))
+	l.repo("r1", "p1")
+	l.branch("ws-a")
+	l.chat(t, "c-live", "ws-a", "", 0)
+	l.chat(t, "c-under", "ws-a", "ws-purged", 4)
+	l.nodes(t,
+		legacyNode{ID: "c-live", Kind: "chat", ParentID: "ws-a"},
+		legacyNode{ID: "ws-a", Kind: "workspace", ParentID: "r1"},
+		legacyNode{ID: "c-purged", Kind: "chat", ParentID: "ws-a", Order: 1},
+		legacyNode{ID: "ws-purged", Kind: "workspace", ParentID: "r1", Order: 1},
+		legacyNode{ID: "f-gone", Kind: "folder", Order: 2},
+		legacyNode{ID: "f-of-gone-repo", Kind: "folder", Order: 3},
+	)
+	l.folder(t, tree.Folder{ID: "f-of-gone-repo", Name: "Orphan", RepoID: "r-gone"})
+	ports := l.ports(t)
+
+	require.NoError(t, l.boot(t, ports))
+
+	p1 := treeOf(t, ports, "p1")
+	assert.ElementsMatch(t, []string{"c-live", "ws-a"}, mapKeys(p1.Nodes))
+	assert.Equal(t, tree.Placement{Order: 4}, p1.Chats["c-under"], "a row under a dropped one hangs at the root")
+	assert.Equal(t, tree.Empty(tree.Unplaced), treeOf(t, ports, tree.Unplaced))
+	assert.Equal(t, []migrate.Counts{{"nodes": 2, "folders": 0, "chats": 2, "dropped_orphans": 5, "rehung_to_root": 1}},
 		migratetest.Applied(t, l.h)[stepNumber])
 }

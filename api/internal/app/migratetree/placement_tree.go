@@ -39,7 +39,7 @@ func PlacementTreeImpl(ports *repotree.Ports, src LegacySources) migrate.Impl {
 }
 
 func seedAll(ctx context.Context, ports *repotree.Ports, h LegacyHome, cp *migrate.Checkpoints) error {
-	trees, rehung := convert(h)
+	trees, tally := convert(h)
 	for _, t := range trees {
 		key := "project:" + t.ProjectID
 		if cp.Done(key) {
@@ -51,8 +51,8 @@ func seedAll(ctx context.Context, ports *repotree.Ports, h LegacyHome, cp *migra
 		counts := migrate.Counts{
 			"nodes": int64(len(t.Nodes)), "folders": int64(len(t.Folders)), "chats": int64(len(t.Chats)),
 		}
-		if n := rehung[t.ProjectID]; n > 0 {
-			counts["rehung_to_root"] = int64(n)
+		for name, n := range tally[t.ProjectID] {
+			counts[name] = int64(n)
 		}
 		if err := cp.Mark(key, counts); err != nil {
 			return fmt.Errorf("migratetree: mark %s: %w", t.ProjectID, err)
@@ -152,11 +152,18 @@ func mapKeys[V any](m map[string]V) []string {
 
 // convert files every record in the Tree of the project it belongs to, at its
 // legacy parent and order; one whose parent no record names hangs at its
-// scope's root. It returns the trees by project and the rows re-hung in each.
-func convert(h LegacyHome) ([]tree.Tree, map[string]int) {
+// scope's root, and a position row whose record is gone is dropped. It returns
+// the trees by project and, for each, the rows re-hung and dropped.
+func convert(h LegacyHome) ([]tree.Tree, map[string]map[string]int) {
 	pl := newPlacer(h)
 	trees := map[string]tree.Tree{}
-	rehung := map[string]int{}
+	tally := map[string]map[string]int{}
+	count := func(projectID, name string) {
+		if tally[projectID] == nil {
+			tally[projectID] = map[string]int{}
+		}
+		tally[projectID][name]++
+	}
 	into := func(id string) tree.Tree {
 		p := pl.projectOf(id, map[string]bool{})
 		if p == "" {
@@ -169,21 +176,30 @@ func convert(h LegacyHome) ([]tree.Tree, map[string]int) {
 	}
 	for _, n := range h.Nodes {
 		t := into(n.ID)
+		if !pl.positionsALiveRecord(n) {
+			count(t.ProjectID, "dropped_orphans")
+			continue
+		}
 		if n.ParentID != "" && !pl.known[n.ParentID] {
 			n.ParentID = ""
-			rehung[t.ProjectID]++
+			count(t.ProjectID, "rehung_to_root")
 		}
 		t.Nodes[n.ID] = n
 	}
-	for _, f := range pl.folders {
-		into(f.ID).Folders[f.ID] = f
+	for _, f := range h.Folders {
+		kept, ok := pl.folders[f.ID]
+		if !ok {
+			count(into(f.ID).ProjectID, "dropped_orphans")
+			continue
+		}
+		into(f.ID).Folders[f.ID] = kept
 	}
 	for _, c := range h.Chats {
 		t := into(c.ID)
 		p := c.Placement
 		if p.ParentID != "" && !pl.known[p.ParentID] {
 			p.ParentID = ""
-			rehung[t.ProjectID]++
+			count(t.ProjectID, "rehung_to_root")
 		}
 		t.Chats[c.ID] = p
 	}
@@ -192,7 +208,7 @@ func convert(h LegacyHome) ([]tree.Tree, map[string]int) {
 		out = append(out, t)
 	}
 	slices.SortFunc(out, func(a, b tree.Tree) int { return cmp.Compare(a.ProjectID, b.ProjectID) })
-	return out, rehung
+	return out, tally
 }
 
 // oldestProject is the project whose home was made first: a project keeps no
@@ -245,12 +261,16 @@ func newPlacer(h LegacyHome) *placer {
 		pl.chatWS[c.ID], pl.known[c.ID] = c.WorkspaceID, true
 		pl.hang(c.ID, c.Placement.ParentID)
 	}
-	for _, n := range h.Nodes {
-		pl.known[n.ID] = true
-		pl.hang(n.ID, n.ParentID)
-	}
 	for _, f := range h.Folders {
-		pl.folders[f.ID], pl.known[f.ID] = f, true
+		if pl.scopeLives(f) {
+			pl.folders[f.ID], pl.known[f.ID] = f, true
+		}
+	}
+	for _, n := range h.Nodes {
+		if pl.positionsALiveRecord(n) {
+			pl.known[n.ID] = true
+		}
+		pl.hang(n.ID, n.ParentID)
 	}
 	fallback := pl.homeOf[oldestProject(h)]
 	for id, f := range pl.folders {
@@ -260,6 +280,40 @@ func newPlacer(h LegacyHome) *placer {
 		}
 	}
 	return pl
+}
+
+// positionsALiveRecord is whether n's chat, workspace, repo or folder still
+// exists: a delete that finished before the step leaves its row behind.
+func (pl *placer) positionsALiveRecord(n tree.Node) bool {
+	switch n.Kind {
+	case tree.KindChat:
+		_, ok := pl.chatWS[n.ID]
+		return ok
+	case tree.KindWorkspace:
+		_, ok := pl.wsProject[n.ID]
+		return ok
+	case tree.KindRepo:
+		_, ok := pl.repoProject[n.ID]
+		return ok
+	case tree.KindFolder:
+		_, ok := pl.folders[n.ID]
+		return ok
+	}
+	return true
+}
+
+// scopeLives is whether f's repo or home still exists; a legacy folder that
+// names neither is given a home later.
+func (pl *placer) scopeLives(f tree.Folder) bool {
+	if f.RepoID != "" {
+		_, ok := pl.repoProject[f.RepoID]
+		return ok
+	}
+	if f.HomeID != "" {
+		_, ok := pl.wsProject[f.HomeID]
+		return ok
+	}
+	return true
 }
 
 // hang records id under parent; a Node row's parent wins over the chat's copy.
