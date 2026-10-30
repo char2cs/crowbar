@@ -72,17 +72,18 @@ function fitsStorageBudget(key: string, value: string): boolean {
 
 /** Every other chat's stash; none when storage is unavailable. */
 function otherStashes(key: string): [string, string][] {
+  const found: [string, string][] = []
   try {
-    const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
-    return keys
-      .filter((stored): stored is string => !!stored?.startsWith(KEY_PREFIX) && stored !== key)
-      .flatMap((stored) => {
-        const stash = localStorage.getItem(stored)
-        return stash === null ? [] : [[stored, stash] as [string, string]]
-      })
+    for (let index = 0; index < localStorage.length; index++) {
+      const stored = localStorage.key(index)
+      if (!stored?.startsWith(KEY_PREFIX) || stored === key) continue
+      const stash = localStorage.getItem(stored)
+      if (stash !== null) found.push([stored, stash])
+    }
   } catch {
     return []
   }
+  return found
 }
 
 /**

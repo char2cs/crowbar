@@ -224,15 +224,14 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   }, [dockHeight, notifyReflow])
 
   // An outbox prompt whose row landed is the rows' from then on, under the same key.
-  const unsent = useMemo(
-    () =>
-      new Map(
-        outbox
-          .filter((item) => !items?.[`p:${item.requestId}`])
-          .map((item) => [`p:${item.requestId}`, asUser(item)]),
-      ),
-    [outbox, items],
-  )
+  const unsent = useMemo(() => {
+    const byId = new Map<string, UserItem>()
+    for (const item of outbox) {
+      const id = `p:${item.requestId}`
+      if (!items?.[id]) byId.set(id, asUser(item))
+    }
+    return byId
+  }, [outbox, items])
   const rows = useMemo(() => {
     const all =
       liveTail.length + unsent.size > 0 ? [...order, ...liveTail, ...unsent.keys()] : order

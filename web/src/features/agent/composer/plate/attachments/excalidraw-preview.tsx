@@ -127,20 +127,19 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
     if (pngRef) return
     let cancelled = false
     setSvgMarkup(null)
-    void import('@excalidraw/excalidraw')
-      .then(({ restore, exportToSvg }) => {
+    const draw = async () => {
+      try {
+        const { restore, exportToSvg } = await import('@excalidraw/excalidraw')
         const restored = restore(
           { elements: scene.elements as never, appState: scene.appState, files: undefined },
           null,
           null,
         )
-        return exportToSvg({
+        const svg = await exportToSvg({
           elements: restored.elements,
           appState: restored.appState,
           files: restored.files,
         })
-      })
-      .then((svg) => {
         if (cancelled) return
         // A string handed to React's own `dangerouslySetInnerHTML`, not
         // `someRef.current.replaceChildren(svg)` (the previous approach):
@@ -162,8 +161,11 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
         setSvgMarkup(
           DOMPurify.sanitize(svg.outerHTML, { USE_PROFILES: { svg: true, svgFilters: true } }),
         )
-      })
-      .catch((error: unknown) => report(error, { action: 'Draw the diagram preview' }))
+      } catch (error) {
+        report(error, { action: 'Draw the diagram preview' })
+      }
+    }
+    void draw()
     return () => {
       cancelled = true
     }
