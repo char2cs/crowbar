@@ -16,8 +16,6 @@ export function FilePropertiesDialog({
         <dd className="min-w-0 break-words text-foreground">{properties.fileName}</dd>
         <dt className="text-muted-foreground">Path</dt>
         <dd className="min-w-0 break-words text-foreground">{properties.path}</dd>
-        <dt className="text-muted-foreground">Size</dt>
-        <dd className="text-foreground">{properties.size}</dd>
         <dt className="text-muted-foreground">Type</dt>
         <dd className="text-foreground">{properties.type}</dd>
       </dl>

@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react'
+import { act, render, renderHook, screen, within } from '@testing-library/react'
 import { isValidElement, type ReactNode } from 'react'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { useFileExplorerContextMenu } from '@/features/file-explorer/file-explorer/hooks/use-file-explorer-context-menu'
@@ -236,6 +236,26 @@ describe('useFileExplorerContextMenu — failures', () => {
     onTestFinished(() => void vi.unstubAllGlobals())
     return writeText
   }
+
+  it('Properties names the file, its path and its type', () => {
+    const options = baseOptions()
+    const { result } = renderHook(() => useFileExplorerContextMenu(options))
+    act(() => {
+      result.current.handleContextMenu(
+        mouseEvent as unknown as React.MouseEvent,
+        'api/main.go',
+        false,
+      )
+    })
+    click(findItems(result.current.contextMenuElement) ?? [], 'Properties')
+
+    render(<>{result.current.contextMenuElement}</>)
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByText('main.go')).toBeInTheDocument()
+    expect(within(dialog).getByText('api/main.go')).toBeInTheDocument()
+    expect(within(dialog).getByText('go')).toBeInTheDocument()
+    expect(within(dialog).queryByText('Size')).not.toBeInTheDocument()
+  })
 
   it("copies the file's text as the daemon reads it", async () => {
     const writeText = stubClipboard()

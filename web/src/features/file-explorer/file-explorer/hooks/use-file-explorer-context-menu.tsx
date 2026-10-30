@@ -26,7 +26,7 @@ import { ENV_TEMPLATE_TARGETS, isEnvFileName } from '@/features/file-explorer/li
 import { FilePropertiesDialog } from '@/features/file-explorer/file-explorer/components/file-properties-dialog'
 import { useEnvTemplateFile } from '@/features/file-explorer/file-explorer/hooks/use-env-template-file'
 import {
-  readFileProperties,
+  fileProperties,
   type FileProperties,
 } from '@/features/file-explorer/file-explorer/lib/file-properties'
 import { useFileClipboardStore } from '@/features/file-explorer/stores/file-explorer-clipboard-store'
@@ -285,7 +285,7 @@ export function useFileExplorerContextMenu({
           id: 'properties',
           label: 'Properties',
           icon: <Info />,
-          onClick: () => void readFileProperties(contextMenu.path).then(setPropertiesDialog),
+          onClick: () => setPropertiesDialog(fileProperties(contextMenu.path)),
         },
         { id: 'sep-file', label: '', separator: true, onClick: () => {} },
       )
