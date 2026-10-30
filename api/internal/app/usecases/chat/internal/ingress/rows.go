@@ -272,14 +272,14 @@ func mapStop(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 // closingRows are what a turn's end records of what it said: the answers
 // streamed with no row of their own, the reply its hook carried, the thought
 // behind it, and every ask nothing will answer now. One message is one whole
-// row: the reply is the provider's own record of its last message.
+// row, and the reply is its last message's.
 func closingRows(st ledger.State, turnID, reply string, src Source, outlived bool) ([]ledger.Row, error) {
 	said := unsaid(st, turnID, src.Live.Answers)
 	last, hasLast := st.LastMessage(turnID)
 	whole := hasLast && st.HasChunk("", last, ledger.IndexComplete)
 	if n := len(said); n > 0 {
 		last, hasLast, whole = said[n-1].ID, true, false
-		said[n-1].Text = cmp.Or(reply, said[n-1].Text)
+		said[n-1].Text = fuller(reply, said[n-1].Text)
 	}
 	if !hasLast {
 		last = ledger.ReplyID(turnID)
@@ -305,6 +305,15 @@ func closingRows(st ledger.State, turnID, reply string, src Source, outlived boo
 	}
 	abandoned, err := abandonAsks(st, turnID, outlived)
 	return append(rows, abandoned...), err
+}
+
+// fuller is the longer of a turn end's reply and the stream it names: the
+// reply may be another message's text, the stream may have lost frames.
+func fuller(reply, streamed string) string {
+	if len(reply) > len(streamed) {
+		return reply
+	}
+	return streamed
 }
 
 // unsaid are turnID's main-scope answers that streamed with no whole row.

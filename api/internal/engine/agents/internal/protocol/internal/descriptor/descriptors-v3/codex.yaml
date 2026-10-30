@@ -347,10 +347,9 @@ events:
       text:       delta
       turn_id:    turnId
 
-  # An agentMessage item's completion carries its whole text: the message's
-  # record, whatever of its delta stream arrived. text is not required: codex
-  # completes agentMessage items whose text is empty, and an empty message
-  # says nothing rather than mapping wrong (the fixture replay proves the path).
+  # An agentMessage's completion is its whole text, the message's record. text is
+  # not required: codex completes items with empty text, which say nothing rather
+  # than map wrong (the fixture replay proves the path).
   message_complete:
     required: [message_id]
     api:

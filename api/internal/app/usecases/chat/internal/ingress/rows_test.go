@@ -222,9 +222,7 @@ func TestMap_ATurnStopRecordsItsReplyWithItsEnd(t *testing.T) {
 		Diff:      []liveText{{TurnID: turnID, ID: turnID, Text: "+x"}},
 	}
 
-	rows, fx := c.mapped(engineagents.CanonicalEvent{
-		Kind: engineagents.HookTurnStop, TurnID: "pt-1", Message: "streamed, finished", Effort: "high",
-	}, s)
+	rows, fx := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, TurnID: "pt-1", Message: "streamed, finished", Effort: "high"}, s)
 
 	require.Equal(t, []ledger.Kind{ledger.KindAssistantText, ledger.KindReasoning, ledger.KindTurnEnded}, kinds(rows))
 	reply := bodyOf[ledger.AssistantText](t, rows[0])
@@ -391,17 +389,20 @@ func TestMap_AnIdleWithNothingRunningIsRecordedLate(t *testing.T) {
 	assert.Equal(t, ledger.ReasonNotAcknowledged, bodyOf[ledger.PromptSettled](t, rows[1]).Reason)
 }
 
-// A late end of a turn already over is written to it, as a late row.
-// A late turn_stop closes its turn no second time; what it said lands in it.
+// A late turn_stop closes its turn no second time; what it said lands in it,
+// the fuller of its reply and the stream it names.
 func TestMap_ALateTurnStopIsWrittenToItsTurn(t *testing.T) {
 	c := liveChatRows(t)
 	turnID := c.typed("go")
 	c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, TurnID: "pt-1"}, hooksSource())
+	s := hooksSource()
+	s.Live.Answers = []liveText{{TurnID: turnID, ID: "a1", Text: "the whole final answer"}}
 
-	rows, fx := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, TurnID: "pt-1", Message: "late"}, hooksSource())
+	rows, fx := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, TurnID: "pt-1", Message: "late"}, s)
 
 	require.Equal(t, []ledger.Kind{ledger.KindAssistantText}, kinds(rows))
 	assert.Equal(t, turnID, rows[0].TurnID)
+	assert.Equal(t, "the whole final answer", bodyOf[ledger.AssistantText](t, rows[0]).Text)
 	assert.Equal(t, turnID, fx.Ended)
 }
 
