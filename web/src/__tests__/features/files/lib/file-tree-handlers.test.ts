@@ -1,5 +1,10 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { createFileTreeHandlers, revealInFolder } from '@/features/files/lib/file-tree-handlers'
+import { describe, it, expect, beforeEach, onTestFinished, vi } from 'vitest'
+import {
+  createFileTreeHandlers,
+  refreshDirectory,
+  revealInFolder,
+} from '@/features/files/lib/file-tree-handlers'
+import * as fileTreeApi from '@/features/files/lib/file-tree-api'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { toastManager } from '@/lib/toast-manager'
 
@@ -89,6 +94,28 @@ describe('createFileTreeHandlers', () => {
     await handleRenamePath('a.ts')
 
     expect(store.getState().files[0]).toMatchObject({ isRenaming: true, isEditing: true })
+  })
+})
+
+describe('refreshDirectory', () => {
+  it('a failed re-list reports why and keeps the tree', async () => {
+    const list = vi
+      .spyOn(fileTreeApi, 'fetchFileTree')
+      .mockRejectedValueOnce(new Error('daemon unreachable'))
+    onTestFinished(() => list.mockRestore())
+    const store = createWorkspaceStore('ws-refresh')
+    const files = [{ name: 'a.ts', path: 'a.ts', isDir: false }]
+    store.getState().fileTreeActions.setFiles(files)
+
+    await refreshDirectory('ws-refresh', store)
+
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Refresh the file tree',
+        description: 'daemon unreachable',
+      }),
+    )
+    expect(store.getState().files).toEqual(files)
   })
 })
 

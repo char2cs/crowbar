@@ -14,6 +14,7 @@ import type { AppFile } from '@/features/file-system/types/app'
 import { revealItemInFinder } from '@/lib/crowbar-bridge'
 import { resolveWorkspaceRootPath } from '@/lib/workspace/resolve-root-path'
 import { toast } from '@/features/window/stores/toast-store'
+import { report } from '@/lib/errors/report'
 import { joinPath } from '@/utils/path-helpers'
 
 /** Which pane a file opens into (C8). Omitted, the focused pane. */
@@ -66,8 +67,13 @@ export async function refreshDirectory(
   store: WorkspaceStore,
   path?: string,
 ): Promise<void> {
-  const fresh = await fetchFileTree(wsId, path || undefined).catch(() => null)
-  if (!Array.isArray(fresh)) return
+  let fresh: AppFile[]
+  try {
+    fresh = await fetchFileTree(wsId, path || undefined)
+  } catch (err) {
+    report(err, { action: 'Refresh the file tree' })
+    return
+  }
   const { files, fileTreeActions } = store.getState()
   const reconciled = preserveLoadedChildren(files, fresh)
   fileTreeActions.setFiles(!path ? reconciled : mergeChildren(files, path, reconciled))

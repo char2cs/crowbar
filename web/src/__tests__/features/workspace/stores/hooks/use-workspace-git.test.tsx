@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react'
-import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterEach, onTestFinished, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useWorkspaceGit } from '@/features/workspace/stores/hooks/use-workspace-git'
 import { requestGitRefresh, useGitRefreshStore } from '@/features/git/stores/git-refresh'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
+import { toastManager } from '@/lib/toast-manager'
 
 const { fetchGitData, subscribe } = vi.hoisted(() => ({
   fetchGitData: vi.fn(),
@@ -139,6 +140,20 @@ describe('useWorkspaceGit', () => {
       frame({ ...status, ahead: 2 })
       await vi.advanceTimersByTimeAsync(500)
       expect(reloadStatusAndLog).toHaveBeenCalledTimes(2)
+    })
+
+    it('a failed push-driven reload reports why', async () => {
+      const { reloadStatusAndLog } = await ready()
+      const toastAdd = vi.spyOn(toastManager, 'add')
+      onTestFinished(() => toastAdd.mockRestore())
+      reloadStatusAndLog.mockRejectedValueOnce(new Error('git status failed'))
+
+      onGitFrame()({ ...status, ahead: 1 })
+      await vi.advanceTimersByTimeAsync(500)
+
+      expect(toastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Refresh git status', description: 'git status failed' }),
+      )
     })
 
     it('tells open diff views to refetch after the push-driven reload', async () => {

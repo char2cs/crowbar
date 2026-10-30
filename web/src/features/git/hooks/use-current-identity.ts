@@ -1,5 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { getIdentity, type IdentityDTO } from '@/features/git/api/identity-api'
+import { report } from '@/lib/errors/report'
 import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 
 // Per-workspace in-memory cache so re-renders and sibling mounts do not
@@ -27,8 +28,9 @@ export async function resolveIdentity(wsId: string): Promise<IdentityDTO | null>
       inFlight.delete(wsId)
       return result
     })
-    .catch(() => {
+    .catch((err: unknown) => {
       inFlight.delete(wsId)
+      report(err, { action: 'Load your Git identity' })
       return null
     })
   inFlight.set(wsId, promise)
@@ -41,14 +43,8 @@ export async function resolveIdentity(wsId: string): Promise<IdentityDTO | null>
  */
 export function useCurrentIdentity(wsId: string): IdentityDTO | null {
   const [identity, setIdentity] = useState<IdentityDTO | null>(() => cache.get(wsId) ?? null)
-  // identityBaseForWorkspace(wsId) throws without a recorded owning chat id —
-  // the sidebar's chat-list fetch that records one races WorkspaceView's own
-  // (often faster) hydration. resolveIdentity already swallows that throw
-  // (.catch(() => null)), so it never crashes, but a hook that only fires
-  // once per wsId would resolve to null forever once raced. Subscribing here
-  // makes the id a piece of React state so the effect below re-runs the
-  // moment the sidebar records one, same fix as useWorkspaceEffects'
-  // useOwningChatId.
+  // The identity route needs the owning chat id, which the sidebar may record
+  // after this mounts; subscribing re-runs the effect the moment it lands.
   const owningChatId = useSyncExternalStore(
     (onChange) => subscribeToWorkspaceScope(wsId, onChange),
     () => getOwningChatId(wsId),

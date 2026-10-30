@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, onTestFinished, vi } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { useWorkspaceFileTree } from '@/features/workspace/stores/hooks/use-workspace-file-tree'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
@@ -7,6 +7,7 @@ import { createWorkspaceStore } from '@/features/workspace/stores/workspace-stor
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
 import type { AppFile } from '@/features/file-system/types/app'
+import { toastManager } from '@/lib/toast-manager'
 
 const { fetchFileTree, subscribe, reconcileBuffers } = vi.hoisted(() => ({
   fetchFileTree: vi.fn(),
@@ -84,6 +85,32 @@ describe('useWorkspaceFileTree', () => {
     rerender({ active: true })
     await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
     expect(fetchFileTree).toHaveBeenCalledTimes(2)
+  })
+
+  it('a failed tree load reports why', async () => {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    onTestFinished(() => toastAdd.mockRestore())
+    fetchFileTree.mockRejectedValueOnce(new Error('daemon unreachable'))
+    const { store } = setup()
+    await waitFor(() => expect(store.getState().fileTreeStatus).toBe('failed'))
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Load the file tree', description: 'daemon unreachable' }),
+    )
+  })
+
+  it('a failed check of open files against disk reports why', async () => {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    onTestFinished(() => toastAdd.mockRestore())
+    reconcileBuffers.mockRejectedValueOnce(new Error('read failed'))
+    setup()
+    await waitFor(() =>
+      expect(toastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Check open files against disk',
+          description: 'read failed',
+        }),
+      ),
+    )
   })
 
   // The files stream carries no snapshot on subscribe: a structural change is

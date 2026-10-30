@@ -13,7 +13,7 @@ import {
   syncBufferWithDisk,
 } from '@/features/workspace/lib/external-buffer-sync'
 import { workspaceRef } from '@/lib/api/documents'
-import { bestEffort } from '@/lib/best-effort'
+import { report } from '@/lib/errors/report'
 import { wsManager } from '@/lib/ws/manager'
 import { useWorkspaceStore } from '../workspace-context'
 
@@ -39,6 +39,12 @@ function isStructuralChange(type: string | undefined): boolean {
   return type === 'created' || type === 'deleted' || type === 'renamed'
 }
 
+function reconcileDocuments(wsId: string): void {
+  void reconcileWorkspaceDocuments(wsId).catch((err: unknown) =>
+    report(err, { action: 'Check open files against disk' }),
+  )
+}
+
 /**
  * Keeps `wsId`'s own file tree (its workspace store's slice) loaded and live.
  *
@@ -62,17 +68,17 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
     const { fileTreeStatus, fileTreeActions } = store.getState()
     if (fileTreeStatus === 'loading' || fileTreeStatus === 'ready') return
     fileTreeActions.setFileTreeStatus('loading')
-    void fetchFileTree(wsId)
-      .catch(() => null)
-      .then((root) => {
-        if (!Array.isArray(root)) {
-          fileTreeActions.setFileTreeStatus('failed')
-          return
-        }
+    void fetchFileTree(wsId).then(
+      (root) => {
         store.setState({ files: root, fileTreeStatus: 'ready' })
         // Documents restored while this workspace was never shown may predate disk.
-        bestEffort(reconcileWorkspaceDocuments(wsId), 'reconcile documents')
-      })
+        reconcileDocuments(wsId)
+      },
+      (err: unknown) => {
+        fileTreeActions.setFileTreeStatus('failed')
+        report(err, { action: 'Load the file tree' })
+      },
+    )
   }, [store, wsId, active, chatScopeReady])
 
   // Lazily fetch a directory's children the first time it is expanded, and
@@ -91,7 +97,7 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
           const { files: current, fileTreeActions } = store.getState()
           fileTreeActions.setFiles(mergeChildren(current, path, children))
         })
-        .catch(() => {})
+        .catch((err: unknown) => report(err, { action: 'Load the folder' }))
         .finally(() => loadingDirs.current.delete(path))
     }
   }, [store, wsId, expandedPaths, files, chatScopeReady])
@@ -107,7 +113,7 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
       // Writes may have been missed while the socket was down.
       if (evt?.reconnected) {
         void refreshDirectory(wsId, store)
-        bestEffort(reconcileWorkspaceDocuments(wsId), 'reconcile documents')
+        reconcileDocuments(wsId)
         return
       }
       if (!evt?.path) return

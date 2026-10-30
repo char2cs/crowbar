@@ -7,6 +7,7 @@ import {
   onGitStatusChanged,
 } from '@/features/git/stores/git-refresh'
 import { gitBaseForWorkspace } from '@/lib/workspace-scope-url'
+import { report } from '@/lib/errors/report'
 import { wsManager } from '@/lib/ws/manager'
 import { useWorkspaceStore } from '../workspace-context'
 
@@ -64,7 +65,7 @@ export function useWorkspaceGit(
           .then(() => {
             if (!cancelled) markGitStatusChanged(wsId)
           })
-          .catch(() => {})
+          .catch((err: unknown) => report(err, { action: 'Refresh git status' }))
       }, GIT_REFRESH_DEBOUNCE_MS)
     }
     // The first push repeats the status the load returned; seeding from it
