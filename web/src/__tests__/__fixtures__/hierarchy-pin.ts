@@ -15,7 +15,6 @@ const workspace = (over: Partial<WorkspaceDTO> & Pick<WorkspaceDTO, 'id'>): Work
   forkPointSha: '',
   status: 'new',
   working: false,
-  lastError: '',
   added: 0,
   deleted: 0,
   mergeStrategy: '',
