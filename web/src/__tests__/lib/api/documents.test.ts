@@ -10,6 +10,7 @@ import { toastManager } from '@/lib/toast-manager'
 import { apiFetch } from '@/lib/api/fetch'
 import {
   HOST_DOCUMENT_TRANSPORT_CODE,
+  PREVIEW_ABSENT,
   readDocument,
   readDocumentFromDisk,
   workspaceRef,
@@ -83,6 +84,28 @@ describe('readDocumentFromDisk', () => {
       expect.objectContaining({
         title: 'Read the file from disk',
         description: 'permission denied',
+      }),
+    )
+  })
+})
+
+describe('readDocumentFromDisk for a peek', () => {
+  it('a file the peek may not read is absent, with no toast', async () => {
+    fetchMock
+      .mockRejectedValueOnce(new ApiError('remote transport', 409, HOST_DOCUMENT_TRANSPORT_CODE))
+      .mockRejectedValueOnce(new ApiError('outside the workspace', 403))
+      .mockRejectedValueOnce(new ApiError('daemon unreachable', 503))
+
+    const sdkFile = { absolutePath: '/usr/lib/go/src/fmt/print.go' }
+    expect(await readDocumentFromDisk(sdkFile, PREVIEW_ABSENT)).toBeNull()
+    expect(await readDocumentFromDisk(sdkFile, PREVIEW_ABSENT)).toBeNull()
+    expect(toastAdd).not.toHaveBeenCalled()
+
+    expect(await readDocumentFromDisk(sdkFile, PREVIEW_ABSENT)).toBeNull()
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Read the file from disk',
+        description: 'daemon unreachable',
       }),
     )
   })

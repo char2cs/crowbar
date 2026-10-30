@@ -5,7 +5,7 @@
  */
 import { editor as monacoEditor, Uri } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
-import { readDocumentFromDisk, workspaceRef } from '@/lib/api/documents'
+import { PREVIEW_ABSENT, readDocumentFromDisk, workspaceRef } from '@/lib/api/documents'
 import { getEditorHost } from '@/features/editor/host/editor-host'
 import { documentUri, refFromUri } from '../documents/document-ref'
 import { langForUri } from '../lib/monaco-adapters'
@@ -53,7 +53,7 @@ export async function ensurePreviewModels(locations: Monaco.languages.Location[]
     [...uris].map(async (raw) => {
       const ref = refFromUri(raw)
       if (!ref || monacoEditor.getModel(Uri.parse(raw))) return
-      const text = await readDocumentFromDisk(ref)
+      const text = await readDocumentFromDisk(ref, PREVIEW_ABSENT)
       if (text === null || monacoEditor.getModel(Uri.parse(raw))) return
       const uri = documentUri(ref)
       peekModels.add(monacoEditor.createModel(text, langForUri(uri), Uri.parse(uri)))

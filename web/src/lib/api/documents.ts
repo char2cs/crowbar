@@ -1,5 +1,5 @@
 import { apiFetch } from '@/lib/api/fetch'
-import { problemOf } from '@/lib/errors/problem'
+import { problemOf, type ProblemCode } from '@/lib/errors/problem'
 import { report } from '@/lib/errors/report'
 import {
   decodeFileContent,
@@ -60,12 +60,22 @@ export function isWatchLimit(refusal: unknown): boolean {
   return refusal instanceof Error && /\b507\b/.test(String(refusal.cause))
 }
 
-/** The document's text as saved on disk; null when the file is gone or the read failed. */
-export async function readDocumentFromDisk(target: DocumentTarget): Promise<string | null> {
+// A peek may point at a host or SDK file the transport or the daemon will not serve.
+export const PREVIEW_ABSENT: readonly ProblemCode[] = [
+  'not_found',
+  'forbidden',
+  HOST_DOCUMENT_TRANSPORT_CODE,
+]
+
+/** The document's text as saved on disk; null when it is `absent` or the read failed (reported). */
+export async function readDocumentFromDisk(
+  target: DocumentTarget,
+  absent: readonly ProblemCode[] = ['not_found'],
+): Promise<string | null> {
   try {
     return (await readDocument(target)).text
   } catch (err) {
-    if (problemOf(err).code !== 'not_found') report(err, { action: 'Read the file from disk' })
+    if (!absent.includes(problemOf(err).code)) report(err, { action: 'Read the file from disk' })
     return null
   }
 }
