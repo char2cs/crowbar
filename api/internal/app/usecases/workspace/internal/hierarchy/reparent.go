@@ -8,6 +8,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
@@ -42,7 +43,8 @@ func (u *hierarchyUsecase) Reparent(
 	return u.replayAndReparent(ctx, child, newParentID, tip, base)
 }
 
-// parentBranch is the branch of child's current parent, "" for a root.
+// parentBranch is the branch of child's current parent: "" for a root, and for
+// a parent row that is gone, so an orphaned child can still be moved.
 func (u *hierarchyUsecase) parentBranch(
 	ctx context.Context,
 	child domain.Workspace,
@@ -51,6 +53,9 @@ func (u *hierarchyUsecase) parentBranch(
 		return "", nil
 	}
 	parent, err := u.workspaces.Get(ctx, child.ParentID)
+	if problem.CodeOf(err) == problem.NotFound {
+		return "", nil
+	}
 	if err != nil {
 		return "", fmt.Errorf("get parent: %w", err)
 	}
@@ -144,7 +149,7 @@ func (u *hierarchyUsecase) settleReparent(
 		return synced, nil
 	}
 	if conflicted {
-		return domain.Workspace{}, fmt.Errorf("reparent: flag conflict: %w", syncErr)
+		return domain.Workspace{}, fmt.Errorf("reparent: moved under %s, but marking its rebase conflict failed: %w", newParentID, syncErr)
 	}
 	slog.WarnContext(ctx, "reparent: child summary resync failed; read-model will self-correct",
 		"workspace_id", child.ID, "err", syncErr)

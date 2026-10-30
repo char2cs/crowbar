@@ -2,10 +2,12 @@ package hierarchy_test
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
 
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -153,6 +155,7 @@ func TestRegression_ConflictingReparentMarksTheChildConflicting(t *testing.T) {
 	}
 	_, err = uc.Reparent(context.Background(), "c", "np")
 	require.ErrorIs(t, err, errBoom, "an unflagged conflicting move would be silent")
+	assert.ErrorContains(t, err, "moved under np", "the move already landed; the failure must say so")
 }
 
 // TestRegression_ReparentKeepsCommitsAStaleForkPointWouldDrop: an imported
@@ -293,4 +296,28 @@ func TestRegression_ReparentWithoutAReflogKeepsEveryCommit(t *testing.T) {
 	amend(t, p)
 	gitRun(t, h.repoPath, "reflog", "expire", "--expire=now", "--all")
 	assert.Equal(t, "c work\np work", movedOnto(t, h, c))
+}
+
+// TestRegression_ReparentMovesAChildWhoseParentRowIsGone: a dangling parent id
+// is a root, so the replay falls back to the new tip instead of refusing.
+func TestRegression_ReparentMovesAChildWhoseParentRowIsGone(t *testing.T) {
+	child := domain.Workspace{ID: "c", ParentID: "gone", Branch: "feat", WorktreePath: "/cw", Provisioning: domain.WorkspaceProvisioned}
+	newParent := domain.Workspace{ID: "np", WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
+	ws := reparentWS(child, newParent, nil)
+	get := ws.GetFn
+	ws.GetFn = func(ctx context.Context, id string) (domain.Workspace, error) {
+		if id == "gone" {
+			return domain.Workspace{}, fmt.Errorf("workspace: get: %w", asynxModels.ErrNotFound)
+		}
+		return get(ctx, id)
+	}
+	ws.ReparentFn = func(_ context.Context, id, _, _ string, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{ID: id}, nil
+	}
+	g := &fakeGit{revParseSha: "ntip", mergeBaseSha: "base"}
+	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	_, err := uc.Reparent(context.Background(), "c", "np")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/cw", "ntip", "feat"}, g.calls[1].args, "replays from the new tip")
 }
