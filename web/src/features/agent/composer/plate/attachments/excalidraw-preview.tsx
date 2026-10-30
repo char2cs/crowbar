@@ -4,7 +4,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import DOMPurify from 'dompurify'
 import { PencilSimpleIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
-import { report } from '@/lib/errors/report'
 import { cn } from '@/lib/utils'
 import { loadLocalImage, useMarkdownAsset } from '@/features/editor/markdown/plate/markdown-asset'
 import { isDarkMode, useThemeVersion } from '@/features/editor/theme/use-theme-version'
@@ -161,8 +160,9 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
         setSvgMarkup(
           DOMPurify.sanitize(svg.outerHTML, { USE_PROFILES: { svg: true, svgFilters: true } }),
         )
-      } catch (error) {
-        report(error, { action: 'Draw the diagram preview' })
+      } catch {
+        // (F) A scene restore() cannot repair draws the placeholder: a fallback, not an error.
+        if (!cancelled) setSvgMarkup(null)
       }
     }
     void draw()

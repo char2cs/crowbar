@@ -146,6 +146,16 @@ export default tseslint.config(
         },
         {
           selector:
+            "CallExpression[callee.property.name='catch'] > FunctionExpression.arguments[body.body.length=0]",
+          message: '.catch(function () {}) hides a failure: report() it.',
+        },
+        {
+          selector:
+            "CallExpression[callee.property.name='then'][arguments.length=2] > :matches(ArrowFunctionExpression, FunctionExpression).arguments:last-child[body.type='BlockStatement'][body.body.length=0]",
+          message: '.then(onDone, () => {}) hides a failure: report() it.',
+        },
+        {
+          selector:
             "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[body.type='Literal'][body.raw='null']",
           message: '.catch(() => null) hides a failure: handle it or report() it.',
         },

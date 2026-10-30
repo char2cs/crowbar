@@ -44,10 +44,11 @@ test('web.swallowed-promise counts .catch handlers that discard the rejection', 
       'p.catch(() => undefined)',
       'p.catch(() => null)',
       'p.catch(() => { /* ignore */ })',
+      'p.catch(function () {})',
     ),
-    5,
+    6,
   )
-  assert.equal(count('web.swallowed-promise', 'web', 'p.catch((e) => report(e))', 'p.catch(() => { retry() })'), 0)
+  assert.equal(count('web.swallowed-promise', 'web', 'p.catch((e) => report(e))', 'p.catch(() => { retry() })', 'p.catch(function (e) { report(e) })'), 0)
 })
 
 test('only non-test files of the counter language are scanned', () => {
