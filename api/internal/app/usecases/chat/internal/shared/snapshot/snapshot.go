@@ -190,6 +190,11 @@ func (s *Snapshots) ApplyChat(ctx context.Context, chat domain.Chat, version int
 	}
 	st := s.stateLocked(chat.ID)
 	if version >= st.chatVersion {
+		// Placement is the Tree's, announced through ApplyPlacement; the event's
+		// copy was read when it was raised and may predate a move.
+		if st.loaded {
+			chat.ParentID, chat.Order = st.chat.ParentID, st.chat.Order
+		}
 		st.chat, st.chatVersion, st.loaded = chat, version, true
 	}
 	s.emitChatLocked(ctx, chat.ID, kind, "")

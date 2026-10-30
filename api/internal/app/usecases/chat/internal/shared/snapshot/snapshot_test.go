@@ -316,3 +316,19 @@ func TestSnapshots_AnAnnouncedPlacementWinsOverTheRowALoadReads(t *testing.T) {
 	assert.Equal(t, 3, held.Chat.Order, "the owner holds it for every later read")
 	assert.Equal(t, "t", held.Chat.Title)
 }
+
+// A chat event read its placement when it was raised; one delivered after a
+// later move keeps the move, because placement is the Tree's and announced apart.
+func TestSnapshots_AChatEventNeverRedrawsAChatAtAPlaceItLeft(t *testing.T) {
+	ctx := context.Background()
+	s, rec, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", ParentID: "f-old"}}})
+	s.ApplyChat(ctx, domain.Chat{ID: "c1", ParentID: "f-old"}, 1, "created", false)
+	s.ApplyPlacement(ctx, "c1", "f-new", 2, "placement_set")
+
+	s.ApplyChat(ctx, domain.Chat{ID: "c1", Title: "t", ParentID: "f-old"}, 2, "title_set", false)
+
+	got := rec.last(t).Snapshot.Chat
+	assert.Equal(t, "t", got.Title)
+	assert.Equal(t, "f-new", got.ParentID)
+	assert.Equal(t, 2, got.Order)
+}
