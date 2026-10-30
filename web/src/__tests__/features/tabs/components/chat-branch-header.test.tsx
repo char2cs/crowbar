@@ -9,6 +9,7 @@ import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-con
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import type { Chat, Repo, Workspace } from '@/lib/store/sidebar'
+import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 vi.mock('@/components/sidebar/lib/row-actions', () => ({
   performRenameChat: vi.fn().mockResolvedValue(undefined),
@@ -68,14 +69,8 @@ function renderHeader({
   repos?: Repo[]
 } = {}) {
   const store = createWorkspaceStore('w1')
-  store.setState((s) => ({
-    ...s,
-    agentChats: {
-      ...s.agentChats,
-      chats: [makeChat({ title })],
-      working: { 'chat-1': working },
-    },
-  }))
+  resetChatStore()
+  writeChat({ ...makeChat({ title }), working })
   useSidebarStore.setState({ repos })
 
   return render(
@@ -91,10 +86,7 @@ function renderHeader({
  *  from a saved layout, or a list that raced it. */
 function renderHeaderWithoutChatRecord() {
   const store = createWorkspaceStore('w1')
-  store.setState((s) => ({
-    ...s,
-    agentChats: { ...s.agentChats, chats: [], listSeeded: true },
-  }))
+  resetChatStore()
   useSidebarStore.setState({ repos: [makeRepo([makeWorkspace()])] })
 
   return render(
@@ -225,10 +217,8 @@ describe('ChatBranchHeader', () => {
 
   it('merges a caller-supplied className onto its own root element', () => {
     const store = createWorkspaceStore('w1')
-    store.setState((s) => ({
-      ...s,
-      agentChats: { ...s.agentChats, chats: [makeChat()] },
-    }))
+    resetChatStore()
+    writeChat(makeChat())
     render(
       createElement(
         WorkspaceStoreContext.Provider,

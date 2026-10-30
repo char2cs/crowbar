@@ -13,8 +13,10 @@ import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import { askItem } from '@/__tests__/__fixtures__/ledger-rows'
 import { saveExcalidrawDesign } from '@/features/agent/composer/lib/excalidraw-design-persistence'
 import type { ParsedExcalidrawScene } from '@/features/agent/composer/plate/attachments/excalidraw-scene'
-import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import {
+  requestExcalidrawEdit,
+  useExcalidrawEditRequests,
+} from '@/features/agent/composer/lib/excalidraw-edit-requests'
 
 vi.mock('@/features/agent/api/upload-chat-attachment', () => ({
   uploadChatAttachment: vi.fn(),
@@ -204,33 +206,23 @@ describe('AgentComposer', () => {
   // (excalidraw-preview.tsx) has no direct line to the composer that owns the
   // takeover — it reaches it entirely through this store signal.
   it('opens the takeover preloaded when the store requests an excalidraw edit for this chat, and clears the request', async () => {
-    const store = createWorkspaceStore('w1')
     const scene: ParsedExcalidrawScene = { elements: [{ id: 'from-agent' }], appState: {} }
-    render(
-      <WorkspaceStoreContext.Provider value={store}>
-        <AgentComposer {...baseProps} />
-      </WorkspaceStoreContext.Provider>,
-    )
+    render(<AgentComposer {...baseProps} />)
 
-    act(() => store.getState().requestExcalidrawEdit('c1', scene))
+    act(() => requestExcalidrawEdit('c1', scene))
 
     await screen.findByTestId('excalidraw-takeover')
     expect(latestExcalidrawInitialScene).toEqual(scene)
-    expect(store.getState().agentChats.excalidrawEditRequests['c1']).toBeUndefined()
+    expect(useExcalidrawEditRequests.getState().requests['c1']).toBeUndefined()
   })
 
   it('ignores an edit request queued for a different chat', () => {
-    const store = createWorkspaceStore('w1')
-    render(
-      <WorkspaceStoreContext.Provider value={store}>
-        <AgentComposer {...baseProps} chatId="c1" />
-      </WorkspaceStoreContext.Provider>,
-    )
+    render(<AgentComposer {...baseProps} chatId="c1" />)
 
-    act(() => store.getState().requestExcalidrawEdit('c2', { elements: [], appState: {} }))
+    act(() => requestExcalidrawEdit('c2', { elements: [], appState: {} }))
 
     expect(screen.queryByTestId('excalidraw-takeover')).not.toBeInTheDocument()
-    expect(store.getState().agentChats.excalidrawEditRequests['c2']).toBeDefined()
+    expect(useExcalidrawEditRequests.getState().requests['c2']).toBeDefined()
   })
 
   // Task 30 (AttachFileModal) replaces its own placeholder — opening it now

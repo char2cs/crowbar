@@ -11,7 +11,7 @@ import {
   createSurfaceFor,
   providerCanStartOnTerminal,
 } from '@/features/agent/api/agent-providers-api'
-import { selectEnabledProviders } from '@/features/workspace/stores/slices/agent-chats-slice'
+import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { presetChatLandingPresentation } from '@/features/agent/hooks/use-chat-presentation'
 import {
@@ -113,7 +113,7 @@ export function usePaneKeyboard() {
         // ⌘N is registered in the keymap and rendered as a badge on the New
         // Tab surface's "New Chat" action, but nothing dispatched it (I4) — a
         // rebindable command whose chord did nothing. Picks the first ENABLED
-        // provider (selectEnabledProviders — the same rule every New-chat
+        // provider (the same rule every New-chat
         // surface uses; a disabled provider is never offered), creates the
         // chat, then opens it as its OWN VIEW (spec §8.4, same as clicking a
         // chat in the tree) via `openChat` — never into the active pane.
@@ -129,7 +129,7 @@ export function usePaneKeyboard() {
         const wantsTerminal = matches(AGENT_NEW_CHAT_TERMINAL)
         e.preventDefault()
         const state = workspaceStore.getState()
-        const provider = selectEnabledProviders(state)[0]
+        const provider = useAgentProvidersStore.getState().providers.find((p) => p.enabled)
         if (!provider) return
         // The surface travels on the CREATE, not just into the landing seed:
         // it is what decides which of the provider's faces the daemon forks.
@@ -153,7 +153,6 @@ export function usePaneKeyboard() {
             if (surface === 'terminal') {
               presetChatLandingPresentation(chatId, 'terminal')
             }
-            workspaceStore.getState().setActiveAgentChatId(chatId)
             // A brand-new chat has no runner yet — null until it spawns one.
             windowPaneStore
               .getState()

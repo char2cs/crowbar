@@ -108,14 +108,11 @@ function store() {
 
 /**
  * The ordinary situation: a workspace is in view and the providers are already
- * known. Seeds BOTH copies — the global one the tab reads and the workspace one
- * the chat surfaces read — and points the mount refresh at the same answer the
- * server would give, so re-fetching is a no-op rather than a surprise.
+ * known; the mount refresh gets the same answer the server would give.
  */
 function seedProviders(providers: AgentProvider[]) {
   listProvidersFn.mockResolvedValue(providers)
   act(() => {
-    store().getState().setAgentProviders(providers)
     setActiveWorkspaceStoreForTests(store())
     setActiveWorkspaceId('w1')
     useAgentProvidersStore.setState({ providers, status: 'ready' })
@@ -146,14 +143,6 @@ function deferred<T>() {
 /** What the tab itself is showing, read off the store it renders from. */
 const enabledById = () =>
   Object.fromEntries(useAgentProvidersStore.getState().providers.map((p) => [p.id, p.enabled]))
-
-/** The workspace copy the chat surfaces read — a write must reach it too. */
-const workspaceEnabledById = () =>
-  Object.fromEntries(
-    store()
-      .getState()
-      .agentChats.providers.map((p) => [p.id, p.enabled]),
-  )
 
 beforeEach(() => {
   updateProviderPreferencesFn.mockReset()
@@ -401,7 +390,7 @@ describe('ProvidersSettings', () => {
   })
 
   describe('loading the list', () => {
-    it('fetches on mount through the active workspace and mirrors it into that store', async () => {
+    it('fetches on mount through the active workspace', async () => {
       act(() => {
         setActiveWorkspaceStoreForTests(store())
         setActiveWorkspaceId('w1')
@@ -412,9 +401,6 @@ describe('ProvidersSettings', () => {
 
       await waitFor(() => expect(screen.getByText('Codex')).toBeInTheDocument())
       expect(listProvidersFn).toHaveBeenCalledWith('w1')
-      // The chat surfaces read the workspace copy — opening Settings must repair
-      // it too, not just the dialog in front of the user.
-      await waitFor(() => expect(workspaceEnabledById()).toEqual({ codex: true }))
     })
 
     it('shows a loading state while the first fetch is in flight', () => {
@@ -443,6 +429,22 @@ describe('ProvidersSettings', () => {
       await waitFor(() => expect(screen.getByTestId('providers-unavailable')).toBeInTheDocument())
       expect(screen.queryByText('No agents available.')).toBeNull()
     })
+
+    it('loads the list again from the unavailable state when asked to retry', async () => {
+      act(() => {
+        setActiveWorkspaceStoreForTests(store())
+        setActiveWorkspaceId('w1')
+      })
+      listProvidersFn.mockRejectedValueOnce(new Error('daemon is down'))
+      listProvidersFn.mockResolvedValueOnce([provider('codex', 'Codex', true, true)])
+      render(<ProvidersSettings />)
+      await waitFor(() => expect(screen.getByTestId('providers-unavailable')).toBeInTheDocument())
+
+      await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+      await waitFor(() => expect(screen.getByText('Codex')).toBeInTheDocument())
+      expect(listProvidersFn).toHaveBeenCalledTimes(2)
+    })
   })
 
   it('toggling enable PUTs the full ordered preference list and reconciles the store', async () => {
@@ -465,7 +467,7 @@ describe('ProvidersSettings', () => {
 
     // Store reconciled from the mocked response, not from local optimism.
     await waitFor(() => {
-      expect(store().getState().agentChats.providers[0].enabled).toBe(false)
+      expect(useAgentProvidersStore.getState().providers[0].enabled).toBe(false)
     })
   })
 
@@ -519,7 +521,7 @@ describe('ProvidersSettings', () => {
 
       // Round trip: the reconciled store, and the switch, both say off.
       await waitFor(() => {
-        expect(store().getState().agentChats.providers[0].mcpEnabled).toBe(false)
+        expect(useAgentProvidersStore.getState().providers[0].mcpEnabled).toBe(false)
       })
       expect(screen.getByTestId('provider-tools-toggle-codex')).toHaveAttribute(
         'aria-checked',
@@ -589,12 +591,11 @@ describe('ProvidersSettings', () => {
   // flag back to the daemon. Sequencing writes against writes cannot see this;
   // the fence has to cover reads.
   describe('a stale read landing after a write', () => {
-    /** Both copies seeded, with the mount GET deliberately left in flight. */
+    /** Seeded, with the mount GET deliberately left in flight. */
     function seedWithGetInFlight(providers: AgentProvider[]) {
       const inflight = deferred<AgentProvider[]>()
       listProvidersFn.mockReturnValue(inflight.promise)
       act(() => {
-        store().getState().setAgentProviders(providers)
         setActiveWorkspaceStoreForTests(store())
         setActiveWorkspaceId('w1')
         useAgentProvidersStore.setState({ providers, status: 'ready' })
@@ -632,9 +633,6 @@ describe('ProvidersSettings', () => {
         'false',
       )
       expect(useAgentProvidersStore.getState().providers[0].mcpEnabled).toBe(false)
-      // The workspace copy — what the chat surfaces read — must not be reinstated
-      // either, or the next write is built from a list that still says tools-on.
-      expect(store().getState().agentChats.providers[0].mcpEnabled).toBe(false)
     })
 
     it('still settles the status, so the tab never strands a spinner', async () => {

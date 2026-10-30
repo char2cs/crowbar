@@ -1,21 +1,13 @@
 'use client'
 
-import {
-  useCallback,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import DOMPurify from 'dompurify'
 import { PencilSimpleIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { loadLocalImage, useMarkdownAsset } from '@/features/editor/markdown/plate/markdown-asset'
 import { isDarkMode, useThemeVersion } from '@/features/editor/theme/use-theme-version'
-import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import { requestExcalidrawEdit } from '@/features/agent/composer/lib/excalidraw-edit-requests'
 import { ATTACHMENT_BUTTON_OPAQUE_BG } from '@/features/agent/composer/plate/attachment-drag-handle'
 import { useChatId } from './chat-id-context'
 import { computeSceneAspectRatio, type ParsedExcalidrawScene } from './excalidraw-scene'
@@ -112,15 +104,11 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
   useThemeVersion()
   const darkFilter = isDarkMode() ? EXCALIDRAW_DARK_FILTER : undefined
 
-  // Nullable, not `useWorkspaceStore()`'s throwing form: a preview can render
-  // wherever a message can (a standalone unit-test host included), so absent
-  // context just means no Edit button rather than a crash.
-  const workspaceStore = useContext(WorkspaceStoreContext)
+  // Outside a chat (no chat id) there is no composer to edit in: no Edit button.
   const chatId = useChatId()
   const handleEdit = useCallback(() => {
-    if (!workspaceStore || !chatId) return
-    workspaceStore.getState().requestExcalidrawEdit(chatId, scene)
-  }, [workspaceStore, chatId, scene])
+    if (chatId) requestExcalidrawEdit(chatId, scene)
+  }, [chatId, scene])
 
   useEffect(() => {
     if (!asset || !pngRef) {
@@ -197,7 +185,7 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
       // reservation past that point would fight it instead of matching it.
       style={!loaded && reservedHeight !== null ? { minHeight: reservedHeight } : undefined}
     >
-      {workspaceStore && chatId && (
+      {chatId && (
         <Button
           variant="outline"
           size="icon-xs"

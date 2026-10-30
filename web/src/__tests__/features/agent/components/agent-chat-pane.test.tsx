@@ -55,11 +55,11 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
 // Actions).
 vi.mock('@/utils/platform', () => ({ IS_MAC: true }))
 
-vi.mock('@/features/agent/api/agent-chat-reads', () => ({
-  getPendingPrompt: vi.fn().mockResolvedValue(null),
-  getChat: (...a: unknown[]) => getChatFn(...a),
-  getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
-}))
+import * as readsApi from '@/features/agent/api/agent-chat-reads'
+vi.spyOn(readsApi, 'getPendingPrompt').mockResolvedValue(null)
+vi.spyOn(readsApi, 'getChat').mockImplementation(getChatFn)
+vi.spyOn(readsApi, 'getSlashCatalog').mockImplementation(slashCatalogFn)
+vi.spyOn(readsApi, 'getChatTelemetry').mockResolvedValue(null)
 import * as commandsApi from '@/features/agent/api/agent-chat-commands'
 vi.spyOn(commandsApi, 'switchProvider').mockImplementation(switchProviderFn)
 vi.spyOn(commandsApi, 'resumeChat').mockImplementation(resumeChatFn)
@@ -185,6 +185,8 @@ import {
   setChatTerminalWait,
   setChatWorking,
   writeChat,
+  resetChatStore,
+  setProviders,
 } from '@/__tests__/__fixtures__/agent-chat'
 
 /**
@@ -339,8 +341,8 @@ const paneWorkspace = new Map<string, string>()
 
 function seedWorkspace(chats: AgentChat[], wsId = 'w1') {
   const store = createWorkspaceStore(wsId)
-  store.getState().setAgentProviders(providers)
-  seedChats(store, chats)
+  setProviders(providers)
+  seedChats(chats, wsId)
   return store
 }
 
@@ -348,7 +350,7 @@ function seedWorkspace(chats: AgentChat[], wsId = 'w1') {
  *  from seeding an empty list, which is the daemon answering "there are none". */
 function unseededWorkspace(wsId = 'w1') {
   const store = createWorkspaceStore(wsId)
-  store.getState().setAgentProviders(providers)
+  setProviders(providers)
   return store
 }
 
@@ -403,7 +405,7 @@ const paneOf = (_store: Store, id: string) => windowPaneStore.getState().panes[i
 // so explicitly by overriding these — nothing else has to opt in to "it worked".
 beforeEach(() => {
   resetWindowPaneStoreForTests()
-  chatStore.setState({ feeds: {} })
+  resetChatStore()
   resetChatPresentationMemoryForTests()
   paneWorkspace.clear()
   getChatFn.mockReset()
@@ -470,7 +472,7 @@ describe('AgentChatPane', () => {
 
     // The runner /clears into a brand-new chat — carrying the SAME pty.
     await act(async () => {
-      seedChats(store, [
+      seedChats([
         dormantChat({ id: 'c1' }),
         liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1', title: 'Fresh' }),
       ])
@@ -505,10 +507,7 @@ describe('AgentChatPane', () => {
     await renderPane(store, paneId)
 
     await act(async () => {
-      seedChats(store, [
-        dormantChat({ id: 'c1' }),
-        liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1' }),
-      ])
+      seedChats([dormantChat({ id: 'c1' }), liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1' })])
     })
 
     expect(screen.queryByText(/this agent has exited/i)).not.toBeInTheDocument()
@@ -567,7 +566,7 @@ describe('AgentChatPane', () => {
 
       // ...and the moment the list lands with the chat LIVE, it attaches — no revive.
       await act(async () => {
-        seedChats(store, [liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+        seedChats([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       })
       expect(resumeChatFn).not.toHaveBeenCalled()
       expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty1')
@@ -580,10 +579,7 @@ describe('AgentChatPane', () => {
       // c1 is now dormant — but its runner is not dead, it walked into c2, and the pane
       // walks with it. A dormant chat NOBODY IS LOOKING AT must not be revived.
       await act(async () => {
-        seedChats(store, [
-          dormantChat({ id: 'c1' }),
-          liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1' }),
-        ])
+        seedChats([dormantChat({ id: 'c1' }), liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1' })])
       })
 
       expect(resumeChatFn).not.toHaveBeenCalled()
@@ -628,13 +624,10 @@ describe('AgentChatPane', () => {
     // backend half of this same gap.
     it('calls switchToTerminal (never a direct presentation flip) when an idle non-hotswap provider is asked for its terminal', async () => {
       const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
-      store.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
+      setProviders([providers[0], { ...providers[1], hotswap: false }])
       // The daemon's snapshot frame carries the forked PTY; the pane reads nothing back.
       switchToTerminalFn.mockImplementation(() => {
-        writeChat(
-          store,
-          liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty-attached', provider: 'codex' }),
-        )
+        writeChat(liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty-attached', provider: 'codex' }))
         return Promise.resolve('pty-attached')
       })
       await renderPane(store, openChatPane(store, 'c1', 'r1'))
@@ -661,7 +654,7 @@ describe('AgentChatPane', () => {
     // must say so; a click that does nothing visible reads as broken.
     it('toasts when switchToTerminal is refused, instead of silently doing nothing', async () => {
       const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
-      store.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
+      setProviders([providers[0], { ...providers[1], hotswap: false }])
       switchToTerminalFn.mockRejectedValue(
         new ApiError('agent: provider cannot hand a live turn to its native view: conflict', 409),
       )
@@ -954,7 +947,7 @@ describe('AgentChatPane', () => {
     expect(before).toHaveAttribute('data-session-id', 'pty1')
 
     await act(async () => {
-      seedChats(store, [liveChat({ id: 'c1', runnerId: 'r2', pty: 'pty2', provider: 'claude' })])
+      seedChats([liveChat({ id: 'c1', runnerId: 'r2', pty: 'pty2', provider: 'claude' })])
     })
 
     const after = await screen.findByTestId('xterm')
@@ -980,13 +973,16 @@ describe('AgentChatPane', () => {
       expect(resumeChatFn).not.toHaveBeenCalled()
     })
 
-    it("says why the chat is dormant, in the daemon's words", async () => {
-      const store = seedWorkspace([
-        { ...dormantChat({ id: 'c1' }), session: { exitReason: 'daemon_restart' } },
-      ])
+    it('shows the exit reason from the last runner_exited row', async () => {
+      const l = ledger('c1', 10)
+      const exited = l.row('runner_exited', { runnerId: 'r1', reason: 'stopped', exitCode: 0 })
+      seedFeed('c1', [...spokenIn('c1'), exited])
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
       await renderPane(store, openChatPane(store, 'c1', ''))
 
-      expect(screen.getByTestId('agent-session-note')).toHaveTextContent(/crowbar restarted/i)
+      expect(screen.getByTestId('agent-session-note')).toHaveTextContent(
+        'Stopped. Send a message to continue the conversation.',
+      )
     })
 
     it('shows the daemon placing a CLI as a spinner, not an input', async () => {
@@ -995,18 +991,6 @@ describe('AgentChatPane', () => {
 
       expect(await screen.findByText(/starting codex/i)).toBeInTheDocument()
       expect(screen.queryByRole('textbox', { name: /message the agent/i })).toBeNull()
-    })
-
-    it('notes a revive that continued from the transcript', async () => {
-      const store = seedWorkspace([
-        {
-          ...liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' }),
-          session: { rung: 'transcript' },
-        },
-      ])
-      await renderPane(store, openChatPane(store, 'c1', 'r1'))
-
-      expect(screen.getByTestId('agent-session-note')).toHaveTextContent(/transcript/i)
     })
 
     it('starts a session from the terminal surface only when asked', async () => {
@@ -1086,10 +1070,7 @@ describe('AgentChatPane', () => {
 
       // The runner /clears into c2 — the tab follows it.
       await act(async () => {
-        seedChats(store, [
-          dormantChat({ id: 'c1' }),
-          liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1' }),
-        ])
+        seedChats([dormantChat({ id: 'c1' }), liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1' })])
       })
 
       await act(async () => {
@@ -1140,17 +1121,14 @@ describe('AgentChatPane', () => {
       const store = seedWorkspace([
         liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'claude' }),
       ])
-      store.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
+      setProviders([providers[0], { ...providers[1], hotswap: false }])
       // Each intent's answer arrives as the daemon's snapshot frame.
       switchProviderFn.mockImplementation(() => {
-        writeChat(store, liveChatNoTerminal({ id: 'c1', runnerId: 'r2' }))
+        writeChat(liveChatNoTerminal({ id: 'c1', runnerId: 'r2' }))
         return Promise.resolve('r2')
       })
       switchToTerminalFn.mockImplementation(() => {
-        writeChat(
-          store,
-          liveChat({ id: 'c1', runnerId: 'r2', pty: 'pty-attached', provider: 'codex' }),
-        )
+        writeChat(liveChat({ id: 'c1', runnerId: 'r2', pty: 'pty-attached', provider: 'codex' }))
         return Promise.resolve('pty-attached')
       })
       await renderPane(store, openChatPane(store, 'c1', 'r1'))
@@ -1257,13 +1235,13 @@ describe('AgentChatPane', () => {
         [liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'codex' })],
         'w-hidden',
       )
-      hidden.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
+      setProviders([providers[0], { ...providers[1], hotswap: false }])
       const hiddenPaneId = openChatPane(hidden, 'c1', 'r1', 'Chat', 'w-hidden')
       const shown = seedWorkspace(
         [liveChat({ id: 'c2', runnerId: 'r2', pty: 'pty2', provider: 'codex' })],
         'w-shown',
       )
-      shown.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
+      setProviders([providers[0], { ...providers[1], hotswap: false }])
       const shownPaneId = openChatPane(shown, 'c2', 'r2', 'Chat', 'w-shown')
 
       // Both panes are the active, visible tab of their own workspace — exactly
@@ -1289,7 +1267,7 @@ describe('AgentChatPane', () => {
       const store = seedWorkspace([
         liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'codex', surface: 'terminal' }),
       ])
-      store.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
+      setProviders([providers[0], { ...providers[1], hotswap: false }])
       const paneId = openChatPane(store, 'c1', 'r1')
       await renderPane(store, paneId)
 
@@ -1309,7 +1287,7 @@ describe('AgentChatPane', () => {
       const store = seedWorkspace([
         liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'codex' }),
       ])
-      store.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
+      setProviders([providers[0], { ...providers[1], hotswap: false }])
       const paneId = openChatPane(store, 'c1', 'r1')
       // Every chat stays mounted for keep-alive, so without the isVisible gate a
       // hidden tab would swallow the chord and flip the view on a chat nobody can see.
@@ -1431,14 +1409,14 @@ describe('AgentChatPane', () => {
     // The daemon refuses a switch while a turn runs; the pane offers none.
     it('offers no provider switch while the chat is working', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      setChatWorking(store, 'c1', true)
+      setChatWorking('c1', true)
       await renderPane(store, openChatPane(store, 'c1', 'r1'))
       await act(async () => {
         fireEvent.click(screen.getByLabelText('Terminal'))
       })
 
       expect(screen.getByTestId('provider-switch')).toBeDisabled()
-      await act(async () => setChatWorking(store, 'c1', false))
+      await act(async () => setChatWorking('c1', false))
       expect(screen.getByTestId('provider-switch')).toBeEnabled()
     })
 
@@ -1472,7 +1450,7 @@ describe('AgentChatPane', () => {
       expect(screen.getByRole('textbox', { name: /message the agent/i })).toBeInTheDocument()
 
       await act(async () => {
-        setChatTerminalWait(store, 'c1', { kind: 'workspace_trust' })
+        setChatTerminalWait('c1', { kind: 'workspace_trust' })
       })
 
       // The composer itself became the signpost...

@@ -57,13 +57,4 @@ describe('transcript-scroll-positions', () => {
 
     expect(getScrollPosition('c1')).toEqual({ stuck: false, distanceFromBottom: 500 })
   })
-
-  it("removeAgentChat's own cleanup reaches this module, not just the workspace store", () => {
-    const store = createWorkspaceStore('w1')
-    setScrollPosition('c1', { stuck: false, distanceFromBottom: 240 })
-
-    store.getState().removeAgentChat('c1')
-
-    expect(getScrollPosition('c1')).toBeNull()
-  })
 })

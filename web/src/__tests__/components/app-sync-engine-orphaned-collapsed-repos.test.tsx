@@ -46,8 +46,6 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
   getAllActiveWorkspaceIds: () => [],
-  subscribeChatWorking: () => () => {},
-  readChatWorking: () => false,
 }))
 
 import { AppSyncProvider } from '@/components/app-sync-provider'

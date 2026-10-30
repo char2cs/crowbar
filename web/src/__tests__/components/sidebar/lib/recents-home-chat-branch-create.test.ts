@@ -9,6 +9,7 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { useSidebarStore, type Repo, type Workspace } from '@/lib/store/sidebar'
+import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 /**
  * Live report: "creating a new branch out of develop while a project-home chat
@@ -24,13 +25,8 @@ import { useSidebarStore, type Repo, type Workspace } from '@/lib/store/sidebar'
  * not, so a test that only watched the home chat could pass for the wrong
  * reason (both gone).
  */
-interface FakeWorkspaceStoreState {
-  agentChats: { chats: { id: string; workspaceId?: string }[]; working: Record<string, boolean> }
-}
-
-const { activeIds, storeStates, homeIds, activeWsId } = vi.hoisted(() => ({
+const { activeIds, homeIds, activeWsId } = vi.hoisted(() => ({
   activeIds: { current: [] as string[] },
-  storeStates: { current: new Map<string, FakeWorkspaceStoreState>() },
   homeIds: { current: new Map<string, string>() },
   activeWsId: { current: null as string | null },
 }))
@@ -41,19 +37,6 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOri
   >()),
   getAllActiveWorkspaceIds: () => activeIds.current,
   getActiveWorkspaceId: () => activeWsId.current,
-  getWorkspaceStore: (wsId: string) => {
-    const state = storeStates.current.get(wsId)
-    return state ? { getState: () => state } : undefined
-  },
-  getOrCreateWorkspaceStore: (wsId: string) => ({
-    getState: () => storeStates.current.get(wsId) ?? { agentChats: { chats: [], working: {} } },
-  }),
-  isChatWorking: (chatId: string) => {
-    for (const state of storeStates.current.values()) {
-      if (state.agentChats.working[chatId]) return true
-    }
-    return false
-  },
 }))
 
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
@@ -110,7 +93,7 @@ function reposWith(workspaces: Workspace[], chats: Repo['chats']): Repo[] {
 
 beforeEach(() => {
   activeIds.current = []
-  storeStates.current = new Map()
+  resetChatStore()
   homeIds.current = new Map()
   activeWsId.current = null
   useHomeTreeStore.setState({ trees: {} })
@@ -123,12 +106,8 @@ describe('creating a branch while a project-home chat is open', () => {
     homeIds.current.set('p1', HOME_WS)
     activeWsId.current = HOME_WS
     activeIds.current = [HOME_WS, 'ws-1']
-    storeStates.current.set(HOME_WS, {
-      agentChats: { chats: [{ id: 'chat-home', workspaceId: HOME_WS }], working: {} },
-    })
-    storeStates.current.set('ws-1', {
-      agentChats: { chats: [{ id: 'chat-repo', workspaceId: 'ws-1' }], working: {} },
-    })
+    writeChat({ id: 'chat-home', workspaceId: HOME_WS })
+    writeChat({ id: 'chat-repo', workspaceId: 'ws-1' })
     useHomeTreeStore.getState().setTree('p1', {
       chats: [{ id: 'chat-home', repoId: '', title: 'Plan', order: 0, workspaceId: HOME_WS }],
       folders: [],
@@ -160,9 +139,7 @@ describe('creating a branch while a project-home chat is open', () => {
     )
     activeWsId.current = 'ws-new'
     activeIds.current = [HOME_WS, 'ws-1', 'ws-new']
-    storeStates.current.set('ws-new', {
-      agentChats: { chats: [{ id: 'chat-new', workspaceId: 'ws-new' }], working: {} },
-    })
+    writeChat({ id: 'chat-new', workspaceId: 'ws-new' })
     windowPaneStore.getState().paneActions.setActiveProject('p1')
     useSidebarStore.setState({ repos: reposAfter })
     click('chat-new', 'ws-new')

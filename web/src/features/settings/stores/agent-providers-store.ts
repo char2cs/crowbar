@@ -15,19 +15,11 @@ export type AgentProvidersStatus = 'idle' | 'loading' | 'ready' | 'failed'
 interface AgentProvidersState {
   status: AgentProvidersStatus
   providers: AgentProvider[]
-  /**
-   * Adopt a list resolved somewhere else — a workspace's own seed, or the
-   * response to a preferences PUT (which returns the freshly resolved set).
-   */
+  /** Adopt a list resolved elsewhere: a preferences PUT answers the fresh set. */
   setProviders: (providers: AgentProvider[]) => void
-  /**
-   * Fetch the list through `wsId` for workspace chat surfaces. The global
-   * settings view can use listGlobalProviders when no workspace is active.
-   *
-   * Returns the resolved list so the caller can mirror it into the workspace
-   * store the chat surfaces read, or null when this load did not win.
-   */
-  load: (wsId: string) => Promise<AgentProvider[] | null>
+  /** Fetch the list through `wsId`; with no workspace the settings view uses
+   *  listGlobalProviders instead. */
+  load: (wsId: string) => Promise<void>
   /** The daemon could not answer. Say we could not tell — never that there are none. */
   markUnavailable: () => void
 }
@@ -45,7 +37,7 @@ let latestLoad = 0
  * A GET is a snapshot of the server BEFORE the PUT it overlaps, so a read issued
  * first and answered second re-installs the pre-write list — the switch the user
  * just moved visibly flips back, and the next write PUTs that stale flag. The
- * mount refetch and the workspace-stream reseed are both such reads.
+ * mount refetch and the lifecycle-scope load are both such reads.
  *
  * A READ therefore never bumps this; it captures the value it started under and
  * publishes only if nothing has been written since. That direction is the whole
@@ -67,18 +59,8 @@ export const providerWriteGeneration = (): number => providerWrites
  */
 export const isLatestProviderWrite = (seq: number): boolean => seq === providerWrites
 
-/**
- * The GLOBAL provider list. Providers are machine-level, but the frontend's only
- * copy used to live inside the per-WORKSPACE store — so every surface that is
- * not workspace-scoped (the Settings dialog, most of all) had to guess. With no
- * active workspace there was nothing to read and the Providers tab said the
- * daemon had none.
- *
- * The per-workspace copy still exists and still feeds the chat surfaces; this is
- * the one that survives having no workspace in view. Both are written from the
- * same two events — a workspace seed and a preferences PUT — so they cannot
- * disagree about what the server last said.
- */
+/** The one provider list: providers are machine-level, so every surface reads
+ *  this whether or not a workspace is in view. */
 export const useAgentProvidersStore = create<AgentProvidersState>((set, get) => ({
   status: 'idle',
   providers: [],
@@ -97,7 +79,7 @@ export const useAgentProvidersStore = create<AgentProvidersState>((set, get) => 
     if (get().status !== 'ready') set({ status: 'loading' })
     try {
       const providers = await listProviders(wsId)
-      if (seq !== latestLoad) return null
+      if (seq !== latestLoad) return
       // A write landed while this was in flight. Its own optimistic state — and
       // the response it reconciles from — are newer than this snapshot, so
       // publishing here would undo it in front of the user: the switch they just
@@ -106,16 +88,14 @@ export const useAgentProvidersStore = create<AgentProvidersState>((set, get) => 
       // `loading` would strand the tab's spinner.
       if (!isLatestProviderWrite(writes)) {
         set({ status: 'ready' })
-        return null
+        return
       }
       set({ providers, status: 'ready' })
-      return providers
     } catch {
-      if (seq !== latestLoad) return null
+      if (seq !== latestLoad) return
       // A failed REFRESH must not empty a good list — the data we hold is still
       // the last thing the server said.
       set({ status: get().providers.length > 0 ? 'ready' : 'failed' })
-      return null
     }
   },
 

@@ -1,4 +1,3 @@
-import { chatStore } from '@/features/agent/stores/chat-store'
 import { createElement } from 'react'
 import { act, render } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -40,11 +39,11 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
   useEffectiveChordMap: () => ({ 'agent.toggleViewMode': 'mod+/' }),
 }))
 
-vi.mock('@/features/agent/api/agent-chat-reads', () => ({
-  getPendingPrompt: vi.fn().mockResolvedValue(null),
-  getChat: (...a: unknown[]) => getChatFn(...a),
-  getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
-}))
+import * as readsApi from '@/features/agent/api/agent-chat-reads'
+vi.spyOn(readsApi, 'getPendingPrompt').mockResolvedValue(null)
+vi.spyOn(readsApi, 'getChat').mockImplementation(getChatFn)
+vi.spyOn(readsApi, 'getSlashCatalog').mockImplementation(slashCatalogFn)
+vi.spyOn(readsApi, 'getChatTelemetry').mockResolvedValue(null)
 import * as commandsApi from '@/features/agent/api/agent-chat-commands'
 vi.spyOn(commandsApi, 'switchProvider').mockImplementation(switchProviderFn)
 vi.spyOn(commandsApi, 'resumeChat').mockImplementation(resumeChatFn)
@@ -79,7 +78,12 @@ import { savePromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useSettingsStore } from '@/features/settings/store'
-import { nextVersion, seedChats } from '@/__tests__/__fixtures__/agent-chat'
+import {
+  nextVersion,
+  seedChats,
+  resetChatStore,
+  setProviders,
+} from '@/__tests__/__fixtures__/agent-chat'
 
 const providers: AgentProvider[] = [
   {
@@ -120,11 +124,11 @@ function detail(chat: AgentChat): AgentChatDetail {
 
 function seedWorkspace(chats: AgentChat[], wsId = 'w1') {
   const store = createWorkspaceStore(wsId)
-  store.getState().setAgentProviders(providers)
+  setProviders(providers)
   // An AUTHORITATIVE list — the initial load / reconnect reseed. This is the
   // whole point of the fixture: the list HAS arrived, and the pane's chat is
   // simply not in it.
-  seedChats(store, chats)
+  seedChats(chats, wsId)
   return store
 }
 
@@ -204,7 +208,7 @@ beforeEach(() => {
   ])
     f.mockReset()
   resumeChatFn.mockResolvedValue('r-revived')
-  chatStore.setState({ feeds: {} })
+  resetChatStore()
   submitPromptFn.mockResolvedValue({ runnerId: 'r-live', terminalSessionId: 'pty-live' })
   slashCatalogFn.mockResolvedValue({
     providerId: 'codex',

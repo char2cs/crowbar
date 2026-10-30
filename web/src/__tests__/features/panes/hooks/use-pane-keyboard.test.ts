@@ -22,7 +22,6 @@ const setActivePane = vi.fn()
 const dropChatOnPane = vi.fn()
 const openChat = vi.fn()
 const minted = [expect.any(String), expect.any(String)] // chat id, operation id
-const setActiveAgentChatId = vi.fn()
 
 // I4: the AGENT_NEW_CHAT chord (⌘N) creates a chat via the agent API — mocked
 // here the same way NewTabView's own regression tests mock it. `vi.hoisted` is
@@ -85,18 +84,7 @@ const fakeState = {
     type: string
     isDirty?: boolean
   }>,
-  agentChats: {
-    providers: [] as Array<{
-      id: string
-      displayName: string
-      icon: string
-      connected?: boolean
-      enabled?: boolean
-      hasTerminal?: boolean
-      terminalStartHere?: boolean
-    }>,
-    chats: [] as Array<{ id: string; title: string }>,
-  },
+
   bufferActions: {
     closeBuffer,
     reopenLastClosedBuffer,
@@ -111,7 +99,6 @@ const fakeState = {
     dropChatOnPane,
     openChat,
   },
-  setActiveAgentChatId,
 }
 const fakeStore = { getState: () => fakeState }
 
@@ -169,12 +156,17 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 import { usePaneKeyboard } from '@/features/panes/hooks/use-pane-keyboard'
 import { useSettingsStore } from '@/features/settings/store'
 import { workspaceRef } from '@/lib/api/documents'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
+import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+
+const setProviders = (providers: Array<Partial<AgentProvider>>) =>
+  useAgentProvidersStore.setState({ status: 'ready', providers: providers as AgentProvider[] })
 
 beforeEach(() => {
   vi.clearAllMocks()
   getOwningChatId.mockReset()
   fakeState.activePaneId = ROOT_PANE_ID
-  fakeState.agentChats = { providers: [], chats: [] }
+  setProviders([])
   fakeState.panes = {
     [ROOT_PANE_ID]: { activeEditorTabId: 'buf-1', editorTabIds: ['buf-1'] },
     [BOTTOM_PANE_ID]: { activeEditorTabId: null, editorTabIds: [] },
@@ -420,13 +412,10 @@ describe('usePaneKeyboard — agent.newChat chord (I4)', () => {
   }
 
   it('creates a chat with the first enabled provider and opens it as its own new view', async () => {
-    fakeState.agentChats = {
-      providers: [
-        { id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: true },
-        { id: 'p2', displayName: 'Codex', icon: '', connected: true, enabled: true },
-      ],
-      chats: [],
-    }
+    setProviders([
+      { id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: true },
+      { id: 'p2', displayName: 'Codex', icon: '', connected: true, enabled: true },
+    ])
     createChat.mockResolvedValue('chat-9')
     renderHook(() => usePaneKeyboard())
 
@@ -435,11 +424,9 @@ describe('usePaneKeyboard — agent.newChat chord (I4)', () => {
     // plain new chat lands on the provider's own default face.
     expect(createChat).toHaveBeenCalledWith(...minted, 'ws-1', 'p1', '', undefined)
 
-    fakeState.agentChats.chats = [{ id: 'chat-9', title: 'New conversation' }]
     await createChat.mock.results[0]?.value
     await Promise.resolve()
 
-    expect(setActiveAgentChatId).toHaveBeenCalledWith('chat-9')
     // ⌘N opens the chat the way a click does — its own row — never into
     // whatever the active pane is showing.
     expect(openChat).toHaveBeenCalledWith('chat-9', { workspaceId: 'ws-1' })
@@ -448,7 +435,7 @@ describe('usePaneKeyboard — agent.newChat chord (I4)', () => {
   })
 
   it('does nothing when no provider is available (no CLI installed)', () => {
-    fakeState.agentChats = { providers: [], chats: [] }
+    setProviders([])
     renderHook(() => usePaneKeyboard())
     pressChord()
     expect(createChat).not.toHaveBeenCalled()
@@ -458,13 +445,10 @@ describe('usePaneKeyboard — agent.newChat chord (I4)', () => {
 
   it('picks the first ENABLED provider, skipping a disabled leading one', () => {
     // p1 disabled, p2 enabled → the chord must open p2, never the disabled p1.
-    fakeState.agentChats = {
-      providers: [
-        { id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: false },
-        { id: 'p2', displayName: 'Codex', icon: '', connected: true, enabled: true },
-      ],
-      chats: [],
-    }
+    setProviders([
+      { id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: false },
+      { id: 'p2', displayName: 'Codex', icon: '', connected: true, enabled: true },
+    ])
     createChat.mockResolvedValue('chat-9')
     renderHook(() => usePaneKeyboard())
     pressChord()
@@ -472,10 +456,7 @@ describe('usePaneKeyboard — agent.newChat chord (I4)', () => {
   })
 
   it('does nothing when every provider is disabled', () => {
-    fakeState.agentChats = {
-      providers: [{ id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: false }],
-      chats: [],
-    }
+    setProviders([{ id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: false }])
     renderHook(() => usePaneKeyboard())
     pressChord()
     expect(createChat).not.toHaveBeenCalled()
@@ -484,10 +465,7 @@ describe('usePaneKeyboard — agent.newChat chord (I4)', () => {
   })
 
   it('reports a spawn failure via toast instead of swallowing it', async () => {
-    fakeState.agentChats = {
-      providers: [{ id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: true }],
-      chats: [],
-    }
+    setProviders([{ id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: true }])
     const err = new Error('boom')
     createChat.mockRejectedValue(err)
     renderHook(() => usePaneKeyboard())
@@ -520,20 +498,17 @@ describe('usePaneKeyboard — agent.newChatTerminal chord', () => {
   }
 
   it('presets the new chat onto Terminal before opening it', async () => {
-    fakeState.agentChats = {
-      providers: [
-        {
-          id: 'p1',
-          displayName: 'Claude',
-          icon: '',
-          connected: true,
-          enabled: true,
-          hasTerminal: true,
-          terminalStartHere: true,
-        },
-      ],
-      chats: [],
-    }
+    setProviders([
+      {
+        id: 'p1',
+        displayName: 'Claude',
+        icon: '',
+        connected: true,
+        enabled: true,
+        hasTerminal: true,
+        terminalStartHere: true,
+      },
+    ])
     createChat.mockResolvedValue('chat-9')
     renderHook(() => usePaneKeyboard())
 
@@ -554,19 +529,16 @@ describe('usePaneKeyboard — agent.newChatTerminal chord', () => {
   })
 
   it('does not preset Terminal for a provider with no terminal at all (absence, not a disabled control)', async () => {
-    fakeState.agentChats = {
-      providers: [
-        {
-          id: 'p1',
-          displayName: 'Claude',
-          icon: '',
-          connected: true,
-          enabled: true,
-          hasTerminal: false,
-        },
-      ],
-      chats: [],
-    }
+    setProviders([
+      {
+        id: 'p1',
+        displayName: 'Claude',
+        icon: '',
+        connected: true,
+        enabled: true,
+        hasTerminal: false,
+      },
+    ])
     createChat.mockResolvedValue('chat-9')
     renderHook(() => usePaneKeyboard())
 
@@ -588,20 +560,17 @@ describe('usePaneKeyboard — agent.newChatTerminal chord', () => {
   // providers now declare it; this pins the affordance against one that does
   // not, which is what absence must keep meaning.)
   it('does not preset Terminal for a provider whose terminal is not a start_here surface, even though it has one', async () => {
-    fakeState.agentChats = {
-      providers: [
-        {
-          id: 'p1',
-          displayName: 'Codex',
-          icon: '',
-          connected: true,
-          enabled: true,
-          hasTerminal: true,
-          // terminalStartHere omitted: a terminal reached only by switching.
-        },
-      ],
-      chats: [],
-    }
+    setProviders([
+      {
+        id: 'p1',
+        displayName: 'Codex',
+        icon: '',
+        connected: true,
+        enabled: true,
+        hasTerminal: true,
+        // terminalStartHere omitted: a terminal reached only by switching.
+      },
+    ])
     createChat.mockResolvedValue('chat-9')
     renderHook(() => usePaneKeyboard())
 
@@ -614,10 +583,7 @@ describe('usePaneKeyboard — agent.newChatTerminal chord', () => {
   })
 
   it('plain agent.newChat never presets a surface', async () => {
-    fakeState.agentChats = {
-      providers: [{ id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: true }],
-      chats: [],
-    }
+    setProviders([{ id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: true }])
     createChat.mockResolvedValue('chat-9')
     renderHook(() => usePaneKeyboard())
 
@@ -654,20 +620,17 @@ describe('usePaneKeyboard — agent.newChat honours the default landing surface'
 
   it('creates the chat ON the terminal when that is the default and the provider may start there', async () => {
     landingDefaultIsTerminal()
-    fakeState.agentChats = {
-      providers: [
-        {
-          id: 'codex',
-          displayName: 'Codex',
-          icon: '',
-          connected: true,
-          enabled: true,
-          hasTerminal: true,
-          terminalStartHere: true,
-        },
-      ],
-      chats: [],
-    }
+    setProviders([
+      {
+        id: 'codex',
+        displayName: 'Codex',
+        icon: '',
+        connected: true,
+        enabled: true,
+        hasTerminal: true,
+        terminalStartHere: true,
+      },
+    ])
     createChat.mockResolvedValue('chat-9')
     renderHook(() => usePaneKeyboard())
 
@@ -683,20 +646,17 @@ describe('usePaneKeyboard — agent.newChat honours the default landing surface'
 
   it('still creates exactly as before for a provider whose terminal is no landing surface', async () => {
     landingDefaultIsTerminal()
-    fakeState.agentChats = {
-      providers: [
-        {
-          id: 'p1',
-          displayName: 'Claude',
-          icon: '',
-          connected: true,
-          enabled: true,
-          hasTerminal: true,
-          // terminalStartHere omitted: reachable only by switching to it.
-        },
-      ],
-      chats: [],
-    }
+    setProviders([
+      {
+        id: 'p1',
+        displayName: 'Claude',
+        icon: '',
+        connected: true,
+        enabled: true,
+        hasTerminal: true,
+        // terminalStartHere omitted: reachable only by switching to it.
+      },
+    ])
     createChat.mockResolvedValue('chat-9')
     renderHook(() => usePaneKeyboard())
 

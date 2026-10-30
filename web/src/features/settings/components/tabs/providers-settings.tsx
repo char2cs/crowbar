@@ -26,8 +26,8 @@ import {
   providerWriteGeneration,
   useAgentProvidersStore,
 } from '@/features/settings/stores/agent-providers-store'
+import { Button } from '@/components/ui/button'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { getActiveWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { toast } from '@/features/window/stores/toast-store'
 import Section from '../settings-section'
 import { ChatPresentationSetting } from './chat-presentation-setting'
@@ -51,14 +51,8 @@ import type { ProviderFlags } from './provider-preferences'
  * Claude has its own `--agent`, so nothing below the copy moves: the tab id, the
  * component, the store, the DTOs and the wire all still say provider.
  *
- * IT READS THE GLOBAL PROVIDER STORE, NOT THE ACTIVE WORKSPACE. Providers are
- * machine-level — the daemon says as much (ListProviders: "workspaceID is only
- * used to resolve crowbar home") — but the frontend's only copy used to live in
- * the per-workspace store, and this dialog opens from anywhere. With no workspace
- * in view that copy is empty, and the tab announced "No providers available." to
- * a user with both CLIs installed and enabled. It also fetches on mount, so a
- * workspace whose own seed was lost (see use-workspace-agent-chats-stream) is
- * repaired by opening this tab rather than staying dead.
+ * It reads the window-level provider store: providers are machine-level and
+ * this dialog opens from anywhere, so it fetches on open and offers a retry.
  *
  * This is the first backend-persisted settings tab: on any change it PUTs the
  * COMPLETE ordered preference set and reconciles from the server's freshly
@@ -92,44 +86,33 @@ export const ProvidersSettings = () => {
     }
   }
 
-  // Refresh on open. A workspace in view also receives the fresh list for chat
-  // surfaces; elsewhere the global settings route supplies the same catalog.
-  useEffect(() => {
+  // Refresh on open; with no workspace in view the global route has the same catalog.
+  const refresh = useCallback(() => {
     const wsId = getActiveWorkspaceId()
-    if (!wsId) {
-      if (useAgentProvidersStore.getState().status === 'ready') return
-      const seq = providerWriteGeneration()
-      useAgentProvidersStore.setState({ status: 'loading' })
-      void listGlobalProviders()
-        .then((resolved) => {
-          if (isLatestProviderWrite(seq)) useAgentProvidersStore.getState().setProviders(resolved)
-        })
-        .catch(() => {
-          if (isLatestProviderWrite(seq)) useAgentProvidersStore.getState().markUnavailable()
-        })
+    if (wsId) {
+      void useAgentProvidersStore.getState().load(wsId)
       return
     }
-    void useAgentProvidersStore
-      .getState()
-      .load(wsId)
+    if (useAgentProvidersStore.getState().status === 'ready') return
+    const seq = providerWriteGeneration()
+    useAgentProvidersStore.setState({ status: 'loading' })
+    void listGlobalProviders()
       .then((resolved) => {
-        // Repair the workspace copy too — it is what the chat surfaces read, and
-        // a lost seed there is exactly what sends the user to this tab.
-        if (resolved) getActiveWorkspaceStore()?.getState().setAgentProviders(resolved)
+        if (isLatestProviderWrite(seq)) useAgentProvidersStore.getState().setProviders(resolved)
+      })
+      .catch(() => {
+        if (isLatestProviderWrite(seq)) useAgentProvidersStore.getState().markUnavailable()
       })
   }, [])
+  useEffect(refresh, [refresh])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
-  // BOTH copies, always together. The global one is what this tab renders; the
-  // per-workspace one is what the chat surfaces render. Letting a write reach
-  // only one of them is how they drift.
   const publish = useCallback((resolved: AgentProvider[]) => {
     useAgentProvidersStore.getState().setProviders(resolved)
-    getActiveWorkspaceStore()?.getState().setAgentProviders(resolved)
   }, [])
 
   // THE ONLY WRITE PATH. Every change — a reorder, an enable toggle, a tools
@@ -150,7 +133,7 @@ export const ProvidersSettings = () => {
       //
       // The generation is claimed from the STORE, not from a ref local to this
       // component, and that is what fences reads as well as writes. The mount
-      // refetch and the workspace-stream reseed are GETs that can be issued
+      // refetch and the lifecycle-scope load are GETs that can be issued
       // before a write and answered after it, carrying the pre-write list; both
       // now decline to publish once this counter has moved. A ref here could
       // only ever sequence writes against writes, which is what let a stale GET
@@ -265,13 +248,15 @@ export const ProvidersSettings = () => {
             Loading agents…
           </p>
         ) : providers.length === 0 && status === 'failed' ? (
-          <p
+          <div
             data-testid="providers-unavailable"
-            className="ui-font ui-text-sm px-1 py-2 text-muted-foreground"
+            className="ui-font ui-text-sm flex items-center gap-2 px-1 py-2 text-muted-foreground"
           >
-            Crowbar could not load the agent list — it could not reach the daemon. Reopen this tab
-            to try again.
-          </p>
+            Crowbar could not load the agent list — it could not reach the daemon.
+            <Button size="xs" variant="outline" onClick={refresh}>
+              Retry
+            </Button>
+          </div>
         ) : providers.length === 0 ? (
           <p className="ui-font ui-text-sm px-1 py-2 text-muted-foreground">No agents available.</p>
         ) : (

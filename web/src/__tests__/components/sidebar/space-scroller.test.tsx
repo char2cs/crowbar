@@ -81,15 +81,9 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOri
   getOrCreateWorkspaceStore: () => ({
     getState: () => ({
       panes: {},
-      agentChats: { working: {}, chats: [] },
     }),
     subscribe: () => () => {},
   }),
-  // `SidebarTreeRow`'s own per-row live-working subscription (sidebar-tree.tsx)
-  // — every row carrying a `workspaceId` reads this on mount, home rows
-  // included now that they carry a real one.
-  subscribeChatWorking: () => () => {},
-  readChatWorking: () => false,
 }))
 
 function makeProject(id: string): Project {

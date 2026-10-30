@@ -12,7 +12,7 @@ import {
 } from '@/components/layout/workspace-row-base'
 import { CHAT_TITLE_PENDING_LABEL, useChatTitle } from '@/features/agent/hooks/use-chat-title'
 import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
-import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import { useChatWorking } from '@/features/agent/hooks/use-chat-entity'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { cn } from '@/lib/utils'
 
@@ -46,7 +46,7 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
   // header shows the pending mark and offers no rename (there is no current
   // title to edit from).
   const title = useChatTitle(chatId)
-  const working = useWorkspaceStoreContext((s) => s.agentChats.working[chatId] ?? false)
+  const working = useChatWorking(chatId)
   const workspace = useSidebarStore((s) => {
     if (!wsId) return null
     for (const repo of s.repos) {

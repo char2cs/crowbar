@@ -5,6 +5,7 @@ import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 import { ChatColumnHeader } from '@/features/tabs/components/chat-column-header'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 function makeChat(overrides: Partial<AgentChat> = {}): AgentChat {
   return {
@@ -22,10 +23,8 @@ function makeChat(overrides: Partial<AgentChat> = {}): AgentChat {
 
 function renderHeader() {
   const store = createWorkspaceStore('w1')
-  store.setState((s) => ({
-    ...s,
-    agentChats: { ...s.agentChats, chats: [makeChat()] },
-  }))
+  resetChatStore()
+  writeChat(makeChat())
   return render(
     createElement(
       WorkspaceStoreContext.Provider,

@@ -36,7 +36,7 @@ import { useComposerFacts } from '@/features/agent/chat/use-composer-facts'
 import { useDock } from '@/features/agent/chat/use-dock'
 import { useTypeToFocus } from '@/features/agent/chat/use-type-to-focus'
 import { useChatFeed } from '@/features/agent/hooks/use-chat-feed'
-import { useAgentTelemetry, limitResetsAt } from '@/features/agent/hooks/use-agent-telemetry'
+import { useChatTelemetry, limitResetsAt } from '@/features/agent/hooks/use-chat-entity'
 import {
   getScrollPosition,
   setScrollPosition,
@@ -155,7 +155,7 @@ export function AgentChatView({
   useChatFeed(chatId)
   const facts = useComposerFacts(chatId)
   const { working, compacting } = facts
-  const telemetry = useAgentTelemetry(wsId, chatId, visible)
+  const telemetry = useChatTelemetry(wsId, chatId, visible)
   // Read once: the view remounts per chat, and the anchor restores on mount.
   const [initialScrollPosition] = useState(() => getScrollPosition(chatId))
   const dock = useDock()

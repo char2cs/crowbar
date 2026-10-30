@@ -11,10 +11,7 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import {
-  getOrCreateWorkspaceStore,
-  destroyWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
+import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { nextVersion, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 const repoWithOwnPath: Repo = {
@@ -213,7 +210,7 @@ describe('useIdeShellWorkspaceRetention — project-home pane, route on a DIFFER
     // app has once the pane's own chat has streamed at least once, which is
     // exactly the "file explorer stuck empty, but the chat itself renders
     // fine" shape of the live bug.
-    writeChat(getOrCreateWorkspaceStore('ws-home-1'), {
+    writeChat({
       id: 'home-chat-1',
       workspaceId: 'ws-home-1',
       title: 'home-chat-1',

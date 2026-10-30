@@ -12,11 +12,8 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
-import {
-  destroyWorkspaceStore,
-  getOrCreateWorkspaceStore,
-  getWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
+import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { resetChatStore, setChatWorking } from '@/__tests__/__fixtures__/agent-chat'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 // Task 21's drag wiring — a null scrollRef and no-op commit callbacks are
@@ -332,20 +329,7 @@ describe('SidebarTree', () => {
   })
 })
 
-/**
- * THE LIVE SPINNER — spec §3.2's "`working` swaps the glyph for the flip-dot
- * spinner IN PLACE".
- *
- * `rows-from-repo.ts` deliberately never seeds real turn state onto a row (a
- * value seeded once latches the spinner on a chat whose turn ended minutes
- * ago), and for a long time nothing supplied it either — so no tree row ever
- * spun, on a conversation or a workspace. `SidebarTreeRow` now subscribes each
- * row the same way it already did for `hasView`.
- *
- * Driven through the REAL workspace store, not a mock of the subscription:
- * what broke was the wiring between the store and the row, and a stubbed
- * `readChatWorking` would assert nothing about it.
- */
+// Rows carry an inert `working`; each row reads the live flag from the ChatStore.
 describe('SidebarTree — live turn state', () => {
   const wsId = 'ws-live'
   const workingRows: SidebarRow[] = [
@@ -365,12 +349,7 @@ describe('SidebarTree — live turn state', () => {
     },
   ]
 
-  function setWorking(value: boolean) {
-    const store = getOrCreateWorkspaceStore(wsId)
-    store.setState({
-      agentChats: { ...store.getState().agentChats, working: { 'chat-live': value } },
-    } as never)
-  }
+  const setWorking = (value: boolean) => setChatWorking('chat-live', value)
 
   function renderTree() {
     return render(
@@ -390,7 +369,7 @@ describe('SidebarTree — live turn state', () => {
     container.querySelector('[data-flicker-spinner]') !== null
 
   afterEach(() => {
-    destroyWorkspaceStore(wsId)
+    resetChatStore()
   })
 
   it('spins a workspace row while its chat is mid-turn', () => {
@@ -436,9 +415,8 @@ describe('SidebarTree — live turn state', () => {
     expect(getWorkspaceStore('ws-never-opened')).toBeUndefined()
   })
 
-  /** A row whose workspace mounts LATER must pick the spinner up — otherwise it
-   *  is stuck on the `false` it read at mount for the life of the session. */
-  it('binds to the workspace store when it appears after the row is drawn', () => {
+  /** A chat the store learns about after the row is drawn still spins it. */
+  it('spins a row whose chat reaches the store after the row is drawn', () => {
     const { container } = render(
       <SidebarTree
         rows={[{ ...workingRows[0], id: 'chat-late', workspaceId: 'ws-late' }]}
@@ -450,24 +428,15 @@ describe('SidebarTree — live turn state', () => {
     )
     expect(isSpinning(container)).toBe(false)
 
-    act(() => {
-      const store = getOrCreateWorkspaceStore('ws-late')
-      store.setState({
-        agentChats: { ...store.getState().agentChats, working: { 'chat-late': true } },
-      } as never)
-    })
+    act(() => setChatWorking('chat-late', true))
 
     expect(isSpinning(container)).toBe(true)
-    destroyWorkspaceStore('ws-late')
   })
 
   /** A bubble carries a real chat identity too — §5.7's "what is up right now"
    *  is not a workspace-only question. */
   it('spins a chat bubble whose conversation is mid-turn', () => {
-    const store = getOrCreateWorkspaceStore(wsId)
-    store.setState({
-      agentChats: { ...store.getState().agentChats, working: { 'chat-bubble': true } },
-    } as never)
+    setChatWorking('chat-bubble', true)
 
     const { container } = render(
       <SidebarTree

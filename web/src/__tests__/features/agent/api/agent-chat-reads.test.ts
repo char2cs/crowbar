@@ -294,31 +294,4 @@ describe('agent-chat-reads', () => {
     expect(chat.parentId).toBe('f1')
     expect(chat.order).toBe(4)
   })
-
-  // ── The chats tree: folders + placement ──────────────────────────────────
-  // A second aggregate with its own route (agent-chat-reads.ts's "Writes" section
-  // comment), so it gets its own describe rather than folding into the chat
-  // tests above.
-
-  describe('chat folders + placement', () => {
-    it('listChatFolders GETs the workspace-scoped folders list and grounds parentId/order', async () => {
-      // The wire DTO (dto.AgentChatDTO) names its text field `title`, not
-      // `name` — a fixture using `name` here would be asserting the same wire
-      // lie the production bug shared.
-      apiFetch.mockResolvedValueOnce([
-        { id: 'f1', workspaceId: 'w1', title: 'Folder 1', parentId: 'f0', order: 2 },
-        { id: 'f2', workspaceId: 'w1', title: 'Folder 2' }, // parentId/order omitted
-      ])
-      const folders = await api.listChatFolders('w1')
-      expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/repos/r1/chats/folders')
-      expect(folders[0]).toMatchObject({ id: 'f1', name: 'Folder 1', parentId: 'f0', order: 2 })
-      // A root/never-placed folder grounds the same way mapChat does.
-      expect(folders[1]).toMatchObject({ id: 'f2', name: 'Folder 2', parentId: '', order: 0 })
-    })
-
-    it('listChatFolders returns [] when the backend responds with no body', async () => {
-      apiFetch.mockResolvedValueOnce(undefined)
-      expect(await api.listChatFolders('w1')).toEqual([])
-    })
-  })
 })

@@ -1,4 +1,4 @@
-import { chatStore } from '@/features/agent/stores/chat-store'
+import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { seedFeed, spokenIn } from '@/__tests__/__fixtures__/ledger-rows'
 import { createElement } from 'react'
 import { act, render, screen } from '@testing-library/react'
@@ -43,11 +43,11 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
   useEffectiveChordMap: () => ({ 'agent.toggleViewMode': 'mod+/' }),
 }))
 
-vi.mock('@/features/agent/api/agent-chat-reads', () => ({
-  getPendingPrompt: vi.fn().mockResolvedValue(null),
-  getChat: (...a: unknown[]) => getChatFn(...a),
-  getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
-}))
+import * as readsApi from '@/features/agent/api/agent-chat-reads'
+vi.spyOn(readsApi, 'getPendingPrompt').mockResolvedValue(null)
+vi.spyOn(readsApi, 'getChat').mockImplementation(getChatFn)
+vi.spyOn(readsApi, 'getSlashCatalog').mockImplementation(slashCatalogFn)
+vi.spyOn(readsApi, 'getChatTelemetry').mockResolvedValue(null)
 import * as commandsApi from '@/features/agent/api/agent-chat-commands'
 vi.spyOn(commandsApi, 'switchProvider').mockImplementation(switchProviderFn)
 vi.spyOn(commandsApi, 'resumeChat').mockImplementation(resumeChatFn)
@@ -80,13 +80,8 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
 }))
 
 import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
-import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
-import {
-  setActiveWorkspaceId,
-  getOrCreateWorkspaceStore,
-  destroyWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
-import { nextVersion, seedChats } from '@/__tests__/__fixtures__/agent-chat'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { nextVersion, seedChats, resetChatStore } from '@/__tests__/__fixtures__/agent-chat'
 import { useSettingsStore } from '@/features/settings/store'
 
 const providers: AgentProvider[] = [
@@ -147,16 +142,11 @@ function detail(chat: AgentChat): AgentChatDetail {
   }
 }
 
-/**
- * A workspace store that exists but was NEVER MOUNTED — exactly what
- * `getOrCreateWorkspaceStore` mints for a workspace whose `WorkspaceView` has
- * not run (a chat opened from Recents, or a pane outliving its workspace's
- * visibility). `seedProviders` lives in that hook, so `agentChats.providers`
- * is `[]` here while the machine-level list is known globally.
- */
+/** A workspace whose `WorkspaceView` never ran: the chat is known, and the
+ *  provider list is whatever the machine-level store holds. */
 function unmountedWorkspace(chats: AgentChat[], wsId = 'w1') {
   const store = createWorkspaceStore(wsId)
-  seedChats(store, chats)
+  seedChats(chats, wsId)
   return store
 }
 
@@ -221,7 +211,7 @@ beforeEach(() => {
   ]) {
     f.mockReset()
   }
-  chatStore.setState({ feeds: {} })
+  resetChatStore()
   for (const id of ['c1', 'c2', 'c3']) seedFeed(id, spokenIn(id))
   slashCatalogFn.mockResolvedValue([])
   listProvidersFn.mockResolvedValue(providers)
@@ -267,44 +257,5 @@ describe('reopening an already-run conversation', () => {
 
     expect(listProvidersFn).toHaveBeenCalledWith('w1')
     expect(screen.queryByTestId('agent-selection-picker')).not.toBeNull()
-  })
-})
-
-/**
- * The same defect through its REAL entry point, end to end: the production
- * registry, not a hand-built store.
- *
- * `getOrCreateWorkspaceStore` is what a pane pointed at another workspace's
- * chat actually calls, and it mints a store with no providers for a workspace
- * whose `WorkspaceView` has never mounted — the Recents case the user hits.
- * Workspace A is the mounted, seeded one; the pane shows a conversation that
- * belongs to B.
- */
-describe('a pane on a workspace the app never mounted (real registry)', () => {
-  it('still names the provider its conversation ran under', async () => {
-    useAgentProvidersStore.getState().setProviders(providers)
-
-    // A: mounted and seeded, exactly as WorkspaceView leaves it.
-    const mounted = getOrCreateWorkspaceStore('w-mounted')
-    mounted.getState().setAgentProviders(providers)
-    setActiveWorkspaceId('w-mounted')
-
-    // B: minted on demand by the pane. Nothing ever seeded it.
-    const unmounted = getOrCreateWorkspaceStore('w-unmounted')
-    const chat = { ...dormantChat('c3', 'claude'), workspaceId: 'w-unmounted' }
-    seedChats(unmounted, [chat])
-    expect(unmounted.getState().agentChats.providers).toEqual([])
-
-    getChatFn.mockResolvedValue(detail(chat))
-    const paneId = openChatPane('c3', 'w-unmounted')
-    await renderPane(unmounted as unknown as Store, paneId)
-    await settle()
-
-    const picker = screen.queryByTestId('agent-selection-picker')
-    expect(picker).not.toBeNull()
-    expect(picker?.getAttribute('aria-label')).toContain('Claude')
-
-    destroyWorkspaceStore('w-mounted')
-    destroyWorkspaceStore('w-unmounted')
   })
 })

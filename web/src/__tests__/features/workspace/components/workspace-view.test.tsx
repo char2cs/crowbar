@@ -4,17 +4,17 @@ import { render, act, cleanup } from '@testing-library/react'
 // Focused WorkspaceView lifecycle tests for keep-alive semantics: a warm
 // (hidden -> active) flip does no work of its own (disk reconciliation belongs
 // to the files feed, see use-workspace-file-tree).
-const { activeEffectsSpy, agentChatsStreamSpy } = vi.hoisted(() => ({
+const { activeEffectsSpy, chatScopeSpy } = vi.hoisted(() => ({
   activeEffectsSpy: vi.fn((_wsId: string, _active: boolean) => {}),
-  agentChatsStreamSpy: vi.fn((_wsId: string) => {}),
+  chatScopeSpy: vi.fn((_wsId: string) => {}),
 }))
 
 vi.mock('@/features/workspace/stores/hooks/use-workspace-effects', () => ({
   useWorkspaceEffects: (wsId: string, active: boolean) => activeEffectsSpy(wsId, active),
 }))
 
-vi.mock('@/features/workspace/stores/hooks/use-workspace-agent-chats-stream', () => ({
-  useWorkspaceAgentChatsStream: (wsId: string) => agentChatsStreamSpy(wsId),
+vi.mock('@/features/agent/hooks/use-chat-scope', () => ({
+  useChatScope: (wsId: string) => chatScopeSpy(wsId),
 }))
 
 import { WorkspaceView } from '@/features/workspace/components/workspace-view'
@@ -38,7 +38,7 @@ async function renderView(active: boolean) {
 
 beforeEach(() => {
   activeEffectsSpy.mockClear()
-  agentChatsStreamSpy.mockClear()
+  chatScopeSpy.mockClear()
 })
 
 afterEach(() => {
@@ -59,16 +59,15 @@ describe('WorkspaceView keep-alive lifecycle', () => {
     expect(activeEffectsSpy).toHaveBeenLastCalledWith('ws-a', true)
   })
 
-  // The agent feed seeds this workspace's providers/chats and feeds `working`;
-  // the Recents band, "anything running has a row" and a pane still holding this
-  // workspace's chat all need it live while the workspace is hidden.
-  it('runs the agent chats stream for as long as the workspace is MOUNTED, active or not', async () => {
+  // Recents, background adoption and a pane on this workspace's chat all need
+  // its chat scope held while the workspace is hidden.
+  it('holds the chat scope for as long as the workspace is MOUNTED, active or not', async () => {
     const { setActive } = await renderView(true)
-    expect(agentChatsStreamSpy).toHaveBeenCalledWith('ws-a')
+    expect(chatScopeSpy).toHaveBeenCalledWith('ws-a')
 
-    agentChatsStreamSpy.mockClear()
+    chatScopeSpy.mockClear()
     await setActive(false)
 
-    expect(agentChatsStreamSpy).toHaveBeenCalledWith('ws-a')
+    expect(chatScopeSpy).toHaveBeenCalledWith('ws-a')
   })
 })

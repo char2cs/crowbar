@@ -36,6 +36,7 @@ vi.mock('@/features/tabs/components/tab-context-menu', () => ({
 }))
 
 import TabBar from '@/features/tabs/components/tab-bar'
+import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 function makeEditorBuffer(i: number): EditorContent {
   return {
@@ -66,10 +67,7 @@ function makeChat(overrides: Partial<AgentChat> = {}): AgentChat {
 }
 
 /** Seeds a single pane (ROOT_PANE_ID) with the given editor tabs and, when
- *  `chatId` is set, a matching `agentChats.chats` fixture. */
-// Task 26: panes/buffers moved off the per-workspace store onto the
-// window-level singleton — seed `windowPaneStore` for those; `agentChats`
-// stays on the workspace store returned here.
+ *  `chatId` is set, that chat in the ChatStore. */
 function setupPaneStore({
   buffers = [],
   chatId = null,
@@ -80,13 +78,8 @@ function setupPaneStore({
   activeEditorTabId?: string | null
 }) {
   const store = createWorkspaceStore('w1')
-  store.setState((s) => ({
-    ...s,
-    agentChats: {
-      ...s.agentChats,
-      chats: chatId ? [makeChat({ id: chatId })] : s.agentChats.chats,
-    },
-  }))
+  resetChatStore()
+  if (chatId) writeChat(makeChat({ id: chatId }))
   resetWindowPaneStoreForTests()
   windowPaneStore.setState((s) => {
     s.buffers = buffers

@@ -45,12 +45,12 @@ function chat(id: string, wsId: string): AgentChat {
   }
 }
 
-/** A real, registered store whose `agentChats.chats` names the chats. */
+/** A real, registered store, and the ChatStore holding its chats. */
 function seedWorkspace(wsId: string, chats: AgentChat[], working: Record<string, boolean> = {}) {
   const store = getOrCreateWorkspaceStore(wsId)
-  seedChats(store, chats)
+  seedChats(chats, wsId)
   for (const [chatId, isWorking] of Object.entries(working)) {
-    setChatWorking(store, chatId, isWorking)
+    setChatWorking(chatId, isWorking)
   }
   return store
 }

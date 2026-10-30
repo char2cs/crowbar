@@ -12,10 +12,7 @@ import {
   REORDER_MODES,
 } from '@/components/tree-dnd/drop-core'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
-import {
-  destroyWorkspaceStore,
-  getOrCreateWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
+import { resetChatStore, setChatWorking } from '@/__tests__/__fixtures__/agent-chat'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { useOperationsStore } from '@/lib/store/operations'
@@ -61,7 +58,7 @@ function makeRow(over: Partial<SidebarRow> & { id: string }): SidebarRow {
 describe('SIDEBAR_DROP_POLICY', () => {
   beforeEach(() => {
     // Module state outliving a test would refuse a later drag for no reason it set up.
-    destroyWorkspaceStore('ws-1')
+    resetChatStore()
     useOperationsStore.setState({ ops: {}, latestFor: {} })
     vi.clearAllMocks()
     useHomeTreeStore.setState({ trees: {} })
@@ -512,27 +509,15 @@ describe('SIDEBAR_DROP_POLICY', () => {
       expect(SIDEBAR_DROP_POLICY.allowedModes([subject], chatRow('chat-b'))).toEqual(NO_MODES)
     })
 
-    // A TREE chat row reports `working: false` always — it is built from the
-    // repo's reseeded chat list, which has no per-turn push to ride (see
-    // `rows-from-repo.ts`, where that is a decision, not an oversight). The
-    // refusal above therefore could not see it, and the same chat dragged from
-    // the tree instead of from Recents skipped the client-side refusal
-    // entirely, learning it only from a rejected round trip as a raw error
-    // toast. The live map Recents reads is asked for directly here.
+    // A tree chat row carries `working: false`; the ChatStore holds the live flag.
     it('refuses a tree chat row that IS working despite its row saying false', () => {
-      const store = getOrCreateWorkspaceStore('ws-1')
-      store.setState({
-        agentChats: { ...store.getState().agentChats, working: { 'chat-a': true } },
-      })
+      setChatWorking('chat-a', true)
       const subject = chatRow('chat-a', { working: false })
       expect(SIDEBAR_DROP_POLICY.allowedModes([subject], chatRow('chat-b'))).toEqual(NO_MODES)
     })
 
     it('allows a tree chat row whose live turn state says idle', () => {
-      const store = getOrCreateWorkspaceStore('ws-1')
-      store.setState({
-        agentChats: { ...store.getState().agentChats, working: { 'chat-a': false } },
-      })
+      setChatWorking('chat-a', false)
       expect(
         SIDEBAR_DROP_POLICY.allowedModes(
           [chatRow('chat-a', { working: false })],
@@ -541,10 +526,10 @@ describe('SIDEBAR_DROP_POLICY', () => {
       ).toEqual(ALL_MODES)
     })
 
-    // A chat whose workspace is not mounted has no live answer to give. It must
+    // A chat the ChatStore has never seen has no live answer to give. It must
     // stay draggable — the server refuses it if it is genuinely mid-turn — not
     // be refused on the absence of information.
-    it('allows a chat no mounted workspace knows about', () => {
+    it('allows a chat the ChatStore does not know about', () => {
       expect(
         SIDEBAR_DROP_POLICY.allowedModes(
           [chatRow('chat-unknown', { working: false })],

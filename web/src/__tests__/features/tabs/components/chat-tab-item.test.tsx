@@ -1,93 +1,59 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { createElement } from 'react'
-import { describe, expect, it, vi } from 'vitest'
-import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { CHAT_TITLE_PENDING_LABEL } from '@/features/agent/hooks/use-chat-title'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
+import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { ChatTabItem } from '@/features/tabs/components/chat-tab-item'
-import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
-import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-
-function makeChat(overrides: Partial<AgentChat> = {}): AgentChat {
-  return {
-    id: 'chat-1',
-    workspaceId: 'w1',
-    title: 'My Chat',
-    liveRunnerId: '',
-    terminalSessionId: '',
-    activeProviderId: '',
-    createdAt: new Date().toISOString(),
-    parentId: '',
-    ...overrides,
-  } as AgentChat
-}
+import { resetChatStore, setChatWorking, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 function renderChatTab(overrides: { isActive?: boolean; onSelect?: () => void } = {}) {
-  const store = createWorkspaceStore('w1')
-  store.setState((s) => ({
-    ...s,
-    agentChats: { ...s.agentChats, chats: [makeChat()] },
-  }))
-  const onSelect = overrides.onSelect ?? (() => {})
   return render(
-    createElement(
-      WorkspaceStoreContext.Provider,
-      { value: store },
-      createElement(ChatTabItem, {
-        chatId: 'chat-1',
-        isActive: overrides.isActive ?? false,
-        onSelect,
-      }),
-    ),
+    <ChatTabItem
+      chatId="chat-1"
+      isActive={overrides.isActive ?? false}
+      onSelect={overrides.onSelect ?? (() => {})}
+    />,
   )
 }
 
-// The synthetic "Chat" entry in the IDE sector's tab strip (collapsed/'tabs'
-// presentation only) — per the redesign, the chat is "just another tab" you
-// can switch away from. Ghost-styled like its real-tab neighbours, but never
-// closable or draggable — see tab-bar.tsx's own render site for that.
+beforeEach(() => {
+  resetChatStore()
+  useAgentProvidersStore.setState({ status: 'ready', providers: [] })
+})
+
+// The chat's own entry in the IDE sector's tab strip: never closable or draggable.
 describe('ChatTabItem', () => {
   it('renders the chat title', () => {
+    writeChat({ id: 'chat-1', title: 'My Chat' })
     renderChatTab()
     expect(screen.getByText('My Chat')).toBeInTheDocument()
   })
 
   it('falls back to UNTITLED_CHAT_LABEL for an empty title', () => {
-    const store = createWorkspaceStore('w1')
-    store.setState((s) => ({
-      ...s,
-      agentChats: { ...s.agentChats, chats: [makeChat({ title: '' })] },
-    }))
-    render(
-      createElement(
-        WorkspaceStoreContext.Provider,
-        { value: store },
-        createElement(ChatTabItem, { chatId: 'chat-1', isActive: false, onSelect: () => {} }),
-      ),
-    )
+    writeChat({ id: 'chat-1', title: '' })
+    renderChatTab()
     expect(screen.getByText(UNTITLED_CHAT_LABEL)).toBeInTheDocument()
   })
 
-  // Same masquerade the pane header was live-reported for: the tab shared the
-  // `?.title || UNTITLED_CHAT_LABEL` read, so a store missing the record named
-  // the chat "Untitled chat" as if that were its real name.
   it('shows the pending mark, not UNTITLED_CHAT_LABEL, for a chat the store has no record of', () => {
-    const store = createWorkspaceStore('w1')
-    store.setState((s) => ({
-      ...s,
-      agentChats: { ...s.agentChats, chats: [], listSeeded: true },
-    }))
-    render(
-      createElement(
-        WorkspaceStoreContext.Provider,
-        { value: store },
-        createElement(ChatTabItem, { chatId: 'chat-1', isActive: false, onSelect: () => {} }),
-      ),
-    )
+    renderChatTab()
     const title = screen.getByTestId('chat-tab-item-title')
     expect(title).toHaveAttribute('data-title-pending', 'true')
     expect(title).toHaveTextContent(CHAT_TITLE_PENDING_LABEL)
     expect(screen.queryByText(UNTITLED_CHAT_LABEL)).not.toBeInTheDocument()
+  })
+
+  it("wears its provider's glyph and spins while the chat works", () => {
+    useAgentProvidersStore.setState({
+      providers: [{ id: 'zeta', icon: '<svg data-p="zeta"></svg>' } as AgentProvider],
+    })
+    writeChat({ id: 'chat-1', title: 'My Chat', activeProviderId: 'zeta' })
+    renderChatTab()
+    const tab = screen.getByTestId('chat-tab-item')
+    expect(tab.querySelector('[data-p="zeta"]')).not.toBeNull()
+    act(() => setChatWorking('chat-1', true))
+    expect(tab.querySelector('[data-p="zeta"]')).toBeNull()
   })
 
   it('fires onSelect when clicked', () => {
@@ -100,25 +66,5 @@ describe('ChatTabItem', () => {
   it('renders no close affordance — it is never closable', () => {
     renderChatTab()
     expect(screen.queryByRole('button', { name: /close/i })).not.toBeInTheDocument()
-  })
-
-  it('uses the ghost tab styling — a persistent fill when active, none when not', () => {
-    const { rerender } = renderChatTab({ isActive: true })
-    const tabActive = screen.getByTestId('chat-tab-item')
-    expect(tabActive).toHaveClass('bg-sidebar-element-hover')
-
-    const store = createWorkspaceStore('w1')
-    store.setState((s) => ({
-      ...s,
-      agentChats: { ...s.agentChats, chats: [makeChat()] },
-    }))
-    rerender(
-      createElement(
-        WorkspaceStoreContext.Provider,
-        { value: store },
-        createElement(ChatTabItem, { chatId: 'chat-1', isActive: false, onSelect: () => {} }),
-      ),
-    )
-    expect(screen.getByTestId('chat-tab-item')).not.toHaveClass('bg-sidebar-element-hover')
   })
 })

@@ -9,17 +9,18 @@ import { TrashIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
 import { getChat } from '@/features/agent/api/agent-chat-reads'
+import { useChatField } from '@/features/agent/hooks/use-chat-entity'
+import { useChatListReady } from '@/features/agent/hooks/use-chat-scope'
+import { applyChat, setChatSelection, useChatStore } from '@/features/agent/stores/chat-store'
 import { switchProvider } from '@/features/agent/api/agent-chat-commands'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { AGENT_CYCLE_PROVIDER, AGENT_TOGGLE_VIEW_MODE } from '@/features/keymaps/registry'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
-import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
-import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { pendingChatSurfaces } from '@/features/panes/stores/pending-chat-surfaces'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
-import { usePaneSession } from '@/features/agent/hooks/use-pane-session'
+import { usePaneAttachment } from '@/features/agent/components/use-pane-attachment'
 import {
   SPLIT_MIN_HALF_PX,
   SPLIT_MIN_STACKED_PX,
@@ -58,15 +59,6 @@ interface AgentChatPaneProps {
 const HEADER_ROW_HEIGHT_PX = IS_MAC ? 44 : 34
 const CHAT_BLUR_ZONE_PX = HEADER_ROW_HEIGHT_PX + 56
 
-// A narrow selector: the row itself would re-run every consumer on any field.
-function useChatField(
-  store: WorkspaceStore,
-  chatId: string,
-  field: 'activeProviderId' | 'title' | 'model' | 'effort' | 'launchModel',
-): string {
-  return useStore(store, (s) => s.agentChats.chats.find((c) => c.id === chatId)?.[field] ?? '')
-}
-
 /**
  * A flat pane showing a RUNNER, not a chat: it follows its runner when the CLI
  * moves to another chat (/clear, /resume), else adopts whoever is on its chat.
@@ -82,7 +74,6 @@ export function AgentChatPane({
   isVisible,
   belowOverlayHeader = false,
 }: AgentChatPaneProps) {
-  const store = useWorkspaceStore()
   // Passive, so it follows the wrapper's layout-effect `begin` even in one commit.
   useEffect(() => pendingChatSurfaces.getState().end(paneId), [paneId])
   // Banners clear the header's row (+8px of air); the transcript its whole dissolve.
@@ -90,39 +81,36 @@ export function AgentChatPane({
   const transcriptHeaderClearancePx = belowOverlayHeader ? CHAT_BLUR_ZONE_PX : 0
 
   // My runner's chat, '' when it is nowhere; a move shows up as a different id.
-  const runnerChatId = useStore(store, (s) =>
-    runnerId ? (s.agentChats.chats.find((c) => c.liveRunnerId === runnerId)?.id ?? '') : '',
-  )
+  const runnerChatId = useChatStore((s) => {
+    if (!runnerId) return ''
+    for (const chat of Object.values(s.chats)) if (chat.liveRunnerId === runnerId) return chat.id
+    return ''
+  })
   const shownChatId = runnerChatId || chatId
 
   // A landed list turns `!known` from "not yet" into "not in it".
-  const listSeeded = useStore(store, (s) => s.agentChats.listSeeded)
+  const listSeeded = useChatListReady(wsId)
   // The pane's recorded workspace vouches for the chat until the list lands.
   const placed = useStore(windowPaneStore, (s) => s.panes[paneId]?.workspaceId != null)
-  const activeProviderId = useChatField(store, shownChatId, 'activeProviderId')
+  const activeProviderId = useChatField(shownChatId, (c) => c?.activeProviderId ?? '')
   // On 'terminal' the daemon has no api connection and refuses a Crowbar compaction.
-  const onTerminalSurface = useStore(
-    store,
-    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.surface === 'terminal',
-  )
-  const working = useStore(store, (s) => s.agentChats.working[shownChatId] ?? false)
-  const title = useChatField(store, shownChatId, 'title')
-  const chatModel = useChatField(store, shownChatId, 'model')
-  const chatEffort = useChatField(store, shownChatId, 'effort')
+  const onTerminalSurface = useChatField(shownChatId, (c) => c?.surface === 'terminal')
+  const working = useChatField(shownChatId, (c) => c?.working ?? false)
+  const title = useChatField(shownChatId, (c) => c?.title ?? '')
+  const chatModel = useChatField(shownChatId, (c) => c?.model ?? '')
+  const chatEffort = useChatField(shownChatId, (c) => c?.effort ?? '')
   // What the live runner spawned as: the current launch, never the next one's request.
-  const launchModel = useChatField(store, shownChatId, 'launchModel')
-  // A workspace nothing has mounted has no provider copy, and an empty
-  // catalogue deletes every provider control; the machine-level list fills in.
-  const wsProviders = useStore(store, (s) => s.agentChats.providers)
-  const globalProviders = useAgentProvidersStore((s) => s.providers)
-  const providers = wsProviders.length > 0 ? wsProviders : globalProviders
+  const launchModel = useChatField(shownChatId, (c) => c?.launchModel ?? '')
+  // An empty catalogue deletes every provider control; a pane whose workspace
+  // mounted no scope loads it itself.
+  const providers = useAgentProvidersStore((s) => s.providers)
   useEffect(() => {
-    if (wsProviders.length > 0 || globalProviders.length > 0) return
+    if (useAgentProvidersStore.getState().status !== 'idle') return
     void useAgentProvidersStore.getState().load(wsId)
-  }, [wsProviders.length, globalProviders.length, wsId])
+  }, [wsId])
 
   // A prompt Crowbar cannot answer: undefined is none, '' is unidentified.
-  const waitKind = useStore(store, (s) => s.agentChats.terminalWaits[shownChatId]?.kind)
+  const waitKind = useChatField(shownChatId, (c) => c?.terminalWait?.kind)
   const waiting = waitKind !== undefined
 
   const columnRef = useRef<HTMLDivElement>(null)
@@ -151,8 +139,7 @@ export function AgentChatPane({
   const chatZoom = useZoomStore.use.zoom()
   const providerName = providers.find((p) => p.id === activeProviderId)?.displayName || 'the agent'
   const { known, liveRunnerId, attachment, revival, sessionNote, canSend, startSession } =
-    usePaneSession({
-      store,
+    usePaneAttachment({
       wsId,
       chatId: shownChatId,
       providerName,
@@ -217,16 +204,16 @@ export function AgentChatPane({
   // The server accepted a staged pick with a prompt; nothing else brings it back.
   const commitSelection = useCallback(
     (model: string, effort: string) => {
-      store.getState().setAgentChatSelection(shownChatId, model, effort)
+      setChatSelection(shownChatId, model, effort)
     },
-    [store, shownChatId],
+    [shownChatId],
   )
 
   // Read the chat back after a send, so its runner is stored before `live` is next judged.
   const settleDispatch = () => {
     void getChat(wsId, shownChatId)
       .then((fetched) => {
-        if (mountedRef.current) store.getState().applyAgentChat(fetched)
+        if (mountedRef.current) applyChat(fetched)
       })
       // A failed read leaves the store as the stream last said.
       .catch(() => false)
@@ -240,12 +227,10 @@ export function AgentChatPane({
     if (resolvedRef.current.has(shownChatId)) return
     resolvedRef.current.add(shownChatId)
     void getChat(wsId, shownChatId)
-      .then((chat) => {
-        store.getState().applyAgentChat(chat)
-      })
+      .then(applyChat)
       // Gone, or the read failed: `pending` is now an honest "nothing to show".
       .catch(() => false)
-  }, [store, wsId, listSeeded, known, shownChatId])
+  }, [wsId, listSeeded, known, shownChatId])
 
   const escort = useTerminalEscort({
     wsId,

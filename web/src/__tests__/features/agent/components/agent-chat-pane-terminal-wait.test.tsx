@@ -1,4 +1,3 @@
-import { chatStore } from '@/features/agent/stores/chat-store'
 import { createElement } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -23,17 +22,10 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
 // on GitHub Actions).
 vi.mock('@/utils/platform', () => ({ IS_MAC: true }))
 
-vi.mock('@/features/agent/api/agent-chat-reads', async (importOriginal) => {
-  // Partial: the module also exports the TERMINAL_WAIT_* constants the banner
-  // reads, and stubbing those away would make it silently take its fallback
-  // wording on every render — a green test over a broken banner.
-  const actual = await importOriginal<typeof import('@/features/agent/api/agent-chat-reads')>()
-  return {
-    ...actual,
-    getChat: (...a: unknown[]) => getChatFn(...a),
-    getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
-  }
-})
+import * as readsApi from '@/features/agent/api/agent-chat-reads'
+vi.spyOn(readsApi, 'getChat').mockImplementation(getChatFn)
+vi.spyOn(readsApi, 'getSlashCatalog').mockImplementation(slashCatalogFn)
+vi.spyOn(readsApi, 'getChatTelemetry').mockResolvedValue(null)
 import * as commandsApi from '@/features/agent/api/agent-chat-commands'
 vi.spyOn(commandsApi, 'switchProvider').mockImplementation(vi.fn())
 vi.spyOn(commandsApi, 'resumeChat').mockImplementation(vi.fn())
@@ -63,7 +55,13 @@ import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { resetChatPresentationMemoryForTests } from '@/features/agent/hooks/use-chat-presentation'
-import { nextVersion, seedChats, setChatTerminalWait } from '@/__tests__/__fixtures__/agent-chat'
+import {
+  nextVersion,
+  seedChats,
+  setChatTerminalWait,
+  resetChatStore,
+  setProviders,
+} from '@/__tests__/__fixtures__/agent-chat'
 
 const providers: AgentProvider[] = [
   {
@@ -106,8 +104,8 @@ function liveChat(wait?: { kind: string }): AgentChat {
 
 function seed(wait?: { kind: string }) {
   const store = createWorkspaceStore('w1')
-  store.getState().setAgentProviders(providers)
-  seedChats(store, [liveChat(wait)])
+  setProviders(providers)
+  seedChats([liveChat(wait)])
   return store
 }
 
@@ -153,8 +151,8 @@ function nonHotswapChat(wait?: { kind: string }): AgentChat {
 
 function seedNonHotswap(wait?: { kind: string }) {
   const store = createWorkspaceStore('w1')
-  store.getState().setAgentProviders(nonHotswapProviders)
-  seedChats(store, [nonHotswapChat(wait)])
+  setProviders(nonHotswapProviders)
+  seedChats([nonHotswapChat(wait)])
   return store
 }
 
@@ -186,9 +184,9 @@ async function renderPane(
 }
 
 /** Raise or clear the daemon's verdict the way the WS frame does. */
-async function setWait(store: Store, wait: { kind: string } | null) {
+async function setWait(wait: { kind: string } | null) {
   await act(async () => {
-    setChatTerminalWait(store, 'c1', wait)
+    setChatTerminalWait('c1', wait)
   })
 }
 
@@ -210,7 +208,7 @@ const surfaceToggle = () => screen.getByRole('tab', { name: 'Terminal' })
 beforeEach(() => {
   resetChatPresentationMemoryForTests()
   getChatFn.mockReset()
-  chatStore.setState({ feeds: {} })
+  resetChatStore()
   slashCatalogFn.mockReset()
   switchToTerminalFn.mockReset()
   switchToTerminalFn.mockResolvedValue('term-session-1')
@@ -237,7 +235,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
     await renderPane(store)
     expect(showing()).toBe('chat')
 
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
 
     expect(screen.getByTestId('agent-terminal-wait')).toHaveTextContent(
       'Claude is asking whether you trust this folder',
@@ -249,7 +247,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
     const store = seed()
     await renderPane(store)
 
-    await setWait(store, { kind: '' })
+    await setWait({ kind: '' })
 
     expect(screen.getByTestId('agent-terminal-wait')).toHaveTextContent(
       'Claude is waiting for input in its terminal',
@@ -265,7 +263,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
     const store = seed()
     await renderPane(store, { isVisible: false })
 
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
 
     expect(showing()).toBe('chat')
     expect(screen.getByTestId('agent-terminal-wait')).toBeInTheDocument()
@@ -275,7 +273,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
     const store = seed()
     await renderPane(store, { isActivePane: false })
 
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
 
     expect(showing()).toBe('chat')
   })
@@ -289,7 +287,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
     await renderPane(store)
     setActiveWorkspaceId('w2')
 
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
 
     expect(showing()).toBe('chat')
   })
@@ -310,10 +308,10 @@ describe('AgentChatPane — waiting in the terminal', () => {
   it('returns the user to the chat once the prompt is cleared', async () => {
     const store = seed()
     await renderPane(store)
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
     expect(showing()).toBe('terminal')
 
-    await setWait(store, null)
+    await setWait(null)
 
     expect(showing()).toBe('chat')
     expect(screen.queryByTestId('agent-terminal-wait')).not.toBeInTheDocument()
@@ -325,13 +323,13 @@ describe('AgentChatPane — waiting in the terminal', () => {
   it('leaves the user where they chose to be, and offers the way back instead', async () => {
     const store = seed()
     await renderPane(store)
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
 
     // Reasserting the surface they are already on IS a choice — it is the click
     // that says "I want to be here", and it is the only one available once the
     // pane has already moved them.
     fireEvent.click(surfaceToggle())
-    await setWait(store, null)
+    await setWait(null)
 
     expect(showing()).toBe('terminal')
     expect(screen.getByTestId('agent-return-to-chat')).toBeInTheDocument()
@@ -342,7 +340,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
   it('offers the way back when it cannot return the user itself', async () => {
     const store = seed()
     const { rerender } = await renderPane(store)
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
     expect(showing()).toBe('terminal')
 
     // The user walks away — another pane takes focus — before the dialog clears.
@@ -362,7 +360,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
         ),
       )
     })
-    await setWait(store, null)
+    await setWait(null)
 
     expect(showing()).toBe('terminal')
     expect(screen.getByTestId('agent-return-to-chat')).toBeInTheDocument()
@@ -371,9 +369,9 @@ describe('AgentChatPane — waiting in the terminal', () => {
   it('takes the user back when they accept the offer', async () => {
     const store = seed()
     await renderPane(store)
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
     fireEvent.click(surfaceToggle())
-    await setWait(store, null)
+    await setWait(null)
 
     fireEvent.click(screen.getByRole('button', { name: 'Return to Chat' }))
 
@@ -384,9 +382,9 @@ describe('AgentChatPane — waiting in the terminal', () => {
   it('stops offering when the user dismisses it', async () => {
     const store = seed()
     await renderPane(store)
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
     fireEvent.click(surfaceToggle())
-    await setWait(store, null)
+    await setWait(null)
 
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
 
@@ -402,8 +400,8 @@ describe('AgentChatPane — waiting in the terminal', () => {
     fireEvent.click(surfaceToggle())
     expect(showing()).toBe('terminal')
 
-    await setWait(store, { kind: 'workspace_trust' })
-    await setWait(store, null)
+    await setWait({ kind: 'workspace_trust' })
+    await setWait(null)
 
     expect(showing()).toBe('terminal')
     expect(screen.queryByTestId('agent-return-to-chat')).not.toBeInTheDocument()
@@ -414,12 +412,12 @@ describe('AgentChatPane — waiting in the terminal', () => {
   it('offers the way back to a user who followed the banner', async () => {
     const store = seed()
     await renderPane(store, { isVisible: false })
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
     expect(showing()).toBe('chat')
 
     fireEvent.click(screen.getByRole('button', { name: 'Open Terminal' }))
     expect(showing()).toBe('terminal')
-    await setWait(store, null)
+    await setWait(null)
 
     expect(showing()).toBe('terminal')
     expect(screen.getByTestId('agent-return-to-chat')).toBeInTheDocument()
@@ -437,7 +435,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
   it('renders the wait banner inside AgentEmptyDocument, not as a free-floating row above it', async () => {
     const store = seed()
     await renderPane(store)
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
 
     const banner = screen.getByTestId('agent-terminal-wait')
     const handle = banner.closest('.dochandle')
@@ -453,7 +451,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
   it('clears the overlay header row when one floats above this pane', async () => {
     const store = seed()
     await renderPane(store, { belowOverlayHeader: true })
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
 
     screen.getByTestId('agent-terminal-wait')
     // 44px header (IS_MAC forced true above) plus the pane's own original
@@ -465,7 +463,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
   it('keeps its original offset with no overlay header above (default)', async () => {
     const store = seed()
     await renderPane(store)
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
 
     screen.getByTestId('agent-terminal-wait')
     const section = document.querySelector('.agent-chat.chat') as HTMLElement
@@ -485,13 +483,13 @@ describe('AgentChatPane — waiting in the terminal', () => {
   it('keeps the chat surface hidden after Open Terminal, even while still waiting', async () => {
     const store = seed()
     await renderPane(store, { isVisible: false })
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
     expect(showing()).toBe('chat')
 
     fireEvent.click(screen.getByRole('button', { name: 'Open Terminal' }))
     expect(showing()).toBe('terminal')
 
-    // Deliberately NOT calling setWait(store, null) here — the daemon has not
+    // Deliberately NOT calling setWait(null) here — the daemon has not
     // answered, `waiting` is still true, which is the exact case the bug
     // needs to reproduce.
     const chatSurface = screen.getByTestId('agent-chat-surface')
@@ -536,7 +534,7 @@ describe('AgentChatPane — waiting in the terminal (non-hotswap provider)', () 
     await renderPane(store)
     expect(showing()).toBe('chat')
 
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
 
     expect(screen.getByTestId('agent-terminal-wait')).toHaveTextContent(
       'Codex is asking whether you trust this folder',
@@ -556,7 +554,7 @@ describe('AgentChatPane — waiting in the terminal (non-hotswap provider)', () 
       }),
     )
     await renderPane(store, { isVisible: false })
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
     expect(showing()).toBe('chat')
 
     fireEvent.click(screen.getByRole('button', { name: 'Open Terminal' }))
@@ -574,7 +572,7 @@ describe('AgentChatPane — waiting in the terminal (non-hotswap provider)', () 
     const store = seedNonHotswap()
     await renderPane(store)
 
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
     await waitFor(() => expect(switchToTerminalFn).toHaveBeenCalledWith('w1', 'c1'))
 
     expect(showing()).toBe('chat')

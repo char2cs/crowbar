@@ -1,5 +1,5 @@
 import type { DragEvent, KeyboardEvent } from 'react'
-import { useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { AgentTerminalWait } from '@/features/agent/api/agent-chat-reads'
 import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
@@ -27,7 +27,10 @@ import { isMultiline } from '@/features/agent/composer/lib/handle-geometry'
 import { useAttachmentUpload } from '@/features/agent/composer/lib/use-attachment-upload'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import type { AskItem } from '@/features/agent/stores/lib/transcript-items'
-import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import {
+  clearExcalidrawEditRequest,
+  useExcalidrawEditRequests,
+} from '@/features/agent/composer/lib/excalidraw-edit-requests'
 import { cn } from '@/lib/utils'
 
 interface AgentComposerProps {
@@ -116,25 +119,14 @@ export function AgentComposer(props: AgentComposerProps) {
     editorRef.current?.settlePendingImage(objectUrl, finalMarkdown)
   }, [])
 
-  // Nullable, not the throwing `useWorkspaceStore()`: this component's own
-  // tests render it bare (no provider) and must keep working — absent
-  // context just means no cross-tab edit requests can reach it, same as
-  // ExcalidrawPreview's own guard.
-  const workspaceStore = useContext(WorkspaceStoreContext)
-  const pendingExcalidrawEdit = useSyncExternalStore(
-    useCallback(
-      (onChange) => (workspaceStore ? workspaceStore.subscribe(onChange) : () => {}),
-      [workspaceStore],
-    ),
-    () => workspaceStore?.getState().agentChats.excalidrawEditRequests[props.chatId],
-  )
+  const pendingExcalidrawEdit = useExcalidrawEditRequests((s) => s.requests[props.chatId])
   useEffect(() => {
     if (!pendingExcalidrawEdit) return
     setExcalidrawInitialScene(pendingExcalidrawEdit)
     // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: not a derived copy of pendingExcalidrawEdit, an external-store event handler. Both setState calls run in the same batched effect invocation, so the modal never paints with a stale/absent scene; clearExcalidrawEditRequest is itself a side effect that can't happen during render.
     setModal('excalidraw')
-    workspaceStore?.getState().clearExcalidrawEditRequest(props.chatId)
-  }, [pendingExcalidrawEdit, props.chatId, workspaceStore])
+    clearExcalidrawEditRequest(props.chatId)
+  }, [pendingExcalidrawEdit, props.chatId])
 
   // Upload, CSV-inline resolution, and the failure toast all live in this one
   // shared hook now (also used by attach-file-modal.tsx and

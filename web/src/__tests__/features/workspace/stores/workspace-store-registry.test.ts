@@ -6,11 +6,7 @@ import {
   getAllActiveWorkspaceIds,
   setActiveWorkspaceId,
   getActiveWorkspaceId,
-  subscribeWorkspaceStores,
-  subscribeChatWorking,
-  readChatWorking,
 } from '@/features/workspace/stores/workspace-store-registry'
-import { setChatWorking, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 afterEach(() => {
   getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
@@ -68,53 +64,6 @@ describe('workspace-store-registry', () => {
     getOrCreateWorkspaceStore('ws-evicted')
     destroyWorkspaceStore('ws-evicted')
     expect(getWorkspaceStore('ws-evicted')).toBeUndefined()
-  })
-
-  describe('registry change notifications', () => {
-    it('does not fire watchers when a store is merely registered', () => {
-      const fired = vi.fn()
-      const unsubscribe = subscribeWorkspaceStores(fired)
-
-      getOrCreateWorkspaceStore('ws-fresh')
-
-      expect(fired).not.toHaveBeenCalled()
-      unsubscribe()
-    })
-
-    it('still binds that new store, so its very next write DOES fire them', () => {
-      const fired = vi.fn()
-      const unsubscribe = subscribeWorkspaceStores(fired)
-
-      writeChat(getOrCreateWorkspaceStore('ws-fresh'), { id: 'chat-1', workspaceId: 'ws-fresh' })
-
-      expect(fired).toHaveBeenCalled()
-      unsubscribe()
-    })
-
-    it('fires watchers when a store is destroyed — that really does change the answer', () => {
-      writeChat(getOrCreateWorkspaceStore('ws-doomed'), { id: 'chat-1', workspaceId: 'ws-doomed' })
-      const fired = vi.fn()
-      const unsubscribe = subscribeWorkspaceStores(fired)
-
-      destroyWorkspaceStore('ws-doomed')
-
-      expect(fired).toHaveBeenCalled()
-      unsubscribe()
-    })
-
-    it('subscribeChatWorking follows the same rule: silent on registration, live on the write', () => {
-      const fired = vi.fn()
-      const unsubscribe = subscribeChatWorking('ws-late', fired)
-
-      getOrCreateWorkspaceStore('ws-late')
-      expect(fired).not.toHaveBeenCalled()
-
-      setChatWorking(getOrCreateWorkspaceStore('ws-late'), 'chat-late', true)
-      expect(fired).toHaveBeenCalled()
-      expect(readChatWorking('ws-late', 'chat-late')).toBe(true)
-
-      unsubscribe()
-    })
   })
 
   it('the active id is one value the host writes, cleared with null', () => {

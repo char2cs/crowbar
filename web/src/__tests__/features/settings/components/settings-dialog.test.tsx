@@ -61,7 +61,6 @@ const CLAUDE: AgentProvider = {
 beforeEach(() => {
   const st = getOrCreateWorkspaceStore('w1')
   act(() => {
-    st.getState().setAgentProviders([CLAUDE])
     setActiveWorkspaceStoreForTests(st)
     useAgentProvidersStore.setState({ providers: [CLAUDE], status: 'ready' })
     useUIState.getState().setSettingsInitialTab('providers')

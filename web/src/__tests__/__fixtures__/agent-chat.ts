@@ -1,12 +1,10 @@
 import type { AgentChat, AgentTerminalWait } from '@/features/agent/api/agent-chat-reads'
-import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
+import { applyChat, chatStore, setChatScope } from '@/features/agent/stores/chat-store'
+import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 
-/**
- * Chat snapshots for tests. The store applies a chat only when its version is
- * newer than the one it holds (reduce-chat-frame.ts), exactly as the daemon's
- * frames and reads are applied — so every write a test makes goes through here
- * and gets a fresh, larger version, the way the daemon's would.
- */
+// The store applies a chat only when its version is newer than the one held,
+// so every write a test makes goes through here and gets a larger version.
 let clock = 1_000
 
 /** A version larger than any this module has handed out. */
@@ -32,32 +30,33 @@ export function chatSnapshot(chat: Partial<AgentChat> & { id: string }): AgentCh
   }
 }
 
-/** Write a chat into a workspace store as a newer snapshot. */
-export function writeChat(store: WorkspaceStore, chat: Partial<AgentChat> & { id: string }): void {
-  const held = store.getState().agentChats.chats.find((c) => c.id === chat.id)
-  store.getState().applyAgentChat(chatSnapshot({ ...held, ...chat, version: nextVersion() }))
+export function resetChatStore(): void {
+  chatStore.setState({ feeds: {}, chats: {}, byWorkspace: {}, scopes: {}, telemetry: {} })
+}
+
+/** Writes a chat into the ChatStore as a newer snapshot of what it holds. */
+export function writeChat(chat: Partial<AgentChat> & { id: string }): void {
+  const held = chatStore.getState().chats[chat.id]
+  applyChat(chatSnapshot({ ...held, ...chat, version: nextVersion() }))
 }
 
 /** The daemon reporting a chat's working flag moved. */
-export function setChatWorking(store: WorkspaceStore, chatId: string, working: boolean): void {
-  writeChat(store, { id: chatId, working })
+export function setChatWorking(chatId: string, working: boolean): void {
+  writeChat({ id: chatId, working })
 }
 
 /** The daemon reporting a chat's terminal-wait verdict moved. */
-export function setChatTerminalWait(
-  store: WorkspaceStore,
-  chatId: string,
-  wait: AgentTerminalWait | null,
-): void {
-  writeChat(store, { id: chatId, terminalWait: wait ?? undefined })
+export function setChatTerminalWait(chatId: string, wait: AgentTerminalWait | null): void {
+  writeChat({ id: chatId, terminalWait: wait ?? undefined })
 }
 
-/** An authoritative list read, every row a fresh snapshot. */
-export function seedChats(
-  store: WorkspaceStore,
-  chats: Array<Partial<AgentChat> & { id: string }>,
-) {
-  return store
-    .getState()
-    .seedAgentChats(chats.map((c) => chatSnapshot({ ...c, version: nextVersion() })))
+/** A landed list for `wsId`: every row a fresh snapshot, and the scope ready. */
+export function seedChats(chats: Array<Partial<AgentChat> & { id: string }>, wsId = 'w1'): void {
+  for (const chat of chats) writeChat(chat)
+  setChatScope(wsId, 'ready')
+}
+
+/** The machine's provider list, loaded. */
+export function setProviders(providers: AgentProvider[]): void {
+  useAgentProvidersStore.setState({ status: 'ready', providers })
 }

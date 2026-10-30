@@ -11,10 +11,7 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import {
-  getOrCreateWorkspaceStore,
-  destroyWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
+import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import {
   EMPTY_FOCUSED_WORKSPACE_CONTEXT,
   getFocusedWorkspaceContext,
@@ -37,7 +34,7 @@ const repo: Repo = {
 }
 
 function seedHomeChat() {
-  writeChat(getOrCreateWorkspaceStore('ws-home'), {
+  writeChat({
     id: 'home-chat',
     workspaceId: 'ws-home',
     title: 'home',

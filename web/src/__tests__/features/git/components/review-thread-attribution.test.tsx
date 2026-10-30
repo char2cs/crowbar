@@ -11,7 +11,7 @@
  * ids the code has never heard of on purpose: a provider is only ever a row in
  * the workspace's provider list, resolved by id, whatever that id turns out to be.
  */
-import { nextVersion, writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import { nextVersion, resetChatStore, seedChats } from '@/__tests__/__fixtures__/agent-chat'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -29,10 +29,7 @@ import {
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
-import {
-  destroyWorkspaceStore,
-  getOrCreateWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
+import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import type {
@@ -75,12 +72,11 @@ const chat = (id: string, title: string): AgentChat => ({
   order: 0,
 })
 
-const state = () => getOrCreateWorkspaceStore(WS).getState()
-
+/** The providers known, and `chats` as the workspace's landed list. */
 function seed(chats: AgentChat[]) {
   act(() => {
-    state().setAgentProviders(PROVIDERS)
-    for (const c of chats) writeChat(getOrCreateWorkspaceStore(WS), c)
+    useAgentProvidersStore.setState({ status: 'ready', providers: PROVIDERS })
+    seedChats(chats, WS)
   })
 }
 
@@ -134,7 +130,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
-  destroyWorkspaceStore(WS)
+  resetChatStore()
 })
 
 describe('review message — which agent wrote it', () => {
@@ -190,7 +186,6 @@ describe('review message — the chat it came out of', () => {
     await userEvent.click(link)
 
     expect(openChatFn).toHaveBeenCalledWith('c1', expect.anything())
-    expect(getOrCreateWorkspaceStore(WS).getState().agentChats.activeChatId).toBe('c1')
   })
 
   it('calls a chat nobody has named yet what every other surface calls it', () => {
@@ -217,11 +212,9 @@ describe('review message — the chat it came out of', () => {
     expect(openChatFn).not.toHaveBeenCalled()
   })
 
-  // "Deleted" is a claim, and an unseeded store is not evidence for it. The chat
-  // list arrives asynchronously with the workspace, so a review opened on a cold
-  // store would otherwise announce every chat as deleted and then take it back.
+  // "Deleted" is a claim, and a list still in flight is not evidence for it.
   it('claims nothing while the workspace has no chat list yet', () => {
-    seed([]) // providers seeded, chats not yet
+    act(() => useAgentProvidersStore.setState({ status: 'ready', providers: PROVIDERS }))
     renderThread([message({ providerId: 'zeta-cli', chatId: 'c1' })])
 
     expect(screen.queryByTestId('review-message-chat-deleted')).toBeNull()

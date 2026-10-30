@@ -27,7 +27,6 @@ export const NON_STRUCTURAL_CHAT_KINDS: ReadonlySet<string> = new Set([
   // process, never a row.
   'snapshot',
   'started',
-  'moved',
   'displaced',
   'exited',
   // The live views of a turn in progress: the plan, the compaction edge and the

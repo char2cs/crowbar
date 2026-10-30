@@ -80,9 +80,6 @@ export interface AgentChat {
   version: number
   /** The chat's lifecycle phase, owned by the daemon. The pane renders it. */
   phase: ChatPhase
-  /** How the conversation continues and why the chat is dormant, as the
-   *  daemon's session supervisor recorded it. Absent when there is nothing to say. */
-  session?: ChatSession
   /**
    * The row this chat hangs off — another CHAT (making this one a thread of it) or
    * a FOLDER. '' is the workspace root.
@@ -133,19 +130,7 @@ export interface AgentChat {
 
 /** Where a chat is in its lifecycle. `dormant` and `live` follow placement;
  *  the other three are an operation the daemon is running on it right now. */
-export type ChatPhase = 'dormant' | 'starting' | 'live' | 'switching' | 'stopping'
-
-/** The resume-ladder rung a runner launched on: the provider's own session,
- *  a fresh one handed Crowbar's transcript, or nothing to continue. */
-type SessionRung = 'session' | 'transcript' | 'fresh'
-
-export interface ChatSession {
-  rung?: SessionRung
-  /** How the last runner ended: stopped, exited, connection_lost,
-   *  transport_overflow, daemon_restart, resume_failed, spawn_failed. */
-  exitReason?: string
-  exitedAt?: string
-}
+type ChatPhase = 'dormant' | 'starting' | 'live' | 'switching' | 'stopping'
 
 /** What a chat's CLI is blocked on that Crowbar has no channel to answer.
  *
@@ -295,7 +280,6 @@ export function mapChat(c: AgentChat): AgentChat {
     createdAt: c.createdAt,
     version: c.version,
     phase: c.phase,
-    session: c.session,
     // Grounded here, once, so nothing downstream has to remember that an absent
     // parent and a root parent are the same thing. `order` defaults to 0, which
     // ties every chat on a daemon that has not placed them yet — the tree breaks
@@ -455,20 +439,4 @@ export async function getSlashCatalog(
     { attempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
   )
   return { ...raw, items: raw?.items ?? [], warnings: raw?.warnings ?? [] }
-}
-
-// ── The chats tree: folders, and where a row sits ───────────────────
-//
-// Parentage and folders are SERVER state, per workspace, exactly as the
-// sidebar's folders are. An earlier client-persisted version of this was
-// rejected: a thread reads its parent's turns, so which row a chat hangs off
-// decides what an agent sees, and that cannot live in a browser key that another
-// window — or another machine — never learns about.
-//
-// Every write answers with the rows a dense renumber MOVED as well as the row
-// asked about. Apply both halves or the level paints in its old order.
-
-export async function listChatFolders(wsId: string): Promise<AgentChatFolder[]> {
-  const raw = await apiFetch<AgentChatFolderWire[]>(`${chatBase(wsId)}/folders`)
-  return (raw ?? []).map(mapFolder)
 }

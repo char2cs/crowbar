@@ -7,8 +7,7 @@ import { ChatIdContext } from '@/features/agent/composer/plate/attachments/chat-
 import { MarkdownAssetContext } from '@/features/editor/markdown/plate/markdown-asset'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import type { ParsedExcalidrawScene } from '@/features/agent/composer/plate/attachments/excalidraw-scene'
-import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import { useExcalidrawEditRequests } from '@/features/agent/composer/lib/excalidraw-edit-requests'
 
 // The real `@excalidraw/excalidraw` needs Canvas/font-metrics APIs jsdom
 // doesn't implement — mocked so the live-render path is deterministic and
@@ -408,22 +407,19 @@ describe('ExcalidrawPreview reservation follows a resize while still loading', (
 // be looked at in the transcript — this is what actually lets someone iterate
 // on a diagram that already exists rather than always starting a fresh one.
 describe('ExcalidrawPreview edit button', () => {
+  const requested = (chatId: string) => useExcalidrawEditRequests.getState().requests[chatId]
+  beforeEach(() => useExcalidrawEditRequests.setState({ requests: {} }))
+
   function renderWithChat(chatId: string | null, ui: ReactElement) {
-    const store = createWorkspaceStore('ws1')
-    render(
-      <WorkspaceStoreContext.Provider value={store}>
-        <ChatIdContext.Provider value={chatId}>{ui}</ChatIdContext.Provider>
-      </WorkspaceStoreContext.Provider>,
-    )
-    return store
+    render(<ChatIdContext.Provider value={chatId}>{ui}</ChatIdContext.Provider>)
   }
 
   it('requests opening the takeover with this scene when Edit is clicked', () => {
-    const store = renderWithChat('c1', <ExcalidrawPreview scene={scene} />)
+    renderWithChat('c1', <ExcalidrawPreview scene={scene} />)
 
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
 
-    expect(store.getState().agentChats.excalidrawEditRequests['c1']).toEqual(scene)
+    expect(requested('c1')).toEqual(scene)
   })
 
   it('shows Edit on the persisted-PNG path too, not only the live-render path', async () => {
@@ -432,31 +428,23 @@ describe('ExcalidrawPreview edit button', () => {
       'fetch',
       vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(blob) }),
     )
-    const store = createWorkspaceStore('ws1')
     render(
-      <WorkspaceStoreContext.Provider value={store}>
-        <ChatIdContext.Provider value="c1">
-          <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
-            <ExcalidrawPreview scene={scene} pngRef="chats/c1/attachments/diagram.png" />
-          </ChatMarkdownAssetProvider>
-        </ChatIdContext.Provider>
-      </WorkspaceStoreContext.Provider>,
+      <ChatIdContext.Provider value="c1">
+        <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+          <ExcalidrawPreview scene={scene} pngRef="chats/c1/attachments/diagram.png" />
+        </ChatMarkdownAssetProvider>
+      </ChatIdContext.Provider>,
     )
     await screen.findByRole('img', { name: /excalidraw diagram/i })
 
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
 
-    expect(store.getState().agentChats.excalidrawEditRequests['c1']).toEqual(scene)
+    expect(requested('c1')).toEqual(scene)
     vi.unstubAllGlobals()
   })
 
-  it('renders no Edit button outside a chat/workspace context', () => {
+  it('renders no Edit button outside a chat context', () => {
     render(<ExcalidrawPreview scene={scene} />)
-    expect(screen.queryByRole('button', { name: /edit/i })).not.toBeInTheDocument()
-  })
-
-  it('renders no Edit button when there is a workspace store but no chat id', () => {
-    renderWithChat(null, <ExcalidrawPreview scene={scene} />)
     expect(screen.queryByRole('button', { name: /edit/i })).not.toBeInTheDocument()
   })
 

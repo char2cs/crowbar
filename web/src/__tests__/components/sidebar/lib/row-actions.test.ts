@@ -8,7 +8,7 @@ import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { toast } from '@/features/window/stores/toast-store'
-import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { resetChatStore } from '@/__tests__/__fixtures__/agent-chat'
 import * as api from '@/lib/api'
 import * as sidebarPlacement from '@/lib/api/sidebar-placement'
 import * as agentApi from '@/features/agent/api/agent-chat-commands'
@@ -59,11 +59,8 @@ vi.spyOn(homeWorkspaceResolver, 'getHomeWorkspaceId').mockReturnValue('home-ws-1
 describe('row-actions', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    // The workspace-store registry is MODULE state that outlives a test
-    // (sidebar-drop-policy.test.ts's own beforeEach notes the same hazard):
-    // a live `agentChats.working` map left behind by one promote case would
-    // silently refuse a later one that never set it up.
-    destroyWorkspaceStore('ws-home')
+    // A working flag left in the ChatStore would refuse a later promote case.
+    resetChatStore()
     useHomeTreeStore.setState({ trees: {} })
     useSidebarStore.setState({
       ...getInitialState(),

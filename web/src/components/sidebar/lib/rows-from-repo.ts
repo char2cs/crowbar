@@ -313,24 +313,8 @@ export function walkTreeIntoRows(
         // has no worktree for Fork to clone regardless of what its ground
         // workspace resolves to.
         canFork: foldersCanFork,
-        // ALWAYS FALSE HERE, AND NOT AN OVERSIGHT — but no longer the last
-        // word. Seeding a real value into the row object is the latch this
-        // has always refused to build: the only live path THIS function has
-        // is a full repo-scoped reseed, which on the hottest frames in the
-        // app (turn_started/turn_stopped) is a request storm, and a value
-        // seeded once leaves the flip-dot spinner running on a chat whose
-        // turn ended minutes ago.
-        //
-        // The answer that note always pointed at — "anything else that comes
-        // to need real turn state here must subscribe per row the way Recents
-        // does" — is now built: `sidebar-tree.tsx`'s `SidebarTreeRow`
-        // subscribes each row to `subscribeChatWorking`/`readChatWorking` and
-        // overrides this field, exactly as it already did for `hasView`. So
-        // this stays an inert default that the render layer always replaces,
-        // rather than a second, staler opinion about the same fact.
-        //
-        // (`sidebar-drop-policy.ts`'s chat branch still calls `isChatWorking`
-        // at drag time; it acts outside render and has no row to read.)
+        // Inert: a seeded value would latch the spinner. `SidebarTreeRow` reads
+        // the chat's live `working` from the ChatStore and overrides this.
         working: false,
         hasView: false,
       })

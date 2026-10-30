@@ -1,14 +1,34 @@
 import { createStore, useStore } from 'zustand'
+import type { AgentChat, AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 import type { FeedDelta, FeedFrame } from '@/features/agent/api/chat-rows'
 import { applyDelta, applyReady } from '@/features/agent/stores/lib/fold-live'
 import { applyRow, emptyFeed, FeedFold } from '@/features/agent/stores/lib/fold-rows'
+import {
+  applySnapshot,
+  reduceChatFrame,
+  removeChat,
+  type ChatEntities,
+  type ChatFrame,
+  type ChatFrameOutcome,
+} from '@/features/agent/stores/lib/reduce-chat-frame'
 import type { ChatFeed } from '@/features/agent/stores/lib/transcript-items'
 
-interface ChatStoreState {
+/** Whether a workspace's chat list has landed; set by its lifecycle scope. */
+export type ChatScopeStatus = 'seeding' | 'ready' | 'error'
+
+export interface ChatStoreState extends ChatEntities {
   feeds: Record<string, ChatFeed>
+  scopes: Record<string, ChatScopeStatus>
+  telemetry: Record<string, AgentTelemetry | null>
 }
 
-export const chatStore = createStore<ChatStoreState>()(() => ({ feeds: {} }))
+export const chatStore = createStore<ChatStoreState>()(() => ({
+  feeds: {},
+  chats: {},
+  byWorkspace: {},
+  scopes: {},
+  telemetry: {},
+}))
 
 export function useChatStore<T>(selector: (state: ChatStoreState) => T): T {
   return useStore(chatStore, selector)
@@ -86,4 +106,56 @@ export function applyFeedFrame(chatId: string, frame: FeedFrame): boolean {
       dropFeed(chatId)
       return false
   }
+}
+
+function commit(result: { next: ChatEntities; outcome: ChatFrameOutcome }): ChatFrameOutcome {
+  const { chats, byWorkspace } = chatStore.getState()
+  if (result.next.chats !== chats || result.next.byWorkspace !== byWorkspace) {
+    chatStore.setState({ chats: result.next.chats, byWorkspace: result.next.byWorkspace })
+  }
+  return result.outcome
+}
+
+/** Applies a chat snapshot from a GET under the version rule. */
+export const applyChat = (chat: AgentChat) => commit(applySnapshot(chatStore.getState(), chat))
+
+/** Applies a lifecycle frame: the one writer of chat entities. */
+export const applyChatFrame = (frame: ChatFrame) =>
+  commit(reduceChatFrame(chatStore.getState(), frame))
+
+export function removeChats(chatIds: readonly string[]) {
+  const state = chatStore.getState()
+  let entities: ChatEntities = state
+  const telemetry = { ...state.telemetry }
+  for (const id of chatIds) {
+    entities = removeChat(entities, id)
+    delete telemetry[id]
+  }
+  if (entities === state) return
+  chatStore.setState({ chats: entities.chats, byWorkspace: entities.byWorkspace, telemetry })
+}
+
+/** The selection endpoint answers 202 with no body and no frame, so the
+ *  accepted pair is written here or the picker paints the old one. */
+export function setChatSelection(chatId: string, model: string, effort: string) {
+  const chat = chatStore.getState().chats[chatId]
+  if (!chat) return
+  chatStore.setState((s) => ({ chats: { ...s.chats, [chatId]: { ...chat, model, effort } } }))
+}
+
+export function setChatScope(wsId: string, status: ChatScopeStatus | null) {
+  const { scopes } = chatStore.getState()
+  if ((scopes[wsId] ?? null) === status) return
+  const { [wsId]: _was, ...rest } = scopes
+  chatStore.setState({ scopes: status ? { ...rest, [wsId]: status } : rest })
+}
+
+const observed = (report: AgentTelemetry | null | undefined) =>
+  report ? Date.parse(report.observedAt) : -Infinity
+
+/** A null report clears the gauge; a report older than the held one is dropped. */
+export function setChatTelemetry(chatId: string, report: AgentTelemetry | null) {
+  const held = chatStore.getState().telemetry[chatId]
+  if (report && observed(report) < observed(held)) return
+  chatStore.setState((s) => ({ telemetry: { ...s.telemetry, [chatId]: report } }))
 }

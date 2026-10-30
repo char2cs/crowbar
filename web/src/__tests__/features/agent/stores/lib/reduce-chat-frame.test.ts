@@ -5,9 +5,9 @@ import {
   reduceChatFrame,
   runnerLeft,
   startedWorking,
-  stoppedWorking,
+  type ChatEntities,
   type ChatFrame,
-} from '@/features/agent/lib/reduce-chat-frame'
+} from '@/features/agent/stores/lib/reduce-chat-frame'
 
 const snap = (version: number, over: Partial<AgentChat> = {}): AgentChat => ({
   id: 'c1',
@@ -30,6 +30,11 @@ const frame = (kind: string, chat?: AgentChat, extra: Partial<ChatFrame> = {}): 
   chat,
   version: chat?.version,
   ...extra,
+})
+
+const hold = (...chats: AgentChat[]): ChatEntities => ({
+  chats: Object.fromEntries(chats.map((c) => [c.id, c])),
+  byWorkspace: chats.length ? { w1: chats.map((c) => c.id) } : {},
 })
 
 // Invariant A6 as a table: every row is (held, frame) → (result, outcome).
@@ -93,26 +98,35 @@ describe('reduceChatFrame', () => {
   ]
 
   it.each(cases)('$name', ({ held, frame: f, outcome, result }) => {
-    const out = reduceChatFrame(held, f)
+    const out = reduceChatFrame(hold(...held), f)
     expect(out.outcome.kind).toBe(outcome)
-    expect(out.chats.map((c) => ({ id: c.id, version: c.version }))).toEqual(result)
+    const chats = Object.values(out.next.chats)
+    expect(chats.map((c) => ({ id: c.id, version: c.version }))).toEqual(result)
+    expect(out.next.byWorkspace).toEqual(result.length ? { w1: ['c1'] } : {})
   })
 
-  it('returns the SAME array when nothing changed, so selectors do not churn', () => {
-    const held = [snap(5)]
-    expect(reduceChatFrame(held, frame('snapshot', snap(4))).chats).toBe(held)
+  it('returns the SAME state when nothing changed, so selectors do not churn', () => {
+    const held = hold(snap(5))
+    expect(reduceChatFrame(held, frame('snapshot', snap(4))).next).toBe(held)
   })
 
-  it('leaves every other chat untouched', () => {
+  it('leaves every other chat and the index untouched', () => {
     const other = { ...snap(9), id: 'c2' }
-    const out = reduceChatFrame([snap(1), other], frame('turn_started', snap(2)))
-    expect(out.chats[1]).toBe(other)
+    const held = hold(snap(1), other)
+    const out = reduceChatFrame(held, frame('turn_started', snap(2)))
+    expect(out.next.chats.c2).toBe(other)
+    expect(out.next.byWorkspace).toBe(held.byWorkspace)
+  })
+
+  it('moves a chat between workspace indexes when its workspace changes', () => {
+    const out = reduceChatFrame(hold(snap(1)), frame('snapshot', snap(2, { workspaceId: 'w2' })))
+    expect(out.next.byWorkspace).toEqual({ w2: ['c1'] })
   })
 })
 
 describe('edges an applied snapshot implies', () => {
   const apply = (held: AgentChat | undefined, next: AgentChat) =>
-    reduceChatFrame(held ? [held] : [], frame('snapshot', next)).outcome
+    reduceChatFrame(held ? hold(held) : hold(), frame('snapshot', next)).outcome
 
   it('startedWorking is the rising edge only', () => {
     expect(startedWorking(apply(snap(1), snap(2, { working: true })))).toBe(true)
@@ -121,11 +135,6 @@ describe('edges an applied snapshot implies', () => {
     )
     expect(startedWorking(apply(undefined, snap(1, { working: true })))).toBe(true)
     expect(startedWorking(apply(snap(3), snap(2, { working: true })))).toBe(false)
-  })
-
-  it('stoppedWorking is the falling edge only', () => {
-    expect(stoppedWorking(apply(snap(1, { working: true }), snap(2)))).toBe(true)
-    expect(stoppedWorking(apply(snap(1), snap(2)))).toBe(false)
   })
 
   it('runnerLeft names the runner a snapshot took off the chat', () => {

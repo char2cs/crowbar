@@ -11,7 +11,7 @@ import {
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { selectEntityBusy, useOperationsStore } from '@/lib/store/operations'
 import { isWorkspaceLockedInSidebar } from '@/lib/store/repo-tree'
-import { isChatWorking } from '@/features/workspace/stores/workspace-store-registry'
+import { chatStore } from '@/features/agent/stores/chat-store'
 import {
   owningChatIdOfWorkspace,
   workspaceIdOfBranchRow,
@@ -284,25 +284,10 @@ export function allowedModes(subjects: readonly SidebarRow[], target: DropTarget
     if (target.kind !== 'chat' && target.kind !== 'folder' && target.kind !== 'branch') {
       return NO_MODES
     }
-    // THE WORKING REFUSAL, ASKED AGAIN — because `s.working` above cannot
-    // answer it for a chat drawn in the TREE.
-    //
-    // A Recents chat row carries live turn state (its component subscribes per
-    // chat), so the blanket check above already refuses it. A TREE chat row is
-    // built by `rows-from-repo.ts` from the repo's reseeded chat list, which
-    // has no per-turn push to ride and therefore reports `working: false`
-    // always — deliberately, since a value seeded once would latch the spinner
-    // on a chat whose turn ended long ago. The cost was that the SAME chat
-    // dragged from the tree skipped this client-side refusal and learned it
-    // only from a rejected round trip, as a raw error toast.
-    //
-    // `isChatWorking` is the very map Recents reads (`agentChats.working`,
-    // scanned across mounted workspace stores), asked here rather than carried
-    // on the row: this runs from pointer-driven code, so it reads the truth at
-    // the instant of the drag and cannot go stale between renders. A chat whose
-    // workspace is not mounted answers false — the same answer the row already
-    // gave, and the server still refuses it.
-    if (subjects.some((s) => isChatWorking(s.id))) return NO_MODES
+    // A tree chat row is built with `working: false` (rows-from-repo.ts), so the
+    // refusal above cannot answer it: ask the ChatStore at the instant of the drag.
+    const { chats } = chatStore.getState()
+    if (subjects.some((s) => chats[s.id]?.working)) return NO_MODES
     // A BRANCH row — a repo's own header, a locked branch, or an ordinary
     // fork folded to look like one (`rows-from-repo.ts`'s own doc: `kind:
     // 'branch'` either way) — is never a container a chat can thread INTO

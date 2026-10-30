@@ -1,7 +1,8 @@
 import { Tab } from '@/components/ui/tabs'
 import { CHAT_TITLE_PENDING_LABEL, useChatTitle } from '@/features/agent/hooks/use-chat-title'
 import { AgentChatGlyph } from '@/features/agent/shared/agent-chat-glyph'
-import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import { useChatField, useChatWorking } from '@/features/agent/hooks/use-chat-entity'
+import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 
 interface ChatTabItemProps {
   chatId: string
@@ -17,21 +18,16 @@ interface ChatTabItemProps {
  * reorderable, so it renders outside the sortable list entirely, but
  * otherwise ghost-styled exactly like a real tab (`TabBarItem`) so the two
  * read as the same kind of control.
- *
- * Reads the chat's title/provider/turn state the same way ChatBranchHeader
- * and Recents do — `agentChats` by id — so no surface can ever show a
- * different name or glyph for the same chat.
  */
 export function ChatTabItem({ chatId, isActive, onSelect }: ChatTabItemProps) {
   // `null` = the store holds no record for this chat; the tab says so rather
   // than borrowing an untitled chat's words.
   const title = useChatTitle(chatId)
-  const working = useWorkspaceStoreContext((s) => s.agentChats.working[chatId] ?? false)
-  const providerIcon = useWorkspaceStoreContext((s) => {
-    const chat = s.agentChats.chats.find((c) => c.id === chatId)
-    if (!chat) return ''
-    return s.agentChats.providers.find((p) => p.id === chat.activeProviderId)?.icon ?? ''
-  })
+  const working = useChatWorking(chatId)
+  const providerId = useChatField(chatId, (chat) => chat?.activeProviderId ?? '')
+  const providerIcon = useAgentProvidersStore(
+    (s) => (providerId && s.providers.find((p) => p.id === providerId)?.icon) || '',
+  )
 
   return (
     <Tab

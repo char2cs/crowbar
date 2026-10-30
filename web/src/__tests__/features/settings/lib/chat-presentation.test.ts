@@ -35,27 +35,11 @@ import {
   persistSettings,
 } from '@/features/settings/lib/settings-persistence'
 import type { Settings } from '@/features/settings/types/settings'
-import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import {
   destroyWorkspaceStore,
   getOrCreateWorkspaceStore,
   setActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
-
-const CLAUDE: AgentProvider = {
-  id: 'claude',
-  displayName: 'Claude',
-  icon: '<svg></svg>',
-  connected: true,
-  enabled: true,
-  mcpEnabled: true,
-  modelSelect: false,
-  effortSelect: false,
-  compaction: false,
-  hasTerminal: true,
-  hotswap: false,
-  terminalStartHere: false,
-}
 
 /** Every surface the preference can name. There is no third value, and no
  *  absence — which is why turning it off cannot remove a surface. */
@@ -136,23 +120,17 @@ describe('the chat landing-surface preference', () => {
   })
 
   describe('across a workspace switch', () => {
-    it('survives one, while the per-workspace copy does not', async () => {
+    it('survives one', async () => {
       await useSettingsStore.getState().updateSetting('chatIsDefaultPresentation', false)
 
-      const w1 = getOrCreateWorkspaceStore('w1')
+      getOrCreateWorkspaceStore('w1')
       setActiveWorkspaceId('w1')
-      w1.getState().setAgentProviders([CLAUDE])
-      expect(w1.getState().agentChats.providers).toEqual([CLAUDE])
 
       // THE SWITCH, as the app performs it: the outgoing workspace's store is
       // destroyed and the incoming one is built from nothing.
       destroyWorkspaceStore('w1')
       setActiveWorkspaceId('w2')
       getOrCreateWorkspaceStore('w2')
-
-      // The control: anything that lived in the registry is gone. Re-entering w1
-      // gets a brand-new store, not the one that held the providers.
-      expect(getOrCreateWorkspaceStore('w1').getState().agentChats.providers).toEqual([])
 
       // The preference is not in the registry, so the switch cannot touch it.
       expect(useSettingsStore.getState().settings.chatIsDefaultPresentation).toBe(false)

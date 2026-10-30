@@ -9,34 +9,10 @@ import {
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
+import { resetChatStore, setChatWorking, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 vi.mock('@/features/panes/lib/release-closed-chat', () => ({
   releaseClosedChat: vi.fn(async () => {}),
-}))
-
-interface FakeChat {
-  id: string
-  workspaceId: string
-  title: string
-}
-
-const { stores } = vi.hoisted(() => ({
-  stores: {
-    current: new Map<string, { chats: FakeChat[]; working: Record<string, boolean> }>(),
-  },
-}))
-
-// Each member row resolves its chat through its OWN workspace's registered
-// store; a workspace absent here has no store, exactly like an unmounted one.
-vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import('@/features/workspace/stores/workspace-store-registry')
-  >()),
-  getWorkspaceStore: (wsId: string) => {
-    const agentChats = stores.current.get(wsId)
-    if (!agentChats) return undefined
-    return { subscribe: () => () => {}, getState: () => ({ agentChats }) }
-  },
 }))
 
 const DRAG_PROPS = {
@@ -64,19 +40,10 @@ const SIDEBAR_CHATS: Repo['chats'] = [
 ]
 
 beforeEach(() => {
-  stores.current = new Map([
-    [
-      'ws-1',
-      {
-        chats: [
-          { id: 'chat-1', workspaceId: 'ws-1', title: 'Chat One' },
-          { id: 'chat-2', workspaceId: 'ws-1', title: 'Chat Two' },
-          { id: 'chat-3', workspaceId: 'ws-1', title: 'Chat Three' },
-        ],
-        working: {},
-      },
-    ],
-  ])
+  resetChatStore()
+  writeChat({ id: 'chat-1', workspaceId: 'ws-1', title: 'Chat One' })
+  writeChat({ id: 'chat-2', workspaceId: 'ws-1', title: 'Chat Two' })
+  writeChat({ id: 'chat-3', workspaceId: 'ws-1', title: 'Chat Three' })
   useSidebarStore.setState({ ...getInitialState(), repos: [repo(SIDEBAR_CHATS)] })
   resetWindowPaneStoreForTests()
   windowPaneStore.getState().paneActions.setActiveProject('p1')
@@ -155,7 +122,7 @@ describe('RecentsBand', () => {
 
   it('every row has a close control — a working one included', () => {
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
-    stores.current.get('ws-1')!.working = { 'chat-1': true }
+    setChatWorking('chat-1', true)
     renderBand()
     expect(screen.getByRole('button', { name: 'Close Chat One' })).toBeInTheDocument()
     expect(document.querySelector('[data-flicker-spinner]')).toBeInTheDocument()
@@ -215,7 +182,7 @@ describe('RecentsBand', () => {
   })
 
   it('an untitled chat renders the UNTITLED_CHAT_LABEL fallback', () => {
-    stores.current.get('ws-1')!.chats[0] = { id: 'chat-1', workspaceId: 'ws-1', title: '' }
+    writeChat({ id: 'chat-1', title: '' })
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
     renderBand()
     expect(screen.getByText(UNTITLED_CHAT_LABEL)).toBeInTheDocument()
@@ -245,11 +212,11 @@ describe('RecentsBand', () => {
     ).not.toBeInTheDocument()
   })
 
-  // Regression: a working chat whose workspace store is not mounted keeps its
-  // row — the row is its record, drawn from the sidebar's own chat list.
-  it('a background row survives its workspace store unmounting', () => {
+  // A background chat whose endpoint detached keeps its row, drawn from the
+  // sidebar's own chat list.
+  it('a background row survives its chat leaving the ChatStore', () => {
     actions().adoptBackgroundChat('chat-2', 'p1', 'ws-1')
-    stores.current = new Map()
+    resetChatStore()
     renderBand()
     expect(screen.getByTestId('recents-row-chat-2')).toBeInTheDocument()
     expect(screen.getByText('Chat Two')).toBeInTheDocument()

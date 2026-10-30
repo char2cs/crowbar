@@ -13,6 +13,7 @@ import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-con
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import type { Chat, Repo } from '@/lib/store/sidebar'
+import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 const { openBranchReviewMock } = vi.hoisted(() => ({ openBranchReviewMock: vi.fn() }))
 vi.mock('@/features/panes/utils/pane-command-actions', () => ({
@@ -91,10 +92,8 @@ function seedRepoChats(chatOwnsWorktree: boolean) {
 
 function renderHeader(pane: PaneGroup, wsId: string | null = 'w1') {
   const store = createWorkspaceStore('w1')
-  store.setState((s) => ({
-    ...s,
-    agentChats: { ...s.agentChats, chats: [makeChat()] },
-  }))
+  resetChatStore()
+  writeChat(makeChat())
   resetWindowPaneStoreForTests()
   // The bottom tray never holds a chat; the header is handed its pane directly.
   if (pane.id !== BOTTOM_PANE_ID && pane.chatId) {

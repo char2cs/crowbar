@@ -26,14 +26,10 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
   useEffectiveChordMap: () => ({}),
 }))
 
-vi.mock('@/features/agent/api/agent-chat-reads', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/features/agent/api/agent-chat-reads')>()
-  return {
-    ...actual,
-    getChat: (...a: unknown[]) => getChatFn(...a),
-    getSlashCatalog: vi.fn(),
-  }
-})
+import * as readsApi from '@/features/agent/api/agent-chat-reads'
+vi.spyOn(readsApi, 'getChat').mockImplementation(getChatFn)
+vi.spyOn(readsApi, 'getSlashCatalog').mockImplementation(vi.fn())
+vi.spyOn(readsApi, 'getChatTelemetry').mockResolvedValue(null)
 import * as commandsApi from '@/features/agent/api/agent-chat-commands'
 vi.spyOn(commandsApi, 'switchProvider').mockImplementation(vi.fn())
 vi.spyOn(commandsApi, 'resumeChat').mockImplementation(vi.fn())
@@ -125,7 +121,13 @@ import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 import { useSettingsStore } from '@/features/settings/store'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
-import { nextVersion, seedChats, setChatTerminalWait } from '@/__tests__/__fixtures__/agent-chat'
+import {
+  nextVersion,
+  resetChatStore,
+  seedChats,
+  setChatTerminalWait,
+  setProviders,
+} from '@/__tests__/__fixtures__/agent-chat'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
 // Both real descriptors declare hotswap:true — see
@@ -166,8 +168,8 @@ function liveChat(): AgentChat {
 
 function seed() {
   const store = createWorkspaceStore('w1')
-  store.getState().setAgentProviders(providers)
-  seedChats(store, [liveChat()])
+  setProviders(providers)
+  seedChats([liveChat()])
   return store
 }
 
@@ -236,6 +238,7 @@ async function focusInto(testId: string) {
 }
 
 beforeEach(() => {
+  resetChatStore()
   getChatFn.mockReset()
   getChatFn.mockImplementation(() => Promise.resolve({ ...liveChat(), conversations: [] }))
   useTerminalStore.setState({ sessions: new Map() })
@@ -414,9 +417,9 @@ describe('AgentChatPane — the escort has nothing to do in a split', () => {
     setSplitEnabled(true)
   })
 
-  async function setWait(store: Store, wait: { kind: string } | null) {
+  async function setWait(wait: { kind: string } | null) {
     await act(async () => {
-      setChatTerminalWait(store, 'c1', wait)
+      setChatTerminalWait('c1', wait)
     })
   }
 
@@ -428,7 +431,7 @@ describe('AgentChatPane — the escort has nothing to do in a split', () => {
     await renderPane(store)
     await choose('Split')
 
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
 
     expect(showing()).toBe('split')
     expect(screen.getByTestId('agent-terminal-wait')).toBeInTheDocument()
@@ -441,8 +444,8 @@ describe('AgentChatPane — the escort has nothing to do in a split', () => {
     await renderPane(store)
     await choose('Split')
 
-    await setWait(store, { kind: 'workspace_trust' })
-    await setWait(store, null)
+    await setWait({ kind: 'workspace_trust' })
+    await setWait(null)
 
     expect(showing()).toBe('split')
     expect(screen.queryByRole('button', { name: /return to chat/i })).not.toBeInTheDocument()
@@ -454,7 +457,7 @@ describe('AgentChatPane — the escort has nothing to do in a split', () => {
     const store = seed()
     await renderPane(store)
     await choose('Split')
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /open terminal/i }))
@@ -471,10 +474,10 @@ describe('AgentChatPane — the escort has nothing to do in a split', () => {
     await renderPane(store)
     expect(showing()).toBe('chat')
 
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
     expect(showing()).toBe('terminal')
 
-    await setWait(store, null)
+    await setWait(null)
     expect(showing()).toBe('chat')
   })
 })

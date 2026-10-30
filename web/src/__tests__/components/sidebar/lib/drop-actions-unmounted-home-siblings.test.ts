@@ -1,19 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
-// REGRESSION (restyle v2, K3): a home chat dropped before/after ANOTHER home
-// chat plans its `order` off `getOrCreateWorkspaceStore(homeWs).agentChats`
-// (drop-actions.ts `planChatDrop`) — the per-WORKSPACE chat list that only
-// `use-workspace-agent-chats-stream.ts` fills, and only while that workspace
-// is MOUNTED. The sidebar draws every project's home rows off
-// `useHomeTreeStore` regardless of what is mounted, so the drop reads an
-// empty sibling list for any home whose pane is not open (the common case:
-// you are in a repo workspace), `insertIndex([], target)` clamps to 0, and
-// every home-chat reorder writes `order: 0` — the row never moves, or jumps
-// to the top. (`getOrCreateWorkspaceStore` also MINTS a leaked store for the
-// never-opened workspace on the way.) A chat dropped relative to a REPO
-// header goes through `planChatDropOntoBranch`, which reads the rendered
-// `rowsFromHome` rows and gets the right index — the two halves of the same
-// level disagree on where the siblings live.
+// A home chat dropped beside another home chat plans its `order` off the
+// rendered home tree, which is drawn whether or not that workspace is mounted.
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
