@@ -12,6 +12,7 @@ import {
   type ChatStoreState,
 } from '@/features/agent/stores/chat-store'
 import {
+  mayBeHeld,
   newestRetractable,
   nextToSend,
   onRowsApplied,
@@ -39,8 +40,14 @@ export type SendResult = { ok: true } | { ok: false; error?: string }
 const NO_ITEMS: OutboxItem[] = []
 // The feed stays attached while a chat has prompts with no row yet (R17).
 const feedHolds = new Map<string, () => void>()
-// Esc on an in-flight send: answered once the send does.
-const takeBackOnAck = new Map<string, (text: string | null) => void>()
+interface Pending {
+  promise: Promise<string | null>
+  resolve: (text: string | null) => void
+}
+// Esc on an in-flight send: answered once the send does, however often pressed.
+const takeBackOnAck = new Map<string, Pending>()
+// Chats whose Terminal shows: a prompt typed into the PTY would garble the TUI's input.
+const terminalHolds = new Map<string, number>()
 
 function itemsOf(chatId: string): OutboxItem[] {
   return chatStore.getState().outbox[chatId] ?? NO_ITEMS
@@ -83,7 +90,7 @@ function failureOf(error: unknown): SendFailure {
 function drain(chatId: string) {
   const { feeds, chats } = chatStore.getState()
   const feed = feeds[chatId]
-  if (feed?.status !== 'live') return
+  if (feed?.status !== 'live' || terminalHolds.has(chatId)) return
   const head = nextToSend(itemsOf(chatId), feed, chats[chatId]?.terminalWait !== undefined)
   if (head) void send(chatId, head)
 }
@@ -113,7 +120,7 @@ async function send(chatId: string, item: OutboxItem) {
   const waiting = takeBackOnAck.get(item.requestId)
   if (waiting) {
     takeBackOnAck.delete(item.requestId)
-    waiting(await takeBack(item.wsId, chatId, item.requestId, item.text))
+    waiting.resolve(await answerEsc(chatId, item, failure))
     return
   }
   const { code } = failureOf(failure)
@@ -122,6 +129,15 @@ async function send(chatId: string, item: OutboxItem) {
   if (failure && stillHere && code !== 'chat_busy' && code !== 'session_lost') {
     report(failure, { action: 'Couldn’t send the prompt' })
   }
+}
+
+/** A send Esc raced: a refusal the daemon never recorded leaves with no request. */
+function answerEsc(chatId: string, item: OutboxItem, failure: unknown) {
+  if (failure !== undefined && !mayBeHeld(failureOf(failure))) {
+    drop(chatId, item.requestId)
+    return Promise.resolve(item.text)
+  }
+  return takeBack(item.wsId, chatId, item.requestId, item.text)
 }
 
 /** Retracts `requestId`; its text when the composer should get it back. */
@@ -193,12 +209,17 @@ export function retractNewest(wsId: string, chatId: string): Promise<string | nu
       return Promise.resolve(target.item.text)
     case 'in_flight': {
       const { requestId } = target.item
+      const already = takeBackOnAck.get(requestId)
+      if (already) return already.promise
       update(chatId, (items) =>
         items.map((item) =>
           item.requestId === requestId ? { ...item, retractOnAck: true } : item,
         ),
       )
-      return new Promise((resolve) => takeBackOnAck.set(requestId, resolve))
+      let resolve: (text: string | null) => void = () => {}
+      const promise = new Promise<string | null>((settle) => (resolve = settle))
+      takeBackOnAck.set(requestId, { promise, resolve })
+      return promise
     }
     case 'held':
       return takeBack(wsId, chatId, target.requestId, target.text, target.turnId)
@@ -239,6 +260,20 @@ export function discardPrompt(chatId: string, requestId: string) {
 
 export function discardUnsent(chatId: string) {
   update(chatId, (items) => items.filter((item) => item.state === 'sending'))
+}
+
+/** Holds the chat's outbox while its Terminal shows; the release sends what waited. */
+export function holdForTerminal(chatId: string): () => void {
+  terminalHolds.set(chatId, (terminalHolds.get(chatId) ?? 0) + 1)
+  let held = true
+  return () => {
+    if (!held) return
+    held = false
+    const left = (terminalHolds.get(chatId) ?? 1) - 1
+    if (left > 0) terminalHolds.set(chatId, left)
+    else terminalHolds.delete(chatId)
+    drain(chatId)
+  }
 }
 
 /** The chat is gone: so is everything it had waiting. */

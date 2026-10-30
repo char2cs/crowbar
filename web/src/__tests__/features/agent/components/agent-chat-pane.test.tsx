@@ -1311,6 +1311,25 @@ describe('AgentChatPane', () => {
       expect(screen.getByTestId('xterm')).toHaveAttribute('data-visible', 'true')
     })
 
+    it('pauses a busy-chat FIFO in Terminal and resumes only after Return to Chat', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      const turn = ledger('c1', 4)
+      seedFeed('c1', [turn.start('turn-2')])
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
+
+      const input = screen.getByRole('textbox', { name: /message the agent/i })
+      fireEvent.change(input, { target: { value: 'queued while busy' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
+      expect(screen.getByText(/1 prompt pending in Chat/i)).toBeInTheDocument()
+      await act(async () => seedFeed('c1', [turn.end('turn-2')]))
+      expect(submitPromptFn).not.toHaveBeenCalled()
+
+      fireEvent.click(screen.getByRole('button', { name: /return to chat/i }))
+      await vi.waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+    })
+
     it('counts a prompt queued in Chat on the Terminal surface and cancels it from there', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       const turn = ledger('c1', 4)

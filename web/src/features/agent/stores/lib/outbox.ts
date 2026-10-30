@@ -14,6 +14,8 @@ export interface OutboxItem {
   /** A network error or 5xx: the daemon dedupes a resend under the same id. */
   sameIdRetry?: boolean
   retractOnAck?: boolean
+  /** The settled or refused prompt row this item sends again. */
+  retryOf?: string
   /** The provider takes a prompt into a running turn. */
   steer: boolean
   /** The staged pick; `undefined` model/effort is "nothing staged", '' a pick of the default. */
@@ -34,12 +36,15 @@ const MAX_PROMPT_TEXT_BYTES = 64 * 1024
 
 export const SESSION_LOST_TEXT = 'The session was lost. Start a new conversation to send this.'
 
-// The fresh id a refused request needs: the daemon decided that id for good.
-const FRESH_ID_CODES = new Set<ProblemCode>([
-  'request_id_conflict',
-  'request_outcome_uncertain',
-  'session_lost',
-])
+// Refusals the daemon gives after it recorded the prompt's user_message row.
+const RECORDED_CODES = new Set<ProblemCode>(['request_outcome_uncertain', 'session_lost'])
+
+const recorded = (code?: ProblemCode) => code !== undefined && RECORDED_CODES.has(code)
+const unknownOutcome = (failure: SendFailure) =>
+  failure.status === undefined || failure.status >= 500
+
+/** Whether the daemon may hold a prompt whose send failed this way. */
+export const mayBeHeld = (failure: SendFailure) => unknownOutcome(failure) || recorded(failure.code)
 
 /** Why `text` cannot be queued, '' for an empty box (nothing to say), null when it can. */
 export function refusal(text: string): string | null {
@@ -60,7 +65,9 @@ export function nextToSend(
 ): OutboxItem | undefined {
   const head = items[0]
   const { facts } = feed
-  if (head?.state !== 'queued' || facts.compacting || terminalWait) return undefined
+  if (head?.state !== 'queued' || head.retractOnAck || facts.compacting || terminalWait) {
+    return undefined
+  }
   // A reply streaming ahead of its rows is a turn the rows have not reported yet.
   if ((facts.running || feed.liveTail.length > 0) && !head.steer) return undefined
   if (Object.values(facts.prompts).some((fact) => fact.state === 'pending')) return undefined
@@ -83,12 +90,11 @@ export const onSent = (items: OutboxItem[], requestId: string) =>
 
 export function onSendFailed(items: OutboxItem[], requestId: string, failure: SendFailure) {
   if (failure.code === 'chat_busy') return mark(items, requestId, { state: 'queued' })
-  const unknown = failure.status === undefined || failure.status >= 500
   return mark(items, requestId, {
     state: 'failed',
     acked: false,
     code: failure.code,
-    sameIdRetry: unknown && !FRESH_ID_CODES.has(failure.code ?? 'internal'),
+    sameIdRetry: unknownOutcome(failure),
     error: failure.code === 'session_lost' ? SESSION_LOST_TEXT : failure.message,
   })
 }
@@ -115,7 +121,8 @@ export function retryRow(
 ): OutboxItem[] {
   const state = row.requestId ? facts.prompts[row.requestId]?.state : undefined
   if (state !== 'settled' && state !== 'refused' && state !== 'retracted') return items
-  return [...items, fresh]
+  if (items.some((item) => item.retryOf === row.requestId)) return items
+  return [...items, { ...fresh, retryOf: row.requestId }]
 }
 
 /** Lets go of every item whose user_message landed: from there the rows own it. */
@@ -141,8 +148,10 @@ export function newestRetractable(items: OutboxItem[], feed: ChatFeed): Retracta
     if (!newest.acked) return { kind: 'in_flight', item: newest }
     return { kind: 'held', requestId: newest.requestId, text: newest.text }
   }
-  // A send whose outcome is unknown may have reached the daemon.
-  if (newest?.sameIdRetry) return { kind: 'held', requestId: newest.requestId, text: newest.text }
+  // A failed send the daemon may have recorded is retracted, or it would show twice.
+  if (newest?.state === 'failed' && (newest.sameIdRetry || recorded(newest.code))) {
+    return { kind: 'held', requestId: newest.requestId, text: newest.text }
+  }
   if (newest) return { kind: 'unsent', item: newest }
   const { running, prompts, output } = feed.facts
   let item: UserItem | undefined

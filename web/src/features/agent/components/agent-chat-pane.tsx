@@ -11,7 +11,7 @@ import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
 import { useChatField } from '@/features/agent/hooks/use-chat-entity'
 import { useChatListReady } from '@/features/agent/hooks/use-chat-scope'
 import { fetchChat, releaseChats } from '@/features/agent/stores/chat-scopes'
-import { discardUnsent } from '@/features/agent/stores/chat-outbox'
+import { discardUnsent, holdForTerminal } from '@/features/agent/stores/chat-outbox'
 import { useChatStore } from '@/features/agent/stores/chat-store'
 import { deliveryPending as promptOnItsWay } from '@/features/agent/stores/lib/outbox'
 import { switchProvider } from '@/features/agent/api/agent-chat-commands'
@@ -126,6 +126,12 @@ export function AgentChatPane({
     setSplitSizes,
     splitStacked,
   } = useChatPresentation(shownChatId, splitContainerRef)
+  // Chat's prompts wait while the Terminal alone shows: one typed into the PTY garbles the TUI.
+  const terminalOnly = presentation === 'terminal' && !splitting
+  useEffect(
+    () => (terminalOnly ? holdForTerminal(shownChatId) : undefined),
+    [terminalOnly, shownChatId],
+  )
   const queuedPromptCount = useChatStore((s) => s.outbox[shownChatId]?.length ?? 0)
   const cancelablePromptCount = useChatStore(
     (s) => s.outbox[shownChatId]?.filter((item) => item.state !== 'sending').length ?? 0,

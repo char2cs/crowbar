@@ -5,6 +5,7 @@ import * as commands from '@/features/agent/api/agent-chat-commands'
 import * as feeds from '@/features/agent/stores/chat-feed'
 import {
   discardUnsent,
+  holdForTerminal,
   retractNewest,
   retryPrompt,
   sendPrompt,
@@ -275,5 +276,111 @@ describe('chat outbox', () => {
     expect(submit.mock.calls[0]?.[2]).toBe('again')
     expect(sentId()).not.toBe('r1')
     expect(chatStore.getState().feeds.c1?.order).toEqual(['p:r1'])
+  })
+
+  it('sends a Retry on a refused row once, however often it is pressed', () => {
+    const l = ledger('c1')
+    seedFeed('c1', [l.prompt('r1', 'again'), l.settle('r1', false, 'not_acknowledged')])
+    const busyTurn = deferred<typeof accepted>()
+    submit.mockReturnValue(busyTurn.promise)
+
+    retryPrompt('w1', 'c1', 'r1', false)
+    retryPrompt('w1', 'c1', 'r1', false)
+
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(outbox()).toHaveLength(1)
+  })
+
+  it('never resends a busy-refused send that Esc took back', async () => {
+    const l = ledger('c1')
+    seedFeed('c1', [])
+    const sent = deferred<typeof accepted>()
+    submit.mockReturnValueOnce(sent.promise)
+    send('lost the race')
+    retract.mockReturnValue(new Promise(() => {}))
+
+    const restored = retractNewest('w1', 'c1')
+    sent.reject(new ApiError('busy: conflict', 409, 'chat_busy'))
+    await flush()
+    seedFeed('c1', [l.start('turn-x'), l.end('turn-x')])
+
+    await expect(restored).resolves.toBe('lost the race')
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(outbox()).toEqual([])
+  })
+
+  it('answers every Esc on the same in-flight send', async () => {
+    seedFeed('c1', [])
+    const sent = deferred<typeof accepted>()
+    submit.mockReturnValueOnce(sent.promise)
+    send('twice')
+    retract.mockResolvedValue({ state: 'retracted', text: 'twice' })
+
+    const first = retractNewest('w1', 'c1')
+    const second = retractNewest('w1', 'c1')
+    sent.resolve(accepted)
+
+    await expect(first).resolves.toBe('twice')
+    await expect(second).resolves.toBe('twice')
+    expect(retract).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends two queued prompts in order, each on its own turn_ended', async () => {
+    const l = busy()
+    send('one')
+    send('two')
+    seedFeed('c1', [l.end('turn-0')])
+    await flush()
+    expect(submit.mock.calls.map((call) => call[2])).toEqual(['one'])
+
+    seedFeed('c1', [l.prompt(sentId(), 'one'), l.start('turn-1', sentId()), l.end('turn-1')])
+    await flush()
+    expect(submit.mock.calls.map((call) => call[2])).toEqual(['one', 'two'])
+  })
+
+  it('takes back only the newest prompt behind one that is sending', async () => {
+    seedFeed('c1', [])
+    submit.mockReturnValueOnce(new Promise(() => {}))
+    send('one')
+    send('two')
+
+    await expect(retractNewest('w1', 'c1')).resolves.toBe('two')
+    expect(outbox().map((item) => item.text)).toEqual(['one'])
+  })
+
+  it('retracts the recorded prompt when Esc meets a send of uncertain outcome', async () => {
+    seedFeed('c1', [])
+    submit.mockRejectedValueOnce(
+      new ApiError('outcome uncertain: conflict', 409, 'request_outcome_uncertain'),
+    )
+    send('did it go')
+    await flush()
+    retract.mockResolvedValue({ state: 'retracted', text: 'did it go' })
+
+    await expect(retractNewest('w1', 'c1')).resolves.toBe('did it go')
+    expect(retract).toHaveBeenCalledWith('w1', 'c1', sentId())
+  })
+
+  it('holds the outbox while a terminal prompt waits on the chat', () => {
+    const l = ledger('c1')
+    seedFeed('c1', [l.start('turn-0'), l.end('turn-0')])
+    chatStore.setState({ chats: { c1: { id: 'c1', terminalWait: { kind: 'trust' } } as never } })
+    send('after the trust prompt')
+    expect(submit).not.toHaveBeenCalled()
+
+    act(() => chatStore.setState({ chats: { c1: { id: 'c1' } as never } }))
+    expect(submit).toHaveBeenCalledTimes(1)
+  })
+
+  it('holds the outbox while the chat shows its Terminal, and sends on the way back', () => {
+    const l = ledger('c1')
+    seedFeed('c1', [l.start('turn-0')])
+    const release = holdForTerminal('c1')
+    send('typed in Chat')
+    seedFeed('c1', [l.end('turn-0')])
+    expect(submit).not.toHaveBeenCalled()
+
+    release()
+    expect(submit).toHaveBeenCalledTimes(1)
   })
 })
