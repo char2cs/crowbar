@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Light, Dark and System as three small previews of the app, the chosen one outlined.
+@available(iOS 26.0, *)
 struct AppearanceCards: View {
   let mode: String
   let palette: ChromePalette?

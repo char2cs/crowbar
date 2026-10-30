@@ -135,6 +135,7 @@ enum RowMetrics {
 }
 
 /// A Phosphor icon and a title in the shared row layout.
+@available(iOS 26.0, *)
 struct IconRow: View {
   let icon: CrowbarIcon?
   let title: String
@@ -157,6 +158,7 @@ struct IconRow: View {
 
 /// A host's place icon with its status dot, its name and endpoint, then whatever trails, in the
 /// shared row layout.
+@available(iOS 26.0, *)
 struct HostLine<Trailing: View>: View {
   let host: PickerHost
   let text: Color
@@ -179,6 +181,7 @@ struct HostLine<Trailing: View>: View {
 
 /// Where a host runs, as the web's `HostStatusIcon` draws it: this computer or a paired
 /// remote's cloud, with the status dot on its bottom-right corner and the icon cut away around it.
+@available(iOS 26.0, *)
 struct HostPlaceIcon: View {
   let hostId: String
   let state: String

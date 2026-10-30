@@ -58,6 +58,7 @@ enum CrowbarFont {
 }
 
 /// Applies the UI font at a text style's size, scaling with Dynamic Type.
+@available(iOS 26.0, *)
 private struct CrowbarFontModifier: ViewModifier {
   @ScaledMetric private var size: CGFloat
   let weight: Font.Weight
@@ -97,6 +98,7 @@ private struct CrowbarFontModifier: ViewModifier {
 }
 
 /// Applies the heading font at `size`, scaling with Dynamic Type relative to `style`.
+@available(iOS 26.0, *)
 private struct CrowbarHeadingModifier: ViewModifier {
   @ScaledMetric private var size: CGFloat
 
@@ -111,11 +113,13 @@ private struct CrowbarHeadingModifier: ViewModifier {
 
 extension View {
   /// The app's heading font (section headers, navigation titles).
+  @available(iOS 26.0, *)
   func crowbarHeading(size: CGFloat, relativeTo style: Font.TextStyle) -> some View {
     modifier(CrowbarHeadingModifier(size: size, style: style))
   }
 
   /// The app's UI font in place of the system's, at `style`'s size.
+  @available(iOS 26.0, *)
   func crowbarUI(_ style: Font.TextStyle = .body, weight: Font.Weight = .regular) -> some View {
     modifier(CrowbarFontModifier(style: style, weight: weight))
   }
@@ -130,6 +134,7 @@ extension View {
   }
 
   /// An inline title in the UI font (the system's navigation title takes no custom font).
+  @available(iOS 26.0, *)
   func nativeTitle(_ title: String) -> some View {
     navigationTitle(title)
       .navigationBarTitleDisplayMode(.inline)

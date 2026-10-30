@@ -75,6 +75,7 @@ extension CrowbarIcon {
 
 /// A Phosphor icon the way the web draws it: tinted by `foregroundStyle`, sized like a symbol
 /// (it scales with Dynamic Type from `size` points at the default text size).
+@available(iOS 26.0, *)
 struct PhosphorIcon: View {
   let icon: CrowbarIcon
   /// Extra outline in points: the regular weight is 1.25pt at 20pt, thin on clear glass.
