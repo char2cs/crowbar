@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Plate, PlateContent, usePlateEditor } from 'platejs/react'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
 import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-composer-serialization'
@@ -135,6 +135,7 @@ describe('MarkdownMessage streaming fade-in', () => {
   // fade that much shorter, and the delays are what this pins.
   it('stages each word with increasing animation-delay', async () => {
     const clock = vi.spyOn(performance, 'now').mockReturnValue(1000)
+    onTestFinished(() => clock.mockRestore())
     const { rerender, container } = render(<MarkdownMessage>{'one'}</MarkdownMessage>)
     rerender(<MarkdownMessage>{'one two three four'}</MarkdownMessage>)
 
@@ -145,7 +146,6 @@ describe('MarkdownMessage streaming fade-in', () => {
     // 150ms base (SCROLL_LEAD_MS — lets scroll-follow get underway before any
     // word in the chunk starts revealing) plus the usual 30ms/word stagger.
     expect(delays).toEqual(['150ms', '180ms', '210ms'])
-    clock.mockRestore()
   })
 
   it('wraps a single-word new block in one fade-in span (fallback path)', async () => {

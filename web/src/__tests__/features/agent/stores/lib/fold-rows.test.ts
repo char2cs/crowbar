@@ -218,14 +218,38 @@ describe('FeedFold', () => {
     ]
     for (const row of turn(0)) fold.apply(row)
     const first = fold.finish()
+    // Read now: the fold's facts object is itself reused, so a later read would
+    // see whatever record it holds by then.
+    const { prompts, efforts, output } = first.facts
     for (let i = 1; i < 50; i++) for (const row of turn(i)) fold.apply(row)
     const last = fold.finish()
 
     expect(last.order).toHaveLength(150)
     expect(last.items).toBe(first.items)
     expect(last.order).toBe(first.order)
-    expect(last.facts.prompts).toBe(first.facts.prompts)
-    expect(last.facts.efforts).toBe(first.facts.efforts)
-    expect(last.facts.output).toBe(first.facts.output)
+    expect(last.facts.prompts).toBe(prompts)
+    expect(last.facts.efforts).toBe(efforts)
+    expect(last.facts.output).toBe(output)
+  })
+
+  it('settles only the turn that ended', () => {
+    const l = ledger()
+    const fold = new FeedFold(emptyFeed())
+    for (const row of [
+      l.start('turn-a'),
+      l.text('turn-a', 'ma', 0, 'from a'),
+      l.tool('turn-a', 'tool-a', 'pre'),
+      l.start('turn-b'),
+      l.text('turn-b', 'mb', 0, 'from b'),
+      l.tool('turn-b', 'tool-b', 'pre'),
+      l.end('turn-a'),
+    ])
+      fold.apply(row)
+    const { items } = fold.finish()
+
+    expect((items['m:turn-a:ma'] as TextItem).settled).toBe(true)
+    expect((items['t:tool-a'] as ToolItem).status).toBe('abandoned')
+    expect((items['m:turn-b:mb'] as TextItem).settled).toBe(false)
+    expect((items['t:tool-b'] as ToolItem).status).toBe('running')
   })
 })
