@@ -130,5 +130,9 @@ function renderApp() {
 }
 
 hydrateCriticalStores()
-  .catch((err: unknown) => report(err, { action: 'Restore the last session' }))
+  .catch((err: unknown) => {
+    // No toast provider is mounted yet, so the report alone may never render.
+    console.error('restore the last session failed:', err)
+    report(err, { action: 'Restore the last session' })
+  })
   .finally(renderApp)
