@@ -72,7 +72,7 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
       return { row, locked }
     }
     const onContextMenu = (e: MouseEvent) => {
-      if (!(e.target instanceof HTMLElement)) return
+      if (!(e.target instanceof Element)) return
       const el = e.target.closest<HTMLElement>('[role="treeitem"]')
       const rowId = el?.getAttribute('data-sidebar-row-id')
       if (!rowId) return
@@ -96,7 +96,7 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
     // before the row (or the button's own bubble handler, if it had one) ever
     // sees the click, so nothing extra is needed on the button itself.
     const onRepoMenuClick = (e: MouseEvent) => {
-      if (!(e.target instanceof HTMLElement)) return
+      if (!(e.target instanceof Element)) return
       const trigger = e.target.closest<HTMLElement>('[data-control="repo-menu"]')
       if (!trigger) return
       const el = trigger.closest<HTMLElement>('[role="treeitem"]')

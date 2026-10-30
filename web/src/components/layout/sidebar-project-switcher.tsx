@@ -175,7 +175,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {active && (
           <>
-            <span className={TILE} style={scale?.tile}>
+            <span className={cn(TILE, '-ml-1 mr-1')} style={scale?.tile}>
               <EditableProjectIcon project={active} size="lg" />
             </span>
             <div className="flex min-w-0 flex-1 flex-col">
