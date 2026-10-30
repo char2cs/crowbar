@@ -235,6 +235,14 @@ type Engine interface {
 		branch string,
 	) error
 
+	// MergeCommit merges branch into the current branch as a merge commit,
+	// never a fast-forward.
+	MergeCommit(
+		ctx context.Context,
+		repoPath string,
+		branch string,
+	) error
+
 	// Rebase rebases the current branch onto onto (04 §5).
 	Rebase(
 		ctx context.Context,

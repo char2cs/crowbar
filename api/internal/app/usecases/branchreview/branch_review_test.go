@@ -354,6 +354,8 @@ func (g *mockGitEngine) Reset(ctx context.Context, repoPath, mode, commit string
 
 func (g *mockGitEngine) Merge(ctx context.Context, repoPath, branch string) error { return nil }
 
+func (g *mockGitEngine) MergeCommit(ctx context.Context, repoPath, branch string) error { return nil }
+
 func (g *mockGitEngine) Rebase(ctx context.Context, repoPath, onto string) error { return nil }
 
 func (g *mockGitEngine) ConflictedFiles(ctx context.Context, repoPath string) ([]string, error) {

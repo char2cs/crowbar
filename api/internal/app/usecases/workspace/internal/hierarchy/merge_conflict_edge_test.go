@@ -68,3 +68,19 @@ func TestMergeIntoParent_ResyncSummary_SyncWriteFails_IsBestEffort(t *testing.T)
 	require.NoError(t, err, "a resync SYNC-write failure must not fail a durable merge")
 	assert.Equal(t, "ptip", res.ParentTipSha)
 }
+
+// TestRegression_MergeStrategyMakesAMergeCommit: "Create a merge commit"
+// fast-forwarded the parent whenever the child was simply ahead of it.
+func TestRegression_MergeStrategyMakesAMergeCommit(t *testing.T) {
+	h := newRealUsecase(t)
+	child := h.createChild(t, "feature/x", h.parentID, h.baseBranch)
+	commitInWorktree(t, child.WorktreePath, "x.txt", "x\n", "child work")
+	parentTip := revParse(t, h.repoPath, "HEAD")
+	childTip := revParse(t, child.WorktreePath, "HEAD")
+
+	_, err := h.uc.MergeIntoParent(context.Background(), child.ID, gitdomain.MergeStrategyMerge)
+	require.NoError(t, err)
+
+	parents := trimNewline(gitRun(t, h.repoPath, "log", "-1", "--format=%P"))
+	assert.Equal(t, parentTip+" "+childTip, parents, "the parent's new tip merges both lines")
+}

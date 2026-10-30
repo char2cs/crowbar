@@ -443,12 +443,12 @@ func (f *fakeGit) MergeBase(
 	return f.mergeBaseSha, f.mergeBaseErr
 }
 
-func (f *fakeGit) Merge(
+func (f *fakeGit) MergeCommit(
 	_ context.Context,
 	repoPath string,
 	branch string,
 ) error {
-	f.record("Merge", repoPath, branch)
+	f.record("MergeCommit", repoPath, branch)
 	return f.mergeErr
 }
 
@@ -1532,7 +1532,7 @@ func TestMergeIntoParent_MergeStrategy_RunsInParentThenUpdatesForkPoint(t *testi
 	require.NoError(t, err)
 	assert.Equal(t, "ptip", res.ParentTipSha)
 	assert.False(t, res.ConflictsPending)
-	assert.Equal(t, []string{"Merge", "RevParse", "WorkingTreeSummary", "WorkingTreeSummary"}, g.ops())
+	assert.Equal(t, []string{"MergeCommit", "RevParse", "WorkingTreeSummary", "WorkingTreeSummary"}, g.ops())
 	assert.Equal(t, []string{"/pw", "feat"}, g.calls[0].args)
 	assert.Equal(t, []string{"/pw", "HEAD"}, g.calls[1].args)
 	assert.Equal(t, "c", updatedID)
@@ -1648,7 +1648,7 @@ func TestMergeIntoParent_Conflict_SetsPRConflicts(t *testing.T) {
 	assert.Equal(t, "c", synced[0].ID)
 	assert.True(t, synced[0].HasConflicts)
 	// The plain merge runs in the parent worktree, so the abort targets the parent.
-	assert.Equal(t, []string{"Merge", "OperationAbort"}, g.ops())
+	assert.Equal(t, []string{"MergeCommit", "OperationAbort"}, g.ops())
 	assert.Equal(t, []string{"/pw"}, g.calls[1].args, "abort must run in the PARENT worktree")
 }
 

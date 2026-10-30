@@ -961,7 +961,7 @@ func (u *hierarchyUsecase) runMerge(
 	if strategy == gitdomain.MergeStrategyRebase {
 		return u.runRebaseMerge(ctx, child, parent)
 	}
-	return u.git.Merge(ctx, parent.WorktreePath, child.Branch)
+	return u.git.MergeCommit(ctx, parent.WorktreePath, child.Branch)
 }
 
 func (u *hierarchyUsecase) runRebaseMerge(
