@@ -77,10 +77,13 @@ extension CrowbarIcon {
 /// (it scales with Dynamic Type from `size` points at the default text size).
 struct PhosphorIcon: View {
   let icon: CrowbarIcon
+  /// Extra outline in points: the regular weight is 1.25pt at 20pt, thin on clear glass.
+  let emphasis: CGFloat
   @ScaledMetric private var side: CGFloat
 
-  init(_ icon: CrowbarIcon, size: CGFloat = 20) {
+  init(_ icon: CrowbarIcon, size: CGFloat = 20, emphasis: CGFloat = 0) {
     self.icon = icon
+    self.emphasis = emphasis
     _side = ScaledMetric(wrappedValue: size, relativeTo: .body)
   }
 
@@ -91,7 +94,7 @@ struct PhosphorIcon: View {
       if art.stroke > 0 {
         outline.stroke(style: StrokeStyle(lineWidth: art.stroke * side / art.viewBox, lineCap: .round, lineJoin: .round))
       } else {
-        outline.fill()
+        outline.fill().overlay { if emphasis > 0 { outline.stroke(lineWidth: emphasis) } }
       }
     }
     .frame(width: side, height: side)

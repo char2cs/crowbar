@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import type { Project } from '@/lib/types'
+import { RowMetricsContext, TOUCH_ROW_METRICS } from '@/components/sidebar/lib/row-metrics'
 import { SidebarProjectSwitcher } from '@/components/layout/sidebar-project-switcher'
 import { performRenameProject } from '@/components/sidebar/lib/row-actions'
 import {
@@ -38,6 +39,25 @@ const project = (id: string, name = id): Project => ({
 })
 
 describe('SidebarProjectSwitcher', () => {
+  // The phone's header draws the active project's icon larger than the desktop's.
+  it('draws the active project icon larger under the touch scale', () => {
+    const glyph = (touch: boolean) => {
+      const { container, unmount } = render(
+        <RowMetricsContext value={touch ? TOUCH_ROW_METRICS : null}>
+          <SidebarProjectSwitcher
+            projects={[project('p1', 'Alpha')]}
+            activeProjectId="p1"
+            onSelectProject={vi.fn()}
+          />
+        </RowMetricsContext>,
+      )
+      const size = Number(container.querySelector('svg')?.getAttribute('width'))
+      unmount()
+      return size
+    }
+    expect(glyph(true)).toBeGreaterThan(glyph(false))
+  })
+
   it('names the active project and leaves it out of the icon list', () => {
     render(
       <SidebarProjectSwitcher

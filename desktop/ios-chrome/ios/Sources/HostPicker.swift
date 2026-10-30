@@ -58,7 +58,7 @@ struct HostPickerSheet: View {
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .toolbar {
           ToolbarItem(placement: .topBarLeading) {
-            Button { model.send(.of("closeHostPicker")) } label: { PhosphorIcon(.x) }
+            Button { model.send(.of("closeHostPicker")) } label: { PhosphorIcon(.x, emphasis: 0.5).foregroundStyle(palette?.text ?? .primary) }
               .accessibilityLabel("Close")
           }
         }

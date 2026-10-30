@@ -20,7 +20,7 @@ struct GlassCircle: View {
       action()
     } label: {
       Group {
-        if let icon = CrowbarIcon(named: icon) { PhosphorIcon(icon) }
+        if let icon = CrowbarIcon(named: icon) { PhosphorIcon(icon, emphasis: 0.5) }
       }
       .foregroundStyle(tint ?? .primary)
       .frame(width: 44, height: 44)

@@ -80,6 +80,13 @@ describe('useMobileNativeChrome', () => {
     expect(chatButtons()).toEqual(['leading:chat-list:true', 'trailing:ide:false'])
   })
 
+  // The IDE is a `</>` (the desktop's open-editor icon), never a terminal.
+  it('draws the IDE button with the Code icon', () => {
+    renderHook(() => useMobileNativeChrome(workspaces))
+    const ide = chrome.models.at(-1)?.headers?.chat.find((b) => b.id === 'ide')
+    expect(ide?.icon).toBe('Code')
+  })
+
   it('drives the shell’s own navigation from the buttons', () => {
     renderHook(() => useMobileNativeChrome(workspaces))
 

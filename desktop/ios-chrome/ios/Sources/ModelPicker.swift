@@ -89,7 +89,7 @@ struct ModelPickerSheet: View {
       .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
-          Button { model.send(.of("closeModelPicker")) } label: { PhosphorIcon(.x) }
+          Button { model.send(.of("closeModelPicker")) } label: { PhosphorIcon(.x, emphasis: 0.5).foregroundStyle(text) }
             .accessibilityLabel("Close")
         }
       }

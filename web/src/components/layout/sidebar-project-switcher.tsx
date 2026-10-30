@@ -30,7 +30,6 @@ const HOST_LINE =
  *  online, its state in its tone — and the way into Settings → Hosts. */
 function ProjectHostLine({ hostId, onOpen }: { hostId: string; onOpen: () => void }) {
   const { name, state } = useHostView(hostId)
-  const metrics = useRowMetrics()
   const stateWord = hostDotLabel(state)
   const online = hostTone(state) === 'online'
   const label = `Host settings: ${name === undefined ? '' : `${name}, `}${stateWord}`
@@ -55,8 +54,7 @@ function ProjectHostLine({ hostId, onOpen }: { hostId: string; onOpen: () => voi
             state={state}
             weight="bold"
             showTitle={false}
-            className={metrics ? 'size-5' : 'size-3'}
-            dotScale={metrics ? 1.4 : 1}
+            className="size-3"
           />
           <span className="truncate">{text}</span>
         </button>
@@ -181,7 +179,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
         {active && (
           <>
             <span className={cn(TILE, '-ml-1')} style={scale?.tile}>
-              <EditableProjectIcon project={active} size="lg" />
+              <EditableProjectIcon project={active} size={scale ? 'xl' : 'lg'} />
             </span>
             <div className="flex min-w-0 flex-1 flex-col">
               {renamingId === active.id ? (

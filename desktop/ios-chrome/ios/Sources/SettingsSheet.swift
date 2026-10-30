@@ -28,25 +28,31 @@ struct SettingsSheet: View {
   /// A row that pushes `route`, with the app's own caret: the list's automatic disclosure
   /// chevron is a system symbol, so rows push by hand instead of through a NavigationLink.
   private func pushRow<Content: View>(
-    _ route: SettingsRoute, @ViewBuilder content: () -> Content
+    _ route: SettingsRoute, caret: Bool = true, @ViewBuilder content: () -> Content
   ) -> some View {
     Button {
       Haptics.select()
       path.append(route)
     } label: {
-      HStack(spacing: 8) {
-        content()
-        PhosphorIcon(.caretRight, size: 14).foregroundStyle(secondaryText)
+      HStack(spacing: RowMetrics.gap) {
+        content().frame(maxWidth: .infinity, alignment: .leading)
+        if caret { disclosure }
       }
       .contentShape(.rect)
     }
     .buttonStyle(.plain)
   }
 
+  /// In the trailing column every row shares, so each row's caret sits at the same x.
+  private var disclosure: some View {
+    PhosphorIcon(.caretRight, size: 14).foregroundStyle(secondaryText)
+      .frame(width: RowMetrics.trailing)
+  }
+
   private var root: some View {
     List {
       Section {
-        pushRow(.hosts) { hostsRow }
+        pushRow(.hosts, caret: false) { hostsRow }
       } header: {
         Text(hostsTitle).crowbarHeading(size: 17, relativeTo: .subheadline).foregroundStyle(secondaryText)
       }
@@ -80,7 +86,7 @@ struct SettingsSheet: View {
     .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
     .toolbar {
       ToolbarItem(placement: .topBarLeading) {
-        Button(action: close) { PhosphorIcon(.x) }.accessibilityLabel("Close")
+        Button(action: close) { PhosphorIcon(.x, emphasis: 0.5).foregroundStyle(text) }.accessibilityLabel("Close")
       }
     }
   }
@@ -91,9 +97,14 @@ struct SettingsSheet: View {
     if let shown = model.hosts.hosts.first(where: { $0.id == model.hosts.shownHost })
       ?? model.hosts.hosts.first
     {
-      HostLine(host: shown, text: text, secondaryText: secondaryText, palette: palette) { EmptyView() }
+      HostLine(host: shown, text: text, secondaryText: secondaryText, palette: palette) {
+        PhosphorIcon(.caretRight, size: 14).foregroundStyle(secondaryText)
+      }
     } else {
-      IconRow(icon: .cloud, title: "Add a host", text: text)
+      HStack(spacing: RowMetrics.gap) {
+        IconRow(icon: .cloud, title: "Add a host", text: text).frame(maxWidth: .infinity, alignment: .leading)
+        disclosure
+      }
     }
   }
 
@@ -137,7 +148,9 @@ struct SettingsSheet: View {
       HStack {
         Text(theme.name).foregroundStyle(text)
         Spacer()
-        if theme.id == model.state?.theme { PhosphorIcon(.check, size: 18) }
+        if theme.id == model.state?.theme {
+          PhosphorIcon(.check, size: 18).frame(width: RowMetrics.trailing)
+        }
       }
       .contentShape(.rect)
     }
