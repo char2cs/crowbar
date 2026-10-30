@@ -24,23 +24,23 @@ function lastCall(): [string, RequestInit] {
   return fetchMock.mock.calls[fetchMock.mock.calls.length - 1] as [string, RequestInit]
 }
 
-describe('hierarchical mutations are 202-empty (no synchronous entity)', () => {
-  test('POST /v0/projects → 202, resolves undefined', async () => {
-    const res = await postProject('my-proj', '/tmp/my-proj')
+describe('hierarchical mutations', () => {
+  test('POST /v0/projects sends its operation id', async () => {
+    await postProject('my-proj', '/tmp/my-proj', 'op-1')
     const [url, init] = lastCall()
     expect(url).toBe('/v0/projects')
     expect(init.method).toBe('POST')
+    expect(new Headers(init.headers).get('Idempotency-Key')).toBe('op-1')
     expect(JSON.parse(init.body as string)).toEqual({ name: 'my-proj', path: '/tmp/my-proj' })
-    expect(res).toBeUndefined()
   })
 
-  test('POST /v0/projects/:p/repos → 202, resolves undefined', async () => {
-    const res = await postRepo('p1', 'crowbar', '/tmp/crowbar')
+  test('POST /v0/projects/:p/repos sends its operation id', async () => {
+    await postRepo('p1', 'crowbar', '/tmp/crowbar', 'op-2')
     const [url, init] = lastCall()
     expect(url).toBe('/v0/projects/p1/repos')
     expect(init.method).toBe('POST')
+    expect(new Headers(init.headers).get('Idempotency-Key')).toBe('op-2')
     expect(JSON.parse(init.body as string)).toEqual({ name: 'crowbar', path: '/tmp/crowbar' })
-    expect(res).toBeUndefined()
   })
 
   test('PATCH /v0/projects/:p/repos/:r body {name} → 204, resolves undefined', async () => {

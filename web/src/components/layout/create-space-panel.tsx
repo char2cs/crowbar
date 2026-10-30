@@ -8,10 +8,9 @@ import { getFilenameFromPath } from '@/features/file-system/controllers/file-uti
 import { toast } from '@/features/window/stores/toast-store'
 import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { apiFetch } from '@/lib/api/fetch'
-import { postProject } from '@/lib/api'
-import { awaitEntity } from '@/lib/ws/await-entity'
-import { projectFromDTO } from '@/lib/store/project-from-dto'
-import type { Project, ProjectDTO } from '@/lib/types'
+import { createProject } from '@/lib/store/create-project'
+import { OperationFailedError } from '@/lib/errors/operation-failed'
+import type { Project } from '@/lib/types'
 
 interface CreateSpacePanelProps {
   onCreate: (project: Project) => void
@@ -61,7 +60,7 @@ async function applyStagedIcon(projectId: string, staged: StagedIcon): Promise<v
  * every other project and repo icon opens — in its `onStage` mode: a pick is
  * held locally (`stagedIcon`) and fed straight back in as `emoji`/`iconUrl`
  * for the live preview, since there is no project id yet to mutate against.
- * `applyStagedIcon` persists it for real right after `postProject` answers,
+ * `applyStagedIcon` persists it for real once the project exists,
  * before `onCreate` fires — the new space arrives with its icon already set,
  * not as a follow-up edit.
  */
@@ -84,29 +83,24 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
     if (!selectedPath || loading) return
     setLoading(true)
     try {
-      // Same subscribe-before-POST shape as the retired ImportProjectModal:
-      // postProject answers 202 with no body, so the real Project (with its
-      // daemon-assigned id) is read back off the /v0/projects WS stream,
-      // matched by the path we just submitted.
       const trimmedName = name.trim() || getFilenameFromPath(selectedPath)
-      const dto = await awaitEntity<ProjectDTO>({
-        endpoint: '/v0/projects',
-        match: (p) => p.path === selectedPath && p.status !== 'deleted',
-        action: () => postProject(trimmedName, selectedPath),
-      })
+      const project = await createProject(trimmedName, selectedPath)
       if (stagedIcon) {
         // Best-effort: the space itself was created successfully, so a
         // failed icon mutation surfaces its own toast rather than blocking
         // entry to the new space.
         try {
-          await applyStagedIcon(dto.id, stagedIcon)
+          await applyStagedIcon(project.id, stagedIcon)
         } catch {
           toast.error('Failed to set icon')
         }
       }
-      onCreate(projectFromDTO(dto))
+      onCreate(project)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create space')
+      // A failed operation was already told by the operations watcher.
+      if (!(err instanceof OperationFailedError)) {
+        toast.error(err instanceof Error ? err.message : 'Failed to create space')
+      }
     } finally {
       setLoading(false)
     }

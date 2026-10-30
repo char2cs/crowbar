@@ -9,14 +9,12 @@ import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useHomeTreeStore, removeHomeFolder, applyHomeFolders } from '@/lib/store/home-tree'
 import { toSidebarFolder } from '@/lib/store/build-repo-tree'
 import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
-import { useProjectDataStore } from '@/lib/store/projects'
-import { dataOf } from '@/lib/loadable'
+import { applyOperationFrame, useOperationsStore, type Operation } from '@/lib/store/operations'
+import { dismissOperation, whenSettled, type OperationReply } from '@/lib/store/run-operation'
+import { report } from '@/lib/errors/report'
+import { holdsWorkspace } from '@/lib/store/repo-tree'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toast } from '@/features/window/stores/toast-store'
-import { useOperationsStore, type Operation } from '@/lib/store/operations'
-import { dismissOperation } from '@/lib/store/run-operation'
-import { holdsWorkspace } from '@/lib/store/repo-tree'
-import { report } from '@/lib/errors/report'
 
 /**
  * Committing a hold — the one step of the removal path that destroys anything.
@@ -69,31 +67,11 @@ function stillPresent(repos: Repo[], ids: readonly string[]): boolean {
 }
 
 /**
- * Why the daemon stopped deleting one of `ids`, as the repo or project row it
- * kept says — a repo or project delete answers 202 and finishes in the
- * background, so this is the only place its failure can arrive.
- */
-function deleteErrorOf(ids: readonly string[]): string | undefined {
-  const wanted = new Set(ids)
-  const repo = useSidebarStore.getState().repos.find((r) => r.deleteError && wanted.has(r.id))
-  if (repo) return repo.deleteError
-  const projects = dataOf(useProjectDataStore.getState().data) ?? []
-  return projects.find((p) => p.lastError && wanted.has(p.id))?.lastError
-}
-
-/**
- * Stop hiding the entry's rows once the daemon has actually taken them — or
- * has said it could not, in which case the rows come back and the user is
- * told why.
+ * Stop hiding the entry's rows once the daemon has actually taken them.
  *
  * The tray row goes the instant the request is sent, but the rows themselves
  * stay hidden across the round trip — releasing them with the request in flight
- * would flash every one of them back on screen for as long as it takes the
- * tombstones to arrive.
- *
- * A failure is a CHANGE of the recorded error: the daemon clears an earlier
- * attempt's error before it answers, so an error already present when this
- * starts is that earlier attempt's, not this one's.
+ * would flash every one of them back on screen until the tombstones arrive.
  */
 function releaseWhenGone(entry: RemovalEntry): void {
   const ids = entry.hiddenIds
@@ -102,29 +80,33 @@ function releaseWhenGone(entry: RemovalEntry): void {
     release()
     return
   }
-  let seenError = deleteErrorOf(ids)
-  const check = () => {
-    const error = deleteErrorOf(ids)
-    if (error && error !== seenError) {
-      stop()
-      release()
-      toast.error(`Couldn't remove ${entry.label}: ${error}`)
-      return
-    }
-    seenError = error
-    if (stillPresent(useSidebarStore.getState().repos, ids)) return
+  const stop = useSidebarStore.subscribe((s) => {
+    if (stillPresent(s.repos, ids)) return
     stop()
     release()
-  }
-  const unsubscribeRepos = useSidebarStore.subscribe(check)
-  const unsubscribeProjects = useProjectDataStore.subscribe(check)
-  function stop() {
-    unsubscribeRepos()
-    unsubscribeProjects()
-  }
+  })
 }
 
-function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
+/** A repo or project delete is an operation: its rows come back when it fails,
+ *  and the operations watcher has told why. */
+function releaseWhenSettled(entry: RemovalEntry, opId: string): void {
+  const release = () => useRemovalTrayStore.getState().release(entry.hiddenIds)
+  whenSettled(opId).then(release, (err: unknown) => {
+    release()
+    report(err, { action: `Remove ${entry.label}` })
+  })
+}
+
+/** Sends an operation's delete under a fresh key and holds its answer. */
+async function sendOperation(send: (opId: string) => Promise<OperationReply>): Promise<string> {
+  const opId = crypto.randomUUID()
+  const reply = await send(opId)
+  if ('operation' in reply) applyOperationFrame(reply.operation)
+  return opId
+}
+
+/** Sends the entry's delete; a repo or project delete resolves with its operation id. */
+function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<string | void> {
   // An entry carrying `atRisk` was confirmed with that list on screen: that
   // confirmation, and nothing else, is consent to destroy it.
   const sendInit = entry.atRisk ? { ...init, ...DISCARD_WORK_INIT } : init
@@ -203,7 +185,7 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
         useFolderSignalStore.getState().bump(entry.repoId)
       })
     case 'repo':
-      return deleteRepo(entry.projectId, entry.repoId, ...opts)
+      return sendOperation((opId) => deleteRepo(entry.projectId, entry.repoId, opId, ...opts))
     case 'project':
       // A space owns its content's lifetime (project-scoped panes §8, Zen's
       // `#deleteWorkspaceOwnedTabs`): its views go through the real
@@ -212,7 +194,7 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
       // or close them again. Before the DELETE, while the chats are still
       // resolvable.
       windowPaneStore.getState().paneActions.closeViewsForProject(entry.projectId)
-      return deleteProject(entry.projectId, ...opts)
+      return sendOperation((opId) => deleteProject(entry.projectId, opId, ...opts))
     case 'chat':
       // No local tombstone (unlike folder's own special case): a chat DOES
       // arrive on a real push/reseed channel. But that channel has a condition
@@ -280,9 +262,11 @@ export function flushDrainingRemovals(): void {
     // handler that calls this — so without it one unload would post every
     // pending delete twice.
     useRemovalTrayStore.getState().settle(entry.entryId)
-    // No await and no catch: the document is unloading, there is nobody left to
-    // tell and nothing left to roll back to.
-    void sendRemoval(entry, { keepalive: true }).catch(() => {})
+    // No await: the document is unloading and there is nothing to roll back to;
+    // a refusal still reaches the user if the page outlives it.
+    sendRemoval(entry, { keepalive: true }).catch((err: unknown) =>
+      report(err, { action: 'Remove' }),
+    )
   }
 }
 
@@ -301,8 +285,9 @@ export function flushDrainingRemovals(): void {
 export async function commitRemoval(entry: RemovalEntry, context: RemovalContext): Promise<void> {
   useRemovalTrayStore.getState().settle(entry.entryId)
 
+  let opId: string | void
   try {
-    await sendRemoval(entry)
+    opId = await sendRemoval(entry)
   } catch (err) {
     const atRisk = workAtRiskOf(err)
     if (atRisk && !entry.atRisk) {
@@ -316,7 +301,8 @@ export async function commitRemoval(entry: RemovalEntry, context: RemovalContext
     return
   }
 
-  releaseWhenGone(entry)
+  if (opId) releaseWhenSettled(entry, opId)
+  else releaseWhenGone(entry)
   dismissCreatesOf(entry.hiddenIds)
   leaveIfRemoved(entry, context)
 }

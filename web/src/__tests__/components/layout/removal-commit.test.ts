@@ -1,10 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/persistence/sidebar-ui', () => ({
-  saveSidebarUI: vi.fn().mockResolvedValue(undefined),
-  loadSidebarUI: vi.fn().mockResolvedValue(null),
-}))
-
 const deleteChat = vi.fn().mockResolvedValue(undefined)
 vi.mock('@/features/agent/api/agent-chat-commands', () => ({
   deleteChat: (...a: unknown[]) => deleteChat(...a),
@@ -21,12 +16,15 @@ vi.mock('@/lib/api/sidebar-placement', () => ({
   deleteHomeFolder: (...a: unknown[]) => deleteHomeFolder(...a),
 }))
 
-const toastError = vi.fn()
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: (...a: unknown[]) => toastError(...a) },
-}))
-
-import { commitRemoval } from '@/components/layout/removal-commit'
+import { commitRemoval, flushDrainingRemovals } from '@/components/layout/removal-commit'
+import { toast } from '@/features/window/stores/toast-store'
+import { toastManager } from '@/lib/toast-manager'
+import {
+  applyOperationFrame,
+  selectEntityProblem,
+  useOperationsStore,
+  type Operation,
+} from '@/lib/store/operations'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import {
   useRemovalTrayStore,
@@ -38,7 +36,7 @@ import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { ApiError, type WorkAtRisk } from '@/lib/errors/api-error'
 import { DISCARD_WORK_INIT } from '@/lib/api'
-import { useOperationsStore, type Operation } from '@/lib/store/operations'
+import type { Problem } from '@/lib/errors/problem'
 
 /**
  * COMMITTING A REMOVAL — the one step that destroys anything.
@@ -99,12 +97,15 @@ function entry(over: Partial<RemovalEntry> = {}): RemovalEntry {
 }
 
 const context = { activeWorkspaceId: '', navigate: vi.fn() }
+let toastError: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
   deleteChat.mockClear().mockResolvedValue(undefined)
-  deleteRepo.mockClear().mockResolvedValue(undefined)
+  deleteRepo.mockClear().mockResolvedValue({ items: [] })
   deleteHomeFolder.mockClear().mockResolvedValue([])
-  toastError.mockClear()
+  toastError?.mockRestore()
+  toastError = vi.spyOn(toast, 'error')
+  useOperationsStore.setState({ ops: {}, latestFor: {} })
   __resetWorkspaceScopesForTest()
   useRemovalTrayStore.setState(getInitialRemovalState())
   useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set<string>() } as never)
@@ -358,36 +359,73 @@ describe('committing a project-home removal', () => {
   })
 })
 
-// A repo or project delete answers 202 and finishes in the background; the only
-// way its failure can arrive is the row the daemon kept, carrying lastError.
+// A repo or project delete is an operation; the rows wait on it.
 describe('committing a repo removal', () => {
   const hideRepo = () => useRemovalTrayStore.setState({ hiddenIds: new Set(['r1']) })
   const repoEntry = () =>
     entry({ kind: 'repo', id: 'r1', label: 'checkout', hiddenIds: ['r1'], deadlineAt: null })
+  const removeOp = (opId: string, version: number, over: Partial<Operation> = {}): Operation => ({
+    id: opId,
+    kind: 'repo.delete',
+    subject: { kind: 'repo', id: 'r1' },
+    projectId: 'p1',
+    label: 'Remove checkout',
+    state: 'running',
+    items: [{ ref: { kind: 'repo', id: 'r1' }, label: 'checkout', state: 'running' }],
+    dismissed: false,
+    version,
+    createdAt: '2026-10-30T10:00:00Z',
+    updatedAt: '2026-10-30T10:00:00Z',
+    ...over,
+  })
+  const sentOpId = (): string => deleteRepo.mock.calls[0][2] as string
 
-  it('un-hides the repo and says why when the daemon reports the delete stopped', async () => {
-    hideRepo()
-    await commitRemoval(repoEntry(), context)
-    expect(useRemovalTrayStore.getState().hiddenIds.has('r1')).toBe(true)
-
-    useSidebarStore.setState({ repos: [repo({ deleteError: 'worktree wedged' })] })
-
-    expect(useRemovalTrayStore.getState().hiddenIds.has('r1')).toBe(false)
-    expect(toastError).toHaveBeenCalledExactlyOnceWith("Couldn't remove checkout: worktree wedged")
+  beforeEach(() => {
+    deleteRepo.mockImplementation(async (_p: string, _r: string, opId: string) => ({
+      operation: removeOp(opId, 1),
+    }))
   })
 
-  it('does not mistake an earlier attempt’s error for this one', async () => {
-    useSidebarStore.setState({ repos: [repo({ deleteError: 'old failure' })] })
+  it('a remove releases the tray once the repo is gone', async () => {
     hideRepo()
     await commitRemoval(repoEntry(), context)
-
-    useSidebarStore.setState({ repos: [repo({ deleteError: 'old failure', name: 'renamed' })] })
-    useSidebarStore.setState({ repos: [repo()] })
+    applyOperationFrame(removeOp(sentOpId(), 2, { state: 'succeeded' }))
     expect(useRemovalTrayStore.getState().hiddenIds.has('r1')).toBe(true)
+
     useSidebarStore.setState({ repos: [] })
 
-    expect(useRemovalTrayStore.getState().hiddenIds.has('r1')).toBe(false)
+    await vi.waitFor(() => expect(useRemovalTrayStore.getState().hiddenIds.has('r1')).toBe(false))
     expect(toastError).not.toHaveBeenCalled()
+  })
+
+  it('a failed remove restores the row and reports the reason', async () => {
+    hideRepo()
+    await commitRemoval(repoEntry(), context)
+    const reason: Problem = { code: 'internal', message: 'worktree wedged' }
+    applyOperationFrame(removeOp(sentOpId(), 2, { state: 'failed', error: reason }))
+
+    await vi.waitFor(() => expect(useRemovalTrayStore.getState().hiddenIds.has('r1')).toBe(false))
+    expect(selectEntityProblem(useOperationsStore.getState(), 'r1')).toEqual(reason)
+    // The operations watcher tells it, once.
+    expect(toastError).not.toHaveBeenCalled()
+  })
+})
+
+describe('a removal sent as the page unloads', () => {
+  it('an unload-time remove that fails is reported', async () => {
+    const add = vi.spyOn(toastManager, 'add')
+    deleteChat.mockRejectedValueOnce(new ApiError('daemon is gone', 500))
+    useRemovalTrayStore.getState().hold([entry()])
+
+    flushDrainingRemovals()
+
+    expect(deleteChat).toHaveBeenCalledWith('ws-fork', 'chat-fork', { keepalive: true })
+    await vi.waitFor(() =>
+      expect(add).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Remove', description: 'daemon is gone' }),
+      ),
+    )
+    add.mockRestore()
   })
 })
 
@@ -423,12 +461,17 @@ describe('a removal refused over work at risk', () => {
     )
 
     expect(deleteChat).toHaveBeenCalledExactlyOnceWith('ws-fork', 'chat-fork', DISCARD_WORK_INIT)
-    expect(deleteRepo).toHaveBeenCalledExactlyOnceWith('p1', 'r1', DISCARD_WORK_INIT)
+    expect(deleteRepo).toHaveBeenCalledExactlyOnceWith(
+      'p1',
+      'r1',
+      expect.any(String),
+      DISCARD_WORK_INIT,
+    )
   })
 
   it('an ordinary removal never carries that consent', async () => {
     await commitRemoval(entry({ kind: 'repo', id: 'r1', hiddenIds: ['r1'] }), context)
 
-    expect(deleteRepo).toHaveBeenCalledExactlyOnceWith('p1', 'r1')
+    expect(deleteRepo).toHaveBeenCalledExactlyOnceWith('p1', 'r1', expect.any(String))
   })
 })

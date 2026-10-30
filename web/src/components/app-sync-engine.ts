@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { useProjectDataStore, useProjectStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { selectEntityBusy, useOperationsStore } from '@/lib/store/operations'
 import { getVisibleProjectIds } from '@/lib/store/project-visibility'
 import { toSidebarRepo } from '@/lib/store/build-repo-tree'
 import { subscribeHomeTree } from '@/lib/store/home-tree'
@@ -521,9 +522,12 @@ export function useAppSyncEngine(): void {
       // rows via collapsedChatRows, which hides nothing the streams feed), so
       // each one keeps both its workspaces and its folders+chats streams open.
       const { repos } = useSidebarStore.getState()
+      const ops = useOperationsStore.getState()
       for (const repo of repos) {
         const projectId = repo.projectId
-        if (!projectId || !visibleProjects.has(projectId) || repo.deleting) continue
+        // A failed delete keeps the daemon's mark; only a running one takes the scope.
+        const goingAway = repo.deleting && selectEntityBusy(ops, repo.id)
+        if (!projectId || !visibleProjects.has(projectId) || goingAway) continue
         keys.add(workspacesKey(projectId, repo.id))
         keys.add(treeKey(projectId, repo.id))
       }
@@ -577,17 +581,11 @@ export function useAppSyncEngine(): void {
       void useProjectDataStore.getState().fetch()
 
       // 3. Per-project / per-repo streams for whatever is visible. The provider
-      //    mounts at the root BEFORE any project exists (fresh start / OOBE), so
-      //    visibility usually arrives AFTER mount — reconcile now, and again on
-      //    every project-, project-list- or sidebar-store change (active project
-      //    switched, the project list landing, a repo seeded into the tree).
-      //    Without this, importing the first project never populates the
-      //    entity cache and the sidebar stays empty.
-      //
-      //    The project-LIST subscription is what makes "open by default" work:
-      //    visibility is "every known project plus the active one", so the set
-      //    only grows when `/v0/projects` delivers. Its own `lastSignature`
-      //    guard keeps the extra wake-ups free.
+      //    mounts BEFORE any project exists (fresh start / OOBE), so visibility
+      //    arrives after mount: reconcile now and on every change of what
+      //    desiredKeys() reads (active project, the project list landing — the
+      //    "open by default" set only grows then — a seeded repo, a delete
+      //    settling). The `lastDesired` guard keeps the extra wake-ups free.
       scheduleRebuild()
       reconcile()
       // Narrow: only the fields desiredKeys() reads wake it — not every
@@ -607,6 +605,7 @@ export function useAppSyncEngine(): void {
           if (s.repos !== prev.repos) reconcile()
         }),
       )
+      rootUnsubscribes.push(useOperationsStore.subscribe(reconcile))
     }
 
     void start()

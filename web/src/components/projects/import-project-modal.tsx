@@ -13,10 +13,9 @@ import { FolderOpen } from '@phosphor-icons/react'
 import { toast } from '@/features/window/stores/toast-store'
 import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { isTauri } from '@/lib/crowbar-bridge'
-import { postProject } from '@/lib/api'
-import { awaitEntity } from '@/lib/ws/await-entity'
-import { projectFromDTO } from '@/lib/store/project-from-dto'
-import type { Project, ProjectDTO } from '@/lib/types'
+import { createProject } from '@/lib/store/create-project'
+import { OperationFailedError } from '@/lib/errors/operation-failed'
+import type { Project } from '@/lib/types'
 
 interface ImportProjectModalProps {
   open: boolean
@@ -45,27 +44,20 @@ export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProje
     if (!pathLooksAbsolute) return
     setLoading(true)
     try {
-      // §4/§6 subscribe-before-POST: postProject answers 202 with no body — the
-      // daemon assigns the id and only the canonical ProjectDTO carries it, on
-      // the `/v0/projects` WS stream. We subscribe FIRST, fire the POST, then
-      // resolve the real project by matching the submitted path (the one field
-      // we can correlate before the id exists). No client-fabricated uuid.
       const fallbackName =
         trimmedPath
           .replace(/[\\/]+$/, '')
           .split(/[\\/]/)
           .pop() ?? trimmedPath
       const name = projectName.trim() || fallbackName
-      const dto = await awaitEntity<ProjectDTO>({
-        endpoint: '/v0/projects',
-        match: (p) => p.path === trimmedPath && p.status !== 'deleted',
-        action: () => postProject(name, trimmedPath),
-      })
-      onImport(projectFromDTO(dto))
+      onImport(await createProject(name, trimmedPath))
       setSelectedPath('')
       setProjectName('')
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to import project')
+      // A failed operation was already told by the operations watcher.
+      if (!(err instanceof OperationFailedError)) {
+        toast.error(err instanceof Error ? err.message : 'Failed to import project')
+      }
     } finally {
       setLoading(false)
     }

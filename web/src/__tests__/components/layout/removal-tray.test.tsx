@@ -49,7 +49,7 @@ vi.mock('@tanstack/react-router', () => ({
 
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
-  deleteRepo: vi.fn(() => Promise.resolve()),
+  deleteRepo: vi.fn(() => Promise.resolve({ items: [] })),
 }))
 
 // A worktree is taken by deleting the CHAT that holds it — DELETE .../chats/:id
@@ -452,7 +452,7 @@ describe('a repo, which takes every worktree under it', () => {
       fireEvent.click(screen.getByText('Delete repository'))
     })
 
-    expect(deleteRepo).toHaveBeenCalledExactlyOnceWith('p1', 'r1')
+    expect(deleteRepo).toHaveBeenCalledExactlyOnceWith('p1', 'r1', expect.any(String))
   })
 })
 

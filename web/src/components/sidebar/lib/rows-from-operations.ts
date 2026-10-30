@@ -10,6 +10,7 @@ const CREATE_KINDS: Readonly<Record<string, SidebarRow['kind']>> = {
   'branch.import': 'branch',
   'branch.create': 'branch',
   'chat.create': 'chat',
+  'repo.create': 'branch',
 }
 
 /** Drawn after every real sibling: the daemon appends a create at the end of its level. */
@@ -21,10 +22,18 @@ function failed(op: Operation, item: OperationItem): boolean {
   return op.state === 'failed' && item.state !== 'succeeded'
 }
 
-/** The item that stands for the row: a branch create names its chat and its workspace. */
+/** The item that stands for the row: a branch create names its chat and its
+ *  workspace; a repo add's rows are its protected branches. */
 function drawnItems(op: Operation): OperationItem[] {
+  if (op.kind === 'repo.create') return op.items.filter((item) => item.ref.kind === 'workspace')
   const chats = op.items.filter((item) => item.ref.kind === 'chat')
   return chats.length > 0 ? chats : op.items
+}
+
+/** What the rows sit under: a repo add's branches go under the repo it added. */
+function drawnUnder(op: Operation): EntityRef {
+  if (op.kind !== 'repo.create') return op.subject
+  return op.items.find((item) => item.ref.kind === 'repo')?.ref ?? op.subject
 }
 
 /** The refs whose arrival retires a create's row. */
@@ -56,7 +65,7 @@ export function rowsFromOperations(
   for (const op of ops) {
     const kind = CREATE_KINDS[op.kind]
     if (!kind || op.dismissed || op.projectId !== scope.projectId) continue
-    const subject = op.subject
+    const subject = drawnUnder(op)
     if (scope.repoId !== undefined && subject.id !== scope.repoId) continue
     for (const item of drawnItems(op)) {
       if (isPresent(item.ref) || settledBeforeConnect(op, item)) continue

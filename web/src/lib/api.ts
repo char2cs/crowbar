@@ -175,24 +175,28 @@ export async function fetchHomeFolders(projectId: string): Promise<FolderDTO[]> 
 }
 
 // ---------------------------------------------------------------------------
-// Hierarchical WRITE API (§3/§7) — every mutation is fire-and-forget: the
-// daemon answers 202 Accepted with an empty body and the real entity (with its
-// status transitions) arrives over the scoped WS broadcaster. Callers therefore
-// await the WS DTO for navigation, never an id from these calls.
+// Hierarchical WRITE API (§3/§7). A create or a delete answers 202 with its
+// operation under the caller's Idempotency-Key; the entity itself arrives over
+// the scoped WS broadcaster, and `whenSettled` waits for both.
 // ---------------------------------------------------------------------------
 
-export function postProject(name: string, path: string): Promise<void> {
-  return apiFetch('/v0/projects', {
+export function postProject(name: string, path: string, opId: string): Promise<OperationReply> {
+  return apiFetch<OperationReply>('/v0/projects', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': opId },
     body: JSON.stringify({ name, path }),
   })
 }
 
-export function postRepo(projectId: string, name: string, path: string): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}/repos`, {
+export function postRepo(
+  projectId: string,
+  name: string,
+  path: string,
+  opId: string,
+): Promise<OperationReply> {
+  return apiFetch<OperationReply>(`/v0/projects/${projectId}/repos`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': opId },
     body: JSON.stringify({ name, path }),
   })
 }
@@ -221,8 +225,16 @@ export function renameProject(projectId: string, name: string): Promise<void> {
 }
 
 /** Delete a project, and with it every repo and workspace inside. */
-export function deleteProject(projectId: string, init?: RequestInit): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}`, { method: 'DELETE', ...init })
+export function deleteProject(
+  projectId: string,
+  opId: string,
+  init?: RequestInit,
+): Promise<OperationReply> {
+  return apiFetch<OperationReply>(`/v0/projects/${projectId}`, {
+    method: 'DELETE',
+    ...init,
+    headers: { ...init?.headers, 'Idempotency-Key': opId },
+  })
 }
 
 /**
@@ -275,8 +287,17 @@ export function importBranches(
 // and its workspaces' tombstones arrive on the entity streams; nothing here
 // writes the sidebar tree. This is the one removal the sidebar asks the user to
 // confirm — everything under the repo goes with it.
-export function deleteRepo(projectId: string, repoId: string, init?: RequestInit): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}`, { method: 'DELETE', ...init })
+export function deleteRepo(
+  projectId: string,
+  repoId: string,
+  opId: string,
+  init?: RequestInit,
+): Promise<OperationReply> {
+  return apiFetch<OperationReply>(`/v0/projects/${projectId}/repos/${repoId}`, {
+    method: 'DELETE',
+    ...init,
+    headers: { ...init?.headers, 'Idempotency-Key': opId },
+  })
 }
 
 // Rename a worktree's branch, addressed through the CHAT that holds it — a

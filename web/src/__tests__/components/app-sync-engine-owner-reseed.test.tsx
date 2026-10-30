@@ -52,6 +52,7 @@ import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import type { EntityChange } from '@/lib/ws/entity-stream'
+import { applyOperationFrame, useOperationsStore, type Operation } from '@/lib/store/operations'
 import type { ChatDTO, Project, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 interface StreamOptions {
@@ -151,6 +152,7 @@ async function bootWithWorkspaces(rows: WorkspaceDTO[]): Promise<void> {
 beforeEach(async () => {
   vi.clearAllMocks()
   opened.length = 0
+  useOperationsStore.setState({ ops: {}, latestFor: {} })
   subscribeEntityStream.mockImplementation((options: StreamOptions) => {
     const dispose = vi.fn()
     opened.push({ ...options, dispose })
@@ -254,6 +256,20 @@ describe('a repo tombstone', () => {
     expect(fetchRepoChats).not.toHaveBeenCalled()
   })
 
+  const removeOp = (version: number, state: Operation['state']): Operation => ({
+    id: 'op-remove',
+    kind: 'repo.delete',
+    subject: { kind: 'repo', id: 'r1' },
+    projectId: 'p1',
+    label: 'Remove r1',
+    state,
+    items: [{ ref: { kind: 'repo', id: 'r1' }, label: 'r1', state }],
+    dismissed: false,
+    version,
+    createdAt: '2026-10-30T10:00:00Z',
+    updatedAt: '2026-10-30T10:00:00Z',
+  })
+
   // The daemon announces the delete (the row carries `deleting`) before it
   // tombstones the repo's chats: those frames must not re-read a repo on its
   // way out.
@@ -261,6 +277,7 @@ describe('a repo tombstone', () => {
     await bootWithWorkspaces([workspace('owner-locked')])
     const streamOf = (endpoint: string) => opened.find((s) => s.endpoint === endpoint)
     const rebuild = vi.spyOn(useWorkspaceListStore.getState(), 'fetch')
+    act(() => applyOperationFrame(removeOp(1, 'running')))
     const deleting: RepoDTO = { ...repoDTO, deleting: true }
     await upsertEntity('crowbar_repos', deleting)
     act(() => {
@@ -276,19 +293,17 @@ describe('a repo tombstone', () => {
     expect(opened.filter((s) => s.endpoint === '/v0/projects/p1/repos/r1/chats/ws')).toHaveLength(1)
   })
 
-  // A delete that stopped (the row comes back with lastError) is a live repo again.
+  // A delete that failed leaves the daemon's mark on the row; it is a live repo again.
   it('a repo whose delete stopped streams again', async () => {
     await bootWithWorkspaces([workspace('owner-locked')])
     const repos = opened.find((s) => s.endpoint === '/v0/projects/p1/repos')!
+    act(() => applyOperationFrame(removeOp(1, 'running')))
     const deleting: RepoDTO = { ...repoDTO, deleting: true }
+    await upsertEntity('crowbar_repos', deleting)
     act(() => {
       repos.onChange?.({ kind: 'frame', frame: deleting })
     })
-    const stopped: RepoDTO = { ...deleting, lastError: 'work at risk' }
-    await upsertEntity('crowbar_repos', stopped)
-    act(() => {
-      repos.onChange?.({ kind: 'frame', frame: stopped })
-    })
+    act(() => applyOperationFrame(removeOp(2, 'failed')))
     await waitFor(() =>
       expect(opened.filter((s) => s.endpoint === '/v0/projects/p1/repos/r1/chats/ws')).toHaveLength(
         2,

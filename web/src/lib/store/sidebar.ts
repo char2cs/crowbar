@@ -191,9 +191,8 @@ export interface Repo {
   /** On-disk root of the repo (RepoDTO.path). Used as the localPath fallback for
    *  the default workspace, which is not stored in the workspaces array. */
   localPath?: string
-  /** RepoDTO.lastError: why the last delete of this repo stopped. */
-  deleteError?: string
-  /** A delete of this repo is in flight: its scope is going away. */
+  /** The daemon has recorded a delete of this repo; it is in flight only while
+   *  its operation runs (a failed one leaves the mark until it is resumed). */
   deleting?: boolean
 }
 

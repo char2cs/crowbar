@@ -108,7 +108,7 @@
   "web/src/__tests__/features/settings/components/tabs/providers-settings.test.tsx": 873,
   "web/src/__tests__/features/tabs/components/tab-bar.test.tsx": 509,
   "web/src/__tests__/lib/persistence/hydrate.test.ts": 645,
-  "web/src/components/app-sync-engine.ts": 620,
+  "web/src/components/app-sync-engine.ts": 619,
   "web/src/components/layout/removal-plan.ts": 503,
   "web/src/components/sidebar/hooks/use-sidebar-drag.ts": 751,
   "web/src/components/ui/dropdown.tsx": 725,
