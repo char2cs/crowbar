@@ -123,6 +123,37 @@ func TestReparent_ResyncSummaryError_IsBestEffort(t *testing.T) {
 	assert.Equal(t, "c", out.ID)
 }
 
+// TestRegression_ConflictingReparentMarksTheChildConflicting: the aborted
+// rebase leaves git clean, so only the flag tells the user the move is not
+// integrated; a flag that cannot be written fails the move instead.
+func TestRegression_ConflictingReparentMarksTheChildConflicting(t *testing.T) {
+	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", Provisioning: domain.WorkspaceProvisioned}
+	newParent := domain.Workspace{ID: "np", WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
+	ws := reparentWS(child, newParent, nil)
+	ws.ReparentFn = func(_ context.Context, id, _, _ string, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{ID: id}, nil
+	}
+	var synced []workspace.SyncInput
+	ws.SyncFn = func(_ context.Context, in workspace.SyncInput, _ time.Time) (domain.Workspace, error) {
+		synced = append(synced, in)
+		return domain.Workspace{ID: in.ID, Status: domain.WorkspaceStatusPRConflicts}, nil
+	}
+	g := &fakeGit{revParseSha: "ntip", rebaseOnto: enginegit.ErrConflict, mergeBaseSha: "mb"}
+	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	out, err := uc.Reparent(context.Background(), "c", "np")
+	require.NoError(t, err)
+	require.Len(t, synced, 1)
+	assert.True(t, synced[0].HasConflicts, "git shows no conflict after the abort; the move must")
+	assert.Equal(t, domain.WorkspaceStatusPRConflicts, out.Status)
+
+	ws.SyncFn = func(_ context.Context, _ workspace.SyncInput, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{}, errBoom
+	}
+	_, err = uc.Reparent(context.Background(), "c", "np")
+	require.ErrorIs(t, err, errBoom, "an unflagged conflicting move would be silent")
+}
+
 // TestRegression_ReparentKeepsCommitsAStaleForkPointWouldDrop: an imported
 // branch recorded its own tip as its fork point, so the rebase replayed nothing
 // and reset the branch onto its new parent. Homes already hold such rows.

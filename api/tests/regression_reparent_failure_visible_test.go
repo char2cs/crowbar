@@ -104,3 +104,33 @@ func TestRegression_ReparentKeepsAnImportedBranchsCommits(t *testing.T) {
 	runGit(t, path, "merge-base", "--is-ancestor", "feature/a", "feature/b")
 	require.FileExists(t, filepath.Join(path, "b.txt"))
 }
+
+// TestRegression_ConflictingReparentIsShownAsAConflict: a move whose rebase
+// conflicts is aborted and lands "on paper"; the branch must read as
+// conflicting, as a conflicting merge-into-parent does. The merge-tree
+// prediction alone misses it: the final trees merge cleanly, a replayed commit
+// does not.
+func TestRegression_ConflictingReparentIsShownAsAConflict(t *testing.T) {
+	h := newHarness(t)
+	f := newImportFixture(t, h)
+	f.pushFileToOrigin(t, "feature/b", "main", "f.txt", "x\n")
+	f.pushFileToOrigin(t, "feature/b", "feature/b", "f.txt", "y\n")
+	f.pushFileToOrigin(t, "feature/base", "main", "f.txt", "y\n")
+	rows := importedRows(t, h, f, "feature/b", "feature/base")
+	before := strings.TrimSpace(runGitOut(t, rows["feature/b"].Worktree.LocalPath, "rev-parse", "HEAD"))
+
+	settled := reparentSettled(t, h, f, rows["feature/b"], rows["feature/base"])
+	require.Equal(t, domain.OpSucceeded, settled.State, "%+v", settled.Error)
+
+	var moved *worktreeWire
+	for _, c := range listChats(t, h, f.projectID, f.repoID) {
+		if c.WorkspaceID == rows["feature/b"].WorkspaceID {
+			moved = c.Worktree
+		}
+	}
+	require.NotNil(t, moved)
+	require.Equal(t, rows["feature/base"].WorkspaceID, moved.ParentID, "the move lands on paper")
+	require.Equal(t, "pr-conflicts", moved.Status, "the user must be told the branch is not integrated")
+	after := strings.TrimSpace(runGitOut(t, moved.LocalPath, "rev-parse", "HEAD"))
+	require.Equal(t, before, after, "the aborted rebase leaves the branch where it was")
+}
