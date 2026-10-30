@@ -13,7 +13,7 @@ import { useProjectDataStore } from '@/lib/store/projects'
 import { dataOf } from '@/lib/loadable'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toast } from '@/features/window/stores/toast-store'
-import { useOperationsStore } from '@/lib/store/operations'
+import { useOperationsStore, type Operation } from '@/lib/store/operations'
 import { dismissOperation } from '@/lib/store/run-operation'
 import { holdsWorkspace } from '@/lib/store/repo-tree'
 import { report } from '@/lib/errors/report'
@@ -321,17 +321,23 @@ export async function commitRemoval(entry: RemovalEntry, context: RemovalContext
   leaveIfRemoved(entry, context)
 }
 
+// A partly failed create keeps its failed items' reasons until the user acts on them.
+function allSucceeded(op: Operation): boolean {
+  return op.items.every(
+    (item) =>
+      !item.error &&
+      item.state !== 'failed' &&
+      (item.state === 'succeeded' || op.state === 'succeeded'),
+  )
+}
+
 /** A succeeded create's row stands in until its entity arrives; once the user
  *  removed that entity it never will, so the operation is settled history. */
 function dismissCreatesOf(ids: readonly string[]): void {
   const removed = new Set(ids)
   for (const op of Object.values(useOperationsStore.getState().ops)) {
-    if (op.dismissed) continue
-    const made = op.items.some(
-      (item) =>
-        removed.has(item.ref.id) && (item.state === 'succeeded' || op.state === 'succeeded'),
-    )
-    if (made)
+    if (op.dismissed || !allSucceeded(op)) continue
+    if (op.items.some((item) => removed.has(item.ref.id)))
       void dismissOperation(op.id).catch((err: unknown) => report(err, { action: 'Dismiss' }))
   }
 }

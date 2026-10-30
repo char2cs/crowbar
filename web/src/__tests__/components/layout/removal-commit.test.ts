@@ -188,6 +188,24 @@ describe('committing a workspace removal', () => {
     expect(useOperationsStore.getState().ops['op-other']?.dismissed).toBe(false)
   })
 
+  // A partly failed import keeps its failed sibling's reason until the user acts on it.
+  it('leaves a partly failed create alone when one of its successes is removed', async () => {
+    const partial: Operation = {
+      ...{ id: 'op-import', kind: 'branch.import', subject: { kind: 'repo', id: 'r1' } },
+      ...{ projectId: 'p1', label: 'Import 2 branches', state: 'failed', dismissed: false },
+      items: [
+        { ref: { kind: 'chat', id: 'chat-fork' }, label: 'feature/one', state: 'succeeded' },
+        { ref: { kind: 'chat', id: 'chat-bad' }, label: 'bad/x', state: 'failed' },
+      ],
+      ...{ version: 1, createdAt: '', updatedAt: '', local: true },
+    }
+    useOperationsStore.setState({ ops: { [partial.id]: partial } })
+
+    await commitRemoval(entry(), context)
+
+    expect(useOperationsStore.getState().ops['op-import']?.dismissed).toBe(false)
+  })
+
   it('a removal whose fallback is the repo home leaves for it', async () => {
     const navigate = vi.fn()
     await commitRemoval(entry({ fallbackWsId: 'ws-home' }), {
