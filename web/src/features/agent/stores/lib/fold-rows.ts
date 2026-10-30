@@ -424,7 +424,9 @@ const applyAskResolved: Apply<'ask_resolved'> = (fold, row) => {
     fold.put({ ...known, choice })
     // A denied tool never runs, so no post or fail row will settle it.
     const picked = new Set(row.body.optionIds)
-    const denied = known.choice.options.some((o) => o.kind === 'deny' && picked.has(o.id))
+    const denied =
+      row.body.resolution === 'refused' ||
+      known.choice.options.some((o) => o.kind === 'deny' && picked.has(o.id))
     const tool = denied && known.toolId ? fold.item<ToolItem>(toolItemId(known.toolId)) : undefined
     if (tool?.status === 'running') fold.put({ ...tool, status: 'declined' })
   }

@@ -84,7 +84,12 @@ describe('ToolRow', () => {
 
   // A denied permission stops the tool before it runs, and no post/fail row
   // follows: the answer to its ask is the only record of what happened.
-  it('reads a tool whose permission was denied as denied, not ran', () => {
+  // `refused` is the daemon answering on the person's behalf (an auto-deny).
+  const denials = {
+    'denied by the person': { resolution: 'answered', optionIds: ['deny'] },
+    'refused by the daemon': { resolution: 'refused', optionIds: [] },
+  } as const
+  it.each(Object.entries(denials))('reads a tool %s as denied, not ran', (_, answer) => {
     const l = ledger()
     const call = { toolId: 'tool-1', name: 'Bash', kind: 'execute', target: 'echo deny' }
     seed([
@@ -105,7 +110,7 @@ describe('ToolRow', () => {
         },
         { turnId: 'turn-1' },
       ),
-      l.row('ask_resolved', { askId: 'q1', resolution: 'answered', optionIds: ['deny'] }),
+      l.row('ask_resolved', { askId: 'q1', ...answer, optionIds: [...answer.optionIds] }),
       l.end('turn-1'),
     ])
     draw('t:tool-1')
