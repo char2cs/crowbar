@@ -19,11 +19,6 @@ vi.mock('@/lib/native-chrome', () => ({
     return () => chrome.listeners.delete(cb)
   },
 }))
-const navigate = vi.hoisted(() => vi.fn(async () => {}))
-vi.mock('@tanstack/react-router', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@tanstack/react-router')>()),
-  useNavigate: () => navigate,
-}))
 
 const { NativeHostsSettingsFeed } =
   await import('@/features/settings/components/native-hosts-settings-feed')
@@ -37,7 +32,6 @@ beforeEach(() => {
   chrome.pushed.length = 0
   chrome.listeners.clear()
   chrome.confirm.mockClear()
-  navigate.mockClear()
   useHostConfigStore.setState({ hosts: [host] })
   useUIState.setState({ isSettingsOpen: true })
 })
@@ -67,12 +61,5 @@ describe('NativeHostsSettingsFeed', () => {
     )
     await waitFor(() => expect(last().revoking).toEqual([]))
     expect(useHostConfigStore.getState().hosts).toEqual([host])
-  })
-
-  it('puts Settings away and opens pairing for Add host', () => {
-    render(<NativeHostsSettingsFeed shownHost={null} />)
-    send({ type: 'addHost' })
-    expect(useUIState.getState().isSettingsOpen).toBe(false)
-    expect(navigate).toHaveBeenCalledWith({ to: '/add-host' })
   })
 })

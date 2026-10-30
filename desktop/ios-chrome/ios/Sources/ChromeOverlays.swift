@@ -11,6 +11,7 @@ final class ChromeOverlays {
   private let settings: PageChannel
   private let files: PageChannel
   private let picker = ModelPickerModel()
+  private let hostPicker = HostPickerModel()
   private var rowMenu: RowMenu?
   private weak var webview: WKWebView?
   private var navigation: NavigationController?
@@ -35,6 +36,12 @@ final class ChromeOverlays {
     UIHostingController(rootView: ModelPickerSheet(model: picker, chrome: model))
   } onUserDismiss: { [picker] in
     picker.send(.of("closeModelPicker"))
+  }
+  private lazy var hostSheet = SheetPresenter(undimmed: false, detents: [.large()]) {
+    [hostPicker, model] in
+    UIHostingController(rootView: HostPickerSheet(model: hostPicker, chrome: model))
+  } onUserDismiss: { [hostPicker] in
+    hostPicker.send(.of("closeHostPicker"))
   }
   private lazy var welcome = mount(WelcomeButton(model: model)) { view, host in
     // Below the web's centred brand, which sits 3rem above the middle.
@@ -82,6 +89,7 @@ final class ChromeOverlays {
       ], send: send)
     files = PageChannel(handler: "files", feeds: ["filesReady": "__crowbarFiles"], send: send)
     picker.send = send
+    hostPicker.send = send
     tabs.send = send
     model.present = { [weak webview] dialog in
       guard let root = webview?.window?.rootViewController else { return }
@@ -147,6 +155,11 @@ final class ChromeOverlays {
   func applyModelPicker(_ state: ModelPickerState) {
     picker.apply(state)
     pickerSheet.update(open: state.open, busy: false, over: webview?.window?.rootViewController)
+  }
+
+  func applyHostPicker(_ state: HostPickerState) {
+    hostPicker.state = state
+    hostSheet.update(open: state.open, busy: false, over: webview?.window?.rootViewController)
   }
 
   /// The chat list: its page clear of the card's strip on the right, under its native foot.

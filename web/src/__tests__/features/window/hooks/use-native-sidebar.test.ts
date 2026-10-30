@@ -255,6 +255,20 @@ describe('useNativeSidebar', () => {
     expect(useUIState.getState().isSettingsOpen).toBe(true)
     expect(useMobileScreenStore.getState().chatListOpen).toBe(false)
   })
+  it('opens the host picker over a closed list', () => {
+    mount()
+    send({ type: 'openHostPicker' })
+    expect(useUIState.getState().isHostPickerOpen).toBe(true)
+    expect(useMobileScreenStore.getState().chatListOpen).toBe(false)
+  })
+  it('opens pairing for Add host and puts the host picker and Settings away', () => {
+    useUIState.setState({ isHostPickerOpen: true, isSettingsOpen: true })
+    mount()
+    send({ type: 'addHost' })
+    expect(useUIState.getState().isHostPickerOpen).toBe(false)
+    expect(useUIState.getState().isSettingsOpen).toBe(false)
+    expect(navigate).toHaveBeenCalledWith({ to: '/add-host' })
+  })
   // The long-press menu holds every desktop verb, the row menu's and its hover buttons'.
   it('gives each row every desktop verb but terminal threads, Remove last and asked first', () => {
     mount()

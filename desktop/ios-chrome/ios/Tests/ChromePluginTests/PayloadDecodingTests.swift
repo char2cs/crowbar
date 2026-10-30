@@ -36,6 +36,18 @@ final class PayloadDecodingTests: XCTestCase {
     XCTAssertEqual(TabSymbol.of(kind: "file", path: nil), "doc.text")
   }
 
+  func testHostPickerState() throws {
+    let state = try decode(
+      HostPickerState.self,
+      """
+      {"open":true,"hosts":[{"id":"h1","name":"lab","endpoint":"https://lab:7777","state":"up"}],
+       "revoking":["h1"],"shownHost":"h1"}
+      """)
+    XCTAssertEqual(state.hosts.map(\.name), ["lab"])
+    XCTAssertEqual(state.revoking, ["h1"])
+    XCTAssertEqual(state.shownHost, "h1")
+  }
+
   func testChromeStateOmittedPartsAreNil() throws {
     let state = try decode(ChromeState.self, "{}")
     XCTAssertNil(state.welcome)

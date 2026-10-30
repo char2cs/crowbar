@@ -2385,10 +2385,10 @@
           "markdownDescription": "Denies the unminimize command without any pre-configured scope."
         },
         {
-          "description": "Lets the webview describe the native chrome, chat list, settings, model picker and dialogs and listen for its intents.\n#### This default permission set includes:\n\n- `allow-set-chrome`\n- `allow-set-sidebar`\n- `allow-set-agents-settings`\n- `allow-set-hosts-settings`\n- `allow-set-files`\n- `allow-set-tabs`\n- `allow-set-context`\n- `allow-set-model-picker`\n- `allow-confirm`\n- `allow-prompt`\n- `allow-register-listener`\n- `allow-remove-listener`",
+          "description": "Lets the webview describe the native chrome, chat list, settings, host picker, model picker and dialogs and listen for its intents.\n#### This default permission set includes:\n\n- `allow-set-chrome`\n- `allow-set-sidebar`\n- `allow-set-agents-settings`\n- `allow-set-hosts-settings`\n- `allow-set-host-picker`\n- `allow-set-files`\n- `allow-set-tabs`\n- `allow-set-context`\n- `allow-set-model-picker`\n- `allow-confirm`\n- `allow-prompt`\n- `allow-register-listener`\n- `allow-remove-listener`",
           "type": "string",
           "const": "crowbar-chrome:default",
-          "markdownDescription": "Lets the webview describe the native chrome, chat list, settings, model picker and dialogs and listen for its intents.\n#### This default permission set includes:\n\n- `allow-set-chrome`\n- `allow-set-sidebar`\n- `allow-set-agents-settings`\n- `allow-set-hosts-settings`\n- `allow-set-files`\n- `allow-set-tabs`\n- `allow-set-context`\n- `allow-set-model-picker`\n- `allow-confirm`\n- `allow-prompt`\n- `allow-register-listener`\n- `allow-remove-listener`"
+          "markdownDescription": "Lets the webview describe the native chrome, chat list, settings, host picker, model picker and dialogs and listen for its intents.\n#### This default permission set includes:\n\n- `allow-set-chrome`\n- `allow-set-sidebar`\n- `allow-set-agents-settings`\n- `allow-set-hosts-settings`\n- `allow-set-host-picker`\n- `allow-set-files`\n- `allow-set-tabs`\n- `allow-set-context`\n- `allow-set-model-picker`\n- `allow-confirm`\n- `allow-prompt`\n- `allow-register-listener`\n- `allow-remove-listener`"
         },
         {
           "description": "Enables the confirm command without any pre-configured scope.",
@@ -2437,6 +2437,12 @@
           "type": "string",
           "const": "crowbar-chrome:allow-set-files",
           "markdownDescription": "Enables the set_files command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_host_picker command without any pre-configured scope.",
+          "type": "string",
+          "const": "crowbar-chrome:allow-set-host-picker",
+          "markdownDescription": "Enables the set_host_picker command without any pre-configured scope."
         },
         {
           "description": "Enables the set_hosts_settings command without any pre-configured scope.",
@@ -2509,6 +2515,12 @@
           "type": "string",
           "const": "crowbar-chrome:deny-set-files",
           "markdownDescription": "Denies the set_files command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_host_picker command without any pre-configured scope.",
+          "type": "string",
+          "const": "crowbar-chrome:deny-set-host-picker",
+          "markdownDescription": "Denies the set_host_picker command without any pre-configured scope."
         },
         {
           "description": "Denies the set_hosts_settings command without any pre-configured scope.",

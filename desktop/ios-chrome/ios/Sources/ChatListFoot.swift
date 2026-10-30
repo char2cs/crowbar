@@ -21,6 +21,19 @@ struct ChatListFoot: View {
         .glassEffect(.regular.interactive(), in: .circle)
         .accessibilityLabel("Settings")
 
+        Button {
+          Haptics.tap()
+          model.send(.of("openHostPicker"))
+        } label: {
+          Image(systemName: "server.rack")
+            .font(.body.weight(.medium))
+            .frame(width: 44, height: 44)
+            .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .circle)
+        .accessibilityLabel("Hosts")
+
         Spacer(minLength: 0)
 
         Button {

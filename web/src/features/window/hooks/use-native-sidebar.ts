@@ -431,6 +431,16 @@ export function useNativeSidebar({
         void performSidebarDrop([subject], target, intent.position)
         return
       }
+      case 'openHostPicker':
+        closeChatList()
+        useUIState.getState().setIsHostPickerOpen(true)
+        return
+      case 'addHost':
+        // Pairing is its own screen with its own native sheet: the sheets over it go first.
+        useUIState.getState().setIsHostPickerOpen(false)
+        useUIState.getState().setIsSettingsDialogVisible(false)
+        void navigate({ to: '/add-host' })
+        return
       case 'openSettings':
         closeChatList()
         useUIState.getState().openSettingsDialog()

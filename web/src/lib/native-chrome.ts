@@ -127,6 +127,10 @@ export type NativeHostsSettings = {
   shownHost: string | null
 }
 
+/** The host picker sheet: the same hosts as Settings → Hosts, listed in a model-picker-style sheet. */
+// A type, not an interface, for invoke's args (see NativeSidebar).
+export type NativeHostPicker = NativeHostsSettings & { open: boolean }
+
 /** The Agents settings page's content: one host's agents, as the main webview holds them. */
 // A type, not an interface, for invoke's args (see NativeSidebar).
 export type NativeAgentsSettings = {
@@ -259,6 +263,8 @@ export type NativeChromeIntent =
   | { type: 'rowAction'; rowId: string; actionId: string }
   | { type: 'dragRow'; rowId: string | null }
   | { type: 'moveRow'; rowId: string; targetId: string; position: DropMode }
+  | { type: 'openHostPicker' }
+  | { type: 'closeHostPicker' }
   | { type: 'addHost' }
   | { type: 'revokeHost'; id: string }
 
@@ -287,6 +293,12 @@ export function setNativeAgentsSettings(settings: NativeAgentsSettings): void {
 export function setNativeHostsSettings(settings: NativeHostsSettings): void {
   if (!hasNativeChrome()) return
   void invoke(`plugin:${PLUGIN}|set_hosts_settings`, settings)
+}
+
+/** Replaces the host picker's content. */
+export function setNativeHostPicker(picker: NativeHostPicker): void {
+  if (!hasNativeChrome()) return
+  void invoke(`plugin:${PLUGIN}|set_host_picker`, picker)
 }
 
 /** Replaces the file drawer's content. */

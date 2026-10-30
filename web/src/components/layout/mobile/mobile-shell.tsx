@@ -15,6 +15,7 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { NativeAgentsSettingsFeed } from '@/features/settings/components/native-agents-settings-feed'
 import { NativeHostsSettingsFeed } from '@/features/settings/components/native-hosts-settings-feed'
+import { NativeHostPickerFeed } from '@/features/hosts/components/native-host-picker-feed'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { IdeShellWorkspaceContent } from '../ide-shell-workspace-content'
 import { DetachHolderModal } from '../detach-holder-modal'
@@ -42,6 +43,7 @@ export function MobileShell() {
   const navigate = useNavigate()
   const screen = useMobileScreenStore((s) => s.screen)
   const isSettingsOpen = useUIState((s) => s.isSettingsOpen)
+  const isHostPickerOpen = useUIState((s) => s.isHostPickerOpen)
   // The native sheet's Agents page shows the active project's host: the phone has no local daemon.
   const agentsHostId = route.allProjects.find((p) => p.id === route.activeProjectId)?.hostId
   const wsId = route.effectiveActiveWorkspaceId
@@ -74,6 +76,7 @@ export function MobileShell() {
         <AgentsSettingsFeed key={agentsHostId} hostId={agentsHostId} />
       )}
       {isSettingsOpen && hasNativeChrome() && <NativeHostsSettingsFeed shownHost={shownHost} />}
+      {isHostPickerOpen && hasNativeChrome() && <NativeHostPickerFeed shownHost={shownHost} />}
       <SettingsDialog
         // The phone app's own sheet presents Settings off the same `isSettingsOpen`.
         isOpen={isSettingsOpen && !hasNativeChrome()}
