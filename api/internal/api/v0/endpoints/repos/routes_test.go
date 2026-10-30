@@ -12,6 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -20,6 +21,17 @@ func TestMain(
 ) {
 	gin.SetMode(gin.TestMode)
 	m.Run()
+}
+
+// stubOps replays nothing and starts nothing: the routes are only probed.
+type stubOps struct{}
+
+func (stubOps) Start(context.Context, operation.Spec, operation.Work) (domain.Operation, error) {
+	return domain.Operation{}, nil
+}
+
+func (stubOps) Replay(context.Context, string, domain.OperationKind) (domain.Operation, bool, error) {
+	return domain.Operation{}, false, nil
 }
 
 type stubStore struct{}
@@ -59,7 +71,7 @@ func TestRegisterMountsRoutes(
 	// hierarchical prefix to mirror the production router chain.
 	projectScoped := r.Group("/v0/projects/:projectId")
 	noopWS := func(_ *gin.Context) {}
-	repos.Register(projectScoped, stubStore{}, nil, nil, nil, nil, nil, nil, nil, nil, func(dto.RepoDTO) {},
+	repos.Register(projectScoped, stubStore{}, nil, nil, nil, nil, nil, nil, nil, stubOps{}, func(dto.RepoDTO) {},
 		func() (string, error) { return t.TempDir(), nil }, noopWS, ws.DualServe)
 
 	cases := []struct {

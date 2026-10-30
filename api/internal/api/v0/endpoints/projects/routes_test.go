@@ -71,6 +71,10 @@ func (stubOps) Start(context.Context, operation.Spec, operation.Work) (domain.Op
 	return domain.Operation{}, nil
 }
 
+func (stubOps) Replay(context.Context, string, domain.OperationKind) (domain.Operation, bool, error) {
+	return domain.Operation{}, false, nil
+}
+
 func (stubImporter) Create(
 	_ context.Context,
 	_ string,

@@ -278,6 +278,39 @@ func (s *Service) admit(
 	}}, nil
 }
 
+// Replay is the operation already recorded under key, so a retry answers with it
+// before any check its first attempt changed the answer to (the entity it
+// deleted is gone). An empty key replays nothing; another kind is a conflict.
+func (s *Service) Replay(
+	ctx context.Context,
+	key string,
+	kind domain.OperationKind,
+) (domain.Operation, bool, error) {
+	if key == "" {
+		return domain.Operation{}, false, nil
+	}
+	id, err := operationID(key)
+	if err != nil {
+		return domain.Operation{}, false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	known, err := s.store.FindByKey(ctx, id)
+	if err != nil {
+		return domain.Operation{}, false, fmt.Errorf("operation: find %s: %w", id, err)
+	}
+	if known == nil {
+		return domain.Operation{}, false, nil
+	}
+	if known.Kind != kind {
+		return domain.Operation{}, false, &problem.Error{
+			Code:    problem.OperationIDConflict,
+			Message: fmt.Sprintf("operation %s is a %s, not a %s", id, known.Kind, kind),
+		}
+	}
+	return *known, true, nil
+}
+
 // knownLocked is the operation already recorded under id, if any. Same key,
 // kind and subject is the same request whatever its body (R3).
 func (s *Service) knownLocked(
@@ -305,11 +338,12 @@ func deref(op *domain.Operation) domain.Operation {
 	return *op
 }
 
-// exclusive kinds rewrite a workspace's branch, parent or worktree, so one runs
-// per workspace at a time. git.* verbs are not among them: git serialises those
-// itself, and a push beside a sync is legitimate.
+// exclusive kinds rewrite a workspace's branch, parent or worktree, or tear a
+// repo or project down, so one runs per subject at a time. git.* verbs are not
+// among them: git serialises those itself, and a push beside a sync is legitimate.
 func exclusive(kind domain.OperationKind) bool {
-	return strings.HasPrefix(string(kind), "workspace.")
+	return strings.HasPrefix(string(kind), "workspace.") ||
+		kind == domain.OpRepoDelete || kind == domain.OpProjectDelete
 }
 
 // refuseBusyLocked refuses subject while its hierarchy verb runs. The holder

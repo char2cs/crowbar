@@ -206,6 +206,21 @@ func TestService_AReusedKeyForOtherWorkIsAConflict(t *testing.T) {
 	assert.Equal(t, problem.OperationIDConflict, problem.CodeOf(err))
 }
 
+// A retry replays its key's operation before the request is checked again.
+func TestService_ReplayAnswersTheKeysOperationOfThatKind(t *testing.T) {
+	f := newFixture(t)
+	id := uuid.NewString()
+	_, found, err := f.svc.Replay(context.Background(), id, domain.OpGitPush)
+	require.False(t, found || err != nil, "a new key replays nothing")
+	first, err := f.svc.Start(context.Background(), pushSpec(id), succeed)
+	require.NoError(t, err)
+	again, found, err := f.svc.Replay(context.Background(), id, domain.OpGitPush)
+	require.True(t, found && err == nil)
+	assert.Equal(t, first.ID, again.ID)
+	_, _, err = f.svc.Replay(context.Background(), id, domain.OpGitFetch)
+	assert.Equal(t, problem.OperationIDConflict, problem.CodeOf(err))
+}
+
 func TestService_AMalformedKeyIsInvalid(t *testing.T) {
 	f := newFixture(t)
 

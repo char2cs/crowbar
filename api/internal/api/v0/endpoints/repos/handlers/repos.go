@@ -142,6 +142,7 @@ type Operations interface {
 		spec operation.Spec,
 		work operation.Work,
 	) (domain.Operation, error)
+	libs.Replayer
 }
 
 // Handlers serves the /v0/repos routes from the repository GORM store. A

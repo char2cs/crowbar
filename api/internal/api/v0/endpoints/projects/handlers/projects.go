@@ -77,6 +77,7 @@ type Operations interface {
 		spec operation.Spec,
 		work operation.Work,
 	) (domain.Operation, error)
+	libs.Replayer
 }
 
 // Handlers serves the /v0/projects routes from the project read, import, and
@@ -227,7 +228,7 @@ func (h *Handlers) broadcastAll(
 
 // Import handles POST /v0/projects. What it can check up front (body, name,
 // path on disk) is a 4xx; then it answers 202 with the project.create
-// operation, whose one item is the project under the id minted here.
+// operation, whose one item is the project, named by the request's key.
 func (h *Handlers) Import(
 	c *gin.Context,
 ) {
@@ -248,7 +249,11 @@ func (h *Handlers) Import(
 		libs.WriteErr(c, http.StatusBadRequest, "path does not exist")
 		return
 	}
-	ref := domain.EntityRef{Kind: domain.EntityProject, ID: uuid.NewString()}
+	// Named by the key, so a retry is the same subject and replays (R3).
+	ref := domain.EntityRef{Kind: domain.EntityProject, ID: libs.IdempotencyKey(c)}
+	if ref.ID == "" {
+		ref.ID = uuid.NewString()
+	}
 	item := domain.OperationItem{Ref: ref, Label: body.Name, State: domain.OpRunning}
 	op, err := h.ops.Start(c.Request.Context(), operation.Spec{
 		ID:        libs.IdempotencyKey(c),
@@ -281,6 +286,9 @@ func (h *Handlers) Import(
 func (h *Handlers) Delete(
 	c *gin.Context,
 ) {
+	if libs.Replayed(c, h.ops, domain.OpProjectDelete) {
+		return
+	}
 	id := c.Param("projectId")
 	consent := libs.DeleteConsentOf(c)
 	marked, err := h.deleter.BeginDelete(c.Request.Context(), id, consent)

@@ -8,9 +8,11 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/api/libs"
 	repohandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -23,6 +25,7 @@ type fakeRepoDeleter struct {
 	err      error
 	refuse   error
 	consents []domain.DeleteConsent
+	hold     chan struct{} // when set, DeleteRepo waits for it
 }
 
 func (f *fakeRepoDeleter) BeginRepoDelete(
@@ -38,10 +41,16 @@ func (f *fakeRepoDeleter) BeginRepoDelete(
 }
 
 func (f *fakeRepoDeleter) DeleteRepo(
-	_ context.Context,
+	ctx context.Context,
 	repo domain.Repository,
 	consent domain.DeleteConsent,
 ) error {
+	if f.hold != nil {
+		select {
+		case <-f.hold:
+		case <-ctx.Done():
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.consents = append(f.consents, consent)
@@ -74,8 +83,15 @@ func newDeleteRouter(
 }
 
 func doDelete(r *gin.Engine, discard bool) *httptest.ResponseRecorder {
+	return doDeleteKeyed(r, discard, "")
+}
+
+func doDeleteKeyed(r *gin.Engine, discard bool, key string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/v0/projects/p1/repos/r1", http.NoBody)
+	if key != "" {
+		req.Header.Set(libs.IdempotencyKeyHeader, key)
+	}
 	if discard {
 		req.Header.Set("Crowbar-Discard-Work", "true")
 	}
@@ -106,6 +122,39 @@ func TestDelete_AnswersWithTheOperation(t *testing.T) {
 	marked.Deleting = true
 	deleted, _ := deleter.handed()
 	assert.Equal(t, []domain.Repository{marked}, deleted)
+}
+
+// A retry of a delete that finished answers with its operation, not the 404 a
+// fresh lookup of the removed repo gives.
+func TestDelete_ARetryAfterItFinishedAnswersWithTheOperation(t *testing.T) {
+	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Name: "alpha"}}
+	ops, bc := newRecordedOps(t), newRecordingRepoBroadcaster()
+	r := newDeleteRouter(store, &fakeRepoDeleter{}, ops, bc)
+	key := uuid.NewString()
+
+	first := ops.settled(t, doDeleteKeyed(r, false, key))
+	store.byKey = nil
+	retry := doDeleteKeyed(r, false, key)
+
+	require.Equal(t, http.StatusAccepted, retry.Code, retry.Body.String())
+	assert.Contains(t, retry.Body.String(), first.ID)
+}
+
+// One teardown runs per repo: a second delete under another key, while the
+// first runs, is refused.
+func TestDelete_ASecondDeleteWhileOneRunsIsRefused(t *testing.T) {
+	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Name: "alpha"}}
+	deleter := &fakeRepoDeleter{hold: make(chan struct{})}
+	ops, bc := newRecordedOps(t), newRecordingRepoBroadcaster()
+	r := newDeleteRouter(store, deleter, ops, bc)
+
+	first := doDeleteKeyed(r, false, uuid.NewString())
+	second := doDeleteKeyed(r, false, uuid.NewString())
+	close(deleter.hold)
+	ops.settled(t, first)
+
+	assert.Equal(t, http.StatusConflict, second.Code, second.Body.String())
+	assert.Contains(t, second.Body.String(), "operation_running")
 }
 
 // A delete that stops fails its operation with the reason; no tombstone.

@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
+	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	projecthandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
@@ -24,9 +26,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-func TestMain(
-	m *testing.M,
-) {
+func TestMain(m *testing.M) {
 	gin.SetMode(gin.TestMode)
 	m.Run()
 }
@@ -48,11 +48,7 @@ type fakeReader struct {
 	updatedWith *project.Update
 }
 
-func (f *fakeReader) Update(
-	_ context.Context,
-	_ string,
-	in project.Update,
-) (domain.Project, error) {
+func (f *fakeReader) Update(_ context.Context, _ string, in project.Update) (domain.Project, error) {
 	f.updatedWith = &in
 	if f.updateErr != nil {
 		return domain.Project{}, f.updateErr
@@ -60,24 +56,15 @@ func (f *fakeReader) Update(
 	return f.updated, nil
 }
 
-func (f *fakeReader) List(
-	_ context.Context,
-) ([]domain.Project, error) {
+func (f *fakeReader) List(_ context.Context) ([]domain.Project, error) {
 	return f.list, f.listErr
 }
 
-func (f *fakeReader) Get(
-	_ context.Context,
-	_ string,
-) (domain.Project, error) {
+func (f *fakeReader) Get(_ context.Context, _ string) (domain.Project, error) {
 	return f.get, f.getErr
 }
 
-func (f *fakeReader) Reorder(
-	_ context.Context,
-	_ string,
-	order int,
-) (domain.Project, error) {
+func (f *fakeReader) Reorder(_ context.Context, _ string, order int) (domain.Project, error) {
 	f.reorderTo = order
 	return f.reordered, f.reorderErr
 }
@@ -90,12 +77,7 @@ type fakeImporter struct {
 	gotPath string
 }
 
-func (f *fakeImporter) Create(
-	_ context.Context,
-	id string,
-	name string,
-	path string,
-) (domain.Project, error) {
+func (f *fakeImporter) Create(_ context.Context, id, name, path string) (domain.Project, error) {
 	f.gotID, f.gotName, f.gotPath = id, name, path
 	return f.project, f.err
 }
@@ -106,22 +88,17 @@ type fakeDeleter struct {
 	gotID    string
 }
 
-func (f *fakeDeleter) BeginDelete(
-	_ context.Context,
-	id string,
-	_ domain.DeleteConsent,
-) (domain.Project, error) {
+func (f *fakeDeleter) BeginDelete(_ context.Context, id string, _ domain.DeleteConsent) (domain.Project, error) {
 	if f.beginErr != nil {
 		return domain.Project{}, f.beginErr
+	}
+	if f.gotID == id && f.err == nil {
+		return domain.Project{}, problem.ErrNotFound
 	}
 	return domain.Project{ID: id, Name: "demo", Deleting: true}, nil
 }
 
-func (f *fakeDeleter) Delete(
-	_ context.Context,
-	id string,
-	_ domain.DeleteConsent,
-) error {
+func (f *fakeDeleter) Delete(_ context.Context, id string, _ domain.DeleteConsent) error {
 	f.gotID = id
 	return f.err
 }
@@ -136,9 +113,7 @@ func newRecordingBroadcaster() *recordingBroadcaster {
 	return &recordingBroadcaster{ch: make(chan dto.ProjectDTO, 4)}
 }
 
-func (b *recordingBroadcaster) push(
-	d dto.ProjectDTO,
-) {
+func (b *recordingBroadcaster) push(d dto.ProjectDTO) {
 	b.ch <- d
 }
 
@@ -146,19 +121,14 @@ func (b *recordingBroadcaster) push(
 // signal, so a plain receive is the whole synchronisation; a broadcast that
 // never comes hangs until `go test -timeout` fires and names this test, instead
 // of a two-second guess that reddens under load.
-func (b *recordingBroadcaster) await(
-	t *testing.T,
-) dto.ProjectDTO {
+func (b *recordingBroadcaster) await(t *testing.T) dto.ProjectDTO {
 	t.Helper()
 	return <-b.ch
 }
 
 // assertNoBroadcast pins a NEGATIVE once the operation has settled: its work
 // has returned by then, so the broadcaster has no writer left.
-func assertNoBroadcast(
-	t *testing.T,
-	bc *recordingBroadcaster,
-) {
+func assertNoBroadcast(t *testing.T, bc *recordingBroadcaster) {
 	t.Helper()
 	select {
 	case d := <-bc.ch:
@@ -209,16 +179,11 @@ func (o *recordedOps) settled(t *testing.T, rec *httptest.ResponseRecorder) doma
 }
 
 // statOK is a stat seam that always reports the path exists.
-func statOK(
-	_ string,
-) (os.FileInfo, error) {
+func statOK(_ string) (os.FileInfo, error) {
 	return nil, nil
 }
 
-func newRouter(
-	reader projecthandlers.ListGetter,
-	importer projecthandlers.Importer,
-) *gin.Engine {
+func newRouter(reader projecthandlers.ListGetter, importer projecthandlers.Importer) *gin.Engine {
 	return newRouterFull(reader, importer, &fakeDeleter{}, newRecordingBroadcaster())
 }
 
@@ -249,12 +214,7 @@ func newRouterWithOps(
 	return r
 }
 
-func do(
-	r *gin.Engine,
-	method string,
-	target string,
-	body string,
-) *httptest.ResponseRecorder {
+func do(r *gin.Engine, method, target, body string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	var req *http.Request
 	if body != "" {
@@ -266,9 +226,7 @@ func do(
 	return rec
 }
 
-func TestListSuccess(
-	t *testing.T,
-) {
+func TestListSuccess(t *testing.T) {
 	reader := &fakeReader{
 		list: []domain.Project{
 			{ID: "p1", Name: "alpha", Path: "/a", LastActivity: time.Unix(1, 0).UTC()},
@@ -291,9 +249,7 @@ func TestListSuccess(
 	assert.Equal(t, "alpha", body.Data[0].Name)
 }
 
-func TestListError(
-	t *testing.T,
-) {
+func TestListError(t *testing.T) {
 	reader := &fakeReader{listErr: errors.New("db down")}
 	rec := do(newRouter(reader, &fakeImporter{}), http.MethodGet, "/v0/projects", "")
 
@@ -307,9 +263,7 @@ func TestListError(
 	assert.NotEmpty(t, body.Error)
 }
 
-func TestDetailSuccess(
-	t *testing.T,
-) {
+func TestDetailSuccess(t *testing.T) {
 	reader := &fakeReader{get: domain.Project{ID: "p9", Name: "beta", Path: "/b"}}
 	rec := do(newRouter(reader, &fakeImporter{}), http.MethodGet, "/v0/projects/p9", "")
 
@@ -325,9 +279,7 @@ func TestDetailSuccess(
 	assert.Equal(t, "p9", body.Data.ID)
 }
 
-func TestDetailError(
-	t *testing.T,
-) {
+func TestDetailError(t *testing.T) {
 	reader := &fakeReader{getErr: errors.New("missing")}
 	rec := do(newRouter(reader, &fakeImporter{}), http.MethodGet, "/v0/projects/nope", "")
 
@@ -354,9 +306,7 @@ func TestCreate_AnswersWithTheOperation(t *testing.T) {
 	assert.Equal(t, "new-id", bc.await(t).ID)
 }
 
-func TestImportBadJSON(
-	t *testing.T,
-) {
+func TestImportBadJSON(t *testing.T) {
 	rec := do(
 		newRouter(&fakeReader{}, &fakeImporter{}),
 		http.MethodPost,
@@ -366,9 +316,7 @@ func TestImportBadJSON(
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestImportMissingName(
-	t *testing.T,
-) {
+func TestImportMissingName(t *testing.T) {
 	rec := do(
 		newRouter(&fakeReader{}, &fakeImporter{}),
 		http.MethodPost,
@@ -378,9 +326,7 @@ func TestImportMissingName(
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestImportMissingPath(
-	t *testing.T,
-) {
+func TestImportMissingPath(t *testing.T) {
 	rec := do(
 		newRouter(&fakeReader{}, &fakeImporter{}),
 		http.MethodPost,
@@ -392,9 +338,7 @@ func TestImportMissingPath(
 
 // TestImportProject_PathMissing_4xx pins that a non-existent path fails
 // synchronously with a 4xx before any background work is scheduled.
-func TestImportProject_PathMissing_4xx(
-	t *testing.T,
-) {
+func TestImportProject_PathMissing_4xx(t *testing.T) {
 	r := gin.New()
 	bc := newRecordingBroadcaster()
 	h := projecthandlers.New(&fakeReader{}, &fakeImporter{}, &fakeDeleter{}, nil, bc.push, unusedHome).
@@ -423,6 +367,45 @@ func TestCreate_AFailureIsTheOperations(t *testing.T) {
 
 // A delete announces its intent, answers with its operation, and tombstones
 // the project once it is gone.
+func doKeyed(r *gin.Engine, method, target, body, key string) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), method, target, strings.NewReader(body))
+	req.Header.Set(libs.IdempotencyKeyHeader, key)
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
+// A retry under the same key is the same request: it answers with the first
+// operation and imports nothing again (R3).
+func TestCreate_ARetryAnswersWithTheFirstOperation(t *testing.T) {
+	importer := &fakeImporter{project: domain.Project{ID: "new-id", Name: "gamma", Path: "/g"}}
+	ops := newRecordedOps(t)
+	r := newRouterWithOps(&fakeReader{}, importer, &fakeDeleter{}, ops, newRecordingBroadcaster())
+	key := uuid.NewString()
+
+	first := ops.settled(t, doKeyed(r, http.MethodPost, "/v0/projects", `{"name":"gamma","path":"/g"}`, key))
+	importer.gotID = ""
+	retry := doKeyed(r, http.MethodPost, "/v0/projects", `{"name":"gamma","path":"/g"}`, key)
+
+	require.Equal(t, http.StatusAccepted, retry.Code, retry.Body.String())
+	assert.Contains(t, retry.Body.String(), first.ID)
+	assert.Empty(t, importer.gotID, "the retry imported nothing")
+}
+
+// A retry of a delete that already finished answers with that operation, not
+// the 404 a fresh lookup of the gone project would give.
+func TestDelete_ARetryAfterItFinishedAnswersWithTheOperation(t *testing.T) {
+	ops := newRecordedOps(t)
+	r := newRouterWithOps(&fakeReader{}, &fakeImporter{}, &fakeDeleter{}, ops, newRecordingBroadcaster())
+	key := uuid.NewString()
+
+	first := ops.settled(t, doKeyed(r, http.MethodDelete, "/v0/projects/p1", "", key))
+	retry := doKeyed(r, http.MethodDelete, "/v0/projects/p1", "", key)
+
+	require.Equal(t, http.StatusAccepted, retry.Code, retry.Body.String())
+	assert.Contains(t, retry.Body.String(), first.ID)
+}
+
 func TestDelete_AnswersWithTheOperation(t *testing.T) {
 	deleter := &fakeDeleter{}
 	ops, bc := newRecordedOps(t), newRecordingBroadcaster()
@@ -440,12 +423,10 @@ func TestDelete_AnswersWithTheOperation(t *testing.T) {
 	assert.Equal(t, "p1", deleter.gotID)
 }
 
-func TestDeleteNotFound(
-	t *testing.T,
-) {
+func TestDeleteNotFound(t *testing.T) {
 	bc := newRecordingBroadcaster()
 	rec := do(
-		newRouterFull(&fakeReader{}, &fakeImporter{}, &fakeDeleter{beginErr: problem.ErrNotFound}, bc),
+		newRouterWithOps(&fakeReader{}, &fakeImporter{}, &fakeDeleter{beginErr: problem.ErrNotFound}, newRecordedOps(t), bc),
 		http.MethodDelete,
 		"/v0/projects/nope",
 		"",

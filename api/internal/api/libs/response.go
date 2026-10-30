@@ -129,6 +129,30 @@ func IdempotencyKey(
 	return c.GetHeader(IdempotencyKeyHeader)
 }
 
+// Replayer finds the operation a retried request already started.
+type Replayer interface {
+	Replay(ctx context.Context, key string, kind domain.OperationKind) (domain.Operation, bool, error)
+}
+
+// Replayed answers a retry of a kind-starting request with its first operation
+// and reports whether it answered: the retry of a finished delete must not
+// reach the lookup of the entity it removed.
+func Replayed(
+	c *gin.Context,
+	ops Replayer,
+	kind domain.OperationKind,
+) bool {
+	op, found, err := ops.Replay(c.Request.Context(), IdempotencyKey(c), kind)
+	if err != nil {
+		Fail(c, err)
+		return true
+	}
+	if found {
+		WriteOperation(c, op)
+	}
+	return found
+}
+
 // Fail writes err as a failure: the status of its problem code, its whole
 // chain as the message, and the data its coded error carries.
 func Fail(
