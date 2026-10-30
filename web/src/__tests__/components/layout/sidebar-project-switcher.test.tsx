@@ -99,6 +99,33 @@ describe('SidebarProjectSwitcher', () => {
     expect(onAddProject).toHaveBeenCalledOnce()
   })
 
+  describe('the trailing + is revealed by hover only once the host has several projects', () => {
+    const plusFor = (projects: Project[]) => {
+      render(
+        <SidebarProjectSwitcher
+          projects={projects}
+          activeProjectId={projects[0]?.id}
+          onSelectProject={vi.fn()}
+          onAddProject={vi.fn()}
+        />,
+      )
+      return screen.getByRole('button', { name: 'Add space' })
+    }
+
+    it.each([[[]], [[project('p1')]]])('stays shown with %j projects', (projects) => {
+      expect(plusFor(projects)).not.toHaveAttribute('data-reveal', 'hover')
+    })
+
+    it('is hover-revealed with two projects, and stays reachable by keyboard', async () => {
+      const add = plusFor([project('p1'), project('p2')])
+      expect(add).toHaveAttribute('data-reveal', 'hover')
+      await userEvent.tab()
+      await userEvent.tab()
+      await userEvent.tab()
+      expect(add).toHaveFocus()
+    })
+  })
+
   it('renders nothing with no projects and no add handler', () => {
     const { container } = render(<SidebarProjectSwitcher projects={[]} onSelectProject={vi.fn()} />)
     expect(container).toBeEmptyDOMElement()

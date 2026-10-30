@@ -4,7 +4,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { HostDot, HostStatusIcon } from '@/features/hosts/components/host-status-icon'
+import { HostStatusIcon, hostPlace } from '@/features/hosts/components/host-status-icon'
 import { useHostView } from '@/features/hosts/hooks/use-host-status'
 import { hostDotLabel } from '@/features/hosts/lib/host-tone'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
@@ -45,7 +45,7 @@ function HostRow({
 }
 
 /**
- * The host whose projects the switcher lists: its status dot and name, opening the list of hosts.
+ * The host whose projects the switcher lists: its computer (this machine) or cloud (remote) wearing the status dot, and its name, opening the list of hosts.
  * A view choice only, so the hosts not shown stay connected.
  */
 export function SidebarHostPicker({ hostIds, shown, onSelect, className }: SidebarHostPickerProps) {
@@ -56,14 +56,14 @@ export function SidebarHostPicker({ hostIds, shown, onSelect, className }: Sideb
       <DropdownMenuTrigger
         render={<button type="button" />}
         aria-label={`Host: ${label}`}
-        title={`${hostDotLabel(state)} · Switch host`}
+        title={`${hostPlace(shown) === 'local' ? 'Local' : 'Remote'} · ${hostDotLabel(state)} · Switch host`}
         data-testid="sidebar-host-picker"
         className={cn(
           'inline-flex h-6 min-w-0 items-center gap-1.5 rounded-full px-2 text-xs font-medium text-muted-foreground hover:bg-sidebar-element-hover hover:text-foreground',
           className,
         )}
       >
-        <HostDot state={state} />
+        <HostStatusIcon hostId={shown} state={state} showTitle={false} />
         <span className="max-w-24 truncate">{label}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="center" className="w-max min-w-56">

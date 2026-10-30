@@ -170,12 +170,15 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
     <div
       data-testid="sidebar-project-switcher"
       style={scale?.bar}
-      className={cn('flex shrink-0 items-center gap-2 overflow-hidden px-3', !scale && 'h-11')}
+      className={cn(
+        'group/switcher flex shrink-0 items-center gap-2 overflow-hidden px-3',
+        !scale && 'h-11',
+      )}
     >
-      <div className="flex min-w-0 flex-1 items-center gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-1">
         {active && (
           <>
-            <span className={cn(TILE, '-ml-1 mr-1')} style={scale?.tile}>
+            <span className={cn(TILE, '-ml-1')} style={scale?.tile}>
               <EditableProjectIcon project={active} size="lg" />
             </span>
             <div className="flex min-w-0 flex-1 flex-col">
@@ -224,7 +227,14 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
           onClick={onAddProject}
           variant="ghost"
           size="icon-sm"
-          className={cn(TILE, 'p-0 text-muted-foreground hover:bg-sidebar-element-hover')}
+          // With several projects the `+` waits for the pointer or focus, without moving the tiles.
+          data-reveal={projects.length > 1 ? 'hover' : undefined}
+          className={cn(
+            TILE,
+            'p-0 text-muted-foreground hover:bg-sidebar-element-hover',
+            'transition-opacity data-[reveal=hover]:opacity-0 data-[reveal=hover]:group-hover/switcher:opacity-100',
+            'data-[reveal=hover]:group-focus-within/switcher:opacity-100 data-[reveal=hover]:pointer-coarse:opacity-100',
+          )}
           tooltip="Add space"
           tooltipSide="bottom"
           aria-label="Add space"
