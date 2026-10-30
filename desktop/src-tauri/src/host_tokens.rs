@@ -94,12 +94,12 @@ impl Keychain for OsKeychain {
 
 /// Reads each host's entry from the keychain at most once per process: every
 /// keychain read can raise its own macOS access prompt, and callers read on
-/// every request and socket open. Errors are not cached, so a denied prompt
-/// can be retried. The lock is held across a read so concurrent first reads
-/// of one host prompt once.
+/// every request and socket open. A failed or denied read is remembered too,
+/// or each caller would re-prompt forever; pairing the host again clears it.
+/// The lock is held across a read so concurrent first reads prompt once.
 struct KeychainTokenStore<K: Keychain> {
     keychain: K,
-    cache: std::sync::Mutex<std::collections::HashMap<String, Option<String>>>,
+    cache: std::sync::Mutex<std::collections::HashMap<String, Result<Option<String>, String>>>,
 }
 
 impl<K: Keychain> KeychainTokenStore<K> {
@@ -115,24 +115,24 @@ impl<K: Keychain> TokenStore for KeychainTokenStore<K> {
     fn get(&self, host_id: &str) -> Result<Option<String>, String> {
         let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(cached) = cache.get(host_id) {
-            return Ok(cached.clone());
+            return cached.clone();
         }
-        let stored = self.keychain.read(host_id)?;
+        let stored = self.keychain.read(host_id);
         cache.insert(host_id.to_string(), stored.clone());
-        Ok(stored)
+        stored
     }
 
     fn set(&self, host_id: &str, token: &str) -> Result<(), String> {
         let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         self.keychain.write(host_id, token)?;
-        cache.insert(host_id.to_string(), Some(token.to_string()));
+        cache.insert(host_id.to_string(), Ok(Some(token.to_string())));
         Ok(())
     }
 
     fn delete(&self, host_id: &str) -> Result<(), String> {
         let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         self.keychain.remove(host_id)?;
-        cache.insert(host_id.to_string(), None);
+        cache.insert(host_id.to_string(), Ok(None));
         Ok(())
     }
 }
@@ -281,17 +281,30 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_read_is_not_cached() {
+    fn a_denied_read_prompts_once_then_stays_denied_until_the_host_is_paired_again() {
         let (store, keychain) = cached(&[("a", "tok")]);
         keychain
             .fail_reads
             .store(true, std::sync::atomic::Ordering::SeqCst);
-        assert!(store.get("a").is_err());
-        keychain
-            .fail_reads
-            .store(false, std::sync::atomic::Ordering::SeqCst);
-        assert_eq!(store.get("a").unwrap(), Some("tok".to_string()));
-        assert_eq!(keychain.reads(), 2);
+        for _ in 0..5 {
+            assert_eq!(store.get("a"), Err("user denied".to_string()));
+        }
+        assert_eq!(keychain.reads(), 1);
+
+        store.set("a", "fresh").unwrap();
+        assert_eq!(store.get("a").unwrap(), Some("fresh".to_string()));
+        assert_eq!(keychain.reads(), 1);
+    }
+
+    #[test]
+    fn concurrent_first_gets_share_one_read() {
+        let (store, keychain) = cached(&[("a", "tok")]);
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| assert_eq!(store.get("a").unwrap(), Some("tok".to_string())));
+            }
+        });
+        assert_eq!(keychain.reads(), 1);
     }
 
     #[test]
