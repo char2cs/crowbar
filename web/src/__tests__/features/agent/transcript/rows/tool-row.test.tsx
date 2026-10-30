@@ -111,6 +111,58 @@ describe('ToolRow', () => {
     expect(await screen.findByText('No longer available')).toBeInTheDocument()
     expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/v0/chats/chat-1/blobs/sha256%3Ain')
   })
+
+  it('adds the Result side when its ref lands while the panel is open', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
+      String(input).includes(encodeURIComponent('sha256:out'))
+        ? new Response('done')
+        : new Response('{"command":"ls"}'),
+    )
+    const l = ledger()
+    const call = { toolId: 'tool-1', name: 'Bash', kind: 'execute', inputRef: 'sha256:in' }
+    seed([l.start('turn-1'), l.row('tool_call', { ...call, phase: 'pre' }, { turnId: 'turn-1' })])
+    draw('t:tool-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Show tool details' }))
+    expect(await screen.findByText(/"command": "ls"/)).toBeInTheDocument()
+    expect(screen.queryByText('Result')).toBeNull()
+
+    act(
+      () =>
+        void applyFeedFrame('chat-1', {
+          type: 'row',
+          row: l.row(
+            'tool_call',
+            { ...call, phase: 'post', resultRef: 'sha256:out' },
+            { turnId: 'turn-1' },
+          ),
+        }),
+    )
+
+    expect(screen.getByText('Result')).toBeInTheDocument()
+    expect(await screen.findByText('done')).toBeInTheDocument()
+  })
+
+  it('offers a retry, not "No longer available", when a read fails for another reason', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('', { status: 503 }))
+      .mockResolvedValueOnce(new Response('second time'))
+    const l = ledger()
+    seed([
+      l.row(
+        'tool_call',
+        { toolId: 'tool-1', phase: 'post', name: 'Bash', inputRef: 'sha256:in' },
+        { turnId: 'turn-1' },
+      ),
+    ])
+    draw('t:tool-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Show tool details' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Try again' }))
+
+    expect(await screen.findByText('second time')).toBeInTheDocument()
+    expect(screen.queryByText('No longer available')).toBeNull()
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('AskRow', () => {

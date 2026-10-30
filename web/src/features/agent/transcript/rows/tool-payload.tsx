@@ -1,12 +1,7 @@
 import { useEffect, useState } from 'react'
 import { readBlob } from '@/features/agent/api/agent-chat-reads'
 
-interface Side {
-  label: string
-  ref: string
-  text: string | null
-  loading: boolean
-}
+type Read = { state: 'loading' } | { state: 'read'; text: string | null } | { state: 'failed' }
 
 function prettyPayload(text: string): string {
   try {
@@ -16,15 +11,58 @@ function prettyPayload(text: string): string {
   }
 }
 
-function sidesOf(inputRef?: string, resultRef?: string): Side[] {
-  const sides: Side[] = []
-  if (inputRef) sides.push({ label: 'Request', ref: inputRef, text: null, loading: true })
-  if (resultRef) sides.push({ label: 'Result', ref: resultRef, text: null, loading: true })
-  return sides
+/** One side, read when it mounts. A swept blob reads null and is said
+ *  plainly; any other failure is transient and offers a retry. */
+function PayloadSide({
+  chatId,
+  label,
+  blobRef,
+}: {
+  chatId: string
+  label: string
+  blobRef: string
+}) {
+  const [attempt, setAttempt] = useState(0)
+  const [read, setRead] = useState<Read & { key: string }>({ state: 'loading', key: '' })
+  const key = `${blobRef}#${attempt}`
+
+  useEffect(() => {
+    const controller = new AbortController()
+    readBlob(chatId, blobRef, controller.signal).then(
+      (text) => setRead({ state: 'read', text, key }),
+      () => {
+        if (!controller.signal.aborted) setRead({ state: 'failed', key })
+      },
+    )
+    return () => controller.abort()
+  }, [chatId, blobRef, key])
+
+  const current: Read = read.key === key ? read : { state: 'loading' }
+  return (
+    <div className="payload-side">
+      <p className="payload-label">{label}</p>
+      {current.state === 'loading' ? (
+        <p className="payload-status">Loading…</p>
+      ) : current.state === 'failed' ? (
+        <p className="payload-status">
+          Couldn’t load this.{' '}
+          <button type="button" className="payload-retry" onClick={() => setAttempt((n) => n + 1)}>
+            Try again
+          </button>
+        </p>
+      ) : current.text === null ? (
+        <p className="payload-status">No longer available</p>
+      ) : (
+        <pre>
+          <code>{prettyPayload(current.text)}</code>
+        </pre>
+      )}
+    </div>
+  )
 }
 
-/** A tool call's request and result, read by blob ref only once opened. A
- *  swept blob reads null: said plainly, not as an error. */
+/** A tool call's request and result, each read by blob ref once opened; a
+ *  ref that lands while the panel is open adds its side. */
 export function ToolPayload({
   chatId,
   inputRef,
@@ -34,46 +72,14 @@ export function ToolPayload({
   inputRef?: string
   resultRef?: string
 }) {
-  const [sides, setSides] = useState(() => sidesOf(inputRef, resultRef))
-
-  useEffect(() => {
-    const controller = new AbortController()
-    let ignore = false
-    const settle = (ref: string, text: string | null) => {
-      if (ignore) return
-      setSides((current) =>
-        current.map((s) => (s.ref === ref ? { ...s, text, loading: false } : s)),
-      )
-    }
-    for (const ref of [inputRef, resultRef]) {
-      if (!ref) continue
-      readBlob(chatId, ref, controller.signal).then(
-        (text) => settle(ref, text),
-        () => settle(ref, null),
-      )
-    }
-    return () => {
-      ignore = true
-      controller.abort()
-    }
-  }, [chatId, inputRef, resultRef])
-
   return (
     <div className="payload" data-testid="agent-tool-payload">
-      {sides.map((side) => (
-        <div key={side.label} className="payload-side">
-          <p className="payload-label">{side.label}</p>
-          {side.loading ? (
-            <p className="payload-status">Loading…</p>
-          ) : side.text === null ? (
-            <p className="payload-status">No longer available</p>
-          ) : (
-            <pre>
-              <code>{prettyPayload(side.text)}</code>
-            </pre>
-          )}
-        </div>
-      ))}
+      {inputRef && (
+        <PayloadSide key={inputRef} chatId={chatId} label="Request" blobRef={inputRef} />
+      )}
+      {resultRef && (
+        <PayloadSide key={resultRef} chatId={chatId} label="Result" blobRef={resultRef} />
+      )}
     </div>
   )
 }

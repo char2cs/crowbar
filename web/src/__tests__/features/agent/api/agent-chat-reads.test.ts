@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError } from '@/lib/errors/api-error'
 
 const apiFetch = vi.fn()
-vi.mock('@/lib/api/fetch', () => ({ API_BASE: '', apiFetch: (...a: unknown[]) => apiFetch(...a) }))
+const apiFetchRaw = vi.fn()
+vi.mock('@/lib/api/fetch', () => ({
+  apiFetch: (...a: unknown[]) => apiFetch(...a),
+  apiFetchRaw: (...a: unknown[]) => apiFetchRaw(...a),
+}))
 // Only the scope REGISTRY is faked; the URL builders themselves run for real,
 // so these assertions pin the actual paths this client dials rather than a
 // stand-in shape. 'w1' carries a real repo, so chatBase builds the Task-17
@@ -20,7 +25,10 @@ vi.mock('@/lib/workspace-scope', () => ({
 import * as api from '@/features/agent/api/agent-chat-reads'
 
 describe('agent-chat-reads: chatBase URL shape', () => {
-  beforeEach(() => apiFetch.mockReset())
+  beforeEach(() => {
+    apiFetch.mockReset()
+    apiFetchRaw.mockReset()
+  })
 
   it('builds the repo-scoped chat URL for a non-home workspace', async () => {
     apiFetch.mockResolvedValue([])
@@ -166,28 +174,25 @@ describe('agent-chat-reads', () => {
     expect(chat.conversations).toEqual([])
   })
 
+  // A blob read goes through the shared raw fetch: it retries a transport
+  // failure and reports a daemon refusal like every other read.
   it('reads a payload a row names by its blob ref, and null once it is swept', async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
+    apiFetchRaw
       .mockResolvedValueOnce(new Response('full output'))
-      .mockResolvedValueOnce(new Response('', { status: 404 }))
+      .mockRejectedValueOnce(new ApiError('gone', 404))
     const controller = new AbortController()
     await expect(api.readBlob('chat/1', 'sha256:ab', controller.signal)).resolves.toBe(
       'full output',
     )
-    const [url, init] = fetchSpy.mock.calls[0]
-    expect(url).toBe('/v0/chats/chat%2F1/blobs/sha256%3Aab')
-    expect(init).toEqual({ signal: controller.signal })
+    expect(apiFetchRaw).toHaveBeenCalledWith('/v0/chats/chat%2F1/blobs/sha256%3Aab', {
+      signal: controller.signal,
+    })
     await expect(api.readBlob('c1', 'sha256:gone')).resolves.toBeNull()
-    fetchSpy.mockRestore()
   })
 
   it('throws on a blob read that failed for any other reason', async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response('', { status: 500 }))
-    await expect(api.readBlob('c1', 'sha256:ab')).rejects.toThrow('500')
-    fetchSpy.mockRestore()
+    apiFetchRaw.mockRejectedValueOnce(new ApiError('boom', 500))
+    await expect(api.readBlob('c1', 'sha256:ab')).rejects.toThrow('boom')
   })
 
   it('loads a cancellable slash catalog with no read retry/cache layer', async () => {
