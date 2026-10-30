@@ -9,6 +9,8 @@ import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 import { workspaceRef } from '@/lib/api/documents'
+import * as openDocumentModule from '@/features/editor/documents/open-document'
+import { toastManager } from '@/lib/toast-manager'
 
 const { killTerminalSession } = vi.hoisted(() => ({
   killTerminalSession: vi.fn(async () => {}),
@@ -255,6 +257,32 @@ describe('buffer-slice', () => {
     },
     MONACO_LOAD_MS,
   )
+
+  it('a failed reopen reports why', async () => {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    const open = vi
+      .spyOn(openDocumentModule, 'openDocument')
+      .mockRejectedValue(new Error('daemon unreachable'))
+    onTestFinished(() => {
+      open.mockRestore()
+      toastAdd.mockRestore()
+    })
+    resetWindowPaneStoreForTests()
+    const { bufferActions, activePaneId } = windowPaneStore.getState()
+    const id = bufferActions.openContent(editor('/gone.ts'))
+    closeTab(windowPaneStore, activePaneId, id)
+
+    windowPaneStore.getState().bufferActions.reopenLastClosedBuffer()
+
+    await vi.waitFor(() =>
+      expect(toastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Reopen the closed tab',
+          description: 'daemon unreachable',
+        }),
+      ),
+    )
+  })
 
   it('preview flag is set when isPreview is true', () => {
     const id = store.getState().bufferActions.openContent(editor('/b.ts', { isPreview: true }))

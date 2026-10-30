@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useEffect, type ReactNode } from 'react'
 
@@ -38,6 +38,8 @@ import { toast } from '@/features/window/stores/toast-store'
 import { documentUri } from '@/features/editor/documents/document-ref'
 import { putDrafts } from '@/features/editor/documents/draft-store'
 import { setDocumentUnavailable } from '@/features/editor/documents/open-document'
+import * as openDocumentModule from '@/features/editor/documents/open-document'
+import { toastManager } from '@/lib/toast-manager'
 
 const open = (path: string, opts: { isPreview?: boolean } = {}) =>
   openTestDocument(workspaceRef('ws-buffer', path), 'A', opts)
@@ -133,6 +135,29 @@ describe('EditorPane', () => {
 
     await waitFor(() => expect(documentText(doc)).toBe('scratch'))
     expect(screen.queryByText('Failed to open file')).not.toBeInTheDocument()
+  })
+
+  it('a failed retry reports why', async () => {
+    const doc = workspaceRef('ws-buffer', 'src/flaky.ts')
+    const id = await open('src/flaky.ts')
+    setDocumentUnavailable(doc, { title: 'File not found', message: 'src/flaky.ts' })
+    const retry = vi
+      .spyOn(openDocumentModule, 'retryLoad')
+      .mockRejectedValue(new Error('daemon unreachable'))
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    onTestFinished(() => {
+      retry.mockRestore()
+      toastAdd.mockRestore()
+    })
+    render(inAmbient(pane(id)))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+    await waitFor(() =>
+      expect(toastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Load the document', description: 'daemon unreachable' }),
+      ),
+    )
   })
 
   it('Try again on a tab whose file is back shows the file, with no error', async () => {

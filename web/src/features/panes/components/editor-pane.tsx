@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState } from 'react'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { Button } from '@/components/ui/button'
-import { bestEffort } from '@/lib/best-effort'
+import { report } from '@/lib/errors/report'
 import { useBufferById } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { useEditorHost } from '@/features/editor/host/use-editor-host'
 import {
@@ -140,10 +140,9 @@ function UnavailableDocument({
   const [retrying, setRetrying] = useState(false)
   const retry = () => {
     setRetrying(true)
-    bestEffort(
-      retryLoad(buffer).finally(() => setRetrying(false)),
-      'retry document',
-    )
+    void retryLoad(buffer)
+      .catch((err: unknown) => report(err, { action: 'Load the document' }))
+      .finally(() => setRetrying(false))
   }
   return (
     <div className="flex h-full flex-1 flex-col items-center justify-center gap-1 p-8 text-center">

@@ -20,7 +20,7 @@ import { useSettingsStore } from '@/features/settings/store'
 import { documentRefOf, sameDocument } from '@/features/editor/documents/document-ref'
 import type { DocumentRef } from '@/lib/api/documents'
 import { nanoid } from 'nanoid'
-import { bestEffort } from '@/lib/best-effort'
+import { report } from '@/lib/errors/report'
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -372,12 +372,9 @@ export const createBufferSlice: StateCreator<
           state.closedBuffersHistory.shift()
         })
         // Dynamic import keeps the document API out of the slice's static graph.
-        bestEffort(
-          import('@/features/editor/documents/open-document').then(({ openDocument }) =>
-            openDocument(documentRefOf(entry)),
-          ),
-          'reopen closed buffer',
-        )
+        void import('@/features/editor/documents/open-document')
+          .then(({ openDocument }) => openDocument(documentRefOf(entry)))
+          .catch((err: unknown) => report(err, { action: 'Reopen the closed tab' }))
       },
 
       setPendingClose(pc) {

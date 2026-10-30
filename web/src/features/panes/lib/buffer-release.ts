@@ -15,7 +15,7 @@ import { getEditorHost } from '@/features/editor/host/editor-host'
 // editor's chunk out of the base bundle while still releasing the buffer's
 // rich/source preference synchronously.
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
-import { bestEffort } from '@/lib/best-effort'
+import { report } from '@/lib/errors/report'
 
 /** The slice of window-pane state buffer ownership reads and writes. */
 export interface BufferOwnershipState {
@@ -76,31 +76,28 @@ export function disposeBuffers(released: readonly PaneContent[]): void {
   for (const buf of released) {
     if (buf.type === 'terminal') {
       const { sessionId, workspaceId } = buf as TerminalContent
-      bestEffort(
-        import('@/features/terminal/lib/kill-terminal-session').then(
-          async ({ killTerminalSession }) => {
-            await killTerminalSession(sessionId).catch(() => {})
-            // A stale connectionId must not be picked up if the same tab
-            // sessionId is reused in a later session.
-            const { clearReconnect } =
-              await import('@/features/terminal/lib/terminal-reconnect-map')
-            clearReconnect(workspaceId, sessionId)
-          },
-        ),
-        'kill terminal session',
+      void stopTerminal(sessionId, workspaceId).catch((err: unknown) =>
+        report(err, { action: 'Stop the closed terminal' }),
       )
     }
     releaseDocumentOf(buf)
     if (isEditorContent(buf) && buf.path) {
       clearDraft(documentUri(documentRefOf(buf)))
       const { path: filePath, workspaceId } = buf
-      bestEffort(
-        import('@/features/git/stores/git-blame-store').then(({ clearBlame }) => {
-          clearBlame(workspaceId, filePath)
-        }),
-        'clear blame for closed buffer',
-      )
+      void import('@/features/git/stores/git-blame-store')
+        .then(({ clearBlame }) => clearBlame(workspaceId, filePath))
+        .catch((err: unknown) => report(err, { action: 'Clear blame for the closed file' }))
     }
     useMarkdownViewStore.getState().clearView(buf.id)
   }
+}
+
+async function stopTerminal(sessionId: string, workspaceId: string): Promise<void> {
+  const [{ killTerminalSession }, { clearReconnect }] = await Promise.all([
+    import('@/features/terminal/lib/kill-terminal-session'),
+    import('@/features/terminal/lib/terminal-reconnect-map'),
+  ])
+  // A later tab reusing this sessionId must not pick up the dead connection.
+  clearReconnect(workspaceId, sessionId)
+  await killTerminalSession(sessionId)
 }

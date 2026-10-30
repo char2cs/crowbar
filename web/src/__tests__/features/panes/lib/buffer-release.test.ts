@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, onTestFinished, vi } from 'vitest'
 
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
@@ -20,6 +20,7 @@ import {
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { workspaceRef } from '@/lib/api/documents'
+import { toastManager } from '@/lib/toast-manager'
 
 /** The PTYs the daemon was told to close, by tab session id. */
 function killed(): string[] {
@@ -72,6 +73,23 @@ describe('buffer ownership (invariant C2)', () => {
     expect(store.getState().buffers).toEqual([])
     expect(violations).toEqual([])
     await vi.waitFor(() => expect(killed()).toEqual(['pty-1']))
+  })
+
+  it('a failed terminal stop reports why', async () => {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    onTestFinished(() => toastAdd.mockRestore())
+    terminalKill.mockRejectedValueOnce(new Error('session gone'))
+    const { paneActions } = store.getState()
+    paneActions.openChat('chat-a')
+    openTerminal(store, 'pty-2')
+
+    paneActions.closeView(store.getState().activeViewId!)
+
+    await vi.waitFor(() =>
+      expect(toastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Stop the closed terminal', description: 'session gone' }),
+      ),
+    )
   })
 
   it('closing the last pane of a view releases its editor tabs into the reopen history', () => {
