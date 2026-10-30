@@ -7,10 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -30,11 +33,27 @@ func appendV2(t *testing.T, es asynxModels.Store, id, patches string) {
 	require.NoError(t, es.Atomically(ctx, func(tx asynxModels.Tx) error { return tx.Append(ctx, "events:"+id, v, evt) }))
 }
 
+// upcastingRepo is buildRepo with the upcasters production registers.
+func upcastingRepo(t *testing.T, ad *adapter.Container) workspace.Workspace {
+	t.Helper()
+	rm, err := workspace.OpenReadModel(ad.WorkspaceView())
+	require.NoError(t, err)
+	b := asynx.New[domain.Workspace]().WithEventStore(ad.WorkspaceES()).WithSnapshotStore(asynxstore.NewSnapshots())
+	workspace.RetiredFields(b)
+	workspace.Subscriber(rm)(b)
+	ax, err := b.Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+	repo, err := workspace.New(ax, ad.WorkspaceES(), rm)
+	require.NoError(t, err)
+	return repo
+}
+
 // History written while workspaces carried lastError still sets, clears and
 // replaces it; replayed against a struct without the key, it fails every read.
 func TestWorkspace_AV2HistoryThatPatchesLastErrorStillReplays(t *testing.T) {
 	ad := newAdapter(t, t.TempDir())
-	repo := buildRepo(t, ad)
+	repo := upcastingRepo(t, ad)
 	workspace.WaitQuiescentForTest(repo)
 	ctx := context.Background()
 	_, err := repo.Create(ctx, workspace.CreateInput{
@@ -51,7 +70,7 @@ func TestWorkspace_AV2HistoryThatPatchesLastErrorStillReplays(t *testing.T) {
 		appendV2(t, ad.WorkspaceES(), "w1", patches)
 	}
 
-	got, err := buildRepo(t, ad).Get(ctx, "w1")
+	got, err := upcastingRepo(t, ad).Get(ctx, "w1")
 
 	require.NoError(t, err)
 	assert.Equal(t, "feat/a", got.Branch, "the rest of each patch still applies")
