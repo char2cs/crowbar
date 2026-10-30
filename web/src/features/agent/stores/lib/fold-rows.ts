@@ -2,15 +2,19 @@ import { mapChoice } from '@/features/agent/api/agent-chat-activity'
 import type { LedgerRow, PlanItem, RowBodies, RowKind } from '@/features/agent/api/chat-rows'
 import { fuller, textOf } from '@/features/agent/stores/lib/fold-live'
 import {
+  applyPromptSettled,
+  applyUserMessage,
+  retractTurn,
+  setPrompt,
+} from '@/features/agent/stores/lib/fold-prompts'
+import {
   askItemId,
   markerItemId,
   textItemId,
   toolItemId,
-  userItemId,
   type AskItem,
   type ChatFeed,
   type MarkerName,
-  type PromptFact,
   type TextItem,
   type ToolItem,
   type ToolStatus,
@@ -134,6 +138,11 @@ export class FeedFold {
       this.setOpen(item.turnId ?? '', [...this.openIn(item.turnId ?? ''), id])
   }
 
+  unplace(id: string) {
+    const order = this.order ?? this.base.order
+    if (order.includes(id)) this.order = order.filter((other) => other !== id)
+  }
+
   /** Main-scope ids a turn end can still change, by turn ('' for none). */
   openIn(turn: string): string[] {
     return (this.open ?? this.base.unsettled)[turn] ?? []
@@ -167,10 +176,6 @@ const isUnsettled = (item: TranscriptItem) =>
   (item.kind === 'text' && !item.settled) || (item.kind === 'tool' && item.status === 'running')
 
 type Apply<K extends RowKind> = (fold: FeedFold, row: LedgerRow<K>) => void
-
-const setPrompt = (fold: FeedFold, requestId: string, fact: PromptFact) => {
-  fold.record('prompts')[requestId] = fact
-}
 
 const markOutput = (fold: FeedFold, row: LedgerRow) => {
   if (row.scope || !row.turnId || fold.facts.output[row.turnId]) return
@@ -213,31 +218,6 @@ function endTurn(fold: FeedFold, turnId: string | null) {
   }
 }
 
-const applyUserMessage: Apply<'user_message'> = (fold, row) => {
-  const { requestId, text, origin } = row.body
-  const id = userItemId(requestId, row.seq)
-  fold.put({
-    kind: 'user',
-    id,
-    seq: row.seq,
-    turnId: row.turnId,
-    at: row.at,
-    text,
-    origin,
-    requestId,
-  })
-  fold.place(id, '')
-  if (!requestId) return
-  const running = fold.facts.running
-  // A prompt steered into the running turn is delivered by its own row.
-  const steered = row.turnId && running?.turnId === row.turnId
-  setPrompt(
-    fold,
-    requestId,
-    steered ? { state: 'delivered', turnId: row.turnId! } : { state: 'pending', seq: row.seq },
-  )
-}
-
 const applyTurnStarted: Apply<'turn_started'> = (fold, row) => {
   if (row.scope || !row.turnId) return
   const { requestId, provider } = row.body
@@ -246,24 +226,18 @@ const applyTurnStarted: Apply<'turn_started'> = (fold, row) => {
   if (provider) fold.record('providers')[row.turnId] = provider
 }
 
-const applyPromptSettled: Apply<'prompt_settled'> = (fold, row) => {
-  const { requestId, consumed, reason } = row.body
-  if (consumed) setPrompt(fold, requestId, { state: 'settled' })
-  else if (reason === 'retracted') setPrompt(fold, requestId, { state: 'retracted' })
-  else setPrompt(fold, requestId, { state: 'refused', reason })
-}
-
 function closeRunning(fold: FeedFold, turnId: string | undefined) {
   if (fold.facts.running && fold.facts.running.turnId === turnId) fold.set('running', null)
 }
 
 const applyTurnEnded: Apply<'turn_ended'> = (fold, row) => {
   if (row.scope || !row.turnId) return
+  const traceless = retractTurn(fold, row)
   closeRunning(fold, row.turnId)
   fold.set('ended', fold.facts.ended + 1)
   if (row.body.effort) fold.record('efforts')[row.turnId] = row.body.effort
   endTurn(fold, row.turnId)
-  if (row.body.status === 'interrupted')
+  if (row.body.status === 'interrupted' && !traceless)
     marker(fold, row, 'turn_interrupted', undefined, row.body.reason)
 }
 

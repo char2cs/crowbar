@@ -42,6 +42,37 @@ describe('applyRow', () => {
     expect(feed.facts.prompts.r2).toEqual({ state: 'retracted' })
   })
 
+  it('drops a prompt retracted before delivery from the order', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [l.prompt('r1', 'a'), l.settle('r1', false, 'retracted')])
+    expect(feed.facts.prompts.r1).toEqual({ state: 'retracted' })
+    expect(feed.order).toEqual([])
+  })
+
+  it('reads a turn retracted before any output as its prompt retracted, leaving no row', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.prompt('r1', 'a'),
+      l.start('turn-1', 'r1'),
+      l.row('turn_ended', { status: 'interrupted', reason: 'retracted' }, { turnId: 'turn-1' }),
+    ])
+    expect(feed.facts.prompts.r1).toEqual({ state: 'retracted' })
+    expect(feed.facts.running).toBeNull()
+    expect(feed.order).toEqual([])
+  })
+
+  it('keeps a retracted turn that had output, under its divider', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.prompt('r1', 'a'),
+      l.start('turn-1', 'r1'),
+      l.text('turn-1', 'm1', 0, 'partial'),
+      l.row('turn_ended', { status: 'interrupted', reason: 'retracted' }, { turnId: 'turn-1' }),
+    ])
+    expect(feed.facts.prompts.r1).toEqual({ state: 'retracted' })
+    expect(feed.order).toEqual(['p:r1', 'm:turn-1:m1', 'k:4'])
+  })
+
   it('delivers a prompt steered into the running turn by its own row', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [
