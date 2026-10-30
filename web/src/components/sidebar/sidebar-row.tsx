@@ -238,6 +238,8 @@ export function SidebarRow({
     <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: depth * ROW_INDENT_STEP }}>
       <div
         role="treeitem"
+        aria-level={depth + 1}
+        aria-label={row.label}
         tabIndex={0}
         data-sidebar-row-id={row.id}
         {...dragProps}

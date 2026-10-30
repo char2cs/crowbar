@@ -8,7 +8,7 @@
  * excluding the other's rows.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react'
 
 const navigate = vi.fn()
 vi.mock('@tanstack/react-router', () => ({
@@ -43,25 +43,25 @@ vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
 }))
 
-// The real resolver hits the network (fetchHomeWorkspace) — the one test
-// below that needs a project-home row seeds a resolved workspace id directly
-// instead of waiting on that fetch to land.
-const UNRESOLVED = vi.hoisted(() => ({ wsId: null, owningChatId: null, error: false }))
-vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
-  useHomeWorkspaceState: (projectId: string) =>
-    projectId === 'p1' ? { wsId: 'home-ws-1', owningChatId: null, error: false } : UNRESOLVED,
-  ensureHomeWorkspaceResolved: vi.fn(),
-  getHomeWorkspaceId: (projectId: string) => (projectId === 'p1' ? 'home-ws-1' : null),
-  getHomeOwningChatId: () => null,
-}))
-
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
 import { getInitialState, useSidebarStore, type Chat, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { planRemoval } from '@/components/layout/removal-plan'
-import type { Project } from '@/lib/types'
+import * as api from '@/lib/api'
+import {
+  __resetHomeWorkspaceResolverForTest,
+  ensureHomeWorkspaceResolved,
+  getHomeWorkspaceId,
+} from '@/features/workspace/lib/home-workspace-resolver'
+import {
+  loadPinFixture,
+  outline,
+  PIN_OUTLINE,
+  SIDEBAR_TREE_ROWS,
+} from '@/__tests__/__fixtures__/hierarchy-pin'
+import type { Project, WorkspaceDTO } from '@/lib/types'
 
 const projectA: Project = { id: 'p1', name: 'proj-a', path: '/p1', lastActivity: new Date(0) }
 const projectB: Project = { id: 'p2', name: 'proj-b', path: '/p2', lastActivity: new Date(0) }
@@ -114,7 +114,20 @@ beforeEach(() => {
   useRemovalTrayStore.setState(getInitialRemovalState())
   useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set() })
   useHomeTreeStore.setState({ trees: {} })
+  // GET /home: p1's home resolves, every other project's stays in flight.
+  __resetHomeWorkspaceResolverForTest()
+  vi.spyOn(api, 'fetchHomeWorkspace').mockImplementation((projectId) =>
+    projectId === 'p1'
+      ? Promise.resolve({ id: 'home-ws-1', owningChatId: '' } as WorkspaceDTO)
+      : new Promise(() => {}),
+  )
 })
+
+/** The chrome reads the home workspace id without subscribing, so it must resolve before render. */
+const homeResolved = async (projectId: string) => {
+  ensureHomeWorkspaceResolved(projectId)
+  await waitFor(() => expect(getHomeWorkspaceId(projectId)).not.toBeNull())
+}
 
 describe('SidebarTreeSurface', () => {
   it("shows each project's own repo, excluding the other project's", () => {
@@ -336,7 +349,7 @@ describe('SidebarTreeSurface — rows wait for the repo’s tree seed', () => {
  * click" / "can't rename folders", for exactly the home-scoped ones.
  */
 describe('SidebarTreeSurface — a project-home row is reachable by the context menu', () => {
-  it('right-clicking a project-home folder opens Rename/New folder, not a silent no-op', () => {
+  it('right-clicking a project-home folder opens Rename/New folder, not a silent no-op', async () => {
     useHomeTreeStore.setState({
       trees: {
         p1: {
@@ -354,6 +367,7 @@ describe('SidebarTreeSurface — a project-home row is reachable by the context 
         },
       },
     })
+    await homeResolved('p1')
 
     render(
       <SidebarTreeSurface
@@ -368,5 +382,59 @@ describe('SidebarTreeSurface — a project-home row is reachable by the context 
 
     expect(screen.getByText('Rename')).toBeInTheDocument()
     expect(screen.getByText('New folder')).toBeInTheDocument()
+  })
+})
+
+/**
+ * The hierarchy invariant every later stage must keep: project-home rows flat at
+ * the top, interleaved with repo rows; branches, threads, forks and folders under
+ * their own parents; no ghost rows; no fork on a project-home row.
+ */
+describe('hierarchy pin', () => {
+  const renderPin = async () => {
+    loadPinFixture()
+    await homeResolved('p1')
+    return render(
+      <SidebarTreeSurface
+        projects={[projectA]}
+        activeProjectId="p1"
+        onActiveProjectChange={vi.fn()}
+      />,
+    )
+  }
+
+  it('renders the pinned hierarchy', async () => {
+    const { container } = await renderPin()
+    await waitFor(() => expect(outline(container)).toEqual(PIN_OUTLINE))
+  })
+
+  it('never draws a row twice or a row without a label', async () => {
+    const { container } = await renderPin()
+    await waitFor(() => expect(outline(container)).toHaveLength(PIN_OUTLINE.length))
+    const ids = outline(container).map((line) => /\[(.+)\]$/.exec(line)?.[1])
+    expect(new Set(ids).size).toBe(ids.length)
+    for (const row of container.querySelectorAll(SIDEBAR_TREE_ROWS)) {
+      expect(row.getAttribute('aria-label')?.trim()).toBeTruthy()
+    }
+  })
+
+  it('offers no fork on a project-home row', async () => {
+    const { container } = await renderPin()
+    await waitFor(() => expect(outline(container)).toEqual(PIN_OUTLINE))
+    const rowOf = (id: string) =>
+      container.querySelector<HTMLElement>(`[data-sidebar-row-id="${id}"]`)!
+    // A repo branch row does offer one, so the absence below is not vacuous.
+    expect(
+      within(rowOf('oc-feat')).getByRole('button', { name: 'Fork Feature A' }),
+    ).toBeInTheDocument()
+    for (const id of ['c-notes', 'f-ideas']) {
+      expect(rowOf(id).querySelector('[data-control="fork"]')).toBeNull()
+      fireEvent.contextMenu(rowOf(id))
+      const menu = await screen.findByRole('menu')
+      expect(within(menu).getByRole('menuitem', { name: 'Rename' })).toBeInTheDocument()
+      expect(within(menu).queryByRole('menuitem', { name: /fork/i })).not.toBeInTheDocument()
+      fireEvent.keyDown(menu, { key: 'Escape' })
+      await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+    }
   })
 })
