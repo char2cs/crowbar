@@ -23,6 +23,7 @@ vi.mock('@/lib/api/fetch', () => ({ apiFetch }))
 vi.mock('@/lib/ws/manager', () => ({ wsManager: { subscribe } }))
 
 import { LspClient } from '@/features/editor/lsp/lsp-client'
+import { toastManager } from '@/lib/toast-manager'
 import {
   __resetWorkspaceScopesForTest,
   forgetWorkspaceScope,
@@ -151,6 +152,25 @@ describe('LspClient document sync', () => {
     client.onDocumentOpened(opened)
     await client.documentOpen('w2', 'a.ts', 'x', 'typescript')
     expect(opened).toHaveBeenCalledWith('w2', 'a.ts')
+  })
+
+  it('a failed file sync reports why', async () => {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    const client = new LspClient()
+    apiFetch.mockRejectedValueOnce(new Error('lsp: didOpen: server exited'))
+    await client.documentOpen('w1', 'a.ts', 'x', 'typescript')
+    apiFetch.mockRejectedValueOnce(new Error('lsp: didSave: server exited'))
+    await client.documentSave('w1', 'a.ts')
+    apiFetch.mockRejectedValueOnce(new Error('lsp: didClose: server exited'))
+    await client.documentClose('w1', 'a.ts')
+
+    const titles = toastAdd.mock.calls.map(([toast]) => toast.title)
+    expect(titles).toEqual([
+      'Sync the file with its language server',
+      'Sync the file with its language server',
+      'Sync the file with its language server',
+    ])
+    toastAdd.mockRestore()
   })
 })
 

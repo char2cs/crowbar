@@ -5,9 +5,14 @@
 // buffer's own — never by whichever workspace is active.
 
 import { apiFetch } from '@/lib/api/fetch'
+import { report } from '@/lib/errors/report'
 import { wsManager } from '@/lib/ws/manager'
 import { isHomeWorkspace, lspBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
+
+// One action for every sync verb, so a dead server shows one toast, not one per edit.
+const reportSync = (err: unknown) =>
+  report(err, { action: 'Sync the file with its language server' })
 
 /** The daemon's lifecycle view of the server for one file's language. */
 export interface LspServerStatus {
@@ -179,7 +184,7 @@ class LspClientImpl {
     let session = this.sessions.get(wsId)
     if (!session) {
       session = new WorkspaceSession(wsId, (base, path, languageId, text) => {
-        void this.postOpen(wsId, base, path, languageId, text).catch(() => {})
+        void this.postOpen(wsId, base, path, languageId, text).catch(reportSync)
       })
       this.sessions.set(wsId, session)
     }
@@ -268,14 +273,14 @@ class LspClientImpl {
       session.deferred.set(filePath, { content, languageId })
       return
     }
-    await this.postOpen(wsId, base, filePath, languageId, content).catch(() => {})
+    await this.postOpen(wsId, base, filePath, languageId, content).catch(reportSync)
   }
 
   async documentSave(wsId: string, filePath: string): Promise<void> {
     const session = this.sessions.get(wsId)
     const base = session?.base()
     if (!session?.openRefs.has(filePath) || session.deferred.has(filePath) || !base) return
-    await post(`${base}/didSave`, { path: filePath }).catch(() => {})
+    await post(`${base}/didSave`, { path: filePath }).catch(reportSync)
   }
 
   async documentClose(wsId: string, filePath: string): Promise<void> {
@@ -292,7 +297,7 @@ class LspClientImpl {
     const base = session.base()
     this.releaseIfIdle(session)
     if (neverSent || !base) return
-    await post(`${base}/didClose`, { path: filePath }).catch(() => {})
+    await post(`${base}/didClose`, { path: filePath }).catch(reportSync)
   }
 
   /**
@@ -329,7 +334,7 @@ class LspClientImpl {
     }
     const base = session.base()
     if (!base) return
-    await post(`${base}/didChange`, { path: filePath, text }).catch(() => {})
+    await post(`${base}/didChange`, { path: filePath, text }).catch(reportSync)
   }
 
   /** Receive `wsId`'s diagnostics, starting with the current batch. */
