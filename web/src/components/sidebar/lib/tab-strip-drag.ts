@@ -229,8 +229,9 @@ export function createStripDrag(
     const to = indexFor(x)
     const left = slotsNow()[Math.min(to, tabs.length - 1)]
     const finalLeft = to < tabs.length ? left.left : left.left + left.width
+    const known = new Set<Element>(tabs)
     const watch = new MutationObserver(() => {
-      const added = Array.from(strip.children).find((c) => !tabs.includes(c as HTMLElement))
+      const added = Array.from(strip.children).find((c) => !known.has(c))
       if (!(added instanceof HTMLElement)) return
       watch.disconnect()
       added.style.transition = 'none'
