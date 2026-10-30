@@ -1,6 +1,6 @@
 import { useEffect, useState, type RefObject } from 'react'
 import { SidebarRowContextMenu } from '@/components/sidebar/row-context-menu'
-import { performImportBranches } from '@/components/sidebar/lib/row-actions'
+import { performImportBranches } from '@/components/sidebar/lib/import-branches'
 import { useSidebarInlineRenameStore } from '@/lib/store/sidebar-inline-rename'
 import { resolveRow } from './open-actions'
 import type { Repo } from '@/lib/store/sidebar'
@@ -94,7 +94,7 @@ export function SidebarTreeChrome({ treeRef, rows, repos }: SidebarTreeChromePro
           if (!open) setImportRepoRowId(null)
         }}
         onImport={(branches, lockedBranches) => {
-          if (importRepo) void performImportBranches(importRepo.id, branches, lockedBranches)
+          if (importRepo) performImportBranches(importRepo.id, branches, lockedBranches)
         }}
       />
     </>

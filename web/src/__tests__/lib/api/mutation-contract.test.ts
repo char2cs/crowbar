@@ -55,13 +55,17 @@ describe('hierarchical mutations are 202-empty (no synchronous entity)', () => {
 
   // Batch import moved onto the chat surface with the rest of creation: a
   // worktree is created and held by a chat, never by a route of its own.
-  test('POST .../chats/import-batch body {branches} → 202, resolves undefined', async () => {
-    const res = await importBranches('p1', 'r1', ['feature/x', 'feature/y'])
+  test('POST .../chats/import-batch sends each branch with its chat id, the lock flag and the operation key', async () => {
+    const branches = [
+      { name: 'feature/x', chatId: 'c1' },
+      { name: 'feature/y', chatId: 'c2' },
+    ]
+    await importBranches('p1', 'r1', branches, true, 'op1')
     const [url, init] = lastCall()
     expect(url).toBe('/v0/projects/p1/repos/r1/chats/import-batch')
     expect(init.method).toBe('POST')
-    expect(JSON.parse(init.body as string)).toEqual({ branches: ['feature/x', 'feature/y'] })
-    expect(res).toBeUndefined()
+    expect(new Headers(init.headers).get('Idempotency-Key')).toBe('op1')
+    expect(JSON.parse(init.body as string)).toEqual({ branches, lock: true })
   })
 
   // It stays ONE call over the set rather than N single-branch creates. Only the
@@ -70,10 +74,11 @@ describe('hierarchical mutations are 202-empty (no synchronous entity)', () => {
   // for a branch another worktree already holds; a loop would drop all three
   // silently, and answer 202 while doing so.
   test('sends every branch in ONE request, never one request per branch', async () => {
-    await importBranches('p1', 'r1', ['a', 'b', 'c'])
+    const branches = ['a', 'b', 'c'].map((name) => ({ name, chatId: `chat-${name}` }))
+    await importBranches('p1', 'r1', branches, false, 'op1')
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [, init] = lastCall()
-    expect(JSON.parse(init.body as string).branches).toEqual(['a', 'b', 'c'])
+    expect(JSON.parse(init.body as string).branches).toEqual(branches)
   })
 
   // A branch rename is a WORKTREE verb, so it is addressed by the chat holding

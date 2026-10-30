@@ -132,7 +132,7 @@ export const ROW_INDENT_STEP = 14
 // motion is opt-out, and this is the variant that already means that.
 export const ROW_INDENT_TRANSITION = 'motion-safe:[transition:margin-inline-start_0.1s_ease-in-out]'
 
-// Fork's naming input (sidebar-row.tsx's `PendingSidebarRow`) has no label of
+// Fork's naming input (`OperationSidebarRow`) has no label of
 // its own — an unlabeled empty input reads as a chat box to type INTO, not a
 // name to give something, which is exactly how a typed message became a
 // branch named after it (caught live). The placeholder is the only

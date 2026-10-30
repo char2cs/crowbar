@@ -21,6 +21,7 @@ const closePane = vi.fn()
 const setActivePane = vi.fn()
 const dropChatOnPane = vi.fn()
 const openChat = vi.fn()
+const minted = [expect.any(String), expect.any(String)] // chat id, operation id
 const setActiveAgentChatId = vi.fn()
 
 // I4: the AGENT_NEW_CHAT chord (⌘N) creates a chat via the agent API — mocked
@@ -430,10 +431,9 @@ describe('usePaneKeyboard — agent.newChat chord (I4)', () => {
     renderHook(() => usePaneKeyboard())
 
     pressChord()
-    // Provider-agnostic: picks the FIRST ENABLED provider without asking, and
-    // names no surface — a plain new chat lands on the provider's own default
-    // face, which is what the daemon then forks.
-    expect(createChat).toHaveBeenCalledWith('ws-1', 'p1', '', undefined)
+    // Picks the FIRST ENABLED provider without asking and names no surface: a
+    // plain new chat lands on the provider's own default face.
+    expect(createChat).toHaveBeenCalledWith(...minted, 'ws-1', 'p1', '', undefined)
 
     fakeState.agentChats.chats = [{ id: 'chat-9', title: 'New conversation' }]
     await createChat.mock.results[0]?.value
@@ -468,7 +468,7 @@ describe('usePaneKeyboard — agent.newChat chord (I4)', () => {
     createChat.mockResolvedValue('chat-9')
     renderHook(() => usePaneKeyboard())
     pressChord()
-    expect(createChat).toHaveBeenCalledWith('ws-1', 'p2', '', undefined)
+    expect(createChat).toHaveBeenCalledWith(...minted, 'ws-1', 'p2', '', undefined)
   })
 
   it('does nothing when every provider is disabled', () => {
@@ -542,7 +542,7 @@ describe('usePaneKeyboard — agent.newChatTerminal chord', () => {
     // decides which of the provider's faces the daemon actually forks. A chat
     // seeded onto Terminal but spawned on the api transport is the "no
     // terminal view attached right now" the user hit.
-    expect(createChat).toHaveBeenCalledWith('ws-1', 'p1', '', 'terminal')
+    expect(createChat).toHaveBeenCalledWith(...minted, 'ws-1', 'p1', '', 'terminal')
 
     await createChat.mock.results[0]?.value
     await Promise.resolve()
@@ -576,7 +576,7 @@ describe('usePaneKeyboard — agent.newChatTerminal chord', () => {
 
     // Still an ordinary create — same as plain agent.newChat — just never
     // told to land somewhere this provider cannot show.
-    expect(createChat).toHaveBeenCalledWith('ws-1', 'p1', '', undefined)
+    expect(createChat).toHaveBeenCalledWith(...minted, 'ws-1', 'p1', '', undefined)
     expect(presetChatLandingPresentation).not.toHaveBeenCalled()
     expect(openChat).toHaveBeenCalledWith('chat-9', { workspaceId: 'ws-1' })
   })
@@ -672,7 +672,7 @@ describe('usePaneKeyboard — agent.newChat honours the default landing surface'
     renderHook(() => usePaneKeyboard())
 
     pressChord()
-    expect(createChat).toHaveBeenCalledWith('ws-1', 'codex', '', 'terminal')
+    expect(createChat).toHaveBeenCalledWith(...minted, 'ws-1', 'codex', '', 'terminal')
 
     await createChat.mock.results[0]?.value
     await Promise.resolve()
@@ -701,7 +701,7 @@ describe('usePaneKeyboard — agent.newChat honours the default landing surface'
     renderHook(() => usePaneKeyboard())
 
     pressChord()
-    expect(createChat).toHaveBeenCalledWith('ws-1', 'p1', '', undefined)
+    expect(createChat).toHaveBeenCalledWith(...minted, 'ws-1', 'p1', '', undefined)
 
     await createChat.mock.results[0]?.value
     await Promise.resolve()

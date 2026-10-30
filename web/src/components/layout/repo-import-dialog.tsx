@@ -43,9 +43,8 @@ interface RepoImportDialogProps {
  *
  * A checked row also carries its own lock toggle (Task 6): each branch chooses
  * its post-import locked state right here, rather than requiring a separate
- * Lock action from the row context menu afterwards. The import call itself
- * only 202s — no workspace id exists yet — so the caller locks each branch
- * once its own workspace actually lands (see `performImportBranches`).
+ * Lock action from the row context menu afterwards. The daemon creates a
+ * locked branch's workspace locked (see `performImportBranches`).
  */
 export function RepoImportDialog({
   projectId,

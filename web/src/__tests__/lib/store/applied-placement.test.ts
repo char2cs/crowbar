@@ -178,7 +178,6 @@ const workspaceDTO = (id: string, order: number, folderId = ''): WorkspaceDTO =>
   forkPointSha: '',
   status: 'new',
   working: false,
-  lastError: '',
   added: 0,
   deleted: 0,
   mergeStrategy: '',

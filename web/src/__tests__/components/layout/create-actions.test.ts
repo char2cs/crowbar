@@ -4,8 +4,10 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 const { postWorkspace, createChat, createChatWithOwnWorktree, deleteChat, toastError } = vi.hoisted(
   () => ({
     postWorkspace: vi.fn(() => Promise.resolve()),
-    createChat: vi.fn(() => Promise.resolve('chat-1')),
-    createChatWithOwnWorktree: vi.fn(() => Promise.resolve('chat-1')),
+    createChat: vi.fn((id: string) => Promise.resolve(id)),
+    createChatWithOwnWorktree: vi.fn((id: string) =>
+      Promise.resolve({ id, workspaceId: 'ws-new' }),
+    ),
     deleteChat: vi.fn(() => Promise.resolve()),
     toastError: vi.fn(),
   }),
@@ -28,8 +30,8 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 
 import {
   handleCreate,
-  confirmPendingCreateName,
-  cancelPendingCreate,
+  confirmCreateDraft,
+  cancelCreateDraft,
 } from '@/components/layout/create-actions'
 import { handleTrash } from '@/components/layout/trash-actions'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
@@ -37,7 +39,10 @@ import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
+import { useCreateDraftStore } from '@/lib/store/create-draft'
+import { useOperationsStore } from '@/lib/store/operations'
+import { rowsFromOperations } from '@/components/sidebar/lib/rows-from-operations'
+import { ApiError } from '@/lib/errors/api-error'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import {
   windowPaneStore,
@@ -71,7 +76,8 @@ beforeEach(() => {
   useSidebarStore.setState(getInitialState())
   useRemovalTrayStore.setState(getInitialRemovalState())
   useHomeTreeStore.setState({ trees: {} })
-  usePendingCreatesStore.setState(getInitialPendingCreatesState())
+  useCreateDraftStore.setState({ draft: null })
+  useOperationsStore.setState({ ops: {}, latestFor: {} })
   // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
   // CLI, unlike the old chat-less postWorkspace) — the global provider store
   // (agent-providers-store.ts), not a per-workspace one, since there is no
@@ -79,27 +85,19 @@ beforeEach(() => {
   useAgentProvidersStore.setState({ status: 'ready', providers: [] })
 })
 
-/** A 'workspace' create now asks for a name before it fires (the pending
- *  row's inline input) — this drives that confirm for tests written against
- *  the old immediate-fire behavior, finding the single 'naming' entry
- *  `handleCreate` just armed exactly the way the real input would. */
-function confirmArmedBranchName(name = 'typed-branch'): void {
-  const armed = usePendingCreatesStore.getState().entries.find((e) => e.status === 'naming')
-  if (!armed) throw new Error('confirmArmedBranchName: no naming entry is armed')
-  confirmPendingCreateName(armed.tempId, name)
+const ANY = expect.any(String)
+
+/** Confirms the naming input `handleCreate` opened, as the row's input does. */
+function confirmArmedBranchName(name = 'typed-branch', navigate = vi.fn()): void {
+  if (!useCreateDraftStore.getState().draft) throw new Error('no draft is open')
+  confirmCreateDraft(name, navigate)
 }
 
-/**
- * The two verbs a chat row must NOT answer wrongly.
- *
- * `handleCreate` used to fall through to a path built for a different row
- * kind and explain itself in that kind's words — worse than doing nothing,
- * because the explanation was false. `handleTrash` used to be the same
- * shape of bug fixed the other direction — a direct `deleteChat` call with
- * no removal-tray draft at all. Addendum §2 closes THAT gap instead: a chat
- * now goes through the exact same tray every other kind already did, so its
- * delete is no longer a special case.
- */
+/** The chat id the client minted for the last own-worktree create. */
+function mintedForkId(): string {
+  return (createChatWithOwnWorktree.mock.calls.at(-1) as unknown as [string])[0]
+}
+
 describe('a chat row does not borrow another row kind’s refusal', () => {
   const repoWithChat = () =>
     repo({ chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }] })
@@ -147,6 +145,8 @@ describe('creating a workspace off the repo-home row', () => {
     await Promise.resolve()
 
     expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
+      ANY,
+      ANY,
       'p1',
       'r1',
       'claude',
@@ -156,10 +156,6 @@ describe('creating a workspace off the repo-home row', () => {
     expect(postWorkspace).not.toHaveBeenCalled()
   })
 
-  // The clicked row's own id is the fallback, not the rule — see the regular-fork
-  // block below, where the workspace names a real owning chat to place by. The
-  // fallback is a workspace id the daemon accepts as a fork parent (201, fork
-  // cut off 'ws-a' with the typed branch) — see the describe's own note.
   it('falls back to the clicked row id for a workspace that names no owning chat', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',
@@ -174,6 +170,8 @@ describe('creating a workspace off the repo-home row', () => {
     await Promise.resolve()
 
     expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
+      ANY,
+      ANY,
       'p1',
       'r1',
       'claude',
@@ -197,6 +195,8 @@ describe('creating a workspace off the repo-home row', () => {
     await Promise.resolve()
 
     expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
+      ANY,
+      ANY,
       'p1',
       'r1',
       'codex',
@@ -216,12 +216,6 @@ describe('creating a workspace off the repo-home row', () => {
     expect(postWorkspace).not.toHaveBeenCalled()
   })
 
-  // Regression: a burst of clicks on one row's "+" (the exact shape of "the fork
-  // button does nothing" — no visible feedback between click and the row appearing
-  // made a user click again) used to mint one chat AND one runner per click. Most of
-  // those runners lost the concurrent-worktree-fork startup race and left a chat
-  // with a real id and zero conversation, ever — permanently unresumable. One
-  // request in flight per row closes this at its source.
   it('a second click while the first create is still in flight mints nothing extra', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',
@@ -260,10 +254,6 @@ describe('creating a workspace off the repo-home row', () => {
     expect(createChatWithOwnWorktree).toHaveBeenCalledTimes(2)
   })
 
-  // Only one naming INPUT is ever open at once (the global "+"'s own single
-  // slot, matching the old tree's `creatingChildOf`) — so this proves the
-  // NETWORK half instead: once row 1's create is actually in flight (past
-  // naming), opening and confirming row 2's is never blocked by it.
   it('a different row is never blocked by another row’s in-flight create', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',
@@ -283,14 +273,6 @@ describe('creating a workspace off the repo-home row', () => {
   })
 })
 
-/**
- * A REGULAR fork is the one row whose id is NOT the id the daemon places by.
- * Its owning chat is `type: 'chat'` (`tree/backfill.go`'s `owningChatType`) and
- * is already drawn as its own conversation beside it, so the row cannot take
- * that id the way a locked branch's does — one id would land on two rows, one
- * of them its own parent. The workspace names it instead
- * (`WorkspaceDTO.owningChatId`), and the create reads it from there.
- */
 describe('creating a workspace off a REGULAR fork row', () => {
   const forkRepo = () =>
     repo({
@@ -312,6 +294,8 @@ describe('creating a workspace off a REGULAR fork row', () => {
     await Promise.resolve()
 
     expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
+      ANY,
+      ANY,
       'p1',
       'r1',
       'claude',
@@ -320,13 +304,8 @@ describe('creating a workspace off a REGULAR fork row', () => {
     )
   })
 
-  // Live-reported, the fork half of the same "should be focused... it's just
-  // adding the row" gap the thread tests pin below: a fork only knows its OWN
-  // workspace id once BOTH halves of its two-aggregate placement have landed
-  // (forkHasLanded's own doc) — the create response carries only the chat id
-  // — so opening has to wait for that reseed rather than firing off the
-  // response the way a thread's (single-aggregate) open can.
-  it('opens the newly forked branch’s own chat into a pane once both halves of its placement land', async () => {
+  // D5: a fork opens its chat once the branch exists, not on the bare response.
+  it('a branch create draws its row from the operation and opens the chat once the branch exists', async () => {
     resetWindowPaneStoreForTests()
     useAgentProvidersStore.setState({
       status: 'ready',
@@ -336,26 +315,31 @@ describe('creating a workspace off a REGULAR fork row', () => {
     const navigate = vi.fn(() => Promise.resolve())
 
     handleCreate('ws-a', 'workspace', navigate)
-    confirmArmedBranchName()
-    await Promise.resolve()
+    confirmArmedBranchName('feature/x', navigate)
+    const chatId = mintedForkId()
+    await vi.waitFor(() =>
+      expect(Object.values(useOperationsStore.getState().ops)[0]?.state).toBe('succeeded'),
+    )
 
-    // Not opened yet — the create's own promise resolved, but neither the
-    // new chat nor its owning workspace has been OBSERVED in the store.
-    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).not.toBe('chat-1')
+    const rows = rowsFromOperations(Object.values(useOperationsStore.getState().ops), {
+      projectId: 'p1',
+    })
+    expect(rows).toMatchObject([
+      { id: chatId, kind: 'branch', label: 'feature/x', parentId: 'c-owner', working: true },
+    ])
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).not.toBe(chatId)
 
-    // Both halves land: the new workspace (owned by the fresh chat) and the
-    // chat itself, correctly placed under the owning chat it was forked from.
     useSidebarStore.setState({
       repos: [
         repo({
           workspaces: [
             { id: 'ws-a', branch: 'alpha', age: '', order: 0, owningChatId: 'c-owner' },
-            { id: 'ws-new', branch: 'feature/x', age: '', order: 1, owningChatId: 'chat-1' },
+            { id: 'ws-new', branch: 'feature/x', age: '', order: 1, owningChatId: chatId },
           ],
           chats: [
             { id: 'c-owner', repoId: 'r1', workspaceId: 'ws-a', title: '', order: 0 },
             {
-              id: 'chat-1',
+              id: chatId,
               repoId: 'r1',
               workspaceId: 'ws-new',
               parentId: 'c-owner',
@@ -366,30 +350,48 @@ describe('creating a workspace off a REGULAR fork row', () => {
         }),
       ],
     })
-    await Promise.resolve()
-    await Promise.resolve()
-    await Promise.resolve()
 
-    // `ws-new` (the fresh fork's own workspace) is not the active one in this
-    // test, so opening goes through the navigate-then-open path — same as a
-    // thread created against a not-yet-active workspace.
+    await vi.waitFor(() =>
+      expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe(chatId),
+    )
     expect(navigate).toHaveBeenCalledWith({
       to: '/ide/$projectId/$repoId/$wsId',
       params: { projectId: 'p1', repoId: 'r1', wsId: 'ws-new' },
     })
-    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('chat-1')
+    expect(
+      rowsFromOperations(Object.values(useOperationsStore.getState().ops), { projectId: 'p1' }),
+    ).toEqual([])
   })
 
-  // Regression, caught LIVE (not by any fixture here — every one above
-  // happens to give `subject.id` and the owning chat the same value once you
-  // trace through resolveRow, so this dimension went untested): the pending
-  // row's OWN `parentId` must be the OWNING CHAT too, for the identical
-  // reason the network call above already gets it right — a real sibling
-  // row's `parentId` is always the parent's RENDERED (owning-chat-folded)
-  // id, never the raw workspace id `resolveRow` translates the click into.
-  // Using the wrong one drew the naming input as a top-level row, after
-  // every other project's, instead of nested under the forked row at all.
-  it('arms the naming row at the OWNING CHAT parent too, not the raw workspace id', () => {
+  it('a branch create the daemon refuses keeps its row with the reason', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    useSidebarStore.setState({ repos: [forkRepo()] })
+    createChatWithOwnWorktree.mockImplementationOnce(() =>
+      Promise.reject(new ApiError('feature/x already exists', 409, 'conflict')),
+    )
+
+    handleCreate('ws-a', 'workspace', vi.fn())
+    confirmArmedBranchName('feature/x')
+
+    await vi.waitFor(() =>
+      expect(
+        rowsFromOperations(Object.values(useOperationsStore.getState().ops), { projectId: 'p1' }),
+      ).toMatchObject([
+        {
+          label: 'feature/x',
+          working: false,
+          operation: { state: 'failed', problem: { message: 'feature/x already exists' } },
+        },
+      ]),
+    )
+  })
+
+  // The naming row sits at the OWNING CHAT parent: a real sibling's parentId is
+  // the parent's rendered id, never the raw workspace id.
+  it('confirming a name starts the create; cancelling clears the draft', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
@@ -397,25 +399,29 @@ describe('creating a workspace off a REGULAR fork row', () => {
     useSidebarStore.setState({ repos: [forkRepo()] })
 
     handleCreate('ws-a', 'workspace', vi.fn())
+    expect(useCreateDraftStore.getState().draft).toMatchObject({
+      kind: 'branch',
+      parentId: 'c-owner',
+      repoId: 'r1',
+    })
+    cancelCreateDraft()
+    expect(useCreateDraftStore.getState().draft).toBeNull()
+    expect(createChatWithOwnWorktree).not.toHaveBeenCalled()
 
-    expect(usePendingCreatesStore.getState().entries).toMatchObject([{ parentId: 'c-owner' }])
-
-    // Never confirmed — cancel it so this test leaves no armed
-    // `createInFlight`/`armedBranchCreates` entry (module-level state
-    // `beforeEach` cannot see) for a LATER test's `handleCreate('ws-a', ...)`
-    // to find still locked.
-    cancelPendingCreate(usePendingCreatesStore.getState().entries[0]!.tempId)
+    handleCreate('ws-a', 'workspace', vi.fn())
+    confirmArmedBranchName('feature/y')
+    expect(useCreateDraftStore.getState().draft).toBeNull()
+    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
+      ANY,
+      ANY,
+      'p1',
+      'r1',
+      'claude',
+      'c-owner',
+      'feature/y',
+    )
   })
 
-  // The thread half is a different question with a different answer: it posts
-  // to that workspace's chats mount, so it wants the WORKSPACE and never a
-  // chat id.
-  //
-  // Providers come from the GLOBAL store now, not the per-workspace one this
-  // used to seed — see `enabledProvider` in thread-create.ts. Seeding
-  // the workspace store was itself the shape of the bug: only a MOUNTED
-  // workspace ever fills that copy, so on a row the user has never opened the
-  // real click found `providers: []` and returned with no request at all.
   it('its thread "+" still runs in the workspace, not in the owning chat', () => {
     useAgentProvidersStore.setState({
       status: 'ready',
@@ -425,28 +431,16 @@ describe('creating a workspace off a REGULAR fork row', () => {
 
     handleCreate('ws-a', 'thread', vi.fn())
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a', undefined)
+    expect(createChat).toHaveBeenCalledExactlyOnceWith(
+      ANY,
+      ANY,
+      'ws-a',
+      'claude',
+      'ws-a',
+      undefined,
+    )
   })
 
-  // The regression that made "Thread does nothing" reproducible: a workspace
-  // with NO store of its own (never mounted — exactly what a sidebar row for an
-  // unopened workspace is) must still start a thread, because the provider list
-  // is machine-level and has nothing to do with which workspace is on screen.
-  it('starts a thread on a workspace that has never been mounted', () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
-    useSidebarStore.setState({ repos: [forkRepo()] })
-
-    handleCreate('ws-a', 'thread', vi.fn())
-
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a', undefined)
-  })
-
-  // A precondition that stops the click has to SAY so. Silence here is
-  // indistinguishable from a dead button, which is how both create affordances
-  // came to be reported as doing nothing.
   it('says why instead of silently doing nothing when no provider is enabled', () => {
     useAgentProvidersStore.setState({
       status: 'ready',
@@ -470,18 +464,6 @@ describe('creating a workspace off a REGULAR fork row', () => {
     expect(toastError).toHaveBeenCalledOnce()
   })
 
-  /**
-   * THE OTHER HALF OF "THE FORK BUTTON DOES NOTHING": measured live, the POST
-   * went out and the daemon really did mint the chat and its worktree — the
-   * repo's chat count moved — and the sidebar never drew a row for it.
-   *
-   * `app-sync-provider.tsx`'s `openRepoTreeSubscription` reseeds `crowbar_chats`
-   * on exactly one trigger, this repo's generation moving, and the only thing
-   * that normally moves it is a chat frame arriving for a MOUNTED workspace of
-   * the repo. Its own comment records the assumption that made that safe — "a
-   * chat can only be created, renamed or moved from a surface that has that
-   * workspace mounted" — which the sidebar's own Fork/Thread buttons broke.
-   */
   it('bumps the repo’s tree signal after a fork so the new row is drawn', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',

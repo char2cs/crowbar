@@ -82,7 +82,6 @@ describe('workspaceDTOFromChat', () => {
       worktree: worktree({
         branch: 'feature/x',
         status: 'pr-open',
-        lastError: 'boom',
         working: true,
         isDefault: true,
         added: 3,
@@ -112,7 +111,6 @@ describe('workspaceDTOFromChat', () => {
       forkPointSha: 'abc123',
       status: 'pr-open',
       working: true,
-      lastError: 'boom',
       isDefault: true,
       added: 3,
       deleted: 1,
@@ -138,7 +136,6 @@ describe('workspaceDTOFromChat', () => {
     // frame over a seeded row field by field and an undefined never clears.
     expect(workspaceDTOFromChat(chatRow({ worktree: worktree() }), 'p1', 'r1')).toMatchObject({
       status: 'new',
-      lastError: '',
       isDefault: false,
       parentId: '',
       forkPointSha: '',
@@ -235,7 +232,6 @@ describe('fetchWorkspaces', () => {
     forkPointSha: '',
     status: 'new',
     working: false,
-    lastError: '',
     isDefault: false,
     added: 0,
     deleted: 0,

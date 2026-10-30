@@ -36,7 +36,6 @@ const wsDTO: WorkspaceDTO = {
   forkPointSha: '',
   status: 'new',
   working: false,
-  lastError: '',
   added: 0,
   deleted: 0,
   mergeStrategy: 'merge',

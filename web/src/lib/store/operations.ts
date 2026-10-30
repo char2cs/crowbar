@@ -79,23 +79,46 @@ export function putLocalOperation(op: Operation): void {
   })
 }
 
-/** The reason the newest operation naming `entityId` failed, or null once the user dismissed it. */
-export function selectEntityProblem(s: OperationsState, entityId: string): Problem | null {
+function failedOpFor(s: OperationsState, entityId: string): Operation | null {
   const op = s.ops[s.latestFor[entityId]]
-  if (!op || op.state !== 'failed' || op.dismissed) return null
+  return op && op.state === 'failed' && !op.dismissed ? op : null
+}
+
+/** Why `op` failed for `entityId`: its item's own error, else the operation's. */
+function problemIn(op: Operation, entityId: string): Problem | null {
   const item = op.items.find((i) => i.ref.id === entityId)
   if (item && op.subject.id !== entityId) return item.error ?? null
   return op.error ?? null
 }
 
-/** Every entity whose newest operation failed, keyed to that reason (shallow-stable). */
-export function selectProblems(s: OperationsState): Record<string, Problem> {
-  const problems: Record<string, Problem> = {}
+/** The reason the newest operation naming `entityId` failed, or null once the user dismissed it. */
+export function selectEntityProblem(s: OperationsState, entityId: string): Problem | null {
+  const op = failedOpFor(s, entityId)
+  return op ? problemIn(op, entityId) : null
+}
+
+/** Every entity whose newest operation failed, keyed to that operation (shallow-stable). */
+export function selectFailedOps(s: OperationsState): Record<string, Operation> {
+  const failed: Record<string, Operation> = {}
   for (const entityId of Object.keys(s.latestFor)) {
-    const problem = selectEntityProblem(s, entityId)
-    if (problem) problems[entityId] = problem
+    const op = failedOpFor(s, entityId)
+    if (op) failed[entityId] = op
   }
-  return problems
+  return failed
+}
+
+/** The reason of the newer failure among `entityIds` (a row names its chat and its workspace). */
+export function newestProblem(
+  failed: Readonly<Record<string, Operation>>,
+  entityIds: readonly (string | null | undefined)[],
+): Problem | null {
+  let newest: { op: Operation; id: string } | null = null
+  for (const id of entityIds) {
+    const op = id ? failed[id] : undefined
+    if (!op || !id) continue
+    if (!newest || Date.parse(newest.op.createdAt) < Date.parse(op.createdAt)) newest = { op, id }
+  }
+  return newest ? problemIn(newest.op, newest.id) : null
 }
 
 /** Whether an operation naming `entityId` is still accepted or running. */

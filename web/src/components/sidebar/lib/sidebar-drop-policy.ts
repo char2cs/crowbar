@@ -18,7 +18,7 @@ import {
 } from '@/components/sidebar/lib/branch-row-id'
 import { resolveHomeRowScope } from '@/lib/store/home-tree'
 import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
-import { foldWorkspaceOwners, resolveOwnerChats } from '@/components/sidebar/lib/rows-from-repo'
+import { foldWorkspaceOwners, resolveOwnerChats } from '@/components/sidebar/lib/workspace-owners'
 import { buildSidebarTree, indexSidebarTree } from '@/components/layout/workspace-tree-utils'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 

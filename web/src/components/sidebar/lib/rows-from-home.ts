@@ -1,13 +1,13 @@
 import { type Chat, type Folder } from '@/lib/store/sidebar'
 import { EMPTY_CHATS, EMPTY_FOLDERS } from '@/lib/store/repo-tree'
 import { buildSidebarTree } from '@/components/layout/workspace-tree-utils'
+import { walkTreeIntoRows } from '@/components/sidebar/lib/rows-from-repo'
 import {
   foldWorkspaceOwners,
   resolveHomeOwnerId,
   resolveOwnerChats,
   resolveOwnerOfChat,
-  walkTreeIntoRows,
-} from '@/components/sidebar/lib/rows-from-repo'
+} from '@/components/sidebar/lib/workspace-owners'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 /**

@@ -28,7 +28,6 @@ import { getInitialState, useSidebarStore, type Chat, type Repo } from '@/lib/st
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
-import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import {
@@ -63,7 +62,6 @@ beforeEach(() => {
   useSidebarStore.setState(getInitialState())
   useRemovalTrayStore.setState(getInitialRemovalState())
   useHomeTreeStore.setState({ trees: {} })
-  usePendingCreatesStore.setState(getInitialPendingCreatesState())
   // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
   // CLI, unlike the old chat-less postWorkspace) — the global provider store
   // (agent-providers-store.ts), not a per-workspace one, since there is no

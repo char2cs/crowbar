@@ -69,7 +69,6 @@ function makeWorkspace(over: Partial<WorkspaceDTO> & { id: string }): WorkspaceD
     forkPointSha: '',
     status: 'new',
     working: false,
-    lastError: '',
     added: 0,
     deleted: 0,
     mergeStrategy: '',

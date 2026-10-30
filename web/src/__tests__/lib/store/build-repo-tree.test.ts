@@ -31,7 +31,6 @@ const ws = (id: string, repoId: string, over: Partial<WorkspaceDTO> = {}): Works
   forkPointSha: '',
   status: 'new',
   working: false,
-  lastError: '',
   added: 0,
   deleted: 0,
   mergeStrategy: 'merge',

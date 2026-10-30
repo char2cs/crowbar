@@ -104,7 +104,6 @@ function workspace(owningChatId: string): WorkspaceDTO {
     forkPointSha: '',
     status: 'locked',
     working: false,
-    lastError: '',
     added: 0,
     deleted: 0,
     mergeStrategy: '',

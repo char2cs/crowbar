@@ -10,6 +10,8 @@ import {
   type RepoChatWireDTO,
 } from '@/lib/api/wire'
 import { OwningChatNotRecordedError, worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
+// Type-only: the store module reaches back into this one through the sidebar stores.
+import type { OperationReply } from '@/lib/store/run-operation'
 
 /**
  * Turn a daemon-relative asset path into one the webview can actually load.
@@ -247,8 +249,9 @@ export function getRepoPullRequests(projectId: string, repoId: string): Promise<
 
 // Batch-import branches as chats holding a worktree each. The daemon PR-parents
 // each branch under the row for its open PR's base and creates missing ancestors
-// (the whole tree). Resolves on 202-accept; the created rows arrive on the
-// workspaces WS stream.
+// (the whole tree). Answers 202 with the operation: one item per branch, named
+// by the chat id the caller minted for it, settling with each branch's outcome.
+// `lock` creates the requested branches' workspaces locked.
 //
 // It is a route of its own rather than a loop over POST .../chats, which adopts
 // ONE named branch: only this one resolves the PR graph ACROSS a set, creates
@@ -258,12 +261,14 @@ export function getRepoPullRequests(projectId: string, repoId: string): Promise<
 export function importBranches(
   projectId: string,
   repoId: string,
-  branches: string[],
-): Promise<void> {
-  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/chats/import-batch`, {
+  branches: { name: string; chatId: string }[],
+  lock: boolean,
+  opId: string,
+): Promise<OperationReply> {
+  return apiFetch<OperationReply>(`/v0/projects/${projectId}/repos/${repoId}/chats/import-batch`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ branches }),
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': opId },
+    body: JSON.stringify({ branches, lock }),
   })
 }
 

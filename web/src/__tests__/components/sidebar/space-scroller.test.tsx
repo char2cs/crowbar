@@ -8,7 +8,6 @@ import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
-import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
 import { getWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import type { Project } from '@/lib/types'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
@@ -134,7 +133,6 @@ describe('SpaceScroller', () => {
     HTMLElement.prototype.scrollTo = vi.fn()
     resetWindowPaneStoreForTests()
     useHomeTreeStore.setState({ trees: {} })
-    usePendingCreatesStore.setState(getInitialPendingCreatesState())
     __resetWorkspaceScopesForTest()
     useHomeWorkspaceStateMock.mockReturnValue({
       wsId: 'home-ws-1',
@@ -799,86 +797,6 @@ describe('SpaceScroller', () => {
       expect(screen.getByText('Fix the thing')).toBeInTheDocument()
       expect(screen.getByText('Notes')).toBeInTheDocument()
       expect(screen.getByText('Repo thread')).toBeInTheDocument()
-    })
-
-    // Regression, reported live: a create's mint and its placement are two
-    // sequential backend writes (home-actions.ts's `waitForHomeChat`
-    // own doc), so the REAL row can land in the home tree store — via a
-    // reseed racing ahead of the placement write — before its placement is
-    // actually correct. Rendering it the instant it merely EXISTS put a
-    // second, wrongly-placed row on screen alongside the already-correctly-
-    // placed pending placeholder, which is what still read as "a child
-    // appears in the wrong place" even after the pending row's OWN clearing
-    // was fixed to wait for the right parentId. The real row must stay
-    // completely invisible — not just uncleared-pending — until its own
-    // pending entry (linked by `realId`) is gone.
-    it('hides the real row while its create is still unconfirmed, showing only the pending placeholder', () => {
-      useHomeTreeStore.setState({
-        trees: {
-          p1: {
-            chats: [
-              {
-                id: 'real-1',
-                repoId: '',
-                workspaceId: 'home-ws-1',
-                title: 'New thread',
-                order: 0,
-                // Still parented at root — its placement write has not
-                // landed yet, exactly the frame that must never reach the
-                // screen as its own visible row.
-              },
-            ],
-            folders: [],
-          },
-        },
-      })
-      usePendingCreatesStore.setState({
-        entries: [
-          {
-            tempId: 'pending-1',
-            kind: 'chat',
-            projectId: 'p1',
-            parentId: '',
-            order: 0,
-            workspaceId: 'home-ws-1',
-            ownsWorktree: false,
-            status: 'creating',
-            label: '',
-            realId: 'real-1',
-          },
-        ],
-      })
-      const projects = [makeProject('p1')]
-      render(
-        <SpaceScroller
-          projects={projects}
-          activeProjectId="p1"
-          onActiveProjectChange={vi.fn()}
-          rowsForProject={() => []}
-          onOpen={vi.fn()}
-          onTrash={vi.fn()}
-          onCreate={vi.fn()}
-          onFocusRecent={vi.fn()}
-          onCloseRecent={vi.fn()}
-          onCloseChatRecent={vi.fn()}
-          onDrop={onDrop}
-          onPaneDrop={onPaneDrop}
-          onTrashProject={vi.fn()}
-        />,
-      )
-
-      // The real row is hidden — its title never reaches the screen while
-      // unconfirmed, even though it already exists in the store.
-      expect(screen.queryByText('New thread')).not.toBeInTheDocument()
-
-      // The create confirms (waitForHomeChat's own clear, elsewhere) — the
-      // pending entry is gone, and the (now definitely correctly placed)
-      // real row appears for the first time.
-      act(() => {
-        usePendingCreatesStore.setState({ entries: [] })
-      })
-
-      expect(screen.getByText('New thread')).toBeInTheDocument()
     })
 
     // Caught live: a repo's own row kept its raw backend `order` while a home

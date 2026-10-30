@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { rowsFromRepo, chatIconIndex } from '@/components/sidebar/lib/rows-from-repo'
+import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
+import { chatIconIndex } from '@/components/sidebar/lib/chat-icon-index'
 import type { Chat, Repo, Workspace } from '@/lib/store/sidebar'
 
 /**

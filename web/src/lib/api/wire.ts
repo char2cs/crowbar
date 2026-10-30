@@ -91,7 +91,6 @@ function workspaceDTOFromWorktree(
     forkPointSha: worktree.forkPointSha ?? '',
     status: worktree.status ?? 'new',
     working: worktree.working ?? false,
-    lastError: worktree.lastError ?? '',
     isDefault: worktree.isDefault ?? false,
     added: worktree.added ?? 0,
     deleted: worktree.deleted ?? 0,

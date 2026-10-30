@@ -90,31 +90,27 @@ describe('placeholderReason', () => {
     const w = ws({ status: 'locked' })
     expect(placeholderReason(w, placeholderKind(w, 'main'), null)).toContain('develop')
   })
-  // A failure with no live holder has no reconstructable reason, so the daemon
-  // persists the cause on the row; showing "Retry to provision it" instead would
-  // hide the only explanation the user can act on.
-  it('prefers the recorded cause when there is no holder path', () => {
-    const w = ws({ status: 'new', lastError: 'worktree add: disk full' })
-    expect(placeholderReason(w, placeholderKind(w, 'main'), null)).toContain(
-      'worktree add: disk full',
-    )
-  })
+  // A failure with no live holder has no reconstructable reason: the newest
+  // failed operation naming it is the only explanation the user can act on.
   it("a failed retry shows the operation's reason on the placeholder", () => {
-    const w = ws({ status: 'new', lastError: 'worktree add: disk full' })
+    const w = ws({ status: 'new' })
     const reason = placeholderReason(w, placeholderKind(w, 'main'), {
       code: 'conflict',
       message: 'branch is still held',
     })
     expect(reason).toContain('branch is still held')
-    expect(reason).not.toContain('disk full')
   })
-  it('still prefers the holder path over a recorded cause', () => {
-    const w = ws({
-      status: 'new',
-      heldByPath: '/Users/me/other',
-      lastError: 'branch_already_exists',
+  it('with no holder and no failed operation it names Retry', () => {
+    const w = ws({ status: 'new' })
+    expect(placeholderReason(w, placeholderKind(w, 'main'), null)).toContain('Retry')
+  })
+  it('still prefers the holder path over an operation reason', () => {
+    const w = ws({ status: 'new', heldByPath: '/Users/me/other' })
+    const reason = placeholderReason(w, placeholderKind(w, 'main'), {
+      code: 'internal',
+      message: 'branch_already_exists',
     })
-    expect(placeholderReason(w, placeholderKind(w, 'main'), null)).toContain('/Users/me/other')
+    expect(reason).toContain('/Users/me/other')
   })
 
   // The own-checkout line must not claim a failure, and must not name Retry:

@@ -9,8 +9,6 @@ import { CARD_BOTTOM_INSET_VAR } from '@/components/layout/sidebar-card-height'
 import { findScrollParent } from '@/components/layout/edge-scroll'
 import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
 import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
-import { rowRepoScope } from '@/components/sidebar/lib/rows-from-repo'
-import { hideRowsForInFlightCreates } from '@/components/sidebar/lib/rows-from-pending'
 import { AddRepositoryModal } from '@/components/projects/add-repository-modal'
 import {
   ensureHomeWorkspaceResolved,
@@ -18,9 +16,7 @@ import {
 } from '@/features/workspace/lib/home-workspace-resolver'
 import { handleCreateHomeThread } from '@/components/layout/home-actions'
 import { toast } from '@/features/window/stores/toast-store'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { attachRemovalState, renderedHiddenIds } from '@/components/layout/removal-plan'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
@@ -83,17 +79,6 @@ function SpacePanel({
 }: SpacePanelProps) {
   const projectId = project.id
   const repoRows = rowsForProject(projectId)
-  // Row id -> repo id, so a repo-scoped pending create (a branch import)
-  // only ever suppresses a stray reseed within ITS OWN repo, never a
-  // brand-new row anywhere else in this project (`hideRowsForInFlightCreates`'s
-  // own doc, rows-from-pending.ts). Read off the canonical store, not
-  // `repoRows` above, since scope only needs the id, never the rendered
-  // (removal-filtered) shape.
-  const allRepos = useSidebarStore((s) => s.repos)
-  const rowRepoId = useMemo(
-    () => rowRepoScope(allRepos.filter((r) => r.projectId === projectId)),
-    [allRepos, projectId],
-  )
   // The REAL project-home workspace — project-scoped, not repo-scoped
   // (home-workspace-resolver.ts: "home is a project-level concept, not a
   // repo workspace"). Target for the header's Thread button and the
@@ -162,9 +147,6 @@ function SpacePanel({
     () => renderedHiddenIds(trayHiddenIds, removalEntries),
     [trayHiddenIds, removalEntries],
   )
-  // Read here (not only in `sidebar-tree-surface.tsx`) because `homeRows`
-  // below is built off `useHomeTreeStore`, outside that merge entirely.
-  const pendingEntries = usePendingCreatesStore((s) => s.entries)
   // A repo header row already in `repoRows` (rowsFromRepo's own push) carries
   // its own real `parentId`/`order` straight off the wire — Task 3 put a
   // repo's position on its own `Node` row, computed server-side against
@@ -184,15 +166,7 @@ function SpacePanel({
           removalEntries,
         )
       : []
-  // The pending row is the ONE stand-in for a create in flight — its real row
-  // reseeds in (at root, before its placement write) long before the POST
-  // answers, so it is hidden until the entry clears (rows-from-pending.ts).
-  const rows = hideRowsForInFlightCreates(
-    [...homeRows, ...repoRows],
-    pendingEntries,
-    projectId,
-    rowRepoId,
-  )
+  const rows = [...homeRows, ...repoRows]
   const navigate = useNavigate()
   // The tree and Recents sit in ONE shared scroll region (spec §2) and both
   // take `useSidebarDrag` (Task 21) — each resolves its own edge-scroll

@@ -50,7 +50,7 @@ export function placeholderKind(
  * For a real failure a live holder wins over a recorded cause, because it names
  * the checkout the user has to detach; a failure with no holder has no
  * reconstructable reason, so the newest failed operation naming the workspace
- * (`problem`), else the cause the daemon recorded, is the explanation (§3.3/B7).
+ * or its owning chat (`problem`) is the explanation (§3.3/B7).
  */
 export function placeholderReason(
   ws: Workspace,
@@ -64,7 +64,7 @@ export function placeholderReason(
   if (ws.heldByPath) {
     return `\`${ws.branch}\` is checked out at ${ws.heldByPath} — detach it to let Crowbar manage this branch.`
   }
-  const cause = problem?.message ?? ws.lastError
+  const cause = problem?.message
   if (cause) {
     return `Crowbar couldn't set up \`${ws.branch}\`: ${cause}`
   }

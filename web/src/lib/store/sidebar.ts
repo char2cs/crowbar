@@ -110,8 +110,6 @@ export interface Workspace {
   parentBranch?: string
   /** Open PR url, when the ws has one. */
   prUrl?: string
-  /** Last background-operation error (e.g. a rejected reparent), surfaced to the user. */
-  lastError?: string
   /** On-disk worktree directory, from the backend WorkspaceDTO. */
   localPath?: string
   /** Holder path for a placeholder workspace; drives the reconstructed reason

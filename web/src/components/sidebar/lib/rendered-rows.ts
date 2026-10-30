@@ -4,14 +4,11 @@ import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { dataOf } from '@/lib/loadable'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
-import { usePendingCreatesStore } from '@/lib/store/pending-creates'
-import { hideRowsForInFlightCreates } from '@/components/sidebar/lib/rows-from-pending'
 import {
   applyPendingRemovals,
   descendantHiddenIds,
   renderedHiddenIds,
 } from '@/components/layout/removal-plan'
-import { rowRepoScope } from '@/components/sidebar/lib/rows-from-repo'
 import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
 import { compareSidebarRows } from '@/components/sidebar/lib/row-order'
 import { rowsForProject } from '@/components/sidebar/lib/rows-for-project'
@@ -66,7 +63,7 @@ export function renderedProjectRows(repos: readonly Repo[], projectId: string): 
   const homeWorkspaceId = getHomeWorkspaceId(projectId)
   const homeTree = homeWorkspaceId ? useHomeTreeStore.getState().trees[projectId] : undefined
   const hidden = descendantHiddenIds(useRemovalTrayStore.getState().entries)
-  const rows = [
+  return [
     ...(homeWorkspaceId && homeTree
       ? rowsFromHome(
           homeWorkspaceId,
@@ -76,14 +73,6 @@ export function renderedProjectRows(repos: readonly Repo[], projectId: string): 
         )
       : []),
     ...rowsForProject(repos, projectId),
-  ]
-  return [
-    ...hideRowsForInFlightCreates(
-      rows,
-      usePendingCreatesStore.getState().entries,
-      projectId,
-      rowRepoScope(repos),
-    ),
   ]
 }
 

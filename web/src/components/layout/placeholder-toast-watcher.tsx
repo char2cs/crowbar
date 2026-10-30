@@ -3,7 +3,13 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import { toast } from '@/features/window/stores/toast-store'
 import { placeholderKind, placeholderReason } from '@/lib/workspace/placeholder'
 import { useDetachModalStore } from '@/features/window/stores/detach-modal-store'
-import { selectEntityProblem, useOperationsStore } from '@/lib/store/operations'
+import { useShallow } from 'zustand/react/shallow'
+import {
+  newestProblem,
+  selectEntityBusy,
+  selectFailedOps,
+  useOperationsStore,
+} from '@/lib/store/operations'
 
 // Watches sidebar state and fires ONE error toast per newly-observed
 // UNPROVISIONED workspace (spec §3.6). Per CLAUDE.md the toast is fired from a
@@ -17,9 +23,13 @@ import { selectEntityProblem, useOperationsStore } from '@/lib/store/operations'
 // session, forever. That branch's Detach… lives on its row instead
 // (sidebar-row-actions.tsx), where it waits to be wanted rather than
 // interrupting.
+//
+// A placeholder an operation is still making, or one whose operation failed,
+// is the operations watcher's to toast, with the operation's reason.
 export function PlaceholderToastWatcher() {
   const repos = useSidebarStore((s) => s.repos)
   const openDetach = useDetachModalStore((s) => s.open)
+  const failedOps = useOperationsStore(useShallow(selectFailedOps))
   const seen = useRef(new Set<string>())
 
   useEffect(() => {
@@ -27,14 +37,14 @@ export function PlaceholderToastWatcher() {
       for (const ws of repo.workspaces) {
         if (placeholderKind(ws, repo.defaultBranch) !== 'unprovisioned') continue
         if (seen.current.has(ws.id)) continue
+        const named = [ws.id, ws.owningChatId ?? '']
+        const ops = useOperationsStore.getState()
+        if (named.some((id) => id && selectEntityBusy(ops, id))) continue
         seen.current.add(ws.id)
+        if (newestProblem(failedOps, named)) continue
         toast.show({
           message: `Couldn't set up ${ws.branch}`,
-          description: placeholderReason(
-            ws,
-            'unprovisioned',
-            selectEntityProblem(useOperationsStore.getState(), ws.id),
-          ),
+          description: placeholderReason(ws, 'unprovisioned', null),
           type: 'error',
           key: ws.id,
           action: {
@@ -45,7 +55,7 @@ export function PlaceholderToastWatcher() {
         })
       }
     }
-  }, [repos, openDetach])
+  }, [repos, openDetach, failedOps])
 
   return null
 }

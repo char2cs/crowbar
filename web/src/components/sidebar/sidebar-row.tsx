@@ -20,7 +20,7 @@ import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
 import { useSidebarInlineRenameStore } from '@/lib/store/sidebar-inline-rename'
 import { SidebarRowActions } from '@/components/sidebar/sidebar-row-actions'
 import { SidebarRowGlyph } from '@/components/sidebar/sidebar-row-glyph'
-import { PendingSidebarRow } from '@/components/sidebar/sidebar-row-pending'
+import { OperationSidebarRow } from '@/components/sidebar/operation-sidebar-row'
 import { RemovingSidebarRow } from '@/components/sidebar/sidebar-row-removing'
 
 interface SidebarRowProps {
@@ -158,7 +158,7 @@ export function SidebarRow({
   compactHeight,
 }: SidebarRowProps) {
   // Read UNCONDITIONALLY, before either early return below — rules of hooks:
-  // a row's `pending`/`removal` state can flip between renders of the SAME
+  // a row's `operation`/`removal` state can flip between renders of the SAME
   // component instance (a real row enters the removal tray and later leaves
   // it, without remounting — its id, and so its key, never changes), so a
   // hook called only on the branch that falls through past both checks would
@@ -175,21 +175,16 @@ export function SidebarRow({
       s.renamingRowId === row.id &&
       (inlineRenameDisabled ? s.renamingRole === 'recents' : s.renamingRole !== 'recents'),
   )
-  // A create still in flight (pending-creates.ts) draws through this SAME row
-  // shape rather than a separate placeholder component, at the exact slot
-  // the finished create lands in — none of the interactive state below (open,
-  // drag, rename, promote, fork/thread affordances) applies to a row with no
-  // real chat/workspace behind it yet, so this returns before touching any
-  // of it.
-  if (row.pending) {
-    return <PendingSidebarRow row={row} depth={depth} pending={row.pending} />
+  // A create whose entity has not arrived (or is still being named) has no
+  // chat/workspace behind it, so none of the interactive state below applies.
+  if (row.operation || row.draft) {
+    return <OperationSidebarRow row={row} depth={depth} />
   }
   // A REAL row currently held in the removal tray (`removal-plan.ts`'s
   // `attachRemovalState`) draws its countdown/undo IN PLACE instead of the
   // row hiding while a separate tray shows the same thing elsewhere —
-  // explicit product request. Same early-return shape as `row.pending`
-  // above; the two never coexist (a pending row's id is a synthetic tempId
-  // no removal entry could ever name).
+  // explicit product request. Same early-return shape as `row.operation`
+  // above; the two never coexist.
   if (row.removal) {
     return <RemovingSidebarRow row={row} depth={depth} removal={row.removal} />
   }

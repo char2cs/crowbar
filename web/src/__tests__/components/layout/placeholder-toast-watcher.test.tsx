@@ -7,6 +7,7 @@ import { toast } from '@/features/window/stores/toast-store'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { PlaceholderToastWatcher } from '@/components/layout/placeholder-toast-watcher'
 import type { Repo } from '@/lib/store/sidebar'
+import { applyOperationFrame, useOperationsStore } from '@/lib/store/operations'
 
 const repoWith = (over = {}): Repo => ({
   id: 'r1',
@@ -29,6 +30,7 @@ const repoWith = (over = {}): Repo => ({
 beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState({ repos: [] })
+  useOperationsStore.setState({ ops: {}, latestFor: {} })
 })
 
 describe('PlaceholderToastWatcher', () => {
@@ -51,5 +53,28 @@ describe('PlaceholderToastWatcher', () => {
     const { rerender } = render(<PlaceholderToastWatcher />)
     rerender(<PlaceholderToastWatcher />)
     expect(toast.show).toHaveBeenCalledTimes(1)
+  })
+
+  // The operations watcher already toasted the failure; the placeholder must not say it again.
+  it('a placeholder whose operation already failed is not toasted twice', () => {
+    applyOperationFrame({
+      id: 'op-1',
+      kind: 'workspace.retry_provision',
+      subject: { kind: 'workspace', id: 'ph' },
+      projectId: 'p1',
+      label: 'Retry develop',
+      state: 'failed',
+      items: [],
+      error: { code: 'conflict', message: 'branch is still held' },
+      dismissed: false,
+      version: 1,
+      createdAt: '2026-10-30T10:00:00Z',
+      updatedAt: '2026-10-30T10:00:00Z',
+    })
+    useSidebarStore.setState({ repos: [repoWith()] })
+    const { rerender } = render(<PlaceholderToastWatcher />)
+    useOperationsStore.setState({ ops: {}, latestFor: {} })
+    rerender(<PlaceholderToastWatcher />)
+    expect(toast.show).not.toHaveBeenCalled()
   })
 })

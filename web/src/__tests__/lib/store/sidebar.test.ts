@@ -182,7 +182,6 @@ const dto = (id: string, repoId: string, over: Partial<WorkspaceDTO> = {}): Work
   forkPointSha: '',
   status: 'new',
   working: false,
-  lastError: '',
   added: 0,
   deleted: 0,
   mergeStrategy: 'merge',

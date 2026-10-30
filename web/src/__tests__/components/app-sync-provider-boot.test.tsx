@@ -85,7 +85,6 @@ const wsDTO = (
   forkPointSha: '',
   status: 'new',
   working: false,
-  lastError: '',
   added: 0,
   deleted: 0,
   mergeStrategy: 'merge',
@@ -117,7 +116,6 @@ const worktreeFrame = (ws: WorkspaceDTO, chatId = `chat-${ws.id}`, owningChatId 
   worktree: {
     branch: ws.branch,
     status: ws.status,
-    lastError: ws.lastError,
     working: ws.working,
     isDefault: ws.isDefault,
     added: ws.added,

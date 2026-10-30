@@ -21,7 +21,6 @@ function workspaceDTO(over: Partial<WorkspaceDTO> & { id: string; repoId: string
     forkPointSha: '',
     status: 'new',
     working: false,
-    lastError: '',
     added: 0,
     deleted: 0,
     mergeStrategy: 'merge',

@@ -4,7 +4,8 @@ import {
   putLocalOperation,
   selectEntityBusy,
   selectEntityProblem,
-  selectProblems,
+  selectFailedOps,
+  newestProblem,
   useOperationsStore,
   type Operation,
 } from '@/lib/store/operations'
@@ -75,17 +76,39 @@ describe('operations store', () => {
   })
 
   // Shallow-equal across frames that change no reason, so the sidebar does not re-derive.
-  it('selectProblems keys each failing entity to its reason, by reference', () => {
+  it('selectFailedOps keys each failing entity to its operation, by reference', () => {
     const held = { code: 'conflict' as const, message: 'held' }
     applyOperationFrame(op({ state: 'failed', error: held }))
-    const before = selectProblems(state())
-    expect(before).toEqual({ ws1: held })
+    const before = selectFailedOps(state())
+    expect(before.ws1?.error).toEqual(held)
 
     applyOperationFrame(
       op({ id: 'op9', subject: { kind: 'workspace', id: 'ws2' }, state: 'running' }),
     )
-    expect(selectProblems(state()).ws1).toBe(before.ws1)
-    expect(selectProblems(state())).not.toHaveProperty('ws2')
+    expect(selectFailedOps(state()).ws1).toBe(before.ws1)
+    expect(selectFailedOps(state())).not.toHaveProperty('ws2')
+  })
+
+  it('newestProblem picks the newer failure among the ids a row names', () => {
+    const imported = { code: 'internal' as const, message: 'not a directory' }
+    const retried = { code: 'conflict' as const, message: 'still held' }
+    applyOperationFrame(
+      op({
+        id: 'imp',
+        kind: 'branch.import',
+        subject: { kind: 'repo', id: 'r1' },
+        state: 'failed',
+        error: { code: 'partial', message: '1 of 1 failed' },
+        items: [{ ref: { kind: 'chat', id: 'c1' }, label: 'b', state: 'failed', error: imported }],
+        createdAt: '2026-10-28T12:00:00Z',
+      }),
+    )
+    expect(newestProblem(selectFailedOps(state()), ['c1', 'ws1'])).toEqual(imported)
+    applyOperationFrame(
+      op({ id: 'retry', state: 'failed', error: retried, createdAt: '2026-10-28T12:05:00Z' }),
+    )
+    expect(newestProblem(selectFailedOps(state()), ['c1', 'ws1'])).toEqual(retried)
+    expect(newestProblem(selectFailedOps(state()), [null, undefined])).toBeNull()
   })
 
   it('selectEntityProblem returns a failed item error for the item ref', () => {

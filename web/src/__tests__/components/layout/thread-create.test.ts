@@ -1,24 +1,12 @@
-/** THE thread create: pending row, request, bounded wait, failure. */
+/** THE thread create: a local operation whose row stands in until the chat lands. */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
-const {
-  postWorkspace,
-  createChat,
-  createChatWithOwnWorktree,
-  toastError,
-  presetChatLandingPresentation,
-} = vi.hoisted(() => ({
-  postWorkspace: vi.fn(() => Promise.resolve()),
-  createChat: vi.fn(() => Promise.resolve('chat-1')),
-  createChatWithOwnWorktree: vi.fn(() => Promise.resolve('chat-1')),
+const { createChat, createChatWithOwnWorktree, toastError } = vi.hoisted(() => ({
+  createChat: vi.fn((id: string) => Promise.resolve(id)),
+  createChatWithOwnWorktree: vi.fn((id: string) => Promise.resolve({ id, workspaceId: 'ws-new' })),
   toastError: vi.fn(),
-  presetChatLandingPresentation: vi.fn(),
 }))
 
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/api')>()),
-  postWorkspace,
-}))
 vi.mock('@/features/agent/api/agent-chat-creates', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-creates')>()),
   createChat,
@@ -27,15 +15,20 @@ vi.mock('@/features/agent/api/agent-chat-creates', async (importOriginal) => ({
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: toastError, success: vi.fn(), info: vi.fn() },
 }))
-vi.mock('@/features/agent/hooks/use-chat-presentation', () => ({ presetChatLandingPresentation }))
+import * as chatPresentation from '@/features/agent/hooks/use-chat-presentation'
+const presetChatLandingPresentation = vi
+  .spyOn(chatPresentation, 'presetChatLandingPresentation')
+  .mockImplementation(() => {})
 
-import { handleCreate, confirmPendingCreateName } from '@/components/layout/create-actions'
-import { handleCreateHomeThread } from '@/components/layout/home-actions'
+import { handleCreate, confirmCreateDraft } from '@/components/layout/create-actions'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
-import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
+import { useCreateDraftStore } from '@/lib/store/create-draft'
+import { useOperationsStore } from '@/lib/store/operations'
+import { rowsFromOperations } from '@/components/sidebar/lib/rows-from-operations'
+import { ApiError } from '@/lib/errors/api-error'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import {
@@ -70,7 +63,8 @@ beforeEach(() => {
   useSidebarStore.setState(getInitialState())
   useRemovalTrayStore.setState(getInitialRemovalState())
   useHomeTreeStore.setState({ trees: {} })
-  usePendingCreatesStore.setState(getInitialPendingCreatesState())
+  useCreateDraftStore.setState({ draft: null })
+  useOperationsStore.setState({ ops: {}, latestFor: {} })
   // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
   // CLI, unlike the old chat-less postWorkspace) — the global provider store
   // (agent-providers-store.ts), not a per-workspace one, since there is no
@@ -78,126 +72,45 @@ beforeEach(() => {
   useAgentProvidersStore.setState({ status: 'ready', providers: [] })
 })
 
-/** A 'workspace' create now asks for a name before it fires (the pending
- *  row's inline input) — this drives that confirm for tests written against
- *  the old immediate-fire behavior, finding the single 'naming' entry
- *  `handleCreate` just armed exactly the way the real input would. */
+const ANY = expect.any(String)
+
 function confirmArmedBranchName(name = 'typed-branch'): void {
-  const armed = usePendingCreatesStore.getState().entries.find((e) => e.status === 'naming')
-  if (!armed) throw new Error('confirmArmedBranchName: no naming entry is armed')
-  confirmPendingCreateName(armed.tempId, name)
+  if (!useCreateDraftStore.getState().draft) throw new Error('no draft is open')
+  confirmCreateDraft(name, vi.fn())
 }
 
-// A created row that never arrives (the daemon failed after answering) must
-// not spin forever: the wait is bounded at 30 s, then the create fails.
-describe('a created row that never arrives', () => {
-  beforeEach(() => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    resetWindowPaneStoreForTests()
+/** The chat id the client minted for the last thread create. */
+function mintedChatId(): string {
+  return (createChat.mock.calls.at(-1) as unknown as [string])[0]
+}
+
+const opRows = () =>
+  rowsFromOperations(Object.values(useOperationsStore.getState().ops), { projectId: 'p1' })
+
+describe('a refused thread create', () => {
+  it('keeps its row with the daemon’s own reason', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
-  })
-  afterEach(() => {
-    vi.useRealTimers()
-    resetWindowPaneStoreForTests()
-  })
-
-  async function expectFailsAtThirtySeconds(): Promise<void> {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    await vi.advanceTimersByTimeAsync(29_999)
-    expect(usePendingCreatesStore.getState().entries[0]?.status).toBe('creating')
-    await vi.advanceTimersByTimeAsync(1)
-    expect(usePendingCreatesStore.getState().entries[0]).toMatchObject({
-      status: 'error',
-      error: 'The new row never arrived from the daemon',
-    })
-    expect(toastError).toHaveBeenCalledWith(
-      'Failed to start chat',
-      'The new row never arrived from the daemon',
-    )
-    consoleError.mockRestore()
-  }
-
-  it('a repo thread fails after 30 s, and a late arrival no longer clears it', async () => {
-    const ws = { id: 'ws-a', branch: 'alpha', age: '', order: 0 }
-    useSidebarStore.setState({ repos: [repo({ workspaces: [ws] })] })
-    setActiveWorkspaceId('ws-a')
-
-    handleCreate('ws-a', 'thread', vi.fn())
-    await expectFailsAtThirtySeconds()
-
-    // The wait unsubscribed: the row landing late does not touch the entry.
-    const chat = { id: 'chat-1', repoId: 'r1', workspaceId: 'ws-a', title: '', order: 0 }
-    useSidebarStore.setState({
-      repos: [repo({ workspaces: [ws], chats: [{ ...chat, parentId: 'ws-a' }] })],
-    })
-    expect(usePendingCreatesStore.getState().entries[0]?.status).toBe('error')
-  })
-
-  it('a project-home thread fails after 30 s', async () => {
-    setActiveWorkspaceId('home-ws-1')
-    await handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
-    await expectFailsAtThirtySeconds()
-  })
-})
-
-// A create the daemon refused used to leave only a bare "failed" badge — the
-// reason it stored on the entry was never toasted or logged, so a 404 "parent
-// not found" and a 409 "no fork parent" were indistinguishable from a network
-// drop, on screen and in the desktop log alike.
-describe('a refused create says why', () => {
-  beforeEach(() => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
-  })
-
-  it('thread: toasts and logs the daemon’s own reason', async () => {
     useSidebarStore.setState({
       repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
     })
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    createChat.mockRejectedValueOnce(new Error('agent chat: parent ws-a: apperr: not found'))
+    createChat.mockImplementationOnce(() =>
+      Promise.reject(new ApiError('parent ws-a not found', 404, 'not_found')),
+    )
 
     handleCreate('ws-a', 'thread', vi.fn())
-    await Promise.resolve()
-    await Promise.resolve()
 
-    expect(usePendingCreatesStore.getState().entries[0]).toMatchObject({
-      status: 'error',
-      error: 'agent chat: parent ws-a: apperr: not found',
-    })
-    expect(toastError).toHaveBeenCalledWith(
-      expect.any(String),
-      'agent chat: parent ws-a: apperr: not found',
+    await vi.waitFor(() =>
+      expect(opRows()).toMatchObject([
+        {
+          kind: 'chat',
+          parentId: 'ws-a',
+          operation: { state: 'failed', problem: { message: 'parent ws-a not found' } },
+        },
+      ]),
     )
-    expect(consoleError).toHaveBeenCalled()
-    consoleError.mockRestore()
-  })
-
-  it('fork: toasts and logs the daemon’s own reason', async () => {
-    useSidebarStore.setState({
-      repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
-    })
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    createChatWithOwnWorktree.mockRejectedValueOnce(new Error('agent chat: no fork parent'))
-
-    handleCreate('ws-a', 'workspace', vi.fn())
-    confirmArmedBranchName('test/test')
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(usePendingCreatesStore.getState().entries[0]).toMatchObject({
-      status: 'error',
-      label: 'test/test',
-      error: 'agent chat: no fork parent',
-    })
-    expect(toastError).toHaveBeenCalledWith(expect.any(String), 'agent chat: no fork parent')
-    expect(consoleError).toHaveBeenCalled()
-    consoleError.mockRestore()
   })
 })
 
@@ -228,7 +141,14 @@ describe('starting a thread on a real workspace', () => {
 
     handleCreate('ws-a', 'thread', vi.fn())
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a', undefined)
+    expect(createChat).toHaveBeenCalledExactlyOnceWith(
+      ANY,
+      ANY,
+      'ws-a',
+      'claude',
+      'ws-a',
+      undefined,
+    )
   })
 
   // THE BUG: "can't start chats directly on a CLI, it always obligates me to
@@ -248,7 +168,12 @@ describe('starting a thread on a real workspace', () => {
     handleCreate('ws-a', 'thread', vi.fn(), 'terminal')
     await Promise.resolve()
 
-    expect(presetChatLandingPresentation).toHaveBeenCalledExactlyOnceWith('chat-1', 'terminal')
+    await vi.waitFor(() =>
+      expect(presetChatLandingPresentation).toHaveBeenCalledExactlyOnceWith(
+        mintedChatId(),
+        'terminal',
+      ),
+    )
   })
 
   it('never presets a surface for an ordinary create', async () => {
@@ -266,15 +191,8 @@ describe('starting a thread on a real workspace', () => {
     expect(presetChatLandingPresentation).not.toHaveBeenCalled()
   })
 
-  // Regression, reported live: a repo-scoped thread's placement is ALSO a
-  // separate Node write from its mint (sidebar-placement-unification Task 8
-  // widened this off home-only) — the chat lifecycle hub broadcasts on the
-  // mint alone, so a reseed can land here with the chat already existing but
-  // still parented at root. `chatHasLanded` used to clear the pending row on
-  // existence alone; it must now wait for the chat's own `parentId` to match
-  // too, or the real (misplaced) row renders before self-correcting a beat
-  // later — the exact shape already fixed for home threads and forks.
-  it('does not clear the pending row until the landed chat’s own placement matches — not merely once it exists', async () => {
+  it('a thread create draws its row from the operation and opens at once', async () => {
+    resetWindowPaneStoreForTests()
     useSidebarStore.setState({
       repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
     })
@@ -282,37 +200,25 @@ describe('starting a thread on a real workspace', () => {
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
     })
+    setActiveWorkspaceId('ws-a')
 
     handleCreate('ws-a', 'thread', vi.fn())
-    await Promise.resolve()
+    const chatId = mintedChatId()
+    expect(opRows()).toMatchObject([{ id: chatId, kind: 'chat', parentId: 'ws-a', working: true }])
 
-    // Not cleared yet — the create's own promise resolved, but the real
-    // chat has not been OBSERVED in the store at all.
-    expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
+    // Opened on the daemon's answer, before the chat's row has arrived.
+    await vi.waitFor(() =>
+      expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe(chatId),
+    )
+    expect(opRows()).toHaveLength(1)
 
-    // The chat lands, but still parented at root — its placement write has
-    // not caught up yet. Must still stay pending.
-    useSidebarStore.setState({
-      repos: [
-        repo({
-          workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
-          chats: [{ id: 'chat-1', repoId: 'r1', workspaceId: 'ws-a', title: '', order: 0 }],
-        }),
-      ],
-    })
-    await Promise.resolve()
-
-    expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
-
-    // The placement write catches up — parentId now matches the workspace
-    // this thread was created under — and the pending row finally clears.
     useSidebarStore.setState({
       repos: [
         repo({
           workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
           chats: [
             {
-              id: 'chat-1',
+              id: chatId,
               repoId: 'r1',
               workspaceId: 'ws-a',
               title: '',
@@ -323,9 +229,7 @@ describe('starting a thread on a real workspace', () => {
         }),
       ],
     })
-    await Promise.resolve()
-
-    expect(usePendingCreatesStore.getState().entries).toEqual([])
+    expect(opRows()).toEqual([])
   })
 
   // Live-reported: "that new chat entity should be focused... it's just
@@ -348,7 +252,9 @@ describe('starting a thread on a real workspace', () => {
     handleCreate('ws-a', 'thread', navigate)
     await Promise.resolve()
 
-    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('chat-1')
+    await vi.waitFor(() =>
+      expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe(mintedChatId()),
+    )
     expect(navigate).not.toHaveBeenCalled()
   })
 
@@ -389,8 +295,13 @@ describe('starting a thread on a real workspace', () => {
     handleCreate('ws-a', 'thread', navigate)
     await Promise.resolve()
 
+    await vi.waitFor(() =>
+      expect(
+        Object.values(windowPaneStore.getState().panes).some((p) => p.chatId === mintedChatId()),
+      ).toBe(true),
+    )
     const newPane = Object.values(windowPaneStore.getState().panes).find(
-      (p) => p.chatId === 'chat-1',
+      (p) => p.chatId === mintedChatId(),
     )
     expect(newPane).toBeDefined()
     expect(windowPaneStore.getState().activeViewId).toBe(newPane!.viewId)
@@ -403,7 +314,7 @@ describe('starting a thread on a real workspace', () => {
     // showing — not silently reverted to the existing chat.
     expect(windowPaneStore.getState().activeViewId).toBe(newPane!.viewId)
     const activePane = windowPaneStore.getState().panes[windowPaneStore.getState().activePaneId]
-    expect(activePane?.chatId).toBe('chat-1')
+    expect(activePane?.chatId).toBe(mintedChatId())
   })
 
   it('navigates to the workspace first when it is not yet the active one, then opens the new thread', async () => {
@@ -426,7 +337,9 @@ describe('starting a thread on a real workspace', () => {
       to: '/ide/$projectId/$repoId/$wsId',
       params: { projectId: 'p1', repoId: 'r1', wsId: 'ws-a' },
     })
-    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('chat-1')
+    await vi.waitFor(() =>
+      expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe(mintedChatId()),
+    )
   })
 })
 
@@ -470,7 +383,7 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
 
     handleCreate('c1', 'thread', vi.fn())
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'c1', undefined)
+    expect(createChat).toHaveBeenCalledExactlyOnceWith(ANY, ANY, 'ws-a', 'claude', 'c1', undefined)
   })
 
   // THE BUG: the Thread button named no surface at all, so with "native chats"
@@ -493,9 +406,14 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
     handleCreate('c1', 'thread', vi.fn())
     await Promise.resolve()
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'codex', 'c1', 'terminal')
+    expect(createChat).toHaveBeenCalledExactlyOnceWith(ANY, ANY, 'ws-a', 'codex', 'c1', 'terminal')
     // Created on the terminal ⇒ lands on it.
-    expect(presetChatLandingPresentation).toHaveBeenCalledExactlyOnceWith('chat-1', 'terminal')
+    await vi.waitFor(() =>
+      expect(presetChatLandingPresentation).toHaveBeenCalledExactlyOnceWith(
+        mintedChatId(),
+        'terminal',
+      ),
+    )
   })
 
   // The gate holds on this path too: a provider that never declared its
@@ -513,7 +431,7 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
     handleCreate('c1', 'thread', vi.fn())
     await Promise.resolve()
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'c1', undefined)
+    expect(createChat).toHaveBeenCalledExactlyOnceWith(ANY, ANY, 'ws-a', 'claude', 'c1', undefined)
     expect(presetChatLandingPresentation).not.toHaveBeenCalled()
   })
 
@@ -525,11 +443,13 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
     useSidebarStore.setState({ repos: [forkRepo()] })
 
     handleCreate('c1', 'workspace', vi.fn())
-    expect(usePendingCreatesStore.getState().entries).toMatchObject([{ parentId: 'c-owner' }])
+    expect(useCreateDraftStore.getState().draft).toMatchObject({ parentId: 'c-owner' })
     confirmArmedBranchName()
     await Promise.resolve()
 
     expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
+      ANY,
+      ANY,
       'p1',
       'r1',
       'claude',
@@ -554,13 +474,22 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
     })
 
     handleCreate('c1', 'thread', vi.fn())
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('home-1', 'claude', 'c1', undefined)
+    expect(createChat).toHaveBeenCalledExactlyOnceWith(
+      ANY,
+      ANY,
+      'home-1',
+      'claude',
+      'c1',
+      undefined,
+    )
 
     handleCreate('c1', 'workspace', vi.fn())
     confirmArmedBranchName()
     await Promise.resolve()
 
     expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
+      ANY,
+      ANY,
       'p1',
       'r1',
       'claude',

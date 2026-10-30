@@ -5,8 +5,12 @@ import { SpaceScroller } from '@/components/sidebar/space-scroller'
 import { rowsForProject } from '@/components/sidebar/lib/rows-for-project'
 import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
 import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
-import { rowsFromPending } from '@/components/sidebar/lib/rows-from-pending'
-import { usePendingCreatesStore } from '@/lib/store/pending-creates'
+import {
+  placeUnderRepoHomes,
+  rowFromDraft,
+  rowsFromOperations,
+} from '@/components/sidebar/lib/rows-from-operations'
+import { useCreateDraftStore } from '@/lib/store/create-draft'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import {
   getHomeOwningChatId,
@@ -21,7 +25,7 @@ import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { performSidebarPaneDrop } from '@/components/sidebar/lib/pane-drop-actions'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { selectProblems, useOperationsStore } from '@/lib/store/operations'
+import { newestProblem, selectFailedOps, useOperationsStore } from '@/lib/store/operations'
 import { useShallow } from 'zustand/react/shallow'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { toast } from '@/features/window/stores/toast-store'
@@ -160,19 +164,27 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
       }),
     [projects, homeTrees, hiddenIds, removalEntries],
   )
-  // Every create in flight, drawn as a real row at the exact slot the
-  // finished create lands in (pending-creates.ts) — merged in here, the one
-  // place both `allRows` (chrome) and `rowsForProjectFn` (the actual render
-  // path) already converge, so neither needs its own copy of this logic.
-  const pendingEntries = usePendingCreatesStore((s) => s.entries)
-  const pendingRows = useMemo(() => rowsFromPending(pendingEntries), [pendingEntries])
-  // Marked for the SAME in-place transform as home rows above — computed
-  // once here and reused by both `allRows` (chrome) and `rowsForProjectFn`
-  // (the actual render path) rather than redone in each.
-  // A placeholder row explains itself with its newest failed operation.
-  // Shallow: rows re-derive only when some reason changes, not on every frame.
-  const problems = useOperationsStore(useShallow(selectProblems))
-  const problemOf = useCallback((wsId: string) => problems[wsId] ?? null, [problems])
+  // A create whose entity has not arrived is drawn from its operation, and the
+  // fork being named from its draft — merged here, where both `allRows`
+  // (chrome) and `rowsForProjectFn` (the render path) converge. Re-derived on
+  // every repo/home frame, since an item's row goes once its entity is present.
+  const ops = useOperationsStore((s) => s.ops)
+  const draft = useCreateDraftStore((s) => s.draft)
+  const createRowsFor = useCallback(
+    (projectId: string) => [
+      ...placeUnderRepoHomes(rowsFromOperations(Object.values(ops), { projectId }), treeRepos),
+      ...(draft?.projectId === projectId ? [rowFromDraft(draft)] : []),
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- homeTrees: isEntityPresent reads it, and a home chat's arrival retires its row
+    [ops, draft, treeRepos, homeTrees],
+  )
+  // A row explains itself with the newest failed operation naming it or its workspace.
+  // Shallow: rows re-derive only when some failure changes, not on every frame.
+  const failedOps = useOperationsStore(useShallow(selectFailedOps))
+  const problemOf = useCallback(
+    (...entityIds: string[]) => newestProblem(failedOps, entityIds),
+    [failedOps],
+  )
   const repoRows = useMemo(
     () =>
       attachRemovalState(
@@ -182,16 +194,16 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
     [treeRepos, removalEntries, problemOf],
   )
   const allRows = useMemo(
-    () => [...homeRows, ...repoRows, ...pendingRows],
-    [homeRows, repoRows, pendingRows],
+    () => [...homeRows, ...repoRows, ...projects.flatMap((p) => createRowsFor(p.id))],
+    [homeRows, repoRows, projects, createRowsFor],
   )
 
   const rowsForProjectFn = useCallback(
     (projectId: string) => [
       ...attachRemovalState(rowsForProject(treeRepos, projectId, problemOf), removalEntries),
-      ...rowsFromPending(pendingEntries.filter((e) => e.projectId === projectId)),
+      ...createRowsFor(projectId),
     ],
-    [treeRepos, removalEntries, pendingEntries, problemOf],
+    [treeRepos, removalEntries, createRowsFor, problemOf],
   )
   const openRow = useCallback(
     (id: string) => openSidebarRow(id, repos, navigate),

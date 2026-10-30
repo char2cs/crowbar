@@ -1,5 +1,6 @@
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { apiFetch } from '@/lib/api/fetch'
+import { operationHeaders } from '@/lib/store/run-operation'
 import { chatBase } from '@/features/agent/api/agent-chat-reads'
 
 // ── Writes ──────────────────────────────────────────────────────────
@@ -25,8 +26,13 @@ import { chatBase } from '@/features/agent/api/agent-chat-reads'
  * gets NO api connection at all: its own PTY is the conversation. Omitted means
  * the provider's own default face, byte-identical to every create before this
  * argument existed.
+ *
+ * `id` is the chat id the caller minted and already draws; `opId` is the local
+ * operation that draws it.
  */
 export async function createChat(
+  id: string,
+  opId: string,
   wsId: string,
   provider: string,
   parentId = '',
@@ -34,13 +40,19 @@ export async function createChat(
 ): Promise<string> {
   const res = await apiFetch<{ id: string }>(`${chatBase(wsId)}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...operationHeaders(opId) },
     // The repo-scoped mount binds no :wsId (Task 17), so wsId has to travel in
     // the body — the backend's Create falls back to body.workspaceId exactly
     // when the URL carries none. Omitting it anchors the chat to "", and a
     // top-level "" chat has no ancestor to resolve a cwd workspace from, so its
     // runner spawn 404s (agentchat: not found) even though the chat minted.
-    body: JSON.stringify({ provider, parentId, workspaceId: wsId, ...(surface && { surface }) }),
+    body: JSON.stringify({
+      id,
+      provider,
+      parentId,
+      workspaceId: wsId,
+      ...(surface && { surface }),
+    }),
   })
   return res.id
 }
@@ -64,25 +76,28 @@ export async function createChat(
  *
  * `branch` is the name the user typed in the sidebar's inline create input
  * (2026-09-09) — omitted (server-generated name) unless the caller has one.
+ * The reply names the new chat and the workspace it owns.
  */
-export async function createChatWithOwnWorktree(
+export function createChatWithOwnWorktree(
+  id: string,
+  opId: string,
   projectId: string,
   repoId: string,
   provider: string,
   parentId = '',
   branch = '',
-): Promise<string> {
+): Promise<{ id: string; workspaceId: string }> {
   const p = encodeURIComponent(projectId)
   const r = encodeURIComponent(repoId)
-  const res = await apiFetch<{ id: string }>(`/v0/projects/${p}/repos/${r}/chats`, {
+  return apiFetch<{ id: string; workspaceId: string }>(`/v0/projects/${p}/repos/${r}/chats`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...operationHeaders(opId) },
     body: JSON.stringify({
+      id,
       provider,
       parentId,
       ownWorktree: true,
       ...(branch && { branch }),
     }),
   })
-  return res.id
 }

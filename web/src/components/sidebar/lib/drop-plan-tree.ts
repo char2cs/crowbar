@@ -7,7 +7,8 @@ import {
 } from '@/components/sidebar/lib/branch-row-id'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { buildSidebarTree, type SidebarTreeNode } from '@/components/layout/workspace-tree-utils'
-import { resolveHomeOwnerId, rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
+import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
+import { resolveHomeOwnerId } from '@/components/sidebar/lib/workspace-owners'
 import { insertIndex, renderedSiblings, visibleRepos } from '@/components/sidebar/lib/rendered-rows'
 
 /** One request `performSidebarDrop` fires, in the order it must land — the

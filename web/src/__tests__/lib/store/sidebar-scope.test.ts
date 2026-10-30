@@ -102,7 +102,6 @@ test('applyWorkspaceDTO records the scope of an upserted workspace', () => {
     forkPointSha: '',
     status: 'new',
     working: false,
-    lastError: '',
     added: 0,
     deleted: 0,
     mergeStrategy: 'merge',

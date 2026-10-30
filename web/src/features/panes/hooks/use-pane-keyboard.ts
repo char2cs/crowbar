@@ -140,7 +140,15 @@ export function usePaneKeyboard() {
           provider,
           wantsTerminal && providerCanStartOnTerminal(provider) ? 'terminal' : undefined,
         )
-        createChat(state.workspaceId, provider.id, '', surface)
+        // Not drawn as an operation row: the chat opens in its pane as soon as it exists.
+        createChat(
+          crypto.randomUUID(),
+          crypto.randomUUID(),
+          state.workspaceId,
+          provider.id,
+          '',
+          surface,
+        )
           .then((chatId) => {
             if (surface === 'terminal') {
               presetChatLandingPresentation(chatId, 'terminal')

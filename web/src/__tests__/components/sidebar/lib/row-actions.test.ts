@@ -2,14 +2,11 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import {
   performRenameRow,
   performSetWorkspaceLock,
-  performImportBranches,
   performCreateFolder,
 } from '@/components/sidebar/lib/row-actions'
 import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
-import { renderedProjectRows } from '@/components/sidebar/lib/rendered-rows'
 import { toast } from '@/features/window/stores/toast-store'
 import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import * as api from '@/lib/api'
@@ -22,16 +19,14 @@ vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => ({
   renameChat: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
-}))
+vi.spyOn(toast, 'error').mockImplementation(() => '')
+vi.spyOn(toast, 'success').mockImplementation(() => '')
 
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof api>()),
   renameWorkspaceBranch: vi.fn().mockResolvedValue(undefined),
   renameRepo: vi.fn().mockResolvedValue(undefined),
   setWorkspaceLock: vi.fn().mockResolvedValue(undefined),
-  importBranches: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('@/lib/api/sidebar-placement', async (importOriginal) => ({
@@ -59,10 +54,7 @@ vi.mock('@/lib/api/sidebar-placement', async (importOriginal) => ({
 // `resolveHomeRowScope` needs a resolved home workspace id — real elsewhere
 // in this file's fixtures, but real resolution is an async fetch this file
 // has no business exercising.
-vi.mock('@/features/workspace/lib/home-workspace-resolver', async (importOriginal) => ({
-  ...(await importOriginal<typeof homeWorkspaceResolver>()),
-  getHomeWorkspaceId: () => 'home-ws-1',
-}))
+vi.spyOn(homeWorkspaceResolver, 'getHomeWorkspaceId').mockReturnValue('home-ws-1')
 
 describe('row-actions', () => {
   beforeEach(() => {
@@ -92,7 +84,6 @@ describe('row-actions', () => {
       ],
     })
     useFolderSignalStore.setState({ generations: {} })
-    usePendingCreatesStore.setState(getInitialPendingCreatesState())
   })
 
   it('renaming a workspace row calls renameWorkspaceBranch with its repo/project ids', async () => {
@@ -230,374 +221,6 @@ describe('row-actions', () => {
     await expect(performSetWorkspaceLock('ws-1', true)).resolves.toBeUndefined()
     expect(toast.error).toHaveBeenCalledWith('branch is protected')
     expect(useFolderSignalStore.getState().generations['repo-1']).toBeUndefined()
-  })
-
-  it('importing branches fires importBranches for the repo project', async () => {
-    await performImportBranches('repo-1', ['feature-a', 'feature-b'])
-    expect(api.importBranches).toHaveBeenCalledWith('proj-1', 'repo-1', ['feature-a', 'feature-b'])
-  })
-
-  it('importing an empty branch list is a no-op', async () => {
-    await performImportBranches('repo-1', [])
-    expect(api.importBranches).not.toHaveBeenCalled()
-  })
-
-  // Task 6: the import dialog's per-branch lock choice. `importBranches` only
-  // 202s — no workspace id exists to lock yet — so the lock has to wait for the
-  // branch's own workspace to land in the sidebar store (the same WS-driven
-  // cache every other create relies on) before it can fire, and it does so
-  // without any separate action from the caller.
-  describe('locking a branch chosen at import time', () => {
-    it('locks the newly-arrived workspace once its branch lands, with no separate action', async () => {
-      await performImportBranches('repo-1', ['feature-a'], ['feature-a'])
-      expect(api.setWorkspaceLock).not.toHaveBeenCalled()
-
-      // Simulate the WS-driven reseed that lands the imported branch's new
-      // workspace — the same store write app-sync-provider.tsx applies for any
-      // create, not a raw WS frame.
-      const repo = useSidebarStore.getState().repos[0]
-      useSidebarStore.setState({
-        repos: [
-          {
-            ...repo,
-            workspaces: [...repo.workspaces, { id: 'ws-new', branch: 'feature-a', age: '' }],
-          },
-        ],
-      })
-
-      expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-new', true)
-    })
-
-    it('does not lock a branch that was imported but not chosen to be locked', async () => {
-      await performImportBranches('repo-1', ['feature-a', 'feature-b'], ['feature-a'])
-      const repo = useSidebarStore.getState().repos[0]
-      useSidebarStore.setState({
-        repos: [
-          {
-            ...repo,
-            workspaces: [
-              ...repo.workspaces,
-              { id: 'ws-a', branch: 'feature-a', age: '' },
-              { id: 'ws-b', branch: 'feature-b', age: '' },
-            ],
-          },
-        ],
-      })
-      expect(api.setWorkspaceLock).toHaveBeenCalledTimes(1)
-      expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-a', true)
-    })
-
-    it('leaves every workspace unlocked when no branch was chosen to be locked (default import behavior is unchanged)', async () => {
-      await performImportBranches('repo-1', ['feature-a'])
-      const repo = useSidebarStore.getState().repos[0]
-      useSidebarStore.setState({
-        repos: [
-          {
-            ...repo,
-            workspaces: [...repo.workspaces, { id: 'ws-new', branch: 'feature-a', age: '' }],
-          },
-        ],
-      })
-      expect(api.setWorkspaceLock).not.toHaveBeenCalled()
-    })
-
-    // Lands the real match right after the noise so the watch's `pending` set
-    // reaches zero and it unsubscribes itself before the test ends — a
-    // subscription (or its 30s settle timer) surviving past the test would be
-    // a leak into whatever runs next, not just an assertion gap here.
-    it('an unrelated workspace change does not trigger a lock, and does not stop the watch from later locking the real one', async () => {
-      await performImportBranches('repo-1', ['feature-a'], ['feature-a'])
-      const repo = useSidebarStore.getState().repos[0]
-      useSidebarStore.setState({
-        repos: [
-          {
-            ...repo,
-            workspaces: [...repo.workspaces, { id: 'ws-other', branch: 'other', age: '' }],
-          },
-        ],
-      })
-      expect(api.setWorkspaceLock).not.toHaveBeenCalled()
-
-      const repoAfterNoise = useSidebarStore.getState().repos[0]
-      useSidebarStore.setState({
-        repos: [
-          {
-            ...repoAfterNoise,
-            workspaces: [
-              ...repoAfterNoise.workspaces,
-              { id: 'ws-new', branch: 'feature-a', age: '' },
-            ],
-          },
-        ],
-      })
-      expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-new', true)
-    })
-
-    // The import POST resolving is not the same moment as the workspace
-    // arriving — the daemon creates it in a detached background goroutine
-    // that races the HTTP round trip. A baseline snapshot taken AFTER
-    // `importBranches` resolves would already see this workspace and treat it
-    // as pre-existing, never locking it — the exact bug this regression test
-    // catches: the watch is armed BEFORE the request it watches for.
-    it('locks a branch whose workspace lands in the store before the import call resolves', async () => {
-      vi.mocked(api.importBranches).mockImplementationOnce(async () => {
-        const repo = useSidebarStore.getState().repos[0]
-        useSidebarStore.setState({
-          repos: [
-            {
-              ...repo,
-              workspaces: [...repo.workspaces, { id: 'ws-race', branch: 'feature-a', age: '' }],
-            },
-          ],
-        })
-      })
-      await performImportBranches('repo-1', ['feature-a'], ['feature-a'])
-      expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-race', true)
-    })
-  })
-
-  // Live-reported: with no placeholder at all, the user saw a chat/thread-
-  // shaped row appear first, then flip into an unlabeled branch row once the
-  // daemon's two-aggregate mint (owning chat, then workspace) caught up.
-  // `performImportBranches` now drops a `branch`-shaped pending row per
-  // import up front, the same row-in-flight mechanism `handleCreate`'s fork
-  // path already uses (pending-creates.ts).
-  describe('the loading row shown while a branch import is in flight', () => {
-    it('drops a branch-shaped pending row per branch, carrying its real name, before the import call resolves', async () => {
-      let resolveImport: () => void = () => {}
-      vi.mocked(api.importBranches).mockImplementationOnce(
-        () =>
-          new Promise<void>((resolve) => {
-            resolveImport = resolve
-          }),
-      )
-
-      const importPromise = performImportBranches('repo-1', ['feature-a', 'feature-b'])
-
-      const entries = usePendingCreatesStore.getState().entries
-      expect(entries).toHaveLength(2)
-      expect(entries.map((e) => e.label)).toEqual(['feature-a', 'feature-b'])
-      for (const entry of entries) {
-        expect(entry.kind).toBe('branch')
-        expect(entry.status).toBe('creating')
-        expect(entry.workspaceId).toBeNull()
-        expect(entry.ownsWorktree).toBe(true)
-        expect(entry.projectId).toBe('proj-1')
-      }
-
-      resolveImport()
-      await importPromise
-    })
-
-    it('an empty import drops no pending row', async () => {
-      await performImportBranches('repo-1', [])
-      expect(usePendingCreatesStore.getState().entries).toHaveLength(0)
-    })
-
-    it('clears the pending row only once BOTH the branch’s workspace and its owning chat have landed', async () => {
-      await performImportBranches('repo-1', ['feature-a'])
-      expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
-
-      // The workspace alone is not the real row's title/decoration — that
-      // rides its separately-reseeded owning chat (rows-from-repo.ts).
-      const repo = useSidebarStore.getState().repos[0]
-      useSidebarStore.setState({
-        repos: [
-          {
-            ...repo,
-            workspaces: [
-              ...repo.workspaces,
-              { id: 'ws-new', branch: 'feature-a', age: '', owningChatId: 'chat-new' },
-            ],
-          },
-        ],
-      })
-      expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
-
-      const repoAfterWs = useSidebarStore.getState().repos[0]
-      useSidebarStore.setState({
-        repos: [
-          {
-            ...repoAfterWs,
-            chats: [
-              ...(repoAfterWs.chats ?? []),
-              { id: 'chat-new', repoId: 'repo-1', title: '', order: 5 },
-            ],
-          },
-        ],
-      })
-      // The clear itself runs off a `.then()` one microtask after the
-      // subscriber's synchronous `resolve()` — flush it before asserting,
-      // the same gap a real WS reseed leaves before React's next render (see
-      // `performImportBranches`'s own doc on why that gap is never visible).
-      await Promise.resolve()
-      expect(usePendingCreatesStore.getState().entries).toHaveLength(0)
-    })
-
-    it('marks the pending rows errored, not left spinning, when the import call is refused', async () => {
-      vi.mocked(api.importBranches).mockRejectedValueOnce(new Error('remote unreachable'))
-      await performImportBranches('repo-1', ['feature-a'])
-      expect(usePendingCreatesStore.getState().entries).toMatchObject([
-        { status: 'error', error: 'remote unreachable' },
-      ])
-    })
-
-    // Live-reported: the branch row correctly stays in its loading state, but
-    // mid-import a stray THREAD row popped in at the root, then "converted"
-    // into the chat once the branch finished — the daemon mints the owning
-    // CHAT first, atomically, before its WORKSPACE half (and the
-    // `owningChatId` that folds the two into one branch row) lands, so a
-    // structural reseed can land that bare chat in the tree with nothing to
-    // fold it onto yet. `hideRowsForInFlightCreates` (rows-from-pending.ts)
-    // already exists to hide exactly this kind of stray reseed, but only for
-    // an entry carrying `rowIdsAtClick` — the fork/thread paths
-    // (create-actions.ts) always set it; the import path did not.
-    it('hides a stray owning-chat row that reseeds mid-import, before it folds under the branch', async () => {
-      await performImportBranches('repo-1', ['feature-a'])
-      expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
-      expect(usePendingCreatesStore.getState().entries[0].rowIdsAtClick).toBeDefined()
-
-      // The owning chat reseeds alone — no `workspaceId`/`ownsWorktree` of its
-      // own yet, and no `Workspace.owningChatId` naming it either (that field
-      // arrives on the WORKSPACE half, still in flight) — so nothing can fold
-      // it under the pending branch. This is `crowbar_chats`'s own structural
-      // reseed landing early, not a hand-built placeholder.
-      const repo = useSidebarStore.getState().repos[0]
-      useSidebarStore.setState({
-        repos: [
-          {
-            ...repo,
-            chats: [
-              ...(repo.chats ?? []),
-              { id: 'chat-new', repoId: 'repo-1', title: '', order: 5 },
-            ],
-          },
-        ],
-      })
-
-      const rows = renderedProjectRows(useSidebarStore.getState().repos, 'proj-1')
-      expect(rows.find((r) => r.id === 'chat-new')).toBeUndefined()
-    })
-
-    // The fix above (repo-scoped `hideRowsForInFlightCreates`) has to be
-    // narrow, not just present: a naive fix widened the "known at click"
-    // snapshot to the WHOLE project panel, which made a repo-1 import blank
-    // out every OTHER repo's and project home's freshly-created rows for its
-    // entire provisioning window — this user routinely has several agents
-    // creating chats concurrently, so that regression is worse than the
-    // ghost row it was meant to fix. `repoId` on the pending entry is what
-    // `hideRowsForInFlightCreates` scopes suppression by
-    // (rows-from-pending.ts) — these pin that a repo-2 chat and a
-    // project-home chat both stay visible the whole time repo-1's import is
-    // pending.
-    describe('a row created elsewhere in the project, while the import is still pending', () => {
-      beforeEach(() => {
-        useSidebarStore.setState({
-          repos: [
-            ...useSidebarStore.getState().repos,
-            {
-              id: 'repo-2',
-              projectId: 'proj-1',
-              name: 'repo-two',
-              avatarLabel: 'T',
-              avatarColor: 'bg-emerald-700',
-              defaultWorkspaceId: 'ws2-home',
-              defaultBranch: 'main',
-              defaultWorking: false,
-              workspaces: [],
-              folders: [],
-              chats: [],
-            },
-          ],
-        })
-        useHomeTreeStore.setState({
-          trees: { 'proj-1': { chats: [], folders: [] } },
-        })
-      })
-
-      it('stays visible: a genuine new chat in a different repo of the same project', async () => {
-        await performImportBranches('repo-1', ['feature-a'])
-        expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
-
-        const repo2 = useSidebarStore.getState().repos.find((r) => r.id === 'repo-2')!
-        useSidebarStore.setState({
-          repos: useSidebarStore
-            .getState()
-            .repos.map((r) =>
-              r.id === 'repo-2'
-                ? { ...r, chats: [{ id: 'chat-in-repo-2', repoId: 'repo-2', title: '', order: 0 }] }
-                : r,
-            ),
-        })
-        expect(repo2.chats).toEqual([])
-
-        const rows = renderedProjectRows(useSidebarStore.getState().repos, 'proj-1')
-        expect(rows.find((r) => r.id === 'chat-in-repo-2')).toBeDefined()
-      })
-
-      it('stays visible: a genuine new project-home chat', async () => {
-        await performImportBranches('repo-1', ['feature-a'])
-        expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
-
-        useHomeTreeStore.setState({
-          trees: {
-            'proj-1': {
-              chats: [{ id: 'home-chat-new', repoId: '', title: 'New home chat', order: 0 }],
-              folders: [],
-            },
-          },
-        })
-
-        const rows = renderedProjectRows(useSidebarStore.getState().repos, 'proj-1')
-        expect(rows.find((r) => r.id === 'home-chat-new')).toBeDefined()
-      })
-
-      // Every branch in a batch import gets its OWN pending entry
-      // (`startImportPendingRows`) — all scoped to the SAME repo. A row
-      // elsewhere in the project must stay visible with several of those
-      // entries live at once, and each entry must still suppress ITS OWN
-      // repo's stray reseed.
-      it('multi-branch import: rows elsewhere stay visible, and each branch still hides its own ghost row', async () => {
-        await performImportBranches('repo-1', ['feature-a', 'feature-b'])
-        expect(usePendingCreatesStore.getState().entries).toHaveLength(2)
-
-        useSidebarStore.setState({
-          repos: useSidebarStore.getState().repos.map((r) => {
-            if (r.id === 'repo-1') {
-              return {
-                ...r,
-                chats: [
-                  ...(r.chats ?? []),
-                  { id: 'chat-new-a', repoId: 'repo-1', title: '', order: 5 },
-                  { id: 'chat-new-b', repoId: 'repo-1', title: '', order: 6 },
-                ],
-              }
-            }
-            if (r.id === 'repo-2') {
-              return {
-                ...r,
-                chats: [{ id: 'chat-in-repo-2', repoId: 'repo-2', title: '', order: 0 }],
-              }
-            }
-            return r
-          }),
-        })
-        useHomeTreeStore.setState({
-          trees: {
-            'proj-1': {
-              chats: [{ id: 'home-chat-new', repoId: '', title: 'New home chat', order: 0 }],
-              folders: [],
-            },
-          },
-        })
-
-        const rows = renderedProjectRows(useSidebarStore.getState().repos, 'proj-1')
-        expect(rows.find((r) => r.id === 'chat-new-a')).toBeUndefined()
-        expect(rows.find((r) => r.id === 'chat-new-b')).toBeUndefined()
-        expect(rows.find((r) => r.id === 'chat-in-repo-2')).toBeDefined()
-        expect(rows.find((r) => r.id === 'home-chat-new')).toBeDefined()
-      })
-    })
   })
 
   it('creating a folder under a regular workspace row passes its id straight through', async () => {

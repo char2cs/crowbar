@@ -48,7 +48,6 @@ const wsDTO = (id: string, repoId: string, projectId: string): WorkspaceDTO => (
   forkPointSha: '',
   status: 'new',
   working: false,
-  lastError: '',
   added: 0,
   deleted: 0,
   mergeStrategy: 'merge',

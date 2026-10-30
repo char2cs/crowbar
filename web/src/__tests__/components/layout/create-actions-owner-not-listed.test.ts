@@ -1,25 +1,15 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
-const { createChat, createChatWithOwnWorktree, toastError, getHomeWorkspaceId, apiFetch } =
-  vi.hoisted(() => ({
-    createChat: vi.fn(() => Promise.resolve('chat-1')),
-    createChatWithOwnWorktree: vi.fn(() => Promise.resolve('chat-1')),
-    toastError: vi.fn(),
-    getHomeWorkspaceId: vi.fn(),
-    apiFetch: vi.fn(() => Promise.resolve(undefined)),
-  }))
-
-vi.mock('@/lib/api/fetch', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/api/fetch')>()),
-  apiFetch,
+const { createChat, createChatWithOwnWorktree, getHomeWorkspaceId } = vi.hoisted(() => ({
+  createChat: vi.fn((id: string) => Promise.resolve(id)),
+  createChatWithOwnWorktree: vi.fn((id: string) => Promise.resolve({ id, workspaceId: 'ws-new' })),
+  getHomeWorkspaceId: vi.fn(),
 }))
+
 vi.mock('@/features/agent/api/agent-chat-creates', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-creates')>()),
   createChat,
   createChatWithOwnWorktree,
-}))
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: toastError, success: vi.fn(), info: vi.fn() },
 }))
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId,
@@ -28,10 +18,10 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 
 import { handleCreate } from '@/components/layout/create-actions'
 import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
-import { rowsFromPending } from '@/components/sidebar/lib/rows-from-pending'
+import { rowFromDraft } from '@/components/sidebar/lib/rows-from-operations'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
-import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
+import { useCreateDraftStore } from '@/lib/store/create-draft'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 
@@ -67,7 +57,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   __resetWorkspaceScopesForTest()
   useHomeTreeStore.setState({ trees: {} })
-  usePendingCreatesStore.setState(getInitialPendingCreatesState())
+  useCreateDraftStore.setState({ draft: null })
   useSidebarStore.setState(getInitialState())
   useSidebarStore.getState().setRepos([repo()])
   useAgentProvidersStore.setState({
@@ -86,10 +76,10 @@ describe('owner known to the workspace DTO but absent from the chat list', () =>
 
   it('fork off that row parents the naming input at the rendered row, not at an unlisted chat', () => {
     handleCreate('owner-locked', 'workspace', navigate)
-    const armed = usePendingCreatesStore.getState().entries.find((e) => e.status === 'naming')!
-    const rendered = [...rowsFromRepo(repo()), ...rowsFromPending([armed])]
+    const draft = useCreateDraftStore.getState().draft!
+    const rendered = [...rowsFromRepo(repo()), rowFromDraft(draft)]
     const ids = new Set(rendered.map((r) => r.id))
     // sidebar-tree.tsx roots any row whose parentId names no rendered row.
-    expect(ids.has(armed.parentId ?? '')).toBe(true)
+    expect(ids.has(draft.parentId)).toBe(true)
   })
 })

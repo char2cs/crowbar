@@ -16,7 +16,7 @@ import {
 } from '@/components/sidebar/hooks/use-sidebar-drag'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
-import type { ChatIconFields } from '@/components/sidebar/lib/rows-from-repo'
+import type { ChatIconFields } from '@/components/sidebar/lib/chat-icon-index'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { viewMembers } from '@/features/panes/lib/view-state'

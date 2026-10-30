@@ -62,7 +62,7 @@ export function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
     // row from scratch); now that a frame is merged incrementally, a CLEARED
     // field arrives here as '' / undefined and has to overwrite. Concretely:
     // reparenting a workspace to the repo root, its parent branch going away
-    // with it, a PR closing, a Retry clearing heldByPath or lastError, a move
+    // with it, a PR closing, a Retry clearing heldByPath, a move
     // out of a folder.
     id: ws.id,
     branch: ws.branch,
@@ -77,7 +77,6 @@ export function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
     mergeConflicts: ws.mergeConflicts,
     parentBranch: ws.parentBranch || undefined,
     prUrl: ws.prUrl || undefined,
-    lastError: ws.lastError ?? '',
     heldByPath: ws.heldByPath ?? '',
     provisioning: ws.provisioning,
     age: '',

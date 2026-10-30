@@ -1,3 +1,4 @@
+import { useNavigate } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import {
@@ -8,85 +9,89 @@ import {
   ROW_INDENT_TRANSITION,
 } from '@/components/layout/workspace-row-base'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
-import { confirmPendingCreateName, cancelPendingCreate } from '@/components/layout/create-actions'
+import { cancelCreateDraft, confirmCreateDraft } from '@/components/layout/create-actions'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
 import { RowGlyph } from '@/components/sidebar/sidebar-row-glyph'
+import { dismissOperation } from '@/lib/store/run-operation'
+import { report } from '@/lib/errors/report'
+
+function DraftNameInput({ row }: { row: SidebarRowType }) {
+  const navigate = useNavigate()
+  return (
+    <InlineRenameInput
+      defaultValue=""
+      mono={row.kind === 'branch'}
+      // Only a fork is named; without a placeholder the input read as a chat box.
+      placeholder={CREATE_ROW_PLACEHOLDER}
+      onConfirm={(name) => confirmCreateDraft(name, navigate)}
+      onCancel={cancelCreateDraft}
+    />
+  )
+}
 
 /**
- * A create still in flight, at the slot it lands in (pending-creates.ts): a
- * naming input, a spinner, or an inline error with a dismiss.
+ * A create the sidebar draws before its entity exists, at the slot it lands
+ * in: the naming input of a draft, a spinner while its operation runs, or the
+ * reason it failed with a Dismiss.
  */
-export function PendingSidebarRow({
-  row,
-  depth,
-  pending,
-}: {
-  row: SidebarRowType
-  depth: number
-  pending: NonNullable<SidebarRowType['pending']>
-}) {
-  const isNaming = pending.status === 'naming'
-  const isError = pending.status === 'error'
+export function OperationSidebarRow({ row, depth }: { row: SidebarRowType; depth: number }) {
+  const operation = row.operation
+  const isFailed = operation?.state === 'failed'
+  const reason = operation?.problem?.message
   return (
     <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: depth * ROW_INDENT_STEP }}>
       <div
         className={cn(
           ROW_BASE,
           'border-transparent',
-          !isNaming && 'pointer-events-none opacity-60',
+          !row.draft && 'pointer-events-none opacity-60',
         )}
       >
         <span className={ROW_GLYPH_BOX}>
-          {isError ? (
+          {isFailed ? (
             <span
               aria-hidden="true"
               className="flex size-4 shrink-0 items-center justify-center text-xs text-destructive"
             >
               ✕
             </span>
-          ) : pending.status === 'creating' ? (
+          ) : operation ? (
             <FlickerSpinner className="size-3.5" />
           ) : (
             <RowGlyph row={row} large={false} expanded={false} />
           )}
         </span>
 
-        {isNaming ? (
-          <InlineRenameInput
-            defaultValue=""
-            mono={row.kind === 'branch'}
-            // Only a fork is named; without a placeholder the input read as a chat box.
-            placeholder={CREATE_ROW_PLACEHOLDER}
-            onConfirm={(name) => confirmPendingCreateName(pending.tempId, name)}
-            onCancel={() => cancelPendingCreate(pending.tempId)}
-          />
+        {row.draft ? (
+          <DraftNameInput row={row} />
         ) : (
           <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-muted-foreground">
             {row.kind === 'branch' ? row.label || 'New workspace' : 'New thread'}
           </span>
         )}
 
-        {isError && (
+        {isFailed && operation && (
           <>
-            <span
-              className="pointer-events-auto shrink-0 text-xs text-destructive"
-              title={pending.error}
-            >
+            <span className="pointer-events-auto shrink-0 text-xs text-destructive" title={reason}>
               failed
             </span>
-            {pending.error && (
+            {reason && (
               <span
                 className="pointer-events-auto min-w-0 max-w-[50%] truncate text-xs text-muted-foreground"
-                title={pending.error}
+                title={reason}
               >
-                {pending.error}
+                {reason}
               </span>
             )}
             <button
               type="button"
               aria-label="Dismiss"
               className="pointer-events-auto ml-1 text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => cancelPendingCreate(pending.tempId)}
+              onClick={() =>
+                void dismissOperation(operation.opId).catch((err: unknown) =>
+                  report(err, { action: 'Dismiss' }),
+                )
+              }
             >
               ✕
             </button>

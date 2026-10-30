@@ -62,7 +62,6 @@ export interface WorkspaceDTO {
   forkPointSha: string
   status: WorkspaceStatusDTO
   working: boolean
-  lastError: string
   isDefault?: boolean
   added: number
   deleted: number
@@ -122,7 +121,6 @@ export type WorkspaceProvisioning = 'provisioned' | 'placeholder' | 'shared'
 export interface ChatWorktreeDTO {
   branch: string
   status?: WorkspaceStatusDTO
-  lastError?: string
   working: boolean
   isDefault?: boolean
   added: number

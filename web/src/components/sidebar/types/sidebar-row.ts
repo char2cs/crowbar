@@ -1,4 +1,6 @@
 import type { WorkspaceStatus } from '@/lib/store/sidebar'
+import type { OperationState } from '@/lib/store/operations'
+import type { Problem } from '@/lib/errors/problem'
 
 export type SidebarRowKind = 'chat' | 'branch' | 'folder' | 'workflow'
 
@@ -112,17 +114,17 @@ export interface SidebarRow {
     avatarURL?: string
   }
   /**
-   * Present only on a synthetic row standing in for a create still in
-   * flight (pending-creates.ts) — no real chat/workspace exists at `id` yet.
-   * `sidebar-row.tsx` renders it non-interactive: a naming input, a spinner,
-   * or an inline error, at the exact slot the real row lands in once
-   * created.
+   * Present only on a row drawn from an operation item whose entity has not
+   * arrived (`rows-from-operations.ts`): a spinner while it runs, else its
+   * reason and a Dismiss. No real chat/workspace exists at `id` yet.
    */
-  pending?: {
-    tempId: string
-    status: 'naming' | 'creating' | 'error'
-    error?: string
+  operation?: {
+    opId: string
+    state: OperationState
+    problem: Problem | null
   }
+  /** The sidebar's naming input for a create not yet sent (`create-draft.ts`). */
+  draft?: true
   /**
    * Present on a REAL, already-existing row that is currently held in the
    * removal tray (`useRemovalTrayStore`) — attached by
@@ -133,8 +135,8 @@ export interface SidebarRow {
    * function's own doc). `sidebar-row.tsx` renders this row transformed IN
    * PLACE — the countdown, the "goes with" count, the Keep/undo control —
    * rather than hiding it while a separate tray shows the same thing
-   * elsewhere. Never present alongside `pending`: a pending row's id is a
-   * synthetic tempId no removal entry could ever name.
+   * elsewhere. Never present alongside `operation`: no removal entry names an
+   * entity that has not arrived.
    */
   removal?: {
     entryId: string
