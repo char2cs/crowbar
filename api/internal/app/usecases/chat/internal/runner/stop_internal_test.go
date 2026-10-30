@@ -111,6 +111,8 @@ func interruptServer(t *testing.T, asked chan<- struct{}, release <-chan struct{
 	return &apiconn{driver: driver, ctx: ctx}
 }
 
+func (noopTurns) LiveDiff(string, string) string { return "" }
+
 // diffTurns is a hook side holding a streamed diff no row holds.
 type diffTurns struct {
 	noopTurns
