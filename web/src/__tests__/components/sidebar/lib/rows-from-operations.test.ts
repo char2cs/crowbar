@@ -77,6 +77,37 @@ describe('rowsFromOperations', () => {
     })
   })
 
+  // A repo add's subject is the project; its failed branch is drawn under the
+  // repo it added, and the repo itself is no row.
+  it('a partly failed repo add draws its failed branch under the added repo', () => {
+    const added = importOp({
+      kind: 'repo.create',
+      subject: { kind: 'project', id: 'p1' },
+      label: 'Add crowbar',
+      state: 'failed',
+      error: { code: 'partial', message: '1 of 3 failed' },
+      items: [
+        { ref: { kind: 'repo', id: 'r1' }, label: 'Add crowbar', state: 'succeeded' },
+        { ref: { kind: 'workspace', id: 'ws-home' }, label: 'main', state: 'succeeded' },
+        {
+          ref: { kind: 'workspace', id: 'ws-dev' },
+          label: 'develop',
+          state: 'failed',
+          error: NOT_A_DIR,
+        },
+      ],
+    })
+    const present = new Set(['r1', 'ws-home'])
+    const drawn = placeUnderRepoHomes(
+      rowsFromOperations([added], { projectId: 'p1', repoId: 'r1' }, (ref) => present.has(ref.id)),
+      [repo()],
+    )
+    expect(drawn).toMatchObject([
+      { id: 'ws-dev', kind: 'branch', label: 'develop', parentId: 'home-row' },
+    ])
+    expect(drawn[0]?.operation).toEqual({ opId: 'op-1', state: 'failed', problem: NOT_A_DIR })
+  })
+
   // The user's bug: an import that failed said nothing, so the reason must be on screen.
   it('a failed item draws its reason and a Dismiss action', () => {
     const failed = importOp({
