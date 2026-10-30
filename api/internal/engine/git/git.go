@@ -482,17 +482,16 @@ type Engine interface {
 		branch string,
 	) (bool, error)
 
-	// RemoteTrackingBranchExists reports whether the LOCAL remote-tracking ref
-	// `refs/remotes/origin/<branch>` is present (`git show-ref --verify`). This is
-	// the same universe `git branch -r` reads, so — unlike the live, failure-prone
-	// RemoteBranchExists — it agrees with the branch list the import UI shows. The
-	// worktree usecase consults it first so a live-query hiccup can never downgrade
-	// an existing remote branch into a fresh fork off the default branch.
+	// RemoteTrackingBranchExists reports whether refs/remotes/origin/<branch> is
+	// on disk: unlike the live RemoteBranchExists it agrees with `git branch -r`.
 	RemoteTrackingBranchExists(
 		ctx context.Context,
 		repoPath string,
 		branch string,
 	) (bool, error)
+
+	// LocalBranchExists reports whether refs/heads/<branch> is present.
+	LocalBranchExists(ctx context.Context, repoPath, branch string) (bool, error)
 
 	// SetUpstream links a local branch back to its origin counterpart by setting
 	// branch.<branch>.remote/merge (`git branch --set-upstream-to=origin/<branch>

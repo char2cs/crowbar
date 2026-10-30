@@ -191,8 +191,7 @@ func (m *mockReviewThread) ListByWorkspace(ctx context.Context, wsID string) ([]
 
 var _ reviewthread.ReviewThread = (*mockReviewThread)(nil)
 
-// --- local git engine mock ---
-
+// mockGitEngine fakes what branchreview calls; the rest of the engine is nil.
 type mockGitEngine struct {
 	gitengine.Engine  // the write verbs, which a review never runs
 	RangeDiffFn       func(ctx context.Context, repoPath, base, branch string) (gitdomain.MultiFileDiff, error)
@@ -463,7 +462,7 @@ func (g *mockGitEngine) RemoteBranchExists(ctx context.Context, repoPath, branch
 	return false, nil
 }
 
-func (g *mockGitEngine) RemoteTrackingBranchExists(ctx context.Context, repoPath, branch string) (bool, error) {
+func (g *mockGitEngine) RemoteTrackingBranchExists(context.Context, string, string) (bool, error) {
 	return false, nil
 }
 

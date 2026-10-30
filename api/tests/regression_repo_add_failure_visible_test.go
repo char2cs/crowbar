@@ -45,8 +45,10 @@ func TestRegression_RepoAddFailureIsVisible(t *testing.T) {
 	removed := awaitOperation(t, h, acceptedOperation(t, status, raw).ID, operationSettled)
 	require.Equal(t, domain.OpSucceeded, removed.State, "%+v", removed.Error)
 	h.QuiesceReactors()
-	// The re-add has to create <slug> again for the protected branches' worktrees;
-	// a file there is what they cannot get past. main stays the repo's own checkout.
+	f.pushBranchToOrigin(t, "develop", "main", "develop\n")
+	runGit(t, f.repoPath, "fetch", "origin")
+	// The re-add has to create <slug> again for develop's worktree; a file there
+	// is what it cannot get past. main stays the repo's own checkout.
 	require.NoError(t, os.RemoveAll(slugDir))
 	require.NoError(t, os.WriteFile(slugDir, []byte("in the way\n"), 0o600))
 
@@ -77,4 +79,25 @@ func TestRegression_RepoAddFailureIsVisible(t *testing.T) {
 		home = home || (c.Worktree != nil && c.Worktree.IsDefault)
 	}
 	require.True(t, home, "with its repo-home workspace")
+}
+
+// TestRegression_AddingARepoWithOnlyMainSucceeds: the provider's default
+// protected names (main, develop, master) used to fail an add for every branch
+// the repo does not have.
+func TestRegression_AddingARepoWithOnlyMainSucceeds(t *testing.T) {
+	h := newHarness(t)
+	f := newImportFixture(t, h)
+	status, raw := deleteKeyed(t, h, f.repoBase(), uuid.NewString())
+	require.Equal(t, domain.OpSucceeded, awaitOperation(t, h, acceptedOperation(t, status, raw).ID, operationSettled).State)
+	h.QuiesceReactors()
+
+	status, raw = postKeyed(t, h, "/v0/projects/"+f.projectID+"/repos", uuid.NewString(),
+		map[string]string{"name": "demo", "path": f.repoPath})
+	settled := awaitOperation(t, h, acceptedOperation(t, status, raw).ID, operationSettled)
+
+	require.Equal(t, domain.OpSucceeded, settled.State, "%+v", settled.Error)
+	for _, item := range settled.Items {
+		require.Equal(t, domain.OpSucceeded, item.State, "item %s: %+v", item.Label, item.Error)
+		require.NotContains(t, []string{"develop", "master"}, item.Label)
+	}
 }

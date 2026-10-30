@@ -131,6 +131,12 @@ type ImportGitEngine interface {
 		repoPath string,
 		branch string,
 	) (bool, error)
+	// LocalBranchExists reports whether refs/heads/<branch> is present.
+	LocalBranchExists(
+		ctx context.Context,
+		repoPath string,
+		branch string,
+	) (bool, error)
 	// WorktreeAddAtRef checks branch out into a new worktree with the branch ref
 	// RESET to startRef, so the worktree holds the REMOTE branch even when a
 	// diverged local branch of the same name exists.

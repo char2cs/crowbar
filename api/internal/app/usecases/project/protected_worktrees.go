@@ -31,14 +31,37 @@ func (u *projectImport) provisionProtectedWorktrees(
 		homeErr = errNoCrowbarHome
 	}
 	for _, branch := range protected {
+		has, err := u.repoHasBranch(ctx, repo.Path, branch)
+		if err == nil && !has {
+			continue
+		}
 		// The workspace's id is minted here, so a failed branch is named too.
 		wsID := uuid.NewString()
-		err := fmt.Errorf("crowbar home: %w", homeErr)
-		if homeErr == nil {
+		if err == nil && homeErr != nil {
+			err = fmt.Errorf("crowbar home: %w", homeErr)
+		}
+		if err == nil {
 			err = u.provisionProtectedBranchWorktree(ctx, repo, branch, wsID, home)
 		}
 		progress.Workspace(wsID, branch, err)
 	}
+}
+
+// repoHasBranch: a protected name can be the provider's default list, which
+// names branches this repo may not have; those are not part of it.
+func (u *projectImport) repoHasBranch(ctx context.Context, repoPath, branch string) (bool, error) {
+	local, err := u.deps.Git.LocalBranchExists(ctx, repoPath, branch)
+	if err != nil {
+		return false, fmt.Errorf("look up branch %q: %w", branch, err)
+	}
+	if local {
+		return true, nil
+	}
+	remote, err := u.deps.Git.RemoteTrackingBranchExists(ctx, repoPath, branch)
+	if err != nil {
+		return false, fmt.Errorf("look up origin/%s: %w", branch, err)
+	}
+	return remote, nil
 }
 
 // provisionProtectedBranchWorktree materialises one protected branch. It first

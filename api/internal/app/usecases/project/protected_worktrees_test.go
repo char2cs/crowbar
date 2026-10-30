@@ -335,3 +335,41 @@ func TestImportRepo_AProtectedWorktreeFailureIsAFailedItem(t *testing.T) {
 	assert.Equal(t, "develop", created[landed.ID], "a landed branch names the workspace it created")
 	assert.NotContains(t, created, failed.ID)
 }
+
+// A protected name the repo has no branch for (the provider's defaults on a
+// repo with only main) is not part of the repo, so it is no item at all.
+func TestImportRepo_AProtectedNameTheRepoLacksIsSkipped(t *testing.T) {
+	projects, _, ws, git, prov, uc := newImport(t)
+	require.NoError(t, projects.Save(context.Background(), domain.Project{ID: "proj-1", Path: "/root"}))
+	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/root/repoA", Branch: "feature", Head: "h1"}}
+	prov.Protected = []string{"main", "develop", "master"}
+	git.MissingLocalBranches = map[string]bool{"develop": true, "master": true}
+	git.RemoteTrackingBranches = map[string]bool{"master": false}
+	progress := &recordedProgress{}
+
+	_, err := uc.ImportRepo(context.Background(), project.RepoImport{ID: "r-1", ProjectID: "proj-1", Path: "/root/repoA"}, progress)
+	require.NoError(t, err)
+
+	require.Len(t, progress.outcomes, 1)
+	assert.Equal(t, "main", progress.outcomes[0].Branch)
+	require.NoError(t, progress.outcomes[0].Err)
+	for _, w := range ws.Created {
+		assert.NotContains(t, []string{"develop", "master"}, w.Branch)
+	}
+}
+
+// A branch only origin has is still part of the repo.
+func TestImportRepo_AProtectedBranchOnlyOriginHasIsProvisioned(t *testing.T) {
+	projects, _, _, git, prov, uc := newImport(t)
+	require.NoError(t, projects.Save(context.Background(), domain.Project{ID: "proj-1", Path: "/root"}))
+	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/root/repoA", Branch: "feature", Head: "h1"}}
+	prov.Protected = []string{"develop"}
+	git.MissingLocalBranches = map[string]bool{"develop": true}
+	git.RemoteTrackingBranches = map[string]bool{"develop": true}
+	progress := &recordedProgress{}
+
+	_, err := uc.ImportRepo(context.Background(), project.RepoImport{ID: "r-1", ProjectID: "proj-1", Path: "/root/repoA"}, progress)
+	require.NoError(t, err)
+	require.Len(t, progress.outcomes, 1)
+	assert.Equal(t, "develop", progress.outcomes[0].Branch)
+}

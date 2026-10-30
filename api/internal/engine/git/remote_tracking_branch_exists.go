@@ -37,3 +37,20 @@ func (e *engine) RemoteTrackingBranchExists(
 	}
 	return false, gitexec.RequireSuccess("remote tracking branch exists", r)
 }
+
+// LocalBranchExists reports whether refs/heads/<branch> is present; a missing
+// ref is (false, nil), the same contract as RemoteTrackingBranchExists.
+func (e *engine) LocalBranchExists(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) (bool, error) {
+	r := e.exec(ctx, repoPath, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+	if r.ExitCode == 0 {
+		return true, nil
+	}
+	if r.ExitCode == 1 {
+		return false, nil
+	}
+	return false, gitexec.RequireSuccess("local branch exists", r)
+}
