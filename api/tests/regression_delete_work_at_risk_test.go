@@ -148,7 +148,7 @@ func TestRegression_DeleteWorkspace_KeepsUnmergedAndUncommittedWorkUnlessConfirm
 	assert.True(t, branchExists(t, imported.repoPath, "feature/pricing-rounding"))
 	assert.FileExists(t, filepath.Join(worktree, "notes.txt"))
 
-	require.NoError(t, deleteResponse(t, h, chatPath, true, http.StatusNoContent).Body.Close())
+	require.NoError(t, deleteResponse(t, h, chatPath, true, http.StatusOK).Body.Close())
 	h.QuiesceReactors()
 
 	assert.False(t, branchExists(t, imported.repoPath, "feature/pricing-rounding"))
