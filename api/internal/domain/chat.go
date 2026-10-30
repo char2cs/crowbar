@@ -137,23 +137,12 @@ type Chat struct {
 	// projections exactly as they always did.
 	ProviderID string `json:"providerId,omitempty"`
 
-	// ParentID is the row this chat hangs off in the Chats tree: another chat, a
-	// folder, or "" at the panel root. It is the ONLY record of the relationship
-	// — no badge, no stored fork point — because the relationship is live rather
-	// than a snapshot taken at a moment.
-	//
-	// A chat parent means a THREAD: this chat reads that chat's turns, and its
-	// chat ancestors' in turn, as they stand whenever it asks. A folder parent
-	// means organisation only; folders hold no turns, so lineage steps straight
-	// through them. That single field therefore answers both "where is this row
-	// drawn" and "what does this agent read", and it is why a drag in this panel
-	// legitimately rewrites lineage where the sidebar's drag may not.
-	ParentID string `json:"parentId,omitempty"`
-
-	// Order is this row's dense index within ParentID's sibling space, which
-	// chats SHARE with AgentChatFolder rows: the two kinds interleave at every
-	// level, so the panel merges both sets and sorts them on this one field.
-	Order int `json:"order"`
+	// ParentID and Order are where the chat hangs in the Chats tree: under
+	// another chat (a thread, which reads that chat's turns), a folder, or ""
+	// at the root, at a dense index there. The Tree aggregate owns them; the chat
+	// repository fills them on every chat it returns, and they are never stored here.
+	ParentID string `json:"-"`
+	Order    int    `json:"-"`
 }
 
 // ChatSelection is a model/effort pick travelling WITH a prompt — the

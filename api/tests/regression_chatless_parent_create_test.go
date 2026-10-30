@@ -177,7 +177,7 @@ func TestRegression_CreateUnderLegacyWorkspaceWithoutNodeRow(t *testing.T) {
 	ctx := context.Background()
 
 	lockedID := chatlessLockedBranch(t, h, imported, "release/legacy")
-	require.NoError(t, h.app.Repositories.Node.Forget(ctx, lockedID), "simulate a pre-Task-7 workspace: no Node row")
+	require.NoError(t, h.app.Repositories.Placement.Forget(ctx, lockedID), "simulate a pre-Task-7 workspace: no Node row")
 	h.Quiesce()
 
 	status, _, errMsg := postChat(t, h, base,

@@ -36,6 +36,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	"github.com/char2cs/crowbar/api/internal/perf"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 // manyThreads builds n unresolved threads with ids "t-1".."t-n", so a test can
@@ -127,9 +128,8 @@ func TestToolSet_RecordsEveryCallIncludingUnauthorized(t *testing.T) {
 	require.Equal(t, 1, stat.Failures)
 }
 
-// TestToolSet_RecordsSuccessfulCalls is the counterpart to the unauthorized
-// case above: a call that actually reaches its handler and succeeds must be
-// counted as a call with zero failures, not merely as a non-error return.
+// TestToolSet_RecordsSuccessfulCalls: a call that reaches its handler and
+// succeeds is counted as a call with zero failures, not merely as a non-error return.
 func TestToolSet_RecordsSuccessfulCalls(t *testing.T) {
 	metrics := tools.NewMetrics()
 	minter, err := tools.NewTokenMinter()
@@ -501,7 +501,7 @@ func newPerfChatStore(
 	ax, err := axb.Build()
 	require.NoError(b, err)
 	b.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-	store, err := agentchat.NewEventSourced(ax, adapters.AgentChatES(), rm, func(agentchat.ChatEvent) {})
+	store, err := agentchat.NewEventSourced(context.Background(), ax, adapters.AgentChatES(), rm, func(agentchat.ChatEvent) {}, testutil.Placements(b))
 	require.NoError(b, err)
 	return store
 }

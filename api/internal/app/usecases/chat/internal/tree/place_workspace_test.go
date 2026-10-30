@@ -19,6 +19,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // An ORDINARY, unlocked fork moves through this call exactly like a locked
@@ -35,7 +36,7 @@ func TestPlaceWorkspace_MovesAnOrdinaryUnlockedForkJustLikeALockedBranch(t *test
 	require.NoError(t, err)
 
 	n := nodeRowFor(t, nodes, "fork-1")
-	assert.Equal(t, domain.NodeKindWorkspace, n.Kind)
+	assert.Equal(t, dtree.KindWorkspace, n.Kind)
 }
 
 // TestRegression_PlaceWorkspace_AnOrdinaryForkWritesThroughItsOwningChat
@@ -60,8 +61,8 @@ func TestRegression_PlaceWorkspace_AnOrdinaryForkWritesThroughItsOwningChat(t *t
 		domain.Chat{ID: "sibling-chat", Type: domain.ChatTypeChat, OwnsWorkspace: true, WorkspaceID: "ws-sibling", ParentID: "branch-1"},
 	)
 	nodes.Rows = append(nodes.Rows,
-		domain.Node{ID: "fork-chat", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 0},
-		domain.Node{ID: "sibling-chat", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 1},
+		dtree.Node{ID: "fork-chat", Kind: dtree.KindChat, ParentID: "branch-1", Order: 0},
+		dtree.Node{ID: "sibling-chat", Kind: dtree.KindChat, ParentID: "branch-1", Order: 1},
 	)
 	gitStatus.SetRepo("ws-branch-1", repoID)
 	gitStatus.SetRepo("ws-fork", repoID)
@@ -163,7 +164,7 @@ func TestPlaceWorkspace_MintsNodeOnFirstTouch(t *testing.T) {
 	require.NoError(t, err, "a locked branch with no Node row must mint one, not silently do nothing")
 
 	n := nodeRowFor(t, nodes, "branch-1")
-	assert.Equal(t, domain.NodeKindWorkspace, n.Kind)
+	assert.Equal(t, dtree.KindWorkspace, n.Kind)
 	assert.Equal(t, "", n.ParentID)
 	assert.Equal(t, 0, n.Order)
 }
@@ -217,8 +218,8 @@ func TestPlaceWorkspace_MovingToTheBareRepoRootNeverCrossesContext(t *testing.T)
 	// instead of updating this one, a fixture bug rather than a real
 	// production state: every real Node.ParentID names a container that was
 	// itself validated by an earlier placement's own checkFolderContainer).
-	nodes.Rows = append(nodes.Rows, domain.Node{
-		ID: "branch-1", Kind: domain.NodeKindWorkspace, ParentID: "docs", Order: 0,
+	nodes.Rows = append(nodes.Rows, dtree.Node{
+		ID: "branch-1", Kind: dtree.KindWorkspace, ParentID: "docs", Order: 0,
 	})
 	gitStatus.SetRepo("branch-1", repoID)
 	gitStatus.SetBranch("branch-1", true)
@@ -347,8 +348,8 @@ func TestPlaceWorkspace_AnAlreadySplitForkCanStillBeReordered(t *testing.T) {
 		domain.Chat{ID: "sibling", Type: domain.ChatTypeChat, WorkspaceID: workspaceID, ParentID: "spikes"},
 	)
 	nodes.Rows = append(nodes.Rows,
-		domain.Node{ID: "fork-chat", Kind: domain.NodeKindChat, ParentID: "spikes", Order: 0},
-		domain.Node{ID: "sibling", Kind: domain.NodeKindChat, ParentID: "spikes", Order: 1},
+		dtree.Node{ID: "fork-chat", Kind: dtree.KindChat, ParentID: "spikes", Order: 0},
+		dtree.Node{ID: "sibling", Kind: dtree.KindChat, ParentID: "spikes", Order: 1},
 	)
 	gitStatus.SetRepo("ws-fork", repoID)
 	gitStatus.SetBranch("ws-fork", false)
@@ -377,7 +378,7 @@ func seedForkUnderLockedBranch(
 		domain.Chat{ID: "fork-chat", Type: domain.ChatTypeChat, OwnsWorkspace: true, WorkspaceID: "ws-fork", ParentID: "branch-1"},
 	)
 	nodes.Rows = append(nodes.Rows,
-		domain.Node{ID: "fork-chat", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 0})
+		dtree.Node{ID: "fork-chat", Kind: dtree.KindChat, ParentID: "branch-1", Order: 0})
 	gitStatus.SetRepo("ws-branch-1", repoID)
 	gitStatus.SetBranch("ws-branch-1", true)
 	gitStatus.SetRepo("ws-fork", repoID)

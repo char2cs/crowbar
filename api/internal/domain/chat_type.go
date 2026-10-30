@@ -6,7 +6,7 @@ package domain
 //
 // ChatTypeFolder and ChatTypeBranch are no longer part of the closed
 // taxonomy a Chat aggregate may be minted or retyped as
-// (commands.validChatType) — a folder is a domain.Folder row now
+// (commands.validChatType) — a folder is a tree.Folder row now
 // (2026-09-08 sidebar-placement-unification Task 5 for home-scoped, Task 8
 // for repo-scoped too), and a workspace's own position is carried by its
 // Node{Kind:workspace} row, never a retyped Chat proxy, since Task 9 deleted

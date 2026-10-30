@@ -140,7 +140,7 @@ func (c *Container) forgetNode(
 	ctx context.Context,
 	id string,
 ) error {
-	if err := c.Node.Forget(ctx, id); err != nil && !alreadyGone(err) {
+	if err := c.Placement.Forget(ctx, id); err != nil && !alreadyGone(err) {
 		return fmt.Errorf("repositories: delete cascade: forget node %q: %w", id, err)
 	}
 	return nil

@@ -3,8 +3,8 @@
 // every row kind SHARES — they interleave at every level and sort on one Order
 // field within one ParentID.
 //
-// A folder is a plain `domain.Folder` row (identity: id, name, repo scope)
-// paired with a `domain.Node` row (position) — home-scoped (RepoID == "")
+// A folder is a plain `dtree.Folder` row (identity: id, name, repo scope)
+// paired with a `dtree.Node` row (position) — home-scoped (RepoID == "")
 // since 2026-09-08 sidebar-placement-unification Task 5, repo-scoped
 // (RepoID != "") too since Task 8. It is never a Chat row: `ChatTypeFolder`
 // dropped out of `domain.ChatType`'s closed taxonomy the moment this
@@ -33,6 +33,7 @@ package tree
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -40,6 +41,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 type chatFolderUsecase struct {
@@ -136,7 +138,7 @@ func (u *chatFolderUsecase) ListInRepo(
 	ctx context.Context,
 	repoID string,
 ) ([]domain.Chat, error) {
-	return u.listFolders(ctx, func(f domain.Folder) bool { return f.RepoID == repoID })
+	return u.listFolders(ctx, func(f dtree.Folder) bool { return f.RepoID == repoID })
 }
 
 // ListInHome implements Usecase. A home folder written before HomeID
@@ -146,7 +148,7 @@ func (u *chatFolderUsecase) ListInHome(
 	ctx context.Context,
 	homeID string,
 ) ([]domain.Chat, error) {
-	return u.listFolders(ctx, func(f domain.Folder) bool {
+	return u.listFolders(ctx, func(f dtree.Folder) bool {
 		if f.RepoID == "" && f.HomeID == "" {
 			f = u.adoptHomeFolder(ctx, f, homeID)
 		}
@@ -158,9 +160,9 @@ func (u *chatFolderUsecase) ListInHome(
 // the one its ancestors or members already name, or homeID when nothing does.
 func (u *chatFolderUsecase) adoptHomeFolder(
 	ctx context.Context,
-	f domain.Folder,
+	f dtree.Folder,
 	homeID string,
-) domain.Folder {
+) dtree.Folder {
 	home := u.homeOfFolder(ctx, f.ID, homeID, map[string]bool{})
 	if home == "" {
 		home = homeID
@@ -226,7 +228,7 @@ func (u *chatFolderUsecase) homeOfRow(
 
 func (u *chatFolderUsecase) listFolders(
 	ctx context.Context,
-	keep func(domain.Folder) bool,
+	keep func(dtree.Folder) bool,
 ) ([]domain.Chat, error) {
 	all, err := u.folders.FindAll(ctx)
 	if err != nil {
@@ -237,7 +239,7 @@ func (u *chatFolderUsecase) listFolders(
 		if !keep(f) {
 			continue
 		}
-		row := homeFolderView(f, domain.Node{})
+		row := homeFolderView(f, dtree.Node{})
 		if n, nerr := u.nodes.GetNode(ctx, f.ID); nerr == nil {
 			row = homeFolderView(f, n)
 		}
@@ -250,20 +252,20 @@ func (u *chatFolderUsecase) listFolders(
 func (u *chatFolderUsecase) FolderScope(
 	ctx context.Context,
 	id string,
-) (domain.Folder, error) {
+) (dtree.Folder, error) {
 	f, err := u.folders.FindByKey(ctx, id)
 	if err != nil {
-		return domain.Folder{}, fmt.Errorf("agent chat folder: %s: %w", id, err)
+		return dtree.Folder{}, fmt.Errorf("agent chat folder: %s: %w", id, err)
 	}
 	if f == nil {
-		return domain.Folder{}, fmt.Errorf("agent chat folder: %s: %w", id, problem.ErrNotFound)
+		return dtree.Folder{}, fmt.Errorf("agent chat folder: %s: %w", id, problem.ErrNotFound)
 	}
 	return *f, nil
 }
 
 // Create mints a new folder, home-scoped (RepoID == "") or repo-scoped
-// (RepoID != "") alike since Task 8: identity is a plain domain.Folder row,
-// position is a domain.Node row, minted through the SAME snapshot/plan/
+// (RepoID != "") alike since Task 8: identity is a plain dtree.Folder row,
+// position is a dtree.Node row, minted through the SAME snapshot/plan/
 // persist densify every other Create call runs — checkFolderContainer, guard
 // walks and the write dispatch are entirely unchanged, only WHERE a row's
 // identity/position come from differs (see writeRow's home dispatch,
@@ -278,7 +280,7 @@ func (u *chatFolderUsecase) Create(
 	if err != nil {
 		return domain.Chat{}, nil, err
 	}
-	folder := domain.Folder{Name: name, RepoID: in.RepoID, HomeID: in.HomeID}
+	folder := dtree.Folder{Name: name, RepoID: in.RepoID, HomeID: in.HomeID}
 	snapshot, err := u.globalSnapshotIn(ctx, domain.Chat{}, u.scopeForFolder(ctx, folder))
 	if err != nil {
 		return domain.Chat{}, nil, err
@@ -358,9 +360,10 @@ func (u *chatFolderUsecase) Rename(
 	if err := u.folders.Save(ctx, *f); err != nil {
 		return domain.Chat{}, fmt.Errorf("agent chat folder: rename %s: save: %w", f.ID, err)
 	}
+	// A folder with no position row yet sits at its scope's root.
 	n, err := u.nodes.GetNode(ctx, f.ID)
-	if err != nil {
-		return homeFolderView(*f, domain.Node{}), nil
+	if err != nil && !errors.Is(err, dtree.ErrUnknownNode) {
+		return domain.Chat{}, fmt.Errorf("agent chat folder: rename %s: position: %w", f.ID, err)
 	}
 	return homeFolderView(*f, n), nil
 }

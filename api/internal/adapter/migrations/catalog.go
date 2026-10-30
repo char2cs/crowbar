@@ -25,6 +25,10 @@ const (
 // no layout, so the post-open legacy steps after it stay as they are.
 const StepChatLedger = 6
 
+// StepPlacementTree copies every sidebar placement into the per-project Trees.
+// It deletes nothing: the node files and the folders table stay for a rollback.
+const StepPlacementTree = 7
+
 // legacyNames are the steps' names, which were also their markers' file names.
 var legacyNames = map[int]string{
 	StepProjectHomes:        "project-homes",
@@ -63,6 +67,7 @@ func legacySteps() []migrate.Step {
 		legacyStep(StepChatProviders, migrate.PostOpen, rewrites("chat providers their runner history disagrees with")),
 		legacyStep(StepHookDeliveries, migrate.PostOpen, deletes(".hook-deliveries directories")),
 		{Number: StepChatLedger, Name: "chat-ledger", Phase: migrate.PreOpen, Plan: chatledger.Plan},
+		{Number: StepPlacementTree, Name: "placement-tree", Phase: migrate.PostOpen, Plan: planPlacementTree},
 	}
 }
 

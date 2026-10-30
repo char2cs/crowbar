@@ -218,7 +218,7 @@ func (e *Emulator) CursorPosition() uv.Position {
 
 // Resize resizes the terminal as xterm.js does: the primary screen reflows its soft-wrapped
 // lines, the alternate screen is never reflowed, and no wrap stays pending (reflow.go).
-func (e *Emulator) Resize(width int, height int) {
+func (e *Emulator) Resize(width, height int) {
 	alt := e.scr == &e.scrs[1]
 	x, y := e.scrs[0].resizeLines(width, height, e.atPhantom && !alt, true)
 	altX, altY := e.scrs[1].resizeLines(width, height, e.atPhantom && alt, false)

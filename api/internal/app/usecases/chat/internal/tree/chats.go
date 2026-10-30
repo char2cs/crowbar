@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // The chat half of the tree: placing a chat, and the cascade that takes its
@@ -184,7 +185,7 @@ func (u *chatFolderUsecase) ensureWorkspaceAnchor(
 	if live, err := u.workspaces.Exists(ctx, id); err != nil || !live {
 		return nil // not a workspace either: the container check reports it
 	}
-	if _, err := u.nodes.Create(ctx, id, domain.NodeKindWorkspace, "", 0); err != nil {
+	if _, err := u.nodes.Create(ctx, id, dtree.KindWorkspace, "", 0); err != nil {
 		return fmt.Errorf("agent chat folder: parent %s: mint workspace node: %w", id, err)
 	}
 	return nil

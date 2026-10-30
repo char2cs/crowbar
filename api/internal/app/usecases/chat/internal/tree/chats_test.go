@@ -12,6 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // TestDeleteChat_RefusesAFolderID pins the asymmetry this package's own doc
@@ -168,10 +169,8 @@ func TestCreateChat_PlacesTheChatBeforeStartingItsCLI(t *testing.T) {
 }
 
 // A folder parent is "new chat in this folder" and takes the identical path.
-// The new chat's placement is Node-backed now (2026-09-08
-// sidebar-placement-unification Task 8 — repo-scoped chat placement, same
-// as home-scoped since Task 5), so this reads the Node row, not the frozen
-// Chat field.
+// The new chat's placement is Node-backed, so this reads the Node row, not the
+// frozen Chat field.
 func TestCreateChat_InAFolderPlacesItThereToo(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
 	seedFolder(t, uc, "spikes", "")
@@ -216,8 +215,8 @@ func TestCreateChat_DoesNotReorderUnrelatedRootSiblings(t *testing.T) {
 	// (bystander's 5 gets "corrected" to 1 as a side effect of c1's own
 	// create, even though nothing was ever actually removed from "").
 	nodes.Rows = append(nodes.Rows,
-		domain.Node{ID: "c1", Kind: domain.NodeKindChat, ParentID: "", Order: 0},
-		domain.Node{ID: "bystander", Kind: domain.NodeKindChat, ParentID: "", Order: 5},
+		dtree.Node{ID: "c1", Kind: dtree.KindChat, ParentID: "", Order: 0},
+		dtree.Node{ID: "bystander", Kind: dtree.KindChat, ParentID: "", Order: 5},
 	)
 	chats.NextID = "c-new"
 

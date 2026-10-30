@@ -26,7 +26,7 @@ const (
 	workspaceDBName    = "workspace.db"
 	reviewThreadDBName = "review_thread.db"
 	agentChatDBName    = "agent_chat.db"
-	nodeDBName         = "node.db"
+	treeDBName         = "tree.db"
 )
 
 // per-type snapshot DB file names under state/events, one per aggregate type,
@@ -38,7 +38,7 @@ const (
 	workspaceSnapshotDBName    = "workspace_snapshots.db"
 	reviewThreadSnapshotDBName = "review_thread_snapshots.db"
 	agentChatSnapshotDBName    = "agent_chat_snapshots.db"
-	nodeSnapshotDBName         = "node_snapshots.db"
+	treeSnapshotDBName         = "tree_snapshots.db"
 )
 
 // Container is the persistence layer.
@@ -67,13 +67,9 @@ type Container struct {
 	agentChatEventStore    asynxModels.Store
 	agentChatSnapshotStore asynxModels.SnapshotStore
 	agentChatStoreDB       *gormdb.DB
-	// The node plane (2026-09-08 sidebar-placement-unification) is its OWN event
-	// log, snapshot store and read model, mirroring every other per-type plane
-	// above — one entity owning every sidebar row's position, at every tree
-	// level, needs its own singleton the same way agentchat/workspace do.
-	nodeEventStore    asynxModels.Store
-	nodeSnapshotStore asynxModels.SnapshotStore
-	nodeStoreDB       *gormdb.DB
+	// The Tree has no read model: Get is its read.
+	treeEventStore    asynxModels.Store
+	treeSnapshotStore asynxModels.SnapshotStore
 	chatLedgerDB      *gormdb.DB
 
 	globalView *gormdb.DB
@@ -150,9 +146,8 @@ func openContainer(
 	agentChatEventStore := o.eventStore(eventsDir, agentChatDBName, "agent chat event store")
 	agentChatSnapshotStore := o.snapshotStore(eventsDir, agentChatSnapshotDBName, "agent chat snapshot store")
 	agentChatStoreDB := o.viewDB(storeDir, agentChatDBName, "agent chat store db")
-	nodeEventStore := o.eventStore(eventsDir, nodeDBName, "node event store")
-	nodeSnapshotStore := o.snapshotStore(eventsDir, nodeSnapshotDBName, "node snapshot store")
-	nodeStoreDB := o.viewDB(storeDir, nodeDBName, "node store db")
+	treeEventStore := o.eventStore(eventsDir, treeDBName, "tree event store")
+	treeSnapshotStore := o.snapshotStore(eventsDir, treeSnapshotDBName, "tree snapshot store")
 	chatLedgerDB := o.chatLedgerDB(h)
 	globalView := o.viewDB(h.State(), viewDBName, "global view")
 
@@ -172,9 +167,8 @@ func openContainer(
 		agentChatEventStore:    agentChatEventStore,
 		agentChatSnapshotStore: agentChatSnapshotStore,
 		agentChatStoreDB:       agentChatStoreDB,
-		nodeEventStore:         nodeEventStore,
-		nodeSnapshotStore:      nodeSnapshotStore,
-		nodeStoreDB:            nodeStoreDB,
+		treeEventStore:         treeEventStore,
+		treeSnapshotStore:      treeSnapshotStore,
 		chatLedgerDB:           chatLedgerDB,
 		globalView:             globalView,
 	}
@@ -301,25 +295,14 @@ func (c *Container) AgentChatReadDB() *gormdb.DB {
 	return c.agentChatStoreDB
 }
 
-// NodeES returns the node event log at state/events/node.db. This is the
-// singleton per-type handle: the app layer builds ONE axNode over it and routes
-// every node id to a shard by hash, mirroring
-// WorkspaceES/ReviewThreadES/AgentChatES.
-func (c *Container) NodeES() asynxModels.Store {
-	return c.nodeEventStore
+// TreeES returns the Tree event log at state/events/tree.db.
+func (c *Container) TreeES() asynxModels.Store {
+	return c.treeEventStore
 }
 
-// NodeSS returns the node snapshot store at state/events/node_snapshots.db —
-// the asynx v0.8 O(1) warm-read cache paired with NodeES.
-func (c *Container) NodeSS() asynxModels.SnapshotStore {
-	return c.nodeSnapshotStore
-}
-
-// NodeReadDB returns the node read-model DB at state/store/node.db, opened as a
-// read pool (decision 12). The node store projection folds evt.Aggregate into
-// it, mirroring AgentChatReadDB/WorkspaceView.
-func (c *Container) NodeReadDB() *gormdb.DB {
-	return c.nodeStoreDB
+// TreeSS returns the Tree snapshot store at state/events/tree_snapshots.db.
+func (c *Container) TreeSS() asynxModels.SnapshotStore {
+	return c.treeSnapshotStore
 }
 
 // GlobalView returns the global view DB at state/view.db holding projects,
@@ -348,7 +331,6 @@ func (c *Container) Close() error {
 	closeEach(&errs, "workspace store db", &c.workspaceStoreDB, closeViewDB)
 	closeEach(&errs, "review thread view", &c.reviewThreadView, closeViewDB)
 	closeEach(&errs, "agent chat store db", &c.agentChatStoreDB, closeViewDB)
-	closeEach(&errs, "node store db", &c.nodeStoreDB, closeViewDB)
 	closeEach(&errs, "chat ledger db", &c.chatLedgerDB, closeViewDB)
 	closeEach(&errs, "global view", &c.globalView, closeViewDB)
 
@@ -356,8 +338,8 @@ func (c *Container) Close() error {
 	closeEach(&errs, "workspace snapshot store", &c.workspaceSnapshotStore, closeSnapshotStore)
 	closeEach(&errs, "agent chat event store", &c.agentChatEventStore, closeEventStore)
 	closeEach(&errs, "agent chat snapshot store", &c.agentChatSnapshotStore, closeSnapshotStore)
-	closeEach(&errs, "node event store", &c.nodeEventStore, closeEventStore)
-	closeEach(&errs, "node snapshot store", &c.nodeSnapshotStore, closeSnapshotStore)
+	closeEach(&errs, "tree event store", &c.treeEventStore, closeEventStore)
+	closeEach(&errs, "tree snapshot store", &c.treeSnapshotStore, closeSnapshotStore)
 
 	for _, cl := range c.globalClosers {
 		if err := cl.Close(); err != nil {

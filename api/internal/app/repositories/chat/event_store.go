@@ -15,7 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat/internal/store"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // CreateInput seeds a new AgentChat: identity, kind, workspace, clock, and the
@@ -123,52 +122,25 @@ type EventStore interface {
 		chatID string,
 		level string,
 	) (domain.Chat, error)
-	// SetPlacement writes where the chat sits in the Chats tree: the row it hangs
-	// off and its dense index within that sibling space.
-	//
-	// It is on the ordinary async Send path, and it has to be: a single drag
-	// renumbers a whole level, so one gesture is N of these, and blocking each on
-	// its projection would serialise the drag behind the read model. Nothing reads
-	// back through the read model to decide the next write — the caller planned the
-	// whole move from ONE snapshot before the first command went out — so there is
-	// no barrier to owe.
 	// LoadChat folds the chat directly from the EVENT LOG, so it is always
-	// current — the same source every command validates against.
-	//
-	// It exists beside GetChat because the two answer different questions and one
-	// of them is not safe for every caller. GetChat serves the read-model
-	// projection, which is asynchronous: SetPlacement is deliberately on the async
-	// Send path (see its doc), so a chat read back straight after a placement can
-	// still be serving the placement it had BEFORE. That is fine for rendering a
-	// list and fatal for a DECISION taken on it — a spawn resolving what a new
-	// thread inherits read ParentID as "" and injected nothing, so the thread's
-	// first session came up not knowing it was a thread. Anything deciding on a
-	// chat's placement must read it here.
-	//
-	// It mirrors workspace.Get and reviewthread.Get, which fold per-id reads from
-	// the log for exactly this reason (§3.7). Unlike those, this aggregate's list
-	// is hot enough (every hook resolves its chat) that the projected read is kept
-	// as the default rather than replaced.
+	// current, where GetChat serves the asynchronous read model: anything deciding
+	// on a chat (what a new thread inherits, a placement plan) reads it here.
 	LoadChat(
 		ctx context.Context,
 		id string,
 	) (domain.Chat, error)
+	// SetPlacement writes where the chat sits in the Chats tree: the row it hangs
+	// off and its dense index there. Placement lives in the Tree aggregate; every
+	// chat this repository returns carries it.
 	SetPlacement(
 		ctx context.Context,
 		chatID string,
 		parentID string,
 		order int,
 	) (domain.Chat, error)
-	// SetOrder writes a chat's index within the sibling space it is already in
-	// and leaves its parent alone — the write a DENSIFY owes, as against a move.
-	//
-	// A drag renumbers a whole level and re-parents one row. Writing the rest of
-	// that level through SetPlacement made every renumber restate a parent the
-	// caller had read rather than decided, and the caller reads the asynchronous
-	// projection: a second drag landing inside the first one's projection window
-	// wrote a stale parent back and returned a just-filed thread to the panel
-	// root. The parent this preserves comes from the log fold the command
-	// validates against, so it is current rather than merely untouched.
+	// SetOrder writes a chat's index and keeps its parent as the Tree holds it: a
+	// densify renumbers a level and must never restate a parent it only read.
+	// A chat already gone is problem.ErrNotFound.
 	SetOrder(
 		ctx context.Context,
 		chatID string,
@@ -240,23 +212,29 @@ type EventStore interface {
 // eventSourced is the asynx-backed EventStore implementation. There is no
 // writeMu: asynx serializes each aggregate's commands.
 type eventSourced struct {
-	ax    asynx.Asynx[domain.Chat]
-	store store.Store
+	ax         asynx.Asynx[domain.Chat]
+	store      store.Store
+	placements Placements
 }
 
 // NewEventSourced builds the repository over ax, which must have been built with
-// Subscriber(rm). es is the log ax wraps, kept for the lazy rebuild.
+// Subscriber(rm). es is the log ax wraps, kept for the lazy rebuild; placements
+// is where each chat's placement is kept; ctx's values reach the watch's reads.
 func NewEventSourced(
+	ctx context.Context,
 	ax asynx.Asynx[domain.Chat],
 	es asynxModels.Store,
 	rm *ReadModel,
 	watch WatchFunc,
+	placements Placements,
 ) (EventStore, error) {
-	st, err := store.New(rm, es, ax, watch)
+	r := &eventSourced{ax: ax, placements: placements}
+	st, err := store.New(rm, es, ax, r.placedWatch(ctx, watch))
 	if err != nil {
 		return nil, fmt.Errorf("agentchat: store: %w", err)
 	}
-	return &eventSourced{ax: ax, store: st}, nil
+	r.store = st
+	return r, nil
 }
 
 // Create is the only command on the SendWait path; see the EventStore interface doc.
@@ -276,7 +254,7 @@ func (r *eventSourced) Create(
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: create: %w", err)
 	}
-	return evt.Aggregate, nil
+	return r.placed(ctx, evt.Aggregate)
 }
 
 func (r *eventSourced) SetTitle(
@@ -289,7 +267,7 @@ func (r *eventSourced) SetTitle(
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set title: %w", err)
 	}
-	return evt.Aggregate, nil
+	return r.placed(ctx, evt.Aggregate)
 }
 
 func (r *eventSourced) SetSelection(
@@ -302,7 +280,7 @@ func (r *eventSourced) SetSelection(
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set selection: %w", err)
 	}
-	return evt.Aggregate, nil
+	return r.placed(ctx, evt.Aggregate)
 }
 
 func (r *eventSourced) SetPermissionLevel(
@@ -314,7 +292,7 @@ func (r *eventSourced) SetPermissionLevel(
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set permission level: %w", err)
 	}
-	return evt.Aggregate, nil
+	return r.placed(ctx, evt.Aggregate)
 }
 
 func (r *eventSourced) SetSurface(
@@ -326,7 +304,7 @@ func (r *eventSourced) SetSurface(
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set surface: %w", err)
 	}
-	return evt.Aggregate, nil
+	return r.placed(ctx, evt.Aggregate)
 }
 
 func (r *eventSourced) SetProvider(
@@ -338,7 +316,7 @@ func (r *eventSourced) SetProvider(
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set provider: %w", err)
 	}
-	return evt.Aggregate, nil
+	return r.placed(ctx, evt.Aggregate)
 }
 
 func (r *eventSourced) SeedPermissionLevel(
@@ -350,7 +328,7 @@ func (r *eventSourced) SeedPermissionLevel(
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: seed permission level: %w", err)
 	}
-	return evt.Aggregate, nil
+	return r.placed(ctx, evt.Aggregate)
 }
 
 func (r *eventSourced) LoadChat(
@@ -361,40 +339,7 @@ func (r *eventSourced) LoadChat(
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: load chat: %w", mapNotFound(err))
 	}
-	return chat, nil
-}
-
-func (r *eventSourced) SetPlacement(
-	ctx context.Context,
-	chatID string,
-	parentID string,
-	order int,
-) (domain.Chat, error) {
-	evt, err := r.ax.Send(ctx, commands.SetPlacement{ID: chatID, ParentID: parentID, Order: order})
-	if err != nil {
-		return domain.Chat{}, fmt.Errorf("agentchat: set placement: %w", err)
-	}
-	return evt.Aggregate, nil
-}
-
-// SetOrder reports a target that no longer exists as problem.ErrNotFound rather
-// than the command's raw validation failure: a densify plans a whole level from
-// one snapshot, and a chat a concurrent delete purged out from under it needs
-// no order any more, which its caller can only tell apart from a genuine
-// validation bug (a negative order) via this sentinel.
-func (r *eventSourced) SetOrder(
-	ctx context.Context,
-	chatID string,
-	order int,
-) (domain.Chat, error) {
-	evt, err := r.ax.Send(ctx, commands.SetOrder{ID: chatID, Order: order})
-	if err != nil {
-		if errors.Is(err, commands.ErrNoSuchChat) {
-			return domain.Chat{}, fmt.Errorf("agentchat: set order: %w", problem.ErrNotFound)
-		}
-		return domain.Chat{}, fmt.Errorf("agentchat: set order: %w", err)
-	}
-	return evt.Aggregate, nil
+	return r.placed(ctx, chat)
 }
 
 // SetWorkspace is deliberately on the SendWait path — see the interface doc.
@@ -407,7 +352,10 @@ func (r *eventSourced) SetWorkspace(
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set workspace: %w", err)
 	}
-	return evt.Aggregate, nil
+	if err := r.placements.AdoptChat(ctx, chatID, workspaceID); err != nil {
+		return domain.Chat{}, fmt.Errorf("agentchat: set workspace: placement: %w", err)
+	}
+	return r.placed(ctx, evt.Aggregate)
 }
 
 // SetType is deliberately on the SendWait path — see the interface doc.
@@ -420,7 +368,7 @@ func (r *eventSourced) SetType(
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set type: %w", err)
 	}
-	return evt.Aggregate, nil
+	return r.placed(ctx, evt.Aggregate)
 }
 
 // Forget purges the chat aggregate via ax.Forget (hard delete), mirroring
@@ -431,6 +379,9 @@ func (r *eventSourced) Forget(
 ) error {
 	if err := r.ax.Forget(ctx, id); err != nil {
 		return fmt.Errorf("agentchat: forget: %w", err)
+	}
+	if err := r.placements.DropChat(ctx, id); err != nil {
+		return fmt.Errorf("agentchat: forget: placement: %w", err)
 	}
 	return nil
 }
@@ -443,7 +394,7 @@ func (r *eventSourced) GetChat(
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: get chat: %w", mapNotFound(err))
 	}
-	return chat, nil
+	return r.placed(ctx, chat)
 }
 
 func (r *eventSourced) Get(
@@ -460,7 +411,7 @@ func (r *eventSourced) ListChats(
 	if err != nil {
 		return nil, fmt.Errorf("agentchat: list chats: %w", err)
 	}
-	return rows, nil
+	return r.placedAll(ctx, rows)
 }
 
 func (r *eventSourced) ListByWorkspace(
@@ -471,7 +422,7 @@ func (r *eventSourced) ListByWorkspace(
 	if err != nil {
 		return nil, fmt.Errorf("agentchat: list by workspace: %w", err)
 	}
-	return rows, nil
+	return r.placedAll(ctx, rows)
 }
 
 // mapNotFound bridges the store package's local ErrNotFound sentinel (kept

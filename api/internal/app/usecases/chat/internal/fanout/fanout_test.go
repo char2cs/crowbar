@@ -19,6 +19,7 @@ type emptyReader struct{}
 func (emptyReader) GetChat(_ context.Context, id string) (domain.Chat, error) {
 	return domain.Chat{ID: id}, nil
 }
+
 func (emptyReader) ViewLedger(_ context.Context, _ string, fn func(ledger.State) error) error {
 	return fn(ledger.State{})
 }

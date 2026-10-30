@@ -113,7 +113,9 @@ func finish(
 	noop := migrate.Impl{Apply: func(context.Context, migrate.Env, *migrate.Checkpoints) (migrate.Counts, error) {
 		return nil, nil
 	}}
-	impls := migrate.Impls{StepProjectHomes: noop, StepChatTypes: noop, StepChatProviders: noop, StepHookDeliveries: noop}
+	impls := migrate.Impls{
+		StepProjectHomes: noop, StepChatTypes: noop, StepChatProviders: noop, StepHookDeliveries: noop, StepPlacementTree: noop,
+	}
 	require.NoError(t, sess.RunPostOpen(context.Background(), impls))
 	require.NoError(t, sess.Close())
 }

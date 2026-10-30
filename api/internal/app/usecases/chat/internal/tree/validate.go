@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // The checks every move passes before anything is written. Folder ops
@@ -184,7 +185,7 @@ func (u *chatFolderUsecase) nearestWorkspaceAnchor(
 		}
 		seen[id] = true
 		n, nErr := u.nodes.GetNode(ctx, id)
-		if nErr == nil && n.Kind == domain.NodeKindWorkspace {
+		if nErr == nil && n.Kind == dtree.KindWorkspace {
 			return id, nil
 		}
 		if nErr == nil {
@@ -241,16 +242,16 @@ func (u *chatFolderUsecase) resolveRow(
 	if f, ferr := u.folders.FindByKey(ctx, id); ferr == nil && f != nil {
 		n, nerr := u.nodes.GetNode(ctx, id)
 		if nerr != nil {
-			n = domain.Node{}
+			n = dtree.Node{}
 		}
 		row := homeFolderView(*f, n)
 		return &row, nil
 	}
-	if n, nerr := u.nodes.GetNode(ctx, id); nerr == nil && n.Kind == domain.NodeKindWorkspace {
+	if n, nerr := u.nodes.GetNode(ctx, id); nerr == nil && n.Kind == dtree.KindWorkspace {
 		return u.anchorRow(ctx, id, n)
 	}
 	if live, lerr := u.workspaces.Exists(ctx, id); lerr == nil && live {
-		return u.anchorRow(ctx, id, domain.Node{ID: id, Kind: domain.NodeKindWorkspace})
+		return u.anchorRow(ctx, id, dtree.Node{ID: id, Kind: dtree.KindWorkspace})
 	}
 	return nil, err // the ORIGINAL Chats.Get failure -- neither a folder, a workspace's own Node row nor a live workspace answers to id.
 }
@@ -258,7 +259,7 @@ func (u *chatFolderUsecase) resolveRow(
 func (u *chatFolderUsecase) anchorRow(
 	ctx context.Context,
 	id string,
-	n domain.Node,
+	n dtree.Node,
 ) (*domain.Chat, error) {
 	row, err := u.anchorView(ctx, id, n)
 	if err != nil {

@@ -140,7 +140,7 @@ func (c *Container) Register(
 		c.app.Repositories.Workspace,
 		c.app.Usecases.ProjectImport,
 		c.app.Usecases.Project,
-		c.app.Repositories.Node,
+		c.app.Repositories.Placement,
 		c.eng.Git,
 		c.app.Usecases.ProjectDelete,
 		c.app.Operations,
@@ -182,7 +182,7 @@ func (c *Container) Register(
 		c.app.Usecases.AgentChatFolder,
 		c.app.Hub.BroadcastAgentChatFolder,
 		chatWorktrees{app: c.app},
-		c.app.Repositories.Node,
+		c.app.Repositories.Placement,
 		c.agentChats.Handle,
 		ws.DualServe,
 	)
@@ -277,8 +277,8 @@ func (c *Container) Register(
 		chatWorktrees{app: c.app},
 		// A worktree-owning chat's own sidebar FolderID/Order (2026-09-09
 		// sidebar-placement-unification, workspace-placement fix) — the SAME
-		// Node store PlaceWorkspace (endpoints/workspace, below) writes.
-		c.app.Repositories.Node,
+		// placement store PlaceWorkspace (endpoints/workspace, below) writes.
+		c.app.Repositories.Placement,
 		c.app.Hub.BroadcastAgentChatFolder,
 		c.agentChats.Handle,
 	)

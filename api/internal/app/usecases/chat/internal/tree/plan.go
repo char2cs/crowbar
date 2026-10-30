@@ -23,7 +23,7 @@ import (
 // tell it that a chat it may not touch exists.
 //
 // A folder id can no longer reach this door at all (2026-09-08
-// sidebar-placement-unification Task 8): a folder is a domain.Folder row now,
+// sidebar-placement-unification Task 8): a folder is a dtree.Folder row now,
 // home-scoped or repo-scoped alike, never a Chats.LoadChat result — the
 // chat/folder verb split that used to need a Type check here is now a
 // resolution-door split instead (Rename/Move/Delete resolve through

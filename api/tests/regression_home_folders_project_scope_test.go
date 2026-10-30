@@ -13,7 +13,7 @@ import (
 )
 
 // A project's home folders (RepoID == "") are the ONLY rows a project's
-// GET/PATCH/DELETE .../home/chats/folders may see or touch. domain.Folder
+// GET/PATCH/DELETE .../home/chats/folders may see or touch. tree.Folder
 // carries no project id, so every project's home folders share the one
 // RepoID == "" bucket ListInRepo("") filters on.
 func TestRegression_HomeFoldersAreProjectScoped(t *testing.T) {

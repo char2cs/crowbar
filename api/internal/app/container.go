@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 
 	"github.com/char2cs/asynx"
@@ -16,6 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/realtime"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
+	repotree "github.com/char2cs/crowbar/api/internal/app/repositories/tree"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
@@ -51,11 +53,8 @@ type Container struct {
 	axWorkspace    asynx.Asynx[domain.Workspace]
 	axReviewThread asynx.Asynx[domain.ReviewThread]
 	axAgentChat    asynx.Asynx[domain.Chat]
-	// axNode is the Node position aggregate's own per-type singleton
-	// (2026-09-08 sidebar-placement-unification): the ONE entity that will own
-	// every sidebar row's ParentID/Order. This wiring is purely additive —
-	// nothing else in the codebase reads or writes it yet.
-	axNode asynx.Asynx[domain.Node]
+	// axTree is the per-project placement aggregate's singleton.
+	axTree asynx.Asynx[tree.Tree]
 }
 
 // New constructs the application layer from the engine and adapter containers,
@@ -83,7 +82,11 @@ func New(
 
 	ops := operation.New(gormStores.Operations, h.BroadcastOperation, time.Now)
 	chatSnapshots := newChatSnapshots(h)
-	repos, err := newRepositoriesContainer(ctx, adapters, rm, h, chatSnapshots, ax, engines, purgeGaveUp(ops))
+	placement, err := newPlacement(ctx, ax, gormStores, h, chatSnapshots)
+	if err != nil {
+		return nil, err
+	}
+	repos, err := newRepositoriesContainer(ctx, adapters, rm, h, chatSnapshots, ax, placement, engines, purgeGaveUp(ops))
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +119,7 @@ func New(
 		axWorkspace:    ax.workspace,
 		axReviewThread: ax.reviewThread,
 		axAgentChat:    ax.agentChat,
-		axNode:         ax.node,
+		axTree:         ax.tree,
 	}
 
 	// Before the API opens: nothing a restart interrupted may still read as running.
@@ -133,7 +136,8 @@ func New(
 	}
 	startRestoreTerminalSessions(ctx, ucs)
 	// Before the owner reconcile (a project home created here needs an owner).
-	if err := post.RunPostOpen(ctx, legacyImpls(newLegacyFuncs(repos, ucs, adapters.Home()))); err != nil {
+	impls := postOpenImpls(newLegacyFuncs(repos, ucs, adapters.Home()), placement, legacySources(adapters, repos, gormStores))
+	if err := post.RunPostOpen(ctx, impls); err != nil {
 		return nil, c.abandon(ctx, fmt.Errorf("app: migrate: %w", err))
 	}
 	// After the upgrade steps, which can hand it a runner a crashed old daemon left.
@@ -192,8 +196,7 @@ type threadBroadcaster interface {
 
 // newRepositoriesContainer builds the repository layer from every per-type
 // asynx singleton and its read model. The fanout built here decides what a
-// client is told; node's live watch is nil (its placements reach the hub with
-// the chats' through BroadcastPlacementChanged).
+// client is told.
 func newRepositoriesContainer(
 	ctx context.Context,
 	adapters *adapter.Container,
@@ -201,6 +204,7 @@ func newRepositoriesContainer(
 	h *hub.Hub,
 	chatSnapshots *agentusecase.ChatSnapshots,
 	ax *aggregates,
+	placement *repotree.Ports,
 	engines *engine.Container,
 	onGiveUp func(ctx context.Context, wsID string, tomb *domain.Workspace, err error),
 ) (*repositories.Container, error) {
@@ -213,10 +217,9 @@ func newRepositoriesContainer(
 		ax.reviewThread,
 		ax.workspace,
 		ax.agentChat,
-		ax.node,
+		placement,
 		engines.Git,
 		agentFanout.ChatWatch(),
-		nil,
 		onGiveUp,
 	)
 	if err != nil {
@@ -236,7 +239,6 @@ func toUsecaseStores(
 		AgentProviderPreferences: gormStores.AgentProviderPreferences,
 		AgentPermissionDefault:   gormStores.AgentPermissionDefault,
 		AgentModelManifestFetch:  gormStores.AgentModelManifestFetch,
-		Folders:                  gormStores.Folders,
 		AgentChatTelemetry:       gormStores.AgentChatTelemetry,
 	}
 }
@@ -438,8 +440,8 @@ func announceHomeRow(
 	h *hub.Hub,
 	chatSnapshots *agentusecase.ChatSnapshots,
 ) project.HomeRowAnnouncer {
-	return func(ctx context.Context, id, workspaceID string, kind domain.NodeKind, event string) {
-		if kind == domain.NodeKindChat {
+	return func(ctx context.Context, id, workspaceID string, kind tree.Kind, event string) {
+		if kind == tree.KindChat {
 			// A versioned snapshot, like every other chat frame: its placement
 			// is read from the Node this write just moved.
 			chatSnapshots.Announce(ctx, id, event)

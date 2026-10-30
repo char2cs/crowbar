@@ -9,6 +9,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 func TestResolve_AChatThatOwnsItsOwnWorktreeResolvesToItselfWithoutWalkingAncestors(t *testing.T) {
@@ -231,8 +232,7 @@ func TestResolve_AWorktreeOwningAncestorAcrossNestedFoldersIsFound(t *testing.T)
 // above (which bake folder-f/folder-g straight into fakeChatLister.rows,
 // proving only that the WALK can cross a folder WHEN one happens to be in
 // the raw list), this fixture matches production exactly — a folder is
-// Folder/Node-backed now (2026-09-08 sidebar-placement-unification Task 5
-// for home-scoped, Task 8 for repo-scoped too), never a Chat row, so
+// Folder/Node-backed, never a Chat row, so
 // fakeChatLister (standing in for usecases/chat.Usecase.ListChats) never
 // carries it. Before this fix, chat-b's own ParentID named "folder-f", an id
 // with NO entry in rows at all — newChatForest's walk hit that gap and
@@ -251,10 +251,10 @@ func TestResolve_AWorktreeOwningAncestorAcrossARealFolderIsFound(t *testing.T) {
 		},
 	}
 	folders := mocks.NewFolderStore()
-	folders.Saved = []domain.Folder{{ID: "folder-f", Name: "notes"}}
+	folders.Saved = []tree.Folder{{ID: "folder-f", Name: "notes"}}
 	nodes := mocks.NewNodePlacements()
-	nodes.Rows = []domain.Node{
-		{ID: "folder-f", Kind: domain.NodeKindFolder, ParentID: "chat-a", Order: 0},
+	nodes.Rows = []tree.Node{
+		{ID: "folder-f", Kind: tree.KindFolder, ParentID: "chat-a", Order: 0},
 	}
 	chats := worktree.NewChatTreeAncestryReader(lister, folders, nodes)
 	workspaces := &fakeWorkspaceReader{
@@ -283,10 +283,10 @@ func TestChatsForWorkspace_ARealFolderIsCrossedNotJustABakedInOne(t *testing.T) 
 		},
 	}
 	folders := mocks.NewFolderStore()
-	folders.Saved = []domain.Folder{{ID: "folder-f", Name: "notes"}}
+	folders.Saved = []tree.Folder{{ID: "folder-f", Name: "notes"}}
 	nodes := mocks.NewNodePlacements()
-	nodes.Rows = []domain.Node{
-		{ID: "folder-f", Kind: domain.NodeKindFolder, ParentID: "chat-a", Order: 0},
+	nodes.Rows = []tree.Node{
+		{ID: "folder-f", Kind: tree.KindFolder, ParentID: "chat-a", Order: 0},
 	}
 
 	chatIDs, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", lister, folders, nodes)
@@ -329,14 +329,14 @@ type countingNodes struct {
 func (c *countingNodes) ListByParent(
 	ctx context.Context,
 	parentID string,
-) ([]domain.Node, error) {
+) ([]tree.Node, error) {
 	c.reads++
 	return c.NodePlacements.ListByParent(ctx, parentID)
 }
 
 func (c *countingNodes) ListAll(
 	ctx context.Context,
-) ([]domain.Node, error) {
+) ([]tree.Node, error) {
 	c.reads++
 	return c.NodePlacements.ListAll(ctx)
 }

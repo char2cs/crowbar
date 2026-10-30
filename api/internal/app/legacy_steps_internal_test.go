@@ -59,9 +59,10 @@ func TestImplemented_NamesEveryStepTheBootRuns(t *testing.T) {
 	report, err := migrate.Inspect(t.Context(), testutil.FixtureHome(t), cat, Implemented, migrate.Options{})
 
 	require.NoError(t, err)
-	assert.Len(t, report.Steps, 6, "a fresh home has every step pending")
+	assert.Len(t, report.Steps, 7, "a fresh home has every step pending")
 	assert.True(t, Implemented(migrations.StepChatLedger))
-	assert.False(t, Implemented(migrations.StepChatLedger+1), "no step past the catalog")
+	assert.True(t, Implemented(migrations.StepPlacementTree))
+	assert.False(t, Implemented(migrations.StepPlacementTree+1), "no step past the catalog")
 }
 
 // Only a live project with no live home gets one, each checkpointed as it
@@ -235,7 +236,11 @@ func runLegacyIn(
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, sess.Close()) })
 	require.NoError(t, sess.RunPreOpen(t.Context(), migrations.PreOpenImpls()))
-	return sess.RunPostOpen(t.Context(), legacyImpls(f))
+	impls := legacyImpls(f)
+	impls[migrations.StepPlacementTree] = migrate.Impl{
+		Apply: func(context.Context, migrate.Env, *migrate.Checkpoints) (migrate.Counts, error) { return nil, nil },
+	}
+	return sess.RunPostOpen(t.Context(), impls)
 }
 
 // journalsAt is a hook-journal listing that names each of journals while it is

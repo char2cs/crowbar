@@ -5,7 +5,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 )
@@ -16,11 +15,10 @@ type ReadModels struct {
 	Workspace    *workspace.ReadModel
 	ReviewThread *reviewthread.ReadModel
 	AgentChat    *agentchat.ReadModel
-	Node         *node.ReadModel
 }
 
 // OpenReadModels opens every read model over its view DB. placementWatch hears
-// every chat and node placement once its read model holds it (nil: nobody).
+// every chat whose workspace or type changed, or that was deleted (nil: nobody).
 func OpenReadModels(
 	adapters *adapter.Container,
 	placementWatch func(id string),
@@ -37,9 +35,5 @@ func OpenReadModels(
 	if err != nil {
 		return nil, fmt.Errorf("repositories: %w", err)
 	}
-	n, err := node.OpenReadModel(adapters.NodeReadDB(), node.WithPlacementWatch(placementWatch))
-	if err != nil {
-		return nil, fmt.Errorf("repositories: %w", err)
-	}
-	return &ReadModels{Workspace: ws, ReviewThread: rt, AgentChat: chat, Node: n}, nil
+	return &ReadModels{Workspace: ws, ReviewThread: rt, AgentChat: chat}, nil
 }

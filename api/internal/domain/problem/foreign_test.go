@@ -14,7 +14,6 @@ import (
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	repoattachments "github.com/char2cs/crowbar/api/internal/app/repositories/chat/attachments"
-	noderepo "github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
@@ -22,6 +21,7 @@ import (
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
@@ -72,7 +72,7 @@ func TestCodeOf_EverySentinelKeepsItsStatus(t *testing.T) {
 		{agentchat.ErrNotFound, http.StatusNotFound},
 		{agentusecase.ErrNoLiveRunner, http.StatusNotFound},
 		{repoattachments.ErrNotFound, http.StatusNotFound},
-		{noderepo.ErrNotFound, http.StatusNotFound},
+		{tree.ErrUnknownNode, http.StatusNotFound},
 		{enginesearch.ErrBadPattern, http.StatusBadRequest},
 		{enginesearch.ErrPathOutsideWorkspace, http.StatusBadRequest},
 		{safepath.ErrPathEscapesWorkspace, http.StatusBadRequest},

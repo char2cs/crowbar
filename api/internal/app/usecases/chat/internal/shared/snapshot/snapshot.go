@@ -224,6 +224,17 @@ func (s *Snapshots) Announce(ctx context.Context, chatID, kind string) {
 	s.emitChatLocked(ctx, chatID, kind, "")
 }
 
+// ApplyPlacement records chatID's new place in the tree, which no chat event
+// carries, and publishes its snapshot under kind.
+func (s *Snapshots) ApplyPlacement(ctx context.Context, chatID, parentID string, order int, kind string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if st, ok := s.chats[chatID]; ok && st.loaded {
+		st.chat.ParentID, st.chat.Order = parentID, order
+	}
+	s.emitChatLocked(ctx, chatID, kind, "")
+}
+
 // Get returns chatID's current snapshot without advancing its version.
 func (s *Snapshots) Get(ctx context.Context, chatID string) (Snapshot, error) {
 	snaps, err := s.GetMany(ctx, []string{chatID})

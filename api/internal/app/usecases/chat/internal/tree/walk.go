@@ -8,6 +8,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree/internal/lineage"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // RepoRoots answers a repo's default checkout: where a row that reaches the
@@ -47,7 +48,7 @@ func cwdWalk(
 	t tree.Tree,
 	chats map[string]domain.Chat,
 	rowID string,
-) (workspaceID string, repoID string, ok bool) {
+) (workspaceID, repoID string, ok bool) {
 	seen := map[string]bool{}
 	for id := rowID; id != "" && !seen[id]; {
 		seen[id] = true
@@ -101,8 +102,8 @@ var errNoNodes = errors.New("tree: no node port wired")
 // level of a walk answers from it, because each read of the table decodes every
 // row and the walk asks about every level.
 type nodeTable struct {
-	byID     map[string]domain.Node
-	byParent map[string][]domain.Node
+	byID     map[string]dtree.Node
+	byParent map[string][]dtree.Node
 }
 
 // readNodeTable reads the table once; a nil port reads as an error so the walk
@@ -119,8 +120,8 @@ func readNodeTable(
 		return nodeTable{}, err
 	}
 	t := nodeTable{
-		byID:     make(map[string]domain.Node, len(all)),
-		byParent: make(map[string][]domain.Node),
+		byID:     make(map[string]dtree.Node, len(all)),
+		byParent: make(map[string][]dtree.Node),
 	}
 	for _, n := range all {
 		t.byID[n.ID] = n
@@ -195,7 +196,7 @@ func workspaceAnchorsReachable(
 		for id := row.ParentID; id != "" && !known[id]; {
 			known[id] = true
 			n, ok := table.byID[id]
-			if !ok || n.Kind != domain.NodeKindWorkspace {
+			if !ok || n.Kind != dtree.KindWorkspace {
 				break
 			}
 			found = append(found, workspaceAnchorView(id, n, time.Time{}))
@@ -353,7 +354,7 @@ func foldersReachableFromRoots(
 		}
 		queried[parent] = true
 		for _, n := range table.byParent[parent] {
-			if n.Kind != domain.NodeKindFolder || seenFolder[n.ID] {
+			if n.Kind != dtree.KindFolder || seenFolder[n.ID] {
 				continue
 			}
 			seenFolder[n.ID] = true

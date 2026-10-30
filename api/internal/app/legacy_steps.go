@@ -12,7 +12,9 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter/migrations"
 	"github.com/char2cs/crowbar/api/internal/adapter/migrations/chatledger"
+	"github.com/char2cs/crowbar/api/internal/app/migratetree"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
+	repotree "github.com/char2cs/crowbar/api/internal/app/repositories/tree"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	"github.com/char2cs/crowbar/api/internal/core/home"
@@ -91,7 +93,20 @@ func newLegacyFuncs(
 func Implemented(
 	number int,
 ) bool {
-	return migrations.PreOpenImpls()[number].Apply != nil || legacyImpls(legacyFuncs{})[number].Apply != nil
+	return migrations.PreOpenImpls()[number].Apply != nil ||
+		postOpenImpls(legacyFuncs{}, nil, migratetree.LegacySources{})[number].Apply != nil
+}
+
+// postOpenImpls implements every post-open step: the legacy ones over f, and
+// the placement-tree copy into ports from src.
+func postOpenImpls(
+	f legacyFuncs,
+	ports *repotree.Ports,
+	src migratetree.LegacySources,
+) migrate.Impls {
+	impls := legacyImpls(f)
+	impls[migrations.StepPlacementTree] = migratetree.PlacementTreeImpl(ports, src)
+	return impls
 }
 
 // legacyImpls implements the legacy post-open steps over f. Each adopts the

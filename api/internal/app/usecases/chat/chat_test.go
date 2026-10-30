@@ -25,6 +25,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -460,13 +461,9 @@ func thread(
 	f.wait()
 }
 
-// file puts a folder row in the tree: a domain.Folder+domain.Node pair,
-// exactly like the tree usecase's own Create does (2026-09-08
-// sidebar-placement-unification Task 8 — a folder is never a Chat row any
-// more, home-scoped or repo-scoped alike). The lineage walk reads it back
-// through f.usecase's own wrapped ChatLineage (harness_test.go's
-// NewHomeCorrectedTreeChats wiring), the same door production reads it
-// through.
+// file puts a folder row in the tree: a tree.Folder+tree.Node pair, as the
+// tree usecase's Create does. The lineage walk reads it back through
+// f.usecase's wrapped ChatLineage, the door production reads it through.
 func file(
 	t *testing.T,
 	f testFixture,
@@ -474,8 +471,8 @@ func file(
 	parentID string,
 ) {
 	t.Helper()
-	f.folders.Saved = append(f.folders.Saved, domain.Folder{ID: id, Name: id})
-	_, err := f.nodes.Create(f.ctx, id, domain.NodeKindFolder, parentID, 0)
+	f.folders.Saved = append(f.folders.Saved, tree.Folder{ID: id, Name: id})
+	_, err := f.nodes.Create(f.ctx, id, tree.KindFolder, parentID, 0)
 	require.NoError(t, err)
 }
 

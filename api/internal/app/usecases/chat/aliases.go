@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"

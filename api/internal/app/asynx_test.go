@@ -16,6 +16,7 @@ import (
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 func TestNewAsynx_BuildsInstance(t *testing.T) {
@@ -57,11 +58,11 @@ func (h msgHandler) WithGroup(string) slog.Handler      { return h }
 
 type createNode struct{}
 
-func (createNode) AggregateID() string                { return "n1" }
-func (createNode) EventName() string                  { return "node.created.n1" }
-func (createNode) ShouldSnapshot() bool               { return false }
-func (createNode) Validate(*domain.Node) error        { return nil }
-func (createNode) EmitEvent(*domain.Node) domain.Node { return domain.Node{ID: "n1"} }
+func (createNode) AggregateID() string            { return "n1" }
+func (createNode) EventName() string              { return "node.created.n1" }
+func (createNode) ShouldSnapshot() bool           { return false }
+func (createNode) Validate(*tree.Node) error      { return nil }
+func (createNode) EmitEvent(*tree.Node) tree.Node { return tree.Node{ID: "n1"} }
 
 // The attempt that parks an aggregate says so rather than promising a retry.
 func TestNewAsynx_TheLastFailedAttemptIsLoggedAsParked(t *testing.T) {
@@ -71,9 +72,9 @@ func TestNewAsynx_TheLastFailedAttemptIsLoggedAsParked(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(prev) })
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := newAsynx(es, asynxstore.NewSnapshots(), func(b *asynx.Builder[domain.Node]) {
+	ax, err := newAsynx(es, asynxstore.NewSnapshots(), func(b *asynx.Builder[tree.Node]) {
 		b.WithDeliveryMaxAttempts(1).
-			WithSubscriber("node.*", func(context.Context, asynxModels.Event[domain.Node]) error {
+			WithSubscriber("node.*", func(context.Context, asynxModels.Event[tree.Node]) error {
 				return errors.New("read model down")
 			})
 	})

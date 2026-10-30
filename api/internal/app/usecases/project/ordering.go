@@ -7,6 +7,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // slot is one row of an ordered sidebar list: where it sits in the caller's
@@ -133,7 +134,7 @@ func containsID(
 // densifyRepos and placeRepoAmongHomeSiblings, replacing the Repository-sourced
 // repoIndex this migrated off of.
 func nodeIndex(
-	rows []domain.Node,
+	rows []dtree.Node,
 ) []slot {
 	slots := make([]slot, 0, len(rows))
 	for i, row := range rows {
@@ -144,14 +145,14 @@ func nodeIndex(
 
 // rankOfKind is tree.Node.Rank for a Node kind.
 func rankOfKind(
-	kind domain.NodeKind,
+	kind dtree.Kind,
 ) int {
 	switch kind {
-	case domain.NodeKindFolder:
+	case dtree.KindFolder:
 		return tree.RankFolder
-	case domain.NodeKindChat:
+	case dtree.KindChat:
 		return tree.RankChat
-	case domain.NodeKindWorkspace:
+	case dtree.KindWorkspace:
 		return tree.RankWorkspace
 	}
 	return tree.RankRepo

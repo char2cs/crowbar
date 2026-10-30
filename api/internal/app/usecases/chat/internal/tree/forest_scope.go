@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // Which level a snapshot's bare root stands for, and who belongs to it — the
@@ -59,7 +60,7 @@ func (u *chatFolderUsecase) scopeForWorkspace(
 			repoMemberIDs: u.repoMemberIDsForHome(ctx, workspaceID),
 		}, nil
 	}
-	return u.scopeForFolder(ctx, domain.Folder{RepoID: repoID}), nil
+	return u.scopeForFolder(ctx, dtree.Folder{RepoID: repoID}), nil
 }
 
 // scopeForFolder resolves a folder's scope off its own stored identity. A
@@ -67,7 +68,7 @@ func (u *chatFolderUsecase) scopeForWorkspace(
 // checkout's.
 func (u *chatFolderUsecase) scopeForFolder(
 	ctx context.Context,
-	f domain.Folder,
+	f dtree.Folder,
 ) forestScope {
 	if f.RepoID != "" {
 		scope := forestScope{repoID: f.RepoID}
@@ -97,7 +98,7 @@ func (u *chatFolderUsecase) scopeForSubject(
 		if f, err := u.folders.FindByKey(ctx, subject.ID); err == nil && f != nil {
 			return u.scopeForFolder(ctx, *f), nil
 		}
-		return u.scopeForFolder(ctx, domain.Folder{ID: subject.ID, RepoID: subject.RepoID}), nil
+		return u.scopeForFolder(ctx, dtree.Folder{ID: subject.ID, RepoID: subject.RepoID}), nil
 	}
 	return u.scopeForWorkspace(ctx, subject.WorkspaceID)
 }
@@ -130,19 +131,19 @@ func (u *chatFolderUsecase) scopeForBubble(
 // corrects, nil when the walk discovered it.
 func (u *chatFolderUsecase) rootMember(
 	ctx context.Context,
-	n domain.Node,
+	n dtree.Node,
 	scope forestScope,
 	aliases levelAliases,
 	row *domain.Chat,
 ) bool {
 	switch n.Kind {
-	case domain.NodeKindChat:
+	case dtree.KindChat:
 		return row != nil && u.chatAtRoot(ctx, *row, scope, aliases)
-	case domain.NodeKindFolder:
+	case dtree.KindFolder:
 		return u.folderAtRoot(ctx, n.ID, scope)
-	case domain.NodeKindRepo:
+	case dtree.KindRepo:
 		return scope.home && (scope.repoMemberIDs == nil || scope.repoMemberIDs[n.ID])
-	case domain.NodeKindWorkspace:
+	case dtree.KindWorkspace:
 		// The level's own default checkout is its header, never a member.
 		if scope.repoID == "" || n.ID == scope.workspaceID {
 			return false

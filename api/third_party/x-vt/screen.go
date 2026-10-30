@@ -60,7 +60,7 @@ func (s *Screen) ClearTouched() {
 }
 
 // CellAt returns the cell at the given x, y position.
-func (s *Screen) CellAt(x int, y int) *uv.Cell {
+func (s *Screen) CellAt(x, y int) *uv.Cell {
 	return s.buf.CellAt(x, y)
 }
 
@@ -76,7 +76,7 @@ func (s *Screen) Height() int {
 
 // Resize resizes the screen as xterm.js resizes a buffer; a screen with history reflows its
 // soft-wrapped lines (reflow.go).
-func (s *Screen) Resize(width int, height int) {
+func (s *Screen) Resize(width, height int) {
 	s.resizeLines(width, height, false, s.scrollback != nil)
 }
 

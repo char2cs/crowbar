@@ -22,10 +22,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
+	repotree "github.com/char2cs/crowbar/api/internal/app/repositories/tree"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 var errFake = errors.New("fake error")
@@ -59,11 +61,11 @@ func buildAx[T any](
 // aggregates are ad's read models and the asynx instances built to deliver to
 // them, as the app layer wires them.
 type aggregates struct {
-	rm   *repositories.ReadModels
-	rt   asynx.Asynx[domain.ReviewThread]
-	ws   asynx.Asynx[domain.Workspace]
-	chat asynx.Asynx[domain.Chat]
-	node asynx.Asynx[domain.Node]
+	rm        *repositories.ReadModels
+	rt        asynx.Asynx[domain.ReviewThread]
+	ws        asynx.Asynx[domain.Workspace]
+	chat      asynx.Asynx[domain.Chat]
+	placement *repotree.Ports
 }
 
 func newAggregates(
@@ -77,11 +79,11 @@ func newAggregates(
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
 	return aggregates{
-		rm:   rm,
-		rt:   buildAx(t, es, reviewthread.Subscriber(rm.ReviewThread)),
-		ws:   buildAx(t, ad.WorkspaceES(), workspace.Subscriber(rm.Workspace)),
-		chat: buildAx(t, ad.AgentChatES(), agentchat.Subscriber(rm.AgentChat)),
-		node: buildAx(t, ad.NodeES(), node.Subscriber(rm.Node)),
+		rm:        rm,
+		rt:        buildAx(t, es, reviewthread.Subscriber(rm.ReviewThread)),
+		ws:        buildAx(t, ad.WorkspaceES(), workspace.Subscriber(rm.Workspace)),
+		chat:      buildAx(t, ad.AgentChatES(), agentchat.Subscriber(rm.AgentChat)),
+		placement: testutil.Placements(t),
 	}
 }
 
@@ -93,13 +95,11 @@ func newRepos(
 ) (*repositories.Container, error) {
 	t.Helper()
 	a := newAggregates(t, ad, placementWatch)
-	return repositories.New(context.Background(), ad, a.rm, h, a.rt, a.ws, a.chat, a.node, nil, noChatWatch, noNodeWatch, noGiveUp)
+	return repositories.New(context.Background(), ad, a.rm, h, a.rt, a.ws, a.chat, a.placement, nil, noChatWatch, noGiveUp)
 }
 
-// noChatWatch / noNodeWatch are the announcement seams for tests that assert
-// nothing about WS frames or live position updates.
+// noChatWatch is the announcement seam for tests that assert nothing about WS frames.
 func noChatWatch(_ agentchat.ChatEvent)                          {}
-func noNodeWatch(_ node.NodeEvent)                               {}
 func noGiveUp(context.Context, string, *domain.Workspace, error) {}
 
 type captureHub struct {
@@ -163,7 +163,7 @@ func TestContainer_New_BuildsRepos(t *testing.T) {
 	assert.NotNil(t, c.Workspace)
 	assert.NotNil(t, c.ReviewThread)
 	assert.NotNil(t, c.AgentChat)
-	assert.NotNil(t, c.Node)
+	assert.NotNil(t, c.Placement)
 }
 
 func TestContainer_New_NilWorkspaceAxReturnsError(t *testing.T) {
@@ -171,8 +171,8 @@ func TestContainer_New_NilWorkspaceAxReturnsError(t *testing.T) {
 	a := newAggregates(t, ad, nil)
 	_, err := repositories.New(
 		context.Background(), ad, a.rm, hub.NewHub(),
-		a.rt, nil /* nil axWorkspace → workspace.New rejects */, a.chat, a.node,
-		nil, noChatWatch, noNodeWatch, noGiveUp,
+		a.rt, nil /* nil axWorkspace → workspace.New rejects */, a.chat, a.placement,
+		nil, noChatWatch, noGiveUp,
 	)
 	assert.Error(t, err)
 }
@@ -444,7 +444,7 @@ func createAgentChat(
 		Now:         time.Unix(1, 0).UTC(),
 	})
 	require.NoError(t, err)
-	_, err = c.Node.Create(ctx, chatID, domain.NodeKindChat, "", 0)
+	_, err = c.Placement.Create(ctx, chatID, tree.KindChat, "", 0)
 	require.NoError(t, err)
 }
 
@@ -487,7 +487,7 @@ func TestContainer_DeleteCascade_PurgesEveryChatAndNodeRowOfTheWorkspace(t *test
 	for _, id := range []string{"w1", "w2"} {
 		_, err := c.Workspace.Create(ctx, workspace.CreateInput{ID: id, RepoID: "r1", ProjectID: "p1", Branch: id, Provisioning: domain.WorkspacePlaceholder}, time.Unix(1, 0).UTC())
 		require.NoError(t, err)
-		_, err = c.Node.Create(ctx, id, domain.NodeKindWorkspace, "", 0)
+		_, err = c.Placement.Create(ctx, id, tree.KindWorkspace, "", 0)
 		require.NoError(t, err)
 	}
 	createAgentChat(t, ctx, c, "chat1", "w1")
@@ -500,11 +500,11 @@ func TestContainer_DeleteCascade_PurgesEveryChatAndNodeRowOfTheWorkspace(t *test
 
 	assert.ElementsMatch(t, []string{"chat1", "chat2"}, purge.all())
 	for _, id := range []string{"chat1", "chat2", "w1"} {
-		_, err := c.Node.GetNode(ctx, id)
+		_, err := c.Placement.GetNode(ctx, id)
 		require.Error(t, err, "%s's Node row must not outlive the delete", id)
 	}
 	for _, id := range []string{"chat-other", "w2"} {
-		_, err := c.Node.GetNode(ctx, id)
+		_, err := c.Placement.GetNode(ctx, id)
 		require.NoError(t, err, "%s belongs to an untouched workspace", id)
 	}
 	_, err := c.AgentChat.GetChat(ctx, "chat-other")
@@ -536,7 +536,8 @@ func TestRegression_DeleteCascade_ToleratesAChatAlreadyPurged(t *testing.T) {
 // TestContainer_New_PlacementWatchHearsChatsAndNodes: the one placement seam
 // is wired into both the chat and the node read models, so a rebind hears a
 // chat re-anchored to a worktree and a folder dragged across owners alike.
-func TestContainer_New_PlacementWatchHearsChatsAndNodes(t *testing.T) {
+// A Tree write's watch is repositories/tree.Announce's; see its test.
+func TestContainer_New_PlacementWatchHearsChats(t *testing.T) {
 	ad := newAdapter(t)
 	heard := make(chan string, 4)
 	c, err := newRepos(t, ad, hub.NewHub(), func(id string) { heard <- id })
@@ -547,7 +548,4 @@ func TestContainer_New_PlacementWatchHearsChatsAndNodes(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "chat-1", <-heard)
-	_, err = c.Node.Create(context.Background(), "folder-1", domain.NodeKindFolder, "chat-1", 0)
-	require.NoError(t, err)
-	assert.Equal(t, "folder-1", <-heard)
 }

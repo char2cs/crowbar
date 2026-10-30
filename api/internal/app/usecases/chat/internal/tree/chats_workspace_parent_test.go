@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
-	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // The sidebar ids a CHATLESS workspace's row (a repo's default checkout, an
@@ -17,7 +17,7 @@ import (
 // handleCreate: `createChat(wsId, uc, provider, parentId)`).
 func TestRegression_ThreadUnderAChatlessWorkspaceWithItsNodeRow(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
-	_, err := nodes.Create(context.Background(), workspaceID, domain.NodeKindWorkspace, "", 0)
+	_, err := nodes.Create(context.Background(), workspaceID, dtree.KindWorkspace, "", 0)
 	require.NoError(t, err)
 	chats.NextID = "c-new"
 
@@ -47,7 +47,7 @@ func TestRegression_ForkUnderALegacyChatlessWorkspaceWithoutANodeRow(t *testing.
 
 func TestRegression_ForkUnderAChatlessWorkspaceWithItsNodeRow(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
-	_, err := nodes.Create(context.Background(), workspaceID, domain.NodeKindWorkspace, "", 0)
+	_, err := nodes.Create(context.Background(), workspaceID, dtree.KindWorkspace, "", 0)
 	require.NoError(t, err)
 	chats.NextID = "c-new"
 
@@ -64,6 +64,6 @@ func TestRegression_MintOwningChat_UnderALegacyWorkspaceWithoutANodeRow(t *testi
 
 	chatID, err := uc.MintOwningChat(context.Background(), "", workspaceID)
 	require.NoError(t, err)
-	assert.Equal(t, domain.NodeKindWorkspace, nodeRowFor(t, nodes, workspaceID).Kind, "the parent's anchor is minted on first touch")
+	assert.Equal(t, dtree.KindWorkspace, nodeRowFor(t, nodes, workspaceID).Kind, "the parent's anchor is minted on first touch")
 	assert.Equal(t, workspaceID, chatRow(t, chats, chatID).ParentID)
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // This file proves git's chat-scoped stream end to end over the real v0
@@ -351,8 +352,8 @@ func TestGitBinding_FollowsAChatToItsNewWorktree(t *testing.T) {
 func TestGitBinding_FollowsAFolderDraggedToAnotherOwner(t *testing.T) {
 	c, srv, a := placementEnv(t)
 	ctx := context.Background()
-	require.NoError(t, a.GORM.Folders.Save(ctx, domain.Folder{ID: "folder-f", Name: "notes"}))
-	_, err := a.Repositories.Node.Create(ctx, "folder-f", domain.NodeKindFolder, "owner-a", 0)
+	require.NoError(t, a.Repositories.Placement.Save(ctx, tree.Folder{ID: "folder-f", Name: "notes"}))
+	_, err := a.Repositories.Placement.Create(ctx, "folder-f", tree.KindFolder, "owner-a", 0)
 	require.NoError(t, err)
 	createRealChat(t, a, "chat-x", "", "folder-f")
 	conn := dialWSAt(t, srv, "/v0/chats/chat-x/git/status")
@@ -361,7 +362,7 @@ func TestGitBinding_FollowsAFolderDraggedToAnotherOwner(t *testing.T) {
 	c.PushGit("ws-a", gitdomain.GitStatus{Branch: "on-a"})
 	assert.Equal(t, "on-a", readJSON(t, conn)["branch"])
 
-	require.NoError(t, a.Repositories.Node.SetPlacement(ctx, "folder-f", "owner-b", 0))
+	require.NoError(t, a.Repositories.Placement.SetPlacement(ctx, "folder-f", "owner-b", 0))
 	assert.Equal(t, "main", readJSON(t, conn)["branch"])
 
 	c.PushGit("ws-a", gitdomain.GitStatus{Branch: "stale-a"})

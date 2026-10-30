@@ -20,6 +20,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 // captureBroadcast records every (chatID, workspaceID, kind) frame the hub
@@ -70,7 +71,7 @@ func newRepoWithDeps(
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
 	cap := &captureBroadcast{}
-	repo, err := chat.NewEventSourced(ax, es, rm, cap.watch)
+	repo, err := chat.NewEventSourced(context.Background(), ax, es, rm, cap.watch, testutil.Placements(t))
 	require.NoError(t, err)
 	return context.Background(), repo, db, cap
 }
@@ -263,23 +264,9 @@ func TestAgentChat_OpenReadModel_ErrorOnBadDB(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestLoadChat_AnswersWhileTheProjectionIsStillBehind pins the one property
-// LoadChat exists for, and pins it as a PROPERTY rather than as a race.
-//
-// SetPlacement is deliberately on the async Send path (a single drag renumbers a
-// whole level, and blocking each write on its projection would serialise the drag
-// behind the read model). So between that write returning and the projection
-// folding, agent_chats_read genuinely still holds the placement the chat had
-// BEFORE — and that window is exactly when a create asks what the new chat
-// inherits, microseconds later.
-//
-// Live, the window is too narrow to test against: a spawn that resolved placement
-// from the read model, and therefore threaded nothing, passed about half the time
-// and survived a suite that way. So the window is held open here instead of raced,
-// by writing the pre-placement row back over the folded one. That is not a broken
-// state being simulated — it is the ordinary state of this table for a moment
-// after every placement, made to stand still long enough to assert against.
-func TestLoadChat_AnswersWhileTheProjectionIsStillBehind(t *testing.T) {
+// A placement is read off the Tree, so a read model a moment behind the write
+// (its pre-placement row held in place here) still serves the chat where it is.
+func TestPlacement_IsCurrentWhileTheProjectionIsStillBehind(t *testing.T) {
 	ctx, repo, db, _ := newRepoWithDeps(t)
 
 	_, err := repo.Create(ctx, chat.CreateInput{ID: "c1", WorkspaceID: "ws-1", Type: domain.ChatTypeChat, Now: time.Now()})
@@ -302,23 +289,14 @@ func TestLoadChat_AnswersWhileTheProjectionIsStillBehind(t *testing.T) {
 
 	projected, err := repo.GetChat(ctx, "c2")
 	require.NoError(t, err)
-	require.Empty(t, projected.ParentID,
-		"the fixture only means anything while the read model is behind — this is that state")
-
+	assert.Equal(t, "c1", projected.ParentID, "the projected read")
 	loaded, err := repo.LoadChat(ctx, "c2")
 	require.NoError(t, err)
-	assert.Equal(t, "c1", loaded.ParentID,
-		"LoadChat folds from the event log, so a decision taken on it is never one taken on a stale projection")
-	assert.Equal(t, 0, loaded.Order)
+	assert.Equal(t, "c1", loaded.ParentID, "the read a thread's inheritance decides on")
 }
 
-// TestSetOrder_RenumbersWithoutMoving pins the split at the repository boundary.
-//
-// The two placement writes exist because a drag decides a parent for ONE row and
-// an index for a whole level. This is the second of them, and the guarantee is
-// that it cannot express a parent at all: the aggregate applies it to the chat
-// folded from the log, so the row keeps the parent the log has whatever the
-// caller believed when it planned the renumber.
+// A drag decides a parent for one row and an index for a whole level; SetOrder
+// is the second and cannot express a parent: the row keeps the one the Tree holds.
 func TestSetOrder_RenumbersWithoutMoving(t *testing.T) {
 	ctx, repo, _, _ := newRepoWithDeps(t)
 
@@ -516,7 +494,7 @@ func TestAgentChat_PlacementWatchFiresAfterTheReadModelSaved(t *testing.T) {
 	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-	repo, err := chat.NewEventSourced(ax, es, rm, nil)
+	repo, err := chat.NewEventSourced(context.Background(), ax, es, rm, nil, testutil.Placements(t))
 	require.NoError(t, err)
 	log.repo = repo
 	ctx := context.Background()
@@ -536,6 +514,6 @@ func TestAgentChat_PlacementWatchFiresAfterTheReadModelSaved(t *testing.T) {
 	require.NoError(t, repo.Forget(ctx, "c1"))
 	ax.WaitPublish()
 
-	assert.Equal(t, []string{"c0:w0:", "c1::", "c1:w2:", "c1:w2:parent-p", "c1:gone"}, log.entries(),
-		"created, workspace_set, placement_set and the delete announce; a title change does not")
+	assert.Equal(t, []string{"c0:w0:", "c1::", "c1:w2:", "c1:gone"}, log.entries(),
+		"created, workspace_set and the delete announce; a title change does not, a placement is the Tree's to announce")
 }

@@ -24,7 +24,7 @@ func migratedHome(t *testing.T) home.Home {
 	impls := migrations.PreOpenImpls()
 	for _, number := range []int{
 		migrations.StepProjectHomes, migrations.StepChatTypes,
-		migrations.StepChatProviders, migrations.StepHookDeliveries,
+		migrations.StepChatProviders, migrations.StepHookDeliveries, migrations.StepPlacementTree,
 	} {
 		impls[number] = migrate.Impl{Apply: func(context.Context, migrate.Env, *migrate.Checkpoints) (migrate.Counts, error) {
 			return nil, nil

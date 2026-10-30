@@ -59,7 +59,7 @@ func TestRegression_TopLevelChatPastTiedRepos_LandsWhereIndicated(t *testing.T) 
 
 	ctx := context.Background()
 	for _, id := range append([]string{c1, c2}, repos...) {
-		require.NoError(t, h.app.Repositories.Node.SetOrder(ctx, id, 0))
+		require.NoError(t, h.app.Repositories.Placement.SetOrder(ctx, id, 0))
 	}
 	h.Quiesce()
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // TestProjectUsecase_UpdateRepo_LoadRepoError covers UpdateRepo's own initial
@@ -45,9 +46,9 @@ func TestProjectUsecase_UpdateRepo_DensifyNewProjectSaveError(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r2", ProjectID: "p1"}))
-	nodes.Rows = []domain.Node{
-		{ID: "r1", Kind: domain.NodeKindRepo, Order: 0},
-		{ID: "r2", Kind: domain.NodeKindRepo, Order: 1},
+	nodes.Rows = []tree.Node{
+		{ID: "r1", Kind: tree.KindRepo, Order: 0},
+		{ID: "r2", Kind: tree.KindRepo, Order: 1},
 	}
 	nodes.OrderErrForID = map[string]error{"r2": errors.New("db down")}
 

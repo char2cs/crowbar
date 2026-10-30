@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
-	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // A workspace created before Node rows existed (every pre-#179 production
@@ -24,7 +24,7 @@ func TestRegression_PlaceChat_UnderALegacyWorkspaceWithoutANodeRow(t *testing.T)
 	placed, _, err := uc.PlaceChat(context.Background(), workspaceID, "c1", tree.PlaceInput{ParentID: name(workspaceID)})
 	require.NoError(t, err, "a legacy chatless workspace is a real container")
 	assert.Equal(t, workspaceID, placed.ParentID)
-	assert.Equal(t, domain.NodeKindWorkspace, nodeRowFor(t, nodes, workspaceID).Kind,
+	assert.Equal(t, dtree.KindWorkspace, nodeRowFor(t, nodes, workspaceID).Kind,
 		"the anchor is minted by the first write under it")
 }
 
@@ -34,10 +34,10 @@ func TestRegression_PlaceWorkspace_UnderALegacyWorkspaceWithoutANodeRow(t *testi
 	gitStatus.SetRepo("branch-1", repoID)
 	gitStatus.SetBranch("branch-1", true)
 	gitStatus.SetForkParent("branch-1", "legacy-ws")
-	nodes.Rows = append(nodes.Rows, domain.Node{ID: "branch-1", Kind: domain.NodeKindWorkspace})
+	nodes.Rows = append(nodes.Rows, dtree.Node{ID: "branch-1", Kind: dtree.KindWorkspace})
 
 	placed, _, err := uc.PlaceWorkspace(context.Background(), "branch-1", tree.PlaceInput{ParentID: name("legacy-ws")})
 	require.NoError(t, err)
 	assert.Equal(t, "legacy-ws", placed.ParentID)
-	assert.Equal(t, domain.NodeKindWorkspace, nodeRowFor(t, nodes, "legacy-ws").Kind)
+	assert.Equal(t, dtree.KindWorkspace, nodeRowFor(t, nodes, "legacy-ws").Kind)
 }

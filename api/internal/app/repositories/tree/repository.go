@@ -104,3 +104,17 @@ func (r *Repository) send(ctx context.Context, c edit) (tree.Tree, error) {
 	}
 	return evt.Aggregate, nil
 }
+
+// schemaVersion is tree.Tree's event schema; bump it with an upcaster when a
+// field history patches goes.
+const schemaVersion = 1
+
+// Schema stamps the Tree's events with their schema version.
+func Schema(b *asynx.Builder[tree.Tree]) {
+	b.WithSchemaVersion(schemaVersion)
+}
+
+// WaitPublish waits until every committed Tree event reached its subscribers.
+func (r *Repository) WaitPublish() {
+	r.ax.WaitPublish()
+}

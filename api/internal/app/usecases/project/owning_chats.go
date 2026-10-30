@@ -9,6 +9,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // OwningChats is the narrow chat-side surface this usecase needs so that no
@@ -105,7 +106,7 @@ func (u *projectImport) mintWorkspaceNode(
 	if u.deps.Nodes == nil {
 		return ErrNoNodesWired
 	}
-	if _, err := u.deps.Nodes.Create(ctx, wsID, domain.NodeKindWorkspace, "", 0); err != nil {
+	if _, err := u.deps.Nodes.Create(ctx, wsID, tree.KindWorkspace, "", 0); err != nil {
 		return fmt.Errorf("mint workspace node: %w", err)
 	}
 	return nil

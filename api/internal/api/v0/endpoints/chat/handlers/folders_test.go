@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -50,7 +51,7 @@ type fakeChatTree struct {
 	gotSurface      string
 	createChatCalls int
 	gotHomeID       string
-	folder          domain.Folder
+	folder          tree.Folder
 }
 
 func (f *fakeChatTree) ListInRepo(
@@ -71,14 +72,11 @@ func (f *fakeChatTree) ListInHome(
 
 // FolderScope answers f.folder when its ID matches, else a folder in the
 // repo mount's own scope, so the pre-existing repo-mount tests pass the guard.
-func (f *fakeChatTree) FolderScope(
-	_ context.Context,
-	id string,
-) (domain.Folder, error) {
+func (f *fakeChatTree) FolderScope(_ context.Context, id string) (tree.Folder, error) {
 	if f.folder.ID == id {
 		return f.folder, nil
 	}
-	return domain.Folder{ID: id, RepoID: "r1"}, nil
+	return tree.Folder{ID: id, RepoID: "r1"}, nil
 }
 
 func (f *fakeChatTree) Create(
@@ -694,7 +692,7 @@ func TestRegression_ListFolders_OnTheHomeMountListsThatHomeOnly(t *testing.T) {
 func TestRegression_PatchFolder_RefusesAnotherProjectsHomeFolder(t *testing.T) {
 	tree := &fakeChatTree{
 		moved:  domain.Chat{ID: "f-B", Type: domain.ChatTypeFolder},
-		folder: domain.Folder{ID: "f-B", RepoID: "", HomeID: "home-B"},
+		folder: tree.Folder{ID: "f-B", RepoID: "", HomeID: "home-B"},
 	}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/home/chats/folders/f-B", []byte(`{"name":"stolen"}`))
@@ -708,7 +706,7 @@ func TestRegression_PatchFolder_RefusesAnotherProjectsHomeFolder(t *testing.T) {
 }
 
 func TestRegression_DeleteFolder_RefusesAnotherProjectsHomeFolder(t *testing.T) {
-	tree := &fakeChatTree{folder: domain.Folder{ID: "f-B", RepoID: "", HomeID: "home-B"}}
+	tree := &fakeChatTree{folder: tree.Folder{ID: "f-B", RepoID: "", HomeID: "home-B"}}
 	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodDelete, "/home/chats/folders/f-B", nil)
 	ctx.Params = homeParams(gin.Param{Key: "folderId", Value: "f-B"})

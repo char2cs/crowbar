@@ -17,6 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
@@ -124,7 +125,7 @@ func (u *projectImport) placeRepoAndAdoptHome(
 			slot = next
 		}
 	}
-	if _, err := u.deps.Nodes.Create(ctx, repo.ID, domain.NodeKindRepo, "", slot); err != nil {
+	if _, err := u.deps.Nodes.Create(ctx, repo.ID, tree.KindRepo, "", slot); err != nil {
 		return fmt.Errorf("project import: mint repo node: %w", err)
 	}
 	return u.adoptRepoHome(ctx, repo)

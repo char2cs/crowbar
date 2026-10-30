@@ -7,6 +7,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 
 	"github.com/gin-gonic/gin"
 
@@ -72,10 +73,10 @@ func (h *Handlers) Patch(
 // collateral; chat/folder rows ride their own channel.
 func (h *Handlers) broadcastShiftedRepos(
 	ctx context.Context,
-	shifted []domain.Node,
+	shifted []tree.Node,
 ) {
 	for _, n := range shifted {
-		if n.Kind != domain.NodeKindRepo {
+		if n.Kind != tree.KindRepo {
 			continue
 		}
 		repo, err := h.store.FindByKey(ctx, n.ID)

@@ -11,6 +11,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // busyChats is the tree's Busy port as the set of chats marked working.
@@ -158,7 +159,7 @@ func TestMove_RefusesRootToBranchContext(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
 	seedFolderTree(t, chats, uc) // "root", a repo-root folder — its own context
 	seedChat(chats, "branch-1", 1)
-	nodes.Rows = append(nodes.Rows, domain.Node{ID: "branch-1", Kind: domain.NodeKindWorkspace})
+	nodes.Rows = append(nodes.Rows, dtree.Node{ID: "branch-1", Kind: dtree.KindWorkspace})
 
 	_, _, err := uc.Move(context.Background(), "root", tree.MoveInput{ParentID: name("branch-1")})
 	assert.ErrorIs(t, err, tree.ErrCrossContext)
@@ -172,8 +173,8 @@ func TestMove_RefusesBranchToDifferentBranchContext(t *testing.T) {
 	)
 	nodes := mocks.NewNodePlacements()
 	nodes.Rows = append(nodes.Rows,
-		domain.Node{ID: "branch-1", Kind: domain.NodeKindWorkspace},
-		domain.Node{ID: "branch-2", Kind: domain.NodeKindWorkspace},
+		dtree.Node{ID: "branch-1", Kind: dtree.KindWorkspace},
+		dtree.Node{ID: "branch-2", Kind: dtree.KindWorkspace},
 	)
 	// Both branches resolve to the SAME repo — isolates the finer context
 	// check from the coarser repo check TestMove_RefusesAMoveAcrossRepos
@@ -196,7 +197,7 @@ func TestMove_RefusesBranchToDifferentBranchContext(t *testing.T) {
 func TestMove_AllowsAMoveWithinTheSameBranchContext(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
 	seedChat(chats, "branch-1", 1)
-	nodes.Rows = append(nodes.Rows, domain.Node{ID: "branch-1", Kind: domain.NodeKindWorkspace})
+	nodes.Rows = append(nodes.Rows, dtree.Node{ID: "branch-1", Kind: dtree.KindWorkspace})
 	underBranch1, _, err := uc.Create(context.Background(), tree.CreateInput{
 		RepoID: repoID, ParentID: "branch-1", Name: "notes",
 	})
@@ -284,9 +285,9 @@ func TestPlaceChat_NeverDensifiesAgainstAnyRepoPhantom(t *testing.T) {
 	chats, nodes, gitStatus, uc := newHomeUsecaseWithGitStatus(t)
 	gitStatus.SetRepo(workspaceID, repoID)
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: workspaceID})
-	nodes.Rows = []domain.Node{
-		{ID: "repo-1", Kind: domain.NodeKindRepo, Order: 0}, // this repo's OWN phantom
-		{ID: "repo-2", Kind: domain.NodeKindRepo, Order: 1}, // an unrelated repo's
+	nodes.Rows = []dtree.Node{
+		{ID: "repo-1", Kind: dtree.KindRepo, Order: 0}, // this repo's OWN phantom
+		{ID: "repo-2", Kind: dtree.KindRepo, Order: 1}, // an unrelated repo's
 	}
 
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c1", tree.PlaceInput{Order: index(0)})
@@ -347,8 +348,8 @@ func TestPlaceChat_SecondMoveOfAChatUnreachableThroughItsBranchParent(t *testing
 	gitStatus.SetRepo("ws-branch-1", repoID)
 	// Already Node-backed from an earlier, successful move — the live state
 	// the SECOND move actually found.
-	nodes.Rows = append(nodes.Rows, domain.Node{
-		ID: "fork-chat", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 0,
+	nodes.Rows = append(nodes.Rows, dtree.Node{
+		ID: "fork-chat", Kind: dtree.KindChat, ParentID: "branch-1", Order: 0,
 	})
 
 	_, _, err := uc.PlaceChat(context.Background(), "ws-fork", "fork-chat", tree.PlaceInput{Order: index(0)})
@@ -382,10 +383,10 @@ func TestRegression_PlaceChat_DensifiesAgainstOtherForksUnderTheSameLockedBranch
 	gitStatus.SetRepo("ws-fork-b", repoID)
 	gitStatus.SetRepo("ws-fork-c", repoID)
 	gitStatus.SetRepo("ws-branch-1", repoID)
-	nodes.Rows = []domain.Node{
-		{ID: "fork-a", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 0},
-		{ID: "fork-b", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 1},
-		{ID: "fork-c", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 2},
+	nodes.Rows = []dtree.Node{
+		{ID: "fork-a", Kind: dtree.KindChat, ParentID: "branch-1", Order: 0},
+		{ID: "fork-b", Kind: dtree.KindChat, ParentID: "branch-1", Order: 1},
+		{ID: "fork-c", Kind: dtree.KindChat, ParentID: "branch-1", Order: 2},
 	}
 
 	// fork-c's own snapshot is read off ws-fork-c, which names only fork-c —

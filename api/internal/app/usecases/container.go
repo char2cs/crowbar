@@ -34,7 +34,6 @@ type GORMStores struct {
 	AgentProviderPreferences store.Store[domain.AgentProviderPreference, string]
 	AgentPermissionDefault   store.Store[domain.AgentPermissionDefault, string]
 	AgentModelManifestFetch  store.Store[domain.AgentModelManifestFetch, string]
-	Folders                  store.ScopedStore[domain.Folder, string]
 	AgentChatTelemetry       store.Store[domain.AgentChatTelemetry, string]
 }
 
@@ -174,8 +173,8 @@ func New(
 		gormStores.Projects,
 		gormStores.Repositories,
 		repos.Workspace,
-		gormStores.Folders,
-		repos.Node,
+		repos.Placement,
+		repos.Placement,
 		// homeChats scopes a bare-root repo reorder's CHAT-kind Node siblings
 		// to their project (see project.HomeChats).
 		repos.AgentChat,
@@ -198,7 +197,7 @@ func New(
 		// Every workspace this usecase creates (fork, import, adopted repo
 		// default) mints its own Node{Kind:workspace} row unconditionally at
 		// creation — 2026-09-08 sidebar-placement-unification Task 7.
-		workspace.WithNodes(repos.Node),
+		workspace.WithNodes(repos.Placement),
 	)
 	fileUsecase := file.New(newFsEngineAdapter(engines.FS), workspaceUsecase, crowbarHome)
 	gitUsecase := git.New(
@@ -215,7 +214,7 @@ func New(
 		Repos:          gormStores.Repositories,
 		Workspaces:     repos.Workspace,
 		RepoWorkspaces: workspaceUsecase,
-		Nodes:          repos.Node,
+		Nodes:          repos.Placement,
 		CrowbarHome:    crowbarHome,
 	})
 	branchReview := branchreview.New(
@@ -294,7 +293,7 @@ func New(
 		// folder renders at the panel root forever, surviving a reload. See
 		// agentusecase.NewHomeCorrectedChats' own doc for what this does and
 		// does not close (no WS-broadcast fix, only the read/reload path).
-		AgentChat:            agentusecase.NewHomeCorrectedChats(agentic.chat, repos.Node),
+		AgentChat:            agentusecase.NewHomeCorrectedChats(agentic.chat, repos.Placement),
 		AgentTurn:            agentic.chat,
 		AgentRunner:          agentic.chat,
 		AgentAnswer:          agentic.chat,
@@ -375,7 +374,7 @@ func newAgentWiring(
 	// New; this one is built here, independently. See
 	// agentusecase.NewHomeCorrectedTreeChats' own doc.
 	lineage := agentusecase.NewChatLineage(agentusecase.NewHomeCorrectedTreeChats(
-		repos.AgentChat, repos.Node, gormStores.Folders,
+		repos.AgentChat, repos.Placement, repos.Placement,
 	))
 	toolDeps, err := newAgentToolDeps(minter, repos, review, threadBroadcast, workspaceUsecase)
 	if err != nil {
@@ -402,8 +401,8 @@ func newAgentWiring(
 		Tools:     toolDeps,
 		Snapshots: chatSnapshots,
 		// Folders/Nodes let the ancestor walks see past a Folder-only ancestor.
-		Folders:      gormStores.Folders,
-		Nodes:        repos.Node,
+		Folders:      repos.Placement,
+		Nodes:        repos.Placement,
 		RepoRoots:    workspaceGitStatusReader{workspace: workspaceUsecase, repos: gormStores.Repositories},
 		AgentWorking: repos.SetAgentWorking,
 	})
@@ -411,11 +410,11 @@ func newAgentWiring(
 	// off the usecase above and because the tree below needs its inverse; the
 	// chat-scoped routes resolve through this same value.
 	worktreeUsecase := worktreeResolver{
-		chats:      worktree.NewChatTreeAncestryReader(chat, gormStores.Folders, repos.Node),
+		chats:      worktree.NewChatTreeAncestryReader(chat, repos.Placement, repos.Placement),
 		chatRows:   chat,
 		workspaces: workspaceUsecase,
-		folders:    gormStores.Folders,
-		nodes:      repos.Node,
+		folders:    repos.Placement,
+		nodes:      repos.Placement,
 	}
 	chatTree := agentusecase.NewTree(
 		repos.AgentChat,
@@ -432,8 +431,8 @@ func newAgentWiring(
 		// delete asks who else is currently resolving to it before cascading.
 		worktreeUsecase,
 		// Home-scoped folders and chat placement go through Folder/Node.
-		gormStores.Folders,
-		repos.Node,
+		repos.Placement,
+		repos.Placement,
 		agentusecase.WithTreeRepoAnnouncer(announceRepo),
 	)
 	return agentWiring{
@@ -463,7 +462,7 @@ func newProjectImport(
 		Provider:    engines.Provider,
 		Discover:    discover.Repos,
 		RefRunner:   newRefRunner,
-		Nodes:       repos.Node,
+		Nodes:       repos.Placement,
 		HomeSlots:   homeSlots,
 		Now:         nowFunc,
 		CrowbarHome: crowbarHome,

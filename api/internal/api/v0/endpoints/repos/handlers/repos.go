@@ -14,6 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
 
@@ -109,7 +110,7 @@ type RepoImporter interface {
 }
 
 // NodeReader is the narrow Node surface the repos handlers need: reading a
-// RepoDTO's own sidebar position (Order/FolderID — see domain.Node and
+// RepoDTO's own sidebar position (Order/FolderID — see tree.Node and
 // dto.RepoPlacement), and forgetting the row when the repo goes. Every other
 // WRITE to a repo's position goes through RepoUpdater
 // (project.Usecase.UpdateRepo) instead.
@@ -121,7 +122,7 @@ type NodeReader interface {
 	GetNode(
 		ctx context.Context,
 		id string,
-	) (domain.Node, error)
+	) (tree.Node, error)
 }
 
 // RepoUpdater applies a partial repository update — display name (and its

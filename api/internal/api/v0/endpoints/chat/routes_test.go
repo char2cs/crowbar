@@ -13,6 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
@@ -60,11 +61,8 @@ func (stubChatTree) ListInHome(
 }
 
 // FolderScope answers a folder in the repo these routes are mounted under.
-func (stubChatTree) FolderScope(
-	_ context.Context,
-	id string,
-) (domain.Folder, error) {
-	return domain.Folder{ID: id, RepoID: "r1"}, nil
+func (stubChatTree) FolderScope(_ context.Context, id string) (tree.Folder, error) {
+	return tree.Folder{ID: id, RepoID: "r1"}, nil
 }
 
 func (stubChatTree) Create(

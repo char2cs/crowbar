@@ -12,7 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/defaultbranch"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
-	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
@@ -72,7 +72,7 @@ func TestImport_EveryCreatedWorkspaceHasItsOwnNodeRow(t *testing.T) {
 	for _, w := range ws.Created {
 		n, err := nodes.GetNode(context.Background(), w.ID)
 		require.NoErrorf(t, err, "workspace %s (kind=%v) must have a Node row the instant it is created", w.ID, w.Kind)
-		assert.Equal(t, domain.NodeKindWorkspace, n.Kind)
+		assert.Equal(t, tree.KindWorkspace, n.Kind)
 		assert.Equal(t, w.ID, n.ID)
 	}
 }

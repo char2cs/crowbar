@@ -12,7 +12,7 @@ type Terminal interface {
 	BackgroundColor() color.Color
 	Blur()
 	Bounds() uv.Rectangle
-	CellAt(x int, y int) *uv.Cell
+	CellAt(x, y int) *uv.Cell
 	ClearScrollback()
 	Close() error
 	CursorColor() color.Color
@@ -34,7 +34,7 @@ type Terminal interface {
 	RegisterPmHandler(handler PmHandler)
 	RegisterSosHandler(handler SosHandler)
 	Render() string
-	Resize(width int, height int)
+	Resize(width, height int)
 	Scrollback() *Scrollback
 	ScrollbackCellAt(x, y int) *uv.Cell
 	ScrollbackLen() int
@@ -44,7 +44,7 @@ type Terminal interface {
 	SendText(text string)
 	SetBackgroundColor(c color.Color)
 	SetCallbacks(cb Callbacks)
-	SetCell(x int, y int, c *uv.Cell)
+	SetCell(x, y int, c *uv.Cell)
 	SetCursorColor(c color.Color)
 	SetDefaultBackgroundColor(c color.Color)
 	SetDefaultCursorColor(c color.Color)

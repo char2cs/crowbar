@@ -8,8 +8,8 @@ import (
 	"time"
 
 	asynxModels "github.com/char2cs/asynx/models"
+
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/branchimport"
@@ -17,6 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 	provider "github.com/char2cs/crowbar/api/internal/engine/provider"
 )
@@ -143,7 +144,7 @@ func (s *RepositoryStore) Save(
 	s.Saved = append(s.Saved, item)
 	if s.Nodes != nil {
 		if _, err := s.Nodes.GetNode(ctx, item.ID); err != nil {
-			s.Nodes.Rows = append(s.Nodes.Rows, domain.Node{ID: item.ID, Kind: domain.NodeKindRepo})
+			s.Nodes.Rows = append(s.Nodes.Rows, tree.Node{ID: item.ID, Kind: tree.KindRepo})
 		}
 	}
 	return nil
@@ -241,12 +242,11 @@ func (s *WorkspacePlacements) GetHomeForProject(
 	return domain.Workspace{}, problem.ErrNotFound
 }
 
-// NodePlacements is a fake project.NodePlacements: it holds every repo-kind
-// Node row minted so far and records the two placement writes SEPARATELY
-// (mirroring AgentChatPlacements's Placed/Ordered split) — a renumber may
+// NodePlacements is a fake project.NodePlacements: it holds every Node row
+// minted so far and records the two placement writes apart — a renumber may
 // write an index and must be unable to write a parent.
 type NodePlacements struct {
-	Rows      []domain.Node
+	Rows      []tree.Node
 	CreateErr error
 	GetErr    error
 	ListErr   error
@@ -292,19 +292,19 @@ func NewNodePlacements() *NodePlacements {
 func (s *NodePlacements) Create(
 	ctx context.Context,
 	id string,
-	kind domain.NodeKind,
+	kind tree.Kind,
 	parentID string,
 	order int,
-) (domain.Node, error) {
+) (tree.Node, error) {
 	if s.CreateErr != nil {
-		return domain.Node{}, s.CreateErr
+		return tree.Node{}, s.CreateErr
 	}
 	for _, row := range s.Rows {
 		if row.ID == id {
-			return domain.Node{}, fmt.Errorf("node: create: exists: %w", asynxModels.ErrValidation)
+			return tree.Node{}, fmt.Errorf("node: create: exists: %w", asynxModels.ErrValidation)
 		}
 	}
-	n := domain.Node{ID: id, Kind: kind, ParentID: parentID, Order: order}
+	n := tree.Node{ID: id, Kind: kind, ParentID: parentID, Order: order}
 	s.Rows = append(s.Rows, n)
 	return n, nil
 }
@@ -312,26 +312,26 @@ func (s *NodePlacements) Create(
 func (s *NodePlacements) GetNode(
 	ctx context.Context,
 	id string,
-) (domain.Node, error) {
+) (tree.Node, error) {
 	if s.GetErr != nil {
-		return domain.Node{}, s.GetErr
+		return tree.Node{}, s.GetErr
 	}
 	for _, n := range s.Rows {
 		if n.ID == id {
 			return n, nil
 		}
 	}
-	return domain.Node{}, node.ErrNotFound
+	return tree.Node{}, tree.ErrUnknownNode
 }
 
 func (s *NodePlacements) ListByParent(
 	ctx context.Context,
 	parentID string,
-) ([]domain.Node, error) {
+) ([]tree.Node, error) {
 	if s.ListErr != nil {
 		return nil, s.ListErr
 	}
-	rows := make([]domain.Node, 0, len(s.Rows))
+	rows := make([]tree.Node, 0, len(s.Rows))
 	for _, n := range s.Rows {
 		if n.ParentID == parentID {
 			rows = append(rows, n)
@@ -342,11 +342,11 @@ func (s *NodePlacements) ListByParent(
 
 func (s *NodePlacements) ListAll(
 	ctx context.Context,
-) ([]domain.Node, error) {
+) ([]tree.Node, error) {
 	if s.ListErr != nil {
 		return nil, s.ListErr
 	}
-	return append([]domain.Node(nil), s.Rows...), nil
+	return append([]tree.Node(nil), s.Rows...), nil
 }
 
 // SetOrder writes the index and leaves the parent exactly as it stands, like
@@ -421,10 +421,10 @@ func (s *NodePlacements) Forget(
 	return nil
 }
 
-// FolderStore is a fake store.Store[domain.Folder, string], where a
+// FolderStore is a fake store.Store[tree.Folder, string], where a
 // home-scoped folder's name lives.
 type FolderStore struct {
-	Saved        []domain.Folder
+	Saved        []tree.Folder
 	SaveErr      error
 	FindErr      error
 	FindByKeyErr error
@@ -439,7 +439,7 @@ func NewFolderStore() *FolderStore {
 
 func (s *FolderStore) Save(
 	ctx context.Context,
-	item domain.Folder,
+	item tree.Folder,
 ) error {
 	if s.SaveErr != nil {
 		return s.SaveErr
@@ -484,7 +484,7 @@ func (s *FolderStore) Delete(
 func (s *FolderStore) FindByKey(
 	ctx context.Context,
 	id string,
-) (*domain.Folder, error) {
+) (*tree.Folder, error) {
 	if s.FindByKeyErr != nil {
 		return nil, s.FindByKeyErr
 	}
@@ -499,7 +499,7 @@ func (s *FolderStore) FindByKey(
 
 func (s *FolderStore) FindAll(
 	ctx context.Context,
-) ([]domain.Folder, error) {
+) ([]tree.Folder, error) {
 	if s.FindErr != nil {
 		return nil, s.FindErr
 	}

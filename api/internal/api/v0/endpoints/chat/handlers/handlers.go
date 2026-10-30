@@ -7,6 +7,7 @@ import (
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
@@ -423,10 +424,7 @@ type ChatTreeUsecase interface {
 		ctx context.Context,
 		homeID string,
 	) ([]domain.Chat, error)
-	FolderScope(
-		ctx context.Context,
-		id string,
-	) (domain.Folder, error)
+	FolderScope(ctx context.Context, id string) (tree.Folder, error)
 	Create(
 		ctx context.Context,
 		in agentusecase.CreateInput,

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // Fix round 2 of 2026-09-08 sidebar-placement-unification Task 5: a
@@ -219,7 +220,7 @@ func foldersReachableFrom(
 			return nil, err
 		}
 		for _, n := range children {
-			if n.Kind != domain.NodeKindFolder || seenFolder[n.ID] {
+			if n.Kind != tree.KindFolder || seenFolder[n.ID] {
 				continue
 			}
 			seenFolder[n.ID] = true
@@ -300,7 +301,7 @@ func correctHomeChats(
 	if err != nil {
 		return out
 	}
-	byID := make(map[string]domain.Node, len(all))
+	byID := make(map[string]tree.Node, len(all))
 	for _, n := range all {
 		byID[n.ID] = n
 	}

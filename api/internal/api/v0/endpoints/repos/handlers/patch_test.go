@@ -18,14 +18,15 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // fakeUpdater records the UpdateRepo call and returns a canned repo/error so the
 // Patch handler's HTTP contract can be pinned without a real usecase.
 type fakeUpdater struct {
 	repo    domain.Repository
-	node    domain.Node
-	shifted []domain.Node
+	node    tree.Node
+	shifted []tree.Node
 	err     error
 	gotID   string
 	got     project.RepoUpdate
@@ -98,19 +99,19 @@ func TestPatchRepo_BroadcastsRenamedDTO(t *testing.T) {
 }
 
 // fakeNodeReader is a trivial repohandlers.NodeReader: a fixed map of id ->
-// domain.Node, so a test can pin the Order/FolderID a RepoDTO broadcast reads
+// tree.Node, so a test can pin the Order/FolderID a RepoDTO broadcast reads
 // off the repo's own Node row without standing up the real repository.
-type fakeNodeReader map[string]domain.Node
+type fakeNodeReader map[string]tree.Node
 
 func (f fakeNodeReader) Forget(_ context.Context, id string) error {
 	delete(f, id)
 	return nil
 }
 
-func (f fakeNodeReader) GetNode(_ context.Context, id string) (domain.Node, error) {
+func (f fakeNodeReader) GetNode(_ context.Context, id string) (tree.Node, error) {
 	n, ok := f[id]
 	if !ok {
-		return domain.Node{}, problem.ErrNotFound
+		return tree.Node{}, problem.ErrNotFound
 	}
 	return n, nil
 }
@@ -120,7 +121,7 @@ func (f fakeNodeReader) GetNode(_ context.Context, id string) (domain.Node, erro
 // every drag. Order reaches the broadcast from the placement the usecase
 // DECIDED (project.RepoUpdated.Node), never a Node read-model re-read.
 func TestPatchRepo_OrderOnlyNeedsNoName(t *testing.T) {
-	upd := &fakeUpdater{repo: domain.Repository{ID: "r1", ProjectID: "p1"}, node: domain.Node{ID: "r1", Order: 2}}
+	upd := &fakeUpdater{repo: domain.Repository{ID: "r1", ProjectID: "p1"}, node: tree.Node{ID: "r1", Order: 2}}
 	var frames []dto.RepoDTO
 	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, nil, func(d dto.RepoDTO) {
 		frames = append(frames, d)
@@ -234,8 +235,8 @@ func TestPatchRepo_ProjectMoveSurvivesAnUnresolvableHome(t *testing.T) {
 func TestRegression_PatchRepo_BroadcastsTheDecidedPlacementAndEveryShiftedRepo(t *testing.T) {
 	upd := &fakeUpdater{
 		repo:    domain.Repository{ID: "r1", ProjectID: "p1"},
-		node:    domain.Node{ID: "r1", Kind: domain.NodeKindRepo, ParentID: "", Order: 0},
-		shifted: []domain.Node{{ID: "r2", Kind: domain.NodeKindRepo, Order: 1}, {ID: "c1", Kind: domain.NodeKindChat, Order: 2}},
+		node:    tree.Node{ID: "r1", Kind: tree.KindRepo, ParentID: "", Order: 0},
+		shifted: []tree.Node{{ID: "r2", Kind: tree.KindRepo, Order: 1}, {ID: "c1", Kind: tree.KindChat, Order: 2}},
 	}
 	var frames []dto.RepoDTO
 	store := &fakeStore{all: []domain.Repository{{ID: "r1", ProjectID: "p1"}, {ID: "r2", ProjectID: "p1", Name: "two"}}}
@@ -243,7 +244,7 @@ func TestRegression_PatchRepo_BroadcastsTheDecidedPlacementAndEveryShiftedRepo(t
 		frames = append(frames, d)
 	}, func() (string, error) { return t.TempDir(), nil }).WithUpdater(upd).
 		// The projection still serves the PRE-write order.
-		WithNodes(fakeNodeReader{"r1": domain.Node{ID: "r1", Order: 3}, "r2": domain.Node{ID: "r2", Order: 0}})
+		WithNodes(fakeNodeReader{"r1": tree.Node{ID: "r1", Order: 3}, "r2": tree.Node{ID: "r2", Order: 0}})
 	r := gin.New()
 	r.PATCH("/v0/projects/:projectId/repos/:repoId", h.Patch)
 

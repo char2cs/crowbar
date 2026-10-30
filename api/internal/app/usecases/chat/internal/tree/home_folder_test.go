@@ -1,7 +1,7 @@
 package tree_test
 
 // Coverage for project-home (RepoID == "") folder CRUD and chat placement
-// migrating onto domain.Folder + domain.Node (2026-09-08
+// migrating onto dtree.Folder + dtree.Node (2026-09-08
 // sidebar-placement-unification Task 5). Repo-scoped folder CRUD keeps its
 // existing coverage in tree_test.go/move_test.go/chats_test.go, untouched.
 
@@ -16,6 +16,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // homeWorkspaceID is never registered against a repo via SetRepo, so
@@ -70,7 +71,7 @@ func nodeRowFor(
 	t *testing.T,
 	nodes *mocks.NodePlacements,
 	id string,
-) domain.Node {
+) dtree.Node {
 	t.Helper()
 	for _, n := range nodes.Rows {
 		if n.ID == id {
@@ -78,10 +79,10 @@ func nodeRowFor(
 		}
 	}
 	t.Fatalf("nodeRowFor: no Node row for %s", id)
-	return domain.Node{}
+	return dtree.Node{}
 }
 
-// A home folder mints a domain.Folder row plus a domain.Node row -- never a
+// A home folder mints a dtree.Folder row plus a dtree.Node row -- never a
 // ChatTypeFolder Chat row, unlike a repo-scoped folder (tree_test.go's
 // TestCreate_AppendsAtTheEndOfTheSiblingSpace and friends).
 func TestCreate_Home_MintsFolderPlusNode(t *testing.T) {
@@ -104,7 +105,7 @@ func TestCreate_Home_MintsFolderPlusNode(t *testing.T) {
 
 	require.Len(t, nodes.Rows, 1)
 	assert.Equal(t, created.ID, nodes.Rows[0].ID)
-	assert.Equal(t, domain.NodeKindFolder, nodes.Rows[0].Kind)
+	assert.Equal(t, dtree.KindFolder, nodes.Rows[0].Kind)
 
 	assert.Empty(t, chats.Rows, "a home folder is never a Chat row")
 }
@@ -147,8 +148,8 @@ func TestCreate_Home_DiscardsOnPlacementFailure(t *testing.T) {
 	assert.Empty(t, folders.Saved, "the folder row is taken back out when placement fails")
 }
 
-// Renaming a home folder writes ONLY domain.Folder.Name -- its position
-// (domain.Node) is untouched, and no Chat aggregate is ever consulted.
+// Renaming a home folder writes ONLY dtree.Folder.Name -- its position
+// (dtree.Node) is untouched, and no Chat aggregate is ever consulted.
 func TestRename_Home_UpdatesFolderNameOnly(t *testing.T) {
 	chats, folders, nodes, uc := newHomeUsecase(t)
 	ctx := context.Background()
@@ -171,7 +172,7 @@ func TestRename_Home_UnknownIDIsNotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// Moving a home folder reparents its domain.Node row and never touches the
+// Moving a home folder reparents its dtree.Node row and never touches the
 // chat aggregate -- the direct opposite of a repo-scoped folder move
 // (move_test.go's TestMove_TakesWholeSubtree), which writes through Chats.
 func TestMove_Home_ReparentsViaNode(t *testing.T) {
@@ -218,7 +219,7 @@ func TestMove_Home_ANodeLookupFailureIsReturned(t *testing.T) {
 func TestMove_Home_RefusesFilingUnderARepo(t *testing.T) {
 	_, _, nodes, uc := newHomeUsecase(t)
 	ctx := context.Background()
-	nodes.Rows = append(nodes.Rows, domain.Node{ID: "repo-1", Kind: domain.NodeKindRepo, Order: 0})
+	nodes.Rows = append(nodes.Rows, dtree.Node{ID: "repo-1", Kind: dtree.KindRepo, Order: 0})
 	folder, _, err := uc.Create(ctx, tree.CreateInput{Name: "docs"})
 	require.NoError(t, err)
 
@@ -232,7 +233,7 @@ func TestMove_Home_RefusesFilingUnderARepo(t *testing.T) {
 func TestPlaceChat_Home_RefusesFilingUnderARepo(t *testing.T) {
 	chats, _, nodes, uc := newHomeUsecase(t)
 	ctx := context.Background()
-	nodes.Rows = append(nodes.Rows, domain.Node{ID: "repo-1", Kind: domain.NodeKindRepo, Order: 0})
+	nodes.Rows = append(nodes.Rows, dtree.Node{ID: "repo-1", Kind: dtree.KindRepo, Order: 0})
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID})
 
 	_, _, err := uc.PlaceChat(ctx, homeWorkspaceID, "c1", tree.PlaceInput{ParentID: name("repo-1")})
@@ -253,9 +254,9 @@ func TestRegression_PlaceChat_Home_DoesNotCorruptAnotherProjectsRepoSharingTheBa
 	// repo-B belongs to a DIFFERENT project's home, sharing the bare root.
 	gitStatus.SetHomeRepoMembers(homeWorkspaceID, "repo-A")
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID})
-	nodes.Rows = []domain.Node{
-		{ID: "repo-A", Kind: domain.NodeKindRepo, Order: 0},
-		{ID: "repo-B", Kind: domain.NodeKindRepo, Order: 1},
+	nodes.Rows = []dtree.Node{
+		{ID: "repo-A", Kind: dtree.KindRepo, Order: 0},
+		{ID: "repo-B", Kind: dtree.KindRepo, Order: 1},
 	}
 
 	_, _, err := uc.PlaceChat(ctx, homeWorkspaceID, "c1", tree.PlaceInput{Order: index(0)})
@@ -283,7 +284,7 @@ func TestRegression_PlaceChat_Home_DoesNotCorruptAnotherProjectsRepoSharingTheBa
 func TestMove_Home_DensifiesAgainstRepoNodeRowsToo(t *testing.T) {
 	_, _, nodes, uc := newHomeUsecase(t)
 	ctx := context.Background()
-	nodes.Rows = append(nodes.Rows, domain.Node{ID: "repo-1", Kind: domain.NodeKindRepo, Order: 0})
+	nodes.Rows = append(nodes.Rows, dtree.Node{ID: "repo-1", Kind: dtree.KindRepo, Order: 0})
 	_, _, err := uc.Create(ctx, tree.CreateInput{ID: "a", Name: "a"})
 	require.NoError(t, err)
 	require.Equal(t, 1, nodeRowFor(t, nodes, "a").Order, "a landed after the repo already at the root")
@@ -323,7 +324,7 @@ func TestDelete_Home_PromotesChildrenAndErasesFolderAndNode(t *testing.T) {
 func TestPlaceChat_Home_DensifiesAgainstRepoAndFolderSiblings(t *testing.T) {
 	chats, _, nodes, uc := newHomeUsecase(t)
 	ctx := context.Background()
-	nodes.Rows = append(nodes.Rows, domain.Node{ID: "repo-1", Kind: domain.NodeKindRepo, Order: 0})
+	nodes.Rows = append(nodes.Rows, dtree.Node{ID: "repo-1", Kind: dtree.KindRepo, Order: 0})
 	folder, _, err := uc.Create(ctx, tree.CreateInput{Name: "docs"})
 	require.NoError(t, err)
 	require.Equal(t, 1, nodeRowFor(t, nodes, folder.ID).Order)
@@ -332,7 +333,7 @@ func TestPlaceChat_Home_DensifiesAgainstRepoAndFolderSiblings(t *testing.T) {
 	_, _, err = uc.PlaceChat(ctx, homeWorkspaceID, "c1", tree.PlaceInput{Order: index(0)})
 	require.NoError(t, err)
 
-	assert.Equal(t, domain.NodeKindChat, nodeRowFor(t, nodes, "c1").Kind)
+	assert.Equal(t, dtree.KindChat, nodeRowFor(t, nodes, "c1").Kind)
 	assert.Equal(t, 0, nodeRowFor(t, nodes, "c1").Order)
 	assert.Equal(t, 1, nodeRowFor(t, nodes, "repo-1").Order, "shifted by the chat landing before it")
 	assert.Equal(t, 2, nodeRowFor(t, nodes, folder.ID).Order, "shifted too")
@@ -358,7 +359,7 @@ func TestPlaceChat_Home_FirstPlacementMintsANodeRow(t *testing.T) {
 
 	n := nodeRowFor(t, nodes, "c1")
 	assert.Equal(t, folder.ID, n.ParentID)
-	assert.Equal(t, domain.NodeKindChat, n.Kind)
+	assert.Equal(t, dtree.KindChat, n.Kind)
 	assert.Empty(t, chats.Placed, "the write went to Node, never Chat.SetPlacement")
 }
 
@@ -382,7 +383,7 @@ func TestPlaceChat_Home_LoneChatWithNoNodeRowStillMintsWhenTargetCoincidesWithZe
 	require.NoError(t, err, "a lone home chat with no Node row must mint one, not silently do nothing")
 
 	n := nodeRowFor(t, nodes, "c1")
-	assert.Equal(t, domain.NodeKindChat, n.Kind)
+	assert.Equal(t, dtree.KindChat, n.Kind)
 	assert.Equal(t, "", n.ParentID)
 	assert.Equal(t, 0, n.Order)
 }

@@ -15,8 +15,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
+	repotree "github.com/char2cs/crowbar/api/internal/app/repositories/tree"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -33,9 +33,9 @@ type Container struct {
 	// live on axAgentChat and the agent usecase sends every AgentChat mutation
 	// through it (the gorm-backed store was retired in the Task 10 cutover).
 	AgentChat agentchat.EventStore
-	// Node is the position aggregate: the one owner of every sidebar row's
-	// ParentID/Order, at every tree level.
-	Node node.EventStore
+	// Placement serves every sidebar row's position, each folder's identity and
+	// each chat's own placement, by id, over the per-project Tree aggregates.
+	Placement *repotree.Ports
 	// ChatLedger is each chat's append-only ledger, one writer per chat.
 	ChatLedger *ledgerstore.Store
 	// ChatBlobs holds the tool payloads the ledger's rows name.
@@ -53,12 +53,11 @@ type Container struct {
 	// container. The cascade REFUSES to run without it rather than purging
 	// half a chat.
 	PurgeChat func(ctx context.Context, chatID string) error
-	// axWorkspace/axReviewThread/axAgentChat/axNode are the per-type asynx
+	// axWorkspace/axReviewThread/axAgentChat are the per-type asynx
 	// instances WaitQuiescent drains: the read-your-writes barrier for tests.
 	axWorkspace    asynx.Asynx[domain.Workspace]
 	axReviewThread asynx.Asynx[domain.ReviewThread]
 	axAgentChat    asynx.Asynx[domain.Chat]
-	axNode         asynx.Asynx[domain.Node]
 
 	mu sync.Mutex
 	// agentWorking maps a workspace id to its busy agent chats; agentBroadcasts
@@ -95,17 +94,16 @@ func New(
 	axReviewThread asynx.Asynx[domain.ReviewThread],
 	axWorkspace asynx.Asynx[domain.Workspace],
 	axAgentChat asynx.Asynx[domain.Chat],
-	axNode asynx.Asynx[domain.Node],
+	placement *repotree.Ports,
 	git wsusecase.MergeConflictBatchChecker,
 	chatWatch agentchat.WatchFunc,
-	nodeWatch node.WatchFunc,
 	onGiveUp func(ctx context.Context, wsID string, tomb *domain.Workspace, err error),
 ) (*Container, error) {
 	c := &Container{
 		hub: h, git: git,
 		agentWorking: map[string]map[string]struct{}{}, agentBroadcasts: map[string]bool{},
 		axWorkspace: axWorkspace, axReviewThread: axReviewThread, axAgentChat: axAgentChat,
-		axNode: axNode,
+		Placement: placement,
 	}
 	ws, err := workspace.New(axWorkspace, adapters.WorkspaceES(), rm.Workspace)
 	if err != nil {
@@ -139,7 +137,7 @@ func New(
 	// commands emit is fanned out here by the hub projection. The usecase no
 	// longer broadcasts manually (that double-broadcast was retired at cutover),
 	// so this projection is the one and only WS feed for agent chats.
-	agentChat, err := agentchat.NewEventSourced(axAgentChat, adapters.AgentChatES(), rm.AgentChat, chatWatch)
+	agentChat, err := agentchat.NewEventSourced(ctx, axAgentChat, adapters.AgentChatES(), rm.AgentChat, chatWatch, placement)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: agent chat event store: %w", err)
 	}
@@ -148,11 +146,6 @@ func New(
 		return nil, fmt.Errorf("repositories: agent working overlay: %w", err)
 	}
 
-	nodeStore, err := node.NewEventSourced(axNode, adapters.NodeES(), rm.Node, nodeWatch)
-	if err != nil {
-		return nil, fmt.Errorf("repositories: node event store: %w", err)
-	}
-	c.Node = nodeStore
 	if c.ChatLedger, err = ledgerstore.Open(ctx, adapters.ChatLedgerDB(), time.Now); err != nil {
 		return nil, fmt.Errorf("repositories: chat ledger: %w", err)
 	}
@@ -183,7 +176,7 @@ func (c *Container) WaitQuiescent() {
 	c.axWorkspace.WaitPublish()
 	c.axReviewThread.WaitPublish()
 	c.axAgentChat.WaitPublish()
-	c.axNode.WaitPublish()
+	c.Placement.WaitPublish()
 }
 
 // enrichFrame adds the overlays the aggregate lacks — Working (an agent chat
@@ -226,10 +219,10 @@ func (c *Container) nodePlacement(
 			return chatPlacementReader{parentID: owner.ParentID, order: owner.Order}
 		}
 	}
-	if c.Node == nil {
+	if c.Placement == nil {
 		return nil
 	}
-	return nodePlacementReader{nodes: c.Node, nodeID: ws.ID}
+	return nodePlacementReader{nodes: c.Placement, nodeID: ws.ID}
 }
 
 // chatPlacementReader answers a resolved owning chat's own ParentID/Order
@@ -248,7 +241,7 @@ func (r chatPlacementReader) Placement(
 }
 
 type nodePlacementReader struct {
-	nodes  node.EventStore
+	nodes  *repotree.Ports
 	nodeID string
 }
 

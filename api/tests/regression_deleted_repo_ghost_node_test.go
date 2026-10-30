@@ -39,7 +39,7 @@ func TestRegression_DeletedRepoLeavesAGhostNodeInItsHomeFolder(t *testing.T) {
 	})
 	h.QuiesceReactors()
 
-	_, err := h.app.Repositories.Node.GetNode(context.Background(), imported.repoID)
+	_, err := h.app.Repositories.Placement.GetNode(context.Background(), imported.repoID)
 	t.Logf("deleted repo's Node row after delete: err=%v", err)
 	assert.Error(t, err, "a deleted repo must not keep a Node row")
 

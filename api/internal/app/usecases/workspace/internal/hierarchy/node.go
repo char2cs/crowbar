@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // NodeCreator is the narrow write-only Node surface this usecase needs to mint
@@ -16,10 +16,10 @@ type NodeCreator interface {
 	Create(
 		ctx context.Context,
 		id string,
-		kind domain.NodeKind,
+		kind tree.Kind,
 		parentID string,
 		order int,
-	) (domain.Node, error)
+	) (tree.Node, error)
 }
 
 // noOpNodeCreator is the default every hierarchyUsecase is built with: it
@@ -38,11 +38,11 @@ type noOpNodeCreator struct{}
 func (noOpNodeCreator) Create(
 	_ context.Context,
 	id string,
-	kind domain.NodeKind,
+	kind tree.Kind,
 	parentID string,
 	order int,
-) (domain.Node, error) {
-	return domain.Node{ID: id, Kind: kind, ParentID: parentID, Order: order}, nil
+) (tree.Node, error) {
+	return tree.Node{ID: id, Kind: kind, ParentID: parentID, Order: order}, nil
 }
 
 // WithNodes wires the Node surface every workspace this usecase creates mints
@@ -76,7 +76,7 @@ func (u *hierarchyUsecase) mintWorkspaceNode(
 	ctx context.Context,
 	id string,
 ) error {
-	if _, err := u.nodes.Create(ctx, id, domain.NodeKindWorkspace, "", 0); err != nil {
+	if _, err := u.nodes.Create(ctx, id, tree.KindWorkspace, "", 0); err != nil {
 		return fmt.Errorf("hierarchy: mint workspace node: %w", err)
 	}
 	return nil

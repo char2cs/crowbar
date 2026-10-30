@@ -11,6 +11,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/avatar"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // Usecase is the read + roll-up surface for the Project entity.
@@ -106,8 +107,8 @@ type Update struct {
 // every OTHER row (any kind) the placement renumbered.
 type RepoUpdated struct {
 	Repo    domain.Repository
-	Node    domain.Node
-	Shifted []domain.Node
+	Node    tree.Node
+	Shifted []tree.Node
 }
 
 type RepoUpdate struct {
@@ -131,22 +132,19 @@ type HomeWorkspaces interface {
 	) (domain.Workspace, error)
 }
 
-// Folders is the plain-GORM home-folder identity surface validateRepoFolder
+// Folders is the home-folder identity surface validateRepoFolder
 // needs: confirming a FolderID names a genuine project-home folder (RepoID ==
 // "") before writing it — the same golden rule tree/validate.go's
-// checkFolderContainer enforces for an ordinary chat folder. Home folders are
-// Node/Folder-backed now (2026-09-08 sidebar-placement-unification Task 5),
-// so this is the SAME domain.Folder store the tree package's own home-scoped
-// CRUD reads/writes — satisfied structurally by the GORM store
-// (gormStores.Folders).
+// checkFolderContainer enforces for an ordinary chat folder. It is the same
+// folder store the tree package's home-scoped CRUD uses (the Tree's ports).
 type Folders interface {
-	FindByKey(ctx context.Context, id string) (*domain.Folder, error)
+	FindByKey(ctx context.Context, id string) (*tree.Folder, error)
 }
 
 // HomeChats is the narrow chat-membership read placeRepoAmongHomeSiblings
 // needs to restore, for CHAT-kind Node rows only, the per-project scoping
 // the pre-Task-5 merge (homeContainerChats, deleted) used to guarantee via
-// this exact same ListByWorkspace(homeWorkspaceID) call. domain.Node carries
+// this exact same ListByWorkspace(homeWorkspaceID) call. tree.Node carries
 // no project id of its own — unlike a repo (Repository.ProjectID, see
 // repoIDSet) or a home folder (which has NO project field at all, a
 // pre-existing, disclosed gap this interface does NOT attempt to close, see
@@ -178,18 +176,18 @@ type NodePlacements interface {
 	Create(
 		ctx context.Context,
 		id string,
-		kind domain.NodeKind,
+		kind tree.Kind,
 		parentID string,
 		order int,
-	) (domain.Node, error)
+	) (tree.Node, error)
 	GetNode(
 		ctx context.Context,
 		id string,
-	) (domain.Node, error)
+	) (tree.Node, error)
 	ListByParent(
 		ctx context.Context,
 		parentID string,
-	) ([]domain.Node, error)
+	) ([]tree.Node, error)
 	SetOrder(
 		ctx context.Context,
 		id string,
@@ -229,7 +227,7 @@ type projectUsecase struct {
 
 // HomeRowAnnouncer announces one shifted home row on the chats WS by its
 // own kind: a chat frame for a chat, a folder frame for a folder.
-type HomeRowAnnouncer func(ctx context.Context, id, workspaceID string, kind domain.NodeKind, event string)
+type HomeRowAnnouncer func(ctx context.Context, id, workspaceID string, kind tree.Kind, event string)
 
 // New builds a Usecase from the project and repository GORM stores, the
 // project-home lookup a root-level repo placement needs, the home-folder
@@ -397,10 +395,10 @@ func (u *projectUsecase) UpdateRepo(
 func (u *projectUsecase) getRepoNode(
 	ctx context.Context,
 	repoID string,
-) (domain.Node, error) {
+) (tree.Node, error) {
 	n, err := u.nodes.GetNode(ctx, repoID)
 	if err != nil {
-		return domain.Node{}, err
+		return tree.Node{}, err
 	}
 	return n, nil
 }
@@ -434,9 +432,9 @@ func (u *projectUsecase) applyRepoPlacement(
 	ctx context.Context,
 	repo domain.Repository,
 	targetFolder string,
-	subject domain.Node,
+	subject tree.Node,
 	order *int,
-) ([]domain.Node, error) {
+) ([]tree.Node, error) {
 	if order != nil {
 		return u.placeRepoAmongHomeSiblings(ctx, repo.ProjectID, targetFolder, subject, *order)
 	}
@@ -445,7 +443,7 @@ func (u *projectUsecase) applyRepoPlacement(
 
 // validateRepoFolder confirms folderID names a genuine project-home folder —
 // "" (the project's own home root) is always legal; anything else must
-// resolve to a domain.Folder row with no repo scope of its own (RepoID ==
+// resolve to a tree.Folder row with no repo scope of its own (RepoID ==
 // ""). A repo-internal folder (one that organises that repo's OWN branches,
 // RepoID == the repo's id) is refused: a repo's entry is filed in some
 // project's home, never inside its own tree — that would be a repo
@@ -461,7 +459,7 @@ func (u *projectUsecase) applyRepoPlacement(
 // here (Task 8's own golden-rule Node port is where this would land, per this
 // task's SDD ledger).
 //
-// This now validates against domain.Folder, not domain.Chat: home folders
+// This now validates against tree.Folder, not domain.Chat: home folders
 // are Node/Folder-backed (2026-09-08 sidebar-placement-unification Task 5).
 func (u *projectUsecase) validateRepoFolder(
 	ctx context.Context,
@@ -505,7 +503,7 @@ func refuseProjectMove(
 }
 
 // repoIDSet answers the set of repo ids belonging to projectID — the project
-// scope every repo-kind Node read below needs, since domain.Node carries no
+// scope every repo-kind Node read below needs, since tree.Node carries no
 // project id of its own (only ParentID/Order): membership comes from
 // domain.Repository.ProjectID, unchanged by this migration, intersected
 // against whatever Node.ListByParent returns.
@@ -549,8 +547,8 @@ func (u *projectUsecase) densifyRepos(
 	ctx context.Context,
 	projectID string,
 	folderID string,
-	subject *domain.Node,
-) ([]domain.Node, error) {
+	subject *tree.Node,
+) ([]tree.Node, error) {
 	memberIDs, err := u.repoIDSet(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -566,11 +564,11 @@ func (u *projectUsecase) densifyRepos(
 	}
 	slots := nodeIndex(rows)
 	written := make(map[string]bool, len(rows))
-	var decided []domain.Node
+	var decided []tree.Node
 	for _, moved := range place(slots, subjectID, nil) {
 		row := rows[moved.at]
 		written[row.ID] = true
-		decided = append(decided, domain.Node{ID: row.ID, Kind: row.Kind, ParentID: folderID, Order: moved.order})
+		decided = append(decided, tree.Node{ID: row.ID, Kind: row.Kind, ParentID: folderID, Order: moved.order})
 		reparenting := subject != nil && row.ID == subject.ID && subject.ParentID != folderID
 		if err := u.writeNode(ctx, row.ID, folderID, moved.order, reparenting); err != nil {
 			return nil, err
@@ -596,10 +594,10 @@ func (u *projectUsecase) densifyRepos(
 // densifyRepos' own doc for the race this defends against).
 func densifyRows(
 	memberIDs map[string]bool,
-	nodes []domain.Node,
-	subject *domain.Node,
-) []domain.Node {
-	rows := make([]domain.Node, 0, len(nodes)+1)
+	nodes []tree.Node,
+	subject *tree.Node,
+) []tree.Node {
+	rows := make([]tree.Node, 0, len(nodes)+1)
 	for _, n := range nodes {
 		if !memberIDs[n.ID] {
 			continue
@@ -651,7 +649,7 @@ func (u *projectUsecase) writeNode(
 func (u *projectUsecase) mintNode(
 	ctx context.Context,
 	id string,
-	kind domain.NodeKind,
+	kind tree.Kind,
 	folderID string,
 	order int,
 ) error {
@@ -673,7 +671,7 @@ func (u *projectUsecase) ensureSubjectWritten(
 	folderID string,
 	target *int,
 	written map[string]bool,
-) (*domain.Node, error) {
+) (*tree.Node, error) {
 	if written[subjectID] {
 		return nil, nil
 	}
@@ -684,7 +682,7 @@ func (u *projectUsecase) ensureSubjectWritten(
 	if err := u.nodes.SetPlacement(ctx, subjectID, folderID, i); err != nil {
 		return nil, fmt.Errorf("project: reorder repos: place %s: %w", subjectID, err)
 	}
-	return &domain.Node{ID: subjectID, Kind: domain.NodeKindRepo, ParentID: folderID, Order: i}, nil
+	return &tree.Node{ID: subjectID, Kind: tree.KindRepo, ParentID: folderID, Order: i}, nil
 }
 
 // placeRepoAmongHomeSiblings gives subject exactly the Order the caller asked
@@ -703,9 +701,9 @@ func (u *projectUsecase) placeRepoAmongHomeSiblings(
 	ctx context.Context,
 	projectID string,
 	folderID string,
-	subject domain.Node,
+	subject tree.Node,
 	target int,
-) ([]domain.Node, error) {
+) ([]tree.Node, error) {
 	siblings, homeWorkspaceID, err := u.homeLevel(ctx, projectID, folderID, subject.ID)
 	if err != nil {
 		return nil, err
@@ -737,7 +735,7 @@ func (u *projectUsecase) densifyHomeLevel(
 	projectID string,
 	folderID string,
 	exclude string,
-) ([]domain.Node, error) {
+) ([]tree.Node, error) {
 	rows, homeWorkspaceID, err := u.homeLevel(ctx, projectID, folderID, exclude)
 	if err != nil {
 		return nil, err
@@ -757,13 +755,13 @@ func (u *projectUsecase) writeHomeLevel(
 	homeWorkspaceID string,
 	subjectID string,
 	reparented bool,
-) ([]domain.Node, map[string]bool, error) {
+) ([]tree.Node, map[string]bool, error) {
 	written := make(map[string]bool, len(rows))
-	var decided []domain.Node
+	var decided []tree.Node
 	for _, moved := range moves {
 		row := rows[moved.at]
 		written[row.ID] = true
-		decided = append(decided, domain.Node{ID: row.ID, Kind: row.Kind, ParentID: folderID, Order: moved.order})
+		decided = append(decided, tree.Node{ID: row.ID, Kind: row.Kind, ParentID: folderID, Order: moved.order})
 		if row.fresh {
 			if err := u.mintNode(ctx, row.ID, row.Kind, folderID, moved.order); err != nil {
 				return nil, nil, err
@@ -778,7 +776,7 @@ func (u *projectUsecase) writeHomeLevel(
 		// own announce covers a chat/folder's OWN drag, this covers the same
 		// rows moving as collateral of a REPO drag instead.
 		if row.ID != subjectID && u.broadcastChat != nil && homeWorkspaceID != "" &&
-			(row.Kind == domain.NodeKindChat || row.Kind == domain.NodeKindFolder) {
+			(row.Kind == tree.KindChat || row.Kind == tree.KindFolder) {
 			u.broadcastChat(ctx, row.ID, homeWorkspaceID, row.Kind, "order_set")
 		}
 	}

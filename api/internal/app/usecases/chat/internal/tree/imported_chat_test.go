@@ -11,6 +11,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 var errImportBoom = errors.New("import: boom")
@@ -54,7 +55,7 @@ func TestCreateChat_ImportPlacesTheChatBeforeAttachingTheWorktree(t *testing.T) 
 // sidebar-placement-unification Task 9) — no chat to resolve through at all.
 func TestImportBranchAsChat_PlacesUnderTheChatOwningTheLineageParent(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
-	nodes.Rows = append(nodes.Rows, domain.Node{ID: "ws-base", Kind: domain.NodeKindWorkspace})
+	nodes.Rows = append(nodes.Rows, dtree.Node{ID: "ws-base", Kind: dtree.KindWorkspace})
 	chats.NextID = "c-new"
 
 	spec := importSpec("feature/x")
@@ -158,7 +159,7 @@ func TestCreateChat_AFailedImportDiscardsTheChat(t *testing.T) {
 // mint has to come FIRST and has to be PLACED, or the row exists in no level.
 func TestMintOwningChat_MintsAndFilesTheRowBeforeAnyWorkspaceExists(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
-	nodes.Rows = append(nodes.Rows, domain.Node{ID: "ws-base", Kind: domain.NodeKindWorkspace})
+	nodes.Rows = append(nodes.Rows, dtree.Node{ID: "ws-base", Kind: dtree.KindWorkspace})
 	chats.NextID = "c-new"
 
 	chatID, err := uc.MintOwningChat(context.Background(), "", "ws-base")

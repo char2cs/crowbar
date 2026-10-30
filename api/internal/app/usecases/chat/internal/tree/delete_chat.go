@@ -332,7 +332,7 @@ func (u *chatFolderUsecase) purgeAll(
 }
 
 // removeAll erases each folder caught inside a purged subtree: a folder is a
-// domain.Folder+domain.Node pair, never a PurgeChat-able row, so both halves
+// dtree.Folder+dtree.Node pair, never a PurgeChat-able row, so both halves
 // are erased here, mirroring Delete's own folder erasure (tree.go).
 func (u *chatFolderUsecase) removeAll(
 	ctx context.Context,

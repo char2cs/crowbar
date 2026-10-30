@@ -10,6 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // stubListChats answers tree.Chats.ListChats and LoadChat from a fixed row
@@ -200,10 +201,10 @@ func TestResolveForkParent_WalksThroughAFolderAncestor(t *testing.T) {
 	}
 	chats := stubListChats{rows: rows}
 	folders := mocks.NewFolderStore()
-	folders.Saved = []domain.Folder{{ID: "folder", Name: "notes"}}
+	folders.Saved = []dtree.Folder{{ID: "folder", Name: "notes"}}
 	nodes := mocks.NewNodePlacements()
-	nodes.Rows = []domain.Node{
-		{ID: "folder", Kind: domain.NodeKindFolder, ParentID: "root", Order: 0},
+	nodes.Rows = []dtree.Node{
+		{ID: "folder", Kind: dtree.KindFolder, ParentID: "root", Order: 0},
 	}
 
 	got, ok, err := tree.ResolveForkParent(context.Background(), chats, folders, nodes, nil, "self")
@@ -225,10 +226,10 @@ func TestResolveCwdWorkspaceID_WalksThroughAFolderAncestor(t *testing.T) {
 	}
 	chats := stubListChats{rows: rows}
 	folders := mocks.NewFolderStore()
-	folders.Saved = []domain.Folder{{ID: "folder", Name: "notes"}}
+	folders.Saved = []dtree.Folder{{ID: "folder", Name: "notes"}}
 	nodes := mocks.NewNodePlacements()
-	nodes.Rows = []domain.Node{
-		{ID: "folder", Kind: domain.NodeKindFolder, ParentID: "root", Order: 0},
+	nodes.Rows = []dtree.Node{
+		{ID: "folder", Kind: dtree.KindFolder, ParentID: "root", Order: 0},
 	}
 
 	got, ok, err := tree.ResolveCwdWorkspaceID(context.Background(), chats, folders, nodes, nil, "self")
@@ -246,10 +247,10 @@ func TestCwdWorkspaceIDs_WalksThroughAFolderAncestor(t *testing.T) {
 		{ID: "self", Type: domain.ChatTypeChat, ParentID: "folder"},
 	}
 	folders := mocks.NewFolderStore()
-	folders.Saved = []domain.Folder{{ID: "folder", Name: "notes"}}
+	folders.Saved = []dtree.Folder{{ID: "folder", Name: "notes"}}
 	nodes := mocks.NewNodePlacements()
-	nodes.Rows = []domain.Node{
-		{ID: "folder", Kind: domain.NodeKindFolder, ParentID: "root", Order: 0},
+	nodes.Rows = []dtree.Node{
+		{ID: "folder", Kind: dtree.KindFolder, ParentID: "root", Order: 0},
 	}
 
 	got := tree.CwdWorkspaceIDs(context.Background(), folders, nodes, nil, rows)
@@ -298,17 +299,17 @@ type countingNodes struct {
 	byParent, gets, all int
 }
 
-func (c *countingNodes) ListByParent(ctx context.Context, id string) ([]domain.Node, error) {
+func (c *countingNodes) ListByParent(ctx context.Context, id string) ([]dtree.Node, error) {
 	c.byParent++
 	return c.NodePlacements.ListByParent(ctx, id)
 }
 
-func (c *countingNodes) GetNode(ctx context.Context, id string) (domain.Node, error) {
+func (c *countingNodes) GetNode(ctx context.Context, id string) (dtree.Node, error) {
 	c.gets++
 	return c.NodePlacements.GetNode(ctx, id)
 }
 
-func (c *countingNodes) ListAll(ctx context.Context) ([]domain.Node, error) {
+func (c *countingNodes) ListAll(ctx context.Context) ([]dtree.Node, error) {
 	c.all++
 	return c.NodePlacements.ListAll(ctx)
 }
@@ -317,14 +318,14 @@ func (c *countingNodes) ListAll(ctx context.Context) ([]domain.Node, error) {
 // workspace anchors it crosses: each read of it decodes every row.
 func TestCwdWorkspaceIDs_ReadsTheNodeTableOnce(t *testing.T) {
 	inner := mocks.NewNodePlacements()
-	inner.Rows = []domain.Node{
-		{ID: "folder-a", Kind: domain.NodeKindFolder, ParentID: "ws-anchor"},
-		{ID: "folder-b", Kind: domain.NodeKindFolder, ParentID: "folder-a"},
-		{ID: "ws-anchor", Kind: domain.NodeKindWorkspace, ParentID: ""},
+	inner.Rows = []dtree.Node{
+		{ID: "folder-a", Kind: dtree.KindFolder, ParentID: "ws-anchor"},
+		{ID: "folder-b", Kind: dtree.KindFolder, ParentID: "folder-a"},
+		{ID: "ws-anchor", Kind: dtree.KindWorkspace, ParentID: ""},
 	}
 	nodes := &countingNodes{NodePlacements: inner}
 	folders := mocks.NewFolderStore()
-	folders.Saved = []domain.Folder{{ID: "folder-a", Name: "a"}, {ID: "folder-b", Name: "b"}}
+	folders.Saved = []dtree.Folder{{ID: "folder-a", Name: "a"}, {ID: "folder-b", Name: "b"}}
 	rows := []domain.Chat{
 		{ID: "c1", WorkspaceID: "w1", ParentID: "folder-b"},
 		{ID: "c2", WorkspaceID: "w1", ParentID: "c1"},

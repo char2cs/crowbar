@@ -101,6 +101,7 @@ func TestApp_New_HandsEveryPostOpenStepToTheRunner(t *testing.T) {
 	t.Cleanup(c.Close)
 	assert.Equal(t, []int{
 		migrations.StepProjectHomes, migrations.StepChatTypes, migrations.StepChatProviders, migrations.StepHookDeliveries,
+		migrations.StepPlacementTree,
 	}, runner.steps)
 }
 

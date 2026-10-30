@@ -12,10 +12,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
+	repotree "github.com/char2cs/crowbar/api/internal/app/repositories/tree"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // newAsynx builds the shared asynx wiring every aggregate type gets. opts run
@@ -53,7 +54,7 @@ type aggregates struct {
 	workspace    asynx.Asynx[domain.Workspace]
 	reviewThread asynx.Asynx[domain.ReviewThread]
 	agentChat    asynx.Asynx[domain.Chat]
-	node         asynx.Asynx[domain.Node]
+	tree         asynx.Asynx[tree.Tree]
 }
 
 func newAggregates(
@@ -74,13 +75,14 @@ func newAggregates(
 		workspace.Subscriber(rm.Workspace)); err != nil {
 		return nil, fmt.Errorf("app: asynx workspace: %w", err)
 	}
+	// The upcaster strips the placement patches: placement lives in the Tree.
 	if ax.agentChat, err = newAsynx(adapters.AgentChatES(), adapters.AgentChatSS(),
+		agentchat.StripRetiredPlacementFields,
 		agentchat.Subscriber(rm.AgentChat)); err != nil {
 		return nil, fmt.Errorf("app: asynx agent chat: %w", err)
 	}
-	if ax.node, err = newAsynx(adapters.NodeES(), adapters.NodeSS(),
-		node.Subscriber(rm.Node)); err != nil {
-		return nil, fmt.Errorf("app: asynx node: %w", err)
+	if ax.tree, err = newAsynx(adapters.TreeES(), adapters.TreeSS(), repotree.Schema); err != nil {
+		return nil, fmt.Errorf("app: asynx tree: %w", err)
 	}
 	return &ax, nil
 }

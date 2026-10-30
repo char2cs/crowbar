@@ -17,6 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // The chat DTO's git half (spec §5): ONE read of the chat list has to answer
@@ -89,16 +90,16 @@ func newWorktreeHandlers(
 
 // fakeNodeReads is the Nodes port: one Node row keyed by id.
 type fakeNodeReads struct {
-	rows map[string]domain.Node
+	rows map[string]tree.Node
 }
 
 func (f *fakeNodeReads) GetNode(
 	_ context.Context,
 	id string,
-) (domain.Node, error) {
+) (tree.Node, error) {
 	n, ok := f.rows[id]
 	if !ok {
-		return domain.Node{}, errors.New("no such node")
+		return tree.Node{}, errors.New("no such node")
 	}
 	return n, nil
 }
@@ -126,7 +127,7 @@ func TestRegression_List_AnOrdinaryForksPlacementReadsItsOwningChatsOwnFields(t 
 	}}
 	// The fork's own, never-touched workspace-anchor Node — a fixed row that
 	// must NOT be what this read answers from.
-	nodes := &fakeNodeReads{rows: map[string]domain.Node{
+	nodes := &fakeNodeReads{rows: map[string]tree.Node{
 		"ws-fork": {ID: "ws-fork", ParentID: "", Order: 0},
 	}}
 	h := newWorktreeHandlers(uc, worktrees).WithNodes(nodes)
@@ -150,7 +151,7 @@ func TestRegression_List_ALockedBranchStillReadsItsOwnWorkspaceAnchorNode(t *tes
 	worktrees := &fakeWorktreeReads{rows: []domain.Workspace{
 		{ID: "ws-locked", RepoID: "r1", ProjectID: "p1", Branch: "main", Status: domain.WorkspaceStatusLocked},
 	}}
-	nodes := &fakeNodeReads{rows: map[string]domain.Node{
+	nodes := &fakeNodeReads{rows: map[string]tree.Node{
 		"ws-locked": {ID: "ws-locked", ParentID: "folder-1", Order: 2},
 	}}
 	h := newWorktreeHandlers(uc, worktrees).WithNodes(nodes)

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
-	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // newTestUsecase builds the concrete usecase over an in-memory Chats+Agent
@@ -24,7 +24,7 @@ func newTestUsecase(t *testing.T) *chatFolderUsecase {
 	}
 }
 
-// A folder created through the new API is a domain.Folder+domain.Node pair,
+// A folder created through the new API is a dtree.Folder+dtree.Node pair,
 // not a row in the chat repository at all (2026-09-08
 // sidebar-placement-unification Task 5 for home-scoped, Task 8 for
 // repo-scoped too) — Create mints it through the Folders/Nodes ports
@@ -54,7 +54,7 @@ func TestTree_Create_MintsFolderPlusNode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get node: %v", err)
 	}
-	if n.Kind != domain.NodeKindFolder {
+	if n.Kind != dtree.KindFolder {
 		t.Fatalf("want folder-kind Node, got %s", n.Kind)
 	}
 }

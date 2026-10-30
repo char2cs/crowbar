@@ -6,6 +6,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // The rows a level draws that predate Node rows — a repo imported or a locked
@@ -74,7 +75,7 @@ func (u *chatFolderUsecase) addNodelessAnchors(
 		if err != nil && problem.CodeOf(err) != problem.NotFound {
 			return fmt.Errorf("agent chat folder: fork parent of %s: %w", id, err)
 		}
-		anchor, err := u.anchorView(ctx, id, domain.Node{ID: id, Kind: domain.NodeKindWorkspace, ParentID: parent})
+		anchor, err := u.anchorView(ctx, id, dtree.Node{ID: id, Kind: dtree.KindWorkspace, ParentID: parent})
 		if err != nil {
 			return err
 		}

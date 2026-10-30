@@ -44,14 +44,29 @@ func NewPorts(
 	return p, nil
 }
 
-// Seed merges t into its project's tree and indexes what it holds.
+// Seed merges t into its project's tree and indexes what it holds. It leaves
+// out every id another tree holds: a write placed it there since t was read.
 func (p *Ports) Seed(ctx context.Context, t tree.Tree) (tree.Tree, error) {
-	out, err := p.repo.Seed(ctx, t)
+	out, err := p.repo.Seed(ctx, p.unheld(t))
 	if err != nil {
 		return tree.Tree{}, err
 	}
 	p.remember(out)
 	return out, nil
+}
+
+func (p *Ports) unheld(t tree.Tree) tree.Tree {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := t.Clone()
+	for id, at := range p.index {
+		if at != t.ProjectID {
+			delete(out.Nodes, id)
+			delete(out.Folders, id)
+			delete(out.Chats, id)
+		}
+	}
+	return out
 }
 
 // Tree is projectID's tree as stored.
@@ -204,4 +219,9 @@ func sortNodes(nodes []tree.Node) []tree.Node {
 
 func noRow(op, id string) error {
 	return fmt.Errorf("tree: %s: no node %s: %w", op, id, asynxModels.ErrValidation)
+}
+
+// WaitPublish waits until every placement written so far was announced.
+func (p *Ports) WaitPublish() {
+	p.repo.WaitPublish()
 }

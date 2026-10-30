@@ -53,9 +53,12 @@ func TestSeedChat_IsBornOnARegisteredProvider(t *testing.T) {
 
 	readModel, err := agentchat.OpenReadModel(adapters.AgentChatReadDB())
 	require.NoError(t, err)
-	axAgentChat, err := buildAsynx(adapters.AgentChatES(), adapters.AgentChatSS(), agentchat.Subscriber(readModel))
+	axAgentChat, err := buildAsynx(adapters.AgentChatES(), adapters.AgentChatSS(),
+		agentchat.StripRetiredPlacementFields, agentchat.Subscriber(readModel))
 	require.NoError(t, err)
-	chatStore, err := agentchat.NewEventSourced(axAgentChat, adapters.AgentChatES(), readModel, nil)
+	placement, err := openPlacement(ctx, adapters, axAgentChat)
+	require.NoError(t, err)
+	chatStore, err := agentchat.NewEventSourced(ctx, axAgentChat, adapters.AgentChatES(), readModel, nil, placement)
 	require.NoError(t, err)
 	chat, err := chatStore.GetChat(ctx, chatID)
 	require.NoError(t, err)

@@ -23,13 +23,13 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 func newTestAsynx[T any](
@@ -71,10 +71,9 @@ func newContainerDeps(
 		newTestAsynx(t, adapters.ReviewThreadES(), reviewthread.Subscriber(rm.ReviewThread)),
 		newTestAsynx(t, adapters.WorkspaceES(), workspace.Subscriber(rm.Workspace)),
 		newTestAsynx(t, adapters.AgentChatES(), agentchat.Subscriber(rm.AgentChat)),
-		newTestAsynx(t, adapters.NodeES(), node.Subscriber(rm.Node)),
+		testutil.Placements(t),
 		nil, // git conflict-checker not exercised by this test
 		noChatWatch,
-		noNodeWatch,
 		func(context.Context, string, *domain.Workspace, error) {},
 	)
 	require.NoError(t, err)
@@ -403,7 +402,5 @@ func (containerStatusStub) GitStatus(
 	return gitdomain.GitStatus{}, nil
 }
 
-// noChatWatch / noNodeWatch are the announcement seams for tests that assert
-// nothing about WS frames or live position updates.
+// noChatWatch is the announcement seam for tests that assert nothing about WS frames.
 func noChatWatch(_ agentchat.ChatEvent) {}
-func noNodeWatch(_ node.NodeEvent)      {}

@@ -4,12 +4,12 @@ import (
 	"context"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // The home-scoped (RepoID == "") placement surface (2026-09-08
 // sidebar-placement-unification Task 5): Folders is identity, Nodes is
-// position — split apart the same way domain.Folder/domain.Node are.
+// position — split apart the same way dtree.Folder/dtree.Node are.
 
 // Folders is the plain-GORM identity surface a home-scoped folder's name now
 // lives on: RepoID == "" only, forever — repo-scoped folders (RepoID != "")
@@ -19,16 +19,16 @@ type Folders interface {
 	FindByKey(
 		ctx context.Context,
 		id string,
-	) (*domain.Folder, error)
+	) (*dtree.Folder, error)
 	// FindAll answers every home folder the daemon knows, filtered in memory
 	// to RepoID == "" by the caller: "" is FindWhere's own zero value, which
 	// per store.ScopedStore's doc can never be expressed as a query filter.
 	FindAll(
 		ctx context.Context,
-	) ([]domain.Folder, error)
+	) ([]dtree.Folder, error)
 	Save(
 		ctx context.Context,
-		f domain.Folder,
+		f dtree.Folder,
 	) error
 	Delete(
 		ctx context.Context,
@@ -47,23 +47,23 @@ type Nodes interface {
 	Create(
 		ctx context.Context,
 		id string,
-		kind domain.NodeKind,
+		kind dtree.Kind,
 		parentID string,
 		order int,
-	) (domain.Node, error)
+	) (dtree.Node, error)
 	GetNode(
 		ctx context.Context,
 		id string,
-	) (domain.Node, error)
+	) (dtree.Node, error)
 	ListByParent(
 		ctx context.Context,
 		parentID string,
-	) ([]domain.Node, error)
+	) ([]dtree.Node, error)
 	// ListAll is every node in one read, for the walks that would otherwise
 	// read the table once per parent.
 	ListAll(
 		ctx context.Context,
-	) ([]domain.Node, error)
+	) ([]dtree.Node, error)
 	SetOrder(
 		ctx context.Context,
 		id string,

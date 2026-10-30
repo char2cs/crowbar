@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // The Node-backed write dispatch: minting, ordering or placing one row.
@@ -31,20 +32,20 @@ func (u *chatFolderUsecase) writeHomeNodeRow(
 	snapshot *treeSnapshot,
 	row *domain.Chat,
 ) (*domain.Chat, error) {
-	kind := domain.NodeKindChat
+	kind := dtree.KindChat
 	switch row.Type {
 	case domain.ChatTypeFolder:
-		kind = domain.NodeKindFolder
+		kind = dtree.KindFolder
 	case domain.ChatTypeChat, domain.ChatTypeBranch, domain.ChatTypeWorkflow:
 		// kind is already NodeKindChat.
 	case nodePhantomType:
 		// A repo's own Node row riding through this Chat-shaped snapshot,
 		// not a member of the domain.ChatType enum.
-		kind = domain.NodeKindRepo
+		kind = dtree.KindRepo
 	case workspaceAnchorType:
 		// A workspace anchor's own Node row; distinct from nodePhantomType
 		// only so a fresh mint lands on the right Kind.
-		kind = domain.NodeKindWorkspace
+		kind = dtree.KindWorkspace
 	}
 	if snapshot.freshIDs[row.ID] {
 		if _, err := u.nodes.GetNode(ctx, row.ID); err == nil {

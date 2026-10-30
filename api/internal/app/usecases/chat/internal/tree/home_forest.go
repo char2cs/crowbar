@@ -7,6 +7,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // The Node-backed read side, home AND repo scope alike (2026-09-08
@@ -19,7 +20,7 @@ import (
 // merge for home, and now also replaces the repo-scoped folder CRUD's own
 // former Chat-only walk.
 
-// homeFolderView renders a domain.Folder+domain.Node pair as the same
+// homeFolderView renders a dtree.Folder+dtree.Node pair as the same
 // Chat-shaped row every other verb in this package plans and broadcasts —
 // the wire contract does not change, only where a folder's identity/position
 // are sourced from. Despite the name (kept from Task 5 to minimise churn),
@@ -29,8 +30,8 @@ import (
 // yet (this call IS the mint) sits at the panel root with Order 0, exactly
 // like a freshly-minted repo or chat.
 func homeFolderView(
-	f domain.Folder,
-	n domain.Node,
+	f dtree.Folder,
+	n dtree.Node,
 ) domain.Chat {
 	return domain.Chat{
 		ID:       f.ID,
@@ -77,7 +78,7 @@ const workspaceAnchorType domain.ChatType = "__workspace_anchor__"
 // from its Node alone sorted a tied level differently on each side.
 func workspaceAnchorView(
 	workspaceID string,
-	n domain.Node,
+	n dtree.Node,
 	createdAt time.Time,
 ) domain.Chat {
 	return domain.Chat{
@@ -95,7 +96,7 @@ func workspaceAnchorView(
 func (u *chatFolderUsecase) anchorView(
 	ctx context.Context,
 	workspaceID string,
-	n domain.Node,
+	n dtree.Node,
 ) (domain.Chat, error) {
 	createdAt, err := u.workspaces.CreatedAtOf(ctx, workspaceID)
 	if err != nil && problem.CodeOf(err) != problem.NotFound {
@@ -165,7 +166,7 @@ func (u *chatFolderUsecase) correctHomePlacement(
 // repoMemberIDs further scopes which repo phantoms are included, when
 // includeRepoPhantoms is true — the SAME reason project.go's
 // placeRepoAmongHomeSiblings needs repoIDSet/homeChatIDSet (SDD review
-// Critical 2): domain.Node carries no project id of its own, so a repo
+// Critical 2): dtree.Node carries no project id of its own, so a repo
 // sharing the bare root ("") belongs to SOME project, not necessarily the
 // caller's, and appending it unscoped would let a densify in one project
 // renumber — and WRITE, via writeHomeNode's Nodes.SetOrder/.SetPlacement —
@@ -303,7 +304,7 @@ type forest struct {
 // queue's own seeding).
 func (u *chatFolderUsecase) mergeHomeNode(
 	ctx context.Context,
-	n domain.Node,
+	n dtree.Node,
 	byID map[string]int,
 	baseRows *[]domain.Chat,
 	scope forestScope,
@@ -315,7 +316,7 @@ func (u *chatFolderUsecase) mergeHomeNode(
 			row = &(*baseRows)[i]
 		}
 		if !u.rootMember(ctx, n, scope, aliases, row) {
-			if n.Kind == domain.NodeKindWorkspace && n.ID == scope.workspaceID {
+			if n.Kind == dtree.KindWorkspace && n.ID == scope.workspaceID {
 				// The header's anchor still holds the threads filed under it.
 				return false, n.ID, nil
 			}
@@ -323,7 +324,7 @@ func (u *chatFolderUsecase) mergeHomeNode(
 		}
 	}
 	switch n.Kind {
-	case domain.NodeKindFolder:
+	case dtree.KindFolder:
 		f, ferr := u.folders.FindByKey(ctx, n.ID)
 		if ferr != nil {
 			return false, "", fmt.Errorf("agent chat folder: node forest: folder %s: %w", n.ID, ferr)
@@ -334,7 +335,7 @@ func (u *chatFolderUsecase) mergeHomeNode(
 		}
 		*baseRows = append(*baseRows, homeFolderView(*f, n))
 		return true, n.ID, nil
-	case domain.NodeKindChat:
+	case dtree.KindChat:
 		// A fork's true siblings live in OTHER private workspaces (spec
 		// §2.4) so workspaceSnapshotAround's ListByWorkspace read never has
 		// them in byID. Correcting only the already-known case (the prior
@@ -349,7 +350,7 @@ func (u *chatFolderUsecase) mergeHomeNode(
 		byID[n.ID] = len(*baseRows)
 		*baseRows = append(*baseRows, domain.Chat{ID: n.ID, ParentID: n.ParentID, Order: n.Order})
 		return true, n.ID, nil
-	case domain.NodeKindRepo:
+	case dtree.KindRepo:
 		if !scope.home || (scope.repoMemberIDs != nil && !scope.repoMemberIDs[n.ID]) {
 			// A repo is never a legitimate sibling INSIDE a repo's own
 			// internal tree -- see forestScope's own doc -- and a deleted
@@ -360,7 +361,7 @@ func (u *chatFolderUsecase) mergeHomeNode(
 			ID: n.ID, Type: nodePhantomType, ParentID: n.ParentID, Order: n.Order,
 		})
 		return true, "", nil
-	case domain.NodeKindWorkspace:
+	case dtree.KindWorkspace:
 		included, err := u.mergeAnchorNode(ctx, n, baseRows)
 		if problem.CodeOf(err) == problem.NotFound {
 			// An orphaned Node, as for a folder: its workspace is gone.
@@ -377,7 +378,7 @@ func (u *chatFolderUsecase) mergeHomeNode(
 // queues: the threads filed under it are its level to count.
 func (u *chatFolderUsecase) mergeAnchorNode(
 	ctx context.Context,
-	n domain.Node,
+	n dtree.Node,
 	baseRows *[]domain.Chat,
 ) (bool, error) {
 	renders, err := u.workspaces.RendersAsBranch(ctx, n.ID)

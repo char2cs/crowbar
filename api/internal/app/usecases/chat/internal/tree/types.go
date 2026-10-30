@@ -5,6 +5,7 @@ import (
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // The tree's ports and the shapes its writes take.
@@ -263,7 +264,7 @@ type CreateInput struct {
 	ParentID string
 	Name     string
 	// HomeID is the home workspace a project-home folder (RepoID == "")
-	// belongs to — see domain.Folder.HomeID.
+	// belongs to — see dtree.Folder.HomeID.
 	HomeID string
 }
 
@@ -323,7 +324,7 @@ type Usecase interface {
 	FolderScope(
 		ctx context.Context,
 		id string,
-	) (domain.Folder, error)
+	) (dtree.Folder, error)
 	// Create appends a new folder to the end of its parent's sibling space and
 	// densifies that level. It returns the new folder plus every OTHER row the
 	// densify shifted, so the caller broadcasts the whole change rather than one

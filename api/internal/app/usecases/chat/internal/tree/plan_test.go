@@ -9,6 +9,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // A locked branch's own row is a Node write with no projection frame of its
@@ -24,8 +25,8 @@ func TestRegression_PlaceChat_ReportsAShiftedWorkspaceAnchorSibling(t *testing.T
 		domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: workspaceID},
 	)
 	nodes.Rows = append(nodes.Rows,
-		domain.Node{ID: "ws-branch-1", Kind: domain.NodeKindWorkspace, Order: 0},
-		domain.Node{ID: "c1", Kind: domain.NodeKindChat, Order: 1},
+		dtree.Node{ID: "ws-branch-1", Kind: dtree.KindWorkspace, Order: 0},
+		dtree.Node{ID: "c1", Kind: dtree.KindChat, Order: 1},
 	)
 	gitStatus.SetRepo("ws-branch-1", repoID)
 	gitStatus.SetBranch("ws-branch-1", true)
@@ -52,8 +53,8 @@ func TestRegression_PlaceWorkspace_ReportsAShiftedWorkspaceAnchorSibling(t *test
 		domain.Chat{ID: "branch-2", Type: domain.ChatTypeBranch, OwnsWorkspace: true, WorkspaceID: "ws-branch-2"},
 	)
 	nodes.Rows = append(nodes.Rows,
-		domain.Node{ID: "ws-branch-1", Kind: domain.NodeKindWorkspace, Order: 0},
-		domain.Node{ID: "ws-branch-2", Kind: domain.NodeKindWorkspace, Order: 1},
+		dtree.Node{ID: "ws-branch-1", Kind: dtree.KindWorkspace, Order: 0},
+		dtree.Node{ID: "ws-branch-2", Kind: dtree.KindWorkspace, Order: 1},
 	)
 	for _, ws := range []string{"ws-branch-1", "ws-branch-2"} {
 		gitStatus.SetRepo(ws, repoID)

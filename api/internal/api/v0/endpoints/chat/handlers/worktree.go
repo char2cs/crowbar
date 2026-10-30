@@ -10,6 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // Worktrees is the narrow read port the chat DTO's worktree enrichment needs
@@ -62,7 +63,7 @@ type Nodes interface {
 	GetNode(
 		ctx context.Context,
 		id string,
-	) (domain.Node, error)
+	) (tree.Node, error)
 }
 
 // worktreeScope is ONE read's worth of the answers the enrichment needs: the

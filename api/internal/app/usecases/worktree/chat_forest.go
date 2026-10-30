@@ -5,11 +5,12 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // Folders/Nodes are the narrow Folder+Node read ports newChatForest needs to
 // see PAST a folder ancestor — 2026-09-08 sidebar-placement-unification
-// Task 8's own review fix round. A folder is a domain.Folder+domain.Node
+// Task 8's own review fix round. A folder is a dtree.Folder+dtree.Node
 // pair now (never a Chat row, home-scoped since Task 5, repo-scoped too
 // since Task 8), so the raw ChatLister read this package's own ancestry/
 // workspace-fan-out walks were built over no longer carries it at all — a
@@ -24,11 +25,11 @@ import (
 // own narrow shape and lets the container-layer adapters (repos.Folder,
 // repos.Node) satisfy it structurally.
 type Folders interface {
-	FindByKey(ctx context.Context, id string) (*domain.Folder, error)
+	FindByKey(ctx context.Context, id string) (*dtree.Folder, error)
 }
 
 type Nodes interface {
-	ListAll(ctx context.Context) ([]domain.Node, error)
+	ListAll(ctx context.Context) ([]dtree.Node, error)
 }
 
 // chatForest is one read of the whole chat/folder placement tree, indexed for
@@ -86,7 +87,7 @@ func foldersReachableFromRoots(
 	if err != nil {
 		return nil, err
 	}
-	byParent := make(map[string][]domain.Node)
+	byParent := make(map[string][]dtree.Node)
 	for _, n := range all {
 		byParent[n.ParentID] = append(byParent[n.ParentID], n)
 	}
@@ -106,7 +107,7 @@ func foldersReachableFromRoots(
 		}
 		queried[parent] = true
 		for _, n := range byParent[parent] {
-			if n.Kind != domain.NodeKindFolder || seenFolder[n.ID] {
+			if n.Kind != dtree.KindFolder || seenFolder[n.ID] {
 				continue
 			}
 			seenFolder[n.ID] = true

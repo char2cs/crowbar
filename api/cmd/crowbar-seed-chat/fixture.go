@@ -94,11 +94,16 @@ func seedChat(ctx context.Context, adapters *adapter.Container, opts seedOptions
 	if err != nil {
 		return "", fmt.Errorf("crowbar-seed-chat: chat read model: %w", err)
 	}
-	axAgentChat, err := buildAsynx(adapters.AgentChatES(), adapters.AgentChatSS(), agentchat.Subscriber(readModel))
+	axAgentChat, err := buildAsynx(adapters.AgentChatES(), adapters.AgentChatSS(),
+		agentchat.StripRetiredPlacementFields, agentchat.Subscriber(readModel))
 	if err != nil {
 		return "", fmt.Errorf("crowbar-seed-chat: asynx agent chat: %w", err)
 	}
-	chatStore, err := agentchat.NewEventSourced(axAgentChat, adapters.AgentChatES(), readModel, nil)
+	placement, err := openPlacement(ctx, adapters, axAgentChat)
+	if err != nil {
+		return "", err
+	}
+	chatStore, err := agentchat.NewEventSourced(ctx, axAgentChat, adapters.AgentChatES(), readModel, nil, placement)
 	if err != nil {
 		return "", fmt.Errorf("crowbar-seed-chat: chat store: %w", err)
 	}

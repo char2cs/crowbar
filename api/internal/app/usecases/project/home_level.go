@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // homeRow is one member of a project's home level as the repo placement pass
@@ -13,7 +14,7 @@ import (
 // root before Node rows existed): it holds its frozen Chat.Order, and the
 // first write that moves it mints its Node instead of ordering one.
 type homeRow struct {
-	domain.Node
+	tree.Node
 	fresh     bool
 	createdAt time.Time
 }
@@ -109,7 +110,7 @@ func (u *projectUsecase) withNodelessRows(
 			continue // filed under a live row of the home
 		}
 		rows = append(rows, homeRow{
-			Node:      domain.Node{ID: c.ID, Kind: domain.NodeKindChat, Order: c.Order},
+			Node:      tree.Node{ID: c.ID, Kind: tree.KindChat, Order: c.Order},
 			fresh:     true,
 			createdAt: c.CreatedAt,
 		})
@@ -143,17 +144,17 @@ func (u *projectUsecase) homeRowExists(
 // homeMember is homeLevel's per-kind membership rule for one Node row.
 func (u *projectUsecase) homeMember(
 	ctx context.Context,
-	n domain.Node,
+	n tree.Node,
 	repoIDs map[string]bool,
 	chatIDs map[string]bool,
 	homeWorkspaceID string,
 ) bool {
 	switch n.Kind {
-	case domain.NodeKindRepo:
+	case tree.KindRepo:
 		return repoIDs[n.ID]
-	case domain.NodeKindChat:
+	case tree.KindChat:
 		return chatIDs == nil || chatIDs[n.ID]
-	case domain.NodeKindFolder:
+	case tree.KindFolder:
 		if u.folders == nil {
 			return true
 		}

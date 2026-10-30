@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
-	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // An UNLOCKED chatless workspace's own Node row is never merged into the
@@ -17,7 +17,7 @@ import (
 // invisible to the densify, and every new thread lands at order 0 beside them.
 func TestRegression_CreateChat_SecondThreadUnderAnUnlockedChatlessWorkspace_GetsTheNextSlot(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
-	nodes.Rows = append(nodes.Rows, domain.Node{ID: workspaceID, Kind: domain.NodeKindWorkspace})
+	nodes.Rows = append(nodes.Rows, dtree.Node{ID: workspaceID, Kind: dtree.KindWorkspace})
 	ctx := context.Background()
 
 	chats.NextID = "c-first"

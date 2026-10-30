@@ -20,6 +20,7 @@ import (
 	fileusecase "github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // ── HomeReader mock ────────────────────────────────────────────────────────────
@@ -72,12 +73,12 @@ type mockNodeCreator struct{ mock.Mock }
 func (m *mockNodeCreator) CreateIdempotent(
 	ctx context.Context,
 	id string,
-	kind domain.NodeKind,
+	kind tree.Kind,
 	parentID string,
 	order int,
-) (domain.Node, error) {
+) (tree.Node, error) {
 	args := m.Called(ctx, id, kind, parentID, order)
-	node, _ := args.Get(0).(domain.Node)
+	node, _ := args.Get(0).(tree.Node)
 	return node, args.Error(1)
 }
 

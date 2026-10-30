@@ -26,6 +26,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 // The stores are the real aggregates over in-memory logs: a write followed by
@@ -189,7 +190,7 @@ func newChatStore(t *testing.T) (agentchat.EventStore, func()) {
 	ax, err := axb.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-	repo, err := agentchat.NewEventSourced(ax, es, rm, nil)
+	repo, err := agentchat.NewEventSourced(context.Background(), ax, es, rm, nil, testutil.Placements(t))
 	require.NoError(t, err)
 	return repo, ax.WaitPublish
 }

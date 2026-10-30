@@ -12,6 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // Two locked branches at order 0: the sidebar draws the OLDER first (a branch
@@ -27,12 +28,12 @@ func TestRegression_PlaceChat_TiedAnchorsSortByWorkspaceCreatedAtNotID(t *testin
 		gitStatus.SetRepo(id, repoID)
 		gitStatus.SetBranch(id, true)
 		gitStatus.SetCreatedAt(id, at)
-		nodes.Rows = append(nodes.Rows, domain.Node{ID: id, Kind: domain.NodeKindWorkspace, ParentID: "", Order: 0})
+		nodes.Rows = append(nodes.Rows, dtree.Node{ID: id, Kind: dtree.KindWorkspace, ParentID: "", Order: 0})
 	}
 	chats.Rows = append(chats.Rows,
 		domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: workspaceID, CreatedAt: time.Unix(300, 0)},
 	)
-	nodes.Rows = append(nodes.Rows, domain.Node{ID: "c1", Kind: domain.NodeKindChat, ParentID: "", Order: 2})
+	nodes.Rows = append(nodes.Rows, dtree.Node{ID: "c1", Kind: dtree.KindChat, ParentID: "", Order: 2})
 
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c1", tree.PlaceInput{ParentID: name(""), Order: index(1)})
 	require.NoError(t, err)
@@ -56,16 +57,16 @@ func TestRegression_PlaceChat_CountsALegacyNodelessLockedBranch(t *testing.T) {
 		domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: workspaceID, CreatedAt: time.Unix(300, 0)},
 		domain.Chat{ID: "c2", Type: domain.ChatTypeChat, WorkspaceID: workspaceID, CreatedAt: time.Unix(400, 0)},
 	)
-	nodes.Rows = []domain.Node{
-		{ID: "c1", Kind: domain.NodeKindChat, ParentID: "", Order: 1},
-		{ID: "c2", Kind: domain.NodeKindChat, ParentID: "", Order: 2},
+	nodes.Rows = []dtree.Node{
+		{ID: "c1", Kind: dtree.KindChat, ParentID: "", Order: 1},
+		{ID: "c2", Kind: dtree.KindChat, ParentID: "", Order: 2},
 	}
 
 	// Drawn [legacy-locked, c1, c2]; drop c2 right after the branch.
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c2", tree.PlaceInput{ParentID: name(""), Order: index(1)})
 	require.NoError(t, err)
 	anchor := nodeRowFor(t, nodes, "legacy-locked")
-	assert.Equal(t, domain.NodeKindWorkspace, anchor.Kind, "the first write under the level mints the legacy anchor's Node")
+	assert.Equal(t, dtree.KindWorkspace, anchor.Kind, "the first write under the level mints the legacy anchor's Node")
 	assert.Equal(t, 0, anchor.Order)
 	assert.Equal(t, 1, nodeRowFor(t, nodes, "c2").Order)
 	assert.Equal(t, 2, nodeRowFor(t, nodes, "c1").Order)
@@ -87,7 +88,7 @@ func TestPlaceChat_AFailedAnchorReadIsReturned(t *testing.T) {
 			chats.Rows = append(chats.Rows,
 				domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: workspaceID, CreatedAt: time.Unix(300, 0)},
 			)
-			nodes.Rows = []domain.Node{{ID: "c1", Kind: domain.NodeKindChat, ParentID: "", Order: 1}}
+			nodes.Rows = []dtree.Node{{ID: "c1", Kind: dtree.KindChat, ParentID: "", Order: 1}}
 			cause := errors.New("workspace read down")
 			fail(gitStatus, cause)
 
@@ -109,11 +110,11 @@ func TestPlaceChat_ANodeWhoseWorkspaceIsGoneIsSkipped(t *testing.T) {
 			ID: id, Type: domain.ChatTypeChat, WorkspaceID: workspaceID, CreatedAt: time.Unix(int64(300+i), 0),
 		})
 	}
-	nodes.Rows = []domain.Node{
-		{ID: "p", Kind: domain.NodeKindChat, ParentID: "", Order: 0},
-		{ID: "gone-ws", Kind: domain.NodeKindWorkspace, ParentID: "p", Order: 0},
-		{ID: "c1", Kind: domain.NodeKindChat, ParentID: "p", Order: 1},
-		{ID: "c2", Kind: domain.NodeKindChat, ParentID: "p", Order: 2},
+	nodes.Rows = []dtree.Node{
+		{ID: "p", Kind: dtree.KindChat, ParentID: "", Order: 0},
+		{ID: "gone-ws", Kind: dtree.KindWorkspace, ParentID: "p", Order: 0},
+		{ID: "c1", Kind: dtree.KindChat, ParentID: "p", Order: 1},
+		{ID: "c2", Kind: dtree.KindChat, ParentID: "p", Order: 2},
 	}
 
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c2", tree.PlaceInput{ParentID: name("p"), Order: index(0)})

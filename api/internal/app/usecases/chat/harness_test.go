@@ -32,6 +32,7 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 // mustJSON encodes a hook payload stamped with the transcript_path every real hook
@@ -621,9 +622,7 @@ type testFixture struct {
 	// a test can mint the token a spawned runner would have been handed.
 	minter *agenttools.TokenMinter
 	// folders/nodes are the Folder+Node fakes the lineage resolver reads
-	// through (2026-09-08 sidebar-placement-unification Task 8) — a folder
-	// is never a Chat row any more, so file() (below) seeds through these
-	// instead of usedChats.Create.
+	// through: a folder is never a Chat row, so file() seeds through these.
 	folders *mocks.FolderStore
 	nodes   *mocks.NodePlacements
 	ledger  *ledgerstore.Store
@@ -962,7 +961,7 @@ func newChatStore(
 	ax, err := axb.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-	repo, err := agentchat.NewEventSourced(ax, es, rm, watch)
+	repo, err := agentchat.NewEventSourced(context.Background(), ax, es, rm, watch, testutil.Placements(t))
 	require.NoError(t, err)
 	return repo, ax.WaitPublish
 }

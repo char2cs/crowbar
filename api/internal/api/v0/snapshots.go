@@ -79,7 +79,7 @@ func repoPlacements(
 ) map[string]dto.RepoPlacement {
 	placements := make(map[string]dto.RepoPlacement, len(rows))
 	for _, r := range rows {
-		n, err := appContainer.Repositories.Node.GetNode(ctx, r.ID)
+		n, err := appContainer.Repositories.Placement.GetNode(ctx, r.ID)
 		if err != nil {
 			continue
 		}

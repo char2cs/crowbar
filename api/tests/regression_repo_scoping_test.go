@@ -15,7 +15,7 @@ import (
 // fail here.
 //
 // It used to also pin the sidebar's now-retired folder feature
-// (domain.Folder, the /folders REST resource, and the dense Order
+// (tree.Folder, the /folders REST resource, and the dense Order
 // Workspace.FolderID/Order shared with it) — all deleted onto the unified
 // chat/folder tree (usecases/chat/internal/tree), which the Chats-panel's own
 // regression suite (regression_agent_chat_folders_test.go) already covers.

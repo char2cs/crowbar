@@ -74,7 +74,7 @@ func (c *Container) Shutdown(
 		c.axWorkspace.Shutdown(ctx),
 		c.axReviewThread.Shutdown(ctx),
 		c.axAgentChat.Shutdown(ctx),
-		c.axNode.Shutdown(ctx),
+		c.axTree.Shutdown(ctx),
 	)
 }
 
@@ -174,7 +174,7 @@ func (c *Container) stopBackgroundWorkers(
 		c.axWorkspace.Shutdown(ctx),
 		c.axReviewThread.Shutdown(ctx),
 		c.axAgentChat.Shutdown(ctx),
-		c.axNode.Shutdown(ctx),
+		c.axTree.Shutdown(ctx),
 	} {
 		if err != nil && !errors.Is(err, asynxModels.ErrAlreadyShuttingDown) {
 			slog.WarnContext(ctx, "app: stop an aggregate's workers", "err", err)

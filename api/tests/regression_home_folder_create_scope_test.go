@@ -46,7 +46,7 @@ func TestRegression_HomeFolderCreatedInOneProjectAppearsInAnother(t *testing.T) 
 
 	ctx := context.Background()
 	for _, made := range []string{root.ID, nested.ID} {
-		f, err := h.app.GORM.Folders.FindByKey(ctx, made)
+		f, err := h.app.Repositories.Placement.FindByKey(ctx, made)
 		require.NoError(t, err)
 		require.NotNil(t, f)
 		assert.NotEmpty(t, f.HomeID,
@@ -74,7 +74,7 @@ func TestRegression_FolderCreateWithNoScopeMintsAHomelessRow(t *testing.T) {
 
 func countFolders(t *testing.T, h *harness) int {
 	t.Helper()
-	all, err := h.app.GORM.Folders.FindAll(context.Background())
+	all, err := h.app.Repositories.Placement.FindAll(context.Background())
 	require.NoError(t, err)
 	return len(all)
 }

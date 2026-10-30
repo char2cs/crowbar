@@ -17,7 +17,7 @@ func TestCreate_Validate_RejectsUnknownType(t *testing.T) {
 // ChatTypeFolder and ChatTypeBranch are deliberately absent from this list
 // (2026-09-08 sidebar-placement-unification: Task 8 narrowed the closed
 // taxonomy a Chat aggregate may be minted or retyped as to drop
-// ChatTypeFolder — a folder is a domain.Folder row now, home-scoped or
+// ChatTypeFolder — a folder is a tree.Folder row now, home-scoped or
 // repo-scoped alike, never a Chat row; Task 9 narrowed it further to drop
 // ChatTypeBranch — a workspace's own position is a Node{Kind:workspace} row
 // now, never a retyped Chat proxy) — see TestCreate_Validate_RejectsFolderType
@@ -39,7 +39,7 @@ func TestCreate_Validate_AcceptsEachKnownType(t *testing.T) {
 func TestCreate_Validate_RejectsFolderType(t *testing.T) {
 	c := commands.Create{ID: "chat-1", WorkspaceID: "ws-1", Type: domain.ChatTypeFolder}
 	if err := c.Validate(nil); err == nil {
-		t.Fatalf("expected error creating a ChatTypeFolder chat -- a folder is a domain.Folder row now")
+		t.Fatalf("expected error creating a ChatTypeFolder chat -- a folder is a tree.Folder row now")
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 const (
@@ -27,10 +28,8 @@ var errNoLog = errors.New("log unavailable")
 // Create verb every other test's fixtures go through, scoped to the module's
 // single-repo fixture (repoID, "repo-1") — every test in this file that
 // nests folders inside one another lives in that one repo's world. A folder
-// is a domain.Folder+domain.Node pair now (2026-09-08
-// sidebar-placement-unification Task 5 for home-scoped, Task 8 for
-// repo-scoped too), never a Chat row — this is why seeding it now has to run
-// through the usecase rather than appending straight onto chats.Rows.
+// is a dtree.Folder+dtree.Node pair, never a Chat row, so seeding it runs
+// through the usecase rather than appending onto chats.Rows.
 func seedFolder(
 	t *testing.T,
 	uc tree.Usecase,
@@ -132,8 +131,8 @@ func seedThread(
 }
 
 // folderRow reads id's current Chat-shaped view back through the public
-// ListInRepo(repoID) — a folder's identity/position live on domain.Folder/
-// domain.Node now, never on chats.Rows, so this is the one door left to read
+// ListInRepo(repoID) — a folder's identity/position live on dtree.Folder/
+// dtree.Node now, never on chats.Rows, so this is the one door left to read
 // it through.
 func folderRow(
 	t *testing.T,
@@ -313,7 +312,7 @@ func TestCreate_SurfacesAParentLookupFailure(t *testing.T) {
 
 // A folder's identity is a single Folders.Save now — its own equivalent of
 // the OLD two-step mint-then-name (Chats.Create then SetTitle) collapses
-// into one write, since domain.Folder carries the name directly. Both
+// into one write, since dtree.Folder carries the name directly. Both
 // halves of that OLD two-step failure surface (TestCreate_SurfacesACreateFailure/
 // TestCreate_SurfacesATitleFailure) now cover the SAME call — kept as two
 // tests, mirroring the old suite's own shape, rather than merged into one.
@@ -384,7 +383,7 @@ func TestListInRepo_ReturnsOnlyFolderTypedRows(t *testing.T) {
 // every folder across every repo AND home): a folder that belongs to a
 // DIFFERENT repo, or to project-home ("" — a distinct scope of its own,
 // never a wildcard), never bleeds into another repo's list. Caught live as a
-// folder left "on top of" the wrong repo. A folder is a domain.Folder row
+// folder left "on top of" the wrong repo. A folder is a dtree.Folder row
 // now (2026-09-08 sidebar-placement-unification Task 5 for home-scoped,
 // Task 8 for repo-scoped too), never a ChatTypeFolder Chat row — seeded here
 // through Folders.Save directly (the OTHER repo's folder never goes through
@@ -393,7 +392,7 @@ func TestListInRepo_IsolatesByRepo(t *testing.T) {
 	_, folders, _, uc, _ := newUsecaseWithStores(t)
 	seedFolder(t, uc, "f-this-repo", "")
 	require.NoError(t, folders.Save(context.Background(),
-		domain.Folder{ID: "f-other-repo", Name: "theirs", RepoID: "repo-2"}))
+		dtree.Folder{ID: "f-other-repo", Name: "theirs", RepoID: "repo-2"}))
 
 	rows, err := uc.ListInRepo(context.Background(), repoID)
 	require.NoError(t, err)
