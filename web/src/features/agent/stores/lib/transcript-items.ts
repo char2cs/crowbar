@@ -44,6 +44,7 @@ export interface AskItem extends ItemBase {
   choice: AgentChoice
   /** What a permission is about to touch: the ask's own, else its tool call's. */
   toolTarget: string
+  toolId?: string
 }
 
 export type MarkerName = MarkerKind | 'turn_interrupted' | 'turn_failed'

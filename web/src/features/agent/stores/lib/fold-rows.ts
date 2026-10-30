@@ -404,6 +404,7 @@ const applyAsk: Apply<'ask'> = (fold, row) => {
     scope,
     choice,
     toolTarget: body.toolTarget || tool?.body.target || '',
+    toolId: body.toolId,
   })
   if (!fold.facts.openAsks.includes(id)) fold.set('openAsks', [...fold.facts.openAsks, id])
   if (!known) fold.place(id, scope)
@@ -421,12 +422,15 @@ const applyAskResolved: Apply<'ask_resolved'> = (fold, row) => {
       answeredOptionIds: row.body.optionIds,
     }
     fold.put({ ...known, choice })
-  }
-  if (fold.facts.openAsks.includes(id))
-    fold.set(
-      'openAsks',
-      fold.facts.openAsks.filter((other) => other !== id),
+    // A denied tool never runs, so no post or fail row will settle it.
+    const denied = known.choice.options.some(
+      (o) => o.kind === 'deny' && choice.answeredOptionIds?.includes(o.id),
     )
+    const tool = denied && known.toolId ? fold.item<ToolItem>(toolItemId(known.toolId)) : undefined
+    if (tool?.status === 'running') fold.put({ ...tool, status: 'declined' })
+  }
+  const openAsks = fold.facts.openAsks.filter((other) => other !== id)
+  if (openAsks.length !== fold.facts.openAsks.length) fold.set('openAsks', openAsks)
 }
 
 const applySubagent: Apply<'subagent'> = (fold, row) => {

@@ -82,6 +82,38 @@ describe('ToolRow', () => {
     expect(status()).toBe('abandoned')
   })
 
+  // A denied permission stops the tool before it runs, and no post/fail row
+  // follows: the answer to its ask is the only record of what happened.
+  it('reads a tool whose permission was denied as denied, not ran', () => {
+    const l = ledger()
+    const call = { toolId: 'tool-1', name: 'Bash', kind: 'execute', target: 'echo deny' }
+    seed([
+      l.start('turn-1'),
+      l.row('tool_call', { ...call, phase: 'pre' }, { turnId: 'turn-1' }),
+      l.row(
+        'ask',
+        {
+          askId: 'q1',
+          event: 'permission',
+          kind: 'tool_permission',
+          toolId: 'tool-1',
+          answerable: true,
+          options: [
+            { id: 'allow', kind: 'allow' },
+            { id: 'deny', kind: 'deny' },
+          ],
+        },
+        { turnId: 'turn-1' },
+      ),
+      l.row('ask_resolved', { askId: 'q1', resolution: 'answered', optionIds: ['deny'] }),
+      l.end('turn-1'),
+    ])
+    draw('t:tool-1')
+    expect(status()).toBe('declined')
+    expect(screen.getByText('Denied')).toBeInTheDocument()
+    expect(screen.queryByText('Ran')).toBeNull()
+  })
+
   it('reads its request and result by blob ref only once opened', async () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')

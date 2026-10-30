@@ -44,7 +44,9 @@ function humanizeToolName(name: string): string {
   return words ? `${words[0]?.toUpperCase()}${words.slice(1)}` : ''
 }
 
-function toolVerb(body: ToolCallBody, running: boolean): string {
+function toolVerb(body: ToolCallBody, status: ToolItem['status']): string {
+  if (status === 'declined') return 'Denied'
+  const running = status === 'running'
   const verbs = body.kind ? VERBS[body.kind] : undefined
   if (verbs) return verbs[running ? 0 : 1]
   return humanizeToolName(body.name ?? '') || 'Tool'
@@ -95,7 +97,7 @@ function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
           <Icon size={12} />
         </span>
       )}
-      <span className="tool-call-verb">{toolVerb(body, running)}</span>
+      <span className="tool-call-verb">{toolVerb(body, status)}</span>
       {subject && (
         <span
           className="tool-call-subject"
