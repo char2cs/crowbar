@@ -1,3 +1,5 @@
+import { readLocal, writeLocal } from '@/lib/local-storage'
+
 export type ConsoleDock = 'top' | 'right' | 'bottom' | 'left'
 export type ConsoleMode = 'overlay' | 'push'
 
@@ -27,28 +29,16 @@ export function nextDock(dock: ConsoleDock): ConsoleDock {
   return DOCKS[(DOCKS.indexOf(dock) + 1) % DOCKS.length]
 }
 
-function read(key: string): string | null {
-  try {
-    return localStorage.getItem(key)
-  } catch {
-    return null
-  }
-}
-
 export function loadDockPrefs(): DockPrefs {
-  const dock = DOCKS.find((d) => d === read(KEY_DOCK)) ?? 'top'
-  const mode = read(KEY_MODE) === 'push' ? 'push' : 'overlay'
-  const stored = parseInt(read(KEY_SIZE) ?? '', 10)
+  const dock = DOCKS.find((d) => d === readLocal(KEY_DOCK)) ?? 'top'
+  const mode = readLocal(KEY_MODE) === 'push' ? 'push' : 'overlay'
+  const stored = parseInt(readLocal(KEY_SIZE) ?? '', 10)
   const size = Number.isFinite(stored) ? Math.max(MIN_SIZE, stored) : DEFAULT_SIZE
   return { dock, mode, size }
 }
 
 export function saveDockPrefs(prefs: DockPrefs): void {
-  try {
-    localStorage.setItem(KEY_DOCK, prefs.dock)
-    localStorage.setItem(KEY_MODE, prefs.mode)
-    localStorage.setItem(KEY_SIZE, String(Math.round(prefs.size)))
-  } catch {
-    // storage unavailable
-  }
+  writeLocal(KEY_DOCK, prefs.dock)
+  writeLocal(KEY_MODE, prefs.mode)
+  writeLocal(KEY_SIZE, String(Math.round(prefs.size)))
 }

@@ -1,3 +1,5 @@
+import { removeLocal } from '@/lib/local-storage'
+
 /**
  * Storage an earlier build wrote that nothing in this build reads: the retired
  * settings (editor engine, formatter, lint-on-save, external editor), the
@@ -15,13 +17,7 @@ const RETIRED_DATABASES = ['crowbar-parser-cache']
 
 /** Remove it; best-effort and idempotent, so it simply runs at every boot. */
 export async function retireOrphanedStorage(): Promise<void> {
-  for (const key of RETIRED_LOCAL_STORAGE_KEYS) {
-    try {
-      localStorage.removeItem(key)
-    } catch {
-      /* storage unavailable — nothing to remove */
-    }
-  }
+  for (const key of RETIRED_LOCAL_STORAGE_KEYS) removeLocal(key)
   await Promise.all(RETIRED_DATABASES.map(deleteDatabase))
 }
 

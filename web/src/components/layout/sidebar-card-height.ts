@@ -1,3 +1,5 @@
+import { readLocal, writeLocal } from '@/lib/local-storage'
+
 const STORAGE_KEY = 'sidebar-card-height-fraction'
 
 /**
@@ -32,18 +34,10 @@ export function clampCardHeightFraction(fraction: number): number {
  * everything around it changes.
  */
 export function loadCardHeightFraction(): number {
-  try {
-    const stored = parseFloat(localStorage.getItem(STORAGE_KEY) ?? '')
-    return Number.isFinite(stored) ? clampCardHeightFraction(stored) : DEFAULT_CARD_HEIGHT_FRACTION
-  } catch {
-    return DEFAULT_CARD_HEIGHT_FRACTION
-  }
+  const stored = parseFloat(readLocal(STORAGE_KEY) ?? '')
+  return Number.isFinite(stored) ? clampCardHeightFraction(stored) : DEFAULT_CARD_HEIGHT_FRACTION
 }
 
 export function saveCardHeightFraction(fraction: number): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, String(clampCardHeightFraction(fraction)))
-  } catch {
-    // storage unavailable
-  }
+  writeLocal(STORAGE_KEY, String(clampCardHeightFraction(fraction)))
 }
