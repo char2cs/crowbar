@@ -194,9 +194,10 @@ describe('useTranscriptAnchor', () => {
   it('judges a staircase of corrections by where the catch-up began', () => {
     const { scroller, grow } = mount()
     grow(1300)
-    frames(16)
-    grow(1600)
-    expect(scroller.scrollTop).toBe(1200)
+    frames(50)
+    // Each step is under a viewport from where the glide is; together they are not.
+    grow(1450)
+    expect(scroller.scrollTop).toBe(1050)
   })
 
   it('lands every change while the history is still replaying', () => {

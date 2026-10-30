@@ -288,12 +288,11 @@ export function AgentTranscript(props: AgentTranscriptProps) {
       if (!props.working) pin(pendingPin.current)
       return
     }
-    // The outbox drained: pin the prompt that was waiting, or release a pin whose
-    // prompt was taken back before it sent (nothing will fill its room).
+    // The outbox drained: pin the prompt that was waiting once its row is in. One
+    // taken back has no row, so its pin has no offset and reserves nothing.
     const waiting = pendingPin.current
     pendingPin.current = null
     if (waiting && items?.[waiting]) pin(waiting)
-    else setPinnedId(null)
   })
   useLayoutEffect(() => onOutboxChange(), [newestUnsent])
 
