@@ -1018,9 +1018,9 @@ func DecodeEnvData(
 }
 
 // RegisterProject creates a project via POST /v0/projects and returns the
-// server-assigned project id. Creation is async (202 + empty body, spec §4): the
-// id is learned from the ProjectDTO delivered on the Projects WS stream. The WS
-// is dialled BEFORE the POST so the create broadcast is never missed.
+// server-assigned project id, learned from the ProjectDTO on the Projects WS
+// stream; the 202 carries the create's operation. The WS is dialled BEFORE the
+// POST so the create broadcast is never missed.
 func (e *Env) RegisterProject(
 	t *testing.T,
 	name string,
@@ -1044,8 +1044,8 @@ func (e *Env) RegisterProject(
 }
 
 // RegisterRepo creates a repo via POST /v0/projects/:projectId/repos and returns
-// the server-assigned repo id. Creation is async (202 + empty body, spec §4):
-// the id is learned from the RepoDTO delivered on the Repos WS stream. The WS is
+// the server-assigned repo id, learned from the RepoDTO on the Repos WS stream;
+// the 202 carries the create's operation. The WS is
 // dialled BEFORE the POST so the create broadcast is never missed. path may be
 // empty for repos that don't need git operations.
 func (e *Env) RegisterRepo(

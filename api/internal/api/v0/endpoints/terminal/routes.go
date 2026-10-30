@@ -35,7 +35,7 @@ func Register(
 
 	// GET .../terminals is dual-served: a plain GET lists the chat's OWN live
 	// sessions, while a WebSocket upgrade is routed to the lifecycle broadcaster
-	// (D2). POST creates (201 {sessionId}); DELETE kills (202). The raw PTY
+	// (D2). POST creates (201 {sessionId}); DELETE kills (200). The raw PTY
 	// stream is co-located at .../terminals/:sessionId/ws (W7-2).
 	chatScoped.GET("/terminals", dispatch(h.ListSessions, wsHandle))
 	chatScoped.POST("/terminals", h.CreateSession)

@@ -200,7 +200,7 @@ func (s *TerminalSuite) TestRegression_TerminalSession_LifecycleBroadcast() {
 
 	killResp := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
 	defer killResp.Body.Close()
-	kit.RequireStatus(t, killResp, http.StatusAccepted)
+	kit.RequireStatus(t, killResp, http.StatusOK)
 
 	ended := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
 		return m["id"] == sessionID && m["status"] == "ended"
@@ -209,7 +209,7 @@ func (s *TerminalSuite) TestRegression_TerminalSession_LifecycleBroadcast() {
 }
 
 // TestTerminal_DeleteScopedRoute verifies a session is killed via the
-// chat-scoped DELETE route (202) and an "ended" lifecycle frame broadcasts.
+// chat-scoped DELETE route (200) and an "ended" lifecycle frame broadcasts.
 func (s *TerminalSuite) TestTerminal_DeleteScopedRoute() {
 	t := s.T()
 
@@ -224,7 +224,7 @@ func (s *TerminalSuite) TestTerminal_DeleteScopedRoute() {
 
 	killResp := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
 	defer killResp.Body.Close()
-	kit.RequireStatus(t, killResp, http.StatusAccepted)
+	kit.RequireStatus(t, killResp, http.StatusOK)
 
 	msg := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
 		return m["id"] == sessionID && m["status"] == "ended"
@@ -344,7 +344,7 @@ func (s *TerminalSuite) TestRegression_TerminalSession_RealStateInListAndEndedBr
 	// (SIGKILL → -1 → omitted); we assert the status and presence of the frame.
 	killResp := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
 	defer killResp.Body.Close()
-	kit.RequireStatus(t, killResp, http.StatusAccepted)
+	kit.RequireStatus(t, killResp, http.StatusOK)
 
 	endedMsg := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
 		return m["id"] == sessionID && m["status"] == "ended"
