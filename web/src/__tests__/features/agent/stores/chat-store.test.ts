@@ -59,26 +59,24 @@ describe('chatStore', () => {
     expect(chatStore.getState().feeds).toEqual({})
   })
 
-  // A reattach replays from since=0, so a long chat's whole record folds
-  // before ready. Folding row by row copied every item per row (seconds at 30k).
-  it.each([
-    [5_000, 250],
-    [30_000, 750],
-  ])('folds a %i-row replay within %ims', (count, bound) => {
+  // A reattach replays from since=0, so a long chat's whole record folds before
+  // ready. The structural guard is fold-rows.test's one-copy-per-replay check;
+  // this generous clock only backstops it (row-by-row copying took ~17s here).
+  it('folds a 30000-row replay into one publish, well inside a backstop', () => {
     openFeed('chat-1')
-    const rows = replay(count)
+    const rows = replay(30_000)
+    let publishes = 0
+    const unsubscribe = chatStore.subscribe(() => void (publishes += 1))
     const started = performance.now()
     for (const row of rows) applyFeedFrame('chat-1', { type: 'row', row })
     applyFeedFrame('chat-1', { type: 'ready', epoch: 'e1' })
     const took = performance.now() - started
+    unsubscribe()
 
-    expect(feed()?.order).toHaveLength(Math.floor(count / 6) * 3)
-    expect(
-      Object.values(feed()?.items ?? {}).every(
-        (item) => item.kind !== 'tool' || item.status === 'ok',
-      ),
-    ).toBe(true)
-    expect(took).toBeLessThan(bound)
+    expect(publishes).toBe(1)
+    expect(feed()?.order).toHaveLength(15_000)
+    expect(feed()?.unsettled).toEqual({})
+    expect(took).toBeLessThan(5_000)
   })
 })
 

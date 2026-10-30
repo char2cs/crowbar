@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyRow, emptyFeed } from '@/features/agent/stores/lib/fold-rows'
+import { applyRow, emptyFeed, FeedFold } from '@/features/agent/stores/lib/fold-rows'
 import type { AskItem, TextItem, ToolItem } from '@/features/agent/stores/lib/transcript-items'
 import { ledger, applyRows } from '@/__tests__/__fixtures__/ledger-rows'
 
@@ -200,5 +200,32 @@ describe('applyRow', () => {
     ])
     expect(feed.order).toEqual(['m:turn-1:final-turn-1'])
     expect(feed.items['m:turn-1:final-turn-1']).toMatchObject({ text: 'Hello there' })
+  })
+})
+
+// A replay folds thousands of rows before anyone reads the feed; copying the
+// item map, the order or a per-turn record per row made it quadratic.
+describe('FeedFold', () => {
+  it('copies the item map, the order and the turn records once per replay', () => {
+    const l = ledger()
+    const fold = new FeedFold(emptyFeed())
+    const turn = (i: number) => [
+      l.prompt(`r${i}`, `prompt ${i}`),
+      l.start(`turn-${i}`, `r${i}`),
+      l.tool(`turn-${i}`, `tool-${i}`, 'pre'),
+      l.text(`turn-${i}`, `m${i}`, 0, `reply ${i}`, true),
+      l.row('turn_ended', { status: 'done', effort: 'high' }, { turnId: `turn-${i}` }),
+    ]
+    for (const row of turn(0)) fold.apply(row)
+    const first = fold.finish()
+    for (let i = 1; i < 50; i++) for (const row of turn(i)) fold.apply(row)
+    const last = fold.finish()
+
+    expect(last.order).toHaveLength(150)
+    expect(last.items).toBe(first.items)
+    expect(last.order).toBe(first.order)
+    expect(last.facts.prompts).toBe(first.facts.prompts)
+    expect(last.facts.efforts).toBe(first.facts.efforts)
+    expect(last.facts.output).toBe(first.facts.output)
   })
 })
