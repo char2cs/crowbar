@@ -222,3 +222,26 @@ func TestRegression_ImportRefusesATakenChatID(t *testing.T) {
 		require.NotEqual(t, key, op.ID, "a refused import records no operation")
 	}
 }
+
+// TestRegression_ImportLocksEachBranchAsAsked: one import with a mixed lock choice
+// creates each branch's workspace locked or not as that branch asked, under one operation.
+func TestRegression_ImportLocksEachBranchAsAsked(t *testing.T) {
+	h := newHarness(t)
+	f := newImportFixture(t, h)
+	f.pushBranchToOrigin(t, "base", "main", "base\n")
+	f.pushBranchToOrigin(t, "child", "base", "child\n")
+	body := map[string]any{"branches": []map[string]any{
+		{"name": "child", "chatId": uuid.NewString(), "lock": false},
+		{"name": "base", "chatId": uuid.NewString(), "lock": true},
+	}}
+
+	status, raw := f.post(t, h, uuid.NewString(), body)
+	op := awaitOperation(t, h, acceptedOperation(t, status, raw).ID, operationSettled)
+
+	require.Equal(t, domain.OpSucceeded, op.State)
+	for branch, locked := range map[string]bool{"base": true, "child": false} {
+		ws := workspacesOnBranch(t, h, f.repoID, branch)
+		require.Len(t, ws, 1, branch)
+		require.Equal(t, locked, ws[0].Status == domain.WorkspaceStatusLocked, branch)
+	}
+}
