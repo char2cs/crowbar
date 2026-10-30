@@ -36,7 +36,7 @@ func TestRegression_DeleteSharedWorktreeOwnerRemintsAnOwner(t *testing.T) {
 	require.NotEqual(t, threadID, ownerID)
 
 	frames := dialAgentWS(t, h, base+"/chats/ws")
-	resp := h.raw(http.MethodDelete, base+"/chats/"+ownerID, nil, http.StatusAccepted)
+	resp := h.raw(http.MethodDelete, base+"/chats/"+ownerID, nil, http.StatusNoContent)
 	_ = resp.Body.Close()
 	waitForChatFrame(t, frames, ownerID, "deleted")
 	h.Quiesce()

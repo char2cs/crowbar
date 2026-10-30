@@ -167,7 +167,7 @@ func TestRegression_FreshlyCreatedChatCarriesItsProviderFromBirth(t *testing.T) 
 	chatID, _ := createStubChat(t, h, imported, "quietstub")
 	before := chatCount(t, h, imported)
 
-	resp := h.raw(http.MethodPost, repoBase(imported)+"/chats/"+chatID+"/stop", nil, http.StatusAccepted)
+	resp := h.raw(http.MethodPost, repoBase(imported)+"/chats/"+chatID+"/stop", nil, http.StatusNoContent)
 	_ = resp.Body.Close()
 	h.Quiesce()
 

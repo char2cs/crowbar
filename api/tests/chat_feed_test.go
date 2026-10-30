@@ -272,7 +272,7 @@ func TestChatFeed_DeletingTheChatEndsItsFeed(t *testing.T) {
 	conn := dialFeed(t, h, chatID, 0)
 	untilReady(t, conn)
 
-	_ = h.raw(http.MethodDelete, repoBase(imported)+"/chats/"+chatID, nil, http.StatusAccepted).Body.Close()
+	_ = h.raw(http.MethodDelete, repoBase(imported)+"/chats/"+chatID, nil, http.StatusNoContent).Body.Close()
 
 	var last feedFrame
 	var err error

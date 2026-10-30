@@ -33,7 +33,7 @@ func TestRegression_DeletingTheDefaultCheckoutOwnerKeepsTheCheckout(t *testing.T
 		map[string]any{"locked": unlocked}, http.StatusNoContent).Body.Close()
 	h.Quiesce()
 
-	resp := h.raw(http.MethodDelete, base+"/chats/"+before.OwningChatID, nil, http.StatusAccepted)
+	resp := h.raw(http.MethodDelete, base+"/chats/"+before.OwningChatID, nil, http.StatusNoContent)
 	resp.Body.Close()
 	t.Logf("DELETE owner of the default checkout -> %d", resp.StatusCode)
 	h.QuiesceReactors()
@@ -70,7 +70,7 @@ func TestRegression_DeletingAHomesOnlyChatKeepsTheHome(t *testing.T) {
 	h.get(homeBase+"/chats", &chats)
 	require.Len(t, chats, 1, "precondition: the home holds exactly one chat")
 
-	resp := h.raw(http.MethodDelete, homeBase+"/chats/"+chats[0].ID, nil, http.StatusAccepted)
+	resp := h.raw(http.MethodDelete, homeBase+"/chats/"+chats[0].ID, nil, http.StatusNoContent)
 	require.NoError(t, resp.Body.Close())
 	h.QuiesceReactors()
 	h.Quiesce()

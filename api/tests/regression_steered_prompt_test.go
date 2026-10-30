@@ -245,7 +245,7 @@ func TestRegression_StopRefusesAParkedPromptInsteadOfWedgingTheChat(t *testing.T
 	f.hook(t, "user_prompt", `{"prompt":"first"}`)
 	f.submit(t, "also check the tests", uuid.NewString(), http.StatusOK)
 
-	_ = f.h.raw(http.MethodPost, repoBase(f.imported)+"/chats/"+f.chatID+"/stop", nil, http.StatusAccepted).Body.Close()
+	_ = f.h.raw(http.MethodPost, repoBase(f.imported)+"/chats/"+f.chatID+"/stop", nil, http.StatusNoContent).Body.Close()
 
 	assert.Empty(t, f.pendingState(t), "a refused delivery is over, not pending")
 }
@@ -295,13 +295,13 @@ func TestRegression_SelectionChangedMidTurnThroughPatchIsNotSteered(t *testing.T
 	f.hook(t, "user_prompt", `{"prompt":"idle send"}`)
 
 	_ = f.h.raw(http.MethodPatch, repoBase(f.imported)+"/chats/"+f.chatID+"/selection",
-		map[string]string{"model": "opus", "effort": "low"}, http.StatusAccepted).Body.Close()
+		map[string]string{"model": "opus", "effort": "low"}, http.StatusNoContent).Body.Close()
 	f.submit(t, "also check the tests", uuid.NewString(), http.StatusConflict)
 
 	assert.Equal(t, f.runnerID, f.liveRunner(t), "a refused send must leave the running CLI alone")
 
 	_ = f.h.raw(http.MethodPatch, repoBase(f.imported)+"/chats/"+f.chatID+"/selection",
-		map[string]string{"model": "sonnet", "effort": "low"}, http.StatusAccepted).Body.Close()
+		map[string]string{"model": "sonnet", "effort": "low"}, http.StatusNoContent).Body.Close()
 	f.submit(t, "also check the tests", uuid.NewString(), http.StatusOK)
 	assert.Equal(t, f.runnerID, f.liveRunner(t), "back on the launched selection, the send rides the turn")
 }

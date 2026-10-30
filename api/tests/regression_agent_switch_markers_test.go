@@ -162,7 +162,7 @@ func TestRegression_SelectionChangeRecordsModelAndEffortMarkers(t *testing.T) {
 	chatID, _ := createStubChat(t, h, imported, "switchablestub")
 
 	resp := h.raw(http.MethodPatch, repoBase(imported)+"/chats/"+chatID+"/selection",
-		map[string]string{"model": "opus", "effort": "high"}, http.StatusAccepted)
+		map[string]string{"model": "opus", "effort": "high"}, http.StatusNoContent)
 	_ = resp.Body.Close()
 	h.Quiesce()
 
@@ -184,7 +184,7 @@ func TestRegression_SelectionChangeOfOnlyOneHalfRecordsOneMarker(t *testing.T) {
 	chatID, _ := createStubChat(t, h, imported, "switchablestub")
 
 	resp := h.raw(http.MethodPatch, repoBase(imported)+"/chats/"+chatID+"/selection",
-		map[string]string{"model": "", "effort": "low"}, http.StatusAccepted)
+		map[string]string{"model": "", "effort": "low"}, http.StatusNoContent)
 	_ = resp.Body.Close()
 	h.Quiesce()
 
@@ -215,7 +215,7 @@ func TestRegression_SwitchingProvidersDropsAModelTheNewProviderDoesNotDeclare(t 
 	// "opus" is valid for switchablestub, and invalid for otherswitchablestub
 	// (which only declares "haiku") — the exact shape of the live bug.
 	resp := h.raw(http.MethodPatch, repoBase(imported)+"/chats/"+chatID+"/selection",
-		map[string]string{"model": "opus", "effort": "high"}, http.StatusAccepted)
+		map[string]string{"model": "opus", "effort": "high"}, http.StatusNoContent)
 	_ = resp.Body.Close()
 	h.Quiesce()
 

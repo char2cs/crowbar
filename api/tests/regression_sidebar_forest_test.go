@@ -157,7 +157,7 @@ func TestRegression_SidebarForestMoveAndDelete(t *testing.T) {
 	postHook(t, h, base, "livestub", childDetail.LiveRunnerID, "turn_stop", `{"last_assistant_message":"done"}`)
 	h.Quiesce()
 
-	resp := h.raw(http.MethodDelete, base+"/chats/"+parentChat, nil, http.StatusAccepted)
+	resp := h.raw(http.MethodDelete, base+"/chats/"+parentChat, nil, http.StatusNoContent)
 	_ = resp.Body.Close()
 	h.Quiesce()
 

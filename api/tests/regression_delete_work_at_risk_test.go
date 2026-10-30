@@ -40,7 +40,7 @@ func deleteResponse(t *testing.T, h *harness, path string, discard bool, wantSta
 	return resp
 }
 
-// deleteAccepted issues a DELETE the daemon must accept.
+// deleteAccepted issues a repo or project DELETE the daemon must accept.
 func deleteAccepted(t *testing.T, h *harness, path string, discard bool) {
 	t.Helper()
 	require.NoError(t, deleteResponse(t, h, path, discard, http.StatusAccepted).Body.Close())
@@ -148,7 +148,7 @@ func TestRegression_DeleteWorkspace_KeepsUnmergedAndUncommittedWorkUnlessConfirm
 	assert.True(t, branchExists(t, imported.repoPath, "feature/pricing-rounding"))
 	assert.FileExists(t, filepath.Join(worktree, "notes.txt"))
 
-	deleteAccepted(t, h, chatPath, true)
+	require.NoError(t, deleteResponse(t, h, chatPath, true, http.StatusNoContent).Body.Close())
 	h.QuiesceReactors()
 
 	assert.False(t, branchExists(t, imported.repoPath, "feature/pricing-rounding"))

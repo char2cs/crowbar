@@ -38,7 +38,7 @@ func TestRegression_AgentStopKeepsChatDormantAndResumable(t *testing.T) {
 	h.Quiesce()
 
 	// Close the tab: stop the CLI, keep the chat.
-	resp := h.raw(http.MethodPost, repoBase(imported)+"/chats/"+chatID+"/stop", nil, http.StatusAccepted)
+	resp := h.raw(http.MethodPost, repoBase(imported)+"/chats/"+chatID+"/stop", nil, http.StatusNoContent)
 	_ = resp.Body.Close()
 	h.Quiesce()
 
@@ -80,7 +80,7 @@ func TestRegression_AgentCloseEndsTheLiveRunnerAndKeepsTheChat(t *testing.T) {
 	live := getAgentChat(t, h, repoBase(imported), chatID)
 	require.NotEmpty(t, live.LiveRunnerID, "precondition: the chat has a live runner to close")
 
-	resp := h.raw(http.MethodPost, repoBase(imported)+"/chats/"+chatID+"/close", nil, http.StatusAccepted)
+	resp := h.raw(http.MethodPost, repoBase(imported)+"/chats/"+chatID+"/close", nil, http.StatusNoContent)
 	_ = resp.Body.Close()
 	h.Quiesce()
 

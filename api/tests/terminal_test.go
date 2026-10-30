@@ -51,7 +51,7 @@ func TestTerminal_CreateStreamKill(t *testing.T) {
 	var killed struct {
 		ID string `json:"id"`
 	}
-	h.del(base+"/terminals/"+session.SessionID, nil, http.StatusAccepted, &killed)
+	h.del(base+"/terminals/"+session.SessionID, nil, http.StatusOK, &killed)
 	assert.Equal(t, session.SessionID, killed.ID)
 }
 
@@ -83,7 +83,7 @@ func TestRegression_TerminalResizeKeepsWrappedLines(t *testing.T) {
 		assert.Contains(t, snapshot, url, "the keyframe after the resize to %d columns holds the URL whole", cols)
 	}
 
-	h.del(base+"/terminals/"+session.SessionID, nil, http.StatusAccepted, nil)
+	h.del(base+"/terminals/"+session.SessionID, nil, http.StatusOK, nil)
 }
 
 // terminalReadBound is how long a test waits for a PTY to print something.

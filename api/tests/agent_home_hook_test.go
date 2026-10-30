@@ -63,7 +63,7 @@ func TestRegression_AgentHomeCallbacksReachDaemon(t *testing.T) {
 	// Agent rename callback (?source=agent) → title_set: the derived-title path,
 	// which for project-home builds /home/chats/:id/rename via scope.go too.
 	resp := h.raw(http.MethodPost, homeBase+"/chats/"+created.ID+"/rename?source=agent",
-		map[string]string{"title": "Derived home title"}, http.StatusAccepted)
+		map[string]string{"title": "Derived home title"}, http.StatusNoContent)
 	_ = resp.Body.Close()
 	waitForChatFrame(t, frames, created.ID, "title_set")
 }
@@ -81,7 +81,7 @@ func TestRegression_AHomeHookFromAnUnknownRunnerIsRefused(t *testing.T) {
 	h.post(homeBase+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
 	h.QuiesceReactors()
 	l := stubLaunch(t, h, "livestub", getAgentChat(t, h, homeBase, created.ID).LiveRunnerID)
-	require.NoError(t, h.raw(http.MethodDelete, homeBase+"/chats/"+created.ID, nil, http.StatusAccepted).Body.Close())
+	require.NoError(t, h.raw(http.MethodDelete, homeBase+"/chats/"+created.ID, nil, http.StatusNoContent).Body.Close())
 	h.QuiesceReactors()
 	before := chatDeadLetters(t, h)
 

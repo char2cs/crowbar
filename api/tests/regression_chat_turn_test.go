@@ -88,7 +88,7 @@ func TestRegression_Symptom4_StopClosesTheTurnAtOnce(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 	c.startTurn(t, c.launch, "A")
 
-	_ = c.h.raw(http.MethodPost, repoBase(c.imported)+"/chats/"+c.chatID+"/stop", nil, http.StatusAccepted).Body.Close()
+	_ = c.h.raw(http.MethodPost, repoBase(c.imported)+"/chats/"+c.chatID+"/stop", nil, http.StatusNoContent).Body.Close()
 	assert.False(t, c.working(t), "Stop records the turn's end before it returns")
 
 	var kinds []string
@@ -117,7 +117,7 @@ func TestRegression_Symptom4_ProviderIdleClosesARunningTurn(t *testing.T) {
 func TestRegression_Symptom4_ALateStopNeverClosesTheNextTurn(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 	c.startTurn(t, c.launch, "A")
-	_ = c.h.raw(http.MethodPost, repoBase(c.imported)+"/chats/"+c.chatID+"/stop", nil, http.StatusAccepted).Body.Close()
+	_ = c.h.raw(http.MethodPost, repoBase(c.imported)+"/chats/"+c.chatID+"/stop", nil, http.StatusNoContent).Body.Close()
 	c.h.QuiesceReactors()
 
 	c.h.post(repoBase(c.imported)+"/chats/"+c.chatID+"/resume", nil, http.StatusOK, nil)
@@ -226,7 +226,7 @@ func TestRegression_ConcurrentHooksForOneChatAllLand(t *testing.T) {
 
 func TestRegression_HooksAfterChatDeleteAreRefusedNotResurrected(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
-	_ = c.h.raw(http.MethodDelete, repoBase(c.imported)+"/chats/"+c.chatID, nil, http.StatusAccepted).Body.Close()
+	_ = c.h.raw(http.MethodDelete, repoBase(c.imported)+"/chats/"+c.chatID, nil, http.StatusNoContent).Body.Close()
 	c.h.QuiesceReactors()
 	before := chatDeadLetters(t, c.h)
 

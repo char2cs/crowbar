@@ -267,7 +267,7 @@ func TestRegression_Symptom3_AStoppedTurnsLateFinalTextIsRecordedNotReopened(t *
 	require.NoError(t, err)
 	c.launch.OnQuit(t, c.fake, c.h.url+repoBase(c.imported), "claude", "turn_stop", late)
 
-	_ = c.h.raw(http.MethodPost, repoBase(c.imported)+"/chats/"+c.chatID+"/stop", nil, http.StatusAccepted).Body.Close()
+	_ = c.h.raw(http.MethodPost, repoBase(c.imported)+"/chats/"+c.chatID+"/stop", nil, http.StatusNoContent).Body.Close()
 	c.h.QuiesceReactors()
 
 	assert.Equal(t, []string{"LATE"}, assistantTexts(c.messages(t)), "what the CLI said on its way down is kept")

@@ -238,7 +238,7 @@ func TestRegression_RenameWorkspaceBranch_DeleteHitsOnlyItsOwnDirectory(t *testi
 	// contract is pinned by TestRegression_WorkspaceDeleteBroadcastsDeletedStatus):
 	// a frame can be missed, a joined reactor cannot, and the read-back below is
 	// the proof the delete landed.
-	resp := h.raw(http.MethodDelete, repoBase+"/chats/"+renamedChatID, nil, http.StatusAccepted)
+	resp := h.raw(http.MethodDelete, repoBase+"/chats/"+renamedChatID, nil, http.StatusNoContent)
 	_ = resp.Body.Close()
 	h.QuiesceReactors()
 	for _, w := range listWorkspaces(t, h, imported.projectID, imported.repoID) {

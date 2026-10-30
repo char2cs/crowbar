@@ -83,7 +83,7 @@ func TestRegression_AgentChatActiveProviderID_ProviderThatNeverBoundAConversatio
 
 	// Stop the chat: the CLI actually running (quietstub) exits, leaving the chat
 	// dormant with streamstub's conversation as its only bound row.
-	resp := h.raw(http.MethodPost, repoBase(imported)+"/chats/"+chatID+"/stop", nil, http.StatusAccepted)
+	resp := h.raw(http.MethodPost, repoBase(imported)+"/chats/"+chatID+"/stop", nil, http.StatusNoContent)
 	_ = resp.Body.Close()
 	h.Quiesce()
 
@@ -123,7 +123,7 @@ func TestRegression_AgentChatBornOnAProviderThatBindsNothing_StaysThatProviderWh
 
 	chatID, _ := createStubChat(t, h, imported, "quietstub")
 
-	resp := h.raw(http.MethodPost, repoBase(imported)+"/chats/"+chatID+"/stop", nil, http.StatusAccepted)
+	resp := h.raw(http.MethodPost, repoBase(imported)+"/chats/"+chatID+"/stop", nil, http.StatusNoContent)
 	_ = resp.Body.Close()
 	h.Quiesce()
 
