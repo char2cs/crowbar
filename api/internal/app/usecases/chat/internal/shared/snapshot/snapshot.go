@@ -225,13 +225,22 @@ func (s *Snapshots) Announce(ctx context.Context, chatID, kind string) {
 }
 
 // ApplyPlacement records chatID's new place in the tree, which no chat event
-// carries, and publishes its snapshot under kind.
+// carries, and publishes its snapshot under kind. The Tree announces a write
+// before every reader sees it, so the placement given wins over a load's row.
 func (s *Snapshots) ApplyPlacement(ctx context.Context, chatID, parentID string, order int, kind string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if st, ok := s.chats[chatID]; ok && st.loaded {
-		st.chat.ParentID, st.chat.Order = parentID, order
+	if _, gone := s.deleted[chatID]; gone {
+		return
 	}
+	st := s.stateLocked(chatID)
+	if err := s.loadLocked(ctx, chatID, st); err != nil {
+		if !st.loaded {
+			delete(s.chats, chatID)
+		}
+		return
+	}
+	st.chat.ParentID, st.chat.Order = parentID, order
 	s.emitChatLocked(ctx, chatID, kind, "")
 }
 

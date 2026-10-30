@@ -298,3 +298,21 @@ func TestSnapshots_GetManyCorrectsOncePerReadOutsideTheLock(t *testing.T) {
 		assert.Equal(t, 7, got[i].Chat.Order)
 	}
 }
+
+// The Tree announces a placement before its readers can all see it, so a chat
+// loaded for that announcement keeps the announced placement, not the row read.
+func TestSnapshots_AnAnnouncedPlacementWinsOverTheRowALoadReads(t *testing.T) {
+	ctx := context.Background()
+	s, rec, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", Title: "t"}}})
+
+	s.ApplyPlacement(ctx, "c1", "f-1", 3, "placement_set")
+
+	frame := rec.last(t)
+	assert.Equal(t, "placement_set", frame.Kind)
+	assert.Equal(t, "f-1", frame.Snapshot.Chat.ParentID)
+	assert.Equal(t, 3, frame.Snapshot.Chat.Order)
+	held, err := s.Get(ctx, "c1")
+	require.NoError(t, err)
+	assert.Equal(t, 3, held.Chat.Order, "the owner holds it for every later read")
+	assert.Equal(t, "t", held.Chat.Title)
+}
