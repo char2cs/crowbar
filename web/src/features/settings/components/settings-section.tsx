@@ -276,7 +276,10 @@ export function SettingRow({
         <div className="flex items-center gap-1.5">
           <Label
             id={labelId}
-            className="ui-font ui-text-sm cursor-default font-normal text-foreground"
+            className={cn(
+              'ui-font cursor-default font-normal text-foreground',
+              IS_MOBILE ? 'ui-text-base' : 'ui-text-sm',
+            )}
           >
             {label}
           </Label>
@@ -301,10 +304,7 @@ export function SettingRow({
         {description && (
           <div
             id={descriptionId}
-            className={cn(
-              'ui-font cursor-default text-muted-foreground',
-              IS_MOBILE ? 'ui-text-xs' : 'ui-text-sm',
-            )}
+            className="ui-font ui-text-sm cursor-default text-muted-foreground"
           >
             {description}
           </div>

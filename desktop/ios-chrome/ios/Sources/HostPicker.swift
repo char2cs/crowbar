@@ -97,7 +97,7 @@ struct HostListSection: View {
       Haptics.select()
       send(.of("selectHost", ["id": host.id]))
     } label: {
-      HostLine(host: host, text: text, secondaryText: secondaryText) {
+      HostLine(host: host, text: text, secondaryText: secondaryText, palette: palette) {
         if revoking {
           ProgressView()
         } else if shown {
@@ -161,11 +161,12 @@ struct HostLine<Trailing: View>: View {
   let host: PickerHost
   let text: Color
   let secondaryText: Color
+  var palette: ChromePalette?
   @ViewBuilder let trailing: () -> Trailing
 
   var body: some View {
     HStack(spacing: RowMetrics.gap) {
-      HostPlaceIcon(hostId: host.id, state: host.state).frame(width: RowMetrics.icon)
+      HostPlaceIcon(hostId: host.id, state: host.state, palette: palette).frame(width: RowMetrics.icon)
       VStack(alignment: .leading, spacing: 2) {
         Text(host.name).foregroundStyle(text).lineLimit(1)
         Text(host.endpoint).crowbarUI(.footnote).foregroundStyle(secondaryText).lineLimit(1)
@@ -181,6 +182,8 @@ struct HostLine<Trailing: View>: View {
 struct HostPlaceIcon: View {
   let hostId: String
   let state: String
+  var palette: ChromePalette?
+  @Environment(\.colorScheme) private var scheme
 
   var body: some View {
     PhosphorIcon(hostId == "local" ? .desktop : .cloud, size: 20)
@@ -199,7 +202,8 @@ struct HostPlaceIcon: View {
     case .unsettled:
       Circle().strokeBorder(Color.secondary, lineWidth: 1).frame(width: 7, height: 7)
     case let tone:
-      Circle().fill(HostDot.color(tone)).frame(width: 7, height: 7)
+      Circle().fill(tone == .online ? palette?.brand(scheme) ?? HostDot.color(tone) : HostDot.color(tone))
+        .frame(width: 7, height: 7)
     }
   }
 }

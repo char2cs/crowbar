@@ -7,6 +7,8 @@ struct GlassCircle: View {
   let icon: String
   let label: String
   var enabled = true
+  /// The theme's foreground: the glass is clear, so the glyph must read on the page behind it.
+  var tint: Color?
   let action: () -> Void
 
   /// From the screen edge to the circle.
@@ -20,6 +22,7 @@ struct GlassCircle: View {
       Group {
         if let icon = CrowbarIcon(named: icon) { PhosphorIcon(icon) }
       }
+      .foregroundStyle(tint ?? .primary)
       .frame(width: 44, height: 44)
         .contentShape(.circle)
         .glassEffect(.regular.interactive(), in: .circle)

@@ -51,6 +51,8 @@ struct ChromeState: Decodable {
   let appearance: String?
   /// Where the shown host runs: `local` or `remote`.
   let hostPlace: String?
+  /// The shown host's status, as the web's `HostDotState`.
+  let hostStatus: String?
   let palette: PaletteState?
 }
 
@@ -100,6 +102,9 @@ struct ChromePalette: Equatable {
   let brandLight: Color?
   let brandDark: Color?
   let sidebar: SidebarPalette?
+
+  /// The brand in the mode the sheet is drawn in.
+  func brand(_ scheme: ColorScheme) -> Color? { scheme == .dark ? brandDark : brandLight }
 
   init?(_ state: PaletteState) {
     guard let surface = Color(css: state.surface), let raised = Color(css: state.raised),
@@ -155,6 +160,7 @@ final class ChromeModel: ObservableObject {
   @Published var brandGround: Color?
   @Published var palette: ChromePalette?
   @Published var hostPlace = "remote"
+  @Published var hostStatus = "unknown"
   @Published var welcome: WelcomeState?
   // Kept after the web closes the sheet, so it slides away showing what it showed.
   @Published var connect: ConnectState?

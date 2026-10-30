@@ -18,6 +18,7 @@ import { useMobileNativeChrome } from '@/features/window/hooks/use-mobile-native
 import { useMobileScreenStore } from '@/features/window/stores/mobile-screen-store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { useSettingsStore } from '@/features/settings/store'
+import { useConnectionStore } from '@/lib/ws/connection-store'
 
 const describeButtons = (list: ChromeButton[] | undefined) =>
   list?.map((b) => `${b.side}:${b.id}:${b.enabled}`)
@@ -233,6 +234,20 @@ describe('useMobileNativeChrome', () => {
     expect(chrome.models.at(-1)?.hostPlace).toBe('remote')
     rerender({ shownHost: 'local' })
     expect(chrome.models.at(-1)?.hostPlace).toBe('local')
+  })
+
+  // The Hosts button's dot is the shown host's status, from the hook the desktop's icons read.
+  it('tells the chrome the shown host\u2019s status', () => {
+    useConnectionStore.setState({ status: 'connected' })
+    const { rerender } = renderHook(
+      ({ shownHost }) => useMobileNativeChrome({ ide: true, shownHost }),
+      { initialProps: { shownHost: 'local' as string | null } },
+    )
+    expect(chrome.models.at(-1)?.hostStatus).toBe('up')
+    act(() => useConnectionStore.setState({ status: 'disconnected' }))
+    expect(chrome.models.at(-1)?.hostStatus).toBe('down')
+    rerender({ shownHost: 'gone' })
+    expect(chrome.models.at(-1)?.hostStatus).toBe('unknown')
   })
 
   // Native views follow the app's own theme mode, or the system's while the app does.

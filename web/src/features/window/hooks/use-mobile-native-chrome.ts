@@ -12,6 +12,7 @@ import { useUIState } from '@/features/window/stores/ui-state-store'
 import { useSurfaceThemeColor } from '@/features/window/hooks/use-surface-theme-color'
 import { useThemeVersion } from '@/features/editor/theme/use-theme-version'
 import { useSettingsStore } from '@/features/settings/store'
+import { useHostDotState } from '@/features/hosts/hooks/use-host-status'
 import { hostPlace } from '@/features/hosts/components/host-status-icon'
 import { LOCAL_HOST } from '@/features/hosts/types'
 import { readNativePalette } from '@/lib/native-palette'
@@ -34,7 +35,7 @@ const CHAT_LIST: ChromeButton = {
 }
 const IDE: ChromeButton = {
   id: 'ide',
-  icon: 'TerminalWindow',
+  icon: 'Code',
   side: 'trailing',
   label: 'Open IDE',
   enabled: true,
@@ -92,6 +93,7 @@ export function useMobileNativeChrome({ ide, shownHost }: Workspaces) {
   const settingsOpen = useUIState((s) => s.isSettingsOpen)
   const appearance = useSettingsStore((s) => s.settings.themeMode)
   const theme = useSettingsStore((s) => s.settings.theme)
+  const hostStatus = useHostDotState(shownHost ?? LOCAL_HOST.id)
   // Colours are read from CSS, so a theme change must hand them over again.
   const themeVersion = useThemeVersion()
   // What the keyboard or a shrunk webview uncovers is painted from this, not left black.
@@ -119,6 +121,7 @@ export function useMobileNativeChrome({ ide, shownHost }: Workspaces) {
         pages: PHONE_SETTINGS_PAGES,
       },
       hostPlace: hostPlace(shownHost ?? LOCAL_HOST.id),
+      hostStatus,
       appearance,
       brandGround,
       palette: readNativePalette(),
@@ -131,6 +134,7 @@ export function useMobileNativeChrome({ ide, shownHost }: Workspaces) {
     settingsOpen,
     ide,
     shownHost,
+    hostStatus,
     appearance,
     themeVersion,
     theme,

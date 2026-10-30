@@ -30,7 +30,9 @@ struct ChatListFoot: View {
           Haptics.tap()
           model.send(.of("openHostPicker"))
         } label: {
-          PhosphorIcon(model.hostPlace == "local" ? .desktop : .cloud)
+          HostPlaceIcon(
+            hostId: model.hostPlace == "local" ? "local" : "remote", state: model.hostStatus,
+            palette: model.palette)
             .frame(width: 44, height: 44)
             .foregroundStyle(sidebar?.text ?? .primary)
             .contentShape(.circle)

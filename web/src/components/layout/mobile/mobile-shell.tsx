@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useStore } from 'zustand'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
-import { TerminalWindowIcon } from '@phosphor-icons/react'
+import { CodeIcon } from '@phosphor-icons/react'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import SettingsDialog from '@/features/settings/components/settings-dialog'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
@@ -30,7 +30,7 @@ import { useLaunchDraft } from './use-launch-draft'
 
 const IDE = {
   label: 'Open IDE',
-  icon: <TerminalWindowIcon size={20} />,
+  icon: <CodeIcon size={20} />,
   onClick: () => useMobileScreenStore.getState().open('ide'),
 }
 

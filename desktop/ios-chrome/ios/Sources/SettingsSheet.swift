@@ -91,7 +91,7 @@ struct SettingsSheet: View {
     if let shown = model.hosts.hosts.first(where: { $0.id == model.hosts.shownHost })
       ?? model.hosts.hosts.first
     {
-      HostLine(host: shown, text: text, secondaryText: secondaryText) { EmptyView() }
+      HostLine(host: shown, text: text, secondaryText: secondaryText, palette: palette) { EmptyView() }
     } else {
       IconRow(icon: .cloud, title: "Add a host", text: text)
     }

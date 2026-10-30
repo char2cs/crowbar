@@ -49,6 +49,7 @@ const model: NativeChrome = {
   ack: 0,
   settings: { open: false, theme: 'crowbar', themes: [], pages: [] },
   hostPlace: 'remote',
+  hostStatus: 'up',
   appearance: 'system',
   palette: {
     surface: '#fcfcfa',

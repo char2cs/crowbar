@@ -18,6 +18,18 @@ const DOT_FILL: Record<HostTone, string> = {
 const CUT_AROUND_DOT =
   '[mask-image:radial-gradient(circle_at_calc(100%_-_1.5px)_calc(100%_-_1.5px),transparent_3.75px,black_4.25px)]'
 
+// A larger mark (touch rows) scales the dot and its cut-away with it; 1 is the class-drawn default.
+function scaledDot(scale: number) {
+  if (scale === 1) return { cut: undefined, dot: undefined }
+  const edge = 1.5 * scale
+  return {
+    cut: {
+      maskImage: `radial-gradient(circle at calc(100% - ${edge}px) calc(100% - ${edge}px), transparent ${3.75 * scale}px, black ${4.25 * scale}px)`,
+    },
+    dot: { width: 5 * scale, height: 5 * scale },
+  }
+}
+
 /** `children` with its host's status dot on the bottom-right corner. Every mark of a host's
  *  status draws this dot, so a state reads the same wherever it shows. */
 export function HostStatusDot({
@@ -25,6 +37,7 @@ export function HostStatusDot({
   state,
   labelled = false,
   showTitle = false,
+  scale = 1,
   children,
 }: {
   hostId: string
@@ -32,19 +45,25 @@ export function HostStatusDot({
   /** Says the state in words; off where the surface's own label already says it. */
   labelled?: boolean
   showTitle?: boolean
+  /** Sizes the dot and its cut-away for a larger mark. */
+  scale?: number
   children: ReactNode
 }) {
   const tone = hostTone(state)
   const words = hostDotLabel(state)
+  const sized = scaledDot(scale)
   return (
     <span className="relative inline-flex shrink-0">
-      <span className={cn('flex', CUT_AROUND_DOT)}>{children}</span>
+      <span className={cn('flex', CUT_AROUND_DOT)} style={sized.cut}>
+        {children}
+      </span>
       <span
         data-testid={`host-status-${hostId}`}
         data-host-state={state}
         data-host-tone={tone}
         {...(labelled ? { role: 'img', 'aria-label': words } : { 'aria-hidden': true })}
         title={labelled && showTitle ? words : undefined}
+        style={sized.dot}
         className={cn('absolute -right-px -bottom-px size-1.25 rounded-full', DOT_FILL[tone])}
       />
     </span>
@@ -62,6 +81,7 @@ export function HostStatusIcon({
   state,
   weight = 'regular',
   showTitle = true,
+  dotScale = 1,
   className,
 }: {
   hostId: string
@@ -69,13 +89,15 @@ export function HostStatusIcon({
   weight?: 'regular' | 'bold'
   /** Off inside a control that has a tooltip of its own, so two don't stack. */
   showTitle?: boolean
-  /** Sizes the icon (`size-4` by default); the dot keeps its own size. */
+  /** Scales the dot with a larger icon. */
+  dotScale?: number
+  /** Sizes the icon (`size-4` by default); the dot keeps its own size unless `dotScale` says. */
   className?: string
 }) {
   const place = hostPlace(hostId)
   const Icon = place === 'local' ? DesktopIcon : CloudIcon
   return (
-    <HostStatusDot hostId={hostId} state={state} labelled showTitle={showTitle}>
+    <HostStatusDot hostId={hostId} state={state} labelled showTitle={showTitle} scale={dotScale}>
       <Icon
         aria-hidden="true"
         data-host-place={place}

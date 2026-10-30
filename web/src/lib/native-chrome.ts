@@ -62,6 +62,8 @@ export interface NativeChrome {
   ack: number
   /** Where the host the chat list shows runs: its Hosts button draws a computer or a cloud. */
   hostPlace: 'local' | 'remote'
+  /** What that host's status dot says, as the desktop's host icons draw it. */
+  hostStatus: HostDotState
   /** The app's theme mode; `system` lets native views follow the device like the web does. */
   appearance: 'light' | 'dark' | 'system'
   /** The Settings sheet: a native list whose pages are drawn natively (`hosts`) or are the web's

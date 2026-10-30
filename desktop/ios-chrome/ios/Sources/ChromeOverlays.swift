@@ -242,6 +242,7 @@ final class ChromeOverlays {
     if let ground = state.brandGround.flatMap({ Color(css: $0) }) { model.brandGround = ground }
     if let palette = state.palette.flatMap(ChromePalette.init) { model.palette = palette }
     model.hostPlace = state.hostPlace ?? "remote"
+    model.hostStatus = state.hostStatus ?? "unknown"
     model.welcome = state.welcome
     if let connect = state.connect { model.connect = connect }
     model.headers = state.headers ?? ChromeHeaders(chat: [], ide: [])

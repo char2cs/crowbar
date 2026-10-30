@@ -30,6 +30,7 @@ const HOST_LINE =
  *  online, its state in its tone — and the way into Settings → Hosts. */
 function ProjectHostLine({ hostId, onOpen }: { hostId: string; onOpen: () => void }) {
   const { name, state } = useHostView(hostId)
+  const metrics = useRowMetrics()
   const stateWord = hostDotLabel(state)
   const online = hostTone(state) === 'online'
   const label = `Host settings: ${name === undefined ? '' : `${name}, `}${stateWord}`
@@ -54,7 +55,8 @@ function ProjectHostLine({ hostId, onOpen }: { hostId: string; onOpen: () => voi
             state={state}
             weight="bold"
             showTitle={false}
-            className="size-3"
+            className={metrics ? 'size-5' : 'size-3'}
+            dotScale={metrics ? 1.4 : 1}
           />
           <span className="truncate">{text}</span>
         </button>
