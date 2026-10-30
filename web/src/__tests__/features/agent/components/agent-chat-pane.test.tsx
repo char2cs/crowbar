@@ -390,6 +390,12 @@ async function renderPane(store: Store, paneId: string) {
   })
 }
 
+function typeAndSend(text: string) {
+  const input = screen.getByRole('textbox', { name: /message the agent/i })
+  fireEvent.change(input, { target: { value: text } })
+  fireEvent.keyDown(input, { key: 'Enter' })
+}
+
 const paneOf = (_store: Store, id: string) => windowPaneStore.getState().panes[id]
 
 // The default backend is a HEALTHY one: a resume brings the chat's CLI back, and reading
@@ -510,15 +516,12 @@ describe('AgentChatPane', () => {
 
   // ── Liveness is the daemon's answer; the pane never infers or revives ──
   describe('liveness', () => {
-    // A spawning chat exists, so the composer stays an input and the outbox holds the prompt.
     it('symptom 5: the composer accepts a prompt while the runner is spawning', async () => {
       const store = seedWorkspace([startingChat({ id: 'c1' })])
       seedFeed('c1', spokenIn('c1'))
       await renderPane(store, openChatPane(store, 'c1', ''))
 
-      const input = screen.getByRole('textbox', { name: /message the agent/i })
-      fireEvent.change(input, { target: { value: 'while it starts' } })
-      fireEvent.keyDown(input, { key: 'Enter' })
+      typeAndSend('while it starts')
 
       await vi.waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
       expect(submitPromptFn.mock.calls[0]?.[2]).toBe('while it starts')
@@ -933,12 +936,10 @@ describe('AgentChatPane', () => {
       const store = seedWorkspace([dormantChat({ id: 'c1' })])
       await renderPane(store, openChatPane(store, 'c1', ''))
 
-      const input = screen.getByRole('textbox', { name: /message the agent/i })
       expect(resumeChatFn).not.toHaveBeenCalled()
       expect(screen.getByTestId('agent-session-note')).toHaveTextContent(/send a message/i)
 
-      fireEvent.change(input, { target: { value: 'wake up' } })
-      fireEvent.keyDown(input, { key: 'Enter' })
+      typeAndSend('wake up')
       await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
       expect(resumeChatFn).not.toHaveBeenCalled()
     })
@@ -1311,43 +1312,26 @@ describe('AgentChatPane', () => {
       expect(screen.getByTestId('xterm')).toHaveAttribute('data-visible', 'true')
     })
 
-    it('pauses a busy-chat FIFO in Terminal and resumes only after Return to Chat', async () => {
+    it('holds prompts queued in Chat while the Terminal shows: counts, cancels, sends on return', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       const turn = ledger('c1', 4)
       seedFeed('c1', [turn.start('turn-2')])
       await renderPane(store, openChatPane(store, 'c1', 'r1'))
-
-      const input = screen.getByRole('textbox', { name: /message the agent/i })
-      fireEvent.change(input, { target: { value: 'queued while busy' } })
-      fireEvent.keyDown(input, { key: 'Enter' })
-
-      fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
-      expect(screen.getByText(/1 prompt pending in Chat/i)).toBeInTheDocument()
+      const queueThenShowTerminal = (text: string) => {
+        typeAndSend(text)
+        fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
+        expect(screen.getByText(/1 prompt pending in Chat/i)).toBeInTheDocument()
+      }
+      queueThenShowTerminal('cancelled from there')
+      fireEvent.click(screen.getByRole('button', { name: /cancel unsent prompts/i }))
+      expect(screen.queryByText(/pending in Chat/i)).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('tab', { name: /^chat$/i }))
+      queueThenShowTerminal('queued while busy')
       await act(async () => seedFeed('c1', [turn.end('turn-2')]))
       expect(submitPromptFn).not.toHaveBeenCalled()
-
       fireEvent.click(screen.getByRole('button', { name: /return to chat/i }))
       await vi.waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
-    })
-
-    it('counts a prompt queued in Chat on the Terminal surface and cancels it from there', async () => {
-      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      const turn = ledger('c1', 4)
-      seedFeed('c1', [turn.start('turn-2')])
-      await renderPane(store, openChatPane(store, 'c1', 'r1'))
-
-      const input = screen.getByRole('textbox', { name: /message the agent/i })
-      fireEvent.change(input, { target: { value: 'queued while busy' } })
-      fireEvent.keyDown(input, { key: 'Enter' })
-      expect(chatStore.getState().outbox.c1?.[0]).toMatchObject({ text: 'queued while busy' })
-
-      fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
-      expect(screen.getByText(/1 prompt pending in Chat/i)).toBeInTheDocument()
-      fireEvent.click(screen.getByRole('button', { name: /cancel unsent prompts/i }))
-
-      expect(screen.queryByText(/pending in Chat/i)).not.toBeInTheDocument()
-      await act(async () => seedFeed('c1', [turn.end('turn-2')]))
-      expect(submitPromptFn).not.toHaveBeenCalled()
+      expect(submitPromptFn.mock.calls[0]?.[2]).toBe('queued while busy')
     })
 
     // The dropdown lives on the terminal's status strip, and it must keep
@@ -1361,9 +1345,7 @@ describe('AgentChatPane', () => {
       ])
       await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
-      const input = screen.getByRole('textbox', { name: /message the agent/i })
-      fireEvent.change(input, { target: { value: 'deliver exactly once' } })
-      fireEvent.keyDown(input, { key: 'Enter' })
+      typeAndSend('deliver exactly once')
       await vi.waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
 
       // Chat has no dropdown to press yet — cross to the provider's own view,
@@ -1406,9 +1388,7 @@ describe('AgentChatPane', () => {
       submitPromptFn.mockRejectedValue(new ApiError('replacement failed', 500))
       await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
-      const input = screen.getByRole('textbox', { name: /message the agent/i })
-      fireEvent.change(input, { target: { value: 'trigger replacement' } })
-      fireEvent.keyDown(input, { key: 'Enter' })
+      typeAndSend('trigger replacement')
       // The daemon's lifecycle frame says the runner is gone.
       await act(async () => writeChat(dormantChat({ id: 'c1' })))
 
