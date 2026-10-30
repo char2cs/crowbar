@@ -55,11 +55,6 @@ describe('isFileViewed', () => {
     expect(isFileViewed(viewed, file('a.ts', { old_path: 'b.ts', is_renamed: true }))).toBe(false)
     expect(isFileViewed(viewed, file('other.ts'))).toBe(false)
   })
-
-  it('ignores the uncommitted flag, which flips on commit without changing the diff', async () => {
-    const viewed = await viewedMapOf([file('a.ts', { uncommitted: true })])
-    expect(isFileViewed(viewed, file('a.ts', { uncommitted: false }))).toBe(true)
-  })
 })
 
 describe('useReviewViewed', () => {

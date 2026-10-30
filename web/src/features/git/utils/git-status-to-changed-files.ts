@@ -16,8 +16,6 @@ const EMPTY: GitDiff[] = []
  * The working-tree status payload (`GitFile`: path/status/staged) carries no
  * per-file line counts, so `additions`/`deletions` are intentionally omitted
  * (the +N/-N badges only appear with the full diff, i.e. while review is open).
- * `uncommitted` is likewise omitted: every file here IS an uncommitted
- * working-tree change, so a per-row "uncommitted" badge would be noise.
  *
  * `git status` can list the same path twice (a staged entry AND an unstaged
  * entry); the branch diff shows one row per file, so we dedupe by path

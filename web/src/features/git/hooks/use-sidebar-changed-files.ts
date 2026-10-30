@@ -6,7 +6,6 @@ import type { GitDiff } from '@/features/git/types/git-types'
 
 export interface UseSidebarChangedFilesResult {
   files: GitDiff[]
-  uncommittedCount: number
 }
 
 const EMPTY_FILES: GitDiff[] = []
@@ -56,11 +55,6 @@ export function useSidebarChangedFiles(wsId: string | null): UseSidebarChangedFi
   // while the review pane was open — it no longer exists to take over with,
   // and the summary already carries the same file set with the same ± counts.
   const files = summaryFiles ?? projected
-  const uncommittedCount = summaryFiles ? countUncommitted(summaryFiles) : projected.length
 
-  return { files: files ?? EMPTY_FILES, uncommittedCount }
-}
-
-function countUncommitted(files: GitDiff[]): number {
-  return files.reduce((n, f) => n + (f.uncommitted ? 1 : 0), 0)
+  return { files: files ?? EMPTY_FILES }
 }

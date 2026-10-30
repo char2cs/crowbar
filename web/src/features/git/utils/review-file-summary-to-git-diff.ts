@@ -9,9 +9,7 @@ const EMPTY: GitDiff[] = []
  * Map the files-only branch-review summary (`ReviewFileSummary[]`) into the
  * `GitDiff[]` shape the sidebar `ChangedFilesTree` consumes. Unlike the raw
  * status projection, the summary carries per-file `additions`/`deletions`, so
- * the +N/-N badges render, and its `uncommitted` flag is honest — committed-only
- * files map to `uncommitted: false` (no "uncommitted" badge) while working-tree
- * changes stay flagged.
+ * the +N/-N badges render.
  *
  * `lines` is left empty on purpose: the summary has no line content (that is the
  * whole point — the sidebar never pays for the line-level diff). Binary files
@@ -35,7 +33,6 @@ function reviewFileSummaryToGitDiff(file: ReviewFileSummary): GitDiff {
     is_renamed: file.status === 'renamed',
     additions: file.additions,
     deletions: file.deletions,
-    uncommitted: file.uncommitted,
     lines: [],
   }
 }
