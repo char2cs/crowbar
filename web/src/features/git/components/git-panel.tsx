@@ -68,8 +68,10 @@ export function GitPanel() {
   const changedCount = files.length
   const changedLabel = `${changedCount} file${changedCount !== 1 ? 's' : ''}`
 
+  // Scrolls as a whole: the branch card grows with a failed verb's reason and
+  // must not be clipped by the carousel card's height.
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       {wsId && branch && (
         <div className="mx-1.5 my-0.5 rounded-lg border border-background bg-background text-foreground shadow-xs shadow-black/10 inset-shadow-[0_1px_var(--elevated-highlight)]">
           <div className="flex select-none items-center gap-2 h-9 px-2 text-[13px] font-medium">
@@ -126,7 +128,7 @@ export function GitPanel() {
           <div className="ui-text-xs shrink-0 px-3.5 pt-2 pb-1 text-muted-foreground">
             Changed — {changedLabel}
           </div>
-          <ScrollArea className="flex-1">
+          <ScrollArea className="min-h-24 flex-1">
             <ChangedFilesTree files={files} repoPath={repoPath} onFileOpen={handleFileOpen} />
           </ScrollArea>
         </>
