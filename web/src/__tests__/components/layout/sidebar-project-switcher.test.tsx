@@ -80,7 +80,7 @@ describe('SidebarProjectSwitcher', () => {
     expect(screen.getAllByTestId('space-mark')).toHaveLength(2)
   })
 
-  it('the trailing + calls onAddProject', async () => {
+  it('the leading + calls onAddProject', async () => {
     const onAddProject = vi.fn()
     render(
       <SidebarProjectSwitcher
@@ -93,13 +93,13 @@ describe('SidebarProjectSwitcher', () => {
     const row = screen.getByTestId('sidebar-project-switcher')
     const add = within(row).getByRole('button', { name: 'Add space' })
     expect(screen.getByRole('button', { name: 'p2' }).compareDocumentPosition(add)).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
+      Node.DOCUMENT_POSITION_PRECEDING,
     )
     await userEvent.click(add)
     expect(onAddProject).toHaveBeenCalledOnce()
   })
 
-  describe('the trailing + is revealed by hover only once the host has several projects', () => {
+  describe('the leading + is revealed by hover only once the host has several projects', () => {
     const plusFor = (projects: Project[]) => {
       render(
         <SidebarProjectSwitcher
@@ -116,13 +116,14 @@ describe('SidebarProjectSwitcher', () => {
       expect(plusFor(projects)).not.toHaveAttribute('data-reveal', 'hover')
     })
 
-    it('is hover-revealed with two projects, and stays reachable by keyboard', async () => {
+    it('is hover-revealed with two projects, and tabs in ahead of the other projects', async () => {
       const add = plusFor([project('p1'), project('p2')])
       expect(add).toHaveAttribute('data-reveal', 'hover')
       await userEvent.tab()
       await userEvent.tab()
-      await userEvent.tab()
       expect(add).toHaveFocus()
+      await userEvent.tab()
+      expect(screen.getByRole('button', { name: 'p2' })).toHaveFocus()
     })
   })
 

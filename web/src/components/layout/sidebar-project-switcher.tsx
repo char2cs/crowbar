@@ -147,7 +147,7 @@ function RemoteProjectMark({
 /**
  * First line of the sidebar body: the active project's icon and name (its host under it, when
  * remote), then the other projects' icons, a remote one dotted with its host's state, and a
- * trailing `+`. The name truncates before the icons are pushed off. The active mark edits the
+ * leading `+`. The name truncates before the icons are pushed off. The active mark edits the
  * icon; double-clicking the name renames the project. Memoized: every prop is a primitive or
  * a stable callback.
  */
@@ -209,19 +209,6 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
           </>
         )}
       </div>
-      {others.map((project) =>
-        project.hostId === LOCAL_HOST.id ? (
-          <ProjectMark
-            key={project.id}
-            label={project.name}
-            onSelect={() => onSelectProject(project.id)}
-          >
-            <MarkIcon project={project} />
-          </ProjectMark>
-        ) : (
-          <RemoteProjectMark key={project.id} project={project} onSelect={onSelectProject} />
-        ),
-      )}
       {onAddProject && (
         <Button
           onClick={onAddProject}
@@ -245,6 +232,19 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
         >
           <PlusIcon size={16} />
         </Button>
+      )}
+      {others.map((project) =>
+        project.hostId === LOCAL_HOST.id ? (
+          <ProjectMark
+            key={project.id}
+            label={project.name}
+            onSelect={() => onSelectProject(project.id)}
+          >
+            <MarkIcon project={project} />
+          </ProjectMark>
+        ) : (
+          <RemoteProjectMark key={project.id} project={project} onSelect={onSelectProject} />
+        ),
       )}
     </div>
   )
