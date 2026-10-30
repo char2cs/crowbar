@@ -43,6 +43,7 @@ func wsAx(
 		WithEventStore(ad.WorkspaceES()).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	workspace.RetiredFields(b)
 	workspace.Subscriber(rm)(b)
 	ax, err := b.Build()
 	require.NoError(t, err)

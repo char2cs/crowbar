@@ -70,11 +70,7 @@ func newAggregates(
 	}
 	// The upcaster strips the patches of fields domain.Workspace no longer has.
 	if ax.workspace, err = newAsynx(adapters.WorkspaceES(), adapters.WorkspaceSS(),
-		func(b *asynx.Builder[domain.Workspace]) {
-			b.WithSchemaVersion(workspace.SchemaVersion).
-				WithUpcaster(1, workspace.StripRetiredFields).
-				WithUpcaster(2, workspace.StripRetiredFields)
-		},
+		workspace.RetiredFields,
 		workspace.Subscriber(rm.Workspace)); err != nil {
 		return nil, fmt.Errorf("app: asynx workspace: %w", err)
 	}

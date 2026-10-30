@@ -3,29 +3,57 @@ package workspace_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
+	"time"
 
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// History written before a field was retired still patches it; replayed
-// against a struct without the key, a "replace" would fail the whole read.
-func TestStripRetiredFields_DropsLastErrorPatches(t *testing.T) {
-	in := `[
-		{"op":"replace","path":"/lastError","value":"boom"},
-		{"op":"replace","path":"/order","value":3},
-		{"op":"add","path":"/folderId","value":"f"},
-		{"op":"replace","path":"/branch","value":"feat/a"}
-	]`
+// appendV2 writes one schema-2 event carrying patches onto id's history.
+func appendV2(t *testing.T, es asynxModels.Store, id, patches string) {
+	t.Helper()
+	ctx := context.Background()
+	prior, err := es.ReadFrom(ctx, "events:"+id, 1)
+	require.NoError(t, err)
+	v := int64(len(prior) + 1)
+	evt, err := json.Marshal(map[string]any{
+		"id": fmt.Sprintf("v2-%s-%d", id, v), "event_name": "workspace.last_error_set." + id, "version": v,
+		"schema_version": 2, "occurred_at": time.Unix(2, 0).UTC(), "patches": json.RawMessage(patches),
+	})
+	require.NoError(t, err)
+	require.NoError(t, es.Atomically(ctx, func(tx asynxModels.Tx) error { return tx.Append(ctx, "events:"+id, v, evt) }))
+}
 
-	out, err := workspace.StripRetiredFields(context.Background(), "ws-1", []byte(in))
+// History written while workspaces carried lastError still sets, clears and
+// replaces it; replayed against a struct without the key, it fails every read.
+func TestWorkspace_AV2HistoryThatPatchesLastErrorStillReplays(t *testing.T) {
+	ad := newAdapter(t, t.TempDir())
+	repo := buildRepo(t, ad)
+	workspace.WaitQuiescentForTest(repo)
+	ctx := context.Background()
+	_, err := repo.Create(ctx, workspace.CreateInput{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder,
+	}, time.Unix(1, 0))
+	require.NoError(t, err)
+	// A fold that starts after a snapshot of the old struct has no key to
+	// replace or remove: the first two patches are what that history looks like.
+	for _, patches := range []string{
+		`[{"op":"replace","path":"/lastError","value":"second"}]`,
+		`[{"op":"remove","path":"/lastError"}]`,
+		`[{"op":"add","path":"/lastError","value":"again"},{"op":"replace","path":"/branch","value":"feat/a"}]`,
+	} {
+		appendV2(t, ad.WorkspaceES(), "w1", patches)
+	}
+
+	got, err := buildRepo(t, ad).Get(ctx, "w1")
 
 	require.NoError(t, err)
-	var ops []map[string]any
-	require.NoError(t, json.Unmarshal(out, &ops))
-	require.Len(t, ops, 1)
-	assert.Equal(t, "/branch", ops[0]["path"])
+	assert.Equal(t, "feat/a", got.Branch, "the rest of each patch still applies")
+	assert.Equal(t, domain.WorkspacePlaceholder, got.Provisioning)
 }

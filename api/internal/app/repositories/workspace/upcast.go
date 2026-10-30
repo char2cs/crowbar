@@ -4,18 +4,27 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/char2cs/asynx"
+
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// SchemaVersion is domain.Workspace's current event schema. Bump it and
-// register the upcaster for the old version (asynx.go) whenever a field that
-// real history still patches is removed.
-const SchemaVersion = 3
+// schemaVersion is domain.Workspace's current event schema; bump it, and
+// upcast the old one in RetiredFields, whenever a field history patches goes.
+const schemaVersion = 3
 
-// StripRetiredFields upcasts a workspace event from schema 1 or 2 by dropping
-// every patch against a field domain.Workspace no longer declares (/order,
-// /folderId in v1; /lastError in v2). A "replace" on a key the struct cannot
-// marshal fails jsonpatch, and with it every read of the workspace.
-func StripRetiredFields(
+// RetiredFields stamps new events with the current schema and upcasts every
+// older one, so history that patches a removed field still replays.
+func RetiredFields(b *asynx.Builder[domain.Workspace]) {
+	b.WithSchemaVersion(schemaVersion).
+		WithUpcaster(1, stripRetiredFields).
+		WithUpcaster(2, stripRetiredFields)
+}
+
+// stripRetiredFields drops patches against fields domain.Workspace no longer
+// declares (/order, /folderId in v1; /lastError in v2): jsonpatch fails on them.
+func stripRetiredFields(
 	_ context.Context,
 	_ string,
 	patches []byte,
