@@ -310,4 +310,43 @@ describe('a repo tombstone', () => {
       ),
     )
   })
+
+  const liveChatStreams = () =>
+    opened.filter(
+      (s) => s.endpoint === '/v0/projects/p1/repos/r1/chats/ws' && !s.dispose?.mock.calls.length,
+    )
+
+  // After a failed delete the row keeps `deleting`; a later frame (a rename)
+  // carries it again and must not close the repo's streams.
+  it('a repo whose delete failed keeps streaming across its later frames', async () => {
+    await bootWithWorkspaces([workspace('owner-locked')])
+    const repos = opened.find((s) => s.endpoint === '/v0/projects/p1/repos')!
+    act(() => applyOperationFrame(removeOp(2, 'failed')))
+    const renamed: RepoDTO = { ...repoDTO, name: 'renamed', deleting: true }
+    await upsertEntity('crowbar_repos', renamed)
+    act(() => {
+      repos.onChange?.({ kind: 'frame', frame: renamed })
+    })
+    await waitFor(() => expect(liveChatStreams()).toHaveLength(1))
+  })
+
+  // The delete can settle before the repo's tombstone arrives: a repo on its
+  // way out is not read again in between.
+  it('a delete that succeeded before its tombstone does not reopen the repo', async () => {
+    await bootWithWorkspaces([workspace('owner-locked')])
+    const repos = opened.find((s) => s.endpoint === '/v0/projects/p1/repos')!
+    const deleting: RepoDTO = { ...repoDTO, deleting: true }
+    await upsertEntity('crowbar_repos', deleting)
+    act(() => applyOperationFrame(removeOp(1, 'running')))
+    act(() => {
+      repos.onChange?.({ kind: 'frame', frame: deleting })
+    })
+    await waitFor(() => expect(liveChatStreams()).toHaveLength(0))
+    act(() => applyOperationFrame(removeOp(2, 'succeeded')))
+    act(() => {
+      repos.onChange?.({ kind: 'frame', frame: deleting })
+    })
+    expect(liveChatStreams()).toHaveLength(0)
+    expect(opened.filter((s) => s.endpoint === '/v0/projects/p1/repos/r1/chats/ws')).toHaveLength(1)
+  })
 })

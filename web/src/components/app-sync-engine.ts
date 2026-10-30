@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { useProjectDataStore, useProjectStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { selectEntityBusy, useOperationsStore } from '@/lib/store/operations'
+import { useOperationsStore, type Operation } from '@/lib/store/operations'
 import { getVisibleProjectIds } from '@/lib/store/project-visibility'
 import { toSidebarRepo } from '@/lib/store/build-repo-tree'
 import { subscribeHomeTree } from '@/lib/store/home-tree'
@@ -49,6 +49,16 @@ import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
  * that a collapse/expand tap is free (no unsubscribe/resubscribe/reseed round
  * trip), short enough that a project you actually closed stops costing frames.
  */
+// A repo marked deleting is going away unless its newest delete failed, which
+// leaves the daemon's mark on a repo that stays.
+function deleteHolds(ops: Record<string, Operation>, repoId: string): boolean {
+  let newest: Operation | undefined
+  for (const op of Object.values(ops)) {
+    if (op.kind !== 'repo.delete' || op.subject.id !== repoId) continue
+    if (!newest || Date.parse(op.createdAt) > Date.parse(newest.createdAt)) newest = op
+  }
+  return newest?.state !== 'failed'
+}
 export const SUBSCRIPTION_GRACE_MS = 2000
 const REBUILD_BATCH_MS = 16
 const KEY_SEP = '|'
@@ -184,19 +194,12 @@ export function useAppSyncEngine(): void {
         closeNow(workspacesKey(projectId, repoId))
         closeNow(treeKey(projectId, repoId))
       } else {
-        // A repo we have never seen (a fresh import) is appended straight away
-        // so its row appears without waiting on an IndexedDB round trip; its
-        // workspaces arrive on the per-repo stream reconcile() opens below.
-        // For a repo we already hold this is a no-op, and the rebuild below
-        // carries its changed header fields (name, avatar, path).
-        const row = toSidebarRepo(change.frame as unknown as RepoDTO, [])
-        useSidebarStore.getState().mergeRepos([row])
-        // The delete is announced before its cascade tombstones the repo's
-        // chats: stop reading a scope that is going away.
-        if (row.deleting) {
-          closeNow(workspacesKey(projectId, repoId))
-          closeNow(treeKey(projectId, repoId))
-        }
+        // A new repo is appended at once, without an IndexedDB round trip; for
+        // one we hold, the rebuild below carries its changed header fields.
+        // Whether its streams stay open is reconcile()'s call.
+        useSidebarStore
+          .getState()
+          .mergeRepos([toSidebarRepo(change.frame as unknown as RepoDTO, [])])
       }
       scheduleRebuild()
       reconcile()
@@ -224,23 +227,15 @@ export function useAppSyncEngine(): void {
     // both are served off the same repo-scoped .../chats mount, and both are
     // invalidated by the same frames.
     //
-    // The backend's dedicated folders REST+WS resource was deleted (its own
-    // plan is closed), and chats never had one: their only live-update path is
-    // an id-only invalidation frame on a WORKSPACE's chats WS (no snapshot, no
-    // row — "the tree moved, read it again"). There is nothing repo-scoped left
-    // to open a WS subscription against, so this is a plain reseed loop instead
-    // of `subscribeEntityStream`: seed once on open, and again every time
-    // `useFolderSignalStore`'s generation for this repo moves (bumped by
-    // use-workspace-agent-chats-stream.ts on a folder_* frame, on a STRUCTURAL
-    // chat frame, or on a reconnect, for a workspace of this repo).
+    // Their only live-update path is an id-only invalidation frame on a
+    // WORKSPACE's chats WS ("the tree moved, read it again"), so this is a plain
+    // reseed loop: seed once on open, and again whenever `useFolderSignalStore`'s
+    // generation for this repo moves (bumped by use-workspace-agent-chats-stream.ts
+    // on a folder_* or structural chat frame, or a reconnect).
     //
-    // That only fires while some workspace of this repo is mounted — the
-    // acceptable half of the tradeoff for folders, because the acting user's
-    // OWN folder edits never depend on it: sidebar-placement.ts applies a
-    // create/rename/move/delete's own `{folder, shifted}` response to the store
-    // directly, the instant it lands. A CHAT edit has no such local apply and
-    // does depend on the frame — which is fine, because a chat can only be
-    // created, renamed or moved from a surface that has that workspace mounted.
+    // That only fires while some workspace of this repo is mounted: the acting
+    // user's own folder edits apply their `{folder, shifted}` response directly
+    // (sidebar-placement.ts), and a chat edit comes from a mounted surface.
     //
     // KNOWN BACKEND LIMITATION, folders half only (see `fetchFolders`'s own doc
     // comment in lib/api.ts): the daemon's ListInRepo does not actually scope by
@@ -510,6 +505,9 @@ export function useAppSyncEngine(): void {
 
     // -- which streams should be open right now ----------------------------
 
+    // Repos going away, refilled by desiredKeys().
+    const goneKeys = new Set<string>()
+
     function desiredKeys(): Set<string> {
       const visibleProjects = getVisibleProjectIds()
       const keys = new Set<string>()
@@ -522,14 +520,15 @@ export function useAppSyncEngine(): void {
       // rows via collapsedChatRows, which hides nothing the streams feed), so
       // each one keeps both its workspaces and its folders+chats streams open.
       const { repos } = useSidebarStore.getState()
-      const ops = useOperationsStore.getState()
+      const { ops } = useOperationsStore.getState()
+      goneKeys.clear()
       for (const repo of repos) {
         const projectId = repo.projectId
-        // A failed delete keeps the daemon's mark; only a running one takes the scope.
-        const goingAway = repo.deleting && selectEntityBusy(ops, repo.id)
-        if (!projectId || !visibleProjects.has(projectId) || goingAway) continue
-        keys.add(workspacesKey(projectId, repo.id))
-        keys.add(treeKey(projectId, repo.id))
+        if (!projectId || !visibleProjects.has(projectId)) continue
+        const repoKeys = [workspacesKey(projectId, repo.id), treeKey(projectId, repo.id)]
+        // A scope going away is not read again: closed at once, without the grace.
+        const target = repo.deleting && deleteHolds(ops, repo.id) ? goneKeys : keys
+        for (const key of repoKeys) target.add(key)
       }
       return keys
     }
@@ -557,7 +556,8 @@ export function useAppSyncEngine(): void {
       lastDesired = desired
 
       for (const key of [...subscriptions.keys()]) {
-        if (!desired.has(key)) scheduleClose(key)
+        if (goneKeys.has(key)) closeNow(key)
+        else if (!desired.has(key)) scheduleClose(key)
       }
       for (const key of desired) ensureOpen(key)
       // Closing a section must be a render-only operation. Its cached rows are
