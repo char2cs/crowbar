@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid'
 import { BOTTOM_PANE_ID, ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type { LayoutNode, PaneGroup, ViewRecord } from '@/features/panes/types/pane'
 import { createLeaf, getAllLeafIds } from '@/features/panes/utils/pane-layout'
+import { settlePinnedOrder } from './view-pins'
 import { makePane, settleFocus, type ViewState } from './view-state'
 
 /** Drop the leaves `keep` refuses, collapsing emptied splits; null when none survive. */
@@ -99,6 +100,7 @@ export function repairViewState(input: Partial<ViewState>): ViewState {
     fullscreenPaneId:
       input.fullscreenPaneId && panes[input.fullscreenPaneId] ? input.fullscreenPaneId : null,
   }
+  settlePinnedOrder(repaired)
   settleFocus(repaired)
   return repaired
 }

@@ -8,6 +8,9 @@ import { useAgentProvidersStore } from '@/features/settings/stores/agent-provide
 import { providerCanStartOnTerminal } from '@/features/agent/api/agent-api'
 import { handleCreate } from '@/components/layout/create-actions'
 import { useKillAgentMenuItems } from '@/features/agent/hooks/use-kill-agent-menu-items'
+import { useViewTabMenuItems } from '@/components/sidebar/hooks/use-view-tab-menu-items'
+import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 
 const DESTRUCTIVE =
   'text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive dark:data-highlighted:bg-destructive/20'
@@ -25,6 +28,8 @@ interface MenuData {
   /** Read from `useSidebarStore` at open time — `SidebarRow` carries no
    *  `locked` field yet, so this can't come from the `rows` prop. */
   locked: boolean
+  /** The view whose tab was clicked; null for a row in the sidebar tree. */
+  viewId: string | null
 }
 
 /**
@@ -61,22 +66,25 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
   )
 
   const killItems = useKillAgentMenuItems(menu.data?.row.id)
+  const tabItems = useViewTabMenuItems(menu.data?.viewId ?? null)
 
   useEffect(() => {
     const tree = treeRef.current
     if (!tree) return
-    const resolveMenuData = (rowId: string): MenuData | null => {
+    const resolveMenuData = (rowId: string, inStrip = false): MenuData | null => {
       const row = rows.find((r) => r.id === rowId)
       if (!row) return null
       const locked = rowIsLocked(rowId)
-      return { row, locked }
+      const { panes } = windowPaneStore.getState()
+      const viewId = inStrip ? (panes[chatPaneIndex(panes).get(rowId) ?? '']?.viewId ?? null) : null
+      return { row, locked, viewId }
     }
     const onContextMenu = (e: MouseEvent) => {
       if (!(e.target instanceof Element)) return
       const el = e.target.closest<HTMLElement>('[role="treeitem"]')
       const rowId = el?.getAttribute('data-sidebar-row-id')
       if (!rowId) return
-      const data = resolveMenuData(rowId)
+      const data = resolveMenuData(rowId, !!e.target.closest('[data-view-tab-strip]'))
       if (!data) return
       e.preventDefault()
       openAt({ x: e.clientX, y: e.clientY }, data)
@@ -150,6 +158,8 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
   // Kill agent sits with the destructive group, ahead of its first separator.
   const destructiveAt = items.findIndex((i) => i.separator)
   items.splice(destructiveAt < 0 ? items.length : destructiveAt, 0, ...killItems)
+  // A tab's own verbs lead, ahead of the row's.
+  items.unshift(...tabItems)
 
   return <ContextMenu isOpen items={items} position={menu.position} onClose={menu.close} />
 }

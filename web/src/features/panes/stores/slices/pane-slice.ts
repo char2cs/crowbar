@@ -53,6 +53,8 @@ export interface PaneActions {
   /** Row. */
   closeView(viewId: string): void
   reorderView(viewId: string, targetId: string, mode: 'before' | 'after'): void
+  /** Row: pinned views lead the band; the view moves to the edge of its new group. */
+  setViewPinned(viewId: string, pinned: boolean): void
   /** Row: the daemon deleted `chatId`. */
   forgetChat(chatId: string): void
   /** Row: the runner in `paneId` walked into `chatId` (`moved` frame only). */

@@ -62,6 +62,7 @@ function dropBeside(
 }
 
 const SLIDE_MS = 150
+const FALLBACK_TAB_PX = 160
 /** The gap an outside subject opens: every tab from the insertion index on makes room. */
 function gapOffsets(count: number, to: number, pitch: number): number[] {
   return Array.from({ length: count }, (_, i) => (i >= to ? pitch : 0))
@@ -131,11 +132,19 @@ export function createStripDrag(
     return { left: r.left, width: r.width }
   })
   const shellOf = (tab: HTMLElement) => tab.firstElementChild ?? tab
-  const shell = shellOf(tabs[external ? 0 : from]).getBoundingClientRect()
+  // A pinned tab moves among the pinned, an unpinned one (or a pane dragged up) among the rest.
+  const pinnedCount = tabs.filter((tab) => tab.hasAttribute('data-pinned')).length
+  const pinnedSubject = !external && from < pinnedCount
+  const lowest = pinnedSubject ? 0 : pinnedCount
+  const highest = pinnedSubject ? pinnedCount - 1 : tabs.length - 1
+  // The size of an ordinary tab, which a pane's preview takes; every tab pinned leaves none to copy.
+  const model = external ? Math.min(pinnedCount, tabs.length - 1) : from
+  const shell = shellOf(tabs[model]).getBoundingClientRect()
   const subjectRect = subject.getBoundingClientRect()
   const margin = box.height
-  const width = shell.width
-  const pitch = slots[external ? 0 : from].width
+  const modelIsPinned = external && pinnedCount === tabs.length
+  const width = modelIsPinned ? FALLBACK_TAB_PX : shell.width
+  const pitch = modelIsPinned ? FALLBACK_TAB_PX + 4 : slots[model].width
   // Held where the pointer took it, within the whole tab; an outside subject is held by its centre.
   const grab = external
     ? { dx: width / 2, dy: shell.height / 2 }
@@ -159,12 +168,14 @@ export function createStripDrag(
   // outside subject may centre on either end, so it can be dropped before the first or after the last.
   const leftFor = (x: number) => {
     const now = slotsNow()
-    const last = now[now.length - 1]
+    const end = now[highest]
+    const start = now[lowest] ?? end
     const overhang = external ? width / 2 : 0
     const reach = {
       ...box,
-      left: Math.max(box.left, now[0].left) - overhang,
-      right: Math.min(box.right, last.left + last.width) + overhang,
+      left:
+        Math.max(box.left, lowest < now.length ? start.left : start.left + start.width) - overhang,
+      right: Math.min(box.right, end.left + end.width) + overhang,
     }
     return clampTabLeft(x, grab.dx, width, reach)
   }

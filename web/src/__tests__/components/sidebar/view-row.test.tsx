@@ -150,6 +150,23 @@ describe('RecentsViewRow', () => {
     expect(screen.getAllByTestId(/^recents-row-/)).toHaveLength(3)
   })
 
+  it('a pinned row is its glyph alone: no title text, no ×, the title kept as its label', () => {
+    actions().openChat('chat-1', { workspaceId: 'ws-1' })
+    actions().setViewPinned(viewOf('chat-1'), true)
+    renderBand()
+    expect(screen.queryByRole('button', { name: 'Close view' })).not.toBeInTheDocument()
+    expect(screen.getByRole('treeitem', { name: 'Chat One' })).toHaveAttribute('title', 'Chat One')
+  })
+
+  it('a pinned group keeps every member and still has no ×', () => {
+    groupAndSolo()
+    actions().setViewPinned(viewOf('chat-1'), true)
+    renderBand()
+    const shell = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
+    expect(within(shell).getAllByTestId(/^recents-row-/)).toHaveLength(2)
+    expect(within(shell).queryByRole('button', { name: 'Close view' })).not.toBeInTheDocument()
+  })
+
   it('rows render flat, no indent', () => {
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
     renderBand()

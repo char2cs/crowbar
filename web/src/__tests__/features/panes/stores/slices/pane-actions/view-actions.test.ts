@@ -240,3 +240,54 @@ describe('reorderView / activateView', () => {
     expect(store.getState().activePaneId).toBe('p-v2')
   })
 })
+
+describe('setViewPinned', () => {
+  function three() {
+    const store = makePaneOnlyStore()
+    store.setState(
+      buildViewState({
+        views: ['v1', 'v2', 'v3'].map((id) => ({
+          id,
+          panes: [{ id: `p-${id}`, chatId: `c-${id}` }],
+        })),
+        activeProjectId: 'p1',
+      }),
+    )
+    return store
+  }
+
+  it('moves a pinned view to the end of the pinned group, and back to the start of the rest', () => {
+    const store = three()
+    store.getState().paneActions.setViewPinned('v3', true)
+    expect(store.getState().viewOrder).toEqual(['v3', 'v1', 'v2'])
+    store.getState().paneActions.setViewPinned('v2', true)
+    expect(store.getState().viewOrder).toEqual(['v3', 'v2', 'v1'])
+    store.getState().paneActions.setViewPinned('v3', false)
+    expect(store.getState().viewOrder).toEqual(['v2', 'v3', 'v1'])
+    expect(store.getState().views.v3.pinned).toBeUndefined()
+    expect(store.getState().views.v2.pinned).toBe(true)
+  })
+
+  it('reordering never crosses the pinned boundary', () => {
+    const store = three()
+    store.getState().paneActions.setViewPinned('v3', true)
+    store.getState().paneActions.setViewPinned('v2', true)
+    store.getState().paneActions.reorderView('v1', 'v3', 'before')
+    expect(store.getState().viewOrder).toEqual(['v3', 'v2', 'v1'])
+    store.getState().paneActions.reorderView('v2', 'v1', 'after')
+    expect(store.getState().viewOrder).toEqual(['v3', 'v2', 'v1'])
+    store.getState().paneActions.reorderView('v3', 'v2', 'after')
+    expect(store.getState().viewOrder).toEqual(['v2', 'v3', 'v1'])
+  })
+
+  it('a chat detached from a pinned group becomes an unpinned view behind the pinned ones', () => {
+    const store = three()
+    store.getState().paneActions.setViewPinned('v1', true)
+    store.getState().paneActions.dropChatOnPane('c-new', 'p-v1', 'right')
+    store.getState().paneActions.detachPane(chatPaneIndex(store.getState().panes).get('c-new')!)
+    const { viewOrder, views } = store.getState()
+    expect(viewOrder[0]).toBe('v1')
+    expect(views.v1.pinned).toBe(true)
+    expect(viewOrder.slice(1).every((id) => !views[id].pinned)).toBe(true)
+  })
+})

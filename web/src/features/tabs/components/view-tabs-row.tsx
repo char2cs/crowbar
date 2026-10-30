@@ -24,6 +24,8 @@ import TabNavigationButtons from './tab-navigation-buttons'
 // strip scrolls only once every tab is at the minimum.
 const TAB_MAX_WIDTH_PX = 240
 const TAB_MIN_WIDTH_PX = 112
+// A pinned tab is its glyph alone: one fixed step per chat it holds.
+const PINNED_STEP_PX = 36
 
 /**
  * The sidebar's Recents rows laid out across the top: one per view of the
@@ -113,15 +115,21 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
 })
 
 function ViewTabSlot({ viewId, children }: { viewId: string; children: React.ReactNode }) {
-  const hasMembers = useStore(windowPaneStore, (s) => viewMembers(s, viewId).length > 0)
-  if (!hasMembers) return null
+  const memberCount = useStore(windowPaneStore, (s) => viewMembers(s, viewId).length)
+  const pinned = useStore(windowPaneStore, (s) => !!s.views[viewId]?.pinned)
+  if (memberCount === 0) return null
   return (
     <div
-      style={{
-        flex: `1 1 ${TAB_MAX_WIDTH_PX}px`,
-        minWidth: TAB_MIN_WIDTH_PX,
-        maxWidth: TAB_MAX_WIDTH_PX,
-      }}
+      data-pinned={pinned || undefined}
+      style={
+        pinned
+          ? { flex: 'none', width: PINNED_STEP_PX * memberCount }
+          : {
+              flex: `1 1 ${TAB_MAX_WIDTH_PX}px`,
+              minWidth: TAB_MIN_WIDTH_PX,
+              maxWidth: TAB_MAX_WIDTH_PX,
+            }
+      }
     >
       {children}
     </div>

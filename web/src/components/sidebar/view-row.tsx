@@ -75,6 +75,7 @@ export function RecentsViewRow({
     useShallow((s) => viewMembers(s, viewId).map(memberKey)),
   )
   const isShowing = useStore(windowPaneStore, (s) => s.activeViewId === viewId)
+  const pinned = useStore(windowPaneStore, (s) => !!s.views[viewId]?.pinned)
   if (members.length === 0) return null
   const isSet = members.length >= 2
 
@@ -99,7 +100,8 @@ export function RecentsViewRow({
             workspaceId={workspaceId ?? ''}
             hasView={!isShowing}
             isSet={isSet}
-            fadesForClose={isLast}
+            pinned={pinned}
+            fadesForClose={isLast && !pinned}
             separated={!isLast && !isShowing}
             onOpen={() => onFocus(viewId)}
             drag={drag}
@@ -107,14 +109,16 @@ export function RecentsViewRow({
           />
         )
       })}
-      <button
-        type="button"
-        aria-label="Close view"
-        onClick={() => onClose(viewId)}
-        className={cn(TAB_CLOSE, 'hover:bg-sidebar-element-hover hover:text-foreground')}
-      >
-        <XIcon size={12} />
-      </button>
+      {!pinned && (
+        <button
+          type="button"
+          aria-label="Close view"
+          onClick={() => onClose(viewId)}
+          className={cn(TAB_CLOSE, 'hover:bg-sidebar-element-hover hover:text-foreground')}
+        >
+          <XIcon size={12} />
+        </button>
+      )}
     </div>
   )
 }
@@ -163,6 +167,7 @@ function RecentsMemberRow({
   workspaceId,
   hasView,
   isSet,
+  pinned,
   fadesForClose,
   separated,
   onOpen,
@@ -175,6 +180,8 @@ function RecentsMemberRow({
   hasView: boolean
   /** One of 2+ chats sharing the shell: no icon. */
   isSet: boolean
+  /** The tab is pinned: every member shows its glyph alone. */
+  pinned: boolean
   /** The tab's trailing member: its end fades under the ×. */
   fadesForClose: boolean
   /** Draws the hairline between this member and the next. */
@@ -212,7 +219,7 @@ function RecentsMemberRow({
         // The chat also renders as a tree row with the same id: two inline
         // renames at once would steal each other's focus.
         inlineRenameDisabled
-        tab={isSet ? 'tab-member' : 'tab'}
+        tab={pinned ? 'tab-pinned' : isSet ? 'tab-member' : 'tab'}
       />
       {separated && (
         <span

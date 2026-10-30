@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid'
 import type { PaneGroup } from '@/features/panes/types/pane'
+import { settlePinnedOrder } from './view-pins'
 import {
   closeLayout,
   createLeaf,
@@ -108,6 +109,7 @@ export function insertPane(
     if (afterIndex === -1) order.push(id)
     else order.splice(afterIndex + 1, 0, id)
     state.viewOrder = order
+    settlePinnedOrder(state)
     return id
   }
   const home = homeOf(state, at.targetPaneId)

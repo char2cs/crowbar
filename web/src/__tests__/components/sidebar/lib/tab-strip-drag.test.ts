@@ -5,7 +5,7 @@ const BOX = { left: 100, right: 500, top: 0, bottom: 32 }
 const SLOTS = [0, 1, 2, 3].map((i) => ({ left: 100 + i * 100, width: 100 }))
 
 describe('createStripDrag', () => {
-  function build(stripRight = BOX.right) {
+  function build(stripRight = BOX.right, pinnedCount = 0) {
     const strip = document.createElement('div')
     const rect = (r: Partial<DOMRect>) => () => ({ ...r, toJSON: () => r }) as DOMRect
     strip.getBoundingClientRect = rect({
@@ -20,6 +20,7 @@ describe('createStripDrag', () => {
       row.getBoundingClientRect = rect({ left: s.left, width: 100, top: 0, height: 32 })
       tab.getBoundingClientRect = rect({ left: s.left, width: 100, top: 0, height: 32 })
       tab.appendChild(row)
+      if (strip.children.length < pinnedCount) tab.setAttribute('data-pinned', '')
       strip.appendChild(tab)
       return { tab, row }
     })
@@ -267,6 +268,34 @@ describe('createStripDrag', () => {
       drag.move(300, 200, ghost)
       expect(ghostAt(ghost)).toEqual({ x: 250, y: 184 })
       expect(slides(tabs)).toEqual(['', '', '', ''])
+    })
+  })
+
+  describe('with pinned tabs at the front', () => {
+    it('keeps a pinned tab inside the pinned group, however far it is pulled', () => {
+      const { strip, tabs } = build(BOX.right, 2)
+      const ghost = document.createElement('div')
+      const drag = createStripDrag(strip, tabs[0].row, { dx: 50, dy: 16 })!
+      drag.move(480, 16, ghost)
+      expect(ghostAt(ghost).x).toBe(200)
+      expect(drag.drop(480)).toEqual({ el: tabs[2].tab, mode: 'before' })
+    })
+
+    it('keeps an unpinned tab behind the pinned group', () => {
+      const { strip, tabs } = build(BOX.right, 2)
+      const ghost = document.createElement('div')
+      const drag = createStripDrag(strip, tabs[3].row, { dx: 50, dy: 16 })!
+      drag.move(110, 16, ghost)
+      expect(ghostAt(ghost).x).toBe(300)
+      expect(drag.drop(110)).toEqual({ el: tabs[2].tab, mode: 'before' })
+    })
+
+    it('inserts an outside subject behind the pinned group, never among it', () => {
+      const { strip, tabs } = build(BOX.right, 2)
+      const drag = createStripDrag(strip, document.createElement('div'), { dx: 3, dy: 3 })!
+      drag.move(110, 16, null)
+      expect(slides(tabs)).toEqual(['', '', 'translateX(100px)', 'translateX(100px)'])
+      expect(drag.drop(110)).toEqual({ el: tabs[2].tab, mode: 'before' })
     })
   })
 })

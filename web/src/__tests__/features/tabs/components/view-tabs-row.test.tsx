@@ -114,6 +114,18 @@ describe('ViewTabsRow', () => {
     expect(order()).toEqual(['recents-row-chat-2', 'recents-row-chat-1'])
   })
 
+  it('a pinned tab leads the strip and is marked for the drag', () => {
+    actions().openChat('chat-1', { workspaceId: 'ws-1' })
+    actions().openChat('chat-2', { workspaceId: 'ws-1' })
+    render(<ViewTabsRow />)
+    act(() => actions().setViewPinned(viewOf('chat-2'), true))
+    const order = screen.getAllByTestId(/^recents-row-/).map((el) => el.getAttribute('data-testid'))
+    expect(order).toEqual(['recents-row-chat-2', 'recents-row-chat-1'])
+    const slot = screen.getByTestId('recents-row-chat-2').closest('[data-pinned]')
+    expect(slot).not.toBeNull()
+    expect(screen.getByTestId('recents-row-chat-1').closest('[data-pinned]')).toBeNull()
+  })
+
   // The sidebar's foot shows the build readout while it is open.
   it('carries the build readout only while the sidebar is hidden', () => {
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
