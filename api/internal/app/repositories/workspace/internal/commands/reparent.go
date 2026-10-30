@@ -42,8 +42,9 @@ func (c Reparent) Validate(
 	if current == nil {
 		return fmt.Errorf("reparent: %w", asynxModels.ErrValidation)
 	}
-	if c.NewForkParentID == "" || c.ForkPointSha == "" {
-		return fmt.Errorf("reparent: missing parent or fork point: %w", asynxModels.ErrValidation)
+	// No parent is the top of a lineage (a kept child whose parent was deleted).
+	if c.NewForkParentID != "" && c.ForkPointSha == "" {
+		return fmt.Errorf("reparent: missing fork point: %w", asynxModels.ErrValidation)
 	}
 	return nil
 }

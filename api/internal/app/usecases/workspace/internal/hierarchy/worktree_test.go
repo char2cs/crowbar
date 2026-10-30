@@ -2108,17 +2108,23 @@ func TestDeleteCascade_SkipsLockedStatus(t *testing.T) {
 	}
 	g := &fakeGit{}
 	var deleted []string
+	rehung := map[string]string{}
 	ws := &fakeWorkspace{
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
 		DeleteFn: func(_ context.Context, id string) error {
 			deleted = append(deleted, id)
 			return nil
 		},
+		ReparentFn: func(_ context.Context, id, parentID, _ string, _ time.Time) (domain.Workspace, error) {
+			rehung[id] = parentID
+			return domain.Workspace{}, nil
+		},
 	}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
 
 	require.NoError(t, uc.DeleteCascade(context.Background(), "root", domain.KeepWorkAtRisk))
 	assert.Equal(t, []string{"c", "a", "root"}, deleted)
+	assert.Equal(t, map[string]string{"b": ""}, rehung, "the kept locked b tops its lineage")
 	assert.Equal(t, []string{
 		"WorktreeRemove", "ForceDeleteBranch",
 		"WorktreeRemove", "ForceDeleteBranch",

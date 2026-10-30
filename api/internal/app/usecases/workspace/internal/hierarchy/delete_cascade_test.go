@@ -3,6 +3,7 @@ package hierarchy_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -148,4 +149,52 @@ func TestDeleteCascade_TerminalKillError_IsBestEffort(t *testing.T) {
 	assert.True(t, deleted, "the workspace row is still dropped")
 	assert.Equal(t, []string{"chat-root"}, reaper.listed,
 		"the reap fans out through the workspace's owning chat, which is where sessions are keyed")
+}
+
+// A locked child the cascade keeps is re-hung under its deleted parent's
+// nearest surviving ancestor, so no lineage names a workspace that is gone.
+func TestDeleteCascade_RehangsAKeptLockedChildUnderTheNearestSurvivor(t *testing.T) {
+	all := []domain.Workspace{
+		{ID: "top", RepoID: "r"},
+		{ID: "root", ParentID: "top", RepoID: "r"},
+		{ID: "mid", ParentID: "root", RepoID: "r"},
+		{ID: "kept", ParentID: "mid", RepoID: "r", Status: domain.WorkspaceStatusLocked, ForkPointSha: "fp"},
+	}
+	rehung := map[string]string{}
+	ws := &fakeWorkspace{
+		ListFn:   func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+		DeleteFn: func(_ context.Context, _ string) error { return nil },
+		ReparentFn: func(_ context.Context, id, parentID, forkPoint string, _ time.Time) (domain.Workspace, error) {
+			rehung[id] = parentID + "@" + forkPoint
+			return domain.Workspace{}, nil
+		},
+	}
+	uc := hierarchy.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+
+	require.NoError(t, uc.DeleteCascade(context.Background(), "root", domain.KeepWorkAtRisk))
+
+	assert.Equal(t, map[string]string{"kept": "top@fp"}, rehung)
+}
+
+// DeletionPlan answers what DeleteCascade would take, or its refusal, and takes nothing.
+func TestDeletionPlan_ListsWhatGoesOrRefusesWithoutTouchingAnything(t *testing.T) {
+	all := []domain.Workspace{
+		{ID: "root", RepoID: "r"},
+		{ID: "child", ParentID: "root", RepoID: "r"},
+		{ID: "locked", ParentID: "root", RepoID: "r", Status: domain.WorkspaceStatusLocked},
+	}
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+		DeleteFn: func(_ context.Context, id string) error {
+			t.Fatalf("DeletionPlan deleted %s", id)
+			return nil
+		},
+	}
+	uc := hierarchy.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+
+	ids, err := uc.DeletionPlan(context.Background(), "root")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"child", "root"}, ids)
+	_, err = uc.DeletionPlan(context.Background(), "locked")
+	require.ErrorIs(t, err, hierarchy.ErrWorkspaceLocked)
 }

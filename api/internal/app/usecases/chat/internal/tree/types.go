@@ -238,8 +238,10 @@ type Agent interface {
 // so both tear a workspace down through one call (hierarchy.DeleteCascade) and
 // its guards — a locked root, a working chat, work at risk without consent —
 // apply through the chat door exactly as through the workspace one.
-// WorkAtRisk is what DeleteWorkspace without consent would refuse over.
+// WorkAtRisk is what DeleteWorkspace without consent would refuse over;
+// DeletionPlan is what it would remove, or the refusal it would answer.
 type WorkspaceReaper interface {
+	DeletionPlan(ctx context.Context, workspaceID string) ([]string, error)
 	DeleteWorkspace(
 		ctx context.Context,
 		workspaceID string,

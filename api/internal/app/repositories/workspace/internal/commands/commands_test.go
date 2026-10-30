@@ -267,9 +267,9 @@ func TestReparent_SetsParentAndForkPoint(t *testing.T) {
 	assert.Equal(t, now, ws.LastActivity)
 }
 
-func TestReparent_Validate_RejectsMissingParent(t *testing.T) {
-	err := Reparent{ID: "w1"}.Validate(&domain.Workspace{ID: "w1"})
-	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
+// No parent is the top of a lineage, which has no fork point to require.
+func TestReparent_Validate_AcceptsTheTopOfALineage(t *testing.T) {
+	assert.NoError(t, Reparent{ID: "w1"}.Validate(&domain.Workspace{ID: "w1", ParentID: "gone"}))
 }
 
 func TestReparent_Validate_RejectsMissingCurrent(t *testing.T) {

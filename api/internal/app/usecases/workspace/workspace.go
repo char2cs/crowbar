@@ -218,6 +218,8 @@ type Usecase interface {
 		rootID string,
 		consent domain.DeleteConsent,
 	) error
+	// DeletionPlan is what DeleteCascade(rootID) would remove, or its refusal.
+	DeletionPlan(ctx context.Context, rootID string) ([]string, error)
 	// WorkAtRisk is what DeleteCascade of each root would refuse over.
 	WorkAtRisk(
 		ctx context.Context,

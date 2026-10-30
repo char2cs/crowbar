@@ -2026,6 +2026,20 @@ func (s *AgentWorkspaceReaper) DeleteWorkspace(
 	return nil
 }
 
+// DeletionPlan answers the refusal DeleteWorkspace would, else the workspace alone.
+func (s *AgentWorkspaceReaper) DeletionPlan(
+	_ context.Context,
+	workspaceID string,
+) ([]string, error) {
+	if err, ok := s.ErrFor[workspaceID]; ok {
+		return nil, err
+	}
+	if s.Err != nil {
+		return nil, s.Err
+	}
+	return []string{workspaceID}, nil
+}
+
 func (s *AgentWorkspaceReaper) WorkAtRisk(
 	_ context.Context,
 	workspaceIDs []string,

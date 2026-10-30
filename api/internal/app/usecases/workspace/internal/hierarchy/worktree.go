@@ -108,6 +108,8 @@ type Usecase interface {
 		rootID string,
 		consent domain.DeleteConsent,
 	) error
+	// DeletionPlan is what DeleteCascade(rootID) would remove, or its refusal.
+	DeletionPlan(ctx context.Context, rootID string) ([]string, error)
 	// WorkAtRisk is what DeleteCascade of each root would refuse over.
 	WorkAtRisk(
 		ctx context.Context,
@@ -1452,50 +1454,6 @@ func subtreeWorkspaceIDs(
 		nodes = append(nodes, cascade.Node{ID: ws.ID, Parent: ws.ParentID})
 	}
 	return cascade.Plan(rootID, nodes)
-}
-
-// DeleteCascade erases rootID and every workspace below it. It refuses a
-// locked, default or home root, and a subtree that owns a working chat: the
-// workspace route must not erase what the Chats panel's delete would refuse.
-func (u *hierarchyUsecase) DeleteCascade(
-	ctx context.Context,
-	rootID string,
-	consent domain.DeleteConsent,
-) error {
-	all, err := u.workspaces.List(ctx)
-	if err != nil {
-		return fmt.Errorf("delete cascade: list: %w", err)
-	}
-	index := indexByID(all)
-	root, ok := index[rootID]
-	// A tombstone awaiting its reactor is already gone: a second delete
-	// event would run the teardown twice.
-	if !ok || root.Status == domain.WorkspaceStatusDeleted {
-		return fmt.Errorf("delete cascade: workspace %s: %w", rootID, problem.ErrNotFound)
-	}
-	if root.Status == domain.WorkspaceStatusLocked {
-		return ErrWorkspaceLocked
-	}
-	if root.IsDefault {
-		return ErrWorkspaceIsDefault
-	}
-	if root.Kind == domain.WorkspaceKindHome {
-		return ErrWorkspaceIsHome
-	}
-	if workingErr := u.guardNotWorking(ctx, rootID); workingErr != nil {
-		return workingErr
-	}
-	repo := u.repoRefFor(ctx, root.RepoID)
-	doomed := liveRows(cascade.Plan(rootID, nodesFrom(all)), index)
-	if lossErr := u.refuseLoss(ctx, consent, doomed, repo, all); lossErr != nil {
-		return fmt.Errorf("delete cascade: %w", lossErr)
-	}
-	for _, ws := range doomed {
-		if removeErr := u.removeOne(ctx, ws, repo, all); removeErr != nil {
-			return fmt.Errorf("delete cascade: remove %s: %w", ws.ID, removeErr)
-		}
-	}
-	return nil
 }
 
 // WorkAtRisk reports what deleting each of rootIDs (with its cascade) would

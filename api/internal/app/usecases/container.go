@@ -850,6 +850,14 @@ func (w worktreeChildCreator) DeleteWorkspace(
 	return w.worktree.DeleteCascade(ctx, workspaceID, consent)
 }
 
+// DeletionPlan implements agentusecase.TreeWorkspaceReaper.
+func (w worktreeChildCreator) DeletionPlan(
+	ctx context.Context,
+	workspaceID string,
+) ([]string, error) {
+	return w.worktree.DeletionPlan(ctx, workspaceID)
+}
+
 // WorkAtRisk implements agentusecase.TreeWorkspaceReaper.
 func (w worktreeChildCreator) WorkAtRisk(
 	ctx context.Context,
