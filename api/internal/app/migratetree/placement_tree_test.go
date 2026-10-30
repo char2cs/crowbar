@@ -235,3 +235,18 @@ func TestPlacementTreeStep_VerifyFailsOnAChatWithoutANode(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "chat c-repo")
 }
+
+func TestPlacementTreeStep_ANodeUnderAParentNothingNamesHangsAtTheRoot(t *testing.T) {
+	l := newLegacy(t)
+	l.project("p1", "h1", time.Unix(100, 0))
+	l.repo("r1", "p1")
+	l.workspace("ws-a", "p1", "r1")
+	l.nodes(t, legacyNode{ID: "ws-a", Kind: "workspace", ParentID: "gone", Order: 3})
+	ports := l.ports(t)
+
+	require.NoError(t, l.boot(t, ports))
+
+	assert.Equal(t, tree.Node{ID: "ws-a", Kind: tree.KindWorkspace, Order: 3}, treeOf(t, ports, "p1").Nodes["ws-a"])
+	assert.Equal(t, []migrate.Counts{{"nodes": 1, "folders": 0, "chats": 0, "rehung_to_root": 1}},
+		migratetest.Applied(t, l.h)[stepNumber])
+}
