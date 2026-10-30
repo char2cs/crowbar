@@ -131,7 +131,9 @@ func IdempotencyKey(
 
 // Replayer finds the operation a retried request already started.
 type Replayer interface {
-	Replay(ctx context.Context, key string, kind domain.OperationKind) (domain.Operation, bool, error)
+	Replay(
+		ctx context.Context, key string, kind domain.OperationKind, subject domain.EntityRef,
+	) (domain.Operation, bool, error)
 }
 
 // Replayed answers a retry of a kind-starting request with its first operation
@@ -141,8 +143,9 @@ func Replayed(
 	c *gin.Context,
 	ops Replayer,
 	kind domain.OperationKind,
+	subject domain.EntityRef,
 ) bool {
-	op, found, err := ops.Replay(c.Request.Context(), IdempotencyKey(c), kind)
+	op, found, err := ops.Replay(c.Request.Context(), IdempotencyKey(c), kind, subject)
 	if err != nil {
 		Fail(c, err)
 		return true

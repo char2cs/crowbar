@@ -206,24 +206,24 @@ func TestService_AReusedKeyForOtherWorkIsAConflict(t *testing.T) {
 	assert.Equal(t, problem.OperationIDConflict, problem.CodeOf(err))
 }
 
-// A retry replays its key's operation before the request is checked again.
-func TestService_ReplayAnswersTheKeysOperationOfThatKind(t *testing.T) {
-	f := newFixture(t)
-	id := uuid.NewString()
-	_, found, err := f.svc.Replay(context.Background(), id, domain.OpGitPush)
+// A retry replays its key's operation; under other work (kind, subject) it conflicts.
+func TestService_ReplayAnswersTheKeysOperationOfThatWork(t *testing.T) {
+	f, ctx, id := newFixture(t), context.Background(), uuid.NewString()
+	ws1 := pushSpec(id).Subject
+	_, found, err := f.svc.Replay(ctx, id, domain.OpGitPush, ws1)
 	require.False(t, found || err != nil, "a new key replays nothing")
-	first, err := f.svc.Start(context.Background(), pushSpec(id), succeed)
+	first, err := f.svc.Start(ctx, pushSpec(id), succeed)
 	require.NoError(t, err)
-	again, found, err := f.svc.Replay(context.Background(), id, domain.OpGitPush)
-	require.True(t, found && err == nil)
-	assert.Equal(t, first.ID, again.ID)
-	_, _, err = f.svc.Replay(context.Background(), id, domain.OpGitFetch)
+	again, found, err := f.svc.Replay(ctx, id, domain.OpGitPush, ws1)
+	require.True(t, found && err == nil && again.ID == first.ID)
+	_, _, err = f.svc.Replay(ctx, id, domain.OpGitFetch, ws1)
+	assert.Equal(t, problem.OperationIDConflict, problem.CodeOf(err))
+	_, _, err = f.svc.Replay(ctx, id, domain.OpGitPush, domain.EntityRef{Kind: domain.EntityWorkspace, ID: "ws2"})
 	assert.Equal(t, problem.OperationIDConflict, problem.CodeOf(err))
 }
 
 func TestService_AMalformedKeyIsInvalid(t *testing.T) {
 	f := newFixture(t)
-
 	_, err := f.svc.Start(context.Background(), pushSpec("x"), succeed)
 	assert.Equal(t, problem.InvalidArgument, problem.CodeOf(err))
 

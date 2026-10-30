@@ -280,11 +280,12 @@ func (s *Service) admit(
 
 // Replay is the operation already recorded under key, so a retry answers with it
 // before any check its first attempt changed the answer to (the entity it
-// deleted is gone). An empty key replays nothing; another kind is a conflict.
+// deleted is gone). An empty key replays nothing; other work is a conflict.
 func (s *Service) Replay(
 	ctx context.Context,
 	key string,
 	kind domain.OperationKind,
+	subject domain.EntityRef,
 ) (domain.Operation, bool, error) {
 	if key == "" {
 		return domain.Operation{}, false, nil
@@ -295,18 +296,9 @@ func (s *Service) Replay(
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	known, err := s.store.FindByKey(ctx, id)
-	if err != nil {
-		return domain.Operation{}, false, fmt.Errorf("operation: find %s: %w", id, err)
-	}
-	if known == nil {
-		return domain.Operation{}, false, nil
-	}
-	if known.Kind != kind {
-		return domain.Operation{}, false, &problem.Error{
-			Code:    problem.OperationIDConflict,
-			Message: fmt.Sprintf("operation %s is a %s, not a %s", id, known.Kind, kind),
-		}
+	known, err := s.knownLocked(ctx, id, Spec{Kind: kind, Subject: subject})
+	if err != nil || known == nil {
+		return domain.Operation{}, false, err
 	}
 	return *known, true, nil
 }

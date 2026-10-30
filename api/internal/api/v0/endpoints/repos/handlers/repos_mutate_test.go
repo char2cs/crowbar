@@ -140,6 +140,27 @@ func TestDelete_ARetryAfterItFinishedAnswersWithTheOperation(t *testing.T) {
 	assert.Contains(t, retry.Body.String(), first.ID)
 }
 
+// A key is one request: reusing a delete's key for another repo is a conflict,
+// not an answer with the first repo's operation while this one stays (R3).
+func TestDelete_AKeyReusedForAnotherRepoIsAConflict(t *testing.T) {
+	store := &fakeStore{all: []domain.Repository{
+		{ID: "r1", ProjectID: "p1", Name: "alpha"}, {ID: "r2", ProjectID: "p1", Name: "beta"},
+	}}
+	deleter := &fakeRepoDeleter{}
+	ops := newRecordedOps(t)
+	r := newDeleteRouter(store, deleter, ops, newRecordingRepoBroadcaster())
+	key := uuid.NewString()
+	ops.settled(t, doDeleteKeyed(r, false, key))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/v0/projects/p1/repos/r2", http.NoBody)
+	req.Header.Set(libs.IdempotencyKeyHeader, key)
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "operation_id_conflict")
+}
+
 // One teardown runs per repo: a second delete under another key, while the
 // first runs, is refused.
 func TestDelete_ASecondDeleteWhileOneRunsIsRefused(t *testing.T) {

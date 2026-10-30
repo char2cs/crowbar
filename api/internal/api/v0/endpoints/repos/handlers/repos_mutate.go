@@ -119,11 +119,11 @@ func (h *Handlers) bindRepoUpdate(
 func (h *Handlers) DeleteRepo(
 	c *gin.Context,
 ) {
-	if libs.Replayed(c, h.ops, domain.OpRepoDelete) {
-		return
-	}
 	projectID := c.Param("projectId")
 	repoID := c.Param("repoId")
+	if libs.Replayed(c, h.ops, domain.OpRepoDelete, domain.EntityRef{Kind: domain.EntityRepo, ID: repoID}) {
+		return
+	}
 	repo, err := h.store.FindByKey(c.Request.Context(), repoID)
 	if err != nil {
 		libs.Fail(c, err)

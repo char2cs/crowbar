@@ -86,6 +86,7 @@ type fakeDeleter struct {
 	err      error
 	beginErr error
 	gotID    string
+	hold     chan struct{} // when set, Delete waits for it
 }
 
 func (f *fakeDeleter) BeginDelete(_ context.Context, id string, _ domain.DeleteConsent) (domain.Project, error) {
@@ -98,7 +99,13 @@ func (f *fakeDeleter) BeginDelete(_ context.Context, id string, _ domain.DeleteC
 	return domain.Project{ID: id, Name: "demo", Deleting: true}, nil
 }
 
-func (f *fakeDeleter) Delete(_ context.Context, id string, _ domain.DeleteConsent) error {
+func (f *fakeDeleter) Delete(ctx context.Context, id string, _ domain.DeleteConsent) error {
+	if f.hold != nil {
+		select {
+		case <-f.hold:
+		case <-ctx.Done():
+		}
+	}
 	f.gotID = id
 	return f.err
 }
@@ -184,16 +191,7 @@ func statOK(_ string) (os.FileInfo, error) {
 }
 
 func newRouter(reader projecthandlers.ListGetter, importer projecthandlers.Importer) *gin.Engine {
-	return newRouterFull(reader, importer, &fakeDeleter{}, newRecordingBroadcaster())
-}
-
-func newRouterFull(
-	reader projecthandlers.ListGetter,
-	importer projecthandlers.Importer,
-	deleter projecthandlers.Deleter,
-	bc *recordingBroadcaster,
-) *gin.Engine {
-	return newRouterWithOps(reader, importer, deleter, nil, bc)
+	return newRouterWithOps(reader, importer, &fakeDeleter{}, nil, newRecordingBroadcaster())
 }
 
 func newRouterWithOps(
@@ -215,12 +213,14 @@ func newRouterWithOps(
 }
 
 func do(r *gin.Engine, method, target, body string) *httptest.ResponseRecorder {
+	return doKeyed(r, method, target, body, "")
+}
+
+func doKeyed(r *gin.Engine, method, target, body, key string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	var req *http.Request
-	if body != "" {
-		req = httptest.NewRequest(method, target, strings.NewReader(body))
-	} else {
-		req = httptest.NewRequest(method, target, nil)
+	req := httptest.NewRequestWithContext(context.Background(), method, target, strings.NewReader(body))
+	if key != "" {
+		req.Header.Set(libs.IdempotencyKeyHeader, key)
 	}
 	r.ServeHTTP(rec, req)
 	return rec
@@ -307,32 +307,17 @@ func TestCreate_AnswersWithTheOperation(t *testing.T) {
 }
 
 func TestImportBadJSON(t *testing.T) {
-	rec := do(
-		newRouter(&fakeReader{}, &fakeImporter{}),
-		http.MethodPost,
-		"/v0/projects",
-		`{not-json`,
-	)
+	rec := do(newRouter(&fakeReader{}, &fakeImporter{}), http.MethodPost, "/v0/projects", `{not-json`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestImportMissingName(t *testing.T) {
-	rec := do(
-		newRouter(&fakeReader{}, &fakeImporter{}),
-		http.MethodPost,
-		"/v0/projects",
-		`{"path":"/g"}`,
-	)
+	rec := do(newRouter(&fakeReader{}, &fakeImporter{}), http.MethodPost, "/v0/projects", `{"path":"/g"}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestImportMissingPath(t *testing.T) {
-	rec := do(
-		newRouter(&fakeReader{}, &fakeImporter{}),
-		http.MethodPost,
-		"/v0/projects",
-		`{"name":"gamma"}`,
-	)
+	rec := do(newRouter(&fakeReader{}, &fakeImporter{}), http.MethodPost, "/v0/projects", `{"name":"gamma"}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
@@ -367,14 +352,6 @@ func TestCreate_AFailureIsTheOperations(t *testing.T) {
 
 // A delete announces its intent, answers with its operation, and tombstones
 // the project once it is gone.
-func doKeyed(r *gin.Engine, method, target, body, key string) *httptest.ResponseRecorder {
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(context.Background(), method, target, strings.NewReader(body))
-	req.Header.Set(libs.IdempotencyKeyHeader, key)
-	r.ServeHTTP(rec, req)
-	return rec
-}
-
 // A retry under the same key is the same request: it answers with the first
 // operation and imports nothing again (R3).
 func TestCreate_ARetryAnswersWithTheFirstOperation(t *testing.T) {
@@ -406,6 +383,36 @@ func TestDelete_ARetryAfterItFinishedAnswersWithTheOperation(t *testing.T) {
 	assert.Contains(t, retry.Body.String(), first.ID)
 }
 
+// A key is one request: reusing a delete's key for another project is a
+// conflict, not an answer with the first project's operation (R3).
+func TestDelete_AKeyReusedForAnotherProjectIsAConflict(t *testing.T) {
+	ops := newRecordedOps(t)
+	r := newRouterWithOps(&fakeReader{}, &fakeImporter{}, &fakeDeleter{}, ops, newRecordingBroadcaster())
+	key := uuid.NewString()
+	ops.settled(t, doKeyed(r, http.MethodDelete, "/v0/projects/p1", "", key))
+
+	rec := doKeyed(r, http.MethodDelete, "/v0/projects/p2", "", key)
+
+	assert.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "operation_id_conflict")
+}
+
+// One teardown runs per project: a second delete under another key, while the
+// first runs, is refused.
+func TestDelete_ASecondDeleteWhileOneRunsIsRefused(t *testing.T) {
+	deleter := &fakeDeleter{hold: make(chan struct{})}
+	ops := newRecordedOps(t)
+	r := newRouterWithOps(&fakeReader{}, &fakeImporter{}, deleter, ops, newRecordingBroadcaster())
+
+	first := doKeyed(r, http.MethodDelete, "/v0/projects/p1", "", uuid.NewString())
+	second := doKeyed(r, http.MethodDelete, "/v0/projects/p1", "", uuid.NewString())
+	close(deleter.hold)
+	ops.settled(t, first)
+
+	assert.Equal(t, http.StatusConflict, second.Code, second.Body.String())
+	assert.Contains(t, second.Body.String(), "operation_running")
+}
+
 func TestDelete_AnswersWithTheOperation(t *testing.T) {
 	deleter := &fakeDeleter{}
 	ops, bc := newRecordedOps(t), newRecordingBroadcaster()
@@ -424,22 +431,12 @@ func TestDelete_AnswersWithTheOperation(t *testing.T) {
 }
 
 func TestDeleteNotFound(t *testing.T) {
-	bc := newRecordingBroadcaster()
-	rec := do(
-		newRouterWithOps(&fakeReader{}, &fakeImporter{}, &fakeDeleter{beginErr: problem.ErrNotFound}, newRecordedOps(t), bc),
-		http.MethodDelete,
-		"/v0/projects/nope",
-		"",
-	)
+	deleter := &fakeDeleter{beginErr: problem.ErrNotFound}
+	r := newRouterWithOps(&fakeReader{}, &fakeImporter{}, deleter, newRecordedOps(t), newRecordingBroadcaster())
+	rec := do(r, http.MethodDelete, "/v0/projects/nope", "")
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
-	var body struct {
-		Success bool   `json:"success"`
-		Error   string `json:"error"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	assert.False(t, body.Success)
-	assert.NotEmpty(t, body.Error)
+	assert.Contains(t, rec.Body.String(), `"success":false`)
 }
 
 // A delete that stops fails its operation with the reason; no tombstone.
@@ -467,7 +464,7 @@ func TestPatch_ReordersAndBroadcastsTheWholeList(t *testing.T) {
 		},
 	}
 	bc := newRecordingBroadcaster()
-	r := newRouterFull(reader, &fakeImporter{}, &fakeDeleter{}, bc)
+	r := newRouterWithOps(reader, &fakeImporter{}, &fakeDeleter{}, nil, bc)
 
 	rec := do(r, http.MethodPatch, "/v0/projects/p2", `{"order":0}`)
 
@@ -500,7 +497,7 @@ func TestPatch_MalformedBodyIs400(t *testing.T) {
 func TestPatch_UnknownProjectIs404(t *testing.T) {
 	reader := &fakeReader{reorderErr: problem.ErrNotFound}
 	bc := newRecordingBroadcaster()
-	r := newRouterFull(reader, &fakeImporter{}, &fakeDeleter{}, bc)
+	r := newRouterWithOps(reader, &fakeImporter{}, &fakeDeleter{}, nil, bc)
 
 	rec := do(r, http.MethodPatch, "/v0/projects/missing", `{"order":0}`)
 
@@ -516,7 +513,7 @@ func TestPatch_ListFailureAfterTheWriteStillAnswers204(t *testing.T) {
 		listErr:   errors.New("read model down"),
 	}
 	bc := newRecordingBroadcaster()
-	r := newRouterFull(reader, &fakeImporter{}, &fakeDeleter{}, bc)
+	r := newRouterWithOps(reader, &fakeImporter{}, &fakeDeleter{}, nil, bc)
 
 	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{"order":0}`)
 
@@ -530,7 +527,7 @@ func TestPatch_ListFailureAfterTheWriteStillAnswers204(t *testing.T) {
 func TestPatchRenamesAProject(t *testing.T) {
 	reader := &fakeReader{updated: domain.Project{ID: "p1", Name: "harbour"}}
 	bc := newRecordingBroadcaster()
-	r := newRouterFull(reader, &fakeImporter{}, &fakeDeleter{}, bc)
+	r := newRouterWithOps(reader, &fakeImporter{}, &fakeDeleter{}, nil, bc)
 
 	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{"name":"  harbour  "}`)
 
@@ -583,7 +580,7 @@ func TestPatchSurfacesAFailedRename(t *testing.T) {
 	// sidebar shows the new name until the next WS frame puts the old one back.
 	reader := &fakeReader{updateErr: problem.ErrNotFound}
 	bc := newRecordingBroadcaster()
-	r := newRouterFull(reader, &fakeImporter{}, &fakeDeleter{}, bc)
+	r := newRouterWithOps(reader, &fakeImporter{}, &fakeDeleter{}, nil, bc)
 
 	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{"name":"harbour"}`)
 
@@ -607,7 +604,7 @@ func TestPatchRenamesAndReordersInOneRequest(t *testing.T) {
 		list:    []domain.Project{{ID: "p1", Name: "harbour"}},
 	}
 	bc := newRecordingBroadcaster()
-	r := newRouterFull(reader, &fakeImporter{}, &fakeDeleter{}, bc)
+	r := newRouterWithOps(reader, &fakeImporter{}, &fakeDeleter{}, nil, bc)
 
 	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{"name":"harbour","order":0}`)
 

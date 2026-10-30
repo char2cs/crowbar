@@ -286,10 +286,10 @@ func (h *Handlers) Import(
 func (h *Handlers) Delete(
 	c *gin.Context,
 ) {
-	if libs.Replayed(c, h.ops, domain.OpProjectDelete) {
+	id := c.Param("projectId")
+	if libs.Replayed(c, h.ops, domain.OpProjectDelete, domain.EntityRef{Kind: domain.EntityProject, ID: id}) {
 		return
 	}
-	id := c.Param("projectId")
 	consent := libs.DeleteConsentOf(c)
 	marked, err := h.deleter.BeginDelete(c.Request.Context(), id, consent)
 	if err != nil {

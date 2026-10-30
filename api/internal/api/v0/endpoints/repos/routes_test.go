@@ -30,7 +30,7 @@ func (stubOps) Start(context.Context, operation.Spec, operation.Work) (domain.Op
 	return domain.Operation{}, nil
 }
 
-func (stubOps) Replay(context.Context, string, domain.OperationKind) (domain.Operation, bool, error) {
+func (stubOps) Replay(context.Context, string, domain.OperationKind, domain.EntityRef) (domain.Operation, bool, error) {
 	return domain.Operation{}, false, nil
 }
 
