@@ -315,7 +315,7 @@ export function SettingRow({
         className={cn(
           'ui-font ui-text-sm select-auto [--app-ui-badge-height:1.5rem] [--app-ui-button-compact-height:1.5rem] [--app-ui-button-compact-min-width:1.5rem] [--app-ui-button-height:1.5rem] [--app-ui-button-min-width:1.5rem] [--app-ui-control-font-size:var(--ui-text-sm)]',
           IS_MOBILE && layout === 'inline'
-            ? 'flex max-w-[55%] min-w-0 shrink-0 justify-end [&_[data-slot=select-trigger]]:w-auto [&_[data-slot=select-trigger]]:max-w-full'
+            ? 'flex max-w-[55%] min-w-0 shrink-0 justify-end [&_[data-slot=number-input]]:w-36 [&_[data-slot=select-trigger]]:w-40 [&_[data-slot=select-trigger]]:max-w-full'
             : 'shrink-0 max-[640px]:w-full max-[640px]:shrink max-[640px]:[&>input]:w-full max-[640px]:[&>textarea]:w-full max-[640px]:[&_[data-slot=select-trigger]]:w-full',
         )}
       >

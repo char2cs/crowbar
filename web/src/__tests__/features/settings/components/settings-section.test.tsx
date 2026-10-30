@@ -8,6 +8,7 @@ vi.mock('@/utils/platform', async (importOriginal) => ({
   },
 }))
 
+import NumberInput from '@/components/ui/number-input'
 import Section, { SettingRow } from '@/features/settings/components/settings-section'
 import { useSettingsStore } from '@/features/settings/store'
 
@@ -143,6 +144,21 @@ describe('mobile setting rows', () => {
     expect(row).toContainElement(screen.getByText('Whether the cursor blinks'))
     expect(row).toContainElement(screen.getByText('blink-control'))
     expect(row?.closest('[data-settings-card]')).not.toBeNull()
+  })
+
+  // The phone sizes every stepper alike so their columns line up; the row finds it by this slot.
+  it('wraps a stepper in the number-input slot its row sizes', () => {
+    platform.mobile = true
+    render(
+      <Section title="Terminal">
+        <SettingRow label="Scrollback">
+          <NumberInput value={10000} onChange={vi.fn()} />
+        </SettingRow>
+      </Section>,
+    )
+    const control = rowOf('Scrollback')?.querySelector('[data-slot="number-input"]')
+    expect(control).not.toBeNull()
+    expect(control?.querySelector('input')).toHaveValue('10000')
   })
 
   it('stacks a control that cannot sit beside its label, with the same row chrome', () => {

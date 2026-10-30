@@ -18,6 +18,9 @@ import type { AgentProvidersStatus } from '@/features/settings/stores/agent-prov
 import { cn } from '@/utils/cn'
 import { IS_MOBILE } from '@/utils/platform'
 import Section, { SettingsCard } from '../settings-section'
+
+// Notes line up with the section titles and the text inside the cards.
+const NOTE_INSET = IS_MOBILE ? 'px-4' : 'px-1'
 import { ProviderColumnHeader } from './provider-columns'
 import { SortableProviderRow } from './sortable-provider-row'
 import { reorderProviderIds } from './provider-preferences'
@@ -97,20 +100,22 @@ export function ProvidersSettingsView({
       {providers.length === 0 && status === 'loading' ? (
         <p
           data-testid="providers-loading"
-          className="ui-font ui-text-sm px-1 py-2 text-muted-foreground"
+          className={cn('ui-font ui-text-sm py-2 text-muted-foreground', NOTE_INSET)}
         >
           Loading agents…
         </p>
       ) : providers.length === 0 && status === 'failed' ? (
         <p
           data-testid="providers-unavailable"
-          className="ui-font ui-text-sm px-1 py-2 text-muted-foreground"
+          className={cn('ui-font ui-text-sm py-2 text-muted-foreground', NOTE_INSET)}
         >
           Crowbar could not load the agent list — it could not reach the daemon. Reopen this tab to
           try again.
         </p>
       ) : providers.length === 0 ? (
-        <p className="ui-font ui-text-sm px-1 py-2 text-muted-foreground">No agents available.</p>
+        <p className={cn('ui-font ui-text-sm py-2 text-muted-foreground', NOTE_INSET)}>
+          No agents available.
+        </p>
       ) : (
         <>
           {/* WHAT THE HEADER CANNOT SAY. The column titles now name each
@@ -118,7 +123,7 @@ export function ProvidersSettingsView({
               one-word header still cannot convey is the CONSEQUENCE of turning
               Tools off — that the agent keeps running and only loses its way
               into Crowbar — and that is what is left here. */}
-          <p className="ui-font ui-text-sm px-1 pb-1 text-muted-foreground">
+          <p className={cn('ui-font ui-text-sm pb-1 text-muted-foreground', NOTE_INSET)}>
             Drag to set which agent a new chat opens first, and turn one off to hide it from every
             New chat surface. Tools lets that agent use Crowbar itself — reading your workspaces and
             leaving review comments; turn it off and the agent still runs, with no way in.
