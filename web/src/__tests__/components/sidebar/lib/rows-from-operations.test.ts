@@ -87,10 +87,7 @@ describe('rowsFromOperations', () => {
         item('chat-b', 'good', { state: 'succeeded' }),
       ],
     })
-    expect(rows([failed])).toMatchObject([
-      { id: 'chat-a', label: 'bad/x', working: false },
-      { id: 'chat-b', working: true },
-    ])
+    expect(rows([failed])).toMatchObject([{ id: 'chat-a', label: 'bad/x', working: false }])
     expect(rows([failed])[0]?.operation).toEqual({
       opId: 'op-1',
       state: 'failed',
@@ -120,12 +117,13 @@ describe('rowsFromOperations', () => {
     ])
   })
 
-  it('a succeeded item disappears once its entity is present', () => {
+  // A succeeded create whose entity was deleted afterwards drew a spinner forever.
+  it('a succeeded item draws nothing, present or not: the entity row stands for it', () => {
     const done = importOp({
       state: 'succeeded',
       items: [item('chat-b', 'good', { state: 'succeeded' })],
     })
-    expect(rows([done])).toMatchObject([{ id: 'chat-b', working: true }])
+    expect(rows([done])).toEqual([])
     useSidebarStore.setState({
       repos: [repo({ chats: [{ id: 'chat-b', repoId: 'r1', title: '', order: 0 }] })],
     })

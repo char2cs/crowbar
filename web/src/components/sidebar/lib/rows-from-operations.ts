@@ -36,10 +36,16 @@ export function createItemRefs(ops: readonly Operation[]): EntityRef[] {
   return refs
 }
 
+/** A finished create is drawn by its entity's own row, or by nothing once that
+ *  entity is deleted: "not present" cannot tell "not arrived yet" from "gone". */
+function succeeded(op: Operation, item: OperationItem): boolean {
+  return item.state === 'succeeded' || op.state === 'succeeded'
+}
+
 /**
- * One row per create item whose entity has not arrived: a spinner while it
- * runs (or succeeded and is still in flight to the stores), its reason once it
- * failed. A failed item whose entity exists draws nothing: that row explains itself.
+ * One row per unfinished create item whose entity has not arrived: a spinner
+ * while it runs, its reason once it failed. A failed item whose entity exists
+ * draws nothing: that row explains itself.
  */
 export function rowsFromOperations(
   ops: readonly Operation[],
@@ -53,7 +59,7 @@ export function rowsFromOperations(
     const subject = op.subject
     if (scope.repoId !== undefined && subject.id !== scope.repoId) continue
     for (const item of drawnItems(op)) {
-      if (isPresent(item.ref)) continue
+      if (succeeded(op, item) || isPresent(item.ref)) continue
       const isFailed = failed(op, item)
       rows.push({
         id: item.ref.id,

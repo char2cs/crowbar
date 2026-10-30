@@ -206,11 +206,11 @@ describe('starting a thread on a real workspace', () => {
     const chatId = mintedChatId()
     expect(opRows()).toMatchObject([{ id: chatId, kind: 'chat', parentId: 'ws-a', working: true }])
 
-    // Opened on the daemon's answer, before the chat's row has arrived.
+    // Opened on the daemon's answer; from then on the chat's own row stands for it.
     await vi.waitFor(() =>
       expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe(chatId),
     )
-    expect(opRows()).toHaveLength(1)
+    expect(opRows()).toEqual([])
 
     useSidebarStore.setState({
       repos: [
