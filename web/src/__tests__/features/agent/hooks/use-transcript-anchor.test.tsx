@@ -507,6 +507,23 @@ describe('useTranscriptAnchor', () => {
     expect(scroller.scrollTop).toBe(200)
   })
 
+  it("keeps the reader's distance when it is left again before the settle lands", () => {
+    const positions: Array<{ stuck: boolean; distanceFromBottom: number }> = []
+    const { getByTestId, unmount } = render(
+      <Host anchorOptions={{ onPositionChange: (p) => positions.push(p) }} />,
+    )
+    readerScrollsTo(getByTestId('scroller'), 200) // 800 from the bottom
+
+    hide()
+    // Back in view on a transiently short transcript: the browser clamps the
+    // offset, and that clamped offset is not where the reader was.
+    reveal(500)
+    hide()
+    unmount()
+
+    expect(positions.at(-1)).toEqual({ stuck: false, distanceFromBottom: 800 })
+  })
+
   it('saves the position it last had a box to measure, not the zeros an eviction reads', () => {
     const positions: Array<{ stuck: boolean; distanceFromBottom: number }> = []
     const { getByTestId, unmount } = render(
@@ -734,10 +751,67 @@ describe('useTranscriptAnchor', () => {
       // scrollHeight 1000 - distanceFromBottom 500.
       expect(scroller.scrollTop).toBe(500)
 
-      // Not-stuck carried over: ordinary growth must not auto-follow.
+      // Not-stuck carried over: once the opening settle is over, ordinary
+      // growth must not auto-follow.
+      vi.advanceTimersByTime(1500)
       grow(1400)
       vi.advanceTimersByTime(1500)
       expect(scroller.scrollTop).toBe(500)
+    })
+
+    it('holds a saved position through a first frame shorter than the distance saved', () => {
+      // A long chat's rows are unmeasured when it remounts: the first
+      // scrollHeight is too short to hold the saved distance, which clamps to 0.
+      scrollHeight = 300
+      const { getByTestId } = render(
+        <Host anchorOptions={{ initialPosition: { stuck: false, distanceFromBottom: 5000 } }} />,
+      )
+      const scroller = getByTestId('scroller')
+      expect(scroller.scrollTop).toBe(0)
+
+      grow(8000)
+      expect(scroller.scrollTop).toBe(3000)
+    })
+
+    it('lands on the newest end when the saved distance is more than the chat now holds', () => {
+      // The reader had paged far back; on return only the newest page is
+      // loaded, so the saved distance points above the first row.
+      const { getByTestId } = render(
+        <Host anchorOptions={{ initialPosition: { stuck: false, distanceFromBottom: 5000 } }} />,
+      )
+      const scroller = getByTestId('scroller')
+      grow(3000)
+      vi.advanceTimersByTime(1500)
+
+      expect(scroller.scrollTop).toBe(2600) // ceiling: 3000 - 400
+      grow(3400)
+      vi.advanceTimersByTime(1500)
+      expect(scroller.scrollTop).toBe(3000) // and it follows from there
+    })
+
+    it('keeps the saved distance from the bottom while measurement keeps growing past the debounce', () => {
+      scrollHeight = 2300
+      const { getByTestId } = render(
+        <Host anchorOptions={{ initialPosition: { stuck: false, distanceFromBottom: 450 } }} />,
+      )
+      const scroller = getByTestId('scroller')
+      expect(scroller.scrollTop).toBe(1850)
+
+      // Each step lands inside the quiet window of the one before, but the
+      // run as a whole outlasts it.
+      for (const height of [2500, 2800, 3200, 3600]) {
+        vi.advanceTimersByTime(100)
+        grow(height)
+        expect(scroller.scrollTop).toBe(height - 450)
+      }
+    })
+
+    it('a chat left at the bottom still lands there after rows arrived meanwhile', () => {
+      const { getByTestId } = render(
+        <Host anchorOptions={{ initialPosition: { stuck: true, distanceFromBottom: 400 } }} />,
+      )
+      grow(1800)
+      expect(getByTestId('scroller').scrollTop).toBe(1400)
     })
 
     it('a saved stuck position still lands at the bottom, same as no saved position', () => {
@@ -761,6 +835,23 @@ describe('useTranscriptAnchor', () => {
       expect(onPositionChange).toHaveBeenCalledTimes(1)
       expect(onPositionChange).toHaveBeenCalledWith({ stuck: false, distanceFromBottom: 750 })
     })
+
+    it.each([100, 250, 350])(
+      'saves a reader who scrolled and left %ims later, not the bottom',
+      (dwellMs) => {
+        const onPositionChange = vi.fn()
+        const { getByTestId, unmount } = render(<Host anchorOptions={{ onPositionChange }} />)
+        const scroller = getByTestId('scroller')
+        fireEvent.wheel(scroller)
+        scroller.scrollTop = 250
+        vi.advanceTimersByTime(16)
+        fireEvent.scroll(scroller)
+        vi.advanceTimersByTime(dwellMs - 16)
+        unmount()
+
+        expect(onPositionChange).toHaveBeenCalledWith({ stuck: false, distanceFromBottom: 750 })
+      },
+    )
 
     it('a chat that stayed stuck to the bottom reports stuck: true on unmount', () => {
       const onPositionChange = vi.fn()
