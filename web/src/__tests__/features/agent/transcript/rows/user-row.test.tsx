@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import { ledger, seedFeed } from '@/__tests__/__fixtures__/ledger-rows'
 import * as commands from '@/features/agent/api/agent-chat-commands'
 import * as feeds from '@/features/agent/stores/chat-feed'
-import { sendPrompt } from '@/features/agent/stores/chat-outbox'
+import { retryPrompt, sendPrompt } from '@/features/agent/stores/chat-outbox'
 import { chatStore } from '@/features/agent/stores/chat-store'
 import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
 import { ApiError } from '@/lib/errors/api-error'
@@ -111,5 +111,18 @@ describe('UserRow', () => {
     expect(screen.queryByText(/may already have/i)).not.toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('Retry prompt'))
     expect(actions.retry).toHaveBeenCalledWith('r1')
+  })
+
+  it('drops Retry from a refused row once its retry is on the way', () => {
+    const l = ledger('c1')
+    seedFeed('c1', [l.prompt('r1', 'hello?'), l.settle('r1', false, 'not_acknowledged')])
+    submit.mockReturnValue(new Promise(() => {}))
+    draw()
+    expect(screen.getByLabelText('Retry prompt')).toBeInTheDocument()
+
+    act(() => retryPrompt('w1', 'c1', 'r1', false))
+
+    expect(rowOf('r1')).not.toBeNull()
+    expect(screen.queryByLabelText('Retry prompt')).not.toBeInTheDocument()
   })
 })

@@ -171,6 +171,13 @@ export function savePromptStashes(wsId: string, chatId: string, items: PromptSta
   return fitsStorageBudget(key, value) && writeLocal(key, value)
 }
 
+/** Keeps text whose composer is gone as the chat's newest stash; false when it cannot. */
+export function stashPrompt(wsId: string, chatId: string, markdown: string): boolean {
+  const item = createPromptStash(markdown)
+  if (!item) return false
+  return savePromptStashes(wsId, chatId, addPromptStash(loadPromptStashes(wsId, chatId), item))
+}
+
 interface StashShortcutEvent {
   key: string
   metaKey: boolean

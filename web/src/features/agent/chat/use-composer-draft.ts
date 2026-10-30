@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import {
   addPromptStash,
   createPromptStash,
@@ -32,12 +32,25 @@ export function useComposerDraft({ wsId, chatId, providerId, catalogActive, hist
   const [stashPickerOpen, setStashPickerOpen] = useState(false)
   const [error, setError] = useState('')
 
+  // What the box holds now, for text that arrives after the render that asked for it.
+  const latest = useRef('')
   const seedDraft = useCallback((value: string) => {
+    latest.current = value
     setDraft(value)
     setSeed((previous) => ({ text: value, n: previous.n + 1 }))
   }, [])
 
+  /** Puts text back without losing what was typed since: it goes after it. */
+  const putBack = useCallback(
+    (text: string) => {
+      const typed = latest.current.trimEnd()
+      seedDraft(typed ? `${typed}\n\n${text}` : text)
+    },
+    [seedDraft],
+  )
+
   const updateDraft = (value: string) => {
+    latest.current = value
     setDraft(value)
     setError('')
     setStashPickerOpen(false)
@@ -99,6 +112,7 @@ export function useComposerDraft({ wsId, chatId, providerId, catalogActive, hist
     slash,
     seed,
     seedDraft,
+    putBack,
     updateDraft,
     stashes,
     stashPickerOpen,

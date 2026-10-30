@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
+import { report } from '@/lib/errors/report'
 import { markEnd, markStart } from '@/lib/perf/instrumentation'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
 import { compactChat, stopChat } from '@/features/agent/api/agent-chat-commands'
@@ -10,6 +11,7 @@ import { AgentComposer } from '@/features/agent/composer/agent-composer'
 import { acceptsTyping, resolveComposerState } from '@/features/agent/composer/lib/composer-state'
 import { ComposerSlashPicker } from '@/features/agent/composer/composer-slash-picker'
 import { ComposerStashPicker } from '@/features/agent/composer/composer-stash-picker'
+import { stashPrompt } from '@/features/agent/composer/lib/prompt-stash-persistence'
 import type { CaretEdges } from '@/features/agent/composer/plate/chat-markdown-editor'
 import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
 import { ProviderBar } from '@/features/agent/controls/provider-bar'
@@ -211,10 +213,27 @@ export function AgentChatView({
 
   const selectSlashItem = (item: SlashCatalogItem) => seedDraft(slash.accept(item))
 
-  // Esc takes the newest prompt back; what it returns is the text to restore.
+  // Esc takes the newest prompt back; its text returns to this chat's composer,
+  // or to the chat's stashes once that composer is gone.
+  const shownChat = useRef<string | null>(null)
+  useEffect(() => {
+    shownChat.current = chatId
+    return () => {
+      shownChat.current = null
+    }
+  }, [chatId])
   const retract = () => {
     const taken = prompts.retract()
-    void taken?.then((text) => text !== null && seedDraft(text))
+    const asked = chatId
+    void taken?.then((text) => {
+      if (text === null) return
+      if (shownChat.current === asked) composer.putBack(text)
+      else if (!stashPrompt(wsId, asked, text)) {
+        report(new Error('The saved prompts are full or unavailable.'), {
+          action: 'Couldn’t keep the prompt you took back',
+        })
+      }
+    })
     return taken !== null
   }
 

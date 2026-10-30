@@ -24,6 +24,8 @@ interface PromptState {
   text?: string
   state?: Unsent
   error?: string
+  /** A fresh item already sends this row again. */
+  retried?: boolean
 }
 
 /** One prompt's state, from the outbox until its row lands and from the rows after. */
@@ -35,6 +37,9 @@ function usePromptState(chatId: string, id: string, item?: UserItem): PromptStat
   const fact = useChatStore((s) =>
     requestId && item?.origin === 'crowbar' ? s.feeds[chatId]?.facts.prompts[requestId] : undefined,
   )
+  const retried = useChatStore((s) =>
+    item ? !!s.outbox[chatId]?.some((entry) => entry.retryOf === requestId) : false,
+  )
   if (queued) return { text: queued.text, state: queued.state, error: queued.error }
   if (fact?.state === 'pending') return { text: item?.text, state: 'pending' }
   if (fact?.state !== 'refused') return { text: item?.text }
@@ -42,7 +47,7 @@ function usePromptState(chatId: string, id: string, item?: UserItem): PromptStat
     fact.reason === 'session_lost'
       ? SESSION_LOST_TEXT
       : 'The provider never took this prompt. Retry sends it again.'
-  return { text: item?.text, state: 'refused', error }
+  return { text: item?.text, state: 'refused', error, retried }
 }
 
 function MachineRow({ item, name }: { item: UserItem; name: string }) {
@@ -77,18 +82,20 @@ function PromptActs({
   requestId,
   text,
   state,
+  retried,
   actions,
 }: {
   requestId: string
   text: string
   state: Unsent
+  retried?: boolean
   actions: PromptActions
 }) {
   const bad = state === 'failed' || state === 'refused'
   if (!bad && state !== 'queued') return null
   return (
     <span className="acts">
-      {bad && (
+      {bad && !retried && (
         <Button
           size="icon-sm"
           variant="ghost"
@@ -145,7 +152,7 @@ function UserRowBody({
   firstTurn: boolean
   actions: PromptActions
 }) {
-  const { text, state, error } = usePromptState(chatId, id, item)
+  const { text, state, error, retried } = usePromptState(chatId, id, item)
   if (item && (item.origin === 'harness' || item.origin === 'note')) {
     const name = providers.find((p) => p.id === provider)?.displayName ?? provider ?? 'the provider'
     return <MachineRow item={item} name={name} />
@@ -168,7 +175,13 @@ function UserRowBody({
             {text}
           </MarkdownMessageStatic>
           {error && <span className="err">{error}</span>}
-          <PromptActs requestId={id.slice(2)} text={text} state={state} actions={actions} />
+          <PromptActs
+            requestId={id.slice(2)}
+            text={text}
+            state={state}
+            retried={retried}
+            actions={actions}
+          />
         </div>
       ) : (
         <div className={cn(firstTurn ? 'frozen' : 'bubble', !firstTurn && multi && 'multi')}>

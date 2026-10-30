@@ -5,6 +5,7 @@ import { ledger, seedFeed, spokenIn } from '@/__tests__/__fixtures__/ledger-rows
 import * as commands from '@/features/agent/api/agent-chat-commands'
 import * as reads from '@/features/agent/api/agent-chat-reads'
 import { AgentChatView } from '@/features/agent/chat/agent-chat-view'
+import { loadPromptStashes } from '@/features/agent/composer/lib/prompt-stash-persistence'
 import { applyFeedFrame, chatStore } from '@/features/agent/stores/chat-store'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
@@ -243,6 +244,41 @@ describe('AgentChatView Esc', () => {
 
     expect(retract).toHaveBeenCalledWith('w1', 'c1', requestId)
     await waitFor(() => expect(box()).toHaveValue('never mind'))
+  })
+
+  it('puts the taken-back text after what was typed while the retract was out', async () => {
+    let answer: (value: { state: 'retracted'; text: string }) => void = () => {}
+    vi.spyOn(commands, 'retractPrompt').mockReturnValue(
+      new Promise((resolve) => (answer = resolve)) as never,
+    )
+    const l = ledger('c1', 10)
+    seedFeed('c1', [...spokenIn('c1'), l.prompt('r1', 'take back')])
+    draw('c1')
+    const box = () => screen.getByRole('textbox', { name: /message the agent/i })
+
+    fireEvent.keyDown(box(), { key: 'Escape' })
+    fireEvent.change(box(), { target: { value: 'new thought' } })
+    await act(async () => answer({ state: 'retracted', text: 'take back' }))
+
+    expect(box()).toHaveValue('new thought\n\ntake back')
+  })
+
+  it('keeps taken-back text as a stash when the composer closed before the answer', async () => {
+    let answer: (value: { state: 'retracted'; text: string }) => void = () => {}
+    vi.spyOn(commands, 'retractPrompt').mockReturnValue(
+      new Promise((resolve) => (answer = resolve)) as never,
+    )
+    const l = ledger('c1', 10)
+    seedFeed('c1', [...spokenIn('c1'), l.prompt('r1', 'keep me')])
+    const view = draw('c1')
+
+    fireEvent.keyDown(screen.getByRole('textbox', { name: /message the agent/i }), {
+      key: 'Escape',
+    })
+    view.unmount()
+    await act(async () => answer({ state: 'retracted', text: 'keep me' }))
+
+    expect(loadPromptStashes('w1', 'c1').map((stash) => stash.markdown)).toEqual(['keep me'])
   })
 
   it('shows the terminal-wait banner only from the chat terminalWait', async () => {
