@@ -8,7 +8,6 @@ import (
 	"time"
 
 	asynxModels "github.com/char2cs/asynx/models"
-
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
@@ -27,7 +26,9 @@ type ProjectStore struct {
 	Saved   []domain.Project
 	SaveErr error
 	FindErr error
-	// FindAllErr, when set, fails FindAll only; FindErr guards FindByKey.
+	// FindAllErr, when set, fails FindAll independently of FindErr (which only
+	// guards FindByKey) — so a test can fail the list read without also
+	// breaking every by-id lookup on the same store.
 	FindAllErr error
 }
 
@@ -101,12 +102,16 @@ func (s *ProjectStore) FindAll(
 type RepositoryStore struct {
 	Saved   []domain.Repository
 	SaveErr error
-	// FindErr, when set, fails FindAll.
+	// FindErr, when set, fails FindAll — the read failure that callers such as
+	// CheckRepoImportable deliberately degrade past rather than block on.
 	FindErr error
-	// FindByKeyErr, when set, fails FindByKey only (not FindAll/FindWhere).
+	// FindByKeyErr, when set, fails FindByKey only — separate from FindErr so a
+	// test can fail the single-row lookup without also breaking FindAll/FindWhere.
 	FindByKeyErr error
-	// FindByKeyFn, when set, overrides the lookup, so a test can tell repeat
-	// calls for the same id apart (an update's load vs. its re-fetch).
+	// FindByKeyFn, when set, overrides the default lookup entirely — used when a
+	// test needs to distinguish repeat FindByKey calls for the SAME id (e.g. the
+	// load at the top of an update vs. the re-fetch after its Save) rather than
+	// failing every call alike.
 	FindByKeyFn func(id string) (*domain.Repository, error)
 	// Nodes, when set, gets a repo Node row for every NEW repo saved — the
 	// row importOneRepo mints alongside it in production, so a seeded repo is
@@ -693,18 +698,6 @@ func (g *GitEngine) RemoteBranchExists(
 	branch string,
 ) (bool, error) {
 	return g.RemoteBranches[branch], nil
-}
-
-func (g *GitEngine) RemoteTrackingBranchExists(
-	ctx context.Context,
-	repoPath string,
-	branch string,
-) (bool, error) {
-	return g.RemoteTrackingBranches[branch], nil
-}
-
-func (g *GitEngine) LocalBranchExists(_ context.Context, _, branch string) (bool, error) {
-	return !g.MissingLocalBranches[branch], nil
 }
 
 func (g *GitEngine) FetchRef(

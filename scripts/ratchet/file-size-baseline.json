@@ -29,7 +29,7 @@
   "api/internal/app/usecases/chat/turn_test.go": 2427,
   "api/internal/app/usecases/container.go": 895,
   "api/internal/app/usecases/git/git_write.go": 546,
-  "api/internal/app/usecases/mocks/mocks.go": 1963,
+  "api/internal/app/usecases/mocks/mocks.go": 1956,
   "api/internal/app/usecases/project/ordering_test.go": 629,
   "api/internal/app/usecases/project/project.go": 861,
   "api/internal/app/usecases/project/project_import_test.go": 1475,
