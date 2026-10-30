@@ -31,6 +31,23 @@ describe('chat entities', () => {
     expect(chatStore.getState().byWorkspace).toEqual({ w2: ['b'] })
   })
 
+  it('finds the chat a runner is on, and leaves the index alone on a feed delta', () => {
+    applyChat(chatSnapshot({ id: 'a', liveRunnerId: 'r1' }))
+    applyChat(chatSnapshot({ id: 'b', liveRunnerId: 'r2' }))
+    expect(chatStore.getState().byRunner).toEqual({ r1: 'a', r2: 'b' })
+    const held = chatStore.getState()
+    openFeed('a')
+    applyFeedFrame('a', { type: 'ready', epoch: 'e' })
+    applyFeedDeltas('a', [delta('m1', 1, 'hi')])
+    expect(chatStore.getState().byRunner).toBe(held.byRunner)
+    expect(chatStore.getState().chats).toBe(held.chats)
+    applyChat(chatSnapshot({ id: 'a', liveRunnerId: '' }))
+    applyChat(chatSnapshot({ id: 'b', liveRunnerId: 'r1' }))
+    expect(chatStore.getState().byRunner).toEqual({ r1: 'b' })
+    removeChats(['b'])
+    expect(chatStore.getState().byRunner).toEqual({})
+  })
+
   it('keeps the newer telemetry when an older observedAt arrives', () => {
     const report = (observedAt: string, usedPercent: number): AgentTelemetry => ({
       observedAt,

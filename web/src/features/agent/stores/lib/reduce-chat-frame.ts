@@ -24,6 +24,22 @@ export interface ChatEntities {
   chats: Record<string, AgentChat>
   /** Chat ids by workspace, kept here so no selector builds an array. */
   byWorkspace: Record<string, string[]>
+  /** The chat each live runner is on, so a pane's lookup is not a scan. */
+  byRunner: Record<string, string>
+}
+
+function reindexRunner(
+  byRunner: ChatEntities['byRunner'],
+  held: AgentChat | undefined,
+  incoming: AgentChat | undefined,
+) {
+  const before = held?.liveRunnerId ?? ''
+  const after = incoming?.liveRunnerId ?? ''
+  if (before === after) return byRunner
+  const next = { ...byRunner }
+  if (before && next[before] === held?.id) delete next[before]
+  if (after && incoming) next[after] = incoming.id
+  return next
 }
 
 function unindex(byWorkspace: ChatEntities['byWorkspace'], wsId: string, chatId: string) {
@@ -51,7 +67,11 @@ export function applySnapshot(
     }
   }
   return {
-    next: { chats: { ...state.chats, [incoming.id]: incoming }, byWorkspace },
+    next: {
+      chats: { ...state.chats, [incoming.id]: incoming },
+      byWorkspace,
+      byRunner: reindexRunner(state.byRunner, held, incoming),
+    },
     outcome: { kind: 'applied', chat: incoming, previous: held },
   }
 }
@@ -60,7 +80,11 @@ export function removeChat(state: ChatEntities, chatId: string): ChatEntities {
   const held = state.chats[chatId]
   if (!held) return state
   const { [chatId]: _gone, ...chats } = state.chats
-  return { chats, byWorkspace: unindex(state.byWorkspace, held.workspaceId, chatId) }
+  return {
+    chats,
+    byWorkspace: unindex(state.byWorkspace, held.workspaceId, chatId),
+    byRunner: reindexRunner(state.byRunner, held, undefined),
+  }
 }
 
 /** Apply one frame; `next` is the same object when nothing changed. */

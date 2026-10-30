@@ -26,6 +26,7 @@ export const chatStore = createStore<ChatStoreState>()(() => ({
   feeds: {},
   chats: {},
   byWorkspace: {},
+  byRunner: {},
   scopes: {},
   telemetry: {},
 }))
@@ -109,9 +110,13 @@ export function applyFeedFrame(chatId: string, frame: FeedFrame): boolean {
 }
 
 function commit(result: { next: ChatEntities; outcome: ChatFrameOutcome }): ChatFrameOutcome {
-  const { chats, byWorkspace } = chatStore.getState()
-  if (result.next.chats !== chats || result.next.byWorkspace !== byWorkspace) {
-    chatStore.setState({ chats: result.next.chats, byWorkspace: result.next.byWorkspace })
+  const { next } = result
+  if (next.chats !== chatStore.getState().chats) {
+    chatStore.setState({
+      chats: next.chats,
+      byWorkspace: next.byWorkspace,
+      byRunner: next.byRunner,
+    })
   }
   return result.outcome
 }
@@ -132,7 +137,8 @@ export function removeChats(chatIds: readonly string[]) {
     delete telemetry[id]
   }
   if (entities === state) return
-  chatStore.setState({ chats: entities.chats, byWorkspace: entities.byWorkspace, telemetry })
+  const { chats, byWorkspace, byRunner } = entities
+  chatStore.setState({ chats, byWorkspace, byRunner, telemetry })
 }
 
 /** The selection endpoint answers 202 with no body and no frame, so the

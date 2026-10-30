@@ -1,5 +1,6 @@
 import { createElement } from 'react'
-import { act, render } from '@testing-library/react'
+import { act, cleanup, render } from '@testing-library/react'
+import { chatStore } from '@/features/agent/stores/chat-store'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
 import { nanoid } from 'nanoid'
@@ -306,5 +307,31 @@ describe('a queued prompt for a chat missing from the seeded list', () => {
 
     expect(getChatFn.mock.calls.filter((c) => c[1] === 'c-ghost')).toHaveLength(1)
     expect(submitPromptFn).not.toHaveBeenCalled()
+  })
+
+  it('lets go of the chat it read with no scope open when the pane goes', async () => {
+    const store = seedWorkspace([])
+    getChatFn.mockResolvedValue(detail(liveChat({ id: 'c-read', runnerId: 'r1', pty: 'p1' })))
+    const paneId = openChatPane(store, 'c-read', '')
+    await renderPane(store, paneId)
+    await settle()
+    expect(chatStore.getState().chats['c-read']).toBeDefined()
+
+    cleanup()
+    expect(chatStore.getState().chats['c-read']).toBeUndefined()
+  })
+
+  it('writes nothing from a read that lands after the pane went', async () => {
+    const store = seedWorkspace([])
+    let answer: (chat: AgentChatDetail) => void = () => {}
+    getChatFn.mockImplementation(() => new Promise((resolve) => (answer = resolve)))
+    const paneId = openChatPane(store, 'c-late', '')
+    await renderPane(store, paneId)
+    await settle()
+
+    cleanup()
+    answer(detail(liveChat({ id: 'c-late', runnerId: 'r1', pty: 'p1' })))
+    await settle()
+    expect(chatStore.getState().chats['c-late']).toBeUndefined()
   })
 })

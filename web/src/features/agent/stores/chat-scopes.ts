@@ -95,7 +95,8 @@ async function forgetIfGone(endpoint: string, scope: Scope, chatId: string) {
     chatWorkspaceIn(windowPaneStore.getState().panes, chatId)
   if (!owner || !scope.refs.has(owner)) return
   try {
-    applyChat(await getChat(owner, chatId))
+    const chat = await getChat(owner, chatId)
+    if (isLive(endpoint, scope)) applyChat(chat)
   } catch (err) {
     if (isLive(endpoint, scope) && isNotFoundError(err)) forget(chatId)
   }
@@ -177,8 +178,25 @@ function onFrame(endpoint: string, scope: Scope, data: unknown) {
 function release(endpoint: string, scope: Scope) {
   scope.unsubscribe()
   scopes.delete(endpoint)
-  const held = new Set([...scopes.values()].flatMap((other) => [...other.members]))
-  removeChats([...scope.members].filter((id) => !held.has(id)))
+  removeChats([...scope.members].filter((id) => !heldByAScope(id)))
+}
+
+const heldByAScope = (chatId: string) =>
+  [...scopes.values()].some((scope) => scope.members.has(chatId))
+
+/** Reads one chat into the store. It joins `wsId`'s scope when one is open;
+ *  otherwise it lands only while `wanted()`, and the caller releases it. */
+export async function fetchChat(wsId: string, chatId: string, wanted: () => boolean) {
+  const chat = await getChat(wsId, chatId)
+  const scope = [...scopes.values()].find((open) => open.refs.has(wsId))
+  if (scope) scope.members.add(chat.id)
+  else if (!wanted()) return
+  applyChat(chat)
+}
+
+/** Lets go of chats a caller fetched outside any scope. */
+export function releaseChats(chatIds: Iterable<string>) {
+  removeChats([...chatIds].filter((id) => !heldByAScope(id)))
 }
 
 /** Holds `wsId`'s lifecycle endpoint open: one subscription and one seed per

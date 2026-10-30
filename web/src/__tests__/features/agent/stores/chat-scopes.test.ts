@@ -8,7 +8,11 @@ import {
   getScrollPosition,
   setScrollPosition,
 } from '@/features/agent/hooks/lib/transcript-scroll-positions'
-import { attachScope } from '@/features/agent/stores/chat-scopes'
+import {
+  requestExcalidrawEdit,
+  useExcalidrawEditRequests,
+} from '@/features/agent/composer/lib/excalidraw-edit-requests'
+import { attachScope, fetchChat, releaseChats } from '@/features/agent/stores/chat-scopes'
 import { chatStore } from '@/features/agent/stores/chat-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { ApiError } from '@/lib/errors/api-error'
@@ -90,7 +94,7 @@ beforeEach(() => {
   subs.length = 0
   panes = {}
   vi.clearAllMocks()
-  chatStore.setState({ chats: {}, byWorkspace: {}, scopes: {}, telemetry: {} })
+  chatStore.setState({ chats: {}, byWorkspace: {}, byRunner: {}, scopes: {}, telemetry: {} })
   useAgentProvidersStore.setState({ status: 'ready', providers: [] })
   listChats.mockResolvedValue([chat('c1')])
   getChat.mockImplementation((_ws, id) => Promise.resolve({ ...chat(id), conversations: [] }))
@@ -195,6 +199,7 @@ describe('attachScope', () => {
   it('forgets a deleted chat and its pane, and drops an older delete', async () => {
     panes = { p: { id: 'p', chatId: 'c1', runnerId: null } }
     setScrollPosition('c1', { stuck: false, distanceFromBottom: 240 })
+    requestExcalidrawEdit('c1', { elements: [], appState: {} })
     attach('w1')
     await flush()
     push({ chatId: 'c1', kind: 'deleted', version: 1 })
@@ -204,6 +209,7 @@ describe('attachScope', () => {
     expect(paneActions.forgetChat).toHaveBeenCalledWith('c1')
     expect(panes.p).toBeUndefined()
     expect(getScrollPosition('c1')).toBeNull()
+    expect(useExcalidrawEditRequests.getState().requests.c1).toBeUndefined()
   })
 
   it('forgets on reseed only a chat its own workspace confirms gone', async () => {
@@ -249,6 +255,75 @@ describe('attachScope', () => {
     await flush()
     open()[0]?.cb({ folderId: 'f1', kind: 'folder_created' })
     expect(useFolderSignalStore.getState().generations).toEqual({ r1: 1 })
+  })
+
+  it('keeps a chat another endpoint still holds when one endpoint releases', async () => {
+    const a = attach('w1')
+    const b = attach('w3')
+    await flush()
+    open()[1]?.cb(frame('title_set', 'c1', { workspaceId: 'w3' }))
+    a()
+    expect(chats().c1).toBeDefined()
+    b()
+    expect(chats().c1).toBeUndefined()
+  })
+
+  it('writes nothing from a check that outlives its scope', async () => {
+    const detach = attach('w1')
+    await flush()
+    let answer: (r: reads.AgentChatDetail) => void = () => {}
+    let refuse: (e: unknown) => void = () => {}
+    listChats.mockResolvedValue([])
+    getChat.mockImplementationOnce(() => new Promise((res) => (answer = res)))
+    push({ reconnected: true })
+    await flush()
+    detach()
+    answer({ ...chat('c1'), conversations: [] })
+    await flush()
+    expect(chats()).toEqual({})
+
+    listChats.mockResolvedValue([chat('c1')])
+    const again = attach('w1')
+    await flush()
+    listChats.mockResolvedValue([])
+    getChat.mockImplementationOnce(() => new Promise((_res, rej) => (refuse = rej)))
+    push({ reconnected: true })
+    await flush()
+    again()
+    listChats.mockResolvedValue([chat('c1')])
+    attach('w1')
+    await flush()
+    refuse(new ApiError('gone', 404))
+    await flush()
+    expect(chats().c1).toBeDefined()
+  })
+
+  it('drops a seed that lands after its scope detached and a new one attached', async () => {
+    let first: (list: AgentChat[]) => void = () => {}
+    listChats.mockImplementationOnce(() => new Promise((resolve) => (first = resolve)))
+    attach('w1')()
+    listChats.mockResolvedValueOnce([chat('c1', { title: 'fresh', version: 5 })])
+    attach('w1')
+    await flush()
+    first([chat('c1', { title: 'stale', version: 9 })])
+    await flush()
+    expect(chats().c1?.title).toBe('fresh')
+  })
+
+  it('reads a chat into the open scope, and releases a loose one only when asked', async () => {
+    const detach = attach('w1')
+    await flush()
+    await fetchChat('w1', 'c2', () => false)
+    expect(chats().c2).toBeDefined()
+    detach()
+    expect(chats().c2).toBeUndefined()
+
+    await fetchChat('w1', 'c3', () => false)
+    expect(chats().c3).toBeUndefined()
+    await fetchChat('w1', 'c3', () => true)
+    expect(chats().c3).toBeDefined()
+    releaseChats(['c3'])
+    expect(chats().c3).toBeUndefined()
   })
 
   it('records an endpoint whose first list failed', async () => {

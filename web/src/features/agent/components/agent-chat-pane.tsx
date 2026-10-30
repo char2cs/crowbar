@@ -8,10 +8,10 @@ import { useStore } from 'zustand'
 import { TrashIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
-import { getChat } from '@/features/agent/api/agent-chat-reads'
 import { useChatField } from '@/features/agent/hooks/use-chat-entity'
 import { useChatListReady } from '@/features/agent/hooks/use-chat-scope'
-import { applyChat, setChatSelection, useChatStore } from '@/features/agent/stores/chat-store'
+import { fetchChat, releaseChats } from '@/features/agent/stores/chat-scopes'
+import { setChatSelection, useChatStore } from '@/features/agent/stores/chat-store'
 import { switchProvider } from '@/features/agent/api/agent-chat-commands'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { AGENT_CYCLE_PROVIDER, AGENT_TOGGLE_VIEW_MODE } from '@/features/keymaps/registry'
@@ -81,11 +81,7 @@ export function AgentChatPane({
   const transcriptHeaderClearancePx = belowOverlayHeader ? CHAT_BLUR_ZONE_PX : 0
 
   // My runner's chat, '' when it is nowhere; a move shows up as a different id.
-  const runnerChatId = useChatStore((s) => {
-    if (!runnerId) return ''
-    for (const chat of Object.values(s.chats)) if (chat.liveRunnerId === runnerId) return chat.id
-    return ''
-  })
+  const runnerChatId = useChatStore((s) => (runnerId ? (s.byRunner[runnerId] ?? '') : ''))
   const shownChatId = runnerChatId || chatId
 
   // A landed list turns `!known` from "not yet" into "not in it".
@@ -170,12 +166,22 @@ export function AgentChatPane({
     windowPaneStore.getState().paneActions.setPaneRunner(paneId, liveRunnerId || null)
   }, [paneId, known, chatId, runnerId, shownChatId, liveRunnerId])
 
-  // A read can land after the pane is gone. Set on every mount for StrictMode.
+  // A read can land after the pane is gone; what it read outside a scope goes with it.
   const mountedRef = useRef(true)
+  const fetchedRef = useRef(new Set<string>())
+  const readChat = useCallback(
+    (id: string) => {
+      fetchedRef.current.add(id)
+      return fetchChat(wsId, id, () => mountedRef.current)
+    },
+    [wsId],
+  )
   useEffect(() => {
     mountedRef.current = true
+    const fetched = fetchedRef.current
     return () => {
       mountedRef.current = false
+      releaseChats(fetched)
     }
   }, [])
 
@@ -211,10 +217,7 @@ export function AgentChatPane({
 
   // Read the chat back after a send, so its runner is stored before `live` is next judged.
   const settleDispatch = () => {
-    void getChat(wsId, shownChatId)
-      .then((fetched) => {
-        if (mountedRef.current) applyChat(fetched)
-      })
+    void readChat(shownChatId)
       // A failed read leaves the store as the stream last said.
       .catch(() => false)
       .finally(() => setPromptReplacing(false))
@@ -226,11 +229,10 @@ export function AgentChatPane({
     if (!listSeeded || known || !shownChatId) return
     if (resolvedRef.current.has(shownChatId)) return
     resolvedRef.current.add(shownChatId)
-    void getChat(wsId, shownChatId)
-      .then(applyChat)
+    void readChat(shownChatId)
       // Gone, or the read failed: `pending` is now an honest "nothing to show".
       .catch(() => false)
-  }, [wsId, listSeeded, known, shownChatId])
+  }, [readChat, listSeeded, known, shownChatId])
 
   const escort = useTerminalEscort({
     wsId,

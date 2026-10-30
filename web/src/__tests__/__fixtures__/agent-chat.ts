@@ -31,7 +31,14 @@ export function chatSnapshot(chat: Partial<AgentChat> & { id: string }): AgentCh
 }
 
 export function resetChatStore(): void {
-  chatStore.setState({ feeds: {}, chats: {}, byWorkspace: {}, scopes: {}, telemetry: {} })
+  chatStore.setState({
+    feeds: {},
+    chats: {},
+    byWorkspace: {},
+    byRunner: {},
+    scopes: {},
+    telemetry: {},
+  })
 }
 
 /** Writes a chat into the ChatStore as a newer snapshot of what it holds. */

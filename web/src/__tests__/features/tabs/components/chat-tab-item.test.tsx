@@ -46,12 +46,16 @@ describe('ChatTabItem', () => {
 
   it("wears its provider's glyph and spins while the chat works", () => {
     useAgentProvidersStore.setState({
-      providers: [{ id: 'zeta', icon: '<svg data-p="zeta"></svg>' } as AgentProvider],
+      providers: [
+        { id: 'alpha', icon: '<svg data-p="alpha"></svg>' } as AgentProvider,
+        { id: 'zeta', icon: '<svg data-p="zeta"></svg>' } as AgentProvider,
+      ],
     })
     writeChat({ id: 'chat-1', title: 'My Chat', activeProviderId: 'zeta' })
     renderChatTab()
     const tab = screen.getByTestId('chat-tab-item')
     expect(tab.querySelector('[data-p="zeta"]')).not.toBeNull()
+    expect(tab.querySelector('[data-p="alpha"]')).toBeNull()
     act(() => setChatWorking('chat-1', true))
     expect(tab.querySelector('[data-p="zeta"]')).toBeNull()
   })

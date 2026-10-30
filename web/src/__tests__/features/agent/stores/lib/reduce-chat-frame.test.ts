@@ -35,6 +35,9 @@ const frame = (kind: string, chat?: AgentChat, extra: Partial<ChatFrame> = {}): 
 const hold = (...chats: AgentChat[]): ChatEntities => ({
   chats: Object.fromEntries(chats.map((c) => [c.id, c])),
   byWorkspace: chats.length ? { w1: chats.map((c) => c.id) } : {},
+  byRunner: Object.fromEntries(
+    chats.filter((c) => c.liveRunnerId).map((c) => [c.liveRunnerId, c.id]),
+  ),
 })
 
 // Invariant A6 as a table: every row is (held, frame) → (result, outcome).
