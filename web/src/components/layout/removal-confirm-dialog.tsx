@@ -118,7 +118,7 @@ function WorkAtRiskText() {
 
 function WorkAtRiskList({ atRisk }: { atRisk: readonly WorkAtRisk[] }) {
   return (
-    <ul aria-label="Work that would be lost" className="flex flex-col gap-1 text-sm">
+    <ul aria-label="Work that would be lost" className="flex flex-col gap-1 px-6 pb-6 text-sm">
       {atRisk.map((w) => (
         <li key={w.workspaceId} className="flex flex-col">
           <span className="font-mono text-foreground">{w.branch}</span>
