@@ -68,7 +68,7 @@ final class ChromeOverlays {
   }
 
   private let tabs = TabsModel()
-  private lazy var tabStrip = mount(TabStrip(model: tabs), sized: false) { view, host in
+  private lazy var tabStrip = mount(TabStrip(model: tabs, chrome: model), sized: false) { view, host in
     // Between the IDE's Back and Files circles, on their row.
     [
       view.topAnchor.constraint(equalTo: host.safeAreaLayoutGuide.topAnchor),

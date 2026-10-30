@@ -30,13 +30,17 @@ final class TabsModel: ObservableObject {
 @available(iOS 26.0, *)
 struct TabStrip: View {
   @ObservedObject var model: TabsModel
+  @ObservedObject var chrome: ChromeModel
+
+  private var ink: Color { chrome.palette?.text ?? .primary }
+  private var muted: Color { chrome.palette?.secondaryText ?? .secondary }
 
   var body: some View {
     ScrollViewReader { scroller in
       ScrollView(.horizontal, showsIndicators: false) {
         HStack(spacing: 2) {
           ForEach(model.state.tabs) { tab in
-            TabPill(tab: tab, send: model.send).id(tab.id)
+            TabPill(tab: tab, ink: ink, muted: muted, send: model.send).id(tab.id)
           }
           newTab
         }
@@ -68,7 +72,8 @@ struct TabStrip: View {
         }
       }
     } label: {
-      PhosphorIcon(.plus, size: 16)
+      PhosphorIcon(.plus, size: 16, emphasis: 0.5)
+        .foregroundStyle(ink)
         .frame(width: 32, height: 44)
         .contentShape(.rect)
     }
@@ -80,6 +85,9 @@ struct TabStrip: View {
 @available(iOS 26.0, *)
 private struct TabPill: View {
   let tab: TabsState.Tab
+  /// The theme's foreground, and its muted tone for an inactive tab's icon.
+  let ink: Color
+  let muted: Color
   let send: (ChromeIntent) -> Void
 
   var body: some View {
@@ -89,8 +97,8 @@ private struct TabPill: View {
         send(.of("selectTab", ["id": tab.id]))
       } label: {
         HStack(spacing: 5) {
-          PhosphorIcon(TabIcon.of(kind: tab.kind, path: tab.path), size: 14)
-            .foregroundStyle(.secondary)
+          PhosphorIcon(TabIcon.of(kind: tab.kind, path: tab.path), size: 14, emphasis: 0.4)
+            .foregroundStyle(tab.active ? ink : muted)
           Text(tab.title)
             .font(.footnote.weight(tab.active ? .semibold : .regular))
             .lineLimit(1)
@@ -116,8 +124,8 @@ private struct TabPill: View {
       Haptics.tap()
       send(.of("closeTab", ["id": tab.id]))
     } label: {
-      PhosphorIcon(tab.dirty ? .circle : .x, size: tab.dirty ? 7 : 11)
-        .foregroundStyle(.secondary)
+      PhosphorIcon(tab.dirty ? .circle : .x, size: tab.dirty ? 7 : 11, emphasis: tab.dirty ? 0 : 0.5)
+        .foregroundStyle(ink)
         .frame(width: 24, height: 44)
         .contentShape(.rect)
     }

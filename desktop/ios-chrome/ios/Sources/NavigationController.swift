@@ -321,6 +321,11 @@ final class NavigationController: NSObject {
     default:
       break
     }
+    // The status bar's glyphs are drawn for the drawer, so the card's strip under them takes the
+    // drawer's colour; the card's own white would swallow the clock where it straddles the edge.
+    catcher.band.backgroundColor = (at == 3 ? files : list).backgroundColor
+    catcher.band.frame = CGRect(
+      x: 0, y: 0, width: Self.strip, height: host?.safeAreaInsets.top ?? 0)
   }
 }
 
@@ -353,6 +358,16 @@ extension Reveal {
 /// The visible strip of a card slid aside, as one control that closes the drawer.
 private final class StripCatcher: UIView {
   var close: () -> Void = {}
+  /// Fills the strip's part behind the status bar.
+  let band = UIView()
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    band.isUserInteractionEnabled = false
+    addSubview(band)
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
   override func accessibilityActivate() -> Bool {
     close()
