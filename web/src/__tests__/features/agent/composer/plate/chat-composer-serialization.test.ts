@@ -14,6 +14,31 @@ function typed(text: string) {
   return chatValueToMarkdown(chatMarkdownToValue(text))
 }
 
+type Doc = { text?: string; children?: Doc[]; [key: string]: unknown }
+
+/** Slate may split or pad text leaves anywhere; joining runs of identical marks
+    leaves only what a reader can see. */
+function sameText(nodes: Value): Doc[] {
+  const out: Doc[] = []
+  for (const node of nodes as Doc[]) {
+    if (node.children) {
+      out.push({ ...node, children: sameText(node.children as Value) })
+      continue
+    }
+    const { text = '', ...marks } = node
+    const prev = out.at(-1)
+    const prevMarks = prev && prev.text !== undefined ? { ...prev, text: undefined } : undefined
+    if (
+      prev &&
+      prevMarks &&
+      JSON.stringify(prevMarks) === JSON.stringify({ ...marks, text: undefined })
+    )
+      prev.text += text
+    else if (text !== '') out.push({ ...node })
+  }
+  return out
+}
+
 describe('the chat composer codec', () => {
   it('carries the markdown a prompt is written in', () => {
     expect(typed('Fix **this** and the `parser`')).toBe('Fix **this** and the `parser`')
@@ -87,11 +112,11 @@ describe('the chat composer codec', () => {
     })
   })
 
-  // What a person types is what the agent reads: a character typed into a
-  // paragraph is literal text, never markdown syntax to be escaped. The daemon
-  // titles the chat from the prompt's first line, so the title inherits this.
-  describe('literal characters typed into the box', () => {
-    const literal = [
+  // The draft, stash, queue and history store this markdown and re-parse it,
+  // and the transcript bubble renders it, so a prompt must come back as the
+  // document it was. Within that, escapes the parser does not need are dropped.
+  describe('a prompt read back from what was sent', () => {
+    const typedTexts = [
       'snake_case [x](y)',
       'rename snake_case_file.py to __init__.py',
       'a * b * c and 2*3*4',
@@ -101,16 +126,100 @@ describe('the chat composer codec', () => {
       'open C:\\path\\to\\file and a\\b',
       '1. not a list when typed mid-paragraph? 1) either',
       '~~not struck~~ and !important and | pipes |',
+      '_a_b_',
+      '__init__.py',
+      'escape \\_ and \\* and \\[',
+      '&amp; &lt;b&gt;',
+      '---',
+      '+ plus',
+      '~~~',
+      'regex ^\\d+\\.\\s*$',
+      'C:\\Users\\me\\_dir',
+      'x = a_b * c_d * e',
+      '*args and **kwargs',
+      'def f(*args, **kwargs)',
+      'a <!-- c --> b',
+      '1) item',
+      '* star bullet',
+      '#hashtag',
+      '<script>x</script>',
+      'tab\tinside',
+      'trail\\',
+      'line\\\nnext',
+      'café ñ 😀 中文',
+      '[ref]: http://x',
+      '[a][b]',
+      'call set_chat_title [now]',
     ]
-    for (const text of literal) {
-      it(`sends ${JSON.stringify(text)} unchanged`, () => {
-        expect(chatValueToMarkdown([p(text)] as Value)).toBe(text)
+    const leaf = (text: string, marks: Record<string, boolean> = {}) => ({ text, ...marks })
+    const structured: Record<string, Value> = {
+      'link text with a bracket': [
+        {
+          type: 'p',
+          children: [
+            leaf('see '),
+            { type: 'a', url: 'http://u', children: [leaf('a]b')] },
+            leaf(''),
+          ],
+        },
+      ],
+      'italic ending in a backslash': [
+        { type: 'p', children: [leaf('x '), leaf('dir\\', { italic: true }), leaf(' y')] },
+      ],
+      'a star beside bold': [{ type: 'p', children: [leaf('foo*'), leaf('bar', { bold: true })] }],
+      'a backtick beside code': [{ type: 'p', children: [leaf('a`'), leaf('b', { code: true })] }],
+      'a list item starting with a dash': [
+        { type: 'p', indent: 1, listStyleType: 'disc', children: [leaf('- inner')] },
+      ],
+      'a heading starting with a hash': [{ type: 'h2', children: [leaf('# hash')] }],
+      'a quote starting with >': [{ type: 'blockquote', children: [p('> nested?')] }],
+      'an indented code line': [
+        {
+          type: 'code_block',
+          children: [{ type: 'code_line', children: [leaf('    if a_b: x = c*d')] }],
+        },
+      ],
+      'table cells holding | and \\|': [
+        {
+          type: 'table',
+          children: [
+            {
+              type: 'tr',
+              children: [
+                { type: 'th', children: [p('h|1')] },
+                { type: 'th', children: [p('h2')] },
+              ],
+            },
+            {
+              type: 'tr',
+              children: [
+                { type: 'td', children: [p('a|b')] },
+                { type: 'td', children: [p('c\\|d')] },
+              ],
+            },
+          ],
+        },
+      ],
+    } as Record<string, Value>
+    const cases: [string, Value][] = [
+      ...typedTexts.map((text): [string, Value] => [JSON.stringify(text), [p(text)] as Value]),
+      ...Object.entries(structured),
+    ]
+
+    for (const [name, value] of cases) {
+      it(`comes back unchanged: ${name}`, () => {
+        expect(sameText(chatMarkdownToValue(chatValueToMarkdown(value)))).toEqual(sameText(value))
       })
     }
 
-    it('keeps the first line, which the chat is titled from, literal', () => {
-      const out = chatValueToMarkdown([p('call set_chat_title [now]'), p('then *wait*')] as Value)
-      expect(out.split('\n')[0]).toBe('call set_chat_title [now]')
+    it('sends a name, path or list marker without escapes the parser does not need', () => {
+      const sent = (text: string) => chatValueToMarkdown([p(text)] as Value)
+      expect(sent('snake_case_file.py and set_chat_title')).toBe(
+        'snake_case_file.py and set_chat_title',
+      )
+      expect(sent('a * b and 2*3 or a_b * c_d')).toBe('a * b and 2*3 or a_b * c_d')
+      expect(sent('open C:\\path\\to\\file')).toBe('open C:\\path\\to\\file')
+      expect(sent('compare a < b > c, #42 & ~ ! |')).toBe('compare a < b > c, #42 & ~ ! |')
     })
 
     it('still writes the markdown the editor holds as structure', () => {
@@ -118,30 +227,21 @@ describe('the chat composer codec', () => {
         {
           type: 'p',
           children: [
-            { text: 'fix ' },
-            { text: 'my_var', code: true },
-            { text: ' in ' },
-            { text: 'snake_case', italic: true },
+            leaf('fix '),
+            leaf('my_var', { code: true }),
+            leaf(' in '),
+            leaf('snake_case', { italic: true }),
           ],
         },
         {
           type: 'code_block',
           lang: 'py',
-          children: [{ type: 'code_line', children: [{ text: 'x = a_b * 2' }] }],
+          children: [{ type: 'code_line', children: [leaf('x = a_b * 2')] }],
         },
       ] as Value
       expect(chatValueToMarkdown(value)).toBe(
         'fix `my_var` in *snake_case*\n\n```py\nx = a_b * 2\n```',
       )
-    })
-
-    it('round-trips a typed numbered list and fenced block', () => {
-      expect(typed('1. first_step\n2. second [step]')).toBe('1. first_step\n2. second [step]')
-      expect(typed('```\nsnake_case_file.py\n```')).toBe('```\nsnake_case_file.py\n```')
-    })
-
-    it('keeps a literal pipe from splitting a pasted table cell', () => {
-      expect(typed('| a | b |\n| --- | --- |\n| x \\| y | z |')).toContain('x \\| y')
     })
   })
 

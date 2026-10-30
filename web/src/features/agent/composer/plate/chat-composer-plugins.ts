@@ -116,13 +116,6 @@ const ChatMarkdownImageKit = [
   MarkdownImageKit[0].configure({ node: { component: ChatMarkdownImageElement } }),
 ]
 
-// Text in the document is what the person typed; markdown they meant is already
-// a node or a mark. Escaping it would send `snake\_case` to the agent. Only a
-// table cell's `|` must stay escaped, or the literal would split the cell.
-function literalText(node: { value: string }, _parent: unknown, state: { stack: string[] }) {
-  return state.stack.includes('tableCell') ? node.value.replace(/\|/g, '\\|') : node.value
-}
-
 export const chatComposerPlugins = [
   ...BasicNodesKit,
   ...ListKit,
@@ -160,7 +153,7 @@ export const chatComposerPlugins = [
       // by a model, not diffed against a file, but a person who writes `- item`
       // in one Crowbar box and sees `* item` in another is being told the two
       // are different editors.
-      remarkStringifyOptions: { emphasis: '*', bullet: '-', handlers: { text: literalText } },
+      remarkStringifyOptions: { emphasis: '*', bullet: '-' },
       rules: { ...calloutMarkdownRules, ...htmlMarkdownRules, ...underlineMarkdownRules },
     },
   }),
