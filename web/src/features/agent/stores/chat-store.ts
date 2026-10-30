@@ -11,6 +11,7 @@ import {
   type ChatFrame,
   type ChatFrameOutcome,
 } from '@/features/agent/stores/lib/reduce-chat-frame'
+import type { OutboxItem } from '@/features/agent/stores/lib/outbox'
 import type { ChatFeed } from '@/features/agent/stores/lib/transcript-items'
 
 /** Whether a workspace's chat list has landed; set by its lifecycle scope. */
@@ -20,6 +21,8 @@ export interface ChatStoreState extends ChatEntities {
   feeds: Record<string, ChatFeed>
   scopes: Record<string, ChatScopeStatus>
   telemetry: Record<string, AgentTelemetry | null>
+  /** Prompts with no row yet, by chat; written only by chat-outbox. */
+  outbox: Record<string, OutboxItem[]>
 }
 
 export const chatStore = createStore<ChatStoreState>()(() => ({
@@ -29,6 +32,7 @@ export const chatStore = createStore<ChatStoreState>()(() => ({
   byRunner: {},
   scopes: {},
   telemetry: {},
+  outbox: {},
 }))
 
 export function useChatStore<T>(selector: (state: ChatStoreState) => T): T {

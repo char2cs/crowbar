@@ -1,0 +1,257 @@
+import { act } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
+import { ledger, seedFeed } from '@/__tests__/__fixtures__/ledger-rows'
+import * as commands from '@/features/agent/api/agent-chat-commands'
+import * as feeds from '@/features/agent/stores/chat-feed'
+import {
+  discardUnsent,
+  retractNewest,
+  retryPrompt,
+  sendPrompt,
+} from '@/features/agent/stores/chat-outbox'
+import { chatStore } from '@/features/agent/stores/chat-store'
+import { ApiError } from '@/lib/errors/api-error'
+import * as errors from '@/lib/errors/report'
+
+let submit: MockInstance<typeof commands.submitAgentPrompt>
+let retract: MockInstance<typeof commands.retractPrompt>
+let stop: MockInstance<typeof commands.stopChat>
+let attach: MockInstance<typeof feeds.attachFeed>
+let detach: ReturnType<typeof vi.fn<() => void>>
+let reported: MockInstance<typeof errors.report>
+
+const accepted = { runnerId: 'r1', terminalSessionId: 'pty1' }
+
+beforeEach(() => {
+  chatStore.setState({ feeds: {}, outbox: {}, chats: {} })
+  submit = vi.spyOn(commands, 'submitAgentPrompt').mockResolvedValue(accepted)
+  retract = vi.spyOn(commands, 'retractPrompt')
+  stop = vi.spyOn(commands, 'stopChat').mockResolvedValue()
+  detach = vi.fn<() => void>()
+  attach = vi.spyOn(feeds, 'attachFeed').mockReturnValue(detach)
+  reported = vi.spyOn(errors, 'report').mockImplementation(() => {})
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
+
+const outbox = () => chatStore.getState().outbox.c1 ?? []
+const send = (text: string, steer = false) => sendPrompt('w1', 'c1', { text, steer })
+const sentId = (call = 0) => String(submit.mock.calls[call]?.[3])
+const flush = () => act(async () => {})
+
+function busy() {
+  const l = ledger('c1')
+  seedFeed('c1', [l.prompt('r0', 'earlier'), l.start('turn-0', 'r0')])
+  return l
+}
+
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {}
+  let reject: (error: unknown) => void = () => {}
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes
+    reject = no
+  })
+  return { promise, resolve, reject }
+}
+
+describe('chat outbox', () => {
+  it('symptom 5: Esc on a queued prompt restores it without a request', async () => {
+    busy()
+    send('wait your turn')
+    expect(outbox()[0]?.state).toBe('queued')
+
+    await expect(retractNewest('w1', 'c1')).resolves.toBe('wait your turn')
+
+    expect(outbox()).toEqual([])
+    expect(submit).not.toHaveBeenCalled()
+    expect(retract).not.toHaveBeenCalled()
+  })
+
+  it('symptom 5: Esc before delivery retracts and restores the draft', async () => {
+    const l = ledger('c1')
+    seedFeed('c1', [])
+    send('take this back')
+    await flush()
+    seedFeed('c1', [l.prompt(sentId(), 'take this back')])
+    expect(outbox()).toEqual([])
+    retract.mockResolvedValue({ state: 'retracted', text: 'take this back' })
+
+    await expect(retractNewest('w1', 'c1')).resolves.toBe('take this back')
+
+    expect(retract).toHaveBeenCalledWith('w1', 'c1', sentId())
+    seedFeed('c1', [l.settle(sentId(), false, 'retracted')])
+    expect(chatStore.getState().feeds.c1?.order).toEqual([])
+  })
+
+  it('symptom 5: Esc while the runner is spawning retracts and restores the draft', async () => {
+    const l = ledger('c1')
+    seedFeed('c1', [])
+    send('first words')
+    await flush()
+    seedFeed('c1', [
+      l.row('user_message', {
+        requestId: sentId(),
+        text: 'first words',
+        origin: 'crowbar',
+        delivery: 'restart',
+        runnerId: 'r-spawning',
+      }),
+    ])
+    retract.mockResolvedValue({ state: 'retracted', text: 'first words' })
+
+    await expect(retractNewest('w1', 'c1')).resolves.toBe('first words')
+    expect(retract).toHaveBeenCalledWith('w1', 'c1', sentId())
+  })
+
+  it('symptom 5: Esc after delivery with no output interrupts and restores', async () => {
+    const l = ledger('c1')
+    seedFeed('c1', [l.prompt('r1', 'stop that'), l.start('turn-1', 'r1')])
+    retract.mockResolvedValue({ state: 'interrupted', text: 'stop that' })
+
+    await expect(retractNewest('w1', 'c1')).resolves.toBe('stop that')
+    expect(retract).toHaveBeenCalledWith('w1', 'c1', 'r1')
+    expect(stop).not.toHaveBeenCalled()
+  })
+
+  it('stops without restoring once the turn has output', async () => {
+    const l = ledger('c1')
+    seedFeed('c1', [
+      l.prompt('r1', 'go'),
+      l.start('turn-1', 'r1'),
+      l.text('turn-1', 'm1', 0, 'Working'),
+    ])
+
+    await expect(retractNewest('w1', 'c1')).resolves.toBeNull()
+    expect(stop).toHaveBeenCalledWith('w1', 'c1')
+    expect(retract).not.toHaveBeenCalled()
+  })
+
+  it('has nothing to act on in an idle chat', () => {
+    const l = ledger('c1')
+    seedFeed('c1', [l.prompt('r1', 'go'), l.start('turn-1', 'r1'), l.end('turn-1')])
+    expect(retractNewest('w1', 'c1')).toBeNull()
+  })
+
+  it('retracts after the send resolves when Esc came first', async () => {
+    seedFeed('c1', [])
+    const sent = deferred<typeof accepted>()
+    submit.mockReturnValue(sent.promise)
+    send('too fast')
+    retract.mockResolvedValue({ state: 'retracted', text: 'too fast' })
+
+    const restored = retractNewest('w1', 'c1')
+    expect(outbox()[0]).toMatchObject({ state: 'sending', retractOnAck: true })
+    expect(retract).not.toHaveBeenCalled()
+    sent.resolve(accepted)
+
+    await expect(restored).resolves.toBe('too fast')
+    expect(retract).toHaveBeenCalledWith('w1', 'c1', sentId())
+    expect(outbox()).toEqual([])
+  })
+
+  it('gives the text back when a send Esc raced was refused', async () => {
+    seedFeed('c1', [])
+    const sent = deferred<typeof accepted>()
+    submit.mockReturnValue(sent.promise)
+    send('lost the race')
+    retract.mockRejectedValue(new ApiError('unknown prompt: not found', 404))
+
+    const restored = retractNewest('w1', 'c1')
+    sent.reject(new ApiError('busy: conflict', 409, 'chat_busy'))
+
+    await expect(restored).resolves.toBe('lost the race')
+    expect(outbox()).toEqual([])
+    expect(submit).toHaveBeenCalledTimes(1)
+  })
+
+  it('restores the text when the retract answers retracted even though turn_started arrived', async () => {
+    const l = ledger('c1')
+    seedFeed('c1', [l.prompt('r1', 'raced'), l.start('turn-1', 'r1')])
+    retract.mockResolvedValue({ state: 'retracted', text: 'raced' })
+
+    await expect(retractNewest('w1', 'c1')).resolves.toBe('raced')
+  })
+
+  it('keeps the feed attached while the outbox is non-empty', () => {
+    busy()
+    send('one')
+    send('two')
+    expect(attach).toHaveBeenCalledTimes(1)
+    expect(attach).toHaveBeenCalledWith('c1')
+    expect(detach).not.toHaveBeenCalled()
+
+    discardUnsent('c1')
+    expect(detach).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends the next prompt on the turn_ended row, never on a clock', async () => {
+    vi.useFakeTimers()
+    const l = busy()
+    send('after this turn')
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(submit).not.toHaveBeenCalled()
+
+    seedFeed('c1', [l.end('turn-0')])
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(submit.mock.calls[0]?.slice(0, 3)).toEqual(['w1', 'c1', 'after this turn'])
+  })
+
+  it('sends a prompt the daemon called busy again on the next row, under the same id', async () => {
+    const l = ledger('c1')
+    seedFeed('c1', [])
+    submit.mockRejectedValueOnce(new ApiError('busy: conflict', 409, 'chat_busy'))
+    send('patience')
+    await flush()
+    expect(outbox()[0]).toMatchObject({ state: 'queued' })
+    expect(submit).toHaveBeenCalledTimes(1)
+
+    seedFeed('c1', [l.start('turn-x'), l.end('turn-x')])
+    expect(submit).toHaveBeenCalledTimes(2)
+    expect(sentId(1)).toBe(sentId(0))
+    expect(reported).not.toHaveBeenCalled()
+  })
+
+  it('reports a send refused before its row, but not a lost session', async () => {
+    seedFeed('c1', [])
+    submit.mockRejectedValueOnce(new ApiError('model is unknown: invalid argument', 400))
+    send('one')
+    await flush()
+    expect(reported).toHaveBeenCalledTimes(1)
+    expect(outbox()[0]).toMatchObject({
+      state: 'failed',
+      error: 'model is unknown: invalid argument',
+    })
+
+    discardUnsent('c1')
+    submit.mockRejectedValueOnce(new ApiError('session lost: conflict', 409, 'session_lost'))
+    send('two')
+    await flush()
+    expect(reported).toHaveBeenCalledTimes(1)
+    expect(outbox()[0]?.error).toMatch(/session was lost/i)
+  })
+
+  it('commits a staged pick only once the daemon took the prompt', async () => {
+    seedFeed('c1', [])
+    chatStore.setState({ chats: { c1: { id: 'c1', model: 'old', effort: 'low' } as never } })
+    sendPrompt('w1', 'c1', { text: 'go', steer: false, model: 'big', effort: '' })
+    expect(submit.mock.calls[0]?.slice(4)).toEqual(['', 'big', ''])
+    await flush()
+    expect(chatStore.getState().chats.c1).toMatchObject({ model: 'big', effort: '' })
+  })
+
+  it('Retry on a refused prompt row sends it again as a new request', async () => {
+    const l = ledger('c1')
+    seedFeed('c1', [l.prompt('r1', 'again'), l.settle('r1', false, 'not_acknowledged')])
+
+    retryPrompt('w1', 'c1', 'r1', false)
+
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(submit.mock.calls[0]?.[2]).toBe('again')
+    expect(sentId()).not.toBe('r1')
+    expect(chatStore.getState().feeds.c1?.order).toEqual(['p:r1'])
+  })
+})

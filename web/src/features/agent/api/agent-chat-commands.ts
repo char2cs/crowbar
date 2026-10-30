@@ -92,6 +92,24 @@ export async function submitAgentPrompt(
   })
 }
 
+/** What a retract did: withdrew a prompt the provider never took, or ended its turn. */
+export interface RetractAnswer {
+  state: 'retracted' | 'interrupted'
+  text: string
+}
+
+/** Esc after a send: 409 once the prompt settled or its turn closed, 404 for an id never seen. */
+export async function retractPrompt(
+  wsId: string,
+  chatId: string,
+  requestId: string,
+): Promise<RetractAnswer> {
+  return apiFetch<RetractAnswer>(
+    `${chatBase(wsId)}/${encodeURIComponent(chatId)}/prompts/${encodeURIComponent(requestId)}/retract`,
+    { method: 'POST' },
+  )
+}
+
 /** Override ONE chat's own approval level, independent of the global default
  *  above. Write-only — there is no GET for a single chat's level, so a caller
  *  has nothing to reconcile against and must not pretend otherwise. */
