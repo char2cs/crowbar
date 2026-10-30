@@ -87,6 +87,64 @@ describe('the chat composer codec', () => {
     })
   })
 
+  // What a person types is what the agent reads: a character typed into a
+  // paragraph is literal text, never markdown syntax to be escaped. The daemon
+  // titles the chat from the prompt's first line, so the title inherits this.
+  describe('literal characters typed into the box', () => {
+    const literal = [
+      'snake_case [x](y)',
+      'rename snake_case_file.py to __init__.py',
+      'a * b * c and 2*3*4',
+      'use `foo` literally? no: a lone ` backtick',
+      'issue #42 and # not a heading here',
+      'compare a < b > c and <div> tags & entities',
+      'open C:\\path\\to\\file and a\\b',
+      '1. not a list when typed mid-paragraph? 1) either',
+      '~~not struck~~ and !important and | pipes |',
+    ]
+    for (const text of literal) {
+      it(`sends ${JSON.stringify(text)} unchanged`, () => {
+        expect(chatValueToMarkdown([p(text)] as Value)).toBe(text)
+      })
+    }
+
+    it('keeps the first line, which the chat is titled from, literal', () => {
+      const out = chatValueToMarkdown([p('call set_chat_title [now]'), p('then *wait*')] as Value)
+      expect(out.split('\n')[0]).toBe('call set_chat_title [now]')
+    })
+
+    it('still writes the markdown the editor holds as structure', () => {
+      const value = [
+        {
+          type: 'p',
+          children: [
+            { text: 'fix ' },
+            { text: 'my_var', code: true },
+            { text: ' in ' },
+            { text: 'snake_case', italic: true },
+          ],
+        },
+        {
+          type: 'code_block',
+          lang: 'py',
+          children: [{ type: 'code_line', children: [{ text: 'x = a_b * 2' }] }],
+        },
+      ] as Value
+      expect(chatValueToMarkdown(value)).toBe(
+        'fix `my_var` in *snake_case*\n\n```py\nx = a_b * 2\n```',
+      )
+    })
+
+    it('round-trips a typed numbered list and fenced block', () => {
+      expect(typed('1. first_step\n2. second [step]')).toBe('1. first_step\n2. second [step]')
+      expect(typed('```\nsnake_case_file.py\n```')).toBe('```\nsnake_case_file.py\n```')
+    })
+
+    it('keeps a literal pipe from splitting a pasted table cell', () => {
+      expect(typed('| a | b |\n| --- | --- |\n| x \\| y | z |')).toContain('x \\| y')
+    })
+  })
+
   // A code line's indentation IS the program. It is the one place the encoder
   // never runs and the one place trimming would corrupt the prompt.
   it('keeps the indentation inside a fenced block', () => {
