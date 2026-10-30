@@ -2,12 +2,13 @@ import { useRef } from 'react'
 import { useStore } from 'zustand'
 import { ArrowsOutSimpleIcon, DotsSixVerticalIcon, XIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
-import { DragGhost, DragGhostRows } from '@/components/layout/drag-ghost'
+import { DragGhost } from '@/components/layout/drag-ghost'
 import { DropIndicator } from '@/components/layout/drop-indicator'
 import { useSidebarDrag } from '@/components/sidebar/hooks/use-sidebar-drag'
 import { performSidebarDrop, performSidebarPaneDrop } from '@/components/sidebar/lib/drop-actions'
 import { closeRecentChat } from '@/components/sidebar/lib/recents-actions'
-import { useMemberRow } from '@/components/sidebar/view-row'
+import { recentsRowOf } from '@/components/sidebar/lib/recents-row-registry'
+import { useMemberRow, ViewTabPreview } from '@/components/sidebar/view-row'
 import { viewMembers } from '../lib/view-state'
 import { windowPaneStore } from '../stores/window-pane-store'
 import type { PaneGroup } from '../types/pane'
@@ -40,7 +41,12 @@ function PaneHandleBody({
   const scrollRef = useRef<HTMLElement | null>(null)
   const drag = useSidebarDrag({
     scrollRef,
-    subjectsFor: () => [row],
+    // The tab a drop lands beside is a row of another chat: the registry names it.
+    subjectsFor: (id) => {
+      const other = id === row.id ? row : recentsRowOf(id)
+      return other ? [other] : []
+    },
+    strip: () => document.querySelector<HTMLElement>('[data-view-tab-strip]'),
     onDrop: performSidebarDrop,
     onPaneDrop: performSidebarPaneDrop,
   })
@@ -86,7 +92,7 @@ function PaneHandleBody({
       {drag.dragging && <DropIndicator ref={drag.attachDropLine} />}
       {drag.ghostRows && (
         <DragGhost ref={drag.ghostRef} origin={drag.ghostOrigin}>
-          <DragGhostRows rows={drag.ghostRows} />
+          <ViewTabPreview row={row} width={drag.ghostRows.width} />
         </DragGhost>
       )}
     </div>

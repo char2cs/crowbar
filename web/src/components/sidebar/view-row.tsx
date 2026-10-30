@@ -85,7 +85,7 @@ export function RecentsViewRow({
       className={cn(
         // One painted shell; members share it flush. The × is always shown and
         // overlays the shell's end, so no label ever moves.
-        'group/tab relative mx-0.5 flex h-8 items-center rounded-full border',
+        TAB_SHELL,
         isShowing ? TAB_ACTIVE : TAB_IDLE,
       )}
     >
@@ -111,13 +111,36 @@ export function RecentsViewRow({
         type="button"
         aria-label="Close view"
         onClick={() => onClose(viewId)}
-        className="absolute right-1.5 top-1/2 z-10 grid size-6 -translate-y-1/2 place-items-center rounded-full text-muted-foreground hover:bg-sidebar-element-hover hover:text-foreground"
+        className={cn(TAB_CLOSE, 'hover:bg-sidebar-element-hover hover:text-foreground')}
       >
         <XIcon size={12} />
       </button>
     </div>
   )
 }
+
+const TAB_SHELL = 'group/tab relative mx-0.5 flex h-8 items-center rounded-full border'
+const TAB_CLOSE =
+  'absolute right-1.5 top-1/2 z-10 grid size-6 -translate-y-1/2 place-items-center rounded-full text-muted-foreground'
+
+/**
+ * A chat as the view tab it would become, lifted: the same shell, row and close
+ * button a real single-chat tab renders, for a pane being dragged toward the strip.
+ */
+export function ViewTabPreview({ row, width }: { row: SidebarRowType; width: number }) {
+  return (
+    <div className={cn(TAB_SHELL, TAB_ACTIVE, 'shadow-md shadow-black/15')} style={{ width }}>
+      <div className="relative min-w-0 flex-1 [mask-image:linear-gradient(to_right,black_calc(100%_-_34px),transparent_calc(100%_-_24px))]">
+        <SidebarRow row={row} depth={0} onOpen={noop} tab="tab" />
+      </div>
+      <span aria-hidden="true" className={TAB_CLOSE}>
+        <XIcon size={12} />
+      </span>
+    </div>
+  )
+}
+
+const noop = () => {}
 
 // The CossUI raised surface, on our plain background/foreground pair.
 const TAB_ACTIVE =

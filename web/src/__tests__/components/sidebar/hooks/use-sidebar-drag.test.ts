@@ -145,7 +145,7 @@ function renderDrag(
         }),
       onDrop,
       onPaneDrop,
-      reorderInStrip: overrides.reorderInStrip,
+      strip: overrides.reorderInStrip ? () => scrollRef.current : undefined,
     }),
   )
   return { ...view, onDrop, onPaneDrop }
@@ -1102,6 +1102,36 @@ describe('useSidebarDrag', () => {
 
       expect(onDrop).not.toHaveBeenCalled()
       expect(toast.error).not.toHaveBeenCalled()
+    })
+
+    it('drops a subject pressed outside the strip (a pane handle) as a new tab at the insertion point', () => {
+      const { strip } = buildStrip()
+      const handle = document.createElement('button')
+      stubRect(handle, { left: 300, right: 312, top: 200, bottom: 212, width: 12, height: 12 })
+      document.body.appendChild(handle)
+      const pane = chat('pane-chat')
+      rowRegistry.set(pane.id, pane)
+      const { result, onDrop, onPaneDrop } = renderDrag({ scroller: strip, reorderInStrip: true })
+
+      press(result, pane, handle, 306, 206)
+      move(306, 120)
+      move(200, 20) // into the band, left of the second tab's midpoint
+      expect(result.current.paneHit).toBeNull()
+      release(200, 20)
+
+      expect(onPaneDrop).not.toHaveBeenCalled()
+      const [subjects, target, mode, inRecents] = onDrop.mock.calls[0] as unknown as [
+        SidebarRow[],
+        SidebarRow,
+        DropMode,
+        boolean,
+      ]
+      expect([subjects[0].id, target.id, mode, inRecents]).toEqual([
+        'pane-chat',
+        't1',
+        'before',
+        true,
+      ])
     })
   })
 })

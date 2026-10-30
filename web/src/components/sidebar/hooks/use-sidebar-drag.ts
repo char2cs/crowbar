@@ -234,8 +234,8 @@ function suppressNextClick(): void {
 export interface UseSidebarDragOptions {
   /** The tree/band's own scroll container — what an edge-held drag scrolls. */
   scrollRef: React.RefObject<HTMLElement | null>
-  /** The scroller is a strip of tabs: a drag inside its band reorders in place. */
-  reorderInStrip?: boolean
+  /** The strip of view tabs this drag may reorder within, when the pointer is in its band. */
+  strip?: () => HTMLElement | null
   /** The rows a drag starting on `rowId` carries, in tree order — the caller's
    *  own selection resolution; this hook does not maintain one of its own. */
   subjectsFor: (rowId: string) => SidebarRow[]
@@ -441,14 +441,13 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
         pending.startY,
       )
 
-      const rows = cloneGhostRows(
-        elements.length > 0 ? elements : [pending.target],
-        subjects.length,
-      )
+      const stripEl = optionsRef.current.strip?.()
+      stripRef.current = stripEl ? createStripDrag(stripEl, pending.target, grabRef.current) : null
+      if (stripRef.current) grabRef.current = stripRef.current.grab
+      const rows =
+        stripRef.current?.ghostRows() ??
+        cloneGhostRows(elements.length > 0 ? elements : [pending.target], subjects.length)
 
-      if (scroller && optionsRef.current.reorderInStrip) {
-        stripRef.current = createStripDrag(scroller, pending.target, grabRef.current)
-      }
       if (scroller && scrollerBox) {
         scrollerXRef.current = { left: scrollerBox.left, right: scrollerBox.right }
         edgeScrollerRef.current = createEdgeScroller(
@@ -477,7 +476,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       }
 
       draggingRef.current = drag
-      ghostOriginRef.current = {
+      ghostOriginRef.current = stripRef.current?.position(e.clientX, e.clientY) ?? {
         x: e.clientX - grabRef.current.dx,
         y: e.clientY - grabRef.current.dy,
       }

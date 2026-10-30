@@ -199,3 +199,25 @@ export function cloneGhostRows(elements: readonly HTMLElement[], count: number):
 
   return { nodes, width: rects[0]?.width ?? 0, height: rects[0]?.height ?? 0, count }
 }
+
+/**
+ * A whole view tab, cloned: every member of a group, its separators and its close
+ * button, not a stack of member rows. Only the lifted surface is added, so what is
+ * carried is exactly what was grabbed, in or out of the strip.
+ */
+export function cloneGhostTab(shell: HTMLElement): GhostRows {
+  const rect = shell.getBoundingClientRect()
+  const clone = shell.cloneNode(true) as HTMLElement
+  clone.removeAttribute('id')
+  // The clone sits in the document beside the real tab: a duplicate test id would shadow it.
+  for (const el of [clone, ...clone.querySelectorAll<HTMLElement>('[data-testid]')]) {
+    el.removeAttribute('data-testid')
+  }
+  for (const cls of LIFTED.split(/\s+/)) clone.classList.add(cls)
+  clone.style.position = 'absolute'
+  clone.style.left = '0'
+  clone.style.top = '0'
+  clone.style.margin = '0'
+  clone.style.width = `${rect.width}px`
+  return { nodes: [clone], width: rect.width, height: rect.height, count: 1 }
+}

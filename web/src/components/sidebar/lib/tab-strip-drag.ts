@@ -1,4 +1,9 @@
-import { ghostTransform, type GrabOffset } from '@/components/layout/drag-ghost'
+import {
+  cloneGhostTab,
+  ghostTransform,
+  type GhostRows,
+  type GrabOffset,
+} from '@/components/layout/drag-ghost'
 
 /** A viewport box; the strip's own, and the margin-grown band around it. */
 interface StripBox {
@@ -57,16 +62,33 @@ function dropBeside(
 }
 
 const SLIDE_MS = 150
+/** The gap an outside subject opens: every tab from the insertion index on makes room. */
+function gapOffsets(count: number, to: number, pitch: number): number[] {
+  return Array.from({ length: count }, (_, i) => (i >= to ? pitch : 0))
+}
+
+/** The insertion index: how many tabs' midpoints sit left of the subject's centre. */
+function insertIndex(slots: readonly TabSlot[], centerX: number): number {
+  return slots.filter((slot) => slot.left + slot.width / 2 < centerX).length
+}
+
 // Pointer travel past this before a slide changes hands, so a boundary does not flicker.
 const HYSTERESIS_PX = 6
 
 /**
- * A tab dragged within its own strip. Owns no React state: the band is
- * derived from the pointer on every move, and the tabs slide by direct
- * transforms so a drag re-renders nothing.
+ * A tab dragged within its own strip, or a subject from outside it (a pane
+ * dragged up) previewed as a tab. Owns no React state: the band is derived
+ * from the pointer on every move, and the tabs slide by direct transforms so
+ * a drag re-renders nothing.
  */
 export interface StripDrag {
   inBand: (x: number, y: number) => boolean
+  /** The grab point within the ghost the drag draws. */
+  grab: GrabOffset
+  /** Where the ghost sits for a pointer at (x, y): its first paint and every move. */
+  position: (x: number, y: number) => { x: number; y: number }
+  /** What the ghost shows: the whole tab, or just the room for a pane's own preview. */
+  ghostRows: () => GhostRows
   /** Re-aim the slide and the ghost from the pointer (and the strip's scroll). */
   move: (x: number, y: number, ghost: HTMLElement | null) => void
   /** Where a release lands: the neighbouring tab's element, or null if nothing moves. */
@@ -80,25 +102,47 @@ export interface StripDrag {
 const distanceOutside = (v: number, lo: number, hi: number) =>
   v < lo ? lo - v : v > hi ? v - hi : 0
 
+const glide = (el: HTMLElement) => {
+  el.style.transition = `transform ${SLIDE_MS}ms ease-out`
+  el.style.transform = ''
+  const done = () => {
+    el.style.transition = ''
+    el.removeEventListener('transitionend', done)
+  }
+  el.addEventListener('transitionend', done)
+}
+
 export function createStripDrag(
   strip: HTMLElement,
-  grabbed: HTMLElement,
-  grab: GrabOffset,
+  subject: HTMLElement,
+  pressed: GrabOffset,
 ): StripDrag | null {
   const tabs = Array.from(strip.children).filter((c): c is HTMLElement => c instanceof HTMLElement)
-  const from = tabs.findIndex((tab) => tab.contains(grabbed))
-  if (from < 0) return null
+  if (tabs.length === 0) return null
+  const index = tabs.findIndex((tab) => tab.contains(subject))
+  const external = index < 0
+  // An outside subject is the virtual tab after the last one, which keeps every formula below.
+  const from = external ? tabs.length : index
 
   const box = strip.getBoundingClientRect()
-  const grabbedRect = grabbed.getBoundingClientRect()
   const scroll0 = strip.scrollLeft
   const slots = tabs.map((tab) => {
     const r = tab.getBoundingClientRect()
     return { left: r.left, width: r.width }
   })
+  const shellOf = (tab: HTMLElement) => tab.firstElementChild ?? tab
+  const shell = shellOf(tabs[external ? 0 : from]).getBoundingClientRect()
+  const subjectRect = subject.getBoundingClientRect()
   const margin = box.height
-  const width = grabbedRect.width
-  const pitch = slots[from].width
+  const width = shell.width
+  const pitch = slots[external ? 0 : from].width
+  // Held where the pointer took it, within the whole tab; an outside subject is held by its centre.
+  const grab = external
+    ? { dx: width / 2, dy: shell.height / 2 }
+    : {
+        dx: pressed.dx + subjectRect.left - shell.left,
+        dy: pressed.dy + subjectRect.top - shell.top,
+      }
   let current = from
   let shown = -1
   let hidden = false
@@ -111,20 +155,24 @@ export function createStripDrag(
   const outside = (x: number, y: number) =>
     Math.max(distanceOutside(x, box.left, box.right), distanceOutside(y, box.top, box.bottom))
   const inBand = (x: number, y: number) => outside(x, y) <= margin
-  // The tab travels over the tabs themselves, not the empty strip beyond the last one.
+  // The tab travels over the tabs themselves, not the empty strip beyond the last one; an
+  // outside subject may centre on either end, so it can be dropped before the first or after the last.
   const leftFor = (x: number) => {
     const now = slotsNow()
     const last = now[now.length - 1]
+    const overhang = external ? width / 2 : 0
     const reach = {
       ...box,
-      left: Math.max(box.left, now[0].left),
-      right: Math.min(box.right, last.left + last.width),
+      left: Math.max(box.left, now[0].left) - overhang,
+      right: Math.min(box.right, last.left + last.width) + overhang,
     }
     return clampTabLeft(x, grab.dx, width, reach)
   }
   const indexAt = (x: number, shift: number) => {
     const left = leftFor(x) + shift
-    return targetIndex(slotsNow(), from, left, left + width)
+    return external
+      ? insertIndex(slotsNow(), left + width / 2)
+      : targetIndex(slotsNow(), from, left, left + width)
   }
   // Moves only once the pointer is past the boundary by the hysteresis, in either direction.
   function indexFor(x: number) {
@@ -137,7 +185,9 @@ export function createStripDrag(
   function paintSlide(to: number) {
     if (to === shown) return
     shown = to
-    const offsets = slideOffsets(tabs.length, from, to, pitch)
+    const offsets = external
+      ? gapOffsets(tabs.length, to, pitch)
+      : slideOffsets(tabs.length, from, to, pitch)
     tabs.forEach((tab, i) => {
       tab.style.transform = offsets[i] === 0 ? '' : `translateX(${offsets[i]}px)`
     })
@@ -146,7 +196,7 @@ export function createStripDrag(
   // Pinned to its strip row inside the strip, then eased toward the free pointer across the band,
   // so leaving it carries no jump: the ghost reaches the pointer exactly at the band's edge.
   function ghostPosition(x: number, y: number) {
-    const pinned = { x: leftFor(x), y: grabbedRect.top }
+    const pinned = { x: leftFor(x), y: shell.top }
     const k = Math.min(1, outside(x, y) / margin)
     return {
       x: pinned.x + (x - grab.dx - pinned.x) * k,
@@ -154,13 +204,36 @@ export function createStripDrag(
     }
   }
 
+  // The new tab only exists once the drop has rendered: start it at the ghost the moment it does.
+  function settleNewTab(x: number, at: { x: number; y: number }) {
+    const to = indexFor(x)
+    const left = slotsNow()[Math.min(to, tabs.length - 1)]
+    const finalLeft = to < tabs.length ? left.left : left.left + left.width
+    const watch = new MutationObserver(() => {
+      const added = Array.from(strip.children).find((c) => !tabs.includes(c as HTMLElement))
+      if (!(added instanceof HTMLElement)) return
+      watch.disconnect()
+      added.style.transition = 'none'
+      added.style.transform = `translate(${at.x - finalLeft}px, ${at.y - shell.top}px)`
+      requestAnimationFrame(() => glide(added))
+    })
+    watch.observe(strip, { childList: true })
+    requestAnimationFrame(() => watch.disconnect())
+  }
+
   return {
     inBand,
+    grab,
+    position: ghostPosition,
+    ghostRows: () => {
+      if (external) return { nodes: [], width, height: shell.height, count: 1 }
+      return cloneGhostTab(shellOf(tabs[from]) as HTMLElement)
+    },
     move(x, y, ghost) {
       const now = inBand(x, y)
       // The source slot is an empty gap while its tab is in the strip, and the
       // usual faded row once the ghost has left it.
-      if (now !== hidden) tabs[from].style.visibility = now ? 'hidden' : ''
+      if (!external && now !== hidden) tabs[from].style.visibility = now ? 'hidden' : ''
       hidden = now
       paintSlide(now ? indexFor(x) : from)
       if (!now) current = from
@@ -168,25 +241,24 @@ export function createStripDrag(
       if (ghost) ghost.style.transform = ghostTransform(ghostAt.x, ghostAt.y)
     },
     drop(x) {
-      const beside = dropBeside(tabs.length, from, indexFor(x))
+      const to = indexFor(x)
+      if (external) {
+        return to < tabs.length
+          ? { el: tabs[to], mode: 'before' }
+          : { el: tabs[tabs.length - 1], mode: 'after' }
+      }
+      const beside = dropBeside(tabs.length, from, to)
       return beside && { el: tabs[beside.index], mode: beside.mode }
     },
     settle(x) {
       if (!ghostAt) return
+      if (external) return settleNewTab(x, ghostAt)
       const slot = slotsNow()[indexFor(x)]
       const tab = tabs[from]
       tab.style.transition = 'none'
-      tab.style.transform = `translate(${ghostAt.x - slot.left}px, ${ghostAt.y - grabbedRect.top}px)`
+      tab.style.transform = `translate(${ghostAt.x - slot.left}px, ${ghostAt.y - shell.top}px)`
       settling = tab
-      requestAnimationFrame(() => {
-        tab.style.transition = `transform ${SLIDE_MS}ms ease-out`
-        tab.style.transform = ''
-        const done = () => {
-          tab.style.transition = ''
-          tab.removeEventListener('transitionend', done)
-        }
-        tab.addEventListener('transitionend', done)
-      })
+      requestAnimationFrame(() => glide(tab))
     },
     dispose() {
       for (const tab of tabs) {
@@ -194,7 +266,7 @@ export function createStripDrag(
         tab.style.transition = ''
         tab.style.transform = ''
       }
-      tabs[from].style.visibility = ''
+      if (!external) tabs[from].style.visibility = ''
     },
   }
 }

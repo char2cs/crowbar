@@ -198,4 +198,75 @@ describe('createStripDrag', () => {
     expect(ghostAt(ghost).x).toBe(400)
     expect(drag.drop(650)).toEqual({ el: tabs[3].tab, mode: 'after' })
   })
+
+  it('ghosts a group tab as the whole tab: every member, the close button, no stray test ids', () => {
+    const { strip, tabs } = build()
+    const shell = document.createElement('div')
+    shell.setAttribute('data-testid', 'recents-set-v1')
+    const first = tabs[1].row
+    first.setAttribute('role', 'treeitem')
+    const second = document.createElement('div')
+    second.setAttribute('role', 'treeitem')
+    second.setAttribute('data-testid', 'recents-row-b')
+    const close = document.createElement('button')
+    close.setAttribute('aria-label', 'Close view')
+    tabs[1].tab.appendChild(shell)
+    shell.append(first, second, close)
+    const drag = createStripDrag(strip, first, { dx: 50, dy: 16 })!
+    const rows = drag.ghostRows()
+    expect(rows.count).toBe(1)
+    expect(rows.nodes).toHaveLength(1)
+    expect(rows.nodes[0].querySelectorAll('[role=treeitem]')).toHaveLength(2)
+    expect(rows.nodes[0].querySelector('[aria-label="Close view"]')).not.toBeNull()
+    expect(rows.nodes[0].querySelector('[data-testid]')).toBeNull()
+  })
+
+  it('puts the first paint exactly where the first move would, so pickup does not jump', () => {
+    const { strip, tabs } = build()
+    const ghost = document.createElement('div')
+    const drag = createStripDrag(strip, document.createElement('div'), { dx: 3, dy: 3 })!
+    const start = drag.position(300, 50)
+    drag.move(300, 50, ghost)
+    expect(ghostAt(ghost)).toEqual(start)
+    expect(start.y).toBeGreaterThan(0)
+    expect(start.y).toBeLessThan(34)
+    expect(tabs).toHaveLength(4)
+  })
+
+  describe('a subject from outside the strip (a pane dragged up)', () => {
+    const outside = () => document.createElement('div')
+
+    it('opens a gap at the insertion index and takes no source slot', () => {
+      const { strip, tabs } = build()
+      const drag = createStripDrag(strip, outside(), { dx: 3, dy: 3 })!
+      drag.move(200, 16, null)
+      expect(slides(tabs)).toEqual([
+        '',
+        'translateX(100px)',
+        'translateX(100px)',
+        'translateX(100px)',
+      ])
+      expect(tabs.every((t) => t.tab.style.visibility === '')).toBe(true)
+    })
+
+    it('reaches before the first tab and after the last', () => {
+      const { strip, tabs } = build()
+      const drag = createStripDrag(strip, outside(), { dx: 3, dy: 3 })!
+      expect(drag.drop(-40)).toEqual({ el: tabs[0].tab, mode: 'before' })
+      expect(drag.drop(200)).toEqual({ el: tabs[1].tab, mode: 'before' })
+      expect(drag.drop(900)).toEqual({ el: tabs[3].tab, mode: 'after' })
+    })
+
+    it('is a tab-sized ghost held at its centre, pinned to the strip row', () => {
+      const { strip, tabs } = build()
+      const ghost = document.createElement('div')
+      const drag = createStripDrag(strip, outside(), { dx: 3, dy: 3 })!
+      expect(drag.ghostRows()).toMatchObject({ width: 100, height: 32, count: 1, nodes: [] })
+      drag.move(300, 20, ghost)
+      expect(ghostAt(ghost)).toEqual({ x: 250, y: 0 })
+      drag.move(300, 200, ghost)
+      expect(ghostAt(ghost)).toEqual({ x: 250, y: 184 })
+      expect(slides(tabs)).toEqual(['', '', '', ''])
+    })
+  })
 })

@@ -8,7 +8,7 @@ import { performSidebarDrop, performSidebarPaneDrop } from '@/components/sidebar
 import { useSidebarDrag } from '@/components/sidebar/hooks/use-sidebar-drag'
 import { DragGhost, DragGhostRows } from '@/components/layout/drag-ghost'
 import { DropIndicator } from '@/components/layout/drop-indicator'
-import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
+import { recentsRowOf, registerRecentsRow } from '@/components/sidebar/lib/recents-row-registry'
 import { BuildReadout } from '@/components/layout/build-readout'
 import { useProjectViewIds } from '@/features/panes/hooks/use-project-view-ids'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
@@ -38,21 +38,17 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
   const { rowRef, isAtLeftEdge, isAtRightEdge, isAtTopEdge } = usePaneTopRowEdges([sidebarPosition])
   const scrollRef = useRef<HTMLDivElement>(null)
-  const rowsRef = useRef(new Map<string, SidebarRowType>())
-  const registerRow = (row: SidebarRowType) => {
-    rowsRef.current.set(row.id, row)
-  }
   const drag = useSidebarDrag({
     scrollRef,
-    reorderInStrip: true,
+    strip: () => scrollRef.current,
     // A tab moves as a whole: grabbing any chat of a split carries them all.
     // Membership is read from the pane store at grab time, so a chat closed
-    // out of the split is not carried back; `rowsRef` only supplies row data.
+    // out of the split is not carried back; the registry only supplies row data.
     subjectsFor: (rowId) => {
       const { panes, views } = windowPaneStore.getState()
       const viewId = panes[chatPaneIndex(panes).get(rowId) ?? '']?.viewId
       if (!viewId) return []
-      return viewChatIds({ panes, views }, viewId).flatMap((id) => rowsRef.current.get(id) ?? [])
+      return viewChatIds({ panes, views }, viewId).flatMap((id) => recentsRowOf(id) ?? [])
     },
     onDrop: performSidebarDrop,
     onPaneDrop: performSidebarPaneDrop,
@@ -82,6 +78,7 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
       <div
         ref={scrollRef}
         data-testid="view-tabs"
+        data-view-tab-strip
         data-drop-axis="x"
         data-tauri-drag-region
         className="tab-scrollbar flex min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden"
@@ -93,7 +90,7 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
               onFocus={(id) => focusRecent(id, useSidebarStore.getState().repos, navigate)}
               onClose={closeRecent}
               drag={drag}
-              registerRow={registerRow}
+              registerRow={registerRecentsRow}
             />
           </ViewTabSlot>
         ))}
