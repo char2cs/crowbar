@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom'
-import type { CSSProperties, MouseEvent, Ref } from 'react'
+import type { CSSProperties, MouseEvent, Ref, RefObject } from 'react'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
@@ -7,11 +7,11 @@ import { ProviderSwitchDropdown } from '@/features/agent/components/provider-swi
 import { useChatHeaderSlotElement } from '@/features/agent/hooks/chat-header-slot'
 import { ViewSwitcher } from '@/features/agent/controls/view-switcher'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
-import {
-  LazyXtermTerminal,
-  type XtermTerminalProps,
-} from '@/features/terminal/components/lazy-terminal'
+import { LazyXtermTerminal } from '@/features/terminal/components/lazy-terminal'
+import type { TerminalFocusHandle } from '@/features/terminal/components/terminal'
+import { TerminalKeyBar } from '@/features/terminal/components/terminal-key-bar'
 import { cn } from '@/lib/utils'
+import { IS_MOBILE } from '@/utils/platform'
 
 /**
  * What the pane knows about the runner this surface is looking at.
@@ -65,7 +65,7 @@ export interface AgentTerminalSurfaceProps {
   /** A click on this half's dead space, pointed back at the grid. */
   onDeadSpaceMouseDown: (event: MouseEvent<HTMLDivElement>) => void
   /** The terminal's focus handle, for moving the keyboard onto the grid. */
-  terminalRef: XtermTerminalProps['ref']
+  terminalRef: RefObject<TerminalFocusHandle | null>
   /** Bring the chat's provider back without sending anything. */
   onStartSession: () => void
   ref?: Ref<HTMLDivElement>
@@ -181,6 +181,14 @@ export function AgentTerminalSurface({
         />
       )}
 
+      {/* The keys a phone keyboard lacks, under the grid. */}
+      {IS_MOBILE &&
+        presentation === 'terminal' &&
+        attachment.state === 'attached' &&
+        attachment.sessionId && (
+          <TerminalKeyBar onSend={(bytes) => terminalRef?.current?.send(bytes)} />
+        )}
+
       {presentation !== 'chat' && attachment.state === 'attached' && !attachment.sessionId && (
         // A live, non-hotswap api-transport runner (codex) with nothing attached —
         // correct and common, not a failure. No Resume button: there is nothing to
@@ -226,7 +234,8 @@ export function AgentTerminalSurface({
           createPortal(controls, headerSlot)
         ) : (
           <div
-            className="flex items-center justify-end gap-3 py-2"
+            // The phone keeps the switcher above the grid, clear of the keyboard and key bar.
+            className={cn('flex items-center justify-end gap-3 py-2', IS_MOBILE && 'order-first')}
             style={{ paddingRight: gridSlack }}
           >
             {controls}

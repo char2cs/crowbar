@@ -33,14 +33,22 @@ import {
 // the network, not by what it renders. Its textarea stands in for the view's composer.
 const probe = vi.hoisted(() => ({ mounts: 0 }))
 vi.mock('@/features/agent/chat/agent-chat-view', () => ({
-  AgentChatView: ({ wsId, chatId }: { wsId: string; chatId: string }) => {
+  AgentChatView: ({
+    wsId,
+    chatId,
+    awaitingList,
+  }: {
+    wsId: string
+    chatId: string
+    awaitingList?: boolean
+  }) => {
     useEffect(() => {
       probe.mounts++
       void chatLedgerStore.getState().loadInitial(wsId, chatId)
     }, [wsId, chatId])
     return createElement(
       'div',
-      { 'data-testid': 'chat-view' },
+      { 'data-testid': 'chat-view', 'data-holding-reveal': String(Boolean(awaitingList)) },
       createElement('textarea', { 'aria-label': 'composer' }),
     )
   },
@@ -157,6 +165,24 @@ describe('AgentChatPaneGate on an install that has paired a remote host', () => 
     )
     expect(requested().every((url) => url.startsWith('crowbar://host-1/'))).toBe(true)
   })
+
+  // Holding the reveal waits for a chat list; a host that cannot answer would hold it forever.
+  it.each([
+    ['up', 'true'],
+    ['down', 'false'],
+  ] as const)(
+    'with its host %s and no chat list yet, the reveal is held: %s',
+    async (status, held) => {
+      ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+      recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r1', wsId: 'w-remote' })
+      loadProjects(projectOn('p-remote', 'host-1'))
+      getOrCreateHostRuntime('host-1').getState().setStatus(status)
+
+      mount('w-remote')
+
+      expect(await screen.findByTestId('chat-view')).toHaveAttribute('data-holding-reveal', held)
+    },
+  )
 
   it('keeps saying it is waiting when the list could not be read and nothing is held', async () => {
     mount()

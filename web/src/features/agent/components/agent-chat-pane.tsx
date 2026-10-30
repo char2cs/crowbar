@@ -967,7 +967,8 @@ export function AgentChatPaneBody({
               // Unknown chats never resolve, so this doubles as "give up polling a
               // chat that will 404 forever" — not just tab visibility.
               visible={isVisible && (known || (!listSeeded && placed))}
-              awaitingList={!known && !listSeeded}
+              // An unreachable host never answers the list; holding for it hides the cache.
+              awaitingList={!known && !listSeeded && !offline}
               isActivePane={isActivePane}
               // The daemon has confirmed shownChatId does not exist (a stale
               // pane from a wiped/reseeded backend, or a chat deleted from

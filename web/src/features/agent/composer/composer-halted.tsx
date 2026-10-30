@@ -1,7 +1,11 @@
+import { Button } from '@/components/ui/button'
+
 interface ComposerHaltedProps {
   message: string
   /** When the limit lifts, if the provider said. */
   resetsAt?: string
+  /** Sends the prompt that halted again; absent when there is none to send. */
+  onRetry?: () => void
 }
 
 function resetLabel(resetsAt: string): string {
@@ -18,12 +22,17 @@ function resetLabel(resetsAt: string): string {
  * name on a claim it cannot stand behind. The footer selectors stay live under
  * this — switching model is the one thing that can actually clear a limit.
  */
-export function ComposerHalted({ message, resetsAt }: ComposerHaltedProps) {
+export function ComposerHalted({ message, resetsAt, onRetry }: ComposerHaltedProps) {
   const when = resetsAt ? resetLabel(resetsAt) : ''
   return (
     <div className="pill halted" role="alert">
       <span className="msg">{message}</span>
       {when && <span className="when">{when}</span>}
+      {onRetry && (
+        <Button size="sm" variant="secondary" onClick={onRetry}>
+          Try again
+        </Button>
+      )}
     </div>
   )
 }

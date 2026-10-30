@@ -717,6 +717,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Dark's --warning-foreground is the ink for a solid warning fill, not for text on this tint. */
+.dark .agent-chat .pill.halted .msg {
+  color: var(--warning);
+}
 /* A finger cannot hover or widen the pane to read an ellipsis, and the message
    is the only clue to WHICH prompt the provider is stuck on. */
 @media (pointer: coarse) {
@@ -741,6 +745,8 @@
 @media (pointer: coarse) {
   .agent-chat .pill.halted > button:last-child {
     margin-left: 0;
+    min-height: 44px;
+    min-width: 44px;
   }
 }
 .agent-chat .pill.halted .when {
@@ -1130,6 +1136,15 @@
 .viewswitch button:disabled {
   opacity: 0.35;
   cursor: default;
+}
+/* The phone's 44pt touch target, invisible: the segments keep their size. */
+.agent-chat-pane[data-touch] .viewswitch button {
+  position: relative;
+}
+.agent-chat-pane[data-touch] .viewswitch button::before {
+  content: '';
+  position: absolute;
+  inset: -11px -3px;
 }
 .viewswitch svg {
   width: 14px;

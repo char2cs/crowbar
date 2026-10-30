@@ -263,6 +263,10 @@ export interface AgentChatViewProps {
  *  A `notice` is only the CURRENT state while nothing has happened after it — the
  *  next turn's own messages are the evidence that it no longer applies, so this
  *  reads the tail of the ledger rather than searching it. */
+function haltedPromptOf(messages: AgentChatMessage[]): string | undefined {
+  return messages.filter((m) => m.role === 'user').at(-1)?.text
+}
+
 function haltedBy(messages: AgentChatMessage[]): AgentChatMessage | undefined {
   const last = messages.at(-1)
   return last?.role === 'notice' ? last : undefined
@@ -698,6 +702,7 @@ export function AgentChatView({
   // render it as a row: it is one sentence, and saying it twice reads as the
   // provider having stopped twice.
   const halted = haltedBy(ledger.messages)
+  const haltedPrompt = halted ? haltedPromptOf(ledger.messages) : undefined
   // Where the transcript draws its boundary pills — one merged wavy line per
   // anchor rather than one full-width divider per event (a stop, a switch and
   // a compaction landing on the same next message used to stack three
@@ -802,6 +807,16 @@ export function AgentChatView({
     setStashPickerOpen(true)
   }
 
+  const stagedProvider = effectiveProviderId === providerId ? '' : effectiveProviderId
+  // undefined, not '', when this pane cannot speak for the selection: '' is a PICK
+  // of the provider's own default and the daemon honours it as a clear.
+  const enqueueSelected = (text: string) =>
+    prompts.enqueue(
+      text,
+      stagedProvider,
+      selectionKnown ? model : undefined,
+      selectionKnown ? effort : undefined,
+    )
   // `text` overrides the draft state for a surface that HOLDS its own text. The
   // document is a contenteditable, so the character that triggered the submit may
   // not have reached React yet — reading state there can enqueue the prompt one
@@ -816,16 +831,7 @@ export function AgentChatView({
     // one the backend would no-op on. Baking these into the queue item now
     // (not reading them again at dispatch) is what keeps a later pick from
     // bleeding onto this message.
-    const stagedProvider = effectiveProviderId === providerId ? '' : effectiveProviderId
-    // undefined, not '', when this pane cannot speak for the selection: ''
-    // is a PICK of the provider's own default and the daemon honours it as
-    // a clear. See `selectionKnown`'s own doc.
-    const result = prompts.enqueue(
-      text ?? draft,
-      stagedProvider,
-      selectionKnown ? model : undefined,
-      selectionKnown ? effort : undefined,
-    )
+    const result = enqueueSelected(text ?? draft)
     if (!result.ok) {
       setComposerError(result.error ?? '')
       return
@@ -1244,6 +1250,7 @@ export function AgentChatView({
               }
               haltedMessage={halted?.text}
               haltedResetsAt={limitResetsAt(telemetry)}
+              onRetryHalted={haltedPrompt ? () => enqueueSelected(haltedPrompt) : undefined}
               canStop={live}
               draft={draft}
               fieldHeight={fieldHeight}

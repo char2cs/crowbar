@@ -95,6 +95,11 @@ function deriveStacked(width: number): boolean {
  */
 const lastChosenByChatId = new Map<string, ChatPresentation>()
 
+// The phone opens on the chat; its TUI is a deliberate detour, not a preference default.
+function landingFor(chatId: string): ChatPresentation {
+  return lastChosenByChatId.get(chatId) ?? (IS_MOBILE ? 'chat' : getDefaultChatPresentation())
+}
+
 /** Test-only: a real session never reuses a chat id, but fixtures across
  *  `it` blocks do — without this, an earlier test's pick leaks into a later
  *  test that expects the plain global default. Mirrors
@@ -137,9 +142,7 @@ export function useChatPresentation(
     current: HTMLElement | null
   },
 ) {
-  const [chosen, setChosenRaw] = useState<ChatPresentation>(
-    () => lastChosenByChatId.get(shownChatId) ?? getDefaultChatPresentation(),
-  )
+  const [chosen, setChosenRaw] = useState<ChatPresentation>(() => landingFor(shownChatId))
   // The one path an explicit pick takes (chooseSurface/enterTerminal in
   // agent-chat-pane.tsx, both via `setPresentation` below) — every pick this
   // chat's user makes is remembered for it before it is applied, so a later
@@ -154,13 +157,12 @@ export function useChatPresentation(
     },
     [shownChatId],
   )
-  const splitEnabled = useSplitPresentationEnabled()
+  // Two live halves do not fit a phone.
+  const splitEnabled = useSplitPresentationEnabled() && !IS_MOBILE
   // THE SURFACE ACTUALLY SHOWN. Derived rather than corrected, so switching the
   // dev toggle off cannot strand a chat on a surface whose button has just gone:
   // there is no state to write back, and no frame in which the two disagree.
-  // The phone has no TUI surface: its chat is the transcript and composer, always.
-  const presentation: ChatPresentation =
-    IS_MOBILE || (chosen === 'split' && !splitEnabled) ? 'chat' : chosen
+  const presentation: ChatPresentation = chosen === 'split' && !splitEnabled ? 'chat' : chosen
   const splitting = presentation === 'split'
 
   // Whether the way back to the chat is being OFFERED — what Crowbar shows when
@@ -190,7 +192,7 @@ export function useChatPresentation(
     // default — a chat's own choice must outlive being navigated away from and
     // back to, exactly like split already did.
     if (!splitting) {
-      setChosenRaw(lastChosenByChatId.get(shownChatId) ?? getDefaultChatPresentation())
+      setChosenRaw(landingFor(shownChatId))
     }
     setReturnOffered(false)
     setSplitFocus('chat')
