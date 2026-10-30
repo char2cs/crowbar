@@ -38,6 +38,7 @@ import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { ApiError, type WorkAtRisk } from '@/lib/errors/api-error'
 import { DISCARD_WORK_INIT } from '@/lib/api'
+import { useOperationsStore, type Operation } from '@/lib/store/operations'
 
 /**
  * COMMITTING A REMOVAL — the one step that destroys anything.
@@ -109,6 +110,7 @@ beforeEach(() => {
   useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set<string>() } as never)
   useSidebarStore.setState({ repos: [repo()] })
   useHomeTreeStore.setState({ trees: {} })
+  useOperationsStore.setState({ ops: {}, latestFor: {} })
 })
 
 describe('committing a workspace removal', () => {
@@ -167,6 +169,23 @@ describe('committing a workspace removal', () => {
 
     expect(deleteChat).toHaveBeenCalledExactlyOnceWith('ws-home', 'chat-bubble')
     expect(useFolderSignalStore.getState().generations['r1'] ?? 0).toBeGreaterThan(before)
+  })
+
+  // The create's spinner row would otherwise stand in for the deleted chat forever.
+  it('dismisses the succeeded create that made what it removed', async () => {
+    const created: Operation = {
+      ...{ id: 'op-create', kind: 'branch.create', subject: { kind: 'repo', id: 'r1' } },
+      ...{ projectId: 'p1', label: 'Create feature/one', state: 'succeeded', dismissed: false },
+      items: [{ ref: { kind: 'chat', id: 'chat-fork' }, label: 'feature/one', state: 'succeeded' }],
+      ...{ version: 1, createdAt: '', updatedAt: '', local: true },
+    }
+    const other: Operation = { ...created, id: 'op-other', items: [] }
+    useOperationsStore.setState({ ops: { [created.id]: created, [other.id]: other } })
+
+    await commitRemoval(entry(), context)
+
+    expect(useOperationsStore.getState().ops['op-create']?.dismissed).toBe(true)
+    expect(useOperationsStore.getState().ops['op-other']?.dismissed).toBe(false)
   })
 
   it('un-hides the rows and says why when the delete is refused', async () => {

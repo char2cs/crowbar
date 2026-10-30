@@ -87,7 +87,10 @@ describe('rowsFromOperations', () => {
         item('chat-b', 'good', { state: 'succeeded' }),
       ],
     })
-    expect(rows([failed])).toMatchObject([{ id: 'chat-a', label: 'bad/x', working: false }])
+    expect(rows([failed])).toMatchObject([
+      { id: 'chat-a', label: 'bad/x', working: false },
+      { id: 'chat-b', working: true },
+    ])
     expect(rows([failed])[0]?.operation).toEqual({
       opId: 'op-1',
       state: 'failed',
@@ -117,17 +120,35 @@ describe('rowsFromOperations', () => {
     ])
   })
 
-  // A succeeded create whose entity was deleted afterwards drew a spinner forever.
-  it('a succeeded item draws nothing, present or not: the entity row stands for it', () => {
+  it('a succeeded item disappears once its entity is present', () => {
     const done = importOp({
       state: 'succeeded',
       items: [item('chat-b', 'good', { state: 'succeeded' })],
     })
-    expect(rows([done])).toEqual([])
+    expect(rows([done])).toMatchObject([{ id: 'chat-b', working: true }])
     useSidebarStore.setState({
       repos: [repo({ chats: [{ id: 'chat-b', repoId: 'r1', title: '', order: 0 }] })],
     })
     expect(rows([done])).toEqual([])
+  })
+
+  // A ghost after reload: the snapshot replays a create whose chat was deleted since.
+  it('a succeeded item replayed on connect draws nothing: its entity was deleted, not in flight', () => {
+    const replayed = importOp({
+      state: 'succeeded',
+      snapshot: true,
+      items: [item('chat-b', 'good', { state: 'succeeded' })],
+    })
+    expect(rows([replayed])).toEqual([])
+    const partial = importOp({
+      state: 'failed',
+      snapshot: true,
+      items: [
+        item('chat-a', 'bad/x', { state: 'failed', error: NOT_A_DIR }),
+        item('chat-b', 'good', { state: 'succeeded' }),
+      ],
+    })
+    expect(rows([partial]).map((r) => r.id)).toEqual(['chat-a'])
   })
 
   it('a dismissed failed operation draws nothing', () => {

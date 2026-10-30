@@ -317,15 +317,16 @@ describe('creating a workspace off a REGULAR fork row', () => {
     handleCreate('ws-a', 'workspace', navigate)
     confirmArmedBranchName('feature/x', navigate)
     const chatId = mintedForkId()
-    const opRows = () =>
-      rowsFromOperations(Object.values(useOperationsStore.getState().ops), { projectId: 'p1' })
-    expect(opRows()).toMatchObject([
-      { id: chatId, kind: 'branch', label: 'feature/x', parentId: 'c-owner', working: true },
-    ])
     await vi.waitFor(() =>
       expect(Object.values(useOperationsStore.getState().ops)[0]?.state).toBe('succeeded'),
     )
-    expect(opRows()).toEqual([])
+
+    const rows = rowsFromOperations(Object.values(useOperationsStore.getState().ops), {
+      projectId: 'p1',
+    })
+    expect(rows).toMatchObject([
+      { id: chatId, kind: 'branch', label: 'feature/x', parentId: 'c-owner', working: true },
+    ])
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).not.toBe(chatId)
 
     useSidebarStore.setState({

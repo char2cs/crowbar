@@ -103,7 +103,17 @@ describe('a project-home chat row resolves Thread through its home workspace, an
     await vi.waitFor(() =>
       expect(Object.values(useOperationsStore.getState().ops)[0]?.state).toBe('succeeded'),
     )
-    // Succeeded: the chat's own row stands for it, so the operation draws nothing.
+    // Succeeded, but the chat is not in the home tree yet: the row still stands in.
+    expect(opRows()).toHaveLength(1)
+
+    useHomeTreeStore.setState({
+      trees: {
+        p1: {
+          chats: [existing, { ...existing, id: chatId, title: '', parentId: 'c1' }],
+          folders: [],
+        },
+      },
+    })
     expect(opRows()).toEqual([])
   })
 
