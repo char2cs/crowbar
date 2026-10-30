@@ -21,13 +21,23 @@ import (
 type Repository struct {
 	ax asynx.Asynx[tree.Tree]
 
-	mu     sync.Mutex
-	held   map[string]heldTree
-	writes map[string]int64 // per project, bumped by every write and Forget
+	mu   sync.Mutex
+	held map[string]heldTree
+	// writes is bumped by every write that ends, so a miss read during one is not held.
+	writes map[string]int64
+	// epoch is bumped by every write that may have committed unseen and by
+	// Forget: a write begun in an earlier epoch is not held.
+	epoch map[string]int64
+	// inflight counts each project's writes under way: a read then may see one
+	// whose result has not come back, so nothing it or an older write saw fills
+	// an empty slot until they all end.
+	inflight map[string]int
+	// newest is the highest version any write came back with.
+	newest map[string]int64
 }
 
 // heldTree is a decoded tree and the event version it is at; a tree read on a
-// miss has no known version (-1), so any write's result replaces it.
+// miss has no known version (-1), so any later write's result replaces it.
 type heldTree struct {
 	tree    tree.Tree
 	version int64
@@ -36,14 +46,17 @@ type heldTree struct {
 // New builds the repository over the Tree's asynx instance; it must be the only
 // writer of that instance, or what it holds can fall behind.
 func New(ax asynx.Asynx[tree.Tree]) *Repository {
-	return &Repository{ax: ax, held: map[string]heldTree{}, writes: map[string]int64{}}
+	return &Repository{
+		ax: ax, held: map[string]heldTree{}, writes: map[string]int64{},
+		epoch: map[string]int64{}, inflight: map[string]int{}, newest: map[string]int64{},
+	}
 }
 
 // Get is projectID's tree; a project nothing was placed in has an empty one.
 func (r *Repository) Get(ctx context.Context, projectID string) (tree.Tree, error) {
 	r.mu.Lock()
 	h, ok := r.held[projectID]
-	gen := r.writes[projectID]
+	gen, quiet := r.writes[projectID], r.inflight[projectID] == 0
 	r.mu.Unlock()
 	if ok {
 		return h.tree.Clone(), nil
@@ -58,28 +71,62 @@ func (r *Repository) Get(ctx context.Context, projectID string) (tree.Tree, erro
 	t = tree.Empty(projectID).Merge(t)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	// A write that finished during the read is newer than what was read.
-	if _, filled := r.held[projectID]; !filled && r.writes[projectID] == gen {
+	_, filled := r.held[projectID]
+	if quiet && !filled && r.writes[projectID] == gen && r.inflight[projectID] == 0 {
 		r.held[projectID] = heldTree{tree: t.Clone(), version: -1}
 	}
 	return t, nil
 }
 
-// hold records what a write returned, unless a later write already did.
-func (r *Repository) hold(projectID string, t tree.Tree, version int64) {
+// begin marks a write of projectID under way and returns the epoch it began in.
+func (r *Repository) begin(projectID string) int64 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.inflight[projectID]++
+	return r.epoch[projectID]
+}
+
+// end closes a write begun in epoch. A committed one replaces an older held
+// tree, or fills an empty slot once no write is under way and it is the newest;
+// one that may have committed unseen empties the slot and moves the epoch on.
+func (r *Repository) end(projectID string, epoch int64, evt asynxModels.Event[tree.Tree], err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.inflight[projectID]--
 	r.writes[projectID]++
-	if h, ok := r.held[projectID]; ok && h.version > version {
+	switch {
+	case err != nil && refused(err):
+	case err != nil:
+		r.epoch[projectID]++
+		delete(r.held, projectID)
+	case r.epoch[projectID] != epoch:
+	default:
+		r.newest[projectID] = max(r.newest[projectID], evt.Version)
+		r.holdLocked(projectID, evt)
+	}
+}
+
+func (r *Repository) holdLocked(projectID string, evt asynxModels.Event[tree.Tree]) {
+	h, ok := r.held[projectID]
+	if ok && h.version >= evt.Version {
 		return
 	}
-	r.held[projectID] = heldTree{tree: tree.Empty(projectID).Merge(t), version: version}
+	if !ok && (r.inflight[projectID] > 0 || evt.Version < r.newest[projectID]) {
+		return
+	}
+	r.held[projectID] = heldTree{tree: tree.Empty(projectID).Merge(evt.Aggregate), version: evt.Version}
+}
+
+// refused is a write its command turned down before anything was committed.
+func refused(err error) bool {
+	return errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, tree.ErrUnknownNode)
 }
 
 func (r *Repository) evict(projectID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.writes[projectID]++
+	r.epoch[projectID]++
 	delete(r.held, projectID)
 }
 
@@ -165,14 +212,12 @@ func (r *Repository) Forget(ctx context.Context, projectID string) error {
 }
 
 func (r *Repository) send(ctx context.Context, c edit) (tree.Tree, error) {
+	epoch := r.begin(c.projectID)
 	evt, err := r.ax.SendWait(ctx, c)
+	r.end(c.projectID, epoch, evt, err)
 	if err != nil {
-		// A refused write changed nothing, but one that failed after its commit
-		// leaves the held tree unknown: read it again.
-		r.evict(c.projectID)
 		return tree.Tree{}, fmt.Errorf("tree: %s %s: %w", c.op, c.projectID, err)
 	}
-	r.hold(c.projectID, evt.Aggregate, evt.Version)
 	return evt.Aggregate, nil
 }
 
