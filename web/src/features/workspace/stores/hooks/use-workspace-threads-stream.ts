@@ -39,6 +39,7 @@ export function useWorkspaceThreadsStream(wsId: string): void {
           upsertReviewThread(t)
         }
       } catch (err) {
+        if (cancelled) return
         report(err, { action: 'Load review threads' })
       }
     }

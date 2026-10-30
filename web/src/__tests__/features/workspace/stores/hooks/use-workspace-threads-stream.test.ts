@@ -119,6 +119,22 @@ describe('useWorkspaceThreadsStream', () => {
     )
   })
 
+  it('a seed that fails after unmount reports nothing', async () => {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    onTestFinished(() => toastAdd.mockRestore())
+    let fail: (err: Error) => void = () => {}
+    listThreadsFn.mockReturnValueOnce(new Promise((_, reject) => (fail = reject)))
+    const { unmount } = renderHook(() => useWorkspaceThreadsStream('ws1'))
+    await waitFor(() => expect(listThreadsFn).toHaveBeenCalled())
+
+    unmount()
+    fail(new Error('daemon unreachable'))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(toastAdd).not.toHaveBeenCalled()
+  })
+
   it('maps a pushed ThreadDTO frame and calls upsertReviewThread', async () => {
     renderHook(() => useWorkspaceThreadsStream('ws1'))
 
