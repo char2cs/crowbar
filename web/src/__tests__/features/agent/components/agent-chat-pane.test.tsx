@@ -872,6 +872,18 @@ describe('AgentChatPane', () => {
       expect(section.style.getPropertyValue('--agent-transcript-header-clearance')).toBe('98px')
     })
 
+    it('starts the terminal grid below an overlay header', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      await renderBelowOverlayHeader(store, 'c1', 'r1')
+      expect(screen.getByTestId('agent-terminal-surface').style.paddingTop).toBe('42px')
+    })
+
+    it('starts the terminal grid flush with no overlay header above', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
+      expect(screen.getByTestId('agent-terminal-surface').style.paddingTop).toBe('0px')
+    })
+
     it('gives the transcript no extra clearance with no overlay header above', async () => {
       listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
 

@@ -52,6 +52,8 @@ export interface AgentTerminalSurfaceProps {
   isVisible: boolean
   /** Right inset so the strip ends on the character grid's last column. */
   gridSlack: number
+  /** Height of an overlay header floating over this surface; the grid starts below it. */
+  headerClearancePx: number
   providers: AgentProvider[]
   activeProviderId: string
   switchDisabled: boolean
@@ -96,6 +98,7 @@ export function AgentTerminalSurface({
   isActivePane,
   isVisible,
   gridSlack,
+  headerClearancePx,
   providers,
   activeProviderId,
   switchDisabled,
@@ -153,7 +156,12 @@ export function AgentTerminalSurface({
           ? 'relative min-h-0 min-w-0 shrink grow-0'
           : cn('h-full', presentation === 'terminal' ? '' : 'hidden'),
       )}
-      style={splitting ? ({ flexBasis: `${basis}%` } as CSSProperties) : undefined}
+      style={
+        {
+          paddingTop: headerClearancePx,
+          ...(splitting ? { flexBasis: `${basis}%` } : undefined),
+        } as CSSProperties
+      }
     >
       {attachment.state === 'attached' && attachment.sessionId && (
         // NO key={sessionId}. Runner replacement swaps the PTY imperatively

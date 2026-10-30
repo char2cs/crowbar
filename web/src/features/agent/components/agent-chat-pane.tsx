@@ -1094,6 +1094,7 @@ export function AgentChatPaneBody({
             isActivePane={isActivePane}
             isVisible={isVisible}
             gridSlack={gridSlack}
+            headerClearancePx={belowOverlayHeader ? HEADER_ROW_HEIGHT_PX : 0}
             providers={providers}
             activeProviderId={activeProviderId}
             switchDisabled={
