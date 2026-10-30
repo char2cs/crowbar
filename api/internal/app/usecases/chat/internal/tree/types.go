@@ -297,6 +297,8 @@ type ChatDeletion struct {
 	Chats   []string
 	Folders []string
 	Shifted []domain.Chat
+	// Taken is the chats outside the selection the git cascade took with it.
+	Taken []string
 }
 
 // Usecase owns the sidebar forest's folder CRUD, chat placement, and the dense

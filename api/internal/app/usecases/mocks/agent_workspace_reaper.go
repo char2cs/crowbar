@@ -22,7 +22,9 @@ import (
 // method was called — the difference between proving the bug is fixed and
 // proving a line of code runs.
 // Risks answers WorkAtRisk per workspace id; Consents records each delete's.
+// Takes names the git-lineage descendants a workspace's delete also takes.
 type AgentWorkspaceReaper struct {
+	Takes    map[string][]string
 	Reaped   []string
 	Roster   *AgentWorkspaceRoster
 	Err      error
@@ -51,14 +53,19 @@ func (s *AgentWorkspaceReaper) DeleteWorkspace(
 	consent domain.DeleteConsent,
 ) error {
 	s.Consents = append(s.Consents, consent)
-	if _, err := s.DeletionPlan(ctx, workspaceID); err != nil {
+	taken, err := s.DeletionPlan(ctx, workspaceID)
+	if err != nil {
 		return err
 	}
 	s.Reaped = append(s.Reaped, workspaceID)
 	if s.Roster != nil {
+		gone := map[string]bool{}
+		for _, id := range taken {
+			gone[id] = true
+		}
 		kept := make([]domain.Workspace, 0, len(s.Roster.Rows))
 		for _, w := range s.Roster.Rows {
-			if w.ID != workspaceID {
+			if !gone[w.ID] {
 				kept = append(kept, w)
 			}
 		}
@@ -67,7 +74,7 @@ func (s *AgentWorkspaceReaper) DeleteWorkspace(
 	return nil
 }
 
-// DeletionPlan answers the refusal DeleteWorkspace would, else the workspace alone.
+// DeletionPlan answers the refusal DeleteWorkspace would, else what it takes.
 func (s *AgentWorkspaceReaper) DeletionPlan(
 	_ context.Context,
 	workspaceID string,
@@ -78,7 +85,7 @@ func (s *AgentWorkspaceReaper) DeletionPlan(
 	if s.Err != nil {
 		return nil, s.Err
 	}
-	return []string{workspaceID}, nil
+	return append(append([]string{}, s.Takes[workspaceID]...), workspaceID), nil
 }
 
 func (s *AgentWorkspaceReaper) WorkAtRisk(

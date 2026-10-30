@@ -137,6 +137,8 @@ func TestRegression_DeleteMainWithForkChildrenIsAllOrNothing(t *testing.T) {
 	after := readDeleteWorld(t, h, m.importFixture)
 
 	require.Equalf(t, http.StatusAccepted, status, "%s", body)
+	assert.JSONEq(t, `{"success":true,"data":{"takenChatIds":["`+m.featureChat+`"]}}`, body,
+		"the reply names the chat taken beyond the selection")
 	requireNoDanglingLinks(t, after)
 	release := workspacesOnBranch(t, h, m.repoID, "release/1.0")
 	require.Len(t, release, 1, "the locked fork child survives")

@@ -13,14 +13,9 @@ import (
 
 // The cascade that takes a chat's threads and worktrees with it.
 
-// DeleteChat erases chatID and every chat threaded below it, together with any
-// worktree that subtree was the last thing holding. A folder id is refused as
-// not-found — the folder verb promotes what it held, this one cascades.
-//
-// Every refusal is answered before the first effect (planDeletion): a reap
-// cannot be undone, so a delete that will be refused must not have started.
-// Worktrees are reaped before any chat is purged: a chat is the only handle on
-// its worktree, so a failed reap fails the delete rather than orphan it.
+// DeleteChat erases chatID's subtree and the worktrees it alone held. Every
+// refusal comes before the first effect, since a reap cannot be undone; reaps
+// precede purges because a chat is the only handle on its worktree.
 func (u *chatFolderUsecase) DeleteChat(
 	ctx context.Context,
 	chatID string,
@@ -44,6 +39,7 @@ func (u *chatFolderUsecase) DeleteChat(
 	if err != nil {
 		return ChatDeletion{}, err
 	}
+	plan.levels = plan.rehang(snapshot)
 	if err := u.reapWorktrees(ctx, chatID, plan.reap, consent); err != nil {
 		return ChatDeletion{}, err
 	}
@@ -54,26 +50,31 @@ func (u *chatFolderUsecase) DeleteChat(
 	if err := u.removeAll(ctx, snapshot, plan.folders); err != nil {
 		return ChatDeletion{}, err
 	}
-	snapshot.plan.Reorder(snapshot.canonical(current.ParentID), "", -1)
+	for _, level := range append(plan.levels, snapshot.canonical(current.ParentID)) {
+		snapshot.plan.Reorder(level, "", -1)
+	}
 	shifted, err := u.persist(ctx, snapshot)
 	if err != nil {
 		return ChatDeletion{}, err
 	}
-	return ChatDeletion{Chats: plan.chats, Folders: plan.folders, Shifted: shifted}, nil
+	return ChatDeletion{Chats: plan.chats, Folders: plan.folders, Shifted: shifted, Taken: plan.taken}, nil
 }
 
 // deletion is everything one DeleteChat takes, settled before any of it goes.
+// taken is the rows outside the selection whose worktree the cascade takes;
+// levels the sibling spaces the rows they held rise into.
 type deletion struct {
 	chats    []string
 	folders  []string
+	taken    []string
+	levels   []string
 	reap     []domain.Chat
 	orphaned []string
 }
 
-// planDeletion settles what the delete takes and answers every refusal without
-// an effect. The git cascade of a reaped worktree can take worktrees whose rows
-// sit outside the subtree (a fork child dragged beside its parent); their rows
-// join the doomed set, or the tree write would name rows the cascade erased.
+// planDeletion settles what the delete takes and answers every refusal before
+// an effect. The reap is bounded by git lineage: a row outside the selection
+// goes only when the cascade takes its own worktree.
 func (u *chatFolderUsecase) planDeletion(
 	ctx context.Context,
 	snapshot *treeSnapshot,
@@ -82,22 +83,17 @@ func (u *chatFolderUsecase) planDeletion(
 ) (deletion, error) {
 	chats, folders := snapshot.subtree(rootID)
 	d := deletion{chats: append(chats, rootID), folders: folders}
-	for {
-		reap, orphaned, err := u.planReap(ctx, snapshot, d.chats)
-		if err != nil {
-			return deletion{}, err
-		}
-		reap, orphaned, taken, err := u.planCascades(ctx, snapshot, rootID, reap, orphaned)
-		if err != nil {
-			return deletion{}, fmt.Errorf("agent chat folder: delete chat %s: %w", rootID, err)
-		}
-		d.reap, d.orphaned = reap, orphaned
-		if !d.takeRowsOf(snapshot, taken) {
-			break
-		}
+	reap, orphaned, err := u.planReap(ctx, snapshot, d.chats)
+	if err != nil {
+		return deletion{}, err
 	}
-	// Rows the cascade added are guarded as the subtree was.
-	if err := guardNotWorking(ctx, d.chats, u.busy); err != nil {
+	reap, orphaned, cascaded, err := u.planCascades(ctx, snapshot, rootID, reap, orphaned)
+	if err != nil {
+		return deletion{}, fmt.Errorf("agent chat folder: delete chat %s: %w", rootID, err)
+	}
+	d.reap, d.orphaned = reap, orphaned
+	d.takeRowsOf(snapshot, cascaded)
+	if err := guardNotWorking(ctx, d.taken, u.busy); err != nil {
 		return deletion{}, err
 	}
 	if err := u.refuseLoss(ctx, d.reap, consent); err != nil {
@@ -107,10 +103,8 @@ func (u *chatFolderUsecase) planDeletion(
 }
 
 // planCascades asks the workspace layer what each reap would take. A locked
-// DESCENDANT is kept and reminted a fresh owner — the cascade caught it
-// incidentally (TestWorktree_deleteCascadeSkipsLockedChild); a locked ROOT is
-// what the caller asked to delete, so it refuses (409) rather than report a
-// delete that removed nothing (TestRegression_DeleteLockedWorkspaceRejected).
+// descendant the cascade only caught is kept and reminted an owner; a locked
+// root is what the caller named, so it refuses rather than remove nothing.
 func (u *chatFolderUsecase) planCascades(
 	ctx context.Context,
 	snapshot *treeSnapshot,
@@ -140,26 +134,39 @@ func (u *chatFolderUsecase) planCascades(
 	return reap, orphaned, taken, nil
 }
 
-// takeRowsOf adds every row anchored in a taken workspace, with its subtree,
-// to the doomed set, reporting whether that grew it.
+// takeRowsOf adds the rows outside the selection anchored in a worktree the
+// cascade takes — each row alone; what it holds is re-hung, not cascaded.
 func (d *deletion) takeRowsOf(
 	snapshot *treeSnapshot,
-	taken map[string]bool,
-) bool {
+	cascaded map[string]bool,
+) {
 	doomed := doomedSet(append(append([]string{}, d.chats...), d.folders...))
-	grew := false
 	for _, row := range snapshot.rows {
-		if !taken[row.WorkspaceID] || doomed[row.ID] {
+		if cascaded[row.WorkspaceID] && !doomed[row.ID] {
+			d.taken = append(d.taken, row.ID)
+		}
+	}
+	d.chats = append(d.chats, d.taken...)
+}
+
+// rehang lifts what each taken row holds outside the delete to that row's own
+// parent, as deleting a folder promotes what it held, and returns those levels.
+func (d *deletion) rehang(snapshot *treeSnapshot) []string {
+	doomed := doomedSet(append(append([]string{}, d.chats...), d.folders...))
+	var levels []string
+	for _, id := range d.taken {
+		node, ok := snapshot.plan.Node(id)
+		if !ok {
 			continue
 		}
-		chats, folders := snapshot.appendSubtree(row.ID, nil, nil)
-		for _, id := range append(chats, folders...) {
-			doomed[id] = true
+		for _, child := range snapshot.plan.Members(snapshot.container(id)) {
+			if !doomed[child.ID] {
+				snapshot.plan.SetParent(child.ID, node.ParentID)
+			}
 		}
-		d.chats, d.folders = append(d.chats, chats...), append(d.folders, folders...)
-		grew = true
+		levels = append(levels, node.ParentID)
 	}
-	return grew
+	return levels
 }
 
 // reapWorktrees tears down the planned worktrees, deepest first. A workspace an
@@ -181,11 +188,9 @@ func (u *chatFolderUsecase) reapWorktrees(
 	return nil
 }
 
-// planReap splits the doomed rows' workspaces into those to reap (one row per
-// workspace) and those to keep: a worktree still held by a surviving chat
-// (heldElsewhere), or the repo's main checkout, which only deleting the repo
-// takes. A kept workspace the subtree owned is returned for a fresh owner. A
-// row with no workspace of its own (a bubble) owns nothing to reap.
+// planReap picks one row per doomed workspace to reap, keeping a worktree a
+// surviving chat still holds or one that outlives its chats (the repo's main
+// checkout); a kept one the subtree owned is returned for a fresh owner.
 func (u *chatFolderUsecase) planReap(
 	ctx context.Context,
 	snapshot *treeSnapshot,

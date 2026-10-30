@@ -156,5 +156,14 @@ func (h *Handlers) Delete(
 		h.broadcastFolder(folderID, wsID, "folder_deleted")
 	}
 	h.announceFolders(wsID, removed.Shifted, "folder_updated")
-	libs.WriteAccepted(ctx)
+	taken := removed.Taken
+	if taken == nil {
+		taken = []string{}
+	}
+	libs.WriteQueryWithStatus(ctx, http.StatusAccepted, chatDeleted{TakenChatIDs: taken})
+}
+
+// chatDeleted names the chats a delete's git cascade took beyond the selection.
+type chatDeleted struct {
+	TakenChatIDs []string `json:"takenChatIds"`
 }
