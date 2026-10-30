@@ -175,6 +175,21 @@ func TestRecorder_AnIdleThatEndsTheTurnKeepsItsStreamedText(t *testing.T) {
 	assert.Empty(t, exit, "the end recorded it")
 }
 
+// A Stop closes the turn before the provider's end: the diff is read live.
+func TestRecorder_LiveDiffIsTheNewestWholeDiff(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
+	require.NoError(t, err)
+	assert.Empty(t, f.r.LiveDiff(testChat, "run-1"))
+	for _, d := range []string{"+x", "+x\n+y"} {
+		_, _, err = f.dispatch(t, delta(engineagents.HookDiffUpdate, "tn", false, false, d))
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, "+x\n+y", f.r.LiveDiff(testChat, "run-1"))
+	assert.Empty(t, f.r.LiveDiff(testChat, "run-2"), "another runner's is not its")
+}
+
 func TestRecorder_RetireAndForgetDropTheStreams(t *testing.T) {
 	f := newRecorderFixture(t, "claude")
 	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})

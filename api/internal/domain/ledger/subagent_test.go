@@ -169,7 +169,7 @@ func TestFold_StopInterruptsEveryLiveSubagent(t *testing.T) {
 		spawned(t, "A", ledger.SubagentBound, "tool-1"),
 	))
 
-	rows, err := ledger.Stop(st)
+	rows, err := ledger.Stop(st, "")
 	require.NoError(t, err)
 	for i, r := range rows {
 		r.Seq = st.Head() + int64(i) + 1

@@ -33,6 +33,7 @@ func (noopTurns) Hook(context.Context, string, string, string, []byte) (string, 
 func (noopTurns) ForgetChat(string) {}
 
 func (noopTurns) ExitRows(ledger.State, string, string) ([]ledger.Row, error) { return nil, nil }
+func (noopTurns) LiveDiff(string, string) string                              { return "" }
 
 func (noopTurns) Retire(string, string) {}
 

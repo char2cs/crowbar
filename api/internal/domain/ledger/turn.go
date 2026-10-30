@@ -183,9 +183,8 @@ func EndTurn(st State, status TurnStatus, reason string) ([]Row, error) {
 }
 
 // EndTurnOf is runnerID's report that the turn providerTurnID names ended: the
-// turn it is about, its rows, and whether it closes that turn. A turn closes
-// once: a report about one already closed has no row, one the ledger never ran
-// a row of its own under a fresh id.
+// turn, its rows, whether it closes it. A turn closes once: a report of a closed
+// one has no row; of one the ledger never ran, a row under a fresh id.
 func EndTurnOf(st State, runnerID, providerTurnID string, end TurnEnded) (string, []Row, bool, error) {
 	turnID, running, closed := st.turnOf(runnerID, providerTurnID)
 	if closed {
@@ -222,18 +221,23 @@ func (s State) turnOf(runnerID, providerTurnID string) (id string, running, clos
 	return uuid.NewString(), false, false
 }
 
-// Stop is a user's Stop as rows: the running turn and every live subagent
+// Stop is a user's Stop as rows: the running turn interrupted with the diff it
+// streamed (its own end comes later and closes nothing), every live subagent
 // interrupted, and every pending prompt settled unconsumed.
-func Stop(st State) ([]Row, error) {
+func Stop(st State, diff string) ([]Row, error) {
 	rows, err := Stopping(st)
 	if err != nil {
 		return nil, err
 	}
-	ended, err := EndTurn(st, TurnStatusInterrupted, ReasonStopped)
-	if err != nil {
-		return nil, err
+	if t, ok := st.RunningTurn(); ok {
+		ended, err := NewRow(KindTurnEnded, t.ID, "", TurnEnded{
+			Status: string(TurnStatusInterrupted), Reason: ReasonStopped, RunnerID: t.RunnerID, Diff: diff,
+		})
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, ended)
 	}
-	rows = append(rows, ended...)
 	settled, err := Settle(st, func(Prompt) bool { return true }, false, ReasonStopped)
 	return append(rows, settled...), err
 }

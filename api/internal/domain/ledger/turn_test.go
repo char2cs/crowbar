@@ -331,15 +331,16 @@ func TestStop_InterruptsTheTurnAndSettlesEveryPendingPrompt(t *testing.T) {
 		row(t, ledger.KindTurnStarted, "T1", ledger.TurnStarted{RequestID: "r1", RunnerID: "run-1"}),
 		crowbarPrompt(t, "r2", "b", "T2"),
 	))
-	rows, err := ledger.Stop(st)
+	rows, err := ledger.Stop(st, "+x")
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
 	ended, err := ledger.DecodeBody[ledger.TurnEnded](rows[0])
 	require.NoError(t, err)
-	assert.Equal(t, ledger.TurnEnded{Status: "interrupted", Reason: "stopped", RunnerID: "run-1"}, ended)
+	assert.Equal(t, ledger.TurnEnded{Status: "interrupted", Reason: "stopped", RunnerID: "run-1", Diff: "+x"}, ended,
+		"the stop keeps the turn's diff so far")
 	assert.Equal(t, []ledger.PromptSettled{{RequestID: "r2", Reason: "stopped"}}, settled(t, rows[1:]))
 
-	rows, err = ledger.Stop(ledger.Fold("c1", nil))
+	rows, err = ledger.Stop(ledger.Fold("c1", nil), "")
 	require.NoError(t, err)
 	assert.Empty(t, rows, "an idle chat has nothing to stop")
 }

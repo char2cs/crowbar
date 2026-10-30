@@ -55,6 +55,7 @@ func (stubTurns) Hook(context.Context, string, string, string, []byte) (string, 
 func (stubTurns) ForgetChat(string) {}
 
 func (stubTurns) ExitRows(ledger.State, string, string) ([]ledger.Row, error) { return nil, nil }
+func (stubTurns) LiveDiff(string, string) string                              { return "" }
 
 func (stubTurns) Retire(string, string) {}
 

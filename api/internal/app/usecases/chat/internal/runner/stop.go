@@ -83,7 +83,7 @@ func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Ru
 	_, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
 		turn, running := st.RunningTurn()
 		stopped = running
-		rows, err := ledger.Stop(st)
+		rows, err := ledger.Stop(st, rs.turns.LiveDiff(chatID, live.ID))
 		if err != nil || !running {
 			return rows, err
 		}

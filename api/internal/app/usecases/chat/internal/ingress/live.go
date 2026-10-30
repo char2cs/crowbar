@@ -95,6 +95,12 @@ func (r *Recorder) ExitRows(st ledger.State, chatID, runnerID string) ([]ledger.
 	return Salvage(st, r.live.unrecorded(chatID, runnerID, "", KindAnswer))
 }
 
+// LiveDiff is the newest whole diff runnerID streamed on chatID: a Stop
+// closes the turn with it.
+func (r *Recorder) LiveDiff(chatID, runnerID string) string {
+	return lastText(r.live.unrecorded(chatID, runnerID, "", KindDiff), "")
+}
+
 // Retire drops runnerID's streamed text on chatID: its exit is recorded. Its
 // exit interrupted what it was spawning, so what it held is settled. The
 // caller holds the chat's lock.

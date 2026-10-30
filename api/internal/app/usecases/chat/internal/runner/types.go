@@ -100,6 +100,8 @@ type Turns interface {
 	// ExitRows are the rows a runner's end records of the answers it streamed
 	// that no row holds; they commit with the end, and Retire follows.
 	ExitRows(st ledger.State, chatID, runnerID string) ([]ledger.Row, error)
+	// LiveDiff is the whole diff runnerID streamed on chatID that no row holds.
+	LiveDiff(chatID, runnerID string) string
 	// Retire drops runnerID's streamed text on chatID once its end is recorded.
 	Retire(chatID, runnerID string)
 

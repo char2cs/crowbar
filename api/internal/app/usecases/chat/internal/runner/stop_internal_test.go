@@ -111,8 +111,16 @@ func interruptServer(t *testing.T, asked chan<- struct{}, release <-chan struct{
 	return &apiconn{driver: driver, ctx: ctx}
 }
 
-// Stop ends the turn in the ledger, records its divider, then asks the
-// provider to interrupt and returns without waiting for the provider's answer.
+// diffTurns is a hook side holding a streamed diff no row holds.
+type diffTurns struct {
+	noopTurns
+	diff string
+}
+
+func (d diffTurns) LiveDiff(string, string) string { return d.diff }
+
+// Stop ends the turn in the ledger with the diff it streamed, records its divider,
+// then asks the provider to interrupt and returns without waiting for its answer.
 func TestStopChat_EndsTheTurnThenInterruptsWithoutWaiting(t *testing.T) {
 	asked, release := make(chan struct{}), make(chan struct{})
 	defer close(release)
@@ -121,7 +129,7 @@ func TestStopChat_EndsTheTurnThenInterruptsWithoutWaiting(t *testing.T) {
 		ws:       stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
 		agents:   stubAgentsForInterrupt{agent: interruptTestAgent(t)},
 		chatLock: newTestLock(), parks: newParks(),
-		turns: noopTurns{},
+		turns: diffTurns{diff: "+x"},
 	})
 	runnerStarted(t, rs, true)
 	rs.apiConns.set("runner-1", interruptServer(t, asked, release))
@@ -130,6 +138,15 @@ func TestStopChat_EndsTheTurnThenInterruptsWithoutWaiting(t *testing.T) {
 
 	st := chatState(t, rs.ledger)
 	assert.False(t, st.Busy(), "Stop ends the turn before it returns")
+	rows, err := rs.ledger.Read(t.Context(), "chat-1", 0, 0)
+	require.NoError(t, err)
+	var diffs []string
+	for _, r := range rows {
+		if end, err := ledger.DecodeBody[ledger.TurnEnded](r); err == nil && r.Kind == ledger.KindTurnEnded {
+			diffs = append(diffs, end.Diff)
+		}
+	}
+	assert.Equal(t, []string{"+x"}, diffs, "the stop keeps the turn's diff")
 	assert.Equal(t, []string{"chat-1"}, stopsRecorded(t, rs))
 	<-asked
 	assert.Empty(t, retiredAs(t, rs), "an interruptible provider keeps its CLI")
