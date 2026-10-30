@@ -194,6 +194,29 @@ describe('AgentChatView', () => {
       expect(submit).toHaveBeenCalledWith('w1', 'c1', '/compact', expect.any(String), '', '', ''),
     )
   })
+
+  it('takes a long first prompt in a fresh chat without an update loop', async () => {
+    const submit = vi
+      .spyOn(commands, 'submitAgentPrompt')
+      .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
+    const consoleError = vi.spyOn(console, 'error')
+    const long = Array.from({ length: 60 }, (_, line) => `line ${line + 1} of the count`).join('\n')
+    const l = ledger('c1')
+    seedFeed('c1', [])
+    draw('c1')
+
+    const box = screen.getByRole('textbox', { name: /describe the change/i })
+    fireEvent.change(box, { target: { value: long } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
+    const requestId = String(submit.mock.calls[0]?.[3])
+    act(() => seedFeed('c1', [l.prompt(requestId, long), l.start('turn-1', requestId)]))
+    act(() => seedFeed('c1', [l.text('turn-1', 'm1', 0, '1\n2\n3', true), l.end('turn-1')]))
+
+    expect(submit.mock.calls[0]?.[2]).toBe(long)
+    expect(await screen.findByText(/line 60 of the count/)).toBeInTheDocument()
+    expect(String(consoleError.mock.calls)).not.toMatch(/Maximum update depth/)
+  })
 })
 
 describe('AgentChatView Esc', () => {
