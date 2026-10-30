@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -15,26 +16,71 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// Repository is the Tree aggregate's store.
+// Repository is the Tree aggregate's store. Every write goes through send, so
+// it keeps each project's decoded tree as the last write returned it.
 type Repository struct {
 	ax asynx.Asynx[tree.Tree]
+
+	mu     sync.Mutex
+	held   map[string]heldTree
+	writes map[string]int64 // per project, bumped by every write and Forget
 }
 
-// New builds the repository over the Tree's asynx instance.
+// heldTree is a decoded tree and the event version it is at; a tree read on a
+// miss has no known version (-1), so any write's result replaces it.
+type heldTree struct {
+	tree    tree.Tree
+	version int64
+}
+
+// New builds the repository over the Tree's asynx instance; it must be the only
+// writer of that instance, or what it holds can fall behind.
 func New(ax asynx.Asynx[tree.Tree]) *Repository {
-	return &Repository{ax: ax}
+	return &Repository{ax: ax, held: map[string]heldTree{}, writes: map[string]int64{}}
 }
 
 // Get is projectID's tree; a project nothing was placed in has an empty one.
 func (r *Repository) Get(ctx context.Context, projectID string) (tree.Tree, error) {
+	r.mu.Lock()
+	h, ok := r.held[projectID]
+	gen := r.writes[projectID]
+	r.mu.Unlock()
+	if ok {
+		return h.tree.Clone(), nil
+	}
 	t, err := r.ax.Get(ctx, projectID)
 	if errors.Is(err, asynxModels.ErrNotFound) {
-		return tree.Empty(projectID), nil
+		t, err = tree.Tree{}, nil
 	}
 	if err != nil {
 		return tree.Tree{}, fmt.Errorf("tree: get %s: %w", projectID, err)
 	}
-	return tree.Empty(projectID).Merge(t), nil
+	t = tree.Empty(projectID).Merge(t)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// A write that finished during the read is newer than what was read.
+	if _, filled := r.held[projectID]; !filled && r.writes[projectID] == gen {
+		r.held[projectID] = heldTree{tree: t.Clone(), version: -1}
+	}
+	return t, nil
+}
+
+// hold records what a write returned, unless a later write already did.
+func (r *Repository) hold(projectID string, t tree.Tree, version int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.writes[projectID]++
+	if h, ok := r.held[projectID]; ok && h.version > version {
+		return
+	}
+	r.held[projectID] = heldTree{tree: tree.Empty(projectID).Merge(t), version: version}
+}
+
+func (r *Repository) evict(projectID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.writes[projectID]++
+	delete(r.held, projectID)
 }
 
 // Seed merges t into its project's tree: every record it lacks is added, every
@@ -111,6 +157,7 @@ func (r *Repository) Give(ctx context.Context, projectID string, records tree.Tr
 // Forget erases projectID's tree; a project without one is no error.
 func (r *Repository) Forget(ctx context.Context, projectID string) error {
 	err := r.ax.Forget(ctx, projectID)
+	r.evict(projectID)
 	if err != nil && !errors.Is(err, asynxModels.ErrValidation) {
 		return fmt.Errorf("tree: forget %s: %w", projectID, err)
 	}
@@ -120,8 +167,12 @@ func (r *Repository) Forget(ctx context.Context, projectID string) error {
 func (r *Repository) send(ctx context.Context, c edit) (tree.Tree, error) {
 	evt, err := r.ax.SendWait(ctx, c)
 	if err != nil {
+		// A refused write changed nothing, but one that failed after its commit
+		// leaves the held tree unknown: read it again.
+		r.evict(c.projectID)
 		return tree.Tree{}, fmt.Errorf("tree: %s %s: %w", c.op, c.projectID, err)
 	}
+	r.hold(c.projectID, evt.Aggregate, evt.Version)
 	return evt.Aggregate, nil
 }
 

@@ -2,6 +2,8 @@ package tree_test
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 
 	asynxModels "github.com/char2cs/asynx/models"
@@ -126,4 +128,45 @@ func TestRepository_ATreeSurvivesARestart(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, pinTree(), got)
+}
+
+// Reads racing writes: once a write returns, every read holds what it wrote,
+// and a read never hands out the tree a later read could change under it.
+func TestRepository_EveryReadAfterAWriteHoldsIt(t *testing.T) {
+	ctx, repo := context.Background(), newRepo(t)
+	const writes = 100
+	var wg sync.WaitGroup
+	wg.Add(2)
+	stop := make(chan struct{})
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			got, err := repo.Get(ctx, "p1")
+			assert.NoError(t, err)
+			got.Nodes["scribble"] = tree.Node{ID: "scribble"}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		defer close(stop)
+		for i := range writes {
+			id := fmt.Sprintf("n-%d", i)
+			_, err := repo.Put(ctx, "p1", tree.Node{ID: id, Kind: tree.KindChat})
+			assert.NoError(t, err)
+			got, err := repo.Get(ctx, "p1")
+			assert.NoError(t, err)
+			assert.Contains(t, got.Nodes, id, "a read after the write holds it")
+		}
+	}()
+	wg.Wait()
+
+	got, err := repo.Get(ctx, "p1")
+	require.NoError(t, err)
+	assert.Len(t, got.Nodes, writes)
+	assert.NotContains(t, got.Nodes, "scribble", "a caller's edit to its copy is its own")
 }
