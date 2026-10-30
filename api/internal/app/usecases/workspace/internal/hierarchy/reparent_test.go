@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -236,12 +238,6 @@ func TestReparent_RebaseOntoError(t *testing.T) {
 	require.ErrorIs(t, err, errBoom)
 }
 
-// ForkPoint answers as a repo with no reflog would, so the fakes read merge-bases.
-func (f *fakeGit) ForkPoint(_ context.Context, repoPath, upstream, branch string) (string, error) {
-	f.record("ForkPoint", repoPath, upstream, branch)
-	return "", nil
-}
-
 // stacked is P under the base with one commit, and C under P with its own.
 func stacked(t *testing.T, h *realHarness) (domain.Workspace, domain.Workspace) {
 	t.Helper()
@@ -278,23 +274,13 @@ func TestRegression_ReparentReplaysOnlyCommitsTheOldParentLacks(t *testing.T) {
 	assert.Equal(t, "c work", movedOnto(t, h, c))
 }
 
-// TestRegression_ReparentRestacksOffAnAmendedParent: a merge-base with the
-// rewritten parent predates the fork, so P's pre-amend commit was replayed too.
-func TestRegression_ReparentRestacksOffAnAmendedParent(t *testing.T) {
+// TestRegression_ReparentOffAnAmendedParentCarriesItsOldCommit: the replay
+// starts at the merge-base, so P's pre-amend commit moves with C. More than C's
+// own work, never less; the daemon keeps no fork point that could tell them apart.
+func TestRegression_ReparentOffAnAmendedParentCarriesItsOldCommit(t *testing.T) {
 	h := newRealUsecase(t)
 	p, c := stacked(t, h)
 	amend(t, p)
-	assert.Equal(t, "c work", movedOnto(t, h, c))
-}
-
-// TestRegression_ReparentWithoutAReflogKeepsEveryCommit: with no reflog to find
-// the fork, the merge-base replays more than C's own work but never less.
-func TestRegression_ReparentWithoutAReflogKeepsEveryCommit(t *testing.T) {
-	h := newRealUsecase(t)
-	p, c := stacked(t, h)
-	gitRun(t, h.repoPath, "config", "core.logAllRefUpdates", "false")
-	amend(t, p)
-	gitRun(t, h.repoPath, "reflog", "expire", "--expire=now", "--all")
 	assert.Equal(t, "c work\np work", movedOnto(t, h, c))
 }
 
@@ -334,32 +320,77 @@ func absorbedThenDropped(t *testing.T, h *realHarness) domain.Workspace {
 	return c
 }
 
-// TestRegression_ReparentKeepsCommitsTheParentOnceAbsorbed: trusting that fork
-// point replayed only c3 and left c work and c2 work on no branch at all.
-func TestRegression_ReparentKeepsCommitsTheParentOnceAbsorbed(t *testing.T) {
-	h := newRealUsecase(t)
-	c := absorbedThenDropped(t, h)
-	assert.Equal(t, "c3 work\nc2 work\nc work", movedOnto(t, h, c))
-}
-
-// TestRegression_ReparentOfAPublishedBranchReplaysFromTheMergeBase: a fork point
-// already on origin/<branch> is the branch's own history (an import starts there),
-// so it is never trusted; the replay then carries P's old commit too.
-func TestRegression_ReparentOfAPublishedBranchReplaysFromTheMergeBase(t *testing.T) {
-	h := newRealUsecase(t)
-	p, c := stacked(t, h)
-	gitRun(t, c.WorktreePath, "push", "origin", "feature/c")
-	amend(t, p)
-	assert.Equal(t, "c work\np work", movedOnto(t, h, c))
-}
-
-// TestRegression_ReparentNeverTrustsAForkPointAtTheBranchTip: replaying from the
-// tip replays nothing, so the move would keep none of what C holds beyond Q.
-func TestRegression_ReparentNeverTrustsAForkPointAtTheBranchTip(t *testing.T) {
-	h := newRealUsecase(t)
+// importedThenPruned imports C from origin (its reflog starts at its own tip),
+// lets P absorb and drop it, then deletes origin's copy, as a merged PR does.
+func importedThenPruned(t *testing.T, h *realHarness) domain.Workspace {
+	t.Helper()
+	gitRun(t, h.repoPath, "checkout", "-b", "feature/c")
+	commitInWorktree(t, h.repoPath, "c1.txt", "c1\n", "c work")
+	commitInWorktree(t, h.repoPath, "c2.txt", "c2\n", "c2 work")
+	gitRun(t, h.repoPath, "push", "origin", "feature/c")
+	gitRun(t, h.repoPath, "checkout", h.baseBranch)
+	gitRun(t, h.repoPath, "branch", "-D", "feature/c")
 	p := h.createChild(t, "feature/p", h.parentID, h.baseBranch)
-	commitInWorktree(t, p.WorktreePath, "p.txt", "p\n", "p work")
 	c := h.createChild(t, "feature/c", p.ID, p.Branch)
-	amend(t, p)
-	assert.Equal(t, "p work", movedOnto(t, h, c))
+	gitRun(t, p.WorktreePath, "merge", "--ff-only", "feature/c")
+	gitRun(t, p.WorktreePath, "reset", "--hard", "HEAD@{1}")
+	commitInWorktree(t, p.WorktreePath, "p.txt", "p\n", "p work")
+	commitInWorktree(t, c.WorktreePath, "c3.txt", "c3\n", "c3 work")
+	gitRun(t, h.repoPath, "push", "origin", "--delete", "feature/c")
+	return c
+}
+
+// reflogTruncated is absorbedThenDropped after the oldest two entries of C's
+// reflog expired, so the reflog no longer starts where C did.
+func reflogTruncated(t *testing.T, h *realHarness) domain.Workspace {
+	t.Helper()
+	c := absorbedThenDropped(t, h)
+	entries := strings.Fields(gitRun(t, h.repoPath, "reflog", "show", "--format=%h", "refs/heads/feature/c", "--"))
+	for i := len(entries) - 1; i >= len(entries)-2; i-- {
+		gitRun(t, h.repoPath, "reflog", "delete", "refs/heads/feature/c@{"+strconv.Itoa(i)+"}")
+	}
+	return c
+}
+
+// TestRegression_RestackNeverLosesAChildCommit: whatever the parent did to its
+// history, every commit C held beyond P is still on C after either verb. A
+// reflog fork point lost them in the first three histories.
+func TestRegression_RestackNeverLosesAChildCommit(t *testing.T) {
+	histories := map[string]func(*testing.T, *realHarness) domain.Workspace{
+		"P absorbed C's commits and dropped them": absorbedThenDropped,
+		"C was imported and origin's copy pruned": importedThenPruned,
+		"C's reflog no longer starts where C did": reflogTruncated,
+		"P was amended": func(t *testing.T, h *realHarness) domain.Workspace {
+			t.Helper()
+			p, c := stacked(t, h)
+			amend(t, p)
+			return c
+		},
+	}
+	verbs := map[string]func(*testing.T, *realHarness, domain.Workspace){
+		"reparent": func(t *testing.T, h *realHarness, c domain.Workspace) {
+			t.Helper()
+			movedOnto(t, h, c)
+		},
+		"rebase onto parent": func(t *testing.T, h *realHarness, c domain.Workspace) {
+			t.Helper()
+			_, err := h.uc.RebaseOntoParent(context.Background(), c.ID)
+			require.NoError(t, err)
+		},
+	}
+	for history, build := range histories {
+		for verb, run := range verbs {
+			t.Run(history+"/"+verb, func(t *testing.T) {
+				h := newRealUsecase(t)
+				c := build(t, h)
+				h.quiesce()
+				own := strings.Split(trimNewline(gitRun(t, h.repoPath, "log", "--format=%s", "feature/p..feature/c")), "\n")
+				run(t, h, c)
+				after := gitRun(t, h.repoPath, "log", "--format=%s", "feature/c")
+				for _, subject := range own {
+					assert.Contains(t, after, subject)
+				}
+			})
+		}
+	}
 }

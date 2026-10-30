@@ -62,62 +62,21 @@ func (u *hierarchyUsecase) parentBranch(
 	return parent.Branch, nil
 }
 
-// replayBase is where a rebase of child starts replaying; it owns this, not the
-// recorded fork point (an import records the branch's own tip). It is the
-// merge-base with the parent unless forkPointAfterRewrite trusts a later one.
+// replayBase is where a rebase of child starts: its merge-base with the parent's
+// branch (with fallback when it has none or it no longer resolves), never the
+// recorded fork point. It drops nothing the parent lacks; it may replay more.
 func (u *hierarchyUsecase) replayBase(
 	ctx context.Context,
 	child domain.Workspace,
 	parentBranch string,
 	fallback string,
 ) (string, error) {
-	if parentBranch == "" {
-		return u.mergeBase(ctx, child, fallback)
+	if parentBranch != "" {
+		if base, err := u.mergeBase(ctx, child, parentBranch); err == nil {
+			return base, nil
+		}
 	}
-	base, err := u.mergeBase(ctx, child, parentBranch)
-	if err != nil {
-		return u.mergeBase(ctx, child, fallback)
-	}
-	if fork := u.forkPointAfterRewrite(ctx, child, parentBranch); fork != "" {
-		return fork, nil
-	}
-	return base, nil
-}
-
-// forkPointAfterRewrite is the parent's reflog fork point when the parent has
-// since rewritten it (an amend or squash), so the old parent commits stay behind.
-// Only a commit the branch started on qualifies: a parent that once absorbed the
-// branch's own commits and dropped them names those, and replaying past them loses
-// them. "" means replay from the merge-base, which can replay more but drops nothing.
-func (u *hierarchyUsecase) forkPointAfterRewrite(
-	ctx context.Context,
-	child domain.Workspace,
-	parentBranch string,
-) string {
-	path := child.WorktreePath
-	fork, err := u.git.ForkPoint(ctx, path, parentBranch, child.Branch)
-	if err != nil || fork == "" || u.isAncestor(ctx, path, fork, parentBranch) {
-		return ""
-	}
-	tip, err := u.git.RevParse(ctx, path, child.Branch)
-	if err != nil || tip == fork {
-		return ""
-	}
-	created, err := u.git.BranchCreation(ctx, path, child.Branch)
-	if err != nil || created == "" || !u.isAncestor(ctx, path, fork, created) {
-		return ""
-	}
-	if u.isAncestor(ctx, path, fork, "origin/"+child.Branch) {
-		return "" // already published as the branch's own history
-	}
-	return fork
-}
-
-// isAncestor reports whether a is an ancestor of (or equal to) b; false when
-// either does not resolve.
-func (u *hierarchyUsecase) isAncestor(ctx context.Context, path, a, b string) bool {
-	base, err := u.git.MergeBase(ctx, path, a, b)
-	return err == nil && base == a
+	return u.mergeBase(ctx, child, fallback)
 }
 
 func (u *hierarchyUsecase) mergeBase(

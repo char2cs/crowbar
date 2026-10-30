@@ -201,10 +201,10 @@ func TestRegression_RebaseOntoParentKeepsCommitsAStaleForkPointWouldDrop(t *test
 	assert.Empty(t, gitRun(t, child.WorktreePath, "merge-base", "--is-ancestor", h.baseBranch, "HEAD"))
 }
 
-// TestRegression_RebaseOntoParentRestacksOffAnAmendedParent: replaying from the
-// merge-base with the rewritten parent re-applied P's old commit onto its amended
-// self, an add/add conflict; only C's commit belongs on top.
-func TestRegression_RebaseOntoParentRestacksOffAnAmendedParent(t *testing.T) {
+// TestRegression_RebaseOntoParentOffAnAmendedParentStopsOnTheStaleCommit: the
+// replay starts at the merge-base, so P's pre-amend commit conflicts with its
+// amended self; the rebase stays in progress for `git rebase --skip`, C intact.
+func TestRegression_RebaseOntoParentOffAnAmendedParentStopsOnTheStaleCommit(t *testing.T) {
 	h := newRealUsecase(t)
 	p, c := stacked(t, h)
 	amend(t, p)
@@ -212,20 +212,6 @@ func TestRegression_RebaseOntoParentRestacksOffAnAmendedParent(t *testing.T) {
 	got, err := h.uc.RebaseOntoParent(context.Background(), c.ID)
 	require.NoError(t, err)
 
-	assert.NotEqual(t, domain.WorkspaceStatusPRConflicts, got.Status)
-	assert.Equal(t, "c work", trimNewline(gitRun(t, c.WorktreePath, "log", "--format=%s", "feature/p..HEAD")))
-	assert.Empty(t, gitRun(t, c.WorktreePath, "merge-base", "--is-ancestor", "feature/p", "HEAD"))
-}
-
-// TestRegression_RebaseOntoParentKeepsCommitsTheParentOnceAbsorbed: see
-// absorbedThenDropped; the restack must keep every commit P no longer has.
-func TestRegression_RebaseOntoParentKeepsCommitsTheParentOnceAbsorbed(t *testing.T) {
-	h := newRealUsecase(t)
-	c := absorbedThenDropped(t, h)
-
-	_, err := h.uc.RebaseOntoParent(context.Background(), c.ID)
-	require.NoError(t, err)
-
-	assert.Equal(t, "c3 work\nc2 work\nc work",
-		trimNewline(gitRun(t, c.WorktreePath, "log", "--format=%s", "feature/p..HEAD")))
+	assert.Equal(t, domain.WorkspaceStatusPRConflicts, got.Status)
+	assert.Equal(t, "c work\np work", trimNewline(gitRun(t, h.repoPath, "log", "--format=%s", h.baseBranch+"..feature/c")))
 }
