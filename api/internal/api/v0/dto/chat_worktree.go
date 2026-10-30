@@ -27,8 +27,7 @@ type ChatWorktreeDTO struct {
 	// Status is the wire status WorkspaceDTO computes, conflict overlay and all
 	// (see effectiveStatus) — never the raw persisted one, or a chat and its
 	// workspace would disagree about the same branch.
-	Status    domain.WorkspaceStatus `json:"status,omitempty"`
-	LastError string                 `json:"lastError,omitempty"`
+	Status domain.WorkspaceStatus `json:"status,omitempty"`
 	// Working is the WORKTREE's own busy state — a long-running git operation on
 	// it — and is a different fact from AgentChatDTO.Working, which is the chat's
 	// folded turn state. A row can be one without the other (a sync running under
@@ -113,7 +112,6 @@ func ChatWorktreeFrom(
 	return &ChatWorktreeDTO{
 		Branch:          w.Branch,
 		Status:          w.Status,
-		LastError:       w.LastError,
 		Working:         w.Working,
 		IsDefault:       w.IsDefault,
 		Added:           w.Added,

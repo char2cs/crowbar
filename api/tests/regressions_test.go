@@ -362,7 +362,7 @@ func TestRegression_WorkspaceDeleteBroadcastsDeletedStatus(t *testing.T) {
 // worktree INLINE (worktree/hierarchy.DeleteCascade) before ever answering, and
 // DeleteCascade refuses a locked root synchronously (ErrWorkspaceLocked, mapped
 // to 409 — internal/api/libs/status.go's conflictSentinels) rather than
-// accepting a 202 and surfacing the refusal as lastError later. The Locked bool
+// accepting a 202 and surfacing the refusal later. The Locked bool
 // was removed — the lock is now the status enum (spec §5).
 func TestRegression_DeleteLockedWorkspaceRejected(t *testing.T) {
 	h := newHarness(t)
@@ -791,8 +791,8 @@ func TestRegression_ImportDefaultBranchStaysHomeWithPlaceholder(t *testing.T) {
 // (releasing the branch — the working tree is untouched) and re-provisions that
 // branch into its OWN managed worktree in place. The placeholder becomes a real,
 // on-disk locked worktree — heldByPath cleared, localPath set, .git present —
-// with no LastError. The op is async (202 Accepted), so the outcome is observed
-// by polling the read model. This is the deterministic contract that "Detach
+// with its operation succeeded. The op is async (202 Accepted), so the outcome
+// is read once that operation settles. This is the deterministic contract that "Detach
 // works" (it once failed silently when the derived path was already occupied).
 func TestRegression_DetachHolderFreesBranchAndMaterialisesWorktree(t *testing.T) {
 	h := newHarness(t)
@@ -810,7 +810,6 @@ func TestRegression_DetachHolderFreesBranchAndMaterialisesWorktree(t *testing.T)
 		Status     string
 		LocalPath  string
 		HeldByPath string
-		LastError  string
 	}
 	// Raw fetch: tolerates transport errors rather than asserting, so it stays usable
 	// as a plain read after the async op has been drained to completion. The
@@ -838,7 +837,7 @@ func TestRegression_DetachHolderFreesBranchAndMaterialisesWorktree(t *testing.T)
 			rows = append(rows, wsRow{
 				ID: c.WorkspaceID, Branch: c.Worktree.Branch, IsDefault: c.Worktree.IsDefault,
 				Status: c.Worktree.Status, LocalPath: c.Worktree.LocalPath,
-				HeldByPath: c.Worktree.HeldByPath, LastError: c.Worktree.LastError,
+				HeldByPath: c.Worktree.HeldByPath,
 			})
 		}
 		return rows
@@ -873,7 +872,6 @@ func TestRegression_DetachHolderFreesBranchAndMaterialisesWorktree(t *testing.T)
 	}
 	require.Equal(t, placeholderID, final.ID, "the placeholder row must still exist after detach-holder")
 	require.Empty(t, final.HeldByPath, "detach-holder must free the branch from the repo home")
-	require.Empty(t, final.LastError, "detach-holder must materialise the placeholder with no error")
 	require.NotEmpty(t, final.LocalPath, "detach-holder must give the placeholder a managed worktree")
 	require.True(t, dirExists(final.LocalPath), "the materialised worktree must exist on disk")
 

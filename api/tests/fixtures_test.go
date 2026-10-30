@@ -51,7 +51,6 @@ type worktreeWire struct {
 	Branch          string `json:"branch"`
 	Status          string `json:"status"`
 	Working         bool   `json:"working"`
-	LastError       string `json:"lastError"`
 	IsDefault       bool   `json:"isDefault"`
 	Added           int    `json:"added"`
 	Deleted         int    `json:"deleted"`
@@ -273,7 +272,7 @@ func createWorktree(
 	imported importedRepo,
 	branch string,
 	parentID string,
-) (wsID string, chatID string) {
+) (wsID, chatID string) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -413,7 +412,7 @@ func listRepos(
 }
 
 // workspaceDTO mirrors the migrated WorkspaceDTO wire shape (spec §5): the
-// Locked bool is gone (status-based now); ParentID, LastError, CanMergeLocally,
+// Locked bool is gone (status-based now); ParentID, CanMergeLocally,
 // ParentBranch, and the PR* fields are surfaced.
 type workspaceDTO struct {
 	ID              string `json:"id"`
@@ -425,7 +424,6 @@ type workspaceDTO struct {
 	IsDefault       bool   `json:"isDefault"`
 	Status          string `json:"status"`
 	Working         bool   `json:"working"`
-	LastError       string `json:"lastError"`
 	Added           int    `json:"added"`
 	Deleted         int    `json:"deleted"`
 	MergeStrategy   string `json:"mergeStrategy"`
@@ -472,7 +470,6 @@ func listWorkspaces(
 			IsDefault:       w.IsDefault,
 			Status:          w.Status,
 			Working:         w.Working,
-			LastError:       w.LastError,
 			Added:           w.Added,
 			Deleted:         w.Deleted,
 			MergeStrategy:   w.MergeStrategy,

@@ -49,11 +49,6 @@ type Workspace struct {
 	// never written by any command. With the agent-run concept removed it is
 	// always false in scope.
 	Working bool `json:"working"`
-	// LastError carries the message from the most recent failed background
-	// mutation (00 §4): create/sync/merge/reparent set it on failure so the wire
-	// DTO can surface the error against the entity. Empty when the last mutation
-	// succeeded.
-	LastError string `json:"lastError,omitempty"`
 	// IsDefault marks the workspace that represents the repo's main worktree (the
 	// on-disk folder the user originally imported). It is served on every list and
 	// stream like any other workspace; the frontend pulls it out of the sidebar

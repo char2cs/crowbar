@@ -36,7 +36,7 @@ func Recover(name string) {
 }
 
 // RecoverFn is like Recover but invokes onPanic with the recovered value after
-// logging, so the caller can surface the failure (e.g. as a workspace lastError)
+// logging, so the caller can surface the failure (e.g. as a failed operation)
 // instead of letting it vanish.
 func RecoverFn(name string, onPanic func(recovered any)) {
 	if r := recover(); r != nil {

@@ -138,14 +138,6 @@ type Workspace interface {
 		id string,
 		parentID string,
 	) (domain.Workspace, error)
-	// SetLastError records the message from a failed background operation on the
-	// workspace; the failure surfaces on the entity, never a separate WS frame
-	// (00 §4). The next successful mutating command clears it.
-	SetLastError(
-		ctx context.Context,
-		id string,
-		message string,
-	) (domain.Workspace, error)
 	// Delete tombstones the workspace: it fires the pure Delete command (folds
 	// Status=deleted) via Send. The physical teardown (cascade Forgets + rm -rf +
 	// axWorkspace.Forget) runs off the write path in the async delete reactor

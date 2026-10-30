@@ -129,10 +129,6 @@ func (m *mockWorkspace) SetProject(_ context.Context, id, projectID string) (dom
 	return domain.Workspace{ID: id, ProjectID: projectID}, nil
 }
 
-func (m *mockWorkspace) SetLastError(ctx context.Context, id, message string) (domain.Workspace, error) {
-	return domain.Workspace{}, nil
-}
-
 func (m *mockWorkspace) GetHomeForProject(_ context.Context, _ string) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }

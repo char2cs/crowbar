@@ -100,7 +100,7 @@ func TempHomeForTest(t *testing.T) string {
 
 // tempHome creates an isolated home directory for an Env with a TOLERANT
 // teardown. It deliberately does NOT use t.TempDir(): a detached good-path-async
-// goroutine (runAsync runs on context.WithoutCancel and the adapter registry
+// goroutine (an operation's work runs on context.WithoutCancel and the adapter registry
 // lazily re-opens a per-entity DB on access) can write a per-workspace storages
 // file a hair after the adapter is closed — racing t.TempDir's RemoveAll and
 // flaking the run with "directory not empty" even though every assertion passed.
@@ -1149,7 +1149,7 @@ func (e *Env) createWorkspaceWrites(
 	repoID string,
 	branch string,
 	parentID string,
-) (wsID string, chatID string) {
+) (wsID, chatID string) {
 	t.Helper()
 	e.quiesceMu.RLock()
 	defer e.quiesceMu.RUnlock()

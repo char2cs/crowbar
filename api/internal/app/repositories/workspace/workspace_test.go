@@ -138,32 +138,6 @@ func TestWorkspace_Create_RequiresAnExplicitProvisioning(t *testing.T) {
 	}
 }
 
-func TestWorkspace_SetLastError_SetsAndClears(t *testing.T) {
-	ctx, repo := newRepo(t)
-	now := time.Unix(1000, 0).UTC()
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
-	require.NoError(t, err)
-
-	got, err := repo.SetLastError(ctx, "w1", "boom")
-	require.NoError(t, err)
-	assert.Equal(t, "boom", got.LastError)
-
-	reloaded, err := repo.Get(ctx, "w1")
-	require.NoError(t, err)
-	assert.Equal(t, "boom", reloaded.LastError)
-
-	// A successful mutating command clears the stale error.
-	cleared, err := repo.SyncWorkingTreeState(ctx, workspace.SyncInput{ID: "w1"}, now)
-	require.NoError(t, err)
-	assert.Empty(t, cleared.LastError)
-}
-
-func TestWorkspace_SetLastError_ErrorOnMissing(t *testing.T) {
-	ctx, repo := newRepo(t)
-	_, err := repo.SetLastError(ctx, "no-such", "x")
-	assert.Error(t, err)
-}
-
 func TestWorkspace_Create_RoundTrips(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()

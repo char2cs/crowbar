@@ -317,18 +317,6 @@ func (w *workspace) SetParentFromPR(
 	return evt.Aggregate, nil
 }
 
-func (w *workspace) SetLastError(
-	ctx context.Context,
-	id string,
-	message string,
-) (domain.Workspace, error) {
-	evt, err := w.ax.Send(ctx, commands.SetLastError{ID: id, Message: message})
-	if err != nil {
-		return domain.Workspace{}, fmt.Errorf("workspace: set last error: %w", err)
-	}
-	return evt.Aggregate, nil
-}
-
 // Delete tombstones the workspace via the pure Delete command: it
 // folds Status=deleted and does NO io. The store projection persists the deleted
 // row (so the boot orphan-sweep still finds it) and the async delete reactor

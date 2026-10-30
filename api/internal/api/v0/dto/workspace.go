@@ -25,7 +25,6 @@ type WorkspaceDTO struct {
 	ForkPointSha    string                  `json:"forkPointSha,omitempty"`
 	Status          domain.WorkspaceStatus  `json:"status,omitempty"`
 	Working         bool                    `json:"working"`
-	LastError       string                  `json:"lastError,omitempty"`
 	IsDefault       bool                    `json:"isDefault,omitempty"`
 	Added           int                     `json:"added"`
 	Deleted         int                     `json:"deleted"`
@@ -128,7 +127,6 @@ func WorkspaceDTOFrom(
 		ForkPointSha:    w.ForkPointSha,
 		Status:          effectiveStatus(w.Status, elig.MergeConflicts),
 		Working:         w.Working,
-		LastError:       w.LastError,
 		IsDefault:       w.IsDefault,
 		Added:           w.Added,
 		Deleted:         w.Deleted,

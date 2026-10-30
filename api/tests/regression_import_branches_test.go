@@ -420,9 +420,8 @@ func TestRegression_ProvisionedWorktreeCanPullFromOrigin(t *testing.T) {
 
 // BUG (import-hangs-on-unknown-branch): a branch that is not on the remote must
 // be refused on the REQUEST, where the client can toast it. The import 202'd
-// unconditionally and the async batch reported failure through
-// runAsync(wsID: ""), which broadcastLastError drops on the floor — leaving the
-// dialog's optimistic spinner row (cleared only by a workspace arriving on the
+// unconditionally and the async batch reported a failure nothing showed —
+// leaving the dialog's optimistic spinner row (cleared only by a workspace arriving on the
 // stream) spinning forever with nothing surfaced.
 func TestRegression_ImportRejectsBranchMissingFromRemote(t *testing.T) {
 	h := newHarness(t)

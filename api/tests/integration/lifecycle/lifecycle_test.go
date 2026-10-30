@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -68,10 +69,10 @@ func (s *LifecycleSuite) TestLifecycle_WorkspaceCreateBroadcastsOnWS() {
 	s.Assert().Equal(imported.RepoID, created["repoId"])
 }
 
-// TestLifecycle_SyncClearsLastError proves a workspace edit → stage → commit →
-// sync flow round-trips: the workspace stays status "new" after committing (per
-// D4 — status is not cleared by HasCommits) and carries no lastError.
-func (s *LifecycleSuite) TestLifecycle_SyncClearsLastError() {
+// TestLifecycle_SyncSucceedsAfterACommit proves a workspace edit → stage →
+// commit → sync flow round-trips: the sync operation succeeds and the workspace
+// stays status "new" (per D4 — status is not cleared by HasCommits).
+func (s *LifecycleSuite) TestLifecycle_SyncSucceedsAfterACommit() {
 	t := s.T()
 
 	imported := s.Env.ImportRepo(t, "lifecycle-sync", "")
@@ -102,14 +103,8 @@ func (s *LifecycleSuite) TestLifecycle_SyncClearsLastError() {
 	watcher := s.Env.DialChat(t, chatID)
 	syncResp := s.Env.POST(t,
 		"/v0/projects/"+imported.ProjectID+"/repos/"+imported.RepoID+"/chats/"+chatID+"/sync", nil)
-	kit.RequireStatus(t, syncResp, http.StatusAccepted)
-	syncResp.Body.Close()
-
-	// Per D4 status STAYS "new" after sync with commits; the workspace must carry
-	// no lastError. Wait on the terminal "new" frame and assert lastError empty.
-	msg := kit.WaitForWorkspaceState(t, watcher, wsID, "new", 5*time.Second)
-	le, _ := msg["lastError"].(string)
-	s.Assert().Empty(le, "sync must not set a lastError")
+	s.Equal(domain.OpSucceeded, s.Env.AwaitOperation(t, syncResp, 10*time.Second).State)
+	kit.WaitForWorkspaceState(t, watcher, wsID, "new", 5*time.Second)
 }
 
 // TestLifecycle_MergeEligibilityTrueWhenParentIdle proves that a child whose

@@ -34,7 +34,6 @@ func TestChatWorktreeFrom_CarriesEveryFieldTheWorkspaceDTOCarries(t *testing.T) 
 			ForkPointSha:   "abc123",
 			Status:         domain.WorkspaceStatusNew,
 			Working:        true,
-			LastError:      "a push failed",
 			IsDefault:      true,
 			Added:          7,
 			Deleted:        3,
@@ -56,7 +55,6 @@ func TestChatWorktreeFrom_CarriesEveryFieldTheWorkspaceDTOCarries(t *testing.T) 
 	require.NotNil(t, got)
 	assert.Equal(t, source.Branch, got.Branch)
 	assert.Equal(t, source.Status, got.Status, "the conflict-overlaid status, never the raw one")
-	assert.Equal(t, source.LastError, got.LastError)
 	assert.Equal(t, source.Working, got.Working)
 	assert.Equal(t, source.IsDefault, got.IsDefault)
 	assert.Equal(t, source.Added, got.Added)

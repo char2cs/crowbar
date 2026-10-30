@@ -19,7 +19,7 @@ import (
 // It answers SYNCHRONOUSLY, unlike the git-backed operations around it: one
 // aggregate write with no git in it, and every way it can be refused is
 // something the user has to see while the menu they fired it from is still up.
-// A 202 would strand those behind a LastError frame nobody is watching.
+// A 202 would strand those behind an operation the menu no longer shows.
 func lockRouter(
 	reader *fakeReader,
 	worktrees worktreehandlers.Worktrees,

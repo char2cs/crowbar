@@ -176,10 +176,6 @@ func (f *fakeWorkspace) SetProject(_ context.Context, id, projectID string) (dom
 	return domain.Workspace{ID: id, ProjectID: projectID}, nil
 }
 
-func (f *fakeWorkspace) SetLastError(_ context.Context, _, _ string) (domain.Workspace, error) {
-	return domain.Workspace{}, nil
-}
-
 func (f *fakeWorkspace) GetHomeForProject(_ context.Context, _ string) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }

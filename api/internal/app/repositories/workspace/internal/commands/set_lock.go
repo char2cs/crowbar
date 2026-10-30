@@ -68,8 +68,6 @@ func (c SetLock) EmitEvent(
 	current *domain.Workspace,
 ) domain.Workspace {
 	ws := *current
-	// A successful mutating command clears any stale background error (00 §4).
-	ws.LastError = ""
 	ws.LockOverride = c.Locked
 	ws.Status = nextLockStatus(ws.Status, c.Locked, c.Protected)
 	return ws
