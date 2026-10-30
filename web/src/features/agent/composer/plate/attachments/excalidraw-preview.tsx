@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import DOMPurify from 'dompurify'
 import { PencilSimpleIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
+import { report } from '@/lib/errors/report'
 import { cn } from '@/lib/utils'
 import { loadLocalImage, useMarkdownAsset } from '@/features/editor/markdown/plate/markdown-asset'
 import { isDarkMode, useThemeVersion } from '@/features/editor/theme/use-theme-version'
@@ -162,13 +163,7 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
           DOMPurify.sanitize(svg.outerHTML, { USE_PROFILES: { svg: true, svgFilters: true } }),
         )
       })
-      .catch(() => {
-        // Malformed-enough scene JSON that even restore() can't repair it —
-        // parseExcalidrawScene's own structural check already ruled out
-        // "not a scene at all", so this is a genuinely broken one, not a
-        // false positive. Falls back to the placeholder rather than an
-        // empty box.
-      })
+      .catch((error: unknown) => report(error, { action: 'Draw the diagram preview' }))
     return () => {
       cancelled = true
     }

@@ -1,5 +1,6 @@
 import { IS_MAC } from '@/utils/platform'
 import { nanoid } from 'nanoid'
+import { readLocal, removeLocal, writeLocal } from '@/lib/local-storage'
 
 /**
  * Durable, client-owned prompt stashes. The payload is the composer's own
@@ -60,17 +61,28 @@ function isValidCollection(items: PromptStash[]): boolean {
 }
 
 function fitsStorageBudget(key: string, value: string): boolean {
-  if (storageBytes(key) + storageBytes(value) > MAX_PROMPT_STASH_VALUE_BYTES) return false
   let total = storageBytes(key) + storageBytes(value)
-  for (let index = 0; index < localStorage.length; index++) {
-    const storedKey = localStorage.key(index)
-    if (!storedKey?.startsWith(KEY_PREFIX) || storedKey === key) continue
-    const storedValue = localStorage.getItem(storedKey)
-    if (storedValue === null) continue
+  if (total > MAX_PROMPT_STASH_VALUE_BYTES) return false
+  for (const [storedKey, storedValue] of otherStashes(key)) {
     total += storageBytes(storedKey) + storageBytes(storedValue)
     if (total > MAX_PROMPT_STASHES_TOTAL_BYTES) return false
   }
-  return total <= MAX_PROMPT_STASHES_TOTAL_BYTES
+  return true
+}
+
+/** Every other chat's stash; none when storage is unavailable. */
+function otherStashes(key: string): [string, string][] {
+  try {
+    const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
+    return keys
+      .filter((stored): stored is string => !!stored?.startsWith(KEY_PREFIX) && stored !== key)
+      .flatMap((stored) => {
+        const stash = localStorage.getItem(stored)
+        return stash === null ? [] : [[stored, stash] as [string, string]]
+      })
+  } catch {
+    return []
+  }
 }
 
 /**
@@ -127,26 +139,22 @@ export function addPromptStash(items: PromptStash[], item: PromptStash): PromptS
 
 export function loadPromptStashes(wsId: string, chatId: string): PromptStash[] {
   const key = promptStashStorageKey(wsId, chatId)
+  const raw = readLocal(key)
+  if (!raw) return []
+  const items =
+    storageBytes(key) + storageBytes(raw) > MAX_PROMPT_STASH_VALUE_BYTES ? null : parsedItems(raw)
+  if (items) return items
+  removeLocal(key)
+  return []
+}
+
+function parsedItems(raw: string): PromptStash[] | null {
   try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return []
-    if (storageBytes(key) + storageBytes(raw) > MAX_PROMPT_STASH_VALUE_BYTES) {
-      localStorage.removeItem(key)
-      return []
-    }
     const parsed = JSON.parse(raw) as Partial<StoredPromptStashesV1>
-    if (parsed.version !== 1 || !Array.isArray(parsed.items) || !isValidCollection(parsed.items)) {
-      localStorage.removeItem(key)
-      return []
-    }
-    return parsed.items
+    if (parsed.version !== 1 || !Array.isArray(parsed.items)) return null
+    return isValidCollection(parsed.items) ? parsed.items : null
   } catch {
-    try {
-      localStorage.removeItem(key)
-    } catch {
-      // Storage itself is unavailable.
-    }
-    return []
+    return null
   }
 }
 
@@ -154,18 +162,12 @@ export function loadPromptStashes(wsId: string, chatId: string): PromptStash[] {
 export function savePromptStashes(wsId: string, chatId: string, items: PromptStash[]): boolean {
   if (!isValidCollection(items)) return false
   const key = promptStashStorageKey(wsId, chatId)
-  try {
-    if (items.length === 0) {
-      localStorage.removeItem(key)
-      return true
-    }
-    const value = serialized(items)
-    if (!fitsStorageBudget(key, value)) return false
-    localStorage.setItem(key, value)
+  if (items.length === 0) {
+    removeLocal(key)
     return true
-  } catch {
-    return false
   }
+  const value = serialized(items)
+  return fitsStorageBudget(key, value) && writeLocal(key, value)
 }
 
 interface StashShortcutEvent {

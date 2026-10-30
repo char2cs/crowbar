@@ -129,6 +129,40 @@ export default tseslint.config(
     },
   },
   {
+    // A swallowed failure is invisible: return a fallback or report() it.
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/__tests__/**'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'CatchClause > BlockStatement[body.length=0]',
+          message: 'An empty catch hides a failure: return the fallback, or report() it.',
+        },
+        {
+          selector:
+            "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[body.type='BlockStatement'][body.body.length=0]",
+          message: '.catch(() => {}) hides a failure: report() it.',
+        },
+        {
+          selector:
+            "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[body.type='Literal'][body.raw='null']",
+          message: '.catch(() => null) hides a failure: handle it or report() it.',
+        },
+        {
+          selector:
+            "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[body.operator='void'][body.argument.type='Literal']",
+          message: '.catch(() => void 0) hides a failure: handle it or report() it.',
+        },
+        {
+          selector:
+            "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[body.type='Identifier'][body.name='undefined']",
+          message: '.catch(() => undefined) hides a failure: handle it or report() it.',
+        },
+      ],
+    },
+  },
+  {
     // Stores hold state; side effects that need UI live in components that
     // watch the store (CLAUDE.md "Store patterns").
     files: ['src/**/stores/**/*.{ts,tsx}'],
