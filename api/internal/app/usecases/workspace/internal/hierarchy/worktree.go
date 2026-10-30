@@ -47,7 +47,8 @@ type CreateChildInput struct {
 	// workspace locked regardless of whether the branch is protected. Useful
 	// when the caller knows the workspace should be immutable (e.g. the repo's
 	// main branch workspace adopted without a git provider).
-	ForceLocked bool
+	ForceLocked    bool
+	parentWorktree string // the inherited parent's checkout: a branchless parent forks from its HEAD
 }
 
 // Usecase orchestrates the worktree hierarchy (07): worktree-backed
@@ -469,6 +470,7 @@ func (u *hierarchyUsecase) resolveInherited(
 	in.RepoID = parent.RepoID
 	in.ProjectID = parent.ProjectID
 	in.ParentBranch = parent.Branch
+	in.parentWorktree = parent.WorktreePath
 	repo, err := u.repos.FindByKey(ctx, parent.RepoID)
 	if err != nil {
 		return in, false, fmt.Errorf("create child: get parent repo: %w", err)
@@ -638,15 +640,13 @@ type addedWorktree struct {
 // resolveDiffBase prefers origin/<base> over the local ref — so only the files
 // on disk in that worktree go stale.
 //
-// Every step degrades to the local parent tip and warns: a no-remote/offline
-// machine, a parent not on origin, a fetch failure, or an unresolved origin ref
-// must never block branch creation (the user can pull the parent afterward).
+// Every step degrades to the local parent tip and warns: offline, off origin or a failed fetch never blocks a create.
 func (u *hierarchyUsecase) parentStartPoint(
 	ctx context.Context,
 	in CreateChildInput,
 ) string {
 	if in.ParentBranch == "" {
-		return "HEAD" // only the repo folder's home is branchless (detached): fork from its commit
+		return u.detachedParentHead(ctx, in)
 	}
 	parentOnRemote, err := u.git.RemoteBranchExists(ctx, in.RepoPath, in.ParentBranch)
 	if err != nil || !parentOnRemote {
