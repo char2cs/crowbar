@@ -231,3 +231,37 @@ func TestTree_PlacementRefusals(t *testing.T) {
 
 	requirePlaced(t, h, f.projectID, "the refusals", before...)
 }
+
+// TestTree_AMoveReachesALiveChatSocket: placement lives in the Tree, and a move
+// still tells an open chats socket to re-read placement.
+func TestTree_AMoveReachesALiveChatSocket(t *testing.T) {
+	h := newHarness(t)
+	writeLiveStubProviderDescriptor(t, h)
+	f := newImportFixture(t, h)
+	repo := f.repoBase()
+	folder := createChatFolder(t, h, repo, "Experiments", "").ID
+	chat := createChatWithProvider(t, h, repo, "livestub", f.mainWSID, "")
+	h.Quiesce()
+	conn := h.dial(repo + "/chats/ws")
+
+	placeChat(t, h, repo, chat, map[string]any{"parentId": folder, "order": 0})
+
+	readUntil(t, conn, func(m map[string]any) bool { return m["kind"] == "placement_set" })
+	requirePlaced(t, h, f.projectID, "the move", placed{chat, folder, 0})
+}
+
+// TestTree_AThreadSpawnedAfterTheUpgradeInheritsItsParent: a thread of a
+// thread is placed under the chat it was spawned from, read off the Tree.
+func TestTree_AThreadSpawnedAfterTheUpgradeInheritsItsParent(t *testing.T) {
+	h := newHarness(t)
+	writeLiveStubProviderDescriptor(t, h)
+	f := newImportFixture(t, h)
+	p, repo := f.projectID, f.repoBase()
+	ws := importBranch(t, h, f, "feature/a")
+	owner := owningChatID(t, h, ws)
+
+	thread := createChatWithProvider(t, h, repo, "livestub", ws, owner)
+	nested := createChatWithProvider(t, h, repo, "livestub", ws, thread)
+
+	requirePlaced(t, h, p, "threads spawned", placed{thread, owner, 0}, placed{nested, thread, 0})
+}
