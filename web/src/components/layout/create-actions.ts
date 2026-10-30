@@ -23,10 +23,9 @@ import { createInFlight, enabledProvider, startThread } from './thread-create'
 // The sidebar's "+" on a row: a fork (named first, then minted) or a thread.
 
 /**
- * Creates a fork ('workspace') or a thread under `parentId`. A fork opens a
- * naming input at its final slot (`confirmCreateDraft` mints it); a thread is
- * drawn from its operation at once and opens once the daemon created it. A
- * project-home row can only thread: home has no worktree to fork.
+ * Creates a fork ('workspace') or a thread under `parentId`: a fork opens a
+ * naming input at its final slot, a thread is drawn from its operation at once.
+ * A project-home row can only thread: home has no worktree to fork.
  */
 export function handleCreate(
   parentId: string,
@@ -116,10 +115,8 @@ export function handleCreate(
 }
 
 /**
- * Confirms the fork being named with the typed branch name and sends it as a
- * local operation, whose row stands in until the chat and its workspace
- * arrive. A refusal keeps the row with the daemon's reason; once both have
- * landed the new branch's chat opens (D5).
+ * Sends the fork being named as a local operation, whose row stands in (or keeps
+ * the daemon's reason) until its chat and workspace arrive; then the chat opens.
  */
 export function confirmCreateDraft(name: string, navigate: NavigateFn): void {
   const draft = useCreateDraftStore.getState().draft

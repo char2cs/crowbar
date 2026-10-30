@@ -31,10 +31,9 @@ export interface ThreadCreate {
 const THREAD_LABEL = 'New thread'
 
 /**
- * THE thread create, for a repo workspace and a project home alike: mints the
- * chat id and sends the create as a local operation, whose row the sidebar
- * draws until the chat arrives — or keeps with the daemon's reason when it is
- * refused. The chat opens as soon as the daemon answers.
+ * THE thread create, for a repo workspace and a project home alike: a local
+ * operation under a minted chat id, drawn until the chat arrives (or with the
+ * daemon's reason if refused); the chat opens as soon as the daemon answers.
  */
 export async function startThread(spec: ThreadCreate): Promise<void> {
   const provider = enabledProvider()

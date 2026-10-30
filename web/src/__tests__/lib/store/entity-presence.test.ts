@@ -1,6 +1,7 @@
+import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { success } from '@/lib/loadable'
-import { isEntityPresent } from '@/lib/store/entity-presence'
+import { isEntityPresent, usePresentEntities } from '@/lib/store/entity-presence'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { useProjectDataStore } from '@/lib/store/projects'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
@@ -52,5 +53,27 @@ describe('isEntityPresent', () => {
       },
     })
     expect(isEntityPresent({ kind: 'chat', id: 'home-chat' })).toBe(true)
+  })
+})
+
+describe('usePresentEntities', () => {
+  it('re-reads when a chat it names arrives at a project home', () => {
+    const refs = [
+      { kind: 'chat', id: 'c1' },
+      { kind: 'chat', id: 'home-chat' },
+    ] as const
+    useSidebarStore.setState({ repos: [repo] })
+    const { result } = renderHook(() => usePresentEntities(refs))
+    expect([...result.current]).toEqual(['chat:c1'])
+
+    act(() =>
+      useHomeTreeStore.setState({
+        trees: {
+          p1: { chats: [{ id: 'home-chat', repoId: '', title: 'h', order: 0 }], folders: [] },
+        },
+      }),
+    )
+
+    expect([...result.current].sort()).toEqual(['chat:c1', 'chat:home-chat'])
   })
 })

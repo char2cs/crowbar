@@ -73,22 +73,9 @@ func chainFor(branch, defaultBranch string, base, existing map[string]string) []
 	return leafFirst
 }
 
-// CreateFromImport imports each requested branch as a managed workspace,
-// parenting it under the workspace for its open PR's base branch. Missing
-// ancestors are created first and the whole chain is parented up to an existing
-// workspace, a protected branch (already a locked workspace), or the repo
-// default branch (parented under the repo home via an empty ParentID). It is
-// best-effort per branch: one branch's failure does not abort the batch.
-//
-// Every requested branch and every ancestor it adds is reported to p, once. A
-// branch that cannot be materialised (most often a worktree outside Crowbar
-// already has it checked out) still gets a PLACEHOLDER row (spec §3.3), owned
-// by the chat its attempt minted, and its outcome carries the cause.
-//
-// This is the deterministic, import-time counterpart to the poll-driven
-// provider.maybeReparentFromPR: it additionally CREATES missing parents and
-// sets ParentID at creation. Because it sets ParentID explicitly, the poll's
-// ParentID=="" guard leaves these rows untouched — no double-parenting.
+// CreateFromImport imports each requested branch, PR-parented with missing
+// ancestors created first, and reports every branch to p once; a branch that
+// cannot be materialised becomes a placeholder its chat owns, with the cause.
 func (u *hierarchyUsecase) CreateFromImport(ctx context.Context, in ImportInput, p ImportProgress) error {
 	// 1. Open-PR graph head→base (best-effort; empty on provider failure).
 	base := u.prBaseGraph(ctx, in.RepoPath)
@@ -253,10 +240,8 @@ type importNode struct {
 	locked       bool
 }
 
-// createImportNode materialises one branch of the batch. A branch that cannot
-// be materialised falls back to a placeholder row owned by the chat the attempt
-// minted, and the outcome carries the cause (joined with the placeholder's own
-// failure when that fails too).
+// createImportNode materialises one branch, falling back to a placeholder the
+// attempt's chat owns; the outcome carries the cause (and the placeholder's).
 func (u *hierarchyUsecase) createImportNode(
 	ctx context.Context,
 	in ImportInput,

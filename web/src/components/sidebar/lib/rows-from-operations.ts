@@ -1,5 +1,5 @@
 import { isEntityPresent } from '@/lib/store/entity-presence'
-import type { Operation, OperationItem } from '@/lib/store/operations'
+import type { EntityRef, Operation, OperationItem } from '@/lib/store/operations'
 import type { CreateDraft } from '@/lib/store/create-draft'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import type { Repo } from '@/lib/store/sidebar'
@@ -27,6 +27,15 @@ function drawnItems(op: Operation): OperationItem[] {
   return chats.length > 0 ? chats : op.items
 }
 
+/** The refs whose arrival retires a create's row. */
+export function createItemRefs(ops: readonly Operation[]): EntityRef[] {
+  const refs: EntityRef[] = []
+  for (const op of ops) {
+    if (CREATE_KINDS[op.kind]) for (const item of drawnItems(op)) refs.push(item.ref)
+  }
+  return refs
+}
+
 /**
  * One row per create item whose entity has not arrived: a spinner while it
  * runs (or succeeded and is still in flight to the stores), its reason once it
@@ -35,6 +44,7 @@ function drawnItems(op: Operation): OperationItem[] {
 export function rowsFromOperations(
   ops: readonly Operation[],
   scope: { projectId: string; repoId?: string },
+  isPresent: (ref: EntityRef) => boolean = isEntityPresent,
 ): SidebarRow[] {
   const rows: SidebarRow[] = []
   for (const op of ops) {
@@ -43,7 +53,7 @@ export function rowsFromOperations(
     const subject = op.subject
     if (scope.repoId !== undefined && subject.id !== scope.repoId) continue
     for (const item of drawnItems(op)) {
-      if (isEntityPresent(item.ref)) continue
+      if (isPresent(item.ref)) continue
       const isFailed = failed(op, item)
       rows.push({
         id: item.ref.id,

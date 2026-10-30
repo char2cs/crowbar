@@ -6,11 +6,13 @@ import { rowsForProject } from '@/components/sidebar/lib/rows-for-project'
 import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
 import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
 import {
+  createItemRefs,
   placeUnderRepoHomes,
   rowFromDraft,
   rowsFromOperations,
 } from '@/components/sidebar/lib/rows-from-operations'
 import { useCreateDraftStore } from '@/lib/store/create-draft'
+import { entityKey, usePresentEntities } from '@/lib/store/entity-presence'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import {
   getHomeOwningChatId,
@@ -165,18 +167,20 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
     [projects, homeTrees, hiddenIds, removalEntries],
   )
   // A create whose entity has not arrived is drawn from its operation, and the
-  // fork being named from its draft — merged here, where both `allRows`
-  // (chrome) and `rowsForProjectFn` (the render path) converge. Re-derived on
-  // every repo/home frame, since an item's row goes once its entity is present.
+  // fork being named from its draft, here where chrome and render path converge.
   const ops = useOperationsStore((s) => s.ops)
   const draft = useCreateDraftStore((s) => s.draft)
+  const createRefs = useMemo(() => createItemRefs(Object.values(ops)), [ops])
+  const present = usePresentEntities(createRefs)
   const createRowsFor = useCallback(
     (projectId: string) => [
-      ...placeUnderRepoHomes(rowsFromOperations(Object.values(ops), { projectId }), treeRepos),
+      ...placeUnderRepoHomes(
+        rowsFromOperations(Object.values(ops), { projectId }, (ref) => present.has(entityKey(ref))),
+        treeRepos,
+      ),
       ...(draft?.projectId === projectId ? [rowFromDraft(draft)] : []),
     ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- homeTrees: isEntityPresent reads it, and a home chat's arrival retires its row
-    [ops, draft, treeRepos, homeTrees],
+    [ops, draft, treeRepos, present],
   )
   // A row explains itself with the newest failed operation naming it or its workspace.
   // Shallow: rows re-derive only when some failure changes, not on every frame.
