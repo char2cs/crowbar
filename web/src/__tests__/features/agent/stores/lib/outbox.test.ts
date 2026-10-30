@@ -62,6 +62,10 @@ describe('nextToSend', () => {
     expect(nextToSend([item('a', { steer: true })], running(), false)?.requestId).toBe('a')
   })
 
+  it('never sends a prompt Esc is taking back', () => {
+    expect(nextToSend([item('a', { retractOnAck: true })], emptyFeed(), false)).toBeUndefined()
+  })
+
   it('never lets a later prompt overtake a failed head', () => {
     const items = onSendFailed([item('a'), item('b')], 'a', { status: 400, message: 'no' })
     expect(nextToSend(items, emptyFeed(), false)).toBeUndefined()
