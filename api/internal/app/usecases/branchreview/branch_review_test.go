@@ -194,6 +194,7 @@ var _ reviewthread.ReviewThread = (*mockReviewThread)(nil)
 // --- local git engine mock ---
 
 type mockGitEngine struct {
+	gitengine.Engine  // the write verbs, which a review never runs
 	RangeDiffFn       func(ctx context.Context, repoPath, base, branch string) (gitdomain.MultiFileDiff, error)
 	DiffAgainstRefFn  func(ctx context.Context, repoPath, ref string) (gitdomain.MultiFileDiff, error)
 	ReviewFilesFn     func(ctx context.Context, repoPath, ref string, dirty []string) ([]gitdomain.ReviewFileSummary, error)
@@ -349,14 +350,6 @@ func (g *mockGitEngine) StashApply(ctx context.Context, repoPath, id string) err
 func (g *mockGitEngine) StashPop(ctx context.Context, repoPath, id string) error { return nil }
 
 func (g *mockGitEngine) StashDrop(ctx context.Context, repoPath, id string) error { return nil }
-
-func (g *mockGitEngine) Reset(ctx context.Context, repoPath, mode, commit string) error { return nil }
-
-func (g *mockGitEngine) Merge(ctx context.Context, repoPath, branch string) error { return nil }
-
-func (g *mockGitEngine) MergeCommit(ctx context.Context, repoPath, branch string) error { return nil }
-
-func (g *mockGitEngine) Rebase(ctx context.Context, repoPath, onto string) error { return nil }
 
 func (g *mockGitEngine) ConflictedFiles(ctx context.Context, repoPath string) ([]string, error) {
 	return nil, nil

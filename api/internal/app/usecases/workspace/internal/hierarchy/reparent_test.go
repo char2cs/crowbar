@@ -175,3 +175,59 @@ func TestRegression_ReparentKeepsCommitsAStaleForkPointWouldDrop(t *testing.T) {
 		"the branch keeps its own commit, replayed onto the new parent")
 	assert.Empty(t, gitRun(t, child.WorktreePath, "merge-base", "--is-ancestor", "feature/a", "HEAD"))
 }
+
+func TestReparent_AllowsLockedNewParent(t *testing.T) {
+	// A locked (protected) branch is a valid re-parent target: it already adopts
+	// children via create, so reparent must be consistent — the old "07 §4
+	// new-parent-locked" block was incoherent and has been removed.
+	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
+	newParent := domain.Workspace{ID: "np", Status: domain.WorkspaceStatusLocked, WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
+	ws := reparentWS(child, newParent, nil)
+	ws.ReparentFn = func(_ context.Context, id, _, _ string, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{ID: id}, nil
+	}
+	g := &fakeGit{revParseSha: "ntip"}
+	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	_, err := uc.Reparent(context.Background(), "c", "np")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"RevParse", "MergeBase", "RebaseOnto", "WorkingTreeSummary"}, g.ops())
+}
+
+func TestReparent_RebasesOntoNewTipAndUpdatesAggregate(t *testing.T) {
+	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
+	newParent := domain.Workspace{ID: "np", WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
+	ws := reparentWS(child, newParent, nil)
+	var rID, rParent, rSha string
+	ws.ReparentFn = func(_ context.Context, id, parentID, forkPointSha string, _ time.Time) (domain.Workspace, error) {
+		rID, rParent, rSha = id, parentID, forkPointSha
+		return domain.Workspace{ID: id}, nil
+	}
+	g := &fakeGit{revParseSha: "ntip", mergeBaseSha: "base"}
+	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	_, err := uc.Reparent(context.Background(), "c", "np")
+	require.NoError(t, err)
+	// A clean rebase settles the move and resyncs the child's working-tree summary
+	// against the new base, so a prior predicted-conflict status clears and the
+	// diff stats reflect the new parent.
+	assert.Equal(t, []string{"RevParse", "MergeBase", "RebaseOnto", "WorkingTreeSummary"}, g.ops())
+	assert.Equal(t, []string{"/np", "HEAD"}, g.calls[0].args)
+	assert.Equal(t, []string{"/cw", "ntip", "feat"}, g.calls[1].args,
+		"a child with no parent row replays from its merge-base with the new tip")
+	assert.Equal(t, []string{"/cw", "ntip", "base", "feat"}, g.calls[2].args,
+		"the replay starts at the merge-base, never the recorded fork point")
+	assert.Equal(t, []string{"/cw", "ntip"}, g.calls[3].args)
+	assert.Equal(t, "c", rID)
+	assert.Equal(t, "np", rParent)
+	assert.Equal(t, "ntip", rSha)
+}
+
+func TestReparent_RebaseOntoError(t *testing.T) {
+	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
+	newParent := domain.Workspace{ID: "np", WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
+	ws := reparentWS(child, newParent, nil)
+	g := &fakeGit{revParseSha: "ntip", rebaseOnto: errBoom}
+	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	_, err := uc.Reparent(context.Background(), "c", "np")
+	require.ErrorIs(t, err, errBoom)
+}

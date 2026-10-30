@@ -228,20 +228,10 @@ type Engine interface {
 		commit string,
 	) error
 
-	// Merge merges branch into the current branch (04 §5).
-	Merge(
-		ctx context.Context,
-		repoPath string,
-		branch string,
-	) error
-
-	// MergeCommit merges branch into the current branch as a merge commit,
-	// never a fast-forward.
-	MergeCommit(
-		ctx context.Context,
-		repoPath string,
-		branch string,
-	) error
+	// Merge merges branch into the current branch (04 §5); MergeCommit never
+	// fast-forwards, so the current branch always gains a merge commit.
+	Merge(ctx context.Context, repoPath, branch string) error
+	MergeCommit(ctx context.Context, repoPath, branch string) error
 
 	// Rebase rebases the current branch onto onto (04 §5).
 	Rebase(

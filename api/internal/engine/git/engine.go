@@ -593,16 +593,6 @@ func (e *engine) Merge(
 	return classifyGitError("merge", r)
 }
 
-func (e *engine) MergeCommit(
-	ctx context.Context,
-	repoPath string,
-	branch string,
-) error {
-	defer e.lockRepo(ctx, repoPath)()
-	r := e.exec(ctx, repoPath, "merge", "--no-ff", "--no-edit", "--", branch)
-	return classifyGitError("merge --no-ff", r)
-}
-
 func (e *engine) Rebase(
 	ctx context.Context,
 	repoPath string,
