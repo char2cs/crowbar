@@ -1,7 +1,7 @@
 {
   "api/internal/api/v0/container_push_internal_test.go": 642,
   "api/internal/api/v0/endpoints/chat/handlers/activity_test.go": 677,
-  "api/internal/api/v0/endpoints/chat/handlers/chats_test.go": 1596,
+  "api/internal/api/v0/endpoints/chat/handlers/chats_test.go": 1495,
   "api/internal/api/v0/endpoints/chat/handlers/folders_test.go": 733,
   "api/internal/api/v0/endpoints/chat/handlers/handlers.go": 587,
   "api/internal/api/v0/endpoints/chat/handlers/hooks_test.go": 706,
@@ -30,7 +30,7 @@
   "api/internal/app/usecases/chat/providers_test.go": 845,
   "api/internal/app/usecases/chat/runner_test.go": 4129,
   "api/internal/app/usecases/chat/turn_test.go": 2427,
-  "api/internal/app/usecases/container.go": 982,
+  "api/internal/app/usecases/container.go": 895,
   "api/internal/app/usecases/git/git_write.go": 546,
   "api/internal/app/usecases/mocks/mocks.go": 1963,
   "api/internal/app/usecases/project/ordering_test.go": 629,

@@ -20,5 +20,5 @@ var NewAgentToolDepsForTest = newAgentToolDeps
 // That is the only way to prove the forced OwnWorktree=true actually reaches
 // CreateChild end to end.
 func NewWorktreeChildCreatorForTest(w workspace.Usecase) agentusecase.WorktreeCreator {
-	return worktreeChildCreator{Usecase: w}
+	return worktreeChildCreator{worktree: w}
 }

@@ -9,10 +9,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// DeleteCascade erases rootID and every workspace below it. It refuses a
-// locked, default or home root, and a subtree that owns a working chat: the
-// workspace route must not erase what the Chats panel's delete would refuse.
-// A locked descendant it keeps is re-hung under the nearest surviving ancestor.
+// DeleteCascade erases rootID and its unlocked descendants, refusing what the
+// Chats panel's delete would refuse; a locked descendant it keeps is re-hung so
+// no lineage names a workspace that is gone.
 func (u *hierarchyUsecase) DeleteCascade(
 	ctx context.Context,
 	rootID string,

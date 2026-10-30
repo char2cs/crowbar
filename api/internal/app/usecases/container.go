@@ -388,7 +388,7 @@ func newAgentWiring(
 		Agents:                  engines.Agents,
 		Terminal:                engines.Terminal,
 		Workspace:               wsReader,
-		Worktree:                worktreeChildCreator{Usecase: workspaceUsecase},
+		Worktree:                worktreeChildCreator{worktree: workspaceUsecase},
 		Lineage:                 lineage,
 		ProviderPrefs:           gormStores.AgentProviderPreferences,
 		PermissionPrefs:         gormStores.AgentPermissionDefault,
@@ -426,7 +426,7 @@ func newAgentWiring(
 		// with, handed here a second time on purpose: a cascading delete and a
 		// failed promotion's rollback must tear a workspace down through one call
 		// (hierarchy.DeleteCascade), not two implementations that could drift.
-		worktreeChildCreator{Usecase: workspaceUsecase},
+		worktreeChildCreator{worktree: workspaceUsecase},
 		// And the census that gates it: Chat.WorkspaceID names the worktree a
 		// chat is anchored to, never that it is anchored there alone, so the
 		// delete asks who else is currently resolving to it before cascading.
@@ -764,93 +764,6 @@ func (w workspaceGitStatusReader) VisibleForkParent(
 		return "", nil
 	}
 	return ws.ParentID, nil
-}
-
-// worktreeChildCreator adapts the worktree hierarchy usecase into the agent
-// usecase's WorktreeCreator seam (internal/app/usecases/chat.WorktreeCreator):
-// Promote names only the fork parent it forks from, and this fills in the rest
-// of workspace.CreateChildInput the way every other spontaneous create does —
-// leaving RepoID/RepoPath/RemoteURL/ParentBranch blank so CreateChild's own
-// parent-inherited defaulting resolves them, and Branch blank so it generates
-// and collision-checks a provisional name (model spec §4.1).
-//
-// OwnWorktree is the one field NOT left to that defaulting: resolveInherited's
-// default is "inherit whether the PARENT owns a worktree" (model spec §4.1's
-// taxonomy rule for an ordinary create), but promotion's entire point is
-// giving the chat a worktree of its own — a fork parent that is itself a
-// workspace-less bubble must not silently promote this chat into another
-// bubble. So it is forced true here, always.
-//
-// The embedded usecase also answers the TreeWorkspaceReaper's DeletionPlan and
-// WorkAtRisk as they are.
-type worktreeChildCreator struct {
-	workspace.Usecase
-}
-
-// CreateChildWorkspace implements agentusecase.WorktreeCreator.
-func (w worktreeChildCreator) CreateChildWorkspace(
-	ctx context.Context,
-	forkParentID string,
-	branch string,
-) (domain.Workspace, error) {
-	ownWorktree := true
-	return w.CreateChild(ctx, workspace.CreateChildInput{
-		ParentID:    forkParentID,
-		Branch:      branch,
-		OwnWorktree: &ownWorktree,
-	})
-}
-
-// CreateImportedWorkspace implements agentusecase.WorktreeCreator. Unlike
-// CreateChildWorkspace above it fills in NOTHING: an import already knows its
-// repo, its branch and its git-lineage parent, because the caller discovered
-// the branch in that repository and resolved its PR base before asking. Leaving
-// any of it to CreateChild's parent-inherited defaulting would resolve it from
-// a parent workspace an import rooted at the repo does not have.
-//
-// OwnWorktree is forced true for the same reason it is forced above: the
-// taxonomy default is "inherit whether the parent owns a worktree", and an
-// import whose lineage parent happens to be a bubble must still get a real
-// worktree of its own — that is the entire request.
-func (w worktreeChildCreator) CreateImportedWorkspace(
-	ctx context.Context,
-	spec agentusecase.ImportSpec,
-) (domain.Workspace, error) {
-	ownWorktree := true
-	return w.CreateChild(ctx, workspace.CreateChildInput{
-		RepoID:       spec.RepoID,
-		ProjectID:    spec.ProjectID,
-		RepoPath:     spec.RepoPath,
-		RemoteURL:    spec.RemoteURL,
-		Branch:       spec.Branch,
-		ParentID:     spec.ParentWorkspaceID,
-		ParentBranch: spec.ParentBranch,
-		ForceLocked:  spec.ForceLocked,
-		OwnWorktree:  &ownWorktree,
-	})
-}
-
-// DiscardChildWorkspace implements agentusecase.WorktreeCreator: it removes a
-// workspace a promotion minted and then could not finish, through the SAME
-// cascade a user-initiated workspace removal takes, so the worktree and the
-// branch go together and nothing is left half-reaped. The cascade's own guards
-// still apply — by the time this runs the chat has stopped pointing at the
-// workspace, so its working-chat guard sees an empty workspace and passes.
-func (w worktreeChildCreator) DiscardChildWorkspace(
-	ctx context.Context,
-	workspaceID string,
-) error {
-	return w.DeleteCascade(ctx, workspaceID, domain.KeepWorkAtRisk)
-}
-
-// DeleteWorkspace implements agentusecase.TreeWorkspaceReaper: a chat delete's
-// teardown of a worktree it owned, with the consent the user gave that delete.
-func (w worktreeChildCreator) DeleteWorkspace(
-	ctx context.Context,
-	workspaceID string,
-	consent domain.DeleteConsent,
-) error {
-	return w.DeleteCascade(ctx, workspaceID, consent)
 }
 
 // workspaceGetter is the minimal workspace-read surface agentWorkspaceReader
