@@ -599,6 +599,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
         const row =
           beside && rowDom.read(beside.el.querySelector('[data-sidebar-recents-row]') ?? beside.el)
         if (row) commitRowDrop(drag, row.id, beside.mode, true)
+        strip.settle(e.clientX)
         endDrag()
         return
       }

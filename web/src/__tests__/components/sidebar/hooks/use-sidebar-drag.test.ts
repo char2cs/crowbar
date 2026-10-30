@@ -1072,7 +1072,7 @@ describe('useSidebarDrag', () => {
         DropMode,
         boolean,
       ]
-      expect([subjects[0].id, target.id, mode, inRecents]).toEqual(['t0', 't3', 'before', true])
+      expect([subjects[0].id, target.id, mode, inRecents]).toEqual(['t0', 't3', 'after', true])
       pane.remove()
     })
 
