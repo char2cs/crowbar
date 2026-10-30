@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, onTestFinished } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { setWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 
@@ -30,6 +30,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 }))
 
 import { useWorkspaceThreadsStream } from '@/features/workspace/stores/hooks/use-workspace-threads-stream'
+import { toastManager } from '@/lib/toast-manager'
 
 const WS_BASE = '/v0/projects/p1/repos/r1/workspaces/ws1'
 
@@ -99,6 +100,23 @@ describe('useWorkspaceThreadsStream', () => {
         filePath: 'src/foo.ts',
       })
     })
+  })
+
+  it('a failed thread load reports why', async () => {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    onTestFinished(() => toastAdd.mockRestore())
+    listThreadsFn.mockRejectedValueOnce(new Error('daemon unreachable'))
+
+    renderHook(() => useWorkspaceThreadsStream('ws1'))
+
+    await waitFor(() =>
+      expect(toastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Load review threads',
+          description: 'daemon unreachable',
+        }),
+      ),
+    )
   })
 
   it('maps a pushed ThreadDTO frame and calls upsertReviewThread', async () => {

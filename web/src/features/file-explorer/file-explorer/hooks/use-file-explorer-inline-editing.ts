@@ -100,21 +100,12 @@ export function useFileExplorerInlineEditing({
         onUpdateFiles(addNewItemToTree(baseFiles, parentPath))
       }
 
-      // Expand the parent so the new inline-edit row is visible — but NEVER for
-      // the root (''): the root is always shown, and adding '' to the expanded
-      // set makes the new path:'' node look like an expanded directory, which
-      // then loads the workspace root's contents as its own children and renders
-      // the entire tree a second time (the "folder name + whole tree" popup bug).
+      // Expand the parent so the new row shows; never the root (''), whose
+      // expansion would load the root's contents again as its own children.
       if (parentPath) {
-        try {
-          const wsId = workspaceId ?? ''
-          const current = useFileTreeStore.getState().getExpandedPaths(wsId)
-          const next = new Set(current)
-          next.add(parentPath)
-          useFileTreeStore.getState().setExpandedPaths(wsId, next)
-        } catch {
-          /* intentionally ignored */
-        }
+        const wsId = workspaceId ?? ''
+        const { getExpandedPaths, setExpandedPaths } = useFileTreeStore.getState()
+        setExpandedPaths(wsId, new Set(getExpandedPaths(wsId)).add(parentPath))
       }
 
       setEditingValue('')

@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { wsManager } from '@/lib/ws/manager'
+import { report } from '@/lib/errors/report'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import { useWorkspaceScopeReady } from '@/lib/workspace-scope'
 import { listThreads, mapThread } from '@/features/git/api/review-api'
@@ -37,8 +38,8 @@ export function useWorkspaceThreadsStream(wsId: string): void {
         for (const t of threads) {
           upsertReviewThread(t)
         }
-      } catch {
-        // seed failure is non-fatal; the WS stream will still push updates
+      } catch (err) {
+        report(err, { action: 'Load review threads' })
       }
     }
 
