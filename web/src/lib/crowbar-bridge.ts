@@ -4,6 +4,7 @@ import { convertFileSrc as tauriConvertFileSrc } from '@tauri-apps/api/core'
 import { Menu, MenuItem, PredefinedMenuItem, Submenu } from '@tauri-apps/api/menu'
 
 import { apiFetch } from '@/lib/api/fetch'
+import { problemOf } from '@/lib/errors/problem'
 import { wsUrl } from '@/lib/ws/url'
 import { TauriWebSocket } from '@/lib/ws/tauri-transport'
 import type { ContextMenuItem } from '@/components/ui/context-menu'
@@ -212,15 +213,19 @@ export async function terminalCreate(base: string, profileId?: string): Promise<
 }
 
 /**
- * Kill a PTY session for good (the tab was closed). Open views see its exit
- * frame. A session whose base this page never learned (created before a
- * reload and never re-opened) cannot be addressed; nothing is sent.
+ * Kill a PTY session for good (the tab was closed); open views see its exit frame.
+ * A session whose base this page never learned cannot be addressed; nothing is sent.
  */
 export async function terminalKill(sessionId: string): Promise<void> {
   const base = sessionBases.get(sessionId)
   sessionBases.delete(sessionId)
   if (!base) return
-  await apiFetch(`${base}/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }).catch(() => {})
+  try {
+    await apiFetch(`${base}/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
+  } catch (err) {
+    // A session that already exited is what the kill wanted.
+    if (problemOf(err).code !== 'not_found') throw err
+  }
 }
 
 /**

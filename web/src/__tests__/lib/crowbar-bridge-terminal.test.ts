@@ -210,6 +210,24 @@ describe('openTerminal / terminalKill / terminalListLive', () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
+  it('a kill of a session that already exited succeeds; any other failure rejects', async () => {
+    const refuse = (status: number, error: string) => ({
+      ok: false,
+      status,
+      json: async () => ({ success: false, error, data: null }),
+    })
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(refuse(404, 'no such session'))
+      .mockResolvedValueOnce(refuse(500, 'pty: kill: permission denied'))
+    vi.stubGlobal('fetch', fetchSpy)
+    openTerminal('gone', '/v0/chats/c9/terminals')
+    openTerminal('stuck', '/v0/chats/c9/terminals')
+
+    await expect(terminalKill('gone')).resolves.toBeUndefined()
+    await expect(terminalKill('stuck')).rejects.toThrow('permission denied')
+  })
+
   it('lists live session ids from the one DTO shape every terminals route serves', async () => {
     vi.stubGlobal(
       'fetch',

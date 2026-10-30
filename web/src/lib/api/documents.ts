@@ -1,4 +1,6 @@
 import { apiFetch } from '@/lib/api/fetch'
+import { problemOf } from '@/lib/errors/problem'
+import { report } from '@/lib/errors/report'
 import {
   decodeFileContent,
   type FileContentPayload,
@@ -58,11 +60,14 @@ export function isWatchLimit(refusal: unknown): boolean {
   return refusal instanceof Error && /\b507\b/.test(String(refusal.cause))
 }
 
-/** The document's text as saved on disk, or null when it cannot be read. */
-export function readDocumentFromDisk(target: DocumentTarget): Promise<string | null> {
-  return readDocument(target)
-    .then((doc) => doc.text)
-    .catch(() => null)
+/** The document's text as saved on disk; null when the file is gone or the read failed. */
+export async function readDocumentFromDisk(target: DocumentTarget): Promise<string | null> {
+  try {
+    return (await readDocument(target)).text
+  } catch (err) {
+    if (problemOf(err).code !== 'not_found') report(err, { action: 'Read the file from disk' })
+    return null
+  }
 }
 
 /**

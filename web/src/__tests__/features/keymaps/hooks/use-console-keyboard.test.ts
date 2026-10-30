@@ -1,16 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, onTestFinished } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
 import { useConsoleKeyboard } from '@/features/keymaps/hooks/use-console-keyboard'
+import { toastManager } from '@/lib/toast-manager'
 
 vi.mock('@/utils/platform', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/utils/platform')>()),
   IS_MAC: false,
 }))
 
-const { chordMap, setMenuChord, menuListeners } = vi.hoisted(() => ({
+const { chordMap, setMenuChord, menuListeners, listenFailure } = vi.hoisted(() => ({
   chordMap: { current: { 'navigation.toggleConsole': 'mod+`' } as Record<string, string> },
   setMenuChord: vi.fn().mockResolvedValue(undefined),
   menuListeners: new Set<() => void>(),
+  listenFailure: { current: null as Error | null },
 }))
 
 vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
@@ -20,6 +22,7 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
 vi.mock('@/lib/crowbar-bridge', () => ({
   setConsoleMenuChord: (chord: string | null) => setMenuChord(chord),
   onConsoleMenuToggle: (handler: () => void) => {
+    if (listenFailure.current) return Promise.reject(listenFailure.current)
     menuListeners.add(handler)
     return Promise.resolve(() => menuListeners.delete(handler))
   },
@@ -29,6 +32,7 @@ beforeEach(() => {
   chordMap.current = { 'navigation.toggleConsole': 'mod+`' }
   setMenuChord.mockClear()
   menuListeners.clear()
+  listenFailure.current = null
 })
 
 function dispatchKeydown(init: KeyboardEventInit): KeyboardEvent {
@@ -38,6 +42,22 @@ function dispatchKeydown(init: KeyboardEventInit): KeyboardEvent {
 }
 
 describe('useConsoleKeyboard', () => {
+  it('a failed menu shortcut setup reports why', async () => {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    onTestFinished(() => toastAdd.mockRestore())
+    setMenuChord.mockRejectedValueOnce(new Error('menu missing'))
+    listenFailure.current = new Error('webview gone')
+
+    renderHook(() => useConsoleKeyboard(vi.fn()))
+
+    await vi.waitFor(() => {
+      const titles = toastAdd.mock.calls.map(([toast]) => toast.title)
+      expect(titles).toEqual(
+        expect.arrayContaining(['Set the console shortcut', 'Listen for the console menu']),
+      )
+    })
+  })
+
   it('toggles and prevents default on the bound chord', () => {
     const onToggle = vi.fn()
     renderHook(() => useConsoleKeyboard(onToggle))

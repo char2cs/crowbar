@@ -3,6 +3,7 @@ import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-key
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
 import { TOGGLE_CONSOLE } from '@/features/keymaps/registry'
 import { onConsoleMenuToggle, setConsoleMenuChord } from '@/lib/crowbar-bridge'
+import { report } from '@/lib/errors/report'
 
 export function useConsoleKeyboard(onToggle: () => void): void {
   const chordMap = useEffectiveChordMap()
@@ -12,7 +13,9 @@ export function useConsoleKeyboard(onToggle: () => void): void {
   // before the webview; AppKit then consumes the keystroke, so the DOM path
   // below and this one never both fire for a single press.
   useEffect(() => {
-    void setConsoleMenuChord(chord || null).catch(() => {})
+    void setConsoleMenuChord(chord || null).catch((err: unknown) =>
+      report(err, { action: 'Set the console shortcut' }),
+    )
   }, [chord])
 
   useEffect(() => {
@@ -23,7 +26,7 @@ export function useConsoleKeyboard(onToggle: () => void): void {
         if (disposed) off()
         else unlisten = off
       })
-      .catch(() => {})
+      .catch((err: unknown) => report(err, { action: 'Listen for the console menu' }))
     return () => {
       disposed = true
       unlisten?.()

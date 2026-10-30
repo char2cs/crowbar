@@ -15,7 +15,7 @@ import { initializeIconThemes } from '@/extensions/icon-themes/icon-theme-initia
 import { installPerfObserver, perfEnabled, pushPerfEntry } from '@/lib/perf/instrumentation'
 import { prefetchEditorChunks } from '@/features/panes/components/prefetch-editor-chunks'
 import { hydrateCriticalStores } from '@/lib/boot'
-import { installGlobalReporting } from '@/lib/errors/report'
+import { installGlobalReporting, report } from '@/lib/errors/report'
 import { startOperationsStream } from '@/lib/store/operations-stream'
 import './index.css'
 
@@ -130,5 +130,5 @@ function renderApp() {
 }
 
 hydrateCriticalStores()
-  .catch(() => {})
+  .catch((err: unknown) => report(err, { action: 'Restore the last session' }))
   .finally(renderApp)

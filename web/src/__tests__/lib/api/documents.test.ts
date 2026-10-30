@@ -6,6 +6,7 @@ vi.mock('@/lib/api/fetch', async (importOriginal) => ({
 }))
 
 import { ApiError } from '@/lib/errors/api-error'
+import { toastManager } from '@/lib/toast-manager'
 import { apiFetch } from '@/lib/api/fetch'
 import {
   HOST_DOCUMENT_TRANSPORT_CODE,
@@ -19,8 +20,11 @@ import {
 const fetchMock = apiFetch as ReturnType<typeof vi.fn>
 const WS_REF: DocumentRef = { authority: 'workspace', workspaceId: 'w1', path: 'src/a.ts' }
 
+const toastAdd = vi.spyOn(toastManager, 'add')
+
 beforeEach(() => {
   fetchMock.mockReset()
+  toastAdd.mockClear()
 })
 
 describe('readDocument', () => {
@@ -61,13 +65,26 @@ describe('readDocument', () => {
 })
 
 describe('readDocumentFromDisk', () => {
-  it('answers the text, or null when the read fails', async () => {
+  it('answers the text, or null when the file is gone', async () => {
     fetchMock
       .mockResolvedValueOnce({ ...WS_REF, content: 'x' })
-      .mockRejectedValueOnce(new Error('gone'))
+      .mockRejectedValueOnce(new ApiError('no such file', 404))
 
     expect(await readDocumentFromDisk(workspaceRef('w1', 'src/a.ts'))).toBe('x')
     expect(await readDocumentFromDisk(workspaceRef('w1', 'src/a.ts'))).toBeNull()
+    expect(toastAdd).not.toHaveBeenCalled()
+  })
+
+  it('a failed disk read reports why', async () => {
+    fetchMock.mockRejectedValueOnce(new ApiError('permission denied', 403))
+
+    expect(await readDocumentFromDisk(workspaceRef('w1', 'src/a.ts'))).toBeNull()
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Read the file from disk',
+        description: 'permission denied',
+      }),
+    )
   })
 })
 

@@ -54,7 +54,11 @@ export async function hydrateCriticalStores(): Promise<void> {
   await useWorkspaceListStore.getState().fetch()
   useSidebarStore.getState().setRepos(dataOf(useWorkspaceListStore.getState().data) ?? [])
   await hydrateSidebar()
-  await chatSurface?.catch(() => {})
+  try {
+    await chatSurface
+  } catch {
+    return // the pane's own lazy load retries the chunk and shows its failure
+  }
 }
 
 function showsChat(): boolean {
