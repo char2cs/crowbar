@@ -251,16 +251,15 @@ func mapStop(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 		Status: string(stopStatus(ev.TurnStatus)), Effort: ev.Effort,
 		Diff: lastText(src.Live.Diff, ""),
 	}
-	ended, closes, err := ledger.EndTurnOf(st, src.RunnerID, ev.TurnID, end)
+	turnID, ended, closes, err := ledger.EndTurnOf(st, src.RunnerID, ev.TurnID, end)
 	if err != nil {
 		return nil, Effects{}, err
 	}
-	turnID := ended.TurnID
 	rows, err := closingRows(st, turnID, ev.Message, src, st.SubagentRunning())
 	if err != nil {
 		return nil, Effects{}, err
 	}
-	rows = append(rows, ended)
+	rows = append(rows, ended...)
 	fx := Effects{Ended: turnID}
 	if !closes {
 		return rows, fx, nil
@@ -272,35 +271,33 @@ func mapStop(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 
 // closingRows are what a turn's end records of what it said: the answers
 // streamed with no row of their own, the reply its hook carried, the thought
-// behind it, and every ask nothing will answer now.
+// behind it, and every ask nothing will answer now. One message is one whole
+// row: the reply is the provider's own record of its last message.
 func closingRows(st ledger.State, turnID, reply string, src Source, outlived bool) ([]ledger.Row, error) {
-	var rows []ledger.Row
+	said := unsaid(st, turnID, src.Live.Answers)
 	last, hasLast := st.LastMessage(turnID)
-	for _, a := range src.Live.Answers {
-		if a.TurnID != turnID || a.Scope != "" || st.HasChunk("", a.ID, ledger.IndexComplete) {
-			continue
-		}
+	whole := hasLast && st.HasChunk("", last, ledger.IndexComplete)
+	if n := len(said); n > 0 {
+		last, hasLast, whole = said[n-1].ID, true, false
+		said[n-1].Text = cmp.Or(reply, said[n-1].Text)
+	}
+	if !hasLast {
+		last = ledger.ReplyID(turnID)
+	}
+	if reply != "" && !whole && len(said) == 0 {
+		said = append(said, liveText{ID: last, Text: reply})
+	}
+	var rows []ledger.Row
+	for _, a := range said {
 		row, err := ledger.NewRow(ledger.KindAssistantText, turnID, "",
 			ledger.AssistantText{MessageID: a.ID, Index: ledger.IndexComplete, Text: a.Text})
-		if err != nil {
-			return nil, err
-		}
-		rows, last, hasLast = append(rows, row), a.ID, true
-	}
-	messageID := last
-	if !hasLast {
-		messageID = ledger.ReplyID(turnID)
-	}
-	if reply != "" {
-		row, err := ledger.NewRow(ledger.KindAssistantText, turnID, "",
-			ledger.AssistantText{MessageID: messageID, Index: ledger.IndexComplete, Text: reply})
 		if err != nil {
 			return nil, err
 		}
 		rows = append(rows, row)
 	}
 	if thought := lastText(src.Live.Reasoning, turnID); thought != "" {
-		row, err := ledger.NewRow(ledger.KindReasoning, turnID, "", ledger.Reasoning{MessageID: messageID, Text: thought})
+		row, err := ledger.NewRow(ledger.KindReasoning, turnID, "", ledger.Reasoning{MessageID: last, Text: thought})
 		if err != nil {
 			return nil, err
 		}
@@ -308,6 +305,17 @@ func closingRows(st ledger.State, turnID, reply string, src Source, outlived boo
 	}
 	abandoned, err := abandonAsks(st, turnID, outlived)
 	return append(rows, abandoned...), err
+}
+
+// unsaid are turnID's main-scope answers that streamed with no whole row.
+func unsaid(st ledger.State, turnID string, answers []liveText) []liveText {
+	var out []liveText
+	for _, a := range answers {
+		if a.TurnID == turnID && a.Scope == "" && !st.HasChunk("", a.ID, ledger.IndexComplete) {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // lastText is the newest of texts, of turnID's turn when one is named.
@@ -374,21 +382,20 @@ func mapFailure(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]
 // does, any other end is late. With no turn, a hooks CLI's report means the
 // prompts it carried were never taken; an api connection's, nothing.
 func mapIdle(st ledger.State, src Source) ([]ledger.Row, Effects, error) {
-	ended, closes, err := ledger.EndTurnOf(st, src.RunnerID, "", ledger.TurnEnded{
+	turnID, rows, closes, err := ledger.EndTurnOf(st, src.RunnerID, "", ledger.TurnEnded{
 		Status: string(ledger.TurnStatusDone), Reason: ledger.ReasonProviderIdle,
 	})
 	if err != nil {
 		return nil, Effects{}, err
 	}
 	if closes {
-		rows, err := closingRows(st, ended.TurnID, "", src, false)
+		closing, err := closingRows(st, turnID, "", src, false)
 		if err != nil {
 			return nil, Effects{}, err
 		}
 		settled, err := settleSteer(st, src.RunnerID, ledger.ReasonDeliveryFailed)
-		return append(append(rows, ended), settled...), Effects{Ended: ended.TurnID}, err
+		return append(append(closing, rows...), settled...), Effects{Ended: turnID}, err
 	}
-	rows := []ledger.Row{ended}
 	if _, running := st.RunningTurn(); running || src.Channel == engineagents.ChannelAPI {
 		return rows, Effects{}, nil
 	}

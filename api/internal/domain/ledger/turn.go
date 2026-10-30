@@ -182,38 +182,44 @@ func EndTurn(st State, status TurnStatus, reason string) ([]Row, error) {
 	return []Row{r}, err
 }
 
-// EndTurnOf is runnerID's report that the turn providerTurnID names ended. It
-// closes the running turn when runnerID runs it and the name fits; otherwise
-// the row is late and names the closed turn it is about, or a fresh id.
-func EndTurnOf(st State, runnerID, providerTurnID string, end TurnEnded) (Row, bool, error) {
-	turnID, closes := st.turnOf(runnerID, providerTurnID)
+// EndTurnOf is runnerID's report that the turn providerTurnID names ended: the
+// turn it is about, its rows, and whether it closes that turn. A turn closes
+// once: a report about one already closed has no row, one the ledger never ran
+// a row of its own under a fresh id.
+func EndTurnOf(st State, runnerID, providerTurnID string, end TurnEnded) (string, []Row, bool, error) {
+	turnID, running, closed := st.turnOf(runnerID, providerTurnID)
+	if closed {
+		return turnID, nil, false, nil
+	}
 	end.RunnerID = runnerID
 	r, err := NewRow(KindTurnEnded, turnID, "", end)
-	return r, closes, err
+	return turnID, []Row{r}, running, err
 }
 
-// FailTurnOf is EndTurnOf for runnerID's report that the turn failed.
+// FailTurnOf is runnerID's report that the turn providerTurnID names failed. A
+// late failure is still written: it is a notice of its own.
 func FailTurnOf(st State, runnerID, providerTurnID string, fail TurnFailed) (Row, bool, error) {
-	turnID, closes := st.turnOf(runnerID, providerTurnID)
+	turnID, running, _ := st.turnOf(runnerID, providerTurnID)
 	r, err := NewRow(KindTurnFailed, turnID, "", fail)
-	return r, closes, err
+	return r, running, err
 }
 
 // turnOf is the turn a report by runnerID naming providerTurnID is about, and
-// whether it is running. A late report is about the kept turn it names, else
-// its runner's newest; a fresh id when the ledger holds no such turn.
-func (s State) turnOf(runnerID, providerTurnID string) (string, bool) {
+// whether it runs or already closed. A late report is about the kept turn it
+// names, else its runner's newest; a fresh id when the ledger holds no such turn.
+func (s State) turnOf(runnerID, providerTurnID string) (id string, running, closed bool) {
 	if s.hasTurn && s.turn.RunnerID == runnerID && s.turn.Names(providerTurnID) {
-		return s.turn.ID, s.turn.Status == TurnStatusRunning
+		running = s.turn.Status == TurnStatusRunning
+		return s.turn.ID, running, !running
 	}
 	id, ok := s.ProviderTurn(providerTurnID)
 	if providerTurnID == "" {
 		id, ok = s.RunnerTurn(runnerID)
 	}
 	if ok && (id != s.turn.ID || s.turn.Status != TurnStatusRunning) {
-		return id, false
+		return id, false, true
 	}
-	return uuid.NewString(), false
+	return uuid.NewString(), false, false
 }
 
 // Stop is a user's Stop as rows: the running turn and every live subagent

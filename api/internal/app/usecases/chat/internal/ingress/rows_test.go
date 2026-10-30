@@ -226,15 +226,12 @@ func TestMap_ATurnStopRecordsItsReplyWithItsEnd(t *testing.T) {
 		Kind: engineagents.HookTurnStop, TurnID: "pt-1", Message: "streamed, finished", Effort: "high",
 	}, s)
 
-	require.Equal(t, []ledger.Kind{
-		ledger.KindAssistantText, ledger.KindAssistantText, ledger.KindReasoning, ledger.KindTurnEnded,
-	}, kinds(rows))
-	assert.Equal(t, "a1", bodyOf[ledger.AssistantText](t, rows[0]).MessageID)
-	reply := bodyOf[ledger.AssistantText](t, rows[1])
-	assert.Equal(t, "a1", reply.MessageID, "the reply is the turn's last message")
+	require.Equal(t, []ledger.Kind{ledger.KindAssistantText, ledger.KindReasoning, ledger.KindTurnEnded}, kinds(rows))
+	reply := bodyOf[ledger.AssistantText](t, rows[0])
+	assert.Equal(t, "a1", reply.MessageID, "the reply is the turn's last message, recorded once")
 	assert.Equal(t, "streamed, finished", reply.Text)
-	assert.Equal(t, "thinking", bodyOf[ledger.Reasoning](t, rows[2]).Text)
-	end := bodyOf[ledger.TurnEnded](t, rows[3])
+	assert.Equal(t, "thinking", bodyOf[ledger.Reasoning](t, rows[1]).Text)
+	end := bodyOf[ledger.TurnEnded](t, rows[2])
 	assert.Equal(t, "+x", end.Diff)
 	assert.Equal(t, "high", end.Effort)
 	assert.Equal(t, turnID, fx.Ended)
@@ -395,15 +392,17 @@ func TestMap_AnIdleWithNothingRunningIsRecordedLate(t *testing.T) {
 }
 
 // A late end of a turn already over is written to it, as a late row.
+// A late turn_stop closes its turn no second time; what it said lands in it.
 func TestMap_ALateTurnStopIsWrittenToItsTurn(t *testing.T) {
 	c := liveChatRows(t)
 	turnID := c.typed("go")
 	c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, TurnID: "pt-1"}, hooksSource())
 
-	rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, TurnID: "pt-1"}, hooksSource())
+	rows, fx := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, TurnID: "pt-1", Message: "late"}, hooksSource())
 
-	require.Equal(t, []ledger.Kind{ledger.KindTurnEnded}, kinds(rows))
+	require.Equal(t, []ledger.Kind{ledger.KindAssistantText}, kinds(rows))
 	assert.Equal(t, turnID, rows[0].TurnID)
+	assert.Equal(t, turnID, fx.Ended)
 }
 
 func TestMap_ANotificationIsAMarker(t *testing.T) {
@@ -460,4 +459,40 @@ func TestNoticeRows_FailTheRunningTurnOrTheCarriedPrompts(t *testing.T) {
 	require.Equal(t, []ledger.Kind{ledger.KindTurnFailed, ledger.KindPromptSettled}, kinds(rows))
 	assert.Equal(t, "out of credit", bodyOf[ledger.TurnFailed](t, rows[0]).Detail)
 	assert.Equal(t, "usage_limit", bodyOf[ledger.PromptSettled](t, rows[1]).Reason)
+}
+
+// Replayed, a real run closes each turn once and records each message whole
+// once, keeping all it said: an end of a turn already closed (an idle after its
+// stop, a stopped turn's own end) and a reply of a message already whole add no row.
+func TestMap_ARecordedRunClosesEachTurnOnceAndSaysEachMessageOnce(t *testing.T) {
+	for _, feed := range []string{"feed-codex-pre-unix.txt", "feed-claude1.txt"} {
+		t.Run(feed, func(t *testing.T) {
+			recorded := recordedRows(t, feed)
+			counts := func(rows []ledger.Row) (ends, wholes map[string]int, said map[string]bool) {
+				ends, wholes, said = map[string]int{}, map[string]int{}, map[string]bool{}
+				for _, r := range rows {
+					text, _ := ledger.DecodeBody[ledger.AssistantText](r)
+					if r.Kind == ledger.KindTurnEnded || r.Kind == ledger.KindTurnFailed {
+						ends[r.TurnID]++
+					}
+					if r.Kind == ledger.KindAssistantText && text.Index == ledger.IndexComplete {
+						wholes[text.MessageID]++
+						said[text.Text] = true
+					}
+				}
+				return ends, wholes, said
+			}
+			ends, wholes, said := counts(replay(t, recorded))
+			_, recordedWholes, recordedSaid := counts(recorded)
+			require.NotEmpty(t, ends)
+			for turnID, n := range ends {
+				assert.Equal(t, 1, n, "turn %s closes once", turnID)
+			}
+			assert.Len(t, wholes, len(recordedWholes), "every message is kept")
+			for messageID, n := range wholes {
+				assert.Equal(t, 1, n, "message %s is recorded whole once", messageID)
+			}
+			assert.Equal(t, recordedSaid, said, "every text said is kept")
+		})
+	}
 }

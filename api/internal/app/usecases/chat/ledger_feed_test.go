@@ -194,7 +194,7 @@ func appendWithin(t *testing.T, f testFixture, chatID string, rows ...ledger.Row
 }
 
 // The provider's idle after its turn_stop names the turn that stop closed: it
-// is written late and announces no second turn_stopped.
+// closes it no second time, so it writes and announces nothing.
 func TestLedgerFeed_AnIdleAfterTheTurnStopAnnouncesNothing(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -211,13 +211,11 @@ func TestLedgerFeed_AnIdleAfterTheTurnStopAnnouncesNothing(t *testing.T) {
 	hook("idle", map[string]any{"message": "Claude is waiting for your input"})
 
 	assert.Empty(t, f.bcKinds(t))
-	rows := ledgerRows(t, f, chatID)
-	require.Len(t, rows, written+1, "the idle is written")
-	assert.Equal(t, ledger.KindTurnEnded, rows[written].Kind)
+	assert.Len(t, ledgerRows(t, f, chatID), written, "the idle writes nothing")
 }
 
-// A stop naming a turn that already ended is written late, and announces no
-// turn edge: a client clears the running turn's live stream on one.
+// A stop naming a turn that already ended writes no second end, and announces
+// no turn edge: a client clears the running turn's live stream on one.
 func TestLedgerFeed_ALateTurnStopAnnouncesNothing(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -229,14 +227,14 @@ func TestLedgerFeed_ALateTurnStopAnnouncesNothing(t *testing.T) {
 	hook("user_prompt", map[string]any{"prompt": "one", "prompt_id": "A"})
 	hook("turn_stop", map[string]any{"last_assistant_message": "", "prompt_id": "A"})
 	hook("user_prompt", map[string]any{"prompt": "two", "prompt_id": "B"})
+	written := len(ledgerRows(t, f, chatID))
 	f.bc.reset()
 
 	hook("turn_stop", map[string]any{"last_assistant_message": "", "prompt_id": "A"})
 
 	assert.Empty(t, f.bcKinds(t))
 	assert.True(t, f.busy(t, chatID), "B still runs")
-	rows := ledgerRows(t, f, chatID)
-	assert.Equal(t, ledger.KindTurnEnded, rows[len(rows)-1].Kind, "the late stop is written")
+	assert.Len(t, ledgerRows(t, f, chatID), written, "the late stop closes A no second time")
 }
 
 // A subagent's stop closes the questions it held, and the chat's clients are

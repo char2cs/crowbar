@@ -1,6 +1,10 @@
 package ingress
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -392,4 +396,85 @@ func TestMap_ACompactionAskedByPromptSpendsIt(t *testing.T) {
 	settled := bodyOf[ledger.PromptSettled](t, rows[1])
 	assert.True(t, settled.Consumed)
 	assert.Equal(t, ledger.ReasonProviderBuiltin, settled.Reason)
+}
+
+// recordedRows are the rows of a feed captured off a real daemon run, one
+// `<time> <frame>` per line (testdata/live3: real claude and codex CLIs).
+func recordedRows(t *testing.T, name string) []ledger.Row {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "live3", name))
+	require.NoError(t, err)
+	var rows []ledger.Row
+	for line := range strings.Lines(string(raw)) {
+		_, frame, _ := strings.Cut(line, " ")
+		var f struct {
+			Type string     `json:"type"`
+			Row  ledger.Row `json:"row"`
+		}
+		if json.Unmarshal([]byte(frame), &f) == nil && f.Type == "row" {
+			rows = append(rows, f.Row)
+		}
+	}
+	return rows
+}
+
+// replay re-decides a recording's provider reports through Map: each whole
+// message, and each provider's turn end with what the recording wrote at it
+// (its reply, streamed answers, thought). Other rows are committed as recorded.
+func replay(t *testing.T, recorded []ledger.Row) []ledger.Row {
+	t.Helper()
+	c := newChatRows(t)
+	var out, spoken []ledger.Row
+	decide := func(ev engineagents.CanonicalEvent, src Source) {
+		rows, _, err := Map(c.st, ev, src, BlobRefs{})
+		require.NoError(t, err)
+		c.commit(rows...)
+		out, spoken = append(out, rows...), nil
+	}
+	for _, r := range recorded {
+		turn, _ := c.st.LastTurn()
+		text, _ := ledger.DecodeBody[ledger.AssistantText](r)
+		end, _ := ledger.DecodeBody[ledger.TurnEnded](r)
+		switch {
+		case r.Kind == ledger.KindAssistantText && text.Index == ledger.IndexComplete && text.Phase != "":
+			decide(engineagents.CanonicalEvent{Kind: engineagents.HookMessageComplete, Complete: &engineagents.MessageComplete{
+				TurnID: turn.ProviderTurnID, MessageID: text.MessageID, Text: text.Text, Phase: text.Phase,
+			}}, Source{RunnerID: turn.RunnerID})
+		case r.Kind == ledger.KindReasoning || r.Kind == ledger.KindAssistantText && text.Index == ledger.IndexComplete:
+			spoken = append(spoken, r)
+		case r.Kind == ledger.KindTurnEnded && (end.Reason == "" || end.Reason == ledger.ReasonProviderIdle):
+			decide(recordedEnd(t, c.st, r.TurnID, end, spoken))
+		default:
+			c.commit(append(spoken, r)...)
+			out, spoken = append(out, append(spoken, r)...), nil
+		}
+	}
+	return out
+}
+
+// recordedEnd is the provider's end of turnID as the rows written at it say.
+func recordedEnd(t *testing.T, st ledger.State, turnID string, end ledger.TurnEnded, spoken []ledger.Row) (
+	engineagents.CanonicalEvent, Source,
+) {
+	t.Helper()
+	turn, _ := st.LastTurn()
+	last, _ := st.LastMessage(turnID)
+	status := map[string]string{"done": "completed", "interrupted": "interrupted"}[end.Status]
+	ev := engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, TurnID: turn.ProviderTurnID, Effort: end.Effort, TurnStatus: status}
+	if end.Reason == ledger.ReasonProviderIdle {
+		ev = engineagents.CanonicalEvent{Kind: engineagents.HookIdle}
+	}
+	src := Source{RunnerID: end.RunnerID}
+	for _, r := range spoken {
+		text := bodyOf[ledger.AssistantText](t, r)
+		switch {
+		case r.Kind == ledger.KindReasoning:
+			src.Live.Reasoning = append(src.Live.Reasoning, liveText{TurnID: turnID, Text: text.Text})
+		case text.MessageID == last || text.MessageID == ledger.ReplyID(turnID):
+			ev.Message = text.Text
+		default:
+			src.Live.Answers = append(src.Live.Answers, liveText{TurnID: turnID, ID: text.MessageID, Text: text.Text})
+		}
+	}
+	return ev, src
 }

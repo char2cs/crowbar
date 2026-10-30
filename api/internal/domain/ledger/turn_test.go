@@ -136,18 +136,21 @@ func TestFold_ATurnStartedOverAnOpenTurnIsLate(t *testing.T) {
 	assert.False(t, ok, "a closed turn never reopens")
 }
 
-// An end that closes nothing is still a row: it names the closed turn it is
-// about, or a turn the ledger never ran, and never the running one.
-func TestEndTurnOf_AnEndThatClosesNothingIsALateRow(t *testing.T) {
+// A turn closes once: an end of the running turn is its row, an end of a turn
+// the ledger never ran is a row of its own, and an end of a turn already closed
+// names that turn and writes nothing.
+func TestEndTurnOf_ATurnClosesOnce(t *testing.T) {
 	running := ledger.Fold("c1", sequenced(t,
 		started(t, "r1"),
 		row(t, ledger.KindTurnStarted, "T1", ledger.TurnStarted{RunnerID: "r1", ProviderTurnID: "p1"}),
 	))
-	r, closes, err := ledger.EndTurnOf(running, "r1", "p1", ledger.TurnEnded{Status: "done", Effort: "high"})
+	turnID, rows, closes, err := ledger.EndTurnOf(running, "r1", "p1", ledger.TurnEnded{Status: "done", Effort: "high"})
 	require.NoError(t, err)
 	assert.True(t, closes)
-	assert.Equal(t, "T1", r.TurnID)
-	body, err := ledger.DecodeBody[ledger.TurnEnded](r)
+	assert.Equal(t, "T1", turnID)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "T1", rows[0].TurnID)
+	body, err := ledger.DecodeBody[ledger.TurnEnded](rows[0])
 	require.NoError(t, err)
 	assert.Equal(t, ledger.TurnEnded{Status: "done", RunnerID: "r1", Effort: "high"}, body)
 
@@ -155,14 +158,15 @@ func TestEndTurnOf_AnEndThatClosesNothingIsALateRow(t *testing.T) {
 		"another runner's end":       {"r0", ""},
 		"an end naming another turn": {"r1", "p0"},
 	} {
-		r, closes, err := ledger.EndTurnOf(running, by[0], by[1], ledger.TurnEnded{Status: "done"})
+		turnID, rows, closes, err := ledger.EndTurnOf(running, by[0], by[1], ledger.TurnEnded{Status: "done"})
 		require.NoError(t, err, name)
 		assert.False(t, closes, name)
-		assert.NotEqual(t, "T1", r.TurnID, "%s never names the running turn", name)
-		require.NoError(t, ledger.Check(running, r), name)
+		assert.NotEqual(t, "T1", turnID, "%s never names the running turn", name)
+		require.Len(t, rows, 1, name)
+		require.NoError(t, ledger.Check(running, rows[0]), name)
 		after := running.Clone()
-		r.Seq = 9
-		after.Apply(r)
+		rows[0].Seq = 9
+		after.Apply(rows[0])
 		_, still := after.RunningTurn()
 		assert.True(t, still, name)
 	}
@@ -171,12 +175,16 @@ func TestEndTurnOf_AnEndThatClosesNothingIsALateRow(t *testing.T) {
 	end := turnEnded(t, "T1", ledger.TurnEnded{Status: "done", RunnerID: "r1"})
 	end.Seq = 3
 	closed.Apply(end)
-	r, closes, err = ledger.EndTurnOf(closed, "r1", "", ledger.TurnEnded{Status: "done"})
-	require.NoError(t, err)
-	assert.False(t, closes)
-	assert.Equal(t, "T1", r.TurnID, "a late end names the closed turn it is about")
+	for name, providerTurnID := range map[string]string{"its idle": "", "its own end, again": "p1"} {
+		turnID, rows, closes, err = ledger.EndTurnOf(closed, "r1", providerTurnID,
+			ledger.TurnEnded{Status: "interrupted", Effort: "low"})
+		require.NoError(t, err, name)
+		assert.False(t, closes, name)
+		assert.Equal(t, "T1", turnID, "%s names the closed turn it is about", name)
+		assert.Empty(t, rows, "%s closes it no second time", name)
+	}
 
-	r, closes, err = ledger.FailTurnOf(ledger.Fold("c1", nil), "r1", "", ledger.TurnFailed{Reason: "overloaded"})
+	r, closes, err := ledger.FailTurnOf(ledger.Fold("c1", nil), "r1", "", ledger.TurnFailed{Reason: "overloaded"})
 	require.NoError(t, err)
 	assert.False(t, closes)
 	require.NoError(t, ledger.Check(ledger.State{}, r), "a late failure with no turn to name gets one")
@@ -195,11 +203,12 @@ func TestEndTurnOf_APastRunnersLateEndNamesItsOwnTurn(t *testing.T) {
 		started(t, "r2"), turnStarted(t, "T2", "r2"),
 	))
 
-	r, closes, err := ledger.EndTurnOf(st, "r1", "", ledger.TurnEnded{Status: "done"})
+	turnID, rows, closes, err := ledger.EndTurnOf(st, "r1", "", ledger.TurnEnded{Status: "done"})
 
 	require.NoError(t, err)
 	assert.False(t, closes)
-	assert.Equal(t, "T1", r.TurnID)
+	assert.Equal(t, "T1", turnID)
+	assert.Empty(t, rows)
 }
 
 func TestEndTurn_ClosesOnlyARunningTurn(t *testing.T) {

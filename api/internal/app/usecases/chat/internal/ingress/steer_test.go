@@ -61,6 +61,6 @@ func TestSteer_AnEndThatClosesNothingHandsOverNothing(t *testing.T) {
 
 	rows, fx := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, TurnID: "pt-1"}, steerable(hooksSource()))
 
-	assert.Equal(t, []ledger.Kind{ledger.KindTurnEnded}, kinds(rows), "a late end")
+	assert.Empty(t, rows, "a late end")
 	assert.Empty(t, fx.Reply)
 }
