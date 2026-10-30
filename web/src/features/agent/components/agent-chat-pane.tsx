@@ -600,6 +600,8 @@ export function AgentChatPaneBody({
     void (async () => {
       try {
         await switchToTerminal(wsId, shownChatId)
+        // A dormant chat only records the move; its start is what lands on the TUI.
+        if (attachment.state === 'idle') startSession()
         setPresentation('terminal')
       } catch (err: unknown) {
         // Left where they were: a view that never came up is worse than
@@ -689,6 +691,10 @@ export function AgentChatPaneBody({
     const chatProvider = providers.find((p) => p.id === activeProviderId)
     const hotswap = chatProvider ? chatProvider.hotswap === true : true
     if (hotswap || next === presentation) {
+      // Asking for the TUI of a dormant chat is the intent to run it; no second button.
+      if (next === 'terminal' && presentation !== 'terminal' && attachment.state === 'idle') {
+        startSession()
+      }
       setPresentation(next)
       return
     }

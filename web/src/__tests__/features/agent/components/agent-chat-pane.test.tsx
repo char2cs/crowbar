@@ -778,6 +778,22 @@ describe('AgentChatPane', () => {
     })
   })
 
+  describe('terminal view of a dormant non-hotswap chat', () => {
+    it('records the move, then starts the session so the TUI is what comes up', async () => {
+      const store = seedWorkspace([dormantChat({ id: 'c1', provider: 'codex' })])
+      store.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
+      switchToTerminalFn.mockResolvedValue('')
+      await renderPane(store, openChatPane(store, 'c1', ''))
+
+      fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
+
+      await vi.waitFor(() => expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1'))
+      expect(switchToTerminalFn.mock.invocationCallOrder[0]).toBeLessThan(
+        resumeChatFn.mock.invocationCallOrder[0],
+      )
+    })
+  })
+
   // ── Header clearance: the chat's own overlay header must never cover pinned UI ──
   // ChatColumnHeader/ChatOnlyPaneHeader (pane-top-row.tsx) float as an absolute,
   // z-10 overlay with NO fill of their own — the chat surface behind is meant to
@@ -1135,6 +1151,17 @@ describe('AgentChatPane', () => {
       expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1')
     })
 
+    it('starting the terminal view on a dormant chat spawns its session itself', async () => {
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      await renderPane(store, openChatPane(store, 'c1', ''))
+
+      expect(resumeChatFn).not.toHaveBeenCalled()
+      await act(async () => {
+        fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
+      })
+      expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1')
+    })
+
     it('toasts when starting a session fails', async () => {
       landOnTerminal()
       resumeChatFn.mockRejectedValue(new ApiError('terminal: command not found: codex', 424))
@@ -1324,6 +1351,7 @@ describe('AgentChatPane', () => {
       await pressToggle()
 
       expect(screen.getByRole('tab', { name: /^chat$/i })).toHaveAttribute('aria-selected', 'true')
+      expect(resumeChatFn).not.toHaveBeenCalled() // the live session survives both ways
     })
 
     it('still fires when the focused child swallows the key (xterm stopPropagation)', async () => {
