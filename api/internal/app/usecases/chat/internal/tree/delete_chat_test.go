@@ -125,3 +125,41 @@ func TestDeleteChat_ALockedRootRefusesBeforeAnyReap(t *testing.T) {
 	assert.Empty(t, f.chats.Purged)
 	assert.Len(t, f.roster.Rows, 3)
 }
+
+// A kept row rises past every parent the delete takes: the nearest surviving
+// ancestor, never a taken row that is about to be purged.
+func TestDeleteChat_AReHungRowRisesPastEveryTakenParent(t *testing.T) {
+	f := newForkedMain(t, worktreeIn("ws-fb"), worktreeIn("ws-fc"))
+	f.reaper.Takes["ws-main"] = []string{"ws-fa", "ws-fb"}
+	seedWorktreeChat(f.chats, "main", "ws-main", "")
+	seedWorktreeChat(f.chats, "fa", "ws-fa", "")
+	seedWorktreeChat(f.chats, "fb", "ws-fb", "fa")
+	seedWorktreeChat(f.chats, "fc", "ws-fc", "fb")
+	before := chatRow(t, f.chats, "fc")
+
+	removed, err := f.uc.DeleteChat(context.Background(), "main", domain.KeepWorkAtRisk)
+
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"main", "fa", "fb"}, removed.Chats)
+	fc := chatRow(t, f.chats, "fc")
+	assert.Empty(t, fc.ParentID, "feature-c rises past feature-b and feature-a to the root")
+	before.ParentID, before.Order = fc.ParentID, fc.Order
+	assert.Equal(t, before, fc, "only its place changes")
+	assert.NotContains(t, f.chats.Purged, "fc")
+	assert.Equal(t, []string{"ws-fc"}, f.rosterIDs())
+}
+
+// A taken row under another taken row hands what it held to neither.
+func TestDeleteChat_ATakenRowUnderATakenParentHandsItsChildToTheRoot(t *testing.T) {
+	f := newForkedMain(t, worktreeIn("ws-fz"), worktreeIn("ws-x"))
+	f.reaper.Takes["ws-main"] = []string{"ws-fa", "ws-fz"}
+	seedWorktreeChat(f.chats, "main", "ws-main", "")
+	seedWorktreeChat(f.chats, "fz", "ws-fz", "")
+	seedWorktreeChat(f.chats, "fa", "ws-fa", "fz")
+	seedWorktreeChat(f.chats, "x", "ws-x", "fa")
+
+	_, err := f.uc.DeleteChat(context.Background(), "main", domain.KeepWorkAtRisk)
+
+	require.NoError(t, err)
+	assert.Empty(t, chatRow(t, f.chats, "x").ParentID)
+}

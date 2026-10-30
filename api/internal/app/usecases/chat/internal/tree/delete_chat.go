@@ -149,24 +149,39 @@ func (d *deletion) takeRowsOf(
 	d.chats = append(d.chats, d.taken...)
 }
 
-// rehang lifts what each taken row holds outside the delete to that row's own
-// parent, as deleting a folder promotes what it held, and returns those levels.
+// rehang lifts what each taken row holds outside the delete to its nearest
+// surviving ancestor, as deleting a folder promotes what it held, and returns
+// those levels.
 func (d *deletion) rehang(snapshot *treeSnapshot) []string {
 	doomed := doomedSet(append(append([]string{}, d.chats...), d.folders...))
 	var levels []string
 	for _, id := range d.taken {
-		node, ok := snapshot.plan.Node(id)
-		if !ok {
-			continue
-		}
+		dest := survivingAncestor(snapshot, id, doomed)
 		for _, child := range snapshot.plan.Members(snapshot.container(id)) {
 			if !doomed[child.ID] {
-				snapshot.plan.SetParent(child.ID, node.ParentID)
+				snapshot.plan.SetParent(child.ID, dest)
 			}
 		}
-		levels = append(levels, node.ParentID)
+		levels = append(levels, dest)
 	}
 	return levels
+}
+
+// survivingAncestor is the nearest level above id the delete leaves standing,
+// the root when none does. The walk is bounded so a corrupt cycle ends.
+func survivingAncestor(snapshot *treeSnapshot, id string, doomed map[string]bool) string {
+	parent := id
+	for range len(doomed) + 1 {
+		node, ok := snapshot.plan.Node(parent)
+		if !ok {
+			return ""
+		}
+		parent = snapshot.canonical(node.ParentID)
+		if !doomed[parent] {
+			return parent
+		}
+	}
+	return ""
 }
 
 // reapWorktrees tears down the planned worktrees, deepest first. A workspace an
