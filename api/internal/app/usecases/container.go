@@ -388,7 +388,7 @@ func newAgentWiring(
 		Agents:                  engines.Agents,
 		Terminal:                engines.Terminal,
 		Workspace:               wsReader,
-		Worktree:                worktreeChildCreator{worktree: workspaceUsecase},
+		Worktree:                worktreeChildCreator{Usecase: workspaceUsecase},
 		Lineage:                 lineage,
 		ProviderPrefs:           gormStores.AgentProviderPreferences,
 		PermissionPrefs:         gormStores.AgentPermissionDefault,
@@ -426,7 +426,7 @@ func newAgentWiring(
 		// with, handed here a second time on purpose: a cascading delete and a
 		// failed promotion's rollback must tear a workspace down through one call
 		// (hierarchy.DeleteCascade), not two implementations that could drift.
-		worktreeChildCreator{worktree: workspaceUsecase},
+		worktreeChildCreator{Usecase: workspaceUsecase},
 		// And the census that gates it: Chat.WorkspaceID names the worktree a
 		// chat is anchored to, never that it is anchored there alone, so the
 		// delete asks who else is currently resolving to it before cascading.
@@ -780,8 +780,11 @@ func (w workspaceGitStatusReader) VisibleForkParent(
 // giving the chat a worktree of its own — a fork parent that is itself a
 // workspace-less bubble must not silently promote this chat into another
 // bubble. So it is forced true here, always.
+//
+// The embedded usecase also answers the TreeWorkspaceReaper's DeletionPlan and
+// WorkAtRisk as they are.
 type worktreeChildCreator struct {
-	worktree workspace.Usecase
+	workspace.Usecase
 }
 
 // CreateChildWorkspace implements agentusecase.WorktreeCreator.
@@ -791,7 +794,7 @@ func (w worktreeChildCreator) CreateChildWorkspace(
 	branch string,
 ) (domain.Workspace, error) {
 	ownWorktree := true
-	return w.worktree.CreateChild(ctx, workspace.CreateChildInput{
+	return w.CreateChild(ctx, workspace.CreateChildInput{
 		ParentID:    forkParentID,
 		Branch:      branch,
 		OwnWorktree: &ownWorktree,
@@ -814,7 +817,7 @@ func (w worktreeChildCreator) CreateImportedWorkspace(
 	spec agentusecase.ImportSpec,
 ) (domain.Workspace, error) {
 	ownWorktree := true
-	return w.worktree.CreateChild(ctx, workspace.CreateChildInput{
+	return w.CreateChild(ctx, workspace.CreateChildInput{
 		RepoID:       spec.RepoID,
 		ProjectID:    spec.ProjectID,
 		RepoPath:     spec.RepoPath,
@@ -837,7 +840,7 @@ func (w worktreeChildCreator) DiscardChildWorkspace(
 	ctx context.Context,
 	workspaceID string,
 ) error {
-	return w.worktree.DeleteCascade(ctx, workspaceID, domain.KeepWorkAtRisk)
+	return w.DeleteCascade(ctx, workspaceID, domain.KeepWorkAtRisk)
 }
 
 // DeleteWorkspace implements agentusecase.TreeWorkspaceReaper: a chat delete's
@@ -847,23 +850,7 @@ func (w worktreeChildCreator) DeleteWorkspace(
 	workspaceID string,
 	consent domain.DeleteConsent,
 ) error {
-	return w.worktree.DeleteCascade(ctx, workspaceID, consent)
-}
-
-// DeletionPlan implements agentusecase.TreeWorkspaceReaper.
-func (w worktreeChildCreator) DeletionPlan(
-	ctx context.Context,
-	workspaceID string,
-) ([]string, error) {
-	return w.worktree.DeletionPlan(ctx, workspaceID)
-}
-
-// WorkAtRisk implements agentusecase.TreeWorkspaceReaper.
-func (w worktreeChildCreator) WorkAtRisk(
-	ctx context.Context,
-	workspaceIDs []string,
-) ([]domain.WorkAtRisk, error) {
-	return w.worktree.WorkAtRisk(ctx, workspaceIDs)
+	return w.DeleteCascade(ctx, workspaceID, consent)
 }
 
 // workspaceGetter is the minimal workspace-read surface agentWorkspaceReader
