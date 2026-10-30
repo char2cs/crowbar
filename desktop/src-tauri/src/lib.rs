@@ -1120,15 +1120,16 @@ pub fn run() {
 
     #[cfg(desktop)]
     {
-        builder = builder.manage(sidecar::SidecarHandle::new());
+        builder = builder
+            .manage(sidecar::SidecarHandle::new())
+            .manage(browser::Parked::default());
     }
 
     let builder = builder
         .manage(ws_bridge::WsBridgeManager::new())
-        .manage(std::sync::Arc::new(host_tokens::KeyringTokenStore)
+        .manage(std::sync::Arc::new(host_tokens::KeyringTokenStore::new())
             as std::sync::Arc<dyn host_tokens::TokenStore>)
         .manage(hosts::HostRegistry::default())
-        .manage(browser::Parked::default())
         // A page load orphans every bridged connection the outgoing page owned: its JS
         // is gone and will never close ids it no longer remembers, and the new page
         // opens its own. Nothing else can notice — a `Channel` keeps working across a
