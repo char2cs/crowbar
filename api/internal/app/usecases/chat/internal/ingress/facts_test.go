@@ -182,6 +182,10 @@ func TestMap_AWholeMessageIsRecordedOnceInItsTurn(t *testing.T) {
 	assert.Empty(t, again)
 	none, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookMessageComplete}, hooksSource())
 	assert.Empty(t, none)
+	empty, _ := c.mapped(engineagents.CanonicalEvent{
+		Kind: engineagents.HookMessageComplete, Complete: &engineagents.MessageComplete{MessageID: "m2"},
+	}, hooksSource())
+	assert.Empty(t, empty, "a message that says nothing writes no row")
 }
 
 func TestMap_ARepeatedToolPhaseWritesNoRow(t *testing.T) {

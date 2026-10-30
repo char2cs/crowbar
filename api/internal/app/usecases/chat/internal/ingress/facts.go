@@ -94,10 +94,11 @@ func joinedReply(st ledger.State, scope, turnID string, d *engineagents.MessageD
 	return ""
 }
 
-// mapComplete records a message the provider reported whole, once.
+// mapComplete records a message the provider reported whole, once; one that
+// says nothing records nothing.
 func mapComplete(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope string) ([]ledger.Row, error) {
 	c := ev.Complete
-	if c == nil || c.MessageID == "" || st.HasChunk(scope, c.MessageID, ledger.IndexComplete) {
+	if c == nil || c.MessageID == "" || c.Text == "" || st.HasChunk(scope, c.MessageID, ledger.IndexComplete) {
 		return nil, nil
 	}
 	turnID, ok := st.MessageTurn(scope, c.MessageID)

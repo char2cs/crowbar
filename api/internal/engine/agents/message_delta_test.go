@@ -131,6 +131,17 @@ func TestAgent_ParseHookMapsACompletedMessageWhole(t *testing.T) {
 	}, *ev.Complete)
 }
 
+// A message that says nothing is still a message, not a mapping that missed
+// its field: it parses, and the chat records nothing of it.
+func TestAgent_ParseHookTakesAnEmptyCompletedMessage(t *testing.T) {
+	raw := `{"item":{"type":"agentMessage","id":"msg_1","text":""},"threadId":"t","turnId":"tn"}`
+	ev, err := get(t, "codex").ParseHook(agents.HookMessageComplete, []byte(raw), agents.ChannelAPI)
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Complete)
+	assert.Equal(t, agents.MessageComplete{TurnID: "tn", MessageID: "msg_1"}, *ev.Complete)
+}
+
 func TestAgent_ParseHookTellsACompletedMessageFromACompletedTool(t *testing.T) {
 	raw := `{"item":{"type":"commandExecution","id":"c1","status":"completed"},"threadId":"t","turnId":"tn"}`
 	_, err := get(t, "codex").ParseHook(agents.HookMessageComplete, []byte(raw), agents.ChannelAPI)
