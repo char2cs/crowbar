@@ -371,7 +371,6 @@ export function AgentChatPane({
               // In split the chat is in front of the user, so it is active.
               active={presentation === 'chat' || splitting}
               visible={isVisible && (known || (!listSeeded && placed))}
-              awaitingList={!known && !listSeeded}
               isActivePane={isActivePane}
               onOpenTerminal={escort.openTerminal}
               terminalWaiting={waiting}

@@ -18,10 +18,3 @@ export function setScrollPosition(chatId: string, position: TranscriptScrollPosi
 export function clearScrollPosition(chatId: string): void {
   positions.delete(chatId)
 }
-
-/** Test-only: this module is a singleton, so state otherwise leaks across
- *  `it()` blocks within a test file — same pattern as
- *  `lib/perf/instrumentation.ts`'s `__resetPerfForTests`. */
-export function __resetScrollPositionsForTests(): void {
-  positions.clear()
-}

@@ -96,14 +96,14 @@
 
      TRIED moving this to a non-scrolling wrapper ancestor instead (masking
      the actual `overflow-y: auto` element is a documented WebKit
-     slow-scrolling-region reason) — reverted: it broke `pinTurnToTop`
+     slow-scrolling-region reason) — reverted: it broke the pin
      bringing a just-sent prompt to the top of the viewport, reported live,
      and this repo's own live-verification tooling could not confirm the
      mask was even the dominant cost of the reported scroll-fps drop before
      that regression was found, so the risk wasn't worth carrying. If this
-     is revisited, the fix needs to keep `.scroll` itself as the thing
-     `pinTurnToTop`'s caller measures and reserves padding on — not move it
-     behind a second flex layer. */
+     is revisited, the fix needs to keep `.scroll` itself as the scroller
+     whose `.stream` the pin's floor sizes — not move it behind a second
+     flex layer. */
   mask-image:
     linear-gradient(to top, transparent 0, black calc(var(--agent-dock-h, 92px) + 24px)),
     linear-gradient(
@@ -210,9 +210,9 @@
 
    `overflow-anchor: none` for the same reason git-history-list.tsx sets it: the
    browser's own scroll anchoring picks a node, then fights the virtualizer as
-   rows re-measure and shift under it. The transcript's anchoring is measured
-   and explicit (use-transcript-anchor.ts), and it must be the only thing moving
-   scrollTop. The 18px between rows is NOT here — it rides on each row's own
+   rows re-measure and shift under it. The virtualizer keeps a reader's rows
+   still when rows above them resize, and use-transcript-anchor.ts follows the
+   bottom; nothing else may move scrollTop. The 18px between rows is NOT here — it rides on each row's own
    padding-bottom, so measureElement counts it (see agent-transcript.tsx). */
 .agent-chat .stream .virtual-rows {
   position: relative;

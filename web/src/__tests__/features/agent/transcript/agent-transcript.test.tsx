@@ -3,6 +3,7 @@ import { act, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { delta, ledger, seedFeed } from '@/__tests__/__fixtures__/ledger-rows'
 import { applyFeedFrame, chatStore, openFeed } from '@/features/agent/stores/chat-store'
+import type { OutboxItem } from '@/features/agent/stores/lib/outbox'
 import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
 
 const { toolRenders } = vi.hoisted(() => ({ toolRenders: new Map<string, number>() }))
@@ -23,7 +24,7 @@ const rect = { top: 0, left: 0, right: 768, bottom: 800, width: 768, height: 800
 const originalRect = HTMLElement.prototype.getBoundingClientRect
 
 beforeEach(() => {
-  chatStore.setState({ feeds: {} })
+  chatStore.setState({ feeds: {}, outbox: {} })
   toolRenders.clear()
   HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
     return { ...rect, toJSON: () => rect } as DOMRect
@@ -55,6 +56,14 @@ function draw(overrides: Partial<ComponentProps<typeof AgentTranscript>> = {}) {
 }
 
 const promptActions = { retry: () => {}, edit: () => {}, cancel: () => {} }
+
+const outboxItem = (requestId: string): OutboxItem => ({
+  requestId,
+  wsId: 'ws-1',
+  text: `prompt ${requestId}`,
+  state: 'sending',
+  steer: false,
+})
 
 describe('AgentTranscript', () => {
   it('symptom 7: a delta re-renders only its streaming row', () => {
@@ -123,6 +132,56 @@ describe('AgentTranscript', () => {
 
     expect(screen.getByTestId('agent-compaction-divider')).toHaveTextContent('Compacted')
     expect(screen.getByTestId('agent-interrupted-divider')).toHaveTextContent('Interrupted')
+  })
+
+  it('symptom 6: rows are visible on the first render', () => {
+    const l = ledger()
+    seedFeed('chat-1', [l.prompt('r1', 'first'), l.start('turn-1', 'r1'), l.prompt('r2', 'last')])
+    draw()
+
+    expect(screen.getByText('first')).toBeVisible()
+    expect(screen.getByText('last')).toBeVisible()
+  })
+
+  it('pins a sent prompt to the top with a floor from the virtualizer offsets', () => {
+    const l = ledger()
+    seedFeed('chat-1', [l.prompt('r1', 'one'), l.start('turn-1', 'r1'), l.end('turn-1')])
+    const { container } = draw({ headerClearancePx: 52 })
+    const stream = container.querySelector<HTMLElement>('.stream')!
+    expect(stream.style.minHeight).toBe('')
+
+    act(() => chatStore.setState({ outbox: { 'chat-1': [outboxItem('r2')] } }))
+
+    // Rows measure 800 each (the stubbed rect), so the new prompt, second, starts
+    // at 800; the floor leaves a viewport below it, less the header it must clear.
+    expect(stream.style.minHeight).toBe(`${800 + 800 - 52}px`)
+  })
+
+  it('does not pin a prompt queued behind a running turn until it is sent', () => {
+    const l = ledger()
+    seedFeed('chat-1', [l.prompt('r1', 'one'), l.start('turn-1', 'r1')])
+    const { container, redraw } = draw({ working: true })
+    const stream = container.querySelector<HTMLElement>('.stream')!
+
+    act(() => chatStore.setState({ outbox: { 'chat-1': [outboxItem('r2')] } }))
+    expect(stream.style.minHeight).toBe('')
+
+    redraw({ working: false })
+    act(() => seedFeed('chat-1', [l.end('turn-1'), l.prompt('r2', 'two')]))
+    act(() => chatStore.setState({ outbox: { 'chat-1': [] } }))
+    expect(stream.style.minHeight).toBe(`${800 + 800}px`)
+  })
+
+  it('releases the pin of a prompt taken back before its row landed', () => {
+    const l = ledger()
+    seedFeed('chat-1', [l.prompt('r1', 'one')])
+    const { container } = draw()
+    const stream = container.querySelector<HTMLElement>('.stream')!
+    act(() => chatStore.setState({ outbox: { 'chat-1': [outboxItem('r2')] } }))
+    expect(stream.style.minHeight).not.toBe('')
+
+    act(() => chatStore.setState({ outbox: { 'chat-1': [] } }))
+    expect(stream.style.minHeight).toBe('')
   })
 
   it('says it is still trying when the feed cannot be reached', () => {

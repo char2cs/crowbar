@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  __resetScrollPositionsForTests,
   clearScrollPosition,
   getScrollPosition,
   setScrollPosition,
@@ -9,7 +8,7 @@ import { createWorkspaceStore } from '@/features/workspace/stores/workspace-stor
 
 describe('transcript-scroll-positions', () => {
   beforeEach(() => {
-    __resetScrollPositionsForTests()
+    for (const id of ['c1', 'c2']) clearScrollPosition(id)
   })
 
   it('returns null for a chat with no saved position', () => {

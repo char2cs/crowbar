@@ -7,7 +7,12 @@ import {
   useRef,
   useState,
 } from 'react'
-import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual'
+import {
+  elementScroll,
+  useVirtualizer,
+  type VirtualItem,
+  type Virtualizer,
+} from '@tanstack/react-virtual'
 import { layoutHeight } from '@/lib/layout-size'
 import { markEnd } from '@/lib/perf/instrumentation'
 import { Button } from '@/components/ui/button'
@@ -15,7 +20,6 @@ import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { WorkingLine } from '@/features/agent/activity/working-line'
 import { useChatItems, useChatOrder, useLiveTail } from '@/features/agent/hooks/use-chat-feed'
-import { useScrollFrameSpan } from '@/features/agent/hooks/use-scroll-frame-span'
 import {
   useTranscriptAnchor,
   type TranscriptScrollPosition,
@@ -52,8 +56,6 @@ interface AgentTranscriptProps {
   /** The dock overlays the transcript by padding, so its height changes reach
    *  the anchor only through this. */
   dockHeight?: number
-  /** The surface around the list is still taking its final shape. */
-  holdReveal?: boolean
   /** A background tab stays mounted behind visibility:hidden. */
   visible?: boolean
   initialScrollPosition?: TranscriptScrollPosition | null
@@ -61,6 +63,8 @@ interface AgentTranscriptProps {
   /** The overlay header's full dissolve reach, for the anchor's pin math. */
   headerClearancePx?: number
 }
+
+type Key = VirtualItem['key']
 
 /** `.stream`'s 18px gap, baked into each virtual row so the offsets count it. */
 const ROW_GAP = 18
@@ -71,21 +75,23 @@ function measureRowHeight(el: Element): number {
 }
 
 /** A `display:none` workspace reports 0 for every row; the cached height is the
- *  honest answer, else the total collapses and the restored offset clamps. */
-function measureRowHeightOrCached(
-  el: HTMLDivElement,
-  _entry: ResizeObserverEntry | undefined,
-  instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
-): number {
-  const height = measureRowHeight(el)
-  if (height > 0) return height
-  const key = instance.options.getItemKey(instance.indexFromElement(el))
-  return instance.itemSizeCache.get(key) ?? height
-}
-
-/** Frames the total height must hold still before an opening chat is shown:
- *  the measure → scroll → re-range cascade plateaus for a frame mid-way. */
-const SETTLE_QUIET_FRAMES = 3
+ *  honest answer, else the total collapses and the restored offset clamps.
+ *  `measured` records which rows have a real height, not an estimate. */
+const measureRowInto =
+  (measured: Set<Key>) =>
+  (
+    el: HTMLDivElement,
+    _entry: ResizeObserverEntry | undefined,
+    instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
+  ): number => {
+    const height = measureRowHeight(el)
+    const key = instance.options.getItemKey(instance.indexFromElement(el))
+    if (height > 0) {
+      measured.add(key)
+      return height
+    }
+    return instance.itemSizeCache.get(key) ?? height
+  }
 
 const ESTIMATED_ROW_HEIGHT = 96
 const ROW_CHROME = 8 + 30 + ROW_GAP
@@ -104,43 +110,54 @@ const compact = (item: TranscriptItem | undefined) =>
   item?.kind === 'tool' || item?.kind === 'ask' || item?.kind === 'marker'
 
 /** tanstack's `observeElementRect`, held back while a pane is dragged and never
- *  reporting a parked (0×0) view, which would unmount every row. */
-function observeScrollRect(
-  instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
-  cb: (rect: { width: number; height: number }) => void,
-) {
-  const element = instance.scrollElement
-  if (!element) return
-  const report = (rect: { width: number; height: number }) => {
-    if (rect.width === 0 && rect.height === 0) return
-    cb({ width: Math.round(rect.width), height: Math.round(rect.height) })
-  }
-  let pending: { width: number; height: number } | null = null
-  const observer = new ResizeObserver(([entry]) => {
-    const box = entry?.borderBoxSize?.[0]
-    const rect = box
-      ? { width: box.inlineSize, height: box.blockSize }
-      : element.getBoundingClientRect()
-    if (document.documentElement.hasAttribute('data-pane-resizing')) {
-      pending = { width: rect.width, height: rect.height }
-      return
+ *  reporting a parked (0×0) view, which would unmount every row. The anchor hears
+ *  every report, parked ones too: it lands the view when the box comes back. */
+const observeScrollRectFor =
+  (onReport: () => void) =>
+  (
+    instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
+    cb: (rect: { width: number; height: number }) => void,
+  ) => {
+    const element = instance.scrollElement
+    if (!element) return
+    const report = (rect: { width: number; height: number }) => {
+      if (rect.width > 0 || rect.height > 0) {
+        cb({ width: Math.round(rect.width), height: Math.round(rect.height) })
+      }
+      onReport()
     }
-    pending = null
-    report(rect)
-  })
-  observer.observe(element, { box: 'border-box' })
-  report(element.getBoundingClientRect())
-  const flush = () => {
-    if (!pending) return
-    report(pending)
-    pending = null
+    let pending: { width: number; height: number } | null = null
+    const observer = new ResizeObserver(([entry]) => {
+      const box = entry?.borderBoxSize?.[0]
+      const rect = box
+        ? { width: box.inlineSize, height: box.blockSize }
+        : element.getBoundingClientRect()
+      if (document.documentElement.hasAttribute('data-pane-resizing')) {
+        pending = { width: rect.width, height: rect.height }
+        return
+      }
+      pending = null
+      report(rect)
+    })
+    observer.observe(element, { box: 'border-box' })
+    report(element.getBoundingClientRect())
+    const flush = () => {
+      if (!pending) return
+      report(pending)
+      pending = null
+    }
+    window.addEventListener('pane-resize-end', flush)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('pane-resize-end', flush)
+    }
   }
-  window.addEventListener('pane-resize-end', flush)
-  return () => {
-    observer.disconnect()
-    window.removeEventListener('pane-resize-end', flush)
-  }
-}
+
+/** The pinned prompt sits at the top when `.stream` reaches one viewport, less
+ *  the overlay header, below the row's start; the floor counts everything under
+ *  the rows (the working line, the dock's room) without measuring it. */
+const pinFloor = (start: number, viewport: number, header: number) =>
+  Math.max(0, start + viewport - header)
 
 const samePlace = (a: RowPlace | undefined, b: RowPlace) =>
   !!a &&
@@ -202,26 +219,24 @@ const asUser = (item: OutboxItem): UserItem => ({
  * The conversation, bottom-anchored. Rows come from the chat's feed by id;
  * prompts with no row yet follow them, in the order they will be sent.
  */
-// react-doctor-disable-next-line no-giant-component -- the virtualizer, anchor and settle gate share refs; T6 owns splitting scroll out
+// react-doctor-disable-next-line no-giant-component -- the virtualizer, anchor and pin share the row offsets
 export function AgentTranscript(props: AgentTranscriptProps) {
-  const { chatId, dockHeight } = props
+  const { chatId } = props
   const order = useChatOrder(chatId)
   const liveTail = useLiveTail(chatId)
   const items = useChatItems(chatId)
   const outbox = useChatStore((s) => s.outbox[chatId] ?? NO_OUTBOX)
-  const [settled, setSettled] = useState(false)
+  const [measured] = useState(() => new Set<Key>())
+  const [pinnedId, setPinnedId] = useState<string | null>(null)
   const anchor = useTranscriptAnchor({
     loadingHistory: props.status === 'connecting',
     initialPosition: props.initialScrollPosition,
     onPositionChange: props.onScrollPositionChange,
     visible: props.visible,
-    headerClearancePx: props.headerClearancePx,
   })
-  const scrollFrame = useScrollFrameSpan()
-  const { notifyReflow, pinTurnToTop, scrollRef } = anchor
-  useEffect(() => {
-    notifyReflow()
-  }, [dockHeight, notifyReflow])
+  const { afterCommit, notifyReflow, noteScrollWrite, stick, scrollRef } = anchor
+  const [measureRow] = useState(() => measureRowInto(measured))
+  const [observeElementRect] = useState(() => observeScrollRectFor(notifyReflow))
 
   // An outbox prompt whose row landed is the rows' from then on, under the same key.
   const unsent = useMemo(() => {
@@ -256,27 +271,29 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   // waiting on reopen is a restore, not a send.
   const newestUnsent = outbox.at(-1)?.requestId ?? null
   const pinnedRequestId = useRef<string | null>(null)
-  const pinnedRow = useRef<string | null>(null)
+  const pendingPin = useRef<string | null>(null)
   const sawFirstOutbox = useRef(false)
+  const pin = (id: string) => {
+    stick()
+    setPinnedId(id)
+  }
   const onOutboxChange = useEffectEvent(() => {
     const inherited = !sawFirstOutbox.current
     sawFirstOutbox.current = true
     if (newestUnsent === pinnedRequestId.current) return
     pinnedRequestId.current = newestUnsent
     if (inherited) return
-    const rowOf = (id: string) =>
-      scrollRef.current?.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(id)}"]`) ?? null
     if (newestUnsent) {
-      pinnedRow.current = `p:${newestUnsent}`
-      if (props.working) return
-      const row = rowOf(pinnedRow.current)
-      if (row) pinTurnToTop(row)
+      pendingPin.current = `p:${newestUnsent}`
+      if (!props.working) pin(pendingPin.current)
       return
     }
-    // The outbox drained: re-anchor on the prompt's row, or release a pin whose
-    // prompt was cancelled before it sent (nothing will fill its room).
-    pinTurnToTop(pinnedRow.current ? rowOf(pinnedRow.current) : null)
-    pinnedRow.current = null
+    // The outbox drained: pin the prompt that was waiting, or release a pin whose
+    // prompt was taken back before it sent (nothing will fill its room).
+    const waiting = pendingPin.current
+    pendingPin.current = null
+    if (waiting && items?.[waiting]) pin(waiting)
+    else setPinnedId(null)
   })
   useLayoutEffect(() => onOutboxChange(), [newestUnsent])
 
@@ -286,64 +303,44 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     getScrollElement: () => scrollRef.current,
     estimateSize: (index) => estimateRowHeight(itemOf(rows[index] ?? '')),
     overscan: 12,
-    measureElement: measureRowHeightOrCached,
+    measureElement: measureRow,
     getItemKey,
-    observeElementRect: observeScrollRect,
+    observeElementRect,
+    // Its writes keep a reader's rows still as rows above them change size.
+    scrollToFn: (offset, options, instance) => {
+      elementScroll(offset, options, instance)
+      noteScrollWrite()
+    },
     // `measureElement` runs in React's commit; flushSync from there throws.
     useFlushSync: false,
   })
+  const virtualItems = rowVirtualizer.getVirtualItems()
+  const measuring = virtualItems.some((row) => !measured.has(row.key))
+  useLayoutEffect(() => afterCommit(measuring))
 
-  // Shows the list once its total height stops moving (see SETTLE_QUIET_FRAMES).
-  // A hidden tab or an unlaid-out pane is not converging yet, so it never latches.
-  useEffect(() => {
-    if (settled || rows.length === 0 || props.visible === false || props.holdReveal) return
-    let quiet = 0
-    let last = -1
-    let frame = 0
-    const step = () => {
-      const el = scrollRef.current
-      if (!el || el.clientHeight === 0 || rowVirtualizer.getVirtualItems().length === 0) {
-        quiet = 0
-        last = -1
-        frame = requestAnimationFrame(step)
-        return
-      }
-      const total = rowVirtualizer.getTotalSize() + (dockHeight ?? 0)
-      quiet = total === last ? quiet + 1 : 0
-      last = total
-      if (quiet >= SETTLE_QUIET_FRAMES) {
-        setSettled(true)
-        return
-      }
-      frame = requestAnimationFrame(step)
-    }
-    frame = requestAnimationFrame(step)
-    return () => cancelAnimationFrame(frame)
-  }, [settled, rows.length, rowVirtualizer, props.visible, props.holdReveal, dockHeight, scrollRef])
-
-  useEffect(() => {
-    if (!settled) return
-    const frame = requestAnimationFrame(() => markEnd('chat:first-row'))
-    return () => cancelAnimationFrame(frame)
-  }, [settled])
+  const pinIndex = pinnedId ? rows.indexOf(pinnedId) : -1
+  const pinStart = pinIndex < 0 ? undefined : rowVirtualizer.measurementsCache[pinIndex]?.start
+  const floor =
+    pinStart === undefined
+      ? 0
+      : pinFloor(pinStart, rowVirtualizer.scrollRect?.height ?? 0, props.headerClearancePx ?? 0)
 
   const empty = rows.length === 0
+  useEffect(() => {
+    if (empty) return
+    const frame = requestAnimationFrame(() => markEnd('chat:first-row'))
+    return () => cancelAnimationFrame(frame)
+  }, [empty])
+
   return (
     <div
       className="scroll"
       data-testid="agent-message-list"
       ref={scrollRef}
-      onScroll={() => {
-        anchor.onScroll()
-        scrollFrame.onScrollEvent()
-      }}
-      // A real gesture outranks the opening gate; onScroll also fires for the
-      // anchor's own writes, so it cannot release it.
-      onWheel={() => setSettled(true)}
-      onPointerDown={() => setSettled(true)}
+      onScroll={anchor.onScroll}
     >
       <div className="scroll-spacer" aria-hidden="true" />
-      <div className="center stream">
+      <div className="center stream" style={floor > 0 ? { minHeight: floor } : undefined}>
         {props.status === 'connecting' && empty && (
           <div className="flex flex-1 items-center justify-center gap-2 text-muted-foreground text-sm">
             <FlickerSpinner className="size-4" /> Loading messages…
@@ -358,14 +355,8 @@ export function AgentTranscript(props: AgentTranscriptProps) {
           </div>
         )}
         {!empty && (
-          <div
-            className="virtual-rows"
-            style={{
-              height: `${rowVirtualizer.getTotalSize()}px`,
-              ...(settled ? null : { visibility: 'hidden' }),
-            }}
-          >
-            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+          <div className="virtual-rows" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
+            {virtualItems.map((virtualRow) => {
               const id = rows[virtualRow.index]
               if (!id) return null
               const next = rows[virtualRow.index + 1]

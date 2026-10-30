@@ -62,8 +62,6 @@ export interface AgentChatViewProps {
   sessionNote?: string
   active: boolean
   visible: boolean
-  /** The chat list has not landed, so the surrounding controls are not final. */
-  awaitingList?: boolean
   isActivePane: boolean
   onOpenTerminal: () => void
   /** The daemon found the CLI blocked on a prompt Crowbar cannot answer. */
@@ -105,7 +103,6 @@ export function AgentChatView({
   sessionNote,
   active,
   visible,
-  awaitingList = false,
   isActivePane,
   onOpenTerminal,
   terminalWaiting = false,
@@ -307,7 +304,6 @@ export function AgentChatView({
       promptActions={prompts.actions}
       dockHeight={dock.dockHeight}
       visible={visible}
-      holdReveal={awaitingList}
       initialScrollPosition={initialScrollPosition}
       onScrollPositionChange={(position) => setScrollPosition(chatId, position)}
       headerClearancePx={transcriptHeaderClearancePx}

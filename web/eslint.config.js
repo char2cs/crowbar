@@ -23,7 +23,6 @@ const MAX_LINES_BASELINE = [
   'src/__tests__/features/agent/composer/composer-choice.test.tsx',
   'src/__tests__/features/agent/composer/plate/chat-markdown-editor.test.tsx',
   'src/__tests__/features/agent/composer/plate/chat-paste-plugin.test.tsx',
-  'src/__tests__/features/agent/hooks/use-transcript-anchor.test.tsx',
   'src/__tests__/features/agent/transcript/plate/streaming-value-patch.test.ts',
   'src/__tests__/features/git/components/diff/use-review-annotations.test.tsx',
   'src/__tests__/features/panes/components/pane-container.test.tsx',
@@ -35,7 +34,6 @@ const MAX_LINES_BASELINE = [
   'src/components/ui/dropdown.tsx',
   'src/components/ui/table-icons.tsx',
   'src/components/ui/table-node.tsx',
-  'src/features/agent/hooks/use-transcript-anchor.ts',
   'src/features/agent/transcript/plate/streaming-value-patch.ts',
   'src/features/tabs/components/tab-bar.tsx',
 ]
