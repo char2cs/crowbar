@@ -15,7 +15,6 @@
  */
 import { useFileWatcherStore } from '@/features/file-system/controllers/file-watcher-store'
 import { workspaceRef, writeDocument, type DocumentRef } from '@/lib/api/documents'
-import { bestEffort } from '@/lib/best-effort'
 import {
   documentName,
   documentRefOf,
@@ -98,7 +97,7 @@ function whenQuiet(uri: string): void {
     uri,
     setTimeout(() => {
       quietTimers.delete(uri)
-      bestEffort(writeDraft(uri), 'write draft')
+      writeDraft(uri)
       const buffer = bufferOfDocument(uri)
       if (buffer && !isUntitled(buffer) && useSettingsStore.getState().settings.autoSave) {
         void saveBuffer(buffer.id, { reason: 'auto' })

@@ -1,5 +1,5 @@
 import { getEditorHost } from '@/features/editor/host/editor-host'
-import { bestEffort } from '@/lib/best-effort'
+import { report } from '@/lib/errors/report'
 import { getDB } from '@/lib/persistence/idb'
 
 /** The unsaved text of a dirty document, kept so a reload or a crash loses nothing. */
@@ -23,9 +23,10 @@ function draftOf(uri: string): EditorDraft | null {
   return { uri, text, savedText, updatedAt: Date.now() }
 }
 
-function persist(uris: readonly string[]): Promise<void> {
+function persist(uris: readonly string[]): void {
   for (const uri of uris) unwritten.delete(uri)
-  return putDrafts(uris.map(draftOf).filter((d): d is EditorDraft => d !== null))
+  const drafts = uris.map(draftOf).filter((d): d is EditorDraft => d !== null)
+  void putDrafts(drafts).catch((err: unknown) => report(err, { action: 'Keep the unsaved draft' }))
 }
 
 /** A dirty document changed; its draft is written by `writeDraft` or `flushDrafts`. */
@@ -34,21 +35,20 @@ export function noteDraftChanged(uri: string): void {
 }
 
 /** Writes `uri`'s draft; the editor calls it once edits pause. */
-export function writeDraft(uri: string): Promise<void> {
-  return persist([uri])
+export function writeDraft(uri: string): void {
+  persist([uri])
 }
 
 export function clearDraft(uri: string): void {
   unwritten.delete(uri)
-  bestEffort(
-    getDB().then((db) => db.delete('editor-drafts', uri)),
-    'clear draft',
-  )
+  void getDB()
+    .then((db) => db.delete('editor-drafts', uri))
+    .catch((err: unknown) => report(err, { action: 'Discard the saved draft' }))
 }
 
 /** Writes every draft not written since its last edit. */
-function flushDrafts(): Promise<void> {
-  return persist([...unwritten])
+function flushDrafts(): void {
+  persist([...unwritten])
 }
 
 export async function loadDrafts(): Promise<Map<string, EditorDraft>> {
@@ -70,5 +70,5 @@ export async function putDrafts(drafts: readonly EditorDraft[]): Promise<void> {
 
 // Edits may not have paused when the window goes away.
 if (typeof window !== 'undefined') {
-  window.addEventListener('pagehide', () => bestEffort(flushDrafts(), 'flush drafts'))
+  window.addEventListener('pagehide', flushDrafts)
 }

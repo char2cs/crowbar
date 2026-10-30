@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { documentUri } from '@/features/editor/documents/document-ref'
 import { workspaceRef } from '@/lib/api/documents'
+import * as languages from '@/features/editor/monaco/language-contributions'
+import { toastManager } from '@/lib/toast-manager'
 
 // DOM-free: mock the light `editor.api.js` entry (what `monaco-adapters.ts`
 // imports instead of the bare `monaco-editor` specifier — see the comment
@@ -121,5 +123,25 @@ describe('monaco-adapters', () => {
 
   it('langForUri derives a monaco language id from the file path', () => {
     expect(langForUri(documentUri(workspaceRef('ws-1', '/proj/main.ts')))).toBe('typescript')
+  })
+
+  it('a failed language load reports why', async () => {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    const load = vi
+      .spyOn(languages, 'loadLanguageForPath')
+      .mockRejectedValue(new Error('chunk failed to load'))
+
+    langForUri(documentUri(workspaceRef('ws-1', '/proj/main.rs')))
+
+    await vi.waitFor(() =>
+      expect(toastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Load language support',
+          description: 'chunk failed to load',
+        }),
+      ),
+    )
+    load.mockRestore()
+    toastAdd.mockRestore()
   })
 })

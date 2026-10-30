@@ -5,6 +5,7 @@ import { clearDraft, loadDrafts } from '@/features/editor/documents/draft-store'
 import { loadEditorHost, type EditorHost } from '@/features/editor/host/editor-host'
 import { QUIET_PERIOD_MS } from '@/features/editor/lib/buffer-save'
 import { workspaceRef } from '@/lib/api/documents'
+import { toastManager } from '@/lib/toast-manager'
 
 const DOC = workspaceRef('ws-drafts', 'notes.md')
 const URI = documentUri(DOC)
@@ -61,5 +62,22 @@ describe('draft store', () => {
     clearDraft(URI)
 
     expect((await loadDrafts()).has(URI)).toBe(false)
+  })
+
+  it('a failed draft write reports why', async () => {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    const puts = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(() => {
+      throw new DOMException('quota exceeded', 'QuotaExceededError')
+    })
+    host.documents.replace(URI, 'typed')
+    vi.advanceTimersByTime(QUIET_PERIOD_MS)
+
+    await vi.waitFor(() =>
+      expect(toastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Keep the unsaved draft' }),
+      ),
+    )
+    puts.mockRestore()
+    toastAdd.mockRestore()
   })
 })

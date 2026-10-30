@@ -1,13 +1,6 @@
-// The bare 'monaco-editor' specifier resolves to the package's "main" bundle
-// (`editor.main.js`), which EAGERLY statically imports all 60+ built-in
-// basic-languages contributions + the 4 heavy language services (verified by
-// reading monaco's own source: editor.main.js literally does
-// `import '../basic-languages/<lang>/<lang>.contribution.js'` for every
-// built-in language). `editor.api` is the exact same `editor`/`Uri` singleton
-// (both resolve through the shared `editor.api2.js`) MINUS that eager
-// bundling — this is the load-bearing prerequisite for `language-contributions
-// .ts`'s on-demand loading to have any effect at all; importing the bare
-// specifier ANYWHERE would silently defeat it.
+// `editor.api` is the same singleton as bare 'monaco-editor' without its eager
+// import of every built-in language; the bare specifier anywhere would defeat
+// language-contributions' on-demand loading.
 import { editor as monacoEditor, Uri } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type { IEditorLike, MonacoEditorApi } from '@/features/editor/lib/editor-manager'
 import type { IModelLike, MonacoModelApi } from '@/features/editor/documents/document-registry'
@@ -15,47 +8,21 @@ import { refFromUri } from '@/features/editor/documents/document-ref'
 import { getLanguageIdFromPath } from '@/features/editor/utils/language-id'
 import { toMonacoLanguageId } from '@/features/editor/monaco/language'
 import { loadLanguageForPath } from '@/features/editor/monaco/language-contributions'
+import { report } from '@/lib/errors/report'
 
 /**
- * Monaco standalone-editor create options, copied verbatim from
- * `monaco-editor.tsx`'s `monacoEditor.create(...)` call, EXCLUDING `model`
- * (the EditorManager assigns the model). Settings-derived values (font,
- * theme, readOnly, …) are applied later by the consumer via `updateOptions`;
- * here we keep the structural/perf-critical options — notably
- * `automaticLayout: false` (the manager drives layout) and `editContext: false`
- * (the Monaco 0.55 EditContext perf workaround).
+ * Structural create options; settings-derived ones (font, theme, readOnly) are
+ * applied later through `updateOptions`, and the manager assigns the model.
  */
 export const EDITOR_CREATE_OPTIONS: monacoEditor.IStandaloneEditorConstructionOptions = {
-  // The retained per-pane widget is laid out by the surface's ResizeObserver
-  // (rAF-debounced, suppressed during a pane-resize drag and flushed on
-  // pane-resize-end) — keeping editor.layout() off the per-frame drag path so
-  // the GPU layer-promotion (editor-theme.css) can keep resize smooth.
+  // The surface's ResizeObserver lays the widget out, off the per-frame drag path.
   automaticLayout: false,
-  // Monaco 0.55 enables the experimental EditContext input mode by default on
-  // Chromium. Its post-render handler (_updateSelectionAndControlBoundsAfterRender)
-  // calls getDomNodePagePosition — a getBoundingClientRect walk up the offsetParent
-  // chain — on every selection/render. Profiling a drag-select across split panes
-  // showed this as the dominant cost (INP 564ms → 178ms, forced reflow 768ms → 391ms
-  // once disabled). Fall back to the classic hidden-textarea input path.
+  // EditContext's post-render bounds walk dominated drag-select cost (INP 564ms →
+  // 178ms once disabled); the hidden-textarea input path is used instead.
   editContext: false,
-  // Monaco's own `getExtraEditorClassName()` special-cases Safari/WKWebView:
-  // it adds `enable-user-select` there instead of the `no-user-select` every
-  // other browser gets, so `.view-lines`/`.view-line`/`.lines-content` keep
-  // native `user-select: text` (viewLines.css) for Safari's dictionary-lookup
-  // gesture. In this Tauri/WKWebView app that native selection is a live gap:
-  // a drag that starts on some OTHER oversized-but-blank hit area (e.g. the
-  // empty document composer, verified live: mousedown there never calls
-  // preventDefault) and sweeps over Monaco isn't caught by Monaco's own
-  // mousedown guard (which only ever sees mousedowns that land ON it), so
-  // WebKit's native selection paints across the whole visible surface —
-  // including the padded empty space below the last line, since `.view-lines`
-  // itself is sized to fill the editor, not just its rendered lines. Forcing
-  // `no-user-select` back on (both classes end up on `.monaco-editor`; the
-  // descendant-scoped `no-user-select` rule wins for these three elements
-  // regardless) matches every non-WebKit browser, where Monaco's OWN
-  // mouse-driven selection model — unaffected by this — is all that's ever
-  // used anyway; we already disable `contextmenu`, so Safari's lookup gesture
-  // has no menu surface left to serve.
+  // WKWebView gets `enable-user-select`, so a drag sweeping in from a blank area
+  // paints native selection over the whole editor; force the class every other
+  // browser gets (Monaco's own selection model is unaffected).
   extraEditorClassName: 'no-user-select',
   insertSpaces: true,
   detectIndentation: false,
@@ -81,24 +48,14 @@ export const EDITOR_CREATE_OPTIONS: monacoEditor.IStandaloneEditorConstructionOp
 }
 
 /**
- * Monaco language id for a model URI (uri → fs path → language id → monaco id).
- *
- * Also kicks off (fire-and-forget) the on-demand grammar/language-service load
- * for this path via `loadLanguageForPath` — see `language-contributions.ts`.
- * NOT awaited: this function must return the language id synchronously so the
- * caller (`DocumentRegistry.open` → `monacoEditor.createModel`) can create the
- * model immediately, without threading an async contract through the
- * document open path. If the
- * contribution resolves shortly after, monaco retokenizes the already-created
- * model in place once its language is registered — a brief plaintext flash
- * that self-corrects, not a permanent gap (see task-5-report.md for what was
- * observed live). A rejected load (e.g. a transient chunk-load failure) is
- * swallowed here so it never surfaces as an unhandled rejection from this
- * fire-and-forget kickoff — the user just gets no highlighting for that file.
+ * Monaco language id for a model URI. Starts the language's on-demand load without
+ * awaiting it, so the model is created at once and retokenized when it lands.
  */
 export function langForUri(uri: string): string {
   const fsPath = refFromUri(uri)?.path ?? ''
-  void loadLanguageForPath(fsPath).catch(() => {})
+  void loadLanguageForPath(fsPath).catch((err: unknown) =>
+    report(err, { action: 'Load language support' }),
+  )
   return toMonacoLanguageId(getLanguageIdFromPath(fsPath))
 }
 
@@ -140,12 +97,7 @@ function wrapModel(model: monacoEditor.ITextModel): IModelLike {
   }
 }
 
-/**
- * Real `MonacoModelApi` over `monaco-editor`. Model URIs are the string keys
- * produced by `document-ref.ts`; we parse them into `monaco.Uri` for the model
- * store and adapt the model's `.uri` back to a string so the registry's
- * string-keyed bookkeeping stays consistent.
- */
+/** `MonacoModelApi` over monaco; model uris stay the registry's string keys. */
 export function realModelApi(): MonacoModelApi {
   return {
     createModel(value, languageId, uri) {
@@ -158,11 +110,7 @@ export function realModelApi(): MonacoModelApi {
   }
 }
 
-/**
- * Real `MonacoEditorApi` over `monaco-editor`. `create` instantiates a
- * standalone editor with the given options and adapts it to `IEditorLike`,
- * exposing models as the string-uri `IModelLike` view.
- */
+/** `MonacoEditorApi` over monaco, exposing models as the string-uri `IModelLike`. */
 export function realEditorApi(
   options: monacoEditor.IStandaloneEditorConstructionOptions,
 ): MonacoEditorApi {
