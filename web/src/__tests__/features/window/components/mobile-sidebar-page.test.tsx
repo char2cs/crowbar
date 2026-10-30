@@ -293,7 +293,7 @@ describe('MobileSidebarPage', () => {
       const rename = {
         id: 'rename',
         title: 'Rename',
-        symbol: 'pencil',
+        icon: 'PencilSimpleLine',
         destructive: false,
         confirm: null,
       }
@@ -325,7 +325,7 @@ describe('MobileSidebarPage', () => {
       const kill = {
         id: 'kill',
         title: 'Kill agent',
-        symbol: 'xmark',
+        icon: 'X',
         destructive: true,
         confirm: null,
       }

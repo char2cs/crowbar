@@ -15,7 +15,9 @@ import {
 import { useCallback, useMemo, type ReactNode } from 'react'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
 import type { AgentProvidersStatus } from '@/features/settings/stores/agent-providers-store'
-import Section from '../settings-section'
+import { cn } from '@/utils/cn'
+import { IS_MOBILE } from '@/utils/platform'
+import Section, { SettingsCard } from '../settings-section'
 import { ProviderColumnHeader } from './provider-columns'
 import { SortableProviderRow } from './sortable-provider-row'
 import { reorderProviderIds } from './provider-preferences'
@@ -70,21 +72,22 @@ export function ProvidersSettingsView({
   const providerIds = useMemo(() => providers.map((p) => p.id), [providers])
 
   return (
-    <Section title="Agents">
+    <Section title="Agents" plain>
       {/* A Section's header is hidden when it is the first one in a tab
           (settings-section.tsx `first:[&>.settings-section-header]:hidden`),
           so this tab renders its own heading and intro in the BODY, mirroring
           that header's typography. Without them the group is a bare list of
           names that never says what an agent actually is. */}
-      <div className="mb-2 px-1 py-1.5">
-        <h3 className="font-heading text-[32px] text-foreground">Agents</h3>
+      <div className={cn('mb-2', IS_MOBILE ? 'px-4' : 'px-1 py-1.5')}>
+        {/* The phone's native screen is titled Agents already. */}
+        {!IS_MOBILE && <h3 className="font-heading text-[32px] text-foreground">Agents</h3>}
         <p className="ui-font ui-text-sm text-muted-foreground">
           Agents are the coding CLIs Crowbar runs your chats on — Claude Code, Codex, and any others
           you add. Crowbar starts one for you when you open a chat, and each keeps its own session
           and login.
         </p>
       </div>
-      {permission}
+      {permission && <SettingsCard>{permission}</SettingsCard>}
       {descriptor}
       {/* THREE STATES, NOT ONE SENTENCE. "No agents available." is a claim
           about the MACHINE, and it was being shown for two situations that
@@ -129,7 +132,7 @@ export function ProvidersSettingsView({
             onDragEnd={handleDragEnd}
           >
             <SortableContext items={providerIds} strategy={verticalListSortingStrategy}>
-              <div className="space-y-1">
+              <SettingsCard className={IS_MOBILE ? undefined : 'space-y-1'}>
                 {providers.map((provider) => (
                   <SortableProviderRow
                     key={provider.id}
@@ -138,7 +141,7 @@ export function ProvidersSettingsView({
                     onToggleTools={onToggleTools}
                   />
                 ))}
-              </div>
+              </SettingsCard>
             </SortableContext>
           </DndContext>
         </>

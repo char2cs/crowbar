@@ -47,9 +47,18 @@ const model: NativeChrome = {
   headers: { chat: [], ide: [] },
   reveal: 'none',
   ack: 0,
-  settings: { open: false },
+  settings: { open: false, theme: 'crowbar', themes: [], pages: [] },
+  hostPlace: 'remote',
   appearance: 'system',
-  palette: { surface: '#fcfcfa', raised: '#262624', text: '#1b1b19', secondaryText: '#666666' },
+  palette: {
+    surface: '#fcfcfa',
+    raised: '#262624',
+    text: '#1b1b19',
+    secondaryText: '#666666',
+    brandLight: '#606c38',
+    brandDark: '#98a86a',
+    sidebar: null,
+  },
 }
 
 afterEach(() => {

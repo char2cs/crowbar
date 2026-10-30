@@ -7,3 +7,8 @@
 :root[data-platform='ios'] {
   touch-action: manipulation;
 }
+
+/* A drawer page paints its whole viewport: no overscroll or inset shows another colour. */
+:root[data-chrome-page] {
+  background-color: var(--chrome-bg);
+}

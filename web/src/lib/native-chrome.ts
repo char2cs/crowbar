@@ -10,6 +10,7 @@ import type { AllowedModes, DropMode } from '@/components/tree-dnd/drop-core'
 import type { HostDotState } from '@/features/hosts/types'
 import type { HostNetState, NetState, ReadoutLines } from '@/components/layout/build-readout-lines'
 import type { Project } from '@/lib/types'
+import type { ThemeMode } from '@/features/settings/types/settings'
 import type { AgentProvider, PermissionLevel } from '@/features/agent/api/agent-api'
 import type { AgentProvidersStatus } from '@/features/settings/stores/agent-providers-store'
 import type { ChatHeaderModel } from '@/features/tabs/hooks/use-chat-branch-header-model'
@@ -28,10 +29,10 @@ interface ConnectSheet {
   error: string | null
 }
 
-/** A round glass button in the top corners; `symbol` is an SF Symbol name. */
+/** A round glass button in the top corners; `icon` is a Phosphor icon name. */
 export interface ChromeButton {
   id: string
-  symbol: string
+  icon: string
   side: 'leading' | 'trailing'
   label: string
   enabled: boolean
@@ -59,10 +60,18 @@ export interface NativeChrome {
   reveal: ChromeReveal
   /** The newest navigation intent (its `seq`) this model already reflects. */
   ack: number
+  /** Where the host the chat list shows runs: its Hosts button draws a computer or a cloud. */
+  hostPlace: 'local' | 'remote'
   /** The app's theme mode; `system` lets native views follow the device like the web does. */
   appearance: 'light' | 'dark' | 'system'
-  /** The Settings sheet, whose one page is the web's own settings at `#/mobile-settings`. */
-  settings: { open: boolean }
+  /** The Settings sheet: a native list whose pages are drawn natively (`hosts`) or are the web's
+   *  own tabs at `#/mobile-settings`, handed the page's id. */
+  settings: {
+    open: boolean
+    theme: string
+    themes: { id: string; name: string }[]
+    pages: { id: string; label: string; icon: string }[]
+  }
   /** The theme's colours for the native sheets, so they read as the web's own pages. */
   palette: NativePalette
 }
@@ -74,6 +83,16 @@ export interface NativePalette {
   raised: string
   text: string
   secondaryText: string
+  /** The brand in each mode, whichever is on: the appearance previews' accent dots. */
+  brandLight: string
+  brandDark: string
+  /** The chat list's foot over the dark chrome sidebar; null where the sidebar keeps the plain chrome. */
+  sidebar: {
+    text: string
+    /** The prominent button's fill and its label. */
+    brand: string
+    brandText: string
+  } | null
 }
 
 /** The chat list's whole content, replaced on every push. Swift forwards it untouched into
@@ -113,7 +132,7 @@ export type NativeRowDrop = {
 export type NativeRowAction = {
   id: string
   title: string
-  symbol: string
+  icon: string
   destructive: boolean
   confirm: { title: string; message: string } | null
 }
@@ -166,7 +185,7 @@ export type NativeFiles = {
 }
 
 /** The IDE's native tab strip: the focused pane's editor tabs, left to right. Swift picks each
- *  tab's symbol from `kind`, and from `path`'s extension for a file. */
+ *  tab's icon from `kind`, and from `path`'s extension for a file. */
 // A type, not an interface, for invoke's args (see NativeSidebar).
 export type NativeTabs = {
   tabs: {
@@ -179,7 +198,7 @@ export type NativeTabs = {
     closable: boolean
   }[]
   /** The + menu's choices, sent back as `newTab`'s `actionId`. */
-  newTabActions: { id: string; title: string; symbol: string }[]
+  newTabActions: { id: string; title: string; icon: string }[]
 }
 
 /** The visible chat's context meter, drawn beside the IDE button. `percent` null hides it: the
@@ -199,9 +218,9 @@ export type NativeModelPicker = {
   providers: {
     id: string
     name: string
-    /** A PNG data URL of the provider's icon; `symbol` (an SF Symbol) stands in without one. */
+    /** A PNG data URL of the provider's icon; `fallbackIcon` (a Phosphor name) stands in without one. */
     icon: string | null
-    symbol: string
+    fallbackIcon: string
     models: { id: string; name: string; detail: string | null }[]
   }[]
   selected: { providerId: string; modelId: string } | null
@@ -247,6 +266,8 @@ export type NativeChromeIntent =
   | { type: 'toggleProviderTools'; id: string; enabled: boolean }
   | { type: 'reorderProviders'; ids: string[] }
   | { type: 'setDefaultPermission'; level: PermissionLevel }
+  | { type: 'setThemeMode'; mode: ThemeMode }
+  | { type: 'setTheme'; id: string }
   | { type: 'openSettings' }
   | { type: 'closeSettings' }
   | { type: 'openFiles'; seq?: number }

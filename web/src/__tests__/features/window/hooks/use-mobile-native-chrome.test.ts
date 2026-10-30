@@ -25,7 +25,7 @@ const chatButtons = () => describeButtons(chrome.models.at(-1)?.headers?.chat)
 const ideButtons = () => describeButtons(chrome.models.at(-1)?.headers?.ide)
 const tap = (id: string) =>
   act(() => chrome.listeners.forEach((listener) => listener({ type: 'tap', id })))
-const workspaces = { ide: true }
+const workspaces = { ide: true, shownHost: 'h1' }
 const send = (intent: NativeChromeIntent) =>
   act(() => chrome.listeners.forEach((listener) => listener(intent)))
 const reveal = () => chrome.models.at(-1)?.reveal
@@ -53,12 +53,17 @@ describe('useMobileNativeChrome', () => {
     root.setProperty('--muted', 'oklch(0 0 0 / 4%)')
     root.setProperty('--foreground', '#1b1b19')
     root.setProperty('--muted-foreground', 'oklch(0.4 0 0)')
+    root.setProperty('--brand-light', '#606c38')
+    root.setProperty('--brand-dark', '#98a86a')
     renderHook(() => useMobileNativeChrome(workspaces))
     expect(chrome.models.at(-1)?.palette).toEqual({
       surface: '#fcfcfa',
       raised: 'oklch(0 0 0 / 4%)',
       text: '#1b1b19',
       secondaryText: 'oklch(0.4 0 0)',
+      brandLight: '#606c38',
+      brandDark: '#98a86a',
+      sidebar: null,
     })
   })
 
@@ -70,7 +75,7 @@ describe('useMobileNativeChrome', () => {
   })
 
   it('puts the chat list on the left and the IDE on the right of the chat', () => {
-    renderHook(() => useMobileNativeChrome({ ide: false }))
+    renderHook(() => useMobileNativeChrome({ ide: false, shownHost: 'h1' }))
     expect(chatButtons()).toEqual(['leading:chat-list:true', 'trailing:ide:false'])
   })
 
@@ -187,10 +192,47 @@ describe('useMobileNativeChrome', () => {
 
     act(() => useUIState.setState({ isSettingsOpen: true }))
     const settings = chrome.models.at(-1)?.settings
-    expect(settings).toEqual({ open: true })
+    expect(settings?.open).toBe(true)
 
     await send({ type: 'closeSettings' })
     expect(useUIState.getState().isSettingsOpen).toBe(false)
+  })
+
+  // The native list's rows, appearance cards and theme list are the web's inventory, not Swift's.
+  it('hands the Settings sheet its pages and the registry’s themes', () => {
+    useSettingsStore.setState((state) => ({ settings: { ...state.settings, theme: 'crowbar' } }))
+    renderHook(() => useMobileNativeChrome(workspaces))
+    const settings = chrome.models.at(-1)?.settings
+    expect(settings?.theme).toBe('crowbar')
+    expect(settings?.themes).toEqual(
+      expect.arrayContaining([{ id: 'crowbar', name: expect.any(String) }]),
+    )
+    expect(settings?.pages.map((page) => page.id)).toEqual([
+      'hosts',
+      'providers',
+      'terminal',
+      'git',
+      'appearance',
+    ])
+  })
+
+  it('applies the theme mode and theme the sheet picks', () => {
+    renderHook(() => useMobileNativeChrome(workspaces))
+    send({ type: 'setThemeMode', mode: 'dark' })
+    expect(useSettingsStore.getState().settings.themeMode).toBe('dark')
+    send({ type: 'setTheme', id: 'frosted' })
+    expect(useSettingsStore.getState().settings.theme).toBe('frosted')
+  })
+
+  // The chat list's Hosts button shows where the shown host runs, as the desktop's host icons do.
+  it('tells the chrome whether the shown host is this computer or a remote', () => {
+    const { rerender } = renderHook(
+      ({ shownHost }) => useMobileNativeChrome({ ide: true, shownHost }),
+      { initialProps: { shownHost: 'h1' as string | null } },
+    )
+    expect(chrome.models.at(-1)?.hostPlace).toBe('remote')
+    rerender({ shownHost: 'local' })
+    expect(chrome.models.at(-1)?.hostPlace).toBe('local')
   })
 
   // Native views follow the app's own theme mode, or the system's while the app does.

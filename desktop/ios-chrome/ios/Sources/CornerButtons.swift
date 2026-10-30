@@ -23,7 +23,7 @@ struct CornerButtons: View {
           ContextMeter(state: context, percent: percent, send: model.send, present: model.present)
         }
         ForEach(buttons.filter { $0.side == side }) { button in
-          GlassCircle(symbol: button.symbol, label: button.label, enabled: button.enabled) {
+          GlassCircle(icon: button.icon, label: button.label, enabled: button.enabled) {
             model.send(button.intent.map { .of($0) } ?? .tap(button.id))
           }
         }

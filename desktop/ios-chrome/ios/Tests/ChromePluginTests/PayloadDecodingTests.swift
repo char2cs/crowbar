@@ -14,26 +14,25 @@ final class PayloadDecodingTests: XCTestCase {
       {"tabs":[{"id":"a","title":"main.rs","kind":"file","path":"src/main.rs","active":true,
         "dirty":false,"closable":true},
         {"id":"b","title":"zsh","kind":"terminal","active":false,"dirty":true,"closable":false}],
-       "newTabActions":[{"id":"term","title":"Terminal","symbol":"apple.terminal"}]}
+       "newTabActions":[{"id":"term","title":"Terminal","icon":"TerminalWindow"}]}
       """)
     XCTAssertEqual(state.tabs.map(\.id), ["a", "b"])
     XCTAssertEqual(state.tabs[0].path, "src/main.rs")
     XCTAssertNil(state.tabs[1].path)
     XCTAssertTrue(state.tabs[1].dirty)
-    XCTAssertEqual(state.newTabActions.first?.symbol, "apple.terminal")
+    XCTAssertEqual(state.newTabActions.first?.icon, "TerminalWindow")
   }
 
   func testTabsStateRejectsMissingField() {
     XCTAssertThrowsError(try decode(TabsState.self, #"{"tabs":[]}"#))
   }
 
-  func testTabSymbols() {
-    XCTAssertEqual(TabSymbol.of(kind: "terminal", path: nil), "apple.terminal")
-    XCTAssertEqual(TabSymbol.of(kind: "file", path: "a/b.SWIFT"), "swift")
-    XCTAssertEqual(TabSymbol.of(kind: "file", path: "notes.md"), "doc.plaintext")
-    XCTAssertEqual(TabSymbol.of(kind: "file", path: "x.rs"), "chevron.left.forwardslash.chevron.right")
-    XCTAssertEqual(TabSymbol.of(kind: "file", path: "x.unknown"), "doc.text")
-    XCTAssertEqual(TabSymbol.of(kind: "file", path: nil), "doc.text")
+  func testTabIcons() {
+    XCTAssertEqual(TabIcon.of(kind: "terminal", path: nil), .terminalWindow)
+    XCTAssertEqual(TabIcon.of(kind: "file", path: "a/b.SWIFT"), .fileCode)
+    XCTAssertEqual(TabIcon.of(kind: "file", path: "notes.md"), .fileText)
+    XCTAssertEqual(TabIcon.of(kind: "file", path: "x.unknown"), .file)
+    XCTAssertEqual(TabIcon.of(kind: "file", path: nil), .file)
   }
 
   func testHostPickerState() throws {
@@ -43,9 +42,18 @@ final class PayloadDecodingTests: XCTestCase {
       {"open":true,"hosts":[{"id":"h1","name":"lab","endpoint":"https://lab:7777","state":"up"}],
        "revoking":["h1"],"shownHost":"h1"}
       """)
-    XCTAssertEqual(state.hosts.map(\.name), ["lab"])
-    XCTAssertEqual(state.revoking, ["h1"])
-    XCTAssertEqual(state.shownHost, "h1")
+    XCTAssertTrue(state.open)
+    XCTAssertEqual(state.list.hosts.map(\.name), ["lab"])
+    XCTAssertEqual(state.list.revoking, ["h1"])
+    XCTAssertEqual(state.list.shownHost, "h1")
+  }
+
+  func testHostListStateIsTheSettingsHostsSnapshot() throws {
+    let list = try decode(
+      HostListState.self,
+      #"{"hosts":[{"id":"h1","name":"lab","endpoint":"e","state":"down"}],"revoking":[],"shownHost":null}"#)
+    XCTAssertNil(list.shownHost)
+    XCTAssertEqual(list.hosts.first?.state, "down")
   }
 
   func testChromeStateOmittedPartsAreNil() throws {
@@ -65,10 +73,10 @@ final class PayloadDecodingTests: XCTestCase {
       {"accent":"#fff","welcome":{"visible":true,"label":"Connect"},
        "connect":{"open":true,"stage":"fingerprint","name":"n","address":"a","code":"",
          "fingerprint":"ab:cd","busy":false,"error":null},
-       "headers":{"chat":[],"ide":[{"id":"files","symbol":"folder","side":"trailing",
+       "headers":{"chat":[],"ide":[{"id":"files","icon":"FolderSimple","side":"trailing",
          "label":"Files","enabled":true}]},
-       "reveal":"chatList","ack":4,"settings":{"open":true},"appearance":"dark",
-       "palette":{"surface":"#000","raised":"#111","text":"#fff","secondaryText":"#888"}}
+       "reveal":"chatList","ack":4,"settings":{"open":true,"theme":"crowbar","themes":[{"id":"crowbar","name":"Crowbar"}],"pages":[{"id":"hosts","label":"Hosts","icon":"HardDrives"}]},"appearance":"dark","hostPlace":"local",
+       "palette":{"surface":"#000","raised":"#111","text":"#fff","secondaryText":"#888","brandLight":"#606c38","brandDark":"#98a86a"}}
       """)
     XCTAssertEqual(state.connect?.stage, .fingerprint)
     XCTAssertNil(state.connect?.error)
@@ -78,8 +86,12 @@ final class PayloadDecodingTests: XCTestCase {
     XCTAssertEqual(state.reveal, .chatList)
     XCTAssertEqual(Reveal.none.screen, .chat)
     XCTAssertEqual(Reveal.files.screen, .files)
-    XCTAssertEqual(state.settings, SettingsState(open: true))
-    XCTAssertNotNil(state.palette.flatMap(ChromePalette.init))
+    XCTAssertEqual(state.hostPlace, "local")
+    XCTAssertEqual(state.settings?.theme, "crowbar")
+    XCTAssertEqual(state.settings?.themes, [ThemeChoice(id: "crowbar", name: "Crowbar")])
+    XCTAssertEqual(state.settings?.pages.first?.icon, "HardDrives")
+    XCTAssertNotNil(state.palette.flatMap(ChromePalette.init)?.brandLight)
+    XCTAssertNotNil(state.palette.flatMap(ChromePalette.init)?.brandDark)
   }
 
   func testPaletteWithUnparsableColourIsNil() throws {
@@ -87,6 +99,28 @@ final class PayloadDecodingTests: XCTestCase {
       PaletteState.self,
       ##"{"surface":"#000","raised":"nope","text":"#fff","secondaryText":"#888"}"##)
     XCTAssertNil(ChromePalette(state))
+  }
+
+  func testPaletteCarriesTheSidebarPaletteWhenTheThemeHasOne() throws {
+    let state = try decode(
+      PaletteState.self,
+      ##"""
+      {"surface":"#fcfcfa","raised":"#f1f0ea","text":"#1b1b19","secondaryText":"#666",
+       "sidebar":{"text":"oklch(0.94 0.008 106.7)","brand":"#98a86a","brandText":"#1b1b19"}}
+      """##)
+    XCTAssertNotNil(ChromePalette(state)?.sidebar)
+  }
+
+  func testPaletteWithoutSidebarPaletteKeepsThePlainChrome() throws {
+    let plain = try decode(
+      PaletteState.self,
+      ##"{"surface":"#fff","raised":"#eee","text":"#000","secondaryText":"#666","sidebar":null}"##)
+    XCTAssertNotNil(ChromePalette(plain))
+    XCTAssertNil(ChromePalette(plain)?.sidebar)
+    let unparsable = try decode(
+      PaletteState.self,
+      ##"{"surface":"#fff","raised":"#eee","text":"#000","secondaryText":"#666","sidebar":{"text":"nope","brand":"#98a86a","brandText":"#000"}}"##)
+    XCTAssertNil(ChromePalette(unparsable)?.sidebar)
   }
 
   func testUnknownRevealAndStageAreRejected() {
@@ -98,7 +132,7 @@ final class PayloadDecodingTests: XCTestCase {
     let state = try decode(
       ModelPickerState.self,
       """
-      {"open":true,"providers":[{"id":"claude","name":"Claude","symbol":"sparkle",
+      {"open":true,"providers":[{"id":"claude","name":"Claude","fallbackIcon":"Robot",
         "models":[{"id":"m1","name":"Model 1"}]}],
        "selected":{"providerId":"claude","modelId":"m1"},"efforts":["low","high"],"effort":null}
       """)
@@ -133,7 +167,7 @@ final class PayloadDecodingTests: XCTestCase {
   @available(iOS 26.0, *)
   func testRowMenuActionDecoding() {
     let full = RowMenu.action([
-      "id": "del", "title": "Delete", "symbol": "trash", "destructive": true,
+      "id": "del", "title": "Delete", "icon": "Trash", "destructive": true,
       "confirm": ["message": "Sure?"],
     ])
     XCTAssertEqual(full?.id, "del")
@@ -144,7 +178,7 @@ final class PayloadDecodingTests: XCTestCase {
     let plain = RowMenu.action(["id": "rename", "title": "Rename"])
     XCTAssertEqual(plain?.destructive, false)
     XCTAssertNil(plain?.confirm)
-    XCTAssertNil(plain?.symbol)
+    XCTAssertNil(plain?.icon)
 
     XCTAssertNil(RowMenu.action(["id": "x"]))
     XCTAssertNil(RowMenu.action(["title": "x"]))

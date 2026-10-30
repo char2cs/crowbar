@@ -70,3 +70,25 @@ pub unsafe extern "C" fn crowbar_chrome_asset_free(bytes: *mut u8, len: usize, m
     )));
     drop(CString::from_raw(mime));
 }
+
+/// The web's UI font (`web/public/fonts/CalSansUI.woff2`) and heading font (`@fontsource/
+/// instrument-serif`, latin 400) as the TrueType CoreText loads: it cannot read woff2, and a Swift
+/// package's resources are not carried into the app.
+static FONTS: [&[u8]; 2] = [
+    include_bytes!("../../assets/CalSansUI.ttf"),
+    include_bytes!("../../assets/InstrumentSerif.ttf"),
+];
+
+/// Font file `index`'s bytes (0 the UI font, 1 the heading font), valid for the life of the app
+/// and never freed; null past the last.
+///
+/// # Safety
+/// `len` is writable.
+#[no_mangle]
+pub unsafe extern "C" fn crowbar_chrome_font(index: usize, len: *mut usize) -> *const u8 {
+    let Some(font) = FONTS.get(index) else {
+        return std::ptr::null();
+    };
+    *len = font.len();
+    font.as_ptr()
+}

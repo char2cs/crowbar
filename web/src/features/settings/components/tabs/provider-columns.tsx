@@ -1,4 +1,5 @@
 import { cn } from '@/utils/cn'
+import { IS_MOBILE } from '@/utils/platform'
 
 /**
  * THE ONE COLUMN DEFINITION the Providers table has. The header labels and the
@@ -54,7 +55,7 @@ export function ProviderColumnHeader() {
     <div
       aria-hidden="true"
       data-testid="provider-columns-header"
-      className="flex items-center gap-2 px-1 pb-1"
+      className={cn('flex items-center gap-2 pb-1', IS_MOBILE ? 'px-4' : 'px-1')}
     >
       <div className="min-w-0 flex-1" />
       <span className={PROVIDER_COLUMN_LABEL}>Installed</span>

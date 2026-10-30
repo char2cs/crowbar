@@ -148,7 +148,7 @@ function nativeRowActions(
       rowVerbs(row, { locked, canStartOnTerminal: false }).map((action) => ({
         id: action.id,
         title: action.label,
-        symbol: action.symbol,
+        icon: action.nativeIcon,
         destructive: action.destructive,
         confirm: confirmFor(action.id, row),
       }))
@@ -157,7 +157,7 @@ function nativeRowActions(
       actions[row.id].push({
         id: KILL_AGENT,
         title: 'Kill agent',
-        symbol: 'xmark.octagon',
+        icon: 'Prohibit',
         destructive: true,
         confirm: killAgentConfirmation({ ...session, attached: attached[row.id]?.count ?? 0 }),
       })

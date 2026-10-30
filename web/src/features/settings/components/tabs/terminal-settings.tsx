@@ -68,6 +68,7 @@ export const TerminalSettings = () => {
       <Section title="Typography">
         <SettingRow
           label="Font Family"
+          layout="stacked"
           description="Font family for the integrated terminal. Select a Nerd Font for best icon support."
           onReset={() =>
             updateSetting('terminalFontFamily', getDefaultSetting('terminalFontFamily'))

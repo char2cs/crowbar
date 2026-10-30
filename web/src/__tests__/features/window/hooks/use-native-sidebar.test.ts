@@ -289,7 +289,7 @@ describe('useNativeSidebar', () => {
     expect(last().actions[alpha.id][1]).toEqual({
       id: 'lock',
       title: 'Lock',
-      symbol: 'lock',
+      icon: 'Lock',
       destructive: false,
       confirm: null,
     })

@@ -23,7 +23,7 @@ struct ConnectState: Decodable, Equatable {
 
 struct ChromeButton: Decodable, Identifiable, Equatable {
   let id: String
-  let symbol: String
+  let icon: String
   let side: String
   let label: String
   let enabled: Bool
@@ -49,6 +49,8 @@ struct ChromeState: Decodable {
   let ack: Int?
   let settings: SettingsState?
   let appearance: String?
+  /// Where the shown host runs: `local` or `remote`.
+  let hostPlace: String?
   let palette: PaletteState?
 }
 
@@ -58,6 +60,33 @@ struct PaletteState: Decodable {
   let raised: String
   let text: String
   let secondaryText: String
+  /// The brand in each mode, whichever is on; nil from an older web.
+  let brandLight: String?
+  let brandDark: String?
+  /// The chat list's foot over the dark chrome sidebar; nil where the sidebar keeps the plain chrome.
+  let sidebar: SidebarPaletteState?
+}
+
+struct SidebarPaletteState: Decodable {
+  let text: String
+  let brand: String
+  let brandText: String
+}
+
+/// The sidebar's colours: light text on the dark chrome, and the prominent button's fill with its label.
+struct SidebarPalette: Equatable {
+  let text: Color
+  let brand: Color
+  let brandText: Color
+
+  init?(_ state: SidebarPaletteState) {
+    guard let text = Color(css: state.text), let brand = Color(css: state.brand),
+      let brandText = Color(css: state.brandText)
+    else { return nil }
+    self.text = text
+    self.brand = brand
+    self.brandText = brandText
+  }
 }
 
 /// The web's palette, decoded: a sheet painted from it reads as one of the web's pages.
@@ -67,6 +96,10 @@ struct ChromePalette: Equatable {
   let raised: Color
   let text: Color
   let secondaryText: Color
+  /// The brand in light and in dark mode, for previews of each.
+  let brandLight: Color?
+  let brandDark: Color?
+  let sidebar: SidebarPalette?
 
   init?(_ state: PaletteState) {
     guard let surface = Color(css: state.surface), let raised = Color(css: state.raised),
@@ -76,12 +109,18 @@ struct ChromePalette: Equatable {
     self.raised = raised
     self.text = text
     self.secondaryText = secondaryText
+    brandLight = state.brandLight.flatMap { Color(css: $0) }
+    brandDark = state.brandDark.flatMap { Color(css: $0) }
+    sidebar = state.sidebar.flatMap(SidebarPalette.init)
   }
 }
 
-/// The Settings sheet; its one page is the web's own settings.
+/// The Settings sheet: a native list of the web's pages, and the choices drawn natively.
 struct SettingsState: Decodable, Equatable {
   let open: Bool
+  let theme: String
+  let themes: [ThemeChoice]
+  let pages: [SettingsPageItem]
 }
 
 /// Which layer the front card is slid aside to show.
@@ -115,6 +154,7 @@ final class ChromeModel: ObservableObject {
   @Published var accent: Color?
   @Published var brandGround: Color?
   @Published var palette: ChromePalette?
+  @Published var hostPlace = "remote"
   @Published var welcome: WelcomeState?
   // Kept after the web closes the sheet, so it slides away showing what it showed.
   @Published var connect: ConnectState?

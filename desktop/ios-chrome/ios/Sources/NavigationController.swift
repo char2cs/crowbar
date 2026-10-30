@@ -80,7 +80,6 @@ final class NavigationController: NSObject {
     dim.autoresizingMask = [.flexibleWidth, .flexibleHeight]
     host.insertSubview(dim, belowSubview: webview)
 
-    shadow.backgroundColor = .systemBackground
     shadow.layer.shadowColor = UIColor.black.cgColor
     shadow.layer.shadowRadius = 24
     shadow.layer.cornerCurve = .continuous
@@ -272,6 +271,9 @@ final class NavigationController: NSObject {
     shadow.bounds = CGRect(origin: .zero, size: host.bounds.size)
     shadow.center = CGPoint(x: host.bounds.midX + offset, y: host.bounds.midY)
     shadow.layer.cornerRadius = radius
+    // Whatever peeks round the card's rounded corners is the page beneath, never a stock white.
+    let beneath = frames.gap == 1 ? webview.backgroundColor : (machine.position < 1 ? list : files).backgroundColor
+    shadow.backgroundColor = beneath ?? .clear
     shadow.layer.shadowPath =
       UIBezierPath(roundedRect: shadow.bounds, cornerRadius: radius).cgPath
     shadow.layer.shadowOpacity = Float(frames.shadow)

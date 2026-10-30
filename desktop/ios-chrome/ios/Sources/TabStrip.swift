@@ -13,7 +13,8 @@ struct TabsState: Decodable, Equatable {
   struct NewTabAction: Decodable, Identifiable, Equatable {
     let id: String
     let title: String
-    let symbol: String
+    /// The web's name for a Phosphor icon.
+    let icon: String
   }
   let tabs: [Tab]
   let newTabActions: [NewTabAction]
@@ -59,12 +60,15 @@ struct TabStrip: View {
           Haptics.tap()
           model.send(.of("newTab", ["actionId": action.id]))
         } label: {
-          Label(action.title, systemImage: action.symbol)
+          Label {
+            Text(action.title)
+          } icon: {
+            CrowbarIcon(named: action.icon).map { Image(uiImage: $0.image(size: 20)) }
+          }
         }
       }
     } label: {
-      Image(systemName: "plus")
-        .font(.footnote.weight(.semibold))
+      PhosphorIcon(.plus, size: 16)
         .frame(width: 32, height: 44)
         .contentShape(.rect)
     }
@@ -85,8 +89,7 @@ private struct TabPill: View {
         send(.of("selectTab", ["id": tab.id]))
       } label: {
         HStack(spacing: 5) {
-          Image(systemName: TabSymbol.of(kind: tab.kind, path: tab.path))
-            .font(.caption)
+          PhosphorIcon(TabIcon.of(kind: tab.kind, path: tab.path), size: 14)
             .foregroundStyle(.secondary)
           Text(tab.title)
             .font(.footnote.weight(tab.active ? .semibold : .regular))
@@ -113,8 +116,7 @@ private struct TabPill: View {
       Haptics.tap()
       send(.of("closeTab", ["id": tab.id]))
     } label: {
-      Image(systemName: tab.dirty ? "circle.fill" : "xmark")
-        .font(.system(size: tab.dirty ? 6 : 9, weight: .bold))
+      PhosphorIcon(tab.dirty ? .circle : .x, size: tab.dirty ? 7 : 11)
         .foregroundStyle(.secondary)
         .frame(width: 24, height: 44)
         .contentShape(.rect)
@@ -124,30 +126,28 @@ private struct TabPill: View {
   }
 }
 
-/// SF Symbols standing in for the desktop's tab icons.
-enum TabSymbol {
-  static func of(kind: String, path: String?) -> String {
+/// The desktop's tab icons (`TabBufferIcon`, `FileExplorerIcon`'s generic file icons).
+enum TabIcon {
+  static func of(kind: String, path: String?) -> CrowbarIcon {
     switch kind {
-    case "terminal": "apple.terminal"
-    case "review": "arrow.triangle.pull"
-    case "diff": "arrow.triangle.branch"
-    case "browser": "globe"
-    case "preview": "eye"
-    case "newTab": "plus.square.dashed"
+    case "terminal": .terminalWindow
+    case "review": .gitPullRequest
+    case "diff": .gitBranch
+    case "browser": .globe
+    case "preview": .eye
+    case "newTab": .plus
     default: file(path)
     }
   }
 
-  private static func file(_ path: String?) -> String {
+  private static func file(_ path: String?) -> CrowbarIcon {
     switch path.map({ ($0 as NSString).pathExtension.lowercased() }) {
-    case "swift": "swift"
-    case "md", "mdx", "txt": "doc.plaintext"
-    case "json", "yaml", "yml", "toml": "curlybraces"
-    case "png", "jpg", "jpeg", "gif", "svg", "webp": "photo"
-    case "ts", "tsx", "js", "jsx", "go", "rs", "py", "rb", "c", "h", "cpp", "java", "kt", "css",
-      "html", "sh":
-      "chevron.left.forwardslash.chevron.right"
-    default: "doc.text"
+    case "md", "mdx", "txt": .fileText
+    case "png", "jpg", "jpeg", "gif", "svg", "webp": .fileImage
+    case "swift", "json", "yaml", "yml", "toml", "ts", "tsx", "js", "jsx", "go", "rs", "py", "rb",
+      "c", "h", "cpp", "java", "kt", "css", "html", "sh":
+      .fileCode
+    default: .file
     }
   }
 }

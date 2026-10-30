@@ -12,6 +12,7 @@ final class ChromeOverlays {
   private let files: PageChannel
   private let picker = ModelPickerModel()
   private let hostPicker = HostPickerModel()
+  private let settingsModel = SettingsModel()
   private var rowMenu: RowMenu?
   private weak var webview: WKWebView?
   private var navigation: NavigationController?
@@ -24,9 +25,11 @@ final class ChromeOverlays {
     model.send(.dismiss)
   }
   private lazy var settingsSheet = SheetPresenter(undimmed: false, detents: [.large()]) {
-    [model, weak self] in
+    [model, settingsModel, weak self] in
     UIHostingController(
-      rootView: SettingsSheet(page: self?.settingsPage() ?? WKWebView()) {
+      rootView: SettingsSheet(
+        model: settingsModel, chrome: model, page: self?.settingsPage() ?? WKWebView()
+      ) {
         model.send(.of("closeSettings"))
       })
   } onUserDismiss: { [model] in
@@ -85,11 +88,16 @@ final class ChromeOverlays {
       handler: "settings",
       feeds: [
         "agentsSettingsReady": "__crowbarAgentsSettings",
-        "hostsSettingsReady": "__crowbarHostsSettings",
+        "settingsTabReady": "__crowbarSettingsTab",
       ], send: send)
     files = PageChannel(handler: "files", feeds: ["filesReady": "__crowbarFiles"], send: send)
     picker.send = send
     hostPicker.send = send
+    settingsModel.send = send
+    settingsModel.showTab = { [settings] tab in
+      let json = (try? JSONEncoder().encode(tab)).flatMap { String(data: $0, encoding: .utf8) }
+      settings.render(json ?? "null", to: "__crowbarSettingsTab")
+    }
     tabs.send = send
     model.present = { [weak webview] dialog in
       guard let root = webview?.window?.rootViewController else { return }
@@ -139,7 +147,7 @@ final class ChromeOverlays {
   }
 
   func applyHostsSettings(_ snapshot: String) {
-    settings.render(snapshot, to: "__crowbarHostsSettings")
+    settingsModel.applyHosts(snapshot)
   }
 
   func applyContext(_ state: ContextState) {
@@ -201,7 +209,10 @@ final class ChromeOverlays {
     let layer = UIView()
     surfaces.append(
       page.observe(\.themeColor, options: [.initial, .new]) { [weak layer] page, _ in
-        layer?.backgroundColor = page.themeColor ?? .systemBackground
+        let ground = page.themeColor ?? .systemBackground
+        layer?.backgroundColor = ground
+        page.underPageBackgroundColor = ground
+        page.scrollView.backgroundColor = ground
       })
     page.translatesAutoresizingMaskIntoConstraints = false
     layer.addSubview(page)
@@ -230,6 +241,7 @@ final class ChromeOverlays {
     // Re-sent on every theme change, so it is always the current theme's green.
     if let ground = state.brandGround.flatMap({ Color(css: $0) }) { model.brandGround = ground }
     if let palette = state.palette.flatMap(ChromePalette.init) { model.palette = palette }
+    model.hostPlace = state.hostPlace ?? "remote"
     model.welcome = state.welcome
     if let connect = state.connect { model.connect = connect }
     model.headers = state.headers ?? ChromeHeaders(chat: [], ide: [])
@@ -239,6 +251,8 @@ final class ChromeOverlays {
     // A drawer or the IDE over the chat leaves no keyboard up for the composer beneath.
     if reveal != .none { webview?.endEditing(true) }
     navigation?.web(reports: reveal, ack: state.ack ?? 0)
+    settingsModel.themeMode = state.appearance ?? "system"
+    settingsModel.state = state.settings
     settingsSheet.update(
       open: state.settings?.open ?? false, busy: false, over: webview?.window?.rootViewController)
     sheets.update(

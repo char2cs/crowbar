@@ -50,12 +50,12 @@ export function MobileShell() {
   const hasChat = useStore(windowPaneStore, (s) => Boolean(s.panes[s.activePaneId]?.chatId))
   useLaunchDraft(route.activeProjectId, route.homeWorkspaceId, navigate)
   useCloseChatListOnNavigation()
-  useMobileNativeChrome({ ide: hasChat })
   const { importRepoRowId, closeImport, shownHost } = useNativeSidebar({
     activeProjectId: route.activeProjectId,
     projects: route.allProjects,
     onSelectProject: route.handleSelectProject,
   })
+  useMobileNativeChrome({ ide: hasChat, shownHost })
 
   return (
     // The desktop surfaces reused here read a sidebar context; the phone's list is native.
