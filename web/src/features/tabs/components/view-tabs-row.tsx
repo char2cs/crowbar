@@ -44,6 +44,7 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
   }
   const drag = useSidebarDrag({
     scrollRef,
+    reorderInStrip: true,
     // A tab moves as a whole: grabbing any chat of a split carries them all.
     // Membership is read from the pane store at grab time, so a chat closed
     // out of the split is not carried back; `rowsRef` only supplies row data.
