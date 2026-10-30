@@ -79,7 +79,8 @@ type Subagent struct {
 	runnerID string
 	// outlived: a main-scope turn end came after it started running.
 	outlived bool
-	// forgotten: its turn's keys were dropped while it was live.
+	// forgotten: its turn was forgotten; once settled nothing can name it, so put
+	// drops it instead of keeping it.
 	forgotten bool
 }
 
