@@ -109,7 +109,7 @@ func importBranch(
 	f.pushBranchToOrigin(t, branch, "main", branch+"\n")
 	conn := h.dial(f.repoBase() + "/chats/ws")
 	require.NoError(t, h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
-		map[string]any{"branches": []string{branch}}, http.StatusAccepted).Body.Close())
+		importBranches(branch), http.StatusAccepted).Body.Close())
 	created := readUntil(t, conn, func(m map[string]any) bool { return m["kind"] == "workspace_set" })
 	wsID, ok := created["workspaceId"].(string)
 	require.True(t, ok && wsID != "", "import must broadcast a workspace for %s", branch)
