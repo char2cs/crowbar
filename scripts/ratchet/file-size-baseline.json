@@ -110,7 +110,7 @@
   "web/src/__tests__/lib/persistence/hydrate.test.ts": 645,
   "web/src/components/app-sync-engine.ts": 619,
   "web/src/components/layout/removal-plan.ts": 503,
-  "web/src/components/sidebar/hooks/use-sidebar-drag.ts": 751,
+  "web/src/components/sidebar/hooks/use-sidebar-drag.ts": 749,
   "web/src/components/ui/dropdown.tsx": 725,
   "web/src/components/ui/emoji-toolbar-button.tsx": 561,
   "web/src/components/ui/font-color-toolbar-button.tsx": 515,
@@ -122,6 +122,5 @@
   "web/src/features/agent/hooks/use-transcript-anchor.ts": 879,
   "web/src/features/agent/transcript/plate/streaming-value-patch.ts": 1002,
   "web/src/features/editor/monaco/language-contributions.ts": 545,
-  "web/src/features/file-explorer/file-explorer/hooks/use-file-explorer-context-menu.tsx": 610,
   "web/src/features/tabs/components/tab-bar.tsx": 745
 }
