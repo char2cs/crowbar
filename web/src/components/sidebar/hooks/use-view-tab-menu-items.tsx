@@ -12,11 +12,11 @@ export function useViewTabMenuItems(viewId: string | null): ContextMenuItem[] {
   return [
     {
       id: 'pin-tab',
-      label: pinned ? 'Unpin tab' : 'Pin tab',
+      label: pinned ? 'Unpin Tab' : 'Pin Tab',
       icon: <Icon />,
       onClick: () => windowPaneStore.getState().paneActions.setViewPinned(viewId, !pinned),
     },
-    { id: 'close-tab', label: 'Close tab', icon: <XIcon />, onClick: () => closeRecent(viewId) },
+    { id: 'close-tab', label: 'Close', icon: <XIcon />, onClick: () => closeRecent(viewId) },
     { id: 'view-tab-separator', separator: true, label: '', onClick: () => {} },
   ]
 }

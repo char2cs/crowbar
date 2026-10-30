@@ -150,21 +150,26 @@ describe('RecentsViewRow', () => {
     expect(screen.getAllByTestId(/^recents-row-/)).toHaveLength(3)
   })
 
-  it('a pinned row is its glyph alone: no title text, no ×, the title kept as its label', () => {
+  it('a pinned row keeps its title and shows a pin where the × was; the pin unpins', () => {
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
     actions().setViewPinned(viewOf('chat-1'), true)
     renderBand()
+    expect(screen.getByTestId('recents-row-chat-1')).toHaveTextContent('Chat One')
     expect(screen.queryByRole('button', { name: 'Close view' })).not.toBeInTheDocument()
-    expect(screen.getByRole('treeitem', { name: 'Chat One' })).toHaveAttribute('title', 'Chat One')
+    screen.getByRole('button', { name: 'Unpin tab' }).click()
+    expect(windowPaneStore.getState().views[viewOf('chat-1')].pinned).toBeUndefined()
   })
 
-  it('a pinned group keeps every member and still has no ×', () => {
+  it('a pinned group keeps every member and its titles, with one pin and no ×', () => {
     groupAndSolo()
     actions().setViewPinned(viewOf('chat-1'), true)
     renderBand()
     const shell = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
     expect(within(shell).getAllByTestId(/^recents-row-/)).toHaveLength(2)
     expect(within(shell).queryByRole('button', { name: 'Close view' })).not.toBeInTheDocument()
+    expect(within(shell).getAllByRole('button', { name: 'Unpin tab' })).toHaveLength(1)
+    expect(shell).toHaveTextContent('Chat One')
+    expect(shell).toHaveTextContent('Chat Two')
   })
 
   it('rows render flat, no indent', () => {
@@ -210,7 +215,7 @@ describe('RecentsViewRow', () => {
     groupAndSolo()
     renderBand()
     const group = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
-    expect(group.className).not.toMatch(/bg-background/)
+    expect(group.className).not.toMatch(/control-surface/)
     expect(group.getAttribute('data-view-showing')).toBeNull()
     const solo = screen.getByTestId('recents-row-chat-3').parentElement!
     expect(solo.getAttribute('data-view-showing')).toBe('true')
@@ -222,7 +227,7 @@ describe('RecentsViewRow', () => {
     act(() => actions().activateView(viewOf('chat-1')))
     const group = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
     expect(group.getAttribute('data-view-showing')).toBe('true')
-    expect(group.className).toMatch(/bg-background/)
+    expect(group.className).toMatch(/control-surface/)
     expect(
       screen.getByTestId('recents-row-chat-3').parentElement!.getAttribute('data-view-showing'),
     ).toBeNull()

@@ -125,7 +125,16 @@ export function createStripDrag(
   // An outside subject is the virtual tab after the last one, which keeps every formula below.
   const from = external ? tabs.length : index
 
-  const box = strip.getBoundingClientRect()
+  // Horizontal extent is the strip's; vertical is the tabs', as the strip carries clip room above and below them.
+  const stripRect = strip.getBoundingClientRect()
+  const tabRect = tabs[0].getBoundingClientRect()
+  const box = {
+    left: stripRect.left,
+    right: stripRect.right,
+    top: tabRect.top,
+    bottom: tabRect.top + tabRect.height,
+    height: tabRect.height,
+  }
   const scroll0 = strip.scrollLeft
   const slots = tabs.map((tab) => {
     const r = tab.getBoundingClientRect()

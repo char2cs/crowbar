@@ -1,7 +1,7 @@
 /**
  * The Color Theme picker must never display a value that is absent from its own
  * menu. `Theme` is a bare `string`, so a persisted id can name a theme that no
- * longer exists ('terra' was renamed to 'zen'); the picker's "ensure the current
+ * longer exists ('zen' was removed); the picker's "ensure the current
  * theme appears" fallback bails out for an id the registry doesn't know, leaving
  * the trigger showing a dead id while the app really paints Crowbar.
  *
@@ -52,11 +52,11 @@ describe('AppearanceSettings color theme picker', () => {
 
   it('leaves a live theme selected', async () => {
     await act(async () => {
-      await useSettingsStore.getState().updateSetting('theme', 'zen')
+      await useSettingsStore.getState().updateSetting('theme', 'frosted')
     })
 
     render(<AppearanceSettings />)
 
-    expect(colorThemeTriggerValue()).toBe('zen')
+    expect(colorThemeTriggerValue()).toBe('frosted')
   })
 })

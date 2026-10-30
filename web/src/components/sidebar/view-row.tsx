@@ -1,7 +1,8 @@
 import { useStore } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
-import { XIcon } from '@phosphor-icons/react'
+import { PushPinIcon, XIcon } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
 import { useRecentsChat } from '@/components/sidebar/lib/use-recents-chat'
 import { recentsChatIcon } from '@/components/sidebar/lib/recents-for-project'
@@ -100,8 +101,7 @@ export function RecentsViewRow({
             workspaceId={workspaceId ?? ''}
             hasView={!isShowing}
             isSet={isSet}
-            pinned={pinned}
-            fadesForClose={isLast && !pinned}
+            fadesForClose={isLast}
             separated={!isLast && !isShowing}
             onOpen={() => onFocus(viewId)}
             drag={drag}
@@ -109,7 +109,22 @@ export function RecentsViewRow({
           />
         )
       })}
-      {!pinned && (
+      {pinned ? (
+        // Where the × sits: the pin, which unpins — as on an editor tab.
+        <Button
+          variant="ghost"
+          data-no-dnd
+          aria-label="Unpin tab"
+          tooltip="Unpin tab"
+          tooltipSide="bottom"
+          onClick={() => windowPaneStore.getState().paneActions.setViewPinned(viewId, false)}
+          className={cn(TAB_CLOSE, '!min-h-0 !min-w-0 !p-0 opacity-60')}
+          tabIndex={-1}
+          draggable={false}
+        >
+          <PushPinIcon className="pointer-events-none size-3.5 select-none fill-current text-secondary" />
+        </Button>
+      ) : (
         <button
           type="button"
           aria-label="Close view"
@@ -148,7 +163,7 @@ const noop = () => {}
 
 // The CossUI raised surface, on our plain background/foreground pair.
 const TAB_ACTIVE =
-  'border-transparent bg-background text-foreground outline outline-1 outline-background shadow-xs shadow-black/10 ' +
+  'control-surface outline outline-1 shadow-xs shadow-black/10 ' +
   'inset-shadow-[0_1px_var(--elevated-highlight)] active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
 const TAB_IDLE =
   'border-transparent hover:bg-sidebar-element-hover hover:shadow-xs hover:shadow-black/10 ' +
@@ -167,7 +182,6 @@ function RecentsMemberRow({
   workspaceId,
   hasView,
   isSet,
-  pinned,
   fadesForClose,
   separated,
   onOpen,
@@ -180,8 +194,6 @@ function RecentsMemberRow({
   hasView: boolean
   /** One of 2+ chats sharing the shell: no icon. */
   isSet: boolean
-  /** The tab is pinned: every member shows its glyph alone. */
-  pinned: boolean
   /** The tab's trailing member: its end fades under the ×. */
   fadesForClose: boolean
   /** Draws the hairline between this member and the next. */
@@ -219,7 +231,7 @@ function RecentsMemberRow({
         // The chat also renders as a tree row with the same id: two inline
         // renames at once would steal each other's focus.
         inlineRenameDisabled
-        tab={pinned ? 'tab-pinned' : isSet ? 'tab-member' : 'tab'}
+        tab={isSet ? 'tab-member' : 'tab'}
       />
       {separated && (
         <span

@@ -83,6 +83,8 @@ describe('createStripDrag', () => {
     expect(drag.inBand(300, -31)).toBe(true)
     expect(drag.inBand(531, 16)).toBe(true)
     expect(drag.inBand(300, 65)).toBe(false)
+    expect(drag.inBand(90, 16)).toBe(true)
+    expect(drag.inBand(300, 16)).toBe(true)
     expect(drag.inBand(300, -33)).toBe(false)
     expect(drag.inBand(40, 16)).toBe(false)
   })
@@ -297,5 +299,31 @@ describe('createStripDrag', () => {
       expect(slides(tabs)).toEqual(['', '', 'translateX(100px)', 'translateX(100px)'])
       expect(drag.drop(110)).toEqual({ el: tabs[2].tab, mode: 'before' })
     })
+  })
+
+  it('measures the band from the tabs, not from clip room the strip carries around them', () => {
+    const { strip, tabs } = build()
+    // A real DOMRect keeps its fields on the prototype, so a spread of it is empty.
+    class ProtoRect {
+      constructor(
+        readonly left: number,
+        readonly top: number,
+        readonly width: number,
+        readonly height: number,
+      ) {}
+      get right() {
+        return this.left + this.width
+      }
+      get bottom() {
+        return this.top + this.height
+      }
+    }
+    strip.getBoundingClientRect = () => new ProtoRect(100, -4, 400, 40) as unknown as DOMRect
+    const drag = createStripDrag(strip, tabs[0].row, { dx: 50, dy: 16 })!
+    expect(drag.inBand(300, 64)).toBe(true)
+    expect(drag.inBand(300, 65)).toBe(false)
+    const ghost = document.createElement('div')
+    drag.move(110, 16, ghost)
+    expect(ghostAt(ghost).x).toBe(100)
   })
 })

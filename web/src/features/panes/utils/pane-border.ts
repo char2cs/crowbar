@@ -44,8 +44,10 @@ export function buildPaneContentStyle(
   const we = (edge: Edge) => isWindowEdge(edge, position, sidebarSide, sidebarOpen)
   // Constant width so toggling never shifts layout. Neutral --border at rest
   // (Athas's glass-island keeps the same border/70 whether or not it's the
-  // focused pane), --secondary only for the active-pane accent.
-  const BORDER = showActiveBorder ? '1px solid var(--secondary)' : '1px solid var(--border)'
+  // focused pane), --pane-accent only for the active-pane accent.
+  const BORDER = showActiveBorder
+    ? 'var(--pane-accent-width) solid var(--pane-accent)'
+    : '1px solid var(--pane-border)'
   const NONE = 'none'
   const R = 'var(--radius-lg)'
   const ZERO = '0'

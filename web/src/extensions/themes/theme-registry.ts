@@ -22,8 +22,8 @@ const BUILTIN_THEMES: ThemeDefinition[] = [
     category: 'Dark',
   },
   {
-    id: 'zen',
-    name: 'Zen',
+    id: 'frosted',
+    name: 'Frosted',
     isDark: true,
     type: 'dark',
     category: 'Dark',

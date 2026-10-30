@@ -56,7 +56,7 @@ function normalizeFileTreeIndentSize(value: number): number {
 
 /**
  * `Theme` is a bare `string`, so a persisted id survives the theme it names being
- * renamed or removed ('terra' → 'zen'). Coerce an id the registry doesn't know
+ * renamed or removed ('terra', 'zen'). Coerce an id the registry doesn't know
  * back to the default at READ time — a graceful fallback, not a migration pass —
  * so no consumer has to guess what a dead id means.
  *

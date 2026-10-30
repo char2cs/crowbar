@@ -19,6 +19,7 @@
   --color-background: var(--background);
   --color-background-inverse: var(--background-inverse);
   --color-pane-background: var(--pane-background);
+  --color-control-foreground: var(--control-foreground);
   --color-foreground: var(--foreground);
   --color-foreground-inverse: var(--foreground-inverse);
   --color-card: var(--card);

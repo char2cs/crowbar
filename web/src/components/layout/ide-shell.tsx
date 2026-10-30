@@ -85,7 +85,7 @@ function IdeShellBody() {
   // restyles itself, so hiding the sidebar never rebuilds the subtree below it.
   const sidebarContent = (
     <SidebarPeek hidden={!sidebarOpen} side={sidebarSide} width={preferredWidth}>
-      <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-transparent select-none">
+      <div className="chrome-surface relative flex h-full min-h-0 flex-col overflow-hidden bg-transparent select-none">
         {!hasNavScreen && (
           <SidebarProjectHeader
             hostIds={hostFilter.hostIds}

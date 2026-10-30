@@ -1,0 +1,42 @@
+/* ── Crowbar theme (default) ────────────────────────────────────────
+   Frosted's dark translucent chrome (sidebar + tab strip) and raised white
+   controls in BOTH modes; only the pane tone follows the mode. Everything else
+   is the shared palette in theme.css. Light mode re-paints the chrome-surface
+   regions with the .dark palette (selector list in theme.css) so their text,
+   icons and hover states stay legible on the dark wash. On iOS only the phone's
+   sidebar pages (data-chrome-page) take the dark chrome, flattened. */
+
+[data-theme='crowbar'] {
+  --control-surface: #fcfcfa;
+  --control-foreground: #1b1b19;
+  --control-muted-foreground: oklch(0.4 0 0);
+  --control-highlight: color-mix(in oklch, #1b1b19 16%, transparent);
+}
+
+[data-theme='crowbar']:not(.dark):not([data-platform='ios']) {
+  --sidebar: oklch(0 0 0 / 18%);
+  --chrome-bg: color-mix(in oklch, oklch(0.173 0.004 106.7) 65%, transparent);
+  --pane-chrome-bg: color-mix(in oklch, var(--pane-background) 95%, transparent);
+  --pane-accent: var(--brand);
+  --pane-accent-width: 2px;
+  --pane-border: oklch(0.55 0 0);
+}
+
+[data-theme='crowbar']:not(.dark) .chrome-surface,
+[data-theme='crowbar']:not(.dark)[data-chrome-page] {
+  color: var(--foreground);
+  --elevated-highlight: color-mix(in oklch, var(--foreground) 16%, transparent);
+  --sidebar-drop-line: color-mix(in oklch, var(--secondary) 55%, var(--foreground));
+  --sidebar-drop-nest: color-mix(in oklch, var(--secondary) 30%, transparent);
+  --sidebar-drop-nest-edge: color-mix(in oklch, var(--secondary) 65%, transparent);
+}
+
+/* The phone's sidebar pages sit on the same dark wash, flattened: iOS has no vibrancy. */
+[data-theme='crowbar'][data-platform='ios'][data-chrome-page]:not(.dark) {
+  --sidebar: oklch(0 0 0 / 18%);
+  --chrome-bg: oklch(0.182 0.005 106.7);
+}
+
+[data-theme='crowbar'][data-platform='linux']:not(.dark) {
+  --chrome-bg: oklch(0.182 0.005 106.7);
+}

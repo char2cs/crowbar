@@ -44,27 +44,27 @@ const viewOf = () => Object.values(windowPaneStore.getState().views)[0]
 describe('a view tab in the strip', () => {
   it('offers Pin tab, which pins its view', () => {
     rightClick(true)
-    fireEvent.click(screen.getByText('Pin tab'))
+    fireEvent.click(screen.getByText('Pin Tab'))
     expect(viewOf().pinned).toBe(true)
   })
 
   it('offers Unpin tab once pinned', () => {
     windowPaneStore.getState().paneActions.setViewPinned(viewOf().id, true)
     rightClick(true)
-    expect(screen.queryByText('Pin tab')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByText('Unpin tab'))
+    expect(screen.queryByText('Pin Tab')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('Unpin Tab'))
     expect(viewOf().pinned).toBeUndefined()
   })
 
-  it('offers Close tab, which ends the view', () => {
+  it('offers Close, which ends the view', () => {
     rightClick(true)
-    fireEvent.click(screen.getByText('Close tab'))
+    fireEvent.click(screen.getByText('Close'))
     expect(Object.keys(windowPaneStore.getState().views)).toHaveLength(0)
   })
 
   it('is the only row that does: the same chat in the sidebar tree has neither', () => {
     rightClick(false)
-    expect(screen.queryByText('Pin tab')).not.toBeInTheDocument()
-    expect(screen.queryByText('Close tab')).not.toBeInTheDocument()
+    expect(screen.queryByText('Pin Tab')).not.toBeInTheDocument()
+    expect(screen.queryByText('Close')).not.toBeInTheDocument()
   })
 })

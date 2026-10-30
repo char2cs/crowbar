@@ -24,8 +24,6 @@ import TabNavigationButtons from './tab-navigation-buttons'
 // strip scrolls only once every tab is at the minimum.
 const TAB_MAX_WIDTH_PX = 240
 const TAB_MIN_WIDTH_PX = 112
-// A pinned tab is its glyph alone: one fixed step per chat it holds.
-const PINNED_STEP_PX = 36
 
 /**
  * The sidebar's Recents rows laid out across the top: one per view of the
@@ -74,7 +72,7 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
       isBottomPane={false}
       isAtLeftEdge={isAtLeftEdge}
       isAtTopEdge={isAtTopEdge}
-      className="bg-transparent py-0 pr-2"
+      className="chrome-surface bg-transparent py-0 pr-2"
     >
       {!sidebarOpen && sidebarPosition === 'left' && isAtLeftEdge && toggle}
       <div
@@ -83,7 +81,8 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
         data-view-tab-strip
         data-drop-axis="x"
         data-tauri-drag-region
-        className="tab-scrollbar flex min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden"
+        // py-1 / -my-1: room for the lifted tab's outline and shadow inside the clip, with no layout change.
+        className="tab-scrollbar -my-1 flex min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden py-1"
       >
         {viewIds.map((viewId) => (
           <ViewTabSlot key={viewId} viewId={viewId}>
@@ -115,21 +114,17 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
 })
 
 function ViewTabSlot({ viewId, children }: { viewId: string; children: React.ReactNode }) {
-  const memberCount = useStore(windowPaneStore, (s) => viewMembers(s, viewId).length)
+  const hasMembers = useStore(windowPaneStore, (s) => viewMembers(s, viewId).length > 0)
   const pinned = useStore(windowPaneStore, (s) => !!s.views[viewId]?.pinned)
-  if (memberCount === 0) return null
+  if (!hasMembers) return null
   return (
     <div
       data-pinned={pinned || undefined}
-      style={
-        pinned
-          ? { flex: 'none', width: PINNED_STEP_PX * memberCount }
-          : {
-              flex: `1 1 ${TAB_MAX_WIDTH_PX}px`,
-              minWidth: TAB_MIN_WIDTH_PX,
-              maxWidth: TAB_MAX_WIDTH_PX,
-            }
-      }
+      style={{
+        flex: `1 1 ${TAB_MAX_WIDTH_PX}px`,
+        minWidth: TAB_MIN_WIDTH_PX,
+        maxWidth: TAB_MAX_WIDTH_PX,
+      }}
     >
       {children}
     </div>

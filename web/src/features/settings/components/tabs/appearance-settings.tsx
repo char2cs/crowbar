@@ -168,6 +168,7 @@ export const AppearanceSettings = () => {
       <Section title="Typography">
         <SettingRow
           label="UI Font Family"
+          layout="stacked"
           description="Font family for UI elements (file tree, markdown, etc.)"
           onReset={() => updateSetting('uiFontFamily', getDefaultSetting('uiFontFamily'))}
           canReset={settings.uiFontFamily !== getDefaultSetting('uiFontFamily')}
@@ -182,6 +183,7 @@ export const AppearanceSettings = () => {
 
         <SettingRow
           label="Heading Font Family"
+          layout="stacked"
           description="Font for headings — Markdown titles, dialog titles, settings section titles"
           onReset={() => updateSetting('headingFontFamily', getDefaultSetting('headingFontFamily'))}
           canReset={settings.headingFontFamily !== getDefaultSetting('headingFontFamily')}

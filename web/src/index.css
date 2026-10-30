@@ -3,7 +3,7 @@
 @import './styles/theme-fonts.css';
 @import './styles/theme-vars.css';
 @import './styles/theme.css';
-@import './styles/zen.css';
+@import './styles/crowbar.css';
 @import './styles/mobile.css';
 @import './styles/wavy-rule.css';
 @import './styles/editor-theme.css';
@@ -77,6 +77,18 @@
     height: 100%;
     overflow: hidden;
   }
+}
+
+/* A raised selected surface (pill, active tab) on the --control-* tokens, with its
+   own text tokens re-pointed so every label inside reads on it in any theme. */
+@utility control-surface {
+  background-color: var(--control-surface);
+  border-color: var(--control-surface);
+  outline-color: var(--control-surface);
+  color: var(--control-foreground);
+  --foreground: var(--control-foreground);
+  --muted-foreground: var(--control-muted-foreground);
+  --elevated-highlight: var(--control-highlight);
 }
 
 /* The daemon names a repo's tile colour by token (avatar.go palette); without

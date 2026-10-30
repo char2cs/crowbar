@@ -878,14 +878,14 @@ describe('PaneContainer — the active-pane accent ring', () => {
 
     await renderPane(store)
 
-    expect(paneBox().style.borderTop).toBe('1px solid var(--border)')
+    expect(paneBox().style.borderTop).toBe('1px solid var(--pane-border)')
 
     await act(async () => {
       windowPaneStore.getState().paneActions.setActivePane(other)
     })
 
     // The box NEVER swaps to --secondary — that swap is what repainted it.
-    expect(paneBox().style.borderTop).toBe('1px solid var(--border)')
+    expect(paneBox().style.borderTop).toBe('1px solid var(--pane-border)')
   })
 
   it('fades the overlay opacity between active and inactive, on the box’s own border geometry', async () => {
@@ -896,7 +896,7 @@ describe('PaneContainer — the active-pane accent ring', () => {
 
     await renderPane(store)
 
-    expect(accent().style.borderTop).toBe('1px solid var(--secondary)')
+    expect(accent().style.borderTop).toBe('var(--pane-accent-width) solid var(--pane-accent)')
     expect(accent().style.opacity).toBe('1')
     // Geometry is the SAME computation the box uses, so the ring lands exactly
     // on the neutral border it hides rather than beside it: the box's margins

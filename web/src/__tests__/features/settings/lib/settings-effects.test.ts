@@ -15,9 +15,8 @@ import { applyTheme } from '@/features/settings/lib/settings-effects'
 describe('applyTheme with a persisted theme id the registry no longer knows', () => {
   beforeEach(() => {
     bridge.setMacOSWindowAppearance.mockClear()
-    // 'terra' is the only alternative theme this project ever shipped; the branch
-    // renamed it to 'zen' and deleted its stylesheet, so a real install can still
-    // hold it. Theme Mode = Light has already toggled .dark off by this point.
+    // A real install can still hold a removed theme id ('terra', 'zen').
+    // Theme Mode = Light has already toggled .dark off by this point.
     document.documentElement.classList.remove('dark')
     localStorage.clear()
   })
@@ -43,10 +42,17 @@ describe('applyTheme with a persisted theme id the registry no longer knows', ()
     expect(cached.themeType).toBe('light')
   })
 
+  it('resolves the removed zen theme to the default theme', async () => {
+    await applyTheme('zen')
+
+    const cached = JSON.parse(localStorage.getItem('crowbar.bootstrap.appearance.v2') ?? '{}')
+    expect(cached.themeId).toBe('crowbar')
+  })
+
   it('still tracks dark mode for a known theme', async () => {
     document.documentElement.classList.add('dark')
 
-    await applyTheme('zen')
+    await applyTheme('frosted')
 
     expect(document.documentElement.classList.contains('dark')).toBe(true)
     expect(bridge.setMacOSWindowAppearance.mock.calls.at(-1)?.[0]).toBe('dark')

@@ -115,9 +115,8 @@ interface SidebarRowProps {
   /** A row drawn inside a view-tab shell that owns the margin and padding:
    *  `tab` drops `ROW_BASE`'s own margin and takes `h-8`; `tab-member` also
    *  drops the resting glyph (a split's members share one tab and carry no
-   *  icon; the working spinner still shows). `tab-pinned` is the pinned tab: the
-   *  glyph alone, the title kept as its label and tooltip. */
-  tab?: 'tab' | 'tab-member' | 'tab-pinned'
+   *  icon; the working spinner still shows). */
+  tab?: 'tab' | 'tab-member'
 }
 
 /**
@@ -242,8 +241,6 @@ export function SidebarRow({
         role="treeitem"
         tabIndex={0}
         data-sidebar-row-id={row.id}
-        aria-label={tab === 'tab-pinned' ? row.label : undefined}
-        title={tab === 'tab-pinned' ? row.label : undefined}
         {...dragProps}
         style={rowBoxStyle(metrics)}
         className={cn(
@@ -261,7 +258,6 @@ export function SidebarRow({
           // The shell's own inset plus this gives the pill the same 6px at the
           // edges as above and below its single line.
           tab && 'h-8 px-1',
-          tab === 'tab-pinned' && 'justify-center',
         )}
         onClick={(e) => {
           // A click inside the inline editor (or on the space it just
@@ -389,7 +385,6 @@ export function SidebarRow({
             data-sidebar-row-label=""
             className={cn(
               'min-w-0 flex-1 truncate',
-              tab === 'tab-pinned' && 'hidden',
               row.kind === 'branch' && !tab && 'font-mono',
               row.labelProvisional && 'italic',
               // A row with a view is grey — focused or not (§3.2) — UNLESS
