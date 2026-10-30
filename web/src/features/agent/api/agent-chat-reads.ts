@@ -102,7 +102,7 @@ export interface AgentChat {
    * cleared one are the same thing everywhere downstream.
    *
    * This is the REQUEST. What a turn actually ran under is a separate fact the
-   * provider reports on the message itself (AgentChatMessage.effort).
+   * provider reports on the turn itself (its turn_ended row's effort).
    */
   model?: string
   effort?: string
@@ -195,56 +195,6 @@ export interface FolderShift {
 
 export interface AgentChatDetail extends AgentChat {
   conversations: ChatConversation[]
-}
-
-/**
- * Who put a message's text into the chat.
- *
- * Four, not two, because four distinct authors can. `harness` is text the vendor
- * CLI injected into its own conversation as if it were a prompt (a background
- * subagent reporting back is the measured case) — the agent received it and its
- * next reply refers to it, so it is neither droppable nor the user's. `notice` is
- * Crowbar relaying a provider's own words about why a chat stopped.
- *
- * The wire carries a bare string, so a role this client does not know must still
- * render as SOMETHING rather than vanish: consumers switch on the known members
- * and fall back for the rest, never assuming the union is exhaustive.
- */
-type AgentChatMessageRole = 'user' | 'assistant' | 'harness' | 'notice'
-
-/** One authoritative, hook-confirmed message in a Crowbar chat. */
-export interface AgentChatMessage {
-  /** The turn this message IS. Tool calls, subagents and interruptions attach to
-   *  it, which is how a reply can show the work that produced it. */
-  turnId: string
-  sequence: number
-  /**
-   * What a client actually sorts by — reserved at DISPATCH time, unlike
-   * `sequence`, which is the row's persist-order identity and paging
-   * cursor. "Interrupting" a turn is a graceful stop, not a kill: the
-   * stopped CLI can keep producing and complete after a different turn
-   * (dispatched later) already has, which would give the earlier-sent turn
-   * a higher `sequence` and sort it after the later one — `displayOrder`
-   * exists specifically so that never happens. Optional/falls back to
-   * `sequence` only for fixtures predating this field; every real response
-   * always has it.
-   */
-  displayOrder?: number
-  /** This message's position within its own turn — 0 unless the turn
-   *  produced several (Codex splitting one reply across several items). */
-  itemIndex?: number
-  role: AgentChatMessageRole
-  providerId: string
-  text: string
-  /**
-   * The reasoning effort the PROVIDER reported for this turn — what its CLI says
-   * it actually used, never what the chat asked for. Absent when the provider
-   * reported none, and never inferred from the chat's selection: the two can
-   * legitimately differ, and showing the request in the report's place would be
-   * a fabrication.
-   */
-  effort?: string
-  at: string
 }
 
 type SlashCatalogCompleteness = 'complete' | 'model_visible' | 'plugin_only'
@@ -393,32 +343,6 @@ export async function getChatTelemetry(
 ): Promise<AgentTelemetry | null> {
   const raw = await apiFetch<AgentTelemetry | null>(
     `${chatBase(wsId)}/${encodeURIComponent(id)}/telemetry`,
-    { signal },
-    { attempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
-  )
-  return raw ?? null
-}
-
-export interface PendingPrompt {
-  text: string
-  state: string
-  /** The original client request id this submission was journalled under —
-   *  not freshly minted, so a recovered row stays deduped against a retry and
-   *  matches the settled/abandoned broadcasts that resolve it. */
-  requestId: string
-}
-
-/** Recover a chat's most recent prompt submission the backend has not yet
- *  confirmed the provider accepted — used to rehydrate a queued prompt whose
- *  local copy was lost (an idle tab, a crash, cleared storage). Null means
- *  nothing to recover, not an error. */
-export async function getPendingPrompt(
-  wsId: string,
-  id: string,
-  signal?: AbortSignal,
-): Promise<PendingPrompt | null> {
-  const raw = await apiFetch<PendingPrompt | null>(
-    `${chatBase(wsId)}/${encodeURIComponent(id)}/pending-prompt`,
     { signal },
     { attempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
   )

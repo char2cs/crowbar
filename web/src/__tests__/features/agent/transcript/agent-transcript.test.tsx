@@ -2,7 +2,6 @@ import { Profiler, type ComponentProps } from 'react'
 import { act, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { delta, ledger, seedFeed } from '@/__tests__/__fixtures__/ledger-rows'
-import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import { applyFeedFrame, chatStore, openFeed } from '@/features/agent/stores/chat-store'
 import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
 
@@ -39,15 +38,12 @@ function draw(overrides: Partial<ComponentProps<typeof AgentTranscript>> = {}) {
   const props: ComponentProps<typeof AgentTranscript> = {
     chatId: 'chat-1',
     providers: [],
-    queue: [],
     status: 'live',
     working: false,
     compacting: false,
     asking: false,
     onOpenTerminal: () => {},
-    onEditPrompt: () => {},
-    onCancelPrompt: () => {},
-    onRetryPrompt: () => {},
+    promptActions,
     ...overrides,
   }
   const view = render(<AgentTranscript {...props} />)
@@ -58,17 +54,7 @@ function draw(overrides: Partial<ComponentProps<typeof AgentTranscript>> = {}) {
   }
 }
 
-const rowOf = (id: string) => document.querySelector(`[data-row-id="${id}"]`)
-
-function queued(clientRequestId: string, text: string): PromptQueueItem {
-  return {
-    clientRequestId,
-    text,
-    state: 'submitting',
-    createdAt: '2026-10-01T12:00:00Z',
-    baselineSequence: 0,
-  }
-}
+const promptActions = { retry: () => {}, edit: () => {}, cancel: () => {} }
 
 describe('AgentTranscript', () => {
   it('symptom 7: a delta re-renders only its streaming row', () => {
@@ -99,15 +85,12 @@ describe('AgentTranscript', () => {
         <AgentTranscript
           chatId="chat-1"
           providers={[]}
-          queue={[]}
           status="connecting"
           working={false}
           compacting={false}
           asking={false}
           onOpenTerminal={() => {}}
-          onEditPrompt={() => {}}
-          onCancelPrompt={() => {}}
-          onRetryPrompt={() => {}}
+          promptActions={promptActions}
         />
       </Profiler>,
     )
@@ -126,22 +109,6 @@ describe('AgentTranscript', () => {
     expect(chatStore.getState().feeds['chat-1']?.order).toHaveLength(2500)
     expect(commits).toBeGreaterThan(0)
     expect(commits).toBeLessThanOrEqual(3)
-  })
-
-  // The queue row speaks for a prompt until its turn takes it, so the text is
-  // on screen once at every step of the handover.
-  it('shows a queued prompt once, then its delivered row', () => {
-    const l = ledger()
-    seedFeed('chat-1', [l.prompt('r1', 'ship it')])
-    const view = draw({ queue: [queued('r1', 'ship it')] })
-    expect(screen.getAllByText('ship it')).toHaveLength(1)
-    expect(rowOf('p:r1')).toBeNull()
-
-    act(() => seedFeed('chat-1', [l.start('turn-1', 'r1')]))
-    view.redraw({ queue: [] })
-
-    expect(screen.getAllByText('ship it')).toHaveLength(1)
-    expect(rowOf('p:r1')).not.toBeNull()
   })
 
   it('draws a marker the record carries as its pill', () => {

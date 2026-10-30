@@ -28,7 +28,6 @@ export type ComposerRevival = { state: 'reviving'; message: string }
 
 export interface ComposerInputs {
   live: boolean
-  revival?: ComposerRevival
   submitUnavailable: boolean
   terminalWait?: AgentTerminalWait
   compacting: boolean
@@ -49,17 +48,12 @@ export function describeTerminalWait(wait: AgentTerminalWait): string {
 }
 
 /** Resolves the bar in precedence order, the one thing a person can act on
- *  first: dormant/reviving, unsupported, terminal wait, ask, halted, compacting,
+ *  first: dormant, unsupported, terminal wait, ask, halted, compacting,
  *  input. A trust dialog outranks an ask because only it can be acted on. */
 export function resolveComposerState(inputs: ComposerInputs): ComposerState {
-  const { live, revival, submitUnavailable, terminalWait, compacting, asks } = inputs
+  const { live, submitUnavailable, terminalWait, compacting, asks } = inputs
 
-  if (!live) {
-    if (revival) {
-      return { kind: 'signpost', reason: 'reviving', message: revival.message }
-    }
-    return { kind: 'signpost', reason: 'dormant', message: 'Loading this chat…' }
-  }
+  if (!live) return { kind: 'signpost', reason: 'dormant', message: 'Loading this chat…' }
   if (submitUnavailable) {
     return {
       kind: 'signpost',

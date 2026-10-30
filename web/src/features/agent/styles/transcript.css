@@ -258,17 +258,9 @@
   border-radius: 18px;
   padding: 10px 16px;
 }
-/* A queued prompt is the SAME bubble — same radius/padding rules, same
-   markdown — with its status layered on as a modifier, not a second
-   component. That is what makes the state transition (queued → sent)
-   invisible: nothing about the box's own geometry changes, only the border
-   and background swap out from under it. Dashed because it is not in the
-   record yet; solid + warning once it needs attention.
-   QueuedRow renders <article class="queued"> straight into .stream with
-   .txt/.err/.acts as flat children, not wrapped in .row.me + .bubble — so
-   .txt IS the bubble here (same geometry, state-mutated by the ancestor's
-   .multi/.bad rather than its own classes), and .acts renders as a plain
-   row BELOW it, outside the pill, since actions are controls, not content. */
+/* An unsent prompt is the same bubble with its state as a modifier, so the
+   handover to its row changes only border and background. .txt is the pill
+   and .acts sits below it, outside, since actions are not content. */
 .agent-chat .queued {
   display: flex;
   flex-direction: column;
@@ -306,20 +298,14 @@
   );
   background-size: 6px 6px;
 }
-/* Not shown — the warning-tinted pill + hatch already flags "something's
-   wrong" on sight, and the retry button's own tooltip still carries the
-   why on hover. QueuedRow still renders the span when item.error is set;
-   only its visibility changed here. */
-.agent-chat .queued .err {
-  display: none;
-}
 .agent-chat .queued .acts {
   display: flex;
   gap: 2px;
   margin-top: 6px;
 }
-/* The first turn's own pending state: no pill, no hatch, so the error text
-   this variant otherwise hides has to actually say something on its own. */
+/* Why a prompt did not go through, under it: the failure is a second fact
+   about the prompt, never a replacement for the words. */
+.agent-chat .queued .err,
 .agent-chat .firstq .err {
   display: block;
   margin-top: 6px;

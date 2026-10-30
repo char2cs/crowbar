@@ -40,13 +40,12 @@ const originalRect = HTMLElement.prototype.getBoundingClientRect
 let fetchSpy: MockInstance<typeof fetch>
 
 beforeEach(() => {
-  chatStore.setState({ feeds: {} })
+  chatStore.setState({ feeds: {}, outbox: {} })
   localStorage.clear()
   HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
     return { ...rect, toJSON: () => rect } as DOMRect
   }
   fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
-  vi.spyOn(reads, 'getPendingPrompt').mockResolvedValue(null)
   vi.spyOn(reads, 'getChatTelemetry').mockRejectedValue(new Error('no telemetry'))
   vi.spyOn(reads, 'getSlashCatalog').mockResolvedValue({
     providerId: 'codex',
@@ -61,7 +60,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function draw(chatId: string) {
+function draw(chatId: string, overrides: Partial<ComponentProps<typeof AgentChatView>> = {}) {
   const props: ComponentProps<typeof AgentChatView> = {
     wsId: 'w1',
     chatId,
@@ -80,6 +79,7 @@ function draw(chatId: string) {
     presentation: 'chat',
     splitEnabled: false,
     onSelectPresentation: () => {},
+    ...overrides,
   }
   // An empty workspace store: no list in any store names this chat.
   return render(
@@ -193,6 +193,60 @@ describe('AgentChatView', () => {
     await waitFor(() =>
       expect(submit).toHaveBeenCalledWith('w1', 'c1', '/compact', expect.any(String), '', '', ''),
     )
+  })
+})
+
+describe('AgentChatView Esc', () => {
+  it('symptom 5: Esc in an empty composer puts the retracted text back', async () => {
+    const submit = vi
+      .spyOn(commands, 'submitAgentPrompt')
+      .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
+    const retract = vi
+      .spyOn(commands, 'retractPrompt')
+      .mockResolvedValue({ state: 'retracted', text: 'never mind' })
+    const l = ledger('c1', 10)
+    seedFeed('c1', spokenIn('c1'))
+    draw('c1')
+
+    const box = () => screen.getByRole('textbox', { name: /message the agent/i })
+    fireEvent.change(box(), { target: { value: 'never mind' } })
+    fireEvent.keyDown(box(), { key: 'Enter' })
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
+    const requestId = String(submit.mock.calls[0]?.[3])
+    act(() => seedFeed('c1', [l.prompt(requestId, 'never mind')]))
+    await waitFor(() => expect(box()).toHaveValue(''))
+
+    fireEvent.keyDown(box(), { key: 'Escape' })
+
+    expect(retract).toHaveBeenCalledWith('w1', 'c1', requestId)
+    await waitFor(() => expect(box()).toHaveValue('never mind'))
+  })
+
+  it('shows the terminal-wait banner only from the chat terminalWait', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const submit = vi
+        .spyOn(commands, 'submitAgentPrompt')
+        .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
+      const l = ledger('c1', 10)
+      seedFeed('c1', spokenIn('c1'))
+      const first = draw('c1')
+      const box = screen.getByRole('textbox', { name: /message the agent/i })
+      fireEvent.change(box, { target: { value: 'held' } })
+      fireEvent.keyDown(box, { key: 'Enter' })
+      await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
+      act(() => seedFeed('c1', [l.prompt(String(submit.mock.calls[0]?.[3]), 'held')]))
+
+      await act(async () => vi.advanceTimersByTime(60_000))
+      expect(screen.queryByRole('button', { name: /open terminal/i })).not.toBeInTheDocument()
+      expect(screen.queryByText(/only its terminal can give/i)).not.toBeInTheDocument()
+
+      draw('c1', { terminalWaiting: true, terminalWaitKind: '' })
+      first.unmount()
+      expect(screen.getByText(/only its terminal can give/i)).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

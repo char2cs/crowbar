@@ -45,7 +45,6 @@ vi.spyOn(useEffectiveKeymapMod, 'useEffectiveChordMap').mockImplementation(() =>
 }))
 
 import * as readsApi from '@/features/agent/api/agent-chat-reads'
-vi.spyOn(readsApi, 'getPendingPrompt').mockResolvedValue(null)
 vi.spyOn(readsApi, 'getChat').mockImplementation(getChatFn)
 vi.spyOn(readsApi, 'getSlashCatalog').mockImplementation(slashCatalogFn)
 vi.spyOn(readsApi, 'getChatTelemetry').mockResolvedValue(null)

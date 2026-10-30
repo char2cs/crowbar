@@ -27,22 +27,6 @@ describe('resolveComposerState', () => {
     expect(state).toMatchObject({ kind: 'signpost', reason: 'dormant' })
   })
 
-  // `revival` refines "not live" past the plain dormant text — but only while
-  // not live. It must never leak into an otherwise-normal input.
-  it('ignores revival while live', () => {
-    const state = resolveComposerState(
-      inputs({ live: true, revival: { state: 'reviving', message: 'Resuming this chat…' } }),
-    )
-    expect(state).toEqual({ kind: 'input' })
-  })
-
-  it('is a reviving signpost carrying the pane’s own message', () => {
-    const state = resolveComposerState(
-      inputs({ live: false, revival: { state: 'reviving', message: 'Starting Claude…' } }),
-    )
-    expect(state).toEqual({ kind: 'signpost', reason: 'reviving', message: 'Starting Claude…' })
-  })
-
   it('is a signpost for a provider that cannot take a typed prompt', () => {
     expect(resolveComposerState(inputs({ submitUnavailable: true }))).toMatchObject({
       kind: 'signpost',

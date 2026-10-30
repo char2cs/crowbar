@@ -18,6 +18,8 @@ interface ComposerKeyTargets {
   /** The composer's own stop button is showing. */
   canStop: boolean
   stop: () => void
+  /** Esc in an empty box: false when there is no prompt to take back. */
+  retract: () => boolean
   stashOrRestore: (markdown: string) => void
   selectSlashItem: (item: SlashCatalogItem) => void
   send: (markdown: string) => void
@@ -38,10 +40,13 @@ export function handleComposerKey(
     targets.stashOrRestore(readMarkdown())
     return
   }
-  if (event.key === 'Escape' && (slash.open || targets.canStop)) {
-    event.preventDefault()
+  if (event.key === 'Escape') {
     if (slash.open) slash.close()
-    else targets.stop()
+    else if (readMarkdown().trim() || !targets.retract()) {
+      if (!targets.canStop) return
+      targets.stop()
+    }
+    event.preventDefault()
     return
   }
   const arrow = event.key === 'ArrowDown' || event.key === 'ArrowUp'

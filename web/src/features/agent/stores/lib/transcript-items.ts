@@ -85,8 +85,6 @@ export interface TurnFacts {
   sessionLost: { provider: string; reason: string; seq: number } | null
   /** Turn ids that produced text or a tool. */
   output: Record<string, true>
-  /** How many turns have ended. */
-  ended: number
   /** turnId → the effort its turn_ended reported. */
   efforts: Record<string, string>
   /** turnId → the provider its turn_started named. */

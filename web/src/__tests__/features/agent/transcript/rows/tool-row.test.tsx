@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LedgerRow } from '@/features/agent/api/chat-rows'
 import { applyFeedFrame, chatStore, openFeed } from '@/features/agent/stores/chat-store'
 import { TranscriptRow } from '@/features/agent/transcript/rows/transcript-row'
+
+const actions = { retry: () => {}, edit: () => {}, cancel: () => {} }
 import { delta, ledger } from '@/__tests__/__fixtures__/ledger-rows'
 
 function seed(rows: LedgerRow[]) {
@@ -11,7 +13,8 @@ function seed(rows: LedgerRow[]) {
   applyFeedFrame('chat-1', { type: 'ready', epoch: 'e1' })
 }
 
-const draw = (id: string) => render(<TranscriptRow chatId="chat-1" id={id} providers={[]} />)
+const draw = (id: string) =>
+  render(<TranscriptRow actions={actions} chatId="chat-1" id={id} providers={[]} />)
 const status = () => document.querySelector('[data-status]')?.getAttribute('data-status')
 
 beforeEach(() => chatStore.setState({ feeds: {} }))

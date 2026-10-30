@@ -5,7 +5,7 @@ import { useChatStore } from '@/features/agent/stores/chat-store'
 import { MarkerRow } from '@/features/agent/transcript/rows/marker-row'
 import { TextRow } from '@/features/agent/transcript/rows/text-row'
 import { AskRow, ToolRow } from '@/features/agent/transcript/rows/tool-row'
-import { UserRow } from '@/features/agent/transcript/rows/user-row'
+import { UserRow, type PromptActions } from '@/features/agent/transcript/rows/user-row'
 
 /** What a row's place in the conversation says about it, from the transcript. */
 export interface RowPlace {
@@ -25,24 +25,31 @@ function TranscriptRowBody({
   id,
   providers,
   place,
+  actions,
 }: {
   chatId: string
   id: string
   providers: AgentProvider[]
   place?: RowPlace
+  actions: PromptActions
 }) {
   const item = useChatItem(chatId, id)
   const provider = useTurnFact(chatId, item?.turnId, 'providers')
   const effort = useTurnFact(chatId, item?.turnId, 'efforts')
   switch (item?.kind) {
+    case undefined:
     case 'user':
+      // An id with no item yet is a prompt still in the outbox.
+      if (!item && !id.startsWith('p:')) return null
       return (
         <UserRow
           chatId={chatId}
+          id={id}
           item={item}
           providers={providers}
           provider={provider}
           firstTurn={place?.firstTurn ?? false}
+          actions={actions}
         />
       )
     case 'text':
@@ -64,8 +71,6 @@ function TranscriptRowBody({
       return <AskRow item={item} />
     case 'marker':
       return <MarkerRow item={item} providers={providers} />
-    default:
-      return null
   }
 }
 

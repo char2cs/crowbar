@@ -4,6 +4,8 @@ import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import type { LedgerRow } from '@/features/agent/api/chat-rows'
 import { applyFeedFrame, chatStore, openFeed } from '@/features/agent/stores/chat-store'
 import { TranscriptRow } from '@/features/agent/transcript/rows/transcript-row'
+
+const actions = { retry: () => {}, edit: () => {}, cancel: () => {} }
 import { delta, ledger } from '@/__tests__/__fixtures__/ledger-rows'
 
 const providers = [{ id: 'fake', displayName: 'Fake', icon: '<svg/>' }] as AgentProvider[]
@@ -25,7 +27,13 @@ describe('TextRow', () => {
     const l = ledger()
     seed([l.start('turn-1'), l.text('turn-1', 'm1', 0, 'Hello')])
     render(
-      <TranscriptRow chatId="chat-1" id={ID} providers={providers} place={{ turnbar: true }} />,
+      <TranscriptRow
+        actions={actions}
+        chatId="chat-1"
+        id={ID}
+        providers={providers}
+        place={{ turnbar: true }}
+      />,
     )
     const before = prose()
     expect(before?.getAttribute('contenteditable')).toBe('false')
@@ -44,7 +52,13 @@ describe('TextRow', () => {
       l.end('turn-1'),
     ])
     render(
-      <TranscriptRow chatId="chat-1" id={ID} providers={providers} place={{ turnbar: true }} />,
+      <TranscriptRow
+        actions={actions}
+        chatId="chat-1"
+        id={ID}
+        providers={providers}
+        place={{ turnbar: true }}
+      />,
     )
     expect(prose()?.hasAttribute('contenteditable')).toBe(false)
     expect(screen.getByText('descriptor').closest('strong')).not.toBeNull()
@@ -53,7 +67,7 @@ describe('TextRow', () => {
   it('follows the live stream ahead of its rows while unsettled', async () => {
     const l = ledger()
     seed([l.start('turn-1'), l.text('turn-1', 'm1', 0, 'Hel')])
-    render(<TranscriptRow chatId="chat-1" id={ID} providers={providers} />)
+    render(<TranscriptRow actions={actions} chatId="chat-1" id={ID} providers={providers} />)
     act(() => void applyFeedFrame('chat-1', { type: 'delta', delta: delta('m1', 1, 'Hello the') }))
     await waitFor(() => expect(prose()?.textContent).toContain('Hello the'))
   })
@@ -66,11 +80,23 @@ describe('TextRow', () => {
       l.row('turn_ended', { status: 'done', effort: 'high' }, { turnId: 'turn-1' }),
     ])
     const { rerender } = render(
-      <TranscriptRow chatId="chat-1" id={ID} providers={providers} place={{ turnbar: true }} />,
+      <TranscriptRow
+        actions={actions}
+        chatId="chat-1"
+        id={ID}
+        providers={providers}
+        place={{ turnbar: true }}
+      />,
     )
     expect(screen.getByTestId('message-effort')).toHaveTextContent('high')
     rerender(
-      <TranscriptRow chatId="chat-1" id={ID} providers={providers} place={{ turnbar: false }} />,
+      <TranscriptRow
+        actions={actions}
+        chatId="chat-1"
+        id={ID}
+        providers={providers}
+        place={{ turnbar: false }}
+      />,
     )
     expect(screen.queryByTestId('message-turn-actions')).toBeNull()
   })
@@ -79,7 +105,13 @@ describe('TextRow', () => {
     const l = ledger()
     seed([l.start('turn-1'), l.text('turn-1', 'm1', 0, 'still going')])
     render(
-      <TranscriptRow chatId="chat-1" id={ID} providers={providers} place={{ turnbar: true }} />,
+      <TranscriptRow
+        actions={actions}
+        chatId="chat-1"
+        id={ID}
+        providers={providers}
+        place={{ turnbar: true }}
+      />,
     )
     expect(screen.queryByTestId('message-turn-actions')).toBeNull()
     push(l.end('turn-1'))
@@ -88,18 +120,21 @@ describe('TextRow', () => {
 
   it('draws nothing for an id the feed does not hold', () => {
     seed([])
-    const { container } = render(<TranscriptRow chatId="chat-1" id="m:x:y" providers={providers} />)
+    const { container } = render(
+      <TranscriptRow actions={actions} chatId="chat-1" id="m:x:y" providers={providers} />,
+    )
     expect(container).toBeEmptyDOMElement()
   })
 })
 
 describe('UserRow', () => {
-  it('waits for its turn before it joins the record', () => {
+  it('shows a held prompt as sending until its turn takes it', () => {
     const l = ledger()
     seed([l.prompt('r1', 'run `make dev`')])
-    render(<TranscriptRow chatId="chat-1" id="p:r1" providers={providers} />)
-    expect(document.querySelector('[data-row-id="p:r1"]')).toBeNull()
+    render(<TranscriptRow actions={actions} chatId="chat-1" id="p:r1" providers={providers} />)
+    expect(document.querySelector('[data-row-id="p:r1"]')).toHaveAttribute('data-state', 'pending')
     push(l.start('turn-1', 'r1'))
+    expect(document.querySelector('[data-row-id="p:r1"]')).not.toHaveAttribute('data-state')
     expect(screen.getByText('make dev').closest('code')).not.toBeNull()
     expect(document.querySelector('.row.me .bubble')).not.toBeNull()
   })
@@ -114,7 +149,7 @@ describe('UserRow', () => {
         { turnId: 'turn-1' },
       ),
     ])
-    render(<TranscriptRow chatId="chat-1" id="u:2" providers={providers} />)
+    render(<TranscriptRow actions={actions} chatId="chat-1" id="u:2" providers={providers} />)
     expect(screen.getByTestId('message-harness-label')).toHaveTextContent(
       'Sent to the agent by Fake',
     )
@@ -131,7 +166,7 @@ describe('UserRow', () => {
       l.start('turn-1'),
       l.row('user_message', { text, origin: 'harness' }, { turnId: 'turn-1' }),
     ])
-    render(<TranscriptRow chatId="chat-1" id="u:2" providers={providers} />)
+    render(<TranscriptRow actions={actions} chatId="chat-1" id="u:2" providers={providers} />)
     expect(screen.getByText('Show payload').tagName).toBe('SUMMARY')
   })
 
@@ -141,7 +176,7 @@ describe('UserRow', () => {
       l.start('turn-1'),
       l.row('user_message', { text: 'short payload', origin: 'harness' }, { turnId: 'turn-1' }),
     ])
-    render(<TranscriptRow chatId="chat-1" id="u:2" providers={providers} />)
+    render(<TranscriptRow actions={actions} chatId="chat-1" id="u:2" providers={providers} />)
     expect(screen.getByText('short payload').closest('details')).toBeNull()
   })
 
@@ -149,7 +184,13 @@ describe('UserRow', () => {
     const l = ledger()
     seed([l.row('user_message', { text: 'first', origin: 'provider' })])
     render(
-      <TranscriptRow chatId="chat-1" id="u:1" providers={providers} place={{ firstTurn: true }} />,
+      <TranscriptRow
+        actions={actions}
+        chatId="chat-1"
+        id="u:1"
+        providers={providers}
+        place={{ firstTurn: true }}
+      />,
     )
     expect(document.querySelector('[data-first-turn="true"] .frozen')).not.toBeNull()
   })

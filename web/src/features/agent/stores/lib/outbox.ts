@@ -30,7 +30,7 @@ export interface SendFailure {
   message: string
 }
 
-export const MAX_PROMPT_TEXT_BYTES = 64 * 1024
+const MAX_PROMPT_TEXT_BYTES = 64 * 1024
 
 export const SESSION_LOST_TEXT = 'The session was lost. Start a new conversation to send this.'
 
@@ -52,15 +52,17 @@ export function refusal(text: string): string | null {
   return null
 }
 
-/** The head, when the rows say the chat can take it: only the head ever moves. */
+/** The head, when the feed says the chat can take it: only the head ever moves. */
 export function nextToSend(
   items: OutboxItem[],
-  facts: TurnFacts,
+  feed: ChatFeed,
   terminalWait: boolean,
 ): OutboxItem | undefined {
   const head = items[0]
+  const { facts } = feed
   if (head?.state !== 'queued' || facts.compacting || terminalWait) return undefined
-  if (facts.running && !head.steer) return undefined
+  // A reply streaming ahead of its rows is a turn the rows have not reported yet.
+  if ((facts.running || feed.liveTail.length > 0) && !head.steer) return undefined
   if (Object.values(facts.prompts).some((fact) => fact.state === 'pending')) return undefined
   return head
 }

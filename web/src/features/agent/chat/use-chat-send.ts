@@ -1,84 +1,45 @@
-import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
-import type { AgentPromptResult } from '@/features/agent/api/agent-chat-commands'
-import type { ComposerFacts } from '@/features/agent/chat/use-composer-facts'
-import { usePromptQueue } from '@/features/agent/hooks/use-prompt-queue'
+import { useMemo } from 'react'
+import {
+  discardPrompt,
+  retractNewest,
+  retryPrompt,
+  sendPrompt,
+  type PromptInput,
+} from '@/features/agent/stores/chat-outbox'
+import { useChatStore } from '@/features/agent/stores/chat-store'
+import { deliveryPending, type OutboxItem } from '@/features/agent/stores/lib/outbox'
+import type { PromptActions } from '@/features/agent/transcript/rows/user-row'
 
-interface ChatSendOptions {
-  wsId: string
-  chatId: string
-  facts: ComposerFacts
-  steerable: boolean
-  live: boolean
-  canSend: boolean
-  active: boolean
-  visible: boolean
-  terminalWaiting: boolean
-  onPromptSpawned?: (result: AgentPromptResult) => void | Promise<void>
-  onPromptDispatchStart?: () => void
-  onPromptDispatchSettled?: () => void
-  onSubmitUnavailable: () => void
-  onSelectionCommitted?: (model: string, effort: string) => void
-  /** The pane's badges and switch guard live outside the view's subtree. */
-  onQueueCountChange?: (count: number) => void
-  onCancelableQueueCountChange?: (count: number) => void
-  onDeliveryPendingChange?: (pending: boolean) => void
-}
+const NO_ITEMS: OutboxItem[] = []
 
-/**
- * The prompt queue, fed from the chat's feed until the outbox replaces both
- * (S2 T5). The feed is pushed, so there is nothing to re-read after a dispatch;
- * a busy recheck answers from the folded turn, with no request.
- */
-export function useChatSend(options: ChatSendOptions) {
-  const { facts } = options
-  const factsRef = useRef(facts)
-  useLayoutEffect(() => {
-    factsRef.current = facts
-  })
-  const getBaseline = useCallback(() => factsRef.current.turnRevision, [])
-  const refreshMessages = useCallback(() => {}, [])
-  // Unknown until the feed is live: answer busy, which keeps the barrier held.
-  const onRefreshChat = useCallback(
-    () => Promise.resolve(factsRef.current.status !== 'live' || factsRef.current.working),
-    [],
+/** The view's side of the chat's outbox: Enter, Esc and the prompt rows' actions. */
+export function useChatSend(
+  wsId: string,
+  chatId: string,
+  steer: boolean,
+  /** Puts a prompt's text in the composer; stable for the view's life. */
+  onEdit: (text: string) => void,
+) {
+  const outbox = useChatStore((s) => s.outbox[chatId] ?? NO_ITEMS)
+  const sending = useChatStore((s) => deliveryPending(s.outbox[chatId], s.feeds[chatId]?.facts))
+  const actions = useMemo<PromptActions>(
+    () => ({
+      retry: (requestId) => retryPrompt(wsId, chatId, requestId, steer),
+      edit: (requestId, text) => {
+        discardPrompt(chatId, requestId)
+        onEdit(text)
+      },
+      cancel: (requestId) => discardPrompt(chatId, requestId),
+    }),
+    [wsId, chatId, steer, onEdit],
   )
-  const prompts = usePromptQueue({
-    wsId: options.wsId,
-    chatId: options.chatId,
-    working: facts.working,
-    steerable: options.steerable,
-    compacting: facts.compacting,
-    live: options.live,
-    canSend: options.canSend,
-    active: options.active,
-    visible: options.visible,
-    turnRevision: facts.turnRevision,
-    terminalWaiting: options.terminalWaiting,
-    settledPrompts: facts.settledPrompts,
-    abandonedPrompts: facts.abandonedPrompts,
-    getBaseline,
-    refreshMessages,
-    onPromptSpawned: options.onPromptSpawned,
-    onPromptDispatchStart: options.onPromptDispatchStart,
-    onPromptDispatchSettled: options.onPromptDispatchSettled,
-    onRefreshChat,
-    onSubmitUnavailable: options.onSubmitUnavailable,
-    onSelectionCommitted: options.onSelectionCommitted,
-  })
-  const { onQueueCountChange, onCancelableQueueCountChange, onDeliveryPendingChange } = options
-  const queued = prompts.queue.length
-  // react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent -- the queue is owned here until T5
-  useEffect(() => onQueueCountChange?.(queued), [queued, onQueueCountChange])
-  const { cancelableCount, deliveryPending } = prompts
-  useEffect(
-    // react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent -- see above
-    () => onCancelableQueueCountChange?.(cancelableCount),
-    [cancelableCount, onCancelableQueueCountChange],
-  )
-  useEffect(
-    // react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent -- see above
-    () => onDeliveryPendingChange?.(deliveryPending),
-    [deliveryPending, onDeliveryPendingChange],
-  )
-  return prompts
+  return {
+    queued: outbox.length,
+    sending,
+    /** The provider cannot take a typed prompt at all. */
+    unsupported: outbox.some((item) => item.code === 'prompt_submit_unsupported'),
+    actions,
+    send: (input: Omit<PromptInput, 'steer'>) => sendPrompt(wsId, chatId, { ...input, steer }),
+    retract: () => retractNewest(wsId, chatId),
+  }
 }

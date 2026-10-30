@@ -57,7 +57,6 @@ vi.spyOn(useEffectiveKeymapMod, 'useEffectiveChordMap').mockImplementation(() =>
 vi.mock('@/utils/platform', () => ({ IS_MAC: true }))
 
 import * as readsApi from '@/features/agent/api/agent-chat-reads'
-vi.spyOn(readsApi, 'getPendingPrompt').mockResolvedValue(null)
 vi.spyOn(readsApi, 'getChat').mockImplementation(getChatFn)
 vi.spyOn(readsApi, 'getSlashCatalog').mockImplementation(slashCatalogFn)
 vi.spyOn(readsApi, 'getChatTelemetry').mockResolvedValue(null)
@@ -168,7 +167,6 @@ vi.spyOn(providerSwitchDropdownMod, 'ProviderSwitchDropdown').mockImplementation
 )
 
 import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
-import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
@@ -512,40 +510,18 @@ describe('AgentChatPane', () => {
 
   // ── Liveness is the daemon's answer; the pane never infers or revives ──
   describe('liveness', () => {
-    // The queue's chat_busy barrier is released by an idle answer, and the feed's
-    // folded turn is that answer: a restored prompt goes out with no read at all.
-    it('releases a restored prompt once the feed says the chat is idle', async () => {
-      const clientRequestId = '11111111-1111-4111-8111-111111111111'
-      localStorage.setItem(
-        promptQueueStorageKey('w1', 'c1'),
-        JSON.stringify({
-          version: 1,
-          items: [
-            {
-              clientRequestId,
-              text: 'survive reload',
-              state: 'queued',
-              createdAt: '2026-08-16T00:00:00Z',
-              baselineSequence: 0,
-              waitForIdleEpoch: 1,
-            },
-          ],
-        }),
-      )
+    // A spawning chat exists, so the composer stays an input and the outbox holds the prompt.
+    it('symptom 5: the composer accepts a prompt while the runner is spawning', async () => {
+      const store = seedWorkspace([startingChat({ id: 'c1' })])
+      seedFeed('c1', spokenIn('c1'))
+      await renderPane(store, openChatPane(store, 'c1', ''))
 
-      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      await renderPane(store, openChatPane(store, 'c1', 'r1'))
+      const input = screen.getByRole('textbox', { name: /message the agent/i })
+      fireEvent.change(input, { target: { value: 'while it starts' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
 
-      await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
-      // undefined, not '': a restored item staged no model/effort of its own, and
-      // '' would clear the chat's sticky selection.
-      expect(submitPromptFn.mock.calls[0]?.slice(2)).toEqual([
-        'survive reload',
-        clientRequestId,
-        '',
-        undefined,
-        undefined,
-      ])
+      await vi.waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+      expect(submitPromptFn.mock.calls[0]?.[2]).toBe('while it starts')
     })
 
     it('never revives from the pending state (the chat list has not landed)', async () => {
@@ -979,14 +955,6 @@ describe('AgentChatPane', () => {
       )
     })
 
-    it('shows the daemon placing a CLI as a spinner, not an input', async () => {
-      const store = seedWorkspace([startingChat({ id: 'c1' })])
-      await renderPane(store, openChatPane(store, 'c1', ''))
-
-      expect(await screen.findByText(/starting codex/i)).toBeInTheDocument()
-      expect(screen.queryByRole('textbox', { name: /message the agent/i })).toBeNull()
-    })
-
     it('starts a session from the terminal surface only when asked', async () => {
       landOnTerminal()
       const store = seedWorkspace([dormantChat({ id: 'c1' })])
@@ -1343,7 +1311,7 @@ describe('AgentChatPane', () => {
       expect(screen.getByTestId('xterm')).toHaveAttribute('data-visible', 'true')
     })
 
-    it('pauses a busy-chat FIFO in Terminal and resumes only after Return to Chat', async () => {
+    it('counts a prompt queued in Chat on the Terminal surface and cancels it from there', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       const turn = ledger('c1', 4)
       seedFeed('c1', [turn.start('turn-2')])
@@ -1352,15 +1320,15 @@ describe('AgentChatPane', () => {
       const input = screen.getByRole('textbox', { name: /message the agent/i })
       fireEvent.change(input, { target: { value: 'queued while busy' } })
       fireEvent.keyDown(input, { key: 'Enter' })
-      expect(await screen.findByText('queued while busy')).toBeInTheDocument()
+      expect(chatStore.getState().outbox.c1?.[0]).toMatchObject({ text: 'queued while busy' })
 
       fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
       expect(screen.getByText(/1 prompt pending in Chat/i)).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: /cancel unsent prompts/i }))
+
+      expect(screen.queryByText(/pending in Chat/i)).not.toBeInTheDocument()
       await act(async () => seedFeed('c1', [turn.end('turn-2')]))
       expect(submitPromptFn).not.toHaveBeenCalled()
-
-      fireEvent.click(screen.getByRole('button', { name: /return to chat/i }))
-      await vi.waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
     })
 
     // The dropdown lives on the terminal's status strip, and it must keep
@@ -1417,16 +1385,20 @@ describe('AgentChatPane', () => {
     it('reconciles a failed send to dormant instead of retaining a dead PTY attachment', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       submitPromptFn.mockRejectedValue(new ApiError('replacement failed', 500))
-      getChatFn.mockResolvedValue(detail(dormantChat({ id: 'c1' })))
       await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
       const input = screen.getByRole('textbox', { name: /message the agent/i })
       fireEvent.change(input, { target: { value: 'trigger replacement' } })
       fireEvent.keyDown(input, { key: 'Enter' })
+      // The daemon's lifecycle frame says the runner is gone.
+      await act(async () => writeChat(dormantChat({ id: 'c1' })))
 
       expect(await screen.findByTestId('agent-session-note')).toHaveTextContent(/not running/i)
       expect(screen.queryByTestId('xterm')).not.toBeInTheDocument()
-      expect(screen.getByText(/replacement failed/i)).toBeInTheDocument()
+      expect(chatStore.getState().outbox.c1?.[0]).toMatchObject({
+        state: 'failed',
+        error: 'replacement failed',
+      })
     })
   })
 

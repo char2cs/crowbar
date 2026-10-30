@@ -36,38 +36,44 @@ function running(requestId = 'r0') {
 describe('nextToSend', () => {
   it('sends the head only when no turn runs and no prompt is pending', () => {
     const items = [item('a'), item('b')]
-    expect(nextToSend(items, idle(), false)?.requestId).toBe('a')
-    expect(nextToSend(items, running().facts, false)).toBeUndefined()
+    expect(nextToSend(items, emptyFeed(), false)?.requestId).toBe('a')
+    expect(nextToSend(items, running(), false)).toBeUndefined()
 
     const l = ledger()
     const pending = applyRows(emptyFeed(), [l.prompt('r0', 'held')])
-    expect(nextToSend(items, pending.facts, false)).toBeUndefined()
-    expect(nextToSend(onSending(items, 'a'), idle(), false)).toBeUndefined()
+    expect(nextToSend(items, pending, false)).toBeUndefined()
+    expect(nextToSend(onSending(items, 'a'), emptyFeed(), false)).toBeUndefined()
   })
 
   it('holds the head while the chat compacts or a terminal prompt waits', () => {
     const l = ledger()
     const compacting = applyRows(emptyFeed(), [l.row('marker', { kind: 'compaction_started' })])
-    expect(nextToSend([item('a')], compacting.facts, false)).toBeUndefined()
-    expect(nextToSend([item('a')], idle(), true)).toBeUndefined()
+    expect(nextToSend([item('a')], compacting, false)).toBeUndefined()
+    expect(nextToSend([item('a')], emptyFeed(), true)).toBeUndefined()
+  })
+
+  it('holds the head while a reply streams ahead of its rows', () => {
+    const streaming = { ...emptyFeed(), liveTail: ['m:turn-1:m1'] }
+    expect(nextToSend([item('a')], streaming, false)).toBeUndefined()
+    expect(nextToSend([item('a', { steer: true })], streaming, false)?.requestId).toBe('a')
   })
 
   it('steers a steerable prompt at once while a turn runs', () => {
-    expect(nextToSend([item('a', { steer: true })], running().facts, false)?.requestId).toBe('a')
+    expect(nextToSend([item('a', { steer: true })], running(), false)?.requestId).toBe('a')
   })
 
   it('never lets a later prompt overtake a failed head', () => {
     const items = onSendFailed([item('a'), item('b')], 'a', { status: 400, message: 'no' })
-    expect(nextToSend(items, idle(), false)).toBeUndefined()
+    expect(nextToSend(items, emptyFeed(), false)).toBeUndefined()
   })
 
   it('sends the next prompt on the turn_ended row', () => {
     const l = ledger()
     const rows = [l.prompt('r0', 'earlier'), l.start('turn-1', 'r0')]
     const busy = applyRows(emptyFeed(), rows)
-    expect(nextToSend([item('a')], busy.facts, false)).toBeUndefined()
+    expect(nextToSend([item('a')], busy, false)).toBeUndefined()
     const done = applyRows(busy, [l.end('turn-1')])
-    expect(nextToSend([item('a')], done.facts, false)?.requestId).toBe('a')
+    expect(nextToSend([item('a')], done, false)?.requestId).toBe('a')
   })
 })
 

@@ -1,5 +1,4 @@
 import { apiFetch } from '@/lib/api/fetch'
-import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 import {
   chatBase,
   mapChat,
@@ -226,7 +225,6 @@ export async function deleteChat(wsId: string, id: string, init?: RequestInit): 
     method: 'DELETE',
     ...init,
   })
-  clearPersistedPromptQueue(wsId, id)
 }
 
 /** Move a chat: under `parentId` (a chat, a folder, or '' for the root) at `order`. */

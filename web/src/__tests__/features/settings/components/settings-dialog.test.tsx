@@ -16,9 +16,6 @@
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/features/agent/api/agent-chat-reads', () => ({
-  getPendingPrompt: vi.fn().mockResolvedValue(null),
-}))
 vi.mock('@/features/agent/api/agent-providers-api', () => ({
   updateProviderPreferences: vi.fn(),
   listProviders: vi.fn().mockResolvedValue([]),

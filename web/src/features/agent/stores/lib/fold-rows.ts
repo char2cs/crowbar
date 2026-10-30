@@ -32,7 +32,6 @@ const emptyFacts: TurnFacts = {
   lastExit: null,
   sessionLost: null,
   output: {},
-  ended: 0,
   efforts: {},
   providers: {},
 }
@@ -234,7 +233,6 @@ const applyTurnEnded: Apply<'turn_ended'> = (fold, row) => {
   if (row.scope || !row.turnId) return
   const traceless = retractTurn(fold, row)
   closeRunning(fold, row.turnId)
-  fold.set('ended', fold.facts.ended + 1)
   if (row.body.effort) fold.record('efforts')[row.turnId] = row.body.effort
   endTurn(fold, row.turnId)
   if (row.body.status === 'interrupted' && !traceless)

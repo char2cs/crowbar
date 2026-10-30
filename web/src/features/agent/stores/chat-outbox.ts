@@ -84,7 +84,7 @@ function drain(chatId: string) {
   const { feeds, chats } = chatStore.getState()
   const feed = feeds[chatId]
   if (feed?.status !== 'live') return
-  const head = nextToSend(itemsOf(chatId), feed.facts, chats[chatId]?.terminalWait !== undefined)
+  const head = nextToSend(itemsOf(chatId), feed, chats[chatId]?.terminalWait !== undefined)
   if (head) void send(chatId, head)
 }
 

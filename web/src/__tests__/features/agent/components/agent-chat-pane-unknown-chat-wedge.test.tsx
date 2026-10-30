@@ -1,5 +1,5 @@
 import { createElement } from 'react'
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { chatStore } from '@/features/agent/stores/chat-store'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
@@ -13,6 +13,7 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
+import { seedFeed, spokenIn } from '@/__tests__/__fixtures__/ledger-rows'
 
 const {
   getChatFn,
@@ -42,7 +43,6 @@ vi.spyOn(useEffectiveKeymapMod, 'useEffectiveChordMap').mockImplementation(() =>
 }))
 
 import * as readsApi from '@/features/agent/api/agent-chat-reads'
-vi.spyOn(readsApi, 'getPendingPrompt').mockResolvedValue(null)
 vi.spyOn(readsApi, 'getChat').mockImplementation(getChatFn)
 vi.spyOn(readsApi, 'getSlashCatalog').mockImplementation(slashCatalogFn)
 vi.spyOn(readsApi, 'getChatTelemetry').mockResolvedValue(null)
@@ -69,8 +69,22 @@ vi.spyOn(lazyTerminalMod, 'LazyXtermTerminal').mockImplementation(
 
 import * as chatMarkdownEditorMod from '@/features/agent/composer/plate/chat-markdown-editor'
 vi.spyOn(chatMarkdownEditorMod, 'ChatMarkdownEditor').mockImplementation(
-  ({ ariaLabel, placeholder }: { ariaLabel: string; placeholder: string }) =>
-    createElement('textarea', { 'aria-label': ariaLabel, placeholder }),
+  ({
+    ariaLabel,
+    placeholder,
+    onChange,
+    onKeyDown,
+  }: chatMarkdownEditorMod.ChatMarkdownEditorProps) =>
+    createElement('textarea', {
+      'aria-label': ariaLabel,
+      placeholder,
+      onChange: (event: { target: { value: string } }) => onChange(event.target.value),
+      onKeyDown: (event: { currentTarget: { value: string } }) =>
+        onKeyDown?.(event as never, () => event.currentTarget.value, {
+          atStart: true,
+          atEnd: true,
+        }),
+    }),
 )
 
 import * as providerSwitchDropdownMod from '@/features/agent/components/provider-switch-dropdown'
@@ -79,7 +93,6 @@ vi.spyOn(providerSwitchDropdownMod, 'ProviderSwitchDropdown').mockImplementation
 )
 
 import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
-import { savePromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useSettingsStore } from '@/features/settings/store'
@@ -229,71 +242,41 @@ beforeEach(() => {
   setActiveWorkspaceId('w1')
 })
 
-// ── A queued prompt for a chat the store's list does not contain ───────────
+// ── A prompt for a chat the seeded list does not contain ───────────────
 //
-// THE BUG, as the user hit it: a message sits "1 queued" in the composer for
-// good, and the daemon's access log shows the frontend never once attempted the
-// POST — no failure, no retry, nothing. The backend meanwhile reports the chat
-// perfectly healthy: a live runner on it and `working: false`.
-//
-// The pane's `live` is `attachment.state === 'attached'`, and `attachment` is
-// pinned at `pending` whenever `known` is false — `known` being nothing more
-// than "is this chat in the store's chat list". That check cannot tell the two
-// cases apart:
-//
-//   the list has not arrived yet          → waiting is right, and brief.
-//   the list arrived and lacks this chat  → waiting is FOREVER.
-//
-// And it is self-sealing. Everything that could teach the store about the chat
-// — adopt(), refreshChatWorking() — is reached only through a path gated on
-// `live`, which is gated on `known`. So `pending` renders nothing, spawns
-// nothing, asks the daemon nothing, and the FIFO's `!live` bails on every pass.
-describe('a queued prompt for a chat missing from the seeded list', () => {
+// A list can land without this pane's chat; the pane then reads the chat once,
+// and from there it is known like any other: its composer takes a prompt and
+// the prompt reaches the daemon.
+describe('a prompt for a chat missing from the seeded list', () => {
   it('still reaches the daemon', async () => {
-    // The list is authoritative and complete — and this pane's chat is not in it.
     const store = seedWorkspace([
       liveChat({ id: 'c-other', runnerId: 'r-other', pty: 'pty-other' }),
     ])
-
-    // BACKEND TRUTH, exactly as the user's curl reported it: the chat has a live
-    // runner and is idle. Nothing here justifies holding a prompt back.
     getChatFn.mockImplementation((_wsId: unknown, id: unknown) =>
       Promise.resolve({
         ...detail(liveChat({ id: String(id), runnerId: 'r-live', pty: 'pty-live' })),
         working: false,
       }),
     )
-
-    // A prompt already queued for this chat — the composer's "1 queued".
-    expect(
-      savePromptQueue('w1', 'c-wedged', [
-        {
-          clientRequestId: 'req-wedged',
-          text: 'does this ever reach the daemon',
-          state: 'queued',
-          createdAt: new Date().toISOString(),
-          baselineSequence: 0,
-        },
-      ]),
-    ).toBe(true)
+    seedFeed('c-wedged', spokenIn('c-wedged'))
 
     const paneId = openChatPane(store, 'c-wedged', '')
     await renderPane(store, paneId)
     await settle()
+    const input = screen.getByRole('textbox', { name: /message the agent/i })
+    fireEvent.change(input, { target: { value: 'does this ever reach the daemon' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
 
-    // The whole bug in one assertion: a queued head, an idle chat, a live runner
-    // on the backend and a visible, active pane — and not one POST attempted.
-    // undefined for model/effort: this item was restored from storage and
-    // staged neither, and '' would now be a PICK of the provider's own
-    // default rather than silence.
-    expect(submitPromptFn).toHaveBeenCalledWith(
-      'w1',
-      'c-wedged',
-      'does this ever reach the daemon',
-      'req-wedged',
-      '',
-      undefined,
-      undefined,
+    await vi.waitFor(() =>
+      expect(submitPromptFn).toHaveBeenCalledWith(
+        'w1',
+        'c-wedged',
+        'does this ever reach the daemon',
+        expect.any(String),
+        '',
+        '',
+        '',
+      ),
     )
   })
 

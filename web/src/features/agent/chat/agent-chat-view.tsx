@@ -1,22 +1,13 @@
-import { useEffect, useImperativeHandle, useRef, useState } from 'react'
-import type { CSSProperties, KeyboardEvent, ReactNode, Ref } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
 import { markEnd, markStart } from '@/lib/perf/instrumentation'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
-import {
-  compactChat,
-  stopChat,
-  type AgentPromptResult,
-} from '@/features/agent/api/agent-chat-commands'
+import { compactChat, stopChat } from '@/features/agent/api/agent-chat-commands'
 import type { SlashCatalogItem } from '@/features/agent/api/agent-chat-reads'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
-import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import { SubagentShelf } from '@/features/agent/activity/subagent-shelf'
 import { AgentComposer } from '@/features/agent/composer/agent-composer'
-import {
-  acceptsTyping,
-  resolveComposerState,
-  type ComposerRevival,
-} from '@/features/agent/composer/lib/composer-state'
+import { acceptsTyping, resolveComposerState } from '@/features/agent/composer/lib/composer-state'
 import { ComposerSlashPicker } from '@/features/agent/composer/composer-slash-picker'
 import { ComposerStashPicker } from '@/features/agent/composer/composer-stash-picker'
 import type { CaretEdges } from '@/features/agent/composer/plate/chat-markdown-editor'
@@ -52,10 +43,6 @@ import { chatPromptToSend } from '@/features/agent/composer/plate/chat-prompt-se
 /** One entry per progressive-blur layer in the dock's dissolve — see composer.css. */
 const DISSOLVE_LAYERS = [0, 1, 2, 3, 4, 5, 6]
 
-export interface AgentChatViewHandle {
-  cancelUnsentPrompts: () => void
-}
-
 export interface AgentChatViewProps {
   wsId: string
   chatId: string
@@ -67,9 +54,8 @@ export interface AgentChatViewProps {
   /** A switch is already running, or the pane is mid-delivery. */
   switchDisabled?: boolean
   live: boolean
-  /** A send may be dispatched now: live, or dormant and revived by the send. */
+  /** The chat exists, so a prompt can be queued: live, dormant or spawning. */
   canSend: boolean
-  revival?: ComposerRevival
   /** How the conversation continues (why it is dormant, or from what). */
   sessionNote?: string
   active: boolean
@@ -85,12 +71,6 @@ export interface AgentChatViewProps {
   headerClearancePx?: number
   /** The header's full dissolve reach, which scrolled text must clear. */
   transcriptHeaderClearancePx?: number
-  onPromptSpawned?: (result: AgentPromptResult) => void | Promise<void>
-  onPromptDispatchStart?: () => void
-  onPromptDispatchSettled?: () => void
-  onQueueCountChange?: (count: number) => void
-  onCancelableQueueCountChange?: (count: number) => void
-  onDeliveryPendingChange?: (pending: boolean) => void
   /** Nothing has been said yet: the empty document stands in for the dock. */
   onBlankChange?: (blank: boolean) => void
   /** The pane's own signpost for a blank chat, in the empty document's control slot. */
@@ -104,11 +84,9 @@ export interface AgentChatViewProps {
   /** False until the chat list lands: '' would then read as a deliberate clear. */
   selectionKnown?: boolean
   onSelectionChange: (provider: string, model: string, effort: string) => void
-  onSelectionCommitted?: (model: string, effort: string) => void
   presentation: ChatPresentation
   splitEnabled: boolean
   onSelectPresentation: (next: ChatPresentation) => void
-  ref?: Ref<AgentChatViewHandle>
 }
 
 /** The chat surface: a transcript and one bar under it, wired from the feed. */
@@ -121,7 +99,6 @@ export function AgentChatView({
   onTerminalSurface = false,
   switchDisabled,
   live,
-  revival,
   canSend,
   sessionNote,
   active,
@@ -133,12 +110,6 @@ export function AgentChatView({
   terminalWaitKind,
   headerClearancePx = 0,
   transcriptHeaderClearancePx = 0,
-  onPromptSpawned,
-  onPromptDispatchStart,
-  onPromptDispatchSettled,
-  onQueueCountChange,
-  onCancelableQueueCountChange,
-  onDeliveryPendingChange,
   onBlankChange,
   blankSignpost,
   provider: effectiveProviderId,
@@ -147,11 +118,9 @@ export function AgentChatView({
   launchModel = '',
   selectionKnown = true,
   onSelectionChange,
-  onSelectionCommitted,
   presentation,
   splitEnabled,
   onSelectPresentation,
-  ref,
 }: AgentChatViewProps) {
   useChatFeed(chatId)
   const facts = useComposerFacts(chatId)
@@ -163,31 +132,7 @@ export function AgentChatView({
   const [chatSurfaceEl, setChatSurfaceEl] = useState<HTMLElement | null>(null)
   const emptyDocRef = useRef<AgentEmptyDocumentHandle>(null)
   const [fieldHeight, setFieldHeight] = useState(20)
-  const [submitUnavailable, setSubmitUnavailable] = useState(false)
-  // The key remounts on a chat change, not on a provider change alone.
-  // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- a provider switch must re-offer the input
-  useEffect(() => setSubmitUnavailable(false), [chatId, providerId])
   const confirmedModel = useConfirmedModel(`${chatId}:${providerId}`, live, launchModel)
-
-  const prompts = useChatSend({
-    wsId,
-    chatId,
-    facts,
-    steerable: providers.find((candidate) => candidate.id === providerId)?.promptSteer === true,
-    live,
-    canSend,
-    active,
-    visible,
-    terminalWaiting,
-    onPromptSpawned,
-    onPromptDispatchStart,
-    onPromptDispatchSettled,
-    onSubmitUnavailable: () => setSubmitUnavailable(true),
-    onSelectionCommitted,
-    onQueueCountChange,
-    onCancelableQueueCountChange,
-    onDeliveryPendingChange,
-  })
 
   useEffect(() => markStart('chat.open'), [])
   const opened = facts.status !== undefined && facts.status !== 'connecting'
@@ -205,17 +150,23 @@ export function AgentChatView({
     catalogActive: active && visible,
     history,
   })
-  const { draft, seed, seedDraft, slash } = composer
+  const { draft, seed, seedDraft, slash, setError } = composer
+  const { reset: resetHistory } = history
+  const editPrompt = useCallback(
+    (text: string) => {
+      seedDraft(text)
+      setError('')
+      resetHistory()
+    },
+    [seedDraft, setError, resetHistory],
+  )
+  const steer = providers.find((candidate) => candidate.id === providerId)?.promptSteer === true
+  const prompts = useChatSend(wsId, chatId, steer, editPrompt)
 
-  useImperativeHandle(ref, () => ({ cancelUnsentPrompts: prompts.cancelUnsentPrompts }), [
-    prompts.cancelUnsentPrompts,
-  ])
-
-  const { queue } = prompts
   // An empty chat is a writing surface, not an empty transcript; it stops being
   // one the moment anything is in flight. Until the feed answers, which surface
   // it is cannot be known, so the transcript's loading state stands alone.
-  const nothingYet = facts.empty && queue.length === 0
+  const nothingYet = facts.empty && prompts.queued === 0
   const blank = nothingYet && facts.status === 'live'
   const settling = nothingYet && facts.status === 'connecting'
   // react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent -- the pane's signpost reads it
@@ -234,12 +185,12 @@ export function AgentChatView({
   // `text` is the box's own markdown: the keystroke that sent may not be in state yet.
   const enqueueDraft = (text?: string) => {
     const stagedProvider = effectiveProviderId === providerId ? '' : effectiveProviderId
-    const result = prompts.enqueue(
-      chatPromptToSend(text ?? draft),
-      stagedProvider,
-      selectionKnown ? model : undefined,
-      selectionKnown ? effort : undefined,
-    )
+    const result = prompts.send({
+      text: chatPromptToSend(text ?? draft),
+      provider: stagedProvider,
+      model: selectionKnown ? model : undefined,
+      effort: selectionKnown ? effort : undefined,
+    })
     if (!result.ok) {
       composer.setError(result.error ?? '')
       return
@@ -252,13 +203,6 @@ export function AgentChatView({
     history.reset()
   }
 
-  const editPrompt = (item: PromptQueueItem) => {
-    prompts.remove(item.clientRequestId)
-    seedDraft(item.text)
-    composer.setError('')
-    history.reset()
-  }
-
   // Re-seed with the box's text: a stop can make the CLI exit and remount the field.
   const handleStop = () => {
     seedDraft(draft)
@@ -266,6 +210,13 @@ export function AgentChatView({
   }
 
   const selectSlashItem = (item: SlashCatalogItem) => seedDraft(slash.accept(item))
+
+  // Esc takes the newest prompt back; what it returns is the text to restore.
+  const retract = () => {
+    const taken = prompts.retract()
+    void taken?.then((text) => text !== null && seedDraft(text))
+    return taken !== null
+  }
 
   const handleKeyDown = (
     event: KeyboardEvent<HTMLDivElement>,
@@ -278,6 +229,7 @@ export function AgentChatView({
         history,
         canStop: working && live,
         stop: handleStop,
+        retract,
         stashOrRestore: composer.stashOrRestore,
         selectSlashItem,
         send: enqueueDraft,
@@ -291,8 +243,7 @@ export function AgentChatView({
   const composerState = () =>
     resolveComposerState({
       live: canSend,
-      revival,
-      submitUnavailable,
+      submitUnavailable: prompts.unsupported,
       terminalWait,
       compacting,
       asks: facts.asks,
@@ -325,7 +276,6 @@ export function AgentChatView({
     <AgentTranscript
       chatId={chatId}
       providers={providers}
-      queue={queue}
       status={facts.status}
       working={working}
       since={facts.since}
@@ -335,12 +285,7 @@ export function AgentChatView({
       asking={facts.asks.length > 0}
       suppressId={halted?.id}
       onOpenTerminal={onOpenTerminal}
-      onEditPrompt={editPrompt}
-      onCancelPrompt={prompts.remove}
-      onRetryPrompt={prompts.retry}
-      showTerminalHintFor={
-        prompts.showAwaitingTerminalHint ? prompts.awaitingHead?.clientRequestId : undefined
-      }
+      promptActions={prompts.actions}
       dockHeight={dock.dockHeight}
       visible={visible}
       holdReveal={awaitingList}
@@ -388,7 +333,7 @@ export function AgentChatView({
                   controls={<SelectionCluster {...selection} model={model} />}
                   working={working}
                   canStop={live}
-                  sending={prompts.deliveryPending}
+                  sending={prompts.sending}
                   onStop={handleStop}
                   headerClearancePx={headerClearancePx}
                   banner={blankSignpost}
@@ -450,11 +395,10 @@ export function AgentChatView({
               providerLabel={providerLabel}
               permissionLevels={provider?.permissionLevels}
               live={canSend}
-              revival={revival}
               working={working}
               compacting={compacting}
-              sending={prompts.deliveryPending}
-              submitUnavailable={submitUnavailable}
+              sending={prompts.sending}
+              submitUnavailable={prompts.unsupported}
               terminalWait={terminalWait}
               haltedMessage={halted?.text}
               haltedResetsAt={limitResetsAt(telemetry)}
@@ -478,17 +422,16 @@ export function AgentChatView({
               // launch report only fills the gap, from the last one confirmed.
               model={model || confirmedModel}
               telemetry={telemetry}
-              queued={queue.length}
+              queued={prompts.queued}
               onCompact={
                 provider?.compaction && live && !compacting && !onTerminalSurface
                   ? () => void compactChat(wsId, chatId)
                   : undefined
               }
             />
-            {(composer.error || prompts.persistenceLost) && (
+            {composer.error && (
               <p className="meta composer-note" role="alert">
-                {composer.error ||
-                  'Pending prompts cannot be saved on this device. Keep Crowbar open until they finish.'}
+                {composer.error}
               </p>
             )}
           </div>

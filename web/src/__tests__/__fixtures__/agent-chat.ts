@@ -1,5 +1,6 @@
 import type { AgentChat, AgentTerminalWait } from '@/features/agent/api/agent-chat-reads'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
+import { forgetOutbox } from '@/features/agent/stores/chat-outbox'
 import { applyChat, chatStore, setChatScope } from '@/features/agent/stores/chat-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 
@@ -31,6 +32,8 @@ export function chatSnapshot(chat: Partial<AgentChat> & { id: string }): AgentCh
 }
 
 export function resetChatStore(): void {
+  // Releases the feeds the outbox held, which outlive a state reset.
+  for (const chatId of Object.keys(chatStore.getState().outbox)) forgetOutbox(chatId)
   chatStore.setState({
     feeds: {},
     chats: {},
@@ -38,6 +41,7 @@ export function resetChatStore(): void {
     byRunner: {},
     scopes: {},
     telemetry: {},
+    outbox: {},
   })
 }
 

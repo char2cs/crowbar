@@ -36,9 +36,6 @@ const {
   updateDefaultPermissionLevelFn: vi.fn(),
 }))
 
-vi.mock('@/features/agent/api/agent-chat-reads', () => ({
-  getPendingPrompt: vi.fn().mockResolvedValue(null),
-}))
 vi.mock('@/features/agent/api/agent-providers-api', () => ({
   updateProviderPreferences: (...a: unknown[]) => updateProviderPreferencesFn(...a),
   listProviders: (...a: unknown[]) => listProvidersFn(...a),

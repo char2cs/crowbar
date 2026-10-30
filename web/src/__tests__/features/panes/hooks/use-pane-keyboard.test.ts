@@ -33,18 +33,8 @@ const { createChat, toastSpawnFailure, presetChatLandingPresentation } = vi.hois
   toastSpawnFailure: vi.fn(),
   presetChatLandingPresentation: vi.fn(),
 }))
-// providerCanStartOnTerminal runs for REAL (vi.importActual): it is the
-// gate under test in the cases below, so a stub would make those assertions
-// meaningless — only createChat/getPendingPrompt are faked.
-vi.mock('@/features/agent/api/agent-chat-reads', async () => {
-  const actual = await vi.importActual<typeof import('@/features/agent/api/agent-chat-reads')>(
-    '@/features/agent/api/agent-chat-reads',
-  )
-  return {
-    ...actual,
-    getPendingPrompt: vi.fn().mockResolvedValue(null),
-  }
-})
+// providerCanStartOnTerminal runs for real: it is the gate under test below,
+// so only createChat is faked.
 import * as createsApi from '@/features/agent/api/agent-chat-creates'
 vi.spyOn(createsApi, 'createChat').mockImplementation(createChat)
 vi.mock('@/features/agent/lib/spawn-error', () => ({ toastSpawnFailure }))

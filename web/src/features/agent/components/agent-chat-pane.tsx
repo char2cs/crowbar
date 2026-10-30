@@ -11,7 +11,9 @@ import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
 import { useChatField } from '@/features/agent/hooks/use-chat-entity'
 import { useChatListReady } from '@/features/agent/hooks/use-chat-scope'
 import { fetchChat, releaseChats } from '@/features/agent/stores/chat-scopes'
-import { setChatSelection, useChatStore } from '@/features/agent/stores/chat-store'
+import { discardUnsent } from '@/features/agent/stores/chat-outbox'
+import { useChatStore } from '@/features/agent/stores/chat-store'
+import { deliveryPending as promptOnItsWay } from '@/features/agent/stores/lib/outbox'
 import { switchProvider } from '@/features/agent/api/agent-chat-commands'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { AGENT_CYCLE_PROVIDER, AGENT_TOGGLE_VIEW_MODE } from '@/features/keymaps/registry'
@@ -36,7 +38,7 @@ import {
 } from '@/features/agent/components/agent-terminal-wait-banner'
 import { useTerminalEscort } from '@/features/agent/components/use-terminal-escort'
 import { useWindowChord } from '@/features/agent/components/use-window-chord'
-import { AgentChatView, type AgentChatViewHandle } from '@/features/agent/chat/agent-chat-view'
+import { AgentChatView } from '@/features/agent/chat/agent-chat-view'
 import { AgentTerminalSurface } from '@/features/agent/terminal/agent-terminal-surface'
 
 interface AgentChatPaneProps {
@@ -124,13 +126,16 @@ export function AgentChatPane({
     setSplitSizes,
     splitStacked,
   } = useChatPresentation(shownChatId, splitContainerRef)
-  const [queuedPromptCount, setQueuedPromptCount] = useState(0)
-  const [cancelablePromptCount, setCancelablePromptCount] = useState(0)
-  const [promptReplacing, setPromptReplacing] = useState(false)
-  const [deliveryPending, setDeliveryPending] = useState(false)
+  const queuedPromptCount = useChatStore((s) => s.outbox[shownChatId]?.length ?? 0)
+  const cancelablePromptCount = useChatStore(
+    (s) => s.outbox[shownChatId]?.filter((item) => item.state !== 'sending').length ?? 0,
+  )
+  // A send may replace or revive the CLI: the pane is mid-delivery until a turn takes it.
+  const deliveryPending = useChatStore((s) =>
+    promptOnItsWay(s.outbox[shownChatId], s.feeds[shownChatId]?.facts),
+  )
   // Fails open: a stray banner frame beside a composer costs nothing, a missing one does.
   const [chatBlank, setChatBlank] = useState(true)
-  const chatViewRef = useRef<AgentChatViewHandle>(null)
   // CSS zoom relayouts the chat only; the terminal has its own font zoom.
   const chatZoom = useZoomStore.use.zoom()
   const providerName = providers.find((p) => p.id === activeProviderId)?.displayName || 'the agent'
@@ -140,13 +145,13 @@ export function AgentChatPane({
       chatId: shownChatId,
       providerName,
       presentation,
-      promptReplacing,
+      promptReplacing: deliveryPending,
     })
 
   // At most one blank-chat signpost: waiting needs a live runner, reviving none.
   const waitingBannerShown = waiting && chatBlank
   const revivingBannerShown =
-    presentation !== 'terminal' && chatBlank && attachment.state === 'reviving' && !promptReplacing
+    presentation !== 'terminal' && chatBlank && attachment.state === 'reviving' && !deliveryPending
 
   const rootRef = useRef<HTMLDivElement>(null)
   const terminalApiRef = useRef<{ focus: () => void } | null>(null)
@@ -207,22 +212,6 @@ export function AgentChatPane({
     [activeProviderId, chatModel, chatEffort],
   )
 
-  // The server accepted a staged pick with a prompt; nothing else brings it back.
-  const commitSelection = useCallback(
-    (model: string, effort: string) => {
-      setChatSelection(shownChatId, model, effort)
-    },
-    [shownChatId],
-  )
-
-  // Read the chat back after a send, so its runner is stored before `live` is next judged.
-  const settleDispatch = () => {
-    void readChat(shownChatId)
-      // A failed read leaves the store as the stream last said.
-      .catch(() => false)
-      .finally(() => setPromptReplacing(false))
-  }
-
   // A chat the seeded list never mentions would wait forever: ask once per chat per mount.
   const resolvedRef = useRef(new Set<string>())
   useEffect(() => {
@@ -255,11 +244,7 @@ export function AgentChatPane({
   // pick is two writes, and the second is legal only once the first landed.
   const [switchInFlight, setSwitchInFlight] = useState(false)
   const switchBlocked =
-    working ||
-    switchInFlight ||
-    promptReplacing ||
-    deliveryPending ||
-    attachment.state === 'reviving'
+    working || switchInFlight || deliveryPending || attachment.state === 'reviving'
   const handleSwitch = async (providerId: string): Promise<boolean> => {
     if (switchBlocked) return false
     const name = providers.find((p) => p.id === providerId)?.displayName ?? providerId
@@ -369,16 +354,14 @@ export function AgentChatPane({
           >
             <AgentChatView
               key={`${wsId}:${shownChatId}`}
-              ref={chatViewRef}
               wsId={wsId}
               chatId={shownChatId}
               providerId={activeProviderId}
               providers={providers}
               switchDisabled={switchBlocked}
-              live={attachment.state === 'attached' || promptReplacing}
+              live={attachment.state === 'attached' || deliveryPending}
               canSend={canSend}
               sessionNote={sessionNote}
-              revival={revival}
               // In split the chat is in front of the user, so it is active.
               active={presentation === 'chat' || splitting}
               visible={isVisible && (known || (!listSeeded && placed))}
@@ -393,9 +376,6 @@ export function AgentChatPane({
               presentation={presentation}
               splitEnabled={splitEnabled}
               onSelectPresentation={escort.chooseSurface}
-              // A send may replace or revive the CLI; the composer stays an input meanwhile.
-              onPromptDispatchStart={() => setPromptReplacing(true)}
-              onPromptDispatchSettled={settleDispatch}
               onTerminalSurface={onTerminalSurface}
               provider={effectiveProviderId}
               model={effectiveModel}
@@ -404,10 +384,6 @@ export function AgentChatPane({
               // Until `known`, model/effort are '' fallbacks a send would commit as a clear.
               selectionKnown={known}
               onSelectionChange={stageSelection}
-              onSelectionCommitted={commitSelection}
-              onQueueCountChange={setQueuedPromptCount}
-              onCancelableQueueCountChange={setCancelablePromptCount}
-              onDeliveryPendingChange={setDeliveryPending}
               onBlankChange={setChatBlank}
             />
           </div>
@@ -473,7 +449,7 @@ export function AgentChatPane({
                   variant="ghost"
                   aria-label="Cancel unsent prompts"
                   tooltip="Cancel unsent prompts"
-                  onClick={() => chatViewRef.current?.cancelUnsentPrompts()}
+                  onClick={() => discardUnsent(shownChatId)}
                 >
                   <TrashIcon />
                 </Button>

@@ -12,7 +12,6 @@ import type {
   ChatFeed,
   LiveSubagent,
   TranscriptItem,
-  TurnFacts,
 } from '@/features/agent/stores/lib/transcript-items'
 
 export interface ComposerFacts {
@@ -32,12 +31,6 @@ export interface ComposerFacts {
   userTexts: string[]
   /** The effort the newest finished turn reported. */
   latestEffort: string
-  /** How many turns have ended: the queue's revision and baseline. */
-  turnRevision: number
-  /** Prompts a turn took or the daemon settled: the queue lets them go. */
-  settledPrompts: string[]
-  /** Prompts refused with no proof the provider took them: the queue keeps their text. */
-  abandonedPrompts: string[]
   /** Nothing has been said in this chat yet. */
   empty: boolean
 }
@@ -52,16 +45,6 @@ function haltOf(item: TranscriptItem | undefined): ComposerFacts['halted'] {
   return undefined
 }
 
-function promptLists(prompts: TurnFacts['prompts'] | undefined) {
-  const settled: string[] = []
-  const abandoned: string[] = []
-  for (const [requestId, fact] of Object.entries(prompts ?? {})) {
-    if (fact.state === 'delivered' || fact.state === 'settled') settled.push(requestId)
-    if (fact.state === 'refused') abandoned.push(requestId)
-  }
-  return { settled, abandoned }
-}
-
 /** What the chat's feed says about the turn, read once for the view's parts. */
 export function useComposerFacts(chatId: string): ComposerFacts {
   const facts = useTurnFacts(chatId)
@@ -70,9 +53,7 @@ export function useComposerFacts(chatId: string): ComposerFacts {
   const items = useChatItems(chatId)
   const status = useFeedStatus(chatId)
   const reasoning = useLiveReasoning(chatId)
-  const promptFacts = facts?.prompts
   const openAsks = facts?.openAsks
-  const prompts = useMemo(() => promptLists(promptFacts), [promptFacts])
   const asks = useMemo(
     () =>
       (openAsks ?? [])
@@ -105,9 +86,6 @@ export function useComposerFacts(chatId: string): ComposerFacts {
     halted: fromOrder.halted,
     userTexts: fromOrder.userTexts,
     latestEffort: Object.values(facts?.efforts ?? {}).at(-1) ?? '',
-    turnRevision: facts?.ended ?? 0,
-    settledPrompts: prompts.settled,
-    abandonedPrompts: prompts.abandoned,
     empty: order.length === 0 && liveTail.length === 0,
   }
 }

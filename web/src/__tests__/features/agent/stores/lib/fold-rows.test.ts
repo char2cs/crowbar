@@ -114,7 +114,6 @@ describe('applyRow', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [l.text('turn-1', 'm1', 0, 'Hel'), l.end('turn-1')])
     expect(feed.items['m:turn-1:m1']).toMatchObject({ text: 'Hel', settled: true })
-    expect(feed.facts.ended).toBe(1)
   })
 
   it('reads a tool still running when its turn ended as abandoned', () => {

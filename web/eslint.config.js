@@ -35,7 +35,6 @@ const MAX_LINES_BASELINE = [
   'src/components/ui/dropdown.tsx',
   'src/components/ui/table-icons.tsx',
   'src/components/ui/table-node.tsx',
-  'src/features/agent/hooks/use-prompt-queue.ts',
   'src/features/agent/hooks/use-transcript-anchor.ts',
   'src/features/agent/transcript/plate/streaming-value-patch.ts',
   'src/features/tabs/components/tab-bar.tsx',

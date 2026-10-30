@@ -19,10 +19,7 @@ import type {
   CaretEdges,
   ChatMarkdownEditorHandle,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
-import {
-  resolveComposerState,
-  type ComposerRevival,
-} from '@/features/agent/composer/lib/composer-state'
+import { resolveComposerState } from '@/features/agent/composer/lib/composer-state'
 import { isMultiline } from '@/features/agent/composer/lib/handle-geometry'
 import { useAttachmentUpload } from '@/features/agent/composer/lib/use-attachment-upload'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
@@ -50,8 +47,6 @@ interface AgentComposerProps {
   sending: boolean
   submitUnavailable: boolean
   terminalWait?: AgentTerminalWait
-  /** The daemon placing a CLI this pane did not ask for. */
-  revival?: ComposerRevival
   haltedMessage?: string
   haltedResetsAt?: string
   canStop: boolean
@@ -181,7 +176,6 @@ export function AgentComposer(props: AgentComposerProps) {
 
   const state = resolveComposerState({
     live: props.live,
-    revival: props.revival,
     submitUnavailable: props.submitUnavailable,
     terminalWait: props.terminalWait,
     compacting: props.compacting,

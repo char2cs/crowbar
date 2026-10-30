@@ -1,5 +1,4 @@
 import {
-  Fragment,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -21,17 +20,21 @@ import {
   useTranscriptAnchor,
   type TranscriptScrollPosition,
 } from '@/features/agent/hooks/use-transcript-anchor'
-import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import { TerminalIcon } from '@/features/agent/shared/agent-icons'
-import type { ChatFeed, TranscriptItem } from '@/features/agent/stores/lib/transcript-items'
+import { useChatStore } from '@/features/agent/stores/chat-store'
+import type { OutboxItem } from '@/features/agent/stores/lib/outbox'
+import type {
+  ChatFeed,
+  TranscriptItem,
+  UserItem,
+} from '@/features/agent/stores/lib/transcript-items'
 import { FirstTurnDivider } from '@/features/agent/transcript/first-turn-divider'
-import { QueuedRow } from '@/features/agent/transcript/queued-row'
 import { TranscriptRow, type RowPlace } from '@/features/agent/transcript/rows/transcript-row'
+import type { PromptActions } from '@/features/agent/transcript/rows/user-row'
 
 interface AgentTranscriptProps {
   chatId: string
   providers: AgentProvider[]
-  queue: PromptQueueItem[]
   status?: ChatFeed['status']
   working: boolean
   /** When the running turn started. */
@@ -44,11 +47,8 @@ interface AgentTranscriptProps {
   /** A row the composer already shows (the provider's halt notice): said once. */
   suppressId?: string
   onOpenTerminal: () => void
-  onEditPrompt: (item: PromptQueueItem) => void
-  onCancelPrompt: (id: string) => void
-  onRetryPrompt: (id: string) => void
-  /** The one queued row allowed to offer the terminal detour. */
-  showTerminalHintFor?: string
+  /** Stable for the view's life: every prompt row holds it. */
+  promptActions: PromptActions
   /** The dock overlays the transcript by padding, so its height changes reach
    *  the anchor only through this. */
   dockHeight?: number
@@ -154,11 +154,11 @@ const samePlace = (a: RowPlace | undefined, b: RowPlace) =>
  *  hands control back (no reply after it before the next prompt) gets a turnbar. */
 function placesOf(
   ids: string[],
-  items: Record<string, TranscriptItem>,
+  itemOf: (id: string) => TranscriptItem | undefined,
   working: boolean,
 ): Map<string, RowPlace> {
   const places = new Map<string, RowPlace>()
-  const first = items[ids[0] ?? '']
+  const first = itemOf(ids[0] ?? '')
   const firstTurn = first?.kind === 'user' ? first.id : undefined
   let firstReply: string | undefined
   let lastUserAt: string | undefined
@@ -169,7 +169,7 @@ function placesOf(
     lastText = undefined
   }
   for (const id of ids) {
-    const item = items[id]
+    const item = itemOf(id)
     if (item?.kind === 'user') {
       if (item.origin === 'harness' || item.origin === 'note') continue
       closeRun()
@@ -185,17 +185,30 @@ function placesOf(
   return places
 }
 
+const NO_OUTBOX: OutboxItem[] = []
+
+/** An outbox prompt as the row layout reads it: a user turn with no row yet. */
+const asUser = (item: OutboxItem): UserItem => ({
+  kind: 'user',
+  id: `p:${item.requestId}`,
+  seq: 0,
+  at: '',
+  text: item.text,
+  origin: 'crowbar',
+  requestId: item.requestId,
+})
+
 /**
  * The conversation, bottom-anchored. Rows come from the chat's feed by id;
- * queued prompts sit below the record and above the working line, the order
- * they will happen in.
+ * prompts with no row yet follow them, in the order they will be sent.
  */
 // react-doctor-disable-next-line no-giant-component -- the virtualizer, anchor and settle gate share refs; T6 owns splitting scroll out
 export function AgentTranscript(props: AgentTranscriptProps) {
-  const { chatId, queue, dockHeight } = props
+  const { chatId, dockHeight } = props
   const order = useChatOrder(chatId)
   const liveTail = useLiveTail(chatId)
   const items = useChatItems(chatId)
+  const outbox = useChatStore((s) => s.outbox[chatId] ?? NO_OUTBOX)
   const [settled, setSettled] = useState(false)
   const anchor = useTranscriptAnchor({
     loadingHistory: props.status === 'connecting',
@@ -210,61 +223,69 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     notifyReflow()
   }, [dockHeight, notifyReflow])
 
+  // An outbox prompt whose row landed is the rows' from then on, under the same key.
+  const unsent = useMemo(
+    () =>
+      new Map(
+        outbox
+          .filter((item) => !items?.[`p:${item.requestId}`])
+          .map((item) => [`p:${item.requestId}`, asUser(item)]),
+      ),
+    [outbox, items],
+  )
   const rows = useMemo(() => {
-    const all = liveTail.length > 0 ? [...order, ...liveTail] : order
+    const all =
+      liveTail.length + unsent.size > 0 ? [...order, ...liveTail, ...unsent.keys()] : order
     return props.suppressId ? all.filter((id) => id !== props.suppressId) : all
-  }, [order, liveTail, props.suppressId])
+  }, [order, liveTail, unsent, props.suppressId])
+  const itemOf = useCallback((id: string) => items?.[id] ?? unsent.get(id), [items, unsent])
 
   // Place objects keep their identity while unchanged, so memoized rows skip.
   const placeCache = useRef(new Map<string, RowPlace>())
   const places = useMemo(() => {
-    const next = placesOf(rows, items ?? {}, props.working)
+    const next = placesOf(rows, itemOf, props.working)
     for (const [id, place] of next) {
       const prev = placeCache.current.get(id)
       if (samePlace(prev, place)) next.set(id, prev!)
     }
     placeCache.current = next
     return next
-  }, [rows, items, props.working])
+  }, [rows, itemOf, props.working])
 
-  // A turn starting lifts the prompt that started it to the top, so its reply
-  // has the viewport to grow into. A prompt queued behind a running turn starts
-  // nothing, and one inherited on reopen is a restore, not a send.
+  // A send lifts its prompt to the top, so its reply has the viewport to grow
+  // into. A prompt queued behind a running turn starts nothing, and one already
+  // waiting on reopen is a restore, not a send.
+  const newestUnsent = outbox.at(-1)?.requestId ?? null
   const pinnedRequestId = useRef<string | null>(null)
-  const pinnedItem = useRef<PromptQueueItem | null>(null)
-  const sawFirstQueue = useRef(false)
-  const onQueueChange = useEffectEvent(() => {
-    const newestItem = queue.at(-1) ?? null
-    const newest = newestItem?.clientRequestId ?? null
-    const inherited = !sawFirstQueue.current
-    sawFirstQueue.current = true
-    if (newest === pinnedRequestId.current) return
-    pinnedRequestId.current = newest
+  const pinnedRow = useRef<string | null>(null)
+  const sawFirstOutbox = useRef(false)
+  const onOutboxChange = useEffectEvent(() => {
+    const inherited = !sawFirstOutbox.current
+    sawFirstOutbox.current = true
+    if (newestUnsent === pinnedRequestId.current) return
+    pinnedRequestId.current = newestUnsent
     if (inherited) return
-    const root = scrollRef.current
-    if (newest) {
-      pinnedItem.current = newestItem
+    const rowOf = (id: string) =>
+      scrollRef.current?.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(id)}"]`) ?? null
+    if (newestUnsent) {
+      pinnedRow.current = `p:${newestUnsent}`
       if (props.working) return
-      const row = root?.querySelector<HTMLElement>(
-        `[data-client-request-id="${CSS.escape(newest)}"]`,
-      )
+      const row = rowOf(pinnedRow.current)
       if (row) pinTurnToTop(row)
       return
     }
-    // The queue drained: re-anchor on the prompt's own row, or release a pin
-    // whose prompt was cancelled before it sent (nothing will fill its room).
-    const id = pinnedItem.current ? `p:${pinnedItem.current.clientRequestId}` : null
-    const row = id ? root?.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(id)}"]`) : null
-    pinTurnToTop(row ?? null)
-    pinnedItem.current = null
+    // The outbox drained: re-anchor on the prompt's row, or release a pin whose
+    // prompt was cancelled before it sent (nothing will fill its room).
+    pinTurnToTop(pinnedRow.current ? rowOf(pinnedRow.current) : null)
+    pinnedRow.current = null
   })
-  useLayoutEffect(() => onQueueChange(), [queue])
+  useLayoutEffect(() => onOutboxChange(), [newestUnsent])
 
   const getItemKey = useCallback((index: number) => rows[index] ?? index, [rows])
   const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (index) => estimateRowHeight(items?.[rows[index] ?? '']),
+    estimateSize: (index) => estimateRowHeight(itemOf(rows[index] ?? '')),
     overscan: 12,
     measureElement: measureRowHeightOrCached,
     getItemKey,
@@ -307,29 +328,6 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     return () => cancelAnimationFrame(frame)
   }, [settled])
 
-  // A queued row's last real height primes its record row, so the swap from one
-  // to the other never drops the total for a frame.
-  const lastQueuedHeight = useRef(new Map<string, number>())
-  useLayoutEffect(() => {
-    const container = scrollRef.current
-    if (!container) return
-    for (const item of queue) {
-      const el = container.querySelector<HTMLElement>(
-        `[data-client-request-id="${CSS.escape(item.clientRequestId)}"]`,
-      )
-      if (el) lastQueuedHeight.current.set(`p:${item.clientRequestId}`, measureRowHeight(el))
-    }
-  }, [queue, scrollRef])
-  useLayoutEffect(() => {
-    if (lastQueuedHeight.current.size === 0) return
-    rows.forEach((id, index) => {
-      const height = lastQueuedHeight.current.get(id)
-      if (height === undefined) return
-      lastQueuedHeight.current.delete(id)
-      rowVirtualizer.resizeItem(index, height)
-    })
-  }, [rows, rowVirtualizer])
-
   const empty = rows.length === 0
   return (
     <div
@@ -347,7 +345,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     >
       <div className="scroll-spacer" aria-hidden="true" />
       <div className="center stream">
-        {props.status === 'connecting' && empty && queue.length === 0 && (
+        {props.status === 'connecting' && empty && (
           <div className="flex flex-1 items-center justify-center gap-2 text-muted-foreground text-sm">
             <FlickerSpinner className="size-4" /> Loading messages…
           </div>
@@ -372,7 +370,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
               const id = rows[virtualRow.index]
               if (!id) return null
               const next = rows[virtualRow.index + 1]
-              const flush = !next || (compact(items?.[id]) && compact(items?.[next]))
+              const flush = !next || (compact(itemOf(id)) && compact(itemOf(next)))
               const firstTurn = places.get(id)?.firstTurn === true
               return (
                 <div
@@ -393,6 +391,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
                     id={id}
                     providers={props.providers}
                     place={places.get(id)}
+                    actions={props.promptActions}
                   />
                   {firstTurn && <FirstTurnDivider />}
                 </div>
@@ -400,24 +399,6 @@ export function AgentTranscript(props: AgentTranscriptProps) {
             })}
           </div>
         )}
-        {queue.map((item, index) => {
-          const isFirstTurn = index === 0 && empty
-          // A Fragment: `.queued` aligns as a direct flex child of `.stream`.
-          return (
-            <Fragment key={item.clientRequestId}>
-              <QueuedRow
-                item={item}
-                firstTurn={isFirstTurn}
-                onEdit={() => props.onEditPrompt(item)}
-                onCancel={() => props.onCancelPrompt(item.clientRequestId)}
-                onRetry={() => props.onRetryPrompt(item.clientRequestId)}
-                showTerminalHint={props.showTerminalHintFor === item.clientRequestId}
-                onOpenTerminal={props.onOpenTerminal}
-              />
-              {isFirstTurn && <FirstTurnDivider />}
-            </Fragment>
-          )
-        })}
         <WorkingLine
           working={props.working}
           since={props.since}

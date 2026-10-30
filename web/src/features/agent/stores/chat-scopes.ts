@@ -13,7 +13,7 @@ import {
 } from '@/features/agent/api/agent-chat-reads'
 import { clearExcalidrawEditRequest } from '@/features/agent/composer/lib/excalidraw-edit-requests'
 import { clearScrollPosition } from '@/features/agent/hooks/lib/transcript-scroll-positions'
-import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
+import { forgetOutbox } from '@/features/agent/stores/chat-outbox'
 import {
   applyChat,
   applyChatFrame,
@@ -79,9 +79,8 @@ function bumpTree(scope: Scope) {
 }
 
 function forget(chatId: string) {
-  const owner = chatStore.getState().chats[chatId]?.workspaceId
   removeChats([chatId])
-  if (owner) clearPersistedPromptQueue(owner, chatId)
+  forgetOutbox(chatId)
   clearScrollPosition(chatId)
   clearExcalidrawEditRequest(chatId)
   windowPaneStore.getState().paneActions.forgetChat(chatId)

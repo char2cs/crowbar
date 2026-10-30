@@ -336,7 +336,7 @@ describe('insertPendingImageInto / settlePendingImageInto', () => {
   // `url` in place on the placeholder left a void `img` node pointing at a
   // non-image file (a broken image icon), and since nothing ever REMOVED
   // the node, its `blob:` url — already revoked — kept matching
-  // `hasPendingImageUpload`'s regex forever, silently blocking Send with no
+  // the outbox's pending-upload check forever, silently blocking Send with no
   // error and no way to recover short of deleting the attachment by hand.
   it('replaces the placeholder outright when the upload resolves to a non-image attachment', () => {
     const editor = editorWith('', 'end')

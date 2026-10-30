@@ -97,7 +97,8 @@ export function usePaneAttachment({
     attachment,
     revival,
     sessionNote,
-    canSend: attachment.state === 'attached' || attachment.state === 'idle',
+    // A prompt queues on any chat that exists, a spawning one included.
+    canSend: attachment.state !== 'pending',
     startSession,
   }
 }
