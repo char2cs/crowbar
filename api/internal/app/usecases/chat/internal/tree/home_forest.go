@@ -362,6 +362,10 @@ func (u *chatFolderUsecase) mergeHomeNode(
 		return true, "", nil
 	case domain.NodeKindWorkspace:
 		included, err := u.mergeAnchorNode(ctx, n, baseRows)
+		if problem.CodeOf(err) == problem.NotFound {
+			// An orphaned Node, as for a folder: its workspace is gone.
+			return false, "", nil
+		}
 		return included, n.ID, err
 	}
 	return false, "", nil

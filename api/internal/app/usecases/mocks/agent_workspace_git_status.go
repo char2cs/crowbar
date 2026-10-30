@@ -2,8 +2,11 @@ package mocks
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"time"
+
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // AgentWorkspaceGitStatus fakes the chat tree usecase's WorkspaceGitStatus
@@ -18,9 +21,8 @@ type AgentWorkspaceGitStatus struct {
 	// never Set here answers nil, mergeHomeForest's "do not filter".
 	HomeRepoMembers map[string]map[string]bool
 	RepoIDsErr      error
-	// Branches answers RendersAsBranch, keyed by workspace id. A workspace
-	// never Set here answers false — the same default an ordinary, unlocked
-	// fork's real domain.Workspace.RendersAsBranch() gives.
+	// Branches answers RendersAsBranch, keyed by workspace id. A workspace set
+	// only in Repos answers false (an unlocked fork); one in neither is gone.
 	Branches map[string]bool
 	// ForkParents answers VisibleForkParent, keyed by workspace id. A
 	// workspace never Set here answers "" — the same answer the real adapter
@@ -223,7 +225,11 @@ func (s *AgentWorkspaceGitStatus) RendersAsBranch(
 	if s.Err != nil {
 		return false, s.Err
 	}
-	return s.Branches[workspaceID], nil
+	renders, branch := s.Branches[workspaceID]
+	if _, known := s.Repos[workspaceID]; !branch && !known {
+		return false, fmt.Errorf("workspace %s: %w", workspaceID, problem.ErrNotFound)
+	}
+	return renders, nil
 }
 
 // SetForkParent records workspaceID's VISIBLE fork parent — already reduced

@@ -97,3 +97,28 @@ func TestPlaceChat_AFailedAnchorReadIsReturned(t *testing.T) {
 		})
 	}
 }
+
+// A Node whose workspace is gone (deleted, its Node not yet swept) is not this
+// level's to draw; it must not fail the read of everything beside it.
+func TestPlaceChat_ANodeWhoseWorkspaceIsGoneIsSkipped(t *testing.T) {
+	chats, _, nodes, gitStatus, uc := newHomeUsecaseFull(t)
+	gitStatus.SetRepo(workspaceID, repoID)
+	gitStatus.SetDefault(repoID, workspaceID)
+	for i, id := range []string{"p", "c1", "c2"} {
+		chats.Rows = append(chats.Rows, domain.Chat{
+			ID: id, Type: domain.ChatTypeChat, WorkspaceID: workspaceID, CreatedAt: time.Unix(int64(300+i), 0),
+		})
+	}
+	nodes.Rows = []domain.Node{
+		{ID: "p", Kind: domain.NodeKindChat, ParentID: "", Order: 0},
+		{ID: "gone-ws", Kind: domain.NodeKindWorkspace, ParentID: "p", Order: 0},
+		{ID: "c1", Kind: domain.NodeKindChat, ParentID: "p", Order: 1},
+		{ID: "c2", Kind: domain.NodeKindChat, ParentID: "p", Order: 2},
+	}
+
+	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c2", tree.PlaceInput{ParentID: name("p"), Order: index(0)})
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, nodeRowFor(t, nodes, "c2").Order)
+	assert.Equal(t, 1, nodeRowFor(t, nodes, "c1").Order)
+}
