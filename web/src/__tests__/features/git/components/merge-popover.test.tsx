@@ -130,6 +130,27 @@ describe('MergePopover', () => {
     expect(navigateMock).toHaveBeenCalledTimes(1)
   })
 
+  // The fold's frame lands before the terminal one and the route guard moves off
+  // the vanished child at once: the user still lands on the parent, not home.
+  it('lands on the parent when the child leaves while the merge still runs', async () => {
+    let settle: (reply: { items: never[] }) => void = () => undefined
+    mergeIntoParent.mockImplementation(() => new Promise((resolve) => (settle = resolve)))
+    const user = userEvent.setup()
+    renderPopover()
+    await user.click(screen.getByRole('button', { name: 'Merge into develop' }))
+    await user.click(await screen.findByRole('button', { name: 'Create merge commit' }))
+
+    act(() => removeTheChild())
+    act(() => setActiveWorkspaceId('fallback'))
+    await act(async () => settle({ items: [] }))
+
+    expect(navigateMock).toHaveBeenCalledTimes(1)
+    expect(navigateMock).toHaveBeenCalledWith({
+      to: '/ide/$projectId/$repoId/$wsId',
+      params: { projectId: 'p1', repoId: 'r1', wsId: 'parent-ws' },
+    })
+  })
+
   it('does not redirect once the user has moved to another workspace', async () => {
     mergeIntoParent.mockResolvedValue({ items: [] })
     const user = userEvent.setup()

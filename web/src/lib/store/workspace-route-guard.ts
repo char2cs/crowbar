@@ -7,6 +7,8 @@ export interface WorkspaceRouteKnowledge {
   workspacesRead: ReadonlySet<string>
   /** Projects whose repo list, as the daemon answered it, is in `repos`. */
   reposRead: ReadonlySet<string>
+  /** An operation on the routed workspace runs: its outcome, not the guard, moves the user. */
+  operating: boolean
 }
 
 /**
@@ -19,7 +21,7 @@ export function shouldRedirectUnknownWorkspace(
   known: WorkspaceRouteKnowledge,
 ): boolean {
   const { wsId } = route
-  if (!wsId) return false
+  if (!wsId || known.operating) return false
   const holds = (r: Repo) =>
     r.defaultWorkspaceId === wsId || r.workspaces.some((w) => w.id === wsId)
   if (known.repos.some(holds)) return false

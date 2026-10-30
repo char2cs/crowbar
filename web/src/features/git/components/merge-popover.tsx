@@ -90,7 +90,7 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
   }
 
   // The merge runs as an operation: its failure is the operations watcher's to
-  // show, and the redirect waits for the merge (and the fold) to land.
+  // show, and the redirect waits for the fold to land.
   const stopWaiting = useRef<(() => void) | null>(null)
   useEffect(() => () => stopWaiting.current?.(), [])
 
@@ -117,17 +117,16 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
       (opId) => mergeIntoParent(wsId, strategy, deleteAfterMerge, opId),
     )
     setOpen(false)
-    void whenSettled(op.id).then(
-      () => {
-        const target = redirect
-        if (!target) return
-        stopWaiting.current?.()
-        stopWaiting.current = whenChildLeaves(wsId, () => {
-          void navigate({ to: '/ide/$projectId/$repoId/$wsId', params: target })
-        })
-      },
-      () => undefined,
-    )
+    const target = redirect
+    if (!target) return
+    // Waits from the click: the fold's frame can land before the terminal one,
+    // and the route guard would move off the vanished child first.
+    stopWaiting.current?.()
+    const stop = whenChildLeaves(wsId, () => {
+      void navigate({ to: '/ide/$projectId/$repoId/$wsId', params: target })
+    })
+    stopWaiting.current = stop
+    void whenSettled(op.id).catch(stop)
   }
 
   return (

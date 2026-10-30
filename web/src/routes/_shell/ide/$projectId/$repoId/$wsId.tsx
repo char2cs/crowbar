@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { selectEntityBusy, useOperationsStore } from '@/lib/store/operations'
 import { shouldRedirectUnknownWorkspace } from '@/lib/store/workspace-route-guard'
 
 export const Route = createFileRoute('/_shell/ide/$projectId/$repoId/$wsId')({
@@ -14,6 +15,7 @@ function WorkspaceRouteGuard() {
   const repos = useSidebarStore((state) => state.repos)
   const workspacesRead = useFolderSignalStore((state) => state.seededWorkspaceRepoIds)
   const reposRead = useFolderSignalStore((state) => state.seededRepoListProjectIds)
+  const operating = useOperationsStore((state) => selectEntityBusy(state, wsId))
 
   // The hierarchical scope (project+repo) for this workspace is recorded
   // synchronously by the IDE shell from the route path BEFORE WorkspaceView
@@ -21,7 +23,7 @@ function WorkspaceRouteGuard() {
   // unknown-workspace redirect.
   const redirect = shouldRedirectUnknownWorkspace(
     { projectId, repoId, wsId },
-    { repos, workspacesRead, reposRead },
+    { repos, workspacesRead, reposRead, operating },
   )
 
   useEffect(() => {
