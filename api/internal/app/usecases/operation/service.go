@@ -351,6 +351,8 @@ func (s *Service) execute(
 	op domain.Operation,
 	work Work,
 ) domain.Operation {
+	// The running row owns its items: the caller may still be encoding the accepted one.
+	op.Items = slices.Clone(op.Items)
 	run := &running{s: s, ctx: ctx, op: op}
 	run.update(func(o *domain.Operation) { o.State = domain.OpRunning })
 	err := call(ctx, op.Kind, run, work)

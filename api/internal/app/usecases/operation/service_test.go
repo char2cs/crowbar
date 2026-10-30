@@ -152,6 +152,23 @@ func TestService_AFailedItemFailsTheOperationAsPartial(t *testing.T) {
 	assert.Equal(t, "taken", op.Items[1].Error.Message)
 }
 
+// The accepted row is the caller's to answer with while the work runs on.
+func TestService_TheAcceptedRowIsNotChangedByItsWork(t *testing.T) {
+	f := newFixture(t)
+	id := uuid.NewString()
+	spec := pushSpec(id)
+	spec.Items = []domain.OperationItem{{Label: "a", State: domain.OpRunning}}
+
+	op, err := f.svc.Start(context.Background(), spec, func(_ context.Context, p operation.Progress) error {
+		p.Item(domain.OperationItem{Label: "a", State: domain.OpSucceeded})
+		return nil
+	})
+	require.NoError(t, err)
+	f.until(t, id)
+
+	assert.Equal(t, domain.OpRunning, op.Items[0].State)
+}
+
 func TestService_StartIsIdempotentOnTheKey(t *testing.T) {
 	f := newFixture(t)
 	id := uuid.NewString()
