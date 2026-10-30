@@ -8,6 +8,7 @@ import { AgentChatView } from '@/features/agent/chat/agent-chat-view'
 import { applyFeedFrame, chatStore } from '@/features/agent/stores/chat-store'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
 // jsdom never delivers a keydown to a Slate editable, so the box is a textarea
 // with the same contract: text in, markdown out, keys through.
@@ -139,5 +140,69 @@ describe('AgentChatView', () => {
     })
 
     expect(await screen.findByText('Streaming now')).toBeInTheDocument()
+  })
+
+  // The record has not reached the reply yet, but the agent is plainly busy.
+  it('holds a prompt while a reply streams ahead of its rows', async () => {
+    const submit = vi
+      .spyOn(commands, 'submitAgentPrompt')
+      .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
+    seedFeed('c1', spokenIn('c1'))
+    draw('c1')
+    act(() => {
+      applyFeedFrame('c1', {
+        type: 'delta',
+        delta: { id: 'm2', turnId: 'turn-2', stream: 'answer', n: 1, text: 'Streaming now' },
+      })
+    })
+
+    const box = screen.getByRole('textbox', { name: /message the agent/i })
+    fireEvent.change(box, { target: { value: 'next one' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+
+    expect(await screen.findByTestId('queued-prompt')).toHaveAttribute('data-state', 'queued')
+    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
+    expect(submit).not.toHaveBeenCalled()
+  })
+
+  it('sends a slash command the catalog cannot match, rather than swallowing Enter', async () => {
+    const submit = vi
+      .spyOn(commands, 'submitAgentPrompt')
+      .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
+    seedFeed('c1', spokenIn('c1'))
+    draw('c1')
+
+    const box = screen.getByRole('textbox', { name: /message the agent/i })
+    fireEvent.change(box, { target: { value: '/compact' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+
+    await waitFor(() =>
+      expect(submit).toHaveBeenCalledWith('w1', 'c1', '/compact', expect.any(String), '', '', ''),
+    )
+  })
+})
+
+describe('AgentChatView type-to-focus', () => {
+  beforeEach(() => {
+    setActiveWorkspaceId('w1')
+    seedFeed('c1', spokenIn('c1'))
+  })
+
+  const type = (...keys: string[]) => {
+    for (const key of keys) fireEvent.keyDown(window, { key })
+  }
+  const box = () => screen.getByRole('textbox', { name: /message the agent/i })
+
+  it('does not redirect on three keys or fewer', () => {
+    draw('c1')
+    type('h', 'e', 'l')
+    expect(box()).toHaveValue('')
+  })
+
+  it('ignores a modifier-held key and leaves the buffer for the plain keys after it', async () => {
+    draw('c1')
+    fireEvent.keyDown(window, { key: 'k', metaKey: true })
+    type('h', 'e', 'l', 'l')
+    await waitFor(() => expect(box()).toHaveValue('hell'))
   })
 })

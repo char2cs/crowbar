@@ -75,6 +75,17 @@ describe('TextRow', () => {
     expect(screen.queryByTestId('message-turn-actions')).toBeNull()
   })
 
+  it('holds the turn actions back until the reply settles', () => {
+    const l = ledger()
+    seed([l.start('turn-1'), l.text('turn-1', 'm1', 0, 'still going')])
+    render(
+      <TranscriptRow chatId="chat-1" id={ID} providers={providers} place={{ turnbar: true }} />,
+    )
+    expect(screen.queryByTestId('message-turn-actions')).toBeNull()
+    push(l.end('turn-1'))
+    expect(screen.getByTestId('message-turn-actions')).toBeInTheDocument()
+  })
+
   it('draws nothing for an id the feed does not hold', () => {
     seed([])
     const { container } = render(<TranscriptRow chatId="chat-1" id="m:x:y" providers={providers} />)
@@ -108,6 +119,30 @@ describe('UserRow', () => {
       'Sent to the agent by Fake',
     )
     expect(document.querySelector('.bubble')).toBeNull()
+  })
+
+  // A long payload would push the rest of the turn down.
+  it.each([
+    ['a long', 'x'.repeat(161)],
+    ['a several-line', 'one\ntwo\nthree\nfour'],
+  ])('collapses %s harness payload behind Show payload', (_, text) => {
+    const l = ledger()
+    seed([
+      l.start('turn-1'),
+      l.row('user_message', { text, origin: 'harness' }, { turnId: 'turn-1' }),
+    ])
+    render(<TranscriptRow chatId="chat-1" id="u:2" providers={providers} />)
+    expect(screen.getByText('Show payload').tagName).toBe('SUMMARY')
+  })
+
+  it('shows a short harness payload inline', () => {
+    const l = ledger()
+    seed([
+      l.start('turn-1'),
+      l.row('user_message', { text: 'short payload', origin: 'harness' }, { turnId: 'turn-1' }),
+    ])
+    render(<TranscriptRow chatId="chat-1" id="u:2" providers={providers} />)
+    expect(screen.getByText('short payload').closest('details')).toBeNull()
   })
 
   it('keeps the first turn in the document hand', () => {
