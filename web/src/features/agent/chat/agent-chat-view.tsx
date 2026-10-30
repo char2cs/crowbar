@@ -47,6 +47,7 @@ import type { ChatPresentation } from '@/features/settings/lib/chat-presentation
 import '@/features/agent/styles/composer.css'
 import '@/features/agent/styles/transcript.css'
 import '@/features/agent/styles/activity.css'
+import { chatPromptToSend } from '@/features/agent/composer/plate/chat-prompt-send'
 
 /** One entry per progressive-blur layer in the dock's dissolve — see composer.css. */
 const DISSOLVE_LAYERS = [0, 1, 2, 3, 4, 5, 6]
@@ -234,7 +235,7 @@ export function AgentChatView({
   const enqueueDraft = (text?: string) => {
     const stagedProvider = effectiveProviderId === providerId ? '' : effectiveProviderId
     const result = prompts.enqueue(
-      text ?? draft,
+      chatPromptToSend(text ?? draft),
       stagedProvider,
       selectionKnown ? model : undefined,
       selectionKnown ? effort : undefined,

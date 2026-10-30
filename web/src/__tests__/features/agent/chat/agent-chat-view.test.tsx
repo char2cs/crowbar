@@ -128,6 +128,20 @@ describe('AgentChatView', () => {
     expect(transcriptReads()).toEqual([])
   })
 
+  it('sends the draft without the escapes its markdown does not need', async () => {
+    const submit = vi
+      .spyOn(commands, 'submitAgentPrompt')
+      .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
+    seedFeed('c1', spokenIn('c1'))
+    draw('c1')
+
+    const box = screen.getByRole('textbox', { name: /message the agent/i })
+    fireEvent.change(box, { target: { value: 'rename snake\\_case\\_file.py' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
+    expect(submit.mock.calls[0]?.[2]).toBe('rename snake_case_file.py')
+  })
+
   it('streams a reply the record has not reached yet', async () => {
     seedFeed('c1', spokenIn('c1'))
     draw('c1')

@@ -4,6 +4,7 @@ import {
   chatMarkdownToValue,
   chatValueToMarkdown,
 } from '@/features/agent/composer/plate/chat-composer-serialization'
+import { promptCases, sameText } from '@/__tests__/__fixtures__/composer-prompts'
 
 /** A paragraph, as the editor holds it — a round trip cannot express one that
     still carries the whitespace the parser strips. */
@@ -12,31 +13,6 @@ const p = (text: string) => ({ type: 'p', children: [{ text }] })
 /** What the box holds after someone types `text` and stops. */
 function typed(text: string) {
   return chatValueToMarkdown(chatMarkdownToValue(text))
-}
-
-type Doc = { text?: string; children?: Doc[]; [key: string]: unknown }
-
-/** Slate may split or pad text leaves anywhere; joining runs of identical marks
-    leaves only what a reader can see. */
-function sameText(nodes: Value): Doc[] {
-  const out: Doc[] = []
-  for (const node of nodes as Doc[]) {
-    if (node.children) {
-      out.push({ ...node, children: sameText(node.children as Value) })
-      continue
-    }
-    const { text = '', ...marks } = node
-    const prev = out.at(-1)
-    const prevMarks = prev && prev.text !== undefined ? { ...prev, text: undefined } : undefined
-    if (
-      prev &&
-      prevMarks &&
-      JSON.stringify(prevMarks) === JSON.stringify({ ...marks, text: undefined })
-    )
-      prev.text += text
-    else if (text !== '') out.push({ ...node })
-  }
-  return out
 }
 
 describe('the chat composer codec', () => {
@@ -112,138 +88,12 @@ describe('the chat composer codec', () => {
     })
   })
 
-  // The draft, stash, queue and history store this markdown and re-parse it,
-  // and the transcript bubble renders it, so a prompt must come back as the
-  // document it was. Within that, escapes the parser does not need are dropped.
-  describe('a prompt read back from what was sent', () => {
-    const typedTexts = [
-      'snake_case [x](y)',
-      'rename snake_case_file.py to __init__.py',
-      'a * b * c and 2*3*4',
-      'use `foo` literally? no: a lone ` backtick',
-      'issue #42 and # not a heading here',
-      'compare a < b > c and <div> tags & entities',
-      'open C:\\path\\to\\file and a\\b',
-      '1. not a list when typed mid-paragraph? 1) either',
-      '~~not struck~~ and !important and | pipes |',
-      '_a_b_',
-      '__init__.py',
-      'escape \\_ and \\* and \\[',
-      '&amp; &lt;b&gt;',
-      '---',
-      '+ plus',
-      '~~~',
-      'regex ^\\d+\\.\\s*$',
-      'C:\\Users\\me\\_dir',
-      'x = a_b * c_d * e',
-      '*args and **kwargs',
-      'def f(*args, **kwargs)',
-      'a <!-- c --> b',
-      '1) item',
-      '* star bullet',
-      '#hashtag',
-      '<script>x</script>',
-      'tab\tinside',
-      'trail\\',
-      'line\\\nnext',
-      'café ñ 😀 中文',
-      '[ref]: http://x',
-      '[a][b]',
-      'call set_chat_title [now]',
-    ]
-    const leaf = (text: string, marks: Record<string, boolean> = {}) => ({ text, ...marks })
-    const structured: Record<string, Value> = {
-      'link text with a bracket': [
-        {
-          type: 'p',
-          children: [
-            leaf('see '),
-            { type: 'a', url: 'http://u', children: [leaf('a]b')] },
-            leaf(''),
-          ],
-        },
-      ],
-      'italic ending in a backslash': [
-        { type: 'p', children: [leaf('x '), leaf('dir\\', { italic: true }), leaf(' y')] },
-      ],
-      'a star beside bold': [{ type: 'p', children: [leaf('foo*'), leaf('bar', { bold: true })] }],
-      'a backtick beside code': [{ type: 'p', children: [leaf('a`'), leaf('b', { code: true })] }],
-      'a list item starting with a dash': [
-        { type: 'p', indent: 1, listStyleType: 'disc', children: [leaf('- inner')] },
-      ],
-      'a heading starting with a hash': [{ type: 'h2', children: [leaf('# hash')] }],
-      'a quote starting with >': [{ type: 'blockquote', children: [p('> nested?')] }],
-      'an indented code line': [
-        {
-          type: 'code_block',
-          children: [{ type: 'code_line', children: [leaf('    if a_b: x = c*d')] }],
-        },
-      ],
-      'table cells holding | and \\|': [
-        {
-          type: 'table',
-          children: [
-            {
-              type: 'tr',
-              children: [
-                { type: 'th', children: [p('h|1')] },
-                { type: 'th', children: [p('h2')] },
-              ],
-            },
-            {
-              type: 'tr',
-              children: [
-                { type: 'td', children: [p('a|b')] },
-                { type: 'td', children: [p('c\\|d')] },
-              ],
-            },
-          ],
-        },
-      ],
-    } as Record<string, Value>
-    const cases: [string, Value][] = [
-      ...typedTexts.map((text): [string, Value] => [JSON.stringify(text), [p(text)] as Value]),
-      ...Object.entries(structured),
-    ]
-
-    for (const [name, value] of cases) {
-      it(`comes back unchanged: ${name}`, () => {
-        expect(sameText(chatMarkdownToValue(chatValueToMarkdown(value)))).toEqual(sameText(value))
-      })
-    }
-
-    it('sends a name, path or list marker without escapes the parser does not need', () => {
-      const sent = (text: string) => chatValueToMarkdown([p(text)] as Value)
-      expect(sent('snake_case_file.py and set_chat_title')).toBe(
-        'snake_case_file.py and set_chat_title',
-      )
-      expect(sent('a * b and 2*3 or a_b * c_d')).toBe('a * b and 2*3 or a_b * c_d')
-      expect(sent('open C:\\path\\to\\file')).toBe('open C:\\path\\to\\file')
-      expect(sent('compare a < b > c, #42 & ~ ! |')).toBe('compare a < b > c, #42 & ~ ! |')
+  // The draft, stash, queue and history store this markdown and re-parse it.
+  for (const [name, value] of promptCases) {
+    it(`reads a draft back unchanged: ${name}`, () => {
+      expect(sameText(chatMarkdownToValue(chatValueToMarkdown(value)))).toEqual(sameText(value))
     })
-
-    it('still writes the markdown the editor holds as structure', () => {
-      const value = [
-        {
-          type: 'p',
-          children: [
-            leaf('fix '),
-            leaf('my_var', { code: true }),
-            leaf(' in '),
-            leaf('snake_case', { italic: true }),
-          ],
-        },
-        {
-          type: 'code_block',
-          lang: 'py',
-          children: [{ type: 'code_line', children: [leaf('x = a_b * 2')] }],
-        },
-      ] as Value
-      expect(chatValueToMarkdown(value)).toBe(
-        'fix `my_var` in *snake_case*\n\n```py\nx = a_b * 2\n```',
-      )
-    })
-  })
+  }
 
   // A code line's indentation IS the program. It is the one place the encoder
   // never runs and the one place trimming would corrupt the prompt.
