@@ -46,8 +46,7 @@ export interface AskItem extends ItemBase {
   toolTarget: string
 }
 
-export type MarkerName =
-  MarkerKind | 'turn_interrupted' | 'turn_failed' | 'session_lost' | 'runner_exited'
+export type MarkerName = MarkerKind | 'turn_interrupted' | 'turn_failed'
 
 export interface MarkerItem extends ItemBase {
   kind: 'marker'
@@ -111,6 +110,8 @@ export interface ChatFeed {
   liveReasoning: string | null
   /** Item ids of rows in a subagent scope, by scope. */
   scoped: Record<string, string[]>
+  /** Main-scope ids a turn end can still settle, by turn id ('' for none). */
+  unsettled: Record<string, string[]>
   facts: TurnFacts
 }
 

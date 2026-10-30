@@ -45,6 +45,7 @@ export function emptyFeed(): ChatFeed {
     liveN: {},
     liveReasoning: null,
     scoped: {},
+    unsettled: {},
     facts: emptyFacts,
   }
 }
@@ -57,16 +58,33 @@ const PILL_MARKERS = new Set([
   'effort_changed',
 ])
 
-/** One row's edits to a feed, copying each part on its first write so
- *  everything the row leaves alone keeps its identity. */
-class Fold {
+type FactRecord = 'prompts' | 'output' | 'efforts' | 'providers'
+
+/** Edits to a feed over one or many rows. Each part is copied on its first
+ *  write, so what the rows leave alone keeps its identity, and a replay of
+ *  n rows copies each part once instead of n times. */
+export class FeedFold {
   private items: Record<string, TranscriptItem> | null = null
   private order: string[] | null = null
   private liveTail: string[] | null = null
   private scoped: Record<string, string[]> | null = null
+  private open: Record<string, string[]> | null = null
   private factsCopy: TurnFacts | null = null
+  private readonly ownedScopes = new Set<string>()
+  private readonly ownedFacts = new Set<FactRecord>()
+  private seq: number
 
-  constructor(private readonly base: ChatFeed) {}
+  constructor(private readonly base: ChatFeed) {
+    this.seq = base.seq
+  }
+
+  /** Folds one row; a row at or below the folded seq is already applied. */
+  apply(row: LedgerRow) {
+    if (row.seq <= this.seq) return
+    const apply = appliers[row.kind] as Apply<RowKind> | undefined
+    apply?.(this, row)
+    this.seq = row.seq
+  }
 
   item<T extends TranscriptItem>(id: string): T | undefined {
     return (this.items ?? this.base.items)[id] as T | undefined
@@ -87,53 +105,85 @@ class Fold {
     this.factsCopy[key] = value
   }
 
+  /** A per-turn fact record this fold may write in place. */
+  record<K extends FactRecord>(key: K): TurnFacts[K] {
+    if (!this.ownedFacts.has(key)) {
+      this.ownedFacts.add(key)
+      this.set(key, { ...this.facts[key] })
+    }
+    return this.facts[key]
+  }
+
   /** Places a new item: main scope in the order, a subagent's under its scope. */
   place(id: string, scope: string) {
     if (scope) {
       this.scoped ??= { ...this.base.scoped }
-      this.scoped[scope] = [...(this.scoped[scope] ?? []), id]
+      if (!this.ownedScopes.has(scope)) {
+        this.ownedScopes.add(scope)
+        this.scoped[scope] = [...(this.scoped[scope] ?? [])]
+      }
+      this.scoped[scope].push(id)
       return
     }
     const tail = this.liveTail ?? this.base.liveTail
     if (tail.includes(id)) this.liveTail = tail.filter((other) => other !== id)
     this.order ??= [...this.base.order]
     this.order.push(id)
+    const item = this.item(id)
+    if (item && isUnsettled(item))
+      this.setOpen(item.turnId ?? '', [...this.openIn(item.turnId ?? ''), id])
   }
 
-  /** Every item of `ids` that `pick` changes. */
-  each<T extends TranscriptItem>(ids: string[], pick: (item: T) => T | null) {
-    for (const id of ids) {
-      const item = this.item<T>(id)
-      const next = item && pick(item)
-      if (next) this.put(next)
-    }
+  /** Main-scope ids a turn end can still change, by turn ('' for none). */
+  openIn(turn: string): string[] {
+    return (this.open ?? this.base.unsettled)[turn] ?? []
   }
 
-  finish(seq: number): ChatFeed {
+  get openTurns(): string[] {
+    return Object.keys(this.open ?? this.base.unsettled)
+  }
+
+  setOpen(turn: string, ids: string[]) {
+    this.open ??= { ...this.base.unsettled }
+    if (ids.length > 0) this.open[turn] = ids
+    else delete this.open[turn]
+  }
+
+  finish(): ChatFeed {
     return {
       ...this.base,
-      seq,
+      seq: this.seq,
       items: this.items ?? this.base.items,
       order: this.order ?? this.base.order,
       liveTail: this.liveTail ?? this.base.liveTail,
       scoped: this.scoped ?? this.base.scoped,
+      unsettled: this.open ?? this.base.unsettled,
       facts: this.factsCopy ?? this.base.facts,
     }
   }
 }
 
-type Apply<K extends RowKind> = (fold: Fold, row: LedgerRow<K>, base: ChatFeed) => void
+const isUnsettled = (item: TranscriptItem) =>
+  (item.kind === 'text' && !item.settled) || (item.kind === 'tool' && item.status === 'running')
 
-const setPrompt = (fold: Fold, requestId: string, fact: PromptFact) => {
-  fold.set('prompts', { ...fold.facts.prompts, [requestId]: fact })
+type Apply<K extends RowKind> = (fold: FeedFold, row: LedgerRow<K>) => void
+
+const setPrompt = (fold: FeedFold, requestId: string, fact: PromptFact) => {
+  fold.record('prompts')[requestId] = fact
 }
 
-const markOutput = (fold: Fold, row: LedgerRow) => {
+const markOutput = (fold: FeedFold, row: LedgerRow) => {
   if (row.scope || !row.turnId || fold.facts.output[row.turnId]) return
-  fold.set('output', { ...fold.facts.output, [row.turnId]: true })
+  fold.record('output')[row.turnId] = true
 }
 
-function marker(fold: Fold, row: LedgerRow, name: MarkerName, detail?: string, reason?: string) {
+function marker(
+  fold: FeedFold,
+  row: LedgerRow,
+  name: MarkerName,
+  detail?: string,
+  reason?: string,
+) {
   const id = markerItemId(row.seq)
   fold.put({
     kind: 'marker',
@@ -148,28 +198,19 @@ function marker(fold: Fold, row: LedgerRow, name: MarkerName, detail?: string, r
   fold.place(id, '')
 }
 
-/** Ids of every item in `feed` that a turn end can still change. */
-function unsettled(feed: ChatFeed, fold: Fold, turnId: string | null): string[] {
-  const ids: string[] = []
-  for (const id of feed.order) {
-    const item = fold.item(id)
-    if (!item || (turnId !== null && item.turnId !== turnId)) continue
-    if (
-      (item.kind === 'text' && !item.settled) ||
-      (item.kind === 'tool' && item.status === 'running')
-    ) {
-      ids.push(id)
-    }
-  }
-  return ids
-}
-
 /** Settles the texts of `turnId` (every turn when null) and abandons its running tools. */
-function endTurn(fold: Fold, base: ChatFeed, turnId: string | null) {
-  fold.each<TextItem | ToolItem>(unsettled(base, fold, turnId), (item) => {
-    if (item.kind === 'text') return { ...item, settled: true }
-    return turnId === null ? null : { ...item, status: 'abandoned' }
-  })
+function endTurn(fold: FeedFold, turnId: string | null) {
+  for (const turn of turnId === null ? fold.openTurns : [turnId]) {
+    const still: string[] = []
+    for (const id of fold.openIn(turn)) {
+      const item = fold.item(id)
+      if (!item || !isUnsettled(item)) continue
+      if (item.kind === 'text') fold.put({ ...item, settled: true })
+      else if (item.kind === 'tool' && turnId !== null) fold.put({ ...item, status: 'abandoned' })
+      else still.push(id)
+    }
+    fold.setOpen(turn, still)
+  }
 }
 
 const applyUserMessage: Apply<'user_message'> = (fold, row) => {
@@ -202,7 +243,7 @@ const applyTurnStarted: Apply<'turn_started'> = (fold, row) => {
   const { requestId, provider } = row.body
   fold.set('running', { turnId: row.turnId, requestId, startedAt: row.at, seq: row.seq })
   if (requestId) setPrompt(fold, requestId, { state: 'delivered', turnId: row.turnId })
-  if (provider) fold.set('providers', { ...fold.facts.providers, [row.turnId]: provider })
+  if (provider) fold.record('providers')[row.turnId] = provider
 }
 
 const applyPromptSettled: Apply<'prompt_settled'> = (fold, row) => {
@@ -212,31 +253,31 @@ const applyPromptSettled: Apply<'prompt_settled'> = (fold, row) => {
   else setPrompt(fold, requestId, { state: 'refused', reason })
 }
 
-function closeRunning(fold: Fold, turnId: string | undefined) {
+function closeRunning(fold: FeedFold, turnId: string | undefined) {
   if (fold.facts.running && fold.facts.running.turnId === turnId) fold.set('running', null)
 }
 
-const applyTurnEnded: Apply<'turn_ended'> = (fold, row, base) => {
+const applyTurnEnded: Apply<'turn_ended'> = (fold, row) => {
   if (row.scope || !row.turnId) return
   closeRunning(fold, row.turnId)
   fold.set('ended', fold.facts.ended + 1)
-  if (row.body.effort) fold.set('efforts', { ...fold.facts.efforts, [row.turnId]: row.body.effort })
-  endTurn(fold, base, row.turnId)
+  if (row.body.effort) fold.record('efforts')[row.turnId] = row.body.effort
+  endTurn(fold, row.turnId)
   if (row.body.status === 'interrupted')
     marker(fold, row, 'turn_interrupted', undefined, row.body.reason)
 }
 
-const applyTurnFailed: Apply<'turn_failed'> = (fold, row, base) => {
+const applyTurnFailed: Apply<'turn_failed'> = (fold, row) => {
   if (row.scope || !row.turnId) return
   closeRunning(fold, row.turnId)
-  endTurn(fold, base, row.turnId)
+  endTurn(fold, row.turnId)
   marker(fold, row, 'turn_failed', row.body.detail, row.body.reason)
 }
 
-const applyRunnerExited: Apply<'runner_exited'> = (fold, row, base) => {
+const applyRunnerExited: Apply<'runner_exited'> = (fold, row) => {
   const { runnerId, reason, exitCode } = row.body
   fold.set('lastExit', { runnerId, reason, exitCode, seq: row.seq })
-  endTurn(fold, base, null)
+  endTurn(fold, null)
 }
 
 const applySessionLost: Apply<'session_lost'> = (fold, row) => {
@@ -251,7 +292,7 @@ const applyMarker: Apply<'marker'> = (fold, row) => {
 }
 
 /** A message naming the reply its turn closed on is shown as that reply. */
-function joinedReply(fold: Fold, row: LedgerRow<'assistant_text'>): TextItem | undefined {
+function joinedReply(fold: FeedFold, row: LedgerRow<'assistant_text'>): TextItem | undefined {
   const { reply, messageId } = row.body
   if (!reply || reply === messageId) return undefined
   return fold.item<TextItem>(textItemId(row.turnId, reply))
@@ -448,8 +489,7 @@ const appliers: { [K in RowKind]: Apply<K> } = {
 /** Folds one row; a row at or below the feed's seq is already applied. */
 export function applyRow(feed: ChatFeed, row: LedgerRow): ChatFeed {
   if (row.seq <= feed.seq) return feed
-  const fold = new Fold(feed)
-  const apply = appliers[row.kind] as Apply<RowKind> | undefined
-  apply?.(fold, row, feed)
-  return fold.finish(row.seq)
+  const fold = new FeedFold(feed)
+  fold.apply(row)
+  return fold.finish()
 }

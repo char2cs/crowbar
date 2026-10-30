@@ -58,4 +58,39 @@ describe('chatStore', () => {
     dropFeed('chat-1')
     expect(chatStore.getState().feeds).toEqual({})
   })
+
+  // A reattach replays from since=0, so a long chat's whole record folds
+  // before ready. Folding row by row copied every item per row (seconds at 30k).
+  it.each([
+    [5_000, 250],
+    [30_000, 750],
+  ])('folds a %i-row replay within %ims', (count, bound) => {
+    openFeed('chat-1')
+    const rows = replay(count)
+    const started = performance.now()
+    for (const row of rows) applyFeedFrame('chat-1', { type: 'row', row })
+    applyFeedFrame('chat-1', { type: 'ready', epoch: 'e1' })
+    const took = performance.now() - started
+
+    expect(feed()?.order).toHaveLength(Math.floor(count / 6) * 3)
+    expect(
+      Object.values(feed()?.items ?? {}).every(
+        (item) => item.kind !== 'tool' || item.status === 'ok',
+      ),
+    ).toBe(true)
+    expect(took).toBeLessThan(bound)
+  })
 })
+
+/** Turns of six rows each: prompt, start, a tool, a final text, end. */
+function replay(count: number) {
+  const l = ledger()
+  return Array.from({ length: Math.floor(count / 6) }, (_, i) => [
+    l.prompt(`r${i}`, `prompt ${i}`),
+    l.start(`turn-${i}`, `r${i}`),
+    l.tool(`turn-${i}`, `tool-${i}`, 'pre'),
+    l.tool(`turn-${i}`, `tool-${i}`, 'post'),
+    l.text(`turn-${i}`, `m${i}`, 0, `reply ${i}`, true),
+    l.end(`turn-${i}`),
+  ]).flat()
+}
