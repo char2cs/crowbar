@@ -131,7 +131,10 @@ describe('MarkdownMessage streaming fade-in', () => {
     expect(screen.getByText('Building').closest('.chat-fresh-text')).toBeNull()
   })
 
+  // A held clock: a word mounting a frame later under load would resume its
+  // fade that much shorter, and the delays are what this pins.
   it('stages each word with increasing animation-delay', async () => {
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(1000)
     const { rerender, container } = render(<MarkdownMessage>{'one'}</MarkdownMessage>)
     rerender(<MarkdownMessage>{'one two three four'}</MarkdownMessage>)
 
@@ -142,6 +145,7 @@ describe('MarkdownMessage streaming fade-in', () => {
     // 150ms base (SCROLL_LEAD_MS — lets scroll-follow get underway before any
     // word in the chunk starts revealing) plus the usual 30ms/word stagger.
     expect(delays).toEqual(['150ms', '180ms', '210ms'])
+    clock.mockRestore()
   })
 
   it('wraps a single-word new block in one fade-in span (fallback path)', async () => {
