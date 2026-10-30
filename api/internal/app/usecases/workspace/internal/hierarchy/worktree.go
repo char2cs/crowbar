@@ -646,7 +646,7 @@ func (u *hierarchyUsecase) parentStartPoint(
 	in CreateChildInput,
 ) string {
 	if in.ParentBranch == "" {
-		return in.ParentBranch
+		return "HEAD" // only the repo folder's home is branchless (detached): fork from its commit
 	}
 	parentOnRemote, err := u.git.RemoteBranchExists(ctx, in.RepoPath, in.ParentBranch)
 	if err != nil || !parentOnRemote {
