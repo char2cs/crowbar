@@ -188,6 +188,20 @@ describe('committing a workspace removal', () => {
     expect(useOperationsStore.getState().ops['op-other']?.dismissed).toBe(false)
   })
 
+  it('a removal whose fallback is the repo home leaves for it', async () => {
+    const navigate = vi.fn()
+    await commitRemoval(entry({ fallbackWsId: 'ws-home' }), {
+      activeWorkspaceId: 'ws-fork',
+      navigate,
+    })
+
+    expect(navigate).toHaveBeenCalledExactlyOnceWith({
+      projectId: 'p1',
+      repoId: 'r1',
+      wsId: 'ws-home',
+    })
+  })
+
   it('un-hides the rows and says why when the delete is refused', async () => {
     deleteChat.mockRejectedValueOnce(new Error('worktree is busy'))
     useRemovalTrayStore.getState().hold([

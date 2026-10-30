@@ -44,10 +44,8 @@ beforeEach(() => {
         id: 'r1',
         projectId: 'p1',
         defaultWorkspaceId: 'parent-ws',
-        workspaces: [
-          { id: 'parent-ws', branch: 'develop' },
-          { id: 'w1', branch: 'feature/a', parentId: 'parent-ws' },
-        ],
+        // The production shape: the repo home is never in `workspaces`.
+        workspaces: [{ id: 'w1', branch: 'feature/a', parentId: 'parent-ws' }],
       } as unknown as Repo,
     ],
   })

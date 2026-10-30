@@ -170,6 +170,11 @@ function withPlacement<T extends { order?: number }>(
   }
 }
 
+/** Whether `repo` holds `wsId`; its home (default) workspace is not in `workspaces`. */
+export function holdsWorkspace(repo: Repo, wsId: string): boolean {
+  return repo.defaultWorkspaceId === wsId || repo.workspaces.some((w) => w.id === wsId)
+}
+
 /**
  * Where to navigate after deleting `wsId` while it (or one of its
  * descendants) is the active workspace: its parent if it survives, else the

@@ -1,4 +1,6 @@
 import type { Repo } from '@/lib/store/sidebar'
+import type { Operation } from '@/lib/store/operations'
+import { holdsWorkspace } from '@/lib/store/repo-tree'
 
 /** What the sidebar tree holds, and which parts of it the daemon has answered. */
 export interface WorkspaceRouteKnowledge {
@@ -7,8 +9,8 @@ export interface WorkspaceRouteKnowledge {
   workspacesRead: ReadonlySet<string>
   /** Projects whose repo list, as the daemon answered it, is in `repos`. */
   reposRead: ReadonlySet<string>
-  /** An operation on the routed workspace runs: its outcome, not the guard, moves the user. */
-  operating: boolean
+  /** A merge folding the routed workspace runs: the merge, not the guard, moves the user. */
+  merging: boolean
 }
 
 /**
@@ -21,10 +23,22 @@ export function shouldRedirectUnknownWorkspace(
   known: WorkspaceRouteKnowledge,
 ): boolean {
   const { wsId } = route
-  if (!wsId || known.operating) return false
-  const holds = (r: Repo) =>
-    r.defaultWorkspaceId === wsId || r.workspaces.some((w) => w.id === wsId)
-  if (known.repos.some(holds)) return false
+  if (!wsId || known.merging) return false
+  if (known.repos.some((r) => holdsWorkspace(r, wsId))) return false
   const repo = known.repos.find((r) => r.id === route.repoId)
   return repo ? known.workspacesRead.has(repo.id) : known.reposRead.has(route.projectId)
+}
+
+/**
+ * Whether a merge into its parent runs on `wsId`. Its fold drops the child before
+ * the terminal frame, and the merge then leads to the parent. A fold frame that
+ * lands after the terminal one still loses to this guard's redirect home.
+ */
+export function mergeRunsOn(ops: Readonly<Record<string, Operation>>, wsId: string): boolean {
+  return Object.values(ops).some(
+    (op) =>
+      op.kind === 'workspace.merge_into_parent' &&
+      op.subject.id === wsId &&
+      (op.state === 'accepted' || op.state === 'running'),
+  )
 }

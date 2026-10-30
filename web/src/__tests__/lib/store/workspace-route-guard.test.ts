@@ -1,5 +1,7 @@
 import { expect, test } from 'vitest'
+import type { Operation } from '@/lib/store/operations'
 import {
+  mergeRunsOn,
   shouldRedirectUnknownWorkspace,
   type WorkspaceRouteKnowledge,
 } from '@/lib/store/workspace-route-guard'
@@ -24,7 +26,7 @@ const READ: WorkspaceRouteKnowledge = {
   repos: REPOS,
   workspacesRead: new Set(['repo-1']),
   reposRead: new Set(['p1']),
-  operating: false,
+  merging: false,
 }
 
 const route = (wsId: string | undefined, repoId = 'repo-1') => ({ projectId: 'p1', repoId, wsId })
@@ -68,6 +70,20 @@ test('does not redirect for the repo default workspace id (excluded from the tre
 
 // A merge's fold removes the child before its operation settles; the merge
 // moves the user to the parent, and a guard redirect home would override it.
-test('does not redirect while an operation on the workspace runs', () => {
-  expect(shouldRedirectUnknownWorkspace(route('ghost'), { ...READ, operating: true })).toBe(false)
+test('does not redirect while a merge folds the workspace', () => {
+  expect(shouldRedirectUnknownWorkspace(route('ghost'), { ...READ, merging: true })).toBe(false)
+})
+
+const op = (kind: string, state: Operation['state']): Operation => ({
+  ...{ id: kind, kind, subject: { kind: 'workspace', id: 'ws-child' }, projectId: 'p1' },
+  ...{ label: kind, state, items: [], dismissed: false, version: 1, createdAt: '', updatedAt: '' },
+})
+
+test('only a running merge into the parent holds the guard, not other work on the workspace', () => {
+  const push = op('git.push', 'running')
+  const merge = op('workspace.merge_into_parent', 'running')
+  expect(mergeRunsOn({ [push.id]: push }, 'ws-child')).toBe(false)
+  expect(mergeRunsOn({ [merge.id]: merge }, 'ws-child')).toBe(true)
+  expect(mergeRunsOn({ [merge.id]: { ...merge, state: 'succeeded' } }, 'ws-child')).toBe(false)
+  expect(mergeRunsOn({ [merge.id]: merge }, 'ws-base')).toBe(false)
 })

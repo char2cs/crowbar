@@ -15,6 +15,7 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toast } from '@/features/window/stores/toast-store'
 import { useOperationsStore } from '@/lib/store/operations'
 import { dismissOperation } from '@/lib/store/run-operation'
+import { holdsWorkspace } from '@/lib/store/repo-tree'
 import { report } from '@/lib/errors/report'
 
 /**
@@ -350,7 +351,7 @@ function leaveIfRemoved(
 
   const repos = useSidebarStore.getState().repos
   const fallbackRepo = entry.fallbackWsId
-    ? repos.find((r) => r.workspaces.some((w) => w.id === entry.fallbackWsId))
+    ? repos.find((r) => holdsWorkspace(r, entry.fallbackWsId ?? ''))
     : undefined
   if (!fallbackRepo?.projectId || !entry.fallbackWsId) {
     navigate(null)
