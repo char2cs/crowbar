@@ -168,7 +168,7 @@ func TestHandoffDumpRoundTrip_DialsTheSocketTheDaemonBound_ForANonCleanHome(t *t
 	require.NoError(t, err)
 	ctx := engineagents.TemplateCtx{
 		CrowbarHook: argvDumper(t), ProjectID: "PROJ", RepoID: "REPO", WorkspaceID: "WS",
-		CrowbarHome: h.Root(), DaemonSocket: ln.Addr().String(),
+		CrowbarHome: h.Root(), DaemonHost: "unix://" + ln.Addr().String(),
 	}
 	command := engineagents.Expand("{crowbar} handoff dump {scope_flags} chat-1", ctx)
 

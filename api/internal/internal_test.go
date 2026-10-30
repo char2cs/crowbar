@@ -17,6 +17,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal"
 	"github.com/char2cs/crowbar/api/internal/adapter/migrations"
+	"github.com/char2cs/crowbar/api/internal/core/gateway/transports"
 	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/hookserver"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
@@ -39,8 +40,8 @@ func TestNew_BootsFullStack(t *testing.T) {
 	assert.Nil(t, c.Halt())
 }
 
-// A callback is handed the socket the daemon bound, so the daemon must say which
-// one that is: the home as given, even when it is not clean, and none for TCP.
+// A callback is handed the address the daemon bound, so the daemon must say
+// which one that is: the socket of the home as given, even when it is not clean.
 func TestNew_ReportsTheSocketItBound(t *testing.T) {
 	t.Setenv(home.EnvVar, t.TempDir()+"/x/")
 	h, err := home.Resolve()
@@ -50,8 +51,13 @@ func TestNew_ReportsTheSocketItBound(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
 
-	assert.Equal(t, h.Socket(), c.Socket())
-	assert.FileExists(t, c.Socket())
+	assert.Equal(t, "unix://"+h.Socket(), c.Address())
+	assert.FileExists(t, h.Socket())
+	derived, err := transports.SocketPath("unix://")
+	require.NoError(t, err)
+	handed, err := transports.SocketPath(c.Address())
+	require.NoError(t, err)
+	assert.Equal(t, derived, handed, "a callback handed the address dials the socket it derived before")
 }
 
 // The daemon binds the socket of the home it holds: a home given in code wins
@@ -64,16 +70,16 @@ func TestNew_BindsTheSocketOfTheHomeItWasGiven(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
 
-	assert.Equal(t, given.Socket(), c.Socket())
+	assert.Equal(t, "unix://"+given.Socket(), c.Address())
 	assert.FileExists(t, given.Socket())
 }
 
-func TestNew_ReportsNoSocketOverTCP(t *testing.T) {
+func TestNew_ReportsItsBoundTCPAddress(t *testing.T) {
 	c, err := internal.New(context.Background(), "tcp://127.0.0.1:0", nil, internal.WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
 
-	assert.Empty(t, c.Socket())
+	assert.Regexp(t, `^tcp://127\.0\.0\.1:[1-9][0-9]*$`, c.Address(), "the port it bound, not the one asked")
 }
 
 func TestNew_InvalidHost_ReturnsError(t *testing.T) {

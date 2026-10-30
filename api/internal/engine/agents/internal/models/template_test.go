@@ -14,21 +14,24 @@ func TestScopeFlags_IncludesHome(t *testing.T) {
 	}
 }
 
-// A callback dials the socket the daemon bound, not one it derives from --home.
-func TestScopeFlags_HandsCallbacksTheDaemonSocket(t *testing.T) {
-	c := TemplateCtx{
-		ProjectID: "p1", WorkspaceID: "w1", CrowbarHome: "/Users/x/.crowbar",
-		DaemonSocket: "/tmp/crowbar-abc.sock",
-	}
-	got := c.ScopeFlags()
-	want := "--project=p1 --workspace=w1 --home=/Users/x/.crowbar --host=unix:///tmp/crowbar-abc.sock"
-	if got != want {
-		t.Fatalf("ScopeFlags() = %q, want %q", got, want)
+// A callback dials the address the daemon bound, not one it derives from --home.
+func TestScopeFlags_HandsCallbacksTheDaemonAddress(t *testing.T) {
+	for host, want := range map[string]string{
+		"unix:///tmp/crowbar-abc.sock": "--project=p1 --workspace=w1 --home=/Users/x/.crowbar --host=unix:///tmp/crowbar-abc.sock",
+		"tcp://127.0.0.1:3737":         "--project=p1 --workspace=w1 --home=/Users/x/.crowbar --host=tcp://127.0.0.1:3737",
+	} {
+		c := TemplateCtx{ProjectID: "p1", WorkspaceID: "w1", CrowbarHome: "/Users/x/.crowbar", DaemonHost: host}
+		if got := c.ScopeFlags(); got != want {
+			t.Fatalf("ScopeFlags() = %q, want %q", got, want)
+		}
+		if got := c.Replacer().Replace("{daemon_host}"); got != host {
+			t.Fatalf("{daemon_host} = %q, want %q", got, host)
+		}
 	}
 }
 
 func TestScopeFlags_QuotesADaemonSocketWithASpace(t *testing.T) {
-	c := TemplateCtx{ProjectID: "p1", WorkspaceID: "w1", DaemonSocket: "/tmp/a b.sock"}
+	c := TemplateCtx{ProjectID: "p1", WorkspaceID: "w1", DaemonHost: "unix:///tmp/a b.sock"}
 	got := c.ScopeFlags()
 	want := "--project=p1 --workspace=w1 --host='unix:///tmp/a b.sock'"
 	if got != want {

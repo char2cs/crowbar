@@ -73,9 +73,9 @@ type Deps struct {
 	Ledger *ledgerstore.Store
 	// Blobs holds the tool payloads the ledger's rows name.
 	Blobs *ledgerstore.Blobs
-	// DaemonSocket is the unix socket the daemon bound, handed to every callback a
-	// spawned CLI runs; empty over TCP.
-	DaemonSocket string
+	// DaemonAddress is the address the daemon bound, handed to every callback a
+	// spawned CLI runs.
+	DaemonAddress string
 	// Installed is the install probe. Nil defaults to Agent.Installed, the real
 	// one; only a test injects a stub, to isolate from the host PATH.
 	Installed func(a engineagents.Agent) bool
@@ -237,7 +237,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Workspace:     d.Workspace,
 		AncestorCwd:   cwdResolver{chats: d.Chats, folders: d.Folders, nodes: d.Nodes, roots: d.RepoRoots},
 		Ledger:        d.Ledger,
-		DaemonSocket:  d.DaemonSocket,
+		DaemonHost:    d.DaemonAddress,
 		ChatLock:      sh.locks,
 		Minter:        d.Minter,
 		Answers:       sh.answers,

@@ -48,10 +48,10 @@ type TemplateCtx struct {
 	// regardless of what environment the callback inherits.
 	CrowbarHome string
 
-	// DaemonSocket is the unix socket the daemon actually bound. Callbacks dial
-	// it as handed over (--host) and never derive one: the daemon owns its socket,
-	// and a path derived from --home can differ from the one it bound.
-	DaemonSocket string
+	// DaemonHost is the address the daemon bound (unix:// or tcp://). Callbacks
+	// dial it as handed over (--host, {daemon_host}) and never derive one: a socket
+	// derived from --home can differ from the bound one, and TCP has none.
+	DaemonHost string
 
 	// Session is the session id an api-transport provider's live
 	// connection has established ({session_id} in a descriptor's
@@ -99,8 +99,8 @@ func (c TemplateCtx) ScopeFlags() string {
 	if c.CrowbarHome != "" {
 		flags += " --home=" + shellWord(c.CrowbarHome)
 	}
-	if c.DaemonSocket != "" {
-		flags += " --host=" + shellWord("unix://"+c.DaemonSocket)
+	if c.DaemonHost != "" {
+		flags += " --host=" + shellWord(c.DaemonHost)
 	}
 	return flags
 }
@@ -151,6 +151,7 @@ func (c TemplateCtx) pairs() []string {
 		"{cwd}", c.Cwd,
 		"{cwd_json}", jsonString(c.Cwd),
 		"{crowbar_home}", c.CrowbarHome,
+		"{daemon_host}", c.DaemonHost,
 		"{hook_url}", c.HookURL(),
 		"{hook_curl}", c.HookCurl(),
 

@@ -23,14 +23,14 @@ func TestRenderSpawnContext_CarriesCrowbarHome(t *testing.T) {
 	}
 }
 
-// Callbacks are handed the socket the daemon bound; they never derive one.
-func TestRenderSpawnContext_CarriesTheDaemonSocket(t *testing.T) {
-	rs := &Runners{daemonSocket: "/tmp/crowbar-abc.sock"}
+// Callbacks are handed the address the daemon bound; they never derive one.
+func TestRenderSpawnContext_CarriesTheDaemonAddress(t *testing.T) {
+	rs := &Runners{daemonHost: "tcp://127.0.0.1:3737"}
 
 	tctx, _ := rs.renderSpawnContext(spawnContext{crowbarHome: "/tmp/h", runnerID: "run1"})
 
-	if tctx.DaemonSocket != "/tmp/crowbar-abc.sock" {
-		t.Fatalf("TemplateCtx.DaemonSocket = %q, want the daemon's socket", tctx.DaemonSocket)
+	if tctx.DaemonHost != "tcp://127.0.0.1:3737" {
+		t.Fatalf("TemplateCtx.DaemonHost = %q, want the daemon's address", tctx.DaemonHost)
 	}
 }
 

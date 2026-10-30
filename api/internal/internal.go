@@ -168,7 +168,7 @@ func (c *Container) boot(
 	if err := c.session.RunPreOpen(ctx, migrations.PreOpenImpls()); err != nil {
 		return fmt.Errorf("internal: migrate: %w", err)
 	}
-	s, err := openStack(ctx, c.home, cfg, socketOf(c.listener), c.session, staticFS)
+	s, err := openStack(ctx, c.home, cfg, addressOf(c.listener), c.session, staticFS)
 	if err != nil {
 		return err
 	}
@@ -184,12 +184,12 @@ func openStack(
 	ctx context.Context,
 	h home.Home,
 	cfg rootOpts,
-	socket string,
+	address string,
 	post migrate.PostOpenRunner,
 	staticFS fs.FS,
 ) (*stack, error) {
 	s := &stack{}
-	if err := s.open(ctx, h, cfg, socket, post, staticFS); err != nil {
+	if err := s.open(ctx, h, cfg, address, post, staticFS); err != nil {
 		//nolint:contextcheck // the Close methods take no ctx: a failed boot's teardown runs even after ctx is done.
 		return nil, errors.Join(err, s.close())
 	}
@@ -200,12 +200,12 @@ func (s *stack) open(
 	ctx context.Context,
 	h home.Home,
 	cfg rootOpts,
-	socket string,
+	address string,
 	post migrate.PostOpenRunner,
 	staticFS fs.FS,
 ) error {
 	var err error
-	s.engines, err = engine.New(ctx, engine.WithHomeDir(cfg.homeDir), engine.WithDaemonSocket(socket))
+	s.engines, err = engine.New(ctx, engine.WithHomeDir(cfg.homeDir), engine.WithDaemonAddress(address))
 	if err != nil {
 		return fmt.Errorf("internal: engine: %w", err)
 	}
@@ -290,19 +290,20 @@ func (c *Container) release() error {
 	return err
 }
 
-// socketOf is the unix socket listener is bound to, or "" for any other kind.
-func socketOf(
+// addressOf is the address listener is bound to, as a callback's --host:
+// unix://<path>, or tcp://<host:port> with the port the bind chose.
+func addressOf(
 	listener net.Listener,
 ) string {
 	if addr, ok := listener.Addr().(*net.UnixAddr); ok {
-		return addr.Name
+		return "unix://" + addr.Name
 	}
-	return ""
+	return "tcp://" + listener.Addr().String()
 }
 
-// Socket is the unix socket the daemon bound, empty when it listens on TCP.
-func (c *Container) Socket() string {
-	return socketOf(c.listener)
+// Address is the address the daemon bound.
+func (c *Container) Address() string {
+	return addressOf(c.listener)
 }
 
 // Home is the Crowbar home the daemon holds.

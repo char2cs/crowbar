@@ -41,6 +41,25 @@ func TestClient_PostJSON_OverUnixSocket(t *testing.T) {
 	_ = os.Remove(sock)
 }
 
+// A daemon serving on TCP (a container's `serve --host tcp://...`) is dialled there.
+func TestClient_PostJSON_OverTCP(t *testing.T) {
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/v0/chats/c1/prompts", r.URL.Path)
+		_, _ = w.Write([]byte(`{"success":true}`))
+	})}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	c, err := ipc.NewClient("tcp://" + ln.Addr().String())
+	require.NoError(t, err)
+	status, body, err := c.PostJSON(context.Background(), "/v0/chats/c1/prompts", map[string]string{"event": "x"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, status)
+	assert.Contains(t, string(body), "success")
+}
+
 func TestClient_PatchJSON_OverUnixSocket(t *testing.T) {
 	// Use a short temp directory to stay under macOS's 104-byte sun_path limit
 	tmpDir := filepath.Join("/tmp", "cp.sock")

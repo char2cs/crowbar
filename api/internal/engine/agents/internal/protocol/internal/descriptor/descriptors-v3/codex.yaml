@@ -935,11 +935,10 @@ mcp_injection:
   - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.command="{crowbar}"' }
   - pass_arg:
       arg: "-c"
-      value: 'mcp_servers.crowbar.args=["mcp","--segment","{segid}","--token","{runner_token}","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}"]'
-  # codex starts an MCP server with a SCRUBBED environment — CROWBAR_HOME
-  # does not survive it, and that variable is the only thing selecting which
-  # daemon socket a `crowbar` subprocess dials. FORWARDED, not a literal: an
-  # unset CROWBAR_HOME must stay unset in the child.
+      value: 'mcp_servers.crowbar.args=["mcp","--segment","{segid}","--token","{runner_token}","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}","--host","{daemon_host}"]'
+  # codex starts an MCP server with a SCRUBBED environment; --host above names the
+  # daemon, and CROWBAR_HOME is FORWARDED (an unset one stays unset) for the
+  # relay's home, which picks the socket when no host is handed over.
   - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.env_vars=["CROWBAR_HOME"]' }
   # Without this codex stops on every Crowbar tool call and waits for a
   # human — the shell's own approval policy never covers MCP calls, which

@@ -9,13 +9,14 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/core/gateway/transports"
 )
 
-// Client is a thin HTTP client that speaks to the Crowbar daemon over its unix
-// socket. The HTTP host is a placeholder; DialContext always dials the socket.
+// Client is a thin HTTP client that speaks to the Crowbar daemon at the address
+// it bound. The HTTP host is a placeholder; DialContext always dials that address.
 type Client struct {
 	http *http.Client
 }
@@ -42,15 +43,19 @@ func NewClient(host string) (*Client, error) {
 // everyone's: the client is shared by the hook and handoff callbacks, where a
 // short timeout is the correct behaviour, and by the MCP relay, where it is not.
 func NewClientWithTimeout(host string, timeout time.Duration) (*Client, error) {
-	sock, err := transports.SocketPath(host)
-	if err != nil {
-		return nil, fmt.Errorf("ipc: socket path: %w", err)
+	network, addr := "tcp", strings.TrimPrefix(host, "tcp://")
+	if addr == host {
+		sock, err := transports.SocketPath(host)
+		if err != nil {
+			return nil, fmt.Errorf("ipc: socket path: %w", err)
+		}
+		network, addr = "unix", sock
 	}
 	return &Client{http: &http.Client{
 		Timeout: timeout,
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return (&net.Dialer{}).DialContext(ctx, "unix", sock)
+				return (&net.Dialer{}).DialContext(ctx, network, addr)
 			},
 		},
 	}}, nil

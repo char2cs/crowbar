@@ -519,7 +519,7 @@ func TestInjectionRegistry_RecognisesAnEchoOncePerRunner(t *testing.T) {
 func TestShippedAgents_RenderParseableMCPRegistration(t *testing.T) {
 	ctx := agents.TemplateCtx{
 		Tmp: t.TempDir(), Cwd: t.TempDir(), Segid: "SEG", RunnerToken: "TOK",
-		ProjectID: "P", RepoID: "R", WorkspaceID: "W", CrowbarHook: "/bin/crowbar",
+		ProjectID: "P", RepoID: "R", WorkspaceID: "W", CrowbarHook: "/bin/crowbar", DaemonHost: "tcp://127.0.0.1:3737",
 	}
 
 	claude, err := get(t, "claude").SpawnPlan(ctx, nil, nil)
@@ -531,11 +531,11 @@ func TestShippedAgents_RenderParseableMCPRegistration(t *testing.T) {
 		"a bare positional after a variadic --mcp-config is swallowed as another config")
 	var parsed map[string]any
 	require.NoError(t, json.Unmarshal([]byte(claude.Argv[cfgIdx+1]), &parsed))
-	assert.Contains(t, parsed, "mcpServers")
+	assert.Contains(t, claude.Argv[cfgIdx+1], `"--host","tcp://127.0.0.1:3737"`, "the relay dials the daemon's address")
 
 	codex, err := get(t, "codex").SpawnPlan(ctx, nil, nil)
 	require.NoError(t, err)
-	assert.Contains(t, strings.Join(codex.Argv, " "), "mcp_servers.crowbar.command")
+	assert.Contains(t, strings.Join(codex.Argv, " "), `"--host","tcp://127.0.0.1:3737"`, "the relay dials the daemon's address")
 }
 
 func hookCtx(tmp, provider, repo string) agents.TemplateCtx {

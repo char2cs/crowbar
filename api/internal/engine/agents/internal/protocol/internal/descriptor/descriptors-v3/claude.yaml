@@ -543,7 +543,7 @@ hooks_injection:
 mcp_injection:
   - pass_arg:
       arg: "--mcp-config"
-      value: '{"mcpServers":{"crowbar":{"command":"{crowbar}","args":["mcp","--segment","{segid}","--token","{runner_token}","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}"]}}}'
+      value: '{"mcpServers":{"crowbar":{"command":"{crowbar}","args":["mcp","--segment","{segid}","--token","{runner_token}","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}","--host","{daemon_host}"]}}}'
 context_inject:
   - pass_arg: { arg: "--append-system-prompt", value: "{context}" }
 # NOT --append-system-prompt on resume: confirmed live, a resumed session's

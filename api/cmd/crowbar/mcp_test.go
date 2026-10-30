@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"net"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -177,3 +179,35 @@ func TestRelay_MalformedLineStillGetsANullIDError(t *testing.T) {
 }
 
 var errBoom = errors.New("daemon down")
+
+// A daemon on TCP (a container's `serve --host tcp://...`) is reached at the
+// address the spawn hands the relay.
+func TestMCP_RelaysToADaemonOnTCP(t *testing.T) {
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	reached := make(chan string, 1)
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached <- r.URL.Path
+		_, _ = w.Write([]byte(`{"success":true,"data":{"rpc":{"jsonrpc":"2.0","id":1,"result":{}}}}`))
+	})}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	root := newRootCmd()
+	var out bytes.Buffer
+	root.SetIn(strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize"}` + "\n"))
+	root.SetOut(&out)
+	root.SetArgs([]string{
+		"mcp", "--host", "tcp://" + ln.Addr().String(), "--segment", "SEG", "--token", "TOK",
+		"--project", "P", "--repo", "R",
+	})
+	require.NoError(t, root.Execute())
+
+	select {
+	case path := <-reached:
+		require.Equal(t, "/v0/projects/P/repos/R/chats/runners/SEG/mcp", path)
+	default:
+		t.Fatalf("the relay never reached the daemon on %s: %s", ln.Addr(), out.String())
+	}
+	require.JSONEq(t, `{"jsonrpc":"2.0","id":1,"result":{}}`, strings.TrimSpace(out.String()))
+}

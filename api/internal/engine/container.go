@@ -30,9 +30,9 @@ type Container struct {
 	// errors (10 §5).
 	LSP      enginelsp.Engine
 	Identity *enginegit.IdentityEngine
-	// DaemonSocket is the unix socket the daemon bound; empty over TCP. Callbacks
-	// are handed it, never a path derived from the home (see WithDaemonSocket).
-	DaemonSocket string
+	// DaemonAddress is the address the daemon bound (unix:// or tcp://). Callbacks
+	// are handed it, never one derived from the home (see WithDaemonAddress).
+	DaemonAddress string
 
 	// termDown latches the terminal engine's quiesce so it is entered exactly once.
 	// See QuiesceTerminal: a second entrant must never BLOCK, because the first one
@@ -41,8 +41,8 @@ type Container struct {
 }
 
 type engineOpts struct {
-	homeDir      string
-	daemonSocket string
+	homeDir       string
+	daemonAddress string
 }
 
 // Option configures engine.New.
@@ -57,13 +57,13 @@ func WithHomeDir(
 	}
 }
 
-// WithDaemonSocket records the unix socket the daemon bound, for the engines
-// that hand callbacks back into it. Empty when the daemon listens elsewhere.
-func WithDaemonSocket(
-	path string,
+// WithDaemonAddress records the address the daemon bound, for the engines that
+// hand callbacks back into it.
+func WithDaemonAddress(
+	address string,
 ) Option {
 	return func(o *engineOpts) {
-		o.daemonSocket = path
+		o.daemonAddress = address
 	}
 }
 
@@ -80,7 +80,7 @@ func New(
 		o(&cfg)
 	}
 	return &Container{
-		DaemonSocket: cfg.daemonSocket,
+		DaemonAddress: cfg.daemonAddress,
 		Agents: engineagents.New(engineagents.WithLifecycle(ctx),
 			engineagents.WithOverrideCheck(descriptorcheck.AcceptOverride)),
 		Git:      enginegit.New(),

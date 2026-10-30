@@ -43,9 +43,9 @@ type Runners struct {
 	ancestorCwd AncestorCwd
 	// ledger is each chat's ledger: a prompt is a row there before any CLI sees it.
 	ledger *ledgerstore.Store
-	// daemonSocket is the socket the daemon bound, rendered into every callback's
-	// scope flags so none derives one of its own.
-	daemonSocket string
+	// daemonHost is the address the daemon bound, rendered into every callback's
+	// --host so none derives one of its own.
+	daemonHost string
 	// chatLock is the chat's lock a user-initiated path decides under; parks are
 	// the waits it sits in outside it, which a stop cancels.
 	chatLock ChatLock
@@ -107,8 +107,8 @@ type Deps struct {
 	// walk — see the AncestorCwd interface's own doc.
 	AncestorCwd AncestorCwd
 	Ledger      *ledgerstore.Store
-	// DaemonSocket is the socket the daemon bound, rendered into the callbacks.
-	DaemonSocket string
+	// DaemonHost is the address the daemon bound, rendered into the callbacks.
+	DaemonHost string
 
 	// ChatLock is the lock the hook ingress records each chat's hooks under.
 	ChatLock ChatLock
@@ -125,16 +125,16 @@ type Deps struct {
 // SetTurns, because the two call each other.
 func New(d Deps) *Runners {
 	return &Runners{
-		chats:        d.Chats,
-		choices:      d.Choices,
-		agents:       d.Agents,
-		term:         d.Terminal,
-		ws:           d.Workspace,
-		ancestorCwd:  d.AncestorCwd,
-		ledger:       d.Ledger,
-		daemonSocket: d.DaemonSocket,
-		chatLock:     d.ChatLock,
-		parks:        newParks(),
+		chats:       d.Chats,
+		choices:     d.Choices,
+		agents:      d.Agents,
+		term:        d.Terminal,
+		ws:          d.Workspace,
+		ancestorCwd: d.AncestorCwd,
+		ledger:      d.Ledger,
+		daemonHost:  d.DaemonHost,
+		chatLock:    d.ChatLock,
+		parks:       newParks(),
 		// Owned outright, so built here rather than handed in: the probe limiter is
 		// named by nothing outside this package.
 		catalogs:   catalog.New(),

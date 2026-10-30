@@ -45,7 +45,7 @@ func newMCPCmd() *cobra.Command {
 		Use:    "mcp",
 		Short:  "Relay MCP stdio traffic to the Crowbar daemon",
 		Hidden: true,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := applyHomeOverride(home); err != nil {
 				return err
 			}
@@ -56,7 +56,7 @@ func newMCPCmd() *cobra.Command {
 			post := func(path string, body any) (int, []byte, error) {
 				return client.PostJSON(context.Background(), path, body)
 			}
-			return runMCPRelay(os.Stdin, os.Stdout, post, segment, project, repo, workspace, token)
+			return runMCPRelay(cmd.InOrStdin(), cmd.OutOrStdout(), post, segment, project, repo, workspace, token)
 		},
 	}
 	cmd.Flags().StringVar(&segment, "segment", "", "Crowbar segment id")

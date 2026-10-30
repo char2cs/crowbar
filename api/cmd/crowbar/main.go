@@ -90,7 +90,7 @@ func serve(
 	defer container.Close()
 
 	slog.Info("daemon: listening", "component", "daemon", "version", metadata.GetVersion(),
-		"host", host, "socket", container.Socket(), "pid", os.Getpid(), "home", container.Home())
+		"host", host, "address", container.Address(), "pid", os.Getpid(), "home", container.Home())
 	if halt := container.Halt(); halt != nil {
 		slog.Error("daemon: halted", "component", "daemon", "reason", string(halt.Reason),
 			"message", halt.Message, "ledger", halt.Ledger, "backup", halt.Backup)
