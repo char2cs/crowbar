@@ -22,10 +22,8 @@ import { createWorkspaceStore } from '@/features/workspace/stores/workspace-stor
 
 const { getChatFn } = vi.hoisted(() => ({ getChatFn: vi.fn() }))
 
-vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
-  useEffectiveChordMap: () => ({}),
-}))
-
+import { stubPaneChrome } from '@/__tests__/__fixtures__/agent-pane'
+stubPaneChrome()
 import * as readsApi from '@/features/agent/api/agent-chat-reads'
 vi.spyOn(readsApi, 'getChat').mockImplementation(getChatFn)
 vi.spyOn(readsApi, 'getSlashCatalog').mockImplementation(vi.fn())
@@ -34,9 +32,6 @@ import * as commandsApi from '@/features/agent/api/agent-chat-commands'
 vi.spyOn(commandsApi, 'switchProvider').mockImplementation(vi.fn())
 vi.spyOn(commandsApi, 'resumeChat').mockImplementation(vi.fn())
 vi.spyOn(commandsApi, 'submitAgentPrompt').mockImplementation(vi.fn())
-
-vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({ saveReconnect: vi.fn() }))
-vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: vi.fn() } }))
 
 // Both surfaces are stubbed to the ONE thing this file is about: the liveness
 // each of them is told it has, plus something real to put the caret in. The chat
@@ -91,8 +86,9 @@ vi.mock('@/features/agent/chat/agent-chat-view', async () => {
   }
 })
 
-vi.mock('@/features/terminal/components/lazy-terminal', () => ({
-  LazyXtermTerminal: ({
+import * as lazyTerminalMod from '@/features/terminal/components/lazy-terminal'
+vi.spyOn(lazyTerminalMod, 'LazyXtermTerminal').mockImplementation(
+  ({
     sessionId,
     isActive,
     isVisible,
@@ -111,11 +107,7 @@ vi.mock('@/features/terminal/components/lazy-terminal', () => ({
       },
       createElement('textarea', { 'data-testid': 'tty' }),
     ),
-}))
-
-vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
-  ProviderSwitchDropdown: () => createElement('button', { 'data-testid': 'provider-switch' }),
-}))
+)
 
 import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'

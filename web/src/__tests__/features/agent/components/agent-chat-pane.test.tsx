@@ -43,8 +43,9 @@ const {
 // rebindable); pin it here rather than standing up the settings store.
 // 'agent.cycleProvider' is deliberately absent — it now ships unbound by
 // default, and an absent key resolves the same way (falsy) as its real ''.
-vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
-  useEffectiveChordMap: () => ({ 'agent.toggleViewMode': 'mod+/' }),
+import * as useEffectiveKeymapMod from '@/features/keymaps/hooks/use-effective-keymap'
+vi.spyOn(useEffectiveKeymapMod, 'useEffectiveChordMap').mockImplementation(() => ({
+  'agent.toggleViewMode': 'mod+/',
 }))
 
 // The toggle-chord tests below dispatch metaKey (Cmd) keydowns, and
@@ -67,15 +68,15 @@ vi.spyOn(commandsApi, 'submitAgentPrompt').mockImplementation(submitPromptFn)
 vi.spyOn(commandsApi, 'switchToTerminal').mockImplementation(switchToTerminalFn)
 vi.spyOn(commandsApi, 'switchToNative').mockImplementation(switchToNativeFn)
 
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: (...a: unknown[]) => toastErrorFn(...a) },
-}))
+import * as toastStoreMod from '@/features/window/stores/toast-store'
+vi.spyOn(toastStoreMod.toast, 'error').mockImplementation((...a: unknown[]) => toastErrorFn(...a))
 
 // jsdom can't run xterm/WebGL — stub the terminal renderer to a passive marker
 // that records the sessionId it was mounted with (that's what the attach seam is
 // proven by) plus the isActive/isVisible/attachOnly props threaded from the pane.
-vi.mock('@/features/terminal/components/lazy-terminal', () => ({
-  LazyXtermTerminal: ({
+import * as lazyTerminalMod from '@/features/terminal/components/lazy-terminal'
+vi.spyOn(lazyTerminalMod, 'LazyXtermTerminal').mockImplementation(
+  ({
     sessionId,
     isActive,
     isVisible,
@@ -96,7 +97,7 @@ vi.mock('@/features/terminal/components/lazy-terminal', () => ({
       'data-attach-only': String(Boolean(attachOnly)),
       'data-flush': String(Boolean(flush)),
     }),
-}))
+)
 
 // The prompt box is a Plate editor, and **jsdom never delivers a keydown to a
 // Slate editable** — measured: window- and document-capture see the event, the
@@ -107,8 +108,9 @@ vi.mock('@/features/terminal/components/lazy-terminal', () => ({
 // These suites are about the QUEUE, the catalog and the ledger. The editor gets
 // a stand-in with the same contract — text in, markdown out, keys through — and
 // the editor's own behaviour is verified live and in its own suite.
-vi.mock('@/features/agent/composer/plate/chat-markdown-editor', () => ({
-  ChatMarkdownEditor: ({
+import * as chatMarkdownEditorMod from '@/features/agent/composer/plate/chat-markdown-editor'
+vi.spyOn(chatMarkdownEditorMod, 'ChatMarkdownEditor').mockImplementation(
+  ({
     initialValue,
     placeholder,
     ariaLabel,
@@ -116,19 +118,7 @@ vi.mock('@/features/agent/composer/plate/chat-markdown-editor', () => ({
     onKeyDown,
     expanded,
     controls,
-  }: {
-    initialValue: string
-    placeholder: string
-    ariaLabel: string
-    onChange: (value: string) => void
-    onKeyDown: (
-      event: unknown,
-      readMarkdown: () => string,
-      caret: { atStart: boolean; atEnd: boolean },
-    ) => void
-    expanded?: boolean
-    controls?: string
-  }) =>
+  }: chatMarkdownEditorMod.ChatMarkdownEditorProps) =>
     createElement('textarea', {
       'aria-label': ariaLabel,
       'aria-expanded': expanded,
@@ -142,14 +132,18 @@ vi.mock('@/features/agent/composer/plate/chat-markdown-editor', () => ({
       // for the real editor's own caret-edge probe — see the identical note in
       // agent-chat-view.test.tsx's own mock of this module.
       onKeyDown: (event: { currentTarget: { value: string } }) =>
-        onKeyDown(event, () => event.currentTarget.value, { atStart: true, atEnd: true }),
+        onKeyDown?.(event as never, () => event.currentTarget.value, {
+          atStart: true,
+          atEnd: true,
+        }),
     }),
-}))
+)
 
 // Stub the dropdown to expose its props and a one-click switch, so the footer
 // wiring is asserted without the shared Dropdown's framer-motion machinery.
-vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
-  ProviderSwitchDropdown: ({
+import * as providerSwitchDropdownMod from '@/features/agent/components/provider-switch-dropdown'
+vi.spyOn(providerSwitchDropdownMod, 'ProviderSwitchDropdown').mockImplementation(
+  ({
     providers,
     currentProviderId,
     onSwitch,
@@ -171,7 +165,7 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
       },
       'switch',
     ),
-}))
+)
 
 import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
 import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'

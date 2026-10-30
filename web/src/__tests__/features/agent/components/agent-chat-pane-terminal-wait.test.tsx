@@ -1,9 +1,8 @@
 import { createElement } from 'react'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
-import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
 const { getChatFn, slashCatalogFn, switchToTerminalFn } = vi.hoisted(() => ({
@@ -12,16 +11,14 @@ const { getChatFn, slashCatalogFn, switchToTerminalFn } = vi.hoisted(() => ({
   switchToTerminalFn: vi.fn(),
 }))
 
-vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
-  useEffectiveChordMap: () => ({}),
-}))
-
 // The 44px header-clearance assertion below is a macOS value — force it
 // rather than depend on whatever navigator.userAgent the test happens to run
 // on (jsdom's UA bakes in the CI runner's own host platform, which is Linux
 // on GitHub Actions).
 vi.mock('@/utils/platform', () => ({ IS_MAC: true }))
 
+import { chatPane, renderChatPane, stubPaneChrome } from '@/__tests__/__fixtures__/agent-pane'
+stubPaneChrome()
 import * as readsApi from '@/features/agent/api/agent-chat-reads'
 vi.spyOn(readsApi, 'getChat').mockImplementation(getChatFn)
 vi.spyOn(readsApi, 'getSlashCatalog').mockImplementation(slashCatalogFn)
@@ -32,156 +29,67 @@ vi.spyOn(commandsApi, 'resumeChat').mockImplementation(vi.fn())
 vi.spyOn(commandsApi, 'submitAgentPrompt').mockImplementation(vi.fn())
 vi.spyOn(commandsApi, 'switchToTerminal').mockImplementation(switchToTerminalFn)
 
-vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({ saveReconnect: vi.fn() }))
-vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: vi.fn() } }))
-
 // jsdom cannot run xterm/WebGL. The marker records the visibility props the pane
 // threads down, which is how "the terminal surface is the selected one" is proven
 // without reading a class name.
-vi.mock('@/features/terminal/components/lazy-terminal', () => ({
-  LazyXtermTerminal: ({ sessionId, isVisible }: { sessionId: string; isVisible?: boolean }) =>
+import * as lazyTerminalMod from '@/features/terminal/components/lazy-terminal'
+vi.spyOn(lazyTerminalMod, 'LazyXtermTerminal').mockImplementation(
+  ({ sessionId, isVisible }: { sessionId: string; isVisible?: boolean }) =>
     createElement('div', {
       'data-testid': 'xterm',
       'data-session-id': sessionId,
       'data-visible': String(isVisible),
     }),
-}))
+)
 
-vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
-  ProviderSwitchDropdown: () => createElement('button', { 'data-testid': 'provider-switch' }),
-}))
-
-import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { resetChatPresentationMemoryForTests } from '@/features/agent/hooks/use-chat-presentation'
 import {
-  nextVersion,
+  chatSnapshot,
+  provider,
+  resetChatStore,
   seedChats,
   setChatTerminalWait,
-  resetChatStore,
   setProviders,
 } from '@/__tests__/__fixtures__/agent-chat'
 
-const providers: AgentProvider[] = [
-  {
-    id: 'claude',
-    displayName: 'Claude',
-    icon: '<svg/>',
-    connected: true,
-    enabled: true,
-    mcpEnabled: true,
-    // These tests move the SAME provider between chat/terminal via chooseSurface,
-    // which is now capability-gated: hotswap:true is what keeps that move
-    // synchronous (claude's terminal is already live) rather than routing
-    // through switchToTerminal/switchToNative, which a non-hotswap provider
-    // needs instead.
-    hotswap: true,
-    modelSelect: false,
-    effortSelect: false,
-    compaction: false,
-    hasTerminal: true,
-    terminalStartHere: false,
-  },
-]
+// Hotswap keeps a chat/terminal move synchronous; without it the move goes
+// through switchToTerminal first.
+const providers = [provider('claude', 'Claude')]
 
 function liveChat(wait?: { kind: string }): AgentChat {
-  return {
+  return chatSnapshot({
     id: 'c1',
-    workspaceId: 'w1',
     title: 'Chat c1',
     liveRunnerId: 'r1',
     terminalSessionId: 'pty-1',
     activeProviderId: 'claude',
-    working: false,
-    version: nextVersion(),
     phase: 'dormant',
-    createdAt: '',
-    order: 0,
     terminalWait: wait,
-  }
+  })
 }
 
-function seed(wait?: { kind: string }) {
-  const store = createWorkspaceStore('w1')
-  setProviders(providers)
-  seedChats([liveChat(wait)])
-  return store
+function seedOne(list: AgentProvider[], chat: AgentChat) {
+  setProviders(list)
+  seedChats([chat])
+  return createWorkspaceStore('w1')
 }
+const seed = (wait?: { kind: string }) => seedOne(providers, liveChat(wait))
 
-type Store = ReturnType<typeof seed>
+// A non-hotswap provider has no live terminal until switchToTerminal succeeds.
+const nonHotswapProviders = [provider('codex', 'Codex', { hotswap: false })]
 
-// A non-hotswap api-transport provider (codex: attach declared, hotswap
-// false). Its terminal is not already live the way claude's is — reaching it
-// has to go through switchToTerminal first — so a chat on this provider has
-// no terminalSessionId until that call succeeds.
-const nonHotswapProviders: AgentProvider[] = [
-  {
-    id: 'codex',
-    displayName: 'Codex',
-    icon: '<svg/>',
-    connected: true,
-    enabled: true,
-    mcpEnabled: true,
-    hotswap: false,
-    modelSelect: false,
-    effortSelect: false,
-    compaction: false,
-    hasTerminal: true,
-    terminalStartHere: false,
-  },
-]
+const nonHotswapChat = (wait?: { kind: string }): AgentChat => ({
+  ...liveChat(wait),
+  terminalSessionId: '',
+  activeProviderId: 'codex',
+})
 
-function nonHotswapChat(wait?: { kind: string }): AgentChat {
-  return {
-    id: 'c1',
-    workspaceId: 'w1',
-    title: 'Chat c1',
-    liveRunnerId: 'r1',
-    terminalSessionId: '',
-    activeProviderId: 'codex',
-    working: false,
-    version: nextVersion(),
-    phase: 'dormant',
-    createdAt: '',
-    order: 0,
-    terminalWait: wait,
-  }
-}
+const seedNonHotswap = (wait?: { kind: string }) =>
+  seedOne(nonHotswapProviders, nonHotswapChat(wait))
 
-function seedNonHotswap(wait?: { kind: string }) {
-  const store = createWorkspaceStore('w1')
-  setProviders(nonHotswapProviders)
-  seedChats([nonHotswapChat(wait)])
-  return store
-}
-
-/** Render the pane directly rather than through a buffer: these tests are about
- *  the surface the pane SELECTS, and the three visibility axes are exactly the
- *  props under test — so they have to be settable one at a time. */
-async function renderPane(
-  store: Store,
-  opts: { isActivePane?: boolean; isVisible?: boolean; belowOverlayHeader?: boolean } = {},
-) {
-  const result = await act(async () =>
-    render(
-      createElement(
-        WorkspaceStoreContext.Provider,
-        { value: store },
-        createElement(AgentChatPane, {
-          chatId: 'c1',
-          runnerId: 'r1',
-          wsId: 'w1',
-          paneId: 'b1',
-          isActivePane: opts.isActivePane ?? true,
-          isVisible: opts.isVisible ?? true,
-          belowOverlayHeader: opts.belowOverlayHeader ?? false,
-        }),
-      ),
-    ),
-  )
-  return result
-}
+const renderPane = renderChatPane
 
 /** Raise or clear the daemon's verdict the way the WS frame does. */
 async function setWait(wait: { kind: string } | null) {
@@ -190,13 +98,8 @@ async function setWait(wait: { kind: string } | null) {
   })
 }
 
-/** Which surface is showing. The pane keeps both mounted and hides one via
- *  `hidden` on `agent-chat-surface` — read THAT rather than the ViewSwitcher
- *  tab's own `aria-selected`, because the blank chat's copy of that switcher
- *  lives inside AgentEmptyDocument's control-bar slot and is not on screen at
- *  all while a reviving/idle/trust-wait signpost occupies that same slot
- *  instead (the terminal surface still carries its own copy, but it is
- *  itself the thing under test, not a reliable read of it). */
+/** Which surface is showing: the pane hides one via `hidden` on the chat surface;
+ *  the blank chat's switcher is not on screen while a signpost holds its slot. */
 const showing = () =>
   (screen.getByTestId('agent-chat-surface').className.includes('hidden') ? 'terminal' : 'chat') as
     'chat' | 'terminal'
@@ -345,20 +248,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
 
     // The user walks away — another pane takes focus — before the dialog clears.
     await act(async () => {
-      rerender(
-        createElement(
-          WorkspaceStoreContext.Provider,
-          { value: store },
-          createElement(AgentChatPane, {
-            chatId: 'c1',
-            runnerId: 'r1',
-            wsId: 'w1',
-            paneId: 'b1',
-            isActivePane: false,
-            isVisible: true,
-          }),
-        ),
-      )
+      rerender(chatPane(store, { isActivePane: false }))
     })
     await setWait(null)
 

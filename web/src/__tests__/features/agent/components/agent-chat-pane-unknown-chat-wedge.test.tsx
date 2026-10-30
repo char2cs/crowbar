@@ -36,8 +36,9 @@ const {
   switchProviderFn: vi.fn(),
 }))
 
-vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
-  useEffectiveChordMap: () => ({ 'agent.toggleViewMode': 'mod+/' }),
+import * as useEffectiveKeymapMod from '@/features/keymaps/hooks/use-effective-keymap'
+vi.spyOn(useEffectiveKeymapMod, 'useEffectiveChordMap').mockImplementation(() => ({
+  'agent.toggleViewMode': 'mod+/',
 }))
 
 import * as readsApi from '@/features/agent/api/agent-chat-reads'
@@ -52,27 +53,30 @@ vi.spyOn(commandsApi, 'submitAgentPrompt').mockImplementation(submitPromptFn)
 vi.spyOn(commandsApi, 'switchToTerminal').mockImplementation(switchToTerminalFn)
 vi.spyOn(commandsApi, 'switchToNative').mockImplementation(switchToNativeFn)
 
-vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
-  saveReconnect: (...a: unknown[]) => saveReconnectFn(...a),
-}))
+import * as terminalReconnectMapMod from '@/features/terminal/lib/terminal-reconnect-map'
+vi.spyOn(terminalReconnectMapMod, 'saveReconnect').mockImplementation((...a: unknown[]) =>
+  saveReconnectFn(...a),
+)
 
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: (...a: unknown[]) => toastErrorFn(...a) },
-}))
+import * as toastStoreMod from '@/features/window/stores/toast-store'
+vi.spyOn(toastStoreMod.toast, 'error').mockImplementation((...a: unknown[]) => toastErrorFn(...a))
 
-vi.mock('@/features/terminal/components/lazy-terminal', () => ({
-  LazyXtermTerminal: ({ sessionId }: { sessionId: string }) =>
+import * as lazyTerminalMod from '@/features/terminal/components/lazy-terminal'
+vi.spyOn(lazyTerminalMod, 'LazyXtermTerminal').mockImplementation(
+  ({ sessionId }: { sessionId: string }) =>
     createElement('div', { 'data-testid': 'xterm', 'data-session-id': sessionId }),
-}))
+)
 
-vi.mock('@/features/agent/composer/plate/chat-markdown-editor', () => ({
-  ChatMarkdownEditor: ({ ariaLabel, placeholder }: { ariaLabel: string; placeholder: string }) =>
+import * as chatMarkdownEditorMod from '@/features/agent/composer/plate/chat-markdown-editor'
+vi.spyOn(chatMarkdownEditorMod, 'ChatMarkdownEditor').mockImplementation(
+  ({ ariaLabel, placeholder }: { ariaLabel: string; placeholder: string }) =>
     createElement('textarea', { 'aria-label': ariaLabel, placeholder }),
-}))
+)
 
-vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
-  ProviderSwitchDropdown: () => createElement('button', { 'data-testid': 'provider-switch' }),
-}))
+import * as providerSwitchDropdownMod from '@/features/agent/components/provider-switch-dropdown'
+vi.spyOn(providerSwitchDropdownMod, 'ProviderSwitchDropdown').mockImplementation(() =>
+  createElement('button', { 'data-testid': 'provider-switch' }),
+)
 
 import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
 import { savePromptQueue } from '@/features/agent/lib/prompt-queue-persistence'

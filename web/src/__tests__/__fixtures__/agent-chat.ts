@@ -67,3 +67,22 @@ export function seedChats(chats: Array<Partial<AgentChat> & { id: string }>, wsI
 export function setProviders(providers: AgentProvider[]): void {
   useAgentProvidersStore.setState({ status: 'ready', providers })
 }
+
+/** A connected, enabled provider with a terminal; `over` names what a test is about. */
+export function provider(id: string, displayName: string, over: Partial<AgentProvider> = {}) {
+  return {
+    id,
+    displayName,
+    icon: '<svg/>',
+    connected: true,
+    enabled: true,
+    mcpEnabled: true,
+    hotswap: true,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    hasTerminal: true,
+    terminalStartHere: false,
+    ...over,
+  } satisfies AgentProvider
+}
