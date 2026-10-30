@@ -216,3 +216,16 @@ func TestRegression_RebaseOntoParentRestacksOffAnAmendedParent(t *testing.T) {
 	assert.Equal(t, "c work", trimNewline(gitRun(t, c.WorktreePath, "log", "--format=%s", "feature/p..HEAD")))
 	assert.Empty(t, gitRun(t, c.WorktreePath, "merge-base", "--is-ancestor", "feature/p", "HEAD"))
 }
+
+// TestRegression_RebaseOntoParentKeepsCommitsTheParentOnceAbsorbed: see
+// absorbedThenDropped; the restack must keep every commit P no longer has.
+func TestRegression_RebaseOntoParentKeepsCommitsTheParentOnceAbsorbed(t *testing.T) {
+	h := newRealUsecase(t)
+	c := absorbedThenDropped(t, h)
+
+	_, err := h.uc.RebaseOntoParent(context.Background(), c.ID)
+	require.NoError(t, err)
+
+	assert.Equal(t, "c3 work\nc2 work\nc work",
+		trimNewline(gitRun(t, c.WorktreePath, "log", "--format=%s", "feature/p..HEAD")))
+}

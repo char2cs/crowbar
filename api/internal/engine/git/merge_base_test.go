@@ -97,3 +97,33 @@ func TestForkPoint_UnknownRefErrors(
 
 	assert.Error(t, err)
 }
+
+func TestBranchCreation_IsWhereTheBranchStarted(
+	t *testing.T,
+) {
+	dir := initRepo(t)
+	makeCommit(t, dir, "base.txt", "base\n", "base")
+	start := headSHA(t, dir)
+	gitRun(t, dir, "checkout", "-b", "child")
+	makeCommit(t, dir, "c.txt", "c\n", "child work")
+	makeCommit(t, dir, "c2.txt", "c2\n", "more child work")
+
+	got, err := git.New().BranchCreation(context.Background(), dir, "child")
+
+	require.NoError(t, err)
+	assert.Equal(t, start, got)
+}
+
+func TestBranchCreation_IsEmptyWithoutAReflog(
+	t *testing.T,
+) {
+	dir := initRepo(t)
+	makeCommit(t, dir, "base.txt", "base\n", "base")
+	gitRun(t, dir, "branch", "child")
+	gitRun(t, dir, "reflog", "expire", "--expire=now", "--all")
+
+	got, err := git.New().BranchCreation(context.Background(), dir, "child")
+
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}

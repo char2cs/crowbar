@@ -321,3 +321,45 @@ func TestRegression_ReparentMovesAChildWhoseParentRowIsGone(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/cw", "ntip", "feat"}, g.calls[1].args, "replays from the new tip")
 }
+
+// absorbedThenDropped has P fast-forward over C's two commits and reset back,
+// then C commit again: P's reflog now names C's own commits as a fork point.
+func absorbedThenDropped(t *testing.T, h *realHarness) domain.Workspace {
+	t.Helper()
+	p, c := stacked(t, h)
+	commitInWorktree(t, c.WorktreePath, "c2.txt", "c2\n", "c2 work")
+	gitRun(t, p.WorktreePath, "merge", "--ff-only", "feature/c")
+	gitRun(t, p.WorktreePath, "reset", "--hard", "HEAD~2")
+	commitInWorktree(t, c.WorktreePath, "c3.txt", "c3\n", "c3 work")
+	return c
+}
+
+// TestRegression_ReparentKeepsCommitsTheParentOnceAbsorbed: trusting that fork
+// point replayed only c3 and left c work and c2 work on no branch at all.
+func TestRegression_ReparentKeepsCommitsTheParentOnceAbsorbed(t *testing.T) {
+	h := newRealUsecase(t)
+	c := absorbedThenDropped(t, h)
+	assert.Equal(t, "c3 work\nc2 work\nc work", movedOnto(t, h, c))
+}
+
+// TestRegression_ReparentOfAPublishedBranchReplaysFromTheMergeBase: a fork point
+// already on origin/<branch> is the branch's own history (an import starts there),
+// so it is never trusted; the replay then carries P's old commit too.
+func TestRegression_ReparentOfAPublishedBranchReplaysFromTheMergeBase(t *testing.T) {
+	h := newRealUsecase(t)
+	p, c := stacked(t, h)
+	gitRun(t, c.WorktreePath, "push", "origin", "feature/c")
+	amend(t, p)
+	assert.Equal(t, "c work\np work", movedOnto(t, h, c))
+}
+
+// TestRegression_ReparentNeverTrustsAForkPointAtTheBranchTip: replaying from the
+// tip replays nothing, so the move would keep none of what C holds beyond Q.
+func TestRegression_ReparentNeverTrustsAForkPointAtTheBranchTip(t *testing.T) {
+	h := newRealUsecase(t)
+	p := h.createChild(t, "feature/p", h.parentID, h.baseBranch)
+	commitInWorktree(t, p.WorktreePath, "p.txt", "p\n", "p work")
+	c := h.createChild(t, "feature/c", p.ID, p.Branch)
+	amend(t, p)
+	assert.Equal(t, "p work", movedOnto(t, h, c))
+}

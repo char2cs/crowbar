@@ -36,3 +36,19 @@ func (e *engine) ForkPoint(
 	}
 	return strings.TrimSpace(r.Stdout), nil
 }
+
+func (e *engine) BranchCreation(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) (string, error) {
+	r := e.exec(ctx, repoPath, "reflog", "show", "--format=%H", "refs/heads/"+branch, "--")
+	if err := gitexec.RequireSuccess("reflog show", r); err != nil {
+		return "", err
+	}
+	entries := strings.Fields(r.Stdout)
+	if len(entries) == 0 {
+		return "", nil
+	}
+	return entries[len(entries)-1], nil
+}

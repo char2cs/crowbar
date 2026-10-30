@@ -234,11 +234,7 @@ type Engine interface {
 	MergeCommit(ctx context.Context, repoPath, branch string) error
 
 	// Rebase rebases the current branch onto onto (04 §5).
-	Rebase(
-		ctx context.Context,
-		repoPath string,
-		onto string,
-	) error
+	Rebase(ctx context.Context, repoPath, onto string) error
 
 	// ConflictedFiles returns paths with merge conflicts (04 §6).
 	ConflictedFiles(
@@ -415,8 +411,10 @@ type Engine interface {
 	// MergeBase returns the best common ancestor of commits a and b. ForkPoint is
 	// where branch forked from upstream as upstream's reflog remembers it, so it
 	// survives upstream being amended or squashed; "" when the reflog cannot say.
+	// BranchCreation is the commit branch's reflog starts at, "" without one.
 	MergeBase(ctx context.Context, repoPath, a, b string) (string, error)
 	ForkPoint(ctx context.Context, repoPath, upstream, branch string) (string, error)
+	BranchCreation(ctx context.Context, repoPath, branch string) (string, error)
 
 	// WouldMergeConflicts reports, for each pair, whether a three-way merge of
 	// Theirs into Ours would conflict, computed non-destructively (git merge-tree
