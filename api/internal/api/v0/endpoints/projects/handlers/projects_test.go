@@ -15,8 +15,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	projecthandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects/handlers"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
@@ -83,27 +85,18 @@ func (f *fakeReader) Reorder(
 type fakeImporter struct {
 	project domain.Project
 	err     error
+	gotID   string
 	gotName string
 	gotPath string
 }
 
-func (f *fakeImporter) Import(
-	_ context.Context,
-	name string,
-	path string,
-) (domain.Project, error) {
-	f.gotName = name
-	f.gotPath = path
-	return f.project, f.err
-}
-
 func (f *fakeImporter) Create(
 	_ context.Context,
+	id string,
 	name string,
 	path string,
 ) (domain.Project, error) {
-	f.gotName = name
-	f.gotPath = path
+	f.gotID, f.gotName, f.gotPath = id, name, path
 	return f.project, f.err
 }
 
@@ -121,7 +114,7 @@ func (f *fakeDeleter) BeginDelete(
 	if f.beginErr != nil {
 		return domain.Project{}, f.beginErr
 	}
-	return domain.Project{ID: id, Deleting: true}, nil
+	return domain.Project{ID: id, Name: "demo", Deleting: true}, nil
 }
 
 func (f *fakeDeleter) Delete(
@@ -160,23 +153,58 @@ func (b *recordingBroadcaster) await(
 	return <-b.ch
 }
 
-// assertNoBroadcast pins a NEGATIVE: the background op broadcast nothing.
-//
-// That claim is only sound once the producing goroutine is provably dead, which
-// no sleep can establish — it merely widens the window a slow goroutine can hide
-// in. h.WaitAsync() blocks until every detached op has fully returned, after
-// which the broadcaster has no writer left and this non-blocking check is exact.
+// assertNoBroadcast pins a NEGATIVE once the operation has settled: its work
+// has returned by then, so the broadcaster has no writer left.
 func assertNoBroadcast(
 	t *testing.T,
-	h *projecthandlers.Handlers,
 	bc *recordingBroadcaster,
 ) {
 	t.Helper()
-	h.WaitAsync()
 	select {
 	case d := <-bc.ch:
-		t.Fatalf("unexpected broadcast from a failed background op: %+v", d)
+		t.Fatalf("unexpected broadcast: %+v", d)
 	default:
+	}
+}
+
+// recordedOps is the real operation service over an in-memory store, with
+// every saved row on frames.
+type recordedOps struct {
+	*operation.Service
+	frames chan domain.Operation
+}
+
+func newRecordedOps(t *testing.T) *recordedOps {
+	t.Helper()
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	opStore, err := storesqlite.NewFromDB[domain.Operation, string](db)
+	require.NoError(t, err)
+	frames := make(chan domain.Operation, 64)
+	return &recordedOps{Service: operation.New(opStore, func(op domain.Operation) { frames <- op }, time.Now), frames: frames}
+}
+
+// settled decodes the operation a 202 answered with and reads frames until it
+// has settled.
+func (o *recordedOps) settled(t *testing.T, rec *httptest.ResponseRecorder) domain.Operation {
+	t.Helper()
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	var env struct {
+		Data struct {
+			Operation domain.Operation `json:"operation"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case op := <-o.frames:
+			if op.ID == env.Data.Operation.ID && (op.State == domain.OpSucceeded || op.State == domain.OpFailed) {
+				return op
+			}
+		case <-deadline:
+			t.Fatalf("operation %s never settled", env.Data.Operation.ID)
+		}
 	}
 }
 
@@ -200,28 +228,25 @@ func newRouterFull(
 	deleter projecthandlers.Deleter,
 	bc *recordingBroadcaster,
 ) *gin.Engine {
-	r, _ := newRouterWithHandlers(reader, importer, deleter, bc)
-	return r
+	return newRouterWithOps(reader, importer, deleter, nil, bc)
 }
 
-// newRouterWithHandlers is newRouterFull, also returning the Handlers so a test
-// can block on WaitAsync — the real completion signal for the detached
-// background op.
-func newRouterWithHandlers(
+func newRouterWithOps(
 	reader projecthandlers.ListGetter,
 	importer projecthandlers.Importer,
 	deleter projecthandlers.Deleter,
+	ops projecthandlers.Operations,
 	bc *recordingBroadcaster,
-) (*gin.Engine, *projecthandlers.Handlers) {
+) *gin.Engine {
 	r := gin.New()
-	h := projecthandlers.New(reader, importer, deleter, bc.push, unusedHome).WithStat(statOK)
+	h := projecthandlers.New(reader, importer, deleter, ops, bc.push, unusedHome).WithStat(statOK)
 	rg := r.Group("/v0")
 	rg.GET("/projects", h.List)
 	rg.POST("/projects", h.Import)
 	rg.GET("/projects/:projectId", h.Detail)
 	rg.PATCH("/projects/:projectId", h.Patch)
 	rg.DELETE("/projects/:projectId", h.Delete)
-	return r, h
+	return r
 }
 
 func do(
@@ -309,65 +334,24 @@ func TestDetailError(
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// TestImportProject_Returns202 pins the fail-fast/good-path-async contract: a
-// valid import returns 202 with an empty body (the created id arrives later on
-// the WebSocket stream, never in the HTTP response).
-func TestImportProject_Returns202(
-	t *testing.T,
-) {
-	importer := &fakeImporter{project: domain.Project{ID: "new-id"}}
-	bc := newRecordingBroadcaster()
-	rec := do(
-		newRouterFull(&fakeReader{}, importer, &fakeDeleter{}, bc),
-		http.MethodPost,
-		"/v0/projects",
-		`{"name":"gamma","path":"/g"}`,
-	)
-
-	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Empty(t, rec.Body.String())
-	bc.await(t) // drain the async broadcast so the goroutine completes
-}
-
-// TestImportProject_BroadcastsProjectDTO pins that the background import
-// broadcasts the created project on the Projects channel.
-func TestImportProject_BroadcastsProjectDTO(
-	t *testing.T,
-) {
+// The create answers with its operation, naming the project under the id it
+// minted; the work creates it under that id and announces it.
+func TestCreate_AnswersWithTheOperation(t *testing.T) {
 	importer := &fakeImporter{project: domain.Project{ID: "new-id", Name: "gamma", Path: "/g"}}
-	bc := newRecordingBroadcaster()
-	rec := do(
-		newRouterFull(&fakeReader{}, importer, &fakeDeleter{}, bc),
-		http.MethodPost,
-		"/v0/projects",
-		`{"name":"gamma","path":"/g"}`,
-	)
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	ops, bc := newRecordedOps(t), newRecordingBroadcaster()
+	rec := do(newRouterWithOps(&fakeReader{}, importer, &fakeDeleter{}, ops, bc), http.MethodPost, "/v0/projects", `{"name":"gamma","path":"/g"}`)
 
-	got := bc.await(t)
-	assert.Equal(t, "new-id", got.ID)
-	assert.Equal(t, "gamma", got.Name)
-	assert.Empty(t, got.Status)
+	op := ops.settled(t, rec)
+	assert.Equal(t, domain.OpProjectCreate, op.Kind)
+	assert.Equal(t, "Add gamma", op.Label)
+	assert.Equal(t, domain.OpSucceeded, op.State)
+	require.Len(t, op.Items, 1)
+	assert.Equal(t, domain.EntityRef{Kind: domain.EntityProject, ID: importer.gotID}, op.Items[0].Ref)
+	assert.Equal(t, op.Subject, op.Items[0].Ref)
+	assert.Equal(t, importer.gotID, op.ProjectID)
 	assert.Equal(t, "gamma", importer.gotName)
 	assert.Equal(t, "/g", importer.gotPath)
-}
-
-// TestImportProject_QuickUsesCreate pins that the quick flag routes to the
-// lightweight Create usecase.
-func TestImportProject_QuickUsesCreate(
-	t *testing.T,
-) {
-	importer := &fakeImporter{project: domain.Project{ID: "q1"}}
-	bc := newRecordingBroadcaster()
-	rec := do(
-		newRouterFull(&fakeReader{}, importer, &fakeDeleter{}, bc),
-		http.MethodPost,
-		"/v0/projects",
-		`{"name":"gamma","path":"/g","quick":true}`,
-	)
-	require.Equal(t, http.StatusAccepted, rec.Code)
-	got := bc.await(t)
-	assert.Equal(t, "q1", got.ID)
+	assert.Equal(t, "new-id", bc.await(t).ID)
 }
 
 func TestImportBadJSON(
@@ -413,7 +397,7 @@ func TestImportProject_PathMissing_4xx(
 ) {
 	r := gin.New()
 	bc := newRecordingBroadcaster()
-	h := projecthandlers.New(&fakeReader{}, &fakeImporter{}, &fakeDeleter{}, bc.push, unusedHome).
+	h := projecthandlers.New(&fakeReader{}, &fakeImporter{}, &fakeDeleter{}, nil, bc.push, unusedHome).
 		WithStat(func(string) (os.FileInfo, error) { return nil, os.ErrNotExist })
 	r.POST("/v0/projects", h.Import)
 
@@ -423,43 +407,36 @@ func TestImportProject_PathMissing_4xx(
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestImportProject_UsecaseError_NoBroadcast pins that a failed background
-// import produces no DTO frame (no per-project LastError sink).
-func TestImportProject_UsecaseError_NoBroadcast(
-	t *testing.T,
-) {
+// A create that fails says why on its operation, and announces nothing.
+func TestCreate_AFailureIsTheOperations(t *testing.T) {
 	importer := &fakeImporter{err: errors.New("boom")}
-	bc := newRecordingBroadcaster()
-	r, h := newRouterWithHandlers(&fakeReader{}, importer, &fakeDeleter{}, bc)
-	rec := do(r, http.MethodPost, "/v0/projects", `{"name":"gamma","path":"/g"}`)
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	ops, bc := newRecordedOps(t), newRecordingBroadcaster()
+	rec := do(newRouterWithOps(&fakeReader{}, importer, &fakeDeleter{}, ops, bc), http.MethodPost, "/v0/projects", `{"name":"gamma","path":"/g"}`)
 
-	assertNoBroadcast(t, h, bc)
+	op := ops.settled(t, rec)
+	assert.Equal(t, domain.OpFailed, op.State)
+	require.NotNil(t, op.Error)
+	assert.Contains(t, op.Error.Message, "boom")
+	assert.Equal(t, domain.OpFailed, op.Items[0].State)
+	assertNoBroadcast(t, bc)
 }
 
-// TestDeleteProject_Returns202_TombstoneDTO pins that a valid delete returns 202
-// and broadcasts a deleted-status ProjectDTO tombstone after teardown.
-func TestDeleteProject_Returns202_TombstoneDTO(
-	t *testing.T,
-) {
+// A delete announces its intent, answers with its operation, and tombstones
+// the project once it is gone.
+func TestDelete_AnswersWithTheOperation(t *testing.T) {
 	deleter := &fakeDeleter{}
-	bc := newRecordingBroadcaster()
-	rec := do(
-		newRouterFull(&fakeReader{get: domain.Project{ID: "p1"}}, &fakeImporter{}, deleter, bc),
-		http.MethodDelete,
-		"/v0/projects/p1",
-		"",
-	)
+	ops, bc := newRecordedOps(t), newRecordingBroadcaster()
+	rec := do(newRouterWithOps(&fakeReader{}, &fakeImporter{}, deleter, ops, bc), http.MethodDelete, "/v0/projects/p1", "")
 
-	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Empty(t, rec.Body.String())
-
-	intent := bc.await(t)
-	assert.Equal(t, "p1", intent.ID)
-	assert.Empty(t, intent.LastError, "the recorded intent clears an earlier attempt's error")
-	got := bc.await(t)
-	assert.Equal(t, "p1", got.ID)
-	assert.Equal(t, "deleted", got.Status)
+	op := ops.settled(t, rec)
+	assert.Equal(t, domain.OpProjectDelete, op.Kind)
+	assert.Equal(t, "Remove demo", op.Label)
+	assert.Equal(t, domain.OpSucceeded, op.State)
+	assert.Equal(t, []domain.OperationItem{{
+		Ref: domain.EntityRef{Kind: domain.EntityProject, ID: "p1"}, Label: "demo", State: domain.OpSucceeded,
+	}}, op.Items)
+	assert.Equal(t, "p1", bc.await(t).ID, "the intent is announced first")
+	assert.Equal(t, "deleted", bc.await(t).Status)
 	assert.Equal(t, "p1", deleter.gotID)
 }
 
@@ -484,23 +461,17 @@ func TestDeleteNotFound(
 	assert.NotEmpty(t, body.Error)
 }
 
-// A delete that stops is never silent: no tombstone, and the project is
-// re-announced carrying the error the usecase recorded on it.
-func TestDeleteProject_UsecaseError_ReannouncesTheProjectWithItsError(
-	t *testing.T,
-) {
-	deleter := &fakeDeleter{err: errors.New("boom")}
-	bc := newRecordingBroadcaster()
-	r, _ := newRouterWithHandlers(
-		&fakeReader{get: domain.Project{ID: "p1", Deleting: true, LastError: "boom"}}, &fakeImporter{}, deleter, bc,
-	)
-	rec := do(r, http.MethodDelete, "/v0/projects/p1", "")
-	require.Equal(t, http.StatusAccepted, rec.Code)
+// A delete that stops fails its operation with the reason; no tombstone.
+func TestDelete_AFailureIsTheOperations(t *testing.T) {
+	ops, bc := newRecordedOps(t), newRecordingBroadcaster()
+	r := newRouterWithOps(&fakeReader{}, &fakeImporter{}, &fakeDeleter{err: errors.New("boom")}, ops, bc)
 
+	op := ops.settled(t, do(r, http.MethodDelete, "/v0/projects/p1", ""))
+	assert.Equal(t, domain.OpFailed, op.State)
+	require.NotNil(t, op.Items[0].Error)
+	assert.Contains(t, op.Items[0].Error.Message, "boom")
 	bc.await(t) // the recorded intent
-	got := bc.await(t)
-	assert.Empty(t, got.Status, "no tombstone for a delete that did not happen")
-	assert.Equal(t, "boom", got.LastError)
+	assertNoBroadcast(t, bc)
 }
 
 // The reorder densifies the whole list, so every project has to reach the

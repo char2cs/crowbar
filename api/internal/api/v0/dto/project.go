@@ -33,9 +33,6 @@ type ProjectDTO struct {
 	// AvatarEmoji passes the emoji icon through to the client, which renders it
 	// directly. Empty when the project uses an on-disk image or the default.
 	AvatarEmoji string `json:"avatarEmoji,omitempty"`
-	// LastError is why the last delete attempt stopped: a failed delete keeps
-	// the row and says so here, and boot re-drives it.
-	LastError string `json:"lastError,omitempty"`
 }
 
 // ProjectDTOFrom converts a domain Project into its wire DTO.
@@ -58,7 +55,6 @@ func ProjectDTOFrom(
 		Order:        p.Order,
 		AvatarURL:    avatarURL,
 		AvatarEmoji:  p.AvatarEmoji,
-		LastError:    p.LastError,
 	}
 }
 

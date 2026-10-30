@@ -376,7 +376,7 @@ func TestBranches_AnnotatesProtectionAndWorkspace(t *testing.T) {
 	h := repohandlers.NewWithDeps(
 		&fakeStore{byKey: nil},
 		&fakeBranchProvider{protected: []string{"main"}},
-		&fakeWSReader{},
+		&fakeWSReader{}, nil,
 		nil,
 		unusedHome,
 	)
@@ -397,7 +397,7 @@ func TestPullRequests_ReturnsOpenPRGraph(t *testing.T) {
 			{Head: "feat/9324", Base: "feat/base"},
 			{Head: "feat/base", Base: "dev"},
 		}},
-		&fakeWSReader{},
+		&fakeWSReader{}, nil,
 		nil,
 		unusedHome,
 	)
@@ -415,7 +415,7 @@ func TestPullRequests_ReturnsOpenPRGraph(t *testing.T) {
 }
 
 func TestPullRequests_MissingRepo404(t *testing.T) {
-	h := repohandlers.NewWithDeps(&fakeStore{byKey: nil}, &fakeBranchProvider{}, &fakeWSReader{}, nil, unusedHome)
+	h := repohandlers.NewWithDeps(&fakeStore{byKey: nil}, &fakeBranchProvider{}, &fakeWSReader{}, nil, nil, unusedHome)
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/pull-requests", h.PullRequests)
 

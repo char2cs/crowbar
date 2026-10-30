@@ -222,9 +222,9 @@ func installFakes(t *testing.T, home, bin string) {
 func (r *rig) workspace(repoPath string) string {
 	ctx := context.Background()
 	u := r.d.app.Usecases
-	project, err := u.ProjectImport.Create(ctx, "scripted", repoPath)
+	project, err := u.ProjectImport.Create(ctx, "", "scripted", repoPath)
 	require.NoError(r.t, err)
-	repo, err := u.ProjectImport.ImportRepo(ctx, project.ID, "", repoPath)
+	repo, err := u.ProjectImport.ImportRepo(ctx, kit.RepoImport(project.ID, repoPath), kit.RequireBranches(r.t))
 	require.NoError(r.t, err)
 	ws, err := u.Workspace.CreateChild(ctx, workspace.CreateChildInput{
 		RepoID: repo.ID, ProjectID: project.ID, RepoPath: repo.Path, RemoteURL: repo.RemoteURL,

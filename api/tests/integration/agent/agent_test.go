@@ -209,10 +209,10 @@ func (h *harness) importRepoAndWorkspace(
 	t.Helper()
 	ctx := context.Background()
 
-	project, err := h.app.Usecases.ProjectImport.Create(ctx, name, repoPath)
+	project, err := h.app.Usecases.ProjectImport.Create(ctx, "", name, repoPath)
 	require.NoError(t, err, "create project")
 
-	repo, err := h.app.Usecases.ProjectImport.ImportRepo(ctx, project.ID, "", repoPath)
+	repo, err := h.app.Usecases.ProjectImport.ImportRepo(ctx, kit.RepoImport(project.ID, repoPath), kit.RequireBranches(t))
 	require.NoError(t, err, "import repo")
 
 	ws, err := h.app.Usecases.Workspace.CreateChild(ctx, workspace.CreateChildInput{

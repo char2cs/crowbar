@@ -23,14 +23,14 @@ import (
 type fakeChatTree struct {
 	// createdWorkspace is the workspace a fork or import create answers.
 	createdWorkspace string
-	list     []domain.Chat
-	created  domain.Chat
-	renamed  domain.Chat
-	moved    domain.Chat
-	placed   domain.Chat
-	shifted  []domain.Chat
-	deletion agentusecase.ChatDeletion
-	err      error
+	list             []domain.Chat
+	created          domain.Chat
+	renamed          domain.Chat
+	moved            domain.Chat
+	placed           domain.Chat
+	shifted          []domain.Chat
+	deletion         agentusecase.ChatDeletion
+	err              error
 
 	gotCreate  agentusecase.CreateInput
 	gotMove    agentusecase.MoveInput

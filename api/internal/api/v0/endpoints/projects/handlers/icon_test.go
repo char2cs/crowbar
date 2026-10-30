@@ -38,7 +38,7 @@ func iconRouter(t *testing.T) (*gin.Engine, *fakeReader, string) {
 	home := t.TempDir()
 	reader := &fakeReader{get: domain.Project{ID: "p1", Name: "harbour"}}
 	h := projecthandlers.
-		New(reader, &fakeImporter{}, &fakeDeleter{}, newRecordingBroadcaster().push, func() (string, error) { return home, nil })
+		New(reader, &fakeImporter{}, &fakeDeleter{}, nil, newRecordingBroadcaster().push, func() (string, error) { return home, nil })
 
 	r := gin.New()
 	rg := r.Group("/v0")
@@ -221,7 +221,7 @@ func TestGetIconIs404WithoutOne(t *testing.T) {
 // fails, standing in for an install whose state root cannot be resolved.
 func brokenHomeRouter(reader *fakeReader) *gin.Engine {
 	h := projecthandlers.
-		New(reader, &fakeImporter{}, &fakeDeleter{}, newRecordingBroadcaster().push, unusedHome)
+		New(reader, &fakeImporter{}, &fakeDeleter{}, nil, newRecordingBroadcaster().push, unusedHome)
 
 	r := gin.New()
 	rg := r.Group("/v0")
@@ -388,7 +388,7 @@ func TestPutIconSurfacesAFailedWriteToDisk(t *testing.T) {
 	}
 	reader := &fakeReader{get: domain.Project{ID: "p1", Name: "harbour"}}
 	h := projecthandlers.
-		New(reader, &fakeImporter{}, &fakeDeleter{}, newRecordingBroadcaster().push, func() (string, error) { return home, nil })
+		New(reader, &fakeImporter{}, &fakeDeleter{}, nil, newRecordingBroadcaster().push, func() (string, error) { return home, nil })
 	r := gin.New()
 	r.PUT("/v0/projects/:projectId/icon", h.PutIcon)
 

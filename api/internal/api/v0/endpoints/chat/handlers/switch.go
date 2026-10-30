@@ -88,7 +88,7 @@ func (h *Handlers) Stop(
 		return
 	}
 
-	libs.WriteAccepted(ctx)
+	libs.WriteNoContent(ctx)
 }
 
 // Close handles POST .../repos/:repoId/chats/:id/close: the last view of the
@@ -110,7 +110,7 @@ func (h *Handlers) Close(
 		return
 	}
 
-	libs.WriteAccepted(ctx)
+	libs.WriteNoContent(ctx)
 }
 
 // Handoff handles GET .../repos/:repoId/chats/:id/handoff: assembles
@@ -176,5 +176,5 @@ func (h *Handlers) SwitchToNative(ctx *gin.Context) {
 		libs.Fail(ctx, err)
 		return
 	}
-	libs.WriteAccepted(ctx)
+	libs.WriteNoContent(ctx)
 }

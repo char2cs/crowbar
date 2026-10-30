@@ -33,9 +33,6 @@ type RepoDTO struct {
 	// FolderID is the project-home folder this repo's entry is filed under, ""
 	// for the project's home root.
 	FolderID string `json:"folderId,omitempty"`
-	// LastError is why the last delete attempt stopped: a failed delete keeps
-	// the row and says so here, and boot re-drives it.
-	LastError string `json:"lastError,omitempty"`
 	// Deleting is the recorded delete intent. Announced before the cascade, so
 	// clients stop reading a repo whose chats are about to be tombstoned.
 	Deleting bool `json:"deleting,omitempty"`
@@ -75,7 +72,6 @@ func RepoDTOFrom(r domain.Repository, placement RepoPlacement) RepoDTO {
 		AvatarEmoji:   r.AvatarEmoji,
 		Order:         placement.Order,
 		FolderID:      placement.FolderID,
-		LastError:     r.LastError,
 		Deleting:      r.Deleting,
 	}
 }

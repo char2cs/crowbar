@@ -126,11 +126,10 @@ func New(
 	if err := startBootSweep(ctx, repos, purgeFinished(c.Operations)); err != nil {
 		return nil, c.abandon(ctx, err)
 	}
-	// A project or repo delete a crash or a failure stopped is finished before
-	// anything is served (invariant D5); the tombstones it writes are purged by
-	// the delete reactor like any other.
-	if err := ucs.ProjectDelete.Resume(ctx); err != nil {
-		slog.ErrorContext(ctx, "app: resume deletes (the next boot retries)", "err", err)
+	// After Recover, so these runs are not marked interrupted; settled before
+	// anything is served (invariant D5), each a recorded operation.
+	if err := resumeDeletes(ctx, ucs.ProjectDelete, c.Operations); err != nil {
+		return nil, c.abandon(ctx, err)
 	}
 	startRestoreTerminalSessions(ctx, ucs)
 	// Before the owner reconcile (a project home created here needs an owner).

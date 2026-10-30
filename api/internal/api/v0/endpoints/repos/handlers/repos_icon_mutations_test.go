@@ -37,7 +37,7 @@ func broadcastIconRouter(
 	fetch repohandlers.AvatarBytesFetcher,
 	frames *[]dto.RepoDTO,
 ) *gin.Engine {
-	h := repohandlers.NewWithDeps(store, nil, nil, func(d dto.RepoDTO) {
+	h := repohandlers.NewWithDeps(store, nil, nil, nil, func(d dto.RepoDTO) {
 		*frames = append(*frames, d)
 	}, func() (string, error) { return home, nil }).WithAvatarFetcher(fetch)
 	r := gin.New()

@@ -212,7 +212,7 @@ func TestTerminalHandlers_HappyPath(
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
 	rec = do(r, http.MethodDelete, chatPath+"/sess1", nil) // KillSession
-	assert.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = do(r, http.MethodGet, "/v0/settings/terminal/profiles", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -259,7 +259,7 @@ func TestCreateSession_201AndBroadcast(
 	assert.Nil(t, active.EndedAt)
 }
 
-func TestKillSession_202AndEndedBroadcast(
+func TestKillSession_200AndEndedBroadcast(
 	t *testing.T,
 ) {
 	r := gin.New()
@@ -267,7 +267,7 @@ func TestKillSession_202AndEndedBroadcast(
 	mountSessions(r, newHandlers(spy))
 
 	rec := do(r, http.MethodDelete, chatPath+"/sess1", nil)
-	assert.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 
 	require.Len(t, spy.pushed, 1)
 	ended := spy.pushed[0]

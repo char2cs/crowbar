@@ -43,7 +43,7 @@ func TestWebSocketSuite(t *testing.T) {
 // PushProviderState rides) is a real, deterministic workspace mutation that fires
 // AFTER the owning chat is in place, which is what actually puts a frame on the
 // wire for these prefix-filtering assertions to observe.
-func triggerWorktreeEvent(t *testing.T, env *kit.Env, wsID string, prURL string) {
+func triggerWorktreeEvent(t *testing.T, env *kit.Env, wsID, prURL string) {
 	t.Helper()
 	env.PushProviderState(t, wsID, kit.ProviderState{
 		HasPR:    true,

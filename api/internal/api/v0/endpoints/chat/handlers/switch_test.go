@@ -241,7 +241,7 @@ func TestResume_WrongWorkspace404s(
 	assert.Empty(t, uc.resumeCalls)
 }
 
-// TestStop_Success proves Stop calls StopChat for the path id and responds 202
+// TestStop_Success proves Stop calls StopChat for the path id and responds 204
 // (accepted, no body) — the chat is dormant-ized, not deleted.
 func TestStop_Success(
 	t *testing.T,
@@ -254,13 +254,13 @@ func TestStop_Success(
 
 	h.Stop(ctx)
 
-	assert.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
 	require.Len(t, uc.stopCalls, 1)
 	assert.Equal(t, "chat-1", uc.stopCalls[0])
 }
 
 // TestStop_UsecaseError_MapsStatus proves a StopChat failure surfaces with its
-// mapped status rather than a bare 202.
+// mapped status rather than a bare 204.
 func TestStop_UsecaseError_MapsStatus(
 	t *testing.T,
 ) {
@@ -296,7 +296,7 @@ func TestStop_WrongWorkspace404s(
 }
 
 // TestClose_Success proves Close calls CloseChat (not StopChat) for the path id
-// and responds 202.
+// and responds 204.
 func TestClose_Success(
 	t *testing.T,
 ) {
@@ -308,7 +308,7 @@ func TestClose_Success(
 
 	h.Close(ctx)
 
-	assert.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
 	assert.Equal(t, []string{"chat-1"}, uc.closeCalls)
 	assert.Empty(t, uc.stopCalls)
 }

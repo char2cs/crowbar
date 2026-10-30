@@ -1267,7 +1267,7 @@ func TestGet_ChatNotFound(
 
 // TestRename_PostsTitleAndSource proves Rename decodes {title}, forwards the
 // path id, decoded title, and the `source` query param to RenameChat, and
-// responds 202 with an empty body on success.
+// responds 204 with an empty body on success.
 func TestRename_PostsTitleAndSource(
 	t *testing.T,
 ) {
@@ -1280,7 +1280,7 @@ func TestRename_PostsTitleAndSource(
 
 	h.Rename(ctx)
 
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusNoContent, rec.Code)
 	assert.Empty(t, rec.Body.Bytes())
 
 	require.Len(t, uc.renameCalls, 1)
@@ -1326,7 +1326,7 @@ func TestRename_BadJSON(
 }
 
 // TestRename_UsecaseError proves a RenameChat failure surfaces as a mapped
-// error response rather than a 202.
+// error response rather than a 204.
 func TestRename_UsecaseError(
 	t *testing.T,
 ) {
@@ -1405,7 +1405,7 @@ func (configurableListGetUsecase) ReadAttachment(
 }
 
 // TestSetSelection_ForwardsTheWholeSelection proves the endpoint decodes both
-// halves and forwards them together with the path id, answering 202 with an empty
+// halves and forwards them together with the path id, answering 204 with an empty
 // body.
 func TestSetSelection_ForwardsTheWholeSelection(
 	t *testing.T,
@@ -1419,7 +1419,7 @@ func TestSetSelection_ForwardsTheWholeSelection(
 
 	h.SetSelection(ctx)
 
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusNoContent, rec.Code)
 	assert.Empty(t, rec.Body.Bytes())
 	require.Len(t, uc.selectionCalls, 1)
 	assert.Equal(t, selectionCall{chatID: "c-1", model: "opus", effort: "high"}, uc.selectionCalls[0])
@@ -1439,7 +1439,7 @@ func TestSetSelection_EmptyBodyClearsBothHalves(
 
 	h.SetSelection(ctx)
 
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusNoContent, rec.Code)
 	require.Len(t, uc.selectionCalls, 1)
 	assert.Equal(t, selectionCall{chatID: "c-1"}, uc.selectionCalls[0])
 }

@@ -259,9 +259,6 @@ func (e *Env) Close(
 		if err := e.server.Shutdown(ctx); err != nil {
 			t.Logf("kit.Env.Close: server shutdown: %v", err)
 		}
-		if err := e.v0c.ShutdownDetached(ctx); err != nil {
-			t.Logf("kit.Env.Close: detached ops: %v", err)
-		}
 		if err := e.app.Shutdown(ctx); err != nil {
 			t.Logf("kit.Env.Close: app drain: %v", err)
 		}
@@ -308,9 +305,6 @@ func (e *Env) CloseWithoutKilling(
 		defer cancel()
 		if err := e.server.Shutdown(ctx); err != nil {
 			t.Logf("kit.Env.CloseWithoutKilling: server shutdown: %v", err)
-		}
-		if err := e.v0c.ShutdownDetached(ctx); err != nil {
-			t.Logf("kit.Env.CloseWithoutKilling: detached ops: %v", err)
 		}
 		if err := e.app.Shutdown(ctx); err != nil {
 			t.Logf("kit.Env.CloseWithoutKilling: app drain: %v", err)
@@ -1131,7 +1125,7 @@ func (e *Env) createWorkspace(
 	repoID string,
 	branch string,
 	parentID string,
-) (wsID string, chatID string) {
+) (wsID, chatID string) {
 	t.Helper()
 	wsID, chatID = e.createWorkspaceWrites(t, projectID, repoID, branch, parentID)
 	// The create's own writes are asynx commands; drain them so a caller that

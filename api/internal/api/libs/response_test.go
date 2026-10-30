@@ -104,12 +104,12 @@ func TestWriteMutationOK(t *testing.T) {
 	assert.Equal(t, "11111111-2222-3333-4444-555555555555", data["id"])
 }
 
-func TestWriteAccepted(t *testing.T) {
+func TestWriteNoContent(t *testing.T) {
 	ctx, rec := newCtx(t)
 
-	libs.WriteAccepted(ctx)
+	libs.WriteNoContent(ctx)
 
-	assert.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
 	assert.Empty(t, rec.Body.Bytes())
 }
 

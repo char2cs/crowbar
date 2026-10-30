@@ -122,17 +122,18 @@ func (c *Container) Register(
 	chats.GET("/:chatId/feed", chathandlers.NewFeed(c.app.Usecases.AgentChat).Handle)
 	chats.GET("/:chatId/blobs/:ref", chathandlers.NewBlobs(c.app.Usecases.AgentChat).Handle)
 
-	c.detached = append(c.detached, projectsPkg.Register(
+	projectsPkg.Register(
 		rg,
 		c.app.Usecases.Project,
 		c.app.Usecases.ProjectImport,
 		c.app.Usecases.ProjectDelete,
+		c.app.Operations,
 		c.app.Hub.BroadcastProject,
 		c.crowbarHome,
 		c.projects.Handle,
 		ws.DualServe,
-	))
-	c.detached = append(c.detached, reposPkg.Register(
+	)
+	reposPkg.Register(
 		projectScoped,
 		c.app.GORM.Repositories,
 		c.eng.Provider,
@@ -142,11 +143,12 @@ func (c *Container) Register(
 		c.app.Repositories.Node,
 		c.eng.Git,
 		c.app.Usecases.ProjectDelete,
+		c.app.Operations,
 		c.app.Hub.BroadcastRepo,
 		c.crowbarHome,
 		c.repos.Handle,
 		ws.DualServe,
-	))
+	)
 	homePkg.Register(
 		projectScoped,
 		c.app.Repositories.Workspace,

@@ -14,7 +14,7 @@ import (
 )
 
 // TestDelete_Success proves Delete forwards the path id to the tree usecase's
-// cascading delete and responds 202 naming no chat taken beyond the selection.
+// cascading delete and responds 200 naming no chat taken beyond the selection.
 //
 // It goes through the TREE and not straight to PurgeChat because a chat's
 // children are threads of it and go with it — see Handlers.Delete.
@@ -31,7 +31,7 @@ func TestDelete_Success(
 
 	h.Delete(ctx)
 
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 	assert.JSONEq(t, `{"success":true,"data":{"takenChatIds":[]}}`, rec.Body.String())
 	assert.Equal(t, "c-1", tree.gotPurge)
 	assert.Empty(t, uc.purgeCalls, "the handler must not purge behind the tree's back")
@@ -54,7 +54,7 @@ func TestDelete_AnnouncesTheFoldersTheCascadeTook(t *testing.T) {
 
 	h.Delete(ctx)
 
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 	require.Len(t, frames, 2)
 	assert.Equal(t, folderFrame{folderID: "f-1", workspaceID: "ws-1", kind: "folder_deleted"}, frames[0])
 	assert.Equal(t, folderFrame{folderID: "f-0", workspaceID: "ws-1", kind: "folder_updated"}, frames[1])
@@ -71,7 +71,7 @@ func TestDelete_NamesTheChatsTheCascadeTookBeyondTheSelection(t *testing.T) {
 
 	h.Delete(ctx)
 
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 	assert.JSONEq(t, `{"success":true,"data":{"takenChatIds":["c-9"]}}`, rec.Body.String())
 }
 
@@ -97,7 +97,7 @@ func TestDelete_WrongWorkspace404s(
 }
 
 // TestDelete_UsecaseError proves a cascade failure surfaces as a mapped error
-// response rather than a 202.
+// response rather than a 200.
 func TestDelete_UsecaseError(
 	t *testing.T,
 ) {

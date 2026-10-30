@@ -174,7 +174,7 @@ func TestWatcherLifecycle_LSPOnlySubscriberDoesNotStartWatcher(t *testing.T) {
 	// RETAINED CLOCK — the one in this wave, and deliberate.
 	//
 	// This is a pure negative: it asserts an event is NEVER produced. Unlike the
-	// handler negatives (which block on WaitAsync, a real completion signal, and
+	// handler negatives (which block on a settled operation, a real completion signal, and
 	// then check exactly), there is nothing here to block on — the assertion is
 	// about a watcher that, if the code is correct, does not exist, so it emits no
 	// signal of any kind. Waiting is all that is left.

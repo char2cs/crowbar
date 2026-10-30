@@ -217,7 +217,6 @@ func (s *stack) open(
 	if err != nil {
 		return fmt.Errorf("internal: app: %w", err)
 	}
-	//nolint:contextcheck // snapshot providers are context-free by design; this call only threads the log ring option.
 	s.api, err = crowbarapi.New(s.app, s.engines, staticFS, v0.WithLogs(cfg.logs))
 	if err != nil {
 		return fmt.Errorf("internal: api: %w", err)
@@ -365,11 +364,8 @@ func (c *Container) Run(
 
 		drainCtx, cancelDrain := context.WithTimeout(context.WithoutCancel(ctx), app.WriterDrainGrace)
 		defer cancelDrain()
-		// Work a handler detached after its 202 writes too — and runs git — so it
-		// ends before the app drains, never after the daemon is gone.
-		detachedErr := c.stack.api.ShutdownDetached(drainCtx)
 		drainErr := c.stack.app.Shutdown(drainCtx)
-		return errors.Join(httpErr, detachedErr, drainErr)
+		return errors.Join(httpErr, drainErr)
 	case err := <-c.serveErr:
 		// ErrServerClosed only occurs after Shutdown (handled above), so any error
 		// arriving here is a genuine listen/accept failure.

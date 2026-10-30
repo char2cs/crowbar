@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 )
 
 // GitEnv is the minimal git identity environment to avoid identity prompts.
@@ -302,4 +304,23 @@ func FileExists(
 		err,
 	)
 	return info.Mode().IsRegular()
+}
+
+// RepoImport is the usecase input that imports repoPath under projectID.
+func RepoImport(projectID, repoPath string) project.RepoImport {
+	return project.RepoImport{ProjectID: projectID, Path: repoPath}
+}
+
+// RequireBranches is an import's progress that fails t for every protected
+// branch whose workspace could not be set up.
+func RequireBranches(t testing.TB) project.RepoProgress {
+	return requireBranches{t}
+}
+
+type requireBranches struct{ t testing.TB }
+
+func (r requireBranches) Workspace(id, branch string, err error) {
+	if err != nil {
+		r.t.Errorf("import: protected branch %s (workspace %s): %v", branch, id, err)
+	}
 }

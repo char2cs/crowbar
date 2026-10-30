@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"io/fs"
 	"net/http"
 
@@ -61,12 +60,6 @@ func New(
 	}
 
 	return &Container{router: router, v0: v0Container}, nil
-}
-
-// ShutdownDetached waits for the work handlers handed off after answering 202;
-// see v0.Container.ShutdownDetached.
-func (c *Container) ShutdownDetached(ctx context.Context) error {
-	return c.v0.ShutdownDetached(ctx)
 }
 
 // Close stops the v0 surface's background workers; see v0.Container.Close.

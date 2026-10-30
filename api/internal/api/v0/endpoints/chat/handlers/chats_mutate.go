@@ -36,14 +36,14 @@ func (h *Handlers) Rename(
 		libs.Fail(ctx, err)
 		return
 	}
-	libs.WriteAccepted(ctx)
+	libs.WriteNoContent(ctx)
 }
 
 // Promote handles POST .../repos/:repoId/chats/:id/promote: fills a bubble's
 // empty workspace slot with a worktree forked from its resolved fork parent and
 // respawns its current provider there (model spec §4.2, wire contract §5.1).
 //
-// It responds with the promoted chat itself rather than an Accepted, because
+// It responds with the promoted chat itself rather than a 204, because
 // the one thing the caller asked about — which workspace the row now owns — is
 // only knowable from the answer: the workspace is minted server-side, and the
 // row's own walks (ownsWorktree, workspaceId) change with it.
@@ -113,7 +113,7 @@ func (h *Handlers) SetSelection(
 		libs.Fail(ctx, err)
 		return
 	}
-	libs.WriteAccepted(ctx)
+	libs.WriteNoContent(ctx)
 }
 
 // Delete handles DELETE .../repos/:repoId/chats/:id: hard-deletes the
@@ -160,7 +160,7 @@ func (h *Handlers) Delete(
 	if taken == nil {
 		taken = []string{}
 	}
-	libs.WriteQueryWithStatus(ctx, http.StatusAccepted, chatDeleted{TakenChatIDs: taken})
+	libs.WriteQueryOK(ctx, chatDeleted{TakenChatIDs: taken})
 }
 
 // chatDeleted names the chats a delete's git cascade took beyond the selection.

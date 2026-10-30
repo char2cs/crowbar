@@ -94,13 +94,12 @@ func WriteMutationOK(
 	)
 }
 
-// WriteAccepted writes a 202 Accepted response with an empty body. Use it for
-// fail-fast/good-path-async mutations whose outcome is delivered later on the
-// entity's WebSocket stream rather than in the HTTP response (00 §4).
-func WriteAccepted(
+// WriteNoContent answers 204 for a mutation that finished inside the request;
+// its outcome rides the entity's stream.
+func WriteNoContent(
 	c *gin.Context,
 ) {
-	c.Status(http.StatusAccepted)
+	c.Status(http.StatusNoContent)
 	c.Writer.WriteHeaderNow()
 }
 

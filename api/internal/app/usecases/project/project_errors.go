@@ -33,3 +33,7 @@ var ErrRepoAlreadyImported = problem.New(problem.Conflict, "this folder is alrea
 // first import instead of producing an entity whose sidebar entry every
 // densify pass silently skips.
 var ErrNoNodesWired = errors.New("project import: no node surface wired; refusing to create a row with no position")
+
+// errNoCrowbarHome is why a protected branch gets no managed worktree when
+// the home resolves to nothing.
+var errNoCrowbarHome = errors.New("crowbar home is not set")

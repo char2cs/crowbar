@@ -55,7 +55,7 @@ func patchRouter(
 	// A throwaway crowbar home keeps the icon paths a broadcast derives out of
 	// the developer's real one.
 	home := t.TempDir()
-	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, func(d dto.RepoDTO) {
+	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, nil, func(d dto.RepoDTO) {
 		*frames = append(*frames, d)
 	}, func() (string, error) { return home, nil }).WithUpdater(updater)
 	r := gin.New()
@@ -122,7 +122,7 @@ func (f fakeNodeReader) GetNode(_ context.Context, id string) (domain.Node, erro
 func TestPatchRepo_OrderOnlyNeedsNoName(t *testing.T) {
 	upd := &fakeUpdater{repo: domain.Repository{ID: "r1", ProjectID: "p1"}, node: domain.Node{ID: "r1", Order: 2}}
 	var frames []dto.RepoDTO
-	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, func(d dto.RepoDTO) {
+	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, nil, func(d dto.RepoDTO) {
 		frames = append(frames, d)
 	}, func() (string, error) { return t.TempDir(), nil }).WithUpdater(upd)
 	r := gin.New()
@@ -212,7 +212,7 @@ func TestPatchRepo_MalformedBody_400(t *testing.T) {
 func TestPatchRepo_ProjectMoveSurvivesAnUnresolvableHome(t *testing.T) {
 	upd := &fakeUpdater{repo: domain.Repository{ID: "r1", ProjectID: "p2"}}
 	var frames []dto.RepoDTO
-	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, func(d dto.RepoDTO) {
+	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, nil, func(d dto.RepoDTO) {
 		frames = append(frames, d)
 	}, func() (string, error) { return "", errors.New("no home") }).
 		WithUpdater(upd)
@@ -239,7 +239,7 @@ func TestRegression_PatchRepo_BroadcastsTheDecidedPlacementAndEveryShiftedRepo(t
 	}
 	var frames []dto.RepoDTO
 	store := &fakeStore{all: []domain.Repository{{ID: "r1", ProjectID: "p1"}, {ID: "r2", ProjectID: "p1", Name: "two"}}}
-	h := repohandlers.NewWithDeps(store, nil, nil, func(d dto.RepoDTO) {
+	h := repohandlers.NewWithDeps(store, nil, nil, nil, func(d dto.RepoDTO) {
 		frames = append(frames, d)
 	}, func() (string, error) { return t.TempDir(), nil }).WithUpdater(upd).
 		// The projection still serves the PRE-write order.
@@ -266,5 +266,5 @@ func TestRegression_PatchRepo_BroadcastsTheDecidedPlacementAndEveryShiftedRepo(t
 // so both constructors refuse it up front.
 func TestNew_NilCrowbarHomePanics(t *testing.T) {
 	assert.Panics(t, func() { repohandlers.New(&fakeStore{}, nil) })
-	assert.Panics(t, func() { repohandlers.NewWithDeps(&fakeStore{}, nil, nil, nil, nil) })
+	assert.Panics(t, func() { repohandlers.NewWithDeps(&fakeStore{}, nil, nil, nil, nil, nil) })
 }

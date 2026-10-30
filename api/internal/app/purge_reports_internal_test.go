@@ -21,7 +21,7 @@ func recordingOps(t *testing.T) (*operation.Service, chan domain.Operation) {
 	require.NoError(t, err)
 	opStore, err := storesqlite.NewFromDB[domain.Operation, string](db)
 	require.NoError(t, err)
-	frames := make(chan domain.Operation, 4)
+	frames := make(chan domain.Operation, 64)
 	return operation.New(opStore, func(op domain.Operation) { frames <- op }, time.Now), frames
 }
 

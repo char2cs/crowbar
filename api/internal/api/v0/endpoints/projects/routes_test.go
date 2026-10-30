@@ -12,6 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -64,8 +65,15 @@ func (stubImporter) Import(
 	return domain.Project{}, nil
 }
 
+type stubOps struct{}
+
+func (stubOps) Start(context.Context, operation.Spec, operation.Work) (domain.Operation, error) {
+	return domain.Operation{}, nil
+}
+
 func (stubImporter) Create(
 	_ context.Context,
+	_ string,
 	_ string,
 	_ string,
 ) (domain.Project, error) {
@@ -100,6 +108,7 @@ func TestRegisterMountsRoutes(
 		stubReader{},
 		stubImporter{},
 		stubDeleter{},
+		stubOps{},
 		func(dto.ProjectDTO) {},
 		func() (string, error) { return t.TempDir(), nil },
 		noopWS,

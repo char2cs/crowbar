@@ -136,5 +136,5 @@ func TestPushSession_NilBroadcaster_NoPanic(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
 	rec = do(r, http.MethodDelete, chatPath+"/sess1", nil)
-	assert.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 }

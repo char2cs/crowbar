@@ -843,44 +843,6 @@ func TestImport_HomeRowFailure_NoDetachNoReattach(t *testing.T) {
 	assert.Empty(t, git.CheckedOut, "no reattach: there was no detach to undo")
 }
 
-func TestImportRepo_DuplicatePath_IsNoOp(t *testing.T) {
-	// Re-adding a folder already imported under the project is a no-op: it returns
-	// the existing repo and creates no duplicate row or duplicate workspaces.
-	projects := mocks.NewProjectStore()
-	repos := mocks.NewRepositoryStore()
-	ws := mocks.NewWorkspaceRepo()
-	git := mocks.NewGitEngine()
-	prov := mocks.NewProviderEngine()
-	require.NoError(t, projects.Save(context.Background(), domain.Project{ID: "p1", Name: "P", Path: "/root"}))
-	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/root/repoA", Branch: "main", Head: "h1"}}
-	prov.Protected = []string{"main"}
-	uc := newImportUsecase(t, project.ImportDeps{
-		Projects:   projects,
-		Repos:      repos,
-		Workspaces: ws,
-		Git:        git,
-		Provider:   prov,
-		Discover:   func(string, int) ([]string, error) { return nil, nil },
-		RefRunner: func(string) defaultbranch.RefRunner {
-			return func(...string) (string, bool) { return "", false }
-		},
-		Now:         func() time.Time { return time.Unix(1000, 0).UTC() },
-		CrowbarHome: func() (string, error) { return "/crowbar-home", nil },
-		Stat:        statExists,
-	})
-
-	r1, err := uc.ImportRepo(context.Background(), "p1", "", "/root/repoA")
-	require.NoError(t, err)
-	require.Len(t, repos.Saved, 1)
-	wsCount := len(ws.Created)
-
-	r2, err := uc.ImportRepo(context.Background(), "p1", "", "/root/repoA")
-	require.NoError(t, err)
-	assert.Equal(t, r1.ID, r2.ID, "re-add returns the already-imported repo")
-	assert.Len(t, repos.Saved, 1, "no duplicate repository row")
-	assert.Len(t, ws.Created, wsCount, "no duplicate workspaces")
-}
-
 func TestImport_AvatarFallsBackToGeneratedWhenNoFetcher(t *testing.T) {
 	// The default newImport fixture has no CrowbarHome/FetchAvatarBytes wired,
 	// and the fake repoA path has no local icon, so the repo falls back to a
@@ -935,7 +897,7 @@ func TestImportRepo_AdoptsDefaultBranchWorkspace(
 		Stat:        statExists,
 	})
 
-	repo, err := uc.ImportRepo(context.Background(), "proj-1", "", "/root/repoA")
+	repo, err := uc.ImportRepo(context.Background(), project.RepoImport{ProjectID: "proj-1", Path: "/root/repoA"}, &recordedProgress{})
 	require.NoError(t, err)
 
 	require.Len(t, repos.Saved, 1)
@@ -993,7 +955,7 @@ func TestImportRepo_AdoptionFailure_RollsBackRepo(t *testing.T) {
 		Stat: statExists,
 	})
 
-	_, err := uc.ImportRepo(context.Background(), "proj-1", "", "/root/repoA")
+	_, err := uc.ImportRepo(context.Background(), project.RepoImport{ProjectID: "proj-1", Path: "/root/repoA"}, &recordedProgress{})
 	require.Error(t, err, "ImportRepo must propagate the adoption failure")
 	assert.Empty(t, repos.Saved,
 		"the repo row must be rolled back so retries cannot accumulate orphaned repos")
@@ -1043,7 +1005,7 @@ func TestImportRepo_SetsGithubAvatarBestEffort(
 		Stat: statExists,
 	})
 
-	repo, err := uc.ImportRepo(context.Background(), "proj-1", "", repoDir)
+	repo, err := uc.ImportRepo(context.Background(), project.RepoImport{ProjectID: "proj-1", Path: repoDir}, &recordedProgress{})
 	require.NoError(t, err)
 	assert.True(t, fetched, "the github avatar fetcher must run when no local icon exists")
 	assert.True(t, repo.AvatarHasIcon)
@@ -1052,34 +1014,6 @@ func TestImportRepo_SetsGithubAvatarBestEffort(
 	data, readErr := os.ReadFile(iconPath)
 	require.NoError(t, readErr)
 	assert.Equal(t, "PNGDATA", string(data))
-}
-
-// TestImportRepo_UnknownProject_Errors pins that adding a repo under an unknown
-// project id returns an error and persists nothing.
-func TestImportRepo_UnknownProject_Errors(
-	t *testing.T,
-) {
-	projects := mocks.NewProjectStore()
-	repos := mocks.NewRepositoryStore()
-	uc := newImportUsecase(t, project.ImportDeps{
-		Projects:   projects,
-		Repos:      repos,
-		Workspaces: mocks.NewWorkspaceRepo(),
-		Git:        mocks.NewGitEngine(),
-		Provider:   mocks.NewProviderEngine(),
-		Discover: func(root string, maxDepth int) ([]string, error) {
-			return nil, nil
-		},
-		RefRunner: func(repoPath string) defaultbranch.RefRunner {
-			return func(args ...string) (string, bool) { return "", false }
-		},
-		Now:  func() time.Time { return time.Unix(1000, 0).UTC() },
-		Stat: statExists,
-	})
-
-	_, err := uc.ImportRepo(context.Background(), "missing", "", "/root/repoA")
-	require.Error(t, err)
-	assert.Empty(t, repos.Saved)
 }
 
 func TestImportRepo_FlagsMainWorktreeAsDefault(t *testing.T) {
@@ -1107,7 +1041,7 @@ func TestImportRepo_FlagsMainWorktreeAsDefault(t *testing.T) {
 		Stat:      statExists,
 	})
 
-	_, err := uc.ImportRepo(context.Background(), "proj-1", "", "/root/repoA")
+	_, err := uc.ImportRepo(context.Background(), project.RepoImport{ProjectID: "proj-1", Path: "/root/repoA"}, &recordedProgress{})
 	require.NoError(t, err)
 
 	byBranch := map[string]bool{}
@@ -1117,35 +1051,6 @@ func TestImportRepo_FlagsMainWorktreeAsDefault(t *testing.T) {
 	assert.True(t, byBranch["develop"], "main-worktree workspace must be IsDefault")
 	assert.False(t, byBranch["feature/x"], "non-main worktree must not be IsDefault")
 	assert.False(t, byBranch["staging"], "protected stub must not be IsDefault")
-}
-
-// TestImportRepo_LoadProjectError_Errors pins that a project-store lookup error
-// surfaces from ImportRepo and persists nothing.
-func TestImportRepo_LoadProjectError_Errors(
-	t *testing.T,
-) {
-	projects := mocks.NewProjectStore()
-	projects.FindErr = errors.New("db down")
-	repos := mocks.NewRepositoryStore()
-	uc := newImportUsecase(t, project.ImportDeps{
-		Projects:   projects,
-		Repos:      repos,
-		Workspaces: mocks.NewWorkspaceRepo(),
-		Git:        mocks.NewGitEngine(),
-		Provider:   mocks.NewProviderEngine(),
-		Discover: func(root string, maxDepth int) ([]string, error) {
-			return nil, nil
-		},
-		RefRunner: func(repoPath string) defaultbranch.RefRunner {
-			return func(args ...string) (string, bool) { return "", false }
-		},
-		Now:  func() time.Time { return time.Unix(1000, 0).UTC() },
-		Stat: statExists,
-	})
-
-	_, err := uc.ImportRepo(context.Background(), "proj-1", "", "/root/repoA")
-	require.Error(t, err)
-	assert.Empty(t, repos.Saved)
 }
 
 // TestImport_PartialRepoFailure verifies the best-effort guarantee (00 §5.1):
@@ -1218,7 +1123,7 @@ func TestCreate_ProvisionesHomeWorkspace(t *testing.T) {
 	_, _, ws, _, _, uc := newImport(t)
 
 	dir := t.TempDir()
-	_, err := uc.Create(context.Background(), "myproject", dir)
+	_, err := uc.Create(context.Background(), "", "myproject", dir)
 	require.NoError(t, err)
 
 	require.Len(t, ws.Created, 1)
@@ -1387,7 +1292,7 @@ func TestImportRepo_SeedsPathSlugFromThePathNotTheSuppliedName(t *testing.T) {
 		Stat:        statExists,
 	})
 
-	repo, err := uc.ImportRepo(context.Background(), "proj-1", "My Custom Name", "/root/widget")
+	repo, err := uc.ImportRepo(context.Background(), project.RepoImport{ProjectID: "proj-1", Name: "My Custom Name", Path: "/root/widget"}, &recordedProgress{})
 	require.NoError(t, err)
 
 	assert.Equal(t, "My Custom Name", repo.Name, "the display name is still the supplied one")
@@ -1414,73 +1319,6 @@ func TestImportRepo_SeedsPathSlugFromThePathNotTheSuppliedName(t *testing.T) {
 // but those tests are build-tagged and so invisible to the unit coverage gate —
 // these exercise the branches directly.
 
-func TestCheckRepoImportable_NoRepos(t *testing.T) {
-	_, _, _, _, _, uc := newImport(t)
-
-	require.NoError(t, uc.CheckRepoImportable(context.Background(), "proj-1", "/repoA"),
-		"an empty store cannot conflict with anything")
-}
-
-func TestCheckRepoImportable_SameProjectIsNotAConflict(t *testing.T) {
-	_, repos, _, _, _, uc := newImport(t)
-	repos.Saved = []domain.Repository{{ID: "r1", ProjectID: "proj-1", Path: "/repoA"}}
-
-	// Re-adding a folder the SAME project already has is a dedup (importOneRepo
-	// returns the existing row), never a refusal.
-	require.NoError(t, uc.CheckRepoImportable(context.Background(), "proj-1", "/repoA"))
-}
-
-func TestCheckRepoImportable_DifferentPathIsNotAConflict(t *testing.T) {
-	_, repos, _, _, _, uc := newImport(t)
-	repos.Saved = []domain.Repository{{ID: "r1", ProjectID: "proj-2", Path: "/repoB"}}
-
-	require.NoError(t, uc.CheckRepoImportable(context.Background(), "proj-1", "/repoA"))
-}
-
-func TestCheckRepoImportable_OtherProjectRefusedAndNamed(t *testing.T) {
-	projects, repos, _, _, _, uc := newImport(t)
-	projects.Saved = []domain.Project{{ID: "proj-2", Name: "Other Project"}}
-	repos.Saved = []domain.Repository{{ID: "r1", ProjectID: "proj-2", Path: "/repoA"}}
-
-	err := uc.CheckRepoImportable(context.Background(), "proj-1", "/repoA")
-
-	require.ErrorIs(t, err, project.ErrRepoAlreadyImported)
-	assert.Contains(t, err.Error(), "Other Project",
-		"the refusal names the project holding the folder, so the user knows where it went")
-}
-
-func TestCheckRepoImportable_OtherProjectUnnamedStillRefused(t *testing.T) {
-	_, repos, _, _, _, uc := newImport(t)
-	// The owning project row is absent, so its name cannot be resolved. The
-	// refusal still stands — it just loses the pointer to where the folder lives.
-	repos.Saved = []domain.Repository{{ID: "r1", ProjectID: "proj-2", Path: "/repoA"}}
-
-	err := uc.CheckRepoImportable(context.Background(), "proj-1", "/repoA")
-
-	require.ErrorIs(t, err, project.ErrRepoAlreadyImported)
-	assert.NotContains(t, err.Error(), "in the project")
-}
-
-func TestCheckRepoImportable_ProjectLookupErrorStillRefuses(t *testing.T) {
-	projects, repos, _, _, _, uc := newImport(t)
-	projects.FindErr = errors.New("boom")
-	repos.Saved = []domain.Repository{{ID: "r1", ProjectID: "proj-2", Path: "/repoA"}}
-
-	err := uc.CheckRepoImportable(context.Background(), "proj-1", "/repoA")
-
-	require.ErrorIs(t, err, project.ErrRepoAlreadyImported)
-	assert.NotContains(t, err.Error(), "in the project")
-}
-
-func TestCheckRepoImportable_RepoReadErrorDoesNotBlock(t *testing.T) {
-	_, repos, _, _, _, uc := newImport(t)
-	repos.FindErr = errors.New("boom")
-
-	// A read failure must not block a legitimate import — same degradation as
-	// existingRepo.
-	require.NoError(t, uc.CheckRepoImportable(context.Background(), "proj-1", "/repoA"))
-}
-
 // A project is announced the moment its row is saved, and the client asks for
 // its home straight away — so the home must exist BEFORE the row does.
 func TestCreate_TheHomeExistsBeforeTheProjectRowIsSaved(t *testing.T) {
@@ -1492,7 +1330,7 @@ func TestCreate_TheHomeExistsBeforeTheProjectRowIsSaved(t *testing.T) {
 		return row, nil
 	}
 
-	_, err := uc.Create(context.Background(), "myproject", t.TempDir())
+	_, err := uc.Create(context.Background(), "", "myproject", t.TempDir())
 	require.NoError(t, err)
 	require.Len(t, ws.Created, 1)
 	require.Len(t, projects.Saved, 1)
@@ -1503,8 +1341,135 @@ func TestCreate_AFailedProjectSaveDeletesTheHome(t *testing.T) {
 	projects, _, ws, _, _, uc := newImport(t)
 	projects.SaveErr = errors.New("disk full")
 
-	_, err := uc.Create(context.Background(), "myproject", t.TempDir())
+	_, err := uc.Create(context.Background(), "", "myproject", t.TempDir())
 	require.ErrorContains(t, err, "disk full")
 	require.Len(t, ws.Created, 1)
 	assert.Equal(t, []string{ws.Created[0].ID}, ws.Deleted)
+}
+
+// TestCreate_InvalidPath_PersistsNothing proves Create validates the path
+// BEFORE persisting anything, exactly like Import.
+func TestCreate_InvalidPath_PersistsNothing(t *testing.T) {
+	projects := mocks.NewProjectStore()
+	ws := mocks.NewWorkspaceRepo()
+	uc := newImportUsecase(t, project.ImportDeps{
+		Projects:   projects,
+		Repos:      mocks.NewRepositoryStore(),
+		Workspaces: ws,
+		Git:        mocks.NewGitEngine(),
+		Provider:   mocks.NewProviderEngine(),
+		Discover:   func(string, int) ([]string, error) { return nil, nil },
+		RefRunner:  noRefRunner,
+		Now:        time.Now,
+		Stat:       func(string) (os.FileInfo, error) { return nil, os.ErrNotExist },
+	})
+
+	_, err := uc.Create(context.Background(), "", "P", "/nonexistent")
+	require.ErrorIs(t, err, project.ErrFolderNotFound)
+	assert.Empty(t, projects.Saved)
+	assert.Empty(t, ws.Created)
+}
+
+func TestCreate_ProjectSaveError(t *testing.T) {
+	projects := mocks.NewProjectStore()
+	projects.SaveErr = errors.New("boom")
+	uc := newImportUsecase(t, project.ImportDeps{
+		Projects:   projects,
+		Repos:      mocks.NewRepositoryStore(),
+		Workspaces: mocks.NewWorkspaceRepo(),
+		Git:        mocks.NewGitEngine(),
+		Provider:   mocks.NewProviderEngine(),
+		Discover:   func(string, int) ([]string, error) { return nil, nil },
+		RefRunner:  noRefRunner,
+		Now:        time.Now,
+		Stat:       statExists,
+	})
+
+	_, err := uc.Create(context.Background(), "", "P", "/root")
+	require.Error(t, err)
+}
+
+// TestCreate_HomeWorkspaceFails_RollsBackProject proves Create's own
+// createHomeWorkspace failure rolls the just-saved project row back, mirroring
+// Import's equivalent rollback.
+func TestCreate_HomeWorkspaceFails_RollsBackProject(t *testing.T) {
+	projects := mocks.NewProjectStore()
+	ws := mocks.NewWorkspaceRepo()
+	ws.CreateErr = errors.New("ws boom")
+	uc := newImportUsecase(t, project.ImportDeps{
+		Projects:   projects,
+		Repos:      mocks.NewRepositoryStore(),
+		Workspaces: ws,
+		Git:        mocks.NewGitEngine(),
+		Provider:   mocks.NewProviderEngine(),
+		Discover:   func(string, int) ([]string, error) { return nil, nil },
+		RefRunner:  noRefRunner,
+		Now:        time.Now,
+		Stat:       statExists,
+	})
+
+	_, err := uc.Create(context.Background(), "", "P", "/root")
+	require.Error(t, err)
+	assert.Empty(t, projects.Saved, "a failed home workspace must roll the project row back")
+}
+
+// TestImport_ProjectHomeWorkspaceFails_RollsBackProject proves a failure
+// creating the PROJECT-level home workspace (Kind=Home, run before any repo is
+// even discovered) rolls the project row back — distinct from
+// TestImport_HomeRowFailure_NoDetachNoReattach, which fails the REPO home.
+func TestImport_ProjectHomeWorkspaceFails_RollsBackProject(t *testing.T) {
+	projects := mocks.NewProjectStore()
+	repos := mocks.NewRepositoryStore()
+	ws := mocks.NewWorkspaceRepo()
+	ws.CreateFn = func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+		if in.Kind == domain.WorkspaceKindHome {
+			return domain.Workspace{}, errors.New("project home boom")
+		}
+		return domain.Workspace{ID: in.ID}, nil
+	}
+	discoverCalled := false
+	uc := newImportUsecase(t, project.ImportDeps{
+		Projects:   projects,
+		Repos:      repos,
+		Workspaces: ws,
+		Git:        mocks.NewGitEngine(),
+		Provider:   mocks.NewProviderEngine(),
+		Discover: func(string, int) ([]string, error) {
+			discoverCalled = true
+			return nil, nil
+		},
+		RefRunner: noRefRunner,
+		Now:       func() time.Time { return time.Unix(1000, 0).UTC() },
+		Stat:      statExists,
+	})
+
+	_, err := uc.Import(context.Background(), "P", "/root")
+	require.Error(t, err)
+	assert.Empty(t, projects.Saved, "a failed project home workspace must roll the project row back")
+	assert.False(t, discoverCalled, "repo discovery must never run once the project home has failed")
+}
+
+func TestImport_StatGenericError_Surfaces(t *testing.T) {
+	uc := newImportUsecase(t, project.ImportDeps{
+		Projects:   mocks.NewProjectStore(),
+		Repos:      mocks.NewRepositoryStore(),
+		Workspaces: mocks.NewWorkspaceRepo(),
+		Git:        mocks.NewGitEngine(),
+		Provider:   mocks.NewProviderEngine(),
+		Discover:   func(string, int) ([]string, error) { return nil, nil },
+		RefRunner:  noRefRunner,
+		Now:        time.Now,
+		Stat:       func(string) (os.FileInfo, error) { return nil, errors.New("permission denied") },
+	})
+
+	_, err := uc.Import(context.Background(), "P", "/root")
+	require.Error(t, err)
+	require.NotErrorIs(t, err, project.ErrFolderNotFound,
+		"a genuine stat failure must surface distinctly from a clean not-found")
+}
+
+// NewImport has no default home: an unwired caller would otherwise write into
+// the real one.
+func TestNewImport_NilCrowbarHomePanics(t *testing.T) {
+	assert.Panics(t, func() { project.NewImport(project.ImportDeps{}) })
 }

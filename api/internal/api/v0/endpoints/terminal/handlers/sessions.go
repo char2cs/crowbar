@@ -113,7 +113,7 @@ func (h *Handlers) ListSessions(ctx *gin.Context) {
 }
 
 // KillSession handles DELETE /v0/chats/:chatId/terminals/:sessionId.
-// It returns 202 and broadcasts a TerminalSessionDTO{status:"ended"} frame (the
+// It answers 200 and broadcasts a TerminalSessionDTO{status:"ended"} frame (the
 // engine's OnSessionEnded reap also emits one; the broadcaster's idempotent
 // full-replace makes the duplicate harmless).
 func (h *Handlers) KillSession(ctx *gin.Context) {
@@ -145,7 +145,7 @@ func (h *Handlers) KillSession(ctx *gin.Context) {
 	ended.EndedAt = &endedAt
 	h.pushSession(ended)
 
-	libs.WriteMutationOK(ctx, http.StatusAccepted, sid)
+	libs.WriteMutationOK(ctx, http.StatusOK, sid)
 }
 
 // pushSession forwards a lifecycle DTO to the broadcaster when one is wired.
