@@ -18,26 +18,21 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// importRequest is the POST …/chats/import-batch body: the branches to import
-// as chats holding a worktree each, the chat id the caller draws each under, and
-// whether their workspaces are created locked. Each is PR-parented up to a
-// protected/default root, with missing ancestors created (see
-// workspace.CreateFromImport).
+// importRequest is the POST …/chats/import-batch body: each branch to import,
+// the chat id the caller draws it under, and whether it is created locked.
 type importRequest struct {
 	Branches []importBranchRequest `json:"branches"`
-	Lock     bool                  `json:"lock"`
 }
 
 type importBranchRequest struct {
 	Name   string `json:"name"`
 	ChatID string `json:"chatId"`
+	Lock   bool   `json:"lock"`
 }
 
-// Import handles POST /v0/projects/:projectId/repos/:repoId/chats/import-batch.
-// What it can check before the work starts is a synchronous 4xx (body shape,
-// chat ids, repo present, default branch, branch on the remote); then it
-// answers 202 with the operation, one running item per branch named by its
-// chat, which the work settles branch by branch.
+// Import handles POST …/repos/:repoId/chats/import-batch. What it can check up
+// front is a 4xx; then it answers 202 with one running item per branch, which
+// the work settles branch by branch.
 func (h *Handlers) Import(c *gin.Context) {
 	var body importRequest
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -84,7 +79,6 @@ func (h *Handlers) startImport(c *gin.Context, repo *domain.Repository, body imp
 		RepoPath:      repo.Path,
 		RemoteURL:     repo.RemoteURL,
 		DefaultBranch: repo.DefaultBranch,
-		Lock:          body.Lock,
 	}
 	items := make([]domain.OperationItem, 0, len(body.Branches))
 	for _, b := range body.Branches {
@@ -113,17 +107,21 @@ func (h *Handlers) startImport(c *gin.Context, repo *domain.Repository, body imp
 	libs.WriteOperation(c, op)
 }
 
-// checkImportBranches refuses an empty batch, a nameless branch, or a chat id
-// that is not a UUID or is given twice.
+// checkImportBranches refuses an empty batch, a nameless or repeated branch, or
+// a chat id that is not a UUID or is given twice.
 func checkImportBranches(branches []importBranchRequest) error {
 	if len(branches) == 0 {
 		return &problem.Error{Code: problem.InvalidArgument, Message: "branches is required"}
 	}
-	seen := map[string]bool{}
+	seen, named := map[string]bool{}, map[string]bool{}
 	for _, b := range branches {
 		if strings.TrimSpace(b.Name) == "" {
 			return &problem.Error{Code: problem.InvalidArgument, Message: "every branch needs a name"}
 		}
+		if named[b.Name] {
+			return &problem.Error{Code: problem.InvalidArgument, Message: b.Name + " is given twice"}
+		}
+		named[b.Name] = true
 		if _, err := uuid.Parse(b.ChatID); err != nil {
 			return &problem.Error{Code: problem.InvalidArgument, Message: fmt.Sprintf("chatId %q of %s is not a UUID", b.ChatID, b.Name)}
 		}

@@ -79,7 +79,7 @@ const (
 )
 
 // importBody is the batch body for branches named with their chat ids in turn.
-func importBody(lock bool, pairs ...string) string {
+func importBody(pairs ...string) string {
 	var b strings.Builder
 	b.WriteString(`{"branches":[`)
 	for i := 0; i < len(pairs); i += 2 {
@@ -88,7 +88,7 @@ func importBody(lock bool, pairs ...string) string {
 		}
 		fmt.Fprintf(&b, `{"name":%q,"chatId":%q}`, pairs[i], pairs[i+1])
 	}
-	fmt.Fprintf(&b, `],"lock":%t}`, lock)
+	b.WriteString(`]}`)
 	return b.String()
 }
 
@@ -99,16 +99,17 @@ func importBody(lock bool, pairs ...string) string {
 // placeholder that only CreateFromImport performs.
 func TestImport_TheBatchRouteHandsCreateFromImportTheRepoFacts(t *testing.T) {
 	hierarchy := &fakeHierarchy{importDone: make(chan struct{})}
-	remote := &fakeRemote{exists: map[string]bool{"feature/x": true}}
+	remote := &fakeRemote{exists: map[string]bool{"feature/x": true, "feature/y": true}}
 	r, _ := importRouterWith(remote, hierarchy, &fakeChats{})
 
-	rec := do(r, http.MethodPost, importBatchTarget, importBody(true, "feature/x", chatA))
+	rec := do(r, http.MethodPost, importBatchTarget, `{"branches":[`+
+		`{"name":"feature/x","chatId":"`+chatA+`","lock":true},{"name":"feature/y","chatId":"`+chatB+`"}]}`)
 
 	op := accepted(t, rec)
 	assert.Equal(t, domain.OpBranchImport, op.Kind)
 	assert.Equal(t, domain.EntityRef{Kind: domain.EntityRepo, ID: "r1"}, op.Subject)
 	assert.Equal(t, "p1", op.ProjectID)
-	assert.Equal(t, "Import feature/x", op.Label)
+	assert.Equal(t, "Import 2 branches", op.Label)
 	waitClosed(t, hierarchy.importDone)
 	assert.Equal(t, workspace.ImportInput{
 		RepoID:        "r1",
@@ -116,9 +117,11 @@ func TestImport_TheBatchRouteHandsCreateFromImportTheRepoFacts(t *testing.T) {
 		RepoPath:      "/repo",
 		RemoteURL:     "git@example.com:acme/app.git",
 		DefaultBranch: "main",
-		Branches:      []workspace.ImportBranch{{Name: "feature/x", ChatID: chatA}},
-		Lock:          true,
-	}, hierarchy.gotImport)
+		Branches: []workspace.ImportBranch{
+			{Name: "feature/x", ChatID: chatA, Lock: true},
+			{Name: "feature/y", ChatID: chatB},
+		},
+	}, hierarchy.gotImport, "each branch carries its own lock")
 }
 
 // The 202 already names one row per branch, under the chat the client drew it
@@ -127,7 +130,7 @@ func TestImport_EachBranchIsARunningItemAtAccept(t *testing.T) {
 	r, _ := importRouterWith(&fakeRemote{exists: map[string]bool{"a": true, "b": true}},
 		&fakeHierarchy{}, &fakeChats{})
 
-	op := accepted(t, do(r, http.MethodPost, importBatchTarget, importBody(false, "a", chatA, "b", chatB)))
+	op := accepted(t, do(r, http.MethodPost, importBatchTarget, importBody("a", chatA, "b", chatB)))
 
 	assert.Equal(t, []domain.OperationItem{
 		{Ref: domain.EntityRef{Kind: domain.EntityChat, ID: chatA}, Label: "a", State: domain.OpRunning},
@@ -144,7 +147,7 @@ func TestImport_AFailedBranchFailsItsItemWithTheReason(t *testing.T) {
 	}}
 	r, ops := importRouterWith(&fakeRemote{exists: map[string]bool{"a": true, "b": true}}, hierarchy, &fakeChats{})
 
-	op := ops.settled(t, do(r, http.MethodPost, importBatchTarget, importBody(false, "a", chatA, "b", chatB)))
+	op := ops.settled(t, do(r, http.MethodPost, importBatchTarget, importBody("a", chatA, "b", chatB)))
 
 	assert.Equal(t, domain.OpFailed, op.State)
 	require.NotNil(t, op.Error)
@@ -158,8 +161,14 @@ func TestImport_AFailedBranchFailsItsItemWithTheReason(t *testing.T) {
 
 func TestImport_AChatIDThatIsNotAUUIDIsRefused(t *testing.T) {
 	rec := do(importRouter(&fakeRemote{exists: map[string]bool{"a": true}}),
-		http.MethodPost, importBatchTarget, importBody(false, "a", "row-1"))
+		http.MethodPost, importBatchTarget, importBody("a", "row-1"))
 
+	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+}
+
+func TestImport_ABranchGivenTwiceIsRefused(t *testing.T) {
+	rec := do(importRouter(&fakeRemote{exists: map[string]bool{"good": true}}),
+		http.MethodPost, importBatchTarget, importBody("good", chatA, "good", chatB))
 	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 }
 
@@ -167,7 +176,7 @@ func TestImport_ATakenChatIDIsAnIDConflict(t *testing.T) {
 	r, ops := importRouterWith(&fakeRemote{exists: map[string]bool{"a": true}},
 		&fakeHierarchy{}, &fakeChats{taken: map[string]bool{chatA: true}})
 
-	rec := do(r, http.MethodPost, importBatchTarget, importBody(false, "a", chatA))
+	rec := do(r, http.MethodPost, importBatchTarget, importBody("a", chatA))
 
 	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
 	assert.Contains(t, rec.Body.String(), string(problem.IDConflict))
@@ -183,7 +192,7 @@ func TestImport_ARetryAfterTheChatsExistIsTheFirstOperation(t *testing.T) {
 	r, _ := importRouterWith(&fakeRemote{exists: map[string]bool{"a": true}}, &fakeHierarchy{}, chats)
 	key := "7f0c6a52-6c1e-4d55-9c55-0a9a1b3f0aff"
 	send := func() *httptest.ResponseRecorder {
-		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, importBatchTarget, strings.NewReader(importBody(false, "a", chatA)))
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, importBatchTarget, strings.NewReader(importBody("a", chatA)))
 		req.Header.Set("Idempotency-Key", key)
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
@@ -202,7 +211,7 @@ func TestImport_ARetryAfterTheChatsExistIsTheFirstOperation(t *testing.T) {
 // creates nothing and leave the caller's optimistic row spinning.
 func TestImport_TheRelocatedRouteStillRefusesTheDefaultBranch(t *testing.T) {
 	rec := do(importRouter(&fakeRemote{exists: map[string]bool{"main": true}}),
-		http.MethodPost, importBatchTarget, importBody(false, "main", chatA))
+		http.MethodPost, importBatchTarget, importBody("main", chatA))
 
 	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
 	assert.Contains(t, rec.Body.String(), "main")
@@ -212,7 +221,7 @@ func TestImport_RefusesABranchTheRemoteDoesNotHave(t *testing.T) {
 	remote := &fakeRemote{exists: map[string]bool{"feature/real": true}}
 
 	rec := do(importRouter(remote), http.MethodPost, importBatchTarget,
-		importBody(false, "feature/real", chatA, "feature/ghost", chatB))
+		importBody("feature/real", chatA, "feature/ghost", chatB))
 
 	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 	assert.Contains(t, rec.Body.String(), "feature/ghost")
@@ -225,7 +234,7 @@ func TestImport_ImportsWithoutTheCheckWhenTheFetchFails(t *testing.T) {
 	// An unreachable remote is not evidence that a branch is absent.
 	remote := &fakeRemote{fetchErr: errors.New("network down")}
 
-	rec := do(importRouter(remote), http.MethodPost, importBatchTarget, importBody(false, "feature/x", chatA))
+	rec := do(importRouter(remote), http.MethodPost, importBatchTarget, importBody("feature/x", chatA))
 
 	assert.Less(t, rec.Code, 400, "a failed refresh must not become a refusal")
 }
@@ -233,7 +242,7 @@ func TestImport_ImportsWithoutTheCheckWhenTheFetchFails(t *testing.T) {
 func TestImport_ImportsWithoutTheCheckWhenTheRefLookupErrors(t *testing.T) {
 	remote := &fakeRemote{existsErr: errors.New("bad object")}
 
-	rec := do(importRouter(remote), http.MethodPost, importBatchTarget, importBody(false, "feature/x", chatA))
+	rec := do(importRouter(remote), http.MethodPost, importBatchTarget, importBody("feature/x", chatA))
 
 	assert.Less(t, rec.Code, 400, "a failed ref check must not become a refusal")
 }
@@ -241,7 +250,7 @@ func TestImport_ImportsWithoutTheCheckWhenTheRefLookupErrors(t *testing.T) {
 func TestImport_SkipsTheCheckWithNoRemoteWired(t *testing.T) {
 	// A nil remote degrades rather than panicking — the same wiring contract
 	// WithRemoteRefs documents.
-	rec := do(importRouter(nil), http.MethodPost, importBatchTarget, importBody(false, "feature/x", chatA))
+	rec := do(importRouter(nil), http.MethodPost, importBatchTarget, importBody("feature/x", chatA))
 
 	assert.Less(t, rec.Code, 400)
 }

@@ -14,8 +14,7 @@ import (
 )
 
 // ImportInput carries a batch branch-import request: branches to import as
-// managed workspaces, PR-parented up to a protected/default root. Lock creates
-// the requested branches' workspaces locked.
+// managed workspaces, PR-parented up to a protected/default root.
 type ImportInput struct {
 	RepoID        string
 	ProjectID     string
@@ -23,13 +22,14 @@ type ImportInput struct {
 	RemoteURL     string
 	DefaultBranch string
 	Branches      []ImportBranch
-	Lock          bool
 }
 
-// ImportBranch is one requested branch and the chat id the caller draws it under.
+// ImportBranch is one requested branch, the chat id the caller draws it under,
+// and whether its workspace is created locked.
 type ImportBranch struct {
 	Name   string
 	ChatID string
+	Lock   bool
 }
 
 // ImportProgress hears each branch's outcome as the import settles it.
@@ -116,7 +116,7 @@ func (u *hierarchyUsecase) CreateFromImport(ctx context.Context, in ImportInput,
 		ask, isRequested := requested[branch]
 		outcome := u.createImportNode(ctx, in, importNode{
 			branch: branch, chatID: ask.ChatID, parentID: parentID, parentBranch: parentBranch,
-			locked: isRequested && in.Lock,
+			locked: isRequested && ask.Lock,
 		})
 		if outcome.Err == nil && outcome.WorkspaceID != "" {
 			created[branch] = outcome.WorkspaceID

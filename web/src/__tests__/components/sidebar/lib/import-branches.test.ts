@@ -35,38 +35,24 @@ const opRows = () =>
   rowsFromOperations(Object.values(useOperationsStore.getState().ops), { projectId: 'proj-1' })
 
 describe('performImportBranches', () => {
-  it('import sends one minted chat id per branch and the lock flag', () => {
+  it('a mixed lock choice is one import, each branch carrying its own lock', () => {
     importBranches.mockReturnValue(new Promise(() => {}))
 
-    performImportBranches('repo-1', ['feature-a', 'feature-b', 'release'], ['release'])
+    performImportBranches('repo-1', ['feature-a', 'release'], ['release'])
 
-    expect(importBranches).toHaveBeenCalledTimes(2)
-    const [locked, open] = importBranches.mock.calls
-    expect(locked?.slice(0, 4)).toEqual([
-      'proj-1',
-      'repo-1',
-      [{ name: 'release', chatId: expect.any(String) }],
-      true,
+    expect(importBranches).toHaveBeenCalledTimes(1)
+    const [projectId, repoId, sent] = importBranches.mock.calls[0]!
+    expect([projectId, repoId]).toEqual(['proj-1', 'repo-1'])
+    expect(sent).toEqual([
+      { name: 'feature-a', chatId: expect.any(String), lock: false },
+      { name: 'release', chatId: expect.any(String), lock: true },
     ])
-    expect(open?.slice(0, 4)).toEqual([
-      'proj-1',
-      'repo-1',
-      [
-        { name: 'feature-a', chatId: expect.any(String) },
-        { name: 'feature-b', chatId: expect.any(String) },
-      ],
-      false,
-    ])
-    const chatIds = [...locked![2], ...open![2]].map((b) => b.chatId)
-    expect(new Set(chatIds).size).toBe(3)
+    expect(new Set(sent.map((b) => b.chatId)).size).toBe(2)
     // Each branch is drawn at once, by the id the daemon will create its chat under.
-    expect(opRows().map((r) => [r.id, r.label])).toEqual(
-      expect.arrayContaining([
-        [open![2][0]!.chatId, 'feature-a'],
-        [open![2][1]!.chatId, 'feature-b'],
-        [locked![2][0]!.chatId, 'release'],
-      ]),
-    )
+    expect(opRows().map((r) => [r.id, r.label])).toEqual([
+      [sent[0]!.chatId, 'feature-a'],
+      [sent[1]!.chatId, 'release'],
+    ])
   })
 
   it('a refused import (409) shows its reason on each branch row', async () => {

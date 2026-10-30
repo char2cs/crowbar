@@ -13,6 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace/internal/hierarchy"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineprovider "github.com/char2cs/crowbar/api/internal/engine/provider"
 )
 
 // TestCreateFromImport_ProviderPRGraphError_FallsBackToDefaultParenting proves
@@ -235,6 +236,7 @@ func importFixture(
 	t *testing.T,
 	g *fakeGit,
 	fail map[string]error,
+	links ...engineprovider.PRLink,
 ) (hierarchy.Usecase, *fakeOwningChats, *[]workspace.CreateInput) {
 	t.Helper()
 	var created []workspace.CreateInput
@@ -247,23 +249,37 @@ func importFixture(
 			return domain.Workspace{ID: in.ID, Branch: in.Branch, WorktreePath: in.WorktreePath}, nil
 		},
 	}
-	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	uc := hierarchy.New(ws, g, &fakeProvider{prLinks: links}, &fakeRepoStore{}, newNow(), fakeHome())
 	return uc, withOwningChats(uc), &created
 }
 
-func importInput(lock bool, names ...string) hierarchy.ImportInput {
+func importInput(asks ...hierarchy.ImportBranch) hierarchy.ImportInput {
 	return hierarchy.ImportInput{
 		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo",
 		RemoteURL: "https://github.com/test/repo.git", DefaultBranch: "main",
-		Branches: branches(names...), Lock: lock,
+		Branches: asks,
 	}
+}
+
+func importOf(names ...string) hierarchy.ImportInput { return importInput(branches(names...)...) }
+
+func lockedAsk(name string) hierarchy.ImportBranch {
+	return hierarchy.ImportBranch{Name: name, ChatID: "chat-for-" + name, Lock: true}
+}
+
+func protectedByBranch(created []workspace.CreateInput) map[string]bool {
+	out := map[string]bool{}
+	for _, in := range created {
+		out[in.Branch] = in.Protected
+	}
+	return out
 }
 
 func TestCreateFromImport_ReportsEachBranchOutcome(t *testing.T) {
 	uc, _, _ := importFixture(t, &fakeGit{addStartSha: "sha"}, nil)
 	got := &outcomes{}
 
-	require.NoError(t, uc.CreateFromImport(context.Background(), importInput(false, "feat/a", "feat/b"), got))
+	require.NoError(t, uc.CreateFromImport(context.Background(), importOf("feat/a", "feat/b"), got))
 
 	require.Len(t, got.got, 2)
 	for _, branch := range []string{"feat/a", "feat/b"} {
@@ -277,7 +293,7 @@ func TestCreateFromImport_UsesTheClientChatIDs(t *testing.T) {
 	uc, chats, _ := importFixture(t, &fakeGit{addStartSha: "sha"}, nil)
 	got := &outcomes{}
 
-	require.NoError(t, uc.CreateFromImport(context.Background(), importInput(false, "feat/a"), got))
+	require.NoError(t, uc.CreateFromImport(context.Background(), importOf("feat/a"), got))
 
 	o := got.of(t, "feat/a")
 	assert.Equal(t, "chat-for-feat/a", o.ChatID)
@@ -292,7 +308,7 @@ func TestCreateFromImport_AFailedBranchKeepsItsChatAsThePlaceholderOwner(t *test
 	uc, chats, created := importFixture(t, &fakeGit{addErr: errBoom}, nil)
 	got := &outcomes{}
 
-	require.NoError(t, uc.CreateFromImport(context.Background(), importInput(false, "feat/a"), got))
+	require.NoError(t, uc.CreateFromImport(context.Background(), importOf("feat/a"), got))
 
 	o := got.of(t, "feat/a")
 	require.ErrorIs(t, o.Err, errBoom, "the outcome carries why the branch failed")
@@ -311,7 +327,7 @@ func TestCreateFromImport_AFailedPlaceholderStillReportsTheBranch(t *testing.T) 
 	uc, _, _ := importFixture(t, &fakeGit{addErr: errBoom}, map[string]error{"feat/a": placeholderErr})
 	got := &outcomes{}
 
-	require.NoError(t, uc.CreateFromImport(context.Background(), importInput(false, "feat/a"), got))
+	require.NoError(t, uc.CreateFromImport(context.Background(), importOf("feat/a"), got))
 
 	o := got.of(t, "feat/a")
 	require.ErrorIs(t, o.Err, errBoom)
@@ -319,11 +335,31 @@ func TestCreateFromImport_AFailedPlaceholderStillReportsTheBranch(t *testing.T) 
 	assert.Empty(t, o.WorkspaceID)
 }
 
-func TestCreateFromImport_LocksWhenAsked(t *testing.T) {
-	uc, _, created := importFixture(t, &fakeGit{addStartSha: "sha"}, nil)
+// Each requested branch takes its own lock, whichever order the chain creates
+// them in: x's PR base is y, so y is created first either way.
+func TestCreateFromImport_EachRequestedBranchTakesItsOwnLock(t *testing.T) {
+	x := hierarchy.ImportBranch{Name: "x", ChatID: "chat-for-x"}
+	for name, asks := range map[string][]hierarchy.ImportBranch{
+		"child first":    {x, lockedAsk("y")},
+		"ancestor first": {lockedAsk("y"), x},
+	} {
+		t.Run(name, func(t *testing.T) {
+			uc, _, created := importFixture(t, &fakeGit{addStartSha: "sha"}, nil,
+				engineprovider.PRLink{Head: "x", Base: "y"})
 
-	require.NoError(t, uc.CreateFromImport(context.Background(), importInput(true, "feat/a"), &outcomes{}))
+			require.NoError(t, uc.CreateFromImport(context.Background(), importInput(asks...), &outcomes{}))
 
-	require.Len(t, *created, 1)
-	assert.True(t, (*created)[0].Protected, "the workspace is created locked, not locked by a second command")
+			assert.Equal(t, map[string]bool{"x": false, "y": true}, protectedByBranch(*created),
+				"created locked, not locked by a second command")
+		})
+	}
+}
+
+func TestCreateFromImport_AnAncestorNobodyAskedForStaysUnlocked(t *testing.T) {
+	uc, _, created := importFixture(t, &fakeGit{addStartSha: "sha"}, nil,
+		engineprovider.PRLink{Head: "x", Base: "y"})
+
+	require.NoError(t, uc.CreateFromImport(context.Background(), importInput(lockedAsk("x")), &outcomes{}))
+
+	assert.Equal(t, map[string]bool{"x": true, "y": false}, protectedByBranch(*created))
 }

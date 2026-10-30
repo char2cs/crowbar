@@ -55,17 +55,17 @@ describe('hierarchical mutations are 202-empty (no synchronous entity)', () => {
 
   // Batch import moved onto the chat surface with the rest of creation: a
   // worktree is created and held by a chat, never by a route of its own.
-  test('POST .../chats/import-batch sends each branch with its chat id, the lock flag and the operation key', async () => {
+  test('POST .../chats/import-batch sends each branch with its chat id and lock, and the operation key', async () => {
     const branches = [
-      { name: 'feature/x', chatId: 'c1' },
-      { name: 'feature/y', chatId: 'c2' },
+      { name: 'feature/x', chatId: 'c1', lock: true },
+      { name: 'feature/y', chatId: 'c2', lock: false },
     ]
-    await importBranches('p1', 'r1', branches, true, 'op1')
+    await importBranches('p1', 'r1', branches, 'op1')
     const [url, init] = lastCall()
     expect(url).toBe('/v0/projects/p1/repos/r1/chats/import-batch')
     expect(init.method).toBe('POST')
     expect(new Headers(init.headers).get('Idempotency-Key')).toBe('op1')
-    expect(JSON.parse(init.body as string)).toEqual({ branches, lock: true })
+    expect(JSON.parse(init.body as string)).toEqual({ branches })
   })
 
   // It stays ONE call over the set rather than N single-branch creates. Only the
@@ -74,8 +74,8 @@ describe('hierarchical mutations are 202-empty (no synchronous entity)', () => {
   // for a branch another worktree already holds; a loop would drop all three
   // silently, and answer 202 while doing so.
   test('sends every branch in ONE request, never one request per branch', async () => {
-    const branches = ['a', 'b', 'c'].map((name) => ({ name, chatId: `chat-${name}` }))
-    await importBranches('p1', 'r1', branches, false, 'op1')
+    const branches = ['a', 'b', 'c'].map((name) => ({ name, chatId: `chat-${name}`, lock: false }))
+    await importBranches('p1', 'r1', branches, 'op1')
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [, init] = lastCall()
     expect(JSON.parse(init.body as string).branches).toEqual(branches)

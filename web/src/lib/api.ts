@@ -251,7 +251,7 @@ export function getRepoPullRequests(projectId: string, repoId: string): Promise<
 // each branch under the row for its open PR's base and creates missing ancestors
 // (the whole tree). Answers 202 with the operation: one item per branch, named
 // by the chat id the caller minted for it, settling with each branch's outcome.
-// `lock` creates the requested branches' workspaces locked.
+// A branch's `lock` creates its workspace locked.
 //
 // It is a route of its own rather than a loop over POST .../chats, which adopts
 // ONE named branch: only this one resolves the PR graph ACROSS a set, creates
@@ -261,14 +261,13 @@ export function getRepoPullRequests(projectId: string, repoId: string): Promise<
 export function importBranches(
   projectId: string,
   repoId: string,
-  branches: { name: string; chatId: string }[],
-  lock: boolean,
+  branches: { name: string; chatId: string; lock: boolean }[],
   opId: string,
 ): Promise<OperationReply> {
   return apiFetch<OperationReply>(`/v0/projects/${projectId}/repos/${repoId}/chats/import-batch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': opId },
-    body: JSON.stringify({ branches, lock }),
+    body: JSON.stringify({ branches }),
   })
 }
 

@@ -26,7 +26,7 @@ func importBranches(branches ...string) map[string]any {
 	for _, b := range branches {
 		rows = append(rows, map[string]string{"name": b, "chatId": uuid.NewString()})
 	}
-	return map[string]any{"branches": rows, "lock": false}
+	return map[string]any{"branches": rows}
 }
 
 // postKeyed POSTs body under Idempotency-Key key and returns the status and body.
