@@ -412,14 +412,11 @@ type Engine interface {
 		commit string,
 	) (added, deleted int, err error)
 
-	// MergeBase returns the best common ancestor of commits a and b, used to seed
-	// the forkPointSha of adopted worktrees on project import (00 §5.7).
-	MergeBase(
-		ctx context.Context,
-		repoPath string,
-		a string,
-		b string,
-	) (string, error)
+	// MergeBase returns the best common ancestor of commits a and b. ForkPoint is
+	// where branch forked from upstream as upstream's reflog remembers it, so it
+	// survives upstream being amended or squashed; "" when the reflog cannot say.
+	MergeBase(ctx context.Context, repoPath, a, b string) (string, error)
+	ForkPoint(ctx context.Context, repoPath, upstream, branch string) (string, error)
 
 	// WouldMergeConflicts reports, for each pair, whether a three-way merge of
 	// Theirs into Ours would conflict, computed non-destructively (git merge-tree

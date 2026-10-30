@@ -2,6 +2,7 @@ package hierarchy_test
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -230,4 +231,66 @@ func TestReparent_RebaseOntoError(t *testing.T) {
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.ErrorIs(t, err, errBoom)
+}
+
+// ForkPoint answers as a repo with no reflog would, so the fakes read merge-bases.
+func (f *fakeGit) ForkPoint(_ context.Context, repoPath, upstream, branch string) (string, error) {
+	f.record("ForkPoint", repoPath, upstream, branch)
+	return "", nil
+}
+
+// stacked is P under the base with one commit, and C under P with its own.
+func stacked(t *testing.T, h *realHarness) (domain.Workspace, domain.Workspace) {
+	t.Helper()
+	p := h.createChild(t, "feature/p", h.parentID, h.baseBranch)
+	commitInWorktree(t, p.WorktreePath, "p.txt", "p\n", "p work")
+	c := h.createChild(t, "feature/c", p.ID, p.Branch)
+	commitInWorktree(t, c.WorktreePath, "c.txt", "c\n", "c work")
+	return p, c
+}
+
+// amend rewrites P's commit with a different patch, as an amend or squash does.
+func amend(t *testing.T, p domain.Workspace) {
+	t.Helper()
+	writeFile(t, filepath.Join(p.WorktreePath, "p.txt"), "p rewritten\n")
+	gitRun(t, p.WorktreePath, "commit", "-a", "--amend", "-m", "p work, amended")
+}
+
+// movedOnto reparents c under a fresh sibling q of the base and returns c's
+// commit subjects on top of q.
+func movedOnto(t *testing.T, h *realHarness, c domain.Workspace) string {
+	t.Helper()
+	q := h.createChild(t, "feature/q", h.parentID, h.baseBranch)
+	commitInWorktree(t, q.WorktreePath, "q.txt", "q\n", "q work")
+	_, err := h.uc.Reparent(context.Background(), c.ID, q.ID)
+	require.NoError(t, err)
+	return trimNewline(gitRun(t, c.WorktreePath, "log", "--format=%s", "feature/q..HEAD"))
+}
+
+// TestRegression_ReparentReplaysOnlyCommitsTheOldParentLacks: the replay starts
+// from the old parent, never the new tip, so P's commit stays behind.
+func TestRegression_ReparentReplaysOnlyCommitsTheOldParentLacks(t *testing.T) {
+	h := newRealUsecase(t)
+	_, c := stacked(t, h)
+	assert.Equal(t, "c work", movedOnto(t, h, c))
+}
+
+// TestRegression_ReparentRestacksOffAnAmendedParent: a merge-base with the
+// rewritten parent predates the fork, so P's pre-amend commit was replayed too.
+func TestRegression_ReparentRestacksOffAnAmendedParent(t *testing.T) {
+	h := newRealUsecase(t)
+	p, c := stacked(t, h)
+	amend(t, p)
+	assert.Equal(t, "c work", movedOnto(t, h, c))
+}
+
+// TestRegression_ReparentWithoutAReflogKeepsEveryCommit: with no reflog to find
+// the fork, the merge-base replays more than C's own work but never less.
+func TestRegression_ReparentWithoutAReflogKeepsEveryCommit(t *testing.T) {
+	h := newRealUsecase(t)
+	p, c := stacked(t, h)
+	gitRun(t, h.repoPath, "config", "core.logAllRefUpdates", "false")
+	amend(t, p)
+	gitRun(t, h.repoPath, "reflog", "expire", "--expire=now", "--all")
+	assert.Equal(t, "c work\np work", movedOnto(t, h, c))
 }

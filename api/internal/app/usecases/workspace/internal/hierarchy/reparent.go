@@ -57,25 +57,37 @@ func (u *hierarchyUsecase) parentBranch(
 	return parent.Branch, nil
 }
 
-// replayBase is where a rebase of child starts replaying: its merge-base with
-// the first of refs that resolves, so every commit that ref lacks is kept. Not
-// the recorded fork point: an import records the branch's own tip there.
+// replayBase is where a rebase of child starts replaying; it owns this, not the
+// recorded fork point (an import records the branch's own tip). parentBranch's
+// reflog fork point survives an amended parent; each fallback replays more, never less.
 func (u *hierarchyUsecase) replayBase(
 	ctx context.Context,
 	child domain.Workspace,
-	refs ...string,
+	parentBranch string,
+	fallback string,
 ) (string, error) {
-	err := errors.New("no ref to replay from")
-	for _, ref := range refs {
-		if ref == "" {
-			continue
-		}
-		var base string
-		if base, err = u.git.MergeBase(ctx, child.WorktreePath, ref, child.Branch); err == nil {
-			return base, nil
-		}
+	if parentBranch == "" {
+		return u.mergeBase(ctx, child, fallback)
 	}
-	return "", fmt.Errorf("replay base: %w", err)
+	if fork, err := u.git.ForkPoint(ctx, child.WorktreePath, parentBranch, child.Branch); err == nil && fork != "" {
+		return fork, nil
+	}
+	if base, err := u.mergeBase(ctx, child, parentBranch); err == nil {
+		return base, nil
+	}
+	return u.mergeBase(ctx, child, fallback)
+}
+
+func (u *hierarchyUsecase) mergeBase(
+	ctx context.Context,
+	child domain.Workspace,
+	ref string,
+) (string, error) {
+	base, err := u.git.MergeBase(ctx, child.WorktreePath, ref, child.Branch)
+	if err != nil {
+		return "", fmt.Errorf("replay base: merge-base: %w", err)
+	}
+	return base, nil
 }
 
 // replayAndReparent tries to rebase the child onto the new parent's tip, then
@@ -168,7 +180,7 @@ func (u *hierarchyUsecase) RebaseOntoParent(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("rebase onto parent: parent tip: %w", err)
 	}
-	base, err := u.replayBase(ctx, child, tip)
+	base, err := u.replayBase(ctx, child, parent.Branch, tip)
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("rebase onto parent: %w", err)
 	}

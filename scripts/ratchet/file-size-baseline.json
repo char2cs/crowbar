@@ -63,7 +63,7 @@
   "api/internal/engine/fs/internal/watch/watcher_internal_test.go": 617,
   "api/internal/engine/fs/internal/watch/watcher_test.go": 551,
   "api/internal/engine/git/engine.go": 720,
-  "api/internal/engine/git/git.go": 617,
+  "api/internal/engine/git/git.go": 614,
   "api/internal/engine/git/internal/branches/branches_test.go": 643,
   "api/internal/engine/git/internal/diff/patch_test.go": 545,
   "api/internal/engine/git/internal/status/status_test.go": 641,

@@ -200,3 +200,19 @@ func TestRegression_RebaseOntoParentKeepsCommitsAStaleForkPointWouldDrop(t *test
 	assert.Equal(t, "b work", trimNewline(gitRun(t, child.WorktreePath, "log", "--format=%s", h.baseBranch+"..HEAD")))
 	assert.Empty(t, gitRun(t, child.WorktreePath, "merge-base", "--is-ancestor", h.baseBranch, "HEAD"))
 }
+
+// TestRegression_RebaseOntoParentRestacksOffAnAmendedParent: replaying from the
+// merge-base with the rewritten parent re-applied P's old commit onto its amended
+// self, an add/add conflict; only C's commit belongs on top.
+func TestRegression_RebaseOntoParentRestacksOffAnAmendedParent(t *testing.T) {
+	h := newRealUsecase(t)
+	p, c := stacked(t, h)
+	amend(t, p)
+
+	got, err := h.uc.RebaseOntoParent(context.Background(), c.ID)
+	require.NoError(t, err)
+
+	assert.NotEqual(t, domain.WorkspaceStatusPRConflicts, got.Status)
+	assert.Equal(t, "c work", trimNewline(gitRun(t, c.WorktreePath, "log", "--format=%s", "feature/p..HEAD")))
+	assert.Empty(t, gitRun(t, c.WorktreePath, "merge-base", "--is-ancestor", "feature/p", "HEAD"))
+}
