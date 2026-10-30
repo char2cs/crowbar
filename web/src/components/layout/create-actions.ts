@@ -224,6 +224,8 @@ export async function handleCreate(
   presentation?: LandingChatPresentation,
   /** A fork's branch name, already asked for (the phone); otherwise it is named inline. */
   branchName?: string,
+  /** The phone opens a plain new thread as a draft; the desktop creates its chat at once. */
+  asDraft = false,
 ): Promise<void> {
   const homeRow = resolveHomeRowScope(parentId)
   if (homeRow) {
@@ -257,8 +259,8 @@ export async function handleCreate(
     toast.error('Start a thread from a workspace row — a folder has none to run it in')
     return
   }
-  // A plain new thread on a workspace is a draft: no chat exists until its first send.
-  if (!chatRow && subject.kind === 'workspace' && presentation === undefined) {
+  // A draft thread on a workspace: no chat exists until its first send.
+  if (asDraft && !chatRow && subject.kind === 'workspace' && presentation === undefined) {
     const draftId = newDraftChatId()
     if (!openChatInOwnView(draftId, wsId)) {
       await navigateThenOpenChat(navigate, { projectId, repoId: repo.id, wsId }, draftId)

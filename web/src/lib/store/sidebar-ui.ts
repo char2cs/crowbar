@@ -21,23 +21,33 @@ export interface SidebarUIState {
   collapsedChatRows: Set<string>
   /** The mode the user chose; what shows also depends on availability (sidebar-panel-tabs.ts). */
   activeTab: SidebarTab
+  /**
+   * The host whose projects the switcher lists; '' until one is chosen. A preference only: what
+   * shows is `shownHostOf` (host-filter.ts), where the active project's host wins.
+   */
+  hostFilter: string
   /** Fold a Chats-panel row away, or open it again. */
   toggleChatRow: (rowId: string) => void
   setActiveTab: (tab: SidebarTab) => void
+  setHostFilter: (hostId: string) => void
 }
 
-export function initialSidebarUIState(): Pick<SidebarUIState, 'collapsedChatRows' | 'activeTab'> {
+type Persisted = Pick<SidebarUIState, 'collapsedChatRows' | 'activeTab' | 'hostFilter'>
+
+export function initialSidebarUIState(): Persisted {
   return {
     collapsedChatRows: new Set<string>(),
     activeTab: 'chats',
+    hostFilter: '',
   }
 }
 
-// Folds and mode share one record, so every write carries both.
-function persist(state: Pick<SidebarUIState, 'collapsedChatRows' | 'activeTab'>): void {
+// Folds, mode and host filter share one record, so every write carries all three.
+function persist(state: Persisted): void {
   void saveSidebarUI({
     collapsedChatRows: [...state.collapsedChatRows],
     activeTab: state.activeTab,
+    hostFilter: state.hostFilter,
   })
 }
 
@@ -50,13 +60,19 @@ export const createSidebarUISlice: StateCreator<SidebarUIState, [], [], SidebarU
       const next = new Set(s.collapsedChatRows)
       if (next.has(rowId)) next.delete(rowId)
       else next.add(rowId)
-      persist({ collapsedChatRows: next, activeTab: s.activeTab })
+      persist({ ...s, collapsedChatRows: next })
       return { collapsedChatRows: next }
     }),
   setActiveTab: (tab) =>
     set((s) => {
       if (s.activeTab === tab) return s
-      persist({ collapsedChatRows: s.collapsedChatRows, activeTab: tab })
+      persist({ ...s, activeTab: tab })
       return { activeTab: tab }
+    }),
+  setHostFilter: (hostId) =>
+    set((s) => {
+      if (s.hostFilter === hostId) return s
+      persist({ ...s, hostFilter: hostId })
+      return { hostFilter: hostId }
     }),
 })

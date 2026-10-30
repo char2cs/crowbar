@@ -9,8 +9,8 @@ import { onNativeChromeIntent, setNativeTabs, type NativeTabs } from '@/lib/nati
 
 type NativeTab = NativeTabs['tabs'][number]
 
-const TERMINAL_ACTION = { id: 'terminal', title: 'New Terminal', symbol: 'apple.terminal' }
-const REVIEW_ACTION = { id: 'review', title: 'Review Branch', symbol: 'arrow.triangle.pull' }
+const TERMINAL_ACTION = { id: 'terminal', title: 'New Terminal', icon: 'TerminalWindow' }
+const REVIEW_ACTION = { id: 'review', title: 'Review Branch', icon: 'GitPullRequest' }
 
 function kindOf(buffer: PaneContent): Pick<NativeTab, 'kind' | 'path'> {
   switch (buffer.type) {

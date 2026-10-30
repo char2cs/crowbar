@@ -296,10 +296,11 @@ export function AgentChatPaneBody({
   // its own font-size-based terminalZoomLevel).
   const chatZoom = useZoomStore.use.zoom()
   const providerName = providers.find((p) => p.id === activeProviderId)?.displayName || 'the agent'
-  const { known, liveRunnerId, attachment, revival, sessionNote, canSend, startSession } =
+  const { known, liveRunnerId, attachment, revival, sessionNote, canSend, offline, startSession } =
     usePaneSession({
       store,
       wsId,
+      hostId,
       chatId: shownChatId,
       providerName,
       presentation,
@@ -599,6 +600,8 @@ export function AgentChatPaneBody({
     void (async () => {
       try {
         await switchToTerminal(wsId, shownChatId)
+        // A dormant chat only records the move; its start is what lands on the TUI.
+        if (attachment.state === 'idle') startSession()
         setPresentation('terminal')
       } catch (err: unknown) {
         // Left where they were: a view that never came up is worse than
@@ -688,6 +691,10 @@ export function AgentChatPaneBody({
     const chatProvider = providers.find((p) => p.id === activeProviderId)
     const hotswap = chatProvider ? chatProvider.hotswap === true : true
     if (hotswap || next === presentation) {
+      // Asking for the TUI of a dormant chat is the intent to run it; no second button.
+      if (next === 'terminal' && presentation !== 'terminal' && attachment.state === 'idle') {
+        startSession()
+      }
       setPresentation(next)
       return
     }
@@ -956,6 +963,7 @@ export function AgentChatPaneBody({
               turnRevision={turnRevision}
               live={attachment.state === 'attached' || promptReplacing}
               canSend={canSend}
+              offline={offline}
               sessionNote={sessionNote}
               revival={revival}
               // In split the chat is genuinely in front of the user, so it is
@@ -965,7 +973,8 @@ export function AgentChatPaneBody({
               // Unknown chats never resolve, so this doubles as "give up polling a
               // chat that will 404 forever" — not just tab visibility.
               visible={isVisible && (known || (!listSeeded && placed))}
-              awaitingList={!known && !listSeeded}
+              // An unreachable host never answers the list; holding for it hides the cache.
+              awaitingList={!known && !listSeeded && !offline}
               isActivePane={isActivePane}
               // The daemon has confirmed shownChatId does not exist (a stale
               // pane from a wiped/reseeded backend, or a chat deleted from

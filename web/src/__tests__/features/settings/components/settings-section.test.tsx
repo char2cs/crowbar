@@ -1,5 +1,14 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  get IS_MOBILE() {
+    return platform.mobile
+  },
+}))
+
+import NumberInput from '@/components/ui/number-input'
 import Section, { SettingRow } from '@/features/settings/components/settings-section'
 import { useSettingsStore } from '@/features/settings/store'
 
@@ -40,6 +49,7 @@ const setQuery = (query: string) => {
 }
 
 afterEach(() => {
+  platform.mobile = false
   act(() => {
     useSettingsStore.getState().clearSearch()
   })
@@ -113,5 +123,66 @@ describe('settings search row filtering', () => {
       expect(useSettingsStore.getState().search.results.length).toBeGreaterThan(0),
     )
     expect(useSettingsStore.getState().search.isSearching).toBe(false)
+  })
+})
+
+// The phone's native Settings hosts these tabs: one line per setting, in a card.
+describe('mobile setting rows', () => {
+  const rowOf = (label: string) => screen.getByText(label).closest('[data-setting-layout]')
+
+  it('puts the label, its description and the control in one row, inside a card', () => {
+    platform.mobile = true
+    render(
+      <Section title="Cursor">
+        <SettingRow label="Blink" description="Whether the cursor blinks">
+          <button type="button">blink-control</button>
+        </SettingRow>
+      </Section>,
+    )
+    const row = rowOf('Blink')
+    expect(row).toHaveAttribute('data-setting-layout', 'inline')
+    expect(row).toContainElement(screen.getByText('Whether the cursor blinks'))
+    expect(row).toContainElement(screen.getByText('blink-control'))
+    expect(row?.closest('[data-settings-card]')).not.toBeNull()
+  })
+
+  // The phone sizes every stepper alike so their columns line up; the row finds it by this slot.
+  it('wraps a stepper in the number-input slot its row sizes', () => {
+    platform.mobile = true
+    render(
+      <Section title="Terminal">
+        <SettingRow label="Scrollback">
+          <NumberInput value={10000} onChange={vi.fn()} />
+        </SettingRow>
+      </Section>,
+    )
+    const control = rowOf('Scrollback')?.querySelector('[data-slot="number-input"]')
+    expect(control).not.toBeNull()
+    expect(control?.querySelector('input')).toHaveValue('10000')
+  })
+
+  it('stacks a control that cannot sit beside its label, with the same row chrome', () => {
+    platform.mobile = true
+    render(
+      <Section title="Typography">
+        <SettingRow label="Font" layout="stacked">
+          <button type="button">font-control</button>
+        </SettingRow>
+      </Section>,
+    )
+    expect(rowOf('Font')).toHaveAttribute('data-setting-layout', 'stacked')
+    expect(rowOf('Font')?.closest('[data-settings-card]')).not.toBeNull()
+  })
+
+  it('leaves the desktop rows and sections as they were', () => {
+    render(
+      <Section title="Cursor">
+        <SettingRow label="Blink" layout="stacked">
+          <button type="button">blink-control</button>
+        </SettingRow>
+      </Section>,
+    )
+    expect(document.querySelector('[data-setting-layout]')).toBeNull()
+    expect(document.querySelector('[data-settings-card]')).toBeNull()
   })
 })

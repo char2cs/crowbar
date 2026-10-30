@@ -16,7 +16,6 @@ import {
   useSidebarDrag,
   SIDEBAR_DRAG_THRESHOLD_PX,
   PANE_DROP_ATTR,
-  PANE_HIT_ATTR,
   type SidebarPaneZone,
 } from '@/components/sidebar/hooks/use-sidebar-drag'
 import { useDragStore } from '@/features/panes/stores/drag-store'
@@ -30,6 +29,8 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 }))
 
 const ROW_H = 36
+// What the pane painter writes; asserted as the DOM outcome, not imported.
+const PANE_HIT_ATTR = 'data-pane-hit'
 
 function stubRect(el: Element, rect: Partial<DOMRect>) {
   const full = { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, ...rect }
@@ -126,6 +127,7 @@ function renderDrag(
     onDrop?: DropMock
     onPaneDrop?: PaneDropMock
     scroller?: HTMLElement | null
+    reorderInStrip?: boolean
   } = {},
 ) {
   const onDrop: DropMock = overrides.onDrop ?? vi.fn()
@@ -143,6 +145,7 @@ function renderDrag(
         }),
       onDrop,
       onPaneDrop,
+      strip: overrides.reorderInStrip ? () => scrollRef.current : undefined,
     }),
   )
   return { ...view, onDrop, onPaneDrop }
@@ -1017,5 +1020,118 @@ describe('useSidebarDrag', () => {
 
     expect(onDrop).not.toHaveBeenCalled()
     expect(onPaneDrop).not.toHaveBeenCalled()
+  })
+
+  describe('a tab dragged within the view tabs strip', () => {
+    const chat = (id: string): SidebarRow => ({ ...baseRow, id, kind: 'chat', workspaceId: id })
+
+    /** Four 100px tabs in a 32px strip at the top, each holding one recents row. */
+    function buildStrip() {
+      const strip = document.createElement('div')
+      stubRect(strip, { left: 100, right: 500, top: 0, bottom: 32, width: 400, height: 32 })
+      document.body.appendChild(strip)
+      const rows = ['t0', 't1', 't2', 't3'].map((id, i) => {
+        rowRegistry.set(id, chat(id))
+        const tab = document.createElement('div')
+        stubRect(tab, { left: 100 + i * 100, right: 200 + i * 100, width: 100, top: 0, height: 32 })
+        const row = document.createElement('div')
+        row.setAttribute(ROW_KIND_ATTR.chat, id)
+        row.setAttribute('data-sidebar-drop-parent', '')
+        row.setAttribute('data-sidebar-recents-row', '')
+        stubRect(row, { left: 100 + i * 100, right: 200 + i * 100, width: 100, top: 0, height: 32 })
+        tab.appendChild(row)
+        strip.appendChild(tab)
+        return row
+      })
+      return { strip, rows }
+    }
+
+    it('reorders on release in the band, and never offers the panes below it', () => {
+      const { strip, rows } = buildStrip()
+      const pane = makePane('p1', {
+        left: 0,
+        right: 600,
+        top: 32,
+        bottom: 400,
+        width: 600,
+        height: 368,
+      })
+      const { result, onDrop, onPaneDrop } = renderDrag({ scroller: strip, reorderInStrip: true })
+
+      press(result, chat('t0'), rows[0], 130, 16)
+      move(300, 16)
+      move(420, 40) // below the strip, over the pane, still in the band
+      expect(result.current.paneHit).toBeNull()
+      release(420, 40)
+
+      expect(onPaneDrop).not.toHaveBeenCalled()
+      expect(onDrop).toHaveBeenCalledTimes(1)
+      const [subjects, target, mode, inRecents] = onDrop.mock.calls[0] as unknown as [
+        SidebarRow[],
+        SidebarRow,
+        DropMode,
+        boolean,
+      ]
+      expect([subjects[0].id, target.id, mode, inRecents]).toEqual(['t0', 't3', 'after', true])
+      pane.remove()
+    })
+
+    it('becomes the floating ghost out of the band, where a pane edge still takes the drop', () => {
+      const { strip, rows } = buildStrip()
+      makePane('p1', { left: 0, right: 600, top: 32, bottom: 400, width: 600, height: 368 })
+      const { result, onDrop, onPaneDrop } = renderDrag({ scroller: strip, reorderInStrip: true })
+
+      press(result, chat('t0'), rows[0], 130, 16)
+      move(420, 16)
+      move(590, 200) // far below the band, on the pane's right edge
+      expect(result.current.paneHit?.zone).toBe('right')
+      release(590, 200)
+
+      expect(onDrop).not.toHaveBeenCalled()
+      expect(onPaneDrop).toHaveBeenCalledWith([chat('t0')], 'p1', 'right')
+      expect(strip.children[1]).toHaveProperty('style.transform', '')
+    })
+
+    it('does nothing when the tab is released where it started', () => {
+      const { strip, rows } = buildStrip()
+      const { result, onDrop } = renderDrag({ scroller: strip, reorderInStrip: true })
+
+      press(result, chat('t1'), rows[1], 230, 16)
+      move(260, 16)
+      release(230, 16)
+
+      expect(onDrop).not.toHaveBeenCalled()
+      expect(toast.error).not.toHaveBeenCalled()
+    })
+
+    it('drops a subject pressed outside the strip (a pane handle) as a new tab at the insertion point', () => {
+      const { strip } = buildStrip()
+      const handle = document.createElement('button')
+      stubRect(handle, { left: 300, right: 312, top: 200, bottom: 212, width: 12, height: 12 })
+      document.body.appendChild(handle)
+      const pane = chat('pane-chat')
+      rowRegistry.set(pane.id, pane)
+      const { result, onDrop, onPaneDrop } = renderDrag({ scroller: strip, reorderInStrip: true })
+
+      press(result, pane, handle, 306, 206)
+      move(306, 120)
+      move(200, 20) // into the band, left of the second tab's midpoint
+      expect(result.current.paneHit).toBeNull()
+      release(200, 20)
+
+      expect(onPaneDrop).not.toHaveBeenCalled()
+      const [subjects, target, mode, inRecents] = onDrop.mock.calls[0] as unknown as [
+        SidebarRow[],
+        SidebarRow,
+        DropMode,
+        boolean,
+      ]
+      expect([subjects[0].id, target.id, mode, inRecents]).toEqual([
+        'pane-chat',
+        't1',
+        'before',
+        true,
+      ])
+    })
   })
 })

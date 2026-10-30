@@ -2088,6 +2088,26 @@ describe('AgentChatView non-conversational roles', () => {
     expect(screen.queryByTestId('agent-message-1')).not.toBeInTheDocument()
   })
 
+  it('offers Try again on a halt, and it sends the prompt that halted again', async () => {
+    initialMessages = [
+      message(1, 'user', 'optimize the run'),
+      roleMessage(2, 'notice', 'authentication_failed'),
+    ]
+    setup({ canSend: true })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Try again' }))
+
+    await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+    expect(submitPromptFn.mock.calls[0]?.slice(0, 3)).toEqual(['w1', 'c1', 'optimize the run'])
+  })
+
+  it('offers no Try again when no prompt came before the halt', async () => {
+    initialMessages = [roleMessage(1, 'notice', 'authentication_failed')]
+    setup({ canSend: true })
+    expect(await screen.findByText('authentication_failed')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+  })
+
   it('still renders a role this build has never heard of', async () => {
     // A newer daemon minting a role must not make a turn the agent acted on
     // disappear from the transcript.

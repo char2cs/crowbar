@@ -69,7 +69,7 @@ export function AgentTerminalWaitBanner({
       data-testid="agent-terminal-wait"
       data-wait-kind={kind}
     >
-      <p className="min-w-0 truncate text-warning-foreground pointer-coarse:flex-[1_1_14rem] pointer-coarse:whitespace-normal pointer-coarse:overflow-visible">
+      <p className="min-w-0 truncate text-warning-foreground dark:text-warning pointer-coarse:flex-[1_1_14rem] pointer-coarse:whitespace-normal pointer-coarse:overflow-visible">
         {what} <span className="text-muted-foreground">Crowbar can’t answer this one.</span>
       </p>
       <div className="ml-auto flex shrink-0 items-center gap-1.5">

@@ -49,8 +49,8 @@ describe('useNativeTabs', () => {
     expect(last()).toEqual({
       tabs: [],
       newTabActions: [
-        { id: 'terminal', title: 'New Terminal', symbol: 'apple.terminal' },
-        { id: 'review', title: 'Review Branch', symbol: 'arrow.triangle.pull' },
+        { id: 'terminal', title: 'New Terminal', icon: 'TerminalWindow' },
+        { id: 'review', title: 'Review Branch', icon: 'GitPullRequest' },
       ],
     })
     unmount()

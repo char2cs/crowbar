@@ -187,6 +187,7 @@ import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persist
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
+import { reportChannelState } from '@/lib/ws/connection-store'
 import { useSettingsStore } from '@/features/settings/store'
 import {
   nextVersion,
@@ -421,7 +422,12 @@ const paneOf = (_store: Store, id: string) => windowPaneStore.getState().panes[i
 // The default backend is a HEALTHY one: a resume brings the chat's CLI back, and reading
 // the chat back afterwards shows the runner now on it. Tests that are about failure say
 // so explicitly by overriding these — nothing else has to opt in to "it worked".
+// The daemon is up: the pane's sockets in this jsdom never connect, and a closed local channel
+// reads as an offline chat.
+const DAEMON_CHANNEL = 'test://daemon'
+
 beforeEach(() => {
+  reportChannelState(DAEMON_CHANNEL, true, 'local')
   platform.mobile = false
   resetWindowPaneStoreForTests()
   chatLedgerStore.setState({ ledgers: {} })
@@ -772,6 +778,22 @@ describe('AgentChatPane', () => {
     })
   })
 
+  describe('terminal view of a dormant non-hotswap chat', () => {
+    it('records the move, then starts the session so the TUI is what comes up', async () => {
+      const store = seedWorkspace([dormantChat({ id: 'c1', provider: 'codex' })])
+      store.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
+      switchToTerminalFn.mockResolvedValue('')
+      await renderPane(store, openChatPane(store, 'c1', ''))
+
+      fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
+
+      await vi.waitFor(() => expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1'))
+      expect(switchToTerminalFn.mock.invocationCallOrder[0]).toBeLessThan(
+        resumeChatFn.mock.invocationCallOrder[0],
+      )
+    })
+  })
+
   // ── Header clearance: the chat's own overlay header must never cover pinned UI ──
   // ChatColumnHeader/ChatOnlyPaneHeader (pane-top-row.tsx) float as an absolute,
   // z-10 overlay with NO fill of their own — the chat surface behind is meant to
@@ -1089,6 +1111,22 @@ describe('AgentChatPane', () => {
       expect(screen.queryByRole('textbox', { name: /message the agent/i })).toBeNull()
     })
 
+    // The transcript stays up from the cache; nothing typed would reach a daemon that is gone.
+    it('turns the composer into a read-only note while the chat’s host does not answer', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
+      expect(await screen.findByRole('textbox', { name: /message the agent/i })).toBeInTheDocument()
+
+      act(() => reportChannelState(DAEMON_CHANNEL, false, 'local'))
+
+      expect(await screen.findByText('Offline — read-only')).toBeInTheDocument()
+      expect(screen.queryByRole('textbox', { name: /message the agent/i })).toBeNull()
+
+      act(() => reportChannelState(DAEMON_CHANNEL, true, 'local'))
+
+      expect(await screen.findByRole('textbox', { name: /message the agent/i })).toBeInTheDocument()
+    })
+
     it('notes a revive that continued from the transcript', async () => {
       const store = seedWorkspace([
         {
@@ -1109,6 +1147,17 @@ describe('AgentChatPane', () => {
       expect(resumeChatFn).not.toHaveBeenCalled()
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: /start session/i }))
+      })
+      expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1')
+    })
+
+    it('starting the terminal view on a dormant chat spawns its session itself', async () => {
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      await renderPane(store, openChatPane(store, 'c1', ''))
+
+      expect(resumeChatFn).not.toHaveBeenCalled()
+      await act(async () => {
+        fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
       })
       expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1')
     })
@@ -1302,6 +1351,7 @@ describe('AgentChatPane', () => {
       await pressToggle()
 
       expect(screen.getByRole('tab', { name: /^chat$/i })).toHaveAttribute('aria-selected', 'true')
+      expect(resumeChatFn).not.toHaveBeenCalled() // the live session survives both ways
     })
 
     it('still fires when the focused child swallows the key (xterm stopPropagation)', async () => {

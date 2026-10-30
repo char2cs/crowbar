@@ -8,12 +8,22 @@ import {
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
 import type { Host } from '@/features/hosts/types'
-import { idle, type Loadable } from '@/lib/loadable'
+import { dataOf, idle, type Loadable } from '@/lib/loadable'
 import { saveCache } from '@/lib/persistence/cache-store'
 import { resetDB } from '@/lib/persistence/idb'
 import { useProjectDataStore } from '@/lib/store/projects'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { getHomeTree, useHomeTreeStore } from '@/lib/store/home-tree'
+import {
+  __resetHomeWorkspaceResolverForTest,
+  getHomeWorkspaceId,
+} from '@/features/workspace/lib/home-workspace-resolver'
 import type { Repo } from '@/lib/store/sidebar'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import {
+  __resetWorkspaceScopesForTest,
+  getWorkspaceScope,
+  recordWorkspaceScope,
+} from '@/lib/workspace-scope'
 import { projectOn } from '@/__tests__/__fixtures__/remote-host'
 
 const remoteHost: Host = {
@@ -73,6 +83,7 @@ describe('hydrateCriticalStores', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     workspaceListData.current = { status: 'idle' }
+    useFolderSignalStore.setState({ seededRepoIds: new Set() })
   })
 
   it('hydrates preferences and pane layout', async () => {
@@ -121,6 +132,27 @@ describe('hydrateCriticalStores', () => {
 
     expect(setRepos).toHaveBeenCalledWith([testRepo])
     expect(order).toEqual(['fetch', 'setRepos', 'hydrateSidebar'])
+  })
+
+  // An unreachable host never answers the tree seed, so the cache alone has to be
+  // enough for the sidebar to draw the repos boot just put in the store.
+  it('counts the repos read from the cache as seeded, once they are in the store', async () => {
+    const cached: Repo = {
+      ...testRepo,
+      workspaces: [{ id: 'w1', branch: 'main', age: '', owningChatId: 'c1' }],
+    }
+    workspaceListFetch.mockImplementation(async () => {
+      workspaceListData.current = { status: 'success', data: [cached], fetchedAt: Date.now() }
+    })
+    let seededWhenSet = true
+    setRepos.mockImplementation(() => {
+      seededWhenSet = useFolderSignalStore.getState().seededRepoIds.has('r1')
+    })
+
+    await hydrateCriticalStores()
+
+    expect(seededWhenSet).toBe(false)
+    expect(useFolderSignalStore.getState().seededRepoIds.has('r1')).toBe(true)
   })
 
   it('registers nothing with the desktop proxy where no remote host was ever paired', async () => {
@@ -268,6 +300,8 @@ describe('the cached project list at boot', () => {
     resetWindowPaneStoreForTests()
     chatLedgerStore.setState({ ledgers: {} })
     __resetWorkspaceScopesForTest()
+    __resetHomeWorkspaceResolverForTest()
+    useHomeTreeStore.setState({ trees: {} })
     recordWorkspaceScope({ projectId: 'p-local', repoId: 'r1', wsId: 'w1', owningChatId: 'o1' })
     fetchMock = vi.fn(async () => new Response(JSON.stringify(PAGE), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
@@ -297,10 +331,37 @@ describe('the cached project list at boot', () => {
     expect(requested()).not.toContain('/v0/projects')
   })
 
-  it('leaves the list alone where no remote host was ever paired', async () => {
+  // The sidebar tree is read for the projects the list carries, so a local-only
+  // install that never seeded it would draw only the active project's cache.
+  // A restored home pane resolves its host from the workspace scope, which only
+  // GET /home gives: the last answer has to be in place before the first commit.
+  it('holds each known project’s cached home workspace and tree before boot settles', async () => {
+    await saveCache('workspaces-data', 'home-workspace:p-local', {
+      wsId: 'ws-home-cached',
+      owningChatId: 'chat-home-cached',
+      localPath: '/home/cached',
+    })
+    await saveCache('workspaces-data', 'home-tree:p-local', {
+      chats: [{ id: 'c-home', repoId: '', title: 'Home chat', order: 0 }],
+      folders: [],
+    })
+
     await hydrateCriticalStores()
 
-    expect(useProjectDataStore.getState().data.status).toBe('idle')
+    expect(getHomeWorkspaceId('p-local')).toBe('ws-home-cached')
+    expect(getWorkspaceScope('ws-home-cached')?.projectId).toBe('p-local')
+    expect(getHomeTree('p-local').chats.map((c) => c.id)).toEqual(['c-home'])
+  })
+
+  it('holds the cached list where no remote host was ever paired, without reading the network', async () => {
+    await hydrateCriticalStores()
+
+    expect(useProjectDataStore.getState().data.status).toBe('loading')
+    expect(dataOf(useProjectDataStore.getState().data)?.map((p) => p.id)).toEqual([
+      'p-local',
+      'p-remote',
+    ])
     await vi.waitFor(() => expect(requested()).toContain(MESSAGES))
+    expect(requested()).not.toContain('/v0/projects')
   })
 })

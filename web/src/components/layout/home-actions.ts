@@ -96,6 +96,22 @@ export function handleCreateHomeThread(
   homeWorkspaceId: string,
   navigate: NavigateFn,
 ): Promise<void> {
+  return startThread({
+    inFlightKey: `thread:home:${projectId}`,
+    projectId,
+    workspaceId: homeWorkspaceId,
+    parentId: '',
+    landed: (chatId) => waitForRootHomeChat(projectId, homeWorkspaceId, chatId),
+    onCreated: (chatId) => openHomeChat(projectId, homeWorkspaceId, chatId, navigate),
+  })
+}
+
+/** The phone's New thread: a blank draft in project home, its chat created on the first send. */
+export function openHomeDraft(
+  projectId: string,
+  homeWorkspaceId: string,
+  navigate: NavigateFn,
+): Promise<void> {
   return openHomeChat(projectId, homeWorkspaceId, newDraftChatId(), navigate)
 }
 

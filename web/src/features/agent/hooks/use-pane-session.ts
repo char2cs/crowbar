@@ -4,6 +4,8 @@ import { resumeChat } from '@/features/agent/api/agent-api'
 import type { ComposerRevival } from '@/features/agent/composer/lib/composer-state'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { describeDormant, describeRung, sessionView } from '@/features/agent/lib/session-status'
+import { useHostDotState } from '@/features/hosts/hooks/use-host-status'
+import { hostIsUnreachable } from '@/features/hosts/lib/host-tone'
 import type { TerminalAttachment } from '@/features/agent/terminal/agent-terminal-surface'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
@@ -11,6 +13,8 @@ import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store
 export interface PaneSessionInputs {
   store: WorkspaceStore
   wsId: string
+  /** The host the chat runs on; its reachability decides `offline`. */
+  hostId: string
   chatId: string
   providerName: string
   presentation: ChatPresentation
@@ -27,8 +31,10 @@ export interface PaneSession {
   revival?: ComposerRevival
   /** Why a dormant chat is dormant, or that a revive continued from the transcript. */
   sessionNote?: string
-  /** A send may be dispatched: live, or dormant (the send revives it). */
+  /** A send may be dispatched: live, or dormant (the send revives it), and the host answers. */
   canSend: boolean
+  /** The chat's host does not answer: the pane shows what it last held, read-only. */
+  offline: boolean
   /** The terminal surface's "Start session": resume without sending. */
   startSession: () => void
 }
@@ -42,11 +48,13 @@ export interface PaneSession {
 export function usePaneSession({
   store,
   wsId,
+  hostId,
   chatId,
   providerName,
   presentation,
   promptReplacing,
 }: PaneSessionInputs): PaneSession {
+  const offline = hostIsUnreachable(useHostDotState(hostId))
   const known = useStore(store, (s) => s.agentChats.chats.some((c) => c.id === chatId))
   const liveRunnerId = useStore(
     store,
@@ -101,7 +109,8 @@ export function usePaneSession({
     attachment,
     revival,
     sessionNote,
-    canSend: attachment.state === 'attached' || attachment.state === 'idle',
+    canSend: !offline && (attachment.state === 'attached' || attachment.state === 'idle'),
+    offline,
     startSession,
   }
 }

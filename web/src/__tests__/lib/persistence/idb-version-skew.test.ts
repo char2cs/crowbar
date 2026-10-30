@@ -25,7 +25,6 @@ const ENTITY_STORES = [
   'crowbar_projects',
   'crowbar_repos',
   'crowbar_workspaces',
-  'crowbar_threads',
   'crowbar_folders',
   'crowbar_chats',
 ] as const

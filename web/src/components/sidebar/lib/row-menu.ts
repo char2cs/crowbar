@@ -44,13 +44,13 @@ export type RowMenuActionId =
   | 'delete-repo'
   | RowButtonVerb
 
-/** One verb of a sidebar row's menu: the desktop draws `icon`, the phone's native menu `symbol`. */
+/** One verb of a sidebar row's menu: the desktop draws `icon`, the phone's native menu `nativeIcon`. */
 export interface RowMenuAction {
   id: RowMenuActionId
   label: string
   icon: Icon
-  /** SF Symbol name for the phone's native menu. */
-  symbol: string
+  /** The Phosphor name of `icon`, for the phone's native menu. */
+  nativeIcon: string
   destructive: boolean
 }
 
@@ -63,51 +63,58 @@ export interface RowMenuHandlers {
   fork: (row: SidebarRow) => void
   /** The phone confirms natively first, so a removal there commits at once instead of draining. */
   removeAtOnce?: boolean
+  /** The phone opens a new thread as a draft, created on its first send. */
+  draftThreads?: boolean
 }
 
 const ACTIONS: Record<RowMenuActionId, Omit<RowMenuAction, 'id'>> = {
-  rename: { label: 'Rename', icon: PencilSimpleLine, symbol: 'pencil', destructive: false },
-  lock: { label: 'Lock', icon: Lock, symbol: 'lock', destructive: false },
-  unlock: { label: 'Unlock', icon: LockOpen, symbol: 'lock.open', destructive: false },
+  rename: {
+    label: 'Rename',
+    icon: PencilSimpleLine,
+    nativeIcon: 'PencilSimpleLine',
+    destructive: false,
+  },
+  lock: { label: 'Lock', icon: Lock, nativeIcon: 'Lock', destructive: false },
+  unlock: { label: 'Unlock', icon: LockOpen, nativeIcon: 'LockOpen', destructive: false },
   import: {
     label: 'Import branches',
     icon: DownloadSimple,
-    symbol: 'square.and.arrow.down',
+    nativeIcon: 'DownloadSimple',
     destructive: false,
   },
   'new-folder': {
     label: 'New folder',
     icon: Folder,
-    symbol: 'folder.badge.plus',
+    nativeIcon: 'Folder',
     destructive: false,
   },
   'new-thread-terminal': {
     label: 'New thread in Terminal',
     icon: Terminal,
-    symbol: 'apple.terminal',
+    nativeIcon: 'Terminal',
     destructive: false,
   },
-  'delete-repo': { label: 'Delete Repo', icon: Trash, symbol: 'trash', destructive: true },
+  'delete-repo': { label: 'Delete Repo', icon: Trash, nativeIcon: 'Trash', destructive: true },
   detach: {
     label: 'Detach…',
     icon: LinkBreak,
-    symbol: 'personalhotspot.slash',
+    nativeIcon: 'LinkBreak',
     destructive: false,
   },
   retry: {
     label: 'Retry setup',
     icon: ArrowClockwise,
-    symbol: 'arrow.clockwise',
+    nativeIcon: 'ArrowClockwise',
     destructive: false,
   },
   'new-thread': {
     label: 'New thread',
     icon: ArrowElbowDownRight,
-    symbol: 'arrow.turn.down.right',
+    nativeIcon: 'ArrowElbowDownRight',
     destructive: false,
   },
-  fork: { label: 'Fork branch', icon: GitBranch, symbol: 'arrow.branch', destructive: false },
-  remove: { label: 'Remove', icon: X, symbol: 'trash', destructive: true },
+  fork: { label: 'Fork branch', icon: GitBranch, nativeIcon: 'GitBranch', destructive: false },
+  remove: { label: 'Remove', icon: X, nativeIcon: 'Trash', destructive: true },
 }
 
 /**
@@ -239,7 +246,14 @@ export function runRowMenuAction(
     case 'retry':
       return retry(row)
     case 'new-thread':
-      void handleCreate(row.id, 'thread', handlers.navigate)
+      void handleCreate(
+        row.id,
+        'thread',
+        handlers.navigate,
+        undefined,
+        undefined,
+        handlers.draftThreads,
+      )
       return
     case 'fork':
       return handlers.fork(row)

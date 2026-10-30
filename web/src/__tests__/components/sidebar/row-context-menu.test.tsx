@@ -172,7 +172,7 @@ function clickRepoMenuButton(tree: HTMLElement, rowId: string) {
   button.setAttribute('data-control', 'repo-menu')
   row.appendChild(button)
   tree.appendChild(row)
-  fireEvent.click(button)
+  fireEvent.click(button.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'svg')))
   return button
 }
 

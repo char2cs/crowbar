@@ -6,8 +6,8 @@
    erase a square corner into a curve by painting over it with `editor.background`,
    which this theme sets transparent (define-theme.ts) — so the corner never gets
    erased and shows as a sharp notch. Force it opaque here, scoped to just the
-   connector (not the main surface, which must stay transparent for zen's glass
-   pane background). `!important`: Monaco's generated theme stylesheet sets this
+   connector (not the main surface, which must stay transparent for the
+   translucent pane background). `!important`: Monaco's generated theme stylesheet sets this
    element's color inline-equivalent and loads after this file. */
 .editor-container .monaco-editor .cslr.monaco-editor-background {
   background-color: var(--background) !important;

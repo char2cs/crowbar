@@ -1,7 +1,7 @@
 import type { DBSchema } from 'idb'
 import type { PaneGroup, LayoutNode, ViewRecord } from '@/features/panes/types/pane'
 import type { PaneContent } from '@/features/panes/types/pane-content'
-import type { ChatDTO, ProjectDTO, RepoDTO, WorkspaceDTO, ThreadDTO, FolderDTO } from '@/lib/types'
+import type { ChatDTO, ProjectDTO, RepoDTO, WorkspaceDTO, FolderDTO } from '@/lib/types'
 
 export interface BranchReviewPersistedState {
   wsId: string
@@ -76,6 +76,9 @@ export interface SidebarUI {
   /** The sidebar's last mode. Untyped on disk: an older build wrote modes that
    *  no longer exist, so hydrate parses it (`parseSidebarTab`). */
   activeTab?: string
+  /** The host whose projects the switcher lists. Absent on an older record; 'all' on one written
+   *  before the switcher showed one host at a time, which matches no host. */
+  hostFilter?: string
   updatedAt: number
 }
 
@@ -104,18 +107,15 @@ export interface CrowbarDB extends DBSchema {
     value: BranchReviewPersistedState
   }
   'workspaces-data': { key: string; value: CachedRecord<unknown> }
-  'git-data': { key: string; value: CachedRecord<unknown> }
-  'file-tree-data': { key: string; value: CachedRecord<unknown> }
-  'branch-review-data': { key: string; value: CachedRecord<unknown> }
-  'chat-history': { key: string; value: CachedRecord<unknown> }
+  // The newest page of each chat's transcript, keyed by chatId (see chat-history.ts).
+  // fetchedAt is indexed so the cap evicts the least recently written chats.
+  'chat-history': { key: string; value: CachedRecord<unknown>; indexes: { fetchedAt: number } }
   'projects-data': { key: string; value: CachedRecord<unknown> }
-  'chats-data': { key: string; value: CachedRecord<unknown> }
   // §6 entity cache (v7) — complete DTOs keyed by their own id. WS frames
   // upsert these by id; status:'deleted' tombstones remove them.
   crowbar_projects: { key: string; value: ProjectDTO }
   crowbar_repos: { key: string; value: RepoDTO }
   crowbar_workspaces: { key: string; value: WorkspaceDTO }
-  crowbar_threads: { key: string; value: ThreadDTO }
   // Sidebar grouping folders (v8). A new object store only exists if the DB is
   // opened at a version that ran its upgrade, so adding one is a version bump —
   // see idb.ts.

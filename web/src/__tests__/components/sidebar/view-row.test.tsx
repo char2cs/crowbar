@@ -5,6 +5,7 @@ import { RecentsViewRow } from '@/components/sidebar/view-row'
 import { useSidebarDrag } from '@/components/sidebar/hooks/use-sidebar-drag'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
+import { newDraftChatId } from '@/features/agent/lib/draft-chat'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import {
   resetWindowPaneStoreForTests,
@@ -149,6 +150,28 @@ describe('RecentsViewRow', () => {
     expect(screen.getAllByTestId(/^recents-row-/)).toHaveLength(3)
   })
 
+  it('a pinned row keeps its title and shows a pin where the × was; the pin unpins', () => {
+    actions().openChat('chat-1', { workspaceId: 'ws-1' })
+    actions().setViewPinned(viewOf('chat-1'), true)
+    renderBand()
+    expect(screen.getByTestId('recents-row-chat-1')).toHaveTextContent('Chat One')
+    expect(screen.queryByRole('button', { name: 'Close view' })).not.toBeInTheDocument()
+    screen.getByRole('button', { name: 'Unpin tab' }).click()
+    expect(windowPaneStore.getState().views[viewOf('chat-1')].pinned).toBeUndefined()
+  })
+
+  it('a pinned group keeps every member and its titles, with one pin and no ×', () => {
+    groupAndSolo()
+    actions().setViewPinned(viewOf('chat-1'), true)
+    renderBand()
+    const shell = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
+    expect(within(shell).getAllByTestId(/^recents-row-/)).toHaveLength(2)
+    expect(within(shell).queryByRole('button', { name: 'Close view' })).not.toBeInTheDocument()
+    expect(within(shell).getAllByRole('button', { name: 'Unpin tab' })).toHaveLength(1)
+    expect(shell).toHaveTextContent('Chat One')
+    expect(shell).toHaveTextContent('Chat Two')
+  })
+
   it('rows render flat, no indent', () => {
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
     renderBand()
@@ -192,7 +215,7 @@ describe('RecentsViewRow', () => {
     groupAndSolo()
     renderBand()
     const group = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
-    expect(group.className).not.toMatch(/bg-background/)
+    expect(group.className).not.toMatch(/control-surface/)
     expect(group.getAttribute('data-view-showing')).toBeNull()
     const solo = screen.getByTestId('recents-row-chat-3').parentElement!
     expect(solo.getAttribute('data-view-showing')).toBe('true')
@@ -204,7 +227,7 @@ describe('RecentsViewRow', () => {
     act(() => actions().activateView(viewOf('chat-1')))
     const group = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
     expect(group.getAttribute('data-view-showing')).toBe('true')
-    expect(group.className).toMatch(/bg-background/)
+    expect(group.className).toMatch(/control-surface/)
     expect(
       screen.getByTestId('recents-row-chat-3').parentElement!.getAttribute('data-view-showing'),
     ).toBeNull()
@@ -282,6 +305,17 @@ describe('RecentsViewRow', () => {
       expect(screen.getByTestId('recents-row-chat-9')).toBeInTheDocument()
       screen.getByRole('button', { name: 'Close view' }).click()
       expect(props.onClose).toHaveBeenCalledWith(viewOf('chat-9'))
+    })
+
+    // A new thread has no chat on the daemon until its first prompt: nothing is coming to name it.
+    it('names an unsent new thread untitled, not loading', () => {
+      const draft = newDraftChatId()
+      actions().openChat(draft, { workspaceId: 'ws-1' })
+      renderBand()
+      expect(
+        within(screen.getByTestId(`recents-row-${draft}`)).getByText(UNTITLED_CHAT_LABEL),
+      ).toBeInTheDocument()
+      expect(screen.queryByText('Loading…')).toBeNull()
     })
   })
 })

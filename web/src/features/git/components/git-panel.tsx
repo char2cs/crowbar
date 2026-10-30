@@ -68,7 +68,7 @@ export function GitPanel() {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {wsId && branch && (
-        <div className={cn('mx-1.5 my-0.5 text-foreground', SELECTED_PILL)}>
+        <div className={cn('mx-1.5 my-0.5', SELECTED_PILL)}>
           <div className="flex select-none items-center gap-2 h-9 px-2 text-[13px] font-medium">
             <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate font-mono">{branch}</span>

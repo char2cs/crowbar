@@ -26,7 +26,8 @@ export function SidebarModeBar({ className }: { className?: string }) {
           aria-label="Sidebar mode"
           className="w-full bg-sidebar-element-idle text-foreground/70"
         >
-          {SIDEBAR_PANEL_TABS.map(({ tab, label, Icon }) => {
+          {SIDEBAR_PANEL_TABS.map(({ tab, label, Icon, hideWhenUnavailable }) => {
+            if (hideWhenUnavailable && !available.has(tab)) return null
             const isActive = shown === tab
             return (
               <TabsTab

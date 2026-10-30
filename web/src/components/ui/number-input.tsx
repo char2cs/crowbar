@@ -131,7 +131,7 @@ export default function NumberInput({
   const canIncrement = !disabled && numericValue < max
 
   return (
-    <div className={cn('flex items-center gap-1', className)}>
+    <div data-slot="number-input" className={cn('flex items-center gap-1', className)}>
       <Button
         type="button"
         variant="ghost"

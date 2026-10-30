@@ -1,9 +1,15 @@
 import { act, renderHook } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { usePaneSession } from '@/features/agent/hooks/use-pane-session'
 import type { PaneSessionInputs } from '@/features/agent/hooks/use-pane-session'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { seedChats, writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
+import {
+  destroyHostRuntime,
+  getOrCreateHostRuntime,
+} from '@/features/hosts/stores/host-runtime-registry'
+import { useConnectionStore } from '@/lib/ws/connection-store'
 
 const { resumeChatFn, toastErrorFn } = vi.hoisted(() => ({
   resumeChatFn: vi.fn(),
@@ -23,6 +29,7 @@ function setup(chats: Parameters<typeof seedChats>[1], overrides: Partial<PaneSe
   const inputs: PaneSessionInputs = {
     store,
     wsId: 'w1',
+    hostId: 'local',
     chatId: 'c1',
     providerName: 'Codex',
     presentation: 'chat',
@@ -58,6 +65,7 @@ describe('usePaneSession', () => {
       const session = usePaneSession({
         store,
         wsId: 'w1',
+        hostId: 'local',
         chatId: 'c1',
         providerName: 'Codex',
         presentation: 'terminal',
@@ -92,6 +100,43 @@ describe('usePaneSession', () => {
 
     const terminal = setup([{ id: 'c1', phase: 'starting' }], { presentation: 'terminal' })
     expect(terminal.hook.result.current.revival).toBeUndefined()
+  })
+
+  // The chat's transcript stays readable from the cache, but nothing sent now would arrive.
+  describe('when the chat’s host does not answer', () => {
+    afterEach(() => {
+      resetHostWorld()
+      destroyHostRuntime('h1')
+    })
+
+    it('cannot send, and is offline, while a paired host is down', () => {
+      pairRemoteHost('h1')
+      getOrCreateHostRuntime('h1').getState().setStatus('down')
+      const { hook } = setup([{ id: 'c1', liveRunnerId: 'r1' }], { hostId: 'h1' })
+
+      expect(hook.result.current.offline).toBe(true)
+      expect(hook.result.current.canSend).toBe(false)
+    })
+
+    it('sends again once the host is back up', () => {
+      pairRemoteHost('h1')
+      getOrCreateHostRuntime('h1').getState().setStatus('down')
+      const { hook } = setup([{ id: 'c1', liveRunnerId: 'r1' }], { hostId: 'h1' })
+
+      act(() => getOrCreateHostRuntime('h1').getState().setStatus('up'))
+
+      expect(hook.result.current.offline).toBe(false)
+      expect(hook.result.current.canSend).toBe(true)
+    })
+
+    it('is offline when the local daemon’s socket is down', () => {
+      useConnectionStore.setState({ status: 'disconnected' })
+      const { hook } = setup([{ id: 'c1', liveRunnerId: 'r1' }])
+
+      expect(hook.result.current.offline).toBe(true)
+      expect(hook.result.current.canSend).toBe(false)
+      useConnectionStore.setState({ status: 'connected' })
+    })
   })
 
   it('startSession asks the daemon to resume, and toasts a refusal', async () => {

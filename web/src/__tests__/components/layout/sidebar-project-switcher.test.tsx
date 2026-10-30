@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import type { Project } from '@/lib/types'
+import { RowMetricsContext, TOUCH_ROW_METRICS } from '@/components/sidebar/lib/row-metrics'
 import { SidebarProjectSwitcher } from '@/components/layout/sidebar-project-switcher'
 import { performRenameProject } from '@/components/sidebar/lib/row-actions'
 import {
@@ -38,6 +39,25 @@ const project = (id: string, name = id): Project => ({
 })
 
 describe('SidebarProjectSwitcher', () => {
+  // The phone's header draws the active project's icon larger than the desktop's.
+  it('draws the active project icon larger under the touch scale', () => {
+    const glyph = (touch: boolean) => {
+      const { container, unmount } = render(
+        <RowMetricsContext value={touch ? TOUCH_ROW_METRICS : null}>
+          <SidebarProjectSwitcher
+            projects={[project('p1', 'Alpha')]}
+            activeProjectId="p1"
+            onSelectProject={vi.fn()}
+          />
+        </RowMetricsContext>,
+      )
+      const size = Number(container.querySelector('svg')?.getAttribute('width'))
+      unmount()
+      return size
+    }
+    expect(glyph(true)).toBeGreaterThan(glyph(false))
+  })
+
   it('names the active project and leaves it out of the icon list', () => {
     render(
       <SidebarProjectSwitcher
@@ -80,7 +100,7 @@ describe('SidebarProjectSwitcher', () => {
     expect(screen.getAllByTestId('space-mark')).toHaveLength(2)
   })
 
-  it('the trailing + calls onAddProject', async () => {
+  it('the leading + calls onAddProject', async () => {
     const onAddProject = vi.fn()
     render(
       <SidebarProjectSwitcher
@@ -93,10 +113,38 @@ describe('SidebarProjectSwitcher', () => {
     const row = screen.getByTestId('sidebar-project-switcher')
     const add = within(row).getByRole('button', { name: 'Add space' })
     expect(screen.getByRole('button', { name: 'p2' }).compareDocumentPosition(add)).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
+      Node.DOCUMENT_POSITION_PRECEDING,
     )
     await userEvent.click(add)
     expect(onAddProject).toHaveBeenCalledOnce()
+  })
+
+  describe('the leading + is revealed by hover only once the host has several projects', () => {
+    const plusFor = (projects: Project[]) => {
+      render(
+        <SidebarProjectSwitcher
+          projects={projects}
+          activeProjectId={projects[0]?.id}
+          onSelectProject={vi.fn()}
+          onAddProject={vi.fn()}
+        />,
+      )
+      return screen.getByRole('button', { name: 'Add space' })
+    }
+
+    it.each([[[]], [[project('p1')]]])('stays shown with %j projects', (projects) => {
+      expect(plusFor(projects)).not.toHaveAttribute('data-reveal', 'hover')
+    })
+
+    it('is hover-revealed with two projects, and tabs in ahead of the other projects', async () => {
+      const add = plusFor([project('p1'), project('p2')])
+      expect(add).toHaveAttribute('data-reveal', 'hover')
+      await userEvent.tab()
+      await userEvent.tab()
+      expect(add).toHaveFocus()
+      await userEvent.tab()
+      expect(screen.getByRole('button', { name: 'p2' })).toHaveFocus()
+    })
   })
 
   it('renders nothing with no projects and no add handler', () => {

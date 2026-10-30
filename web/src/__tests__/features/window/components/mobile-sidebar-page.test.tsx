@@ -226,6 +226,19 @@ describe('MobileSidebarPage', () => {
     expect(images.length).toBe(2)
   })
 
+  // The phone chooses its host in Settings: the list has no host control, however many there are.
+  it('has no host control, even with two hosts', () => {
+    render(<MobileSidebarPage />)
+    push({
+      ...snapshot,
+      hosts: [
+        { id: 'h1', name: 'dockerlab', state: 'up' },
+        { id: 'h2', name: 'studio', state: 'down' },
+      ],
+    })
+    expect(screen.queryByTestId('sidebar-host-picker')).toBeNull()
+  })
+
   describe('dragging a row', () => {
     const OPEN = { before: true, after: true, into: true }
     const SHUT = { before: false, after: false, into: false }
@@ -280,7 +293,7 @@ describe('MobileSidebarPage', () => {
       const rename = {
         id: 'rename',
         title: 'Rename',
-        symbol: 'pencil',
+        icon: 'PencilSimpleLine',
         destructive: false,
         confirm: null,
       }
@@ -312,7 +325,7 @@ describe('MobileSidebarPage', () => {
       const kill = {
         id: 'kill',
         title: 'Kill agent',
-        symbol: 'xmark',
+        icon: 'X',
         destructive: true,
         confirm: null,
       }

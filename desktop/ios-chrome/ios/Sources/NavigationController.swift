@@ -80,7 +80,6 @@ final class NavigationController: NSObject {
     dim.autoresizingMask = [.flexibleWidth, .flexibleHeight]
     host.insertSubview(dim, belowSubview: webview)
 
-    shadow.backgroundColor = .systemBackground
     shadow.layer.shadowColor = UIColor.black.cgColor
     shadow.layer.shadowRadius = 24
     shadow.layer.cornerCurve = .continuous
@@ -272,6 +271,9 @@ final class NavigationController: NSObject {
     shadow.bounds = CGRect(origin: .zero, size: host.bounds.size)
     shadow.center = CGPoint(x: host.bounds.midX + offset, y: host.bounds.midY)
     shadow.layer.cornerRadius = radius
+    // Whatever peeks round the card's rounded corners is the page beneath, never a stock white.
+    let beneath = frames.gap == 1 ? webview.backgroundColor : (machine.position < 1 ? list : files).backgroundColor
+    shadow.backgroundColor = beneath ?? .clear
     shadow.layer.shadowPath =
       UIBezierPath(roundedRect: shadow.bounds, cornerRadius: radius).cgPath
     shadow.layer.shadowOpacity = Float(frames.shadow)
@@ -319,6 +321,11 @@ final class NavigationController: NSObject {
     default:
       break
     }
+    // The status bar's glyphs are drawn for the drawer, so the card's strip under them takes the
+    // drawer's colour; the card's own white would swallow the clock where it straddles the edge.
+    catcher.band.backgroundColor = (at == 3 ? files : list).backgroundColor
+    catcher.band.frame = CGRect(
+      x: 0, y: 0, width: Self.strip, height: host?.safeAreaInsets.top ?? 0)
   }
 }
 
@@ -351,6 +358,16 @@ extension Reveal {
 /// The visible strip of a card slid aside, as one control that closes the drawer.
 private final class StripCatcher: UIView {
   var close: () -> Void = {}
+  /// Fills the strip's part behind the status bar.
+  let band = UIView()
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    band.isUserInteractionEnabled = false
+    addSubview(band)
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
   override func accessibilityActivate() -> Bool {
     close()

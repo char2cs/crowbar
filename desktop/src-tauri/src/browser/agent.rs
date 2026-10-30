@@ -8,6 +8,8 @@ use tauri::{AppHandle, Runtime};
 use super::find;
 #[cfg(target_os = "macos")]
 use super::webkit;
+#[cfg(target_os = "linux")]
+use super::webkitgtk as webkit;
 
 /// Longest script a command accepts.
 const MAX_BODY_BYTES: usize = 1 << 20;
@@ -25,13 +27,13 @@ pub struct Png {
     pub height: u32,
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod webkit {
     use super::Png;
     use tauri::{Runtime, Webview};
     use tokio::sync::oneshot;
 
-    const UNSUPPORTED: &str = "agent browser control is only supported on macOS";
+    const UNSUPPORTED: &str = "agent browser control is only supported on macOS and Linux";
 
     pub fn call_async<R: Runtime>(
         _: &Webview<R>,
@@ -82,7 +84,7 @@ pub async fn browser_eval<R: Runtime>(
     match tokio::time::timeout(deadline, reply).await {
         Ok(Ok(result)) => result,
         Ok(Err(_)) => Err("the page went away before answering".into()),
-        Err(_) => Err("the page did not answer in time (is the tab visible?)".into()),
+        Err(_) => Err("the page did not answer in time".into()),
     }
 }
 
@@ -101,7 +103,7 @@ pub async fn browser_screenshot<R: Runtime>(
     let png = match tokio::time::timeout(clamp_timeout(10_000), reply).await {
         Ok(Ok(result)) => result?,
         Ok(Err(_)) => return Err("the page went away before the snapshot".into()),
-        Err(_) => return Err("the snapshot did not finish in time (is the tab visible?)".into()),
+        Err(_) => return Err("the snapshot did not finish in time".into()),
     };
     Ok(serde_json::json!({
         "png": base64::engine::general_purpose::STANDARD.encode(&png.bytes),

@@ -23,12 +23,13 @@ import { dropTargetRow, rowDropTargets } from '@/components/sidebar/lib/row-drop
 import { killAgent, killAgentConfirmation } from '@/features/agent/lib/kill-agent'
 import { useNativeReadout } from '@/components/layout/use-readout-lines'
 import { hostNetStateOf } from '@/components/layout/build-readout-lines'
-import { handleCreateHomeThread } from '@/components/layout/home-actions'
+import { openHomeDraft } from '@/components/layout/home-actions'
 import { handleCreate } from '@/components/layout/create-actions'
 import { handleOpen } from '@/components/layout/open-actions'
+import { useSidebarHostFilter } from '@/components/layout/use-sidebar-host-filter'
 import { hostStatusOf, subscribeHostStatusOf } from '@/features/hosts/lib/host-status'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import type { HostDotState } from '@/features/hosts/types'
+import { LOCAL_HOST, type HostDotState } from '@/features/hosts/types'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useMobileScreenStore } from '@/features/window/stores/mobile-screen-store'
 import { toast } from '@/features/window/stores/toast-store'
@@ -60,7 +61,7 @@ import { projectAssetURL } from '@/lib/project-url'
 
 interface NativeSidebarProps {
   activeProjectId: string | undefined
-  projects: readonly Project[]
+  projects: Project[]
   onSelectProject: (projectId: string) => void
 }
 
@@ -147,7 +148,7 @@ function nativeRowActions(
       rowVerbs(row, { locked, canStartOnTerminal: false }).map((action) => ({
         id: action.id,
         title: action.label,
-        symbol: action.symbol,
+        icon: action.nativeIcon,
         destructive: action.destructive,
         confirm: confirmFor(action.id, row),
       }))
@@ -156,7 +157,7 @@ function nativeRowActions(
       actions[row.id].push({
         id: KILL_AGENT,
         title: 'Kill agent',
-        symbol: 'xmark.octagon',
+        icon: 'Prohibit',
         destructive: true,
         confirm: killAgentConfirmation({ ...session, attached: attached[row.id]?.count ?? 0 }),
       })
@@ -284,6 +285,11 @@ export function useNativeSidebar({
 }: NativeSidebarProps) {
   const navigate = useNavigate()
   const projectId = activeProjectId ?? null
+  const { hostIds, shown, shownProjects, selectHost } = useSidebarHostFilter(
+    projects,
+    activeProjectId,
+    onSelectProject,
+  )
   const rows = useActiveProjectRows(projectId)
   const collapsed = useSidebarStore((s) => s.collapsedChatRows)
   const focusedChatId = useStore(windowPaneStore, (s) => s.panes[s.activePaneId]?.chatId ?? null)
@@ -321,8 +327,15 @@ export function useNativeSidebar({
     setNativeSidebar({
       focusedChatId,
       activeProjectId: projectId,
-      projects: projects.map(icons.project),
-      hosts: hostConfigs.map((h) => ({ id: h.id, name: h.name, state: hostState(h.id) })),
+      projects: shownProjects.map(icons.project),
+      hosts: hostIds.map((id) => ({
+        id,
+        name:
+          id === LOCAL_HOST.id
+            ? LOCAL_HOST.name
+            : (hostConfigs.find((h) => h.id === id)?.name ?? id),
+        state: hostState(id),
+      })),
       rows: rows.map((row) => ({
         ...icons.row(row),
         working: row.working || chatWorking(row),
@@ -344,7 +357,9 @@ export function useNativeSidebar({
     collapsed,
     focusedChatId,
     projectId,
-    projects,
+    shownProjects,
+    hostIds,
+    shown,
     hostConfigs,
     hostStreams,
     live,
@@ -367,10 +382,13 @@ export function useNativeSidebar({
           toast.error("Can't start a new thread yet")
           return
         }
-        void handleCreateHomeThread(projectId, homeWsId, navigate)
+        void openHomeDraft(projectId, homeWsId, navigate)
         return
       case 'selectProject':
         onSelectProject(intent.id)
+        return
+      case 'selectHost':
+        selectHost(intent.id)
         return
       case 'toggleFold':
         useSidebarStore.getState().toggleChatRow(intent.id)
@@ -387,6 +405,7 @@ export function useNativeSidebar({
           },
           fork: (target) => void forkNatively(target, navigate),
           removeAtOnce: true,
+          draftThreads: true,
         }
         if (intent.actionId === KILL_AGENT) {
           const { sessions: live, attached: counts } = useActiveSessionsStore.getState()
@@ -412,6 +431,16 @@ export function useNativeSidebar({
         void performSidebarDrop([subject], target, intent.position)
         return
       }
+      case 'openHostPicker':
+        closeChatList()
+        useUIState.getState().setIsHostPickerOpen(true)
+        return
+      case 'addHost':
+        // Pairing is its own screen with its own native sheet: the sheets over it go first.
+        useUIState.getState().setIsHostPickerOpen(false)
+        useUIState.getState().setIsSettingsDialogVisible(false)
+        void navigate({ to: '/add-host' })
+        return
       case 'openSettings':
         closeChatList()
         useUIState.getState().openSettingsDialog()
@@ -420,5 +449,5 @@ export function useNativeSidebar({
   })
   useEffect(() => onNativeChromeIntent(onIntent), [])
 
-  return { importRepoRowId, closeImport: () => setImportRepoRowId(null) }
+  return { importRepoRowId, closeImport: () => setImportRepoRowId(null), shownHost: shown ?? null }
 }

@@ -103,7 +103,7 @@ export async function applyTheme(theme: Theme) {
       themeRegistry.applyTheme(theme)
       // Consume the theme the registry RESOLVED to, never a fresh lookup of the
       // raw id. applyTheme() degrades an id it doesn't know (a persisted 'terra'
-      // from before the theme was renamed to 'zen', say) to the default theme —
+      // from before the theme was removed, say) to the default theme —
       // but getTheme('terra') still returns undefined, which dropped us into the
       // guess-from-the-name fallback below. That fallback force-added .dark and
       // pinned the native window dark on every launch AND every Theme Mode

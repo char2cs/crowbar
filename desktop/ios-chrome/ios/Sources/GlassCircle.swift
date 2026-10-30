@@ -3,9 +3,12 @@ import SwiftUI
 /// The chrome's round 44pt glass button.
 @available(iOS 26.0, *)
 struct GlassCircle: View {
-  let symbol: String
+  /// The web's name for a Phosphor icon.
+  let icon: String
   let label: String
   var enabled = true
+  /// The theme's foreground: the glass is clear, so the glyph must read on the page behind it.
+  var tint: Color?
   let action: () -> Void
 
   /// From the screen edge to the circle.
@@ -16,9 +19,11 @@ struct GlassCircle: View {
       Haptics.tap()
       action()
     } label: {
-      Image(systemName: symbol)
-        .font(.body.weight(.medium))
-        .frame(width: 44, height: 44)
+      Group {
+        if let icon = CrowbarIcon(named: icon) { PhosphorIcon(icon, emphasis: 0.5) }
+      }
+      .foregroundStyle(tint ?? .primary)
+      .frame(width: 44, height: 44)
         .contentShape(.circle)
         .glassEffect(.regular.interactive(), in: .circle)
     }

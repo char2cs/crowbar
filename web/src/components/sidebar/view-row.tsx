@@ -1,7 +1,8 @@
 import { useStore } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
-import { XIcon } from '@phosphor-icons/react'
+import { PushPinIcon, XIcon } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
 import { useRecentsChat } from '@/components/sidebar/lib/use-recents-chat'
 import { recentsChatIcon } from '@/components/sidebar/lib/recents-for-project'
@@ -13,6 +14,7 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { viewMembers } from '@/features/panes/lib/view-state'
 import type { ViewMember } from '@/features/panes/types/pane'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { isDraftChatId } from '@/features/agent/lib/draft-chat'
 
 const NO_ICON: Partial<ChatIconFields> = {}
 const LOADING_CHAT_LABEL = 'Loading…'
@@ -35,7 +37,9 @@ export function useMemberRow(
     parentId: null,
     order: 0,
     // The tree's own fallback: both rows name an untitled chat alike.
-    label: chat.title || (known ? UNTITLED_CHAT_LABEL : LOADING_CHAT_LABEL),
+    // An unsent new thread has no chat to wait for: it is untitled, as it will be once sent.
+    label:
+      chat.title || (known || isDraftChatId(chatId) ? UNTITLED_CHAT_LABEL : LOADING_CHAT_LABEL),
     labelProvisional: !chat.title,
     workspaceId: chat.workspaceId,
     working: chat.working,
@@ -65,13 +69,14 @@ export function RecentsViewRow({
   onFocus: (viewId: string) => void
   onClose: (viewId: string) => void
   drag: SidebarDrag
-  registerRow: (row: SidebarRowType, viewId: string) => void
+  registerRow: (row: SidebarRowType) => void
 }) {
   const members = useStore(
     windowPaneStore,
     useShallow((s) => viewMembers(s, viewId).map(memberKey)),
   )
   const isShowing = useStore(windowPaneStore, (s) => s.activeViewId === viewId)
+  const pinned = useStore(windowPaneStore, (s) => !!s.views[viewId]?.pinned)
   if (members.length === 0) return null
   const isSet = members.length >= 2
 
@@ -82,7 +87,7 @@ export function RecentsViewRow({
       className={cn(
         // One painted shell; members share it flush. The × is always shown and
         // overlays the shell's end, so no label ever moves.
-        'group/tab relative mx-0.5 flex h-8 items-center rounded-full border',
+        TAB_SHELL,
         isShowing ? TAB_ACTIVE : TAB_IDLE,
       )}
     >
@@ -96,8 +101,6 @@ export function RecentsViewRow({
             workspaceId={workspaceId ?? ''}
             hasView={!isShowing}
             isSet={isSet}
-            // Fades the label under the ×.
-            viewId={viewId}
             fadesForClose={isLast}
             separated={!isLast && !isShowing}
             onOpen={() => onFocus(viewId)}
@@ -106,21 +109,61 @@ export function RecentsViewRow({
           />
         )
       })}
-      <button
-        type="button"
-        aria-label="Close view"
-        onClick={() => onClose(viewId)}
-        className="absolute right-1.5 top-1/2 z-10 grid size-6 -translate-y-1/2 place-items-center rounded-full text-muted-foreground hover:bg-sidebar-element-hover hover:text-foreground"
-      >
-        <XIcon size={12} />
-      </button>
+      {pinned ? (
+        // Where the × sits: the pin, which unpins — as on an editor tab.
+        <Button
+          variant="ghost"
+          data-no-dnd
+          aria-label="Unpin tab"
+          tooltip="Unpin tab"
+          tooltipSide="bottom"
+          onClick={() => windowPaneStore.getState().paneActions.setViewPinned(viewId, false)}
+          className={cn(TAB_CLOSE, '!min-h-0 !min-w-0 !p-0 opacity-60')}
+          tabIndex={-1}
+          draggable={false}
+        >
+          <PushPinIcon className="pointer-events-none size-3.5 select-none fill-current text-secondary" />
+        </Button>
+      ) : (
+        <button
+          type="button"
+          aria-label="Close view"
+          onClick={() => onClose(viewId)}
+          className={cn(TAB_CLOSE, 'hover:bg-sidebar-element-hover hover:text-foreground')}
+        >
+          <XIcon size={12} />
+        </button>
+      )}
     </div>
   )
 }
 
+const TAB_SHELL = 'group/tab relative mx-0.5 flex h-8 items-center rounded-full border'
+const TAB_CLOSE =
+  'absolute right-1.5 top-1/2 z-10 grid size-6 -translate-y-1/2 place-items-center rounded-full text-muted-foreground'
+
+/**
+ * A chat as the view tab it would become, lifted: the same shell, row and close
+ * button a real single-chat tab renders, for a pane being dragged toward the strip.
+ */
+export function ViewTabPreview({ row, width }: { row: SidebarRowType; width: number }) {
+  return (
+    <div className={cn(TAB_SHELL, TAB_ACTIVE, 'shadow-md shadow-black/15')} style={{ width }}>
+      <div className="relative min-w-0 flex-1 [mask-image:linear-gradient(to_right,black_calc(100%_-_34px),transparent_calc(100%_-_24px))]">
+        <SidebarRow row={row} depth={0} onOpen={noop} tab="tab" />
+      </div>
+      <span aria-hidden="true" className={TAB_CLOSE}>
+        <XIcon size={12} />
+      </span>
+    </div>
+  )
+}
+
+const noop = () => {}
+
 // The CossUI raised surface, on our plain background/foreground pair.
 const TAB_ACTIVE =
-  'border-transparent bg-background text-foreground outline outline-1 outline-background shadow-xs shadow-black/10 ' +
+  'control-surface outline outline-1 shadow-xs shadow-black/10 ' +
   'inset-shadow-[0_1px_var(--elevated-highlight)] active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
 const TAB_IDLE =
   'border-transparent hover:bg-sidebar-element-hover hover:shadow-xs hover:shadow-black/10 ' +
@@ -139,7 +182,6 @@ function RecentsMemberRow({
   workspaceId,
   hasView,
   isSet,
-  viewId,
   fadesForClose,
   separated,
   onOpen,
@@ -152,14 +194,13 @@ function RecentsMemberRow({
   hasView: boolean
   /** One of 2+ chats sharing the shell: no icon. */
   isSet: boolean
-  viewId: string
   /** The tab's trailing member: its end fades under the ×. */
   fadesForClose: boolean
   /** Draws the hairline between this member and the next. */
   separated: boolean
   onOpen: () => void
   drag: SidebarDrag
-  registerRow: (row: SidebarRowType, viewId: string) => void
+  registerRow: (row: SidebarRowType) => void
 }) {
   const row = useMemberRow(chatId, workspaceId, hasView)
 
@@ -168,7 +209,7 @@ function RecentsMemberRow({
       data-testid={`recents-row-${row.id}`}
       // A ref callback, not a render-body call: render must stay pure.
       ref={(el) => {
-        if (el) registerRow(row, viewId)
+        if (el) registerRow(row)
       }}
       // Flex item: without `min-w-0 flex-1` it shrinks to its label. The
       // shell paints the hover, not the row.

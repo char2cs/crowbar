@@ -6,7 +6,6 @@ import {
   type GhostRows,
   type GrabOffset,
 } from '@/components/layout/drag-ghost'
-import { dropLineBox, dropLineBoxX } from '@/components/layout/drop-indicator'
 import { createEdgeScroller, type EdgeScroller } from '@/components/layout/edge-scroll'
 import {
   anyModeAllowed,
@@ -22,7 +21,16 @@ import {
   type DropZone,
 } from '@/components/tree-dnd/drop-dom'
 import { getPaneDropZoneFromRect, type PaneDropZone } from '@/features/panes/utils/pane-drop-zones'
-import { clearDropHover, setDropHover } from '@/features/panes/stores/drag-store'
+import { clearDropHover } from '@/features/panes/stores/drag-store'
+import {
+  paintDropLine,
+  paintPaneHit,
+  publishPaneZonePreview,
+  samePaneHit,
+  setDropLineTracking,
+  type DropLine,
+} from '@/components/sidebar/lib/drag-paint'
+import { createStripDrag, type StripDrag } from '@/components/sidebar/lib/tab-strip-drag'
 import { SIDEBAR_DROP_POLICY } from '@/components/sidebar/lib/sidebar-drop-policy'
 import { toast } from '@/features/window/stores/toast-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
@@ -152,17 +160,6 @@ export interface SidebarPaneHit {
 export const PANE_DROP_ATTR = 'data-pane-drop'
 
 /**
- * Painted onto the SAME element as {@link PANE_DROP_ATTR} for as long as this
- * pane is the one a release would land in — spec §8.2's "the entry about to
- * take a drop wears the same ring a pane wears" is a promise about a PANE
- * too, and this is the attribute a pane's own CSS reads to draw it (see
- * `paintPaneHit` below). A bare presence flag, like the old veil's
- * `data-armed` — there is only one question here ("is this the one"), not a
- * value to carry.
- */
-export const PANE_HIT_ATTR = 'data-pane-hit'
-
-/**
  * `SidebarPaneHit` plus the ACTUAL element `elementsFromPoint` resolved —
  * carried only through this hook's own internal ref/paint plumbing, never
  * exposed on the public `paneHit` state (which stays the plain logical
@@ -205,6 +202,9 @@ const hitTest = createDropHitTest<DragRow, DragRow, ResolvedPaneHit>(rowDom, SID
 
 type Hit = ReturnType<typeof hitTest>
 
+const lineOf = (hit: Hit): DropLine | null =>
+  hit?.kind === 'row' ? { rect: hit.rect, axis: hit.axis, mode: hit.row.mode } : null
+
 /** Stable empty, so a render that is not dragging hands out one identity. */
 const NO_IDS: ReadonlySet<string> = new Set<string>()
 
@@ -231,92 +231,11 @@ function suppressNextClick(): void {
   setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0)
 }
 
-function paintDropLine(el: HTMLDivElement | null, hit: Hit): void {
-  if (!el) return
-  if (hit?.kind !== 'row' || hit.row.mode === 'into') {
-    el.style.display = 'none'
-    return
-  }
-  const box =
-    hit.axis === 'x' ? dropLineBoxX(hit.rect, hit.row.mode) : dropLineBox(hit.rect, hit.row.mode)
-  el.style.display = 'block'
-  if (el.dataset.dropIndicator !== hit.row.mode) el.dataset.dropIndicator = hit.row.mode
-  const height = 'height' in box ? `${box.height}px` : ''
-  if (el.style.height !== height) el.style.height = height
-  const left = `${box.left}px`
-  const top = `${box.top}px`
-  const width = `${box.width}px`
-  if (el.style.left !== left) el.style.left = left
-  if (el.style.top !== top) el.style.top = top
-  if (el.style.width !== width) el.style.width = width
-}
-
-function setDropLineTracking(el: HTMLDivElement | null, tracking: boolean): void {
-  if (!el) return
-  el.style.transition = tracking ? 'none' : ''
-}
-
-function samePaneHit(a: SidebarPaneHit | null, b: SidebarPaneHit | null): boolean {
-  if (a === null || b === null) return a === b
-  return a.paneId === b.paneId && a.zone === b.zone
-}
-
-/**
- * §8.2: "the entry about to take a drop wears the same ring a pane wears" —
- * so a pane being hovered during a sidebar-row drag needs the OTHER half of
- * that same answer, a neutral indicator marking which pane a release would
- * land in. Painted straight onto the DOM, like the hairline above and the
- * ghost — a pane's own element lives in a completely different part of the
- * tree (inside `WorkspaceHost`, not the sidebar), so there is no ref to hand
- * this a mounted node the way `attachDropLine` gets one.
- *
- * Takes the RESOLVED elements, never re-derives one by attribute (Fix round
- * 2): `PANE_DROP_ATTR`'s value is not unique across the document — every
- * retained workspace's hidden pane tree carries the same
- * `ROOT_PANE_ID`/`BOTTOM_PANE_ID` strings — so a `document.querySelector`
- * lookup here could paint a different, off-screen workspace's node instead
- * of the one the pointer is actually over, depending on DOM order. `el` is
- * whatever `elementsFromPoint` itself resolved (see `ResolvedPaneHit`), which
- * cannot make that mistake — it only ever names what is really painted
- * there.
- *
- * Gated on the ELEMENT changing, not the paneId string — for the same
- * reason: two elements can share a paneId, and only element identity says
- * "this is genuinely a different target" (a center→edge move on the SAME
- * pane repaints the drop line but not this).
- */
-function paintPaneHit(prev: ResolvedPaneHit | null, next: ResolvedPaneHit | null): void {
-  if ((prev?.el ?? null) === (next?.el ?? null)) return
-  prev?.el.removeAttribute(PANE_HIT_ATTR)
-  next?.el.setAttribute(PANE_HIT_ATTR, '')
-}
-
-/**
- * The other half of what a pane hover has to say: not just WHICH pane, but
- * WHERE IN IT — the live quadrant preview `SplitDropOverlay` draws, so a
- * sidebar row being carried over a pane shows the shape of the split it is
- * about to make before the release, exactly as dragging an editor tab always
- * did.
- *
- * Deliberately the SAME channel the explorer's file drag uses (the drag
- * store's `hover` → `PaneContainer`'s narrow selector → `SplitDropOverlay`'s
- * `activeZoneOverride`) rather than a second preview of this hook's own: the zone math is already shared (`getPaneDropZoneFromRect`,
- * which `paneZone.hit` above calls and `resolveDropTarget` calls for tabs), so
- * anything new here would be a second renderer for one already-shared answer,
- * free to drift from it. A pane's element lives inside `WorkspaceHost`, not
- * the sidebar, so this store is also the only handle either drag has on it.
- *
- * The store carries a plain `{paneId, zone}` and dedups its own writes, so
- * this is safe to call on every resolved hover; `clearDropHover` tears it
- * down at the end of the drag.
- */
-function publishPaneZonePreview(hit: SidebarPaneHit | null): void {
-  setDropHover({ paneId: hit?.paneId ?? null, zone: hit?.zone ?? null })
-}
-
 export interface UseSidebarDragOptions {
   /** The tree/band's own scroll container — what an edge-held drag scrolls. */
   scrollRef: React.RefObject<HTMLElement | null>
+  /** The strip of view tabs this drag may reorder within, when the pointer is in its band. */
+  strip?: () => HTMLElement | null
   /** The rows a drag starting on `rowId` carries, in tree order — the caller's
    *  own selection resolution; this hook does not maintain one of its own. */
   subjectsFor: (rowId: string) => SidebarRow[]
@@ -386,6 +305,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
   // listener from the SAME element rather than re-reading `scrollRef.current`
   // (which could theoretically have moved on since drag start).
   const wheelLockScrollerRef = useRef<HTMLElement | null>(null)
+  const stripRef = useRef<StripDrag | null>(null)
   const grabRef = useRef<GrabOffset>({ dx: 0, dy: 0 })
   const draggingRef = useRef<ActiveDrag | null>(null)
   const pendingRef = useRef<{
@@ -401,7 +321,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
     // Replayed rather than left to the next move: the line mounts one render
     // AFTER the drag begins, so the slot resolved at drag start would
     // otherwise go unmarked until the pointer moved again.
-    paintDropLine(el, lastHitRef.current)
+    paintDropLine(el, lineOf(lastHitRef.current))
   }, [])
 
   const dragProps = useCallback(
@@ -463,7 +383,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       // hit test under a held-still pointer resolves the same drop at a new
       // rect).
       lastHitRef.current = hit
-      paintDropLine(dropLineRef.current, hit)
+      paintDropLine(dropLineRef.current, lineOf(hit))
     }
 
     function beginDrag(e: MouseEvent): void {
@@ -521,10 +441,12 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
         pending.startY,
       )
 
-      const rows = cloneGhostRows(
-        elements.length > 0 ? elements : [pending.target],
-        subjects.length,
-      )
+      const stripEl = optionsRef.current.strip?.()
+      stripRef.current = stripEl ? createStripDrag(stripEl, pending.target, grabRef.current) : null
+      if (stripRef.current) grabRef.current = stripRef.current.grab
+      const rows =
+        stripRef.current?.ghostRows() ??
+        cloneGhostRows(elements.length > 0 ? elements : [pending.target], subjects.length)
 
       if (scroller && scrollerBox) {
         scrollerXRef.current = { left: scrollerBox.left, right: scrollerBox.right }
@@ -537,7 +459,9 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
               // too. Re-resolving inside the scroller's own frame is what
               // keeps a viewport-positioned line honest with no scroll
               // listener firing through every ordinary drag.
-              publish(hitTest(drag.pointer.x, drag.pointer.y, drag.subjects))
+              const { x, y } = drag.pointer
+              stripRef.current?.move(x, y, ghostRef.current)
+              publish(stripRef.current?.inBand(x, y) ? null : hitTest(x, y, drag.subjects))
             },
             onRunningChange: (running) => setDropLineTracking(dropLineRef.current, running),
           },
@@ -552,7 +476,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       }
 
       draggingRef.current = drag
-      ghostOriginRef.current = {
+      ghostOriginRef.current = stripRef.current?.position(e.clientX, e.clientY) ?? {
         x: e.clientX - grabRef.current.dx,
         y: e.clientY - grabRef.current.dy,
       }
@@ -593,7 +517,10 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
 
       // READS before WRITES. The hit test forces layout; writing the ghost's
       // position first would make every move a read-after-write reflow.
-      const hit = hitTest(e.clientX, e.clientY, drag.subjects)
+      const strip = stripRef.current
+      const hit = strip?.inBand(e.clientX, e.clientY)
+        ? null
+        : hitTest(e.clientX, e.clientY, drag.subjects)
 
       // Edge scroll only while the pointer is still over the tree/band's own
       // column. The band is a function of Y alone, so a row carried sideways
@@ -604,7 +531,8 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
         edgeScrollerRef.current?.update(e.clientY)
       } else edgeScrollerRef.current?.stop()
 
-      if (ghostRef.current) {
+      if (strip) strip.move(e.clientX, e.clientY, ghostRef.current)
+      else if (ghostRef.current) {
         // One composited transform, not two layout-triggering offsets.
         ghostRef.current.style.transform = ghostTransform(
           e.clientX - grabRef.current.dx,
@@ -616,6 +544,8 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
     }
 
     function endDrag(): void {
+      stripRef.current?.dispose()
+      stripRef.current = null
       edgeScrollerRef.current?.stop()
       edgeScrollerRef.current = null
       scrollerXRef.current = null
@@ -640,6 +570,18 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       setDragging(false)
     }
 
+    // `hit.row` is DOM-reconstructed, not a real SidebarRow: resolve the live
+    // one at commit time, and refuse if it left the tree since the hit test.
+    function commitRowDrop(
+      drag: ActiveDrag,
+      targetId: string,
+      mode: DropMode,
+      inRecents: boolean,
+    ): void {
+      const target = optionsRef.current.subjectsFor(targetId).find((r) => r.id === targetId)
+      if (target) optionsRef.current.onDrop([...drag.subjects], target, mode, inRecents)
+    }
+
     function onPointerUp(e: MouseEvent): void {
       pendingRef.current = null
       // Unconditionally: the listener is armed on every press, including the
@@ -649,34 +591,22 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       if (!drag) return
 
       suppressNextClick()
+      const strip = stripRef.current
+      if (strip?.inBand(e.clientX, e.clientY)) {
+        // The strip already decided where the tab goes; the pointer's own row is not the answer.
+        const beside = strip.drop(e.clientX)
+        const row =
+          beside && rowDom.read(beside.el.querySelector('[data-sidebar-recents-row]') ?? beside.el)
+        if (row) commitRowDrop(drag, row.id, beside.mode, true)
+        strip.settle(e.clientX)
+        endDrag()
+        return
+      }
       const hit = hitTest(e.clientX, e.clientY, drag.subjects)
       if (hit?.kind === 'pane') {
         optionsRef.current.onPaneDrop([...drag.subjects], hit.paneId, hit.zone)
       } else if (hit?.kind === 'row') {
-        // `hit.row` is what `rowDom.read()` reconstructed off the DOM —
-        // {kind, id, parentId, path, expanded, hasChildren} and NOT a real
-        // `SidebarRow` (order/label/ownsWorktree/workspaceId/working/hasView
-        // are all absent, and `parentId` comes back '' for a root row, never
-        // `null` the way every real row uses). Good enough for the matrix
-        // (it only ever needs id/kind/parentId/expanded/hasChildren), wrong
-        // to hand a caller that expects the real thing — resolved back to
-        // the genuine row here, once, at commit time rather than every
-        // pointermove. `subjectsFor` already resolves "what live row does
-        // this id name" (that's exactly what it does for the row a press
-        // started on), so it doubles as the target lookup without a new
-        // option on this hook's contract.
-        const target = optionsRef.current.subjectsFor(hit.row.id).find((r) => r.id === hit.row.id)
-        // A race — the row left the tree between the hit test and the
-        // release — refuses rather than handing a caller a target it can no
-        // longer resolve.
-        if (target) {
-          optionsRef.current.onDrop(
-            [...drag.subjects],
-            target,
-            hit.row.mode,
-            Boolean(hit.row.inRecents),
-          )
-        }
+        commitRowDrop(drag, hit.row.id, hit.row.mode, Boolean(hit.row.inRecents))
       } else {
         // `hitTest` (drop-dom.ts's `createDropHitTest`) returns null for TWO
         // different situations it does not distinguish: no row under the

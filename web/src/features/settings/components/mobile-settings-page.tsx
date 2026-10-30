@@ -1,8 +1,7 @@
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import type { SettingsTab } from '@/features/window/stores/ui-state-store'
 import { useSurfaceThemeColor } from '@/features/window/hooks/use-surface-theme-color'
-import { SettingsPanels, SettingsSearchInput, SettingsTitle } from './settings-layout'
-import { PHONE_SETTINGS_TAB_ITEMS } from './settings-tab-items'
+import { receiveShellSnapshots } from '@/lib/shell-page-bridge'
 
 // Each tab loads when first opened, so the sheet boots without the others' code.
 const PHONE_TABS = {
@@ -13,42 +12,36 @@ const PHONE_TABS = {
     import('./tabs/terminal-settings').then((m) => ({ default: m.TerminalSettings })),
   ),
   git: lazy(() => import('./tabs/git-settings').then((m) => ({ default: m.GitSettings }))),
-  // No IPC and no daemon here: Agents and Hosts draw the main webview's snapshots.
+  // No IPC and no daemon here: Agents draws the main webview's snapshot.
   providers: lazy(() =>
     import('./mobile-agents-settings').then((m) => ({ default: m.MobileAgentsSettings })),
-  ),
-  hosts: lazy(() =>
-    import('./mobile-hosts-settings').then((m) => ({ default: m.MobileHostsSettings })),
   ),
 } satisfies Partial<Record<SettingsTab, unknown>>
 
 function PhoneTabContent({ tab }: { tab: SettingsTab }) {
-  const Tab = PHONE_TABS[tab as keyof typeof PHONE_TABS] ?? PHONE_TABS.appearance
+  const Tab = PHONE_TABS[tab as keyof typeof PHONE_TABS]
   return (
-    <Suspense>
-      <Tab />
-    </Suspense>
+    Tab && (
+      <Suspense>
+        <Tab />
+      </Suspense>
+    )
   )
 }
 
-/** The desktop settings dialog's content for the phone's native settings sheet, without the
- *  dialog's frame: at this width its own CSS puts the tabs in the title's dropdown. */
+/** One desktop settings tab for a screen the phone's native Settings pushes; the title, back
+ *  button and list that lead here are native. Blank until the shell names the tab. */
 export function MobileSettingsPage() {
   useSurfaceThemeColor()
-  const [activeTab, setActiveTab] = useState<SettingsTab>('appearance')
-  const tabs = { tabs: PHONE_SETTINGS_TAB_ITEMS, activeTab, onTabChange: setActiveTab }
+  const [tab, setTab] = useState<SettingsTab | null>(null)
+  useEffect(() => receiveShellSnapshots<SettingsTab | null>('tab', setTab), [])
   return (
     <main className="flex h-dvh flex-col overflow-hidden bg-background pb-[env(safe-area-inset-bottom)] text-foreground [--settings-section-title:var(--ui-text-lg)]">
-      <header className="flex flex-col gap-2 px-3 pt-2 pb-1">
-        <div className="font-heading min-w-0 text-lg">
-          <SettingsTitle {...tabs} />
-        </div>
-        <SettingsSearchInput className="w-full" />
-      </header>
-      <div className="flex min-h-0 flex-1">
-        <SettingsPanels {...tabs}>
-          <PhoneTabContent tab={activeTab} />
-        </SettingsPanels>
+      <div
+        data-settings-content=""
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-3 [--app-ui-control-font-size:var(--ui-text-sm)] [overscroll-behavior:contain]"
+      >
+        {tab && <PhoneTabContent tab={tab} />}
       </div>
     </main>
   )

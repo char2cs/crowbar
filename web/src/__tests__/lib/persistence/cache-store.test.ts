@@ -34,13 +34,13 @@ describe('cache-store', () => {
     vi.spyOn(idb, 'getDB').mockRejectedValueOnce(
       new Error('NotFoundError: object store not found') as never,
     )
-    expect(await loadCache('branch-review-data', 'ws3:diff')).toBeUndefined()
+    expect(await loadCache('workspaces-data', 'ws3:list')).toBeUndefined()
   })
 
   it('saveCache does not throw when IDB fails', async () => {
     vi.spyOn(idb, 'getDB').mockRejectedValueOnce(
       new Error('NotFoundError: object store not found') as never,
     )
-    await expect(saveCache('branch-review-data', 'ws3:diff', { x: 1 })).resolves.toBeUndefined()
+    await expect(saveCache('workspaces-data', 'ws3:list', { x: 1 })).resolves.toBeUndefined()
   })
 })

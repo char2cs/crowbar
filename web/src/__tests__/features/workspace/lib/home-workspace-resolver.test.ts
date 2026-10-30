@@ -4,6 +4,9 @@ import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { idle, success } from '@/lib/loadable'
 import { useProjectDataStore } from '@/lib/store/projects'
 import type { Project } from '@/lib/types'
+import { IDBFactory } from 'fake-indexeddb'
+import { loadCache, saveCache } from '@/lib/persistence/cache-store'
+import { resetDB } from '@/lib/persistence/idb'
 import { __resetWorkspaceScopesForTest, getWorkspaceScope } from '@/lib/workspace-scope'
 
 const fetchHomeWorkspaceMock = vi.fn()
@@ -16,6 +19,7 @@ import {
   ensureHomeWorkspaceResolved,
   getKnownHomeWorkspaceIds,
   getHomeWorkspaceId,
+  hydrateHomeWorkspace,
   useHomeWorkspaceState,
   __resetHomeWorkspaceResolverForTest,
 } from '@/features/workspace/lib/home-workspace-resolver'
@@ -42,6 +46,7 @@ describe('home-workspace-resolver', () => {
       owningChatId: null,
       localPath: null,
       error: false,
+      stale: false,
     })
   })
 
@@ -69,6 +74,7 @@ describe('home-workspace-resolver', () => {
         owningChatId: 'chat-home-1',
         localPath: '/Users/mateo/projects/rabbyte-labs',
         error: false,
+        stale: false,
       })
     })
     expect(getKnownHomeWorkspaceIds()).toContain('ws-home-1')
@@ -129,6 +135,7 @@ describe('home-workspace-resolver', () => {
         owningChatId: null,
         localPath: null,
         error: true,
+        stale: false,
       })
     })
     expect(getKnownHomeWorkspaceIds()).not.toContain('p1')
@@ -147,6 +154,7 @@ describe('home-workspace-resolver', () => {
         owningChatId: null,
         localPath: null,
         error: false,
+        stale: false,
       })
     })
   })
@@ -228,6 +236,7 @@ describe('home-workspace-resolver on an install that paired a remote', () => {
       owningChatId: null,
       localPath: null,
       error: false,
+      stale: false,
     })
 
     act(() => useProjectDataStore.setState({ data: success([row('p1')]) }))
@@ -281,5 +290,80 @@ describe('home-workspace-resolver on an install that paired a remote', () => {
     act(() => useProjectDataStore.setState({ data: success([row('p1')]) }))
     await waitFor(() => expect(getHomeWorkspaceId('p1')).toBe('ws-p1'))
     expect(fetchHomeWorkspaceMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+// An unreachable host never answers GET /home, so the last answer, kept in
+// IndexedDB, is all a restored home pane has to resolve its scope from.
+describe('home-workspace-resolver with a cached home workspace', () => {
+  const cached = {
+    wsId: 'ws-cached',
+    owningChatId: 'chat-cached',
+    localPath: '/cached/path',
+  }
+
+  beforeEach(async () => {
+    resetDB()
+    globalThis.indexedDB = new IDBFactory()
+    await saveCache('workspaces-data', 'home-workspace:p1', cached)
+  })
+
+  it('resolves from the cache, scope included, before any request', async () => {
+    await hydrateHomeWorkspace('p1')
+
+    expect(getHomeWorkspaceId('p1')).toBe('ws-cached')
+    expect(getKnownHomeWorkspaceIds()).toContain('ws-cached')
+    expect(getWorkspaceScope('ws-cached')).toEqual({
+      projectId: 'p1',
+      repoId: '',
+      wsId: 'ws-cached',
+      owningChatId: 'chat-cached',
+    })
+    expect(fetchHomeWorkspaceMock).not.toHaveBeenCalled()
+  })
+
+  it('is not an error when the GET fails; the cached workspace stays', async () => {
+    await hydrateHomeWorkspace('p1')
+    fetchHomeWorkspaceMock.mockRejectedValueOnce(new Error('host down'))
+    const { result } = renderHook(() => useHomeWorkspaceState('p1'))
+
+    act(() => ensureHomeWorkspaceResolved('p1'))
+
+    await waitFor(() => expect(fetchHomeWorkspaceMock).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(result.current.wsId).toBe('ws-cached'))
+    expect(result.current.error).toBe(false)
+  })
+
+  it('asks the network even though the cache resolved, and the answer replaces it', async () => {
+    await hydrateHomeWorkspace('p1')
+    fetchHomeWorkspaceMock.mockResolvedValueOnce({
+      id: 'ws-fresh',
+      projectId: 'p1',
+      owningChatId: 'chat-fresh',
+      localPath: '/fresh',
+    })
+    const { result } = renderHook(() => useHomeWorkspaceState('p1'))
+
+    act(() => ensureHomeWorkspaceResolved('p1'))
+
+    await waitFor(() => expect(result.current.wsId).toBe('ws-fresh'))
+    expect(result.current.stale).toBe(false)
+    await waitFor(async () =>
+      expect((await loadCache('workspaces-data', 'home-workspace:p1'))?.data).toEqual({
+        wsId: 'ws-fresh',
+        owningChatId: 'chat-fresh',
+        localPath: '/fresh',
+      }),
+    )
+  })
+
+  it('does not overwrite an answer the network already gave', async () => {
+    fetchHomeWorkspaceMock.mockResolvedValueOnce({ id: 'ws-fresh', projectId: 'p1' })
+    ensureHomeWorkspaceResolved('p1')
+    await waitFor(() => expect(getHomeWorkspaceId('p1')).toBe('ws-fresh'))
+
+    await hydrateHomeWorkspace('p1')
+
+    expect(getHomeWorkspaceId('p1')).toBe('ws-fresh')
   })
 })

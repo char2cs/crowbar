@@ -1068,6 +1068,7 @@ describe('hydrateSidebar', () => {
       repos: HYDRATE_TEST_REPOS.map((r) => ({ ...r, workspaces: [...r.workspaces] })),
       collapsedChatRows: new Set<string>(),
       activeTab: 'chats',
+      hostFilter: '',
     })
   })
 
@@ -1091,6 +1092,19 @@ describe('hydrateSidebar', () => {
     await saveSidebarUI({ collapsedChatRows: ['f1'] })
     await hydrateSidebar()
     expect(useSidebarStore.getState().activeTab).toBe('chats')
+  })
+
+  it('restores the persisted host filter', async () => {
+    await saveSidebarUI({ collapsedChatRows: [], hostFilter: 'h1' })
+    await hydrateSidebar()
+    expect(useSidebarStore.getState().hostFilter).toBe('h1')
+  })
+
+  it('replays a record written before the host filter as no host chosen', async () => {
+    useSidebarStore.setState({ hostFilter: 'h1' })
+    await saveSidebarUI({ collapsedChatRows: [] })
+    await hydrateSidebar()
+    expect(useSidebarStore.getState().hostFilter).toBe('')
   })
 
   it('does nothing when IDB is empty', async () => {

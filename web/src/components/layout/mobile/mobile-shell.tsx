@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useStore } from 'zustand'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
-import { TerminalWindowIcon } from '@phosphor-icons/react'
+import { CodeIcon } from '@phosphor-icons/react'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import SettingsDialog from '@/features/settings/components/settings-dialog'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
@@ -15,6 +15,7 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { NativeAgentsSettingsFeed } from '@/features/settings/components/native-agents-settings-feed'
 import { NativeHostsSettingsFeed } from '@/features/settings/components/native-hosts-settings-feed'
+import { NativeHostPickerFeed } from '@/features/hosts/components/native-host-picker-feed'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { IdeShellWorkspaceContent } from '../ide-shell-workspace-content'
 import { DetachHolderModal } from '../detach-holder-modal'
@@ -29,7 +30,7 @@ import { useLaunchDraft } from './use-launch-draft'
 
 const IDE = {
   label: 'Open IDE',
-  icon: <TerminalWindowIcon size={20} />,
+  icon: <CodeIcon size={20} />,
   onClick: () => useMobileScreenStore.getState().open('ide'),
 }
 
@@ -42,18 +43,19 @@ export function MobileShell() {
   const navigate = useNavigate()
   const screen = useMobileScreenStore((s) => s.screen)
   const isSettingsOpen = useUIState((s) => s.isSettingsOpen)
+  const isHostPickerOpen = useUIState((s) => s.isHostPickerOpen)
   // The native sheet's Agents page shows the active project's host: the phone has no local daemon.
   const agentsHostId = route.allProjects.find((p) => p.id === route.activeProjectId)?.hostId
   const wsId = route.effectiveActiveWorkspaceId
   const hasChat = useStore(windowPaneStore, (s) => Boolean(s.panes[s.activePaneId]?.chatId))
   useLaunchDraft(route.activeProjectId, route.homeWorkspaceId, navigate)
   useCloseChatListOnNavigation()
-  useMobileNativeChrome({ ide: hasChat })
-  const { importRepoRowId, closeImport } = useNativeSidebar({
+  const { importRepoRowId, closeImport, shownHost } = useNativeSidebar({
     activeProjectId: route.activeProjectId,
     projects: route.allProjects,
     onSelectProject: route.handleSelectProject,
   })
+  useMobileNativeChrome({ ide: hasChat, shownHost })
 
   return (
     // The desktop surfaces reused here read a sidebar context; the phone's list is native.
@@ -73,7 +75,8 @@ export function MobileShell() {
       {isSettingsOpen && hasNativeChrome() && agentsHostId && (
         <AgentsSettingsFeed key={agentsHostId} hostId={agentsHostId} />
       )}
-      {isSettingsOpen && hasNativeChrome() && <NativeHostsSettingsFeed />}
+      {isSettingsOpen && hasNativeChrome() && <NativeHostsSettingsFeed shownHost={shownHost} />}
+      {isHostPickerOpen && hasNativeChrome() && <NativeHostPickerFeed shownHost={shownHost} />}
       <SettingsDialog
         // The phone app's own sheet presents Settings off the same `isSettingsOpen`.
         isOpen={isSettingsOpen && !hasNativeChrome()}

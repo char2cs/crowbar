@@ -53,6 +53,8 @@ export interface PaneActions {
   /** Row. */
   closeView(viewId: string): void
   reorderView(viewId: string, targetId: string, mode: 'before' | 'after'): void
+  /** Row: pinned views lead the band; the view moves to the edge of its new group. */
+  setViewPinned(viewId: string, pinned: boolean): void
   /** Row: the daemon deleted `chatId`. */
   forgetChat(chatId: string): void
   /** Row: the runner in `paneId` walked into `chatId` (`moved` frame only). */
@@ -70,9 +72,6 @@ export interface PaneActions {
   setActivePane(paneId: string): void
   activateEditorTabInPane(paneId: string, tabId: string): void
   activateChatInPane(paneId: string): void
-  /** Show `tabId` in `paneId` without taking focus: select it and open the
-   *  editor half if it was toggled off. For tabs something else drives. */
-  revealEditorTab(paneId: string, tabId: string): void
   addEditorTabToPane(paneId: string, tab: EditorTabBase): void
   removeEditorTabFromPane(paneId: string, tabId: string): void
   moveEditorTabToPane(tabId: string, fromPaneId: string, toPaneId: string): void

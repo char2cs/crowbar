@@ -81,9 +81,17 @@ async function openDatabase(): Promise<IDBPDatabase<CrowbarDB>> {
   }
 }
 
+const RETIRED_V12 = [
+  'git-data',
+  'file-tree-data',
+  'branch-review-data',
+  'chats-data',
+  'crowbar_threads',
+]
+
 async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
-  return openDB<CrowbarDB>('crowbar', 10, {
-    upgrade(db, oldVersion) {
+  return openDB<CrowbarDB>('crowbar', 12, {
+    upgrade(db, oldVersion, _newVersion, transaction) {
       // Retired stores are no longer in CrowbarDB; the upgrade chain still
       // creates and then drops them, so it goes through the untyped handle.
       const raw = db as unknown as IDBDatabase
@@ -118,12 +126,12 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
           'branch-review-data',
           'chat-history',
           'projects-data',
-        ] as const) {
-          db.createObjectStore(name, { keyPath: 'key' })
+        ]) {
+          raw.createObjectStore(name, { keyPath: 'key' })
         }
       }
       if (oldVersion < 6) {
-        db.createObjectStore('chats-data', { keyPath: 'key' })
+        raw.createObjectStore('chats-data', { keyPath: 'key' })
       }
       if (oldVersion < 7) {
         // §6 entity cache: complete DTOs keyed by their own id (additive).
@@ -132,8 +140,8 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
           'crowbar_repos',
           'crowbar_workspaces',
           'crowbar_threads',
-        ] as const) {
-          db.createObjectStore(name, { keyPath: 'id' })
+        ]) {
+          raw.createObjectStore(name, { keyPath: 'id' })
         }
       }
       if (oldVersion < 8) {
@@ -154,6 +162,19 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
         // Retired: nothing reads ui-preferences (settings persist through the
         // settings store) or workspace-hierarchy (the daemon owns parents).
         for (const name of ['ui-preferences', 'workspace-hierarchy']) {
+          if (raw.objectStoreNames.contains(name)) raw.deleteObjectStore(name)
+        }
+      }
+      if (oldVersion < 11) {
+        // Lets the transcript cache evict its oldest chats without reading values.
+        // Guarded: a hand-built database that skipped v5 has no such store.
+        if (db.objectStoreNames.contains('chat-history')) {
+          transaction.objectStore('chat-history').createIndex('fetchedAt', 'fetchedAt')
+        }
+      }
+      if (oldVersion < 12) {
+        // Retired: declared but never read or written by anything.
+        for (const name of RETIRED_V12) {
           if (raw.objectStoreNames.contains(name)) raw.deleteObjectStore(name)
         }
       }
@@ -183,17 +204,19 @@ const ENTITY_STORES = [
   'crowbar_projects',
   'crowbar_repos',
   'crowbar_workspaces',
-  'crowbar_threads',
   'crowbar_folders',
   'crowbar_chats',
 ] as const
 
-/** Clears every crowbar_* entity store. Best-effort: IDB failures no-op. */
+// Cached transcripts hold message DTOs, so they go with the entity rows.
+const WIPED_STORES = [...ENTITY_STORES, 'chat-history'] as const
+
+/** Clears every crowbar_* entity store and the cached transcripts. Best-effort: IDB failures no-op. */
 export async function wipeEntityCache(): Promise<void> {
   try {
     const db = await getDB()
-    const tx = db.transaction(ENTITY_STORES, 'readwrite')
-    await Promise.all(ENTITY_STORES.map((name) => tx.objectStore(name).clear()))
+    const tx = db.transaction(WIPED_STORES, 'readwrite')
+    await Promise.all(WIPED_STORES.map((name) => tx.objectStore(name).clear()))
     await tx.done
   } catch {
     /* best-effort wipe — ignore IDB failures */

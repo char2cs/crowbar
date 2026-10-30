@@ -7,16 +7,32 @@ import { useSettingsStore } from '@/features/settings/store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { IS_MAC } from '@/utils/platform'
 import { cn } from '@/utils/cn'
+import { SidebarHostPicker } from './sidebar-host-picker'
 import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
+
+const NO_HOSTS: readonly string[] = []
+
+interface SidebarProjectHeaderProps {
+  /** The hosts the project list can show; the control shows only for two or more. */
+  hostIds?: readonly string[]
+  /** The host whose projects the list shows; none while there is no choice to make. */
+  shownHost?: string
+  onSelectHost?: (hostId: string) => void
+}
 
 /**
  * Sidebar top bar: the sidebar toggle on the inner edge (the side facing the
  * panes) and Settings on the outer edge, beside the macOS traffic lights when
- * the sidebar is on the left. Mirrors when the sidebar sits on the right.
+ * the sidebar is on the left; the host filter sits between them. Mirrors when
+ * the sidebar sits on the right.
  *
  * MEMOIZED: IDEShell re-renders far more often than this bar changes.
  */
-export const SidebarProjectHeader = memo(function SidebarProjectHeader() {
+export const SidebarProjectHeader = memo(function SidebarProjectHeader({
+  hostIds = NO_HOSTS,
+  shownHost,
+  onSelectHost,
+}: SidebarProjectHeaderProps) {
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const isRight = sidebarPosition === 'right'
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
@@ -69,7 +85,11 @@ export const SidebarProjectHeader = memo(function SidebarProjectHeader() {
           top-left (only when the sidebar is on the left). */}
       {IS_MAC && !isRight && <div className="relative z-10 w-[72px] shrink-0" />}
       {settings}
-      <div className="min-w-0 flex-1" />
+      <div className="relative z-10 flex min-w-0 flex-1 justify-center">
+        {onSelectHost && shownHost !== undefined && (
+          <SidebarHostPicker hostIds={hostIds} shown={shownHost} onSelect={onSelectHost} />
+        )}
+      </div>
       {toggle}
     </div>
   )

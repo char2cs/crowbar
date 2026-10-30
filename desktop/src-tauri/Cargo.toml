@@ -82,6 +82,14 @@ objc2-web-kit = { version = "0.3", default-features = false, features = ["std", 
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSPasteboard"] }
 block2 = "0.6"
 
+# Agent control of browser tabs on Linux: WebKitGTK's async script call and
+# snapshot. Same versions tauri/wry already resolve; the png feature is for the
+# snapshot encoder.
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "2", features = ["v2_40"] }
+javascriptcore-rs = "1"
+cairo-rs = { version = "0.18", features = ["png"] }
+
 [profile.release]
 panic = "abort"
 codegen-units = 1

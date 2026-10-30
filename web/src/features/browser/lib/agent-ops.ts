@@ -2,18 +2,19 @@ import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { PaneGroup } from '@/features/panes/types/pane'
 import type { BrowserContent } from '@/features/panes/types/pane-content'
-import { browserApi } from '@/lib/browser-bridge'
+import { browserApi, type BrowserRect } from '@/lib/browser-bridge'
 import { domAgentBody, type DomOp, type PointerOp } from './dom-agent'
-import { whenWebviewLive, whenWebviewVisible } from './webview-registry'
+import { ensureWebview } from './ensure-webview'
+import { webviewCreated } from './webview-registry'
 
-/** How long each wait may take; a wait that runs out is reported, never retried. */
+/** How long a wait may take; a wait that runs out is reported, never retried. */
 export interface AgentLimits {
-  liveMs: number
-  showMs: number
   loadMs: number
 }
 
-const DEFAULT_LIMITS: AgentLimits = { liveMs: 5_000, showMs: 5_000, loadMs: 15_000 }
+const DEFAULT_LIMITS: AgentLimits = { loadMs: 15_000 }
+/** Where a tab nobody has looked at starts; the pane sets the real size when it shows it. */
+const PARKED_RECT: BrowserRect = { x: 0, y: 0, width: 1280, height: 800 }
 const PAGE_OP_TIMEOUT_MS = 15_000
 const EVAL_TIMEOUT_MS = 30_000
 const DOM_OPS: ReadonlySet<string> = new Set([
@@ -122,23 +123,22 @@ function nextLoadEnd(id: string, signal: AbortSignal): Promise<void> {
 }
 
 /**
- * Puts the tab on screen so its page runs at full speed: a hidden webview
- * throttles timers and stalls scripts. It selects the tab in its own pane and
- * opens that pane's editor half, but never switches the user's view, so a chat
- * that is not on screen reports it cannot be shown instead of stealing the window.
+ * Makes sure the tab's page is running. A tab nobody has looked at gets its
+ * webview parked off screen, so no op needs the tab shown or the view changed.
  */
-async function bringToFront(chatId: string, tabId: string, limits: AgentLimits): Promise<void> {
-  const { pane: group, buffer } = ownedTab(chatId, tabId)
+async function liveTab(chatId: string, tabId: string): Promise<void> {
+  const { buffer } = ownedTab(chatId, tabId)
   if (buffer.url === '') throw new Error('this tab has no page yet; use browser_navigate first')
-  windowPaneStore.getState().paneActions.revealEditorTab(group.id, tabId)
-  try {
-    await whenWebviewLive(tabId, afterMs(limits.liveMs))
-    await whenWebviewVisible(tabId, afterMs(limits.showMs))
-  } catch {
-    throw new Error(
-      "the tab cannot be shown: this chat's view is not on screen, or something covers the browser",
-    )
-  }
+  await ensureWebview(tabId, PARKED_RECT, true)
+}
+
+/** `liveTab`, and when that makes the webview, its first page load too: an op that
+ *  answers before then would hand the agent a blank page. */
+async function loadedTab(chatId: string, tabId: string, limits: AgentLimits): Promise<void> {
+  const settled =
+    webviewCreated(tabId) === undefined ? nextLoadEnd(tabId, afterMs(limits.loadMs)) : undefined
+  await liveTab(chatId, tabId)
+  await settled
 }
 
 async function openTab(chatId: string, args: Record<string, unknown>, limits: AgentLimits) {
@@ -147,7 +147,6 @@ async function openTab(chatId: string, args: Record<string, unknown>, limits: Ag
   const existing = group.editorTabIds.find((id) => browserBuffer(id))
   if (existing && args.newTab !== true) {
     if (url) await navigateTab(chatId, existing, url, limits)
-    else windowPaneStore.getState().paneActions.revealEditorTab(group.id, existing)
     return { tab: existing, reused: true }
   }
   const id = windowPaneStore
@@ -156,23 +155,20 @@ async function openTab(chatId: string, args: Record<string, unknown>, limits: Ag
       { type: 'browser', url, workspaceId: group.workspaceId },
       { paneId: group.id },
     )
-  if (url) await bringToFront(chatId, id, limits)
+  if (url) await loadedTab(chatId, id, limits)
   return { tab: id, reused: false }
 }
 
 async function navigateTab(chatId: string, tabId: string, url: string, limits: AgentLimits) {
-  const { buffer } = ownedTab(chatId, tabId)
-  const { bufferActions } = windowPaneStore.getState()
-  const hadPage = buffer.url !== ''
-  // A tab with no page gets its webview from the pane once it has a URL.
-  bufferActions.setBrowserLocation(tabId, { url })
-  if (hadPage) {
-    await bringToFront(chatId, tabId, limits)
+  ownedTab(chatId, tabId)
+  // A webview that does not exist yet is made at the new url; only a live one is sent there.
+  const wasLive = webviewCreated(tabId) !== undefined
+  windowPaneStore.getState().bufferActions.setBrowserLocation(tabId, { url })
+  await loadedTab(chatId, tabId, limits)
+  if (wasLive) {
     const settled = nextLoadEnd(tabId, afterMs(limits.loadMs))
     await browserApi.navigate(tabId, url)
     await settled
-  } else {
-    await bringToFront(chatId, tabId, limits)
   }
   const now = browserBuffer(tabId)
   return { url: now?.url ?? url, title: now?.title ?? '', loading: now?.loading ?? false }
@@ -205,7 +201,7 @@ export async function runAgentOp(
   }
   if (op === 'navigate') return navigateTab(chatId, tab, parseUrl(args.url), limits)
 
-  await bringToFront(chatId, tab, limits)
+  await liveTab(chatId, tab)
   switch (op) {
     case 'back':
       return runInPage(tab, 'history.back()', PAGE_OP_TIMEOUT_MS).then(() => 'went back')

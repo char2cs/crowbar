@@ -1,8 +1,9 @@
 /* @font-face declarations moved to theme-fonts.css and the `@theme inline`
    token map to theme-vars.css — both imported right before this file — to
    keep this one under the repo's file-size cap. The tests in
-   __tests__/styles/{theme,zen}-theme-tokens.test.ts read the `:root`/`.dark`
-   blocks below directly off disk, so those two stay put. */
+   __tests__/styles/{theme,crowbar}-theme-tokens.test.ts read the `:root`/`.dark`
+   blocks below directly off disk, so those two stay put. This file is the
+   Frosted theme (the unthemed base); crowbar.css overrides it. */
 
 :root {
   --radius: 0.625rem;
@@ -38,7 +39,10 @@
 
   --editor-selection: color-mix(in oklch, #606c38 20%, transparent);
 
-  --brand: #606c38;
+  /* Both modes' brand, readable from either: the phone's appearance previews draw each. */
+  --brand-light: #606c38;
+  --brand-dark: #98a86a;
+  --brand: var(--brand-light);
   /* The phone's first-run ground: the brand's light green by day, the app icon's dark green by night. */
   --brand-ground: #98a86a;
   --destructive: #b8422c;
@@ -69,21 +73,15 @@
   --sidebar-element-hover: oklch(0 0 0 / 8%);
   --sidebar-element-press: color-mix(in oklch, var(--foreground) 8%, transparent);
   --elevated-highlight: color-mix(in oklch, var(--foreground) 16%, transparent);
-  /* ROW_ACTIVE's OWN top-edge token (workspace-row-base.ts). Production
-     (develop) never had a separate token here at all — its own ROW_ACTIVE
-     sits on plain `bg-background`/`text-foreground` (no inversion) and just
-     reuses `--elevated-highlight` above, verbatim, the same as every button
-     and tab. Every round on THIS token before this one — before-overlay,
-     colored, card-polarity-flipped, hand-tuned alpha/blur/offset — was
-     solving a problem production's own recipe doesn't have: this branch's
-     ROW_ACTIVE deliberately inverts to `--background-inverse` (kept, by
-     explicit instruction), so the token that actually pairs with it isn't
-     `--foreground` (production's own — wrong theme's text color, once
-     inverted) but `--foreground-inverse`, the one already defined to be read
-     against `--background-inverse` for exactly this row. Same formula
-     (`color-mix`, 16%), same plain `0_1px`, zero blur, zero hand-tuning —
-     just the inverted foreground standing in for the ambient one. */
-  --row-active-highlight: color-mix(in oklch, var(--foreground-inverse) 16%, transparent);
+  /* The raised pill/tab surface (see `control-surface` in index.css). It follows
+     the ambient pair here; a theme may pin it independently of pane/chrome tones. */
+  --pane-accent: var(--secondary);
+  --pane-accent-width: 1px;
+  --pane-border: var(--border);
+  --control-surface: var(--background);
+  --control-foreground: var(--foreground);
+  --control-muted-foreground: var(--muted-foreground);
+  --control-highlight: var(--elevated-highlight);
 
   --code: var(--color-white);
   --code-foreground: var(--foreground);
@@ -171,6 +169,10 @@
   --terminal-bright-white: var(--foreground);
 }
 
+/* The Crowbar theme paints its chrome dark in light mode too (crowbar.css), so
+   chrome-surface regions and the phone's sidebar pages take the dark palette there. */
+[data-theme='crowbar']:not(.dark) .chrome-surface,
+[data-theme='crowbar']:not(.dark)[data-chrome-page],
 .dark {
   --background: #1c1c1a;
   --pane-background: #1c1c1a;
@@ -202,7 +204,7 @@
   --accent-foreground: var(--foreground);
   --editor-selection: color-mix(in oklch, #98a86a 32%, transparent);
 
-  --brand: #98a86a;
+  --brand: var(--brand-dark);
   --brand-ground: color(display-p3 0.15686 0.21176 0.09412);
   --destructive: #f1a493;
   --destructive-foreground: #3b211c;
@@ -231,14 +233,6 @@
   --sidebar-element-idle: color-mix(in oklch, var(--foreground) 11%, transparent);
   --sidebar-element-hover: oklch(1 0 0 / 10%);
   --sidebar-element-press: color-mix(in oklch, var(--foreground) 7%, transparent);
-  /* See :root's own copy of this token for the full history: production
-     (develop) never needed a separate token here, it just reuses
-     `--elevated-highlight` (`color-mix` off `--foreground`) because its own
-     ROW_ACTIVE never inverts. This branch's does (kept, deliberately), so
-     this mixes `--foreground-inverse` instead — the token already meant to
-     be read against `--background-inverse` — rather than `--foreground`,
-     which would pair it with the wrong theme once inverted. */
-  --row-active-highlight: color-mix(in oklch, var(--foreground-inverse) 16%, transparent);
   --code: var(--background);
   --code-foreground: var(--foreground);
   --code-highlight: oklch(1 0 0 / 4%);
@@ -318,19 +312,11 @@
   }
 }
 
-/* Linux and iOS have no native window vibrancy (see zen.css for the full explanation
-   and tauri.linux.conf.json, which turns off window transparency itself).
-   --chrome-bg/--pane-chrome-bg are the default "Crowbar" theme's own wash
-   over the vibrancy blur, translucent for the same reason Zen's surfaces
-   are. These are the ACTUAL flattened result of compositing each token over
-   :root/.dark's own --background, not the same percentage at 100% (which
-   would shift the hue/lightness). Any theme that doesn't override these two
-   tokens itself — including Zen, which only overrides --chrome-bg and
-   inherits --pane-chrome-bg from here — gets the opaque fallback for free.
-   A theme.css selector out-specifies a theme file's own `[data-theme='x']`
-   rule only when that file doesn't also gate on `[data-platform='linux']`
-   (equal specificity falls back to source order); zen.css already does, so
-   its own --chrome-bg override still wins there. */
+/* Linux and iOS have no native window vibrancy (tauri.linux.conf.json turns
+   window transparency off). --chrome-bg/--pane-chrome-bg are the Frosted wash
+   over the vibrancy blur; these are that wash flattened onto :root/.dark's own
+   --background. A theme overriding either token must gate its own override on
+   [data-platform] with at least this specificity (crowbar.css does). */
 :root[data-platform='linux'],
 :root[data-platform='ios'] {
   --chrome-bg: oklch(0.989 0 0);

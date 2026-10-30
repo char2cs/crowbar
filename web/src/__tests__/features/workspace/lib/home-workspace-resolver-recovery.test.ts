@@ -63,6 +63,7 @@ describe('home-workspace-resolver recovers from a failed resolve', () => {
       owningChatId: 'chat-home-1',
       localPath: null,
       error: false,
+      stale: false,
     })
   })
 })

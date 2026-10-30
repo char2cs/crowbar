@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { resetDB } from '@/lib/persistence/idb'
+import { loadChatHistory, saveChatHistory } from '@/lib/persistence/chat-history'
 import {
   upsertEntity,
   getAllEntities,
@@ -89,16 +90,25 @@ describe('entity-cache', () => {
     expect(await getAllEntities<WorkspaceDTO>('crowbar_workspaces')).toHaveLength(0)
   })
 
+  it("removing a chat row also removes its cached transcript, and only that chat's", async () => {
+    await upsertEntity('crowbar_chats', { id: 'c1' })
+    await saveChatHistory('c1', { messages: [], hasOlder: false })
+    await saveChatHistory('c2', { messages: [], hasOlder: false })
+
+    await removeEntity('crowbar_chats', 'c1')
+
+    expect(await loadChatHistory('c1')).toBeUndefined()
+    expect(await loadChatHistory('c2')).toBeDefined()
+  })
+
   it('round-trips across every entity store', async () => {
     await upsertEntity('crowbar_projects', { id: 'p' })
     await upsertEntity('crowbar_repos', { id: 'r' })
     await upsertEntity('crowbar_workspaces', { id: 'w' })
-    await upsertEntity('crowbar_threads', { id: 't' })
     await upsertEntity('crowbar_folders', { id: 'f' })
     expect(await getAllEntities('crowbar_projects')).toHaveLength(1)
     expect(await getAllEntities('crowbar_repos')).toHaveLength(1)
     expect(await getAllEntities('crowbar_workspaces')).toHaveLength(1)
-    expect(await getAllEntities('crowbar_threads')).toHaveLength(1)
     // A store the schema knows about but the DB was never upgraded to create
     // reads back empty rather than throwing (upsertEntity is best-effort), so
     // this length is the only thing that can catch a missed version bump.

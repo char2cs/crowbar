@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
-import { DesktopIcon } from '@phosphor-icons/react'
+import { CloudIcon, DesktopIcon } from '@phosphor-icons/react'
 import { hostDotLabel, hostTone, type HostTone } from '@/features/hosts/lib/host-tone'
-import type { HostDotState } from '@/features/hosts/types'
+import { LOCAL_HOST, type HostDotState } from '@/features/hosts/types'
 import { cn } from '@/utils/cn'
 
 // A dot is a non-text indicator, so it needs 3:1. Light amber's base is 2.2:1 on the sidebar, so
@@ -51,7 +51,12 @@ export function HostStatusDot({
   )
 }
 
-/** A computer with its host's status dot, the dot labelled in words. */
+/** Where a host runs: this machine, or a paired remote one. */
+export function hostPlace(hostId: string): 'local' | 'remote' {
+  return hostId === LOCAL_HOST.id ? 'local' : 'remote'
+}
+
+/** This machine's computer, or a remote host's cloud, with its status dot labelled in words. */
 export function HostStatusIcon({
   hostId,
   state,
@@ -67,9 +72,16 @@ export function HostStatusIcon({
   /** Sizes the icon (`size-4` by default); the dot keeps its own size. */
   className?: string
 }) {
+  const place = hostPlace(hostId)
+  const Icon = place === 'local' ? DesktopIcon : CloudIcon
   return (
     <HostStatusDot hostId={hostId} state={state} labelled showTitle={showTitle}>
-      <DesktopIcon aria-hidden="true" weight={weight} className={cn('size-4', className)} />
+      <Icon
+        aria-hidden="true"
+        data-host-place={place}
+        weight={weight}
+        className={cn('size-4', className)}
+      />
     </HostStatusDot>
   )
 }

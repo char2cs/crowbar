@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useBrowserAgentStore } from '@/features/browser/lib/agent-activity-store'
 import { attachBrowserAgentPeer } from '@/features/browser/lib/agent-peer'
-import { registerWebview, setWebviewVisible } from '@/features/browser/lib/webview-registry'
+import { registerWebview } from '@/features/browser/lib/webview-registry'
 import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
@@ -44,7 +44,6 @@ function mountTab(chatId: string, url: string): string {
     { paneId: pane?.id },
   )
   registerWebview(id, Promise.resolve())
-  setWebviewVisible(id, true)
   return id
 }
 

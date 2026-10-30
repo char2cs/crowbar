@@ -40,9 +40,9 @@ const UNRESOLVED = /^cannot resolve ([^\s:]+)/
 const UNREACHABLE = /^cannot reach |did not answer within|did not finish pairing|^pairing with /
 const NOT_CROWBAR = /^TLS handshake with |presented no certificate/
 
-/** What a failed probe or pairing of `address` means for the user, in plain words: the desktop
- *  shell's own text names transport and OS errors, which are never shown. */
-export function pairingFailureText(err: unknown, address: string): string {
+/** What a failed probe or pairing of the host `name` at `address` means for the user, in plain
+ *  words: the desktop shell's own text names transport and OS errors, which are never shown. */
+export function pairingFailureText(err: unknown, address: string, name: string): string {
   const text = err instanceof Error ? err.message : String(err)
   const refused = REFUSED.exec(text)
   // A wrong code and an expired one get the same 401: the host does not say which.
@@ -66,5 +66,5 @@ export function pairingFailureText(err: unknown, address: string): string {
   if (NOT_CROWBAR.test(text)) {
     return `${address} answered, but not as a Crowbar host. Check the address and port.`
   }
-  return `Couldn’t pair with ${address}. Try again, or run crowbar pair on the host for a new code.`
+  return `Couldn’t pair with ${name}. Try again, or run crowbar pair on the host for a new code.`
 }

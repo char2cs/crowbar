@@ -28,12 +28,8 @@ const SECONDARY = 'ui-font ui-text-sm truncate text-muted-foreground'
 
 function HostRow<H extends HostSummary>({ host, isLocal, revoking, onRevoke }: HostRowProps<H>) {
   const { state } = useHostView(host.id)
-
-  return (
-    <div
-      data-testid="host-row"
-      className="flex items-center gap-3 rounded-lg px-1 py-2 transition-colors hover:bg-muted/50"
-    >
+  const summary = (
+    <>
       <HostStatusIcon hostId={host.id} state={state} className="text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <div className="ui-font ui-text-sm truncate text-foreground">{host.name}</div>
@@ -43,6 +39,15 @@ function HostRow<H extends HostSummary>({ host, isLocal, revoking, onRevoke }: H
           {state !== 'up' && ` · ${hostDotLabel(state)}`}
         </div>
       </div>
+    </>
+  )
+
+  return (
+    <div
+      data-testid="host-row"
+      className="flex items-center gap-3 rounded-lg px-1 py-2 transition-colors hover:bg-muted/50"
+    >
+      {summary}
       {!isLocal && (
         <Button
           type="button"
@@ -64,8 +69,6 @@ function HostRow<H extends HostSummary>({ host, isLocal, revoking, onRevoke }: H
 
 interface HostsSettingsViewProps<H extends HostSummary> {
   hosts: readonly H[]
-  /** This computer's own daemon; the phone has none. */
-  showLocal: boolean
   description: string
   revoking: ReadonlySet<string>
   onRevoke: (host: H) => void
@@ -75,9 +78,8 @@ interface HostsSettingsViewProps<H extends HostSummary> {
 }
 
 /** Settings → Hosts as drawn: every host with its status, revoke, and Add host. */
-export function HostsSettingsView<H extends HostSummary>({
+function HostsSettingsView<H extends HostSummary>({
   hosts,
-  showLocal,
   description,
   revoking,
   onRevoke,
@@ -93,7 +95,7 @@ export function HostsSettingsView<H extends HostSummary>({
       </div>
 
       <div className="space-y-1">
-        {showLocal && <HostRow host={LOCAL_HOST} isLocal revoking={false} onRevoke={() => {}} />}
+        <HostRow host={LOCAL_HOST} isLocal revoking={false} onRevoke={() => {}} />
         {hosts.map((host) => (
           <HostRow
             key={host.id}
@@ -150,7 +152,6 @@ export function HostsSettings() {
   return (
     <HostsSettingsView
       hosts={hosts}
-      showLocal
       description="Crowbar always runs on this computer. Add another machine running its own daemon to reach it from here too."
       revoking={revoking}
       onRevoke={handleRevoke}

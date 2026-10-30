@@ -44,6 +44,8 @@ interface AgentComposerProps {
   permissionLevels?: PermissionLevel[]
 
   live: boolean
+  /** The chat's host does not answer: the bar is a read-only signpost. */
+  offline?: boolean
   working: boolean
   compacting: boolean
   /** A prompt has been dispatched but the ledger has not yet proven it delivered. */
@@ -54,6 +56,7 @@ interface AgentComposerProps {
   revival?: ComposerRevival
   haltedMessage?: string
   haltedResetsAt?: string
+  onRetryHalted?: () => void
   canStop: boolean
 
   draft: string
@@ -196,6 +199,7 @@ export function AgentComposer(props: AgentComposerProps) {
 
   const state = resolveComposerState({
     live: props.live,
+    offline: props.offline,
     revival: props.revival,
     submitUnavailable: props.submitUnavailable,
     terminalWait: props.terminalWait,
@@ -235,7 +239,13 @@ export function AgentComposer(props: AgentComposerProps) {
         </div>
       )
     case 'halted':
-      return <ComposerHalted message={state.message} resetsAt={state.resetsAt} />
+      return (
+        <ComposerHalted
+          message={state.message}
+          resetsAt={state.resetsAt}
+          onRetry={props.onRetryHalted}
+        />
+      )
     case 'compacting':
     case 'input': {
       // Compaction does not take the box away — it queues what is typed into it,

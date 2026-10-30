@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { resetDB } from '@/lib/persistence/idb'
+import { loadChatHistory, saveChatHistory } from '@/lib/persistence/chat-history'
 import { upsertEntity, getAllEntities } from '@/lib/persistence/entity-cache'
 import {
   wipeEntityCache,
@@ -20,7 +21,6 @@ async function seedAllStores(): Promise<void> {
   await upsertEntity('crowbar_projects', { id: 'p' })
   await upsertEntity('crowbar_repos', { id: 'r' })
   await upsertEntity('crowbar_workspaces', { id: 'w' })
-  await upsertEntity('crowbar_threads', { id: 't' })
   await upsertEntity('crowbar_folders', { id: 'f' })
 }
 
@@ -31,8 +31,13 @@ describe('wipeEntityCache', () => {
     expect(await getAllEntities('crowbar_projects')).toHaveLength(0)
     expect(await getAllEntities('crowbar_repos')).toHaveLength(0)
     expect(await getAllEntities('crowbar_workspaces')).toHaveLength(0)
-    expect(await getAllEntities('crowbar_threads')).toHaveLength(0)
     expect(await getAllEntities('crowbar_folders')).toHaveLength(0)
+  })
+
+  it('clears cached chat transcripts, whose message shape versions with the DTOs', async () => {
+    await saveChatHistory('c', { messages: [], hasOlder: false })
+    await wipeEntityCache()
+    expect(await loadChatHistory('c')).toBeUndefined()
   })
 })
 
@@ -58,7 +63,6 @@ describe('maybeWipeOnVersionChange', () => {
     expect(await getAllEntities('crowbar_projects')).toHaveLength(1)
     expect(await getAllEntities('crowbar_repos')).toHaveLength(1)
     expect(await getAllEntities('crowbar_workspaces')).toHaveLength(1)
-    expect(await getAllEntities('crowbar_threads')).toHaveLength(1)
     expect(await getAllEntities('crowbar_folders')).toHaveLength(1)
   })
 

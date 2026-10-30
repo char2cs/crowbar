@@ -5,6 +5,10 @@ import {
 } from '@/lib/persistence/hydrate'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { seedProjectList } from '@/lib/store/projects'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { hydrateHomeTree } from '@/lib/store/home-tree'
+import { getVisibleProjectIds } from '@/lib/store/project-visibility'
+import { hydrateHomeWorkspace } from '@/features/workspace/lib/home-workspace-resolver'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { dataOf } from '@/lib/loadable'
 import { prefetchVisibleChats } from '@/features/agent/lib/prefetch-visible-chats'
@@ -52,7 +56,7 @@ export async function hydrateCriticalStores(): Promise<void> {
     await hydrateWindowPaneLayout()
   } catch (err) {
     // main.tsx renders even after a failed boot: render must not overtake the registration.
-    if (remoteHosts) await remoteHosts
+    await remoteHosts
     throw err
   }
   // The chat surface chunk loads beside the IndexedDB reads below, and render
@@ -60,11 +64,15 @@ export async function hydrateCriticalStores(): Promise<void> {
   const chatSurface = showsChat() ? preloadAgentChatPane() : undefined
   // Layout hydration to the first transcript row shown; AgentTranscript closes it.
   if (chatSurface) markStart('chat:first-row')
-  if (remoteHosts) await remoteHosts
+  await remoteHosts
+  await hydrateHomeState()
   // The one network step, deliberately not awaited: members stay unplaced until it answers.
   void placeRestoredChatMembers()
   await useWorkspaceListStore.getState().fetch()
-  useSidebarStore.getState().setRepos(dataOf(useWorkspaceListStore.getState().data) ?? [])
+  const cachedRepos = dataOf(useWorkspaceListStore.getState().data) ?? []
+  useSidebarStore.getState().setRepos(cachedRepos)
+  // After the rows are in the store: the cache is all there is until a host answers.
+  useFolderSignalStore.getState().markSeededFromCache(cachedRepos)
   // setRepos recorded each workspace's scope, which the messages URL needs. Not
   // awaited: the first page loads while the chat surface's chunks do.
   void prefetchVisibleChats()
@@ -72,12 +80,20 @@ export async function hydrateCriticalStores(): Promise<void> {
   await chatSurface?.catch(() => {})
 }
 
-/** A paired install's hosts registered and its cached project rows held — where a restored
- *  pane's host, local too, resolves from. Undefined where no remote was ever paired, so
- *  that boot does exactly what it did. */
-function prepareRemoteHosts(): Promise<unknown> | undefined {
-  if (!hasPairedRemote(useHostConfigStore.getState())) return undefined
+/** A paired install's hosts registered, and the cached project rows held — where a restored
+ *  pane's host, local too, resolves from, and what scopes the cached sidebar tree to every
+ *  known project instead of only the active one. An install that never paired a remote
+ *  registers nothing and only holds the rows. */
+function prepareRemoteHosts(): Promise<unknown> {
+  if (!hasPairedRemote(useHostConfigStore.getState())) return seedProjectList()
   return Promise.all([hostsRegistered(), seedProjectList()])
+}
+
+/** Every known project's last-answered home workspace and tree, so project home and its
+ *  restored chat panes draw from them while the host is unreachable. */
+async function hydrateHomeState(): Promise<void> {
+  const projectIds = [...getVisibleProjectIds()]
+  await Promise.all(projectIds.flatMap((id) => [hydrateHomeWorkspace(id), hydrateHomeTree(id)]))
 }
 
 function showsChat(): boolean {

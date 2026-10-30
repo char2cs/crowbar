@@ -49,12 +49,3 @@ export const SETTINGS_TAB_ITEMS: SettingsTabItem[] = [
     ? [{ id: 'developer' as SettingsTabItem['id'], label: 'Developer', icon: Bug }]
     : []),
 ]
-
-// The phone has no editor, file tree, browser or keyboard of its own to configure, and the
-// sheet's webview lacks the IPC the Developer tools need; Hosts is always there.
-const PHONE_TAB_IDS: SettingsTab[] = ['appearance', 'terminal', 'providers', 'git', 'hosts']
-
-/** The phone's settings sheet: the desktop tabs that apply to it, in its own order. */
-export const PHONE_SETTINGS_TAB_ITEMS: SettingsTabItem[] = PHONE_TAB_IDS.map((id) =>
-  [...SHARED_TAB_ITEMS, HOSTS_TAB].find((tab) => tab.id === id)!,
-)

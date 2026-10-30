@@ -45,10 +45,11 @@ describe('HomeRoute component', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('renders fallback on error', () => {
+  it('renders fallback on error, saying what to do', () => {
     useHomeWorkspaceStateMock.mockReturnValue({ wsId: null, error: true })
     render(<HomeRoute />)
     expect(screen.getByText(/unavailable/i)).toBeInTheDocument()
+    expect(screen.getByText(/connect to this project's host/i)).toBeInTheDocument()
   })
 
   // The route stays while the host the project may be on is down; it must not stay blank.
@@ -67,6 +68,18 @@ describe('HomeRoute component', () => {
       render(<HomeRoute />)
 
       expect(screen.getByText(/unavailable/i)).toBeInTheDocument()
+    })
+
+    // The last-known home workspace is shown read-only; the host being down is no reason to hide it.
+    it('keeps showing a cached home workspace while its host is down', () => {
+      pairRemoteHost('h1')
+      getOrCreateHostRuntime('h1').getState().setStatus('down')
+      loadProjects(projectOn('p-other', 'local'))
+      useHomeWorkspaceStateMock.mockReturnValue({ wsId: 'ws-cached', error: false, stale: true })
+
+      const { container } = render(<HomeRoute />)
+
+      expect(container).toBeEmptyDOMElement()
     })
   })
 })

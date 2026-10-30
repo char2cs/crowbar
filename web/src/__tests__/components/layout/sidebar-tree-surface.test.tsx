@@ -58,7 +58,14 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
 import { getInitialState, useSidebarStore, type Chat, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { useWorkspaceListStore } from '@/lib/store/workspace-list'
+import { useProjectStore } from '@/lib/store/projects'
+import { upsertEntity } from '@/lib/persistence/entity-cache'
+import { resetDB } from '@/lib/persistence/idb'
+import { dataOf } from '@/lib/loadable'
+import { IDBFactory } from 'fake-indexeddb'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { planRemoval } from '@/components/layout/removal-plan'
 import type { Project } from '@/lib/types'
@@ -153,6 +160,61 @@ describe('SidebarTreeSurface', () => {
 
   // RemovalTray no longer mounts here: it mounts once in the IDE shell
   // (ide-shell.test.tsx covers that).
+
+  // Offline cold start: no seed ever answers, so the rows hydrated from the
+  // entity cache are all the sidebar has.
+  it('draws a repo hydrated from the entity cache without any network seed', async () => {
+    resetDB()
+    globalThis.indexedDB = new IDBFactory()
+    useProjectStore.setState({ activeProjectId: 'p1' })
+    await upsertEntity('crowbar_repos', {
+      id: 'r1',
+      projectId: 'p1',
+      name: 'cached-repo',
+      path: '/r1',
+      defaultBranch: 'main',
+      avatarLabel: 'C',
+      avatarColor: 'bg-indigo-700',
+      avatarUrl: '',
+      avatarEmoji: '',
+    })
+    await upsertEntity('crowbar_workspaces', {
+      id: 'ws-cached',
+      repoId: 'r1',
+      projectId: 'p1',
+      branch: 'cached-branch',
+      status: 'new',
+      working: false,
+      provisioning: 'provisioned',
+      owningChatId: 'c-owner',
+    })
+    await upsertEntity('crowbar_chats', {
+      id: 'c-owner',
+      repoId: 'r1',
+      projectId: 'p1',
+      type: 'chat',
+      workspaceId: 'ws-cached',
+      ownsWorktree: true,
+      title: '',
+    })
+    await useWorkspaceListStore.getState().fetch()
+    // What boot does with the cached tree (lib/boot.ts).
+    const cached = dataOf(useWorkspaceListStore.getState().data) ?? []
+    act(() => {
+      useSidebarStore.getState().setRepos(cached)
+      useFolderSignalStore.getState().markSeededFromCache(cached)
+    })
+
+    render(
+      <SidebarTreeSurface
+        projects={[projectA]}
+        activeProjectId="p1"
+        onActiveProjectChange={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('cached-branch')).toBeInTheDocument()
+  })
 
   // Explicit product request: an X on a row transforms it IN PLACE (its
   // countdown + Keep/undo control) instead of hiding it while a separate
@@ -268,6 +330,28 @@ describe('SidebarTreeSurface — creatingSpace swaps SpaceScroller for CreateSpa
     )
     expect(await screen.findByTestId('create-space-panel')).toBeInTheDocument()
     expect(screen.queryByTestId('space-scroll-region')).not.toBeInTheDocument()
+  })
+
+  it('opens the create form on the host it is told', async () => {
+    useHostConfigStore.setState({
+      hosts: [
+        { id: 'h1', name: 'homelab-prox', endpoint: '', pairedFingerprint: '', clientId: '' },
+      ],
+    })
+    render(
+      <SidebarTreeSurface
+        projects={[projectA]}
+        activeProjectId="p1"
+        onActiveProjectChange={vi.fn()}
+        creatingSpace
+        newSpaceHostId="h1"
+        onCreateSpace={vi.fn()}
+        onCancelCreateSpace={vi.fn()}
+      />,
+    )
+    expect(await screen.findByRole('combobox', { name: /daemon/i })).toHaveTextContent(
+      'homelab-prox',
+    )
   })
 
   it('Cancel calls onCancelCreateSpace', async () => {

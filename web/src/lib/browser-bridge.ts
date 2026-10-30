@@ -46,12 +46,15 @@ async function listenTo<T>(event: string, handler: (payload: T) => void): Promis
 
 /** The only module that talks to the native webviews (`browser-<id>` in Rust). */
 export const browserApi = {
-  // Must be idempotent per id: a pane that remounts the same tab calls it again.
-  // `zoom` is a factor (1 = 100%) and only applies when the webview is created.
-  open: (id: string, url: string, rect: BrowserRect, zoom: number) =>
-    invoke('browser_open', { id, url, zoom, ...rect }),
+  // Must be idempotent per id. `zoom` is a factor (1 = 100%) and only applies
+  // when the webview is created; `parked` creates it off screen at `rect`'s size.
+  open: (id: string, url: string, rect: BrowserRect, zoom: number, parked: boolean) =>
+    invoke('browser_open', { id, url, zoom, parked, ...rect }),
+  /** Ignored while parked: only `unpark` brings a tab back. */
   setBounds: (id: string, rect: BrowserRect) => invoke('browser_set_bounds', { id, ...rect }),
-  setVisible: (id: string, visible: boolean) => invoke('browser_set_visible', { id, visible }),
+  /** Moves the tab out of the window but keeps it live at its size, so its page is not throttled. */
+  park: (id: string) => invoke('browser_park', { id }),
+  unpark: (id: string, rect: BrowserRect) => invoke('browser_unpark', { id, ...rect }),
   navigate: (id: string, url: string) => invoke('browser_navigate', { id, url }),
   back: (id: string) => invoke('browser_back', { id }),
   forward: (id: string) => invoke('browser_forward', { id }),

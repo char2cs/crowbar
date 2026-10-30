@@ -12,9 +12,9 @@ import {
   useActiveSessionsStore,
   type ActiveSessionFrame,
 } from '@/lib/store/active-sessions'
+import { loadCache, saveCache } from '@/lib/persistence/cache-store'
 import {
   ensureHomeWorkspaceResolved,
-  getHomeOwningChatId,
   getHomeWorkspaceId,
 } from '@/features/workspace/lib/home-workspace-resolver'
 
@@ -38,9 +38,16 @@ interface HomeTreeStore {
   clearTree: (projectId: string) => void
 }
 
+const treeCacheKey = (projectId: string) => `home-tree:${projectId}`
+
 export const useHomeTreeStore = create<HomeTreeStore>()((set) => ({
   trees: {},
-  setTree: (projectId, tree) => set((s) => ({ trees: { ...s.trees, [projectId]: tree } })),
+  // Every write the network or the user's own request confirmed is also the copy IndexedDB
+  // keeps, so an unreachable host still has a last-known tree to draw.
+  setTree: (projectId, tree) => {
+    set((s) => ({ trees: { ...s.trees, [projectId]: tree } }))
+    void saveCache('workspaces-data', treeCacheKey(projectId), tree)
+  },
   clearTree: (projectId) =>
     set((s) => {
       if (!(projectId in s.trees)) return s
@@ -49,6 +56,18 @@ export const useHomeTreeStore = create<HomeTreeStore>()((set) => ({
       return { trees }
     }),
 }))
+
+/**
+ * Holds `projectId`'s last-known home tree from IndexedDB. A tree already in the store is the
+ * network's (or a newer write's) and is never overwritten by this older copy.
+ */
+export async function hydrateHomeTree(projectId: string): Promise<void> {
+  const cached = await loadCache<HomeTree>('workspaces-data', treeCacheKey(projectId))
+  if (!cached) return
+  useHomeTreeStore.setState((s) =>
+    projectId in s.trees ? s : { trees: { ...s.trees, [projectId]: cached.data } },
+  )
+}
 
 /** `projectId`'s home tree, or the stable empty one before its first seed. */
 export function getHomeTree(projectId: string): HomeTree {
@@ -193,10 +212,8 @@ export function subscribeHomeTree(projectId: string): () => void {
   let disposed = false
   let latestRead = 0
   const scope = `home:${projectId}`
-  // Last-known halves: the two reads settle independently, so one failed GET
-  // keeps whatever the other (or an earlier reseed) already landed.
-  let chats: Chat[] | undefined
-  let folders: Folder[] | undefined
+  // The cached tree lands before any read settles, so a failed half has something to keep.
+  const hydrated = hydrateHomeTree(projectId)
 
   async function reseed(): Promise<void> {
     const seq = ++latestRead
@@ -208,21 +225,24 @@ export function subscribeHomeTree(projectId: string): () => void {
       }),
       fetchHomeFolders(projectId),
     ])
+    await hydrated
     if (disposed || seq !== latestRead) return
+    // The two reads settle independently: a failed one keeps what the store holds for its half.
+    const held = getHomeTree(projectId)
+    let chats = held.chats
+    let folders = held.folders
     if (chatsRead.status === 'fulfilled') chats = chatsRead.value.map(toSidebarChat)
     else console.error(`home-tree: chats reseed failed for project ${projectId}`, chatsRead.reason)
     if (foldersRead.status === 'fulfilled') folders = foldersRead.value.map(toSidebarFolder)
     else {
       console.error(`home-tree: folders reseed failed for project ${projectId}`, foldersRead.reason)
     }
-    if (chats === undefined && folders === undefined) return
-    useHomeTreeStore.getState().setTree(projectId, { chats: chats ?? [], folders: folders ?? [] })
+    if (chatsRead.status === 'rejected' && foldersRead.status === 'rejected') return
+    useHomeTreeStore.getState().setTree(projectId, { chats, folders })
     // A daemon that answered the tree but refused GET /home earlier (a 503
-    // with the socket up), or answered it without an owner, heals on the
-    // same structural frame.
-    if (getHomeWorkspaceId(projectId) === null || getHomeOwningChatId(projectId) === null) {
-      ensureHomeWorkspaceResolved(projectId)
-    }
+    // with the socket up), answered it without an owner, or only has the cached
+    // workspace to show, heals on the same structural frame (a no-op once confirmed).
+    ensureHomeWorkspaceResolved(projectId)
   }
 
   void reseed()

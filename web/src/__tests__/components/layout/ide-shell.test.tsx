@@ -14,6 +14,7 @@ import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { __resetHomeWorkspaceResolverForTest } from '@/features/workspace/lib/home-workspace-resolver'
 import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'
+import { pairRemoteHost, projectOn, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 const router = vi.hoisted(() => ({ pathname: '/', navigate: vi.fn() }))
 
@@ -94,8 +95,12 @@ vi.mock('@/components/layout/sidebar-project-header', () => ({
   },
 }))
 vi.mock('@/components/layout/sidebar-tree-surface', () => ({
-  SidebarTreeSurface: ({ creatingSpace }: { creatingSpace: boolean }) => (
-    <div data-testid="sidebar-tree-surface" data-creating-space={String(creatingSpace)} />
+  SidebarTreeSurface: (p: { creatingSpace: boolean; newSpaceHostId?: string }) => (
+    <div
+      data-testid="sidebar-tree-surface"
+      data-creating-space={String(p.creatingSpace)}
+      data-new-space-host={p.newSpaceHostId}
+    />
   ),
 }))
 vi.mock('@/features/settings/components/settings-dialog', () => ({
@@ -107,6 +112,8 @@ vi.mock('@/features/settings/components/settings-dialog', () => ({
 const { sidebarState } = vi.hoisted(() => ({
   sidebarState: {
     repos: [] as unknown[],
+    hostFilter: '',
+    setHostFilter: vi.fn(),
     deleteWorkspace: vi.fn(),
     setActiveTab: vi.fn(),
   },
@@ -165,6 +172,8 @@ describe('IDEShell', () => {
     router.navigate = vi.fn()
     useProjectDataStore.setState({ data: idle() })
     sidebarState.repos = []
+    sidebarState.hostFilter = ''
+    resetHostWorld()
     workspaceViewMock.mockClear()
     sidebarState.setActiveTab.mockClear()
     activePaneWorkspaceIdOverride.current = undefined
@@ -218,6 +227,35 @@ describe('IDEShell', () => {
     render(<IDEShell />)
     expect(screen.getByTestId('active-project-name')).toHaveTextContent('crowbar')
     expect(screen.getByRole('button', { name: 'other' })).toBeInTheDocument()
+  })
+
+  describe('host filter', () => {
+    const header = () => sidebarProjectHeaderMock.mock.lastCall![0]
+
+    beforeEach(() => {
+      pairRemoteHost('h1', 'Build box')
+      const projects = [projectOn('p1', 'local'), projectOn('p2', 'h1'), projectOn('p3', 'h1')]
+      useProjectDataStore.setState({ data: success(projects) })
+    })
+
+    it('lists only the chosen host’s projects, and makes new spaces there', () => {
+      sidebarState.hostFilter = 'h1'
+      router.pathname = '/ide/p2/home'
+      render(<IDEShell />)
+      expect(header()).toMatchObject({ hostIds: ['local', 'h1'], shownHost: 'h1' })
+      expect(screen.getAllByTestId('space-mark')).toHaveLength(1)
+      expect(screen.getByTestId('sidebar-tree-surface').dataset.newSpaceHost).toBe('h1')
+    })
+
+    it('opens a chosen host’s project', () => {
+      router.pathname = '/ide/p1/home'
+      render(<IDEShell />)
+      act(() => header().onSelectHost('h1'))
+      expect(router.navigate).toHaveBeenCalledWith({
+        to: '/ide/$projectId/home',
+        params: { projectId: 'p2' },
+      })
+    })
   })
 
   // The create-space form lives in the Chats panel (SidebarTreeSurface).

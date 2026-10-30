@@ -11,17 +11,19 @@ import { useHostUnavailable } from '@/lib/host-unavailability'
  * features/workspace/lib/home-workspace-resolver.ts and ide-shell.tsx).
  * This route only surfaces the loading/error state; WorkspaceHost paints the
  * actual content in the same content pane, as an Outlet sibling. The route
- * stays while the host its project may be on is down, and says so.
+ * stays while the host its project may be on is down, and says so only when there is no
+ * last-known home workspace to show.
  */
 export function HomeRoute() {
   const { projectId } = useParams({ from: '/_shell/ide/$projectId/home' })
-  const { error } = useHomeWorkspaceState(projectId)
+  const { wsId, error } = useHomeWorkspaceState(projectId)
   const unavailable = useHostUnavailable({ projectId })
 
-  if (error || unavailable) {
+  if (wsId === null && (error || unavailable)) {
     return (
-      <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-        Project Home unavailable
+      <div className="flex flex-1 flex-col items-center justify-center gap-1 text-sm text-muted-foreground">
+        <span>Project Home unavailable</span>
+        <span className="text-xs">Connect to this project's host to load it.</span>
       </div>
     )
   }

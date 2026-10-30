@@ -1,6 +1,7 @@
 use tauri::webview::{PageLoadEvent, WebviewBuilder};
-use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, Runtime, WebviewUrl};
+use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, Runtime, State, WebviewUrl};
 
+use super::park::{self, Parked};
 use super::{events, find, label_for, parse_url};
 
 fn bounds<R: Runtime>(
@@ -15,6 +16,16 @@ fn bounds<R: Runtime>(
         .map_err(|e| e.to_string())
 }
 
+/// Moves the view out of the window at its current size (see `park`).
+fn move_away<R: Runtime>(webview: &tauri::Webview<R>) -> Result<(), String> {
+    let scale = webview.window().scale_factor().map_err(|e| e.to_string())?;
+    let width = webview.size().map_err(|e| e.to_string())?.width as f64 / scale;
+    let (x, y) = park::origin(width);
+    webview
+        .set_position(LogicalPosition::new(x, y))
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 #[allow(clippy::too_many_arguments)] // flat IPC args: the web side spreads the rect
 pub async fn browser_open<R: Runtime>(
@@ -26,12 +37,17 @@ pub async fn browser_open<R: Runtime>(
     width: f64,
     height: f64,
     zoom: f64,
+    parked: bool,
+    registry: State<'_, Parked>,
 ) -> Result<(), String> {
     let label = label_for(&id)?;
     let url = parse_url(&url)?;
     if let Some(existing) = app.get_webview(&label) {
-        bounds(&existing, (x, y, width, height))?;
-        return existing.show().map_err(|e| e.to_string());
+        return if parked {
+            park_view(&existing, &registry)
+        } else {
+            unpark_view(&existing, &registry, (x, y, width, height))
+        };
     }
     let window = app
         .get_window("main")
@@ -50,14 +66,35 @@ pub async fn browser_open<R: Runtime>(
         .on_document_title_changed(move |webview, title| {
             events::title(&webview, &title_id, &title);
         });
+    let (x, y) = if parked {
+        registry.park(&label);
+        park::origin(width)
+    } else {
+        (x, y)
+    };
     let webview = window
         .add_child(
             builder,
             LogicalPosition::new(x, y),
             LogicalSize::new(width, height),
         )
+        .inspect_err(|_| registry.unpark(&label))
         .map_err(|e| e.to_string())?;
     webview.set_zoom(zoom).map_err(|e| e.to_string())
+}
+
+fn park_view<R: Runtime>(webview: &tauri::Webview<R>, registry: &Parked) -> Result<(), String> {
+    registry.park(webview.label());
+    move_away(webview)
+}
+
+fn unpark_view<R: Runtime>(
+    webview: &tauri::Webview<R>,
+    registry: &Parked,
+    frame: (f64, f64, f64, f64),
+) -> Result<(), String> {
+    registry.unpark(webview.label());
+    bounds(webview, frame)
 }
 
 #[tauri::command]
@@ -68,23 +105,35 @@ pub async fn browser_set_bounds<R: Runtime>(
     y: f64,
     width: f64,
     height: f64,
+    registry: State<'_, Parked>,
 ) -> Result<(), String> {
-    bounds(&find(&app, &id)?, (x, y, width, height))
+    let webview = find(&app, &id)?;
+    if registry.is_parked(webview.label()) {
+        return Ok(());
+    }
+    bounds(&webview, (x, y, width, height))
 }
 
 #[tauri::command]
-pub async fn browser_set_visible<R: Runtime>(
+pub async fn browser_park<R: Runtime>(
     app: AppHandle<R>,
     id: String,
-    visible: bool,
+    registry: State<'_, Parked>,
 ) -> Result<(), String> {
-    let webview = find(&app, &id)?;
-    let result = if visible {
-        webview.show()
-    } else {
-        webview.hide()
-    };
-    result.map_err(|e| e.to_string())
+    park_view(&find(&app, &id)?, &registry)
+}
+
+#[tauri::command]
+pub async fn browser_unpark<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    registry: State<'_, Parked>,
+) -> Result<(), String> {
+    unpark_view(&find(&app, &id)?, &registry, (x, y, width, height))
 }
 
 #[tauri::command]
@@ -117,6 +166,12 @@ pub async fn browser_reload<R: Runtime>(app: AppHandle<R>, id: String) -> Result
 }
 
 #[tauri::command]
-pub async fn browser_close<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
-    find(&app, &id)?.close().map_err(|e| e.to_string())
+pub async fn browser_close<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+    registry: State<'_, Parked>,
+) -> Result<(), String> {
+    let webview = find(&app, &id)?;
+    registry.unpark(webview.label());
+    webview.close().map_err(|e| e.to_string())
 }

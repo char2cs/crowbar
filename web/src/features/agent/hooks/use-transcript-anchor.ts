@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { createFollowScroll, type FollowScroll } from '@/features/agent/hooks/lib/follow-scroll'
+import { isUnreachableHold } from '@/features/agent/hooks/lib/unreachable-hold'
 
 /* How close to the bottom still counts as reading the newest end.
    Roughly one message row. Generous on purpose: a turn that lands several
@@ -293,7 +294,11 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   // see UseTranscriptAnchorOptions.loadingHistory. Starts armed unless a
   // caller says otherwise, reproducing this hook's original (always-eased)
   // behaviour exactly when `loadingHistory` is never mentioned.
-  const easedArmed = useRef(!(options.loadingHistory ?? false))
+  // A restored mid-history position also starts disarmed: its settle (below)
+  // holds the distance until the rows have measured, instead of trusting the
+  // first-frame scrollHeight, which can be shorter than the distance saved.
+  const restoring = options.initialPosition != null && !options.initialPosition.stuck
+  const easedArmed = useRef(!(options.loadingHistory ?? false) && !restoring)
   const armTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   // How far down the content the turn currently held at the top begins, or
   // null when none is — see `pinTurnToTop`. Cleared by `applyTailRoom` itself
@@ -350,7 +355,9 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   // rather than consumed once like `restoreFromBottom` — the transcript's
   // scrollable ceiling is still climbing back over those frames, so a single
   // landing would be against a height that is about to change.
-  const revealFromBottom = useRef<number | null>(null)
+  const revealFromBottom = useRef<number | null>(
+    restoring ? (options.initialPosition?.distanceFromBottom ?? null) : null,
+  )
   // Where the CURRENT continuous catch-up began — the scrollTop the eased loop
   // started converging from — or null while it is converged. This is what makes
   // the size test in `resync` cumulative rather than per-step.
@@ -426,7 +433,13 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       clearTimeout(armTimer.current)
       armTimer.current = setTimeout(() => {
         easedArmed.current = true
+        // Settled and still short of the held distance: that place is not in the
+        // loaded window, so the newest end is the honest landing.
+        const lost = isUnreachableHold(el.scrollHeight, revealFromBottom.current)
         revealFromBottom.current = null
+        if (!lost) return
+        stuck.current = true
+        resyncRef.current()
       }, ARM_QUIET_MS)
     }
     // The two hidings a chat can come back from — `display:none` (a retained
@@ -552,9 +565,12 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
         // workspace round-trip.
         beginReveal()
       }
-      lastFromBottom.current = el.scrollHeight - el.scrollTop
       applyTailRoom()
       const keep = restoreFromBottom.current ?? revealFromBottom.current
+      // While a hold is re-applying, the offset read here is the browser's
+      // clamp against a transient height, not where the reader is; leaving now
+      // must save the held distance.
+      lastFromBottom.current = keep ?? el.scrollHeight - el.scrollTop
       if (keep !== null) {
         // Older messages just landed above the fold, or the pane just came
         // back into view. Holding the distance from the BOTTOM — not scrollTop
@@ -564,6 +580,8 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
         // for no visible reason.
         restoreFromBottom.current = null
         el.scrollTop = el.scrollHeight - keep
+        // A hold still being applied means measurement is still running.
+        scheduleArm()
         return
       }
       if (!stuck.current) return

@@ -1120,12 +1120,14 @@ pub fn run() {
 
     #[cfg(desktop)]
     {
-        builder = builder.manage(sidecar::SidecarHandle::new());
+        builder = builder
+            .manage(sidecar::SidecarHandle::new())
+            .manage(browser::Parked::default());
     }
 
     let builder = builder
         .manage(ws_bridge::WsBridgeManager::new())
-        .manage(std::sync::Arc::new(host_tokens::KeyringTokenStore)
+        .manage(std::sync::Arc::new(host_tokens::KeyringTokenStore::new())
             as std::sync::Arc<dyn host_tokens::TokenStore>)
         .manage(hosts::HostRegistry::default())
         // A page load orphans every bridged connection the outgoing page owned: its JS
@@ -1249,7 +1251,8 @@ pub fn run() {
         console_menu::set_console_menu_chord,
         browser::browser_open,
         browser::browser_set_bounds,
-        browser::browser_set_visible,
+        browser::browser_park,
+        browser::browser_unpark,
         browser::browser_navigate,
         browser::browser_back,
         browser::browser_forward,

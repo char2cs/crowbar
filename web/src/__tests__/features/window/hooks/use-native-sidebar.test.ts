@@ -204,11 +204,70 @@ describe('useNativeSidebar', () => {
     expect(onSelectProject).toHaveBeenCalledWith('p1')
   })
 
+  describe('host filter', () => {
+    const on = (id: string, hostId: string, lastActivity: number) =>
+      ({ id, name: id, hostId, lastActivity: new Date(lastActivity) }) as Project
+    const spread = [on('p1', 'local', 0), on('p2', 'h1', 1), on('p3', 'h1', 2)]
+    const mountSpread = (activeProjectId: string, onSelectProject = vi.fn()) =>
+      renderHook(
+        (props: { active: string }) =>
+          useNativeSidebar({ activeProjectId: props.active, projects: spread, onSelectProject }),
+        { initialProps: { active: activeProjectId } },
+      )
+
+    beforeEach(() => pairRemoteHost('h1', 'lab'))
+
+    it('pushes the active project’s host, and the hosts to choose from, while none is chosen', () => {
+      const { result } = mountSpread('p1')
+      expect(result.current.shownHost).toBe('local')
+      expect(last().projects.map((p) => p.id)).toEqual(['p1'])
+      expect(last().hosts.map((h) => h.id)).toEqual(['local', 'h1'])
+    })
+
+    it('pushes only the chosen host’s projects', () => {
+      useSidebarStore.setState({ hostFilter: 'h1' })
+      const { result } = mountSpread('p2')
+      expect(result.current.shownHost).toBe('h1')
+      expect(last().projects.map((p) => p.id)).toEqual(['p2', 'p3'])
+    })
+
+    it('shows the host of the active project, wherever it was opened from', () => {
+      useSidebarStore.setState({ hostFilter: 'h1' })
+      const { result } = mountSpread('p1')
+      expect(result.current.shownHost).toBe('local')
+      expect(last().projects.map((p) => p.id)).toEqual(['p1'])
+    })
+
+    it('opens the chosen host’s latest project and says so in the next push', () => {
+      const onSelectProject = vi.fn()
+      const { rerender } = mountSpread('p1', onSelectProject)
+      send({ type: 'selectHost', id: 'h1' })
+      expect(useSidebarStore.getState().hostFilter).toBe('h1')
+      expect(onSelectProject).toHaveBeenCalledExactlyOnceWith('p3')
+      rerender({ active: 'p3' })
+      expect(last().projects.map((p) => p.id)).toEqual(['p2', 'p3'])
+    })
+  })
+
   it('opens Settings over a closed list', () => {
     mount()
     send({ type: 'openSettings' })
     expect(useUIState.getState().isSettingsOpen).toBe(true)
     expect(useMobileScreenStore.getState().chatListOpen).toBe(false)
+  })
+  it('opens the host picker over a closed list', () => {
+    mount()
+    send({ type: 'openHostPicker' })
+    expect(useUIState.getState().isHostPickerOpen).toBe(true)
+    expect(useMobileScreenStore.getState().chatListOpen).toBe(false)
+  })
+  it('opens pairing for Add host and puts the host picker and Settings away', () => {
+    useUIState.setState({ isHostPickerOpen: true, isSettingsOpen: true })
+    mount()
+    send({ type: 'addHost' })
+    expect(useUIState.getState().isHostPickerOpen).toBe(false)
+    expect(useUIState.getState().isSettingsOpen).toBe(false)
+    expect(navigate).toHaveBeenCalledWith({ to: '/add-host' })
   })
   // The long-press menu holds every desktop verb, the row menu's and its hover buttons'.
   it('gives each row every desktop verb but terminal threads, Remove last and asked first', () => {
@@ -230,7 +289,7 @@ describe('useNativeSidebar', () => {
     expect(last().actions[alpha.id][1]).toEqual({
       id: 'lock',
       title: 'Lock',
-      symbol: 'lock',
+      icon: 'Lock',
       destructive: false,
       confirm: null,
     })

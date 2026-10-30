@@ -79,7 +79,6 @@ function makeFiles(count: number): GitDiff[] {
     lines: [],
     additions: 10,
     deletions: 4,
-    uncommitted: i % 3 === 0,
   }))
 }
 

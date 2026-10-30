@@ -5,6 +5,7 @@ import { ProviderIcon } from '@/components/ui/provider-icon'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/utils/cn'
+import { IS_MOBILE } from '@/utils/platform'
 import { PROVIDER_COLUMN_CELL } from './provider-columns'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
 
@@ -44,7 +45,8 @@ export function SortableProviderRow({
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        'flex items-center gap-2 rounded-lg px-1 py-2 transition-colors hover:bg-muted/50',
+        'flex items-center gap-2',
+        IS_MOBILE ? 'px-4 py-3' : 'rounded-lg px-1 py-2 transition-colors hover:bg-muted/50',
         isDragging ? 'relative z-10 opacity-40' : 'relative',
       )}
     >

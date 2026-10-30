@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { IDBFactory } from 'fake-indexeddb'
 import { chatLedgerStore } from '@/features/agent/stores/chat-ledger-store'
 import { prefetchVisibleChats } from '@/features/agent/lib/prefetch-visible-chats'
 import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
+import { saveChatHistory } from '@/lib/persistence/chat-history'
+import { resetDB } from '@/lib/persistence/idb'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   loadProjects,
@@ -31,6 +34,8 @@ describe('prefetchVisibleChats', () => {
     listChatMessagesFn.mockReset()
     listChatMessagesFn.mockResolvedValue(emptyPage)
     chatLedgerStore.setState({ ledgers: {} })
+    globalThis.indexedDB = new IDBFactory()
+    resetDB()
     __resetWorkspaceScopesForTest()
     recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-a' })
     resetWindowPaneStoreForTests()
@@ -78,6 +83,21 @@ describe('prefetchVisibleChats', () => {
     await prefetchVisibleChats()
 
     expect(chatLedgerStore.getState().ledgers.c1).toBeUndefined()
+  })
+
+  it('keeps the ledger of a failed prefetch when it holds a cached transcript', async () => {
+    await saveChatHistory('c1', {
+      messages: [
+        { turnId: 't1', sequence: 1, role: 'user', providerId: '', text: 'hi', at: '2026-08-24' },
+      ],
+      hasOlder: false,
+    })
+    listChatMessagesFn.mockRejectedValue(new Error('down'))
+    actions().openChat('c1', { workspaceId: 'ws-a' })
+
+    await prefetchVisibleChats()
+
+    expect(chatLedgerStore.getState().ledgers.c1.messages).toHaveLength(1)
   })
 })
 

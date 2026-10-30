@@ -30,19 +30,47 @@ vi.mock('@/utils/platform', async (importOriginal) => ({
   },
 }))
 
-// The phone shows the chat transcript only: the provider's TUI is a desktop surface.
+// The phone lands on the chat, but the provider's TUI is one tap away and the pick sticks.
 describe('useChatPresentation — on the phone', () => {
+  beforeEach(() => {
+    useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() })
+  })
+
   afterEach(() => {
     platform.mobile = false
     resetChatPresentationMemoryForTests()
   })
 
-  it('lands on the chat and stays there, whatever the default or a pick says', () => {
+  it('lands on the chat even where the desktop default is the terminal', () => {
     platform.mobile = true
-    presetChatLandingPresentation('chat-t', 'terminal')
-    const { result } = renderHook(() => useChatPresentation('chat-t', { current: null }))
+    const { result } = renderHook(() => useChatPresentation('chat-m', { current: null }))
     expect(result.current.presentation).toBe('chat')
+  })
+
+  it('honors a terminal pick and remembers it for that chat', () => {
+    platform.mobile = true
+    const container = { current: null }
+    const { result, rerender } = renderHook(
+      ({ chatId }) => useChatPresentation(chatId, container),
+      { initialProps: { chatId: 'chat-m' } },
+    )
     act(() => result.current.setPresentation('terminal'))
+    expect(result.current.presentation).toBe('terminal')
+
+    rerender({ chatId: 'chat-other' })
+    expect(result.current.presentation).toBe('chat')
+    rerender({ chatId: 'chat-m' })
+    expect(result.current.presentation).toBe('terminal')
+  })
+
+  it('never offers or shows the split', () => {
+    platform.mobile = true
+    useSettingsStore.setState({
+      settings: { ...getDefaultSettingsSnapshot(), chatSplitPresentationEnabled: true },
+    })
+    const { result } = renderHook(() => useChatPresentation('chat-s', { current: null }))
+    act(() => result.current.setPresentation('split'))
+    expect(result.current.splitEnabled).toBe(false)
     expect(result.current.presentation).toBe('chat')
   })
 })

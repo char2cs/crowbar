@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
-import { ROW_ACTIVE, ROW_INACTIVE } from './workspace-row-base'
+import { ROW_INACTIVE } from './workspace-row-base'
 
 /**
  * Where the pointer sits INSIDE the row it grabbed, in that row's own box.
@@ -153,22 +153,21 @@ export function DragGhostRows({ rows }: { rows: GhostRows }) {
   )
 }
 
+// The open tab's raised white surface: a row in the air reads as a tab, never as the inverted fill.
+const LIFTED =
+  'outline outline-1 outline-background bg-background text-foreground shadow-md shadow-black/15 ' +
+  'inset-shadow-[0_1px_var(--elevated-highlight)]'
+
 /**
- * Give a cloned row the ACTIVE treatment, whatever it wore in the list.
+ * Give a cloned row a raised surface of its own, whatever it wore in the list.
  *
- * A row in the air is lifted, and lifted is what ROW_ACTIVE already draws — a
- * raised, inset-lit surface with a real background. An inactive row carries
- * ROW_INACTIVE instead, which is a transparent border and no fill: perfectly
- * legible in the sidebar, where it sits on the sidebar's own surface, and
- * close to invisible the moment it is picked up and flown over the editor pane.
- *
- * This says nothing about which workspace is OPEN. The source row keeps its own
- * styling (faded to `opacity-40` while the drag is in flight); only the clone —
- * which exists solely to be carried — is promoted.
+ * An inactive row carries ROW_INACTIVE, a transparent border and no fill: legible on the
+ * sidebar's own surface, close to invisible once flown over the editor pane. The source row
+ * keeps its own styling (faded while the drag is in flight); only the clone is lifted.
  */
 function liftClone(clone: HTMLElement): void {
   for (const cls of ROW_INACTIVE.split(/\s+/)) clone.classList.remove(cls)
-  for (const cls of ROW_ACTIVE.split(/\s+/)) clone.classList.add(cls)
+  for (const cls of LIFTED.split(/\s+/)) clone.classList.add(cls)
 }
 
 /**
@@ -199,4 +198,26 @@ export function cloneGhostRows(elements: readonly HTMLElement[], count: number):
   })
 
   return { nodes, width: rects[0]?.width ?? 0, height: rects[0]?.height ?? 0, count }
+}
+
+/**
+ * A whole view tab, cloned: every member of a group, its separators and its close
+ * button, not a stack of member rows. Only the lifted surface is added, so what is
+ * carried is exactly what was grabbed, in or out of the strip.
+ */
+export function cloneGhostTab(shell: HTMLElement): GhostRows {
+  const rect = shell.getBoundingClientRect()
+  const clone = shell.cloneNode(true) as HTMLElement
+  clone.removeAttribute('id')
+  // The clone sits in the document beside the real tab: a duplicate test id would shadow it.
+  for (const el of [clone, ...clone.querySelectorAll<HTMLElement>('[data-testid]')]) {
+    el.removeAttribute('data-testid')
+  }
+  for (const cls of LIFTED.split(/\s+/)) clone.classList.add(cls)
+  clone.style.position = 'absolute'
+  clone.style.left = '0'
+  clone.style.top = '0'
+  clone.style.margin = '0'
+  clone.style.width = `${rect.width}px`
+  return { nodes: [clone], width: rect.width, height: rect.height, count: 1 }
 }

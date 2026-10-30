@@ -10,6 +10,8 @@ import { MobileSidebarPage } from '@/features/window/components/mobile-sidebar-p
 void initializeSettingsStore()
 startSettingsStorageSync()
 // The page's surface on body too: its theme-color is read from it.
+// Crowbar paints this page's chrome dark in either mode (crowbar.css).
+document.documentElement.setAttribute('data-chrome-page', '')
 document.body.classList.add('bg-chrome-bg')
 
 createRoot(document.getElementById('root')!).render(

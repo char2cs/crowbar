@@ -120,10 +120,10 @@ describe('pairingFailureText', () => {
     ],
     [
       'keychain is locked',
-      `Couldn’t pair with ${at}. Try again, or run crowbar pair on the host for a new code.`,
+      `Couldn’t pair with homelab. Try again, or run crowbar pair on the host for a new code.`,
     ],
   ])('%s', (raw, text) => {
-    expect(pairingFailureText(raw, at)).toBe(text)
-    expect(pairingFailureText(new Error(raw), at)).toBe(text)
+    expect(pairingFailureText(raw, at, 'homelab')).toBe(text)
+    expect(pairingFailureText(new Error(raw), at, 'homelab')).toBe(text)
   })
 })

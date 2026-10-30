@@ -5,6 +5,7 @@ import { useSettingsStore } from '@/features/settings/store'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/utils/cn'
+import { IS_MOBILE } from '@/utils/platform'
 
 /**
  * Lets SettingRows report whether they match the active settings search, so a
@@ -15,14 +16,36 @@ const SectionRowVisibilityContext = React.createContext<
   ((rowId: string, visible: boolean | null) => void) | null
 >(null)
 
+/** The phone's inset grouped card: its rows divide into one rounded surface. Elsewhere a plain
+ *  stack, as the desktop dialog draws it. */
+export function SettingsCard({
+  children,
+  className,
+}: {
+  children: React.ReactNode
+  className?: string
+}) {
+  if (!IS_MOBILE) return <div className={cn('space-y-2', className)}>{children}</div>
+  return (
+    <div
+      data-settings-card=""
+      className={cn('divide-y divide-border overflow-hidden rounded-xl bg-muted', className)}
+    >
+      {children}
+    </div>
+  )
+}
+
 interface SectionProps {
   title: string
   description?: string
   children: React.ReactNode
   className?: string
+  /** On the phone, leaves its content out of a card: it draws its own (the agents list). */
+  plain?: boolean
 }
 
-export default function Section({ title, description, children, className }: SectionProps) {
+export default function Section({ title, description, children, className, plain }: SectionProps) {
   const isSearchActive = useSettingsStore((state) => state.search.query.trim().length > 0)
   const rowVisibilityRef = React.useRef(new Map<string, boolean>())
   const [visibleRowCount, setVisibleRowCount] = React.useState(0)
@@ -49,18 +72,35 @@ export default function Section({ title, description, children, className }: Sec
     <SectionRowVisibilityContext.Provider value={reportRowVisibility}>
       <section
         hidden={isHiddenBySearch}
-        className={cn('px-1 py-0.5 first:[&>.settings-section-header]:hidden', className)}
+        className={cn(
+          IS_MOBILE ? 'py-2' : 'px-1 py-0.5',
+          'first:[&>.settings-section-header]:hidden',
+          className,
+        )}
         data-settings-section={title}
       >
-        <div className="settings-section-header mb-2 px-1 py-1.5">
+        <div
+          className={cn('settings-section-header', IS_MOBILE ? 'mb-1.5 px-4' : 'mb-2 px-1 py-1.5')}
+        >
           {/* Label defaults to `sm:text-sm/4`, which always applies here and which
               tailwind-merge won't drop for an unprefixed size — so set `sm:` too. */}
-          <Label className="font-heading text-[length:var(--settings-section-title,32px)] sm:text-[length:var(--settings-section-title,32px)] text-foreground">
+          <Label
+            className={cn(
+              'font-heading',
+              IS_MOBILE
+                ? 'text-[17px] sm:text-[17px] text-muted-foreground'
+                : 'text-[length:var(--settings-section-title,32px)] sm:text-[length:var(--settings-section-title,32px)] text-foreground',
+            )}
+          >
             {title}
           </Label>
           {description && <p className="ui-font ui-text-sm text-muted-foreground">{description}</p>}
         </div>
-        <div className="space-y-2">{children}</div>
+        {plain ? (
+          <div className="space-y-2">{children}</div>
+        ) : (
+          <SettingsCard>{children}</SettingsCard>
+        )}
       </section>
     </SectionRowVisibilityContext.Provider>
   )
@@ -75,6 +115,9 @@ interface SettingRowProps {
   onReset?: () => void
   canReset?: boolean
   resetLabel?: string
+  /** On the phone a row is one line, the control beside its label; `stacked` puts a control too
+   *  wide for that (a font picker, a long text field) under it, in the same row. */
+  layout?: 'inline' | 'stacked'
 }
 
 export function SettingRow({
@@ -86,6 +129,7 @@ export function SettingRow({
   onReset,
   canReset = !!onReset,
   resetLabel,
+  layout = 'inline',
 }: SettingRowProps) {
   const controlRef = React.useRef<HTMLDivElement>(null)
   const rowId = React.useId()
@@ -215,8 +259,15 @@ export function SettingRow({
       // the useLayoutEffect above), so this wrapper carries no semantics of
       // its own and needs no aria attributes or keyboard handler.
       role="presentation"
+      data-setting-layout={IS_MOBILE ? layout : undefined}
       className={cn(
-        'flex items-center justify-between gap-3 rounded-lg px-1 py-2 select-none transition-colors hover:bg-muted/50 focus-within:bg-muted/50 max-[640px]:flex-col max-[640px]:items-stretch max-[640px]:gap-2',
+        'flex justify-between select-none',
+        IS_MOBILE
+          ? cn(
+              'px-4 py-3',
+              layout === 'inline' ? 'items-center gap-3' : 'flex-col items-stretch gap-2',
+            )
+          : 'items-center gap-3 rounded-lg px-1 py-2 transition-colors hover:bg-muted/50 focus-within:bg-muted/50 max-[640px]:flex-col max-[640px]:items-stretch max-[640px]:gap-2',
         className,
       )}
       onClick={handleRowClick}
@@ -225,7 +276,10 @@ export function SettingRow({
         <div className="flex items-center gap-1.5">
           <Label
             id={labelId}
-            className="ui-font ui-text-sm cursor-default font-normal text-foreground"
+            className={cn(
+              'ui-font cursor-default font-normal text-foreground',
+              IS_MOBILE ? 'ui-text-base' : 'ui-text-sm',
+            )}
           >
             {label}
           </Label>
@@ -258,7 +312,12 @@ export function SettingRow({
       </div>
       <div
         ref={controlRef}
-        className="ui-font ui-text-sm shrink-0 select-auto [--app-ui-badge-height:1.5rem] [--app-ui-button-compact-height:1.5rem] [--app-ui-button-compact-min-width:1.5rem] [--app-ui-button-height:1.5rem] [--app-ui-button-min-width:1.5rem] [--app-ui-control-font-size:var(--ui-text-sm)] max-[640px]:w-full max-[640px]:shrink max-[640px]:[&>input]:w-full max-[640px]:[&>textarea]:w-full max-[640px]:[&_[data-slot=select-trigger]]:w-full"
+        className={cn(
+          'ui-font ui-text-sm select-auto [--app-ui-badge-height:1.5rem] [--app-ui-button-compact-height:1.5rem] [--app-ui-button-compact-min-width:1.5rem] [--app-ui-button-height:1.5rem] [--app-ui-button-min-width:1.5rem] [--app-ui-control-font-size:var(--ui-text-sm)]',
+          IS_MOBILE && layout === 'inline'
+            ? 'flex max-w-[55%] min-w-0 shrink-0 justify-end [&_[data-slot=number-input]]:w-36 [&_[data-slot=select-trigger]]:w-40 [&_[data-slot=select-trigger]]:max-w-full'
+            : 'shrink-0 max-[640px]:w-full max-[640px]:shrink max-[640px]:[&>input]:w-full max-[640px]:[&>textarea]:w-full max-[640px]:[&_[data-slot=select-trigger]]:w-full',
+        )}
       >
         {children}
       </div>

@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { IDBFactory } from 'fake-indexeddb'
 import type { AgentChatMessage, AgentChatMessagesPage } from '@/features/agent/api/agent-api'
 import { chatLedgerStore } from '@/features/agent/stores/chat-ledger-store'
 import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
+import { loadChatHistory, saveChatHistory } from '@/lib/persistence/chat-history'
+import { resetDB } from '@/lib/persistence/idb'
 
 const { listChatMessagesFn } = vi.hoisted(() => ({ listChatMessagesFn: vi.fn() }))
 vi.mock('@/features/agent/api/agent-api', () => ({ listChatMessages: listChatMessagesFn }))
@@ -50,6 +53,8 @@ describe('chat ledger store', () => {
   beforeEach(() => {
     listChatMessagesFn.mockReset()
     chatLedgerStore.setState({ ledgers: {} })
+    globalThis.indexedDB = new IDBFactory()
+    resetDB()
   })
 
   it('issues one request for two loads while the first is in flight', async () => {
@@ -128,6 +133,57 @@ describe('chat ledger store', () => {
     merge('c1', [])
 
     expect(ledgerOf('c1').messages).toBe(before)
+  })
+
+  describe('offline transcript', () => {
+    const cachedSequences = async (chatId: string) =>
+      (await loadChatHistory(chatId))?.messages.map((m) => m.sequence)
+
+    it('keeps the cached transcript when the first page cannot be fetched', async () => {
+      await saveChatHistory('c1', { messages: [message(1), message(2)], hasOlder: false })
+      listChatMessagesFn.mockRejectedValue(new Error('host unreachable'))
+
+      await loadInitial('ws', 'c1')
+
+      expect(ledgerOf('c1').status).toBe('error')
+      expect(ledgerOf('c1').messages.map((m) => m.sequence)).toEqual([1, 2])
+      expect(ledgerOf('c1').cursor).toBe(2)
+    })
+
+    it('shows the cached transcript while the network is still answering, then replaces it', async () => {
+      await saveChatHistory('c1', { messages: [message(1), message(2)], hasOlder: false })
+      const pending = deferred<AgentChatMessagesPage>()
+      listChatMessagesFn.mockReturnValue(pending.promise)
+
+      const load = loadInitial('ws', 'c1')
+      await vi.waitFor(() => expect(ledgerOf('c1').messages).toHaveLength(2))
+      expect(ledgerOf('c1').status).toBe('loading')
+
+      pending.resolve(page(7))
+      await load
+
+      expect(ledgerOf('c1').messages.map((m) => m.sequence)).toEqual([7])
+      await vi.waitFor(async () => expect(await cachedSequences('c1')).toEqual([7]))
+    })
+
+    it('persists messages that merge in later', async () => {
+      listChatMessagesFn.mockResolvedValue(page(1))
+      await loadInitial('ws', 'c1')
+
+      merge('c1', [message(2)])
+
+      await vi.waitFor(async () => expect(await cachedSequences('c1')).toEqual([1, 2]))
+    })
+
+    it('stores only the newest page of a longer ledger and remembers there is more', async () => {
+      const long = Array.from({ length: 130 }, (_, i) => i + 1)
+      listChatMessagesFn.mockResolvedValue({ ...page(...long), hasMore: false })
+      await loadInitial('ws', 'c1')
+
+      await vi.waitFor(async () => expect(await cachedSequences('c1')).toHaveLength(100))
+      expect((await cachedSequences('c1'))?.[0]).toBe(31)
+      expect((await loadChatHistory('c1'))?.hasOlder).toBe(true)
+    })
   })
 
   describe('eviction by layout', () => {

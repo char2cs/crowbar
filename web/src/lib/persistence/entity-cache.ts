@@ -9,12 +9,7 @@ import { getDB } from './idb'
 // (stale schema), a quota error, or a private-mode restriction degrades to a
 // no-op / empty read so the caller still functions off the live WS/GET path.
 export type EntityStoreName =
-  | 'crowbar_projects'
-  | 'crowbar_repos'
-  | 'crowbar_workspaces'
-  | 'crowbar_threads'
-  | 'crowbar_folders'
-  | 'crowbar_chats'
+  'crowbar_projects' | 'crowbar_repos' | 'crowbar_workspaces' | 'crowbar_folders' | 'crowbar_chats'
 
 export async function upsertEntity<T extends { id: string }>(
   store: EntityStoreName,
@@ -50,7 +45,14 @@ export async function getAllEntities<T>(store: EntityStoreName): Promise<T[]> {
 export async function removeEntity(store: EntityStoreName, id: string): Promise<void> {
   try {
     const db = await getDB()
-    await db.delete(store, id)
+    if (store !== 'crowbar_chats') {
+      await db.delete(store, id)
+      return
+    }
+    // A chat's cached transcript lives and dies with its row.
+    const tx = db.transaction([store, 'chat-history'], 'readwrite')
+    await Promise.all([tx.objectStore(store).delete(id), tx.objectStore('chat-history').delete(id)])
+    await tx.done
   } catch {
     /* best-effort cache delete — ignore IDB failures */
   }

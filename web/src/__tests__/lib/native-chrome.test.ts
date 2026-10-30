@@ -24,6 +24,7 @@ import {
   nativePrompt,
   onNativeChromeIntent,
   setNativeChrome,
+  setNativeHostPicker,
   setNativeModelPicker,
   setNativeSidebar,
   type NativeChrome,
@@ -46,9 +47,19 @@ const model: NativeChrome = {
   headers: { chat: [], ide: [] },
   reveal: 'none',
   ack: 0,
-  settings: { open: false },
+  settings: { open: false, theme: 'crowbar', themes: [], pages: [] },
+  hostPlace: 'remote',
+  hostStatus: 'up',
   appearance: 'system',
-  palette: { surface: '#fcfcfa', raised: '#262624', text: '#1b1b19', secondaryText: '#666666' },
+  palette: {
+    surface: '#fcfcfa',
+    raised: '#262624',
+    text: '#1b1b19',
+    secondaryText: '#666666',
+    brandLight: '#606c38',
+    brandDark: '#98a86a',
+    sidebar: null,
+  },
 }
 
 afterEach(() => {
@@ -97,6 +108,14 @@ describe('setNativeSidebar', () => {
     host.mobile = false
     setNativeSidebar(sidebar)
     expect(host.invoke).not.toHaveBeenCalled()
+  })
+})
+
+describe('setNativeHostPicker', () => {
+  it('hands the whole picker to the plugin', () => {
+    const picker = { open: true, hosts: [], revoking: [], shownHost: null }
+    setNativeHostPicker(picker)
+    expect(host.invoke).toHaveBeenCalledWith('plugin:crowbar-chrome|set_host_picker', picker)
   })
 })
 

@@ -21,6 +21,15 @@ describe('HostStatusIcon', () => {
     expect(dot).toHaveAttribute('title', words)
   })
 
+  // Where the host runs is told by its record, not drawn the same for all: this machine, or a cloud.
+  it('draws this machine for the local host and a cloud for a paired one', () => {
+    const { container, rerender } = render(<HostStatusIcon hostId="local" state="up" />)
+    expect(container.querySelector('svg')).toHaveAttribute('data-host-place', 'local')
+
+    rerender(<HostStatusIcon hostId="h1" state="up" />)
+    expect(container.querySelector('svg')).toHaveAttribute('data-host-place', 'remote')
+  })
+
   // The computer is decoration: the dot on its corner is the one thing read out.
   it('is read as its dot alone', () => {
     render(<HostStatusIcon hostId="h1" state="down" />)

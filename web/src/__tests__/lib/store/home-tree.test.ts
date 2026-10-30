@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { IDBFactory } from 'fake-indexeddb'
 import { idle, success } from '@/lib/loadable'
+import { loadCache, saveCache } from '@/lib/persistence/cache-store'
+import { resetDB } from '@/lib/persistence/idb'
 import { useProjectDataStore } from '@/lib/store/projects'
 import type { ChatDTO, FolderDTO } from '@/lib/types'
 
@@ -39,8 +42,14 @@ vi.mock('@/lib/api', () => ({
   assetURL: (path: string) => path,
 }))
 
-const { useHomeTreeStore, getHomeTree, subscribeHomeTree, applyHomeFolders, removeHomeFolder } =
-  await import('@/lib/store/home-tree')
+const {
+  useHomeTreeStore,
+  getHomeTree,
+  hydrateHomeTree,
+  subscribeHomeTree,
+  applyHomeFolders,
+  removeHomeFolder,
+} = await import('@/lib/store/home-tree')
 const { useSidebarStore, getInitialState } = await import('@/lib/store/sidebar')
 const { useActiveSessionsStore } = await import('@/lib/store/active-sessions')
 
@@ -64,6 +73,8 @@ function whenChatsLength(projectId: string, expected: number): Promise<void> {
 }
 
 beforeEach(() => {
+  resetDB()
+  globalThis.indexedDB = new IDBFactory()
   subscribers.clear()
   subscribeSpy.mockClear()
   unsubscribeSpy.mockClear()
@@ -440,5 +451,72 @@ describe('subscribeHomeTree — running agents', () => {
     dispose()
 
     expect(useActiveSessionsStore.getState().sessions).toEqual({})
+  })
+})
+
+// An unreachable host answers neither GET, so the last tree it gave, kept in
+// IndexedDB, is what the sidebar draws read-only.
+describe('the home tree across a restart', () => {
+  const cachedChat = { id: 'c-cached', repoId: '', title: 'Cached chat', order: 0 }
+  const cachedFolder = { id: 'f-cached', repoId: '', name: 'Cached folder', order: 1 }
+
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it('restores what the store last held, and the network answer replaces it', async () => {
+    useHomeTreeStore.getState().setTree('p1', { chats: [cachedChat], folders: [cachedFolder] })
+    await vi.waitFor(async () =>
+      expect(await loadCache('workspaces-data', 'home-tree:p1')).toBeDefined(),
+    )
+    useHomeTreeStore.setState({ trees: {} })
+
+    await hydrateHomeTree('p1')
+
+    expect(getHomeTree('p1').chats.map((c) => c.id)).toEqual(['c-cached'])
+    expect(getHomeTree('p1').folders.map((f) => f.id)).toEqual(['f-cached'])
+
+    fetchHomeChatsSpy.mockResolvedValue([chatDTO({ id: 'c-fresh', title: 'Fresh' })])
+    fetchHomeFoldersSpy.mockResolvedValue([])
+    const dispose = subscribeHomeTree('p1')
+    await vi.waitFor(() => expect(getHomeTree('p1').chats.map((c) => c.id)).toEqual(['c-fresh']))
+    expect(getHomeTree('p1').folders).toEqual([])
+    dispose()
+  })
+
+  it('keeps the cached tree when the host answers neither read', async () => {
+    await saveCache('workspaces-data', 'home-tree:p1', { chats: [cachedChat], folders: [] })
+    fetchHomeChatsSpy.mockRejectedValue(new Error('host down'))
+    fetchHomeFoldersSpy.mockRejectedValue(new Error('host down'))
+
+    const dispose = subscribeHomeTree('p1')
+
+    await whenChatsLength('p1', 1)
+    await vi.waitFor(() => expect(fetchHomeFoldersSpy).toHaveBeenCalled())
+    await Promise.allSettled([fetchHomeChatsSpy.mock.results[0]?.value])
+    expect(getHomeTree('p1').chats.map((c) => c.id)).toEqual(['c-cached'])
+    dispose()
+  })
+
+  it('keeps the cached chats when only the chats read fails', async () => {
+    await saveCache('workspaces-data', 'home-tree:p1', { chats: [cachedChat], folders: [] })
+    fetchHomeChatsSpy.mockRejectedValue(new Error('500 chats'))
+    fetchHomeFoldersSpy.mockResolvedValue([folderDTO({ id: 'f-fresh', name: 'Fresh' })])
+
+    const dispose = subscribeHomeTree('p1')
+
+    await vi.waitFor(() => expect(getHomeTree('p1').folders.map((f) => f.id)).toEqual(['f-fresh']))
+    expect(getHomeTree('p1').chats.map((c) => c.id)).toEqual(['c-cached'])
+    dispose()
+  })
+
+  it('never lets a late cache read overwrite a tree the network already gave', async () => {
+    await saveCache('workspaces-data', 'home-tree:p1', { chats: [cachedChat], folders: [] })
+    useHomeTreeStore.getState().setTree('p1', { chats: [], folders: [] })
+
+    await hydrateHomeTree('p1')
+
+    expect(getHomeTree('p1').chats).toEqual([])
   })
 })

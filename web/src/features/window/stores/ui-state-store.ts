@@ -39,6 +39,9 @@ export interface UIState {
   settingsInitialTab: SettingsTab
   setSettingsInitialTab: (tab: SettingsTab) => void
   isSettingsOpen: boolean
+  /** The phone's host picker sheet. */
+  isHostPickerOpen: boolean
+  setIsHostPickerOpen: (open: boolean) => void
   setIsSettingsOpen: (open: boolean) => void
   activeBottomTab: BottomPaneTab
   setActiveBottomTab: (tab: BottomPaneTab) => void
@@ -81,6 +84,8 @@ export const useUIState = create<UIState>((set) => ({
   settingsInitialTab: 'appearance' as SettingsTab,
   setSettingsInitialTab: (tab) => set({ settingsInitialTab: tab }),
   isSettingsOpen: false,
+  isHostPickerOpen: false,
+  setIsHostPickerOpen: (open) => set({ isHostPickerOpen: open }),
   setIsSettingsOpen: (open) => set({ isSettingsOpen: open }),
   activeBottomTab: 'terminal' as BottomPaneTab,
   setActiveBottomTab: (tab) => set({ activeBottomTab: tab, bottomPaneActiveTab: tab }),
