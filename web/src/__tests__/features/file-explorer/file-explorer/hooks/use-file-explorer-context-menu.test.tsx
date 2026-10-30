@@ -1,9 +1,12 @@
 import { act, renderHook } from '@testing-library/react'
 import { isValidElement, type ReactNode } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { useFileExplorerContextMenu } from '@/features/file-explorer/file-explorer/hooks/use-file-explorer-context-menu'
 import type { ContextMenuItem } from '@/components/ui/context-menu'
 import { joinPath } from '@/utils/path-helpers'
+import * as documents from '@/lib/api/documents'
+import { ApiError } from '@/lib/errors/api-error'
+import { toastManager } from '@/lib/toast-manager'
 
 const ROOT = '/root'
 
@@ -211,5 +214,76 @@ describe('useFileExplorerContextMenu — locked workspace gating', () => {
     expect(labels).toContain('Rename')
     expect(labels).toContain('Delete')
     expect(labels).toContain('Cut')
+  })
+})
+
+describe('useFileExplorerContextMenu — failures', () => {
+  function spyToasts() {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    onTestFinished(() => toastAdd.mockRestore())
+    return toastAdd
+  }
+
+  function spyRead() {
+    const read = vi.spyOn(documents, 'readDocument')
+    onTestFinished(() => read.mockRestore())
+    return read
+  }
+
+  function stubClipboard() {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    onTestFinished(() => void vi.unstubAllGlobals())
+    return writeText
+  }
+
+  it("copies the file's text as the daemon reads it", async () => {
+    const writeText = stubClipboard()
+    spyRead().mockResolvedValue({ ref: documents.workspaceRef('ws-1', 'a.ts'), text: 'abc' })
+    const { items } = openMenu(baseOptions(), 'a.ts', false)
+
+    click(items, 'Copy Content')
+
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith('abc'))
+  })
+
+  it('a failed Copy Content reports why', async () => {
+    stubClipboard()
+    const toastAdd = spyToasts()
+    spyRead().mockRejectedValue(new ApiError('permission denied', 403))
+    const { items } = openMenu(baseOptions(), 'a.ts', false)
+
+    click(items, 'Copy Content')
+
+    await vi.waitFor(() =>
+      expect(toastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Copy the file content',
+          description: 'permission denied',
+        }),
+      ),
+    )
+  })
+
+  it('a failed env-file creation reports why and writes nothing', async () => {
+    const toastAdd = spyToasts()
+    spyRead().mockRejectedValue(new ApiError('daemon unreachable', 503))
+    const write = vi.spyOn(documents, 'writeDocument')
+    onTestFinished(() => write.mockRestore())
+    const options = baseOptions()
+    const { items } = openMenu(options, '.env', false)
+
+    click(items, 'Create .env.example')
+
+    await vi.waitFor(() =>
+      expect(toastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Create .env.example',
+          description: 'daemon unreachable',
+        }),
+      ),
+    )
+    expect(options.onCreateNewFileInDirectory).not.toHaveBeenCalled()
+    expect(write).not.toHaveBeenCalled()
   })
 })

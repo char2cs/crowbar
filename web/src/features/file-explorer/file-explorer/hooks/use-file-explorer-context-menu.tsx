@@ -17,36 +17,29 @@ import {
   TerminalWindow as Terminal,
   Trash,
   UploadSimple,
-  Warning,
 } from '@phosphor-icons/react'
 import { useCallback, useMemo, useState } from 'react'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { findDocumentBuffer } from '@/features/editor/documents/open-document'
-import { readDocument, workspaceRef, writeDocument } from '@/lib/api/documents'
+import { readDocument, workspaceRef } from '@/lib/api/documents'
+import { report } from '@/lib/errors/report'
+import { ENV_TEMPLATE_TARGETS, isEnvFileName } from '@/features/file-explorer/lib/env-template'
+import { FilePropertiesDialog } from '@/features/file-explorer/file-explorer/components/file-properties-dialog'
+import { useEnvTemplateFile } from '@/features/file-explorer/file-explorer/hooks/use-env-template-file'
 import {
-  buildEnvTemplateContent,
-  ENV_TEMPLATE_TARGETS,
-  isEnvFileName,
-} from '@/features/file-explorer/lib/env-template'
+  readFileProperties,
+  type FileProperties,
+} from '@/features/file-explorer/file-explorer/lib/file-properties'
 import { useFileClipboardStore } from '@/features/file-explorer/stores/file-explorer-clipboard-store'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import type { ContextMenuState } from '@/features/file-system/types/app'
-import { Button } from '@/components/ui/button'
 import { ContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
-import { AppDialog as Dialog } from '@/components/ui/dialog'
-import { getBaseName, getDirName, getRelativePath, joinPath } from '@/utils/path-helpers'
+import { getBaseName, getRelativePath, joinPath } from '@/utils/path-helpers'
 
 interface UseFileExplorerContextMenuOptions {
   /** The workspace the tree shows — every workspace-keyed action uses it. */
   workspaceId: string | null
   rootFolderPath?: string
-  /**
-   * True when the active workspace is a protected/locked worktree. The daemon
-   * refuses every write on a locked workspace (409 "workspace locked"), so the
-   * menu must not offer always-refused mutations. Mutation items (New File, New
-   * Folder, Upload, Duplicate, Rename, Delete, Cut, env-template) are hidden;
-   * read-only items (Open, Copy Path/Content, Reveal, Copy, …) stay.
-   */
+  /** A locked worktree refuses every write, so mutation items are hidden; read-only ones stay. */
   isLocked?: boolean
   onFileSelect: (path: string, isDir: boolean) => void | Promise<void>
   onCreateNewFileInDirectory?: (
@@ -68,34 +61,15 @@ interface UseFileExplorerContextMenuOptions {
   onOpenAllFilesInDirectory: (directoryPath: string) => Promise<void>
 }
 
-interface EnvOverwriteDialogState {
-  sourcePath: string
-  targetFileName: string
-}
-
-interface PropertiesDialogState {
-  fileName: string
-  path: string
-  size: string
-  type: string
-}
-
 const menuIconSpacer = <span aria-hidden="true" />
 
-function formatFileSize(sizeHeader: string | null): string {
-  const bytes = Number(sizeHeader)
-  if (!Number.isFinite(bytes) || bytes < 0) return 'Unknown'
-  if (bytes < 1024) return `${bytes} bytes`
-
-  const units = ['KB', 'MB', 'GB', 'TB']
-  let value = bytes / 1024
-  let unitIndex = 0
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024
-    unitIndex += 1
+async function copyFileContent(workspaceId: string, path: string): Promise<void> {
+  try {
+    const { text } = await readDocument(workspaceRef(workspaceId, path))
+    await navigator.clipboard.writeText(text)
+  } catch (err) {
+    report(err, { action: 'Copy the file content' })
   }
-
-  return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[unitIndex]}`
 }
 
 export function useFileExplorerContextMenu({
@@ -119,84 +93,35 @@ export function useFileExplorerContextMenu({
   onOpenAllFilesInDirectory,
 }: UseFileExplorerContextMenuOptions) {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
-  const [envOverwriteDialog, setEnvOverwriteDialog] = useState<EnvOverwriteDialogState | null>(null)
-  const [propertiesDialog, setPropertiesDialog] = useState<PropertiesDialogState | null>(null)
+  const [propertiesDialog, setPropertiesDialog] = useState<FileProperties | null>(null)
   const [fileFeedback, setFileFeedback] = useState<
     Map<string, 'copied-path' | 'copied-rel' | 'created' | 'err'>
   >(new Map())
   const clipboardActions = useFileClipboardStore((state) => state.actions)
 
-  function flashFeedback(path: string, kind: 'copied-path' | 'copied-rel' | 'created' | 'err') {
-    setFileFeedback((prev) => new Map(prev).set(path, kind))
-    setTimeout(() => {
-      setFileFeedback((prev) => {
-        const next = new Map(prev)
-        next.delete(path)
-        return next
-      })
-    }, 1500)
-  }
-
-  const createEnvTemplateFile = useCallback(
-    async (sourcePath: string, targetFileName: string, options?: { overwrite?: boolean }) => {
-      if (!onCreateNewFileInDirectory || !workspaceId) return
-
-      const directoryPath = getDirName(sourcePath)
-      const targetPath = joinPath(directoryPath, targetFileName)
-
-      try {
-        if (targetPath === sourcePath) {
-          // Silent no-op: same-name env file is an edge case; skip without feedback
-          return
-        }
-
-        let targetExists = false
-        try {
-          await readDocument(workspaceRef(workspaceId, targetPath))
-          targetExists = true
-          if (!options?.overwrite) {
-            setEnvOverwriteDialog({ sourcePath, targetFileName })
-            return
-          }
-        } catch {
-          /* intentionally ignored */
-        }
-
-        const { text: sourceContent } = await readDocument(workspaceRef(workspaceId, sourcePath))
-        const templateContent = buildEnvTemplateContent(sourceContent)
-        const createdPath = targetExists
-          ? targetPath
-          : (await Promise.resolve(onCreateNewFileInDirectory(directoryPath, targetFileName))) ||
-            targetPath
-
-        await writeDocument(workspaceRef(workspaceId, createdPath), templateContent)
-
-        // Buffers are window-level: a sibling worktree's same relative path is another document.
-        const createdBuffer = findDocumentBuffer(workspaceRef(workspaceId, createdPath))
-        if (createdBuffer) {
-          windowPaneStore.setState((state) => ({
-            ...state,
-            buffers: state.buffers.map((b) =>
-              b.id === createdBuffer.id && 'content' in b ? { ...b, content: templateContent } : b,
-            ),
-          }))
-        }
-
-        onRefreshDirectory?.(directoryPath)
-        flashFeedback(createdPath, 'created')
-      } catch (error) {
-        console.error('Failed to create env template file:', error)
-      }
+  const flashFeedback = useCallback(
+    (path: string, kind: 'copied-path' | 'copied-rel' | 'created' | 'err') => {
+      setFileFeedback((prev) => new Map(prev).set(path, kind))
+      setTimeout(() => {
+        setFileFeedback((prev) => {
+          const next = new Map(prev)
+          next.delete(path)
+          return next
+        })
+      }, 1500)
     },
-    [onCreateNewFileInDirectory, onRefreshDirectory, workspaceId],
+    [],
   )
-
-  const handleEnvOverwriteConfirm = useCallback(() => {
-    if (!envOverwriteDialog) return
-    const { sourcePath, targetFileName } = envOverwriteDialog
-    setEnvOverwriteDialog(null)
-    void createEnvTemplateFile(sourcePath, targetFileName, { overwrite: true })
-  }, [createEnvTemplateFile, envOverwriteDialog])
+  const onEnvFileCreated = useCallback(
+    (path: string) => flashFeedback(path, 'created'),
+    [flashFeedback],
+  )
+  const { createEnvTemplateFile, envOverwriteDialog } = useEnvTemplateFile({
+    workspaceId,
+    onCreateNewFileInDirectory,
+    onRefreshDirectory,
+    onCreated: onEnvFileCreated,
+  })
 
   const handleContextMenu = useCallback((e: React.MouseEvent, filePath: string, isDir: boolean) => {
     e.preventDefault()
@@ -219,13 +144,9 @@ export function useFileExplorerContextMenu({
     const items: ContextMenuItem[] = []
 
     if (contextMenu.isDir) {
-      // Empty-space (root) right-click passes the absolute wsId as contextMenu.path,
-      // but tree nodes are worktree-relative (root === ''). Normalise so the
-      // directory actions address the worktree root, not a node literally named
-      // the wsId. isWorkspaceRootPath is true for the wsId root (and any added
-      // workspace root) and false for a real subdir like "api". Only the action
-      // onClicks use this — NOT the Rename/Delete visibility gate below, which
-      // must keep reading contextMenu.path so those stay hidden on the root.
+      // A root right-click passes the root itself as the path while tree nodes are
+      // worktree-relative (root === ''): the actions address ''. The Rename/Delete
+      // gate below keeps reading contextMenu.path, so those stay hidden on the root.
       const isRootTarget = isWorkspaceRootPath?.(contextMenu.path) ?? false
       const dirTargetPath = isRootTarget ? '' : contextMenu.path
 
@@ -339,23 +260,16 @@ export function useFileExplorerContextMenu({
           icon: <FolderOpen />,
           onClick: () => onFileSelect(contextMenu.path, false),
         },
-        {
-          id: 'copy-content',
-          label: 'Copy Content',
-          icon: <Copy />,
-          onClick: async () => {
-            try {
-              const response = await fetch(contextMenu.path)
-              // fetch resolves on 4xx/5xx, so without this an error page body
-              // would be copied to the clipboard as if it were the file.
-              if (!response.ok) return
-              const content = await response.text()
-              await navigator.clipboard.writeText(content)
-            } catch {
-              /* intentionally ignored */
-            }
-          },
-        },
+        ...(workspaceId
+          ? [
+              {
+                id: 'copy-content',
+                label: 'Copy Content',
+                icon: <Copy />,
+                onClick: () => void copyFileContent(workspaceId, contextMenu.path),
+              },
+            ]
+          : []),
         ...(canCreateEnvTemplate
           ? [
               { id: 'sep-env-template', label: '', separator: true, onClick: () => {} },
@@ -371,25 +285,7 @@ export function useFileExplorerContextMenu({
           id: 'properties',
           label: 'Properties',
           icon: <Info />,
-          onClick: async () => {
-            const fileName = getBaseName(contextMenu.path, '')
-            const extension = fileName.includes('.') ? fileName.split('.').pop() : undefined
-            let size = 'Unknown'
-
-            try {
-              const stats = await fetch(`file://${contextMenu.path}`, { method: 'HEAD' })
-              size = formatFileSize(stats.headers.get('content-length'))
-            } catch {
-              /* intentionally ignored */
-            }
-
-            setPropertiesDialog({
-              fileName,
-              path: contextMenu.path,
-              size,
-              type: extension || 'No extension',
-            })
-          },
+          onClick: () => void readFileProperties(contextMenu.path).then(setPropertiesDialog),
         },
         { id: 'sep-file', label: '', separator: true, onClick: () => {} },
       )
@@ -404,10 +300,7 @@ export function useFileExplorerContextMenu({
         label: 'Copy Path',
         icon: <Link />,
         onClick: () => {
-          // contextMenu.path is root-relative for tree nodes (e.g. "api/main.go").
-          // Join with rootFolderPath to produce the absolute path, unless the path
-          // is already absolute (happens when right-clicking the workspace root itself,
-          // which passes rootFolderPath directly as contextMenu.path).
+          // Tree nodes are root-relative; the workspace root itself arrives absolute.
           const absolutePath =
             rootFolderPath && !contextMenu.path.startsWith(rootFolderPath)
               ? joinPath(rootFolderPath, contextMenu.path)
@@ -522,6 +415,7 @@ export function useFileExplorerContextMenu({
     clipboardActions,
     contextMenu,
     createEnvTemplateFile,
+    flashFeedback,
     isLocked,
     onCreateNewFileInDirectory,
     onDeleteRequested,
@@ -555,47 +449,12 @@ export function useFileExplorerContextMenu({
           />
         )}
 
-        {envOverwriteDialog && (
-          <Dialog
-            title="Overwrite Env File"
-            icon={Warning}
-            onClose={() => setEnvOverwriteDialog(null)}
-            size="sm"
-            footer={
-              <>
-                <Button variant="ghost" onClick={() => setEnvOverwriteDialog(null)}>
-                  Cancel
-                </Button>
-                <Button variant="destructive" onClick={handleEnvOverwriteConfirm} compact>
-                  Overwrite
-                </Button>
-              </>
-            }
-          >
-            <p className="ui-font ui-text-sm text-foreground">
-              {envOverwriteDialog.targetFileName} already exists. Overwrite it?
-            </p>
-          </Dialog>
-        )}
-
+        {envOverwriteDialog}
         {propertiesDialog && (
-          <Dialog
-            title="Properties"
-            icon={Info}
+          <FilePropertiesDialog
+            properties={propertiesDialog}
             onClose={() => setPropertiesDialog(null)}
-            size="md"
-          >
-            <dl className="grid grid-cols-[72px_1fr] gap-x-3 gap-y-2 ui-font ui-text-sm">
-              <dt className="text-muted-foreground">File</dt>
-              <dd className="min-w-0 break-words text-foreground">{propertiesDialog.fileName}</dd>
-              <dt className="text-muted-foreground">Path</dt>
-              <dd className="min-w-0 break-words text-foreground">{propertiesDialog.path}</dd>
-              <dt className="text-muted-foreground">Size</dt>
-              <dd className="text-foreground">{propertiesDialog.size}</dd>
-              <dt className="text-muted-foreground">Type</dt>
-              <dd className="text-foreground">{propertiesDialog.type}</dd>
-            </dl>
-          </Dialog>
+          />
         )}
       </>
     ) : null
