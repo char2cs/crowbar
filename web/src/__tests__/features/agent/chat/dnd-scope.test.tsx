@@ -1,4 +1,4 @@
-import { createRef, memo, StrictMode } from 'react'
+import { createRef, memo, Profiler, StrictMode } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
@@ -90,6 +90,24 @@ describe('DndScope', () => {
     for (let n = 1; n <= 5; n++) rerender(view(n))
     expect(screen.getByText('5')).toBeTruthy()
     expect(dndRenders.count).toBe(mounted)
+  })
+
+  // A second commit per render queues behind every keystroke and streamed token;
+  // enough of them back to back is React's "Maximum update depth exceeded".
+  it('commits a change of its children once', () => {
+    let commits = 0
+    const view = (n: number) => (
+      <Profiler id="scope" onRender={() => commits++}>
+        <DndScope>
+          <span>{n}</span>
+        </DndScope>
+      </Profiler>
+    )
+    const { rerender } = render(view(0))
+    commits = 0
+    rerender(view(1))
+    expect(screen.getByText('1')).toBeTruthy()
+    expect(commits).toBe(1)
   })
 
   it('mounts several scopes at once, under StrictMode, without throwing', () => {

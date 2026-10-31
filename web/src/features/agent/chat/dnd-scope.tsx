@@ -1,11 +1,4 @@
-import {
-  type ReactNode,
-  useCallback,
-  useLayoutEffect,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-} from 'react'
+import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from 'react'
 import {
   DndContext,
   type DragEndEvent,
@@ -36,6 +29,12 @@ function sameTarget(a: AttachmentDropTarget | null, b: AttachmentDropTarget | nu
   return a?.id === b?.id && a?.line === b?.line
 }
 
+const ScopeChildren = createContext<ReactNode>(null)
+
+function ScopeChildrenOutlet() {
+  return useContext(ScopeChildren)
+}
+
 /**
  * The drag-and-drop scope for attachment reordering, one per chat view.
  * `AgentChatView` is the common ancestor of every Plate tree that renders an
@@ -53,33 +52,6 @@ function sameTarget(a: AttachmentDropTarget | null, b: AttachmentDropTarget | nu
  * target — and clears it on every end or cancel, so no drop line can outlive
  * the drag that drew it.
  */
-interface Slot {
-  subscribe: (notify: () => void) => () => void
-  get: () => ReactNode
-  set: (node: ReactNode) => void
-}
-
-function createSlot(initial: ReactNode): Slot {
-  let node = initial
-  const listeners = new Set<() => void>()
-  return {
-    subscribe: (notify) => {
-      listeners.add(notify)
-      return () => listeners.delete(notify)
-    },
-    get: () => node,
-    set: (next) => {
-      if (next === node) return
-      node = next
-      listeners.forEach((notify) => notify())
-    },
-  }
-}
-
-function SlotOutlet({ slot }: { slot: Slot }) {
-  return useSyncExternalStore(slot.subscribe, slot.get)
-}
-
 export function DndScope({ children }: { children: ReactNode }) {
   const sensors = useSensors(useSensor(PointerSensor, POINTER_SENSOR_OPTIONS))
   const [target, setTarget] = useState<AttachmentDropTarget | null>(null)
@@ -96,14 +68,9 @@ export function DndScope({ children }: { children: ReactNode }) {
   const onDragCancel = useCallback(() => setTarget(null), [])
 
   // `children` is a new element on every render of the chat view, which is every
-  // streamed token. dnd-kit mints fresh context values each time its context
-  // renders, and React then re-checks every consumer under it. The scope's own
-  // element therefore stays the same object and the children reach it through a
-  // slot, so a token re-renders the children and nothing of dnd-kit's.
-  const [slot] = useState(() => createSlot(children))
-  useLayoutEffect(() => slot.set(children), [slot, children])
-
-  return useMemo(
+  // streamed token. Keeping the dnd-kit subtree the same element and handing the
+  // children down by context re-renders only them, in the same commit.
+  const scope = useMemo(
     () => (
       <DndContext
         sensors={sensors}
@@ -115,10 +82,11 @@ export function DndScope({ children }: { children: ReactNode }) {
         onDragCancel={onDragCancel}
       >
         <AttachmentDropTargetContext.Provider value={target}>
-          <SlotOutlet slot={slot} />
+          <ScopeChildrenOutlet />
         </AttachmentDropTargetContext.Provider>
       </DndContext>
     ),
-    [sensors, target, onDragMove, onDragEnd, onDragCancel, slot],
+    [sensors, target, onDragMove, onDragEnd, onDragCancel],
   )
+  return <ScopeChildren.Provider value={children}>{scope}</ScopeChildren.Provider>
 }
