@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	enginefs "github.com/char2cs/crowbar/api/internal/engine/fs"
 )
 
@@ -261,4 +264,20 @@ func TestHostWatch_ABroadcastHoldsBackNoStartOrStop(t *testing.T) {
 	require.NoError(t, acquired)
 	require.NoError(t, released)
 	assert.Equal(t, "/d/a.md", (<-r.events).Path)
+}
+
+// A change to a watched host file is signalled on that file's doc: scope.
+func TestHostWatch_SignalsAChangeOnTheDocScope(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "a.md")
+	require.NoError(t, os.WriteFile(path, []byte("a"), 0o600))
+	signals := newRecordingSignals()
+	m := NewHostWatch(context.Background(), signals, enginefs.New())
+	t.Cleanup(m.Close)
+
+	require.NoError(t, m.Start(path))
+	require.NoError(t, os.WriteFile(path, []byte("b"), 0o600))
+
+	got := recv(t, signals.got)
+	assert.Equal(t, stream.Scope{Kind: stream.KindDoc, Key: path}, got.scope)
+	assert.Equal(t, stream.SignalFileChange, got.kind)
 }
