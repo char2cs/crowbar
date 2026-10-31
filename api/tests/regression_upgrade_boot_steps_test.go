@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
+	"github.com/char2cs/crowbar/api/internal/adapter/migrations"
 	"github.com/char2cs/crowbar/api/internal/adapter/migrations/chatledger"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	crowbarhome "github.com/char2cs/crowbar/api/internal/core/home"
@@ -130,7 +131,8 @@ func TestRegression_Upgrade_BootDropsTheRetiredWorkspacePathsTable(t *testing.T)
 
 // A home an older daemon upgraded carries its markers and no ledger. Each step
 // is adopted from its marker, never re-run (re-running the provider restate
-// can change which vendor a chat resumes on), and nothing is backed up.
+// can change which vendor a chat resumes on); placement-tree, which no older
+// daemon ran, copies the chats' placements and is the one backup taken.
 func TestRegression_Upgrade_AdoptsTheMarkersAnOlderDaemonLeft(t *testing.T) {
 	home := t.TempDir()
 	h := newHarnessAt(t, home)
@@ -163,7 +165,11 @@ func TestRegression_Upgrade_AdoptsTheMarkersAnOlderDaemonLeft(t *testing.T) {
 	for i, name := range steps {
 		assert.Equal(t, []migrate.Counts{{"adopted": 1}}, applied[i+1], name)
 	}
-	assert.NoDirExists(t, filepath.Join(homeAt(t, home).MigrateDir(), "backups"))
+	assert.Equal(t, []migrate.Counts{{"chats": 4, "folders": 0, "nodes": 0}},
+		applied[migrations.StepPlacementTree])
+	backups, err := os.ReadDir(filepath.Join(homeAt(t, home).MigrateDir(), "backups"))
+	require.NoError(t, err)
+	assert.Len(t, backups, 1)
 }
 
 // A backup restored as the upgrade notes say (quit, then put the backup's state/,
