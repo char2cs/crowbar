@@ -2,7 +2,6 @@ package ingress
 
 import (
 	"cmp"
-	"slices"
 
 	"github.com/google/uuid"
 
@@ -76,45 +75,11 @@ func Map(st ledger.State, ev engineagents.CanonicalEvent, src Source, refs BlobR
 	if src.Scope != "" {
 		return mapNested(st, ev, src, refs)
 	}
-	rows, fx, err := mapMain(st, ev, src, refs)
-	if err == nil && fx.Title == "" {
-		fx.Title = keptPrompt(st, rows, fx.Live)
-	}
-	return rows, fx, err
-}
-
-// keptPrompt is the words of the Crowbar prompt whose running turn speaks, in
-// rows or a stream: a retract takes it back until then, and what a CLI flushes
-// after a retract ended the turn speaks for a prompt already handed back.
-func keptPrompt(st ledger.State, rows []ledger.Row, live *LiveDelta) string {
-	turn, ok := st.RunningTurn()
-	if !ok || turn.RequestID == "" {
-		return ""
-	}
-	streamed := live != nil && live.Scope == "" && live.TurnID == turn.ID
-	if streamed || slices.ContainsFunc(rows, func(r ledger.Row) bool {
-		return r.Scope == "" && r.TurnID == turn.ID && spoke(r.Kind)
-	}) {
-		p, _ := st.Receipt(turn.RequestID)
-		return p.Text
-	}
-	return ""
-}
-
-var spokenKinds = []ledger.Kind{
-	ledger.KindAssistantText, ledger.KindReasoning, ledger.KindToolCall, ledger.KindAsk, ledger.KindPlan,
-}
-
-func spoke(kind ledger.Kind) bool { return slices.Contains(spokenKinds, kind) }
-
-func mapMain(st ledger.State, ev engineagents.CanonicalEvent, src Source, refs BlobRefs) ([]ledger.Row, Effects, error) {
 	switch ev.Kind {
 	case engineagents.HookUserPrompt:
 		rows, err := mapPrompt(st, ev, src)
 		fx := Effects{}
-		// Words typed into the CLI are nobody's to take back: they title at once.
-		typed := slices.ContainsFunc(rows, func(r ledger.Row) bool { return r.Kind == ledger.KindUserMessage })
-		if typed && src.Prompt.Origin == ledger.OriginProvider {
+		if len(rows) > 0 && src.Prompt.Origin == ledger.OriginProvider {
 			fx.Title = src.Prompt.Text
 		}
 		return rows, fx, err

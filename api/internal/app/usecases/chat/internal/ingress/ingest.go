@@ -293,8 +293,7 @@ func (r *Recorder) commit(
 	if len(committed) > 0 {
 		r.live.dropRecorded(chat.ID, runnerID, after)
 	}
-	// Every row a kept prompt's turn speaks in names it; only an untitled chat asks.
-	if fx.Title != "" && chat.Title == "" {
+	if fx.Title != "" {
 		if err := r.titles.RenameChat(ctx, chat.ID, deriveTitle(fx.Title), "derived"); err != nil {
 			slog.WarnContext(ctx, "agent: ingest hook: derived title", "err", err, "chat_id", chat.ID)
 		}

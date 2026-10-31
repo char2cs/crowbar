@@ -2,7 +2,7 @@
 
 // This file holds the spawn helper the MCP titling tests share. Titling is the
 // set_chat_title MCP tool (agent_mcp_test.go); a title derived from the first
-// prompt is pinned in-process (TestIngestHook_UserPrompt_SetsDerivedTitle).
+// prompt is pinned in-process (TestRecorder_APromptOpensATurnAndTitlesTheChat).
 package agent_test
 
 import (

@@ -248,46 +248,6 @@ func TestRecorder_APromptOpensATurnAndTitlesTheChat(t *testing.T) {
 	assert.Equal(t, []string{"fix the build"}, f.titles.titles, "a title the chat's words derive, best-effort")
 }
 
-// openCrowbarTurn opens the turn of Crowbar prompt req-1, recorded with text.
-func openCrowbarTurn(t *testing.T, f *recorderFixture, text string) ledger.Turn {
-	t.Helper()
-	_, _, err := f.ledger.Append(t.Context(), testChat, row(t, ledger.KindUserMessage, "T-req-1", "", ledger.UserMessage{
-		RequestID: "req-1", Text: text, Origin: ledger.OriginCrowbar, Delivery: ledger.DeliveryRestart, RunnerID: "run-1",
-	}))
-	require.NoError(t, err)
-	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: text})
-	require.NoError(t, err)
-	turn, running := f.state(t).RunningTurn()
-	require.True(t, running)
-	require.Equal(t, "req-1", turn.RequestID)
-	return turn
-}
-
-// A Crowbar prompt titles the chat once its running turn says something: until
-// then a retract may still take it back, and after one its flush speaks for
-// a prompt already handed back.
-func TestRecorder_ACrowbarPromptTitlesTheChatOnceItsTurnSpeaks(t *testing.T) {
-	reply := engineagents.CanonicalEvent{
-		Kind: engineagents.HookMessageComplete, Complete: &engineagents.MessageComplete{MessageID: "m1", Text: "ok"},
-	}
-	kept := newRecorderFixture(t, "claude")
-	openCrowbarTurn(t, kept, "kept")
-	assert.Empty(t, kept.titles.titles, "a retract may still take it back")
-	_, _, err := kept.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookMessageDelta, Delta: &engineagents.MessageDelta{MessageID: "m1", Text: "on it"}})
-	require.NoError(t, err)
-	assert.Equal(t, []string{"kept"}, kept.titles.titles)
-
-	taken := newRecorderFixture(t, "claude")
-	turn := openCrowbarTurn(t, taken, "taken back")
-	_, _, err = taken.ledger.Append(t.Context(), testChat, row(t, ledger.KindTurnEnded, turn.ID, "",
-		ledger.TurnEnded{Status: string(ledger.TurnStatusInterrupted), Reason: ledger.ReasonRetracted, RunnerID: "run-1"}))
-	require.NoError(t, err)
-	_, _, err = taken.dispatch(t, reply)
-	require.NoError(t, err)
-	require.Contains(t, kinds(taken.rows(t)), ledger.KindAssistantText, "the flushed reply is recorded")
-	assert.Empty(t, taken.titles.titles)
-}
-
 // Crowbar's own injected context is nobody's words: its echo opens the turn and
 // says nothing.
 func TestRecorder_AnInjectedEchoSaysNothing(t *testing.T) {

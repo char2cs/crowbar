@@ -44,7 +44,7 @@ import (
 //
 // The chat is already titled by the time the tool could be called: the
 // UserPromptSubmit hook derives a title from the prompt's first line the instant it
-// is submitted (deriveTitle in internal/app/usecases/chat/internal/runner), and this string
+// is submitted (deriveTitle in internal/app/usecases/chat/internal/ingress), and this string
 // appears verbatim inside that prompt. What makes the two distinguishable is not the
 // string but the SHAPE — deriveTitle takes the whole first line, truncated at 60
 // runes, so the derived title is the sentence that asks for the rename, never the two
