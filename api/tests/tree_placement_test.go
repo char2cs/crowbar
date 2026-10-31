@@ -316,3 +316,38 @@ func TestTree_AThreadSpawnedAfterTheUpgradeInheritsItsParent(t *testing.T) {
 
 	requirePlaced(t, h, p, "threads spawned", placed{thread, owner, 0}, placed{nested, thread, 0})
 }
+
+// TestRegression_Tree_ARootForkMovesToItsRepoRootHoweverTheRootIsSpelled: main
+// forks the repo's default checkout, so "", the default checkout's id and the
+// repo row's id (its owning chat; the workspace route only, the chat route
+// refuses a chat parent of another workspace) all name the level it belongs to.
+func TestRegression_Tree_ARootForkMovesToItsRepoRootHoweverTheRootIsSpelled(t *testing.T) {
+	h := newHarness(t)
+	writeLiveStubProviderDescriptor(t, h)
+	f := newImportFixture(t, h)
+	repo := f.repoBase()
+	home := workspacesOnBranch(t, h, f.repoID, "")
+	require.Len(t, home, 1)
+	homeOwner, mainOwner := owningChatID(t, h, home[0].ID), owningChatID(t, h, f.mainWSID)
+	ok := placementRefusal{http.StatusOK, ""}
+
+	for _, root := range []string{"", home[0].ID} {
+		assert.Equal(t, ok, patchPlacement(t, h, repo+"/chats/"+mainOwner+"/placement", map[string]any{"parentId": root}),
+			"chat route, root spelled %q", root)
+	}
+	for _, root := range []string{"", home[0].ID, homeOwner} {
+		assert.Equal(t, ok, patchPlacement(t, h, repo+"/workspaces/"+f.mainWSID+"/placement", map[string]any{"parentId": root}),
+			"workspace route, root spelled %q", root)
+	}
+}
+
+// patchPlacement is patchRefusal for a PATCH that may succeed: a 200 reads as
+// status 200 and no code.
+func patchPlacement(t *testing.T, h *harness, path string, body any) placementRefusal {
+	t.Helper()
+	got := patchRefusal(t, h, path, body)
+	if got.status == http.StatusOK {
+		got.code = ""
+	}
+	return got
+}
