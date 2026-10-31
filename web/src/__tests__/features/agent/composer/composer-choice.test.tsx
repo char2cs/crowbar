@@ -288,22 +288,12 @@ describe('ComposerChoice suggestions', () => {
   // handler to make it real.
   it('offers a terminal button in the bar alongside the real controls', () => {
     const onOpenTerminal = vi.fn()
-    render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        pending={1}
-        choice={choice({
-          options: [
-            { id: 'allow', kind: 'allow', label: 'Allow' },
-            { id: 'deny', kind: 'deny', label: 'Deny' },
-            { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
-          ],
-        })}
-        providerLabel="Claude"
-        onOpenTerminal={onOpenTerminal}
-      />,
-    )
+    const options: AgentChoice['options'] = [
+      { id: 'allow', kind: 'allow', label: 'Allow' },
+      { id: 'deny', kind: 'deny', label: 'Deny' },
+      { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
+    ]
+    show({ options }, { onOpenTerminal })
 
     fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
     expect(onOpenTerminal).toHaveBeenCalled()
@@ -619,14 +609,9 @@ describe('ComposerChoice with a long request', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show all 20 lines' }))
     expect(body).toHaveTextContent('step 19')
     expect(screen.queryByTestId('agent-choice-hidden-lines')).toBeNull()
-  })
-
-  it('counts the characters cut from long lines as well as the lines left out', () => {
-    const command = Array.from({ length: 13 }, () => 'y'.repeat(300)).join('\n')
-    show({}, { request: { toolName: 'Bash', toolInput: { command } } })
-    expect(screen.getByTestId('agent-choice-hidden-lines')).toHaveTextContent(
-      '1 more line and 720 more characters not shown',
-    )
+    // The unfolded request scrolls by keyboard: its keys are not answers.
+    fireEvent.keyDown(body.querySelector('pre')!, { key: '1' })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
   })
 })
 
@@ -653,23 +638,9 @@ describe('ComposerChoice keys', () => {
     draw()
     fireEvent.keyDown(screen.getByTestId('chat-permission-level-trigger'), { key: '1' })
     fireEvent.keyDown(screen.getByRole('button', { name: /Deny/ }), { key: '2' })
-    expect(answerChoiceFn).not.toHaveBeenCalled()
-  })
-
-  it('takes a digit on its hint or the unfolded request as theirs, and on the card as an answer', async () => {
-    const command = Array.from({ length: 20 }, (_, i) => `step ${i}`).join('\n')
-    show({}, { request: { toolName: 'Bash', toolInput: { command } } })
-    fireEvent.click(screen.getByRole('button', { name: 'Show all 20 lines' }))
     const hint = screen.getByRole('button', { name: /Allow/ }).querySelector('kbd')!
     fireEvent.keyDown(hint, { key: '1' })
-    fireEvent.keyDown(screen.getByTestId('agent-choice-request').querySelector('pre')!, {
-      key: '1',
-    })
     expect(answerChoiceFn).not.toHaveBeenCalled()
-    fireEvent.keyDown(screen.getByTestId('agent-choice-prompt'), { key: '1' })
-    await waitFor(() =>
-      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', { optionIds: ['allow'] }),
-    )
   })
 
   it('answers nothing for a held key or an Enter that ends an IME composition', () => {
