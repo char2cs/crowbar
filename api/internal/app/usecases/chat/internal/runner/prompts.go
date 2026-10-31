@@ -219,17 +219,17 @@ func (rs *Runners) recordPrompt(
 	return nil
 }
 
-// failPrompt settles requestID as undelivered and returns cause.
+// failPrompt settles requestID as undelivered, as lost when cause says its
+// session was, and returns cause.
 func (rs *Runners) failPrompt(ctx context.Context, chatID, requestID string, cause error) error {
-	rs.settleUndelivered(ctx, chatID, requestID)
-	return cause
-}
-
-func (rs *Runners) settleUndelivered(ctx context.Context, chatID, requestID string) {
+	reason := ledger.ReasonDeliveryFailed
+	if errors.Is(cause, ErrPromptSessionLost) {
+		reason = ledger.ReasonSessionLost
+	}
 	rs.settlePrompts(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
-		return ledger.Settle(st, func(p ledger.Prompt) bool { return p.RequestID == requestID },
-			false, ledger.ReasonDeliveryFailed)
+		return ledger.Settle(st, func(p ledger.Prompt) bool { return p.RequestID == requestID }, false, reason)
 	})
+	return cause
 }
 
 // settlePrompts commits decide's settles on chatID. It outlives ctx: a prompt

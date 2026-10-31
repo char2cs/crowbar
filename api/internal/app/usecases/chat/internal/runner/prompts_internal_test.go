@@ -139,6 +139,21 @@ func TestRegression_CommitPromptSpawn_APTYLessRunnerIsNotAMissingIdentity(t *tes
 	assert.Empty(t, got.TerminalSessionID, "there is no PTY to name, and naming one would be a lie")
 }
 
+// A prompt failed for its lost session is settled as lost, not as a generic
+// failed delivery, whoever settles it.
+func TestFailPrompt_ALostSessionSettlesThePromptAsLost(t *testing.T) {
+	h := newSpawnHarness(t, engineagents.SurfaceChat)
+	require.NoError(t, h.rs.recordPrompt(t.Context(), "chat-1", "req-1", "hello", "", ledger.DeliveryRestart, "runner-1", nil))
+
+	err := h.rs.failPrompt(t.Context(), "chat-1", "req-1", fmt.Errorf("spawn: %w", ErrPromptSessionLost))
+	require.ErrorIs(t, err, ErrPromptSessionLost)
+	assert.Equal(t, ledger.ReasonSessionLost, promptReceipt(t, h.rs.ledger, "req-1").Reason)
+
+	require.NoError(t, h.rs.recordPrompt(t.Context(), "chat-1", "req-2", "again", "", ledger.DeliveryRestart, "runner-2", nil))
+	require.ErrorIs(t, h.rs.failPrompt(t.Context(), "chat-1", "req-2", ErrPromptOutcomeUnknown), ErrPromptOutcomeUnknown)
+	assert.Equal(t, ledger.ReasonDeliveryFailed, promptReceipt(t, h.rs.ledger, "req-2").Reason)
+}
+
 // The refusal must SURVIVE for the case it was written for: a replacement
 // spawn that produced neither a PTY nor a connection has no delivery target
 // at all, and reporting success for it is how a prompt goes silently nowhere.
