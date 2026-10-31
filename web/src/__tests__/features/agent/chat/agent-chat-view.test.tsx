@@ -172,6 +172,10 @@ describe('AgentChatView', () => {
     })
     expect(screen.queryByText('Stopping…')).toBeNull()
     expect(screen.getByText('Interrupted · you stopped this turn')).toBeInTheDocument()
+    // The next turn is not the one Stop was pressed on.
+    act(() => void applyFeedFrame('c1', { type: 'row', row: l.start('turn-3') }))
+    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
+    expect(screen.queryByText('Stopping…')).toBeNull()
   })
 
   it('streams a reply the record has not reached yet', async () => {
