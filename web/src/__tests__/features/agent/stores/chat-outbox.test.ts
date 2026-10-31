@@ -167,6 +167,29 @@ describe('chat outbox', () => {
     expect(outbox()).toEqual([])
   })
 
+  it('keeps the text off the composer when a send Esc raced spoke before the retract', async () => {
+    seedFeed('c1', [])
+    const sent = deferred<typeof accepted>()
+    submit.mockReturnValue(sent.promise)
+    send('said twice')
+    const l = ledger('c1')
+    retract.mockImplementation(async () => {
+      seedFeed('c1', [
+        l.prompt(sentId(), 'said twice'),
+        l.start('turn-1', sentId()),
+        l.text('turn-1', 'm1', 0, 'Already started'),
+        l.row('turn_ended', { status: 'interrupted', reason: 'retracted' }, { turnId: 'turn-1' }),
+      ])
+      return { state: 'interrupted', text: 'said twice' }
+    })
+
+    const restored = retractNewest('w1', 'c1')
+    sent.resolve(accepted)
+
+    await expect(restored).resolves.toBeNull()
+    expect(chatStore.getState().feeds.c1?.order[0]).toBe(`p:${sentId()}`)
+  })
+
   it('gives the text back when a send Esc raced was refused', async () => {
     seedFeed('c1', [])
     const sent = deferred<typeof accepted>()

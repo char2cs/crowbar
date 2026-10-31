@@ -84,7 +84,8 @@ export type PromptFact =
   | { state: 'delivered'; turnId: string }
   | { state: 'settled' }
   | { state: 'refused'; reason: string }
-  | { state: 'retracted' }
+  /** `turnId` when its turn spoke before the retract ended it: the row stays. */
+  | { state: 'retracted'; turnId?: string }
 
 export interface LiveSubagent {
   scope: string

@@ -75,7 +75,7 @@ describe('applyRow', () => {
       l.text('turn-1', 'm1', 0, 'partial'),
       l.row('turn_ended', { status: 'interrupted', reason: 'retracted' }, { turnId: 'turn-1' }),
     ])
-    expect(feed.facts.prompts.r1).toEqual({ state: 'retracted' })
+    expect(feed.facts.prompts.r1).toEqual({ state: 'retracted', turnId: 'turn-1' })
     expect(feed.order).toEqual(['p:r1', 'm:turn-1:m1', 'k:4'])
   })
 

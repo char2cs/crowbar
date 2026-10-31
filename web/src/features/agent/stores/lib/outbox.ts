@@ -141,7 +141,7 @@ export type Retractable =
   /** The send is in flight: retract once it answers. */
   | { kind: 'in_flight'; item: OutboxItem }
   /** The daemon holds it and no output came of it yet. */
-  | { kind: 'held'; requestId: string; text: string; turnId?: string }
+  | { kind: 'held'; requestId: string; text: string }
   /** Its turn has output, or a turn runs that no prompt of ours started. */
   | { kind: 'stop' }
 
@@ -149,6 +149,14 @@ export type Retractable =
 const spoke = (feed: ChatFeed, turnId: string) =>
   feed.facts.output[turnId] === true ||
   feed.liveTail.some((id) => feed.items[id]?.turnId === turnId)
+
+/** Whether the turn `requestId` started showed output: then its row is the record. */
+export function promptSpoke(feed: ChatFeed | undefined, requestId: string) {
+  const fact = feed?.facts.prompts[requestId]
+  const turnId =
+    fact?.state === 'delivered' || fact?.state === 'retracted' ? fact.turnId : undefined
+  return feed !== undefined && turnId !== undefined && spoke(feed, turnId)
+}
 
 /** What Esc in an empty composer acts on: the newest prompt. */
 export function newestRetractable(items: OutboxItem[], feed: ChatFeed): Retractable | null {
@@ -174,7 +182,7 @@ export function newestRetractable(items: OutboxItem[], feed: ChatFeed): Retracta
   }
   if (item?.requestId && fact?.state === 'delivered' && fact.turnId === running?.turnId) {
     if (spoke(feed, fact.turnId)) return { kind: 'stop' }
-    return { kind: 'held', requestId: item.requestId, text: item.text, turnId: fact.turnId }
+    return { kind: 'held', requestId: item.requestId, text: item.text }
   }
   return running ? { kind: 'stop' } : null
 }

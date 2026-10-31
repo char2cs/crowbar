@@ -192,7 +192,6 @@ describe('newestRetractable', () => {
       kind: 'held',
       requestId: 'r1',
       text: 'one',
-      turnId: 'turn-1',
     })
     const spoke = applyRows(delivered, [l.text('turn-1', 'm1', 0, 'Working on it')])
     expect(newestRetractable([], spoke)).toEqual({ kind: 'stop' })

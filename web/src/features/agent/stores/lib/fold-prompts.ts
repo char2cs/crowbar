@@ -50,8 +50,9 @@ export function retractTurn(fold: FeedFold, row: LedgerRow<'turn_ended'>) {
   const requestId = fold.facts.running?.turnId === row.turnId && fold.facts.running?.requestId
   const turn = row.turnId ?? ''
   if (row.body.reason !== 'retracted' || !requestId || !turn) return
+  if (fold.facts.output[turn])
+    return setPrompt(fold, requestId, { state: 'retracted', turnId: turn })
   setPrompt(fold, requestId, { state: 'retracted' })
-  if (fold.facts.output[turn]) return
   fold.record('traceless')[turn] = { requestId, marker: markerItemId(row.seq) }
   fold.unplace(userItemId(requestId, row.seq))
 }

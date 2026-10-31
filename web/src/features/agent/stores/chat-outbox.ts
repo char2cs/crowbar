@@ -19,6 +19,7 @@ import {
   onSendFailed,
   onSending,
   onSent,
+  promptSpoke,
   refusal,
   retryFailed,
   retryRow,
@@ -148,13 +149,13 @@ async function takeBack(
   chatId: string,
   requestId: string,
   unsentText?: string,
-  turnId?: string,
 ): Promise<string | null> {
   try {
     const answer = await retractPrompt(wsId, chatId, requestId)
     drop(chatId, requestId)
-    const output = turnId && chatStore.getState().feeds[chatId]?.facts.output[turnId]
-    return answer.state === 'interrupted' && output ? null : answer.text
+    // Its turn spoke: the row stays, so the composer must not get a second copy.
+    const spoke = promptSpoke(chatStore.getState().feeds[chatId], requestId)
+    return answer.state === 'interrupted' && spoke ? null : answer.text
   } catch (error) {
     // Never seen: the send did not get through, so the text is only ours.
     if (error instanceof ApiError && error.status === 404) {
@@ -229,7 +230,7 @@ export function retractNewest(wsId: string, chatId: string): Promise<string | nu
       return promise
     }
     case 'held':
-      return takeBack(wsId, chatId, target.requestId, target.text, target.turnId)
+      return takeBack(wsId, chatId, target.requestId, target.text)
     case 'stop':
       return stopChat(wsId, chatId).then(
         () => null,
