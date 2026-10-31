@@ -656,6 +656,22 @@ describe('ComposerChoice keys', () => {
     expect(answerChoiceFn).not.toHaveBeenCalled()
   })
 
+  it('takes a digit on its hint or the unfolded request as theirs, and on the card as an answer', async () => {
+    const command = Array.from({ length: 20 }, (_, i) => `step ${i}`).join('\n')
+    show({}, { request: { toolName: 'Bash', toolInput: { command } } })
+    fireEvent.click(screen.getByRole('button', { name: 'Show all 20 lines' }))
+    const hint = screen.getByRole('button', { name: /Allow/ }).querySelector('kbd')!
+    fireEvent.keyDown(hint, { key: '1' })
+    fireEvent.keyDown(screen.getByTestId('agent-choice-request').querySelector('pre')!, {
+      key: '1',
+    })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+    fireEvent.keyDown(screen.getByTestId('agent-choice-prompt'), { key: '1' })
+    await waitFor(() =>
+      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', { optionIds: ['allow'] }),
+    )
+  })
+
   it('answers nothing for a held key or an Enter that ends an IME composition', () => {
     show()
     const card = screen.getByTestId('agent-choice-prompt')

@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { VERB_ROTATION_MS, verbAt } from '@/features/agent/activity/lib/verbs'
 import { WorkingLine } from '@/features/agent/activity/working-line'
 
 describe('WorkingLine', () => {
@@ -118,5 +119,18 @@ describe('WorkingLine', () => {
     expect(live).toHaveAttribute('aria-live', 'polite')
     expect(live).toHaveTextContent('Reading a.ts')
     expect(live).not.toHaveTextContent(/\d:\d\d/)
+  })
+
+  it('announces the rotating verb once as Working, and rotates it out of the live text', () => {
+    vi.useFakeTimers()
+    render(<WorkingLine working />)
+    const live = screen.getByTestId('agent-working-heading')
+    const spoken = within(live).getByText('Working')
+    expect(spoken.closest('[aria-hidden="true"]')).toBeNull()
+    const verb = within(live).getByText(`${verbAt(0)}…`)
+    expect(verb).toHaveAttribute('aria-hidden', 'true')
+    act(() => void vi.advanceTimersByTime(VERB_ROTATION_MS))
+    expect(within(live).getByText(`${verbAt(1)}…`)).toHaveAttribute('aria-hidden', 'true')
+    expect(within(live).getByText('Working')).toBe(spoken)
   })
 })
