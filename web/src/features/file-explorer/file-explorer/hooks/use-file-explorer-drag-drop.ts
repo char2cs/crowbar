@@ -93,7 +93,7 @@ export function useFileExplorerDragDrop(
         opacity: 0.95;
         padding: 6px 12px;
         background-color: var(--control-surface);
-        border: 1px solid var(--control-surface);
+        border: 1px solid var(--border);
         border-radius: 6px;
         font-size: var(--ui-text-sm);
         font-family: var(--app-font-family);
@@ -101,6 +101,7 @@ export function useFileExplorerDragDrop(
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
       `
       preview.textContent = dragState.draggedItem?.name || ''
+      preview.setAttribute('data-drag-overlay', '')
       document.body.appendChild(preview)
       dragPreviewRef.current = preview
     }

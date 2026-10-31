@@ -170,6 +170,9 @@ describe('useFileExplorerDragDrop — stable listener subscription (H13)', () =>
     )
     expect(preview?.style.backgroundColor).toBe('var(--control-surface)')
     expect(preview?.style.color).toBe('var(--control-foreground)')
+    // The lifted palette hook keeps the surface white in dark themes; the edge is not the fill.
+    expect(preview).toHaveAttribute('data-drag-overlay')
+    expect(preview?.style.border).toContain('var(--border)')
 
     act(() => {
       document.dispatchEvent(mouseEvent('mouseup', 5, 5))

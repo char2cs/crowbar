@@ -273,6 +273,30 @@ describe('createStripDrag', () => {
     })
   })
 
+  describe('a pane dragged up into a strip with room to spare', () => {
+    // Tabs end at 500; the strip runs on to 900.
+    const roomy = () => build(900)
+
+    it('sits in the gap it opens at the end, not half over the last tab', () => {
+      const { strip } = roomy()
+      const ghost = document.createElement('div')
+      const drag = createStripDrag(strip, document.createElement('div'), { dx: 3, dy: 3 })!
+      drag.move(800, 16, ghost)
+      expect(ghostAt(ghost).x).toBe(500)
+      expect(drag.drop(800)).toMatchObject({ mode: 'after' })
+    })
+
+    it('sits on the first slot at the start, not half before it', () => {
+      const { strip, tabs } = roomy()
+      const ghost = document.createElement('div')
+      const drag = createStripDrag(strip, document.createElement('div'), { dx: 3, dy: 3 })!
+      drag.move(100, 16, ghost)
+      expect(ghostAt(ghost).x).toBe(100)
+      expect(drag.drop(100)).toMatchObject({ mode: 'before' })
+      expect(drag.drop(100)?.el).toBe(tabs[0].tab)
+    })
+  })
+
   describe('with pinned tabs at the front', () => {
     it('keeps a pinned tab inside the pinned group, however far it is pulled', () => {
       const { strip, tabs } = build(BOX.right, 2)
