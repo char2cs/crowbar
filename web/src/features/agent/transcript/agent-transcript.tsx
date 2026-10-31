@@ -7,8 +7,10 @@ import {
   useRef,
   useState,
 } from 'react'
+import { flushSync } from 'react-dom'
 import {
   elementScroll,
+  observeElementOffset,
   useVirtualizer,
   type VirtualItem,
   type Virtualizer,
@@ -140,7 +142,8 @@ const observeScrollRectFor =
         return
       }
       pending = null
-      report(rect)
+      // Between layout and paint: the window for the new box renders before it shows.
+      flushSync(() => report(rect))
     })
     observer.observe(element, { box: 'border-box' })
     report(element.getBoundingClientRect())
@@ -153,6 +156,28 @@ const observeScrollRectFor =
     return () => {
       observer.disconnect()
       window.removeEventListener('pane-resize-end', flush)
+    }
+  }
+
+type OffsetReport = (offset: number) => void
+
+/** tanstack's `observeElementOffset`, also handed every offset the anchor writes
+ *  (through `hear`) and read once at the start: its scroll event alone arrives a
+ *  frame late, after the old window is painted at the new offset. */
+const observeScrollOffsetFor =
+  (hear: (report: OffsetReport | null) => void) =>
+  (
+    instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
+    cb: (offset: number, isScrolling: boolean) => void,
+  ) => {
+    const element = instance.scrollElement
+    if (!element) return
+    hear((offset) => cb(offset, false))
+    cb(element.scrollTop, false)
+    const stop = observeElementOffset(instance, cb)
+    return () => {
+      hear(null)
+      stop?.()
     }
   }
 
@@ -231,15 +256,28 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   const outbox = useChatStore((s) => s.outbox[chatId] ?? NO_OUTBOX)
   const [measured] = useState(() => new Set<Key>())
   const [pinnedId, setPinnedId] = useState<string | null>(null)
+  // The pin's turn is over once its prompt left `pending` and nothing runs.
+  const pinnedState = useChatStore((s) =>
+    pinnedId ? s.feeds[chatId]?.facts.prompts[pinnedId.slice(2)]?.state : undefined,
+  )
+  const released = !props.working && pinnedState !== undefined && pinnedState !== 'pending'
+  const reportOffset = useRef<OffsetReport | null>(null)
   const anchor = useTranscriptAnchor({
     loadingHistory: props.status === 'connecting',
     initialPosition: props.initialScrollPosition,
     onPositionChange: props.onScrollPositionChange,
     visible: props.visible,
+    arriving: props.working || (pinnedId !== null && !released),
+    onWrite: (top) => reportOffset.current?.(top),
   })
-  const { afterCommit, notifyReflow, noteScrollWrite, stick, scrollRef } = anchor
+  const { afterCommit, notifyReflow, noteScrollWrite, stick, holdsBottom, scrollRef } = anchor
   const [measureRow] = useState(() => measureRowInto(measured))
   const [observeElementRect] = useState(() => observeScrollRectFor(notifyReflow))
+  const [observeOffset] = useState(() =>
+    observeScrollOffsetFor((report) => {
+      reportOffset.current = report
+    }),
+  )
 
   // An outbox prompt whose row landed is the rows' from then on, under the same key.
   const unsent = useMemo(() => {
@@ -308,6 +346,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     measureElement: measureRow,
     getItemKey,
     observeElementRect,
+    observeElementOffset: observeOffset,
     // Its writes keep a reader's rows still as rows above them change size.
     scrollToFn: (offset, options, instance) => {
       elementScroll(offset, options, instance)
@@ -316,19 +355,19 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     // `measureElement` runs in React's commit; flushSync from there throws.
     useFlushSync: false,
   })
+  // At the bottom the anchor holds the view: the virtualizer's own shift for a
+  // row resized above would paint a frame before its new total does.
+  useLayoutEffect(() => {
+    rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => !holdsBottom()
+  }, [rowVirtualizer, holdsBottom])
   const virtualItems = rowVirtualizer.getVirtualItems()
   const measuring = virtualItems.some((row) => !measured.has(row.key))
   useLayoutEffect(() => afterCommit(measuring))
 
   const pinIndex = pinnedId ? rows.indexOf(pinnedId) : -1
   const pinStart = pinIndex < 0 ? undefined : rowVirtualizer.measurementsCache[pinIndex]?.start
-  // The pin's turn is over once its prompt left `pending` and nothing runs. Its
-  // room slides (transcript.css) down to the rows' own height, which the floor
-  // must reach exactly, else the slide spends itself above or below it.
-  const pinnedState = useChatStore((s) =>
-    pinnedId ? s.feeds[chatId]?.facts.prompts[pinnedId.slice(2)]?.state : undefined,
-  )
-  const released = !props.working && pinnedState !== undefined && pinnedState !== 'pending'
+  // A released pin's room slides (transcript.css) down to the rows' own height,
+  // which the floor must reach exactly, else the slide spends itself above or below it.
   const floor =
     pinStart === undefined
       ? 0

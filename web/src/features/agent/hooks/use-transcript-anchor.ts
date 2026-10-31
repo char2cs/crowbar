@@ -21,6 +21,12 @@ interface UseTranscriptAnchorOptions {
   onPositionChange?: (position: TranscriptScrollPosition) => void
   /** A background tab stays mounted behind visibility:hidden, which changes no geometry. */
   visible?: boolean
+  /** A turn runs or a sent prompt waits for one: only then does growth ease.
+   *  With nothing arriving, a change (a late row layout, the dock) lands at once. */
+  arriving?: boolean
+  /** Each write the anchor makes, as it makes it: the virtualizer otherwise
+   *  hears of it from the scroll event, a frame after painting the old window. */
+  onWrite?: (top: number) => void
 }
 
 export interface TranscriptAnchor {
@@ -36,6 +42,9 @@ export interface TranscriptAnchor {
   noteScrollWrite: () => void
   /** The reader's own prompt landed: rejoin the live end. */
   stick: () => void
+  /** The view is held to the bottom: a row resizing above it is the anchor's to
+   *  answer, not the virtualizer's (its shift paints a frame before the total). */
+  holdsBottom: () => boolean
 }
 
 /**
@@ -60,10 +69,18 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   const optionsRef = useRef(options)
   optionsRef.current = options
 
-  const write = useCallback((el: HTMLElement, top: number) => {
-    el.scrollTop = top
-    written.current = el.scrollTop
+  const wrote = useCallback((top: number) => {
+    written.current = top
+    optionsRef.current.onWrite?.(top)
   }, [])
+
+  const write = useCallback(
+    (el: HTMLElement, top: number) => {
+      el.scrollTop = top
+      wrote(el.scrollTop)
+    },
+    [wrote],
+  )
 
   const resync = useCallback(
     (correcting = false) => {
@@ -92,6 +109,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       const reposition =
         land ||
         optionsRef.current.loadingHistory === true ||
+        optionsRef.current.arriving !== true ||
         target - from > el.clientHeight ||
         (correcting && easeFrom.current === null)
       if (reposition) {
@@ -109,10 +127,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    const build = () =>
-      createFollowScroll(el, (top) => {
-        written.current = top
-      })
+    const build = () => createFollowScroll(el, wrote)
     follow.current = build()
     // An unfocused webview freezes rAF and never runs a request made meanwhile,
     // so the follow is rebuilt rather than re-targeted when focus returns.
@@ -134,7 +149,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
             : (fromBottom.current ?? el.scrollHeight - el.scrollTop),
       })
     }
-  }, [resync])
+  }, [resync, wrote])
 
   const afterCommit = useCallback(
     (measuring: boolean) => {
@@ -169,6 +184,8 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     stuck.current = true
   }, [])
 
+  const holdsBottom = useCallback(() => stuck.current, [])
+
   const onScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
@@ -178,5 +195,5 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     fromBottom.current = el.scrollHeight - el.scrollTop
   }, [])
 
-  return { scrollRef, onScroll, afterCommit, notifyReflow, noteScrollWrite, stick }
+  return { scrollRef, onScroll, afterCommit, notifyReflow, noteScrollWrite, stick, holdsBottom }
 }

@@ -19,12 +19,14 @@ interface HostProps {
   measuring?: boolean
   loadingHistory?: boolean
   visible?: boolean
+  arriving?: boolean
   initialPosition?: TranscriptScrollPosition | null
   onPositionChange?: (position: TranscriptScrollPosition) => void
 }
 
-function Host({ rev: _rev, measuring = false, ...options }: HostProps) {
-  anchor = useTranscriptAnchor(options)
+// Mostly a reply streaming in: the case where growth eases.
+function Host({ rev: _rev, measuring = false, arriving = true, ...options }: HostProps) {
+  anchor = useTranscriptAnchor({ ...options, arriving })
   const { afterCommit } = anchor
   useLayoutEffect(() => afterCommit(measuring))
   return (
@@ -263,6 +265,17 @@ describe('useTranscriptAnchor', () => {
     frames(16)
     expect(scroller.scrollTop).toBeGreaterThan(700)
     expect(scroller.scrollTop).toBeLessThan(800)
+  })
+
+  it('lands growth in one write while nothing is arriving', () => {
+    const { scroller, grow } = mount({ arriving: false })
+    grow(1100)
+    expect(scroller.scrollTop).toBe(700)
+
+    grow(1200, { arriving: true })
+    expect(scroller.scrollTop).toBe(700)
+    frames(1500)
+    expect(scroller.scrollTop).toBe(800)
   })
 
   it("lands the correction of a row's estimated height, then eases real growth", () => {

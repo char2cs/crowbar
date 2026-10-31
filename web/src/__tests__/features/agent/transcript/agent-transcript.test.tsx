@@ -94,6 +94,48 @@ function layOut(el: HTMLElement, box: { scrollHeight: number; clientHeight: numb
   }) as typeof el.scrollTo
 }
 
+/** Lays the list out from its rows: each row measures `row`, the list is the
+ *  rows plus 200 of chrome, and a parked view measures 0×0. */
+function measureRows(opts: { row: number; viewport: number | (() => number) }) {
+  const viewport = () => (typeof opts.viewport === 'number' ? opts.viewport : opts.viewport())
+  const isList = (el: HTMLElement) => el.dataset.testid === 'agent-message-list'
+  HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
+    const height = this.dataset.index ? opts.row : isList(this) ? viewport() : rect.height
+    const r = { ...rect, height, bottom: height, width: height > 0 ? rect.width : 0 }
+    return { ...r, toJSON: () => r } as DOMRect
+  }
+  const rowsHeight = (el: HTMLElement) =>
+    parseFloat(el.querySelector<HTMLElement>('.virtual-rows')?.style.height ?? '0')
+  const tops = new WeakMap<HTMLElement, number>()
+  const metrics: PropertyDescriptorMap = {
+    scrollHeight: {
+      configurable: true,
+      get(this: HTMLElement) {
+        return isList(this) ? rowsHeight(this) + 200 : 0
+      },
+    },
+    clientHeight: {
+      configurable: true,
+      get(this: HTMLElement) {
+        return isList(this) ? viewport() : 0
+      },
+    },
+    scrollTop: {
+      configurable: true,
+      get(this: HTMLElement) {
+        return tops.get(this) ?? 0
+      },
+      set(this: HTMLElement, v: number) {
+        tops.set(this, Math.max(0, Math.min(v, this.scrollHeight - this.clientHeight)))
+      },
+    },
+  }
+  Object.defineProperties(HTMLElement.prototype, metrics)
+  return () => {
+    for (const key of Object.keys(metrics)) Reflect.deleteProperty(HTMLElement.prototype, key)
+  }
+}
+
 const outboxItem = (requestId: string): OutboxItem => ({
   requestId,
   wsId: 'ws-1',
@@ -269,6 +311,24 @@ describe('AgentTranscript', () => {
     expect(list.scrollTop).toBe(1800)
   })
 
+  it('leaves a held bottom still while a row above it shrinks, until the list commits', () => {
+    const observed = observeResizes()
+    const l = ledger()
+    seedFeed('chat-1', [l.prompt('r1', 'look'), l.prompt('r2', 'again'), l.prompt('r3', 'more')])
+    const { redraw } = draw()
+    const list = screen.getByTestId('agent-message-list')
+    const box = { scrollHeight: 2600, clientHeight: 800 }
+    layOut(list, box)
+    redraw({ since: 'a' })
+    expect(list.scrollTop).toBe(1800)
+
+    // Its report comes between layout and paint; the re-render it asks for comes after.
+    const first = list.querySelector<HTMLElement>('[data-index="0"]')!
+    first.getBoundingClientRect = () => ({ ...rect, height: 300, toJSON: () => rect })
+    observed.get(first)?.([{ target: first } as never], {} as ResizeObserver)
+    expect(list.scrollTop).toBe(1800)
+  })
+
   it('lands on the newest row when its parked workspace comes back', () => {
     const observed = observeResizes()
     const l = ledger()
@@ -333,46 +393,76 @@ describe('AgentTranscript', () => {
 
   it("lands the opening's correction of estimated row heights", () => {
     // Rows measure 150 (estimates are 96); the list is its rows plus 200 of chrome.
-    HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
-      const r = this.dataset.index ? { ...rect, height: 150, bottom: 150 } : rect
-      return { ...r, toJSON: () => r } as DOMRect
-    }
-    const isList = (el: HTMLElement) => el.dataset.testid === 'agent-message-list'
-    const rowsHeight = (el: HTMLElement) =>
-      parseFloat(el.querySelector<HTMLElement>('.virtual-rows')?.style.height ?? '0')
-    const tops = new WeakMap<HTMLElement, number>()
-    const metrics: PropertyDescriptorMap = {
-      scrollHeight: {
-        configurable: true,
-        get(this: HTMLElement) {
-          return isList(this) ? rowsHeight(this) + 200 : 0
-        },
-      },
-      clientHeight: {
-        configurable: true,
-        get(this: HTMLElement) {
-          return isList(this) ? 200 : 0
-        },
-      },
-      scrollTop: {
-        configurable: true,
-        get(this: HTMLElement) {
-          return tops.get(this) ?? 0
-        },
-        set(this: HTMLElement, v: number) {
-          tops.set(this, Math.max(0, Math.min(v, this.scrollHeight - this.clientHeight)))
-        },
-      },
-    }
-    Object.defineProperties(HTMLElement.prototype, metrics)
+    const restore = measureRows({ row: 150, viewport: 200 })
     try {
       const l = ledger()
       seedFeed('chat-1', [l.prompt('r1', 'one'), l.prompt('r2', 'two')])
       draw()
       expect(screen.getByTestId('agent-message-list').scrollTop).toBe(2 * 150)
     } finally {
-      for (const key of Object.keys(metrics)) Reflect.deleteProperty(HTMLElement.prototype, key)
+      restore()
     }
+  })
+
+  it('draws the newest rows on the commit that lands the opening', () => {
+    // jsdom fires no scroll event for a write, as an engine fires it only a frame later.
+    const restore = measureRows({ row: 150, viewport: 600 })
+    try {
+      const l = ledger()
+      seedFeed(
+        'chat-1',
+        Array.from({ length: 40 }, (_, i) => l.prompt(`r${i}`, `prompt ${i}`)),
+      )
+      draw()
+      const list = screen.getByTestId('agent-message-list')
+      // Rows above the window keep their estimates: the bottom is the list's own.
+      expect(list.scrollTop).toBe(list.scrollHeight - 600)
+      expect(screen.getByText('prompt 39')).toBeInTheDocument()
+    } finally {
+      restore()
+    }
+  })
+
+  it('draws the newest rows when a chat opened parked gets its box', () => {
+    const observed = observeResizes()
+    const box = { viewport: 0 }
+    const restore = measureRows({ row: 150, viewport: () => box.viewport })
+    try {
+      const l = ledger()
+      seedFeed(
+        'chat-1',
+        Array.from({ length: 40 }, (_, i) => l.prompt(`r${i}`, `prompt ${i}`)),
+      )
+      draw()
+      const list = screen.getByTestId('agent-message-list')
+      box.viewport = 600
+      // Not in act: the box's report comes between layout and paint, outside React.
+      observed.get(list)?.(
+        [{ borderBoxSize: [{ inlineSize: 768, blockSize: 600 }] } as never],
+        {} as ResizeObserver,
+      )
+      expect(list.scrollTop).toBe(list.scrollHeight - 600)
+      expect(screen.getByText('prompt 39')).toBeInTheDocument()
+    } finally {
+      restore()
+    }
+  })
+
+  it('lands a change to an idle chat in one write', () => {
+    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance'] })
+    const l = ledger()
+    seedFeed('chat-1', [l.prompt('r1', 'look'), l.start('turn-1', 'r1'), l.end('turn-1')])
+    const { redraw } = draw({ dockHeight: 0 })
+    const list = screen.getByTestId('agent-message-list')
+    const box = { scrollHeight: 2000, clientHeight: 800 }
+    layOut(list, box)
+    redraw({ since: 'a' })
+    expect(list.scrollTop).toBe(1200)
+
+    // The dock measures after the opening, and its room grows the list.
+    box.scrollHeight = 2086
+    redraw({ dockHeight: 86 })
+    expect(list.scrollTop).toBe(1286)
   })
 
   it('says it is still trying when the feed cannot be reached', () => {
