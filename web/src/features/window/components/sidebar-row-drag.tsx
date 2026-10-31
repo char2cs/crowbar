@@ -169,7 +169,7 @@ export function RowDragScope({
         {dragged && claimed && (
           <div
             data-drag-overlay=""
-            className="chrome-surface rounded-lg bg-chrome-bg shadow-lg ring-1 ring-border"
+            className="control-surface rounded-lg shadow-md shadow-black/15 outline outline-1 inset-shadow-[0_1px_var(--elevated-highlight)]"
           >
             {overlay(dragged)}
           </div>

@@ -5,6 +5,9 @@
    blocks below directly off disk, so those two stay put. This file is the
    Frosted theme (the unthemed base); crowbar.css overrides it. */
 
+/* A lifted drag surface is white in every mode, so it always takes the light palette. */
+[data-drag-ghost],
+[data-drag-overlay],
 :root {
   --radius: 0.625rem;
   --background: #fcfcfa;

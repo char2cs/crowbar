@@ -179,7 +179,7 @@ export default function Breadcrumb({
 
   return (
     <>
-      <div className="flex min-h-7 select-none items-center justify-between bg-terniary-bg px-3 py-1">
+      <div className="flex min-h-7 select-none items-center justify-between px-3 py-1">
         <div className="ui-font flex min-w-0 items-center gap-2 text-muted-foreground ui-text-xs">
           {showPath && showBreadcrumbPath && activeBuffer ? (
             <FilePathBreadcrumb

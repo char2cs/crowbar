@@ -44,6 +44,11 @@ export const ROW_BASE = `${ROW_SHAPE} h-9 mx-1.5 my-0.5`
 // mechanisms for the same "something is here" signal.
 export const ROW_INACTIVE = 'border-transparent text-foreground hover:bg-sidebar-element-idle'
 
+// A view tab at rest: no fill, a hover wash. The raised TAB_ACTIVE surface replaces it.
+export const TAB_IDLE =
+  'border-transparent hover:bg-sidebar-element-hover hover:shadow-xs hover:shadow-black/10 ' +
+  'hover:inset-shadow-[0_1px_var(--elevated-highlight)]'
+
 // A row that HAS a view (open, somewhere) but is not the one on screen right
 // now — the tree's own version of the middle state Recents itself marks with
 // `hasView`'s greyed label (view-row.tsx draws no SET shell ground for
