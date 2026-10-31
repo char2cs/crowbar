@@ -54,7 +54,12 @@ beforeAll(() => {
 })
 beforeEach(() => {
   epochs++
-  entityStore.setState({ byKind: { operation: {} }, members: {}, fresh: {}, synced: {} })
+  entityStore.setState({
+    byKind: { operation: {}, review_thread: {} },
+    members: {},
+    fresh: {},
+    synced: {},
+  })
   useLocalOperationsStore.setState({ ops: {} })
   release = holdScope('projects')
   reconnect(`e${epochs}`)
@@ -145,5 +150,33 @@ describe('entity store', () => {
     reconnect(`e${epochs}`)
     synced()
     expect(Object.keys(useLocalOperationsStore.getState().ops)).toEqual(['mine'])
+  })
+
+  it('a ws scope carries review threads: snapshot, live change, gone, and pruning at synced', () => {
+    const thread = (id: string, v: number, body: string, gone?: true) =>
+      socket.deliver({
+        t: 'entity',
+        scope: 'ws:w1',
+        kind: 'review_thread',
+        id,
+        v,
+        ...(gone ? { gone } : { data: { id, workspaceId: 'w1', body } }),
+      })
+    const threads = () => entityStore.getState().byKind.review_thread
+    const stop = holdScope('ws:w1')
+    reconnect(`e${epochs}`)
+    thread('t1', 2, 'first')
+    thread('t2', 2, 'second')
+    socket.deliver({ t: 'synced', scope: 'ws:w1' })
+    thread('t1', 3, 'edited')
+    expect(threads().t1?.data).toMatchObject({ body: 'edited' })
+
+    thread('t2', 4, '', true)
+    expect(threads().t2).toBeUndefined()
+
+    reconnect(`e${epochs}`)
+    socket.deliver({ t: 'synced', scope: 'ws:w1' })
+    expect(threads().t1).toBeUndefined()
+    stop()
   })
 })

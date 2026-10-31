@@ -3,15 +3,17 @@ import { registerScopeKind } from '@/core/stream/stream'
 import type { Frame } from '@/core/stream/frames'
 import { forgetLocalOperation, forgetUnstreamedReplies } from '@/lib/store/local-operations'
 import type { Operation } from '@/lib/store/operations'
+import type { ThreadDTO } from '@/lib/types'
 
 interface Versioned<T> {
   v: number
   data: T
 }
 
-/** The kinds this store holds; T6 and T10 add theirs. */
+/** The kinds this store holds; T10 adds the rest. */
 interface EntityData {
   operation: Operation
+  review_thread: ThreadDTO
 }
 type StoredKind = keyof EntityData
 
@@ -27,7 +29,7 @@ export interface EntityState {
 
 export const entityStore = createStore<EntityState>()(() => ({
   epoch: '',
-  byKind: { operation: {} },
+  byKind: { operation: {}, review_thread: {} },
   members: {},
   fresh: {},
   synced: {},
@@ -43,6 +45,12 @@ function without<T>(record: Record<string, T>, key: string): Record<string, T> {
   const next = { ...record }
   delete next[key]
   return next
+}
+
+type ByKind = EntityState['byKind']
+
+function withoutEntity(byKind: ByKind, kind: StoredKind, id: string): ByKind {
+  return { ...byKind, [kind]: without<unknown>(byKind[kind], id) } as ByKind
 }
 
 function mark(s: EntityState, scope: string, key: string): Partial<EntityState> {
@@ -73,7 +81,7 @@ function applyEntityFrame(f: EntityFrame): void {
     if (f.gone) {
       if (!held) return s
       return {
-        byKind: { ...s.byKind, [kind]: without(s.byKind[kind], f.id) },
+        byKind: withoutEntity(s.byKind, kind, f.id),
         members: unmarkEverywhere(s.members, key),
       }
     }
@@ -100,11 +108,11 @@ function applySynced(scope: string): void {
   entityStore.setState((s) => {
     const seen = s.fresh[scope] ?? s.members[scope] ?? {}
     const members = { ...s.members, [scope]: seen }
-    const byKind = { ...s.byKind }
+    let byKind = s.byKind
     for (const key of Object.keys(s.members[scope] ?? {})) {
       if (seen[key] || Object.values(members).some((keys) => keys[key])) continue
       const [kind, id] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)]
-      if (isStored(kind)) byKind[kind] = without(byKind[kind], id)
+      if (isStored(kind)) byKind = withoutEntity(byKind, kind, id)
     }
     return {
       byKind,
@@ -138,5 +146,13 @@ registerScopeKind('projects', {
       applySynced(f.scope)
       forgetUnstreamedReplies((id) => id in entityStore.getState().byKind.operation)
     }
+  },
+})
+
+registerScopeKind('ws', {
+  subscribed: beginSnapshot,
+  frame(f) {
+    if (f.t === 'entity') applyEntityFrame(f)
+    else if (f.t === 'synced') applySynced(f.scope)
   },
 })

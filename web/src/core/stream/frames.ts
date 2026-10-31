@@ -16,6 +16,8 @@ export type Frame =
       gone?: true
     }
   | { t: 'synced'; scope: string }
+  /** An unversioned fact about a scope (git status, a file change, diagnostics). */
+  | { t: 'signal'; scope: string; kind: string; data?: unknown }
   | { t: 'closed'; scope: string; reason: 'resync' | 'deleted' | 'refused'; problem?: Problem }
   /** A refused request that names no scope to drop. */
   | { t: 'error'; problem: Problem }
@@ -64,6 +66,7 @@ const SHAPES: Record<Frame['t'], Record<string, { check: Check; optional?: true 
     gone: { check: yes, optional: true },
   },
   synced: { scope: { check: str } },
+  signal: { scope: { check: str }, kind: { check: str }, data: { check: any, optional: true } },
   closed: {
     scope: { check: str },
     reason: { check: (v) => str(v) && REASONS.has(v as string) },

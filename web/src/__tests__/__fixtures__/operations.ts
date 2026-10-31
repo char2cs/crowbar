@@ -14,6 +14,11 @@ export function streamOperation(op: Operation): void {
 
 /** No operation anywhere. */
 export function resetOperations(): void {
-  entityStore.setState({ byKind: { operation: {} }, members: {}, fresh: {}, synced: {} })
+  entityStore.setState({
+    byKind: { operation: {}, review_thread: {} },
+    members: {},
+    fresh: {},
+    synced: {},
+  })
   useLocalOperationsStore.setState({ ops: {} })
 }

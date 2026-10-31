@@ -15,6 +15,8 @@ const golden = [
   },
   { t: 'closed', scope: 'projects', reason: 'resync' },
   { t: 'error', problem: { code: 'invalid_argument', message: 'stream: unknown op "gossip"' } },
+  { t: 'signal', scope: 'git:w1', kind: 'git_status', data: { branch: 'main' } },
+  { t: 'entity', scope: 'ws:w1', kind: 'review_thread', id: 'th1', v: 9, data: { id: 'th1' } },
 ]
 
 describe('decodeFrame', () => {
@@ -35,6 +37,10 @@ describe('decodeFrame', () => {
     expect(() =>
       decodeFrame({ t: 'entity', scope: 'projects', kind: 'stranger', id: 'x', v: 1 }),
     ).toThrow(FrameError)
+  })
+
+  it('rejects a signal without its kind', () => {
+    expect(() => decodeFrame({ t: 'signal', scope: 'git:w1', data: {} })).toThrow(FrameError)
   })
 
   it('names the scope of a frame it cannot decode', () => {

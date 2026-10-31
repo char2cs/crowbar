@@ -1,7 +1,14 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as reporting from '@/lib/errors/report'
 import { entityStore } from '@/core/entities/entity-store'
-import { holdScope, registerScopeKind, startStream } from '@/core/stream/stream'
+import {
+  holding,
+  holdScope,
+  onSignal,
+  registerScopeKind,
+  startStream,
+  watchScope,
+} from '@/core/stream/stream'
 import type { Frame } from '@/core/stream/frames'
 
 const socket = vi.hoisted(() => ({
@@ -167,17 +174,17 @@ describe('the one stream', () => {
   it('a ready frame with a new epoch reaches every registered kind before any entity frame', () => {
     const calls: string[] = []
     register('chat', { epoch: (e) => void calls.push(`chat ${e}`), frame: () => {} })
-    register('ws', {
-      epoch: (e) => void calls.push(`ws ${e}`),
-      frame: (f) => void calls.push(`ws ${f.t}`),
+    register('lsp', {
+      epoch: (e) => void calls.push(`lsp ${e}`),
+      frame: (f) => void calls.push(`lsp ${f.t}`),
     })
-    hold('ws:w1')
+    hold('lsp:c1')
 
     reconnect('restarted')
-    socket.deliver({ t: 'synced', scope: 'ws:w1' })
+    socket.deliver({ t: 'synced', scope: 'lsp:c1' })
     reconnect('restarted')
 
-    expect(calls).toEqual(['chat restarted', 'ws restarted', 'ws synced'])
+    expect(calls).toEqual(['chat restarted', 'lsp restarted', 'lsp synced'])
   })
 
   it('a resubscribe snapshot removes an entity deleted while offline', () => {
@@ -195,5 +202,44 @@ describe('the one stream', () => {
 
     expect(entityStore.getState().byKind.operation.op1?.v).toBe(5)
     expect(entityStore.getState().byKind.operation.op2).toBeUndefined()
+  })
+
+  it('onSignal delivers only its scope and kind', () => {
+    const heard: unknown[] = []
+    cleanups.push(onSignal('git:w1', 'git_status', (data) => void heard.push(data)))
+    hold('git:w1')
+    hold('git:w2')
+
+    socket.deliver({ t: 'signal', scope: 'git:w1', kind: 'git_status', data: { n: 1 } })
+    socket.deliver({ t: 'signal', scope: 'git:w2', kind: 'git_status', data: { n: 2 } })
+    socket.deliver({ t: 'signal', scope: 'git:w1', kind: 'file_change', data: { n: 3 } })
+
+    expect(heard).toEqual([{ n: 1 }])
+  })
+
+  it('a scope watch hears every synced of its scope, the resubscribe one too', () => {
+    const synced = vi.fn()
+    cleanups.push(watchScope('files:w1', { synced }))
+    hold('files:w1')
+    socket.deliver({ t: 'synced', scope: 'files:w1' })
+    socket.deliver({ t: 'synced', scope: 'files:w2' })
+    reconnect()
+    socket.deliver({ t: 'synced', scope: 'files:w1' })
+
+    expect(synced).toHaveBeenCalledTimes(2)
+  })
+
+  it('a refusal a scope watch hears is its to tell, not reported, and the scope is let go', () => {
+    const report = vi.spyOn(reporting, 'report').mockImplementation(() => {})
+    const refused = vi.fn()
+    cleanups.push(watchScope('doc:/tmp/a', { refused }))
+    hold('doc:/tmp/a')
+    const problem = { code: 'watch_limit', message: 'no watches left' }
+
+    socket.deliver({ t: 'closed', scope: 'doc:/tmp/a', reason: 'refused', problem })
+
+    expect(refused).toHaveBeenCalledWith(problem)
+    expect(report).not.toHaveBeenCalled()
+    expect(holding('doc:/tmp/a')).toBe(false)
   })
 })

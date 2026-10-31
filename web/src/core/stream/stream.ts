@@ -1,6 +1,7 @@
 import { report } from '@/lib/errors/report'
 import { wsManager } from '@/lib/ws/manager'
 import { decodeFrame, FrameError, type Frame } from '@/core/stream/frames'
+import type { Problem } from '@/lib/errors/problem'
 
 /** What the store owning a scope kind hears; core imports no feature, so stores register. */
 export interface ScopeKindHandler {
@@ -16,8 +17,20 @@ export interface ScopeKindHandler {
 
 const ENDPOINT = '/v0/stream'
 
+/** What one holder of a scope hears about it, beside its kind's store. */
+interface ScopeWatch {
+  /** The scope's snapshot is complete: the first after a hold, and again after each resubscribe. */
+  synced?(): void
+  /** The daemon will not serve the scope; a watch that hears it tells the user itself. */
+  refused?(problem: Problem | undefined): void
+}
+
+type SignalFrame = Extract<Frame, { t: 'signal' }>
+
 const handlers = new Map<string, ScopeKindHandler>()
 const holds = new Map<string, number>()
+const watches = new Map<string, Set<ScopeWatch>>()
+const signals = new Map<string, Set<(f: SignalFrame) => void>>()
 /** The current socket said ready, so a sub sent now is answered. */
 let ready = false
 let epoch: string | undefined
@@ -67,10 +80,38 @@ export function holdScope(scope: string): () => void {
   }
 }
 
+/** Whether some holder still holds `scope`: a refused one is let go. */
+export function holding(scope: string): boolean {
+  return holds.has(scope)
+}
+
+function listen<T>(registry: Map<string, Set<T>>, scope: string, listener: T): () => void {
+  const set = registry.get(scope) ?? new Set<T>()
+  registry.set(scope, set.add(listener))
+  return () => {
+    set.delete(listener)
+    if (set.size === 0 && registry.get(scope) === set) registry.delete(scope)
+  }
+}
+
+/** Hears `scope`'s synced and refusal frames; returns the stop. */
+export function watchScope(scope: string, watch: ScopeWatch): () => void {
+  return listen(watches, scope, watch)
+}
+
+/** Hears `scope`'s signals of `kind`; returns the stop. */
+export function onSignal<T>(scope: string, kind: string, cb: (data: T) => void): () => void {
+  return listen(signals, scope, (f: SignalFrame) => {
+    if (f.kind === kind) cb(f.data as T)
+  })
+}
+
 /** Stops holding a scope the daemon will not serve, so no reconnect asks again. */
-function dropScope(scope: string, why: unknown): void {
-  report(why, { action: `Stream ${scope}` })
+function dropScope(scope: string, why: unknown, problem?: Problem): void {
+  const told = [...(watches.get(scope) ?? [])].filter((w) => w.refused)
+  if (told.length === 0) report(why, { action: `Stream ${scope}` })
   if (holds.delete(scope) && ready) wsManager.send(ENDPOINT, { op: 'unsub', scope })
+  for (const w of told) w.refused?.(problem)
 }
 
 function onReady(next: string): void {
@@ -87,9 +128,11 @@ function onFrame(f: Frame): void {
   if (f.t === 'error') return report(new Error(f.problem.message), { action: 'Stream' })
   if (!holds.has(f.scope)) return
   handlers.get(kindOf(f.scope))?.frame(f)
+  if (f.t === 'signal') for (const cb of [...(signals.get(f.scope) ?? [])]) cb(f)
+  if (f.t === 'synced') for (const w of [...(watches.get(f.scope) ?? [])]) w.synced?.()
   if (f.t !== 'closed') return
   if (f.reason === 'resync') sub(f.scope)
-  else dropScope(f.scope, new Error(f.problem?.message ?? `${f.scope} was ${f.reason}`))
+  else dropScope(f.scope, new Error(f.problem?.message ?? `${f.scope} was ${f.reason}`), f.problem)
 }
 
 function onMessage(raw: unknown): void {
