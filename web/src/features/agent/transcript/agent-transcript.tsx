@@ -144,8 +144,7 @@ const observeScrollRectFor =
       }
       pending = null
       // Between layout and paint: the window for the new box renders before it shows.
-      // Rows it mounts are observed mid-delivery, so WebKit may log 'ResizeObserver
-      // loop completed': benign, and deferring the render brings the blank frame back.
+      // WebKit may log 'ResizeObserver loop completed with undelivered notifications': benign.
       flushSync(() => report(rect))
     })
     observer.observe(element, { box: 'border-box' })
