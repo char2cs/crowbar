@@ -193,6 +193,11 @@ type EventStore interface {
 		ctx context.Context,
 		id string,
 	) (domain.Chat, error)
+	// GetChats is every chat of ids that exists, placed in one placement read.
+	GetChats(
+		ctx context.Context,
+		ids []string,
+	) ([]domain.Chat, error)
 	// Get is GetChat under the name the unified sidebar forest's tree usecase
 	// asks by: a row is a row, folder or chat, and that usecase reads by id
 	// alone.
@@ -395,6 +400,24 @@ func (r *eventSourced) GetChat(
 		return domain.Chat{}, fmt.Errorf("agentchat: get chat: %w", mapNotFound(err))
 	}
 	return r.placed(ctx, chat)
+}
+
+func (r *eventSourced) GetChats(
+	ctx context.Context,
+	ids []string,
+) ([]domain.Chat, error) {
+	rows := make([]domain.Chat, 0, len(ids))
+	for _, id := range ids {
+		chat, err := r.store.GetChat(ctx, id)
+		if errors.Is(mapNotFound(err), ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("agentchat: get chats: %w", err)
+		}
+		rows = append(rows, chat)
+	}
+	return r.placedAll(ctx, rows)
 }
 
 func (r *eventSourced) Get(

@@ -182,6 +182,10 @@ func (r snapshotReader) GetChat(ctx context.Context, chatID string) (domain.Chat
 	return r.chats.GetChat(ctx, chatID)
 }
 
+func (r snapshotReader) GetChats(ctx context.Context, chatIDs []string) ([]domain.Chat, error) {
+	return r.chats.GetChats(ctx, chatIDs)
+}
+
 // buildComponents assembles the four halves of the surface and closes the edges
 // between them.
 //

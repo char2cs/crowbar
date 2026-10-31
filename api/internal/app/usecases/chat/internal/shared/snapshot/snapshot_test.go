@@ -22,6 +22,8 @@ type reader struct {
 	ledger func(chatID string) (ledger.State, error)
 	// released runs as ViewLedger releases the chat's writer.
 	released func()
+	// gets and batches count the one-chat and many-chat reads.
+	gets, batches int
 }
 
 func (r *reader) ViewLedger(_ context.Context, chatID string, fn func(ledger.State) error) error {
@@ -41,7 +43,19 @@ func (r *reader) ViewLedger(_ context.Context, chatID string, fn func(ledger.Sta
 	return nil
 }
 
+func (r *reader) GetChats(_ context.Context, ids []string) ([]domain.Chat, error) {
+	r.batches++
+	var out []domain.Chat
+	for _, id := range ids {
+		if c, ok := r.chats[id]; ok {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
 func (r *reader) GetChat(_ context.Context, id string) (domain.Chat, error) {
+	r.gets++
 	c, ok := r.chats[id]
 	if !ok {
 		return domain.Chat{}, errors.New("not found")
@@ -331,4 +345,37 @@ func TestSnapshots_AChatEventNeverRedrawsAChatAtAPlaceItLeft(t *testing.T) {
 	assert.Equal(t, "t", got.Title)
 	assert.Equal(t, "f-new", got.ParentID)
 	assert.Equal(t, 2, got.Order)
+}
+
+// A cold read of many chats loads every one it does not hold in one read, not
+// one per chat: each placement read decodes a whole project's tree.
+func TestSnapshots_GetManyLoadsTheChatsItLacksInOneRead(t *testing.T) {
+	rd := &reader{chats: map[string]domain.Chat{
+		"a": {ID: "a", Title: "A"}, "b": {ID: "b", Title: "B"}, "c": {ID: "c", Title: "C"},
+	}}
+	s, _, _ := newOwner(t, rd)
+	ctx := context.Background()
+	_, err := s.Get(ctx, "a")
+	require.NoError(t, err)
+	rd.gets, rd.batches = 0, 0
+
+	got, err := s.GetMany(ctx, []string{"a", "b", "c"})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"A", "B", "C"}, []string{got[0].Chat.Title, got[1].Chat.Title, got[2].Chat.Title})
+	assert.Equal(t, 1, rd.batches)
+	assert.Zero(t, rd.gets)
+	_, err = s.GetMany(ctx, []string{"a", "b"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, rd.batches, "a read of held chats reads nothing")
+}
+
+// A chat the batch does not find is reported as the single read reports it.
+func TestSnapshots_GetManyOfAnUnknownChatFails(t *testing.T) {
+	s, _, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"a": {ID: "a"}}})
+
+	_, err := s.GetMany(context.Background(), []string{"a", "nope"})
+
+	require.Error(t, err)
+	assert.Equal(t, 1, s.Len(), "the unknown chat holds no entry")
 }

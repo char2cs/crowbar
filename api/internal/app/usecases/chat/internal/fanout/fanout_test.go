@@ -20,6 +20,14 @@ func (emptyReader) GetChat(_ context.Context, id string) (domain.Chat, error) {
 	return domain.Chat{ID: id}, nil
 }
 
+func (emptyReader) GetChats(_ context.Context, ids []string) ([]domain.Chat, error) {
+	out := make([]domain.Chat, len(ids))
+	for i, id := range ids {
+		out[i] = domain.Chat{ID: id}
+	}
+	return out, nil
+}
+
 func (emptyReader) ViewLedger(_ context.Context, _ string, fn func(ledger.State) error) error {
 	return fn(ledger.State{})
 }

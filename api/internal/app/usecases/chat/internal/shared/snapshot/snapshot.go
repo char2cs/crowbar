@@ -67,6 +67,8 @@ type Snapshot struct {
 // touched since boot.
 type Reader interface {
 	GetChat(ctx context.Context, chatID string) (domain.Chat, error)
+	// GetChats is every chat of chatIDs that exists, in one read.
+	GetChats(ctx context.Context, chatIDs []string) ([]domain.Chat, error)
 	// ViewLedger runs fn on the chat's ledger State under its writer. It is
 	// never called under the owner's lock: the writer publishes into the owner.
 	ViewLedger(ctx context.Context, chatID string, fn func(ledger.State) error) error
@@ -277,6 +279,9 @@ func (s *Snapshots) GetMany(ctx context.Context, chatIDs []string) ([]Snapshot, 
 	if err := s.preloadLedger(ctx, chatIDs); err != nil {
 		return nil, err
 	}
+	if err := s.preloadChats(ctx, chatIDs); err != nil {
+		return nil, err
+	}
 	snaps, correct, err := s.collect(ctx, chatIDs)
 	if err != nil || correct == nil {
 		return snaps, err
@@ -289,6 +294,39 @@ func (s *Snapshots) GetMany(ctx context.Context, chatIDs []string) ([]Snapshot, 
 		snaps[i].Chat = chat
 	}
 	return snaps, nil
+}
+
+// preloadChats reads every chat of chatIDs the owner does not hold in one read,
+// outside the lock. An event that lands meanwhile loads its chat first and wins.
+func (s *Snapshots) preloadChats(ctx context.Context, chatIDs []string) error {
+	s.mu.Lock()
+	reader := s.reader
+	var missing []string
+	for _, chatID := range chatIDs {
+		_, gone := s.deleted[chatID]
+		if st := s.chats[chatID]; !gone && (st == nil || !st.loaded) {
+			missing = append(missing, chatID)
+		}
+	}
+	s.mu.Unlock()
+	if reader == nil || len(missing) == 0 {
+		return nil
+	}
+	chats, err := reader.GetChats(ctx, missing)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, chat := range chats {
+		if _, gone := s.deleted[chat.ID]; gone {
+			continue
+		}
+		if st := s.stateLocked(chat.ID); !st.loaded {
+			st.chat, st.loaded = chat, true
+		}
+	}
+	return nil
 }
 
 // collect builds every snapshot, uncorrected, under one hold of the lock.
