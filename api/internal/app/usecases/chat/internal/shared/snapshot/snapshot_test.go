@@ -379,3 +379,117 @@ func TestSnapshots_GetManyOfAnUnknownChatFails(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 1, s.Len(), "the unknown chat holds no entry")
 }
+
+// gatedReader is reader whose batch read waits for release, after saying so on
+// entered, and fails when it is asked for bad.
+type gatedReader struct {
+	*reader
+	entered, release chan struct{}
+	bad              string
+}
+
+func (r *gatedReader) GetChats(ctx context.Context, ids []string) ([]domain.Chat, error) {
+	r.entered <- struct{}{}
+	<-r.release
+	for _, id := range ids {
+		if id == r.bad {
+			return nil, errors.New("corrupt history")
+		}
+	}
+	return r.reader.GetChats(ctx, ids)
+}
+
+func newGated(t *testing.T, bad string) (*snapshot.Snapshots, *gatedReader) {
+	t.Helper()
+	rd := &reader{chats: map[string]domain.Chat{
+		"a": {ID: "a", Title: "old"}, "x": {ID: "x", Title: "old", ParentID: "f-old"},
+	}}
+	gr := &gatedReader{reader: rd, entered: make(chan struct{}, 1), release: make(chan struct{}), bad: bad}
+	s, _, _ := newOwner(t, rd)
+	s.Bind(gr, newRuntime())
+	return s, gr
+}
+
+// The batch read runs outside the owner's lock, and an event that lands while
+// it runs wins over the row the batch read.
+func TestSnapshots_AnEventDuringTheBatchReadWins(t *testing.T) {
+	ctx := context.Background()
+	cases := map[string]struct {
+		event func(s *snapshot.Snapshots)
+		check func(t *testing.T, s *snapshot.Snapshots, snaps []snapshot.Snapshot, err error)
+	}{
+		"a newer chat event": {
+			event: func(s *snapshot.Snapshots) {
+				s.ApplyChat(ctx, domain.Chat{ID: "x", Title: "new", ParentID: "f-old"}, 5, "title_set", false)
+			},
+			check: func(t *testing.T, _ *snapshot.Snapshots, snaps []snapshot.Snapshot, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, "old", snaps[0].Chat.Title)
+				assert.Equal(t, "new", snaps[1].Chat.Title)
+			},
+		},
+		"a delete": {
+			event: func(s *snapshot.Snapshots) { s.ApplyChat(ctx, domain.Chat{ID: "x"}, 5, "deleted", true) },
+			check: func(t *testing.T, s *snapshot.Snapshots, _ []snapshot.Snapshot, err error) {
+				t.Helper()
+				require.ErrorIs(t, err, snapshot.ErrDeleted)
+				assert.Equal(t, 1, s.Len(), "the batch holds no entry for the deleted chat")
+				_, err = s.Get(ctx, "x")
+				require.ErrorIs(t, err, snapshot.ErrDeleted, "the batch does not bring the chat back")
+			},
+		},
+		"a move": {
+			event: func(s *snapshot.Snapshots) { s.ApplyPlacement(ctx, "x", "f-new", 3, "placement_set") },
+			check: func(t *testing.T, _ *snapshot.Snapshots, snaps []snapshot.Snapshot, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Equal(t, "f-new", snaps[1].Chat.ParentID)
+				assert.Equal(t, 3, snaps[1].Chat.Order)
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			s, gr := newGated(t, "")
+			type result struct {
+				snaps []snapshot.Snapshot
+				err   error
+			}
+			read := make(chan result, 1)
+			go func() {
+				snaps, err := s.GetMany(ctx, []string{"a", "x"})
+				read <- result{snaps, err}
+			}()
+			<-gr.entered
+			applied := make(chan struct{})
+			go func() { tc.event(s); close(applied) }()
+			require.Eventually(t, func() bool {
+				select {
+				case <-applied:
+					return true
+				default:
+					return false
+				}
+			}, 5*time.Second, time.Millisecond, "an event is applied while the batch read runs")
+
+			close(gr.release)
+			got := <-read
+			tc.check(t, s, got.snaps, got.err)
+		})
+	}
+}
+
+// A chat the batch cannot read fails the whole read, as the one-chat read did.
+func TestSnapshots_AChatTheBatchCannotReadFailsTheRead(t *testing.T) {
+	s, gr := newGated(t, "x")
+	close(gr.release)
+	go func() { <-gr.entered }()
+
+	_, err := s.GetMany(context.Background(), []string{"a", "x"})
+
+	require.Error(t, err)
+	got, err := s.GetMany(context.Background(), []string{"a"})
+	require.NoError(t, err, "the readable chat still answers on its own")
+	assert.Equal(t, "old", got[0].Chat.Title)
+}

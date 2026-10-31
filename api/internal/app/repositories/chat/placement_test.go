@@ -85,3 +85,20 @@ func TestAgentChat_GetChats_PlacesEveryChatInOneRead(t *testing.T) {
 	assert.Equal(t, 1, counted.all)
 	assert.Zero(t, counted.one)
 }
+
+// A chat GetChats cannot read fails the whole read rather than being skipped as
+// a chat that is gone.
+func TestAgentChat_GetChats_AReadFailureFailsTheRead(t *testing.T) {
+	ctx, repo, db, _ := newRepoWithDeps(t)
+	createChat(t, ctx, repo, "c1", "ws", time.Unix(1, 0).UTC())
+	chat.WaitQuiescentForTest(repo)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	got, err := repo.GetChats(ctx, []string{"c1"})
+
+	require.Error(t, err)
+	require.NotErrorIs(t, err, chat.ErrNotFound)
+	assert.Nil(t, got)
+}
