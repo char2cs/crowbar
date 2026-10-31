@@ -127,4 +127,49 @@ describe('ToolRunRow with an ask on a member', () => {
     expect(screen.getByTestId('agent-tool-ask-note')).toHaveTextContent('Denied')
     expect(screen.queryByTestId('agent-tool-run')).toBeNull()
   })
+
+  it('keeps an allowed call’s note in view once it ran', () => {
+    const l = ledger()
+    for (const row of fetches(l)) push(row)
+    push(l.row('ask_resolved', { askId: 'q1', resolution: 'answered', optionIds: ['ok'] }))
+    for (const toolId of ['f1', 'f2']) {
+      push(
+        l.row(
+          'tool_call',
+          { toolId, phase: 'post', name: 'WebFetch', kind: 'fetch', target: `https://x/${toolId}` },
+          { turnId: 'turn-1' },
+        ),
+      )
+    }
+    draw()
+    expect(screen.getByTestId('agent-tool-ask-note')).toHaveTextContent('Allowed · Allow')
+    expect(screen.queryByTestId('agent-tool-run')).toBeNull()
+  })
+
+  it('shows a failed call of a run as its own row', () => {
+    const l = ledger()
+    push(l.start('turn-1'))
+    for (const [toolId, phase] of [
+      ['f1', 'post'],
+      ['f2', 'fail'],
+    ] as const) {
+      push(
+        l.row(
+          'tool_call',
+          {
+            toolId,
+            phase,
+            name: 'WebFetch',
+            kind: 'fetch',
+            target: `https://x/${toolId}`,
+            error: 'HTTP 500',
+          },
+          { turnId: 'turn-1' },
+        ),
+      )
+    }
+    draw()
+    expect(statusOf('f2')).toBe('error')
+    expect(screen.queryByTestId('agent-tool-run')).toBeNull()
+  })
 })
