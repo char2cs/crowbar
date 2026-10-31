@@ -41,7 +41,8 @@ export interface TranscriptAnchor {
 /**
  * Keeps a transcript on its newest line while the reader is there, and out of
  * their way once they scroll up. Growth eases (follow-scroll); anything that is
- * not content arriving lands in one write.
+ * not content arriving lands in one write. A scroll of under a row (STICK_SLACK)
+ * while a reply streams is pulled back on purpose: a burst outruns a frame.
  */
 export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): TranscriptAnchor {
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -88,8 +89,11 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       }
       // The ceiling, not scrollHeight: an unreachable target overshoots on the first frame.
       const target = el.scrollHeight - el.clientHeight
-      if (target - el.scrollTop <= 1) easeFrom.current = null
-      const from = easeFrom.current ?? el.scrollTop
+      const gap = target - el.scrollTop
+      if (gap <= 1) easeFrom.current = null
+      // From the lower of where the catch-up began and where the view is now: a
+      // view moved up since (a clamp, a virtualizer write) widens the gap.
+      const from = Math.min(easeFrom.current ?? el.scrollTop, el.scrollTop)
       // A gap over a viewport is a reposition, and easing it sweeps the whole transcript.
       const reposition =
         land ||
@@ -99,7 +103,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       if (reposition) {
         if (el.scrollTop !== target) write(el, target)
         easeFrom.current = null
-      } else {
+      } else if (gap > 1) {
         easeFrom.current = from
         follow.current?.setTarget(target)
       }
@@ -157,7 +161,11 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     shown.current = visible
   }, [options.visible, resync])
 
-  const notifyReflow = useCallback(() => resync(), [resync])
+  // A new viewport is a reposition, not content arriving.
+  const notifyReflow = useCallback(() => {
+    landNext.current = true
+    resync()
+  }, [resync])
 
   const noteScrollWrite = useCallback(() => {
     written.current = scrollRef.current?.scrollTop ?? null

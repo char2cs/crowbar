@@ -69,6 +69,9 @@ type Key = VirtualItem['key']
 /** `.stream`'s 18px gap, baked into each virtual row so the offsets count it. */
 const ROW_GAP = 18
 
+/** `.dock-spacer`'s height past the dock's own (transcript.css). */
+const DOCK_ROOM = 32
+
 /** Whole pixels: `resizeItem` treats any float drift as a real resize. */
 function measureRowHeight(el: Element): number {
   return Math.round(layoutHeight(el))
@@ -319,10 +322,19 @@ export function AgentTranscript(props: AgentTranscriptProps) {
 
   const pinIndex = pinnedId ? rows.indexOf(pinnedId) : -1
   const pinStart = pinIndex < 0 ? undefined : rowVirtualizer.measurementsCache[pinIndex]?.start
+  // The pin's turn is over once its prompt left `pending` and nothing runs. Its
+  // room slides (transcript.css) down to the rows' own height, which the floor
+  // must reach exactly, else the slide spends itself above or below it.
+  const pinnedState = useChatStore((s) =>
+    pinnedId ? s.feeds[chatId]?.facts.prompts[pinnedId.slice(2)]?.state : undefined,
+  )
+  const released = !props.working && pinnedState !== undefined && pinnedState !== 'pending'
   const floor =
     pinStart === undefined
       ? 0
-      : pinFloor(pinStart, rowVirtualizer.scrollRect?.height ?? 0, props.headerClearancePx ?? 0)
+      : released
+        ? rowVirtualizer.getTotalSize() + ROW_GAP + (props.dockHeight ?? 0) + DOCK_ROOM
+        : pinFloor(pinStart, rowVirtualizer.scrollRect?.height ?? 0, props.headerClearancePx ?? 0)
 
   const empty = rows.length === 0
   useEffect(() => {
@@ -339,7 +351,11 @@ export function AgentTranscript(props: AgentTranscriptProps) {
       onScroll={anchor.onScroll}
     >
       <div className="scroll-spacer" aria-hidden="true" />
-      <div className="center stream" style={floor > 0 ? { minHeight: floor } : undefined}>
+      <div
+        className="center stream"
+        style={floor > 0 ? { minHeight: floor } : undefined}
+        data-pin={released ? 'released' : undefined}
+      >
         {props.status === 'connecting' && empty && (
           <div className="flex flex-1 items-center justify-center gap-2 text-muted-foreground text-sm">
             <FlickerSpinner className="size-4" /> Loading messages…

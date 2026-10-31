@@ -200,6 +200,60 @@ describe('useTranscriptAnchor', () => {
     expect(scroller.scrollTop).toBe(1050)
   })
 
+  it('a commit with nothing to follow leaves no catch-up behind to ease from', () => {
+    const { scroller, commit, grow } = mount()
+    commit()
+    commit({ measuring: true })
+    grow(1150, { measuring: false })
+    expect(scroller.scrollTop).toBe(750)
+  })
+
+  it('judges the jump from where the view is now when it moved up mid-catch-up', () => {
+    const { scroller, grow } = mount()
+    grow(1300)
+    frames(16)
+    scroller.scrollTop = 100
+    act(() => anchor.noteScrollWrite())
+    fireEvent.scroll(scroller)
+    grow(1110)
+    expect(scroller.scrollTop).toBe(710)
+  })
+
+  it('lands in one write when the viewport resizes under a stuck reader', () => {
+    const { scroller } = mount()
+    clientHeight = 250
+    act(() => anchor.notifyReflow())
+    expect(scroller.scrollTop).toBe(750)
+  })
+
+  it('reads a write the browser snapped to a device pixel as its own', () => {
+    const { scroller, grow } = mount()
+    grow(1300)
+    frames(16)
+    scroller.scrollTop += 0.5
+    fireEvent.scroll(scroller)
+    grow(1350)
+    frames(1500)
+    expect(scroller.scrollTop).toBe(950)
+  })
+
+  it('reads a write the scroller clamped as its own, not as the reader', () => {
+    const { scroller, grow } = mount()
+    readerScrollsTo(scroller, 500)
+    boxed = false
+    act(() => anchor.notifyReflow())
+
+    // The pane grew while away: the held distance asks past the new ceiling.
+    clientHeight = 600
+    boxed = true
+    act(() => anchor.notifyReflow())
+    expect(scroller.scrollTop).toBe(400)
+    fireEvent.scroll(scroller)
+    grow(1300)
+    frames(1500)
+    expect(scroller.scrollTop).toBe(400)
+  })
+
   it('lands every change while the history is still replaying', () => {
     const { scroller, grow } = mount({ loadingHistory: true })
     grow(1100)

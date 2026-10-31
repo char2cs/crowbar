@@ -310,6 +310,71 @@ describe('AgentTranscript', () => {
     expect(list.scrollTop).toBe(500)
   })
 
+  it('keeps the pin while its turn runs and releases it to the rows when it ends', () => {
+    const l = ledger()
+    seedFeed('chat-1', [l.prompt('r1', 'one')])
+    const { container, redraw } = draw({ dockHeight: 92 })
+    const stream = container.querySelector<HTMLElement>('.stream')!
+    act(() => chatStore.setState({ outbox: { 'chat-1': [outboxItem('r2')] } }))
+    act(() => {
+      seedFeed('chat-1', [l.prompt('r2', 'two'), l.start('turn-2', 'r2')])
+      chatStore.setState({ outbox: { 'chat-1': [] } })
+    })
+    redraw({ dockHeight: 92, working: true })
+    expect(stream.style.minHeight).toBe(`${800 + 800}px`)
+    expect(stream.dataset.pin).toBeUndefined()
+
+    act(() => seedFeed('chat-1', [l.end('turn-2')]))
+    redraw({ dockHeight: 92, working: false })
+    // Two rows of 800, the gap above the dock's room, and that room (dock + 32).
+    expect(stream.style.minHeight).toBe(`${1600 + 18 + 92 + 32}px`)
+    expect(stream.dataset.pin).toBe('released')
+  })
+
+  it("lands the opening's correction of estimated row heights", () => {
+    // Rows measure 150 (estimates are 96); the list is its rows plus 200 of chrome.
+    HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
+      const r = this.dataset.index ? { ...rect, height: 150, bottom: 150 } : rect
+      return { ...r, toJSON: () => r } as DOMRect
+    }
+    const isList = (el: HTMLElement) => el.dataset.testid === 'agent-message-list'
+    const rowsHeight = (el: HTMLElement) =>
+      parseFloat(el.querySelector<HTMLElement>('.virtual-rows')?.style.height ?? '0')
+    const tops = new WeakMap<HTMLElement, number>()
+    const metrics: PropertyDescriptorMap = {
+      scrollHeight: {
+        configurable: true,
+        get(this: HTMLElement) {
+          return isList(this) ? rowsHeight(this) + 200 : 0
+        },
+      },
+      clientHeight: {
+        configurable: true,
+        get(this: HTMLElement) {
+          return isList(this) ? 200 : 0
+        },
+      },
+      scrollTop: {
+        configurable: true,
+        get(this: HTMLElement) {
+          return tops.get(this) ?? 0
+        },
+        set(this: HTMLElement, v: number) {
+          tops.set(this, Math.max(0, Math.min(v, this.scrollHeight - this.clientHeight)))
+        },
+      },
+    }
+    Object.defineProperties(HTMLElement.prototype, metrics)
+    try {
+      const l = ledger()
+      seedFeed('chat-1', [l.prompt('r1', 'one'), l.prompt('r2', 'two')])
+      draw()
+      expect(screen.getByTestId('agent-message-list').scrollTop).toBe(2 * 150)
+    } finally {
+      for (const key of Object.keys(metrics)) Reflect.deleteProperty(HTMLElement.prototype, key)
+    }
+  })
+
   it('says it is still trying when the feed cannot be reached', () => {
     openFeed('chat-1')
     draw({ status: 'error' })

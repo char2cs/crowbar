@@ -100,8 +100,15 @@ export function createFollowScroll(
     // the transcript decided it was no longer stuck and quietly stopped
     // following the reply for the rest of the turn.
     lastWritten = el.scrollTop
+    if (Math.abs(lastWritten - from) < MIN_STEP_PX) {
+      // An engine that keeps whole pixels drops a sub-pixel step, so the last
+      // few pixels are written at once; at the edge this write is a no-op.
+      el.scrollTop = target
+      lastWritten = el.scrollTop
+      onTick?.(lastWritten)
+      return
+    }
     onTick?.(lastWritten)
-    if (Math.abs(lastWritten - from) < MIN_STEP_PX) return
     raf = requestAnimationFrame(step)
   }
 

@@ -46,6 +46,11 @@
      row's own height — EdgeDissolve's own mask layers still carry heavy
      blur (16px-64px) well past it, so text left resting in that gap renders
      visibly out of focus rather than hidden. */
+  /* No browser scroll anchoring anywhere in the scroller: anchored on the
+     working line or the dock's room, it snaps the view down as rows grow and
+     defeats the eased follow. The virtualizer holds rows above a reader still,
+     use-transcript-anchor.ts follows the bottom; nothing else moves scrollTop. */
+  overflow-anchor: none;
   padding-top: calc(20px + var(--agent-transcript-header-clearance, 0px));
   scroll-padding-top: calc(20px + var(--agent-transcript-header-clearance, 0px));
   /* Fades in on its own first paint — every mount of this element IS a chat
@@ -180,6 +185,12 @@
   flex-shrink: 0;
   gap: 18px;
 }
+/* A released pin's room slides away: removing it at once drops the reply by
+   the whole blank height in one frame. Only the release animates, so a new
+   pin's floor is there in the frame the follow targets it. */
+.agent-chat .stream[data-pin='released'] {
+  transition: min-height 320ms cubic-bezier(0, 0, 0.2, 1);
+}
 
 /* THE CONVERSATION RUNS UNDER THE COMPOSER — this is the reservation for
    that, a real LAST CHILD of `.stream` (agent-transcript.tsx) rather than
@@ -208,17 +219,12 @@
    flex container under pressure could compress the whole transcript instead of
    letting it scroll.
 
-   `overflow-anchor: none` for the same reason git-history-list.tsx sets it: the
-   browser's own scroll anchoring picks a node, then fights the virtualizer as
-   rows re-measure and shift under it. The virtualizer keeps a reader's rows
-   still when rows above them resize, and use-transcript-anchor.ts follows the
-   bottom; nothing else may move scrollTop. The 18px between rows is NOT here — it rides on each row's own
+   The 18px between rows is NOT here — it rides on each row's own
    padding-bottom, so measureElement counts it (see agent-transcript.tsx). */
 .agent-chat .stream .virtual-rows {
   position: relative;
   width: 100%;
   flex-shrink: 0;
-  overflow-anchor: none;
 }
 
 .agent-chat .row {
@@ -841,7 +847,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agent-chat .scroll {
+  .agent-chat .scroll,
+  .agent-chat .stream[data-pin='released'] {
     transition: none;
   }
   .agent-chat .agent-prose .chat-fresh-text {
