@@ -1,10 +1,11 @@
 import { mapChoice } from '@/features/agent/api/agent-chat-activity'
-import type { LedgerRow, PlanItem, RowBodies, RowKind } from '@/features/agent/api/chat-rows'
-import { fuller, textOf } from '@/features/agent/stores/lib/fold-live'
+import type { FeedDelta, LedgerRow, PlanItem, RowKind } from '@/features/agent/api/chat-rows'
+import { applyDelta, fuller, textOf } from '@/features/agent/stores/lib/fold-live'
 import {
   applyPromptSettled,
   applyUserMessage,
   retractTurn,
+  reviveTurn,
   setPrompt,
 } from '@/features/agent/stores/lib/fold-prompts'
 import {
@@ -12,12 +13,12 @@ import {
   markerItemId,
   textItemId,
   toolItemId,
+  toolStatus,
   type AskItem,
   type ChatFeed,
   type MarkerName,
   type TextItem,
   type ToolItem,
-  type ToolStatus,
   type TranscriptItem,
   type TurnFacts,
 } from '@/features/agent/stores/lib/transcript-items'
@@ -133,7 +134,10 @@ export class FeedFold {
     if (tail.includes(id)) this.liveTail = tail.filter((other) => other !== id)
     const item = this.item(id)
     const turn = item?.turnId ?? ''
-    if (this.facts.traceless[turn]) return
+    if (this.facts.traceless[turn]) {
+      if (item?.kind === 'marker') return
+      reviveTurn(this, turn)
+    }
     this.order ??= [...this.base.order]
     // What a provider flushes after its turn ended still reads above that end.
     let at = this.order.length
@@ -147,11 +151,14 @@ export class FeedFold {
     return turn !== '' && item?.kind === 'marker' && item.turnId === turn
   }
 
-  /** Takes the streamed text of `turn` out of the transcript. */
-  dropLive(turn: string) {
-    const tail = this.liveTail ?? this.base.liveTail
-    const kept = tail.filter((id) => this.item(id)?.turnId !== turn)
-    if (kept.length !== tail.length) this.liveTail = kept
+  /** Moves `turn`'s streamed text into the order, above the turn's end. */
+  placeLive(turn: string) {
+    for (const id of this.liveTail ?? this.base.liveTail)
+      if (this.item(id)?.turnId === turn) this.place(id, '')
+  }
+
+  placed(id: string) {
+    return (this.order ?? this.base.order).includes(id)
   }
 
   unplace(id: string) {
@@ -253,6 +260,7 @@ const applyTurnEnded: Apply<'turn_ended'> = (fold, row) => {
   retractTurn(fold, row)
   closeRunning(fold, row.turnId)
   if (row.body.effort) fold.record('efforts')[row.turnId] = row.body.effort
+  fold.placeLive(row.turnId)
   endTurn(fold, row.turnId)
   if (row.body.status === 'interrupted' && ending)
     marker(fold, row, 'turn_interrupted', undefined, row.body.reason)
@@ -326,16 +334,7 @@ const applyAssistantText: Apply<'assistant_text'> = (fold, row) => {
     if (item.settled) fold.put({ ...target, text: fuller(target.text, item.text) })
     return
   }
-  if (!known || known.seq === 0) fold.place(id, scope)
-}
-
-function toolStatus(body: RowBodies['tool_call'], prev: ToolStatus | undefined): ToolStatus {
-  if (body.phase === 'post') return body.status === 'error' ? 'error' : 'ok'
-  if (body.phase === 'fail') {
-    if (body.interrupted) return 'interrupted'
-    return body.status === 'declined' ? 'declined' : 'error'
-  }
-  return prev ?? 'running'
+  if (!known || (known.seq === 0 && !fold.placed(id))) fold.place(id, scope)
 }
 
 const applyToolCall: Apply<'tool_call'> = (fold, row) => {
@@ -487,5 +486,14 @@ export function applyRow(feed: ChatFeed, row: LedgerRow): ChatFeed {
   if (row.seq <= feed.seq) return feed
   const fold = new FeedFold(feed)
   fold.apply(row)
+  return fold.finish()
+}
+
+/** Folds one delta; one for a turn a retract hid brings that turn back. */
+export function applyLive(feed: ChatFeed, delta: FeedDelta): ChatFeed {
+  const next = applyDelta(feed, delta)
+  if (!next.facts.traceless[delta.turnId] || !next.liveTail.length) return next
+  const fold = new FeedFold(next)
+  fold.placeLive(delta.turnId)
   return fold.finish()
 }

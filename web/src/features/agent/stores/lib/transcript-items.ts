@@ -29,6 +29,16 @@ export interface TextItem extends ItemBase {
 
 export type ToolStatus = 'running' | 'ok' | 'error' | 'declined' | 'interrupted' | 'abandoned'
 
+/** A tool's status once `body` lands on it. */
+export function toolStatus(body: ToolCallBody, prev: ToolStatus | undefined): ToolStatus {
+  if (body.phase === 'post') return body.status === 'error' ? 'error' : 'ok'
+  if (body.phase === 'fail') {
+    if (body.interrupted) return 'interrupted'
+    return body.status === 'declined' ? 'declined' : 'error'
+  }
+  return prev ?? 'running'
+}
+
 export interface ToolItem extends ItemBase {
   kind: 'tool'
   toolId: string
@@ -85,8 +95,8 @@ export interface TurnFacts {
   sessionLost: { provider: string; reason: string; seq: number } | null
   /** Turn ids that produced text or a tool. */
   output: Record<string, true>
-  /** Turn ids a retract took back before they said anything: nothing of them shows. */
-  traceless: Record<string, true>
+  /** Turns a retract took back before they said anything, hidden until output follows. */
+  traceless: Record<string, { requestId: string; marker: string }>
   /** turnId → the effort its turn_ended reported. */
   efforts: Record<string, string>
   /** turnId → the provider its turn_started named. */

@@ -1,8 +1,8 @@
 import { createStore, useStore } from 'zustand'
 import type { AgentChat, AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 import type { FeedDelta, FeedFrame } from '@/features/agent/api/chat-rows'
-import { applyDelta, applyReady } from '@/features/agent/stores/lib/fold-live'
-import { applyRow, emptyFeed, FeedFold } from '@/features/agent/stores/lib/fold-rows'
+import { applyReady } from '@/features/agent/stores/lib/fold-live'
+import { applyLive, applyRow, emptyFeed, FeedFold } from '@/features/agent/stores/lib/fold-rows'
 import {
   applySnapshot,
   reduceChatFrame,
@@ -68,7 +68,7 @@ export function dropFeed(chatId: string) {
 /** Applies coalesced deltas in one store write. */
 export function applyFeedDeltas(chatId: string, deltas: FeedDelta[]) {
   const feed = chatStore.getState().feeds[chatId]
-  if (feed) publish(chatId, deltas.reduce(applyDelta, feed))
+  if (feed) publish(chatId, deltas.reduce(applyLive, feed))
 }
 
 function draftOf(chatId: string, feed: ChatFeed): FeedFold {
@@ -96,7 +96,7 @@ export function applyFeedFrame(chatId: string, frame: FeedFrame): boolean {
     }
     case 'delta':
       if (!drafts.has(chatId) && chatStore.getState().feeds[chatId]) {
-        publish(chatId, applyDelta(feed, frame.delta))
+        publish(chatId, applyLive(feed, frame.delta))
       }
       return true
     case 'resync': {

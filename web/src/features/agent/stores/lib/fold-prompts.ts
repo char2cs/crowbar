@@ -1,6 +1,10 @@
 import type { LedgerRow } from '@/features/agent/api/chat-rows'
 import type { FeedFold } from '@/features/agent/stores/lib/fold-rows'
-import { userItemId, type PromptFact } from '@/features/agent/stores/lib/transcript-items'
+import {
+  markerItemId,
+  userItemId,
+  type PromptFact,
+} from '@/features/agent/stores/lib/transcript-items'
 
 export function setPrompt(fold: FeedFold, requestId: string, fact: PromptFact) {
   fold.record('prompts')[requestId] = fact
@@ -44,10 +48,21 @@ export function applyPromptSettled(fold: FeedFold, row: LedgerRow<'prompt_settle
 /** A turn its prompt's retract ended before it said anything leaves no trace. */
 export function retractTurn(fold: FeedFold, row: LedgerRow<'turn_ended'>) {
   const requestId = fold.facts.running?.turnId === row.turnId && fold.facts.running?.requestId
-  if (row.body.reason !== 'retracted' || !requestId || !row.turnId) return
+  const turn = row.turnId ?? ''
+  if (row.body.reason !== 'retracted' || !requestId || !turn) return
   setPrompt(fold, requestId, { state: 'retracted' })
-  if (fold.facts.output[row.turnId]) return
-  fold.record('traceless')[row.turnId] = true
+  if (fold.facts.output[turn]) return
+  fold.record('traceless')[turn] = { requestId, marker: markerItemId(row.seq) }
   fold.unplace(userItemId(requestId, row.seq))
-  fold.dropLive(row.turnId)
+}
+
+/** Output after a retract: the provider ran the prompt, so its row and end show
+ *  above that output, even when the composer already got the text back. */
+export function reviveTurn(fold: FeedFold, turn: string) {
+  const lost = fold.facts.traceless[turn]
+  if (!lost) return
+  delete fold.record('traceless')[turn]
+  setPrompt(fold, lost.requestId, { state: 'delivered', turnId: turn })
+  fold.place(userItemId(lost.requestId, 0), '')
+  if (fold.item(lost.marker)) fold.place(lost.marker, '')
 }

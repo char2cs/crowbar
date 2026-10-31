@@ -39,7 +39,7 @@ export function textOf(item: Pick<TextItem, 'chunks' | 'finalIndex' | 'complete'
 }
 
 function liveItem(feed: ChatFeed, delta: FeedDelta): ChatFeed {
-  if (delta.stream !== 'answer' || delta.scope || feed.facts.traceless[delta.turnId]) return feed
+  if (delta.stream !== 'answer' || delta.scope) return feed
   const id = textItemId(delta.turnId, delta.id)
   if (feed.items[id]) return feed
   const item: TextItem = {
