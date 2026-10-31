@@ -97,3 +97,39 @@ func TestHub_AResubWhileItsSnapshotIsPendingIsCoalesced(t *testing.T) {
 
 	assert.Len(t, seen, 3+1+1, "one snapshot, its synced, the marker")
 }
+
+// Every scope a client subs, lets go of and subs again before its first
+// snapshot is written stays held: its resources keep running and live frames reach it.
+func TestHub_ASubUnsubSubBeforeTheWriterDrainsKeepsTheScope(t *testing.T) {
+	for _, name := range []string{"projects", "chat:c1", "ws:w1", "git:w1", "files:w1", "lsp:c1", "doc:/tmp/a.txt"} {
+		t.Run(name, func(t *testing.T) {
+			res := newRecorder()
+			sources := map[stream.ScopeKind]appstream.Source{}
+			resources := map[stream.ScopeKind][]appstream.Resource{}
+			for _, k := range []stream.ScopeKind{stream.KindProjects, stream.KindChat, stream.KindWs} {
+				sources[k], resources[k] = rowsOf(2), []appstream.Resource{res}
+			}
+			for _, k := range []stream.ScopeKind{stream.KindGit, stream.KindFiles, stream.KindLsp, stream.KindDoc} {
+				sources[k], resources[k] = appstream.Unordered(rowsOf(2)), []appstream.Resource{res}
+			}
+			hub := newHub(sources, resources)
+			conn := newFakeConn()
+			conn.throttle = true
+			served(t, hub, conn)
+			scope, err := stream.ParseScope(name)
+			require.NoError(t, err)
+
+			heldSub(t, conn, name)
+			conn.send(t, stream.OpUnsub, name)
+			heldSub(t, conn, name)
+			for range 2 * stream.QueueSize {
+				conn.allow <- struct{}{}
+			}
+			hub.Signal(scope, "probe", 1)
+			conn.until(t, func(f stream.Frame) bool { return f.Kind == "probe" && f.Scope == name })
+
+			starts, stops := res.counts(scope.Key)
+			assert.Equal(t, []int{2, 1}, []int{starts, stops}, "the second sub holds the resources again")
+		})
+	}
+}

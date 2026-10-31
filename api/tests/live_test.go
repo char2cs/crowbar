@@ -50,6 +50,24 @@ func TestStream_FilesScopeSignalsAFileChange(t *testing.T) {
 	assert.Equal(t, imported.workspaceID, got["wsId"])
 }
 
+// TestStream_FilesScopeSurvivesASubUnsubSub: a mount's back-to-back sub,
+// unsub and sub of the same scope leave it held and its watcher running.
+func TestStream_FilesScopeSurvivesASubUnsubSub(t *testing.T) {
+	h := newHarness(t)
+	imported := importProject(t, h)
+	scope := "files:" + imported.workspaceID
+
+	c := dialStream(t, h)
+	c.Sub(t, scope, 0)
+	c.Unsub(t, scope)
+	c.Sub(t, scope, 0)
+	stop := rewriteOnTicker(t, workspaceWorktreePath(t, h, imported), "churned.txt", "edit\n")
+	defer stop()
+
+	got := c.Signal(t, scope, "file_change", func(m map[string]any) bool { return m["path"] == "churned.txt" })
+	assert.Equal(t, imported.workspaceID, got["wsId"])
+}
+
 // TestStream_GitScopeIsolatesWorkspaces: a client holding A's git scope never
 // hears B's status, even while B is edited. A sentinel edit in A bounds the
 // watch: reaching it having seen only A's scope proves isolation, with no clock.

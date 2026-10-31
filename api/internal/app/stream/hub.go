@@ -278,8 +278,9 @@ func (h *Hub) admitLocked(c *connection, name string, holding bool) bool {
 		refuse(c, name, problem.New(problem.InvalidArgument, "stream: too many scopes"))
 		return false
 	}
-	// A snapshot still queued plus the live frames after it is already current.
-	return c.beginSnapshot(name)
+	// A held scope's snapshot still queued plus the live frames after it is
+	// already current; one let go of since then must snapshot afresh.
+	return c.beginSnapshot(name, holding)
 }
 
 // snapshotFailedLocked refuses a snapshot of something absent, keeping the

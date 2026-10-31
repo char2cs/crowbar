@@ -98,11 +98,11 @@ func (c *connection) pop() (stream.Frame, bool) {
 	return next.frame, true
 }
 
-// beginSnapshot marks scope's snapshot queued; false if one already is.
-func (c *connection) beginSnapshot(scope string) bool {
+// beginSnapshot marks scope's snapshot queued; false if a held scope's already is.
+func (c *connection) beginSnapshot(scope string, held bool) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.snapshotting[scope] {
+	if held && c.snapshotting[scope] {
 		return false
 	}
 	c.snapshotting[scope] = true
