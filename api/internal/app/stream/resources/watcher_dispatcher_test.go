@@ -44,6 +44,19 @@ func (f *fakeWorkspaceRepo) SyncWorkingTreeState(
 	return domain.Workspace{ID: in.ID}, nil
 }
 
+// recv reads ch, failing the test instead of hanging it when nothing comes.
+func recv[T any](t *testing.T, ch <-chan T) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(hostWaitBound):
+		require.FailNow(t, "nothing arrived")
+		var zero T
+		return zero
+	}
+}
+
 func TestWatcherDispatcher_FansOutAllThree(t *testing.T) {
 	signals := newRecordingSignals()
 	repo := &fakeWorkspaceRepo{syncs: make(chan workspacerepo.SyncInput, 1)}
@@ -51,20 +64,20 @@ func TestWatcherDispatcher_FansOutAllThree(t *testing.T) {
 
 	change := domain.FileChangeEvent{WsID: "w1", Path: "a.go"}
 	d.OnFileChange(context.Background(), change)
-	assert.Equal(t, signal{scope: stream.Scope{Kind: stream.KindFiles, Key: "w1"}, kind: "file_change", data: change}, <-signals.got)
+	assert.Equal(t, signal{scope: stream.Scope{Kind: stream.KindFiles, Key: "w1"}, kind: "file_change", data: change}, recv(t, signals.got))
 
 	d.OnGitStatus(context.Background(), "w1", gitdomain.GitStatus{Branch: "main"})
 	assert.Equal(t, signal{
 		scope: stream.Scope{Kind: stream.KindGit, Key: "w1"}, kind: "git_status",
 		data: gitdomain.GitStatus{Branch: "main", Files: []gitdomain.GitFile{}},
-	}, <-signals.got, "a clean tree says files: [], never null")
+	}, recv(t, signals.got), "a clean tree says files: [], never null")
 
 	d.OnSyncWorkingTreeState(context.Background(), enginefs.SyncInput{
 		WsID:       "w1",
 		Added:      2,
 		HasCommits: true,
 	})
-	gotSync := <-repo.syncs
+	gotSync := recv(t, repo.syncs)
 	assert.Equal(t, "w1", gotSync.ID)
 	assert.Equal(t, 2, gotSync.Added)
 	require.True(t, gotSync.HasCommits)
