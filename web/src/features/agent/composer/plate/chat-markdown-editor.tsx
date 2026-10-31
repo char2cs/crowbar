@@ -59,6 +59,9 @@ export interface ChatMarkdownEditorHandle {
   getMarkdown(): string
   /** Replaces the text, caret at its end, with a fresh undo history. */
   setMarkdown(markdown: string): void
+  /** Adds blocks after the last one, leaving the caret where the person had it. */
+  appendMarkdown(markdown: string): void
+  focus(): void
   clear(): void
 }
 
@@ -106,8 +109,9 @@ export interface ChatMarkdownEditorProps {
   chatId?: string
   placeholder: string
   ariaLabel: string
-  /** Fires after every content change; never serializes. */
-  onShapeChange: (shape: ComposerShape) => void
+  /** Fires after every content change; never serializes. `edited` is false for
+   *  text loaded through `setMarkdown`/`clear`, true for anything else. */
+  onShapeChange: (shape: ComposerShape, edited: boolean) => void
   /**
    * Enter, Tab, arrows, Escape — the chat's own key handling.
    *
@@ -295,20 +299,32 @@ export function ChatMarkdownEditor({
   shapeHandlerRef.current = onShapeChange
 
   // Reported synchronously from the handle too: Plate's own onChange fires later.
-  const report = useCallback(() => {
-    shapeHandlerRef.current(shapeOf(editor.children as Value))
-  }, [editor])
+  // A load's own later onChange sees the very children it left: not an edit.
+  const loadedRef = useRef<Value | null>(null)
+  const report = useCallback(
+    (edited = true) => shapeHandlerRef.current(shapeOf(editor.children as Value), edited),
+    [editor],
+  )
   const handleChange = useCallback(() => {
     // A click or an arrow key cannot change the text. An empty operation list
     // cannot be told apart from an edit, so it reports.
     const ops = editor.operations
     if (ops.length > 0 && ops.every((op) => op.type === 'set_selection')) return
-    report()
+    report(editor.children !== loadedRef.current)
   }, [editor, report])
   const focusAndReport = useCallback(() => {
     editor.tf.focus()
     report()
   }, [editor, report])
+  const load = useCallback(
+    (markdown: string) => {
+      loadMarkdown(editor, markdown)
+      loadedRef.current = editor.children as Value
+      editor.tf.focus()
+      report(false)
+    },
+    [editor, report],
+  )
 
   useImperativeHandle(
     ref,
@@ -330,16 +346,17 @@ export function ChatMarkdownEditor({
         report()
       },
       getMarkdown: () => chatValueToMarkdown(editor.children as Value),
-      setMarkdown: (markdown: string) => {
-        loadMarkdown(editor, markdown)
-        focusAndReport()
+      setMarkdown: load,
+      appendMarkdown: (markdown: string) => {
+        if (shapeOf(editor.children as Value).empty) return load(markdown)
+        const at = [editor.children.length]
+        editor.tf.insertNodes(chatMarkdownToValue(markdown), { at, select: false })
+        report()
       },
-      clear: () => {
-        loadMarkdown(editor, '')
-        focusAndReport()
-      },
+      focus: () => editor.tf.focus(),
+      clear: () => load(''),
     }),
-    [editor, focusAndReport, report],
+    [editor, focusAndReport, load, report],
   )
 
   // The editable's measured height, observed because only the browser knows where

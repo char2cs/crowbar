@@ -66,7 +66,7 @@ interface AgentComposerProps {
   /** The box itself, for the caller to read on send and load text into. */
   editorRef: RefObject<ChatMarkdownEditorHandle | null>
   slashOpen: boolean
-  onShapeChange: (shape: ComposerShape) => void
+  onShapeChange: (shape: ComposerShape, edited: boolean) => void
   onKeyDown: (
     event: KeyboardEvent<HTMLDivElement>,
     readMarkdown: () => string,
@@ -120,9 +120,9 @@ export function AgentComposer(props: AgentComposerProps) {
   const [empty, setEmpty] = useState(true)
   const { onShapeChange } = props
   const handleShape = useCallback(
-    (shape: ComposerShape) => {
+    (shape: ComposerShape, edited: boolean) => {
       setEmpty(shape.empty)
-      onShapeChange(shape)
+      onShapeChange(shape, edited)
     },
     [onShapeChange],
   )
@@ -212,6 +212,16 @@ export function AgentComposer(props: AgentComposerProps) {
   const document = props.placement === 'document'
   // The document always takes the first prompt; its banner says why it waits.
   const input = document || acceptsTyping(state)
+
+  // A card that held the bar takes focus with it when it goes; hand it back to the
+  // box, but never take it from wherever the person has since moved it.
+  const wasInput = useRef(input)
+  useEffect(() => {
+    const returned = input && !wasInput.current
+    wasInput.current = input
+    const active = window.document.activeElement
+    if (returned && (!active || active === window.document.body)) editorRef.current?.focus()
+  }, [input, editorRef])
 
   // Compaction does not take the box away: it queues what is typed, as a busy
   // turn does, so only the placeholder differs.

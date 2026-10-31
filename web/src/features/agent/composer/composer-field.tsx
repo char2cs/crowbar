@@ -14,7 +14,7 @@ interface ComposerFieldProps {
   placeholder: string
   expanded: boolean
   controls?: string
-  onShapeChange: (shape: ComposerShape) => void
+  onShapeChange: (shape: ComposerShape, edited: boolean) => void
   onKeyDown: (
     event: KeyboardEvent<HTMLDivElement>,
     readMarkdown: () => string,

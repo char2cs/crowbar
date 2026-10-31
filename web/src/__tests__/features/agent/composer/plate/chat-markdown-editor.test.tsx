@@ -130,7 +130,7 @@ describe('ChatMarkdownEditor imperative handle', () => {
     act(() => ref.current?.insertAttachmentMarkdown('```text-attachment:abc123\nhello world\n```'))
 
     expect(ref.current?.getMarkdown()).toContain('text-attachment:abc123')
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null })
+    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null }, true)
   })
 
   it('settles a pending image to its real ref, an image alone being something to send', async () => {
@@ -138,7 +138,7 @@ describe('ChatMarkdownEditor imperative handle', () => {
     const { ref } = await renderEditor(onShapeChange)
     act(() => ref.current?.insertPendingImage('blob:local-preview', 'photo.png'))
     expect(ref.current?.getMarkdown()).toContain('blob:local-preview')
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null })
+    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null }, true)
 
     act(() =>
       ref.current?.settlePendingImage(
@@ -164,7 +164,7 @@ describe('ChatMarkdownEditor imperative handle', () => {
     expect(editable()).toBe(before)
     expect(editable()).toHaveTextContent('never mindsecond thought')
     expect(ref.current?.getMarkdown()).toBe('**never mind**\n\nsecond thought')
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null })
+    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null }, false)
   })
 
   it('empties the box through clear, with nothing left to undo', async () => {
@@ -176,7 +176,7 @@ describe('ChatMarkdownEditor imperative handle', () => {
     act(() => grabbed.editor!.undo())
 
     expect(ref.current?.getMarkdown()).toBe('')
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: true, slashQuery: null })
+    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: true, slashQuery: null }, false)
   })
 })
 
@@ -189,14 +189,14 @@ describe('ChatMarkdownEditor shape and commits', () => {
     const { type } = await renderEditor(onShapeChange)
 
     await type('/')
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: '' })
+    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: '' }, true)
     await type('Rev')
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: 'Rev' })
+    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: 'Rev' }, true)
     await act(async () => {
       const editor = grabbed.editor!
       editor.tf.delete({ at: { anchor: editor.api.start([])!, focus: editor.api.end([])! } })
     })
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: true, slashQuery: null })
+    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: true, slashQuery: null }, true)
     expect(serialize).not.toHaveBeenCalled()
   })
 
@@ -206,7 +206,7 @@ describe('ChatMarkdownEditor shape and commits', () => {
 
     await type('hi')
 
-    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null })
+    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null }, true)
     expect(counter.commits).toBe(1)
   })
 

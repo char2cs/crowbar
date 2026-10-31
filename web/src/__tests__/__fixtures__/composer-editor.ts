@@ -24,17 +24,21 @@ export function TextareaComposerEditor({
   ref,
 }: ChatMarkdownEditorProps) {
   const box = useRef<HTMLTextAreaElement>(null)
-  const load = (text: string) => {
+  const write = (text: string, edited: boolean) => {
     if (box.current) box.current.value = text
-    onShapeChange(shapeOf(text))
+    onShapeChange(shapeOf(text), edited)
   }
-  const append = (markdown: string) => load(`${box.current?.value ?? ''}${markdown}`)
+  const load = (text: string) => write(text, false)
+  const append = (markdown: string) => write(`${box.current?.value ?? ''}${markdown}`, true)
+  const typed = () => box.current?.value.trimEnd() ?? ''
   useImperativeHandle(ref, () => ({
     insertAttachmentMarkdown: append,
     insertPendingImage: (objectUrl: string, alt: string) => append(`![${alt}](${objectUrl})`),
     settlePendingImage: () => {},
     getMarkdown: () => box.current?.value ?? '',
     setMarkdown: load,
+    appendMarkdown: (text: string) => (typed() ? write(`${typed()}\n\n${text}`, true) : load(text)),
+    focus: () => box.current?.focus(),
     clear: () => load(''),
   }))
   return createElement('textarea', {
@@ -43,7 +47,8 @@ export function TextareaComposerEditor({
     'aria-expanded': expanded,
     'aria-controls': controls,
     placeholder,
-    onChange: (event: { target: { value: string } }) => onShapeChange(shapeOf(event.target.value)),
+    onChange: (event: { target: { value: string } }) =>
+      onShapeChange(shapeOf(event.target.value), true),
     onKeyDown: (event: { currentTarget: { value: string } }) =>
       onKeyDown(
         event as never,

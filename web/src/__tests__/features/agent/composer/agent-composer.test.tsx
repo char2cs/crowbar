@@ -227,32 +227,38 @@ describe('AgentComposer', () => {
     expect(markdown()).toContain('![diagram](chats/c1/attachments/x-diagram.png)')
   })
 
-  it('renders the choice card instead of the field when a choice is pending', () => {
-    draw({ asks: [askItem({ turnId: 't1' })] })
+  it('renders every pending choice instead of the field', () => {
+    draw({ asks: [askItem({ id: 'k1' }), askItem({ id: 'k2', seq: 2, toolName: 'Write' })] })
 
-    expect(screen.getByRole('group')).toBeInTheDocument()
+    expect(screen.getAllByTestId('agent-choice-prompt')).toHaveLength(2)
     expect(screen.queryByRole('textbox')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Send prompt' })).toBeNull()
   })
 
-  it('renders every simultaneous pending choice', () => {
-    draw({ asks: [askItem({ id: 'k1' }), askItem({ id: 'k2', seq: 2, toolName: 'Write' })] })
-
-    expect(screen.getAllByTestId('agent-choice-prompt')).toHaveLength(2)
-    expect(screen.getByTestId('agent-choice-stack')).toBeInTheDocument()
-  })
-
-  // The ask hides the one editor rather than replacing it.
-  it('keeps what was typed while an ask holds the bar', async () => {
+  it('keeps what was typed while an ask holds the bar, and gives the box focus back', async () => {
     const { load, markdown, rerenderWith } = draw()
     await load('half a thought')
 
     rerenderWith({ asks: [askItem({ turnId: 't1' })] })
     expect(screen.queryByRole('textbox')).toBeNull()
+    act(() => screen.getAllByRole('button')[0]?.focus())
     rerenderWith({ asks: [] })
 
-    expect(screen.getByRole('textbox', { name: 'Message the agent' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Message the agent' })).toHaveFocus()
     expect(markdown()).toBe('half a thought')
+  })
+
+  it('leaves focus where the person moved it when an ask goes', async () => {
+    const { load, rerenderWith } = draw()
+    await load('half a thought')
+    rerenderWith({ asks: [askItem({ turnId: 't1' })] })
+    const elsewhere = document.body.appendChild(document.createElement('input'))
+    act(() => elsewhere.focus())
+
+    rerenderWith({ asks: [] })
+
+    expect(elsewhere).toHaveFocus()
+    elsewhere.remove()
   })
 
   it('keeps the field mounted while compacting, queuing behind the busy provider', () => {
@@ -294,12 +300,14 @@ describe('AgentComposer drag-and-drop', () => {
     expect(pill()).not.toHaveClass('drop-target')
   })
 
-  it('ignores a drag-over that carries no files', () => {
+  it('ignores a drag and a drop that carry no files', () => {
     const { pill } = draw()
 
     fireEvent.dragOver(pill(), { dataTransfer: { types: ['text/plain'] } })
+    fireEvent.drop(pill(), { dataTransfer: { types: ['text/plain'], files: [] } })
 
     expect(pill()).not.toHaveClass('drop-target')
+    expect(upload).not.toHaveBeenCalled()
   })
 
   // A leave onto the pill's own child is not a leave: the border would flicker.
@@ -405,14 +413,6 @@ describe('AgentComposer drag-and-drop', () => {
 
     await waitFor(() => expect(markdown()).toContain('[b.pdf](chats/c1/attachments/y-b.pdf)'))
     expect(markdown()).not.toContain('![b.pdf]')
-  })
-
-  it('ignores a drop that carries no files', () => {
-    const { pill } = draw()
-
-    fireEvent.drop(pill(), { dataTransfer: { types: ['text/plain'], files: [] } })
-
-    expect(upload).not.toHaveBeenCalled()
   })
 
   // A native OS drop reaches the app only through the Tauri hook's callback.

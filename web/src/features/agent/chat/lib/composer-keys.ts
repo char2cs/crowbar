@@ -17,7 +17,6 @@ interface ComposerKeyTargets {
   history: {
     recallOlder: (current: string) => string | undefined
     recallNewer: () => string | undefined
-    reset: () => void
   }
   /** The composer's own stop button is showing. */
   canStop: boolean
@@ -73,8 +72,6 @@ export function handleComposerKey(
     else targets.send(readMarkdown())
     return
   }
-  // Any other key may edit the text, which abandons a walk through history.
-  if (!arrow) targets.history.reset()
   // History recall only at an edge the caret could not otherwise move past.
   const plain = !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey
   if (slash.open || !plain) return

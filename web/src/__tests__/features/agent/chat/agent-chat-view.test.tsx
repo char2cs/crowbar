@@ -337,9 +337,34 @@ describe('AgentChatView Esc', () => {
 
     await press('Escape')
     await type('new thought')
+    const caret = { path: [0, 0], offset: 4 }
+    act(() => grabbed.editor!.tf.select(caret))
     await act(async () => answer({ state: 'retracted', text: 'take back' }))
 
     expect(markdown()).toBe('new thought\n\ntake back')
+    expect(grabbed.editor!.selection).toEqual({ anchor: caret, focus: caret })
+  })
+
+  // A drop or a menu paste edits the box with no key; the recalled-and-edited
+  // prompt must still come back from the walk it abandoned.
+  it('abandons a history walk on an edit that came with no key', async () => {
+    const l = ledger('c1', 10)
+    seedFeed('c1', [...spokenIn('c1'), l.prompt('r1', 'first'), l.prompt('r2', 'second')])
+    draw('c1')
+    const atEdge = (edge: 'start' | 'end') =>
+      act(() => grabbed.editor!.tf.select(grabbed.editor!.api[edge]([])!))
+
+    await press('ArrowUp')
+    expect(markdown()).toBe('second')
+    await act(async () =>
+      grabbed.editor!.tf.insertText(' plus', { at: grabbed.editor!.api.end([]) }),
+    )
+    atEdge('start')
+    await press('ArrowUp')
+    atEdge('end')
+    await press('ArrowDown')
+
+    expect(markdown()).toBe('second plus')
   })
 
   it('keeps taken-back text as a stash when the composer closed before the answer', async () => {

@@ -40,15 +40,15 @@ export function useComposerDraft({ wsId, chatId, providerId, catalogActive, hist
 
   /** Puts text back after what was typed since; false when there is no box to take it. */
   const putBack = useCallback((text: string) => {
-    const editor = editorRef.current
-    if (!editor) return false
-    const typed = editor.getMarkdown().trimEnd()
-    editor.setMarkdown(typed ? `${typed}\n\n${text}` : text)
+    if (!editorRef.current) return false
+    editorRef.current.appendMarkdown(text)
     return true
   }, [])
 
   // Fires per edit: only what changed sets state, so plain typing renders nothing.
-  const noteShape = (shape: ComposerShape) => {
+  // Any edit, keyed or not (a drop, a paste menu), abandons a walk through history.
+  const noteShape = (shape: ComposerShape, edited: boolean) => {
+    if (edited) history.reset()
     if (error) setError('')
     if (stashPickerOpen) setStashPickerOpen(false)
     slash.noteQuery(shape.slashQuery)
