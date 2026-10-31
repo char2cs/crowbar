@@ -1,9 +1,9 @@
-import { createRef } from 'react'
+import { createRef, Profiler } from 'react'
 import type { KeyboardEvent } from 'react'
-import { cleanup, render } from '@testing-library/react'
+import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
-import { createPlateEditor } from 'platejs/react'
+import { createPlateEditor, PlateController, useEditorRef } from 'platejs/react'
 import type { PlateEditor } from 'platejs/react'
 import type { Value } from 'platejs'
 import {
@@ -20,12 +20,8 @@ import {
   chatValueToMarkdown,
 } from '@/features/agent/composer/plate/chat-composer-serialization'
 
-// Captures the config `ChatMarkdownEditor` hands `createPlatePlugin` for its
-// OWN key-handling plugin, unchanged by this task, so that real (unmodified)
-// handler can be called directly. jsdom cannot deliver a real keydown through
-// Slate's own selection-dependent dispatch — see agent-empty-document.test.tsx
-// and agent-chat-view.test.tsx's own notes on this — so firing `fireEvent.
-// keyDown` at the mounted editable would prove nothing about this handler.
+// Captures the config of the editor's own key plugin so its real handler can be
+// called directly: jsdom cannot drive Slate's selection-dependent keydown.
 const createPlatePluginSpy = vi.hoisted(() => vi.fn())
 
 vi.mock('platejs/react', async (importOriginal) => {
@@ -126,13 +122,8 @@ describe('insertAttachmentMarkdownInto', () => {
     expect(codeBlockNode(editor)?.lang).toBe('text-attachment:def456')
   })
 
-  // TestRegression: two back-to-back inserts previously landed the second
-  // INSIDE the first fence's own code_line (Slate's default `mode: 'lowest'`
-  // matches the nested code_line, not the top-level code_block, at the
-  // selection a fence insert leaves behind) — silently dropping the second
-  // attachment's content. This is exactly the excalidraw modal's fence-then-
-  // image save sequence, and any other two-attachment-in-a-row case (e.g.
-  // two dropped files).
+  // Two inserts in a row once landed the second inside the first fence's
+  // code_line, dropping its content (the excalidraw fence-then-image save).
   it('TestRegression_insertsSecondAttachmentAsASiblingNotInsideTheFirstFence', () => {
     const editor = editorWith('', 'end')
 
@@ -168,15 +159,8 @@ describe('insertAttachmentMarkdownInto', () => {
     )
   })
 
-  // TestRegression: the FIRST fix for the two-fences bug above (a blanket
-  // `mode: 'highest'`) broke this — it walks a caret inside ANY nested
-  // container up to the top-level block before inserting, which splits a
-  // `table` in two malformed siblings (header row separated from body) for
-  // a caret that was simply sitting in a cell, an ordinary single insert
-  // that never touched a fence at all. The fix only special-cases the
-  // code_block ancestor; a table cell falls through to the original
-  // behaviour and must land the new node INSIDE the cell, not split the
-  // table.
+  // A blanket `mode: 'highest'` would split a table when the caret sits in a
+  // cell; only a code_block ancestor is special-cased.
   it('TestRegression_singleInsertWithCaretInATableCellDoesNotSplitTheTable', () => {
     const editor = editorWith('', 'end')
     insertAttachmentMarkdownInto(editor, '| a | b |\n| --- | --- |\n| 1 | 2 |')
@@ -239,14 +223,8 @@ describe('insertAttachmentMarkdownInto', () => {
   })
 })
 
-// REGRESSION, reported live: "photos attachments are not loaded instantly...
-// I'm suspecting that we're waiting for a backend confirmation, let's not
-// wait for them." Confirmed: `uploadAttachmentMarkdown` awaited the network
-// round trip before any markdown — and therefore any preview — ever reached
-// the document at all. `insertPendingImageInto` puts a local
-// `URL.createObjectURL` preview in immediately; `settlePendingImageInto`
-// swaps it for the real ref (or removes it, on failure) once the upload
-// actually settles.
+// Photos preview at once from a local object URL; the real ref replaces it
+// when the upload settles, or the placeholder goes on failure.
 describe('insertPendingImageInto / settlePendingImageInto', () => {
   it('inserts an image node pointing at the local object URL immediately', () => {
     const editor = editorWith('', 'end')
@@ -326,18 +304,9 @@ describe('insertPendingImageInto / settlePendingImageInto', () => {
     ).not.toThrow()
   })
 
-  // REGRESSION, reported by review: `uploadAttachmentMarkdown` picks
-  // `imageMarkdown` vs `fileMarkdown` off the SERVER's own sniffed content
-  // type (attachment-markdown.ts), which can disagree with the browser's
-  // `File.type` guess that put this upload on the optimistic image path in
-  // the first place (a HEIC/AVIF photo, or a truncated/corrupted image, are
-  // both real cases). `fileMarkdown` deserializes to a LINK nested inside a
-  // wrapping paragraph, not a top-level node with its own `.url` — patching
-  // `url` in place on the placeholder left a void `img` node pointing at a
-  // non-image file (a broken image icon), and since nothing ever REMOVED
-  // the node, its `blob:` url — already revoked — kept matching
-  // the outbox's pending-upload check forever, silently blocking Send with no
-  // error and no way to recover short of deleting the attachment by hand.
+  // The server's sniffed type can disagree with the browser's guess (HEIC, a
+  // corrupt image): a non-image result replaces the placeholder, never leaving a
+  // void `img` on a revoked blob url that blocks Send forever.
   it('replaces the placeholder outright when the upload resolves to a non-image attachment', () => {
     const editor = editorWith('', 'end')
     insertPendingImageInto(editor, 'blob:local-preview', 'photo.heic')
@@ -443,11 +412,7 @@ describe('ChatMarkdownEditor imperative handle', () => {
     expect(ref.current?.insertAttachmentMarkdown).toBeTypeOf('function')
   })
 
-  // UNCONTROLLED / REMOUNT-VIA-KEY CONTRACT: the file's own note explains why
-  // a controlled contenteditable is unacceptable here — a remount is how the
-  // PARENT pushes text in from outside, not something an insert should ever
-  // trigger on its own. Proven by the editable DOM node's identity surviving
-  // the call: a remount tears the old node down and mounts a fresh one.
+  // A remount is how the parent pushes text in; an insert must never cause one.
   it('does not remount the editable when inserting via the handle', () => {
     const ref = createRef<ChatMarkdownEditorHandle>()
     const { container } = render(
@@ -471,16 +436,64 @@ describe('ChatMarkdownEditor imperative handle', () => {
   })
 })
 
-// Wave 6, Bug 1's actual fix, exercised directly (the DOM-level end-to-end
-// proof — a real `drop` event dispatched at the real editable node,
-// including the case where nothing here fires at all — lives in
-// agent-composer.test.tsx, which is what caught the live bug in the first
-// place). This only proves the guard's own two branches in isolation: it
-// only ever prevents default (and so only ever tells slate-react's own
-// `isEventHandled` the drop was handled) for a drop that actually carries
-// Files — never for one that doesn't, which must fall through to whatever
-// Slate would otherwise do with it (e.g. a plain text drag-select-and-drop
-// within the box itself, which this guard has no business touching).
+// Every extra commit per keystroke queues behind the next key; enough in a row
+// is React's #185 "Maximum update depth exceeded".
+describe('ChatMarkdownEditor commits', () => {
+  const grabbed: { editor?: PlateEditor } = {}
+  function GrabEditor() {
+    grabbed.editor = useEditorRef()
+    return null
+  }
+  async function renderCounted(onChange: (markdown: string) => void) {
+    const counter = { commits: 0 }
+    const view = (handler: (markdown: string) => void) => (
+      <PlateController>
+        <Profiler id="editor" onRender={() => counter.commits++}>
+          <ChatMarkdownEditor
+            initialValue="hi there"
+            placeholder=""
+            ariaLabel="Message the agent"
+            onChange={handler}
+            onKeyDown={vi.fn()}
+          />
+        </Profiler>
+        <GrabEditor />
+      </PlateController>
+    )
+    const { rerender } = render(view(onChange))
+    await act(async () => {})
+    counter.commits = 0
+    return { counter, rerender: (handler: (markdown: string) => void) => rerender(view(handler)) }
+  }
+
+  it('commits an edit to the text once', async () => {
+    const onChange = vi.fn()
+    const { counter } = await renderCounted(onChange)
+    const editor = grabbed.editor!
+
+    await act(async () => editor.tf.insertText('!', { at: editor.api.end([]) }))
+
+    expect(onChange).toHaveBeenLastCalledWith('hi there!')
+    expect(counter.commits).toBe(1)
+  })
+
+  it('takes a new onChange in one commit, and reports to the newest one', async () => {
+    const first = vi.fn()
+    const second = vi.fn()
+    const { counter, rerender } = await renderCounted(first)
+
+    await act(async () => rerender(second))
+    expect(counter.commits).toBe(1)
+
+    const editor = grabbed.editor!
+    await act(async () => editor.tf.insertText('!', { at: editor.api.end([]) }))
+    expect(second).toHaveBeenLastCalledWith('hi there!')
+    expect(first).not.toHaveBeenCalled()
+  })
+})
+
+// The guard's two branches in isolation; the end-to-end drop at the real
+// editable lives in agent-composer.test.tsx.
 describe('ChatMarkdownEditor drop guard (Wave 6, Bug 1)', () => {
   function renderAndCapture(): DropGuardHandler {
     render(
@@ -640,10 +653,8 @@ describe('ChatMarkdownEditor key handling (unchanged by this task)', () => {
     },
   )
 
-  // A real Slate document always resolves `api.start([])`/`api.end([])` — this
-  // guard has no live trigger, only the defensive shape of "don't select onto
-  // points that don't exist". Exercised with a stand-in editor, the only way
-  // to make either resolve to nothing.
+  // No live trigger: a real document always has edges. A stand-in editor is the
+  // only way to make them resolve to nothing.
   it('still consumes Cmd+A without selecting when the document has no resolvable edges', () => {
     const onKeyDown: OnKeyDownMock = vi.fn()
     const handleKeyDown = renderAndCapture(onKeyDown)
@@ -662,11 +673,8 @@ describe('ChatMarkdownEditor key handling (unchanged by this task)', () => {
   })
 })
 
-// A minimal, controllable stand-in — jsdom has no real `ResizeObserver`, and
-// this feature had NO test coverage at all before this: every previous fix to
-// it (composer.css's `.pill`/`.multi` split) was verified live, by hand, each
-// time it broke. `trigger()` simulates the browser calling back into a real
-// observer's callback on a genuine size change.
+// A controllable stand-in: jsdom has no ResizeObserver. `trigger()` is the
+// browser calling back on a size change.
 class FakeResizeObserver {
   static instances: FakeResizeObserver[] = []
   observed: Element | null = null
@@ -714,12 +722,8 @@ describe('ChatMarkdownEditor height reporting', () => {
     expect(onHeightChange).not.toHaveBeenCalled()
   })
 
-  // LAYOUT-effect-equivalent timing: the whole reason this reports via a ref
-  // callback (fired synchronously during commit, same phase as a layout
-  // effect) rather than a plain `useEffect` is so the very first frame the
-  // box is visible in already has the right height — see the file's own note
-  // on why a recalled multi-line draft used to paint one frame of the wrong
-  // (fully-rounded, single-line) pill radius before this fired.
+  // Reported during commit, so a box that mounts multi-line paints its first
+  // frame at the right height.
   it('reports the height of the box it mounts into', () => {
     const rect = vi
       .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
@@ -781,18 +785,8 @@ describe('ChatMarkdownEditor height reporting', () => {
     expect(onHeightChange).toHaveBeenCalledWith(64)
   })
 
-  // REGRESSION target: the previous implementation queried for
-  // `[data-slate-editor]` ONCE inside a `useLayoutEffect` with a stable
-  // dependency array, so it never re-ran once mounted — if the editable's
-  // own DOM node were ever replaced without this component's effect
-  // re-running (a dev-only Fast Refresh remount is exactly this shape,
-  // reported live more than once as the pill's rounding going stale until a
-  // full reload), the observer silently kept watching a DETACHED node
-  // forever. Reporting via a ref CALLBACK on the editable itself instead
-  // means a fresh observed node is a NEW attach, which React always calls
-  // this back for — there is no "stable dependency" for staleness to hide
-  // behind. Proven here by a real unmount+remount: the OLD observer must be
-  // torn down, and a brand new one attached to the fresh node.
+  // A remount gives the editable a fresh node: the old observer goes, a new one
+  // watches the new node (an effect with stable deps kept watching a detached one).
   it('tears down the old observer and attaches a fresh one across a genuine remount', () => {
     const onHeightChange = vi.fn()
     const { container, unmount } = render(

@@ -410,7 +410,15 @@ export function ChatMarkdownEditor({
       : [...chatComposerPlugins, chatComposerStructurePlugin, keyPlugin, dropGuardPlugin],
     value: initial,
     autoSelect: 'end',
+    // Unused here, and it re-subscribes every edited block to the editor store on
+    // each keystroke: one more render queued behind every key typed.
+    navigationFeedback: false,
   })
+
+  // Plate copies its `onChange` prop into its own store from an effect, so a new
+  // handler per render costs the editor a second commit per keystroke.
+  const changeHandlerRef = useRef(onChange)
+  changeHandlerRef.current = onChange
 
   const handleChange = useCallback(() => {
     // A click or an arrow key cannot change the serialized document, so
@@ -419,19 +427,15 @@ export function ChatMarkdownEditor({
     // real edit would silently drop what was typed.
     const ops = editor.operations
     if (ops.length > 0 && ops.every((op) => op.type === 'set_selection')) return
-    onChange(chatValueToMarkdown(editor.children as Value))
-  }, [editor, onChange])
+    changeHandlerRef.current(chatValueToMarkdown(editor.children as Value))
+  }, [editor])
 
-  // Back to the box, and reported synchronously: every handle method below
-  // mutates the document from OUTSIDE it (a modal, a drop handler, an
-  // upload's own async settle), and the whole point is to keep writing right
-  // after. `Plate`'s own `onChange` prop fires off the editor's async change
-  // notification, which nothing here waits on — a caller reading `onChange`'s
-  // last call right after one of these returns (Task 29/34 close their modal
-  // on it) would see the PREVIOUS markdown otherwise.
+  // Reported synchronously: the handle methods below edit from outside the box,
+  // and a caller reading `onChange` right after one returns must see the edit —
+  // Plate's own `onChange` fires later, off the editor's async change notice.
   const report = useCallback(() => {
-    onChange(chatValueToMarkdown(editor.children as Value))
-  }, [editor, onChange])
+    changeHandlerRef.current(chatValueToMarkdown(editor.children as Value))
+  }, [editor])
   const focusAndReport = useCallback(() => {
     editor.tf.focus()
     report()
@@ -460,29 +464,9 @@ export function ChatMarkdownEditor({
     [editor, focusAndReport, report],
   )
 
-  // The editable's height, for whatever rides its last line. Observed rather
-  // than derived from the text: a wrapped line and a typed newline are the same
-  // thing to a reader, and only the browser knows where the wrap fell.
-  //
-  // A REF CALLBACK on the editable itself, not a `useLayoutEffect` querying
-  // for `[data-slate-editor]` inside a wrapper ref (the previous approach) —
-  // that version bound the observer's lifetime to THIS component's own
-  // effect dependencies (`[onHeightChange]`, stable), so it only ever
-  // reconnected when this component genuinely unmounted and remounted.
-  // Slate/slate-react can tear down and recreate the editable's OWN DOM node
-  // — e.g. when `editor` itself changes identity — without this component
-  // ever unmounting, and the previous version had no way to notice: the
-  // observer kept watching a node that had already been detached, silently,
-  // forever (reported live, repeatedly, as the pill's rounding going stale
-  // until a full page reload — a dev-only Fast-Refresh module swap is the
-  // other way this exact gap shows up). A ref callback has no such blind
-  // spot: React calls it on every attach AND detach of THIS SPECIFIC node,
-  // whatever caused it, so a fresh node always gets a fresh observer.
-  //
-  // Still fires synchronously during commit — the same phase a layout effect
-  // runs in, before paint — so a box that mounts (or grows) already
-  // multi-line still gets the right radius in its very first visible frame,
-  // never one frame of the fully-round single-line pill stretched tall.
+  // The editable's measured height, observed because only the browser knows where
+  // a line wrapped. A ref callback, not an effect: Slate can replace the editable's
+  // node without this component remounting, and the ref sees every attach.
   const heightObserverRef = useRef<ResizeObserver | null>(null)
   const reportHeightFrom = useCallback(
     (node: HTMLDivElement | null) => {
@@ -497,7 +481,7 @@ export function ChatMarkdownEditor({
       }
       report()
       const observer = new ResizeObserver(report)
-      // react-doctor-disable-next-line effect-needs-cleanup -- cleanup exists (l.481: disconnect() at the top of this same callback, which also runs on every detach since React calls a ref callback with node=null then); tracer expects a useEffect return, not a ref-callback's own next invocation.
+      // react-doctor-disable-next-line effect-needs-cleanup -- cleanup exists (disconnect() at the top of this same callback, which also runs on every detach since React calls a ref callback with node=null then); tracer expects a useEffect return, not a ref-callback's own next invocation.
       observer.observe(node)
       heightObserverRef.current = observer
     },
