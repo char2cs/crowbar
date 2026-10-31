@@ -52,7 +52,7 @@ export interface TranscriptAnchor {
   subscribe: (listener: () => void) => () => void
 }
 
-export interface ReaderIntent {
+interface ReaderIntent {
   onWheel: (event: React.WheelEvent) => void
   onKeyDown: (event: React.KeyboardEvent) => void
   onTouchStart: (event: React.TouchEvent) => void
