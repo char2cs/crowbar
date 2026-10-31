@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -40,23 +41,23 @@ func (c turnChat) send(t *testing.T, text, requestID string) kit.Launch {
 }
 
 // feedRows is the chat's whole feed replay, in seq order.
-func (c turnChat) feedRows(t *testing.T) []feedFrame {
+func (c turnChat) feedRows(t *testing.T) []stream.Frame {
 	t.Helper()
 	c.h.QuiesceReactors()
 	feed := dialFeed(t, c.h, c.chatID, 0)
-	var rows []feedFrame
-	for f := nextFeedFrame(t, feed); f.Type != "ready"; f = nextFeedFrame(t, feed) {
+	var rows []stream.Frame
+	for f := nextFeedFrame(t, feed); f.T != stream.FrameSynced; f = nextFeedFrame(t, feed) {
 		rows = append(rows, f)
 	}
 	return rows
 }
 
 // rowsOf decodes the body of every row of kind that keep accepts.
-func rowsOf[B any](t *testing.T, rows []feedFrame, kind ledger.Kind, keep func(B) bool) []B {
+func rowsOf[B any](t *testing.T, rows []stream.Frame, kind ledger.Kind, keep func(B) bool) []B {
 	t.Helper()
 	var out []B
 	for _, f := range rows {
-		if f.Row.Kind != string(kind) {
+		if f.Row.Kind != kind {
 			continue
 		}
 		var b B
@@ -68,7 +69,7 @@ func rowsOf[B any](t *testing.T, rows []feedFrame, kind ledger.Kind, keep func(B
 	return out
 }
 
-func settledAs(t *testing.T, rows []feedFrame, requestID string) []ledger.PromptSettled {
+func settledAs(t *testing.T, rows []stream.Frame, requestID string) []ledger.PromptSettled {
 	t.Helper()
 	return rowsOf(t, rows, ledger.KindPromptSettled, func(b ledger.PromptSettled) bool { return b.RequestID == requestID })
 }
@@ -146,5 +147,5 @@ func TestRegression_Symptom5_ALateAckAfterRetractIsRecordedAsAProviderTurn(t *te
 	assert.Empty(t, late[1].RequestID, "the late ack is not r1")
 	assert.Equal(t, []ledger.PromptSettled{{RequestID: r1, Reason: ledger.ReasonRetracted}}, settledAs(t, rows, r1),
 		"r1 stays retracted")
-	assert.Equal(t, "turn_started", rows[len(rows)-1].Row.Kind, "the provider's prompt opened its turn")
+	assert.Equal(t, ledger.KindTurnStarted, rows[len(rows)-1].Row.Kind, "the provider's prompt opened its turn")
 }

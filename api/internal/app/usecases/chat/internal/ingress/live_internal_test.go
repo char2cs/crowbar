@@ -218,9 +218,9 @@ func TestLive_ALongToolOutputKeepsATailWindow(t *testing.T) {
 	var got string
 	for i := range 3 * toolOutputWindow / len(line) {
 		text := fmt.Sprintf("%04d", i) + line[4:]
-		var fd *FeedDelta
+		var fd *ledger.FeedDelta
 		got, _, fd = l.observe(testChat, "run-1", LiveDelta{TurnID: "T1", ID: "tool-1", Kind: KindToolOutput, Text: text}, at0)
-		require.Equal(t, FeedDelta{ID: "tool-1", TurnID: "T1", Stream: KindToolOutput, N: i + 1, Text: text}, *fd,
+		require.Equal(t, ledger.FeedDelta{ID: "tool-1", TurnID: "T1", Stream: KindToolOutput, N: i + 1, Text: text}, *fd,
 			"the feed carries each increment once, past the window too")
 	}
 
@@ -249,14 +249,14 @@ func BenchmarkLive_ObserveALongToolOutput(b *testing.B) {
 }
 
 // fed is the feed delta observing d gives, nil when it gives none.
-func fed(l *live, runnerID string, d LiveDelta) *FeedDelta {
+func fed(l *live, runnerID string, d LiveDelta) *ledger.FeedDelta {
 	_, _, fd := l.observe(testChat, runnerID, d, at0)
 	return fd
 }
 
 func TestLive_EachDeltaCarriesOnlyTheNewSuffix(t *testing.T) {
 	l := newLive()
-	var got []FeedDelta
+	var got []ledger.FeedDelta
 	for _, text := range []string{"a", "b", "c"} {
 		fd := fed(l, "run-1", LiveDelta{TurnID: "T1", ID: "m1", Text: text})
 		require.NotNil(t, fd)
@@ -265,13 +265,13 @@ func TestLive_EachDeltaCarriesOnlyTheNewSuffix(t *testing.T) {
 	think := fed(l, "run-1", LiveDelta{TurnID: "T1", ID: "r1", Kind: KindReasoning, Text: "hm"})
 	paragraph := fed(l, "run-1", LiveDelta{TurnID: "T1", ID: "r1", Kind: KindReasoning, Index: 1, Text: "so"})
 
-	assert.Equal(t, []FeedDelta{
+	assert.Equal(t, []ledger.FeedDelta{
 		{ID: "m1", TurnID: "T1", Stream: StreamAnswer, N: 1, Text: "a"},
 		{ID: "m1", TurnID: "T1", Stream: StreamAnswer, N: 2, Text: "b"},
 		{ID: "m1", TurnID: "T1", Stream: StreamAnswer, N: 3, Text: "c"},
 	}, got, "the stream so far is a, ab, abc: each frame is what it added")
-	assert.Equal(t, FeedDelta{ID: "r1", TurnID: "T1", Stream: KindReasoning, N: 1, Text: "hm"}, *think)
-	assert.Equal(t, FeedDelta{ID: "r1", TurnID: "T1", Stream: KindReasoning, N: 2, Text: "\n\nso"}, *paragraph,
+	assert.Equal(t, ledger.FeedDelta{ID: "r1", TurnID: "T1", Stream: KindReasoning, N: 1, Text: "hm"}, *think)
+	assert.Equal(t, ledger.FeedDelta{ID: "r1", TurnID: "T1", Stream: KindReasoning, N: 2, Text: "\n\nso"}, *paragraph,
 		"numbered per stream, and a new block is its separator too")
 	assert.Nil(t, fed(l, "run-1", LiveDelta{TurnID: "T1", ID: "n", Numbered: true, Text: "x"}),
 		"a numbered increment is a row: the row frame carries it")
@@ -279,14 +279,14 @@ func TestLive_EachDeltaCarriesOnlyTheNewSuffix(t *testing.T) {
 
 func TestLive_ARewriteThatDoesNotExtendIsAReplace(t *testing.T) {
 	l := newLive()
-	diff := func(text string) *FeedDelta {
+	diff := func(text string) *ledger.FeedDelta {
 		return fed(l, "run-1", LiveDelta{TurnID: "T1", ID: "T1", Kind: KindDiff, Replace: true, Text: text})
 	}
 	for _, text := range []string{"a", "ab", "abc"} {
 		require.False(t, diff(text).Replace, "a restatement that extends the text is its suffix")
 	}
 
-	assert.Equal(t, &FeedDelta{ID: "T1", TurnID: "T1", Stream: KindDiff, N: 4, Text: "xy", Replace: true}, diff("xy"))
+	assert.Equal(t, &ledger.FeedDelta{ID: "T1", TurnID: "T1", Stream: KindDiff, N: 4, Text: "xy", Replace: true}, diff("xy"))
 	assert.Nil(t, diff("xy"), "a restatement that changes nothing is no frame")
 	assert.Equal(t, 5, diff("xyz").N)
 }
@@ -300,7 +300,7 @@ func TestLive_SnapshotHasOneReplacePerLiveStream(t *testing.T) {
 	fed(l, "run-1", LiveDelta{TurnID: "T1", ID: "n", Numbered: true, Text: "a row holds this"})
 	l.observe("chat-2", "run-1", LiveDelta{TurnID: "T1", ID: "m3", Text: "elsewhere"}, at0)
 
-	assert.Equal(t, []FeedDelta{
+	assert.Equal(t, []ledger.FeedDelta{
 		{ID: "m1", TurnID: "T1", Stream: StreamAnswer, N: 2, Text: "one more", Replace: true},
 		{ID: "tool-1", TurnID: "T1", Stream: KindToolOutput, N: 1, Text: "$ ls", Replace: true},
 		{ID: "m2", TurnID: "T1", Scope: "agent-1", Stream: StreamAnswer, N: 1, Text: "two", Replace: true},
@@ -330,7 +330,7 @@ func TestLive_ACompleteRowDropsItsStreamFromTheSnapshot(t *testing.T) {
 	snap := f.r.Snapshot(testChat, f.state(t))
 	require.Len(t, snap, 1)
 	assert.Equal(t, "m2", snap[0].ID, "the row holds m1 now")
-	assert.Equal(t, []FeedDelta{
+	assert.Equal(t, []ledger.FeedDelta{
 		{ID: "m1", TurnID: snap[0].TurnID, Stream: StreamAnswer, N: 1, Text: "hel"},
 		{ID: "m2", TurnID: snap[0].TurnID, Stream: StreamAnswer, N: 1, Text: "still going"},
 	}, f.feed.deltas, "each unnumbered delta is fed once its rows commit")

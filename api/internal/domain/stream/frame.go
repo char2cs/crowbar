@@ -3,6 +3,7 @@ package stream
 import (
 	"encoding/json"
 
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
@@ -27,6 +28,9 @@ const (
 	FrameSignal = "signal"
 	// FrameError is a refused request that names no scope it may drop.
 	FrameError = "error"
+	// FrameRow is a chat's ledger row; FrameDelta streamed text no row holds yet.
+	FrameRow   = "row"
+	FrameDelta = "delta"
 )
 
 // The kinds of signal frame.
@@ -40,6 +44,7 @@ const (
 const (
 	ReasonResync  = "resync"
 	ReasonRefused = "refused"
+	ReasonDeleted = "deleted"
 )
 
 // QueueSize bounds the live frames waiting on one connection.
@@ -60,16 +65,19 @@ const CloseResync = 4000
 
 // Frame is one message to the client, discriminated by T.
 type Frame struct {
-	T       string           `json:"t"`
-	Scope   string           `json:"scope,omitempty"`
-	Epoch   string           `json:"epoch,omitempty"`
-	Kind    string           `json:"kind,omitempty"`
-	ID      string           `json:"id,omitempty"`
-	V       uint64           `json:"v,omitempty"`
-	Data    json.RawMessage  `json:"data,omitempty"`
-	Gone    bool             `json:"gone,omitempty"`
-	Reason  string           `json:"reason,omitempty"`
-	Problem *problem.Problem `json:"problem,omitempty"`
+	T       string            `json:"t"`
+	Scope   string            `json:"scope,omitempty"`
+	Epoch   string            `json:"epoch,omitempty"`
+	Kind    string            `json:"kind,omitempty"`
+	ID      string            `json:"id,omitempty"`
+	V       uint64            `json:"v,omitempty"`
+	Data    json.RawMessage   `json:"data,omitempty"`
+	Gone    bool              `json:"gone,omitempty"`
+	Seq     int64             `json:"seq,omitempty"`
+	Row     *ledger.Row       `json:"row,omitempty"`
+	Delta   *ledger.FeedDelta `json:"delta,omitempty"`
+	Reason  string            `json:"reason,omitempty"`
+	Problem *problem.Problem  `json:"problem,omitempty"`
 }
 
 // Ready is every connection's first frame: a new epoch voids every version the client holds.

@@ -3,6 +3,8 @@
 package tests
 
 import (
+	"fmt"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -101,4 +103,54 @@ func TestStream_AnUnknownScopeIsRefusedWithAProblem(t *testing.T) {
 
 	c.Sub(t, "projects", 0)
 	c.Next(t, isSynced("projects")) // the connection still serves
+}
+
+// Review Focus 2: a resume sends every row after since once, in order, then synced at the head.
+func TestStream_ChatScopeResumesFromSinceWithoutGapOrDuplicate(t *testing.T) {
+	h := newHarness(t)
+	_, chatID, post := newFeedChat(t, h, "streamstub", streamStubProviderDescriptorYAML)
+	post("session_start", `{"session_id":"sess-1"}`)
+	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
+	scope := "chat:" + chatID
+	c := dialStream(t, h)
+	c.Next(t, isReady)
+	c.Sub(t, scope, 0)
+	head := c.Next(t, isSynced(scope)).Seq
+	require.GreaterOrEqual(t, head, int64(2))
+	c.Unsub(t, scope)
+
+	for i := range 3 {
+		post("message_delta", delta(fmt.Sprintf("msg-%d", i), 0, true, "HI"))
+	}
+	c.Sub(t, scope, head-1)
+	var seqs []int64
+	synced := c.Next(t, func(f stream.Frame) bool {
+		if f.Scope == scope && f.T == stream.FrameRow {
+			seqs = append(seqs, f.Row.Seq)
+		}
+		return isSynced(scope)(f)
+	})
+
+	assert.Equal(t, contiguous(head, head+3), seqs)
+	assert.Equal(t, head+3, synced.Seq)
+	post("message_delta", delta("msg-live", 0, true, "HI"))
+	live := c.Next(t, func(f stream.Frame) bool { return f.Scope == scope && f.T == stream.FrameRow })
+	assert.Equal(t, head+4, live.Row.Seq, "live rows follow the replay with no gap")
+}
+
+func TestStream_DeletedChatClosesItsScopeOnly(t *testing.T) {
+	h := newHarness(t)
+	imported, chatID, _ := newFeedChat(t, h, "streamstub", streamStubProviderDescriptorYAML)
+	push := failingPush(t, h)
+	scope := "chat:" + chatID
+	c := dialStream(t, h)
+	c.Hold(t, "projects")
+	c.Hold(t, scope)
+
+	_ = h.raw(http.MethodDelete, repoBase(imported)+"/chats/"+chatID, nil, http.StatusOK).Body.Close()
+	closed := c.Next(t, func(f stream.Frame) bool { return f.Scope == scope && f.T == stream.FrameClosed })
+	assert.Equal(t, stream.Closed(scope, stream.ReasonDeleted, nil), closed)
+
+	op := startOperation(t, h, "/v0/chats/"+push.chatID+"/git/push", nil)
+	c.Next(t, func(f stream.Frame) bool { return isOperationFrame(f, op.ID) })
 }

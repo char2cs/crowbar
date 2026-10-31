@@ -250,9 +250,8 @@ type Usecase struct {
 	snapshots *snapshot.Snapshots
 	// feed is the hub, bound at sweep start; ledger commits publish through it.
 	feed atomic.Pointer[ChatFeed]
-	// feeds are the per-chat row feeds, and epoch names this daemon's run to them.
+	// feeds are the per-chat row feeds.
 	feeds *feeds
-	epoch string
 
 	// The five components. Each owns one responsibility, and the delegating
 	// methods in this file and the other five are the whole of what reaches them.

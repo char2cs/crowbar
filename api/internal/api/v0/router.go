@@ -109,9 +109,6 @@ func (c *Container) Register(
 	// chat, carrying its worktree's PR status. The forge poll that moves that
 	// status runs while the viewed workspace's forge: scope is held, not here.
 	chatScoped.GET("/ws", c.agentChats.Handle)
-	// The chat's row feed reads only its ledger, so it mounts outside chatScoped:
-	// a home or bubble chat, with no worktree to resolve, has a feed too.
-	chats.GET("/:chatId/feed", chathandlers.NewFeed(c.app.Usecases.AgentChat).Handle)
 	chats.GET("/:chatId/blobs/:ref", chathandlers.NewBlobs(c.app.Usecases.AgentChat).Handle)
 
 	projectsPkg.Register(

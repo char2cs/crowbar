@@ -49,9 +49,6 @@ type client struct {
 	// two writeNext iterations collapses to a single wakeup, exactly the way
 	// the payloads themselves already collapse to one pending value per key.
 	wake chan struct{}
-
-	// closing, on a Stream, carries the close code its source ended on.
-	closing chan int
 }
 
 func newClient() *client {
@@ -183,23 +180,11 @@ func writeNext(
 		return writeFrame(conn, msg)
 	case <-cl.wake:
 		return writeFrames(conn, cl.drainPending())
-	case code := <-cl.closing:
-		return writeClose(conn, cl, code)
 	case <-ticker.C:
 		return writeMessage(conn, websocket.PingMessage, nil)
 	case <-cl.done:
 		return false
 	}
-}
-
-// writeQueued writes what cl.send holds now, in order.
-func writeQueued(conn *websocket.Conn, cl *client) bool {
-	for queued := len(cl.send); queued > 0; queued-- {
-		if !writeFrame(conn, <-cl.send) {
-			return false
-		}
-	}
-	return true
 }
 
 func writeFrames(conn *websocket.Conn, msgs [][]byte) bool {

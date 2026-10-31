@@ -100,12 +100,10 @@ describe('chatStore', () => {
     expect(feed()?.live['answer:m1']).toBe('ab')
   })
 
-  it('records a failure and drops on deleted', () => {
+  it('records a failure and drops the feed', () => {
     openFeed('chat-1')
     failFeed('chat-1', 'refused')
     expect(feed()).toMatchObject({ status: 'error', error: 'refused' })
-    expect(applyFeedFrame('chat-1', { type: 'deleted' })).toBe(false)
-    expect(feed()).toBeUndefined()
     dropFeed('chat-1')
     expect(chatStore.getState().feeds).toEqual({})
   })

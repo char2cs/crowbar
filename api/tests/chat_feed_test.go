@@ -12,16 +12,16 @@ import (
 	"net/url"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // unnumberedStubProviderDescriptorYAML streams answers with no index: its
@@ -71,50 +71,38 @@ runtime:
     format: json
 `
 
-type feedFrame struct {
-	Type string `json:"type"`
-	Row  *struct {
-		Seq  int64           `json:"seq"`
-		Kind string          `json:"kind"`
-		Body json.RawMessage `json:"body"`
-	} `json:"row"`
-	Epoch string `json:"epoch"`
-	Seq   int64  `json:"seq"`
-	Delta *struct {
-		ID      string `json:"id"`
-		Stream  string `json:"stream"`
-		N       int    `json:"n"`
-		Text    string `json:"text"`
-		Replace bool   `json:"replace"`
-	} `json:"delta"`
+// feedConn is one chat:<id> hold on its own /v0/stream connection.
+type feedConn struct {
+	client *streamClient
+	scope  string
+	epoch  string
 }
 
-func dialFeed(t *testing.T, h *harness, chatID string, since int64) *websocket.Conn {
+func dialFeed(t *testing.T, h *harness, chatID string, since int64) *feedConn {
 	t.Helper()
-	return h.dial("/v0/chats/" + chatID + "/feed?since=" + strconv.FormatInt(since, 10))
+	c := dialStream(t, h)
+	ready := c.Next(t, isReady)
+	fc := &feedConn{client: c, scope: "chat:" + chatID, epoch: ready.Epoch}
+	c.Sub(t, fc.scope, since)
+	return fc
 }
 
-// nextFeedFrame reads one frame; a frame that never comes fails the test.
-func nextFeedFrame(t *testing.T, conn *websocket.Conn) feedFrame {
+// nextFeedFrame reads the hold's next frame; a frame that never comes fails the test.
+func nextFeedFrame(t *testing.T, fc *feedConn) stream.Frame {
 	t.Helper()
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(45*time.Second)))
-	_, raw, err := conn.ReadMessage()
-	require.NoError(t, err, "the feed sent no frame within 45s")
-	var f feedFrame
-	require.NoError(t, json.Unmarshal(raw, &f), "%s", raw)
-	return f
+	return fc.client.Next(t, func(f stream.Frame) bool { return f.Scope == fc.scope })
 }
 
-// untilReady reads the replay and returns its row seqs and the ready frame.
-func untilReady(t *testing.T, conn *websocket.Conn) ([]int64, feedFrame) {
+// untilReady reads the replay and returns its row seqs and the synced frame.
+func untilReady(t *testing.T, fc *feedConn) ([]int64, stream.Frame) {
 	t.Helper()
 	var seqs []int64
 	for {
-		f := nextFeedFrame(t, conn)
-		if f.Type == "ready" {
+		f := nextFeedFrame(t, fc)
+		if f.T == stream.FrameSynced {
 			return seqs, f
 		}
-		require.Equal(t, "row", f.Type, "only rows come before ready")
+		require.Equal(t, stream.FrameRow, f.T, "only rows come before synced")
 		seqs = append(seqs, f.Row.Seq)
 	}
 }
@@ -148,13 +136,13 @@ func TestChatFeed_ReplaysFromSinceThenGoesLive(t *testing.T) {
 
 	require.Positive(t, ready.Seq)
 	assert.Equal(t, contiguous(1, ready.Seq), seqs, "every row, in order, then ready at the head")
-	assert.NotEmpty(t, ready.Epoch)
+	assert.NotEmpty(t, conn.epoch)
 
 	post("message_delta", delta("msg-one", 0, true, "HI"))
 	live := nextFeedFrame(t, conn)
-	require.Equal(t, "row", live.Type)
+	require.Equal(t, stream.FrameRow, live.T)
 	assert.Equal(t, ready.Seq+1, live.Row.Seq)
-	assert.Equal(t, "assistant_text", live.Row.Kind)
+	assert.Equal(t, ledger.KindAssistantText, live.Row.Kind)
 }
 
 func TestChatFeed_ResumeSendsOnlyNewerRows(t *testing.T) {
@@ -162,14 +150,16 @@ func TestChatFeed_ResumeSendsOnlyNewerRows(t *testing.T) {
 	_, chatID, post := newFeedChat(t, h, "streamstub", streamStubProviderDescriptorYAML)
 	post("session_start", `{"session_id":"sess-1"}`)
 	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
-	_, head := untilReady(t, dialFeed(t, h, chatID, 0))
+	first := dialFeed(t, h, chatID, 0)
+	_, head := untilReady(t, first)
 	require.GreaterOrEqual(t, head.Seq, int64(2))
 
-	seqs, ready := untilReady(t, dialFeed(t, h, chatID, head.Seq-2))
+	again := dialFeed(t, h, chatID, head.Seq-2)
+	seqs, ready := untilReady(t, again)
 
 	assert.Equal(t, []int64{head.Seq - 1, head.Seq}, seqs)
 	assert.Equal(t, head.Seq, ready.Seq)
-	assert.Equal(t, head.Epoch, ready.Epoch, "one daemon, one epoch")
+	assert.Equal(t, first.epoch, again.epoch, "one daemon, one epoch")
 }
 
 // An attach landing after a row that holds a stream committed, but before the
@@ -203,13 +193,13 @@ func TestChatFeed_AnAttachInsideACommitWindowShowsNoGhostAnswer(t *testing.T) {
 	assert.Equal(t, contiguous(1, ready.Seq), seqs, "each row once, in order")
 	assert.Equal(t, committed[0].Seq, ready.Seq, "the replay reaches the row that holds m-1")
 	snap := nextFeedFrame(t, conn)
-	require.Equal(t, "delta", snap.Type)
+	require.Equal(t, stream.FrameDelta, snap.T)
 	assert.Equal(t, "m-2", snap.Delta.ID, "m-1 is its row's now, not a live answer")
 	assert.True(t, snap.Delta.Replace)
 	assert.Equal(t, "wor", snap.Delta.Text)
 	post("tool_pre", `{"session_id":"sess-1","tool_use_id":"tool-1","tool_name":"Bash"}`)
 	next := nextFeedFrame(t, conn)
-	require.Equal(t, "row", next.Type, "the snapshot is m-2 alone")
+	require.Equal(t, stream.FrameRow, next.T, "the snapshot is m-2 alone")
 	assert.Equal(t, ready.Seq+1, next.Row.Seq, "live rows continue from the head")
 }
 
@@ -231,12 +221,12 @@ func TestChatFeed_UnnumberedDeltasAreLiveOnly(t *testing.T) {
 	var deltas []string
 	for {
 		f := nextFeedFrame(t, conn)
-		if f.Type == "row" {
-			assert.Equal(t, "tool_call", f.Row.Kind, "no row holds the deltas")
+		if f.T == stream.FrameRow {
+			assert.Equal(t, ledger.KindToolCall, f.Row.Kind, "no row holds the deltas")
 			assert.Equal(t, ready.Seq+1, f.Row.Seq)
 			break
 		}
-		require.Equal(t, "delta", f.Type)
+		require.Equal(t, stream.FrameDelta, f.T)
 		assert.Equal(t, "answer", f.Delta.Stream)
 		assert.False(t, f.Delta.Replace)
 		deltas = append(deltas, fmt.Sprintf("%d:%s", f.Delta.N, f.Delta.Text))
@@ -246,12 +236,12 @@ func TestChatFeed_UnnumberedDeltasAreLiveOnly(t *testing.T) {
 	again := dialFeed(t, h, chatID, 0)
 	untilReady(t, again)
 	snap := nextFeedFrame(t, again)
-	require.Equal(t, "delta", snap.Type)
+	require.Equal(t, stream.FrameDelta, snap.T)
 	assert.True(t, snap.Delta.Replace)
 	assert.Equal(t, 2, snap.Delta.N)
 	assert.Equal(t, "ab", snap.Delta.Text)
 	post("tool_pre", `{"session_id":"sess-1","tool_use_id":"tool-2","tool_name":"Bash"}`)
-	assert.Equal(t, "row", nextFeedFrame(t, again).Type, "the snapshot is one frame per live stream")
+	assert.Equal(t, stream.FrameRow, nextFeedFrame(t, again).T, "the snapshot is one frame per live stream")
 }
 
 func TestChatFeed_EpochChangesAcrossARestart(t *testing.T) {
@@ -260,13 +250,15 @@ func TestChatFeed_EpochChangesAcrossARestart(t *testing.T) {
 	_, chatID, post := newFeedChat(t, h1, "streamstub", streamStubProviderDescriptorYAML)
 	post("session_start", `{"session_id":"sess-1"}`)
 	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
-	_, before := untilReady(t, dialFeed(t, h1, chatID, 0))
+	first := dialFeed(t, h1, chatID, 0)
+	_, before := untilReady(t, first)
 
 	h1.shutdown()
 	h2 := newHarnessAt(t, home)
-	seqs, after := untilReady(t, dialFeed(t, h2, chatID, 0))
+	again := dialFeed(t, h2, chatID, 0)
+	seqs, after := untilReady(t, again)
 
-	assert.NotEqual(t, before.Epoch, after.Epoch, "a restart is a new epoch")
+	assert.NotEqual(t, first.epoch, again.epoch, "a restart is a new epoch")
 	assert.GreaterOrEqual(t, after.Seq, before.Seq, "seqs continue across it")
 	assert.Equal(t, contiguous(1, after.Seq), seqs)
 }
@@ -279,25 +271,17 @@ func TestChatFeed_DeletingTheChatEndsItsFeed(t *testing.T) {
 
 	_ = h.raw(http.MethodDelete, repoBase(imported)+"/chats/"+chatID, nil, http.StatusOK).Body.Close()
 
-	var last feedFrame
-	var err error
-	for err == nil {
-		require.NoError(t, conn.SetReadDeadline(time.Now().Add(45*time.Second)))
-		var raw []byte
-		if _, raw, err = conn.ReadMessage(); err == nil {
-			require.NoError(t, json.Unmarshal(raw, &last))
-		}
+	f := nextFeedFrame(t, conn)
+	for f.T != stream.FrameClosed {
+		f = nextFeedFrame(t, conn)
 	}
-	assert.Equal(t, "deleted", last.Type)
-	var closed *websocket.CloseError
-	require.ErrorAs(t, err, &closed)
-	assert.Equal(t, 4001, closed.Code)
+	assert.Equal(t, stream.ReasonDeleted, f.Reason)
 	h.QuiesceReactors()
-	gone, resp, err := websocket.DefaultDialer.Dial("ws"+h.url[len("http"):]+"/v0/chats/"+chatID+"/feed", nil)
-	require.Error(t, err)
-	require.Nil(t, gone)
-	require.NoError(t, resp.Body.Close())
-	assert.Equal(t, http.StatusNotFound, resp.StatusCode, "an erased chat has no feed")
+	conn.client.Sub(t, conn.scope, 0)
+	refused := nextFeedFrame(t, conn)
+	assert.Equal(t, stream.ReasonRefused, refused.Reason, "an erased chat has no feed")
+	require.NotNil(t, refused.Problem)
+	assert.Equal(t, problem.NotFound, refused.Problem.Code)
 }
 
 func TestChatFeed_ToolPayloadIsReadableByItsRef(t *testing.T) {
@@ -314,7 +298,7 @@ func TestChatFeed_ToolPayloadIsReadableByItsRef(t *testing.T) {
 	}
 	for call.InputRef == "" {
 		f := nextFeedFrame(t, conn)
-		if f.Type == "row" && f.Row.Kind == "tool_call" {
+		if f.T == stream.FrameRow && f.Row.Kind == ledger.KindToolCall {
 			require.NoError(t, json.Unmarshal(f.Row.Body, &call))
 			require.NotEmpty(t, call.InputRef, "the tool_call row names its input: %s", f.Row.Body)
 		}
@@ -338,23 +322,29 @@ const recordedRowsFixture = "../../web/src/__tests__/__fixtures__/claude-subagen
 // and the blob digests, some of whose content names the run's session.
 var runIDs = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{64}`)
 
-// stableRows is the feed's replay with what differs between runs replaced, in
-// order of appearance, by fixed placeholders; ids the recording carries stay.
-func stableRows(t *testing.T, conn *websocket.Conn, recorded string) []byte {
+// stableRows is the chat scope's replay with what differs between runs replaced,
+// in order of appearance, by fixed placeholders; ids the recording carries stay.
+// It reads the socket raw so each row keeps the bytes the daemon wrote.
+func stableRows(t *testing.T, fc *feedConn, recorded string) []byte {
 	t.Helper()
 	var rows []json.RawMessage
 	for {
-		require.NoError(t, conn.SetReadDeadline(time.Now().Add(45*time.Second)))
-		_, raw, err := conn.ReadMessage()
+		require.NoError(t, fc.client.conn.SetReadDeadline(time.Now().Add(45*time.Second)))
+		_, raw, err := fc.client.conn.ReadMessage()
 		require.NoError(t, err)
 		var f struct {
-			Type string          `json:"type"`
-			Row  json.RawMessage `json:"row"`
+			T     string          `json:"t"`
+			Scope string          `json:"scope"`
+			Row   json.RawMessage `json:"row"`
 		}
 		require.NoError(t, json.Unmarshal(raw, &f))
-		if f.Type == "ready" {
+		if f.Scope != fc.scope {
+			continue
+		}
+		if f.T == stream.FrameSynced {
 			break
 		}
+		require.Equal(t, stream.FrameRow, f.T, "only rows come before synced")
 		rows = append(rows, f.Row)
 	}
 	out, err := json.MarshalIndent(rows, "", "  ")

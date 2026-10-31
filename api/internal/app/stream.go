@@ -58,6 +58,7 @@ func newStream(
 	})
 	late.hub = stream.New(uuid.NewString(), map[domainstream.ScopeKind]stream.Source{
 		domainstream.KindProjects: stream.NewProjectsSource(ops, encode),
+		domainstream.KindChat:     stream.Following(stream.NewChatSource(ucs.AgentChat)),
 		domainstream.KindWs:       stream.NewWsSource(repos.Workspace, repos.ReviewThread, encode),
 		domainstream.KindGit:      stream.Unordered(stream.NewGitSource(repos.Workspace, ucs.Git)),
 		domainstream.KindFiles:    stream.Quiet{},

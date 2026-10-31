@@ -85,8 +85,8 @@ function draftOf(chatId: string, feed: ChatFeed): FeedFold {
   return draft
 }
 
-/** Applies one frame; false when the chat is gone and its feed must close. */
-export function applyFeedFrame(chatId: string, frame: FeedFrame): boolean {
+/** Applies one frame of the chat's ledger scope. */
+export function applyFeedFrame(chatId: string, frame: FeedFrame) {
   const feed = chatStore.getState().feeds[chatId] ?? emptyFeed()
   switch (frame.type) {
     case 'row': {
@@ -94,30 +94,26 @@ export function applyFeedFrame(chatId: string, frame: FeedFrame): boolean {
       if (draft) draft.apply(frame.row)
       else if (feed.status !== 'live') draftOf(chatId, feed).apply(frame.row)
       else publish(chatId, applyRow(feed, frame.row))
-      return true
+      return
     }
     case 'ready': {
       const draft = drafts.get(chatId)?.finish() ?? feed
       drafts.delete(chatId)
       publish(chatId, applyReady(draft, frame.epoch))
-      return true
+      return
     }
     case 'delta':
       if (!drafts.has(chatId) && chatStore.getState().feeds[chatId]) {
         publish(chatId, applyLive(feed, frame.delta))
       }
-      return true
+      return
     case 'resync': {
       // Behind our seq: the ledger was reset, so rebuild from nothing. Either
       // way the replay that follows folds into a fresh draft of what is published.
       const next = (frame.seq ?? 0) < feed.seq ? emptyFeed() : feed
       publish(chatId, next)
       draftOf(chatId, next)
-      return true
     }
-    case 'deleted':
-      dropFeed(chatId)
-      return false
   }
 }
 

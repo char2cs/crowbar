@@ -160,6 +160,11 @@ function onMessage(raw: unknown): void {
   onFrame(f)
 }
 
+/** Resolves once the stream's socket is open; rejects when the attempt it waits on fails. */
+export function streamOpened(): Promise<void> {
+  return wsManager.opened(ENDPOINT)
+}
+
 /** Opens the one stream; returns the stop. Called once, at boot. */
 export function startStream(): () => void {
   const stopDrops = wsManager.onDrop(ENDPOINT, () => {

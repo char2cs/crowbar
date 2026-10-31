@@ -135,11 +135,11 @@ type frame struct {
 type feedSpy struct {
 	mu        sync.Mutex
 	frames    []frame
-	deltas    []FeedDelta
+	deltas    []ledger.FeedDelta
 	telemetry int
 }
 
-func (f *feedSpy) FeedDelta(_ string, d FeedDelta) {
+func (f *feedSpy) FeedDelta(_ string, d ledger.FeedDelta) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.deltas = append(f.deltas, d)

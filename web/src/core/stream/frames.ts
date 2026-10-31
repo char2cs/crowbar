@@ -15,10 +15,22 @@ export type Frame =
       data?: unknown
       gone?: true
     }
-  | { t: 'synced'; scope: string }
+  /** `seq`: a chat scope's ledger head. */
+  | { t: 'synced'; scope: string; seq?: number }
+  /** A chat's ledger row; its shape is the chat feature's (`LedgerRow`). */
+  | { t: 'row'; scope: string; row: Record<string, unknown> }
+  /** Streamed text no row holds yet; its shape is the chat feature's (`FeedDelta`). */
+  | { t: 'delta'; scope: string; delta: Record<string, unknown> }
   /** An unversioned fact about a scope (git status, a file change, diagnostics). */
   | { t: 'signal'; scope: string; kind: string; data?: unknown }
-  | { t: 'closed'; scope: string; reason: 'resync' | 'deleted' | 'refused'; problem?: Problem }
+  | {
+      t: 'closed'
+      scope: string
+      reason: 'resync' | 'deleted' | 'refused'
+      /** A chat scope's resync: the last row it was sent. */
+      seq?: number
+      problem?: Problem
+    }
   /** A refused request that names no scope to drop. */
   | { t: 'error'; problem: Problem }
 
@@ -65,11 +77,14 @@ const SHAPES: Record<Frame['t'], Record<string, { check: Check; optional?: true 
     data: { check: any, optional: true },
     gone: { check: yes, optional: true },
   },
-  synced: { scope: { check: str } },
+  synced: { scope: { check: str }, seq: { check: num, optional: true } },
+  row: { scope: { check: str }, row: { check: isRecord } },
+  delta: { scope: { check: str }, delta: { check: isRecord } },
   signal: { scope: { check: str }, kind: { check: str }, data: { check: any, optional: true } },
   closed: {
     scope: { check: str },
     reason: { check: (v) => str(v) && REASONS.has(v as string) },
+    seq: { check: num, optional: true },
     problem: { check: problem, optional: true },
   },
   error: { problem: { check: problem } },

@@ -113,7 +113,9 @@ the usecases they call.
   daemon work in `stream/resources`, refcounted per key across every client and
   kind: the workspace watcher runs while `git:` or `files:` is held, a host
   document's watch while its `doc:` is, the LSP host for `lsp:` and the forge
-  poll only for the viewed workspace's `forge:`.
+  poll only for the viewed workspace's `forge:`. A `chat:<id>` scope is the
+  chat's ledger: rows after the sub's `since`, `synced` at the head, then live
+  rows and streamed-text deltas, followed outside the hub's lock.
 - `Shutdown` is ordered: kill PTYs and join their exit callbacks (they write
   runner exits), close the drain gate, wait out reactors, drain each asynx
   singleton — all before the adapter closes the DBs.
@@ -126,9 +128,8 @@ the usecases they call.
   `/v0/projects/:projectId/repos/:repoId/...` with guards that reject ids from
   another scope; the flat `/v0/chats/:chatId/...` group resolves the chat's
   worktree once per request (`reqscope`) and serves git, files, terminal, lsp,
-  search, editor and review for that chat. `/v0/chats/:chatId/feed` sits beside
-  that group, not in it: the chat's ledger rows by `seq` (resumable with
-  `since`), then its streamed text as numbered deltas; overflow is a `resync`.
+  search, editor and review for that chat. The chat's ledger is not a route:
+  it is the stream's `chat:<id>` scope.
 - `v0/endpoints/<group>/`: one package per group (`handlers/` + `routes.go`);
   `v0/dto`: wire types.
 - `v0/ws`: `Broadcaster[T]` + `StreamDef` — each stream filters its clients by
@@ -252,8 +253,8 @@ them derive one.
   the runner's descriptor and appends ledger rows under the chat's lock,
   answering once they commit; a hook it cannot place is dead-lettered. A hook
   that opens an answerable ask is held open, and the human's answer is its
-  response. Each committed row reaches the chat's `/v0/chats/:chatId/feed`
-  socket by `seq`; the chat's snapshot and its client broadcasts follow from
+  response. Each committed row reaches the chat's `chat:<id>` stream scope by
+  `seq`; the chat's snapshot and its client broadcasts follow from
   the same commit.
 - **Watchers**: holding a workspace's `git:` or `files:` scope starts its
   watcher; changes flow back as `git_status` and `file_change` signals. A host

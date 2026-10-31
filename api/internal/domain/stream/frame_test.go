@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
@@ -26,6 +28,14 @@ func TestFrame_EveryTypeMarshalsAsTheGoldenFile(t *testing.T) {
 		stream.Closed("nope:x", stream.ReasonRefused, &refused),
 		stream.Closed("projects", stream.ReasonResync, nil),
 		stream.Errored(problem.Problem{Code: problem.InvalidArgument, Message: "stream: unknown op \"gossip\""}),
+		{T: stream.FrameRow, Scope: "chat:c1", Row: &ledger.Row{
+			ChatID: "c1", Seq: 3, Kind: ledger.KindUserMessage, TurnID: "t1",
+			At: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC), Body: json.RawMessage(`{"text":"hi"}`),
+		}},
+		{T: stream.FrameSynced, Scope: "chat:c1", Seq: 3},
+		{T: stream.FrameDelta, Scope: "chat:c1", Delta: &ledger.FeedDelta{ID: "m1", TurnID: "t1", Stream: "answer", N: 1, Text: "he"}},
+		{T: stream.FrameClosed, Scope: "chat:c1", Reason: stream.ReasonResync, Seq: 2},
+		stream.Closed("chat:c1", stream.ReasonDeleted, nil),
 	}
 	got, err := json.MarshalIndent(frames, "", "  ")
 	require.NoError(t, err)

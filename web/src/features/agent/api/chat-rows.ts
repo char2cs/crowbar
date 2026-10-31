@@ -1,5 +1,5 @@
-// The feed's wire shapes: a mirror of the daemon's ledger rows
-// (api/internal/domain/ledger) and feed frames (usecases/chat/feed.go).
+// The chat scope's wire shapes: a mirror of the daemon's ledger rows and
+// deltas (api/internal/domain/ledger), and the frames the chat store folds.
 
 export interface LedgerRow<K extends RowKind = RowKind> {
   chatId: string
@@ -174,7 +174,6 @@ export interface FeedDelta {
 // Go `omitempty`: an absent seq is 0.
 export type FeedFrame =
   | { type: 'row'; row: LedgerRow }
-  | { type: 'ready'; epoch: string; seq?: number }
+  | { type: 'ready'; epoch: string }
   | { type: 'delta'; delta: FeedDelta }
   | { type: 'resync'; seq?: number }
-  | { type: 'deleted' }

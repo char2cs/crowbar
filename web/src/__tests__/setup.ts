@@ -252,28 +252,21 @@ if (typeof navigator !== 'undefined' && !navigator.clipboard) {
 }
 
 // No daemon answers a test: `/v0/stream` is the fake in `__fixtures__/stream-daemon`, which
-// answers every sub with its synced unless the test says otherwise; a chat's feed replays
-// nothing and is ready, so it shows what the test seeded into chatStore. Every other endpoint
-// keeps the real manager.
+// answers every sub with its synced unless the test says otherwise, so a chat's ledger scope
+// replays nothing and shows what the test seeded into chatStore. Every other endpoint keeps the
+// real manager.
 const setupManager = vi.hoisted(() => ({ current: null as unknown }))
 vi.mock('@/lib/ws/manager', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/ws/manager')>()
-  const { streamDaemon, feeds: held } = await import('@/__tests__/__fixtures__/stream-daemon')
+  const { streamDaemon } = await import('@/__tests__/__fixtures__/stream-daemon')
   const real = actual.wsManager
   const stream = (endpoint: string) => endpoint === '/v0/stream'
-  const feed = (endpoint: string) => /^\/v0\/chats\/[^/]+\/feed$/.test(endpoint)
-  const hold = (endpoint: string, n: number) => held.set(endpoint, (held.get(endpoint) ?? 0) + n)
   const wsManager: typeof real = {
-    subscribe: (endpoint, cb, url) => {
-      if (stream(endpoint)) {
-        streamDaemon.deliver = cb
-        queueMicrotask(() => cb({ t: 'ready', epoch: 'test' }))
-        return () => {}
-      }
-      if (!feed(endpoint)) return real.subscribe(endpoint, cb, url)
-      hold(endpoint, 1)
-      cb({ type: 'ready', epoch: 'test' })
-      return () => void hold(endpoint, -1)
+    subscribe: (endpoint, cb) => {
+      if (!stream(endpoint)) return real.subscribe(endpoint, cb)
+      streamDaemon.deliver = cb
+      queueMicrotask(() => cb({ t: 'ready', epoch: 'test' }))
+      return () => {}
     },
     send: (endpoint, data) => {
       if (!stream(endpoint)) return real.send(endpoint, data)
@@ -282,14 +275,11 @@ vi.mock('@/lib/ws/manager', async (importOriginal) => {
       const frames = streamDaemon.answer(req)
       queueMicrotask(() => frames.forEach((f) => streamDaemon.deliver(f)))
     },
-    opened: (endpoint) =>
-      stream(endpoint) || feed(endpoint) ? Promise.resolve() : real.opened(endpoint),
+    opened: (endpoint) => (stream(endpoint) ? Promise.resolve() : real.opened(endpoint)),
     onDrop: (endpoint, listener) => {
-      if (stream(endpoint)) {
-        streamDaemon.drop = listener
-        return () => {}
-      }
-      return feed(endpoint) ? () => {} : real.onDrop(endpoint, listener)
+      if (!stream(endpoint)) return real.onDrop(endpoint, listener)
+      streamDaemon.drop = listener
+      return () => {}
     },
   }
   setupManager.current = wsManager

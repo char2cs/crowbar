@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -378,9 +380,9 @@ func TestRegression_C27_ASendRefusedForALostSessionIsTypedSessionLost(t *testing
 	h.QuiesceReactors()
 	feed := dialFeed(t, h, chatID, 0)
 	var reasons []string
-	for f := nextFeedFrame(t, feed); f.Type != "ready"; f = nextFeedFrame(t, feed) {
+	for f := nextFeedFrame(t, feed); f.T != stream.FrameSynced; f = nextFeedFrame(t, feed) {
 		var body struct{ RequestID, Reason string }
-		if f.Row.Kind == "prompt_settled" && json.Unmarshal(f.Row.Body, &body) == nil && body.RequestID == requestID {
+		if f.Row.Kind == ledger.KindPromptSettled && json.Unmarshal(f.Row.Body, &body) == nil && body.RequestID == requestID {
 			reasons = append(reasons, body.Reason)
 		}
 	}

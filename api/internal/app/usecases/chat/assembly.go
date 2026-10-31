@@ -3,8 +3,6 @@ package chat
 import (
 	"context"
 
-	"github.com/google/uuid"
-
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
@@ -134,7 +132,6 @@ func New(d Deps) *Usecase {
 		nodes:      d.Nodes,
 		repoRoots:  d.RepoRoots,
 		feeds:      newFeeds(feedCapacity),
-		epoch:      uuid.NewString(),
 	}
 	locks := ingress.NewLocks()
 	sh := shared{

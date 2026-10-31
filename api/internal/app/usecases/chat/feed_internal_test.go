@@ -124,7 +124,7 @@ func TestFeeds_TheFrameInTheWritersHandCountsAsUnread(t *testing.T) {
 
 func TestFeeds_LiveRowsDuringReplayAreDeliveredOnce(t *testing.T) {
 	f := newFeeds(16)
-	ready := FeedFrame{Type: feedReady, Epoch: "e1", Seq: 3}
+	ready := FeedFrame{Type: FeedReady, Seq: 3}
 	commitDuringReplay := func() { f.rows("c1", seqRows(2, 3)); f.rows("c1", seqRows(4, 5)) }
 	out := f.open(t.Context(), "c1", 0, attaching(commitDuringReplay, append(rowFrames(seqRows(1, 3)), ready)...))
 
@@ -136,15 +136,15 @@ func TestFeeds_LiveRowsDuringReplayAreDeliveredOnce(t *testing.T) {
 
 func TestFeeds_ReadyIsFollowedBySnapshotsThenLiveFrames(t *testing.T) {
 	f := newFeeds(16)
-	live := FeedDelta{ID: "m1", Stream: "answer", N: 3, Text: "c"}
-	snap := FeedDelta{ID: "m1", Stream: "answer", N: 2, Text: "ab", Replace: true}
+	live := ledger.FeedDelta{ID: "m1", Stream: "answer", N: 3, Text: "c"}
+	snap := ledger.FeedDelta{ID: "m1", Stream: "answer", N: 2, Text: "ab", Replace: true}
 	during := func() {
 		f.delta("c1", live)
 		f.rows("c1", seqRows(1, 1))
-		f.delta("c2", FeedDelta{ID: "elsewhere"})
+		f.delta("c2", ledger.FeedDelta{ID: "elsewhere"})
 	}
 	out := f.open(t.Context(), "c1", 0, attaching(during,
-		FeedFrame{Type: feedReady, Epoch: "e1"}, FeedFrame{Type: feedDelta, Delta: &snap}))
+		FeedFrame{Type: FeedReady}, FeedFrame{Type: feedDelta, Delta: &snap}))
 
 	frames := take(t, out, 4)
 
@@ -152,7 +152,7 @@ func TestFeeds_ReadyIsFollowedBySnapshotsThenLiveFrames(t *testing.T) {
 	for _, fr := range frames {
 		types = append(types, fr.Type)
 	}
-	assert.Equal(t, []string{feedReady, feedDelta, feedDelta, feedRow}, types)
+	assert.Equal(t, []string{FeedReady, feedDelta, feedDelta, feedRow}, types)
 	assert.Equal(t, &snap, frames[1].Delta)
 	assert.Equal(t, &live, frames[2].Delta)
 }
@@ -174,9 +174,11 @@ func apply(frames []FeedFrame) string {
 }
 
 func TestFeeds_ADeltaRacingTheSnapshotNeverDuplicatesText(t *testing.T) {
-	d := func(n int, text string) FeedDelta { return FeedDelta{ID: "m1", Stream: "answer", N: n, Text: text} }
+	d := func(n int, text string) ledger.FeedDelta {
+		return ledger.FeedDelta{ID: "m1", Stream: "answer", N: n, Text: text}
+	}
 	snapshot := func(n int, text string) FeedFrame {
-		return FeedFrame{Type: feedDelta, Delta: &FeedDelta{ID: "m1", Stream: "answer", N: n, Text: text, Replace: true}}
+		return FeedFrame{Type: feedDelta, Delta: &ledger.FeedDelta{ID: "m1", Stream: "answer", N: n, Text: text, Replace: true}}
 	}
 	for name, tc := range map[string]struct {
 		snap FeedFrame
@@ -265,8 +267,7 @@ func TestOpenFeed_ReplaysAfterSinceThenIsReadyThenLive(t *testing.T) {
 	frames = append(frames, take(t, out, 1)...)
 
 	assert.Equal(t, []int64{2, 3, 4}, seqsOf(frames))
-	assert.Equal(t, FeedFrame{Type: feedReady, Epoch: u.epoch, Seq: 3}, frames[2])
-	assert.NotEmpty(t, u.epoch)
+	assert.Equal(t, FeedFrame{Type: FeedReady, Seq: 3}, frames[2])
 }
 
 func TestOpenFeed_AnUnknownChatIsNotFound(t *testing.T) {

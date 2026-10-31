@@ -67,7 +67,7 @@ type RecorderDeps struct {
 // what each frame of it added, and the provider's usage reports.
 type Frames interface {
 	MessageDelta(chatID, workspaceID, messageID, text, kind string, startedAt time.Time)
-	FeedDelta(chatID string, d FeedDelta)
+	FeedDelta(chatID string, d ledger.FeedDelta)
 	Telemetry(chatID, workspaceID string, report engineagents.Telemetry)
 }
 

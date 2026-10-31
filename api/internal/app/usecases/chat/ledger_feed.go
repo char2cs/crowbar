@@ -113,7 +113,7 @@ type hubFrames struct {
 	feeds *feeds
 }
 
-func (h hubFrames) FeedDelta(chatID string, d FeedDelta) { h.feeds.delta(chatID, d) }
+func (h hubFrames) FeedDelta(chatID string, d ledger.FeedDelta) { h.feeds.delta(chatID, d) }
 
 func (h hubFrames) MessageDelta(chatID, workspaceID, messageID, text, kind string, startedAt time.Time) {
 	if feed := h.feed.Load(); feed != nil && feed.MessageDelta != nil {

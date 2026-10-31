@@ -17,6 +17,26 @@ const golden = [
   { t: 'error', problem: { code: 'invalid_argument', message: 'stream: unknown op "gossip"' } },
   { t: 'signal', scope: 'git:w1', kind: 'git_status', data: { branch: 'main' } },
   { t: 'entity', scope: 'ws:w1', kind: 'review_thread', id: 'th1', v: 9, data: { id: 'th1' } },
+  {
+    t: 'row',
+    scope: 'chat:c1',
+    row: {
+      chatId: 'c1',
+      seq: 3,
+      kind: 'user_message',
+      turnId: 't1',
+      at: '2026-10-31T12:00:00Z',
+      body: { text: 'hi' },
+    },
+  },
+  { t: 'synced', scope: 'chat:c1', seq: 3 },
+  {
+    t: 'delta',
+    scope: 'chat:c1',
+    delta: { id: 'm1', turnId: 't1', stream: 'answer', n: 1, text: 'he' },
+  },
+  { t: 'closed', scope: 'chat:c1', reason: 'resync', seq: 2 },
+  { t: 'closed', scope: 'chat:c1', reason: 'deleted' },
 ]
 
 describe('decodeFrame', () => {
@@ -37,6 +57,11 @@ describe('decodeFrame', () => {
     expect(() =>
       decodeFrame({ t: 'entity', scope: 'projects', kind: 'stranger', id: 'x', v: 1 }),
     ).toThrow(FrameError)
+  })
+
+  it('rejects a row frame without its row', () => {
+    expect(() => decodeFrame({ t: 'row', scope: 'chat:c1' })).toThrow(FrameError)
+    expect(() => decodeFrame({ t: 'delta', scope: 'chat:c1', delta: 'he' })).toThrow(FrameError)
   })
 
   it('rejects a signal without its kind', () => {

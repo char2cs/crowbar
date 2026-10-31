@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"context"
 	"log/slog"
 	"sync"
 
@@ -33,6 +34,8 @@ type connection struct {
 	scopes map[string]stream.Scope
 	// resources is each scope whose resources it holds, its Serve goroutine's alone.
 	resources map[string]stream.Scope
+	// follows is each ledger scope it follows, guarded by the hub's lock.
+	follows map[string]*follow
 
 	mu      sync.Mutex
 	pending []outgoing
@@ -42,6 +45,8 @@ type connection struct {
 	snapshotting map[string]bool
 
 	wake chan struct{}
+	// room hears each frame the writer takes, for a replay waiting to queue.
+	room chan struct{}
 	done chan struct{}
 	once sync.Once
 }
@@ -51,8 +56,10 @@ func newConnection(conn Conn) *connection {
 		conn:         conn,
 		scopes:       map[string]stream.Scope{},
 		resources:    map[string]stream.Scope{},
+		follows:      map[string]*follow{},
 		snapshotting: map[string]bool{},
 		wake:         make(chan struct{}, 1),
+		room:         make(chan struct{}, 1),
 		done:         make(chan struct{}),
 	}
 }
@@ -95,7 +102,33 @@ func (c *connection) pop() (stream.Frame, bool) {
 	if next.frame.T == stream.FrameSynced {
 		delete(c.snapshotting, next.frame.Scope)
 	}
+	select {
+	case c.room <- struct{}{}:
+	default:
+	}
 	return next.frame, true
+}
+
+// await blocks while QueueSize frames wait; false once the connection or ctx ends.
+func (c *connection) await(ctx context.Context) bool {
+	for {
+		c.mu.Lock()
+		ended, full := c.ended, len(c.pending) >= stream.QueueSize
+		c.mu.Unlock()
+		if ended {
+			return false
+		}
+		if !full {
+			return true
+		}
+		select {
+		case <-c.room:
+		case <-c.done:
+			return false
+		case <-ctx.Done():
+			return false
+		}
+	}
 }
 
 // beginSnapshot marks scope's snapshot queued; false if a held scope's already is.

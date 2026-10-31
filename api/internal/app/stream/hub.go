@@ -125,6 +125,8 @@ func (h *Hub) publish(f stream.Frame, versioned bool) uint64 {
 // Serve reads one client's requests until its socket or ctx ends, then
 // releases every scope it held.
 func (h *Hub) Serve(ctx context.Context, conn Conn) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	c := newConnection(conn)
 	h.mu.Lock()
 	if h.closed {
@@ -203,9 +205,12 @@ func (h *Hub) sub(ctx context.Context, c *connection, req stream.Request) {
 		return
 	}
 	var held bool
-	if live, ok := src.(unordered); ok {
-		held = h.subLive(ctx, c, scope, live.Source, req.Since)
-	} else {
+	switch s := src.(type) {
+	case unordered:
+		held = h.subLive(ctx, c, scope, s.Source, req.Since)
+	case following:
+		held = h.subFollow(ctx, c, scope, s.Source, req.Since)
+	default:
 		held = h.subLocked(ctx, c, scope, src, req.Since)
 	}
 	if !held {
@@ -369,6 +374,10 @@ func (h *Hub) releaseLocked(c *connection, name string) {
 		return
 	}
 	delete(c.scopes, name)
+	if f, ok := c.follows[name]; ok {
+		f.cancel()
+		delete(c.follows, name)
+	}
 	delete(h.scopes[name], c)
 	if len(h.scopes[name]) == 0 {
 		delete(h.scopes, name)

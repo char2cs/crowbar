@@ -27,18 +27,6 @@ const (
 // are named by their kind.
 const StreamAnswer = "answer"
 
-// FeedDelta is one frame of a stream no row holds: only the text new since its
-// stream's last frame, numbered per stream, or the whole text when Replace.
-type FeedDelta struct {
-	ID      string `json:"id"` // message id (answer, reasoning) or tool id (tool_output, diff)
-	TurnID  string `json:"turnId"`
-	Scope   string `json:"scope,omitempty"`
-	Stream  string `json:"stream"` // "answer" | "reasoning" | "tool_output" | "diff"
-	N       int    `json:"n"`      // 1-based position of this frame in its stream
-	Text    string `json:"text"`   // the new suffix; everything so far when Replace
-	Replace bool   `json:"replace,omitempty"`
-}
-
 // toolOutputWindow is how much of a tool's output a frame carries: it is only
 // ever shown, and its whole text lands on the call's own result.
 const toolOutputWindow = 64 << 10
@@ -85,7 +73,7 @@ func (r *Recorder) publishLive(chat domain.Chat, runnerID string, d LiveDelta) {
 
 // Snapshot is one Replace frame per stream of chatID no row holds, each at its
 // stream's current number, in the order they began.
-func (r *Recorder) Snapshot(chatID string, st ledger.State) []FeedDelta {
+func (r *Recorder) Snapshot(chatID string, st ledger.State) []ledger.FeedDelta {
 	return r.live.snapshot(chatID, st)
 }
 
@@ -138,7 +126,7 @@ func newLive() *live { return &live{byChat: map[string]map[liveKey]*liveBlock{}}
 
 // observe folds d into its stream: its whole text, when it began, and the feed
 // frame of what it added. A numbered stream has none: its rows carry it.
-func (l *live) observe(chatID, runnerID string, d LiveDelta, now time.Time) (string, time.Time, *FeedDelta) {
+func (l *live) observe(chatID, runnerID string, d LiveDelta, now time.Time) (string, time.Time, *ledger.FeedDelta) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	k := liveKey{runnerID: runnerID, turnID: d.TurnID, scope: d.Scope, id: d.ID, kind: d.Kind}
@@ -178,22 +166,22 @@ func (b *liveBlock) fold(d LiveDelta) {
 	}
 }
 
-func (k liveKey) feed(n int, text string, replace bool) FeedDelta {
+func (k liveKey) feed(n int, text string, replace bool) ledger.FeedDelta {
 	stream := k.kind
 	if stream == KindAnswer {
 		stream = StreamAnswer
 	}
-	return FeedDelta{ID: k.id, TurnID: k.turnID, Scope: k.scope, Stream: stream, N: n, Text: text, Replace: replace}
+	return ledger.FeedDelta{ID: k.id, TurnID: k.turnID, Scope: k.scope, Stream: stream, N: n, Text: text, Replace: replace}
 }
 
 // snapshot is a Replace frame of each of chatID's streams no row holds.
-func (l *live) snapshot(chatID string, st ledger.State) []FeedDelta {
+func (l *live) snapshot(chatID string, st ledger.State) []ledger.FeedDelta {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	blocks := l.byChat[chatID]
 	keys := slices.Collect(maps.Keys(blocks))
 	slices.SortFunc(keys, func(a, b liveKey) int { return blocks[a].order - blocks[b].order })
-	var out []FeedDelta
+	var out []ledger.FeedDelta
 	for _, k := range keys {
 		if b := blocks[k]; !b.numbered && b.n > 0 && !k.recorded(st) {
 			out = append(out, k.feed(b.n, b.text(k.kind), true))

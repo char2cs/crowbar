@@ -184,7 +184,6 @@ func specRoutes() []string {
 		// poll, and this mount resolves a workspace (chatScoped's own
 		// resolveChatWorktree) where the repo-wide list scope resolves none.
 		"GET " + chat + "/ws",
-		"GET " + chat + "/feed",
 		"GET " + chat + "/blobs/:ref",
 		// §2.10 Search, chat-scoped (chat-scoped API spec §4.2's SHARED bucket,
 		// §8 step 4c/6): the flat chat prefix is the only surface left; the old

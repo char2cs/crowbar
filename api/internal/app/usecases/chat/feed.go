@@ -9,7 +9,6 @@ import (
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
@@ -18,7 +17,7 @@ import (
 // The frame types a chat feed sends. A feed ends after a resync or a deleted.
 const (
 	feedRow     = "row"
-	feedReady   = "ready"
+	FeedReady   = "ready"
 	feedDelta   = "delta"
 	FeedResync  = "resync"
 	FeedDeleted = "deleted"
@@ -32,17 +31,13 @@ const feedCapacity = 1024
 const feedReplayPage = 512
 
 // FeedFrame is one frame on a chat feed. Row is set on "row", Delta on "delta",
-// Epoch and Seq on "ready", Seq on "resync".
+// Seq on "ready" and "resync".
 type FeedFrame struct {
-	Type  string      `json:"type"` // "row" | "ready" | "delta" | "resync" | "deleted"
-	Row   *ledger.Row `json:"row,omitempty"`
-	Epoch string      `json:"epoch,omitempty"`
-	Seq   int64       `json:"seq,omitempty"`
-	Delta *FeedDelta  `json:"delta,omitempty"`
+	Type  string            `json:"type"` // "row" | "ready" | "delta" | "resync" | "deleted"
+	Row   *ledger.Row       `json:"row,omitempty"`
+	Seq   int64             `json:"seq,omitempty"`
+	Delta *ledger.FeedDelta `json:"delta,omitempty"`
 }
-
-// FeedDelta is one frame of streamed text no row holds.
-type FeedDelta = ingress.FeedDelta
 
 func rowFrame(r ledger.Row) FeedFrame { return FeedFrame{Type: feedRow, Row: &r} }
 
@@ -122,7 +117,7 @@ func (u *Usecase) attachFeed(ctx context.Context, chatID string, since int64, em
 		}
 		after = rows[len(rows)-1].Seq
 	}
-	if !emit(FeedFrame{Type: feedReady, Epoch: u.epoch, Seq: head}) {
+	if !emit(FeedFrame{Type: FeedReady, Seq: head}) {
 		return ctx.Err()
 	}
 	for _, d := range u.recorder.Snapshot(chatID, st) {
@@ -206,7 +201,7 @@ func (f *feeds) rows(chatID string, rows []ledger.Row) {
 }
 
 // delta sends a frame of streamed text to chatID's feeds.
-func (f *feeds) delta(chatID string, d FeedDelta) {
+func (f *feeds) delta(chatID string, d ledger.FeedDelta) {
 	for _, s := range f.subs(chatID) {
 		s.offer(FeedFrame{Type: feedDelta, Delta: &d}, f.capacity)
 	}
