@@ -919,7 +919,6 @@ describe('AgentChatPane', () => {
       seedFeed('c1', [...spokenIn('c1'), exited])
       const store = seedWorkspace([dormantChat({ id: 'c1' })])
       await renderPane(store, openChatPane(store, 'c1', ''))
-
       expect(screen.getByTestId('agent-session-note')).toHaveTextContent(note)
     })
 
