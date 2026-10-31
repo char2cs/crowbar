@@ -10,18 +10,19 @@ export interface ChatHistory {
   hasOlder: boolean
 }
 
-// Keyed by chatId alone: the daemon mints chat ids as uuids, so they are
-// unique across hosts. Best-effort like every cache here: a failure is a miss.
+// Keyed by chatId (a uuid, unique across hosts) and tagged with its host so removing a
+// host can forget its transcripts. Best-effort like every cache here: a failure is a miss.
 
 export async function saveChatHistory(
   chatId: string,
   history: ChatHistory,
+  hostId: string,
   fetchedAt: number = Date.now(),
 ): Promise<void> {
   try {
     const db = await getDB()
     const tx = db.transaction('chat-history', 'readwrite')
-    await tx.store.put({ key: chatId, data: history, fetchedAt })
+    await tx.store.put({ key: chatId, data: history, fetchedAt, hostId })
     const excess = (await tx.store.count()) - CHAT_HISTORY_MAX_CHATS
     if (excess > 0) {
       let cursor = await tx.store.index('fetchedAt').openKeyCursor()
@@ -42,5 +43,20 @@ export async function loadChatHistory(chatId: string): Promise<ChatHistory | und
     return (await db.get('chat-history', chatId))?.data as ChatHistory | undefined
   } catch {
     return undefined
+  }
+}
+
+export async function deleteChatHistoryOfHost(hostId: string): Promise<void> {
+  try {
+    const db = await getDB()
+    const tx = db.transaction('chat-history', 'readwrite')
+    let cursor = await tx.store.index('hostId').openKeyCursor(hostId)
+    while (cursor) {
+      await tx.store.delete(cursor.primaryKey)
+      cursor = await cursor.continue()
+    }
+    await tx.done
+  } catch {
+    /* best-effort cache delete — ignore IDB failures */
   }
 }

@@ -1092,6 +1092,37 @@ describe('useSidebarDrag', () => {
       expect(strip.children[1]).toHaveProperty('style.transform', '')
     })
 
+    it('leaves no slide, transition or hidden tab behind when it unmounts mid-drag', () => {
+      const { strip, rows } = buildStrip()
+      const { result, unmount } = renderDrag({ scroller: strip, reorderInStrip: true })
+
+      press(result, chat('t0'), rows[0], 130, 16)
+      move(420, 16)
+      move(430, 16)
+      expect(strip.children[0]).toHaveProperty('style.visibility', 'hidden')
+      unmount()
+
+      for (const tab of Array.from(strip.children) as HTMLElement[]) {
+        expect([tab.style.transform, tab.style.transition, tab.style.visibility]).toEqual([
+          '',
+          '',
+          '',
+        ])
+      }
+    })
+
+    it('lets the strip be wheel-scrolled mid-drag, as it scrolls itself sideways', () => {
+      const { strip, rows } = buildStrip()
+      const { result } = renderDrag({ scroller: strip, reorderInStrip: true })
+
+      press(result, chat('t0'), rows[0], 130, 16)
+      move(300, 16)
+      const wheel = new WheelEvent('wheel', { cancelable: true })
+      strip.dispatchEvent(wheel)
+      expect(wheel.defaultPrevented).toBe(false)
+      release(300, 16)
+    })
+
     it('does nothing when the tab is released where it started', () => {
       const { strip, rows } = buildStrip()
       const { result, onDrop } = renderDrag({ scroller: strip, reorderInStrip: true })

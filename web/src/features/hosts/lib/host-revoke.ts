@@ -8,9 +8,20 @@ import { apiFetch } from '@/lib/api'
 import { ApiError } from '@/lib/api/errors'
 import { toast } from '@/features/window/stores/toast-store'
 
+// A host revokes once at a time: every list that offers the swipe shares one flow and one question.
+const inFlight = new Map<string, Promise<boolean>>()
+
+export function revokeHost(host: Host): Promise<boolean> {
+  const running = inFlight.get(host.id)
+  if (running) return running
+  const flow = runRevoke(host).finally(() => inFlight.delete(host.id))
+  inFlight.set(host.id, flow)
+  return flow
+}
+
 // The host's own DELETE (over its channel, never Local's) goes first: cleaning up here first
 // would drop the only credential that can ever revoke this client there. Whether the host went.
-export async function revokeHost(host: Host): Promise<boolean> {
+async function runRevoke(host: Host): Promise<boolean> {
   const confirmed = await primitiveConfirm(
     'To use it again you’ll need to run crowbar pair on it.',
     {

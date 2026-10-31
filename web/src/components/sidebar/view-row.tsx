@@ -70,7 +70,7 @@ export function RecentsViewRow({
   onFocus: (viewId: string) => void
   onClose: (viewId: string) => void
   drag: SidebarDrag
-  registerRow: (row: SidebarRowType) => void
+  registerRow: (row: SidebarRowType) => () => void
 }) {
   const members = useStore(
     windowPaneStore,
@@ -197,17 +197,16 @@ function RecentsMemberRow({
   separated: boolean
   onOpen: () => void
   drag: SidebarDrag
-  registerRow: (row: SidebarRowType) => void
+  registerRow: (row: SidebarRowType) => () => void
 }) {
   const row = useMemberRow(chatId, workspaceId, hasView)
 
   return (
     <div
       data-testid={`recents-row-${row.id}`}
-      // A ref callback, not a render-body call: render must stay pure.
-      ref={(el) => {
-        if (el) registerRow(row)
-      }}
+      // A ref callback, not a render-body call: render must stay pure. Its cleanup
+      // unregisters the row when the tab goes.
+      ref={(el) => (el ? registerRow(row) : undefined)}
       // Flex item: without `min-w-0 flex-1` it shrinks to its label. The
       // shell paints the hover, not the row.
       className={cn(

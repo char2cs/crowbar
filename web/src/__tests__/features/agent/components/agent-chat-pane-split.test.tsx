@@ -19,7 +19,10 @@ import type { AgentChat, AgentProvider } from '@/features/agent/api/agent-api'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
-const { getChatFn } = vi.hoisted(() => ({ getChatFn: vi.fn() }))
+const { getChatFn, resumeChatFn } = vi.hoisted(() => ({
+  getChatFn: vi.fn(),
+  resumeChatFn: vi.fn(),
+}))
 
 vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
   useEffectiveChordMap: () => ({}),
@@ -31,7 +34,7 @@ vi.mock('@/features/agent/api/agent-api', async (importOriginal) => {
     ...actual,
     getChat: (...a: unknown[]) => getChatFn(...a),
     switchProvider: vi.fn(),
-    resumeChat: vi.fn(),
+    resumeChat: (...a: unknown[]) => resumeChatFn(...a),
     listChatMessages: vi.fn(),
     submitAgentPrompt: vi.fn(),
     getSlashCatalog: vi.fn(),
@@ -322,7 +325,19 @@ describe('AgentChatPane — terminal controls', () => {
 
 describe('AgentChatPane — the split view', () => {
   beforeEach(() => {
+    resumeChatFn.mockReset()
+    resumeChatFn.mockResolvedValue('r')
     setSplitEnabled(true)
+  })
+
+  it('starts a dormant chat’s session when split shows its terminal', async () => {
+    const store = seed()
+    seedChats(store, [{ ...liveChat(), liveRunnerId: '', terminalSessionId: '' }])
+    await renderPane(store)
+
+    await choose('Split')
+
+    expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1')
   })
 
   it('is reachable from the chat’s own switcher', async () => {

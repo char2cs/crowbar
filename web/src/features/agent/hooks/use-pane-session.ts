@@ -5,6 +5,7 @@ import type { ComposerRevival } from '@/features/agent/composer/lib/composer-sta
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { describeDormant, describeRung, sessionView } from '@/features/agent/lib/session-status'
 import { useHostDotState } from '@/features/hosts/hooks/use-host-status'
+import { hostStatusOf } from '@/features/hosts/lib/host-status'
 import { hostIsUnreachable } from '@/features/hosts/lib/host-tone'
 import type { TerminalAttachment } from '@/features/agent/terminal/agent-terminal-surface'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
@@ -35,7 +36,11 @@ export interface PaneSession {
   canSend: boolean
   /** The chat's host does not answer: the pane shows what it last held, read-only. */
   offline: boolean
-  /** The terminal surface's "Start session": resume without sending. */
+  /**
+   * Resume without sending. Reads the chat and its host as they are when called, and does
+   * nothing unless the chat is known, dormant, and its host answers: every entry point
+   * onto the terminal may call it, and a stale caller cannot double-start a live chat.
+   */
   startSession: () => void
 }
 
@@ -98,10 +103,20 @@ export function usePaneSession({
         : undefined
 
   const startSession = useCallback(() => {
+    if (hostIsUnreachable(hostStatusOf(hostId))) return
+    const chat = store.getState().agentChats.chats.find((c) => c.id === chatId)
+    if (!chat) return
+    const view = sessionView({
+      known: true,
+      liveRunnerId: chat.liveRunnerId,
+      phase: chat.phase,
+      exitReason: chat.session?.exitReason ?? '',
+    })
+    if (view.state !== 'dormant') return
     void resumeChat(wsId, chatId).catch((err: unknown) => {
       toastSpawnFailure(err, providerName, 'resume')
     })
-  }, [wsId, chatId, providerName])
+  }, [store, hostId, wsId, chatId, providerName])
 
   return {
     known,

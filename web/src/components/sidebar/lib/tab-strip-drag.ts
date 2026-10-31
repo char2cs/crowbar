@@ -1,3 +1,4 @@
+import { createEdgeScroller } from '@/components/layout/edge-scroll'
 import {
   cloneGhostTab,
   ghostTransform,
@@ -62,7 +63,7 @@ function dropBeside(
 }
 
 const SLIDE_MS = 150
-const FALLBACK_TAB_PX = 160
+export const FALLBACK_TAB_PX = 160
 /** The gap an outside subject opens: every tab from the insertion index on makes room. */
 function gapOffsets(count: number, to: number, pitch: number): number[] {
   return Array.from({ length: count }, (_, i) => (i >= to ? pitch : 0))
@@ -103,10 +104,16 @@ export interface StripDrag {
 const distanceOutside = (v: number, lo: number, hi: number) =>
   v < lo ? lo - v : v > hi ? v - hi : 0
 
+const IDENTITY = /^translate\(0(px)?, 0(px)?\)$/
+
 const glide = (el: HTMLElement) => {
-  el.style.transition = `transform ${SLIDE_MS}ms ease-out`
+  // Already in place: no transition would run, so no transitionend would ever clear this one.
+  const inPlace = el.style.transform === '' || IDENTITY.test(el.style.transform)
+  el.style.transition = inPlace ? '' : `transform ${SLIDE_MS}ms ease-out`
   el.style.transform = ''
-  const done = () => {
+  if (inPlace) return
+  const done = (e: Event) => {
+    if (e.target !== el || (e as TransitionEvent).propertyName !== 'transform') return
     el.style.transition = ''
     el.removeEventListener('transitionend', done)
   }
@@ -152,8 +159,19 @@ export function createStripDrag(
   const subjectRect = subject.getBoundingClientRect()
   const margin = box.height
   const modelIsPinned = external && pinnedCount === tabs.length
-  const width = modelIsPinned ? FALLBACK_TAB_PX : shell.width
-  const pitch = modelIsPinned ? FALLBACK_TAB_PX + 4 : slots[model].width
+  // The shell sits inside its slot (the tab's own margin); every ghost edge below is a shell edge.
+  const inset = shell.left - slots[model].left
+  // Tabs share the strip equally between their min and max width, so a new one's slot is that
+  // share of the strip once it joins; with no px bounds on the tabs the model's own slot stands.
+  const bounds = getComputedStyle(tabs[model])
+  const lo = parseFloat(bounds.minWidth)
+  const hi = parseFloat(bounds.maxWidth)
+  const joined =
+    external && !modelIsPinned && Number.isFinite(lo) && Number.isFinite(hi)
+      ? Math.min(hi, Math.max(lo, stripRect.width / (tabs.length + 1)))
+      : null
+  const pitch = joined ?? (modelIsPinned ? FALLBACK_TAB_PX + 4 : slots[model].width)
+  const width = modelIsPinned ? FALLBACK_TAB_PX : pitch - 2 * inset
   // Held where the pointer took it, within the whole tab; an outside subject is held by its centre.
   const grab = external
     ? { dx: width / 2, dy: shell.height / 2 }
@@ -166,6 +184,16 @@ export function createStripDrag(
   let hidden = false
   let ghostAt: { x: number; y: number } | null = null
   let settling: HTMLElement | null = null
+
+  const edgeScroller = createEdgeScroller(
+    strip,
+    { left: box.left, width: box.right - box.left },
+    { onScrolled: () => undefined },
+  )
+  // Any scroll (edge-driven or the user's own wheel) moves the slots under a held pointer.
+  let last: { x: number; y: number; ghost: HTMLElement | null } | null = null
+  const onScroll = () => last && api.move(last.x, last.y, last.ghost)
+  strip.addEventListener('scroll', onScroll)
 
   for (const tab of tabs) tab.style.transition = `transform ${SLIDE_MS}ms ease-out`
 
@@ -185,10 +213,14 @@ export function createStripDrag(
     const reach = external
       ? {
           ...box,
-          left: Math.max(first, box.left - half),
-          right: Math.min(last, box.right - half) + width,
+          left: Math.max(first, box.left - half) + inset,
+          right: Math.min(last, box.right - half) + inset + width,
         }
-      : { ...box, left: Math.max(box.left, first), right: Math.min(box.right, last) }
+      : {
+          ...box,
+          left: Math.max(box.left, first) + inset,
+          right: Math.min(box.right, last) - inset,
+        }
     return clampTabLeft(x, grab.dx, width, reach)
   }
   const indexAt = (x: number, shift: number) => {
@@ -231,7 +263,7 @@ export function createStripDrag(
   function settleNewTab(x: number, at: { x: number; y: number }) {
     const to = indexFor(x)
     const left = slotsNow()[Math.min(to, tabs.length - 1)]
-    const finalLeft = to < tabs.length ? left.left : left.left + left.width
+    const finalLeft = (to < tabs.length ? left.left : left.left + left.width) + inset
     const known = new Set<Element>(tabs)
     const watch = new MutationObserver(() => {
       const added = Array.from(strip.children).find((c) => !known.has(c))
@@ -245,7 +277,7 @@ export function createStripDrag(
     requestAnimationFrame(() => watch.disconnect())
   }
 
-  return {
+  const api: StripDrag = {
     inBand,
     grab,
     position: ghostPosition,
@@ -254,7 +286,10 @@ export function createStripDrag(
       return cloneGhostTab(shellOf(tabs[from]) as HTMLElement)
     },
     move(x, y, ghost) {
+      last = { x, y, ghost }
       const now = inBand(x, y)
+      if (now) edgeScroller.update(x)
+      else edgeScroller.stop()
       // The source slot is an empty gap while its tab is in the strip, and the
       // usual faded row once the ghost has left it.
       if (!external && now !== hidden) tabs[from].style.visibility = now ? 'hidden' : ''
@@ -280,11 +315,13 @@ export function createStripDrag(
       const slot = slotsNow()[indexFor(x)]
       const tab = tabs[from]
       tab.style.transition = 'none'
-      tab.style.transform = `translate(${ghostAt.x - slot.left}px, ${ghostAt.y - shell.top}px)`
+      tab.style.transform = `translate(${ghostAt.x - slot.left - inset}px, ${ghostAt.y - shell.top}px)`
       settling = tab
       requestAnimationFrame(() => glide(tab))
     },
     dispose() {
+      edgeScroller.stop()
+      strip.removeEventListener('scroll', onScroll)
       for (const tab of tabs) {
         if (tab === settling) continue
         tab.style.transition = ''
@@ -293,4 +330,5 @@ export function createStripDrag(
       if (!external) tabs[from].style.visibility = ''
     },
   }
+  return api
 }

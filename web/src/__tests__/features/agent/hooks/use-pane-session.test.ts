@@ -139,6 +139,44 @@ describe('usePaneSession', () => {
     })
   })
 
+  describe('startSession', () => {
+    afterEach(() => {
+      resetHostWorld()
+      destroyHostRuntime('h1')
+    })
+
+    it('does not ask a host that does not answer', () => {
+      pairRemoteHost('h1')
+      getOrCreateHostRuntime('h1').getState().setStatus('down')
+      const { hook } = setup([{ id: 'c1' }], { hostId: 'h1' })
+
+      act(() => hook.result.current.startSession())
+
+      expect(resumeChatFn).not.toHaveBeenCalled()
+      expect(toastErrorFn).not.toHaveBeenCalled()
+    })
+
+    it('reads the chat as it is when called, not as it was when handed out', () => {
+      const { store, hook } = setup([{ id: 'c1' }])
+      const stale = hook.result.current.startSession
+      act(() => {
+        writeChat(store, { id: 'c1', liveRunnerId: 'r1', terminalSessionId: 'pty1' })
+      })
+
+      act(() => stale())
+
+      expect(resumeChatFn).not.toHaveBeenCalled()
+    })
+
+    it('does not resume a chat the list does not carry', () => {
+      const { hook } = setup([])
+
+      act(() => hook.result.current.startSession())
+
+      expect(resumeChatFn).not.toHaveBeenCalled()
+    })
+  })
+
   it('startSession asks the daemon to resume, and toasts a refusal', async () => {
     resumeChatFn.mockRejectedValue(new Error('no'))
     const { hook } = setup([{ id: 'c1' }])

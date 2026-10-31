@@ -12,8 +12,9 @@ const PAGE =
   ':root { --background: #fcfcfa; --muted: #f1f0ea; --foreground: #1b1b19; --muted-foreground: #666666; --brand-light: #606c38; --brand-dark: #98a86a; }'
 const CHROME_SURFACE =
   '.chrome-surface { --foreground: #f2f0ea; --primary: #98a86a; --primary-foreground: #1b1b19; }'
-const CONTROLS =
-  ':root, .chrome-surface { --control-surface: #fcfcfa; --control-foreground: #1b1b19; }'
+// Every theme.css theme defines the raised controls (Frosted: `var(--background)`), so they
+// cannot tell a dark sidebar from a plain one.
+const CONTROLS = ':root, .chrome-surface { --control-surface: var(--background); }'
 
 afterEach(() => {
   document.head.replaceChildren()
@@ -41,9 +42,14 @@ describe('readNativePalette', () => {
     })
   })
 
-  it('has no sidebar palette in a theme without raised controls', () => {
-    styleSheet(PAGE + CHROME_SURFACE)
+  it('has no sidebar palette where the sidebar keeps the plain chrome, as in Frosted light', () => {
+    styleSheet(PAGE + CONTROLS)
     expect(readNativePalette().sidebar).toBeNull()
+  })
+
+  it('sends every colour as one the phone parses, whatever CSS function the theme wrote it in', () => {
+    styleSheet(PAGE + ':root { --muted: hsl(60 20% 50%); --muted-foreground: rebeccapurple; }')
+    expect(readNativePalette()).toMatchObject({ raised: '#999966', secondaryText: '#663399' })
   })
 
   it('leaves no probe in the document', () => {

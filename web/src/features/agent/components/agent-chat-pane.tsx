@@ -24,6 +24,8 @@ import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-stor
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { usePaneProviders } from '@/features/agent/hooks/use-pane-providers'
+import { hostStatusOf } from '@/features/hosts/lib/host-status'
+import { hostIsUnreachable } from '@/features/hosts/lib/host-tone'
 import { usePaneSession } from '@/features/agent/hooks/use-pane-session'
 import { useChatAttachment } from '@/features/agent/hooks/use-chat-attachment'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
@@ -595,13 +597,16 @@ export function AgentChatPaneBody({
     const hotswap = chatProvider ? chatProvider.hotswap === true : true
     if (hotswap || onTerminalSurface) {
       setPresentation('terminal')
+      startSession()
       return
     }
+    // The move is a request to the chat's host; asked of a host that does not answer it can only fail.
+    if (hostIsUnreachable(hostStatusOf(hostId))) return
     void (async () => {
       try {
         await switchToTerminal(wsId, shownChatId)
         // A dormant chat only records the move; its start is what lands on the TUI.
-        if (attachment.state === 'idle') startSession()
+        startSession()
         setPresentation('terminal')
       } catch (err: unknown) {
         // Left where they were: a view that never came up is worse than
@@ -691,10 +696,7 @@ export function AgentChatPaneBody({
     const chatProvider = providers.find((p) => p.id === activeProviderId)
     const hotswap = chatProvider ? chatProvider.hotswap === true : true
     if (hotswap || next === presentation) {
-      // Asking for the TUI of a dormant chat is the intent to run it; no second button.
-      if (next === 'terminal' && presentation !== 'terminal' && attachment.state === 'idle') {
-        startSession()
-      }
+      if (next !== 'chat') startSession()
       setPresentation(next)
       return
     }
@@ -714,6 +716,7 @@ export function AgentChatPaneBody({
       })()
       return
     }
+    if (next === 'split') startSession()
     setPresentation(next)
   }
 
@@ -1111,6 +1114,7 @@ export function AgentChatPaneBody({
             terminalRef={terminalApiRef}
 
             onStartSession={startSession}
+            offline={offline}
           />
         </div>
 

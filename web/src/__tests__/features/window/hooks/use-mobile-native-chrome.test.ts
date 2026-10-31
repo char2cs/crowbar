@@ -59,9 +59,9 @@ describe('useMobileNativeChrome', () => {
     renderHook(() => useMobileNativeChrome(workspaces))
     expect(chrome.models.at(-1)?.palette).toEqual({
       surface: '#fcfcfa',
-      raised: 'oklch(0 0 0 / 4%)',
+      raised: '#0000000a',
       text: '#1b1b19',
-      secondaryText: 'oklch(0.4 0 0)',
+      secondaryText: '#484848',
       brandLight: '#606c38',
       brandDark: '#98a86a',
       sidebar: null,

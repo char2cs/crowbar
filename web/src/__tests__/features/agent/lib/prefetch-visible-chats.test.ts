@@ -86,12 +86,16 @@ describe('prefetchVisibleChats', () => {
   })
 
   it('keeps the ledger of a failed prefetch when it holds a cached transcript', async () => {
-    await saveChatHistory('c1', {
-      messages: [
-        { turnId: 't1', sequence: 1, role: 'user', providerId: '', text: 'hi', at: '2026-08-24' },
-      ],
-      hasOlder: false,
-    })
+    await saveChatHistory(
+      'c1',
+      {
+        messages: [
+          { turnId: 't1', sequence: 1, role: 'user', providerId: '', text: 'hi', at: '2026-08-24' },
+        ],
+        hasOlder: false,
+      },
+      'local',
+    )
     listChatMessagesFn.mockRejectedValue(new Error('down'))
     actions().openChat('c1', { workspaceId: 'ws-a' })
 

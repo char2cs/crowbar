@@ -90,7 +90,7 @@ const RETIRED_V12 = [
 ]
 
 async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
-  return openDB<CrowbarDB>('crowbar', 12, {
+  return openDB<CrowbarDB>('crowbar', 13, {
     upgrade(db, oldVersion, _newVersion, transaction) {
       // Retired stores are no longer in CrowbarDB; the upgrade chain still
       // creates and then drops them, so it goes through the untyped handle.
@@ -176,6 +176,14 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
         // Retired: declared but never read or written by anything.
         for (const name of RETIRED_V12) {
           if (raw.objectStoreNames.contains(name)) raw.deleteObjectStore(name)
+        }
+      }
+      if (oldVersion < 13) {
+        // Earlier rows name no host, so no host removal could find them: a cache, refetched.
+        if (db.objectStoreNames.contains('chat-history')) {
+          const store = transaction.objectStore('chat-history')
+          void store.clear()
+          store.createIndex('hostId', 'hostId')
         }
       }
     },

@@ -92,8 +92,8 @@ describe('entity-cache', () => {
 
   it("removing a chat row also removes its cached transcript, and only that chat's", async () => {
     await upsertEntity('crowbar_chats', { id: 'c1' })
-    await saveChatHistory('c1', { messages: [], hasOlder: false })
-    await saveChatHistory('c2', { messages: [], hasOlder: false })
+    await saveChatHistory('c1', { messages: [], hasOlder: false }, 'local')
+    await saveChatHistory('c2', { messages: [], hasOlder: false }, 'local')
 
     await removeEntity('crowbar_chats', 'c1')
 
