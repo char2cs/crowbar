@@ -103,6 +103,9 @@ describe('applyRow', () => {
     for (const row of rows.slice(2)) {
       feed = applyRow(feed, row)
       expect(shown(feed)).toEqual(want)
+      // A settled text stops following its stream, so it must hold the words itself.
+      const item = feed.items[text] as TextItem
+      if (item.settled) expect(item.text).toMatch(/^1\. Apple/)
     }
   })
 

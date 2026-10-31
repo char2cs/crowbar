@@ -1,5 +1,5 @@
 import { mapChoice } from '@/features/agent/api/agent-chat-activity'
-import type { FeedDelta, LedgerRow, PlanItem, RowKind } from '@/features/agent/api/chat-rows'
+import type { FeedDelta, LedgerRow, RowKind } from '@/features/agent/api/chat-rows'
 import { applyDelta, fuller, textOf } from '@/features/agent/stores/lib/fold-live'
 import {
   applyPromptSettled,
@@ -10,10 +10,12 @@ import {
 } from '@/features/agent/stores/lib/fold-prompts'
 import {
   askItemId,
+  liveKey,
   markerItemId,
   textItemId,
   toolItemId,
   toolStatus,
+  upsertPlan,
   type AskItem,
   type ChatFeed,
   type MarkerName,
@@ -151,10 +153,16 @@ export class FeedFold {
     return turn !== '' && item?.kind === 'marker' && item.turnId === turn
   }
 
-  /** Moves `turn`'s streamed text into the order, above the turn's end. */
+  /** Moves `turn`'s streamed text into the order, above the turn's end, holding
+   *  the words streamed so far: settled text no longer follows its stream. */
   placeLive(turn: string) {
-    for (const id of this.liveTail ?? this.base.liveTail)
-      if (this.item(id)?.turnId === turn) this.place(id, '')
+    for (const id of this.liveTail ?? this.base.liveTail) {
+      const item = this.item(id)
+      if (item?.kind !== 'text' || item.turnId !== turn) continue
+      const live = this.base.live[liveKey('answer', item.messageId)] ?? ''
+      this.put({ ...item, text: fuller(item.text, live) })
+      this.place(id, '')
+    }
   }
 
   placed(id: string) {
@@ -439,23 +447,13 @@ const applySubagent: Apply<'subagent'> = (fold, row) => {
   fold.set('liveSubagents', live)
 }
 
-function upsert(items: PlanItem[], next: PlanItem[]): PlanItem[] {
-  const out = [...items]
-  for (const item of next) {
-    const at = item.id ? out.findIndex((other) => other.id === item.id) : -1
-    if (at >= 0) out[at] = item
-    else out.push(item)
-  }
-  return out
-}
-
 const applyPlan: Apply<'plan'> = (fold, row) => {
   const scope = row.scope ?? ''
   const { op, items } = row.body
   const current = fold.facts.plan[scope] ?? []
   fold.set('plan', {
     ...fold.facts.plan,
-    [scope]: op === 'replace' ? items : upsert(current, items),
+    [scope]: op === 'replace' ? items : upsertPlan(current, items),
   })
 }
 

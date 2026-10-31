@@ -39,6 +39,17 @@ export function toolStatus(body: RowBodies['tool_call'], prev: ToolStatus | unde
   return prev ?? 'running'
 }
 
+/** `items` with each of `next` replacing the item of its id, or appended. */
+export function upsertPlan(items: PlanItem[], next: PlanItem[]): PlanItem[] {
+  const out = [...items]
+  for (const item of next) {
+    const at = item.id ? out.findIndex((other) => other.id === item.id) : -1
+    if (at >= 0) out[at] = item
+    else out.push(item)
+  }
+  return out
+}
+
 export interface ToolItem extends ItemBase {
   kind: 'tool'
   toolId: string
