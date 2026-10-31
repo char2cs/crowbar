@@ -76,9 +76,9 @@ type sessionEntry struct {
 	lastActive time.Time
 }
 
-// effects are the callbacks a transition owes the outside world. They are collected under
-// the entry lock and run after it is released, so no callback can ever re-enter the engine
-// while it holds a lifecycle lock.
+// effects are the callbacks a transition owes its caller (a command session's onExit).
+// They are collected under the entry lock and run after it is released, so no callback
+// can ever re-enter the engine while it holds a lifecycle lock.
 type effects []func()
 
 func (fx effects) run() {
@@ -461,13 +461,13 @@ func (e *terminalEngine) endLocked(ctx context.Context, ent *sessionEntry, to se
 	}
 	ent.sess.Store(nil)
 	ent.blob = nil
-	return append(fx, func() { e.fireEnded(ctx, ent.chatID, ent.id, exitCode) })
+	return fx
 }
 
 // restoreLocked moves a Suspended entry to Live by spawning a fresh shell from its saved
 // screen. A saved cwd that no longer exists falls back to the home directory with an
-// on-screen notice. A session that cannot be re-spawned even then is Removed (and reported
-// ended) rather than left to fail every future Attach; one refused because the engine is
+// on-screen notice. A session that cannot be re-spawned even then is Removed
+// rather than left to fail every future Attach; one refused because the engine is
 // shutting down stays Suspended, so the next daemon start restores it. Caller holds ent.mu.
 func (e *terminalEngine) restoreLocked(ctx context.Context, ent *sessionEntry) (effects, error) {
 	if err := e.admit(); err != nil {
@@ -486,20 +486,20 @@ func (e *terminalEngine) restoreLocked(ctx context.Context, ent *sessionEntry) (
 	e.startReaper(ctx, ent, s)
 	e.reaps.settle(true)
 	e.saveMeta(ctx, ent, "detached")
-	return effects{func() { e.fireState(ctx, ent.chatID, ent.id, "detached") }}, nil
+	return nil, nil
 }
 
 // suspendLocked moves a Live, eligible entry to Suspended: it serializes the screen,
 // persists it (.buf, then a "suspended" meta row), and only then kills the process. If the
 // screen cannot be persisted the session stays Live — a suspended session with no .buf
 // would restore blank. Caller holds ent.mu.
-func (e *terminalEngine) suspendLocked(ctx context.Context, ent *sessionEntry, force bool) effects {
+func (e *terminalEngine) suspendLocked(ctx context.Context, ent *sessionEntry, force bool) {
 	if ent.state != stateLive || ent.command {
-		return nil
+		return
 	}
 	s := ent.sess.Load()
 	if !s.SuspendEligible(force) {
-		return nil
+		return
 	}
 	var blob []byte
 	if force && !s.IsIdle() {
@@ -513,10 +513,9 @@ func (e *terminalEngine) suspendLocked(ctx context.Context, ent *sessionEntry, f
 	}
 	if err := e.writeBuf(ctx, ent, blob); err != nil {
 		slog.Warn("terminal: suspend: keeping session live, screen not persisted", "session", ent.id, "err", err)
-		return nil
+		return
 	}
 	e.parkLocked(ctx, ent, s, blob)
-	return effects{func() { e.fireState(ctx, ent.chatID, ent.id, "suspended") }}
 }
 
 // parkLocked completes a Live → Suspended transition whose screen blob has already been
@@ -597,9 +596,8 @@ func (e *terminalEngine) suspend(ctx context.Context, sid string, force bool) {
 		return
 	}
 	ent.mu.Lock()
-	fx := e.suspendLocked(ctx, ent, force)
+	e.suspendLocked(ctx, ent, force)
 	ent.mu.Unlock()
-	fx.run()
 }
 
 // Shutdown ends every session and deregisters it, then BLOCKS until every reaper has

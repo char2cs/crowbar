@@ -275,39 +275,6 @@ func TestEngine_ListSessionsForChat(t *testing.T) {
 	require.NoError(t, eng.Kill(ctx, sid))
 }
 
-func TestEngine_OnSessionEnded_FiresOnReap(t *testing.T) {
-	eng := terminal.New()
-	terminal.StopMaintenanceForTest(eng)
-	ctx := context.Background()
-	dir := t.TempDir()
-
-	type ended struct {
-		chatID   string
-		sid      string
-		exitCode int
-	}
-	endedCh := make(chan ended, 1)
-	eng.OnSessionEnded(func(_ context.Context, chatID, sid string, exitCode int) {
-		endedCh <- ended{chatID: chatID, sid: sid, exitCode: exitCode}
-	})
-
-	sid, err := eng.Create(ctx, "chat-a", dir, nil)
-	require.NoError(t, err)
-
-	// Kill triggers the PTY exit, which reapOnDone observes and reports via the
-	// OnSessionEnded callback. Synchronise on the callback channel, never sleep.
-	require.NoError(t, eng.Kill(ctx, sid))
-
-	// Block on the real signal — the callback firing. A hand-rolled deadline would only be
-	// a second, weaker definition of "too slow"; a callback that never fires is a hang, and
-	// `go test -timeout` reports it with the blocked stack.
-	got := <-endedCh
-	assert.Equal(t, "chat-a", got.chatID)
-	assert.Equal(t, sid, got.sid)
-	// exitCode is -1 when killed by signal; any integer is valid here.
-	_ = got.exitCode
-}
-
 func TestEngine_Kill_Unknown(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
@@ -843,7 +810,7 @@ func TestEngine_Suspend_WithConnectedClient_NoOp(t *testing.T) {
 //   - the session still exists in the registry (as a placeholder)
 //   - a .buf file is written to disk
 //   - meta is saved with state="suspended"
-//   - the onEnded callback is NOT fired
+//   - its reaper does not clean the .buf and row up as if the session had ended
 func TestEngine_Suspend_MakesPlaceholder(t *testing.T) {
 	pinShell(t)
 
@@ -853,16 +820,6 @@ func TestEngine_Suspend_MakesPlaceholder(t *testing.T) {
 	dir := t.TempDir()
 	store := newFakeMetaStore(t)
 	eng.SetMetaStore(store)
-
-	// A channel (not a plain bool) so the negative assertion below can observe the
-	// callback without a data race under -race.
-	endedCh := make(chan struct{}, 1)
-	eng.OnSessionEnded(func(_ context.Context, _, _ string, _ int) {
-		select {
-		case endedCh <- struct{}{}:
-		default:
-		}
-	})
 
 	// The shell is parked at its prompt, hence idle, which is the precondition Suspend's
 	// eligibility gate checks. So ONE call must take — no retry loop.
@@ -874,22 +831,11 @@ func TestEngine_Suspend_MakesPlaceholder(t *testing.T) {
 	assert.True(t, eng.SessionExists(ctx, sid), "suspended session must still be in registry")
 	assert.True(t, bufExists(store.dir, sid), ".buf must exist after suspend")
 
-	// Negative assertion: a suspended session must NOT fire onEnded. The thing that could
-	// wrongly fire it is the suspended session's reapOnDone goroutine — which must observe the
-	// placeholder swap and return without firing. So the barrier is to JOIN that goroutine:
-	// Shutdown drains every outstanding reaper before returning, after which the set of
-	// onEnded fires is final and closed.
-	//
-	// That is a real barrier, where the 300 ms window it replaces was a guess. The window did
-	// not prove the callback never fires; it proved it had not fired YET, and would have
-	// passed just as happily if the reaper were merely slow.
+	// The killed process's reaper must not clean up as if the session ended; Shutdown
+	// joins it, so what survives afterwards is final.
 	eng.Shutdown()
-
-	select {
-	case <-endedCh:
-		t.Fatal("onEnded must NOT fire for a suspended session")
-	default:
-	}
+	assert.True(t, bufExists(store.dir, sid), ".buf must survive the suspended process's reap")
+	assert.True(t, store.hasLiveRow(sid), "the suspended row must survive the reap")
 }
 
 // TestEngine_Suspend_ThenAttach_Restores verifies that attaching to a suspended
@@ -957,7 +903,7 @@ func TestEngine_Suspend_ThenAttach_Restores(t *testing.T) {
 }
 
 // TestEngine_Kill_CleanReap verifies that Kill triggers a full reap: session removed
-// from registry, meta deleted, .buf deleted, and onEnded fired exactly once.
+// from registry, meta deleted, .buf deleted.
 func TestEngine_Kill_CleanReap(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
@@ -965,9 +911,6 @@ func TestEngine_Kill_CleanReap(t *testing.T) {
 	dir := t.TempDir()
 	store := newFakeMetaStore(t)
 	eng.SetMetaStore(store)
-
-	endedCh := make(chan string, 1)
-	eng.OnSessionEnded(func(_ context.Context, _, sid string, _ int) { endedCh <- sid })
 
 	sid, err := eng.Create(ctx, "chat-kill", dir, nil)
 	require.NoError(t, err)
@@ -977,9 +920,8 @@ func TestEngine_Kill_CleanReap(t *testing.T) {
 	require.NoError(t, os.WriteFile(bufFile, []byte("scrollback"), 0o644))
 
 	require.NoError(t, eng.Kill(ctx, sid))
-
-	// Block on reapOnDone firing the callback — the real signal.
-	assert.Equal(t, sid, <-endedCh)
+	// Shutdown joins the reaper, so its cleanup has run by the assertions below.
+	eng.Shutdown()
 
 	assert.False(t, eng.SessionExists(ctx, sid), "session must be absent after kill")
 	assert.True(t, store.hasDeleted(sid), "meta must be deleted by reapOnDone")
@@ -987,7 +929,7 @@ func TestEngine_Kill_CleanReap(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// StateOf + OnSessionState tests (lifecycle state wire-protocol — Phase 2 TDD)
+// StateOf tests (lifecycle state wire-protocol)
 // ---------------------------------------------------------------------------
 
 // TestEngine_StateOf_ReturnsStateForLiveSession verifies StateOf returns
@@ -1051,47 +993,10 @@ func TestEngine_StateOf_ActiveWhileAttached(t *testing.T) {
 	require.NoError(t, eng.Kill(ctx, sid))
 }
 
-// TestEngine_OnSessionState_DetachedFiredOnLastClientLeave verifies that the
-// OnSessionState callback receives "detached" when the last client disconnects.
-func TestEngine_OnSessionState_DetachedFiredOnLastClientLeave(t *testing.T) {
-	eng := terminal.New()
-	terminal.StopMaintenanceForTest(eng)
-	ctx := context.Background()
-	dir := t.TempDir()
-
-	stateCh := make(chan string, 4)
-	eng.OnSessionState(func(_ context.Context, _, _, state string) {
-		stateCh <- state
-	})
-
-	sid, err := eng.Create(ctx, "chat-detach-state", dir, nil)
-	require.NoError(t, err)
-
-	conn := newMockConn()
-	attachDone := make(chan struct{})
-	go func() {
-		defer close(attachDone)
-		_ = eng.Attach(ctx, sid, conn)
-	}()
-
-	// blocks on the fan-out signal — must receive initial output before closing
-	waitForMsg(t, conn, func(d string) bool { return len(d) > 0 })
-
-	_ = conn.Close()
-	<-attachDone
-
-	assert.Equal(t, "detached", <-stateCh,
-		"OnSessionState must fire 'detached' after the last client disconnects")
-
-	require.NoError(t, eng.Kill(ctx, sid))
-}
-
-// TestRegression_TerminalLifecycle_StateOf_And_OnSessionState is the regression
-// test for the lifecycle wire-protocol data path (Phase 2): the engine's
-// StateOf must reflect the session's actual state, and the OnSessionState
-// callback must fire "detached" after last-client disconnect and "suspended"
-// after Suspend.
-func TestRegression_TerminalLifecycle_StateOf_And_OnSessionState(t *testing.T) {
+// TestRegression_TerminalLifecycle_StateOf pins the lifecycle wire-protocol data path:
+// StateOf must reflect the session's actual state through attach, last-client
+// detach, Suspend and Kill.
+func TestRegression_TerminalLifecycle_StateOf(t *testing.T) {
 	pinShell(t)
 
 	eng := terminal.New()
@@ -1100,16 +1005,6 @@ func TestRegression_TerminalLifecycle_StateOf_And_OnSessionState(t *testing.T) {
 	dir := t.TempDir()
 	store := newFakeMetaStore(t)
 	eng.SetMetaStore(store)
-
-	stateCh := make(chan string, 8)
-	eng.OnSessionState(func(_ context.Context, _, _, state string) {
-		stateCh <- state
-	})
-
-	endedCh := make(chan int, 1)
-	eng.OnSessionEnded(func(_ context.Context, _, _ string, exitCode int) {
-		endedCh <- exitCode
-	})
 
 	// Create → should be detached (no clients). Block until the shell is at its prompt, so the
 	// Suspend later in this test meets the idle gate its eligibility check applies.
@@ -1133,33 +1028,28 @@ func TestRegression_TerminalLifecycle_StateOf_And_OnSessionState(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, "active", state, "session must be active while client is attached")
 
-	// Detach client → "detached" + callback fires.
+	// Detach client → "detached", persisted as such.
 	_ = conn.Close()
 	<-attachDone
-
-	assert.Equal(t, "detached", <-stateCh,
-		"OnSessionState must fire 'detached' on last-client leave")
+	require.True(t, store.hasSavedWithState(sid, "detached"),
+		"the last client leaving persists a detached row")
 
 	state, ok = eng.StateOf(sid)
 	assert.True(t, ok)
 	assert.Equal(t, "detached", state)
 
-	// Suspend → "suspended" + callback fires. The shell is at its prompt (idle) and now
+	// Suspend → "suspended". The shell is at its prompt (idle) and now
 	// detached, so Suspend's eligibility gate is satisfied and ONE call must take.
 	require.NoError(t, eng.Suspend(ctx, sid))
 	require.True(t, store.hasSavedWithState(sid, "suspended"),
 		"Suspend persists the suspended meta before returning")
 
-	assert.Equal(t, "suspended", <-stateCh,
-		"OnSessionState must fire 'suspended' after Suspend")
-
 	state, ok = eng.StateOf(sid)
 	assert.True(t, ok)
 	assert.Equal(t, "suspended", state)
 
-	// Kill the placeholder → "ended" via OnSessionEnded.
+	// Kill the placeholder → gone.
 	require.NoError(t, eng.Kill(ctx, sid))
-
-	// Placeholder kill → exit code -1 (no process).
-	assert.Equal(t, -1, <-endedCh, "placeholder kill must report exitCode -1")
+	_, ok = eng.StateOf(sid)
+	assert.False(t, ok, "a killed placeholder leaves the registry")
 }

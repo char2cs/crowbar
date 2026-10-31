@@ -109,7 +109,6 @@ func (e *terminalEngine) persistOnDetach(ctx context.Context, ent *sessionEntry,
 	}
 	e.saveMeta(ctx, ent, "detached")
 	ent.mu.Unlock()
-	e.fireState(ctx, ent.chatID, ent.id, "detached")
 }
 
 // flushOnce persists one live shell's screen if it changed since the last flush.
@@ -225,9 +224,8 @@ func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 
 func (e *terminalEngine) suspendEntry(ctx context.Context, ent *sessionEntry, force bool) {
 	ent.mu.Lock()
-	fx := e.suspendLocked(ctx, ent, force)
+	e.suspendLocked(ctx, ent, force)
 	ent.mu.Unlock()
-	fx.run()
 }
 
 // underCeiling counts EVERY registered session — live and suspended alike — and sums

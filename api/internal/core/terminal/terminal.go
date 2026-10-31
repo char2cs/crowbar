@@ -162,23 +162,6 @@ type Engine interface {
 		chatID string,
 	) []string
 
-	// OnSessionEnded registers the callback invoked when a session ends for good
-	// (a Kill, a PTY self-exit, an eviction, an unrestorable restore, or the
-	// Shutdown of a command session). It fires exactly once per session, never
-	// under an engine lock, so the lifecycle topic can emit an "ended" frame.
-	// exitCode is the process exit code; -1 if unknown (killed by signal, or the
-	// session was suspended with no process).
-	OnSessionEnded(
-		fn func(ctx context.Context, chatID, sessionID string, exitCode int),
-	)
-
-	// OnSessionState registers the callback invoked when a session transitions
-	// to "detached" (last client disconnects or post-restore) or "suspended".
-	// The most recent registration wins.
-	OnSessionState(
-		fn func(ctx context.Context, chatID, sessionID, state string),
-	)
-
 	// StateOf returns the current state string ("active", "detached", or
 	// "suspended") for the given session ID and true. Returns ("", false) when
 	// the session does not exist in the registry.
@@ -313,8 +296,6 @@ type terminalEngine struct {
 	byChat  map[string]map[string]*sessionEntry
 
 	cbMu      sync.RWMutex
-	onEnded   func(ctx context.Context, chatID, sessionID string, exitCode int)
-	onState   func(ctx context.Context, chatID, sessionID, state string)
 	metaStore SessionMetaStore
 
 	// themeMu guards the host theme. themeBg/themeFg are the HOST TERMINAL's default
@@ -383,26 +364,6 @@ func (e *terminalEngine) hostTheme() (bg, fg color.Color) {
 	return e.themeBg, e.themeFg
 }
 
-// OnSessionEnded registers the termination callback. The most recent registration wins.
-func (e *terminalEngine) OnSessionEnded(
-	fn func(ctx context.Context, chatID, sessionID string, exitCode int),
-) {
-	e.cbMu.Lock()
-	e.onEnded = fn
-	e.cbMu.Unlock()
-}
-
-// OnSessionState registers the state-transition callback. The most recent registration
-// wins. Fires on "detached" (last-client detach or post-restore) and "suspended". Does
-// not fire for "ended" — use OnSessionEnded for that.
-func (e *terminalEngine) OnSessionState(
-	fn func(ctx context.Context, chatID, sessionID, state string),
-) {
-	e.cbMu.Lock()
-	e.onState = fn
-	e.cbMu.Unlock()
-}
-
 // SetMetaStore injects the durable session-metadata store. The most recent call wins;
 // nil removes it, and every meta helper no-ops without one.
 func (e *terminalEngine) SetMetaStore(
@@ -411,22 +372,4 @@ func (e *terminalEngine) SetMetaStore(
 	e.cbMu.Lock()
 	e.metaStore = s
 	e.cbMu.Unlock()
-}
-
-func (e *terminalEngine) fireEnded(ctx context.Context, chatID, sessionID string, exitCode int) {
-	e.cbMu.RLock()
-	fn := e.onEnded
-	e.cbMu.RUnlock()
-	if fn != nil {
-		fn(ctx, chatID, sessionID, exitCode)
-	}
-}
-
-func (e *terminalEngine) fireState(ctx context.Context, chatID, sessionID, state string) {
-	e.cbMu.RLock()
-	fn := e.onState
-	e.cbMu.RUnlock()
-	if fn != nil {
-		fn(ctx, chatID, sessionID, state)
-	}
 }

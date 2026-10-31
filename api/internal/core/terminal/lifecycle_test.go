@@ -70,18 +70,16 @@ func TestRestore_CWDFallback_SpawnsInHomeWhenSavedDirGone(t *testing.T) {
 	_ = eng.Kill(ctx, "ph-cwd")
 }
 
-// TestRestore_BadShell_RemovesAndReportsEnded: a suspended session that cannot be
-// re-spawned (its shell binary is gone) is Removed — registry entry, .buf and meta row all
-// deleted, ended fired once — so an Attach can never loop forever on a doomed restore.
-func TestRestore_BadShell_RemovesAndReportsEnded(t *testing.T) {
+// TestRestore_BadShell_Removes: a suspended session that cannot be re-spawned (its shell
+// binary is gone) is Removed — registry entry, .buf and meta row all deleted — so an
+// Attach can never loop forever on a doomed restore.
+func TestRestore_BadShell_Removes(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
 	defer eng.Shutdown()
 	ctx := context.Background()
 	store := newFakeMetaStore(t)
 	eng.SetMetaStore(store)
-	ledger := newEndedLedger()
-	eng.OnSessionEnded(ledger.onEnded)
 
 	require.NoError(t, os.WriteFile(filepath.Join(store.dir, "ph-bad.buf"), []byte("x"), 0o644))
 	require.NoError(t, store.Save(ctx, terminal.SessionMeta{SessionID: "ph-bad", State: "suspended"}))
@@ -93,8 +91,6 @@ func TestRestore_BadShell_RemovesAndReportsEnded(t *testing.T) {
 	assert.False(t, eng.SessionExists(ctx, "ph-bad"), "no infinite Attach retry")
 	assert.False(t, bufExists(store.dir, "ph-bad"), "persisted .buf must be deleted")
 	assert.False(t, store.hasLiveRow("ph-bad"), "meta row must be deleted")
-	ended, _ := ledger.counts("ph-bad")
-	assert.Equal(t, 1, ended, "ended must fire once so the FE drops the dead tab")
 }
 
 // TestAttach_ExitFrameOnSelfExit pins B4: a PTY exit reaches the attached client as an

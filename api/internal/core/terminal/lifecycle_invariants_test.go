@@ -6,7 +6,7 @@ package terminal_test
 // public Engine surface and driven by sequences of operations rather than one hand-picked
 // interleaving each. They exist because the engine's history is a list of fixes for
 // interleavings nobody wrote down (resurrection after self-exit, a double reap, an evict
-// that never said "ended"); a randomized sequence finds the next one before a user does.
+// that left its files behind); a randomized sequence finds the next one before a user does.
 
 import (
 	"context"
@@ -22,30 +22,15 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
-// endedLedger counts OnSessionEnded and onExit deliveries per session id.
-type endedLedger struct {
-	mu     sync.Mutex
-	ended  map[string]int
-	exits  map[string]int
-	signal chan string // every ended id, in order (buffered generously)
+// exitLedger counts onExit deliveries per session id.
+type exitLedger struct {
+	mu    sync.Mutex
+	exits map[string]int
 }
 
-func newEndedLedger() *endedLedger {
-	return &endedLedger{
-		ended:  make(map[string]int),
-		exits:  make(map[string]int),
-		signal: make(chan string, 4096),
-	}
-}
+func newExitLedger() *exitLedger { return &exitLedger{exits: make(map[string]int)} }
 
-func (l *endedLedger) onEnded(_ context.Context, _, sid string, _ int) {
-	l.mu.Lock()
-	l.ended[sid]++
-	l.mu.Unlock()
-	l.signal <- sid
-}
-
-func (l *endedLedger) onExit(sid *string) func(terminal.Exit) {
+func (l *exitLedger) onExit(sid *string) func(terminal.Exit) {
 	return func(terminal.Exit) {
 		l.mu.Lock()
 		defer l.mu.Unlock()
@@ -53,29 +38,18 @@ func (l *endedLedger) onExit(sid *string) func(terminal.Exit) {
 	}
 }
 
-func (l *endedLedger) counts(sid string) (ended, exits int) {
+func (l *exitLedger) exitsOf(sid string) int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.ended[sid], l.exits[sid]
+	return l.exits[sid]
 }
 
-// waitEnded blocks until sid's ended event has been delivered.
-func (l *endedLedger) waitEnded(t *testing.T, sid string) {
+// waitGone blocks until sid has left the registry and its .buf and meta row are deleted.
+func waitGone(t *testing.T, eng terminal.Engine, store *fakeMetaStore, sid string) {
 	t.Helper()
-	if n, _ := l.counts(sid); n > 0 {
-		return
-	}
-	timeout := time.After(10 * time.Second)
-	for {
-		select {
-		case got := <-l.signal:
-			if got == sid {
-				return
-			}
-		case <-timeout:
-			t.Fatalf("session %s never reported ended", sid)
-		}
-	}
+	require.Eventually(t, func() bool {
+		return !eng.SessionExists(context.Background(), sid) && !store.hasLiveRow(sid) && !bufExists(store.dir, sid)
+	}, 10*time.Second, 5*time.Millisecond, "session %s never ended", sid)
 }
 
 // closingConn is a WSConn whose client "leaves" the moment it sees its first frame (the
@@ -108,15 +82,12 @@ func (c *closingConn) SetWriteDeadline(time.Time) error { return nil }
 // TestInvariant_B2_NoResurrectionAfterSelfExit pins P0-5: an Attach that lands between a
 // shell's exit and its reap must never spawn a replacement under the same id. Before the
 // explicit state machine, a dead-but-still-registered session read as "a placeholder" and
-// was "restored" — a fresh shell under the old id — and the reaper, seeing a different
-// session registered, then skipped the ended event entirely.
+// was "restored" — a fresh shell under the old id.
 func TestInvariant_B2_NoResurrectionAfterSelfExit(t *testing.T) {
 	pinShell(t)
 	for round := 0; round < 15; round++ {
 		eng := terminal.New()
 		terminal.StopMaintenanceForTest(eng)
-		ledger := newEndedLedger()
-		eng.OnSessionEnded(ledger.onEnded)
 		store := newFakeMetaStore(t)
 		eng.SetMetaStore(store)
 
@@ -139,7 +110,7 @@ func TestInvariant_B2_NoResurrectionAfterSelfExit(t *testing.T) {
 			}()
 		}
 		require.NoError(t, eng.Write(context.Background(), sid, []byte("exit\n")))
-		ledger.waitEnded(t, sid)
+		waitGone(t, eng, store, sid)
 		close(stop)
 		wg.Wait()
 
@@ -149,8 +120,6 @@ func TestInvariant_B2_NoResurrectionAfterSelfExit(t *testing.T) {
 			"round %d: nothing may run under an exited session's id", round)
 		require.Error(t, eng.Attach(context.Background(), sid, newClosingConn()),
 			"round %d: attaching to an exited session must fail, not restore", round)
-		ended, _ := ledger.counts(sid)
-		require.Equal(t, 1, ended, "round %d: exactly one ended event", round)
 		require.False(t, store.hasLiveRow(sid), "round %d: no meta row survives exit", round)
 		require.False(t, bufExists(store.dir, sid), "round %d: no .buf survives exit", round)
 		eng.Shutdown()
@@ -158,7 +127,7 @@ func TestInvariant_B2_NoResurrectionAfterSelfExit(t *testing.T) {
 }
 
 // TestInvariant_B1_ExactlyOnceUnderInterleaving pins B1: every command session reaching done
-// yields exactly one ended event and exactly one onExit, whatever mix of Kill,
+// yields exactly one onExit and leaves the registry, whatever mix of Kill,
 // TerminateGraceful, self-exit, Attach and Shutdown gets there first.
 func TestInvariant_B1_ExactlyOnceUnderInterleaving(t *testing.T) {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -168,8 +137,7 @@ func TestInvariant_B1_ExactlyOnceUnderInterleaving(t *testing.T) {
 
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
-	ledger := newEndedLedger()
-	eng.OnSessionEnded(ledger.onEnded)
+	ledger := newExitLedger()
 	eng.SetMetaStore(newFakeMetaStore(t))
 	restore := terminal.SetGracefulTerminateGraceForTest(eng, 20*time.Millisecond)
 	defer restore()
@@ -211,9 +179,7 @@ func TestInvariant_B1_ExactlyOnceUnderInterleaving(t *testing.T) {
 	eng.Shutdown() // joins every reaper: every owed callback has RUN when this returns
 
 	for _, id := range ids {
-		ended, exits := ledger.counts(id)
-		require.Equal(t, 1, ended, "session %s: exactly one ended event", id)
-		require.Equal(t, 1, exits, "session %s: exactly one onExit", id)
+		require.Equal(t, 1, ledger.exitsOf(id), "session %s: exactly one onExit", id)
 		require.False(t, eng.SessionExists(context.Background(), id))
 	}
 }
@@ -223,7 +189,7 @@ func TestInvariant_B1_ExactlyOnceUnderInterleaving(t *testing.T) {
 //
 //   - suspended  → a .buf and a "suspended" meta row exist (that is what restore reads);
 //   - live       → any meta row says it is live (never "suspended");
-//   - gone       → neither a .buf nor a meta row survives, and ended fired exactly once.
+//   - gone       → neither a .buf nor a meta row survives.
 func TestInvariant_B3_RegistryAndDiskAgreeUnderRandomOps(t *testing.T) {
 	pinShell(t)
 	seed := time.Now().UnixNano()
@@ -233,8 +199,6 @@ func TestInvariant_B3_RegistryAndDiskAgreeUnderRandomOps(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
 	defer eng.Shutdown()
-	ledger := newEndedLedger()
-	eng.OnSessionEnded(ledger.onEnded)
 	store := newFakeMetaStore(t)
 	eng.SetMetaStore(store)
 	ctx := context.Background()
@@ -268,8 +232,6 @@ func TestInvariant_B3_RegistryAndDiskAgreeUnderRandomOps(t *testing.T) {
 				require.True(t, gone[id], "step %d (%s): %s vanished without the test ending it", step, op, id)
 				require.False(t, hasRow, "step %d (%s): gone session %s kept its meta row", step, op, id)
 				require.False(t, hasBuf, "step %d (%s): gone session %s kept its .buf", step, op, id)
-				ended, _ := ledger.counts(id)
-				require.Equal(t, 1, ended, "step %d (%s): gone session %s: ended count", step, op, id)
 			case state == "suspended":
 				require.True(t, hasRow && row.State == "suspended",
 					"step %d (%s): suspended %s needs a suspended meta row (have %v %q)", step, op, id, hasRow, row.State)
@@ -326,7 +288,7 @@ func TestInvariant_B3_RegistryAndDiskAgreeUnderRandomOps(t *testing.T) {
 			}
 			name = "exit"
 			require.NoError(t, eng.Write(ctx, id, []byte("exit\n")))
-			ledger.waitEnded(t, id)
+			waitGone(t, eng, store, id)
 			gone[id] = true
 		case 5: // maintenance flush
 			name = "flush"
@@ -338,7 +300,7 @@ func TestInvariant_B3_RegistryAndDiskAgreeUnderRandomOps(t *testing.T) {
 			restoreCeil()
 			for _, id := range known {
 				if _, ok := eng.StateOf(id); !ok && !gone[id] {
-					gone[id] = true // evicted: must have reported ended (checked below)
+					gone[id] = true // evicted: its .buf and meta row must be gone (checked below)
 				}
 			}
 		}
