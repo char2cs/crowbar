@@ -10,7 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
@@ -41,14 +40,10 @@ type discardHub struct {
 	last dto.WorkspaceDTO
 }
 
-func (h *discardHub) BroadcastProject(_ dto.ProjectDTO)                 {}
-func (h *discardHub) BroadcastRepo(_ dto.RepoDTO)                       {}
-func (h *discardHub) BroadcastWorkspace(w dto.WorkspaceDTO)             { h.last = w }
-func (h *discardHub) BroadcastThread(_ dto.ThreadDTO)                   {}
-func (h *discardHub) BroadcastTerminalSession(_ dto.TerminalSessionDTO) {}
-func (h *discardHub) BroadcastGit(_ string, _ gitdomain.GitStatus)      {}
-func (h *discardHub) BroadcastFile(_ domain.FileChangeEvent)            {}
-func (h *discardHub) BroadcastAgentChatFolder(_, _, _ string)           {}
+func (h *discardHub) BroadcastProject(_ dto.ProjectDTO)       {}
+func (h *discardHub) BroadcastRepo(_ dto.RepoDTO)             {}
+func (h *discardHub) BroadcastWorkspace(w dto.WorkspaceDTO)   { h.last = w }
+func (h *discardHub) BroadcastAgentChatFolder(_, _, _ string) {}
 
 func TestBroadcastWorkspace_NoParent_EmptyEligibility(t *testing.T) {
 	h := &discardHub{}

@@ -26,7 +26,7 @@ Build and test with `-tags noEmbed` (the default build embeds `web/dist`, see
 core      home, migrate, bootgate, config, socket/TCP gateway, ipc client, PTY engine, safego …
 engine    stateless capabilities over the OS: git, fs, search, lsp, provider, agents, mcp
 adapter   persistence: SQLite event logs, snapshot stores, read-model DBs, view.db
-app       aggregates (event-sourced), usecases, hub, realtime lifecycles
+app       aggregates (event-sourced), usecases, hub, the one stream and its resources
 api       gin router, /v0 REST + WebSocket streams, static bundle
 ```
 
@@ -108,10 +108,12 @@ the usecases they call.
   `file`, `terminal`, `branchreview`, `provider`.
 - **`tree/`**: a sibling-ordered forest planner used by sidebar and chat-panel moves.
 - **`hub/`**: fans domain broadcasts out to WebSocket subscribers.
-- **`realtime/`**: refcounted lazy lifecycles — the file/git watcher starts on
-  the first Files∪Git subscriber of a workspace and stops on the last; a host
-  document's file watch on the first client holding its path and stops on the
-  last; the LSP host and provider PR polling likewise.
+- **`stream/`**: the one `/v0/stream` socket. A client holds scopes (`ws:`,
+  `git:`, `files:`, `lsp:`, `doc:`, `forge:` …); each scope kind names its
+  daemon work in `stream/resources`, refcounted per key across every client and
+  kind: the workspace watcher runs while `git:` or `files:` is held, a host
+  document's watch while its `doc:` is, the LSP host for `lsp:` and the forge
+  poll only for the viewed workspace's `forge:`.
 - `Shutdown` is ordered: kill PTYs and join their exit callbacks (they write
   runner exits), close the drain gate, wait out reactors, drain each asynx
   singleton — all before the adapter closes the DBs.
@@ -253,27 +255,18 @@ them derive one.
   response. Each committed row reaches the chat's `/v0/chats/:chatId/feed`
   socket by `seq`; the chat's snapshot and its client broadcasts follow from
   the same commit.
-- **Watchers**: subscribing to a workspace's files/git stream starts its watcher;
-  changes flow back as git-status/file frames. A host document (a file outside
-  every worktree, local socket only) is held by one `GET /v0/documents/ws?path=`
-  socket per open document. Its watch is armed before the upgrade answers, per
-  path and outside the manager lock, so a 101 means the watch is armed; a failed
-  arm answers 503 instead. The watch covers that one file: FSEvents rooted at
-  the file, or inotify on its parent directory, whose sibling changes still wake
-  the daemon and are dropped. If the directory is deleted, the watch re-arms on
-  the nearest existing ancestor until the path comes back. On Linux each held
-  path costs its own inotify instance, two files in one directory included, and
-  instances are capped per user across every process
-  (`fs.inotify.max_user_instances`, 128 by default). An arm the kernel refuses
-  for want of instances, watches or open files answers 507, and the tab says the
-  system ran out of file watches rather than failing to open. A path not in its
-  canonical spelling is refused before the upgrade (400), as is a non-local
-  transport (403). The client retries a dropped socket forever, so a refusal is
-  surfaced rather than retried silently: a document opening or restoring with a
-  refused watch opens nowhere and its tab says why (an unsaved draft opens
-  unwatched and says so), and a followed document whose socket keeps being
-  refused warns once. Boot restore opens one socket per restored host tab at
-  once; tabs of the same path share one armed watch.
+- **Watchers**: holding a workspace's `git:` or `files:` scope starts its
+  watcher; changes flow back as `git_status` and `file_change` signals. A host
+  document (a file outside every worktree) is a `doc:<absolute path>` scope,
+  admitted only over the local socket (`host_document_requires_local_transport`)
+  and only in its canonical spelling. Its watch is armed before the scope's
+  `synced`, so a read after it misses no change. The watch covers that one file:
+  FSEvents rooted at the file, or inotify on its parent directory (re-armed on
+  the nearest existing ancestor while the directory is gone). On Linux each held
+  path costs an inotify instance, capped per user, so an arm the kernel refuses
+  is refused as `watch_limit` and the tab says the system ran out of file
+  watches. A refused watch is surfaced, never retried silently: the document
+  opens nowhere and its tab says why; tabs of one path share one armed watch.
 
 ## Tests
 
