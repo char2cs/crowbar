@@ -18,7 +18,7 @@ import (
 // sessions live and when the session is announced.
 type hookCLI struct {
 	name    string
-	hooks   map[string][]string
+	hooks   map[string][]hook
 	cwd     string
 	session string
 	// sessionFile is where this vendor keeps a session's transcript.
@@ -80,8 +80,8 @@ func (c *hookCLI) fire(event string, fields map[string]any) string {
 		payload[k] = v
 	}
 	out := ""
-	for _, command := range c.hooks[event] {
-		out = runHook(command, payload)
+	for _, h := range c.hooks[event] {
+		out = h.run(payload)
 	}
 	return out
 }
@@ -165,27 +165,24 @@ func runClaude(args []string) int {
 	return runHookCLI(c, argAfter(args, "--resume"), positionalsAfterDashes(args))
 }
 
-func claudeHooks(settingsPath string) map[string][]string {
+// claudeHooks reads --settings hooks, command or http as the daemon wires them.
+func claudeHooks(settingsPath string) map[string][]hook {
 	raw, err := os.ReadFile(settingsPath)
 	if err != nil {
 		return nil
 	}
 	var settings struct {
 		Hooks map[string][]struct {
-			Hooks []struct {
-				Command string `json:"command"`
-			} `json:"hooks"`
+			Hooks []hook `json:"hooks"`
 		} `json:"hooks"`
 	}
 	if json.Unmarshal(raw, &settings) != nil {
 		return nil
 	}
-	out := map[string][]string{}
+	out := map[string][]hook{}
 	for event, matchers := range settings.Hooks {
 		for _, m := range matchers {
-			for _, h := range m.Hooks {
-				out[event] = append(out[event], h.Command)
-			}
+			out[event] = append(out[event], m.Hooks...)
 		}
 	}
 	return out
@@ -194,14 +191,14 @@ func claudeHooks(settingsPath string) map[string][]string {
 var codexHookRE = regexp.MustCompile(`^hooks\.([A-Za-z]+)=.*command="([^"]*)"`)
 
 // codexHooks reads codex's `-c hooks.<Event>=[{hooks=[{command="…"}]}]` wiring.
-func codexHooks(args []string) map[string][]string {
-	out := map[string][]string{}
+func codexHooks(args []string) map[string][]hook {
+	out := map[string][]hook{}
 	for i := 0; i+1 < len(args); i++ {
 		if args[i] != "-c" {
 			continue
 		}
 		if m := codexHookRE.FindStringSubmatch(args[i+1]); m != nil {
-			out[m[1]] = append(out[m[1]], m[2])
+			out[m[1]] = append(out[m[1]], hook{Command: m[2]})
 		}
 	}
 	return out
