@@ -90,6 +90,9 @@ func (u *chatFolderUsecase) createOwnWorktreeChat(
 	ctx context.Context,
 	in CreateChatInput,
 ) (CreatedChat, error) {
+	if in.ProviderID == "" {
+		return CreatedChat{}, ErrForkNeedsProvider
+	}
 	if in.ParentID != "" {
 		if err := u.checkNewChatParent(ctx, "", in.ParentID, true); err != nil {
 			return CreatedChat{}, err

@@ -3,6 +3,7 @@
 package tests
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -106,4 +107,25 @@ func TestRegression_CreateChatOwnWorktreeIsIgnoredWhenWorkspaceIdIsSupplied(t *t
 	detail := getAgentChat(t, h, base, created.ID)
 	assert.Equal(t, imported.workspaceID, detail.WorkspaceID,
 		"a request naming an existing workspace must attach to it, not fork a new one")
+}
+
+// TestRegression_CreateChatOwnWorktreeWithNoProviderIs400: the atomic create
+// starts a CLI in the worktree it cuts, so a body naming no provider is the
+// caller's mistake, refused before any worktree is cut.
+func TestRegression_CreateChatOwnWorktreeWithNoProviderIs400(t *testing.T) {
+	h := newHarness(t)
+	writePromoteStubProviderDescriptor(t, h)
+	imported := importWritableWorkspace(t, h)
+	base := repoBase(imported)
+	ancestorID := createChatWithProvider(t, h, base, "promotestub", imported.workspaceID, "")
+	folder := createChatFolder(t, h, base, "own-worktree-holder", ancestorID)
+
+	resp := h.raw(http.MethodPost, base+"/chats",
+		map[string]any{"parentId": folder.ID, "ownWorktree": true}, http.StatusBadRequest)
+	defer func() { require.NoError(t, resp.Body.Close()) }()
+	var env struct {
+		Code string `json:"code"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&env))
+	assert.Equal(t, "invalid_argument", env.Code)
 }
