@@ -198,8 +198,8 @@ export const applySubagent: Apply<'subagent'> = (fold, row) => {
 export function endSubagents(fold: FeedFold, row: LedgerRow) {
   for (const id of fold.facts.liveSubagents) {
     const card = fold.item<SubagentItem>(id)
-    if (card?.status === 'starting' && card.turnId === row.turnId)
-      moveTo(fold, card, 'abandoned', row.at)
+    // Only a starting card may be abandoned; an earlier turn's were at its end.
+    if (card) moveTo(fold, card, 'abandoned', row.at)
   }
   for (const [scope, pending] of Object.entries(fold.facts.pendingScopes)) {
     delete fold.record('pendingScopes')[scope]
