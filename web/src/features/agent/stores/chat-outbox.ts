@@ -161,9 +161,14 @@ async function takeBack(
       drop(chatId, requestId)
       return unsentText ?? null
     }
-    // Settled, or its turn closed first: it stays in the transcript.
     if (!(error instanceof ApiError && error.status === 409)) {
       report(error, { action: 'Couldn’t take the prompt back' })
+      return null
+    }
+    // Settled or its turn closed first: it stays, silently. Still open: the CLI has it.
+    const fact = chatStore.getState().feeds[chatId]?.facts.prompts[requestId]
+    if (fact?.state === 'pending' || fact?.state === 'delivered') {
+      report(error, { action: 'Its provider already has this prompt: Stop ends the turn' })
     }
     return null
   }

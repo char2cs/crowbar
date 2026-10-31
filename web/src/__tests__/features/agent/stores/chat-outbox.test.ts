@@ -14,6 +14,8 @@ import { applyFeedFrame, chatStore } from '@/features/agent/stores/chat-store'
 import { ApiError } from '@/lib/errors/api-error'
 import * as errors from '@/lib/errors/report'
 
+const STOP_HINT = 'Its provider already has this prompt: Stop ends the turn'
+
 let submit: MockInstance<typeof commands.submitAgentPrompt>
 let retract: MockInstance<typeof commands.retractPrompt>
 let stop: MockInstance<typeof commands.stopChat>
@@ -282,6 +284,19 @@ describe('chat outbox', () => {
     await expect(retractNewest('w1', 'c1')).resolves.toBeNull()
 
     expect(chatStore.getState().feeds.c1?.order).toEqual(['p:r1'])
+    expect(reported.mock.calls[0]?.[1]).toEqual({ action: STOP_HINT })
+  })
+
+  it('says nothing when Esc lost the race to its prompt settling', async () => {
+    const l = ledger('c1')
+    seedFeed('c1', [l.prompt('r1', 'done')])
+    retract.mockImplementation(() => {
+      applyFeedFrame('c1', { type: 'row', row: l.settle('r1') })
+      return Promise.reject(new ApiError('prompt is settled: conflict', 409))
+    })
+
+    await expect(retractNewest('w1', 'c1')).resolves.toBeNull()
+
     expect(reported).not.toHaveBeenCalled()
   })
 
