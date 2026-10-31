@@ -36,22 +36,21 @@ function stubLayout(rects: [Element, number, number][]) {
 
 async function renderDocument() {
   const ref = createRef<ChatMarkdownEditorHandle>()
-  const onChange = vi.fn()
   render(
     <TooltipProvider>
       <DndScope>
         <ChatMarkdownEditor
           ref={ref}
-          initialValue="first paragraph"
           placeholder=""
           ariaLabel="Message the agent"
-          onChange={onChange}
+          onShapeChange={vi.fn()}
           onKeyDown={vi.fn()}
         />
       </DndScope>
     </TooltipProvider>,
   )
   await act(async () => {
+    ref.current?.setMarkdown('first paragraph')
     ref.current?.insertAttachmentMarkdown(FENCE)
     ref.current?.insertAttachmentMarkdown('second paragraph')
   })
@@ -64,7 +63,7 @@ async function renderDocument() {
     [block, 20, 40],
     [second, 60, 20],
   ])
-  return { handle, block, second, onChange }
+  return { handle, block, second, markdown: () => ref.current?.getMarkdown() ?? '' }
 }
 
 // The drop selects the moved block, which opens the floating toolbar; it
@@ -122,7 +121,7 @@ describe('DndScope', () => {
   })
 
   it('drags an attachment by its handle below a later paragraph: drop line while dragging, moved on release', async () => {
-    const { handle, block, second, onChange } = await renderDocument()
+    const { handle, block, second, markdown } = await renderDocument()
 
     fireEvent.pointerDown(handle, { clientX: 5, clientY: 30, button: 0, isPrimary: true })
     fireEvent.pointerMove(document, { clientX: 5, clientY: 70 })
@@ -134,16 +133,16 @@ describe('DndScope', () => {
     fireEvent.pointerUp(document, { clientX: 5, clientY: 75 })
 
     await waitFor(() => {
-      const markdown = onChange.mock.calls.at(-1)?.[0] as string
-      expect(markdown.indexOf('second paragraph')).toBeLessThan(markdown.indexOf('text-attachment'))
+      const text = markdown()
+      expect(text.indexOf('second paragraph')).toBeLessThan(text.indexOf('text-attachment'))
     })
     expect(document.querySelector('.-top-px, .-bottom-px')).toBeNull()
     expect(document.querySelector('.slate-code_block')?.className).not.toContain('opacity-50')
   })
 
   it('does not move the attachment when released where it already is', async () => {
-    const { handle, second, onChange } = await renderDocument()
-    const calls = onChange.mock.calls.length
+    const { handle, second, markdown } = await renderDocument()
+    const before = markdown()
 
     fireEvent.pointerDown(handle, { clientX: 5, clientY: 30, button: 0, isPrimary: true })
     // Top half of the paragraph right below the attachment: a no-op drop.
@@ -151,7 +150,7 @@ describe('DndScope', () => {
     expect(second.querySelector('.-top-px, .-bottom-px')).toBeNull()
     fireEvent.pointerUp(document, { clientX: 5, clientY: 62 })
 
-    expect(onChange.mock.calls.length).toBe(calls)
+    expect(markdown()).toBe(before)
   })
 
   it('treats a press without movement as a click, not a drag', async () => {

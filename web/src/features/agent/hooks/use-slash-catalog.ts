@@ -22,8 +22,6 @@ export interface SlashCatalogOptions {
   chatId: string
   providerId: string
   active: boolean
-  /** The composer's current text. Only its leading `/` and query tail matter. */
-  draft: string
 }
 
 /**
@@ -39,25 +37,30 @@ export interface SlashCatalogOptions {
  * Crowbar ships (see `SlashCatalog.completeness`), which is why nothing here
  * treats an empty result as an error either.
  */
-export function useSlashCatalog({ wsId, chatId, providerId, active, draft }: SlashCatalogOptions) {
+export function useSlashCatalog({ wsId, chatId, providerId, active }: SlashCatalogOptions) {
   const [state, setState] = useState<SlashCatalogState>({ state: 'closed' })
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState(0)
+  const [query, setQuery] = useState('')
   const leadingRef = useRef(false)
   const providerRef = useRef(providerId)
   providerRef.current = providerId
 
-  /** Told about every draft change, so a leading `/` can open the picker exactly
-   *  once — retyping the slash is what reopens it after an explicit dismissal. */
-  const noteDraft = useCallback((value: string) => {
-    const leading = value.startsWith('/')
-    if (leading && !leadingRef.current) {
+  /** Told the box's slash query on every edit, so a leading `/` opens the picker
+   *  exactly once (retyping it reopens after a dismissal). Text with no slash on
+   *  either side of the edit sets nothing, so plain typing renders nothing here. */
+  const noteQuery = useCallback((slashQuery: string | null) => {
+    const leading = slashQuery !== null
+    const was = leadingRef.current
+    leadingRef.current = leading
+    if (!leading && !was) return
+    setQuery((slashQuery ?? '').trim().toLowerCase())
+    if (leading && !was) {
       setOpen(true)
       setSelected(0)
     } else if (!leading) {
       setOpen(false)
     }
-    leadingRef.current = leading
   }, [])
 
   const close = useCallback(() => setOpen(false), [])
@@ -129,7 +132,6 @@ export function useSlashCatalog({ wsId, chatId, providerId, active, draft }: Sla
     }
   }, [open, active, probe])
 
-  const query = draft.slice(1).trim().toLowerCase()
   const items = useMemo(() => {
     if (state.state !== 'ready') return []
     if (!query) return state.catalog.items
@@ -162,5 +164,5 @@ export function useSlashCatalog({ wsId, chatId, providerId, active, draft }: Sla
   // open over an empty result for every command the probe cannot see.
   const highlighted = open ? items[selected] : undefined
 
-  return { state, open, items, selected, highlighted, noteDraft, close, reset, move, accept }
+  return { state, open, items, selected, highlighted, noteQuery, close, reset, move, accept }
 }

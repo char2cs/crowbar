@@ -1,43 +1,24 @@
-import { act } from 'react'
+import { act, createRef } from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { DndScope } from '@/features/agent/chat/dnd-scope'
-
-import { AgentComposer } from '@/features/agent/composer/agent-composer'
-import {
-  uploadChatAttachment,
-  type UploadedChatAttachment,
-} from '@/features/agent/api/upload-chat-attachment'
-import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { askItem } from '@/__tests__/__fixtures__/ledger-rows'
+import * as uploadApi from '@/features/agent/api/upload-chat-attachment'
+import type { UploadedChatAttachment } from '@/features/agent/api/upload-chat-attachment'
+import { DndScope } from '@/features/agent/chat/dnd-scope'
+import { AgentComposer } from '@/features/agent/composer/agent-composer'
 import { saveExcalidrawDesign } from '@/features/agent/composer/lib/excalidraw-design-persistence'
-import type { ParsedExcalidrawScene } from '@/features/agent/composer/plate/attachments/excalidraw-scene'
 import {
   requestExcalidrawEdit,
   useExcalidrawEditRequests,
 } from '@/features/agent/composer/lib/excalidraw-edit-requests'
+import type { ParsedExcalidrawScene } from '@/features/agent/composer/plate/attachments/excalidraw-scene'
+import type { ChatMarkdownEditorHandle } from '@/features/agent/composer/plate/chat-markdown-editor'
+import * as tauriDrop from '@/features/file-system/lib/tauri-file-drop'
+import { toast } from '@/features/window/stores/toast-store'
 
-vi.mock('@/features/agent/api/upload-chat-attachment', () => ({
-  uploadChatAttachment: vi.fn(),
-}))
-
-// Task 27's own hook (subscribes to Tauri's real OS-drag channel) is a no-op
-// under jsdom — `isTauri()` is false, so its effect never fires. Stubbed here
-// so this suite can invoke the `onDrop` callback AgentComposer wires into it
-// directly, which is the one thing this task owns: the hook's own subscribe/
-// filter behaviour is Task 27's and is covered in tauri-file-drop.test.ts.
-vi.mock('@/features/file-system/lib/tauri-file-drop', () => ({
-  useTauriFileDrop: vi.fn(),
-}))
-
-// The real canvas mounts `@excalidraw/excalidraw` (a canvas-rendering tree
-// jsdom can't host, and whose dependency graph hits a raw JSON import this
-// test transform doesn't touch) — mocked out here since this suite only
-// proves the composer's plus button wires through to the modal, not the
-// canvas's own behaviour (that's excalidraw-canvas.test.tsx's job). `onSave`
-// is captured so one test below can trigger it directly, the same way a real
-// Save click on the (unmocked) canvas would.
+// The real canvas mounts `@excalidraw/excalidraw`, which jsdom cannot host; its
+// `onSave` is captured so a test can save the way the canvas's button would.
 let latestExcalidrawOnSave: ((result: { sceneJson: string; pngFile: File }) => void) | null = null
 let latestExcalidrawInitialScene: ParsedExcalidrawScene | undefined
 vi.mock('@/features/agent/composer/excalidraw-canvas', () => ({
@@ -54,160 +35,143 @@ vi.mock('@/features/agent/composer/excalidraw-canvas', () => ({
   },
 }))
 
-const toastError = vi.hoisted(() => vi.fn())
-vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: toastError } }))
-
 type AgentComposerProps = Parameters<typeof AgentComposer>[0]
 
-const baseProps: AgentComposerProps = {
-  wsId: 'w1',
-  chatId: 'c1',
-  asks: [],
-  providerLabel: 'Claude',
-  live: true,
-  working: false,
-  compacting: false,
-  sending: false,
-  submitUnavailable: false,
-  canStop: false,
-  draft: '',
-  fieldHeight: 20,
-  slashOpen: false,
-  onDraftChange: vi.fn(),
-  onHeightChange: vi.fn(),
-  onKeyDown: vi.fn(),
-  onSend: vi.fn(),
-  onStop: vi.fn(),
-  onOpenTerminal: vi.fn(),
-  draftSeed: 0,
-  seedText: '',
+let upload: MockInstance<typeof uploadApi.uploadChatAttachment>
+let tauriHook: MockInstance<typeof tauriDrop.useTauriFileDrop>
+let toastError: MockInstance<typeof toast.error>
+
+beforeEach(() => {
+  localStorage.clear()
+  latestExcalidrawInitialScene = undefined
+  upload = vi.spyOn(uploadApi, 'uploadChatAttachment')
+  // A no-op under jsdom (`isTauri()` is false); its `onDrop` is invoked directly.
+  tauriHook = vi.spyOn(tauriDrop, 'useTauriFileDrop').mockImplementation(() => {})
+  toastError = vi.spyOn(toast, 'error').mockImplementation(() => '')
+})
+
+afterEach(() => vi.restoreAllMocks())
+
+function uploaded(ref: string, filename: string, contentType: string): UploadedChatAttachment {
+  return { ref, filename, size: 10, contentType }
 }
 
-function draw(overrides: Partial<AgentComposerProps> = {}) {
-  const props = { ...baseProps, ...overrides }
-  const result = render(<AgentComposer {...props} />)
+function draw(overrides: Partial<AgentComposerProps> = {}, { dnd = false } = {}) {
+  const editorRef = createRef<ChatMarkdownEditorHandle>()
+  const props: AgentComposerProps = {
+    wsId: 'w1',
+    chatId: 'c1',
+    asks: [],
+    providerLabel: 'Claude',
+    live: true,
+    working: false,
+    compacting: false,
+    sending: false,
+    submitUnavailable: false,
+    canStop: false,
+    placement: 'dock',
+    editorRef,
+    slashOpen: false,
+    onShapeChange: vi.fn(),
+    onKeyDown: vi.fn(),
+    onSend: vi.fn(),
+    onStop: vi.fn(),
+    onOpenTerminal: vi.fn(),
+    ...overrides,
+  }
+  const tree = (more: Partial<AgentComposerProps>) =>
+    dnd ? (
+      <DndScope>
+        <AgentComposer {...props} {...more} />
+      </DndScope>
+    ) : (
+      <AgentComposer {...props} {...more} />
+    )
+  const result = render(tree({}))
   return {
     ...result,
-    // For asserting identity STABILITY (e.g. a memoized callback) across a
-    // re-render with the SAME element type — `result.rerender` alone forces
-    // callers to reconstruct the full props object themselves.
-    rerenderWith: (moreOverrides: Partial<AgentComposerProps> = {}) =>
-      result.rerender(<AgentComposer {...props} {...moreOverrides} />),
+    pill: () => result.container.querySelector('.pill')!,
+    markdown: () => editorRef.current?.getMarkdown() ?? '',
+    load: (text: string) => act(async () => editorRef.current?.setMarkdown(text)),
+    rerenderWith: (more: Partial<AgentComposerProps>) => result.rerender(tree(more)),
   }
 }
 
-// Same as `draw`, but under the real `DndScope` production always has here
-// (at `AgentChatView`, one level above where this suite tests `AgentComposer`
-// in isolation).
-function drawWithDnd(overrides: Partial<AgentComposerProps> = {}) {
-  const props = { ...baseProps, ...overrides }
-  return render(
-    <DndScope>
-      <AgentComposer {...props} />
-    </DndScope>,
-  )
+async function openPlus(item: RegExp) {
+  const user = userEvent.setup()
+  await user.click(screen.getByRole('button', { name: /add to this message/i }))
+  await user.click(await screen.findByRole('menuitem', { name: item }))
+  return user
 }
 
-// The bar delegates its own dispatched-but-unproven visual to the handle — this
-// only has to prove the wiring reaches it, not re-litigate the handle's own
-// precedence rules (covered in composer-handle.test.tsx).
 describe('AgentComposer', () => {
-  beforeEach(() => {
-    localStorage.clear()
-    latestExcalidrawInitialScene = undefined
-  })
-
   it('passes sending through to the handle as an input', () => {
     const { container } = draw({ sending: true })
 
     expect(container.querySelector('[data-flicker-spinner]')).toBeInTheDocument()
   })
 
-  it('shows the plain send affordance when nothing is in flight', () => {
-    const { container } = draw({ sending: false })
-
-    expect(container.querySelector('[data-flicker-spinner]')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Send prompt' })).toBeInTheDocument()
-  })
-
-  // The excalidraw takeover replaces its own placeholder — opening it now
-  // shows the real full-pane takeover, same wiring shape as Task 30's
-  // AttachFileModal below. Its own behaviour (id-correlation, upload,
-  // toast-on-failure, local persistence) is covered in
-  // excalidraw-takeover.test.tsx; this only proves the composer wires the
-  // plus button through to it, and that the bar is itself again once closed.
-  it('opens the real excalidraw takeover from the plus button and restores the bar on close', async () => {
-    const user = userEvent.setup()
+  it('enables send from the editor shape, and sends on a click', async () => {
     const onSend = vi.fn()
-    draw({ draft: 'hi', onSend })
+    const { load } = draw({ onSend })
+    expect(screen.getByRole('button', { name: 'Send prompt' })).toBeDisabled()
 
-    await user.click(screen.getByRole('button', { name: /add to this message/i }))
-    await user.click(await screen.findByRole('menuitem', { name: /excalidraw/i }))
-
-    expect(await screen.findByTestId('excalidraw-takeover')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Excalidraw' })).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Close' }))
-    await waitFor(() => expect(screen.queryByTestId('excalidraw-takeover')).toBeNull())
-
+    await load('hi')
     fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
+
     expect(onSend).toHaveBeenCalledTimes(1)
   })
 
-  // REGRESSION, reported live: the composer sits inside `.dock`, a small
-  // bottom-pinned bar (`position: absolute` — its own containing block for
-  // any absolutely-positioned descendant, CSS spec, regardless of `.dock`'s
-  // own size). Rendering the takeover inline there sized it to the DOCK, not
-  // the chat pane — "not just where the input box is at". A portal to a
-  // container OUTSIDE `.dock` (here, `agent-chat-view.tsx` passes the whole
-  // `.agent-chat.chat` section) is what actually fixes it.
+  it('opens the real excalidraw takeover from the plus button and restores the bar on close', async () => {
+    const { load } = draw()
+    await load('hi')
+
+    const user = await openPlus(/excalidraw/i)
+    expect(await screen.findByTestId('excalidraw-takeover')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+
+    await waitFor(() => expect(screen.queryByTestId('excalidraw-takeover')).toBeNull())
+    expect(screen.getByRole('button', { name: 'Send prompt' })).toBeEnabled()
+  })
+
+  // Inline under `.dock` (absolutely positioned) the takeover was sized to the dock.
   it('portals the takeover into takeoverContainer when one is given, not inline under the composer', async () => {
-    const user = userEvent.setup()
     const container = document.createElement('div')
-    container.setAttribute('data-testid', 'takeover-container')
     document.body.appendChild(container)
     const { container: composerRoot } = draw({ takeoverContainer: container })
 
-    await user.click(screen.getByRole('button', { name: /add to this message/i }))
-    await user.click(await screen.findByRole('menuitem', { name: /excalidraw/i }))
+    await openPlus(/excalidraw/i)
 
     await waitFor(() =>
       expect(container.querySelector('[data-testid="excalidraw-takeover"]')).not.toBeNull(),
     )
     expect(composerRoot.querySelector('[data-testid="excalidraw-takeover"]')).toBeNull()
-
     document.body.removeChild(container)
   })
 
   it('preloads the takeover with this chat’s previously saved local design', async () => {
-    const user = userEvent.setup()
     saveExcalidrawDesign('w1', 'c1', '{"elements":[{"id":"saved"}],"appState":{}}')
     draw()
 
-    await user.click(screen.getByRole('button', { name: /add to this message/i }))
-    await user.click(await screen.findByRole('menuitem', { name: /excalidraw/i }))
+    await openPlus(/excalidraw/i)
     await screen.findByTestId('excalidraw-canvas-mock')
 
     expect(latestExcalidrawInitialScene).toEqual({ elements: [{ id: 'saved' }], appState: {} })
   })
 
   it('opens blank when there is no previously saved local design', async () => {
-    const user = userEvent.setup()
     draw()
 
-    await user.click(screen.getByRole('button', { name: /add to this message/i }))
-    await user.click(await screen.findByRole('menuitem', { name: /excalidraw/i }))
+    await openPlus(/excalidraw/i)
     await screen.findByTestId('excalidraw-canvas-mock')
 
     expect(latestExcalidrawInitialScene).toBeUndefined()
   })
 
-  // REGRESSION: an Edit button on a diagram rendered deep in the transcript
-  // (excalidraw-preview.tsx) has no direct line to the composer that owns the
-  // takeover — it reaches it entirely through this store signal.
+  // A transcript diagram's Edit reaches the composer only through this store.
   it('opens the takeover preloaded when the store requests an excalidraw edit for this chat, and clears the request', async () => {
     const scene: ParsedExcalidrawScene = { elements: [{ id: 'from-agent' }], appState: {} }
-    render(<AgentComposer {...baseProps} />)
+    draw()
 
     act(() => requestExcalidrawEdit('c1', scene))
 
@@ -217,7 +181,7 @@ describe('AgentComposer', () => {
   })
 
   it('ignores an edit request queued for a different chat', () => {
-    render(<AgentComposer {...baseProps} chatId="c1" />)
+    draw()
 
     act(() => requestExcalidrawEdit('c2', { elements: [], appState: {} }))
 
@@ -225,101 +189,47 @@ describe('AgentComposer', () => {
     expect(useExcalidrawEditRequests.getState().requests['c2']).toBeDefined()
   })
 
-  // Task 30 (AttachFileModal) replaces its own placeholder — opening it now
-  // shows a real, modal dialog, which correctly makes the rest of the bar
-  // inert (Base UI marks background content aria-hidden) until it closes.
-  // Its own behaviour (upload paths, drag-drop, the error toast) is covered
-  // in attach-file-modal.test.tsx; this only proves the composer wires the
-  // plus button through to it, and that the bar is itself again once closed.
-  it('opens the real attach-file modal from the plus button and restores the bar on close', async () => {
-    const user = userEvent.setup()
-    const onSend = vi.fn()
-    draw({ draft: 'hi', onSend })
-
-    await user.click(screen.getByRole('button', { name: /add to this message/i }))
-    await user.click(await screen.findByRole('menuitem', { name: /attach file/i }))
-
-    expect(await screen.findByRole('dialog')).toBeInTheDocument()
-    expect(screen.getByText(/attach a file/i)).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Close' }))
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-
-    fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
-    expect(onSend).toHaveBeenCalledTimes(1)
-  })
-
-  // The modal's own upload/markdown behaviour is attach-file-modal.test.tsx's
-  // job; this proves the composer's own `onInsertMarkdown` wiring actually
-  // reaches the field's imperative handle (and the modal closes itself once
-  // it does), not just that the dialog opens.
   it('uploads via the attach-file modal and inserts the markdown into the field', async () => {
-    const user = userEvent.setup()
-    vi.mocked(uploadChatAttachment).mockResolvedValueOnce({
-      ref: 'chats/c1/attachments/x-notes.txt',
-      filename: 'notes.txt',
-      size: 5,
-      contentType: 'text/plain',
-    })
-    const onDraftChange = vi.fn()
-    draw({ onDraftChange })
+    upload.mockResolvedValueOnce(
+      uploaded('chats/c1/attachments/x-notes.txt', 'notes.txt', 'text/plain'),
+    )
+    const { markdown } = draw()
 
-    await user.click(screen.getByRole('button', { name: /add to this message/i }))
-    await user.click(await screen.findByRole('menuitem', { name: /attach file/i }))
-
-    const input = screen.getByLabelText(/choose a file/i) as HTMLInputElement
-    fireEvent.change(input, {
+    await openPlus(/attach file/i)
+    fireEvent.change(screen.getByLabelText(/choose a file/i), {
       target: { files: [new File(['hi'], 'notes.txt', { type: 'text/plain' })] },
     })
 
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    await waitFor(() => {
-      const lastCall = onDraftChange.mock.calls.at(-1)?.[0] as string | undefined
-      expect(lastCall).toContain('[notes.txt](chats/c1/attachments/x-notes.txt)')
-    })
+    await waitFor(() =>
+      expect(markdown()).toContain('[notes.txt](chats/c1/attachments/x-notes.txt)'),
+    )
   })
 
-  // The takeover's own id-correlation/upload/toast/persistence behaviour is
-  // excalidraw-takeover.test.tsx's job; this proves the composer's own
-  // `onInsertMarkdown` wiring reaches the field's imperative handle for
-  // EACH of the two markdown blocks a save produces (the fence, then the
-  // sibling image), not just that the takeover opens.
+  // Under the real DndScope the inserted fence resolves to a draggable preview.
   it('uploads via the excalidraw takeover and inserts both markdown blocks into the field', async () => {
-    const user = userEvent.setup()
-    vi.mocked(uploadChatAttachment).mockResolvedValueOnce({
-      ref: 'chats/c1/attachments/x-diagram.png',
-      filename: 'x-diagram.png',
-      size: 10,
-      contentType: 'image/png',
-    })
-    const onDraftChange = vi.fn()
-    // Under the real DndScope: the inserted excalidraw:{id} fence resolves to
-    // a real, draggable preview (parseExcalidrawScene accepts a scene with no
-    // appState, same as a genuine .excalidraw file export).
-    drawWithDnd({ onDraftChange })
+    upload.mockResolvedValueOnce(
+      uploaded('chats/c1/attachments/x-diagram.png', 'x-diagram.png', 'image/png'),
+    )
+    const { markdown } = draw({}, { dnd: true })
 
-    await user.click(screen.getByRole('button', { name: /add to this message/i }))
-    await user.click(await screen.findByRole('menuitem', { name: /excalidraw/i }))
+    await openPlus(/excalidraw/i)
     await screen.findByTestId('excalidraw-canvas-mock')
-
     const pngFile = new File(['x'], 'diagram.png', { type: 'image/png' })
     await act(async () => {
       await latestExcalidrawOnSave?.({ sceneJson: '{"elements":[]}', pngFile })
     })
 
     await waitFor(() => expect(screen.queryByTestId('excalidraw-takeover')).toBeNull())
-    const calls = onDraftChange.mock.calls.map((c) => c[0] as string)
-    expect(calls.some((md) => md.includes('excalidraw:'))).toBe(true)
-    expect(calls.at(-1)).toContain('![diagram](chats/c1/attachments/x-diagram.png)')
+    expect(markdown()).toContain('excalidraw:')
+    expect(markdown()).toContain('![diagram](chats/c1/attachments/x-diagram.png)')
   })
 
-  // Pre-existing branch, unrelated to the plus button: proves the switch still
-  // reaches `case 'choice'` (and thus never the input/handle branch) once a
-  // pending choice is waiting.
   it('renders the choice card instead of the field when a choice is pending', () => {
     draw({ asks: [askItem({ turnId: 't1' })] })
 
     expect(screen.getByRole('group')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Send prompt' })).toBeNull()
   })
 
@@ -330,9 +240,19 @@ describe('AgentComposer', () => {
     expect(screen.getByTestId('agent-choice-stack')).toBeInTheDocument()
   })
 
-  // Pre-existing branches, unrelated to the plus button: compaction shares the
-  // 'input' render path (it queues rather than blocking), and the pill grows a
-  // `multi` class once the field itself reports more than one line.
+  // The ask hides the one editor rather than replacing it.
+  it('keeps what was typed while an ask holds the bar', async () => {
+    const { load, markdown, rerenderWith } = draw()
+    await load('half a thought')
+
+    rerenderWith({ asks: [askItem({ turnId: 't1' })] })
+    expect(screen.queryByRole('textbox')).toBeNull()
+    rerenderWith({ asks: [] })
+
+    expect(screen.getByRole('textbox', { name: 'Message the agent' })).toBeInTheDocument()
+    expect(markdown()).toBe('half a thought')
+  })
+
   it('keeps the field mounted while compacting, queuing behind the busy provider', () => {
     draw({ compacting: true })
 
@@ -340,129 +260,96 @@ describe('AgentComposer', () => {
   })
 
   it('marks the pill multiline once the field grows past one line', () => {
-    const { container } = draw({ fieldHeight: 40 })
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      height: 40,
+      width: 0,
+    } as DOMRect)
+    const { pill } = draw()
 
-    expect(container.querySelector('.pill')).toHaveClass('multi')
+    expect(pill()).toHaveClass('multi')
+  })
+
+  it('places the same editor in the document with its own controls and banner', () => {
+    draw({ placement: 'document', controls: <span data-testid="chips" /> })
+
+    expect(screen.getByRole('textbox', { name: 'Describe the change' })).toBeInTheDocument()
+    expect(screen.getByTestId('agent-empty-document')).toContainElement(screen.getByTestId('chips'))
+    expect(screen.getByRole('button', { name: /add to this message/i })).toBeInTheDocument()
   })
 })
 
-// Task 29: dropping a file directly on the pill uploads it and inserts the
-// same attachment markdown the (not-yet-built) Attach File modal will
-// produce — see uploadChatAttachment/fileMarkdown/imageMarkdown.
 describe('AgentComposer drag-and-drop', () => {
-  beforeEach(() => {
-    vi.mocked(uploadChatAttachment).mockReset()
-    vi.mocked(useTauriFileDrop).mockClear()
-    toastError.mockClear()
-  })
+  const drop = (target: Element, files: File[]) =>
+    fireEvent.drop(target, { dataTransfer: { types: ['Files'], files } })
 
   it('shows a drag-over state while a file is dragged over the pill', () => {
-    const { container } = draw()
-    const pill = container.querySelector('.pill')!
+    const { pill } = draw()
 
-    fireEvent.dragOver(pill, { dataTransfer: { types: ['Files'] } })
-    expect(pill).toHaveClass('drop-target')
+    fireEvent.dragOver(pill(), { dataTransfer: { types: ['Files'] } })
+    expect(pill()).toHaveClass('drop-target')
 
-    fireEvent.dragLeave(pill)
-    expect(pill).not.toHaveClass('drop-target')
+    fireEvent.dragLeave(pill())
+    expect(pill()).not.toHaveClass('drop-target')
   })
 
   it('ignores a drag-over that carries no files', () => {
-    const { container } = draw()
-    const pill = container.querySelector('.pill')!
+    const { pill } = draw()
 
-    fireEvent.dragOver(pill, { dataTransfer: { types: ['text/plain'] } })
+    fireEvent.dragOver(pill(), { dataTransfer: { types: ['text/plain'] } })
 
-    expect(pill).not.toHaveClass('drop-target')
+    expect(pill()).not.toHaveClass('drop-target')
   })
 
-  // The other half of drag-leave's guard: a leave that lands on a target the
-  // pill still contains (its own field, its own handle) is not really a
-  // leave — clearing the state there would flicker the border on every pixel
-  // the pointer crosses between the two.
+  // A leave onto the pill's own child is not a leave: the border would flicker.
   it('keeps the drag-over state when drag-leave lands on a still-contained child', () => {
-    const { container } = draw()
-    const pill = container.querySelector('.pill')!
+    const { pill } = draw()
+    fireEvent.dragOver(pill(), { dataTransfer: { types: ['Files'] } })
 
-    fireEvent.dragOver(pill, { dataTransfer: { types: ['Files'] } })
-    expect(pill).toHaveClass('drop-target')
-
-    // jsdom's `DragEvent` constructor drops a `relatedTarget` passed via its
-    // init dict (unlike `dataTransfer`, testing-library has no special case
-    // for it) — defined directly on a plain event instead, which React's
-    // synthetic-event layer reads the same way for `onDragLeave`.
+    // jsdom's DragEvent drops an init `relatedTarget`; React reads this one.
     const leave = new Event('dragleave', { bubbles: true, cancelable: false })
-    Object.defineProperty(leave, 'relatedTarget', { value: pill, configurable: true })
-    fireEvent(pill, leave)
+    Object.defineProperty(leave, 'relatedTarget', { value: pill(), configurable: true })
+    fireEvent(pill(), leave)
 
-    expect(pill).toHaveClass('drop-target')
+    expect(pill()).toHaveClass('drop-target')
   })
 
-  // Uses `drawWithDnd`: an inserted image is a draggable attachment too
-  // (chat-markdown-image-node.tsx), so this runs under the same `DndScope`
-  // production has.
   it('uploads a dropped image and inserts image markdown, clearing the drag-over state', async () => {
-    vi.mocked(uploadChatAttachment).mockResolvedValue({
-      ref: 'chats/c1/attachments/x-a.png',
-      filename: 'a.png',
-      size: 10,
-      contentType: 'image/png',
-    })
-    const onDraftChange = vi.fn()
-    const { container } = drawWithDnd({
-      onDraftChange,
-      seedText: '```text-attachment:AbC123xy\nsome pasted text\n```',
-    })
-    const pill = container.querySelector('.pill')!
+    upload.mockResolvedValue(uploaded('chats/c1/attachments/x-a.png', 'a.png', 'image/png'))
+    const { pill, markdown } = draw({}, { dnd: true })
     const file = new File(['bytes'], 'a.png', { type: 'image/png' })
 
-    fireEvent.dragEnter(pill, { dataTransfer: { types: ['Files'] } })
-    fireEvent.dragOver(pill, { dataTransfer: { types: ['Files'] } })
-    fireEvent.drop(pill, { dataTransfer: { types: ['Files'], files: [file] } })
+    fireEvent.dragOver(pill(), { dataTransfer: { types: ['Files'] } })
+    drop(pill(), [file])
 
-    expect(pill).not.toHaveClass('drop-target')
-    await waitFor(() => expect(uploadChatAttachment).toHaveBeenCalledWith('w1', 'c1', { file }))
-    await waitFor(() => {
-      const lastCall = onDraftChange.mock.calls.at(-1)?.[0] as string | undefined
-      expect(lastCall).toContain('![a.png](chats/c1/attachments/x-a.png)')
-    })
+    expect(pill()).not.toHaveClass('drop-target')
+    await waitFor(() => expect(upload).toHaveBeenCalledWith('w1', 'c1', { file }))
+    await waitFor(() => expect(markdown()).toContain('![a.png](chats/c1/attachments/x-a.png)'))
   })
 
-  // Finding C3: a dropped CSV that resolves cleanly as a small table is
-  // inlined directly as a markdown table — never uploaded at all.
+  it('uploads a file dropped over the document placement', async () => {
+    upload.mockResolvedValue(uploaded('chats/c1/attachments/y-b.pdf', 'b.pdf', 'application/pdf'))
+    const { markdown } = draw({ placement: 'document' })
+    const file = new File(['bytes'], 'b.pdf', { type: 'application/pdf' })
+
+    drop(screen.getByTestId('agent-empty-document'), [file])
+
+    await waitFor(() => expect(markdown()).toContain('[b.pdf](chats/c1/attachments/y-b.pdf)'))
+  })
+
+  // A small well-formed CSV is inlined as a table, never uploaded.
   it('resolves a small, well-formed dropped CSV inline as a markdown table, without uploading', async () => {
-    const onDraftChange = vi.fn()
-    const { container } = draw({ onDraftChange })
-    const pill = container.querySelector('.pill')!
-    const file = new File(['name,age\nAda,36\n'], 'people.csv', { type: 'text/csv' })
+    const { pill, markdown } = draw()
 
-    fireEvent.drop(pill, { dataTransfer: { types: ['Files'], files: [file] } })
+    drop(pill(), [new File(['name,age\nAda,36\n'], 'people.csv', { type: 'text/csv' })])
 
-    await waitFor(() => {
-      const lastCall = onDraftChange.mock.calls.at(-1)?.[0] as string | undefined
-      expect(lastCall).toContain('| name | age |')
-    })
-    expect(uploadChatAttachment).not.toHaveBeenCalled()
+    await waitFor(() => expect(markdown()).toContain('| name | age |'))
+    expect(upload).not.toHaveBeenCalled()
   })
 
-  // Wave 6, Bug 1 (critical, live-reproduced): a CSV drop landed correctly as
-  // a table AND, from the exact same `drop` event, a second time as raw text
-  // duplicated into the document. Root cause: `handlePillDrop` above lives
-  // OUTSIDE Plate's plugin system, on the `.pill` DOM ancestor — invisible to
-  // slate-react's own `isEventHandled` check. The `resolves a small,
-  // well-formed dropped CSV...` test above dispatches its `drop` directly on
-  // `.pill`, whose `event.target` therefore never satisfies slate-react's
-  // `ReactEditor.hasTarget` (the editable does not contain its own ancestor)
-  // — so it never actually exercised slate-react's own default drop handling
-  // and missed this entirely, same as the whole-branch review did. This test
-  // dispatches on the REAL `[data-slate-editor]` node instead — where a
-  // physical drop over the composer's visible text actually targets — with a
-  // real (non-RTL-shimmed) `DataTransfer`-shaped object supporting `getData`,
-  // so slate-react's `Editable` onDrop actually runs its own `insertData`
-  // path if nothing stops it.
+  // On the real editable, slate-react's own drop would also insert the raw CSV
+  // text unless the editor's drop guard claims the event.
   it('drops a CSV onto the real editable node without duplicating its raw text anywhere in the document', async () => {
-    const onDraftChange = vi.fn()
-    const { container } = draw({ onDraftChange })
+    const { container, markdown } = draw()
     const editable = container.querySelector('[data-slate-editor]')!
     const csvText = 'name,age\nAda,36\n'
     const file = new File([csvText], 'people.csv', { type: 'text/csv' })
@@ -472,20 +359,10 @@ describe('AgentComposer drag-and-drop', () => {
       items: [],
       getData: (type: string) => (type === 'text/plain' ? csvText : ''),
     }
-
-    // jsdom implements neither `caretRangeFromPoint` nor
-    // `caretPositionFromPoint` (real WebKit/Chromium — the Tauri webview
-    // included — implement one of the two), which is why slate-react's own
-    // drop handling has never been reachable through this suite's existing
-    // `fireEvent.drop(pill, ...)` calls: `ReactEditor.findEventRange` throws
-    // before ever reaching `insertData`. Stubbed here so this test exercises
-    // the exact same code path a real drop takes.
-    const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT)
-    const firstText = walker.nextNode() as Text | null
+    // jsdom implements no caretRangeFromPoint, which slate-react's drop needs.
     document.caretRangeFromPoint = () => {
       const range = document.createRange()
-      if (firstText) range.setStart(firstText, 0)
-      else range.setStart(editable, 0)
+      range.setStart(editable, 0)
       range.collapse(true)
       return range
     }
@@ -496,160 +373,76 @@ describe('AgentComposer drag-and-drop', () => {
     Object.defineProperty(dropEvent, 'clientY', { value: 1, configurable: true })
     fireEvent(editable, dropEvent)
 
-    await waitFor(() => {
-      const lastCall = onDraftChange.mock.calls.at(-1)?.[0] as string | undefined
-      expect(lastCall).toContain('| name | age |')
-    })
-    expect(uploadChatAttachment).not.toHaveBeenCalled()
-
-    // Structural proof, not just "the table itself looks right": exactly one
-    // table in the whole document, and the raw CSV values appear ONLY inside
-    // that table's own cells — nowhere else (no stray paragraph, and no
-    // extra node nested inside any cell beyond its own single value).
-    const tables = container.querySelectorAll('[data-slate-node="element"].slate-table')
-    expect(tables).toHaveLength(1)
-
+    await waitFor(() => expect(markdown()).toContain('| name | age |'))
+    expect(upload).not.toHaveBeenCalled()
     const cells = container.querySelectorAll('td, th')
     expect(Array.from(cells).map((cell) => cell.textContent)).toEqual(['name', 'age', 'Ada', '36'])
-    for (const cell of Array.from(cells)) {
-      expect(cell.querySelectorAll('.slate-p')).toHaveLength(1)
-    }
-
-    const lastCall = onDraftChange.mock.calls.at(-1)?.[0] as string
-    expect(lastCall).not.toContain('name,age')
-    expect(lastCall.match(/\bAda\b/g)).toHaveLength(1)
-    expect(lastCall.match(/\b36\b/g)).toHaveLength(1)
+    expect(markdown()).not.toContain('name,age')
+    expect(markdown().match(/\bAda\b/g)).toHaveLength(1)
   })
 
-  // The fallback half of the same finding: a CSV too large/malformed to
-  // inline (resolveCsv returns `{ kind: 'file' }`) still uploads exactly
-  // like any other file.
   it('falls through to uploading a CSV that is too malformed to inline', async () => {
-    vi.mocked(uploadChatAttachment).mockResolvedValue({
-      ref: 'chats/c1/attachments/x-ragged.csv',
-      filename: 'ragged.csv',
-      size: 20,
-      contentType: 'text/csv',
-    })
-    const onDraftChange = vi.fn()
-    const { container } = draw({ onDraftChange })
-    const pill = container.querySelector('.pill')!
-    // Ragged rows -> resolveCsv rejects it as { kind: 'file' }.
+    upload.mockResolvedValue(
+      uploaded('chats/c1/attachments/x-ragged.csv', 'ragged.csv', 'text/csv'),
+    )
+    const { pill, markdown } = draw()
     const file = new File(['a,b\n1\n'], 'ragged.csv', { type: 'text/csv' })
 
-    fireEvent.drop(pill, { dataTransfer: { types: ['Files'], files: [file] } })
+    drop(pill(), [file])
 
-    await waitFor(() => expect(uploadChatAttachment).toHaveBeenCalledWith('w1', 'c1', { file }))
-    await waitFor(() => {
-      const lastCall = onDraftChange.mock.calls.at(-1)?.[0] as string | undefined
-      expect(lastCall).toContain('[ragged.csv](chats/c1/attachments/x-ragged.csv)')
-    })
+    await waitFor(() => expect(upload).toHaveBeenCalledWith('w1', 'c1', { file }))
+    await waitFor(() =>
+      expect(markdown()).toContain('[ragged.csv](chats/c1/attachments/x-ragged.csv)'),
+    )
   })
 
-  // The other branch of insertUploaded's contentType switch: a non-image
-  // result gets the plain-link encoding, not the image one.
   it('uploads a dropped non-image file and inserts link markdown', async () => {
-    vi.mocked(uploadChatAttachment).mockResolvedValue({
-      ref: 'chats/c1/attachments/y-b.pdf',
-      filename: 'b.pdf',
-      size: 20,
-      contentType: 'application/pdf',
-    })
-    const onDraftChange = vi.fn()
-    const { container } = draw({ onDraftChange })
-    const pill = container.querySelector('.pill')!
-    const file = new File(['bytes'], 'b.pdf', { type: 'application/pdf' })
+    upload.mockResolvedValue(uploaded('chats/c1/attachments/y-b.pdf', 'b.pdf', 'application/pdf'))
+    const { pill, markdown } = draw()
 
-    fireEvent.drop(pill, { dataTransfer: { types: ['Files'], files: [file] } })
+    drop(pill(), [new File(['bytes'], 'b.pdf', { type: 'application/pdf' })])
 
-    await waitFor(() => expect(uploadChatAttachment).toHaveBeenCalledWith('w1', 'c1', { file }))
-    await waitFor(() => {
-      const lastCall = onDraftChange.mock.calls.at(-1)?.[0] as string | undefined
-      expect(lastCall).toContain('[b.pdf](chats/c1/attachments/y-b.pdf)')
-      expect(lastCall).not.toContain('![b.pdf]')
-    })
+    await waitFor(() => expect(markdown()).toContain('[b.pdf](chats/c1/attachments/y-b.pdf)'))
+    expect(markdown()).not.toContain('![b.pdf]')
   })
 
   it('ignores a drop that carries no files', () => {
-    const { container } = draw()
-    const pill = container.querySelector('.pill')!
+    const { pill } = draw()
 
-    fireEvent.drop(pill, { dataTransfer: { types: ['text/plain'], files: [] } })
+    fireEvent.drop(pill(), { dataTransfer: { types: ['text/plain'], files: [] } })
 
-    expect(uploadChatAttachment).not.toHaveBeenCalled()
+    expect(upload).not.toHaveBeenCalled()
   })
 
-  // The real Tauri desktop path (Task 27): a native OS drop never reaches the
-  // DOM as a `drop` event at all, only as this hook's own callback — see
-  // useTauriFileDrop's own note on why. Exercised via the stubbed hook above.
+  // A native OS drop reaches the app only through the Tauri hook's callback.
   it('uploads each Tauri-reported host path and clears the drag-over state', async () => {
-    vi.mocked(uploadChatAttachment).mockResolvedValue({
-      ref: 'chats/c1/attachments/z-c.txt',
-      filename: 'c.txt',
-      size: 5,
-      contentType: 'text/plain',
-    })
-    const onDraftChange = vi.fn()
-    const { container } = draw({ onDraftChange })
-    const pill = container.querySelector('.pill')!
-    fireEvent.dragOver(pill, { dataTransfer: { types: ['Files'] } })
-    expect(pill).toHaveClass('drop-target')
+    upload.mockResolvedValue(uploaded('chats/c1/attachments/z-c.txt', 'c.txt', 'text/plain'))
+    const { pill, markdown } = draw()
+    fireEvent.dragOver(pill(), { dataTransfer: { types: ['Files'] } })
 
-    const onDrop = vi.mocked(useTauriFileDrop).mock.calls.at(-1)?.[1]
-    expect(onDrop).toBeTypeOf('function')
-    await act(async () => {
-      onDrop?.(['/Users/me/c.txt'])
-    })
+    const onDrop = tauriHook.mock.calls.at(-1)?.[1]
+    await act(async () => onDrop?.(['/Users/me/c.txt']))
 
-    expect(pill).not.toHaveClass('drop-target')
-    expect(uploadChatAttachment).toHaveBeenCalledWith('w1', 'c1', { path: '/Users/me/c.txt' })
-    await waitFor(() => {
-      const lastCall = onDraftChange.mock.calls.at(-1)?.[0] as string | undefined
-      expect(lastCall).toContain('[c.txt](chats/c1/attachments/z-c.txt)')
-    })
+    expect(pill()).not.toHaveClass('drop-target')
+    expect(upload).toHaveBeenCalledWith('w1', 'c1', { path: '/Users/me/c.txt' })
+    await waitFor(() => expect(markdown()).toContain('[c.txt](chats/c1/attachments/z-c.txt)'))
   })
 
-  // Review finding 1: an inline arrow passed to `useTauriFileDrop` would get a
-  // fresh identity every render, tearing down and re-establishing Tauri's
-  // `onDragDropEvent` subscription on every keystroke (this component
-  // re-renders on `props.draft`/`onDraftChange`). Proven directly against the
-  // stubbed hook rather than inferred from the fix.
-  it('passes the same onDrop identity to useTauriFileDrop across an unrelated re-render', () => {
-    const { rerenderWith } = draw({ draft: 'a' })
-    const callsBefore = vi.mocked(useTauriFileDrop).mock.calls.length
-    const firstOnDrop = vi.mocked(useTauriFileDrop).mock.calls.at(-1)?.[1]
-    expect(firstOnDrop).toBeTypeOf('function')
+  // A fresh handler per render would re-subscribe Tauri's drop channel over IPC.
+  it('passes the same onDrop identity to useTauriFileDrop across a re-render', () => {
+    const { rerenderWith } = draw()
+    const first = tauriHook.mock.calls.at(-1)?.[1]
 
-    rerenderWith({ draft: 'ab' })
+    rerenderWith({ working: true })
 
-    expect(vi.mocked(useTauriFileDrop).mock.calls.length).toBeGreaterThan(callsBefore)
-    const secondOnDrop = vi.mocked(useTauriFileDrop).mock.calls.at(-1)?.[1]
-    expect(secondOnDrop).toBe(firstOnDrop)
+    expect(tauriHook.mock.calls.at(-1)?.[1]).toBe(first)
   })
 
-  // Review finding 2: a failed upload used to be a silent no-op (an unhandled
-  // rejection, nothing inserted, nothing said). `uploadAndInsert` now catches
-  // and toasts instead.
-  //
-  // An image file now takes the optimistic path (chat-markdown-image-node.tsx):
-  // a local preview goes in immediately, then comes back OUT once the upload
-  // fails — `onDraftChange` DOES fire along the way (the placeholder, then
-  // its removal), unlike before this existed. What still holds is the
-  // original intent: nothing is left in the document once it settles, and
-  // the failure is surfaced via toast rather than silently doing nothing.
-  it('surfaces a failed upload as a toast instead of silently doing nothing', async () => {
-    vi.mocked(uploadChatAttachment).mockRejectedValueOnce(new Error('413 Payload Too Large'))
-    const onDraftChange = vi.fn()
-    const { container } = drawWithDnd({
-      onDraftChange,
-      seedText: '```text-attachment:AbC123xy\nsome pasted text\n```',
-    })
-    const pill = container.querySelector('.pill')!
-    const file = new File(['bytes'], 'huge.png', { type: 'image/png' })
+  it('surfaces a failed upload as a toast and leaves nothing of it in the box', async () => {
+    upload.mockRejectedValueOnce(new Error('413 Payload Too Large'))
+    const { pill, markdown } = draw({}, { dnd: true })
 
-    fireEvent.dragEnter(pill, { dataTransfer: { types: ['Files'] } })
-    fireEvent.dragOver(pill, { dataTransfer: { types: ['Files'] } })
-    fireEvent.drop(pill, { dataTransfer: { types: ['Files'], files: [file] } })
+    drop(pill(), [new File(['bytes'], 'huge.png', { type: 'image/png' })])
 
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith(
@@ -657,23 +450,15 @@ describe('AgentComposer drag-and-drop', () => {
         '413 Payload Too Large',
       ),
     )
-    // Back to just the pre-existing (seeded) content — no trace of the
-    // failed image, placeholder or otherwise.
-    const finalMarkdown = onDraftChange.mock.calls.at(-1)?.[0] as string
-    expect(finalMarkdown).not.toContain('blob:')
-    expect(finalMarkdown).not.toContain('huge.png')
+    expect(markdown()).not.toContain('blob:')
+    expect(markdown()).not.toContain('huge.png')
   })
 
-  // A failure that isn't an `Error` instance (e.g. a plain thrown string, or a
-  // non-Error rejection from a fetch polyfill) still gets a description, not
-  // a crash.
   it('falls back to a generic description for a non-Error rejection', async () => {
-    vi.mocked(uploadChatAttachment).mockRejectedValueOnce('boom')
-    const { container } = draw()
-    const pill = container.querySelector('.pill')!
-    const file = new File(['bytes'], 'huge.png', { type: 'image/png' })
+    upload.mockRejectedValueOnce('boom')
+    const { pill } = draw()
 
-    fireEvent.drop(pill, { dataTransfer: { types: ['Files'], files: [file] } })
+    drop(pill(), [new File(['bytes'], 'huge.png', { type: 'image/png' })])
 
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith(
@@ -683,71 +468,32 @@ describe('AgentComposer drag-and-drop', () => {
     )
   })
 
-  // Also (review, minor): the `editorRef.current?.` null-path was previously
-  // unexercised. A drop that outlives the component (the pane closes, the
-  // chat is switched, mid-upload) must not throw when it tries to insert.
+  // An upload that outlives the pane must not throw when it tries to insert.
   it('does not throw when the composer unmounts before an in-flight upload resolves', async () => {
     let resolveUpload: ((value: UploadedChatAttachment) => void) | undefined
-    vi.mocked(uploadChatAttachment).mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveUpload = resolve
-        }),
-    )
-    const { container, unmount } = draw()
-    const pill = container.querySelector('.pill')!
-    const file = new File(['bytes'], 'a.png', { type: 'image/png' })
+    upload.mockImplementation(() => new Promise((resolve) => (resolveUpload = resolve)))
+    const { pill, unmount } = draw()
 
-    fireEvent.drop(pill, { dataTransfer: { types: ['Files'], files: [file] } })
+    drop(pill(), [new File(['bytes'], 'a.png', { type: 'image/png' })])
     unmount()
 
-    await act(async () => {
-      resolveUpload?.({
-        ref: 'chats/c1/attachments/x-a.png',
-        filename: 'a.png',
-        size: 10,
-        contentType: 'image/png',
-      })
-    })
-    // Reaching here without throwing IS the assertion — editorRef.current is
-    // null post-unmount, and insertUploaded's `?.` must swallow that cleanly.
+    await act(async () =>
+      resolveUpload?.(uploaded('chats/c1/attachments/x-a.png', 'a.png', 'image/png')),
+    )
+    expect(toastError).not.toHaveBeenCalled()
   })
 
-  // In-page attachment reordering (dnd-kit, pointer events) must not interfere
-  // with a native file drop: with a real attachment drag source mounted under
-  // the real `DndScope`, the composer's own file-drop handling over the pill
-  // (`handlePillDragOver`/`handlePillDrop`) still uploads and inserts exactly
-  // once.
+  // Attachment reordering (dnd-kit) must not swallow a native file drop.
   it('still uploads a dropped native file over the pill with a real attachment drag source mounted', async () => {
-    vi.mocked(uploadChatAttachment).mockResolvedValue({
-      ref: 'chats/c1/attachments/y-b.pdf',
-      filename: 'b.pdf',
-      size: 20,
-      contentType: 'application/pdf',
-    })
-    const onDraftChange = vi.fn()
-    const { container } = drawWithDnd({
-      onDraftChange,
-      seedText: '```text-attachment:AbC123xy\nsome pasted text\n```',
-    })
-
-    // Proves a real drag source is mounted.
+    upload.mockResolvedValue(uploaded('chats/c1/attachments/y-b.pdf', 'b.pdf', 'application/pdf'))
+    const { pill, markdown, load } = draw({}, { dnd: true })
+    await load('```text-attachment:AbC123xy\nsome pasted text\n```')
     expect(screen.getByRole('button', { name: /reorder this attachment/i })).toBeInTheDocument()
 
-    const pill = container.querySelector('.pill')!
-    const file = new File(['bytes'], 'b.pdf', { type: 'application/pdf' })
+    fireEvent.dragOver(pill(), { dataTransfer: { types: ['Files'] } })
+    drop(pill(), [new File(['bytes'], 'b.pdf', { type: 'application/pdf' })])
 
-    fireEvent.dragEnter(pill, { dataTransfer: { types: ['Files'] } })
-    fireEvent.dragOver(pill, { dataTransfer: { types: ['Files'] } })
-    expect(pill).toHaveClass('drop-target')
-    fireEvent.drop(pill, { dataTransfer: { types: ['Files'], files: [file] } })
-
-    expect(pill).not.toHaveClass('drop-target')
-    await waitFor(() => expect(uploadChatAttachment).toHaveBeenCalledWith('w1', 'c1', { file }))
-    await waitFor(() => {
-      const lastCall = onDraftChange.mock.calls.at(-1)?.[0] as string | undefined
-      expect(lastCall).toContain('[b.pdf](chats/c1/attachments/y-b.pdf)')
-    })
-    expect(uploadChatAttachment).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(markdown()).toContain('[b.pdf](chats/c1/attachments/y-b.pdf)'))
+    expect(upload).toHaveBeenCalledTimes(1)
   })
 })

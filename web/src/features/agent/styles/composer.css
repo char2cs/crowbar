@@ -668,6 +668,11 @@
    same as `.agent-prose` (transcript.css). What you draft and what you then
    read back are one continuous text — the type must not resize under you the
    moment the first turn lands. Only the 720px measure is this surface's own. */
+/* The blank chat's frame for the one composer: the dock's own node, laid out
+   as if absent, so the document fills the pane until the first send. */
+.agent-chat .docframe {
+  display: contents;
+}
 .agent-chat .docwrap {
   position: relative;
   flex: 1;

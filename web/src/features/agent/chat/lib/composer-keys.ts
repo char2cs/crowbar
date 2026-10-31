@@ -1,7 +1,10 @@
 import type { KeyboardEvent } from 'react'
 import type { SlashCatalogItem } from '@/features/agent/api/agent-chat-reads'
 import { matchesPromptStashShortcut } from '@/features/agent/composer/lib/prompt-stash-persistence'
-import type { CaretEdges } from '@/features/agent/composer/plate/chat-markdown-editor'
+import type {
+  CaretEdges,
+  ComposerShape,
+} from '@/features/agent/composer/plate/chat-markdown-editor'
 
 interface ComposerKeyTargets {
   slash: {
@@ -14,6 +17,7 @@ interface ComposerKeyTargets {
   history: {
     recallOlder: (current: string) => string | undefined
     recallNewer: () => string | undefined
+    reset: () => void
   }
   /** The composer's own stop button is showing. */
   canStop: boolean
@@ -32,6 +36,7 @@ export function handleComposerKey(
   event: KeyboardEvent<HTMLDivElement>,
   readMarkdown: () => string,
   caret: CaretEdges,
+  shape: ComposerShape,
 ) {
   const { slash } = targets
   if (matchesPromptStashShortcut(event)) {
@@ -42,7 +47,7 @@ export function handleComposerKey(
   }
   if (event.key === 'Escape') {
     if (slash.open) slash.close()
-    else if (readMarkdown().trim() || !targets.retract()) {
+    else if (!shape.empty || !targets.retract()) {
       if (!targets.canStop) return
       targets.stop()
     }
@@ -68,6 +73,8 @@ export function handleComposerKey(
     else targets.send(readMarkdown())
     return
   }
+  // Any other key may edit the text, which abandons a walk through history.
+  if (!arrow) targets.history.reset()
   // History recall only at an edge the caret could not otherwise move past.
   const plain = !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey
   if (slash.open || !plain) return

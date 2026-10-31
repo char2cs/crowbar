@@ -68,24 +68,8 @@ vi.spyOn(lazyTerminalMod, 'LazyXtermTerminal').mockImplementation(
 )
 
 import * as chatMarkdownEditorMod from '@/features/agent/composer/plate/chat-markdown-editor'
-vi.spyOn(chatMarkdownEditorMod, 'ChatMarkdownEditor').mockImplementation(
-  ({
-    ariaLabel,
-    placeholder,
-    onChange,
-    onKeyDown,
-  }: chatMarkdownEditorMod.ChatMarkdownEditorProps) =>
-    createElement('textarea', {
-      'aria-label': ariaLabel,
-      placeholder,
-      onChange: (event: { target: { value: string } }) => onChange(event.target.value),
-      onKeyDown: (event: { currentTarget: { value: string } }) =>
-        onKeyDown?.(event as never, () => event.currentTarget.value, {
-          atStart: true,
-          atEnd: true,
-        }),
-    }),
-)
+import { TextareaComposerEditor } from '@/__tests__/__fixtures__/composer-editor'
+vi.spyOn(chatMarkdownEditorMod, 'ChatMarkdownEditor').mockImplementation(TextareaComposerEditor)
 
 import * as providerSwitchDropdownMod from '@/features/agent/components/provider-switch-dropdown'
 vi.spyOn(providerSwitchDropdownMod, 'ProviderSwitchDropdown').mockImplementation(() =>

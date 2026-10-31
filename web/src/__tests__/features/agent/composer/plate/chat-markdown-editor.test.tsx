@@ -9,9 +9,10 @@ import {
   ChatMarkdownEditor,
   type CaretEdges,
   type ChatMarkdownEditorHandle,
+  type ComposerShape,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
-import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-composer-serialization'
+import * as serialization from '@/features/agent/composer/plate/chat-composer-serialization'
 
 // Captures the config of the editor's own key plugin so its real handler can be
 // called directly: jsdom cannot drive Slate's selection-dependent keydown.
@@ -58,7 +59,7 @@ function capturedDropGuardHandler(): DropGuardHandler {
 function editorWith(markdown: string, autoSelect?: 'start' | 'end'): PlateEditor {
   return createPlateEditor({
     plugins: chatComposerPlugins,
-    value: chatMarkdownToValue(markdown),
+    value: serialization.chatMarkdownToValue(markdown),
     ...(autoSelect ? { autoSelect } : {}),
   })
 }
@@ -84,168 +85,144 @@ function keyEvent(
 }
 
 describe('ChatMarkdownEditor imperative handle', () => {
-  it('inserts a block-level node built from markdown, and reports it via onChange', () => {
+  function renderHandle() {
     const ref = createRef<ChatMarkdownEditorHandle>()
-    const onChange = vi.fn()
-    render(
-      <ChatMarkdownEditor
-        ref={ref}
-        wsId="w1"
-        chatId="c1"
-        initialValue=""
-        placeholder=""
-        ariaLabel="Message the agent"
-        onChange={onChange}
-        onKeyDown={vi.fn()}
-      />,
-    )
-
-    ref.current?.insertAttachmentMarkdown('```text-attachment:abc123\nhello world\n```')
-
-    const lastCall = onChange.mock.calls.at(-1)?.[0] as string
-    expect(lastCall).toContain('text-attachment:abc123')
-  })
-
-  it('inserts a pending image at a local object URL, and reports it via onChange', () => {
-    const ref = createRef<ChatMarkdownEditorHandle>()
-    const onChange = vi.fn()
-    render(
-      <ChatMarkdownEditor
-        ref={ref}
-        initialValue=""
-        placeholder=""
-        ariaLabel="Message the agent"
-        onChange={onChange}
-        onKeyDown={vi.fn()}
-      />,
-    )
-
-    ref.current?.insertPendingImage('blob:local-preview', 'photo.png')
-
-    expect(onChange.mock.calls.at(-1)?.[0]).toContain('blob:local-preview')
-  })
-
-  it('settles a pending image to its real ref, and reports the swap via onChange', () => {
-    const ref = createRef<ChatMarkdownEditorHandle>()
-    const onChange = vi.fn()
-    render(
-      <ChatMarkdownEditor
-        ref={ref}
-        initialValue=""
-        placeholder=""
-        ariaLabel="Message the agent"
-        onChange={onChange}
-        onKeyDown={vi.fn()}
-      />,
-    )
-    ref.current?.insertPendingImage('blob:local-preview', 'photo.png')
-
-    ref.current?.settlePendingImage(
-      'blob:local-preview',
-      '![photo.png](chats/c1/attachments/photo.png)',
-    )
-
-    const lastCall = onChange.mock.calls.at(-1)?.[0] as string
-    expect(lastCall).toContain('chats/c1/attachments/photo.png')
-    expect(lastCall).not.toContain('blob:local-preview')
-  })
-
-  // wsId/chatId are accepted-but-unused this task (a later task's paste
-  // plugin needs them) — proven here by the OTHER existing caller,
-  // agent-empty-document.tsx, which doesn't pass them at all yet.
-  it('renders without wsId/chatId, matching the one call site not updated by this task', () => {
-    const ref = createRef<ChatMarkdownEditorHandle>()
-    expect(() =>
-      render(
-        <ChatMarkdownEditor
-          ref={ref}
-          initialValue="hi"
-          placeholder=""
-          ariaLabel="Message the agent"
-          onChange={vi.fn()}
-          onKeyDown={vi.fn()}
-        />,
-      ),
-    ).not.toThrow()
-    expect(ref.current?.insertAttachmentMarkdown).toBeTypeOf('function')
-  })
-
-  // A remount is how the parent pushes text in; an insert must never cause one.
-  it('does not remount the editable when inserting via the handle', () => {
-    const ref = createRef<ChatMarkdownEditorHandle>()
+    const onShapeChange = vi.fn()
     const { container } = render(
       <ChatMarkdownEditor
         ref={ref}
         wsId="w1"
         chatId="c1"
-        initialValue="hello"
         placeholder=""
         ariaLabel="Message the agent"
-        onChange={vi.fn()}
+        onShapeChange={onShapeChange}
         onKeyDown={vi.fn()}
       />,
     )
-    const editableBefore = container.querySelector('[data-slate-editor]')
-    expect(editableBefore).not.toBeNull()
+    return { ref, onShapeChange, editable: () => container.querySelector('[data-slate-editor]') }
+  }
 
-    ref.current?.insertAttachmentMarkdown('```text-attachment:abc123\nmore\n```')
+  it('inserts a block-level node built from markdown, and reports the box no longer empty', () => {
+    const { ref, onShapeChange } = renderHandle()
 
-    expect(container.querySelector('[data-slate-editor]')).toBe(editableBefore)
+    act(() => ref.current?.insertAttachmentMarkdown('```text-attachment:abc123\nhello world\n```'))
+
+    expect(ref.current?.getMarkdown()).toContain('text-attachment:abc123')
+    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null })
+  })
+
+  it('settles a pending image to its real ref', () => {
+    const { ref } = renderHandle()
+    act(() => ref.current?.insertPendingImage('blob:local-preview', 'photo.png'))
+    expect(ref.current?.getMarkdown()).toContain('blob:local-preview')
+
+    act(() =>
+      ref.current?.settlePendingImage(
+        'blob:local-preview',
+        '![photo.png](chats/c1/attachments/photo.png)',
+      ),
+    )
+
+    expect(ref.current?.getMarkdown()).toContain('chats/c1/attachments/photo.png')
+    expect(ref.current?.getMarkdown()).not.toContain('blob:local-preview')
+  })
+
+  // The handle is how text gets in from outside now; none of it may remount.
+  it('loads restored markdown through setMarkdown', async () => {
+    const { ref, onShapeChange, editable } = renderHandle()
+    const before = editable()
+
+    await act(async () => ref.current?.setMarkdown('**never mind**\n\nsecond thought'))
+
+    expect(editable()).toBe(before)
+    expect(editable()).toHaveTextContent('never mindsecond thought')
+    expect(ref.current?.getMarkdown()).toBe('**never mind**\n\nsecond thought')
+    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null })
+  })
+
+  it('empties the box through clear, with nothing left to undo', () => {
+    const { ref, onShapeChange } = renderHandle()
+    act(() => ref.current?.setMarkdown('sent already'))
+
+    act(() => ref.current?.clear())
+
+    expect(ref.current?.getMarkdown()).toBe('')
+    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: true, slashQuery: null })
   })
 })
 
 // Every extra commit per keystroke queues behind the next key; enough in a row
 // is React's #185 "Maximum update depth exceeded".
-describe('ChatMarkdownEditor commits', () => {
+describe('ChatMarkdownEditor shape and commits', () => {
   const grabbed: { editor?: PlateEditor } = {}
   function GrabEditor() {
     grabbed.editor = useEditorRef()
     return null
   }
-  async function renderCounted(onChange: (markdown: string) => void) {
+  async function renderCounted(onShapeChange: (shape: ComposerShape) => void) {
     const counter = { commits: 0 }
-    const view = (handler: (markdown: string) => void) => (
+    const view = (handler: (shape: ComposerShape) => void) => (
       <PlateController>
         <Profiler id="editor" onRender={() => counter.commits++}>
           <ChatMarkdownEditor
-            initialValue="hi there"
             placeholder=""
             ariaLabel="Message the agent"
-            onChange={handler}
+            onShapeChange={handler}
             onKeyDown={vi.fn()}
           />
         </Profiler>
         <GrabEditor />
       </PlateController>
     )
-    const { rerender } = render(view(onChange))
+    const { rerender } = render(view(onShapeChange))
     await act(async () => {})
     counter.commits = 0
-    return { counter, rerender: (handler: (markdown: string) => void) => rerender(view(handler)) }
+    const type = (text: string) =>
+      act(async () => grabbed.editor!.tf.insertText(text, { at: grabbed.editor!.api.end([]) }))
+    return {
+      counter,
+      type,
+      rerender: (handler: (shape: ComposerShape) => void) => rerender(view(handler)),
+    }
   }
 
+  it('reports empty and the slash query without producing markdown', async () => {
+    const serialize = vi.spyOn(serialization, 'chatValueToMarkdown')
+    const onShapeChange = vi.fn()
+    const { type } = await renderCounted(onShapeChange)
+
+    await type('/')
+    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: '' })
+    await type('Rev')
+    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: 'Rev' })
+    await act(async () => {
+      const editor = grabbed.editor!
+      editor.tf.delete({ at: { anchor: editor.api.start([])!, focus: editor.api.end([])! } })
+    })
+    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: true, slashQuery: null })
+    expect(serialize).not.toHaveBeenCalled()
+  })
+
   it('commits an edit to the text once', async () => {
-    const onChange = vi.fn()
-    const { counter } = await renderCounted(onChange)
-    const editor = grabbed.editor!
+    const onShapeChange = vi.fn()
+    const { counter, type } = await renderCounted(onShapeChange)
 
-    await act(async () => editor.tf.insertText('!', { at: editor.api.end([]) }))
+    await type('hi')
 
-    expect(onChange).toHaveBeenLastCalledWith('hi there!')
+    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null })
     expect(counter.commits).toBe(1)
   })
 
-  it('takes a new onChange in one commit, and reports to the newest one', async () => {
+  it('takes a new shape handler in one commit, and reports to the newest one', async () => {
     const first = vi.fn()
     const second = vi.fn()
-    const { counter, rerender } = await renderCounted(first)
+    const { counter, rerender, type } = await renderCounted(first)
 
     await act(async () => rerender(second))
     expect(counter.commits).toBe(1)
 
-    const editor = grabbed.editor!
-    await act(async () => editor.tf.insertText('!', { at: editor.api.end([]) }))
-    expect(second).toHaveBeenLastCalledWith('hi there!')
+    await type('!')
+    expect(second).toHaveBeenCalled()
     expect(first).not.toHaveBeenCalled()
   })
 })
@@ -258,10 +235,9 @@ describe('ChatMarkdownEditor drop guard (Wave 6, Bug 1)', () => {
       <ChatMarkdownEditor
         wsId="w1"
         chatId="c1"
-        initialValue=""
         placeholder=""
         ariaLabel="Message the agent"
-        onChange={vi.fn()}
+        onShapeChange={vi.fn()}
         onKeyDown={vi.fn()}
       />,
     )
@@ -299,12 +275,14 @@ describe('ChatMarkdownEditor drop guard (Wave 6, Bug 1)', () => {
   })
 })
 
-// Regression coverage for the box's OWN key-handling plugin: untouched by
-// this task, but this is the first direct (unmocked) test of this component,
-// so its behaviour has never been proven against real assertions before.
-describe('ChatMarkdownEditor key handling (unchanged by this task)', () => {
+describe('ChatMarkdownEditor key handling', () => {
   type OnKeyDownMock = Mock<
-    (event: KeyboardEvent<HTMLDivElement>, readMarkdown: () => string, caret: CaretEdges) => void
+    (
+      event: KeyboardEvent<HTMLDivElement>,
+      readMarkdown: () => string,
+      caret: CaretEdges,
+      shape: ComposerShape,
+    ) => void
   >
 
   function renderAndCapture(onKeyDown: OnKeyDownMock): KeyDownHandler {
@@ -312,17 +290,16 @@ describe('ChatMarkdownEditor key handling (unchanged by this task)', () => {
       <ChatMarkdownEditor
         wsId="w1"
         chatId="c1"
-        initialValue="hi"
         placeholder=""
         ariaLabel="Message the agent"
-        onChange={vi.fn()}
+        onShapeChange={vi.fn()}
         onKeyDown={onKeyDown}
       />,
     )
     return capturedKeyDownHandler()
   }
 
-  it('dispatches to the caller with the live markdown and atEnd true at a collapsed end selection', () => {
+  it('dispatches to the caller with the live markdown, its shape, and atEnd at a collapsed end', () => {
     const onKeyDown: OnKeyDownMock = vi.fn()
     const handleKeyDown = renderAndCapture(onKeyDown)
     const editor = editorWith('hi', 'end')
@@ -331,13 +308,10 @@ describe('ChatMarkdownEditor key handling (unchanged by this task)', () => {
     handleKeyDown({ editor, event })
 
     expect(onKeyDown).toHaveBeenCalledTimes(1)
-    const [passedEvent, readMarkdown, caret] = onKeyDown.mock.calls[0] as [
-      unknown,
-      () => string,
-      CaretEdges,
-    ]
+    const [passedEvent, readMarkdown, caret, shape] = onKeyDown.mock.calls[0]!
     expect(passedEvent).toBe(event)
     expect(caret).toEqual({ atStart: false, atEnd: true })
+    expect(shape).toEqual({ empty: false, slashQuery: null })
     expect(readMarkdown()).toBe('hi')
   })
 
@@ -348,7 +322,7 @@ describe('ChatMarkdownEditor key handling (unchanged by this task)', () => {
 
     handleKeyDown({ editor, event: keyEvent({ key: 'ArrowLeft' }) })
 
-    const [, , caret] = onKeyDown.mock.calls[0] as [unknown, unknown, CaretEdges]
+    const [, , caret] = onKeyDown.mock.calls[0]!
     expect(caret).toEqual({ atStart: true, atEnd: false })
   })
 
@@ -360,7 +334,7 @@ describe('ChatMarkdownEditor key handling (unchanged by this task)', () => {
 
     handleKeyDown({ editor, event: keyEvent({ key: 'Backspace' }) })
 
-    const [, , caret] = onKeyDown.mock.calls[0] as [unknown, unknown, CaretEdges]
+    const [, , caret] = onKeyDown.mock.calls[0]!
     expect(caret).toEqual({ atStart: false, atEnd: false })
   })
 
@@ -371,7 +345,7 @@ describe('ChatMarkdownEditor key handling (unchanged by this task)', () => {
 
     handleKeyDown({ editor, event: keyEvent({ key: 'Enter' }) })
 
-    const [, , caret] = onKeyDown.mock.calls[0] as [unknown, unknown, CaretEdges]
+    const [, , caret] = onKeyDown.mock.calls[0]!
     expect(caret).toEqual({ atStart: false, atEnd: false })
   })
 
@@ -467,10 +441,9 @@ describe('ChatMarkdownEditor height reporting', () => {
     const onHeightChange = vi.fn()
     render(
       <ChatMarkdownEditor
-        initialValue="hello"
         placeholder=""
         ariaLabel="Message the agent"
-        onChange={vi.fn()}
+        onShapeChange={vi.fn()}
         onKeyDown={vi.fn()}
         onHeightChange={onHeightChange}
       />,
@@ -489,10 +462,9 @@ describe('ChatMarkdownEditor height reporting', () => {
     const onHeightChange = vi.fn()
     render(
       <ChatMarkdownEditor
-        initialValue="hello"
         placeholder=""
         ariaLabel="Message the agent"
-        onChange={vi.fn()}
+        onShapeChange={vi.fn()}
         onKeyDown={vi.fn()}
         onHeightChange={onHeightChange}
       />,
@@ -506,10 +478,9 @@ describe('ChatMarkdownEditor height reporting', () => {
     const onHeightChange = vi.fn()
     const { container } = render(
       <ChatMarkdownEditor
-        initialValue="hello"
         placeholder=""
         ariaLabel="Message the agent"
-        onChange={vi.fn()}
+        onShapeChange={vi.fn()}
         onKeyDown={vi.fn()}
         onHeightChange={onHeightChange}
       />,
@@ -525,10 +496,9 @@ describe('ChatMarkdownEditor height reporting', () => {
     const onHeightChange = vi.fn()
     const { container } = render(
       <ChatMarkdownEditor
-        initialValue="hello"
         placeholder=""
         ariaLabel="Message the agent"
-        onChange={vi.fn()}
+        onShapeChange={vi.fn()}
         onKeyDown={vi.fn()}
         onHeightChange={onHeightChange}
       />,
@@ -549,10 +519,9 @@ describe('ChatMarkdownEditor height reporting', () => {
     const onHeightChange = vi.fn()
     const { container, unmount } = render(
       <ChatMarkdownEditor
-        initialValue="hello"
         placeholder=""
         ariaLabel="Message the agent"
-        onChange={vi.fn()}
+        onShapeChange={vi.fn()}
         onKeyDown={vi.fn()}
         onHeightChange={onHeightChange}
       />,
@@ -567,10 +536,9 @@ describe('ChatMarkdownEditor height reporting', () => {
 
     render(
       <ChatMarkdownEditor
-        initialValue="hello again"
         placeholder=""
         ariaLabel="Message the agent"
-        onChange={vi.fn()}
+        onShapeChange={vi.fn()}
         onKeyDown={vi.fn()}
         onHeightChange={onHeightChange}
       />,

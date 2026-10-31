@@ -6,7 +6,11 @@ import { CodeBlockPlugin } from '@platejs/code-block/react'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
 import { createChatPastePlugin } from '@/features/agent/composer/plate/chat-paste-plugin'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
-import { ChatMarkdownEditor } from '@/features/agent/composer/plate/chat-markdown-editor'
+import { createRef } from 'react'
+import {
+  ChatMarkdownEditor,
+  type ChatMarkdownEditorHandle,
+} from '@/features/agent/composer/plate/chat-markdown-editor'
 import {
   chatMarkdownToValue,
   chatValueToMarkdown,
@@ -596,12 +600,7 @@ describe('createChatPastePlugin', () => {
  * event (paste included) passes through before Slate/Plate's own handler
  * pipeline ever sees it — reads exactly that property
  * (`node_modules/slate-dom/dist/index.es.js`'s `hasDOMNode`). Unpatched, a
- * `dispatchEvent` here reaches nothing (confirmed directly: zero calls to
- * the upload mock without the override below) — which is why every OTHER
- * test file that needs a real Slate/Plate DOM event in this codebase
- * (chat-markdown-editor.test.tsx, agent-empty-document.test.tsx,
- * agent-chat-view.test.tsx) documents the same gap and falls back to calling
- * an extracted handler directly instead. Overriding `isContentEditable` on
+ * `dispatchEvent` here reaches nothing. Overriding `isContentEditable` on
  * just the mounted node is enough to get a REAL DOM event all the way
  * through — nothing else on this path is jsdom-unimplemented.
  */
@@ -638,15 +637,15 @@ describe('createChatPastePlugin, registered through the real ChatMarkdownEditor'
         resolveUpload = resolve
       }),
     )
-    const onChange = vi.fn()
+    const ref = createRef<ChatMarkdownEditorHandle>()
     const { container } = renderWithDnd(
       <ChatMarkdownEditor
+        ref={ref}
         wsId="w1"
         chatId="c1"
-        initialValue=""
         placeholder="Message the agent…"
         ariaLabel="Message the agent"
-        onChange={onChange}
+        onShapeChange={vi.fn()}
         onKeyDown={() => {}}
       />,
     )
@@ -685,7 +684,7 @@ describe('createChatPastePlugin, registered through the real ChatMarkdownEditor'
       const settled = container.querySelector('img[alt="pasted-image.png"]') as HTMLImageElement
       expect(settled.src).toContain('chats/c1/attachments/x-pasted-image.png')
     })
-    expect(onChange).toHaveBeenLastCalledWith(
+    expect(ref.current?.getMarkdown()).toBe(
       '![pasted-image.png](chats/c1/attachments/x-pasted-image.png)',
     )
   })
@@ -695,13 +694,11 @@ describe('createChatPastePlugin, registered through the real ChatMarkdownEditor'
   // a real paste then falls through to Slate's default handling rather than
   // this plugin silently swallowing it.
   it('does not intercept when wsId/chatId are missing, per the conditional in chat-markdown-editor.tsx', async () => {
-    const onChange = vi.fn()
     const { container } = renderWithDnd(
       <ChatMarkdownEditor
-        initialValue=""
         placeholder="Message the agent…"
         ariaLabel="Message the agent"
-        onChange={onChange}
+        onShapeChange={vi.fn()}
         onKeyDown={() => {}}
       />,
     )

@@ -1,38 +1,19 @@
-import { createElement, type ComponentProps } from 'react'
+import type { ComponentProps } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
+import type { Value } from 'platejs'
+import { PlateController, useEditorRef, type PlateEditor } from 'platejs/react'
 import { ledger, seedFeed, spokenIn } from '@/__tests__/__fixtures__/ledger-rows'
 import * as commands from '@/features/agent/api/agent-chat-commands'
 import * as reads from '@/features/agent/api/agent-chat-reads'
 import { AgentChatView } from '@/features/agent/chat/agent-chat-view'
+import * as serialization from '@/features/agent/composer/plate/chat-composer-serialization'
+import * as transcriptModule from '@/features/agent/transcript/agent-transcript'
 import { loadPromptStashes } from '@/features/agent/composer/lib/prompt-stash-persistence'
 import { applyFeedFrame, chatStore } from '@/features/agent/stores/chat-store'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-
-// jsdom never delivers a keydown to a Slate editable, so the box is a textarea
-// with the same contract: text in, markdown out, keys through.
-vi.mock('@/features/agent/composer/plate/chat-markdown-editor', () => ({
-  ChatMarkdownEditor: ({
-    initialValue,
-    ariaLabel,
-    onChange,
-    onKeyDown,
-  }: {
-    initialValue: string
-    ariaLabel: string
-    onChange: (value: string) => void
-    onKeyDown: (event: unknown, read: () => string, caret: object) => void
-  }) =>
-    createElement('textarea', {
-      'aria-label': ariaLabel,
-      defaultValue: initialValue,
-      onChange: (event: { target: { value: string } }) => onChange(event.target.value),
-      onKeyDown: (event: { currentTarget: { value: string } }) =>
-        onKeyDown(event, () => event.currentTarget.value, { atStart: true, atEnd: true }),
-    }),
-}))
 
 // jsdom measures 0×0, and a zero-height viewport windows down to no rows.
 const rect = { top: 0, left: 0, right: 768, bottom: 800, width: 768, height: 800, x: 0, y: 0 }
@@ -84,11 +65,39 @@ function draw(chatId: string, overrides: Partial<ComponentProps<typeof AgentChat
   }
   // An empty workspace store: no list in any store names this chat.
   return render(
-    <WorkspaceStoreContext.Provider value={createWorkspaceStore('w1')}>
-      <AgentChatView {...props} />
-    </WorkspaceStoreContext.Provider>,
+    <PlateController>
+      <WorkspaceStoreContext.Provider value={createWorkspaceStore('w1')}>
+        <AgentChatView {...props} />
+      </WorkspaceStoreContext.Provider>
+      <GrabEditor />
+    </PlateController>,
   )
 }
+
+// The real composer. jsdom has no `isContentEditable`, and Plate's hotkeys drop a
+// key unless the box holds focus, so a key goes to a focused, editable box.
+const grabbed: { editor?: PlateEditor } = {}
+function GrabEditor() {
+  grabbed.editor = useEditorRef()
+  return null
+}
+const COMPOSER = /message the agent/i
+const DOCUMENT = /describe the change/i
+const box = (name = COMPOSER) => screen.getByRole('textbox', { name })
+async function focusBox(name = COMPOSER) {
+  const el = box(name)
+  Object.defineProperty(el, 'isContentEditable', { value: true, configurable: true })
+  await act(async () => el.focus())
+  return el
+}
+async function type(text: string, name = COMPOSER) {
+  await focusBox(name)
+  await act(async () => grabbed.editor!.tf.insertText(text))
+}
+async function press(key: string, name = COMPOSER) {
+  fireEvent.keyDown(await focusBox(name), { key })
+}
+const markdown = () => serialization.chatValueToMarkdown(grabbed.editor!.children as Value)
 
 const transcriptReads = () =>
   fetchSpy.mock.calls.filter(([url]) => /\/(messages|activity)\b/.test(String(url)))
@@ -109,9 +118,8 @@ describe('AgentChatView', () => {
     seedFeed('c1', [l.prompt('r0', 'earlier'), l.start('turn-0', 'r0'), l.end('turn-0')])
     draw('c1')
 
-    const box = screen.getByRole('textbox', { name: /message the agent/i })
-    fireEvent.change(box, { target: { value: 'what changed?' } })
-    fireEvent.keyDown(box, { key: 'Enter' })
+    await type('what changed?')
+    await press('Enter')
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
     const requestId = String(submit.mock.calls[0]?.[3])
 
@@ -136,9 +144,8 @@ describe('AgentChatView', () => {
     seedFeed('c1', spokenIn('c1'))
     draw('c1')
 
-    const box = screen.getByRole('textbox', { name: /message the agent/i })
-    fireEvent.change(box, { target: { value: 'rename snake\\_case\\_file.py' } })
-    fireEvent.keyDown(box, { key: 'Enter' })
+    await type('rename snake_case_file.py')
+    await press('Enter')
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
     expect(submit.mock.calls[0]?.[2]).toBe('rename snake_case_file.py')
   })
@@ -171,9 +178,8 @@ describe('AgentChatView', () => {
       })
     })
 
-    const box = screen.getByRole('textbox', { name: /message the agent/i })
-    fireEvent.change(box, { target: { value: 'next one' } })
-    fireEvent.keyDown(box, { key: 'Enter' })
+    await type('next one')
+    await press('Enter')
 
     expect(await screen.findByTestId('queued-prompt')).toHaveAttribute('data-state', 'queued')
     expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
@@ -187,9 +193,8 @@ describe('AgentChatView', () => {
     seedFeed('c1', spokenIn('c1'))
     draw('c1')
 
-    const box = screen.getByRole('textbox', { name: /message the agent/i })
-    fireEvent.change(box, { target: { value: '/compact' } })
-    fireEvent.keyDown(box, { key: 'Enter' })
+    await type('/compact')
+    await press('Enter')
 
     await waitFor(() =>
       expect(submit).toHaveBeenCalledWith('w1', 'c1', '/compact', expect.any(String), '', '', ''),
@@ -201,14 +206,20 @@ describe('AgentChatView', () => {
       .spyOn(commands, 'submitAgentPrompt')
       .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
     const consoleError = vi.spyOn(console, 'error')
-    const long = Array.from({ length: 60 }, (_, line) => `line ${line + 1} of the count`).join('\n')
+    const lines = Array.from({ length: 60 }, (_, line) => `line ${line + 1} of the count`)
+    const long = lines.join('\n\n')
     const l = ledger('c1')
     seedFeed('c1', [])
     draw('c1')
 
-    const box = screen.getByRole('textbox', { name: /describe the change/i })
-    fireEvent.change(box, { target: { value: long } })
-    fireEvent.keyDown(box, { key: 'Enter' })
+    await focusBox(DOCUMENT)
+    await act(async () =>
+      lines.forEach((line, n) => {
+        if (n > 0) grabbed.editor!.tf.insertBreak()
+        grabbed.editor!.tf.insertText(line)
+      }),
+    )
+    await press('Enter', DOCUMENT)
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
     const requestId = String(submit.mock.calls[0]?.[3])
     act(() => seedFeed('c1', [l.prompt(requestId, long), l.start('turn-1', requestId)]))
@@ -217,6 +228,76 @@ describe('AgentChatView', () => {
     expect(submit.mock.calls[0]?.[2]).toBe(long)
     expect(await screen.findByText(/line 60 of the count/)).toBeInTheDocument()
     expect(String(consoleError.mock.calls)).not.toMatch(/Maximum update depth/)
+  })
+})
+
+describe('AgentChatView one composer', () => {
+  const submitted = () =>
+    vi
+      .spyOn(commands, 'submitAgentPrompt')
+      .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
+
+  it('symptom 7: typing re-renders neither the transcript nor serializes the draft', async () => {
+    const renders = vi.spyOn(transcriptModule, 'AgentTranscript')
+    seedFeed('c1', spokenIn('c1'))
+    draw('c1')
+    const editable = await focusBox()
+    const serialize = vi.spyOn(serialization, 'chatValueToMarkdown')
+    renders.mockClear()
+
+    for (const key of 'twenty typed letters') {
+      fireEvent.keyDown(editable, { key })
+      const end = grabbed.editor!.api.end([])
+      await act(async () => grabbed.editor!.tf.insertText(key, { at: end }))
+    }
+
+    expect(editable).toHaveTextContent('twenty typed letters')
+    expect(serialize).not.toHaveBeenCalled()
+    expect(renders).not.toHaveBeenCalled()
+  })
+
+  it('serializes the draft exactly once on send', async () => {
+    const submit = submitted()
+    seedFeed('c1', spokenIn('c1'))
+    draw('c1')
+    const serialize = vi.spyOn(serialization, 'chatValueToMarkdown')
+    await type('ship it')
+
+    await press('Enter')
+
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
+    expect(submit.mock.calls[0]?.[2]).toBe('ship it')
+    expect(serialize).toHaveBeenCalledTimes(1)
+  })
+
+  it('symptom 5: the first prompt is typed into the one composer and sends through the outbox', async () => {
+    const submit = submitted()
+    seedFeed('c1', [])
+    draw('c1')
+    expect(screen.getAllByRole('textbox')).toEqual([box(DOCUMENT)])
+
+    await type('add a flag', DOCUMENT)
+    await press('Enter', DOCUMENT)
+
+    expect(await screen.findByTestId('queued-prompt')).toHaveTextContent('add a flag')
+    await waitFor(() =>
+      expect(submit).toHaveBeenCalledWith('w1', 'c1', 'add a flag', expect.any(String), '', '', ''),
+    )
+    expect(screen.getAllByRole('textbox')).toEqual([box()])
+  })
+
+  it('keeps the composer mounted when the first send moves it to the dock', async () => {
+    submitted()
+    seedFeed('c1', [])
+    draw('c1')
+    const editable = box(DOCUMENT)
+
+    await type('first words', DOCUMENT)
+    await press('Enter', DOCUMENT)
+
+    expect(await screen.findByTestId('queued-prompt')).toBeInTheDocument()
+    expect(box()).toBe(editable)
+    expect(markdown()).toBe('')
   })
 })
 
@@ -232,18 +313,17 @@ describe('AgentChatView Esc', () => {
     seedFeed('c1', spokenIn('c1'))
     draw('c1')
 
-    const box = () => screen.getByRole('textbox', { name: /message the agent/i })
-    fireEvent.change(box(), { target: { value: 'never mind' } })
-    fireEvent.keyDown(box(), { key: 'Enter' })
+    await type('never mind')
+    await press('Enter')
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
     const requestId = String(submit.mock.calls[0]?.[3])
     act(() => seedFeed('c1', [l.prompt(requestId, 'never mind')]))
-    await waitFor(() => expect(box()).toHaveValue(''))
+    expect(markdown()).toBe('')
 
-    fireEvent.keyDown(box(), { key: 'Escape' })
+    await press('Escape')
 
     expect(retract).toHaveBeenCalledWith('w1', 'c1', requestId)
-    await waitFor(() => expect(box()).toHaveValue('never mind'))
+    await waitFor(() => expect(markdown()).toBe('never mind'))
   })
 
   it('puts the taken-back text after what was typed while the retract was out', async () => {
@@ -254,13 +334,12 @@ describe('AgentChatView Esc', () => {
     const l = ledger('c1', 10)
     seedFeed('c1', [...spokenIn('c1'), l.prompt('r1', 'take back')])
     draw('c1')
-    const box = () => screen.getByRole('textbox', { name: /message the agent/i })
 
-    fireEvent.keyDown(box(), { key: 'Escape' })
-    fireEvent.change(box(), { target: { value: 'new thought' } })
+    await press('Escape')
+    await type('new thought')
     await act(async () => answer({ state: 'retracted', text: 'take back' }))
 
-    expect(box()).toHaveValue('new thought\n\ntake back')
+    expect(markdown()).toBe('new thought\n\ntake back')
   })
 
   it('keeps taken-back text as a stash when the composer closed before the answer', async () => {
@@ -272,9 +351,7 @@ describe('AgentChatView Esc', () => {
     seedFeed('c1', [...spokenIn('c1'), l.prompt('r1', 'keep me')])
     const view = draw('c1')
 
-    fireEvent.keyDown(screen.getByRole('textbox', { name: /message the agent/i }), {
-      key: 'Escape',
-    })
+    await press('Escape')
     view.unmount()
     await act(async () => answer({ state: 'retracted', text: 'keep me' }))
 
@@ -290,9 +367,8 @@ describe('AgentChatView Esc', () => {
       const l = ledger('c1', 10)
       seedFeed('c1', spokenIn('c1'))
       const first = draw('c1')
-      const box = screen.getByRole('textbox', { name: /message the agent/i })
-      fireEvent.change(box, { target: { value: 'held' } })
-      fireEvent.keyDown(box, { key: 'Enter' })
+      await type('held')
+      await press('Enter')
       await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
       act(() => seedFeed('c1', [l.prompt(String(submit.mock.calls[0]?.[3]), 'held')]))
 
@@ -315,21 +391,23 @@ describe('AgentChatView type-to-focus', () => {
     seedFeed('c1', spokenIn('c1'))
   })
 
-  const type = (...keys: string[]) => {
-    for (const key of keys) fireEvent.keyDown(window, { key })
+  // The box takes focus on mount; these keys land while something else has it.
+  const keys = (...pressed: string[]) => {
+    act(() => (document.activeElement as HTMLElement | null)?.blur())
+    for (const key of pressed) fireEvent.keyDown(window, { key })
   }
-  const box = () => screen.getByRole('textbox', { name: /message the agent/i })
 
   it('does not redirect on three keys or fewer', () => {
     draw('c1')
-    type('h', 'e', 'l')
-    expect(box()).toHaveValue('')
+    keys('h', 'e', 'l')
+    expect(markdown()).toBe('')
   })
 
   it('ignores a modifier-held key and leaves the buffer for the plain keys after it', async () => {
     draw('c1')
+    keys()
     fireEvent.keyDown(window, { key: 'k', metaKey: true })
-    type('h', 'e', 'l', 'l')
-    await waitFor(() => expect(box()).toHaveValue('hell'))
+    keys('h', 'e', 'l', 'l')
+    await waitFor(() => expect(markdown()).toBe('hell'))
   })
 })

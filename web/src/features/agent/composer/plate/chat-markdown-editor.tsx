@@ -1,7 +1,8 @@
 import { useCallback, useImperativeHandle, useMemo, useRef } from 'react'
 import { layoutHeight } from '@/lib/layout-size'
 import type { CSSProperties, KeyboardEvent, Ref } from 'react'
-import { PointApi, RangeApi, type Value } from 'platejs'
+import { NodeApi, PointApi, RangeApi, type Descendant, type Value } from 'platejs'
+import type { PlateEditor } from 'platejs/react'
 import { createPlatePlugin, Plate, PlateContent, usePlateEditor } from 'platejs/react'
 import {
   insertAttachmentMarkdownInto,
@@ -54,23 +55,57 @@ export interface ChatMarkdownEditorHandle {
    * `null` means the upload failed, and the placeholder is removed instead.
    */
   settlePendingImage(objectUrl: string, finalMarkdown: string | null): void
+  /** The box's markdown: serialized here, once, for whoever sends it. */
+  getMarkdown(): string
+  /** Replaces the text, caret at its end, with a fresh undo history. */
+  setMarkdown(markdown: string): void
+  clear(): void
+}
+
+/** What the chat reads off the box while it is typed into, without markdown. */
+export interface ComposerShape {
+  empty: boolean
+  /** The text after a leading `/` on the first line, or null when there is none. */
+  slashQuery: string | null
+}
+
+// A list or quote paragraph is text-bearing markdown even when it has no letters.
+function blankParagraph(node: Descendant): boolean {
+  if (!('type' in node) || node.type !== 'p' || Object.keys(node).length > 2) return false
+  return NodeApi.string(node).trim() === ''
+}
+
+function shapeOf(children: Value): ComposerShape {
+  const first = children[0]
+  const line = first && 'type' in first && first.type === 'p' ? NodeApi.string(first) : ''
+  return {
+    empty: children.every(blankParagraph),
+    slashQuery: line.startsWith('/') ? line.slice(1) : null,
+  }
+}
+
+/** Loads markdown as if the box had just opened with it. */
+function loadMarkdown(editor: PlateEditor, markdown: string) {
+  editor.tf.replaceNodes(chatMarkdownToValue(markdown), { at: [], children: true })
+  editor.history.undos = []
+  editor.history.redos = []
+  const end = editor.api.end([])
+  if (end) editor.tf.select(end)
 }
 
 export interface ChatMarkdownEditorProps {
   /** Feeds `createChatPastePlugin`'s `uploadChatAttachment` call for a pasted
-   *  image. Both production call sites (`composer-field.tsx`,
-   *  `agent-empty-document.tsx`) pass them; kept optional here rather than
+   *  image. The production call site (`composer-field.tsx`)
+   *  passes them; kept optional here rather than
    *  required so a caller that genuinely can't supply them yet still gets a
    *  working editor — paste interception simply does not register, and a
    *  paste falls through to Slate's own default handling. */
   wsId?: string
   chatId?: string
-  /** Markdown to open with. Read ONCE, at mount — see the note on remounting. */
-  initialValue: string
   placeholder: string
   ariaLabel: string
-  /** Fires with the document's markdown after any content change. */
-  onChange: (markdown: string) => void
+  /** Fires after every content change; never serializes. */
+  onShapeChange: (shape: ComposerShape) => void
   /**
    * Enter, Tab, arrows, Escape — the chat's own key handling.
    *
@@ -83,6 +118,7 @@ export interface ChatMarkdownEditorProps {
     event: KeyboardEvent<HTMLDivElement>,
     readMarkdown: () => string,
     caret: CaretEdges,
+    shape: ComposerShape,
   ) => void
   /** The editable's measured height, for a control that rides its last line. */
   onHeightChange?: (height: number) => void
@@ -103,21 +139,16 @@ export interface ChatMarkdownEditorProps {
  * what you can write. A prompt is markdown either way, and a person who types
  * `- ` should get a list in both.
  *
- * UNCONTROLLED, and the caller drives text in by REMOUNTING (a `key` change)
- * rather than by prop. A controlled contenteditable rebuilds its own children
- * under the selection on every keystroke and puts the caret back at zero; the
- * one thing the chat needs to push in from outside — the text of a queued
- * prompt being edited, or a skill the picker inserted — is exactly the case
- * where losing the caret is fine, because the caret should land at the end of
- * what was just loaded.
+ * UNCONTROLLED: the text lives in the editor and nowhere else. Callers push text
+ * in through the handle and read it out once, on send, so typing serializes
+ * nothing and re-renders nothing outside the box.
  */
 export function ChatMarkdownEditor({
   wsId,
   chatId,
-  initialValue,
   placeholder,
   ariaLabel,
-  onChange,
+  onShapeChange,
   onKeyDown,
   onHeightChange,
   autoFocus,
@@ -182,6 +213,7 @@ export function ChatMarkdownEditor({
               event as KeyboardEvent<HTMLDivElement>,
               () => chatValueToMarkdown(current.children as Value),
               { atStart, atEnd },
+              shapeOf(current.children as Value),
             )
           },
         },
@@ -228,16 +260,8 @@ export function ChatMarkdownEditor({
     [],
   )
 
-  // Deserialize ONCE. Re-parsing per render would rebuild the document under
-  // the caret on every keystroke.
-  const initial = useMemo(
-    () => chatMarkdownToValue(initialValue),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount value only, deliberately not re-derived
-    [],
-  )
-
   // Undefined without both ids — see the note on `wsId`/`chatId` above. Built
-  // once, same as `keyPlugin` and `initial` below: the editor's plugin list
+  // once, same as `keyPlugin` above: the editor's plugin list
   // is fixed at mount, not re-derived as props change underneath it.
   const pastePlugin = useMemo(
     () => (wsId && chatId ? createChatPastePlugin({ wsId, chatId }) : undefined),
@@ -255,7 +279,6 @@ export function ChatMarkdownEditor({
           pastePlugin,
         ]
       : [...chatComposerPlugins, chatComposerStructurePlugin, keyPlugin, dropGuardPlugin],
-    value: initial,
     autoSelect: 'end',
     // Unused here, and it re-subscribes every edited block to the editor store on
     // each keystroke: one more render queued behind every key typed.
@@ -264,25 +287,20 @@ export function ChatMarkdownEditor({
 
   // Plate copies its `onChange` prop into its own store from an effect, so a new
   // handler per render costs the editor a second commit per keystroke.
-  const changeHandlerRef = useRef(onChange)
-  changeHandlerRef.current = onChange
+  const shapeHandlerRef = useRef(onShapeChange)
+  shapeHandlerRef.current = onShapeChange
 
+  // Reported synchronously from the handle too: Plate's own onChange fires later.
+  const report = useCallback(() => {
+    shapeHandlerRef.current(shapeOf(editor.children as Value))
+  }, [editor])
   const handleChange = useCallback(() => {
-    // A click or an arrow key cannot change the serialized document, so
-    // serializing for them is pure waste. Guarded on a NON-EMPTY operation
-    // list: an empty list means we cannot tell what happened, and skipping a
-    // real edit would silently drop what was typed.
+    // A click or an arrow key cannot change the text. An empty operation list
+    // cannot be told apart from an edit, so it reports.
     const ops = editor.operations
     if (ops.length > 0 && ops.every((op) => op.type === 'set_selection')) return
-    changeHandlerRef.current(chatValueToMarkdown(editor.children as Value))
-  }, [editor])
-
-  // Reported synchronously: the handle methods below edit from outside the box,
-  // and a caller reading `onChange` right after one returns must see the edit —
-  // Plate's own `onChange` fires later, off the editor's async change notice.
-  const report = useCallback(() => {
-    changeHandlerRef.current(chatValueToMarkdown(editor.children as Value))
-  }, [editor])
+    report()
+  }, [editor, report])
   const focusAndReport = useCallback(() => {
     editor.tf.focus()
     report()
@@ -306,6 +324,15 @@ export function ChatMarkdownEditor({
       settlePendingImage: (objectUrl: string, finalMarkdown: string | null) => {
         settlePendingImageInto(editor, objectUrl, finalMarkdown)
         report()
+      },
+      getMarkdown: () => chatValueToMarkdown(editor.children as Value),
+      setMarkdown: (markdown: string) => {
+        loadMarkdown(editor, markdown)
+        focusAndReport()
+      },
+      clear: () => {
+        loadMarkdown(editor, '')
+        focusAndReport()
       },
     }),
     [editor, focusAndReport, report],

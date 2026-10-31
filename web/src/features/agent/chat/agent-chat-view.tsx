@@ -12,15 +12,15 @@ import { acceptsTyping, resolveComposerState } from '@/features/agent/composer/l
 import { ComposerSlashPicker } from '@/features/agent/composer/composer-slash-picker'
 import { ComposerStashPicker } from '@/features/agent/composer/composer-stash-picker'
 import { stashPrompt } from '@/features/agent/composer/lib/prompt-stash-persistence'
-import type { CaretEdges } from '@/features/agent/composer/plate/chat-markdown-editor'
+import type {
+  CaretEdges,
+  ComposerShape,
+} from '@/features/agent/composer/plate/chat-markdown-editor'
 import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
 import { ProviderBar } from '@/features/agent/controls/provider-bar'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
 import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
-import {
-  AgentEmptyDocument,
-  type AgentEmptyDocumentHandle,
-} from '@/features/agent/chat/agent-empty-document'
+import type { AgentEmptyDocumentHandle } from '@/features/agent/chat/agent-empty-document'
 import { handleComposerKey } from '@/features/agent/chat/lib/composer-keys'
 import { useChatSend } from '@/features/agent/chat/use-chat-send'
 import { useConfirmedModel } from '@/features/agent/chat/use-confirmed-model'
@@ -130,7 +130,6 @@ export function AgentChatView({
   const dock = useDock()
   const [chatSurfaceEl, setChatSurfaceEl] = useState<HTMLElement | null>(null)
   const emptyDocRef = useRef<AgentEmptyDocumentHandle>(null)
-  const [fieldHeight, setFieldHeight] = useState(20)
   const confirmedModel = useConfirmedModel(`${chatId}:${providerId}`, live, launchModel)
 
   useEffect(() => markStart('chat.open'), [])
@@ -149,15 +148,15 @@ export function AgentChatView({
     catalogActive: active && visible,
     history,
   })
-  const { draft, seed, seedDraft, slash, setError } = composer
+  const { load, slash, setError } = composer
   const { reset: resetHistory } = history
   const editPrompt = useCallback(
     (text: string) => {
-      seedDraft(text)
+      load(text)
       setError('')
       resetHistory()
     },
-    [seedDraft, setError, resetHistory],
+    [load, setError, resetHistory],
   )
   const steer = providers.find((candidate) => candidate.id === providerId)?.promptSteer === true
   const prompts = useChatSend(wsId, chatId, steer, editPrompt)
@@ -181,11 +180,11 @@ export function AgentChatView({
   const terminalWait = terminalWaiting ? { kind: terminalWaitKind ?? '' } : undefined
   const halted = facts.halted
 
-  // `text` is the box's own markdown: the keystroke that sent may not be in state yet.
+  // The one serialization of a prompt: the key handler's read, or the box's on a click.
   const enqueueDraft = (text?: string) => {
     const stagedProvider = effectiveProviderId === providerId ? '' : effectiveProviderId
     const result = prompts.send({
-      text: chatPromptToSend(text ?? draft),
+      text: chatPromptToSend(text ?? composer.read()),
       provider: stagedProvider,
       model: selectionKnown ? model : undefined,
       effort: selectionKnown ? effort : undefined,
@@ -196,19 +195,15 @@ export function AgentChatView({
     }
     // Only the first send has an empty document to slide the dock in from.
     if (blank) dock.noteArrivalOrigin(emptyDocRef.current?.getHandleRect() ?? null)
-    seedDraft('')
+    composer.clear()
     composer.setError('')
     slash.reset()
     history.reset()
   }
 
-  // Re-seed with the box's text: a stop can make the CLI exit and remount the field.
-  const handleStop = () => {
-    seedDraft(draft)
-    void stopChat(wsId, chatId)
-  }
+  const handleStop = () => void stopChat(wsId, chatId)
 
-  const selectSlashItem = (item: SlashCatalogItem) => seedDraft(slash.accept(item))
+  const selectSlashItem = (item: SlashCatalogItem) => load(slash.accept(item))
 
   // Esc takes the newest prompt back; its text returns to this chat's composer,
   // or to the chat's stashes once that composer is gone.
@@ -224,8 +219,8 @@ export function AgentChatView({
     const asked = chatId
     void taken?.then((text) => {
       if (text === null) return
-      if (shownChat.current === asked) composer.putBack(text)
-      else if (!stashPrompt(wsId, asked, text)) {
+      if (shownChat.current === asked && composer.putBack(text)) return
+      if (!stashPrompt(wsId, asked, text)) {
         report(new Error('The saved prompts are full or unavailable.'), {
           action: 'Couldn’t keep the prompt you took back',
         })
@@ -238,6 +233,7 @@ export function AgentChatView({
     event: KeyboardEvent<HTMLDivElement>,
     readMarkdown: () => string,
     caret: CaretEdges,
+    shape: ComposerShape,
   ) =>
     handleComposerKey(
       {
@@ -249,11 +245,12 @@ export function AgentChatView({
         stashOrRestore: composer.stashOrRestore,
         selectSlashItem,
         send: enqueueDraft,
-        recall: seedDraft,
+        recall: load,
       },
       event,
       readMarkdown,
       caret,
+      shape,
     )
 
   const composerState = () =>
@@ -270,7 +267,7 @@ export function AgentChatView({
     wsId,
     watched: active && visible && isActivePane,
     canType: () => acceptsTyping(composerState()),
-    onText: (text) => seedDraft(draft + text),
+    onText: (text) => load(composer.read() + text),
   })
 
   // The empty document's cluster and the dock's bar offer the same controls.
@@ -325,47 +322,8 @@ export function AgentChatView({
     />
   )
 
-  if (settling || blank) {
-    return (
-      <DndScope>
-        <ChatMarkdownAssetProvider wsId={wsId} chatId={chatId}>
-          <section className="agent-chat chat" aria-label="Agent chat" style={headerClearanceStyle}>
-            {settling ? (
-              transcript
-            ) : (
-              <>
-                {stashPicker && <div className="blank-stash-picker">{stashPicker}</div>}
-                <AgentEmptyDocument
-                  ref={emptyDocRef}
-                  wsId={wsId}
-                  chatId={chatId}
-                  draft={seed.text}
-                  draftSeed={seed.n}
-                  hasText={draft.trim().length > 0}
-                  onDraftChange={composer.updateDraft}
-                  onSubmit={() => enqueueDraft()}
-                  onKeyDown={handleKeyDown}
-                  controls={<SelectionCluster {...selection} model={model} />}
-                  working={working}
-                  canStop={live}
-                  sending={prompts.sending}
-                  onStop={handleStop}
-                  headerClearancePx={headerClearancePx}
-                  banner={blankSignpost}
-                />
-                {composer.error && (
-                  <p className="meta composer-note" role="alert">
-                    {composer.error}
-                  </p>
-                )}
-              </>
-            )}
-          </section>
-        </ChatMarkdownAssetProvider>
-      </DndScope>
-    )
-  }
-
+  // One tree for the blank document and the dock: the composer keeps its node, and
+  // its text, when the first send moves it down.
   return (
     <DndScope>
       <ChatMarkdownAssetProvider wsId={wsId} chatId={chatId}>
@@ -381,75 +339,83 @@ export function AgentChatView({
             } as CSSProperties
           }
         >
-          {transcript}
-          <div className="dissolve" aria-hidden="true">
-            {DISSOLVE_LAYERS.map((_, i) => (
-              <div key={i} className="dissolve-layer" />
-            ))}
-          </div>
-          <div ref={dock.dockRef} className="dock">
-            <SubagentShelf subagents={facts.subagents} />
-            {stashPicker}
-            {slash.open && (
-              <ComposerSlashPicker
-                state={slash.state}
-                items={slash.items}
-                selected={slash.selected}
-                onSelect={selectSlashItem}
+          {!blank && transcript}
+          {!blank && !settling && (
+            <div className="dissolve" aria-hidden="true">
+              {DISSOLVE_LAYERS.map((_, i) => (
+                <div key={i} className="dissolve-layer" />
+              ))}
+            </div>
+          )}
+          {blank && stashPicker && <div className="blank-stash-picker">{stashPicker}</div>}
+          {!settling && (
+            <div ref={blank ? undefined : dock.dockRef} className={blank ? 'docframe' : 'dock'}>
+              {!blank && <SubagentShelf subagents={facts.subagents} />}
+              {!blank && stashPicker}
+              {!blank && slash.open && (
+                <ComposerSlashPicker
+                  state={slash.state}
+                  items={slash.items}
+                  selected={slash.selected}
+                  onSelect={selectSlashItem}
+                />
+              )}
+              {!blank && sessionNote && (
+                <p className="meta composer-note" data-testid="agent-session-note">
+                  {sessionNote}
+                </p>
+              )}
+              <AgentComposer
+                wsId={wsId}
+                chatId={chatId}
+                placement={blank ? 'document' : 'dock'}
+                editorRef={composer.editorRef}
+                asks={facts.asks}
+                providerLabel={providerLabel}
+                permissionLevels={provider?.permissionLevels}
+                live={canSend}
+                working={working}
+                compacting={compacting}
+                sending={prompts.sending}
+                submitUnavailable={prompts.unsupported}
+                terminalWait={terminalWait}
+                haltedMessage={halted?.text}
+                haltedResetsAt={limitResetsAt(telemetry)}
+                canStop={live}
+                slashOpen={slash.open}
+                onShapeChange={composer.noteShape}
+                onKeyDown={handleKeyDown}
+                onSend={() => enqueueDraft()}
+                onStop={handleStop}
+                onOpenTerminal={onOpenTerminal}
+                takeoverContainer={chatSurfaceEl}
+                controls={<SelectionCluster {...selection} model={model} />}
+                banner={blankSignpost}
+                headerClearancePx={headerClearancePx}
+                documentRef={emptyDocRef}
               />
-            )}
-            {sessionNote && (
-              <p className="meta composer-note" data-testid="agent-session-note">
-                {sessionNote}
-              </p>
-            )}
-            <AgentComposer
-              wsId={wsId}
-              chatId={chatId}
-              asks={facts.asks}
-              providerLabel={providerLabel}
-              permissionLevels={provider?.permissionLevels}
-              live={canSend}
-              working={working}
-              compacting={compacting}
-              sending={prompts.sending}
-              submitUnavailable={prompts.unsupported}
-              terminalWait={terminalWait}
-              haltedMessage={halted?.text}
-              haltedResetsAt={limitResetsAt(telemetry)}
-              canStop={live}
-              draft={draft}
-              fieldHeight={fieldHeight}
-              slashOpen={slash.open}
-              onDraftChange={composer.updateDraft}
-              onHeightChange={setFieldHeight}
-              onKeyDown={handleKeyDown}
-              onSend={() => enqueueDraft()}
-              onStop={handleStop}
-              onOpenTerminal={onOpenTerminal}
-              draftSeed={seed.n}
-              seedText={seed.text}
-              takeoverContainer={chatSurfaceEl}
-            />
-            <ProviderBar
-              {...selection}
-              // The pick wins: this chip says what the next message runs as. The
-              // launch report only fills the gap, from the last one confirmed.
-              model={model || confirmedModel}
-              telemetry={telemetry}
-              queued={prompts.queued}
-              onCompact={
-                provider?.compaction && live && !compacting && !onTerminalSurface
-                  ? () => void compactChat(wsId, chatId)
-                  : undefined
-              }
-            />
-            {composer.error && (
-              <p className="meta composer-note" role="alert">
-                {composer.error}
-              </p>
-            )}
-          </div>
+              {!blank && (
+                <ProviderBar
+                  {...selection}
+                  // The pick wins: this chip says what the next message runs as. The
+                  // launch report only fills the gap, from the last one confirmed.
+                  model={model || confirmedModel}
+                  telemetry={telemetry}
+                  queued={prompts.queued}
+                  onCompact={
+                    provider?.compaction && live && !compacting && !onTerminalSurface
+                      ? () => void compactChat(wsId, chatId)
+                      : undefined
+                  }
+                />
+              )}
+              {composer.error && (
+                <p className="meta composer-note" role="alert">
+                  {composer.error}
+                </p>
+              )}
+            </div>
+          )}
         </section>
       </ChatMarkdownAssetProvider>
     </DndScope>

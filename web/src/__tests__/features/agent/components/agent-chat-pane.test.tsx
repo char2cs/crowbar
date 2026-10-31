@@ -98,45 +98,11 @@ vi.spyOn(lazyTerminalMod, 'LazyXtermTerminal').mockImplementation(
     }),
 )
 
-// The prompt box is a Plate editor, and **jsdom never delivers a keydown to a
-// Slate editable** — measured: window- and document-capture see the event, the
-// editable's own listeners never fire. Neither `PlateContent onKeyDown` nor a
-// plugin handler runs. So a test that typed into the real editor here would not
-// be testing the queue, it would be testing nothing and passing.
-//
-// These suites are about the QUEUE, the catalog and the ledger. The editor gets
-// a stand-in with the same contract — text in, markdown out, keys through — and
-// the editor's own behaviour is verified live and in its own suite.
+// These suites are about the queue, the catalog and the ledger: the editor is a
+// textarea with its contract, tested for real in its own suite and the view's.
 import * as chatMarkdownEditorMod from '@/features/agent/composer/plate/chat-markdown-editor'
-vi.spyOn(chatMarkdownEditorMod, 'ChatMarkdownEditor').mockImplementation(
-  ({
-    initialValue,
-    placeholder,
-    ariaLabel,
-    onChange,
-    onKeyDown,
-    expanded,
-    controls,
-  }: chatMarkdownEditorMod.ChatMarkdownEditorProps) =>
-    createElement('textarea', {
-      'aria-label': ariaLabel,
-      'aria-expanded': expanded,
-      'aria-controls': controls,
-      placeholder,
-      defaultValue: initialValue,
-      onChange: (event: { target: { value: string } }) => onChange(event.target.value),
-      // Second argument included deliberately: the real editor hands the key
-      // handler the BOX's text, and a mock that omitted it would let a submit
-      // path that reads stale state keep passing. Third argument is a stand-in
-      // for the real editor's own caret-edge probe — see the identical note in
-      // agent-chat-view.test.tsx's own mock of this module.
-      onKeyDown: (event: { currentTarget: { value: string } }) =>
-        onKeyDown?.(event as never, () => event.currentTarget.value, {
-          atStart: true,
-          atEnd: true,
-        }),
-    }),
-)
+import { TextareaComposerEditor } from '@/__tests__/__fixtures__/composer-editor'
+vi.spyOn(chatMarkdownEditorMod, 'ChatMarkdownEditor').mockImplementation(TextareaComposerEditor)
 
 // Stub the dropdown to expose its props and a one-click switch, so the footer
 // wiring is asserted without the shared Dropdown's framer-motion machinery.

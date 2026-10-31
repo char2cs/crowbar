@@ -16,7 +16,7 @@ type Props = { active: boolean; providerId?: string }
 function mount(initialProps: Props) {
   return renderHook(
     ({ active, providerId = 'claude' }: Props) =>
-      useSlashCatalog({ wsId: 'ws1', chatId: 'c1', providerId, active, draft: '' }),
+      useSlashCatalog({ wsId: 'ws1', chatId: 'c1', providerId, active }),
     { initialProps },
   )
 }

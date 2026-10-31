@@ -6,6 +6,10 @@ import {
   savePromptStashes,
   type PromptStash,
 } from '@/features/agent/composer/lib/prompt-stash-persistence'
+import type {
+  ChatMarkdownEditorHandle,
+  ComposerShape,
+} from '@/features/agent/composer/plate/chat-markdown-editor'
 import { useSlashCatalog } from '@/features/agent/hooks/use-slash-catalog'
 
 interface DraftDeps {
@@ -20,47 +24,39 @@ interface DraftDeps {
 
 /**
  * The composer's text, the slash picker that filters on it, its stashes and its
- * one error line. The box is
- * uncontrolled, so text pushed in arrives by remount from `seed`, which carries
- * its own text: an async onChange can land after a send bumped it.
+ * one error line. The text lives in the editor only: this reads it on demand and
+ * loads text into it through the handle.
  */
 export function useComposerDraft({ wsId, chatId, providerId, catalogActive, history }: DraftDeps) {
-  const [draft, setDraft] = useState('')
-  const slash = useSlashCatalog({ wsId, chatId, providerId, active: catalogActive, draft })
-  const [seed, setSeed] = useState({ text: '', n: 0 })
+  const editorRef = useRef<ChatMarkdownEditorHandle>(null)
+  const slash = useSlashCatalog({ wsId, chatId, providerId, active: catalogActive })
   const [stashes, setStashes] = useState(() => loadPromptStashes(wsId, chatId))
   const [stashPickerOpen, setStashPickerOpen] = useState(false)
   const [error, setError] = useState('')
 
-  // What the box holds now, for text that arrives after the render that asked for it.
-  const latest = useRef('')
-  const seedDraft = useCallback((value: string) => {
-    latest.current = value
-    setDraft(value)
-    setSeed((previous) => ({ text: value, n: previous.n + 1 }))
+  const read = useCallback(() => editorRef.current?.getMarkdown() ?? '', [])
+  const load = useCallback((text: string) => editorRef.current?.setMarkdown(text), [])
+  const clear = useCallback(() => editorRef.current?.clear(), [])
+
+  /** Puts text back after what was typed since; false when there is no box to take it. */
+  const putBack = useCallback((text: string) => {
+    const editor = editorRef.current
+    if (!editor) return false
+    const typed = editor.getMarkdown().trimEnd()
+    editor.setMarkdown(typed ? `${typed}\n\n${text}` : text)
+    return true
   }, [])
 
-  /** Puts text back without losing what was typed since: it goes after it. */
-  const putBack = useCallback(
-    (text: string) => {
-      const typed = latest.current.trimEnd()
-      seedDraft(typed ? `${typed}\n\n${text}` : text)
-    },
-    [seedDraft],
-  )
-
-  const updateDraft = (value: string) => {
-    latest.current = value
-    setDraft(value)
-    setError('')
-    setStashPickerOpen(false)
-    slash.noteDraft(value)
-    history.reset()
+  // Fires per edit: only what changed sets state, so plain typing renders nothing.
+  const noteShape = (shape: ComposerShape) => {
+    if (error) setError('')
+    if (stashPickerOpen) setStashPickerOpen(false)
+    slash.noteQuery(shape.slashQuery)
   }
 
   const restoreStash = (item: PromptStash) => {
     // The picker can outlive an edit; never replace words typed after it opened.
-    if (draft.trim()) {
+    if (read().trim()) {
       setStashPickerOpen(false)
       setError('Stash or clear the current draft before restoring another one.')
       return
@@ -72,9 +68,8 @@ export function useComposerDraft({ wsId, chatId, providerId, catalogActive, hist
     }
     setStashes(remaining)
     setStashPickerOpen(false)
-    seedDraft(item.markdown)
+    load(item.markdown)
     setError('')
-    slash.noteDraft(item.markdown)
     history.reset()
   }
 
@@ -92,7 +87,7 @@ export function useComposerDraft({ wsId, chatId, providerId, catalogActive, hist
       }
       setStashes(next)
       setStashPickerOpen(false)
-      seedDraft('')
+      clear()
       setError('')
       slash.reset()
       history.reset()
@@ -108,12 +103,13 @@ export function useComposerDraft({ wsId, chatId, providerId, catalogActive, hist
   }
 
   return {
-    draft,
+    editorRef,
+    read,
+    load,
+    clear,
     slash,
-    seed,
-    seedDraft,
     putBack,
-    updateDraft,
+    noteShape,
     stashes,
     stashPickerOpen,
     closeStashPicker: () => setStashPickerOpen(false),
