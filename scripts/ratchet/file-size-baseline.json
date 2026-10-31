@@ -10,7 +10,7 @@
   "api/internal/api/v0/endpoints/projects/handlers/projects_test.go": 627,
   "api/internal/api/v0/endpoints/repos/handlers/repos_test.go": 588,
   "api/internal/api/v0/route_audit_test.go": 965,
-  "api/internal/app/repositories/chat/event_store_test.go": 519,
+  "api/internal/app/repositories/chat/event_store_test.go": 501,
   "api/internal/app/repositories/container_test.go": 551,
   "api/internal/app/repositories/workspace/workspace_test.go": 906,
   "api/internal/app/usecases/branchreview/branch_review_test.go": 1068,
