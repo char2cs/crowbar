@@ -144,6 +144,8 @@ const observeScrollRectFor =
       }
       pending = null
       // Between layout and paint: the window for the new box renders before it shows.
+      // Rows it mounts are observed mid-delivery, so WebKit may log 'ResizeObserver
+      // loop completed': benign, and deferring the render brings the blank frame back.
       flushSync(() => report(rect))
     })
     observer.observe(element, { box: 'border-box' })
@@ -162,9 +164,9 @@ const observeScrollRectFor =
 
 type OffsetReport = (offset: number) => void
 
-/** tanstack's own rule for keeping a reader's rows still (a first measure above
- *  the view, a re-measure wholly above it unless scrolling back), except at a held
- *  bottom: the anchor answers that, and the shift would paint before the new total. */
+/** At a held bottom the anchor answers a resize (the virtualizer's shift paints first).
+ *  Elsewhere: virtual-core 3.17.11's default, which setting this predicate replaces;
+ *  pinned by the test 'leaves a reader be while the row they are reading grows below the top'. */
 const keepsRowsStill =
   (holdsBottom: () => boolean) =>
   (item: VirtualItem, _delta: number, instance: Virtualizer<HTMLDivElement, HTMLDivElement>) => {
