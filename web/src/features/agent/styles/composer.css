@@ -13,9 +13,15 @@
  * oklab moves through the rectangular space and keeps the hue. */
 .agent-chat {
   --emph: var(--primary);
+  --warn-text: var(--warning-foreground);
+  --danger-text: var(--destructive-foreground);
 }
+/* The theme's *-foreground tokens are ink for a tinted chip in light only; in
+   dark they are near-black, so text on the page takes the hue itself. */
 .dark .agent-chat {
   --emph: color-mix(in oklab, var(--primary) 55%, var(--foreground));
+  --warn-text: var(--warning);
+  --danger-text: var(--destructive);
 }
 
 /* OVER the conversation, not after it. Text scrolling up passes behind the box
@@ -574,7 +580,7 @@
 }
 .agent-chat .pill.halted .msg {
   font-size: 14px;
-  color: var(--warning-foreground);
+  color: var(--warn-text);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1199,7 +1205,7 @@
   padding: 0 2px;
   border-radius: 3px;
   background: color-mix(in srgb, var(--destructive) 18%, transparent);
-  color: var(--destructive);
+  color: var(--danger-text);
 }
 .agent-chat .choice-request-more {
   align-self: flex-start;
@@ -1211,8 +1217,8 @@
   text-decoration: underline;
   cursor: pointer;
 }
-.agent-chat .choice-hidden-lines {
-  color: var(--warning-foreground);
+.agent-chat .pill.asking .q .choice-hidden-lines {
+  color: var(--warn-text);
   font-weight: 600;
 }
 .agent-chat .choice-key {

@@ -733,12 +733,9 @@
 .agent-chat .tools li[data-status='error'] {
   color: var(--destructive);
 }
-.agent-chat .tools li[data-status='declined'] {
-  color: var(--muted-foreground);
-  opacity: 0.72;
-}
+.agent-chat .tools li[data-status='declined'],
 .agent-chat .tools li[data-status='abandoned'] {
-  opacity: 0.6;
+  color: var(--muted-foreground);
 }
 /* A resolved choice (AgentTurnChoices) that was never actually answered
    through Crowbar reads the same muted way an abandoned tool call does. */
@@ -783,7 +780,7 @@
   font-size: 0.68rem;
 }
 .agent-chat .tools li[data-status='abandoned'] .tool-call-state {
-  color: var(--warning-foreground);
+  color: var(--warn-text);
 }
 .agent-chat .tool-call-command {
   min-width: 0;
@@ -791,7 +788,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  opacity: 0.75;
+  color: var(--muted-foreground);
 }
 /* A non-zero exit is not a failure by itself: a neutral chip, not the error colour. */
 .agent-chat .tool-call-exit {
@@ -809,7 +806,7 @@
   padding: 0 5px;
   border-radius: var(--radius-sm, 4px);
   background: color-mix(in srgb, var(--mcp-hue) 16%, transparent);
-  color: color-mix(in srgb, var(--mcp-hue) 70%, var(--foreground));
+  color: color-mix(in srgb, var(--mcp-hue) 45%, var(--foreground));
   font-weight: 500;
 }
 .agent-chat .mcp-server[data-hue='2'] {
@@ -1030,7 +1027,7 @@
   font-size: 0.68rem;
 }
 .agent-chat .tools li[data-status='awaiting_approval'] .tool-call-state {
-  color: var(--warning-foreground);
+  color: var(--warn-text);
 }
 /* What a failure or a lost session offers, under its pill. */
 .agent-chat .marker-actions {
