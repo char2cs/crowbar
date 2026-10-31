@@ -251,6 +251,20 @@ describe('AgentTranscript', () => {
     expect(stream.style.minHeight).toBe(`${800 + 800}px`)
   })
 
+  it('pins a queued prompt only once it leaves the queue', () => {
+    const l = ledger()
+    seedFeed('chat-1', [l.prompt('r1', 'one'), l.start('turn-1', 'r1'), l.end('turn-1')])
+    const { container } = draw()
+    const stream = container.querySelector<HTMLElement>('.stream')!
+
+    const held = { ...outboxItem('r2'), state: 'queued' as const }
+    act(() => chatStore.setState({ outbox: { 'chat-1': [held] } }))
+    expect(stream.style.minHeight).toBe('')
+
+    act(() => chatStore.setState({ outbox: { 'chat-1': [{ ...held, state: 'sending' }] } }))
+    expect(stream.style.minHeight).toBe(`${800 + 800}px`)
+  })
+
   it('releases the pin of a prompt taken back before its row landed', () => {
     const l = ledger()
     seedFeed('chat-1', [l.prompt('r1', 'one')])
@@ -327,6 +341,24 @@ describe('AgentTranscript', () => {
     first.getBoundingClientRect = () => ({ ...rect, height: 300, toJSON: () => rect })
     observed.get(first)?.([{ target: first } as never], {} as ResizeObserver)
     expect(list.scrollTop).toBe(1800)
+  })
+
+  it('leaves a reader be while the row they are reading grows below the top', () => {
+    const observed = observeResizes()
+    const l = ledger()
+    seedFeed('chat-1', [l.prompt('r1', 'look'), l.prompt('r2', 'again'), l.prompt('r3', 'more')])
+    const { redraw } = draw()
+    const list = screen.getByTestId('agent-message-list')
+    const box = { scrollHeight: 2700, clientHeight: 800 }
+    layOut(list, box)
+    redraw({ since: 'a' })
+    list.scrollTop = 1700
+    fireEvent.scroll(list)
+
+    const last = list.querySelector<HTMLElement>('[data-index="2"]')!
+    last.getBoundingClientRect = () => ({ ...rect, height: 900, toJSON: () => rect })
+    act(() => observed.get(last)?.([{ target: last } as never], {} as ResizeObserver))
+    expect(list.scrollTop).toBe(1700)
   })
 
   it('lands on the newest row when its parked workspace comes back', () => {

@@ -8,6 +8,8 @@ export interface FollowScroll {
    *  gesture interrupting mid-flight is NOT this: it only pauses the loop
    *  (see `step`), and a later `setTarget` re-arms it cleanly. */
   stop(): void
+  /** Drops the target: the reader took over. A later `setTarget` re-arms it. */
+  pause(): void
 }
 
 // How quickly `scrollTop` closes the remaining distance to its target, as a
@@ -128,6 +130,9 @@ export function createFollowScroll(
     },
     stop() {
       stopped = true
+      this.pause()
+    },
+    pause() {
       target = null
       if (raf) cancelAnimationFrame(raf)
       raf = 0

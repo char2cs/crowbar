@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { createFollowScroll, type FollowScroll } from '@/features/agent/hooks/lib/follow-scroll'
 
 /** How close to the bottom still counts as reading the newest end: about one
@@ -42,10 +42,22 @@ export interface TranscriptAnchor {
   noteScrollWrite: () => void
   /** The reader's own prompt landed: rejoin the live end. */
   stick: () => void
+  /** The reader's hand on the scroller, passive: a wheel, drag or key up lets go
+   *  of the bottom before the view has moved, which position alone cannot see. */
+  intent: ReaderIntent
   /** The view is held to the bottom: a row resizing above it is the anchor's to
    *  answer, not the virtualizer's (its shift paints a frame before the total). */
   holdsBottom: () => boolean
 }
+
+export interface ReaderIntent {
+  onWheel: (event: React.WheelEvent) => void
+  onKeyDown: (event: React.KeyboardEvent) => void
+  onTouchStart: (event: React.TouchEvent) => void
+  onTouchMove: (event: React.TouchEvent) => void
+}
+
+const READ_UP_KEYS = new Set(['ArrowUp', 'PageUp', 'Home'])
 
 /**
  * Keeps a transcript on its newest line while the reader is there, and out of
@@ -64,6 +76,11 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   // Where the current catch-up began, so a staircase of corrections is one gap.
   const easeFrom = useRef<number | null>(null)
   const landNext = useRef(true)
+  // The reader let go on purpose: their own climb back within STICK_SLACK
+  // (a smooth wheel scroll's first steps) is reading, not rejoining.
+  const reading = useRef(false)
+  const seen = useRef<number | null>(null)
+  const touchY = useRef<number | null>(null)
   const wasMeasuring = useRef(false)
   const shown = useRef(options.visible ?? true)
   const optionsRef = useRef(options)
@@ -71,6 +88,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
 
   const wrote = useCallback((top: number) => {
     written.current = top
+    seen.current = top
     optionsRef.current.onWrite?.(top)
   }, [])
 
@@ -178,10 +196,12 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
 
   const noteScrollWrite = useCallback(() => {
     written.current = scrollRef.current?.scrollTop ?? null
+    seen.current = written.current
   }, [])
 
   const stick = useCallback(() => {
     stuck.current = true
+    reading.current = false
   }, [])
 
   const holdsBottom = useCallback(() => stuck.current, [])
@@ -191,9 +211,49 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     if (!el) return
     if (written.current !== null && Math.abs(el.scrollTop - written.current) <= 1) return
     written.current = null
-    stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_SLACK
+    const rising = seen.current !== null && el.scrollTop < seen.current - 1
+    seen.current = el.scrollTop
     fromBottom.current = el.scrollHeight - el.scrollTop
+    if (reading.current && rising) return
+    stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_SLACK
+    if (stuck.current) reading.current = false
   }, [])
 
-  return { scrollRef, onScroll, afterCommit, notifyReflow, noteScrollWrite, stick, holdsBottom }
+  const letGo = useCallback(() => {
+    if (!stuck.current) return
+    stuck.current = false
+    reading.current = true
+    easeFrom.current = null
+    follow.current?.pause()
+    const el = scrollRef.current
+    if (el) fromBottom.current = el.scrollHeight - el.scrollTop
+  }, [])
+
+  const [intent] = useState<ReaderIntent>(() => ({
+    onWheel: (event) => {
+      if (event.deltaY < 0) letGo()
+    },
+    onKeyDown: (event) => {
+      if (READ_UP_KEYS.has(event.key)) letGo()
+    },
+    onTouchStart: (event) => {
+      touchY.current = event.touches[0]?.clientY ?? null
+    },
+    onTouchMove: (event) => {
+      const y = event.touches[0]?.clientY
+      // A finger moving down drags the text down: the reader is going back.
+      if (y !== undefined && touchY.current !== null && y > touchY.current) letGo()
+    },
+  }))
+
+  return {
+    scrollRef,
+    onScroll,
+    intent,
+    afterCommit,
+    notifyReflow,
+    noteScrollWrite,
+    stick,
+    holdsBottom,
+  }
 }

@@ -47,6 +47,7 @@ function Host({ rev: _rev, measuring = false, arriving = true, ...options }: Hos
         Object.defineProperty(node, 'clientHeight', { get: () => (boxed ? clientHeight : 0) })
       }}
       onScroll={() => anchor.onScroll()}
+      {...anchor.intent}
     />
   )
 }
@@ -150,6 +151,59 @@ describe('useTranscriptAnchor', () => {
     grow(1300)
     frames(1500)
     expect(scroller.scrollTop).toBe(503)
+  })
+
+  it('lets go on a wheel up, before the view has moved', () => {
+    const { scroller, grow } = mount()
+    grow(1300)
+    frames(50)
+    const at = scroller.scrollTop
+
+    fireEvent.wheel(scroller, { deltaY: -100 })
+    grow(1400)
+    frames(1500)
+    expect(scroller.scrollTop).toBe(at)
+  })
+
+  it("keeps reading while the wheel's own scroll climbs within a row of the bottom", () => {
+    const { scroller, grow } = mount()
+    fireEvent.wheel(scroller, { deltaY: -100 })
+    readerScrollsTo(scroller, 600 - 30)
+
+    grow(1300)
+    frames(1500)
+    expect(scroller.scrollTop).toBe(570)
+
+    // Back down within a row: the reader rejoins the live end.
+    readerScrollsTo(scroller, 900 - 50)
+    grow(1400)
+    frames(1500)
+    expect(scroller.scrollTop).toBe(1000)
+  })
+
+  it('a wheel down keeps following', () => {
+    const { scroller, grow } = mount()
+    fireEvent.wheel(scroller, { deltaY: 100 })
+    grow(1300)
+    frames(1500)
+    expect(scroller.scrollTop).toBe(900)
+  })
+
+  it('lets go on a key that reads up, or a finger dragging the text down', () => {
+    const keyed = mount()
+    fireEvent.keyDown(keyed.scroller, { key: 'PageUp' })
+    keyed.grow(1300)
+    frames(1500)
+    expect(keyed.scroller.scrollTop).toBe(600)
+    keyed.unmount()
+
+    scrollHeight = 1000
+    const dragged = mount()
+    fireEvent.touchStart(dragged.scroller, { touches: [{ clientY: 100 }] })
+    fireEvent.touchMove(dragged.scroller, { touches: [{ clientY: 140 }] })
+    dragged.grow(1300)
+    frames(1500)
+    expect(dragged.scroller.scrollTop).toBe(600)
   })
 
   it('keeps the reader position when a row above the viewport grows', () => {

@@ -161,6 +161,18 @@ const observeScrollRectFor =
 
 type OffsetReport = (offset: number) => void
 
+/** tanstack's own rule for keeping a reader's rows still (a first measure above
+ *  the view, a re-measure wholly above it unless scrolling back), except at a held
+ *  bottom: the anchor answers that, and the shift would paint before the new total. */
+const keepsRowsStill =
+  (holdsBottom: () => boolean) =>
+  (item: VirtualItem, _delta: number, instance: Virtualizer<HTMLDivElement, HTMLDivElement>) => {
+    if (holdsBottom()) return false
+    const offset = (instance.scrollOffset ?? 0) + instance.scrollAdjustments
+    if (!instance.itemSizeCache.has(item.key)) return item.start < offset
+    return item.end <= offset && instance.scrollDirection !== 'backward'
+  }
+
 /** tanstack's `observeElementOffset`, also handed every offset the anchor writes
  *  (through `hear`) and read once at the start: its scroll event alone arrives a
  *  frame late, after the old window is painted at the new offset. */
@@ -308,34 +320,39 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   }, [rows, itemOf, props.working])
 
   // A send lifts its prompt to the top, so its reply has the viewport to grow
-  // into. A prompt queued behind a running turn starts nothing, and one already
-  // waiting on reopen is a restore, not a send.
+  // into. A prompt still queued (behind a turn, or held) starts nothing, and one
+  // already waiting on reopen is a restore, not a send.
   const newestUnsent = outbox.at(-1)?.requestId ?? null
+  const newestSending = outbox.at(-1)?.state === 'sending'
   const pinnedRequestId = useRef<string | null>(null)
   const pendingPin = useRef<string | null>(null)
   const sawFirstOutbox = useRef(false)
   const pin = (id: string) => {
+    if (id === pinnedId) return
     stick()
     setPinnedId(id)
   }
   const onOutboxChange = useEffectEvent(() => {
     const inherited = !sawFirstOutbox.current
     sawFirstOutbox.current = true
-    if (newestUnsent === pinnedRequestId.current) return
-    pinnedRequestId.current = newestUnsent
-    if (inherited) return
-    if (newestUnsent) {
+    if (newestUnsent !== pinnedRequestId.current) {
+      pinnedRequestId.current = newestUnsent
+      if (inherited) return
+      if (!newestUnsent) {
+        // The outbox drained: pin the prompt that was waiting once its row is in. One
+        // taken back has no row, so its pin has no offset and reserves nothing.
+        const waiting = pendingPin.current
+        pendingPin.current = null
+        if (waiting && items?.[waiting]) pin(waiting)
+        return
+      }
       pendingPin.current = `p:${newestUnsent}`
-      if (!props.working) pin(pendingPin.current)
-      return
     }
-    // The outbox drained: pin the prompt that was waiting once its row is in. One
-    // taken back has no row, so its pin has no offset and reserves nothing.
-    const waiting = pendingPin.current
-    pendingPin.current = null
-    if (waiting && items?.[waiting]) pin(waiting)
+    if (newestSending && !props.working && pendingPin.current === `p:${newestUnsent}`) {
+      pin(pendingPin.current)
+    }
   })
-  useLayoutEffect(() => onOutboxChange(), [newestUnsent])
+  useLayoutEffect(() => onOutboxChange(), [newestUnsent, newestSending])
 
   const getItemKey = useCallback((index: number) => rows[index] ?? index, [rows])
   const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
@@ -355,10 +372,8 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     // `measureElement` runs in React's commit; flushSync from there throws.
     useFlushSync: false,
   })
-  // At the bottom the anchor holds the view: the virtualizer's own shift for a
-  // row resized above would paint a frame before its new total does.
   useLayoutEffect(() => {
-    rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => !holdsBottom()
+    rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = keepsRowsStill(holdsBottom)
   }, [rowVirtualizer, holdsBottom])
   const virtualItems = rowVirtualizer.getVirtualItems()
   const measuring = virtualItems.some((row) => !measured.has(row.key))
@@ -388,6 +403,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
       data-testid="agent-message-list"
       ref={scrollRef}
       onScroll={anchor.onScroll}
+      {...anchor.intent}
     >
       <div className="scroll-spacer" aria-hidden="true" />
       <div
