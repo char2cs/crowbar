@@ -12,7 +12,6 @@ function w(id: string, branch: string): Workspace {
     working: false,
     canMergeLocally: false,
     mergeConflicts: false,
-    lastError: '',
     age: '',
   } as Workspace
 }

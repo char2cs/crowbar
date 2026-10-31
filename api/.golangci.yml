@@ -107,7 +107,6 @@ linters:
           - errcheck
         path: _test\.go
         source: '(^|[^\w.])_\s*(,\s*[\w.]+\s*)*:?='
-
     paths:
       - third_party$
       - builtin$

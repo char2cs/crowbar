@@ -62,7 +62,6 @@ test('the seed path end to end: a WorkspaceDTO seed with isDefault resolves the 
       forkPointSha: '',
       status: 'locked',
       working: false,
-      lastError: '',
       added: 0,
       deleted: 0,
       mergeStrategy: 'merge',

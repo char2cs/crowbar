@@ -199,7 +199,6 @@ function makeWs(over: Partial<WorkspaceDTO> & { id: string }): WorkspaceDTO {
     forkPointSha: '',
     status: 'new',
     working: false,
-    lastError: '',
     added: 0,
     deleted: 0,
     mergeStrategy: 'merge',
@@ -303,7 +302,7 @@ describe('folders and order', () => {
   })
 
   it('tolerates a frame from a backend that carries neither', () => {
-    // Set rather than omitted, for the same reason as lastError/heldByPath:
+    // Set rather than omitted, for the same reason as heldByPath:
     // applyWorkspaceDTO merges with {...w, ...ws}, so a workspace moved OUT of a
     // folder has to overwrite the stale id instead of keeping it.
     const w = toSidebarWorkspace(ws('w1', 'r1'))
