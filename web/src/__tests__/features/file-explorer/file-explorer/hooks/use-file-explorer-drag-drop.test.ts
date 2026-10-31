@@ -151,6 +151,30 @@ describe('useFileExplorerDragDrop — stable listener subscription (H13)', () =>
     )
     expect(stranded.length).toBe(0)
   })
+
+  it('paints the preview on the raised control surface, which exists in every theme', () => {
+    const { result } = renderHook(() => useFileExplorerDragDrop('ws-a', undefined))
+
+    act(() => {
+      const e = {
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+        clientX: 10,
+        clientY: 10,
+      } as unknown as React.MouseEvent
+      result.current.startDrag(e, makeFile('a.txt', '/repo/a.txt'))
+    })
+
+    const preview = Array.from(document.body.querySelectorAll<HTMLElement>('div')).find(
+      (el) => el.style.position === 'fixed',
+    )
+    expect(preview?.style.backgroundColor).toBe('var(--control-surface)')
+    expect(preview?.style.color).toBe('var(--control-foreground)')
+
+    act(() => {
+      document.dispatchEvent(mouseEvent('mouseup', 5, 5))
+    })
+  })
 })
 
 // A file dragged out of the explorer and dropped on a pane opens as a tab of
