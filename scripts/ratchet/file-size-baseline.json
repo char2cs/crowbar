@@ -68,7 +68,7 @@
   "api/internal/engine/lsp/lsp_test.go": 930,
   "api/tests/agent_rest_scope_test.go": 507,
   "api/tests/fixtures_test.go": 532,
-  "api/tests/harness_test.go": 557,
+  "api/tests/harness_test.go": 556,
   "api/tests/integration/agent/agent_gaps_test.go": 621,
   "api/tests/integration/agent/agent_mcp_test.go": 992,
   "api/tests/integration/agent/barriers_test.go": 925,
