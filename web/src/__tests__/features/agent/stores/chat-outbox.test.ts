@@ -13,8 +13,7 @@ import {
 import { applyFeedFrame, chatStore } from '@/features/agent/stores/chat-store'
 import { ApiError } from '@/lib/errors/api-error'
 import * as errors from '@/lib/errors/report'
-
-const STOP_HINT = 'Its provider already has this prompt: Stop ends the turn'
+import { toastManager } from '@/lib/toast-manager'
 
 let submit: MockInstance<typeof commands.submitAgentPrompt>
 let retract: MockInstance<typeof commands.retractPrompt>
@@ -22,6 +21,8 @@ let stop: MockInstance<typeof commands.stopChat>
 let attach: MockInstance<typeof feeds.attachFeed>
 let detach: ReturnType<typeof vi.fn<() => void>>
 let reported: MockInstance<typeof errors.report>
+let toasts: MockInstance<typeof toastManager.add>
+let closed: MockInstance<typeof toastManager.close>
 
 const accepted = { runnerId: 'r1', terminalSessionId: 'pty1' }
 
@@ -33,6 +34,8 @@ beforeEach(() => {
   detach = vi.fn<() => void>()
   attach = vi.spyOn(feeds, 'attachFeed').mockReturnValue(detach)
   reported = vi.spyOn(errors, 'report').mockImplementation(() => {})
+  toasts = vi.spyOn(toastManager, 'add').mockReturnValue('')
+  closed = vi.spyOn(toastManager, 'close').mockImplementation(() => {})
 })
 
 afterEach(() => {
@@ -302,12 +305,28 @@ describe('chat outbox', () => {
   it('keeps the prompt the provider already holds when Esc is refused', async () => {
     const l = ledger('c1')
     seedFeed('c1', [l.prompt('r1', 'already gone')])
-    retract.mockRejectedValue(new ApiError('prompt is with its provider: conflict', 409))
+    const answer = deferred<never>()
+    retract.mockReturnValue(answer.promise)
 
-    await expect(retractNewest('w1', 'c1')).resolves.toBeNull()
+    const taken = retractNewest('w1', 'c1')
+    expect(toasts.mock.calls.map(([toast]) => toast.type)).toEqual(['loading'])
+    answer.reject(
+      new ApiError(
+        'agent: retract: the prompt is already with its provider',
+        409,
+        'prompt_with_provider',
+      ),
+    )
 
+    await expect(taken).resolves.toBeNull()
     expect(chatStore.getState().feeds.c1?.order).toEqual(['p:r1'])
-    expect(reported.mock.calls[0]?.[1]).toEqual({ action: STOP_HINT })
+    expect(closed).toHaveBeenCalledWith(toasts.mock.calls[0]?.[0].id)
+    expect(toasts.mock.calls[1]?.[0]).toEqual({
+      type: 'error',
+      title: 'Its provider already has this prompt',
+      description: 'Stop ends its turn.',
+    })
+    expect(reported).not.toHaveBeenCalled()
   })
 
   it('says nothing when Esc lost the race to its prompt settling', async () => {
@@ -321,6 +340,7 @@ describe('chat outbox', () => {
     await expect(retractNewest('w1', 'c1')).resolves.toBeNull()
 
     expect(reported).not.toHaveBeenCalled()
+    expect(toasts.mock.calls.map(([toast]) => toast.type)).toEqual(['loading'])
   })
 
   it('commits a staged pick only once the daemon took the prompt', async () => {

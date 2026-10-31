@@ -1,5 +1,6 @@
 import { ApiError } from '@/lib/errors/api-error'
 import { report } from '@/lib/errors/report'
+import { toastManager } from '@/lib/toast-manager'
 import {
   retractPrompt,
   stopChat,
@@ -162,17 +163,30 @@ async function takeBack(
       drop(chatId, requestId)
       return unsentText ?? null
     }
-    if (!(error instanceof ApiError && error.status === 409)) {
-      report(error, { action: 'Couldn’t take the prompt back' })
+    if (error instanceof ApiError && error.problem.code === 'prompt_with_provider') {
+      toastManager.add({ type: 'error', title: WITH_PROVIDER, description: 'Stop ends its turn.' })
       return null
     }
-    // Settled or its turn closed first: it stays, silently. Still open: the CLI has it.
-    const fact = chatStore.getState().feeds[chatId]?.facts.prompts[requestId]
-    if (fact?.state === 'pending' || fact?.state === 'delivered') {
-      report(error, { action: 'Its provider already has this prompt: Stop ends the turn' })
+    // Settled or its turn closed first: it stays in the transcript, silently.
+    if (!(error instanceof ApiError && error.status === 409)) {
+      report(error, { action: 'Couldn’t take the prompt back' })
     }
     return null
   }
+}
+
+const WITH_PROVIDER = 'Its provider already has this prompt'
+const RETRACTING = 'retracting'
+
+/** Says Esc was heard while the daemon decides; a launch can hold the answer. */
+function retracting(answer: Promise<string | null>) {
+  toastManager.add({
+    id: RETRACTING,
+    type: 'loading',
+    title: 'Taking the prompt back…',
+    timeout: 0,
+  })
+  return answer.finally(() => toastManager.close(RETRACTING))
 }
 
 let watching = false
@@ -227,10 +241,10 @@ export function retractNewest(wsId: string, chatId: string): Promise<string | nu
       let resolve: (text: string | null) => void = () => {}
       const promise = new Promise<string | null>((settle) => (resolve = settle))
       takeBackOnAck.set(requestId, { promise, resolve })
-      return promise
+      return retracting(promise)
     }
     case 'held':
-      return takeBack(wsId, chatId, target.requestId, target.text)
+      return retracting(takeBack(wsId, chatId, target.requestId, target.text))
     case 'stop':
       return stopChat(wsId, chatId).then(
         () => null,
