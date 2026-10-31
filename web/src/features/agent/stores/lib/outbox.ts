@@ -145,6 +145,11 @@ export type Retractable =
   /** Its turn has output, or a turn runs that no prompt of ours started. */
   | { kind: 'stop' }
 
+/** Whether `turnId` showed output: its rows, or a reply streaming ahead of them. */
+const spoke = (feed: ChatFeed, turnId: string) =>
+  feed.facts.output[turnId] === true ||
+  feed.liveTail.some((id) => feed.items[id]?.turnId === turnId)
+
 /** What Esc in an empty composer acts on: the newest prompt. */
 export function newestRetractable(items: OutboxItem[], feed: ChatFeed): Retractable | null {
   const newest = items.at(-1)
@@ -157,7 +162,7 @@ export function newestRetractable(items: OutboxItem[], feed: ChatFeed): Retracta
     return { kind: 'held', requestId: newest.requestId, text: newest.text }
   }
   if (newest) return { kind: 'unsent', item: newest }
-  const { running, prompts, output } = feed.facts
+  const { running, prompts } = feed.facts
   let item: UserItem | undefined
   for (let at = feed.order.length - 1; at >= 0 && !item; at--) {
     const candidate = feed.items[feed.order[at]!]
@@ -168,7 +173,7 @@ export function newestRetractable(items: OutboxItem[], feed: ChatFeed): Retracta
     return { kind: 'held', requestId: item.requestId, text: item.text }
   }
   if (item?.requestId && fact?.state === 'delivered' && fact.turnId === running?.turnId) {
-    if (output[fact.turnId]) return { kind: 'stop' }
+    if (spoke(feed, fact.turnId)) return { kind: 'stop' }
     return { kind: 'held', requestId: item.requestId, text: item.text, turnId: fact.turnId }
   }
   return running ? { kind: 'stop' } : null

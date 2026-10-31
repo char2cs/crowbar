@@ -41,12 +41,13 @@ export function applyPromptSettled(fold: FeedFold, row: LedgerRow<'prompt_settle
   } else setPrompt(fold, requestId, { state: 'refused', reason })
 }
 
-/** A turn its prompt's retract ended: true when it said nothing, so no trace stays. */
-export function retractTurn(fold: FeedFold, row: LedgerRow<'turn_ended'>): boolean {
+/** A turn its prompt's retract ended before it said anything leaves no trace. */
+export function retractTurn(fold: FeedFold, row: LedgerRow<'turn_ended'>) {
   const requestId = fold.facts.running?.turnId === row.turnId && fold.facts.running?.requestId
-  if (row.body.reason !== 'retracted' || !requestId) return false
+  if (row.body.reason !== 'retracted' || !requestId || !row.turnId) return
   setPrompt(fold, requestId, { state: 'retracted' })
-  if (fold.facts.output[row.turnId ?? '']) return false
+  if (fold.facts.output[row.turnId]) return
+  fold.record('traceless')[row.turnId] = true
   fold.unplace(userItemId(requestId, row.seq))
-  return true
+  fold.dropLive(row.turnId)
 }

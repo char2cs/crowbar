@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { applyRows, ledger } from '@/__tests__/__fixtures__/ledger-rows'
+import { applyRows, delta, ledger } from '@/__tests__/__fixtures__/ledger-rows'
+import { applyDelta } from '@/features/agent/stores/lib/fold-live'
 import { emptyFeed } from '@/features/agent/stores/lib/fold-rows'
 import {
   deliveryPending,
@@ -196,6 +197,14 @@ describe('newestRetractable', () => {
     const spoke = applyRows(delivered, [l.text('turn-1', 'm1', 0, 'Working on it')])
     expect(newestRetractable([], spoke)).toEqual({ kind: 'stop' })
     expect(newestRetractable([], applyRows(spoke, [l.end('turn-1')]))).toBeNull()
+  })
+
+  it('stops a turn whose reply is streaming ahead of its rows', () => {
+    const l = ledger()
+    const delivered = applyRows(emptyFeed(), [l.prompt('r1', 'one'), l.start('turn-1', 'r1')])
+    expect(newestRetractable([], applyDelta(delivered, delta('m1', 1, 'Work')))).toEqual({
+      kind: 'stop',
+    })
   })
 })
 

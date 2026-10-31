@@ -32,6 +32,7 @@ const emptyFacts: TurnFacts = {
   lastExit: null,
   sessionLost: null,
   output: {},
+  traceless: {},
   efforts: {},
   providers: {},
 }
@@ -61,7 +62,7 @@ const PILL_MARKERS = new Set([
   'effort_changed',
 ])
 
-type FactRecord = 'prompts' | 'output' | 'efforts' | 'providers'
+type FactRecord = 'prompts' | 'output' | 'traceless' | 'efforts' | 'providers'
 
 /** Edits to a feed over one or many rows. Each part is copied on its first
  *  write, so what the rows leave alone keeps its identity, and a replay of
@@ -130,11 +131,27 @@ export class FeedFold {
     }
     const tail = this.liveTail ?? this.base.liveTail
     if (tail.includes(id)) this.liveTail = tail.filter((other) => other !== id)
-    this.order ??= [...this.base.order]
-    this.order.push(id)
     const item = this.item(id)
-    if (item && isUnsettled(item))
-      this.setOpen(item.turnId ?? '', [...this.openIn(item.turnId ?? ''), id])
+    const turn = item?.turnId ?? ''
+    if (this.facts.traceless[turn]) return
+    this.order ??= [...this.base.order]
+    // What a provider flushes after its turn ended still reads above that end.
+    let at = this.order.length
+    while (item?.kind !== 'marker' && at > 0 && this.isEndOf(this.order[at - 1]!, turn)) at--
+    this.order.splice(at, 0, id)
+    if (item && isUnsettled(item)) this.setOpen(turn, [...this.openIn(turn), id])
+  }
+
+  private isEndOf(id: string, turn: string) {
+    const item = this.item(id)
+    return turn !== '' && item?.kind === 'marker' && item.turnId === turn
+  }
+
+  /** Takes the streamed text of `turn` out of the transcript. */
+  dropLive(turn: string) {
+    const tail = this.liveTail ?? this.base.liveTail
+    const kept = tail.filter((id) => this.item(id)?.turnId !== turn)
+    if (kept.length !== tail.length) this.liveTail = kept
   }
 
   unplace(id: string) {
@@ -231,11 +248,13 @@ function closeRunning(fold: FeedFold, turnId: string | undefined) {
 
 const applyTurnEnded: Apply<'turn_ended'> = (fold, row) => {
   if (row.scope || !row.turnId) return
-  const traceless = retractTurn(fold, row)
+  // A provider may report an end Crowbar already recorded: one marker per turn.
+  const ending = fold.facts.running?.turnId === row.turnId
+  retractTurn(fold, row)
   closeRunning(fold, row.turnId)
   if (row.body.effort) fold.record('efforts')[row.turnId] = row.body.effort
   endTurn(fold, row.turnId)
-  if (row.body.status === 'interrupted' && !traceless)
+  if (row.body.status === 'interrupted' && ending)
     marker(fold, row, 'turn_interrupted', undefined, row.body.reason)
 }
 

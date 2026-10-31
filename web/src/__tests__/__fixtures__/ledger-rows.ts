@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import type { FeedDelta, LedgerRow, RowBodies, RowKind } from '@/features/agent/api/chat-rows'
 import { applyFeedFrame } from '@/features/agent/stores/chat-store'
@@ -90,4 +92,22 @@ export function spokenIn(chatId: string, reply = 'earlier turn'): LedgerRow[] {
 /** Folds rows in order, as a replay would. */
 export function applyRows(feed: ChatFeed, rows: LedgerRow[]): ChatFeed {
   return rows.reduce(applyRow, feed)
+}
+
+const LIVE3 = resolve(
+  import.meta.dirname,
+  '../../../../api/internal/app/usecases/chat/internal/ingress/testdata/live3',
+)
+
+/** Rows `from`..`to` of a feed recorded from a real CLI (`<time> <frame>` per line). */
+export function recordedRows(name: string, from: number, to: number): LedgerRow[] {
+  return readFileSync(resolve(LIVE3, name), 'utf-8')
+    .split('\n')
+    .filter((line) => line && !line.startsWith('#'))
+    .map(
+      (line) => JSON.parse(line.slice(line.indexOf(' ') + 1)) as { type: string; row?: LedgerRow },
+    )
+    .flatMap((frame) =>
+      frame.row && frame.row.seq >= from && frame.row.seq <= to ? [frame.row] : [],
+    )
 }

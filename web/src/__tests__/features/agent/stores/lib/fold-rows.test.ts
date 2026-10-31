@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import type { LedgerRow } from '@/features/agent/api/chat-rows'
 import { applyRow, emptyFeed, FeedFold } from '@/features/agent/stores/lib/fold-rows'
 import type { AskItem, TextItem, ToolItem } from '@/features/agent/stores/lib/transcript-items'
-import { ledger, applyRows } from '@/__tests__/__fixtures__/ledger-rows'
+import { applyRows, delta, ledger, recordedRows } from '@/__tests__/__fixtures__/ledger-rows'
+import { applyDelta } from '@/features/agent/stores/lib/fold-live'
 
 describe('applyRow', () => {
   it('orders items by the seq of their first row and never re-sorts', () => {
@@ -71,6 +73,64 @@ describe('applyRow', () => {
     ])
     expect(feed.facts.prompts.r1).toEqual({ state: 'retracted' })
     expect(feed.order).toEqual(['p:r1', 'm:turn-1:m1', 'k:4'])
+  })
+
+  // Real codex: Stop mid-turn; the partial reply's row and a second turn_ended land after.
+  it('draws a stopped turn once, under the reply its provider flushed after the stop', () => {
+    const rows = recordedRows('feed-codex-pre-unix.txt', 52, 58)
+    const prompt = rows[0] as LedgerRow<'user_message'>
+    const turn = prompt.turnId!
+    const feed = applyRows(emptyFeed(), rows)
+
+    const reply = feed.order.find((id) => feed.items[id]?.kind === 'text')
+    expect(feed.order).toEqual([`p:${prompt.body.requestId}`, reply, 'k:54'])
+    expect(feed.items[reply!]?.turnId).toBe(turn)
+  })
+
+  it('keeps out what a provider flushed after a retract left its turn traceless', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.prompt('r1', 'a'),
+      l.start('turn-1', 'r1'),
+      l.row('turn_ended', { status: 'interrupted', reason: 'retracted' }, { turnId: 'turn-1' }),
+      l.row(
+        'assistant_text',
+        { messageId: 'm1', index: -1, text: 'partial' },
+        { turnId: 'turn-1' },
+      ),
+      l.tool('turn-1', 'tool-1', 'pre'),
+      l.end('turn-1', 'interrupted'),
+    ])
+    expect(feed.order).toEqual([])
+  })
+
+  it("takes a traceless turn's streamed text out of the transcript", () => {
+    const l = ledger()
+    const streaming = {
+      ...applyRows(emptyFeed(), [l.prompt('r1', 'a'), l.start('turn-1', 'r1')]),
+      liveTail: ['m:turn-1:m1'],
+    }
+    streaming.items = {
+      ...streaming.items,
+      'm:turn-1:m1': {
+        kind: 'text',
+        id: 'm:turn-1:m1',
+        seq: 0,
+        turnId: 'turn-1',
+        at: '',
+        messageId: 'm1',
+        chunks: {},
+        text: '',
+        settled: false,
+        phase: '',
+      },
+    }
+    const feed = applyRows(streaming, [
+      l.row('turn_ended', { status: 'interrupted', reason: 'retracted' }, { turnId: 'turn-1' }),
+    ])
+    expect(feed.order).toEqual([])
+    expect(feed.liveTail).toEqual([])
+    expect(applyDelta(feed, delta('m2', 1, 'more')).liveTail).toEqual([])
   })
 
   it('delivers a prompt steered into the running turn by its own row', () => {

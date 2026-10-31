@@ -85,6 +85,8 @@ export interface TurnFacts {
   sessionLost: { provider: string; reason: string; seq: number } | null
   /** Turn ids that produced text or a tool. */
   output: Record<string, true>
+  /** Turn ids a retract took back before they said anything: nothing of them shows. */
+  traceless: Record<string, true>
   /** turnId → the effort its turn_ended reported. */
   efforts: Record<string, string>
   /** turnId → the provider its turn_started named. */
