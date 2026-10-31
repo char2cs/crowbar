@@ -22,12 +22,9 @@ const maxRequestBodyBytes = 64 << 20
 // repo-icon upload, so 8 MiB is ample headroom without a large per-request buffer.
 const maxMultipartMemory = 8 << 20
 
-// Container owns the configured gin engine and the v0 surface. The lazy WS
-// resource lifecycles are owned by the app layer and torn down via
-// app.Container.Close, not here.
+// Container owns the configured gin engine with the v0 surface mounted.
 type Container struct {
 	router *gin.Engine
-	v0     *v0.Container
 }
 
 // New builds the HTTP layer: middleware, the v0 surface (mounted at /v0 and
@@ -59,12 +56,7 @@ func New(
 		RegisterStatic(router, staticFS)
 	}
 
-	return &Container{router: router, v0: v0Container}, nil
-}
-
-// Close stops the v0 surface's background workers; see v0.Container.Close.
-func (c *Container) Close() {
-	c.v0.Close()
+	return &Container{router: router}, nil
 }
 
 // Handler returns the underlying http.Handler.

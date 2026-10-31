@@ -2,8 +2,7 @@
 // LSP feature requests, the document-sync notifications, and the diagnostics
 // snapshot (02 §2.5, 04 §3, 10). Every route carries blame's path in the
 // ?path= query because GET has no body, while the LSP routes take their path
-// in the JSON body. The diagnostics WebSocket stream is co-located at
-// .../lsp/ws (W7-2).
+// in the JSON body. Live diagnostics ride the stream's lsp: scope.
 package editor
 
 import (
@@ -34,10 +33,9 @@ func Register(
 	chatScoped *gin.RouterGroup,
 	lsp editorhandlers.LSPEngine,
 	git editorhandlers.GitEngine,
-	lspWSHandle gin.HandlerFunc,
 ) {
 	h := editorhandlers.New(lsp, git)
-	mount(chatScoped, "", h, lspWSHandle)
+	mount(chatScoped, "", h)
 }
 
 // mount registers the editor surface under prefix on rg.
@@ -45,7 +43,6 @@ func mount(
 	rg *gin.RouterGroup,
 	prefix string,
 	h *editorhandlers.Handlers,
-	lspWSHandle gin.HandlerFunc,
 ) {
 	rg.GET(prefix+"/blame", h.Blame)
 	rg.POST(prefix+"/lsp/completion", h.Completion)
@@ -69,5 +66,4 @@ func mount(
 	rg.POST(prefix+"/lsp/didChange", h.DidChange)
 	rg.POST(prefix+"/lsp/didSave", h.DidSave)
 	rg.POST(prefix+"/lsp/didClose", h.DidClose)
-	rg.GET(prefix+"/lsp/ws", lspWSHandle)
 }

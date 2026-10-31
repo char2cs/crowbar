@@ -3,15 +3,19 @@
 package tests
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 type threadDTO struct {
 	ID        string `json:"id"`
+	ProjectID string `json:"projectId"`
 	FilePath  string `json:"filePath"`
 	Line      int    `json:"line"`
 	StartLine int    `json:"startLine"`
@@ -20,6 +24,41 @@ type threadDTO struct {
 	Body      string `json:"body"`
 	Author    string `json:"author"`
 	IsAgent   bool   `json:"isAgent"`
+}
+
+// TestStream_WsScopeCarriesReviewThreads: a client holding the workspace's ws:
+// scope gets its threads as the snapshot, hears a new comment as a
+// review_thread entity frame, and a deleted thread as gone.
+func TestStream_WsScopeCarriesReviewThreads(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	base := threadsBase(imported)
+	scope := "ws:" + imported.workspaceID
+	var first threadDTO
+	h.post(base+"/threads", map[string]any{
+		"filePath": "README.md", "line": 1, "side": "right", "body": "before the hold",
+	}, http.StatusCreated, &first)
+	isThread := func(id string) func(stream.Frame) bool {
+		return func(f stream.Frame) bool {
+			return f.T == stream.FrameEntity && f.Scope == scope && f.Kind == string(stream.KindReviewThread) && f.ID == id
+		}
+	}
+
+	c := dialStream(t, h)
+	c.Sub(t, scope, 0)
+	c.Next(t, isThread(first.ID))
+	var second threadDTO
+	h.post(base+"/threads", map[string]any{
+		"filePath": "README.md", "line": 2, "side": "right", "body": "after the hold",
+	}, http.StatusCreated, &second)
+	f := c.Next(t, isThread(second.ID))
+	var got threadDTO
+	require.NoError(t, json.Unmarshal(f.Data, &got))
+	assert.Equal(t, "after the hold", got.Body)
+
+	h.del(base+"/threads/"+first.ID, nil, http.StatusOK, nil)
+	gone := c.Next(t, isThread(first.ID))
+	assert.True(t, gone.Gone)
 }
 
 // TestThreads_RangeAnchor proves a thread can be anchored to a multi-line range.

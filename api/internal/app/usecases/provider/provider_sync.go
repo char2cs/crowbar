@@ -74,6 +74,7 @@ func New(
 }
 
 // PollWorkspace loads the workspace, calls PollOnView, and applies the result.
+// A project home has no remote to ask, so it is never polled.
 func (u *providerSyncUsecase) PollWorkspace(
 	ctx context.Context,
 	wsID string,
@@ -81,6 +82,9 @@ func (u *providerSyncUsecase) PollWorkspace(
 	ws, err := u.workspaces.Get(ctx, wsID)
 	if err != nil {
 		return fmt.Errorf("provider sync: poll workspace: get: %w", err)
+	}
+	if ws.Kind == domain.WorkspaceKindHome {
+		return nil
 	}
 	state, err := u.engine.PollOnView(ctx, wsID, ws.WorktreePath, ws.Branch)
 	if err != nil {

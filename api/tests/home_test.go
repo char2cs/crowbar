@@ -3,11 +3,14 @@
 package tests
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // createProjectForHome creates a project via POST /v0/projects and returns its
@@ -83,36 +86,37 @@ func TestHome_ThreadsRoundTrip(t *testing.T) {
 	assert.Equal(t, opened.ID, listed[0].ID)
 }
 
-// TestHome_ThreadBroadcastsOverWebSocket proves the dual-served home thread list
-// works as a WebSocket: a subscriber on /home/threads receives the DTO broadcast
-// when a thread is opened. This validates WS scoping for the repoId-less home
-// workspace (namespace "p//w" prefix-matches the event "p//w/<id>").
-func TestHome_ThreadBroadcastsOverWebSocket(t *testing.T) {
+// TestHome_AThreadReachesTheHomeWorkspaceScope: a client holding the home
+// workspace's ws: scope hears a thread opened there, carrying the project it
+// names though the home rides no repo.
+func TestHome_AThreadReachesTheHomeWorkspaceScope(t *testing.T) {
 	h := newHarness(t)
 	projectID := createProjectForHome(t, h)
 	homeBase := "/v0/projects/" + projectID + "/home"
+	scope := "ws:" + homeWorkspaceID(t, h, projectID)
 
-	conn := h.dial(homeBase + "/threads")
+	c := dialStream(t, h)
+	c.Hold(t, scope)
 	h.post(homeBase+"/threads", map[string]any{
 		"filePath": "README.md", "line": 1, "side": "right", "body": "ws home thread",
 	}, http.StatusCreated, nil)
 
-	frame := readUntil(t, conn, func(m map[string]any) bool {
-		return m["body"] == "ws home thread"
+	f := c.Next(t, func(f stream.Frame) bool {
+		return f.T == stream.FrameEntity && f.Scope == scope && f.Kind == string(stream.KindReviewThread)
 	})
-	assert.Equal(t, projectID, frame["projectId"],
-		"home thread frame must carry the project scope")
+	var th threadDTO
+	require.NoError(t, json.Unmarshal(f.Data, &th))
+	assert.Equal(t, "ws home thread", th.Body)
+	assert.Equal(t, projectID, th.ProjectID, "home thread frame must carry the project scope")
 }
 
-// TestHome_FilesWatchWebSocketUpgrades proves the home file-change stream route
-// exists and upgrades. This is the exact route the project-home view hit a 404
-// on (/v0/projects/:p/home/files/ws); the dial helper fails on a non-101 upgrade,
-// so a successful dial is the regression guard.
-func TestHome_FilesWatchWebSocketUpgrades(t *testing.T) {
+// TestHome_FilesScopeHoldsTheHomeWorkspace: the project-home view watches its
+// files through the home workspace's files: scope.
+func TestHome_FilesScopeHoldsTheHomeWorkspace(t *testing.T) {
 	h := newHarness(t)
 	projectID := createProjectForHome(t, h)
 
-	_ = h.dial("/v0/projects/" + projectID + "/home/files/ws")
+	dialStream(t, h).Hold(t, "files:"+homeWorkspaceID(t, h, projectID))
 }
 
 // TestRegression_HomeHasNoGitSurface locks the design decision that git is NOT a

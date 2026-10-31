@@ -46,7 +46,7 @@ func newProfilesRouter(
 	store handlers.ProfileStore,
 ) *gin.Engine {
 	r := gin.New()
-	h := handlers.New(stubEngine{}, store, &spyBroadcaster{})
+	h := handlers.New(stubEngine{}, store)
 	rg := r.Group("/v0")
 	rg.GET("/settings/terminal/profiles", h.ListProfiles)
 	rg.GET("/settings/terminal/profiles/:id", h.GetProfile)

@@ -4,8 +4,6 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/domain"
-	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -22,19 +20,6 @@ type Subscriber interface {
 	)
 	PushWorkspace(
 		w dto.WorkspaceDTO,
-	)
-	PushThread(
-		t dto.ThreadDTO,
-	)
-	PushTerminalSession(
-		s dto.TerminalSessionDTO,
-	)
-	PushGit(
-		wsID string,
-		status gitdomain.GitStatus,
-	)
-	PushFile(
-		evt domain.FileChangeEvent,
 	)
 	// PushAgentChatPromptSettled receives the frame that says one delivered prompt
 	// is over without having produced a turn, so a client holding it as pending can
@@ -104,7 +89,4 @@ type Subscriber interface {
 		workspaceID string,
 		kind string,
 	)
-	// PushPlacementChanged receives the fact that some chat or folder was
-	// created, moved, re-anchored or deleted, already visible in the read model.
-	PushPlacementChanged()
 }

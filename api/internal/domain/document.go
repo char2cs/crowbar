@@ -1,6 +1,12 @@
 package domain
 
-import "github.com/char2cs/crowbar/api/internal/domain/problem"
+import (
+	"context"
+	"net"
+	"net/http"
+
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+)
 
 // ErrHostDocumentNeedsLocalTransport refuses a file outside every workspace to
 // a request that did not arrive on the local socket: it is the local user's only.
@@ -44,3 +50,13 @@ const (
 	TransportRemote Transport = iota
 	TransportLocal
 )
+
+// TransportOf is local only for a request accepted on a unix socket; a request
+// that names no listener fails closed as remote.
+func TransportOf(ctx context.Context) Transport {
+	addr, ok := ctx.Value(http.LocalAddrContextKey).(net.Addr)
+	if ok && addr.Network() == "unix" {
+		return TransportLocal
+	}
+	return TransportRemote
+}

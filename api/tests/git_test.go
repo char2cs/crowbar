@@ -75,17 +75,3 @@ func TestGit_LockedWorkspaceRejectsWrite(t *testing.T) {
 	h.postError(base+"/git/commit", map[string]string{"subject": "blocked"}, http.StatusConflict)
 	h.postError(base+"/git/stage", map[string]any{"paths": []string{"README.md"}}, http.StatusConflict)
 }
-
-// TestGit_StatusDualServeWS proves the /git/status route dual-serves: a WebSocket
-// upgrade delivers the GitStatus snapshot on connect.
-func TestGit_StatusDualServeWS(t *testing.T) {
-	h := newHarness(t)
-	imported := importProject(t, h)
-
-	conn := h.dial(wsBase(imported) + "/git/status")
-	got := readUntil(t, conn, func(m map[string]any) bool {
-		_, ok := m["branch"]
-		return ok
-	})
-	assert.Equal(t, "main", got["branch"])
-}

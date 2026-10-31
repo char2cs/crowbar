@@ -234,8 +234,8 @@ type Engine interface {
 		filePath string,
 	)
 	// ReleaseWorkspace tears down every language server running for wsID
-	// regardless of its refcount. The realtime LSP lifecycle calls it on the
-	// workspace WS topic's last-unsubscribe edge so a force-quit/crash/WS-drop
+	// regardless of its refcount. The stream's LSP resource calls it when the
+	// last client lets go of the owner's lsp: scope, so a force-quit/crash/drop
 	// with documents still open never leaks the workspace's server processes
 	// (the per-document DidClose decrement-to-zero path may never run).
 	ReleaseWorkspace(

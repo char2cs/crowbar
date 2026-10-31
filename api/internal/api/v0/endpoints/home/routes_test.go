@@ -39,13 +39,11 @@ func TestHomeMountsEveryAgentRoute(t *testing.T) {
 		home.Register(
 			r.Group("/scope"),
 			nil, nil, nil, nil, // home deps: unused, the routing table is what is under test
-			noopWS,
-			nil, nil, noopWS,
+			nil, nil, // thread store + publisher
 			nil, nil, nil, nil, nil, // the five agent concerns
 			nil, nil, // chat-folder usecase + broadcast
 			nil, nil, // worktrees + nodes
 			noopWS, // agent WS
-			func(rest, _ gin.HandlerFunc) gin.HandlerFunc { return rest },
 		)
 	}, "/scope/home")
 
@@ -99,13 +97,11 @@ func TestHomeTerminalsAreServedByTheOneTerminalHandlerSet(t *testing.T) {
 	home.Register(
 		r.Group("/scope"),
 		nil, nil, nil, nil,
-		noopWS,
-		nil, nil, noopWS,
+		nil, nil,
 		nil, nil, nil, nil, nil,
 		nil, nil,
 		nil, nil,
 		noopWS,
-		func(rest, _ gin.HandlerFunc) gin.HandlerFunc { return rest },
 	)
 	want := map[string]string{
 		"GET /scope/home/terminals":               "(*Handlers).ListSessions",

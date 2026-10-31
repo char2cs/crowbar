@@ -65,7 +65,7 @@ func (e *engine) diffBase(
 // It returns "" when no candidate ref resolves (an unresolvable/renamed base
 // branch, or an empty base): callers treat that as "no committed diff", and the
 // app layer never passes an unverified branch name — it falls back to the
-// recorded fork point first (see workspace.summaryBase / realtime.watcherDiffBase).
+// recorded fork point first (see workspace.summaryBase / resources.watcherDiffBase).
 //
 // The second result is how many commits HEAD has beyond that base, so callers
 // need no extra rev-list to learn whether the branch has commits.

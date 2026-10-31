@@ -15,8 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // The hub.Subscriber push wiring (PushProject...PushFile), the terminal
@@ -55,7 +53,6 @@ func TestContainer_PushProject_ReachesClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
 	c := New(a, nil)
-	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET("/v0/projects/:projectId", func(ctx *gin.Context) { c.projects.Handle(ctx) })
 	srv := httptest.NewServer(r)
@@ -75,7 +72,6 @@ func TestContainer_PushRepo_ReachesClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
 	c := New(a, nil)
-	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET("/v0/projects/:projectId/repos", func(ctx *gin.Context) { c.repos.Handle(ctx) })
 	srv := httptest.NewServer(r)
@@ -102,7 +98,6 @@ func TestContainer_PushWorkspace_ReachesChatClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
 	c := New(a, nil)
-	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET("/v0/chats/:chatId/ws", func(ctx *gin.Context) { c.agentChats.Handle(ctx) })
 	srv := httptest.NewServer(r)
@@ -118,168 +113,6 @@ func TestContainer_PushWorkspace_ReachesChatClient(t *testing.T) {
 	assert.Equal(t, dto.AgentChatKindWorktreeState, got["kind"])
 	assert.Equal(t, "chat-1", got["chatId"])
 	assert.Equal(t, "w1", got["workspaceId"])
-}
-
-func TestContainer_PushThread_ReachesClient(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	a := newAppForSnapshot(t)
-	c := New(a, nil)
-	t.Cleanup(c.Close)
-	r := gin.New()
-	r.GET(
-		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads",
-		func(ctx *gin.Context) { c.threads.Handle(ctx) },
-	)
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/workspaces/w1/threads")
-	c.threads.WaitRegistered()
-
-	c.PushThread(dto.ThreadDTO{ID: "t1", ProjectID: "p1", RepoID: "r1", WorkspaceID: "w1"})
-
-	got := readJSON(t, conn)
-	assert.Equal(t, "t1", got["id"])
-}
-
-func TestContainer_PushTerminalSession_ReachesClient(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	a := newAppForSnapshot(t)
-	c := New(a, nil)
-	t.Cleanup(c.Close)
-	r := gin.New()
-	r.GET(
-		"/v0/chats/:chatId/terminals",
-		func(ctx *gin.Context) { c.terminals.Handle(ctx) },
-	)
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	conn := dialWSAt(t, srv, "/v0/chats/c1/terminals")
-	c.terminals.WaitRegistered()
-
-	c.PushTerminalSession(dto.TerminalSessionDTO{ID: "s1", ChatID: "c1"})
-
-	got := readJSON(t, conn)
-	assert.Equal(t, "s1", got["id"])
-}
-
-// stubChatWorkspaces answers every bound chat id from a fixed table; Resolve
-// (the REST middleware's read) is never reached on these hand-mounted routes.
-type stubChatWorkspaces map[string]string
-
-func (s stubChatWorkspaces) Resolve(
-	_ context.Context,
-	_ string,
-) (domain.Workspace, error) {
-	return domain.Workspace{}, problem.ErrNotFound
-}
-
-func (s stubChatWorkspaces) WorkspacesForChats(
-	_ context.Context,
-	chatIDs []string,
-) (map[string]string, error) {
-	out := make(map[string]string, len(chatIDs))
-	for _, id := range chatIDs {
-		out[id] = s[id]
-	}
-	return out, nil
-}
-
-// TestContainer_PushGit_ReachesFilteredClient proves PushGit reaches only a
-// subscriber whose chat is bound to the pushed workspace.
-func TestContainer_PushGit_ReachesFilteredClient(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	a := newAppForSnapshot(t)
-	a.Usecases.Worktree = stubChatWorkspaces{"chat-a": "A", "chat-b": "B"}
-	c := New(a, nil)
-	t.Cleanup(c.Close)
-	r := gin.New()
-	r.GET(
-		"/v0/chats/:chatId/git/status",
-		func(ctx *gin.Context) { c.git.Handle(ctx) },
-	)
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	conn := dialWSAt(t, srv, "/v0/chats/chat-a/git/status")
-	c.git.WaitRegistered()
-
-	c.PushGit("B", gitdomain.GitStatus{Branch: "branch-B"})
-	c.PushGit("A", gitdomain.GitStatus{Branch: "branch-A"})
-
-	got := readJSON(t, conn)
-	assert.Equal(t, "branch-A", got["branch"])
-	// A clean tree's nil Files slice is normalised to an empty array, never null
-	// (see PushGit's doc comment).
-	files, ok := got["files"].([]any)
-	require.True(t, ok, "files must serialise as an array, not null")
-	assert.Empty(t, files)
-}
-
-// TestContainer_PushFileAndPushGit_ReadNoChatOrNodeState is the CPU bug's
-// guard: a file or git event is matched against each client's bound workspace,
-// so the hot path reads no chat forest at all however many events arrive.
-func TestContainer_PushFileAndPushGit_ReadNoChatOrNodeState(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	a := newAppForSnapshot(t)
-	resolver := newRowsResolver(a)
-	a.Usecases.Worktree = resolver
-	c := New(a, nil)
-	t.Cleanup(c.Close)
-	r := gin.New()
-	r.GET("/v0/chats/:chatId/git/status", func(ctx *gin.Context) { c.git.Handle(ctx) })
-	r.GET("/v0/chats/:chatId/files/ws", func(ctx *gin.Context) { c.files.Handle(ctx) })
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-	gitConn := dialWSAt(t, srv, "/v0/chats/chat-b/git/status")
-	filesConn := dialWSAt(t, srv, "/v0/chats/chat-c/files/ws")
-	// A first frame on each proves its connect-time resolve and snapshot are done.
-	c.PushGit("ws-a", gitdomain.GitStatus{Branch: "warm"})
-	c.PushFile(domain.FileChangeEvent{WsID: "ws-a", Path: "warm.go"})
-	require.Equal(t, "warm", readJSON(t, gitConn)["branch"])
-	require.Equal(t, "warm.go", readJSON(t, filesConn)["path"])
-	before := resolver.readCount()
-
-	for range 20 {
-		c.PushFile(domain.FileChangeEvent{WsID: "ws-a", Path: "a.go"})
-		c.PushGit("ws-a", gitdomain.GitStatus{Branch: "a"})
-		c.PushFile(domain.FileChangeEvent{WsID: "ws-z", Path: "z.go"})
-		c.PushGit("ws-z", gitdomain.GitStatus{Branch: "z"})
-	}
-	c.PushGit("ws-a", gitdomain.GitStatus{Branch: "last"})
-	c.PushFile(domain.FileChangeEvent{WsID: "ws-a", Path: "last.go"})
-
-	for range 20 {
-		require.Equal(t, "a", readJSON(t, gitConn)["branch"])
-		require.Equal(t, "a.go", readJSON(t, filesConn)["path"])
-	}
-	require.Equal(t, "last", readJSON(t, gitConn)["branch"])
-	require.Equal(t, "last.go", readJSON(t, filesConn)["path"])
-	assert.Equal(t, before, resolver.readCount(), "pushes must not read the chat forest")
-}
-
-func TestContainer_PushFile_ReachesFilteredClient(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	a := newAppForSnapshot(t)
-	c := New(a, nil)
-	t.Cleanup(c.Close)
-	r := gin.New()
-	r.GET(
-		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/files/ws",
-		func(ctx *gin.Context) { c.files.Handle(ctx) },
-	)
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/workspaces/w1/files/ws")
-	c.files.WaitRegistered()
-
-	c.PushFile(domain.FileChangeEvent{WsID: "other", Path: "skip.go"})
-	c.PushFile(domain.FileChangeEvent{WsID: "w1", Path: "a.go"})
-
-	got := readJSON(t, conn)
-	assert.Equal(t, "a.go", got["path"])
 }
 
 // TestContainer_PushAgentChat_ReachesFilteredClient proves PushAgentChat
@@ -303,7 +136,6 @@ func TestContainer_PushAgentChat_ReachesFilteredClient(t *testing.T) {
 	seedWorkspace(t, a, "A", "p1", "r1", "", "")
 	seedWorkspace(t, a, "B", "p1", "r2", "", "")
 	c := New(a, nil)
-	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(
 		"/v0/projects/:projectId/repos/:repoId/chats/ws",
@@ -333,7 +165,6 @@ func TestContainer_PushAgentChatPromptSettled_ReachesFilteredClient(t *testing.T
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
 	c := New(a, nil)
-	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(
 		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/chats/ws",
@@ -363,7 +194,6 @@ func TestContainer_PushAgentChatMessageDelta_ReachesFilteredClient(t *testing.T)
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
 	c := New(a, nil)
-	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(
 		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/chats/ws",
@@ -394,7 +224,6 @@ func TestContainer_PushAgentChatCompaction_ReachesFilteredClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
 	c := New(a, nil)
-	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(
 		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/chats/ws",
@@ -425,7 +254,6 @@ func TestContainer_PushAgentChatFolder_ReachesFilteredClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
 	c := New(a, nil)
-	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(
 		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/chats/ws",
@@ -452,7 +280,6 @@ func TestContainer_PushAgentChatEvent_ReachesFilteredClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := newAppForSnapshot(t)
 	c := New(a, nil)
-	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET(
 		"/v0/projects/:projectId/repos/:repoId/workspaces/:wsId/chats/ws",
@@ -487,37 +314,6 @@ func TestNew_PanicsOnNilAppContainer(t *testing.T) {
 	assert.PanicsWithValue(t, "v0: appContainer is required", func() {
 		New(nil, nil)
 	})
-}
-
-// TestScopeWsID_PrefersPathThenQuery proves scopeWsID reads the :wsId path
-// param when present, falling back to the "wsId" query param, and returning ""
-// when neither is set (T15's dual-served-route scoping).
-func TestScopeWsID_PrefersPathThenQuery(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	tests := []struct {
-		name      string
-		pathID    string
-		query     string
-		wantScope string
-	}{
-		{name: "path param wins", pathID: "from-path", query: "wsId=from-query", wantScope: "from-path"},
-		{name: "falls back to query", pathID: "", query: "wsId=from-query", wantScope: "from-query"},
-		{name: "empty when neither set", pathID: "", query: "", wantScope: ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			ctx, _ := gin.CreateTestContext(w)
-			req := httptest.NewRequest("GET", "/x?"+tt.query, nil)
-			ctx.Request = req
-			if tt.pathID != "" {
-				ctx.Params = gin.Params{{Key: "wsId", Value: tt.pathID}}
-			}
-			assert.Equal(t, tt.wantScope, scopeWsID(ctx))
-		})
-	}
 }
 
 // TestResolveWorkspaceScope_NilApp proves resolveWorkspaceScope degrades to
@@ -555,88 +351,4 @@ func TestResolveWorkspaceScope_ResolvesProjectAndRepo(t *testing.T) {
 	projectID, repoID := c.resolveWorkspaceScope(context.Background(), "w1")
 	assert.Equal(t, "p1", projectID)
 	assert.Equal(t, "r1", repoID)
-}
-
-// TestOnTerminalEnded_PushesEndedFrame proves the reap-path callback emits an
-// "ended" lifecycle frame carrying the owning chat, EndedAt, and (when known)
-// the exit code.
-func TestOnTerminalEnded_PushesEndedFrame(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	a := newAppForSnapshot(t)
-
-	c := New(a, nil)
-	t.Cleanup(c.Close)
-	r := gin.New()
-	r.GET(
-		"/v0/chats/:chatId/terminals",
-		func(ctx *gin.Context) { c.terminals.Handle(ctx) },
-	)
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	conn := dialWSAt(t, srv, "/v0/chats/c1/terminals")
-	c.terminals.WaitRegistered()
-
-	c.onTerminalEnded(context.Background(), "c1", "s1", 7)
-
-	got := readJSON(t, conn)
-	assert.Equal(t, "s1", got["id"])
-	assert.Equal(t, "c1", got["chatId"])
-	assert.Equal(t, "ended", got["status"])
-	assert.NotNil(t, got["endedAt"])
-	assert.Equal(t, float64(7), got["exitCode"])
-}
-
-// TestOnTerminalEnded_UnknownExitCodeOmitted proves a negative (unknown) exit
-// code is not stamped onto the frame.
-func TestOnTerminalEnded_UnknownExitCodeOmitted(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	a := newAppForSnapshot(t)
-	c := New(a, nil)
-	t.Cleanup(c.Close)
-	r := gin.New()
-	r.GET(
-		"/v0/chats/:chatId/terminals",
-		func(ctx *gin.Context) { c.terminals.Handle(ctx) },
-	)
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	conn := dialWSAt(t, srv, "/v0/chats/c1/terminals")
-	c.terminals.WaitRegistered()
-
-	c.onTerminalEnded(context.Background(), "c1", "s1", -1)
-
-	got := readJSON(t, conn)
-	assert.Equal(t, "ended", got["status"])
-	_, hasExitCode := got["exitCode"]
-	assert.False(t, hasExitCode, "unknown (negative) exit code must be omitted from the frame")
-}
-
-// TestOnTerminalState_PushesStateFrame proves the detach/suspend transition
-// callback emits a lifecycle frame carrying the owning chat and the given
-// state.
-func TestOnTerminalState_PushesStateFrame(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	a := newAppForSnapshot(t)
-
-	c := New(a, nil)
-	t.Cleanup(c.Close)
-	r := gin.New()
-	r.GET(
-		"/v0/chats/:chatId/terminals",
-		func(ctx *gin.Context) { c.terminals.Handle(ctx) },
-	)
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	conn := dialWSAt(t, srv, "/v0/chats/c1/terminals")
-	c.terminals.WaitRegistered()
-
-	c.onTerminalState(context.Background(), "c1", "s1", "detached")
-
-	got := readJSON(t, conn)
-	assert.Equal(t, "s1", got["id"])
-	assert.Equal(t, "c1", got["chatId"])
-	assert.Equal(t, "detached", got["status"])
 }

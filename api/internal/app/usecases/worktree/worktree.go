@@ -82,30 +82,3 @@ func ChatsForWorkspace(
 	slices.Sort(chatIDs)
 	return chatIDs, nil
 }
-
-// WorkspacesForChats answers Resolve for many chats from one forest read, keyed
-// by chat id; a folder, an unknown id or a chat with no worktree in its
-// ancestry answers "". It is what a rebind of every chat-scoped stream costs.
-func WorkspacesForChats(
-	ctx context.Context,
-	chatIDs []string,
-	chats ChatLister,
-	folders Folders,
-	nodes Nodes,
-) (map[string]string, error) {
-	rows, err := chats.ListChats(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("worktree: workspaces for %d chats: list chats: %w", len(chatIDs), err)
-	}
-	forest := newChatForest(ctx, folders, nodes, rows)
-	memo := make(map[string]string, len(rows))
-	out := make(map[string]string, len(chatIDs))
-	for _, id := range chatIDs {
-		if row, ok := forest.byID[id]; !ok || row.Type == domain.ChatTypeFolder {
-			out[id] = ""
-			continue
-		}
-		out[id] = forest.workspaceFor(id, memo)
-	}
-	return out, nil
-}

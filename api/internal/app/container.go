@@ -10,41 +10,39 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 
 	"github.com/char2cs/asynx"
-	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
-	"github.com/char2cs/crowbar/api/internal/app/realtime"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	repotree "github.com/char2cs/crowbar/api/internal/app/repositories/tree"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/stream"
+	"github.com/char2cs/crowbar/api/internal/app/stream/resources"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	domainstream "github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/char2cs/crowbar/api/internal/engine"
-	"github.com/char2cs/crowbar/api/internal/engine/provider/poll"
 )
 
 // Container is the application layer: the hub, the aggregate repositories, the
-// GORM CRUD stores, the composed usecases, and the realtime service owning the
-// lazy file-watcher and LSP lifecycles.
+// GORM CRUD stores, the composed usecases, and the stream with the resources
+// its held scopes run.
 type Container struct {
 	Hub          *hub.Hub
 	Repositories *repositories.Container
 	GORM         *GORMStores
 	Usecases     *usecases.Container
-	Realtime     *realtime.Service
 	// Operations runs the work routes hand off after answering 202.
 	Operations *operation.Service
-	// Stream publishes every operation to the clients holding the projects scope.
-	Stream      *stream.Hub
+	// Stream serves every client the scopes it holds.
+	Stream *stream.Hub
+	// resources are what a held scope runs; Close stops what is still running.
+	resources   *resources.Set
 	crowbarHome string
 
 	// engines is retained for ONE reason: Shutdown must quiesce the terminal engine
@@ -72,7 +70,7 @@ func New(
 	encode stream.Encoder,
 ) (*Container, error) {
 	h := hub.NewHub()
-	rm, err := repositories.OpenReadModels(adapters, func(string) { h.BroadcastPlacementChanged() })
+	rm, err := repositories.OpenReadModels(adapters)
 	if err != nil {
 		return nil, fmt.Errorf("app: %w", err)
 	}
@@ -86,16 +84,10 @@ func New(
 		return nil, err
 	}
 
-	// The hub snapshots the service it publishes for, so the publish names it late.
-	var hubStream *stream.Hub
-	ops := operation.New(gormStores.Operations, func(op domain.Operation) {
-		hubStream.Entity(domainstream.Projects, domainstream.KindOperation, op.ID, op)
-	}, time.Now)
-	hubStream = stream.New(uuid.NewString(), map[domainstream.ScopeKind]stream.Source{
-		domainstream.KindProjects: stream.NewProjectsSource(ops, encode),
-	}, nil, encode)
+	late := &lateStream{}
+	ops := operation.New(gormStores.Operations, late.operation, time.Now)
 	chatSnapshots := newChatSnapshots(h)
-	placement, err := newPlacement(ctx, ax, gormStores, h, chatSnapshots)
+	placement, err := newPlacement(ctx, ax, gormStores, chatSnapshots)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +101,7 @@ func New(
 	crowbarHome := adapters.Home().Root()
 	homeFunc := func() (string, error) { return crowbarHome, nil }
 	ucs, err := usecases.New(
-		repos, toUsecaseStores(gormStores), engines, homeFunc, agentThreadBroadcast(h),
+		repos, toUsecaseStores(gormStores), engines, homeFunc, late.reviewThread(),
 		announceHomeRow(h, chatSnapshots),
 		announceRepoPlacement(h, gormStores.Repositories),
 		usecases.WithChatSnapshots(chatSnapshots),
@@ -121,13 +113,15 @@ func New(
 	// own PurgeChat, which exists only now (it is built from repos); see
 	// repositories.Container.PurgeChat.
 	repos.PurgeChat = ucs.AgentChat.PurgeChat
+	set := newStream(ctx, late, encode, ops, repos, ucs, engines)
 	c := &Container{
 		Hub:            h,
 		Repositories:   repos,
 		GORM:           gormStores,
 		Usecases:       ucs,
 		Operations:     ops,
-		Stream:         hubStream,
+		Stream:         late.hub,
+		resources:      set,
 		crowbarHome:    crowbarHome,
 		engines:        engines,
 		axWorkspace:    ax.workspace,
@@ -165,49 +159,7 @@ func New(
 	startModelDiscoveryWarmup(ctx, engines, crowbarHome)
 	go descriptorcheck.LogAll(context.WithoutCancel(ctx), crowbarHome)
 
-	c.Realtime = realtime.New(
-		ctx,
-		h,
-		repos.Workspace,
-		engines.Git,
-		engines.FS,
-		realtime.NewLSPLifecycle(engines.LSP),
-		ucs.ProviderSync,
-		poll.PerConnectionInterval,
-		realtime.OriginSyncInterval,
-		time.Now,
-	)
 	return c, nil
-}
-
-// agentThreadBroadcast adapts the hub into the agentusecase.ToolThreadBroadcast seam:
-// when an agent posts a review comment, the resulting thread has to reach a review
-// pane that is already open, exactly as an HTTP-authored comment does.
-//
-// The conversion lives HERE, in the app layer, because it is the DTO boundary. The
-// review-thread repository does not fan out (its store.BroadcastFunc is a no-op)
-// and it cannot: the frame is built from domain.ReviewThread, which carries WsID but
-// no project or repo id, while the /threads stream filters on all three. Only a
-// caller holding the resolved workspace can supply them, so the aggregate crosses
-// the usecase boundary and the DTO is assembled at the layer that owns wire types.
-//
-// This does NOT double-broadcast alongside the thread handler's own push: both end
-// at the same ws.Broadcaster, but the agent path never runs the handler, and the
-// handler's path never runs this.
-func agentThreadBroadcast(
-	h threadBroadcaster,
-) agentusecase.ToolThreadBroadcast {
-	return func(thread domain.ReviewThread, projectID, repoID string) {
-		h.BroadcastThread(dto.ThreadDTOFrom(thread, projectID, repoID))
-	}
-}
-
-// threadBroadcaster is the one hub method agentThreadBroadcast needs, narrowed to
-// it so nothing else about the hub is in scope here. *hub.Hub satisfies it.
-type threadBroadcaster interface {
-	BroadcastThread(
-		t dto.ThreadDTO,
-	)
 }
 
 // newRepositoriesContainer builds the repository layer from every per-type

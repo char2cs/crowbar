@@ -7,7 +7,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/adapter/migrations"
-	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/migratetree"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	repotree "github.com/char2cs/crowbar/api/internal/app/repositories/tree"
@@ -18,13 +17,12 @@ import (
 )
 
 // newPlacement opens the id-keyed placement ports over every project's Tree and
-// announces each Tree write to live clients, as the Node and chat aggregates'
-// own events did before placement moved into the Tree.
+// announces each chat a Tree write moved to live clients, as the chat
+// aggregate's own events did before placement moved into the Tree.
 func newPlacement(
 	ctx context.Context,
 	ax *aggregates,
 	gormStores *GORMStores,
-	h *hub.Hub,
 	chatSnapshots *agentusecase.ChatSnapshots,
 ) (*repotree.Ports, error) {
 	locate := repotree.NewLocator(repotree.LocatorFacts{
@@ -59,7 +57,7 @@ func newPlacement(
 	moved := func(ctx context.Context, chatID string, p tree.Placement, kind string) {
 		chatSnapshots.ApplyPlacement(ctx, chatID, p.ParentID, p.Order, kind)
 	}
-	if err := repotree.Announce(ax.tree, func(string) { h.BroadcastPlacementChanged() }, moved); err != nil {
+	if err := repotree.Announce(ax.tree, moved); err != nil {
 		return nil, fmt.Errorf("app: placement: %w", err)
 	}
 	return ports, nil

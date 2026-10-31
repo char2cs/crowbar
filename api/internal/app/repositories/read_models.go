@@ -17,11 +17,9 @@ type ReadModels struct {
 	AgentChat    *agentchat.ReadModel
 }
 
-// OpenReadModels opens every read model over its view DB. placementWatch hears
-// every chat whose workspace or type changed, or that was deleted (nil: nobody).
+// OpenReadModels opens every read model over its view DB.
 func OpenReadModels(
 	adapters *adapter.Container,
-	placementWatch func(id string),
 ) (*ReadModels, error) {
 	ws, err := workspace.OpenReadModel(adapters.WorkspaceView())
 	if err != nil {
@@ -31,7 +29,7 @@ func OpenReadModels(
 	if err != nil {
 		return nil, fmt.Errorf("repositories: %w", err)
 	}
-	chat, err := agentchat.OpenReadModel(adapters.AgentChatReadDB(), agentchat.WithPlacementWatch(placementWatch))
+	chat, err := agentchat.OpenReadModel(adapters.AgentChatReadDB())
 	if err != nil {
 		return nil, fmt.Errorf("repositories: %w", err)
 	}

@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,7 +18,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/documents"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // recordingDocuments answers every call with err (or the target, resolved as
@@ -58,23 +56,6 @@ func (r *recordingDocuments) WriteDocument(
 	return resolved(target), nil
 }
 
-// HostDocument refuses off the local socket, as the gate does, and otherwise
-// answers err or the path as a host ref.
-func (r *recordingDocuments) HostDocument(
-	_ context.Context,
-	path string,
-	transport domain.Transport,
-) (domain.DocumentRef, error) {
-	r.target, r.transport = domain.DocumentRef{Path: path}, transport
-	if transport != domain.TransportLocal {
-		return domain.DocumentRef{}, domain.ErrHostDocumentNeedsLocalTransport
-	}
-	if r.err != nil {
-		return domain.DocumentRef{}, r.err
-	}
-	return domain.DocumentRef{Authority: domain.DocumentAuthorityHost, Path: path}, nil
-}
-
 func resolved(
 	target domain.DocumentRef,
 ) domain.DocumentRef {
@@ -87,17 +68,9 @@ func resolved(
 func newRouter(
 	docs documents.Documents,
 ) *gin.Engine {
-	return newWatchRouter(docs, func(*gin.Context) {})
-}
-
-// newWatchRouter mounts the routes with stream as the watch's stream handler.
-func newWatchRouter(
-	docs documents.Documents,
-	stream gin.HandlerFunc,
-) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	documents.Register(r.Group("/v0"), docs, stream)
+	documents.Register(r.Group("/v0"), docs)
 	return r
 }
 
@@ -251,47 +224,4 @@ func TestRefusals_CarryTheirCodes(t *testing.T) {
 		assert.Equal(t, http.StatusForbidden, status, code)
 		assert.Equal(t, code, env.Code)
 	}
-}
-
-func TestWatch_RefusesOffTheLocalSocketBeforeTheStream(t *testing.T) {
-	var reached atomic.Bool
-	srv := httptest.NewServer(newWatchRouter(&recordingDocuments{}, func(*gin.Context) { reached.Store(true) }))
-	t.Cleanup(srv.Close)
-
-	status, env := send(t, srv.Client(), http.MethodGet, srv.URL+"/v0/documents/ws?path=%2Ftmp%2Fa.md", "")
-
-	assert.Equal(t, http.StatusForbidden, status)
-	assert.Equal(t, "host_document_requires_local_transport", env.Code)
-	assert.False(t, reached.Load(), "a refused watch never reaches the stream")
-}
-
-func TestWatch_OnTheLocalSocketAHostPathReachesTheStream(t *testing.T) {
-	docs := &recordingDocuments{}
-	streamed := make(chan string, 1)
-	client := serveUnix(t, newWatchRouter(docs, func(c *gin.Context) {
-		streamed <- c.Query("path")
-		c.Status(http.StatusNoContent)
-	}))
-
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://unix/v0/documents/ws?path=%2Ftmp%2Fa.md", nil)
-	require.NoError(t, err)
-	resp, err := client.Do(req)
-	require.NoError(t, err)
-	require.NoError(t, resp.Body.Close())
-
-	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
-	assert.Equal(t, "/tmp/a.md", <-streamed)
-	assert.Equal(t, domain.DocumentRef{Path: "/tmp/a.md"}, docs.target)
-}
-
-func TestWatch_AWorkspaceOrNonCanonicalPathIsABadRequest(t *testing.T) {
-	var reached atomic.Bool
-	docs := &recordingDocuments{err: problem.ErrInvalidArgument}
-	client := serveUnix(t, newWatchRouter(docs, func(*gin.Context) { reached.Store(true) }))
-
-	status, _ := send(t, client, http.MethodGet, "http://unix/v0/documents/ws?path=%2Frepo%2Fa.md", "")
-	assert.Equal(t, http.StatusBadRequest, status)
-	status, _ = send(t, client, http.MethodGet, "http://unix/v0/documents/ws", "")
-	assert.Equal(t, http.StatusBadRequest, status, "a watch needs a path")
-	assert.False(t, reached.Load())
 }

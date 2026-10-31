@@ -61,7 +61,7 @@ func newContainerDeps(
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
-	rm, err := repositories.OpenReadModels(adapters, nil)
+	rm, err := repositories.OpenReadModels(adapters)
 	require.NoError(t, err)
 	repos, err := repositories.New(
 		context.Background(),

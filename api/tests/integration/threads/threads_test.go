@@ -16,9 +16,9 @@ func TestMain(m *testing.M) {
 	kit.Main(m)
 }
 
-// ThreadsSuite exercises the first-class workspace-scoped review-thread endpoint
-// and its Broadcaster[ThreadDTO] (W9): open/reply/resolve each return the scoped
-// DTO synchronously (201/200) AND broadcast the same DTO on the threads WS.
+// ThreadsSuite exercises the first-class workspace-scoped review-thread endpoint:
+// open/reply/resolve each return the scoped DTO synchronously (201/200) AND
+// publish the same DTO as a review_thread entity on the workspace's ws: scope.
 type ThreadsSuite struct {
 	kit.IntegrationSuite
 	imported kit.ImportedRepo
@@ -43,6 +43,21 @@ func TestThreadsSuite(t *testing.T) {
 	suite.Run(t, new(ThreadsSuite))
 }
 
+// readThread reads review_thread entity frames until match accepts one's DTO.
+func readThread(t *testing.T, w *kit.WSWatcher, match func(m map[string]any) bool) map[string]any {
+	t.Helper()
+	var dto map[string]any
+	w.ReadUntil(t, 5*time.Second, func(f map[string]any) bool {
+		data, _ := f["data"].(map[string]any)
+		if f["t"] != "entity" || f["kind"] != "review_thread" || data == nil {
+			return false
+		}
+		dto = data
+		return match(data)
+	})
+	return dto
+}
+
 // openThread opens a thread and returns its decoded DTO.
 func (s *ThreadsSuite) openThread(filePath string, line int, body string) map[string]any {
 	s.T().Helper()
@@ -59,11 +74,11 @@ func (s *ThreadsSuite) openThread(filePath string, line int, body string) map[st
 }
 
 // TestThreads_Open_Broadcasts verifies POST .../threads opens a thread (201 +
-// scoped DTO) and broadcasts the same ThreadDTO on the threads WS.
+// scoped DTO) and publishes the same ThreadDTO on the ws: scope.
 func (s *ThreadsSuite) TestThreads_Open_Broadcasts() {
 	t := s.T()
 
-	watcher := s.Env.DialThreads(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+	watcher := s.Env.HoldScope(t, "ws:"+s.wsID)
 
 	thread := s.openThread("src/main.go", 10, "This needs a refactor.")
 	threadID, _ := thread["id"].(string)
@@ -76,7 +91,7 @@ func (s *ThreadsSuite) TestThreads_Open_Broadcasts() {
 	s.Require().True(ok)
 	s.Assert().Empty(replies, "a freshly opened thread has no replies")
 
-	msg := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+	msg := readThread(t, watcher, func(m map[string]any) bool {
 		return m["id"] == threadID
 	})
 	s.Assert().Equal(s.imported.ProjectID, msg["projectId"])
@@ -92,7 +107,7 @@ func (s *ThreadsSuite) TestThreads_Reply_Broadcasts() {
 	thread := s.openThread("foo.go", 5, "Initial comment.")
 	threadID := thread["id"].(string)
 
-	watcher := s.Env.DialThreads(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+	watcher := s.Env.HoldScope(t, "ws:"+s.wsID)
 
 	replyResp := s.Env.POST(t, s.threadsBase()+"/"+threadID+"/replies", map[string]any{
 		"body": "Reply message.",
@@ -104,7 +119,7 @@ func (s *ThreadsSuite) TestThreads_Reply_Broadcasts() {
 	s.Require().True(ok)
 	s.Assert().GreaterOrEqual(len(replies), 1, "reply must append to the thread's replies")
 
-	msg := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+	msg := readThread(t, watcher, func(m map[string]any) bool {
 		if m["id"] != threadID {
 			return false
 		}
@@ -126,7 +141,7 @@ func (s *ThreadsSuite) TestThreads_EditMessage_Broadcasts() {
 	s.Require().True(ok, "the root comment id is surfaced as messageId")
 	s.Require().NotEmpty(rootMessageID)
 
-	watcher := s.Env.DialThreads(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+	watcher := s.Env.HoldScope(t, "ws:"+s.wsID)
 
 	editResp := s.Env.PATCH(t, s.threadsBase()+"/"+threadID+"/messages/"+rootMessageID, map[string]any{
 		"body": "Fixed the typo.",
@@ -136,7 +151,7 @@ func (s *ThreadsSuite) TestThreads_EditMessage_Broadcasts() {
 	kit.DecodeEnvData(t, editResp, &edited)
 	s.Assert().Equal("Fixed the typo.", edited["body"])
 
-	watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+	readThread(t, watcher, func(m map[string]any) bool {
 		return m["id"] == threadID && m["body"] == "Fixed the typo."
 	})
 }
@@ -162,7 +177,7 @@ func (s *ThreadsSuite) TestThreads_DeleteMessage_Broadcasts() {
 	rejectResp := s.Env.DELETE(t, s.threadsBase()+"/"+threadID+"/messages/"+rootMessageID)
 	kit.RequireStatus(t, rejectResp, http.StatusBadRequest)
 
-	watcher := s.Env.DialThreads(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+	watcher := s.Env.HoldScope(t, "ws:"+s.wsID)
 
 	delResp := s.Env.DELETE(t, s.threadsBase()+"/"+threadID+"/messages/"+replyID)
 	kit.RequireStatus(t, delResp, http.StatusOK)
@@ -171,7 +186,7 @@ func (s *ThreadsSuite) TestThreads_DeleteMessage_Broadcasts() {
 	remaining, _ := afterDelete["replies"].([]any)
 	s.Assert().Empty(remaining, "the reply is gone after delete")
 
-	watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+	readThread(t, watcher, func(m map[string]any) bool {
 		if m["id"] != threadID {
 			return false
 		}
@@ -181,15 +196,15 @@ func (s *ThreadsSuite) TestThreads_DeleteMessage_Broadcasts() {
 }
 
 // TestThreads_DeleteThread_BroadcastsTombstone verifies DELETE .../threads/:id
-// forgets the thread (it disappears from the list) and broadcasts a tombstone
-// (deleted=true) so subscribed clients drop it.
+// forgets the thread (it disappears from the list), answers a tombstone, and
+// publishes the entity gone so subscribed clients drop it.
 func (s *ThreadsSuite) TestThreads_DeleteThread_BroadcastsTombstone() {
 	t := s.T()
 
 	thread := s.openThread("gone.go", 2, "Delete this whole thread.")
 	threadID := thread["id"].(string)
 
-	watcher := s.Env.DialThreads(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+	watcher := s.Env.HoldScope(t, "ws:"+s.wsID)
 
 	delResp := s.Env.DELETE(t, s.threadsBase()+"/"+threadID)
 	kit.RequireStatus(t, delResp, http.StatusOK)
@@ -197,9 +212,8 @@ func (s *ThreadsSuite) TestThreads_DeleteThread_BroadcastsTombstone() {
 	kit.DecodeEnvData(t, delResp, &tombstone)
 	s.Assert().Equal(true, tombstone["deleted"])
 
-	watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
-		d, _ := m["deleted"].(bool)
-		return m["id"] == threadID && d
+	watcher.ReadUntil(t, 5*time.Second, func(f map[string]any) bool {
+		return f["t"] == "entity" && f["kind"] == "review_thread" && f["id"] == threadID && f["gone"] == true
 	})
 
 	// The thread is gone from the workspace list.
@@ -220,7 +234,7 @@ func (s *ThreadsSuite) TestThreads_Resolve_Broadcasts() {
 	thread := s.openThread("bar.go", 1, "Resolve me.")
 	threadID := thread["id"].(string)
 
-	watcher := s.Env.DialThreads(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+	watcher := s.Env.HoldScope(t, "ws:"+s.wsID)
 
 	resolveResp := s.Env.PATCH(t, s.threadsBase()+"/"+threadID, map[string]any{
 		"isResolved": true,
@@ -230,7 +244,7 @@ func (s *ThreadsSuite) TestThreads_Resolve_Broadcasts() {
 	kit.DecodeEnvData(t, resolveResp, &resolved)
 	s.Assert().Equal(true, resolved["resolved"])
 
-	watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+	readThread(t, watcher, func(m map[string]any) bool {
 		if m["id"] != threadID {
 			return false
 		}
@@ -246,7 +260,7 @@ func (s *ThreadsSuite) TestThreads_Resolve_Broadcasts() {
 	kit.DecodeEnvData(t, unresolveResp, &unresolved)
 	s.Assert().Equal(false, unresolved["resolved"])
 
-	watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+	readThread(t, watcher, func(m map[string]any) bool {
 		if m["id"] != threadID {
 			return false
 		}

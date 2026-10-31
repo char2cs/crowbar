@@ -36,10 +36,8 @@ func Register(
 	files homehandlers.Files,
 	termEng termhandlers.TerminalEngine,
 	working homehandlers.WorkSignal,
-	filesWS gin.HandlerFunc,
 	threadStore threadhandlers.ThreadStore,
 	threadBroadcast threadhandlers.ThreadBroadcaster,
-	threadsWS gin.HandlerFunc,
 	agentChats chathandlers.ChatUsecase,
 	agentTurns chathandlers.TurnUsecase,
 	agentRunners chathandlers.RunnerUsecase,
@@ -54,7 +52,6 @@ func Register(
 	agentWorktrees chathandlers.Worktrees,
 	agentNodes chathandlers.Nodes,
 	agentWS gin.HandlerFunc,
-	dispatch func(rest, wsHandler gin.HandlerFunc) gin.HandlerFunc,
 ) {
 	// agentChats already satisfies homehandlers.ChatResolver (ListChatsByWorkspace) —
 	// no new dependency to thread through Register, only to wire in here.
@@ -76,17 +73,11 @@ func Register(
 	home.POST("/files/copy", h.CopyFile)
 	home.PATCH("/files", h.RenameFile)
 	home.DELETE("/files", h.DeleteFile)
-	// Live file-change stream for the home workspace, mirroring the workspace-
-	// scoped .../files/ws leaf. RequireHomeWorkspace injects :wsId so the files
-	// broadcaster's wsId filter and the watcher lifecycle scope to the home
-	// workspace (rooted at the project path).
-	home.GET("/files/ws", h.RequireHomeWorkspace, filesWS)
 
-	// Review threads are a home capability. The list route is dual-served (a
-	// plain GET lists threads; a WebSocket upgrade subscribes the thread topic);
-	// the rest are REST mutations. Every route resolves the home workspace via
+	// Review threads are a home capability; their live changes ride the home
+	// workspace's ws: scope. Every route resolves the home workspace via
 	// RequireHomeWorkspace.
-	home.GET("/threads", h.RequireHomeWorkspace, dispatch(th.List, threadsWS))
+	home.GET("/threads", h.RequireHomeWorkspace, th.List)
 	home.POST("/threads", h.RequireHomeWorkspace, th.OpenThread)
 	home.GET("/threads/:threadId", h.RequireHomeWorkspace, th.Detail)
 	home.PATCH("/threads/:threadId", h.RequireHomeWorkspace, th.SetResolved)
@@ -98,7 +89,7 @@ func Register(
 	// Terminals are served by the ONE terminal handler set the chat-scoped group uses
 	// (same list DTO, same PTY WebSocket). RequireHomeTerminalScope makes the home
 	// workspace the sessions' owner and their starting directory.
-	terms := termhandlers.New(termEng, nil, nil)
+	terms := termhandlers.New(termEng, nil)
 	home.GET("/terminals", h.RequireHomeTerminalScope, terms.ListSessions)
 	home.POST("/terminals", h.RequireHomeTerminalScope, terms.CreateSession)
 	home.DELETE("/terminals/:sessionId", h.RequireHomeTerminalScope, terms.KillSession)

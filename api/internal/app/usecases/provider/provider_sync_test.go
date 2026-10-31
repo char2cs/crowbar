@@ -207,6 +207,22 @@ func TestProviderSync_PollWorkspace_GetError_Propagates(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// A project home rides no repo and has no remote: holding its ws: scope polls nothing.
+func TestProviderSync_PollWorkspace_AHomeIsNotPolled(t *testing.T) {
+	wsRepo, eng, uc := newProviderSyncUsecase(t)
+	wsRepo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, Kind: domain.WorkspaceKindHome, WorktreePath: "/projects/p"}, nil
+	}
+	polled := false
+	eng.PollOnViewFn = func(context.Context, string, string, string) (engineprovider.ProviderState, error) {
+		polled = true
+		return engineprovider.ProviderState{}, nil
+	}
+
+	require.NoError(t, uc.PollWorkspace(context.Background(), "home-p"))
+	assert.False(t, polled)
+}
+
 func TestProviderSync_PollWorkspace_PollError_Propagates(t *testing.T) {
 	wsRepo, eng, uc := newProviderSyncUsecase(t)
 	ctx := context.Background()

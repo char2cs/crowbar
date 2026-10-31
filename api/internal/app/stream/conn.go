@@ -31,6 +31,8 @@ type connection struct {
 	conn Conn
 	// scopes is what this connection holds, guarded by the hub's lock.
 	scopes map[string]stream.Scope
+	// resources is each scope whose resources it holds, its Serve goroutine's alone.
+	resources map[string]stream.Scope
 
 	mu      sync.Mutex
 	pending []outgoing
@@ -48,6 +50,7 @@ func newConnection(conn Conn) *connection {
 	return &connection{
 		conn:         conn,
 		scopes:       map[string]stream.Scope{},
+		resources:    map[string]stream.Scope{},
 		snapshotting: map[string]bool{},
 		wake:         make(chan struct{}, 1),
 		done:         make(chan struct{}),
@@ -104,6 +107,13 @@ func (c *connection) beginSnapshot(scope string) bool {
 	}
 	c.snapshotting[scope] = true
 	return true
+}
+
+// endSnapshot forgets a snapshot that ended without its synced frame.
+func (c *connection) endSnapshot(scope string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.snapshotting, scope)
 }
 
 // write drains the queue to the socket until the connection ends or a write fails.

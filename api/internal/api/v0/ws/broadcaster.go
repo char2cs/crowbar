@@ -1,8 +1,6 @@
 package ws
 
 import (
-	"errors"
-	"log/slog"
 	"net/http"
 	"sync"
 
@@ -16,10 +14,6 @@ import (
 type filteredClient[T any] struct {
 	*client
 	predicate func(T) bool
-	bindings  []*binding
-	// requestScope is StreamDef.ScopeKey's answer, the lifecycle scope of a
-	// client without bindings (see scopeOf).
-	requestScope string
 }
 
 // Broadcaster fans a stream of T out to filtered WebSocket clients (03 §1).
@@ -32,31 +26,18 @@ type Broadcaster[T any] struct {
 	// regCount is a buffered semaphore channel: one token is sent per registration.
 	// Test helpers drain exactly n tokens to confirm n clients are registered.
 	regCount chan struct{}
-
-	// rebindMu serializes Rebind against a connecting client's registration
-	// and first resolve. The channels belong to the rebind worker (rebind.go),
-	// started only for a stream with a bound filter.
-	rebindMu  sync.Mutex
-	rebind    chan struct{}
-	stop      chan struct{}
-	stopped   chan struct{}
-	closeOnce sync.Once
 }
 
 // NewBroadcaster builds a Broadcaster from a StreamDef.
 func NewBroadcaster[T any](
 	def StreamDef[T],
 ) *Broadcaster[T] {
-	b := &Broadcaster[T]{
+	return &Broadcaster[T]{
 		def:        def,
 		clients:    make(map[*filteredClient[T]]struct{}),
 		registered: make(chan struct{}),
 		regCount:   make(chan struct{}, 1024),
 	}
-	if hasBoundFilter(def) {
-		b.startRebinder()
-	}
-	return b
 }
 
 // WaitRegistered blocks until at least one client has registered. Test-only.
@@ -95,19 +76,16 @@ func (b *Broadcaster[T]) Handle(
 	c *gin.Context,
 ) {
 	// Upgrade would refuse a non-handshake request anyway; refusing it up front
-	// keeps a plain GET on a raw .Handle route (files/ws, lsp/ws, chats/ws) from
-	// entering the clients map at all.
+	// keeps a plain GET on a raw .Handle route (chats/ws) from entering the
+	// clients map at all.
 	if !websocket.IsWebSocketUpgrade(c.Request) {
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
 
-	if !b.hold(c) {
-		return
-	}
 	snapScope := clientScope(c)
-
-	cl := b.admit(c, snapScope)
+	cl := &filteredClient[T]{client: newClient(), predicate: BuildPredicate(c, b.def)}
+	b.register(cl)
 	defer b.leave(cl)
 
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
@@ -115,67 +93,15 @@ func (b *Broadcaster[T]) Handle(
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
-	// The hijacked conn, the clients-map entry, and the watcher/LSP refcount must
-	// all be released even if snapshotFor panics (gin's Recovery would otherwise
-	// unwind past the cleanup, leaking an FD, a dead map entry that every future
-	// Push iterates, and a watcher/LSP refcount). Defers make cleanup
-	// unconditional; a double close of conn is harmless and not logged.
+	// The hijacked conn and the clients-map entry must be released even if
+	// snapshotFor panics (gin's Recovery would otherwise unwind past the
+	// cleanup); a double close of conn is harmless and not logged.
 	defer libs.CloseLogged(c.Request.Context(), "ws: close", conn)
 
 	snapshot := b.snapshotFor(cl, snapScope)
 
 	safego.Go("broadcaster.writePump", func() { writePump(conn, cl.client, snapshot) })
 	readPump(conn)
-}
-
-func (b *Broadcaster[T]) scopeKey(
-	c *gin.Context,
-) string {
-	if b.def.ScopeKey == nil {
-		return ""
-	}
-	return b.def.ScopeKey(c)
-}
-
-// hold runs Admit outside every broadcaster lock, so a slow hold delays only
-// its own client; it reports whether the client may go on to the upgrade.
-func (b *Broadcaster[T]) hold(
-	c *gin.Context,
-) bool {
-	scope := b.scopeKey(c)
-	if b.def.Admit == nil || scope == "" {
-		return true
-	}
-	if err := b.def.Admit(scope); err != nil {
-		slog.Warn("ws: admit refused", "path", c.Request.URL.Path, "err", err)
-		status := http.StatusServiceUnavailable
-		var refusal *AdmitRefusal
-		if errors.As(err, &refusal) {
-			status = refusal.Status
-		}
-		c.AbortWithStatus(status)
-		return false
-	}
-	return true
-}
-
-// onSubscribe and onUnsubscribe skip "": an unplaced client holds no scope.
-func (b *Broadcaster[T]) onSubscribe(
-	scope string,
-) {
-	if b.def.OnSubscribe == nil || scope == "" {
-		return
-	}
-	b.def.OnSubscribe(scope)
-}
-
-func (b *Broadcaster[T]) onUnsubscribe(
-	scope string,
-) {
-	if b.def.OnUnsubscribe == nil || scope == "" {
-		return
-	}
-	b.def.OnUnsubscribe(scope)
 }
 
 // register adds cl to the clients map and signals registration. It runs entirely
@@ -199,19 +125,14 @@ func (b *Broadcaster[T]) register(
 	}
 }
 
-// leave removes cl and releases the scope it holds NOW, which a Rebind may
-// have moved since admit; rebindMu keeps a Rebind from moving it in between.
+// leave removes cl from the fan-out and stops its writePump.
 func (b *Broadcaster[T]) leave(
 	cl *filteredClient[T],
 ) {
-	b.rebindMu.Lock()
 	b.mu.Lock()
 	delete(b.clients, cl)
 	b.mu.Unlock()
 	cl.closeDone()
-	scope := b.scopeOf(cl)
-	b.rebindMu.Unlock()
-	b.onUnsubscribe(scope)
 }
 
 // snapshotFor computes cl's snapshot OUTSIDE the broadcaster lock (b.def.Snapshot
@@ -253,7 +174,7 @@ func (b *Broadcaster[T]) Push(
 	defer b.mu.RUnlock()
 	for cl := range b.clients {
 		// A panic in one client's predicate must not abort the fan-out to the rest
-		// (nor crash the daemon — Push runs on a watcher/projection goroutine).
+		// (nor crash the daemon — Push runs on a projection goroutine).
 		func() {
 			defer safego.Recover("broadcaster.Push")
 			sendIfMatch(cl, event, data, b.def.CoalesceKey)
@@ -282,12 +203,9 @@ func sendIfMatch[T any](
 	select {
 	case cl.send <- data:
 	default:
-		// Buffer full: this client's writePump is stalled. Silently dropping the
-		// frame would leave it permanently stale for the coalesced git-status /
-		// file-change streams — the watcher dedups against its previous value and
-		// will not re-broadcast an identical state. Disconnect instead so the
-		// client reconnects and gets a fresh snapshot-on-subscribe (the full-state
-		// DTO streams self-heal the same way). closeDone is idempotent.
+		// Buffer full: this client's writePump is stalled. Dropping the frame
+		// would leave it stale; disconnect so it reconnects to a fresh
+		// snapshot-on-subscribe. closeDone is idempotent.
 		//
 		// A stream declaring CoalesceKey never reaches here for the values it
 		// claims a key for (see above) — this remains the right policy for

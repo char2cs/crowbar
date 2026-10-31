@@ -22,6 +22,26 @@ type Source interface {
 	Attach(ctx context.Context, key string, since int64, emit func(stream.Frame)) error
 }
 
+// gated is a source that answers per hold, before anything starts, whether this
+// client may hold the key at all.
+type gated interface {
+	Admit(ctx context.Context, key string) error
+}
+
+// Quiet serves a scope whose snapshot is empty: its synced says only that it is live.
+type Quiet struct{}
+
+// Attach emits nothing.
+func (Quiet) Attach(context.Context, string, int64, func(stream.Frame)) error { return nil }
+
+// unordered is a source whose frames carry no version (signals): it attaches
+// after its scope is live and outside the hub's lock, so a slow read holds
+// back only its own client.
+type unordered struct{ Source }
+
+// Unordered marks src as a signal source.
+func Unordered(src Source) Source { return unordered{src} }
+
 // Encoder maps a domain value to its wire payload; the API layer supplies it.
 type Encoder func(kind stream.EntityKind, v any) (json.RawMessage, error)
 
@@ -66,19 +86,40 @@ func (h *Hub) Entity(scope stream.Scope, kind stream.EntityKind, id string, data
 		slog.Error("stream: encode an entity", "kind", kind, "id", id, "err", err)
 		return 0
 	}
+	return h.publish(stream.Frame{T: stream.FrameEntity, Scope: scope.String(), Kind: string(kind), ID: id, Data: raw}, true)
+}
+
+// Gone tells every connection holding scope that (kind, id) no longer exists.
+func (h *Hub) Gone(scope stream.Scope, kind stream.EntityKind, id string) {
+	h.publish(stream.Frame{T: stream.FrameEntity, Scope: scope.String(), Kind: string(kind), ID: id, Gone: true}, true)
+}
+
+// Signal tells every connection holding scope news that has no version.
+func (h *Hub) Signal(scope stream.Scope, kind string, data any) {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		slog.Error("stream: encode a signal", "scope", scope.String(), "kind", kind, "err", err)
+		return
+	}
+	h.publish(stream.Frame{T: stream.FrameSignal, Scope: scope.String(), Kind: kind, Data: raw}, false)
+}
+
+func (h *Hub) publish(f stream.Frame, versioned bool) uint64 {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.closed {
 		return 0
 	}
-	h.seq++
-	f := stream.Frame{T: stream.FrameEntity, Scope: scope.String(), Kind: string(kind), ID: id, V: h.seq, Data: raw}
+	if versioned {
+		h.seq++
+		f.V = h.seq
+	}
 	for c := range h.scopes[f.Scope] {
 		if !c.push(f, true) {
 			h.dropLocked(c, stream.CloseResync, "resync")
 		}
 	}
-	return h.seq
+	return f.V
 }
 
 // Serve reads one client's requests until its socket or ctx ends, then
@@ -93,6 +134,7 @@ func (h *Hub) Serve(ctx context.Context, conn Conn) error {
 	h.conns[c] = struct{}{}
 	c.push(stream.Ready(h.epoch), false)
 	h.mu.Unlock()
+	defer h.letGo(c)
 	defer h.drop(c, closeGoingAway, "")
 
 	go func() {
@@ -132,6 +174,7 @@ func (h *Hub) handle(ctx context.Context, c *connection, req stream.Request) {
 		h.mu.Lock()
 		h.releaseLocked(c, req.Scope)
 		h.mu.Unlock()
+		h.letGoOf(c, req.Scope)
 	default:
 		c.push(stream.Errored(problem.Of(problem.New(problem.InvalidArgument, "stream: unknown op"))), false)
 	}
@@ -149,44 +192,152 @@ func (h *Hub) sub(ctx context.Context, c *connection, req stream.Request) {
 		return
 	}
 	name := scope.String()
+	if g, ok := src.(gated); ok {
+		if err := g.Admit(ctx, scope.Key); err != nil {
+			refuse(c, name, err)
+			return
+		}
+	}
+	if err := h.acquire(c, scope); err != nil {
+		refuse(c, name, err)
+		return
+	}
+	var held bool
+	if live, ok := src.(unordered); ok {
+		held = h.subLive(ctx, c, scope, live.Source, req.Since)
+	} else {
+		held = h.subLocked(ctx, c, scope, src, req.Since)
+	}
+	if !held {
+		h.letGoOf(c, name)
+	}
+}
+
+// subLocked snapshots and registers scope under the lock, so every live frame
+// after it carries a higher version (index R7). It answers whether c holds scope.
+func (h *Hub) subLocked(ctx context.Context, c *connection, scope stream.Scope, src Source, since int64) bool {
+	name := scope.String()
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	_, holding := c.scopes[name]
-	if h.closed || !holding && len(c.scopes) >= stream.MaxScopes {
-		refuse(c, name, problem.New(problem.InvalidArgument, "stream: too many scopes"))
-		return
-	}
-	// A snapshot still queued plus the live frames after it is already current.
-	if !c.beginSnapshot(name) {
-		return
+	if !h.admitLocked(c, name, holding) {
+		return holding
 	}
 	start, frames, full := time.Now(), 0, false
-	emit := func(f stream.Frame) {
+	err := src.Attach(ctx, scope.Key, since, func(f stream.Frame) {
 		f.Scope = name
 		if f.T == stream.FrameEntity {
 			f.V = h.seq
 		}
 		frames++
 		full = full || !c.push(f, false)
+	})
+	if err != nil || full || !c.push(stream.Synced(name), false) {
+		h.snapshotFailedLocked(ctx, c, name, err)
+		return false
 	}
-	err := src.Attach(ctx, scope.Key, req.Since, emit)
+	if !holding {
+		h.registerLocked(c, scope)
+	}
+	slog.DebugContext(ctx, "stream: snapshot", "scope", name, "frames", frames, "locked", time.Since(start))
+	return true
+}
+
+// subLive registers scope first, then snapshots it outside the lock: its
+// frames carry no version, so live ones may come before the snapshot's.
+func (h *Hub) subLive(ctx context.Context, c *connection, scope stream.Scope, src Source, since int64) bool {
+	name := scope.String()
+	h.mu.Lock()
+	_, holding := c.scopes[name]
+	if !h.admitLocked(c, name, holding) {
+		h.mu.Unlock()
+		return holding
+	}
+	if !holding {
+		h.registerLocked(c, scope)
+	}
+	h.mu.Unlock()
+
+	full := false
+	err := src.Attach(ctx, scope.Key, since, func(f stream.Frame) {
+		f.Scope = name
+		full = full || !c.push(f, false)
+	})
+	if err == nil && !full && c.push(stream.Synced(name), false) {
+		return true
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.snapshotFailedLocked(ctx, c, name, err)
+	return false
+}
+
+// admitLocked answers whether a sub for name snapshots now; a refused one is answered here.
+func (h *Hub) admitLocked(c *connection, name string, holding bool) bool {
+	if h.closed || !holding && len(c.scopes) >= stream.MaxScopes {
+		refuse(c, name, problem.New(problem.InvalidArgument, "stream: too many scopes"))
+		return false
+	}
+	// A snapshot still queued plus the live frames after it is already current.
+	return c.beginSnapshot(name)
+}
+
+// snapshotFailedLocked refuses a snapshot of something absent, keeping the
+// connection; any other failure is transient, so the client reconnects and
+// asks again.
+func (h *Hub) snapshotFailedLocked(ctx context.Context, c *connection, name string, err error) {
 	if err != nil {
 		slog.WarnContext(ctx, "stream: snapshot", "scope", name, "err", err)
 	}
-	if err != nil || full || !c.push(stream.Synced(name), false) {
-		// The client reconnects and asks again: a failed snapshot is transient.
-		h.dropLocked(c, stream.CloseResync, "resync")
+	if err != nil && problem.CodeOf(err) == problem.NotFound {
+		h.releaseLocked(c, name)
+		c.endSnapshot(name)
+		refuse(c, name, err)
 		return
 	}
-	if !holding {
-		c.scopes[name] = scope
-		if h.scopes[name] == nil {
-			h.scopes[name] = map[*connection]struct{}{}
-		}
-		h.scopes[name][c] = struct{}{}
-		h.refs.hold(scope)
+	h.dropLocked(c, stream.CloseResync, "resync")
+}
+
+func (h *Hub) registerLocked(c *connection, scope stream.Scope) {
+	name := scope.String()
+	c.scopes[name] = scope
+	if h.scopes[name] == nil {
+		h.scopes[name] = map[*connection]struct{}{}
 	}
-	slog.DebugContext(ctx, "stream: snapshot", "scope", name, "frames", frames, "locked", time.Since(start))
+	h.scopes[name][c] = struct{}{}
+}
+
+// acquire holds what scope's kind runs for c, once per scope. Only c's own
+// Serve goroutine calls it, letGoOf and letGo, so c.resources needs no lock.
+func (h *Hub) acquire(c *connection, scope stream.Scope) error {
+	name := scope.String()
+	if _, ok := c.resources[name]; ok {
+		return nil
+	}
+	if len(c.resources) >= stream.MaxScopes {
+		return problem.New(problem.InvalidArgument, "stream: too many scopes")
+	}
+	if err := h.refs.hold(scope); err != nil {
+		return fmt.Errorf("stream: start %s: %w", name, err)
+	}
+	c.resources[name] = scope
+	return nil
+}
+
+func (h *Hub) letGoOf(c *connection, name string) {
+	scope, ok := c.resources[name]
+	if !ok {
+		return
+	}
+	delete(c.resources, name)
+	h.refs.release(scope)
+}
+
+// letGo releases everything c held, once its socket is gone.
+func (h *Hub) letGo(c *connection) {
+	for name := range c.resources {
+		h.letGoOf(c, name)
+	}
 }
 
 // admit reads a sub's scope and its source, answering the client itself when either is wrong.
@@ -213,8 +364,7 @@ func refuse(c *connection, scope string, err error) {
 }
 
 func (h *Hub) releaseLocked(c *connection, name string) {
-	scope, holding := c.scopes[name]
-	if !holding {
+	if _, holding := c.scopes[name]; !holding {
 		return
 	}
 	delete(c.scopes, name)
@@ -222,7 +372,6 @@ func (h *Hub) releaseLocked(c *connection, name string) {
 	if len(h.scopes[name]) == 0 {
 		delete(h.scopes, name)
 	}
-	h.refs.release(scope)
 }
 
 func (h *Hub) drop(c *connection, code int, reason string) {

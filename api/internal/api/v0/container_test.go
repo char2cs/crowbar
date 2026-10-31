@@ -18,8 +18,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
-	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
@@ -64,7 +62,6 @@ func serveAgentChats(
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	c := v0.New(tc.app, tc.eng)
-	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET("/v0/chats/:chatId/ws", c.AgentChatsHandle)
 	r.GET("/v0/projects/:projectId/repos/:repoId/chats/ws", c.AgentChatsHandle)
@@ -198,7 +195,6 @@ func TestContainer_PushProject_RouteByPrefix(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
 	c := v0.New(tc.app, tc.eng)
-	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET("/v0/projects/:projectId", c.ProjectsHandle)
 	srv := httptest.NewServer(r)
@@ -224,7 +220,6 @@ func TestContainer_PushRepo_RouteByPrefix(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
 	c := v0.New(tc.app, tc.eng)
-	t.Cleanup(c.Close)
 	r := gin.New()
 	r.GET("/v0/projects/:projectId/repos", c.ReposHandle)
 	srv := httptest.NewServer(r)
@@ -241,97 +236,4 @@ func TestContainer_PushRepo_RouteByPrefix(t *testing.T) {
 	assert.Equal(t, "r1", got["id"])
 	assert.Equal(t, "p1", got["projectId"])
 	assert.Equal(t, "keep", got["name"])
-}
-
-// TestV0_PushLSP_ReachesFilteredClient dials the flat chat-scoped mount
-// (spec §8 step 6 retired editor/LSP's .../workspaces/:wsId/lsp/ws twin
-// entirely): editor/LSP's OWNED-bucket key is the chat id itself
-// (handlers.Handlers.lspOwnerID), so a diagnostics event is keyed by "chat-1"
-// rather than by the workspace it resolves to.
-func TestV0_PushLSP_ReachesFilteredClient(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	tc := newApp(t)
-	seedWorkspace(t, tc, "w1")
-	tc.app.Usecases.Worktree = stubChatWorktreeResolver{
-		chatToWs:   map[string]string{"chat-1": "w1"},
-		workspaces: tc.app.Repositories.Workspace,
-	}
-	c := v0.New(tc.app, tc.eng)
-	t.Cleanup(c.Close)
-	r := gin.New()
-	c.Register(r.Group("/v0"))
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	conn := dialV0(t, srv, "/v0/chats/chat-1/lsp/ws")
-	c.WaitLSPRegistered()
-
-	// An event for a different chat must be filtered out; the matching one
-	// must arrive.
-	c.PushLSP(lspdomain.DiagnosticsEvent{WsID: "other-chat", Diagnostics: []lspdomain.Diagnostic{{Message: "skip"}}})
-	c.PushLSP(lspdomain.DiagnosticsEvent{WsID: "chat-1", Diagnostics: []lspdomain.Diagnostic{{Message: "boom"}}})
-
-	got := conn.ReadMsg(t, wsReadBound)
-	assert.Equal(t, "chat-1", got["wsId"])
-	diags, _ := got["diagnostics"].([]any)
-	require.Len(t, diags, 1)
-}
-
-// TestV0_PushGit_ChatFanout_IsolatesUnrelatedWorkspace dials the flat
-// chat-scoped mount (spec §8 step 6 retired git's .../workspaces/:wsId/git/
-// status twin entirely): a push for a workspace no chat resolves to (or a
-// DIFFERENT chat's worktree) must never reach this subscriber, which
-// gitDef's Required, bound chatId filter guarantees.
-func TestV0_PushGit_ChatFanout_IsolatesUnrelatedWorkspace(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	tc := newApp(t)
-	seedWorkspace(t, tc, "A")
-	tc.app.Usecases.Worktree = stubChatWorktreeResolver{
-		chatToWs:   map[string]string{"chat-1": "A"},
-		workspaces: tc.app.Repositories.Workspace,
-	}
-	c := v0.New(tc.app, tc.eng)
-	t.Cleanup(c.Close)
-	r := gin.New()
-	c.Register(r.Group("/v0"))
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	conn := dialV0(t, srv, "/v0/chats/chat-1/git/status")
-	c.WaitGitRegistered()
-
-	// A push for workspace B (no chat resolves to it here) must be filtered
-	// out; only chat-1's own worktree status (A) arrives.
-	tc.app.Hub.BroadcastGit("B", gitdomain.GitStatus{Branch: "branch-B"})
-	tc.app.Hub.BroadcastGit("A", gitdomain.GitStatus{Branch: "branch-A"})
-
-	got := conn.ReadMsg(t, wsReadBound)
-	assert.Equal(t, "branch-A", got["branch"])
-}
-
-func TestV0_PushFile_ReachesFilteredClient(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	tc := newApp(t)
-	seedWorkspace(t, tc, "w1")
-	// files' own repo-scoped .../workspaces/:wsId/files/ws mount is gone (spec
-	// §8 step 6); the flat chat prefix is what's left, bound by chat id.
-	tc.app.Usecases.Worktree = stubChatWorktreeResolver{
-		chatToWs:   map[string]string{"chat-1": "w1"},
-		workspaces: tc.app.Repositories.Workspace,
-	}
-	c := v0.New(tc.app, tc.eng)
-	t.Cleanup(c.Close)
-	r := gin.New()
-	c.Register(r.Group("/v0"))
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	conn := dialV0(t, srv, "/v0/chats/chat-1/files/ws")
-	c.WaitFilesRegistered()
-
-	tc.app.Hub.BroadcastFile(domain.FileChangeEvent{WsID: "other", Path: "skip.go"})
-	tc.app.Hub.BroadcastFile(domain.FileChangeEvent{WsID: "w1", Path: "a.go"})
-
-	got := conn.ReadMsg(t, wsReadBound)
-	assert.Equal(t, "a.go", got["path"])
 }

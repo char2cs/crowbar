@@ -47,6 +47,29 @@ func (c *streamClient) Next(t *testing.T, match func(stream.Frame) bool) stream.
 	return got
 }
 
+// Hold subs scope and reads past its synced: what follows is live.
+func (c *streamClient) Hold(t *testing.T, scope string) {
+	t.Helper()
+	c.Sub(t, scope, 0)
+	c.Next(t, func(f stream.Frame) bool { return f.T == stream.FrameSynced && f.Scope == scope })
+}
+
+// Signal reads until a signal of kind on scope whose data match accepts, and
+// answers that data.
+func (c *streamClient) Signal(t *testing.T, scope, kind string, match func(map[string]any) bool) map[string]any {
+	t.Helper()
+	var data map[string]any
+	c.Next(t, func(f stream.Frame) bool {
+		if f.T != stream.FrameSignal || f.Scope != scope || f.Kind != kind {
+			return false
+		}
+		data = map[string]any{}
+		require.NoError(t, json.Unmarshal(f.Data, &data))
+		return match(data)
+	})
+	return data
+}
+
 func operationIn(t *testing.T, f stream.Frame) domain.Operation {
 	t.Helper()
 	var op domain.Operation

@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // This file pins backend contracts that broke in the field during the UX QA
@@ -191,45 +192,36 @@ func TestRegression_GitTopicQuietWhenIdle(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
 
-	conn := h.dial(wsBase(imported) + "/git/status")
+	scope := "git:" + imported.workspaceID
+	c := dialStream(t, h)
+	c.Sub(t, scope, 0)
 
-	// Snapshot-on-subscribe frame arrives first and must carry files: [].
-	// Its arrival is the signal — block for it, no deadline.
-	snapshot := readTextFrame(t, conn)
-	require.NotContains(t, string(snapshot), `"files":null`,
-		"snapshot frame must serialise files as [], not null")
+	// The snapshot signal arrives first and must carry files: [].
+	snapshot := c.Next(t, func(f stream.Frame) bool { return f.T == stream.FrameSignal && f.Scope == scope })
+	require.Contains(t, string(snapshot.Data), `"files":[]`,
+		"snapshot signal must serialise files as [], not null")
 
-	// The topic must now stay quiet while the tree is idle. "Quiet" is a
-	// NEGATIVE, and a read deadline can only ever guess at one: it proves
-	// "nothing showed up within 2s", which under load false-FAILS just as
-	// readily as it false-passes. Close the idle window with a SENTINEL
-	// instead — dirty a file of our own in the watched worktree and block (no
-	// deadline) until the frame carrying it arrives.
-	//
-	// The sentinel travels the SAME topic, out of the same watcher, down the
-	// same per-connection FIFO as any storm frame would. So once it lands, every
-	// frame the idle period was ever going to produce has already been delivered
-	// on this connection, and the frames counted BEFORE it are exactly the
-	// idle-period frames — the negative, proven exactly, with no clock.
-	//
-	// Tolerate at most one straggler: the watcher does no recompute on subscribe
-	// (the snapshot already carried fresh status), so its FIRST fan-out always
-	// broadcasts, and only subsequent IDENTICAL frames are deduped. An
-	// identical-frame stream is the bug.
+	// "Quiet" is proven with a sentinel, not a deadline: it rides the same
+	// scope and FIFO as any storm signal, so the signals before it are exactly
+	// the idle period's. One straggler is allowed: the first fan-out always goes.
 	stop := rewriteOnTicker(t, workspaceWorktreePath(t, h, imported), sentinelFile, "quiet probe\n")
 	defer stop()
 
 	idle := 0
-	for {
+	c.Next(t, func(f stream.Frame) bool {
+		if f.T != stream.FrameSignal {
+			return false
+		}
 		var frame map[string]any
-		require.NoError(t, json.Unmarshal(readTextFrame(t, conn), &frame))
+		require.NoError(t, json.Unmarshal(f.Data, &frame))
 		if statusHasFile(frame, sentinelFile) {
-			return // sentinel landed: the idle window is closed, and it was quiet
+			return true // sentinel landed: the idle window is closed, and it was quiet
 		}
 		idle++
 		require.LessOrEqual(t, idle, 1,
 			"idle workspace must not stream repeated git status frames")
-	}
+		return false
+	})
 }
 
 // P1 (UX QA 2026-06-10): git mutations once 500'd intermittently with
@@ -246,10 +238,12 @@ func TestRegression_GitMutationsSurviveLockContention(t *testing.T) {
 	base := wsBase(imported)
 	worktree := workspaceWorktreePath(t, h, imported)
 
-	// Subscribing to the git topic keeps the workspace watcher live so its
-	// status reads contend with the mutations below. Drain frames so the
-	// broadcaster never stalls on this connection.
-	conn := h.dial(base + "/git/status")
+	// Holding the git scope keeps the workspace watcher live so its status
+	// reads contend with the mutations below. Drain frames so the stream never
+	// stalls on this connection.
+	held := dialStream(t, h)
+	held.Sub(t, "git:"+imported.workspaceID, 0)
+	conn := held.conn
 	go func() {
 		for {
 			if _, _, err := conn.ReadMessage(); err != nil {

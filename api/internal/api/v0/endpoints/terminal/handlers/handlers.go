@@ -5,7 +5,6 @@ import (
 	"context"
 	"image/color"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -55,15 +54,6 @@ type TerminalEngine interface {
 	)
 }
 
-// TerminalBroadcaster receives terminal-session lifecycle DTOs so the v0
-// Broadcaster[TerminalSessionDTO] can fan them out to subscribed clients. The
-// session create/kill paths push active/ended frames through it (D2).
-type TerminalBroadcaster interface {
-	Push(
-		d dto.TerminalSessionDTO,
-	)
-}
-
 // ProfileStore is the CRUD surface for terminal profiles.
 type ProfileStore interface {
 	FindAll(ctx context.Context) ([]domain.TerminalProfile, error)
@@ -83,18 +73,15 @@ type ProfileStore interface {
 type Handlers struct {
 	termEng      TerminalEngine
 	profileStore ProfileStore
-	broadcast    TerminalBroadcaster
 }
 
 // New returns an initialised Handlers.
 func New(
 	termEng TerminalEngine,
 	profileStore ProfileStore,
-	broadcast TerminalBroadcaster,
 ) *Handlers {
 	return &Handlers{
 		termEng:      termEng,
 		profileStore: profileStore,
-		broadcast:    broadcast,
 	}
 }

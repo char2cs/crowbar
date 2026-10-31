@@ -96,7 +96,6 @@ func scopeParam(
 type activeFilter[T any] struct {
 	param string
 	fd    FilterDef[T]
-	bound *binding
 }
 
 // BuildPredicate compiles the client's namespace match and active query-param
@@ -109,32 +108,18 @@ type activeFilter[T any] struct {
 // scoping params are present, BuildPredicate falls back to the legacy ":ns" glob
 // route, so existing glob subscriptions are unchanged.
 //
-// FlatNamespace streams (git/files/lsp) opt out of the hierarchical prefix: now
-// that their routes nest under /projects/:projectId/repos/:repoId, the
-// structural projectId/repoId path params would otherwise build a "p/r" prefix
-// that can never match their bare wsId namespace and would drop every event.
-// They are scoped solely by their explicit wsId Filter.
-//
-// Bound filters (FilterDef.Resolve) are resolved here and returned so the
-// broadcaster can re-resolve them on Rebind.
+// FlatNamespace streams opt out of the hierarchical prefix: the structural
+// projectId/repoId path params would build a "p/r" prefix that can never match
+// a bare-id namespace. They are scoped solely by their explicit Filters.
 func BuildPredicate[T any](
 	c *gin.Context,
 	def StreamDef[T],
-) (func(T) bool, []*binding) {
+) func(T) bool {
 	active, unscoped := collectFilters(c, def)
 	if unscoped {
-		return func(T) bool { return false }, nil
+		return func(T) bool { return false }
 	}
-	var bindings []*binding
-	for _, af := range active {
-		if af.bound != nil {
-			bindings = append(bindings, af.bound)
-		}
-	}
-	for bd, value := range resolveBindings(def.Filters, bindings) {
-		bd.set(value)
-	}
-	return scopedPredicate(c, def, active), bindings
+	return scopedPredicate(c, def, active)
 }
 
 func scopedPredicate[T any](
@@ -170,7 +155,7 @@ func collectFilters[T any](
 	def StreamDef[T],
 ) ([]activeFilter[T], bool) {
 	var active []activeFilter[T]
-	for i, f := range def.Filters {
+	for _, f := range def.Filters {
 		v := resolveFilterValue(c, f)
 		if v == "" && f.Required {
 			return nil, true
@@ -178,20 +163,14 @@ func collectFilters[T any](
 		if v == "" {
 			continue
 		}
-		af := activeFilter[T]{param: v, fd: f}
-		if f.Resolve != nil {
-			af.bound = &binding{filter: i, param: v}
-		}
-		active = append(active, af)
+		active = append(active, activeFilter[T]{param: v, fd: f})
 	}
 	return active, false
 }
 
 // resolveFilterValue reads a filter Param from the PATH param first, falling
-// back to the QUERY param, then the FilterDef Default. The path-first order lets
-// a single FilterDef scope the dual-served path routes
-// (.../workspaces/:wsId/git/status, .../files/ws, .../lsp/ws) from their :wsId
-// path param while still honouring a ?wsId= query for any non-nested caller.
+// back to the QUERY param, then the FilterDef Default, so one FilterDef scopes
+// a path-param mount and a ?param= caller alike.
 func resolveFilterValue[T any](
 	c *gin.Context,
 	f FilterDef[T],
@@ -220,9 +199,5 @@ func matchesAll[T any](
 func (a activeFilter[T]) matches(
 	event T,
 ) bool {
-	if a.bound != nil {
-		value := a.bound.current()
-		return value != "" && a.fd.Match(value, a.fd.Extract(event))
-	}
 	return a.fd.Match(a.param, a.fd.Extract(event))
 }

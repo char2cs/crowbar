@@ -26,7 +26,6 @@
     "store": ["api/internal/adapter", "api/internal/app/repositories", "api/internal/app/tree"],
     "stream": [
       "api/internal/app/hub",
-      "api/internal/app/realtime",
       "api/internal/app/stream",
       "api/internal/api/v0/ws",
       "api/internal/api/v0/endpoints/stream",

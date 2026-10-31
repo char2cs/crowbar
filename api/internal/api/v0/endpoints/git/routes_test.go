@@ -110,13 +110,6 @@ func (stubOps) Start(context.Context, operation.Spec, operation.Work) (domain.Op
 	return domain.Operation{}, nil
 }
 
-func passthrough(
-	rest gin.HandlerFunc,
-	_ gin.HandlerFunc,
-) gin.HandlerFunc {
-	return rest
-}
-
 // gitSurface is the method+relative-path set git.Register mounts, written once
 // and asserted against BOTH live prefixes. The relative half is deliberately
 // prefix-free: a route that reached only one of the two mounts is the failure
@@ -176,8 +169,6 @@ func registerChatScoped(
 		v0.Group("/chats/:chatId"),
 		stubGit{},
 		stubOps{},
-		func(_ *gin.Context) {},
-		passthrough,
 	)
 	return r
 }

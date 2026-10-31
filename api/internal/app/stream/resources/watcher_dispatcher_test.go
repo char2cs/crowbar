@@ -1,0 +1,71 @@
+package resources
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	workspacerepo "github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
+	enginefs "github.com/char2cs/crowbar/api/internal/engine/fs"
+)
+
+// signal is one Signal call a recordingSignals saw.
+type signal struct {
+	scope stream.Scope
+	kind  string
+	data  any
+}
+
+type recordingSignals struct{ got chan signal }
+
+func newRecordingSignals() *recordingSignals { return &recordingSignals{got: make(chan signal, 16)} }
+
+func (r *recordingSignals) Signal(scope stream.Scope, kind string, data any) {
+	r.got <- signal{scope: scope, kind: kind, data: data}
+}
+
+type fakeWorkspaceRepo struct {
+	workspacerepo.Workspace
+	syncs chan workspacerepo.SyncInput
+}
+
+func (f *fakeWorkspaceRepo) SyncWorkingTreeState(
+	_ context.Context,
+	in workspacerepo.SyncInput,
+	_ time.Time,
+) (domain.Workspace, error) {
+	f.syncs <- in
+	return domain.Workspace{ID: in.ID}, nil
+}
+
+func TestWatcherDispatcher_FansOutAllThree(t *testing.T) {
+	signals := newRecordingSignals()
+	repo := &fakeWorkspaceRepo{syncs: make(chan workspacerepo.SyncInput, 1)}
+	d := newWatcherDispatcher(signals, repo, func() time.Time { return time.Unix(0, 0) })
+
+	change := domain.FileChangeEvent{WsID: "w1", Path: "a.go"}
+	d.OnFileChange(context.Background(), change)
+	assert.Equal(t, signal{scope: stream.Scope{Kind: stream.KindFiles, Key: "w1"}, kind: "file_change", data: change}, <-signals.got)
+
+	d.OnGitStatus(context.Background(), "w1", gitdomain.GitStatus{Branch: "main"})
+	assert.Equal(t, signal{
+		scope: stream.Scope{Kind: stream.KindGit, Key: "w1"}, kind: "git_status",
+		data: gitdomain.GitStatus{Branch: "main", Files: []gitdomain.GitFile{}},
+	}, <-signals.got, "a clean tree says files: [], never null")
+
+	d.OnSyncWorkingTreeState(context.Background(), enginefs.SyncInput{
+		WsID:       "w1",
+		Added:      2,
+		HasCommits: true,
+	})
+	gotSync := <-repo.syncs
+	assert.Equal(t, "w1", gotSync.ID)
+	assert.Equal(t, 2, gotSync.Added)
+	require.True(t, gotSync.HasCommits)
+}

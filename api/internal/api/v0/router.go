@@ -161,13 +161,11 @@ func (c *Container) Register(
 		// workspace's only REST read, so it stamps Working from here to agree with
 		// the frames the container broadcasts for that same workspace.
 		c.app.Repositories,
-		// Reused from the workspace-scoped surface: the file-change WS handler and
-		// the review-thread store/broadcaster/WS, dual-served via the same wrapper.
-		// home.Register injects the resolved home :wsId so these scope correctly.
-		c.files.Handle,
+		// Reused from the workspace-scoped surface: the review-thread store and
+		// its publisher. home.Register injects the resolved home :wsId so these
+		// scope correctly.
 		c.app.Repositories.ReviewThread,
-		c.threads,
-		c.threads.Handle,
+		threadStream{c.app.Stream},
 		// The agent chat surface (REST + lifecycle WS) is re-mounted under the
 		// home group so project-home workspaces get agentic chats too (the same
 		// concerns + WS broadcaster chat.Register uses on the workspace-scoped
@@ -186,7 +184,6 @@ func (c *Container) Register(
 		chatWorktrees{app: c.app},
 		c.app.Repositories.Placement,
 		c.agentChats.Handle,
-		ws.DualServe,
 	)
 	// The worktree surface a CHAT addresses (spec §4.3): the seven lifecycle
 	// verbs, the branch rename, and the batch branch import. It is what remains
@@ -213,17 +210,14 @@ func (c *Container) Register(
 	// is gone (spec §8 step 6) — and needs no workspace reader, because
 	// chatScoped's resolveChatWorktree middleware has already resolved the
 	// worktree before the handlers run. The home group above keeps its own
-	// /home/files surface, for the project-level row no chat resolves to, and
-	// reuses this same c.files.Handle broadcaster (see filesDef, file_streams.go).
+	// /home/files surface, for the project-level row no chat resolves to.
 	files.Register(
 		chatScoped,
 		c.app.Usecases.File,
-		c.files.Handle,
 	)
-	// A document's content is read and written by ref on the flat /v0 group,
-	// and a host document is held for its watch there: a host file outside
-	// every worktree has no chat or workspace to scope by.
-	documents.Register(rg, c.app.Usecases.File, c.documents.Handle)
+	// A document's content is read and written by ref on the flat /v0 group:
+	// a host file outside every worktree has no chat or workspace to scope by.
+	documents.Register(rg, c.app.Usecases.File)
 	// Git is the first of spec §4.2's SHARED bucket to move (§8 step 4): one
 	// worktree, one answer, and every chat holding it sees the same writes. It
 	// mounts on the flat chat prefix alone now — the old workspace-scoped mount
@@ -234,8 +228,6 @@ func (c *Container) Register(
 		chatScoped,
 		c.app.Usecases.Git,
 		c.app.Operations,
-		c.git.Handle,
-		ws.DualServe,
 	)
 	// Terminal is the first group to move onto the flat chat prefix (spec §8
 	// step 3): /v0/chats/:chatId/terminals[...]. It needs no workspace reader —
@@ -246,9 +238,6 @@ func (c *Container) Register(
 		rg,
 		c.eng.Terminal,
 		c.app.GORM.TerminalProfiles,
-		c.terminals,
-		c.terminals.Handle,
-		ws.DualServe,
 	)
 	// The agentic-chat REST + WS surface is repo-scoped (Task 17): a chat's
 	// workspace is optional and mutable, so its routes mount on repoScoped
@@ -313,9 +302,7 @@ func (c *Container) Register(
 	threads.Register(
 		repoScoped,
 		c.app.Repositories.ReviewThread,
-		c.threads,
-		c.threads.Handle,
-		ws.DualServe,
+		threadStream{c.app.Stream},
 	)
 	// workspace.Register is the SECOND member of the repoScoped
 	// "/workspaces/:wsId" mount, for the same reason threads is the first: a
@@ -341,7 +328,6 @@ func (c *Container) Register(
 		chatScoped,
 		c.eng.LSP,
 		c.eng.Git,
-		c.lsp.Handle,
 	)
 	identity.Register(
 		chatScoped,

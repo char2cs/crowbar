@@ -2,7 +2,6 @@ package documents
 
 import (
 	"context"
-	"net"
 	"net/http"
 	"time"
 
@@ -27,16 +26,10 @@ type Documents interface {
 		transport domain.Transport,
 		now time.Time,
 	) (domain.DocumentRef, error)
-	HostDocument(
-		ctx context.Context,
-		path string,
-		transport domain.Transport,
-	) (domain.DocumentRef, error)
 }
 
 type handlers struct {
-	docs   Documents
-	stream gin.HandlerFunc
+	docs Documents
 }
 
 // Read handles GET /v0/documents/content?workspace=<id>&path=<rel> and
@@ -49,7 +42,7 @@ func (h *handlers) Read(
 		libs.WriteErr(ctx, http.StatusBadRequest, "path is required")
 		return
 	}
-	doc, err := h.docs.ReadDocument(ctx.Request.Context(), target, transportOf(ctx.Request))
+	doc, err := h.docs.ReadDocument(ctx.Request.Context(), target, domain.TransportOf(ctx.Request.Context()))
 	if err != nil {
 		libs.Fail(ctx, err)
 		return
@@ -77,29 +70,12 @@ func (h *handlers) Write(
 		libs.WriteErr(ctx, http.StatusBadRequest, "path is required")
 		return
 	}
-	ref, err := h.docs.WriteDocument(ctx.Request.Context(), target, body.Content, body.Encoding, transportOf(ctx.Request), time.Now())
+	ref, err := h.docs.WriteDocument(ctx.Request.Context(), target, body.Content, body.Encoding, domain.TransportOf(ctx.Request.Context()), time.Now())
 	if err != nil {
 		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, ref)
-}
-
-// Watch handles GET /v0/documents/ws?path=<canonical abs>: the gate refuses
-// before any upgrade, then the stream holds the path's watch for the socket's life.
-func (h *handlers) Watch(
-	ctx *gin.Context,
-) {
-	path := ctx.Query("path")
-	if path == "" {
-		libs.WriteErr(ctx, http.StatusBadRequest, "path is required")
-		return
-	}
-	if _, err := h.docs.HostDocument(ctx.Request.Context(), path, transportOf(ctx.Request)); err != nil {
-		libs.Fail(ctx, err)
-		return
-	}
-	h.stream(ctx)
 }
 
 // targetOf is a workspace ref when the request names a workspace, else an
@@ -112,16 +88,4 @@ func targetOf(
 		return domain.DocumentRef{Path: path}
 	}
 	return domain.DocumentRef{Authority: domain.DocumentAuthorityWorkspace, WorkspaceID: workspaceID, Path: path}
-}
-
-// transportOf is local only for a request accepted on a unix socket; a request
-// that names no listener fails closed as remote.
-func transportOf(
-	r *http.Request,
-) domain.Transport {
-	addr, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
-	if ok && addr.Network() == "unix" {
-		return domain.TransportLocal
-	}
-	return domain.TransportRemote
 }

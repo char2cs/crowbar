@@ -277,3 +277,116 @@ func TestHub_ALiveFrameRacingASnapshotFollowsIt(t *testing.T) {
 	assert.Equal(t, stream.FrameSynced, frames[1].T)
 	assert.Greater(t, v, frames[0].V)
 }
+
+func TestHub_ASignalReachesOnlyTheConnectionsHoldingItsScope(t *testing.T) {
+	hub := newHub(map[stream.ScopeKind]appstream.Source{stream.KindGit: newEntities(map[string]string{})}, nil)
+	holder, other := newFakeConn(), newFakeConn()
+	served(t, hub, holder)
+	served(t, hub, other)
+	holder.sub(t, "git:w1")
+	other.sub(t, "git:w2")
+
+	hub.Signal(stream.Scope{Kind: stream.KindGit, Key: "w1"}, "git_status", map[string]string{"branch": "main"})
+	hub.Signal(stream.Scope{Kind: stream.KindGit, Key: "w2"}, "git_status", "w2")
+
+	assert.Equal(t, stream.Frame{
+		T: stream.FrameSignal, Scope: "git:w1", Kind: "git_status", Data: []byte(`{"branch":"main"}`),
+	}, holder.next(t))
+	assert.Equal(t, `"w2"`, string(other.next(t).Data), "w1's signal never reached w2's holder")
+}
+
+func TestHub_GoneIsAVersionedEntityFrameWithoutData(t *testing.T) {
+	hub, _ := projectsHub(map[string]string{})
+	conn := newFakeConn()
+	served(t, hub, conn)
+	conn.sub(t, "projects")
+
+	v := hub.Entity(stream.Projects, stream.KindOperation, "op1", "running")
+	hub.Gone(stream.Projects, stream.KindOperation, "op1")
+
+	conn.next(t)
+	gone := conn.next(t)
+	assert.Equal(t, stream.Frame{T: stream.FrameEntity, Scope: "projects", Kind: "operation", ID: "op1", V: v + 1, Gone: true}, gone)
+}
+
+// held is a signal source whose snapshot, once entered, waits to be let go.
+type held struct{ entered, release chan struct{} }
+
+func (s held) Attach(_ context.Context, _ string, _ int64, emit func(stream.Frame)) error {
+	close(s.entered)
+	<-s.release
+	emit(stream.Frame{T: stream.FrameSignal, Kind: "git_status", Data: []byte(`"snap"`)})
+	return nil
+}
+
+func TestHub_AnUnorderedSourceSnapshotsAfterGoingLiveAndOutsideTheLock(t *testing.T) {
+	src := held{entered: make(chan struct{}), release: make(chan struct{})}
+	hub := newHub(map[stream.ScopeKind]appstream.Source{
+		stream.KindGit: appstream.Unordered(src), stream.KindProjects: newEntities(map[string]string{}),
+	}, nil)
+	conn := newFakeConn()
+	served(t, hub, conn)
+
+	conn.send(t, stream.OpSub, "git:w1")
+	ended(t, src.entered)
+	hub.Entity(stream.Projects, stream.KindOperation, "op1", "free") // the lock is not held
+	hub.Signal(stream.Scope{Kind: stream.KindGit, Key: "w1"}, "git_status", "live")
+	close(src.release)
+
+	frames := conn.until(t, syncedOn("git:w1"))
+	require.Len(t, frames, 3)
+	assert.Equal(t, `"live"`, string(frames[0].Data))
+	assert.Equal(t, `"snap"`, string(frames[1].Data))
+	assert.Equal(t, "git:w1", frames[1].Scope)
+}
+
+// absent answers every snapshot as something that is not there.
+type absent struct{}
+
+func (absent) Attach(context.Context, string, int64, func(stream.Frame)) error {
+	return fmt.Errorf("ws source: %w", problem.New(problem.NotFound, "no workspace w9"))
+}
+
+func TestHub_ASnapshotOfSomethingAbsentIsRefusedAndReleasesItsResources(t *testing.T) {
+	res := newRecorder()
+	hub := newHub(
+		map[stream.ScopeKind]appstream.Source{stream.KindWs: absent{}, stream.KindProjects: newEntities(map[string]string{})},
+		map[stream.ScopeKind][]appstream.Resource{stream.KindWs: {res}},
+	)
+	conn := newFakeConn()
+	served(t, hub, conn)
+
+	for range 2 { // refused each time, never coalesced into a snapshot still pending
+		conn.send(t, stream.OpSub, "ws:w9")
+		closed := conn.next(t)
+		require.Equal(t, stream.FrameClosed, closed.T)
+		assert.Equal(t, stream.ReasonRefused, closed.Reason)
+		assert.Equal(t, problem.NotFound, closed.Problem.Code)
+	}
+	conn.sub(t, "projects")
+	starts, stops := res.counts("w9")
+	assert.Equal(t, 2, starts)
+	assert.Equal(t, 2, stops)
+}
+
+// A source that went live before its refused snapshot must not keep the
+// refused scope registered: nothing published to it reaches the client.
+func TestHub_ARefusedLiveSourceHearsNothingMore(t *testing.T) {
+	hub := newHub(map[stream.ScopeKind]appstream.Source{
+		stream.KindGit:      appstream.Unordered(absent{}),
+		stream.KindProjects: newEntities(map[string]string{}),
+	}, nil)
+	conn := newFakeConn()
+	served(t, hub, conn)
+	conn.send(t, stream.OpSub, "git:w9")
+	require.Equal(t, stream.ReasonRefused, conn.next(t).Reason)
+	conn.sub(t, "projects")
+
+	hub.Signal(stream.Scope{Kind: stream.KindGit, Key: "w9"}, stream.SignalGitStatus, map[string]string{})
+	hub.Entity(stream.Projects, stream.KindOperation, "marker", "")
+	seen := conn.until(t, func(f stream.Frame) bool { return f.ID == "marker" })
+
+	for _, f := range seen {
+		assert.NotEqual(t, "git:w9", f.Scope, "a refused scope heard a signal")
+	}
+}

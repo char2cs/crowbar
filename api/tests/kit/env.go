@@ -32,16 +32,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/gateway"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
-	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
-
-// LSPDiagnostic is a simplified diagnostic for use in integration tests, avoiding
-// direct dependency on lspdomain in test callers.
-type LSPDiagnostic struct {
-	Message string
-}
 
 // Env is the full integration test environment: the real adapter+app+api stack
 // served over a Unix domain socket (faithful to the production daemon transport,
@@ -58,7 +50,7 @@ type Env struct {
 	app *app.Container
 	// engine exposes the engine layer for direct engine calls.
 	engine *engine.Container
-	// v0c exposes test helpers for the v0 API container (WaitRegistered / PushLSP).
+	// v0c exposes test helpers for the v0 API container (WaitRegistered).
 	v0c      *v0.Container
 	homeDir  string
 	adapters *adapter.Container
@@ -262,7 +254,6 @@ func (e *Env) Close(
 		if err := e.app.Shutdown(ctx); err != nil {
 			t.Logf("kit.Env.Close: app drain: %v", err)
 		}
-		e.v0c.Close()
 		e.app.Close()
 		e.engine.Close()
 		e.releaseStores(t, "Close")
@@ -282,8 +273,7 @@ func (e *Env) CloseCrashing(
 	t.Helper()
 	e.closeOnce.Do(func() {
 		e.closeAbruptly(t) // drop the listener + active conns, no drain.
-		e.v0c.Close()
-		e.app.Close() // release realtime FDs (watchers/LSP) — not a data drain.
+		e.app.Close()      // release realtime FDs (watchers/LSP) — not a data drain.
 		e.engine.Close()
 		e.releaseStores(t, "CloseCrashing")
 		e.closeListener(t, "CloseCrashing")
@@ -309,7 +299,6 @@ func (e *Env) CloseWithoutKilling(
 		if err := e.app.Shutdown(ctx); err != nil {
 			t.Logf("kit.Env.CloseWithoutKilling: app drain: %v", err)
 		}
-		e.v0c.Close()
 		e.app.Close()
 		// Deliberately NOT e.engine.Close(): leave PTY/LSP children running.
 		e.releaseStores(t, "CloseWithoutKilling")
@@ -375,62 +364,6 @@ func (e *Env) WorkspaceStorageDir(
 	)
 }
 
-// PushLSP injects a batch of diagnostics into the LSP broadcaster for wsID,
-// bypassing the engine OnDiagnostics callback. Use in integration tests when no
-// real language server is attached.
-func (e *Env) PushLSP(
-	wsID string,
-	diags []LSPDiagnostic,
-) {
-	out := make([]lspdomain.Diagnostic, len(diags))
-	for i, d := range diags {
-		out[i] = lspdomain.Diagnostic{Message: d.Message}
-	}
-	e.v0c.PushLSP(lspdomain.DiagnosticsEvent{
-		WsID:        wsID,
-		Diagnostics: out,
-	})
-}
-
-// FileEvent is a simplified file change event for use in integration tests,
-// avoiding direct dependency on domain in test callers.
-type FileEvent struct {
-	WsID    string
-	Type    string
-	Path    string
-	NewPath string
-}
-
-// PushFile injects a FileChangeEvent directly into the files broadcaster,
-// bypassing the OS watcher. Use in integration tests when deterministic event
-// injection is required without a running file watcher.
-func (e *Env) PushFile(
-	evt FileEvent,
-) {
-	e.v0c.PushFile(domain.FileChangeEvent{
-		WsID:    evt.WsID,
-		Type:    domain.FileChangeType(evt.Type),
-		Path:    evt.Path,
-		NewPath: evt.NewPath,
-	})
-}
-
-// GitFileEntry is a simplified git file status for use in integration tests,
-// avoiding direct dependency on gitdomain in test callers.
-type GitFileEntry struct {
-	Path   string
-	Status string
-	Staged bool
-}
-
-// GitStatusEvent is a simplified git status event for use in integration tests,
-// avoiding direct dependency on gitdomain in test callers.
-type GitStatusEvent struct {
-	WsID   string
-	Branch string
-	Files  []GitFileEntry
-}
-
 // ProviderState is a scripted provider poll result for the mock-provider seam
 // (PushProviderState). It mirrors the fields the workspace aggregate consumes to
 // drive PR-status and protected-branch transitions, avoiding a direct dependency
@@ -442,27 +375,6 @@ type ProviderState struct {
 	PRUrl          string
 	PRTitle        string
 	PRTargetBranch string
-}
-
-// PushGit injects a GitStatus directly into the git broadcaster,
-// bypassing the file watcher and git write usecases. Use in integration tests
-// when deterministic git status injection is required.
-func (e *Env) PushGit(
-	evt GitStatusEvent,
-) {
-	files := make([]gitdomain.GitFile, len(evt.Files))
-	for i, f := range evt.Files {
-		files[i] = gitdomain.GitFile{
-			Path:   f.Path,
-			Status: gitdomain.GitFileStatus(f.Status),
-			Staged: f.Staged,
-		}
-	}
-	e.v0c.PushGit(evt.WsID, gitdomain.GitStatus{
-		WsID:   evt.WsID,
-		Branch: evt.Branch,
-		Files:  files,
-	})
 }
 
 // DialProjects opens a WS watcher on the list-scoped Projects stream
@@ -523,36 +435,6 @@ func (e *Env) DialChat(
 	return w
 }
 
-// DialThreads opens a WS watcher on the workspace-scoped Threads stream and
-// blocks until registration. The subscriber receives that workspace's
-// ThreadDTOs (snapshot + live).
-func (e *Env) DialThreads(
-	t *testing.T,
-	projectID string,
-	repoID string,
-	wsID string,
-) *WSWatcher {
-	t.Helper()
-	w := Dial(t, e.dialer, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/threads"))
-	e.v0c.WaitNThreadsRegistered(1)
-	return w
-}
-
-// DialTerminals opens a WS watcher on the CHAT-scoped Terminals lifecycle
-// stream and blocks until registration. The subscriber receives the
-// TerminalSessionDTOs of the sessions that chat OWNS (snapshot + live) — never
-// a sibling chat's, even one sharing the same worktree. This is the lifecycle
-// topic, NOT the raw PTY stream (.../terminals/:sessionId/ws).
-func (e *Env) DialTerminals(
-	t *testing.T,
-	chatID string,
-) *WSWatcher {
-	t.Helper()
-	w := Dial(t, e.dialer, wsURL(e.URL, e.chatScope(chatID)+"/terminals"))
-	e.v0c.WaitNTerminalsRegistered(1)
-	return w
-}
-
 // DialTerminalPTY opens a WS watcher on the raw PTY stream co-located at
 // /v0/chats/:chatId/terminals/:sessionId/ws (W7-2). This is NOT a broadcaster
 // topic (it's a direct engine pipe), so there is no WaitNRegistered gate; the
@@ -564,56 +446,6 @@ func (e *Env) DialTerminalPTY(
 ) *WSWatcher {
 	t.Helper()
 	return Dial(t, e.dialer, wsURL(e.URL, e.chatScope(chatID)+"/terminals/"+sessionID+"/ws"))
-}
-
-// DialGit opens a WS watcher on the CHAT-scoped, co-located Git status stream
-// (/v0/chats/:chatId/git/status) and blocks until registration. The chat names
-// the worktree whose status is served, so every chat holding that worktree sees
-// the same state — the old /workspaces/:wsId mount is gone (spec §8 step 6).
-func (e *Env) DialGit(
-	t *testing.T,
-	chatID string,
-) *WSWatcher {
-	t.Helper()
-	w := Dial(t, e.dialer, wsURL(e.URL, e.chatScope(chatID)+"/git/status"))
-	e.v0c.WaitNGitRegistered(1)
-	return w
-}
-
-// DialFiles opens a WS watcher on the CHAT-scoped, co-located Files stream
-// (/v0/chats/:chatId/files/ws, change-only, no snapshot) and blocks until
-// registration.
-func (e *Env) DialFiles(
-	t *testing.T,
-	chatID string,
-) *WSWatcher {
-	t.Helper()
-	w := Dial(t, e.dialer, wsURL(e.URL, e.chatScope(chatID)+"/files/ws"))
-	e.v0c.WaitNFilesRegistered(1)
-	return w
-}
-
-// DialLSP opens a WS watcher on the CHAT-scoped, co-located LSP stream
-// (/v0/chats/:chatId/lsp/ws) and blocks until registration.
-func (e *Env) DialLSP(
-	t *testing.T,
-	chatID string,
-) *WSWatcher {
-	t.Helper()
-	w := Dial(t, e.dialer, wsURL(e.URL, e.chatScope(chatID)+"/lsp/ws"))
-	e.v0c.WaitNLSPRegistered(1)
-	return w
-}
-
-// wsScope builds the hierarchical workspace path prefix. Threads is the ONLY
-// surviving "/workspaces/:wsId/..." path off the repo-scoped group (router.go);
-// every other leaf that once hung here is addressed through chatScope now.
-func (e *Env) wsScope(
-	projectID string,
-	repoID string,
-	wsID string,
-) string {
-	return "/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces/" + wsID
 }
 
 // chatScope builds the FLAT chat path prefix shared by all chat-scoped routes.

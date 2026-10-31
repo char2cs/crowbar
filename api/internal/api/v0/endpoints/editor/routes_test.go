@@ -273,7 +273,6 @@ func registerChatScoped(
 		v0.Group("/chats/:chatId"),
 		stubLSP{},
 		stubGit{},
-		func(_ *gin.Context) {},
 	)
 	return r
 }
@@ -306,18 +305,4 @@ func TestRegisterDropsWorkspaceScopedRoutes(t *testing.T) {
 		r.ServeHTTP(rec, req)
 		assert.Equal(t, http.StatusNotFound, rec.Code, path)
 	}
-}
-
-// TestRegister_MountsLSPWSRoute pins the co-located diagnostics WS upgrade
-// route, separately from editorSurface's REST routes since it takes a
-// pre-built handler rather than a Handlers method.
-func TestRegister_MountsLSPWSRoute(t *testing.T) {
-	r := registerChatScoped(t)
-
-	mounted := make(map[string]bool)
-	for _, route := range r.Routes() {
-		mounted[route.Method+" "+route.Path] = true
-	}
-	assert.True(t, mounted["GET /v0/chats/:chatId/lsp/ws"], "lsp/ws route not mounted")
-	assert.False(t, mounted["GET /v0/workspaces/:wsId/lsp/ws"], "old lsp/ws route must be gone")
 }

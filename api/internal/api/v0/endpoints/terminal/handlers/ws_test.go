@@ -65,7 +65,7 @@ func (missingSessionEngine) SessionExists(
 func TestWS_UpgradesAndAttaches(t *testing.T) {
 	r := gin.New()
 	spy := newAttachSpyEngine()
-	h := handlers.New(spy, stubProfiles{}, &spyBroadcaster{})
+	h := handlers.New(spy, stubProfiles{})
 	mountSessions(r, h)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
@@ -91,7 +91,7 @@ func TestWS_UpgradesAndAttaches(t *testing.T) {
 // attach to.
 func TestWS_404OnUnknownSession(t *testing.T) {
 	r := gin.New()
-	h := handlers.New(missingSessionEngine{}, stubProfiles{}, &spyBroadcaster{})
+	h := handlers.New(missingSessionEngine{}, stubProfiles{})
 	mountSessions(r, h)
 
 	rec := doTerminal(r, http.MethodGet, chatPath+"/ghost/ws", nil)
@@ -115,7 +115,7 @@ func TestWS_NilEngine(t *testing.T) {
 func TestWS_RejectsCrossOriginUpgrade(t *testing.T) {
 	r := gin.New()
 	spy := newAttachSpyEngine()
-	h := handlers.New(spy, stubProfiles{}, &spyBroadcaster{})
+	h := handlers.New(spy, stubProfiles{})
 	mountSessions(r, h)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
@@ -165,7 +165,7 @@ func TestWS_AFailedAttachIsLoggedWithItsSession(t *testing.T) {
 	slog.SetDefault(slog.New(records))
 	t.Cleanup(func() { slog.SetDefault(prev) })
 	r := gin.New()
-	mountSessions(r, handlers.New(failingAttachEngine{}, stubProfiles{}, &spyBroadcaster{}))
+	mountSessions(r, handlers.New(failingAttachEngine{}, stubProfiles{}))
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 

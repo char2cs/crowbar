@@ -34,7 +34,7 @@ func (errProfiles) Delete(_ context.Context, _ string) error { return errors.New
 
 func newErrRouter() *gin.Engine {
 	r := gin.New()
-	h := handlers.New(stubEngine{}, errProfiles{}, &spyBroadcaster{})
+	h := handlers.New(stubEngine{}, errProfiles{})
 	mountSessions(r, h)
 	rg := r.Group("/v0")
 	rg.GET("/settings/terminal/profiles", h.ListProfiles)
@@ -47,7 +47,7 @@ func newErrRouter() *gin.Engine {
 
 func newNilEngineRouter() *gin.Engine {
 	r := gin.New()
-	h := handlers.New(nil, stubProfiles{}, &spyBroadcaster{})
+	h := handlers.New(nil, stubProfiles{})
 	mountSessions(r, h)
 	return r
 }

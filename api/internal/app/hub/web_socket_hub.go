@@ -2,8 +2,6 @@ package hub
 
 import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/domain"
-	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 // WebSocketHub is the version-agnostic broadcast interface domain producers call.
@@ -19,19 +17,6 @@ type WebSocketHub interface {
 	)
 	BroadcastWorkspace(
 		w dto.WorkspaceDTO,
-	)
-	BroadcastThread(
-		t dto.ThreadDTO,
-	)
-	BroadcastTerminalSession(
-		s dto.TerminalSessionDTO,
-	)
-	BroadcastGit(
-		wsID string,
-		status gitdomain.GitStatus,
-	)
-	BroadcastFile(
-		evt domain.FileChangeEvent,
 	)
 	// BroadcastAgentChatFolder fans a chat-folder lifecycle frame out on the Chats
 	// topic. Chat folders are a plain GORM row with no projection to ride, so the

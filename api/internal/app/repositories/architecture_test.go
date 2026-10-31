@@ -20,7 +20,7 @@ import (
 func TestChatRepository_DoesNotReachTheFrontend(t *testing.T) {
 	forbidden := []string{
 		"github.com/char2cs/crowbar/api/internal/app/hub",
-		"github.com/char2cs/crowbar/api/internal/app/realtime",
+		"github.com/char2cs/crowbar/api/internal/app/stream",
 		"github.com/char2cs/crowbar/api/internal/api",
 	}
 

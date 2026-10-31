@@ -7,15 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
-	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 	gormdb "gorm.io/gorm"
 
-	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -424,78 +421,4 @@ func TestAgentChat_ListReads_PropagateStorageFailure(t *testing.T) {
 
 	_, err = repo.ListByWorkspace(ctx, "w1")
 	require.Error(t, err, "a read-model failure must not read back as an empty chat list")
-}
-
-// placementLog records, for every placement announcement, the chat id and the
-// workspace and parent the READ MODEL held for it then ("gone" once deleted).
-type placementLog struct {
-	mu   sync.Mutex
-	repo chat.EventStore
-	seen []string
-}
-
-func (p *placementLog) record(id string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	rows, err := p.repo.ListChats(context.Background())
-	if err != nil {
-		p.seen = append(p.seen, id+":error")
-		return
-	}
-	for _, row := range rows {
-		if row.ID == id {
-			p.seen = append(p.seen, id+":"+row.WorkspaceID+":"+row.ParentID)
-			return
-		}
-	}
-	p.seen = append(p.seen, id+":gone")
-}
-
-func (p *placementLog) entries() []string {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return append([]string(nil), p.seen...)
-}
-
-// TestAgentChat_PlacementWatchFiresAfterTheReadModelSaved: a listener re-reading
-// the read model on the announcement must already see the write, or a rebind
-// triggered by it would resolve the old placement and never be corrected.
-func TestAgentChat_PlacementWatchFiresAfterTheReadModelSaved(t *testing.T) {
-	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-	log := &placementLog{}
-	rm, err := chat.OpenReadModel(db, chat.WithPlacementWatch(log.record))
-	require.NoError(t, err)
-	b := asynx.New[domain.Chat]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
-	chat.Subscriber(rm)(b)
-	ax, err := b.Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-	repo, err := chat.NewEventSourced(context.Background(), ax, es, rm, nil, testutil.Placements(t))
-	require.NoError(t, err)
-	log.repo = repo
-	ctx := context.Background()
-	now := time.Unix(1, 0).UTC()
-
-	// A second row keeps the read model non-empty, so the post-delete read does
-	// not take the replay-heal path.
-	createChat(t, ctx, repo, "c0", "w0", now)
-	createChat(t, ctx, repo, "c1", "", now)
-	_, err = repo.SetWorkspace(ctx, "c1", "w2")
-	require.NoError(t, err)
-	_, err = repo.SetTitle(ctx, "c1", "renamed", "user")
-	require.NoError(t, err)
-	_, err = repo.SetPlacement(ctx, "c1", "parent-p", 0)
-	require.NoError(t, err)
-	ax.WaitPublish()
-	require.NoError(t, repo.Forget(ctx, "c1"))
-	ax.WaitPublish()
-
-	assert.Equal(t, []string{"c0:w0:", "c1::", "c1:w2:", "c1:gone"}, log.entries(),
-		"created, workspace_set and the delete announce; a title change does not, a placement is the Tree's to announce")
 }

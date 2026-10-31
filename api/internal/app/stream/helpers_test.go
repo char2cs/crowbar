@@ -197,25 +197,68 @@ func (e *entities) Attach(_ context.Context, _ string, _ int64, emit func(stream
 
 func encodeJSON(_ stream.EntityKind, v any) (json.RawMessage, error) { return json.Marshal(v) }
 
-// recorder is a fake resource counting its starts and stops per key.
+// recorder is a fake resource counting its starts and stops per key; a key in
+// fail refuses to start. With gated set, each Start and Stop first waits on
+// gate, after telling entered.
 type recorder struct {
 	mu     sync.Mutex
 	starts map[string]int
 	stops  map[string]int
+	fail   map[string]error
+	log    []string
+
+	gated   bool
+	entered chan string
+	gate    chan struct{}
 }
 
-func newRecorder() *recorder { return &recorder{starts: map[string]int{}, stops: map[string]int{}} }
+func newRecorder() *recorder {
+	return &recorder{
+		starts: map[string]int{}, stops: map[string]int{}, fail: map[string]error{},
+		entered: make(chan string, 16), gate: make(chan struct{}),
+	}
+}
 
-func (r *recorder) Start(key string) {
+func (r *recorder) wait(what string) {
+	if !r.gated {
+		return
+	}
+	r.entered <- what
+	<-r.gate
+}
+
+func (r *recorder) Start(key string) error {
+	r.wait("start " + key)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.starts[key]++
+	r.log = append(r.log, "start "+key)
+	return r.fail[key]
 }
 
 func (r *recorder) Stop(key string) {
+	r.wait("stop " + key)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.stops[key]++
+	r.log = append(r.log, "stop "+key)
+}
+
+func (r *recorder) history() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.log...)
+}
+
+// enteredAs waits, bounded, for the gated recorder to enter what.
+func (r *recorder) enteredAs(t *testing.T, what string) {
+	t.Helper()
+	select {
+	case got := <-r.entered:
+		require.Equal(t, what, got)
+	case <-time.After(waitBound):
+		require.FailNow(t, "never entered "+what)
+	}
 }
 
 func (r *recorder) counts(key string) (int, int) {

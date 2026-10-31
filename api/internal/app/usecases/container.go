@@ -106,12 +106,9 @@ func (c *Container) AgentToolMetrics() map[string]agentusecase.ToolStat {
 	return c.agentToolMetrics.Snapshot()
 }
 
-// WorktreeResolver resolves a chat to the workspace behind its worktree: one
-// chat per request (Resolve), or every chat a realtime stream has bound in one
-// forest read (WorkspacesForChats, "" for a chat with no worktree).
+// WorktreeResolver resolves a chat to the workspace behind its worktree.
 type WorktreeResolver interface {
 	Resolve(ctx context.Context, chatID string) (domain.Workspace, error)
-	WorkspacesForChats(ctx context.Context, chatIDs []string) (map[string]string, error)
 }
 
 // worktreeResolver adapts the worktree package's functions over the
@@ -130,14 +127,6 @@ func (r worktreeResolver) Resolve(
 	chatID string,
 ) (domain.Workspace, error) {
 	return worktree.Resolve(ctx, chatID, r.chats, r.workspaces)
-}
-
-// WorkspacesForChats implements WorktreeResolver.
-func (r worktreeResolver) WorkspacesForChats(
-	ctx context.Context,
-	chatIDs []string,
-) (map[string]string, error) {
-	return worktree.WorkspacesForChats(ctx, chatIDs, r.chatRows, r.folders, r.nodes)
 }
 
 // ChatsForWorkspace answers the chat tree's delete census (WorkspaceHolders).

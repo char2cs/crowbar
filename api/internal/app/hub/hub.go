@@ -5,8 +5,6 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/domain"
-	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -62,52 +60,6 @@ func (h *Hub) BroadcastWorkspace(
 	defer h.mu.RUnlock()
 	for _, s := range h.subscribers {
 		s.PushWorkspace(w)
-	}
-}
-
-// BroadcastThread fans a ThreadDTO out to every subscriber (spec §5).
-func (h *Hub) BroadcastThread(
-	t dto.ThreadDTO,
-) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, s := range h.subscribers {
-		s.PushThread(t)
-	}
-}
-
-// BroadcastTerminalSession fans a TerminalSessionDTO out to every subscriber
-// (spec §5).
-func (h *Hub) BroadcastTerminalSession(
-	s dto.TerminalSessionDTO,
-) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, sub := range h.subscribers {
-		sub.PushTerminalSession(s)
-	}
-}
-
-// BroadcastGit fans a GitStatus out to every subscriber (Class B, 03 §2).
-func (h *Hub) BroadcastGit(
-	wsID string,
-	status gitdomain.GitStatus,
-) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, s := range h.subscribers {
-		s.PushGit(wsID, status)
-	}
-}
-
-// BroadcastFile fans a FileChangeEvent out to every subscriber (Class B, 03 §2).
-func (h *Hub) BroadcastFile(
-	evt domain.FileChangeEvent,
-) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, s := range h.subscribers {
-		s.PushFile(evt)
 	}
 }
 
@@ -262,16 +214,6 @@ func (h *Hub) BroadcastAgentChatFolder(
 	defer h.mu.RUnlock()
 	for _, s := range h.subscribers {
 		s.PushAgentChatFolder(folderID, workspaceID, kind)
-	}
-}
-
-// BroadcastPlacementChanged tells every subscriber that a chat's or folder's
-// placement was saved, so which worktree a chat resolves to may have changed.
-func (h *Hub) BroadcastPlacementChanged() {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, s := range h.subscribers {
-		s.PushPlacementChanged()
 	}
 }
 

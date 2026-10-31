@@ -28,7 +28,7 @@ var (
 // redraw, while a line the program hard-broke after an exact-fit row is never joined.
 func (s *TerminalSuite) TestRegression_TerminalSession_WrappedLinesStayUnbroken() {
 	t := s.T()
-	sessionID, ws1, lifecycle := s.newSessionWithLiveClient(t)
+	sessionID, ws1 := s.newSessionWithLiveClient(t)
 
 	ws1.SendJSON(t, map[string]any{"data": wrapScenario})
 	var live strings.Builder
@@ -55,5 +55,5 @@ func (s *TerminalSuite) TestRegression_TerminalSession_WrappedLinesStayUnbroken(
 	s.Contains(redraw, exactFitRow+"\r\nyyyyyyyyyy",
 		"the re-attach redraw must keep an exact-fit hard break broken")
 
-	s.killAndAwaitEnded(t, lifecycle, sessionID)
+	s.kill(t, sessionID)
 }

@@ -10,15 +10,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/suite"
 
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
-
-const wsTimeout = 5 * time.Second
 
 func TestMain(
 	m *testing.M,
@@ -280,22 +277,6 @@ func (s *FilesSuite) TestRegression_Files_CopyBinaryByteFaithful() {
 	})
 	kit.RequireStatus(s.T(), resp, http.StatusConflict)
 	resp.Body.Close()
-}
-
-// TestFiles_hubBroadcastReachesFilesWatcher verifies that a FileChangeEvent
-// pushed directly to the hub is received by a connected files WS subscriber on
-// the chat-scoped, co-located .../files/ws route.
-func (s *FilesSuite) TestFiles_hubBroadcastReachesFilesWatcher() {
-	t := s.T()
-
-	watcher := s.Env.DialFiles(t, s.chatID)
-	s.Env.PushFile(kit.FileEvent{WsID: s.wsID})
-
-	msg := watcher.ReadUntil(t, wsTimeout, func(m map[string]any) bool {
-		wsID, _ := m["wsId"].(string)
-		return wsID == s.wsID
-	})
-	s.Assert().Equal(s.wsID, msg["wsId"])
 }
 
 // TestRegression_OpenFileOutsideWorkspace proves a file outside every worktree

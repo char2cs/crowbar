@@ -50,11 +50,6 @@ type client struct {
 	// the payloads themselves already collapse to one pending value per key.
 	wake chan struct{}
 
-	// resnapshot, when set, rebuilds this client's snapshot for its current
-	// binding; rebound asks the write loop to send it, coalescing like wake.
-	resnapshot func() [][]byte
-	rebound    chan struct{}
-
 	// closing, on a Stream, carries the close code its source ended on.
 	closing chan int
 }
@@ -65,19 +60,6 @@ func newClient() *client {
 		done:    make(chan struct{}),
 		pending: make(map[string][]byte),
 		wake:    make(chan struct{}, 1),
-		rebound: make(chan struct{}, 1),
-	}
-}
-
-// requestResnapshot asks the write loop to resend the snapshot; a no-op for a
-// stream without one.
-func (c *client) requestResnapshot() {
-	if c.resnapshot == nil {
-		return
-	}
-	select {
-	case c.rebound <- struct{}{}:
-	default:
 	}
 }
 
@@ -201,8 +183,6 @@ func writeNext(
 		return writeFrame(conn, msg)
 	case <-cl.wake:
 		return writeFrames(conn, cl.drainPending())
-	case <-cl.rebound:
-		return writeResnapshot(conn, cl)
 	case code := <-cl.closing:
 		return writeClose(conn, cl, code)
 	case <-ticker.C:
@@ -210,19 +190,6 @@ func writeNext(
 	case <-cl.done:
 		return false
 	}
-}
-
-// writeResnapshot writes everything queued before the rebind ahead of the new
-// snapshot: those frames may describe the old workspace, and the snapshot is
-// computed here, after them, so nothing older can follow it.
-func writeResnapshot(
-	conn *websocket.Conn,
-	cl *client,
-) bool {
-	if !writeQueued(conn, cl) || !writeFrames(conn, cl.drainPending()) {
-		return false
-	}
-	return writeFrames(conn, cl.resnapshot())
 }
 
 // writeQueued writes what cl.send holds now, in order.

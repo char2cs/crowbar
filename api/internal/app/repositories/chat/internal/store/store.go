@@ -82,24 +82,18 @@ type service struct {
 // Projection is the read model's write side. It is opened before the asynx
 // instance so it can be that instance's durable subscriber (Subscriber).
 type Projection struct {
-	storage   storage
-	placement func(id string)
+	storage storage
 }
 
 // Open opens the read model over db (state/store/agent_chat.db).
 func Open(
 	db *gormdb.DB,
-	opts ...Option,
 ) (*Projection, error) {
 	st, err := newStorageStore(db)
 	if err != nil {
 		return nil, fmt.Errorf("agentchat store: %w", err)
 	}
-	p := &Projection{storage: st}
-	for _, opt := range opts {
-		opt(p)
-	}
-	return p, nil
+	return &Projection{storage: st}, nil
 }
 
 // New builds the read model over p, whose instance ax was built with
@@ -289,16 +283,6 @@ func Subscriber(
 	}
 }
 
-// Option configures the store projection.
-type Option func(*Projection)
-
-// WithPlacementWatch announces every chat whose parent, workspace or type the
-// projection just saved, or whose row it deleted. It runs after the write, so
-// a listener re-reading the read model sees the new placement.
-func WithPlacementWatch(watch func(chatID string)) Option {
-	return func(p *Projection) { p.placement = watch }
-}
-
 func (p *Projection) handle(
 	ctx context.Context,
 	evt asynxModels.Event[domain.Chat],
@@ -307,32 +291,10 @@ func (p *Projection) handle(
 		if err := p.storage.Delete(ctx, evt.AggregateID); err != nil {
 			return fmt.Errorf("agentchat store projection: delete %q: %w", evt.AggregateID, err)
 		}
-		p.announcePlacement(evt.AggregateID)
 		return nil
 	}
 	if err := p.storage.Save(ctx, evt.Aggregate); err != nil {
 		return fmt.Errorf("agentchat store projection: save %q: %w", evt.Aggregate.ID, err)
 	}
-	if placementChanged(evt.PreviousAggregate, evt.Aggregate) {
-		p.announcePlacement(evt.Aggregate.ID)
-	}
 	return nil
-}
-
-func placementChanged(
-	before domain.Chat,
-	after domain.Chat,
-) bool {
-	return before.ID == "" ||
-		before.ParentID != after.ParentID ||
-		before.WorkspaceID != after.WorkspaceID ||
-		before.Type != after.Type
-}
-
-func (p *Projection) announcePlacement(
-	chatID string,
-) {
-	if p.placement != nil {
-		p.placement(chatID)
-	}
 }

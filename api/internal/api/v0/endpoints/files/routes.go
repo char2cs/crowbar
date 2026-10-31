@@ -24,23 +24,13 @@ import (
 // serves /projects/:projectId/home/files/... from its own handlers for the
 // project-level row that has no repo and no worktree, which is why the
 // frontend keeps addressing THAT one by project rather than by chat — there
-// is no chat resolving to it. It reuses the SAME filesWS broadcaster passed to
-// Register here (router.go), which is why filesDef (file_streams.go) still
-// carries a wsId filter alongside chatId: home injects one, this mount never
-// does.
-//
-// filesWS is the WebSocket handler for the live file-change stream. Unlike
-// git's status route it is NOT dual-served: it is its own /files/ws leaf,
-// because the file tree's REST read (/files/tree) answers a directory level
-// while the stream carries change events — two different shapes, so there is
-// no single route a GET and an upgrade could both mean.
+// is no chat resolving to it.
 func Register(
 	chatScoped *gin.RouterGroup,
 	files filehandlers.Files,
-	filesWS gin.HandlerFunc,
 ) {
 	h := filehandlers.New(files)
-	mount(chatScoped, "/files", h, filesWS)
+	mount(chatScoped, "/files", h)
 }
 
 // mount registers the 6-route files surface under prefix on rg. A file's
@@ -49,12 +39,10 @@ func mount(
 	rg *gin.RouterGroup,
 	prefix string,
 	h *filehandlers.Handlers,
-	filesWS gin.HandlerFunc,
 ) {
 	rg.GET(prefix+"/tree", h.Tree)
 	rg.POST(prefix, h.Create)
 	rg.POST(prefix+"/copy", h.Copy)
 	rg.PATCH(prefix, h.Rename)
 	rg.DELETE(prefix, h.Delete)
-	rg.GET(prefix+"/ws", filesWS)
 }

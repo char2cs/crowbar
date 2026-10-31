@@ -70,8 +70,11 @@ func TestHub_AStuckClientIsClosedAtTheHardBound(t *testing.T) {
 	conn.throttle = true
 	done := served(t, hub, conn)
 
-	for i := range 4 {
-		conn.send(t, stream.OpSub, fmt.Sprintf("chat:c%d", i))
+	for i := range 4 { // the bound may close it before the last sub is read
+		select {
+		case conn.in <- stream.Request{Op: stream.OpSub, Scope: fmt.Sprintf("chat:c%d", i)}:
+		case <-conn.closed:
+		}
 	}
 
 	ended(t, done)

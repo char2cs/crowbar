@@ -41,7 +41,7 @@ import (
 // runner away, exactly as every other teardown path does. All we have changed is
 // that the daemon now WAITS to hear the news before it dismantles the ears.
 //
-// Realtime resources (file watchers, LSP hosts) are released separately by Close.
+// Stream resources (file watchers, LSP hosts) are released separately by Close.
 // Every wait honors ctx, so the whole drain is bounded by the caller's deadline.
 func (c *Container) Shutdown(
 	ctx context.Context,
@@ -138,8 +138,8 @@ func (c *Container) quiesceTerminal(
 	}
 }
 
-// Close tears down the application layer's live realtime resources: it stops
-// every file watcher and LSP host the service still holds, and — on whichever
+// Close tears down the application layer's live stream resources: it stops
+// every file watcher and LSP host a held scope still runs, and — on whichever
 // path reaches Close WITHOUT a preceding Shutdown (harness.crash's simulated
 // death; a production Serve failure that returns before Run's ctx.Done branch
 // ever runs) — stops the six per-type asynx singletons' own background worker
@@ -148,7 +148,7 @@ func (c *Container) quiesceTerminal(
 // and LSP subprocesses are released promptly.
 func (c *Container) Close() {
 	shutdownAgentRunners(c.Usecases)
-	c.Realtime.Close()
+	c.resources.Close()
 	c.stopBackgroundWorkers(context.Background())
 }
 

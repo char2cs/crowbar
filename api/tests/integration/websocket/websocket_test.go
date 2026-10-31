@@ -16,8 +16,7 @@ func TestMain(m *testing.M) {
 	kit.Main(m)
 }
 
-// WebSocketSuite exercises the hierarchical WebSocket prefix-filtering and the
-// directly-injected (PushGit/PushFile/PushLSP) topics end-to-end.
+// WebSocketSuite exercises the hierarchical WebSocket prefix-filtering end-to-end.
 type WebSocketSuite struct {
 	suite.Suite
 	env *kit.Env
@@ -170,39 +169,6 @@ func (s *WebSocketSuite) TestWS_ProjectScopeReceivesRepoEvents() {
 	s.Assert().Equal(projectID, msg["projectId"])
 }
 
-// TestWS_LSP_FilteredByWsID verifies the LSP topic filters by the subscribing
-// chat's own id. Editor/LSP is spec §4.2's OWNED bucket (container.go's
-// lspDef): the wire field is still named "wsId" but the filter and the real
-// engine push (handlers.Handlers.lspOwnerID) both key it by the CHAT id, not
-// the workspace id — a chat's LSP session is never shared with a sibling
-// holding the same worktree. PushLSP injects directly so no real LSP host is
-// needed; the route is the chat-scoped .../lsp/ws.
-func (s *WebSocketSuite) TestWS_LSP_FilteredByWsID() {
-	t := s.T()
-
-	imported := s.env.ImportRepo(t, "lsp-filter", "")
-	_, chatID := s.env.CreateWorkspaceWithChat(t, imported.ProjectID, imported.RepoID, "feature/lsp", "")
-
-	watcher := s.env.DialLSP(t, chatID)
-
-	// Push a diagnostic for a different chat — must be filtered.
-	s.env.PushLSP("chat-other", []kit.LSPDiagnostic{{Message: "skip me"}})
-	// Push the matching diagnostic, keyed by chatID (the LSP owner id).
-	s.env.PushLSP(chatID, []kit.LSPDiagnostic{{Message: "target diag"}})
-
-	msg := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
-		return m["wsId"] == chatID
-	})
-	s.Assert().Equal(chatID, msg["wsId"])
-
-	diags, ok := msg["diagnostics"].([]any)
-	s.Require().True(ok)
-	s.Require().Len(diags, 1)
-	diag0, ok := diags[0].(map[string]any)
-	s.Require().True(ok)
-	s.Assert().Equal("target diag", diag0["message"])
-}
-
 // TestWS_MultiClientFanOut verifies that a worktree state change reaches all
 // connected clients on the same repo-scoped prefix.
 func (s *WebSocketSuite) TestWS_MultiClientFanOut() {
@@ -224,72 +190,4 @@ func (s *WebSocketSuite) TestWS_MultiClientFanOut() {
 	})
 	s.Assert().Equal(wsID, msg1["id"])
 	s.Assert().Equal(wsID, msg2["id"])
-}
-
-// TestWS_GitTopic_StatusBroadcast verifies the git WS topic (chat fan-out,
-// change-only) delivers an injected git status on the chat-scoped
-// .../git/status route.
-func (s *WebSocketSuite) TestWS_GitTopic_StatusBroadcast() {
-	t := s.T()
-
-	imported := s.env.ImportRepo(t, "git-topic", "")
-	wsID, chatID := s.env.CreateWorkspaceWithChat(t, imported.ProjectID, imported.RepoID, "feature/ws-git-test", "")
-
-	watcher := s.env.DialGit(t, chatID)
-
-	// Inject the git status directly — the git WS topic is change-only and the
-	// OS file watcher is not running in the test environment. The subscriber
-	// bound its chat's workspace when it connected, so the push reaches it.
-	s.env.PushGit(kit.GitStatusEvent{
-		WsID:   wsID,
-		Branch: "feature/ws-git-test",
-		Files: []kit.GitFileEntry{
-			{Path: "new.txt", Status: "added", Staged: true},
-		},
-	})
-
-	// The git topic dual-serves a snapshot on connect (possibly empty), so wait
-	// for the frame that carries our injected file rather than the first frame.
-	msg := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
-		files, ok := m["files"].([]any)
-		if !ok {
-			return false
-		}
-		for _, f := range files {
-			entry, isMap := f.(map[string]any)
-			if isMap {
-				if path, _ := entry["path"].(string); path == "new.txt" {
-					return true
-				}
-			}
-		}
-		return false
-	})
-	files, _ := msg["files"].([]any)
-	s.Require().NotEmpty(files, "expected at least one file entry in git status")
-	s.Assert().Empty(msg["wsId"], "wsId must not appear in the git status wire payload")
-}
-
-// TestWS_FilesTopicIsChangeOnly verifies that the files topic has no snapshot.
-func (s *WebSocketSuite) TestWS_FilesTopicIsChangeOnly() {
-	t := s.T()
-
-	imported := s.env.ImportRepo(t, "files-topic", "")
-	wsID, chatID := s.env.CreateWorkspaceWithChat(t, imported.ProjectID, imported.RepoID, "feature/files", "")
-
-	watcher := s.env.DialFiles(t, chatID)
-
-	// Inject a file change event directly — the OS file watcher is not running.
-	s.env.PushFile(kit.FileEvent{
-		WsID: wsID,
-		Type: "modified",
-		Path: "test.txt",
-	})
-
-	msg := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
-		return m["wsId"] == wsID
-	})
-	s.Assert().Equal(wsID, msg["wsId"])
-	s.Assert().NotEmpty(msg["type"])
-	s.Assert().NotEmpty(msg["path"])
 }

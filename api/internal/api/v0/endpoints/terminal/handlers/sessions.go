@@ -19,10 +19,8 @@ import (
 
 // CreateSession handles POST /v0/chats/:chatId/terminals.
 //
-// Per D2 the response is 201 {sessionId} synchronously (the FE needs the id
-// immediately to open the raw PTY WebSocket) AND a lifecycle
-// TerminalSessionDTO{status:"active"} is broadcast so the chat-scoped stream
-// converges.
+// Per D2 the response is 201 {sessionId} synchronously: the FE needs the id
+// immediately to open the raw PTY WebSocket.
 //
 // The session is OWNED by :chatId and RUNS in the worktree that chat resolved
 // to — the two arguments to eng.Create, and the whole point of the re-key.
@@ -66,24 +64,13 @@ func (h *Handlers) CreateSession(ctx *gin.Context) {
 		return
 	}
 
-	h.pushSession(
-		dto.TerminalSessionDTOFrom(
-			sid,
-			chatID,
-			body.ProfileID,
-			"active",
-			time.Now().UTC(),
-		),
-	)
-
 	libs.WriteQueryWithStatus(ctx, http.StatusCreated, gin.H{"sessionId": sid})
 }
 
 // ListSessions handles GET /v0/chats/:chatId/terminals. It returns the
 // sessions OWNED BY THAT CHAT from the in-memory engine registry with their
 // real lifecycle state (active|detached|suspended) (D6: terminals are
-// ephemeral, no persistence). A WebSocket upgrade on the same path is routed to
-// the lifecycle broadcaster by the dual-serve wrapper.
+// ephemeral, no persistence).
 //
 // A sibling chat sharing this chat's worktree is NOT listed here, and that is
 // the behavioural fix the re-key delivers: keyed by workspace, this listing
@@ -113,16 +100,13 @@ func (h *Handlers) ListSessions(ctx *gin.Context) {
 }
 
 // KillSession handles DELETE /v0/chats/:chatId/terminals/:sessionId.
-// It answers 200 and broadcasts a TerminalSessionDTO{status:"ended"} frame (the
-// engine's OnSessionEnded reap also emits one; the broadcaster's idempotent
-// full-replace makes the duplicate harmless).
+// It answers 200 with the killed session's id.
 func (h *Handlers) KillSession(ctx *gin.Context) {
 	eng := h.requireTerminalEngine(ctx)
 	if eng == nil {
 		return
 	}
 
-	chatID := ctx.Param("chatId")
 	sid := ctx.Param("sessionId")
 
 	if err := eng.Kill(ctx.Request.Context(), sid); err != nil {
@@ -134,28 +118,7 @@ func (h *Handlers) KillSession(ctx *gin.Context) {
 		return
 	}
 
-	endedAt := time.Now().UTC()
-	ended := dto.TerminalSessionDTOFrom(
-		sid,
-		chatID,
-		"",
-		"ended",
-		endedAt,
-	)
-	ended.EndedAt = &endedAt
-	h.pushSession(ended)
-
 	libs.WriteMutationOK(ctx, http.StatusOK, sid)
-}
-
-// pushSession forwards a lifecycle DTO to the broadcaster when one is wired.
-func (h *Handlers) pushSession(
-	d dto.TerminalSessionDTO,
-) {
-	if h.broadcast == nil {
-		return
-	}
-	h.broadcast.Push(d)
 }
 
 // requireTerminalEngine returns the engine or writes a 503 and returns nil.

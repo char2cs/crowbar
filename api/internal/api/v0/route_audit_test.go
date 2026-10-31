@@ -47,17 +47,6 @@ func (s stubChatWorktreeResolver) Resolve(
 	return s.workspaces.Get(ctx, wsID)
 }
 
-func (s stubChatWorktreeResolver) WorkspacesForChats(
-	_ context.Context,
-	chatIDs []string,
-) (map[string]string, error) {
-	out := make(map[string]string, len(chatIDs))
-	for _, id := range chatIDs {
-		out[id] = s.chatToWs[id]
-	}
-	return out, nil
-}
-
 // expectedRoutes is the canonical method+path set the v0 surface must register,
 // audited against docs/specs/v0/02-api-surface.md §2 (REST) + §3 (WS). It is the
 // regression guard for T18: dropping or renaming any route breaks this test.
@@ -81,9 +70,8 @@ func expectedRoutes() map[string]struct{} {
 // asserted directly by TestRouteAudit_NoWorkspaceScopedGroupRoutes. threads
 // keeps its own /workspaces/:wsId/threads prefix permanently (spec §4.4) —
 // it is repo-level review commentary, never a worktree read, and never moved.
-// The dedicated /ws/* routes are GONE (W7-2): the entity list+detail GET
-// routes dual-serve REST/WS, and the raw/diagnostic streams are co-located as
-// .../files/ws, .../lsp/ws, and /v0/chats/:chatId/terminals/:sessionId/ws.
+// Live changes ride GET /v0/stream; the raw PTY stream stays co-located at
+// /v0/chats/:chatId/terminals/:sessionId/ws.
 func specRoutes() []string {
 	const repo = "/v0/projects/:projectId/repos/:repoId"
 	const ws = repo + "/workspaces/:wsId"
@@ -219,12 +207,7 @@ func specRoutes() []string {
 		"GET /v0/system/prerequisites",
 		// §2.13 Health
 		"GET /v0/health",
-		// §3 WebSocket endpoints, chat-scoped (W7-2 co-location; §8 step 6
-		// retired their .../workspaces/:wsId/... twins): the entity
-		// list+detail GET routes dual-serve REST/WS in place (no separate
-		// path); the raw/diagnostic streams hang off the flat chat prefix.
-		"GET " + chat + "/files/ws",
-		"GET " + chat + "/lsp/ws",
+		// §3 the raw PTY stream, co-located on the flat chat prefix.
 		"GET " + chat + "/terminals/:sessionId/ws",
 	}
 }
@@ -478,7 +461,6 @@ func extraRoutes() []string {
 		"PUT /v0/settings/terminal/theme",
 		// Documents by ref (a workspace's file or a host file), and a host file's watch.
 		"GET /v0/documents/content", "PUT /v0/documents/content",
-		"GET /v0/documents/ws",
 		// Repo-home-as-workspace surface: the special non-git default workspace is
 		// navigable like a workspace but git-less, exposing its own files,
 		// terminals, and review-thread subtrees under /projects/:projectId/home
@@ -489,7 +471,6 @@ func extraRoutes() []string {
 		"POST " + home + "/files",
 		"PATCH " + home + "/files",
 		"DELETE " + home + "/files",
-		"GET " + home + "/files/ws",
 		"GET " + home + "/terminals",
 		"POST " + home + "/terminals",
 		"DELETE " + home + "/terminals/:sessionId",
@@ -589,7 +570,6 @@ func registeredRoutes(
 	t.Helper()
 	tc := newApp(t)
 	c := v0.New(tc.app, tc.eng)
-	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	out := map[string]struct{}{}
@@ -872,7 +852,6 @@ func TestRouteAudit_DualServe_RestMode(t *testing.T) {
 	seedWorkspace(t, tc, "w1")
 	tc.app.Usecases.Worktree = stubChatWorktreeResolver{chatToWs: map[string]string{"chat-1": "w1"}, workspaces: tc.app.Repositories.Workspace}
 	c := v0.New(tc.app, tc.eng)
-	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
@@ -900,15 +879,13 @@ func TestRouteAudit_DualServe_RestMode(t *testing.T) {
 
 // TestRouteAudit_DualServe_WsMode proves every dual-served route upgrades to a
 // live WebSocket stream when the request carries Upgrade: websocket — including
-// the project/repo detail routes (W7-2) and the chat-scoped git/status (spec
-// §8 step 6 retired its workspace-scoped twin).
+// the project/repo detail routes (W7-2).
 func TestRouteAudit_DualServe_WsMode(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
 	seedWorkspace(t, tc, "w1")
 	tc.app.Usecases.Worktree = stubChatWorktreeResolver{chatToWs: map[string]string{"chat-1": "w1"}, workspaces: tc.app.Repositories.Workspace}
 	c := v0.New(tc.app, tc.eng)
-	t.Cleanup(c.Close)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
@@ -919,7 +896,6 @@ func TestRouteAudit_DualServe_WsMode(t *testing.T) {
 		"/v0/projects/p1",
 		"/v0/projects/p1/repos",
 		"/v0/projects/p1/repos/r1",
-		"/v0/chats/chat-1/git/status",
 	} {
 		url := "ws" + srv.URL[len("http"):] + path
 		conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
@@ -941,7 +917,6 @@ func TestConsoleLogs_WithRing_StreamsReplayReadyAndLiveRedacted(t *testing.T) {
 	log.Info("old", "component", "boot")
 	r := gin.New()
 	c := v0.New(tc.app, tc.eng, v0.WithLogs(ring))
-	t.Cleanup(c.Close)
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)

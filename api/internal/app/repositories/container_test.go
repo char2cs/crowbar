@@ -71,10 +71,9 @@ type aggregates struct {
 func newAggregates(
 	t *testing.T,
 	ad *adapter.Container,
-	placementWatch func(id string),
 ) aggregates {
 	t.Helper()
-	rm, err := repositories.OpenReadModels(ad, placementWatch)
+	rm, err := repositories.OpenReadModels(ad)
 	require.NoError(t, err)
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
@@ -91,10 +90,9 @@ func newRepos(
 	t *testing.T,
 	ad *adapter.Container,
 	h hub.WebSocketHub,
-	placementWatch func(id string),
 ) (*repositories.Container, error) {
 	t.Helper()
-	a := newAggregates(t, ad, placementWatch)
+	a := newAggregates(t, ad)
 	return repositories.New(context.Background(), ad, a.rm, h, a.rt, a.ws, a.chat, a.placement, nil, noChatWatch, noGiveUp)
 }
 
@@ -153,7 +151,7 @@ func newContainer(
 	h hub.WebSocketHub,
 ) *repositories.Container {
 	t.Helper()
-	c, err := newRepos(t, newAdapter(t), h, nil)
+	c, err := newRepos(t, newAdapter(t), h)
 	require.NoError(t, err)
 	return c
 }
@@ -168,7 +166,7 @@ func TestContainer_New_BuildsRepos(t *testing.T) {
 
 func TestContainer_New_NilWorkspaceAxReturnsError(t *testing.T) {
 	ad := newAdapter(t)
-	a := newAggregates(t, ad, nil)
+	a := newAggregates(t, ad)
 	_, err := repositories.New(
 		context.Background(), ad, a.rm, hub.NewHub(),
 		a.rt, nil /* nil axWorkspace → workspace.New rejects */, a.chat, a.placement,
@@ -333,7 +331,7 @@ func TestContainer_ListWorkspaces_ListErrorPropagates(t *testing.T) {
 func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := newRepos(t, ad, &captureHub{}, nil)
+	c, err := newRepos(t, ad, &captureHub{})
 	require.NoError(t, err)
 
 	// A real MANAGED worktree UNDER the crowbar home: the delete reactor's rm is
@@ -396,7 +394,7 @@ func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 func TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := newRepos(t, ad, &captureHub{}, nil)
+	c, err := newRepos(t, ad, &captureHub{})
 	require.NoError(t, err)
 
 	// The user's real checkout, OUTSIDE the crowbar home (an adopted worktree).
@@ -531,21 +529,4 @@ func TestRegression_DeleteCascade_ToleratesAChatAlreadyPurged(t *testing.T) {
 
 	_, err = c.Workspace.Get(ctx, "w1")
 	assert.Error(t, err, "the workspace is purged regardless")
-}
-
-// TestContainer_New_PlacementWatchHearsChatsAndNodes: the one placement seam
-// is wired into both the chat and the node read models, so a rebind hears a
-// chat re-anchored to a worktree and a folder dragged across owners alike.
-// A Tree write's watch is repositories/tree.Announce's; see its test.
-func TestContainer_New_PlacementWatchHearsChats(t *testing.T) {
-	ad := newAdapter(t)
-	heard := make(chan string, 4)
-	c, err := newRepos(t, ad, hub.NewHub(), func(id string) { heard <- id })
-	require.NoError(t, err)
-
-	_, err = c.AgentChat.Create(context.Background(), agentchat.CreateInput{
-		ID: "chat-1", Type: domain.ChatTypeChat, Now: time.Unix(1, 0).UTC(),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "chat-1", <-heard)
 }

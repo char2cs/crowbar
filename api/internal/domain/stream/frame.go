@@ -29,6 +29,13 @@ const (
 	FrameError = "error"
 )
 
+// The kinds of signal frame.
+const (
+	SignalGitStatus   = "git_status"
+	SignalFileChange  = "file_change"
+	SignalDiagnostics = "diagnostics"
+)
+
 // Why a scope was closed.
 const (
 	ReasonResync  = "resync"

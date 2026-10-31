@@ -66,7 +66,7 @@ func (vanishedStateEngine) StateOf(
 
 func TestCreateSession_400OnMalformedBody(t *testing.T) {
 	r := gin.New()
-	mountSessions(r, newHandlers(&spyBroadcaster{}))
+	mountSessions(r, newHandlers())
 
 	rec := doRaw(r, http.MethodPost, chatPath, []byte("{not json"))
 
@@ -75,31 +75,27 @@ func TestCreateSession_400OnMalformedBody(t *testing.T) {
 
 func TestCreateSession_500WhenTheEngineFailsToSpawn(t *testing.T) {
 	r := gin.New()
-	spy := &spyBroadcaster{}
-	h := handlers.New(createErrEngine{}, stubProfiles{}, spy)
+	h := handlers.New(createErrEngine{}, stubProfiles{})
 	mountSessions(r, h)
 
 	rec := do(r, http.MethodPost, chatPath, nil)
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-	assert.Empty(t, spy.pushed, "a failed spawn must not broadcast an active session")
 }
 
 func TestKillSession_500OnAGenericEngineError(t *testing.T) {
 	r := gin.New()
-	spy := &spyBroadcaster{}
-	h := handlers.New(killErrEngine{}, stubProfiles{}, spy)
+	h := handlers.New(killErrEngine{}, stubProfiles{})
 	mountSessions(r, h)
 
 	rec := do(r, http.MethodDelete, chatPath+"/sess1", nil)
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-	assert.Empty(t, spy.pushed, "a kill that never actually succeeded must not broadcast 'ended'")
 }
 
 func TestListSessions_SkipsASessionThatVanishedBetweenListAndStateOf(t *testing.T) {
 	r := gin.New()
-	h := handlers.New(vanishedStateEngine{}, stubProfiles{}, &spyBroadcaster{})
+	h := handlers.New(vanishedStateEngine{}, stubProfiles{})
 	mountSessions(r, h)
 
 	rec := do(r, http.MethodGet, chatPath, nil)
@@ -115,26 +111,11 @@ func TestListSessions_SkipsASessionThatVanishedBetweenListAndStateOf(t *testing.
 // failing the whole session create over an optional lookup.
 func TestCreateSession_UnresolvableProfileIsIgnoredNotFatal(t *testing.T) {
 	r := gin.New()
-	h := handlers.New(stubEngine{}, errProfiles{}, &spyBroadcaster{})
+	h := handlers.New(stubEngine{}, errProfiles{})
 	mountSessions(r, h)
 
 	rec := do(r, http.MethodPost, chatPath, map[string]any{"profileId": "p1"})
 
 	assert.Equal(t, http.StatusCreated, rec.Code,
 		"an unresolvable requested profile must not block session creation")
-}
-
-// TestPushSession_NilBroadcaster_NoPanic proves pushSession degrades cleanly
-// when no broadcaster is wired (mirrors the production wiring for a daemon
-// mode with no WS fan-out), rather than requiring every caller to nil-check.
-func TestPushSession_NilBroadcaster_NoPanic(t *testing.T) {
-	r := gin.New()
-	h := handlers.New(stubEngine{}, stubProfiles{}, nil)
-	mountSessions(r, h)
-
-	rec := do(r, http.MethodPost, chatPath, nil)
-	assert.Equal(t, http.StatusCreated, rec.Code)
-
-	rec = do(r, http.MethodDelete, chatPath+"/sess1", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
 }

@@ -14,6 +14,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // Local reaches a daemon handler over a unix socket, the one transport a host
@@ -72,12 +74,18 @@ func (l *Local) ReadDocument(
 	return env.Data.Path, env.Data.Content
 }
 
-// DialDocument holds the host document at its canonical path. It returns at
-// the 101, by which the daemon has armed the document's watch.
-func (l *Local) DialDocument(
+// HoldDocument holds the host document at its canonical path on the stream.
+// It returns at the scope's synced, by which the daemon has armed its watch.
+func (l *Local) HoldDocument(
 	t *testing.T,
 	path string,
 ) *WSWatcher {
 	t.Helper()
-	return Dial(t, l.dialer, "ws://crowbar/v0/documents/ws?path="+url.QueryEscape(path))
+	w := Dial(t, l.dialer, "ws://crowbar/v0/stream")
+	scope := "doc:" + path
+	w.WriteJSON(t, stream.Request{Op: stream.OpSub, Scope: scope})
+	w.ReadUntil(t, 10*time.Second, func(frame map[string]any) bool {
+		return frame["t"] == stream.FrameSynced && frame["scope"] == scope
+	})
+	return w
 }

@@ -34,11 +34,9 @@ func Register(
 	chatScoped *gin.RouterGroup,
 	gitSvc githandlers.Git,
 	ops githandlers.Operations,
-	gitWS gin.HandlerFunc,
-	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
 ) {
 	h := githandlers.New(gitSvc, ops)
-	mount(chatScoped, "/git", h, gitWS, dispatch)
+	mount(chatScoped, "/git", h)
 }
 
 // mount registers the 32-route git surface under prefix on rg. It is the
@@ -47,11 +45,9 @@ func mount(
 	rg *gin.RouterGroup,
 	prefix string,
 	h *githandlers.Handlers,
-	gitWS gin.HandlerFunc,
-	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
 ) {
 	// Reads
-	rg.GET(prefix+"/status", dispatch(h.Status, gitWS))
+	rg.GET(prefix+"/status", h.Status)
 	rg.GET(prefix+"/diff", h.Diff)
 	rg.GET(prefix+"/log", h.Log)
 	rg.GET(prefix+"/branches", h.Branches)

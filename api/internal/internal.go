@@ -250,10 +250,6 @@ func (s *stack) close() error {
 	if s.hooks != nil {
 		errs = append(errs, s.hooks.Close())
 	}
-	// The rebind workers read the stores, so they stop before anything closes.
-	if s.api != nil {
-		s.api.Close()
-	}
 	if s.app != nil {
 		s.app.Close()
 	}
