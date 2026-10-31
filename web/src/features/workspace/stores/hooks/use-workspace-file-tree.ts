@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useStore } from 'zustand'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { fetchFileTree, findNode, mergeChildren } from '@/features/files/lib/file-tree-api'
@@ -42,9 +42,9 @@ function reconcileDocuments(wsId: string): void {
 /**
  * Keeps `wsId`'s own file tree (its workspace store's slice) loaded and live.
  *
- * The workspace's files: scope is held before the tree is first fetched, so no
- * change between the read and the attach is lost, and stays held for as long as
- * the workspace is retained: switching back is a selection, never a refetch.
+ * The workspace's files: scope is held alongside the first read; a snapshot
+ * landing during that read re-lists after it, so no change in between is lost.
+ * It stays held while the workspace is retained: switching back never refetches.
  * Waits on `chatScopeReady`: non-home file routes are chat-scoped.
  */
 export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeReady: boolean) {
@@ -55,20 +55,27 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
     (state) => state.expandedPathsByWorkspace[wsId] ?? EMPTY_EXPANDED_PATHS,
   )
   const loadingDirs = useRef<Set<string>>(new Set())
-  const [attached, setAttached] = useState(false)
+  // How many snapshots of files: have landed: a read that saw one land meanwhile re-lists after.
+  const syncs = useRef(0)
   const wanted = chatScopeReady && (active || status !== 'idle')
 
-  // Holds the scope and applies its file changes; a later synced is a resubscribe,
-  // after which the tree and open buffers may have missed writes.
+  // Holds the scope and applies its file changes. Every synced after the tree
+  // is loaded may follow missed writes, so it re-reads the tree and open buffers.
   useEffect(() => {
     if (!wanted) return
     const scope = `files:${wsId}`
-    let first = true
     const stopWatch = watchScope(scope, {
       synced: () => {
-        if (first) return void ((first = false), setAttached(true))
+        syncs.current++
+        if (store.getState().fileTreeStatus !== 'ready') return
         void refreshDirectory(wsId, store)
         reconcileDocuments(wsId)
+      },
+      refused: (problem) => {
+        store.getState().fileTreeActions.setFileTreeStatus('failed')
+        report(new Error(problem?.message ?? `${scope} was refused`), {
+          action: 'Follow the file tree',
+        })
       },
     })
     const stopSignals = onSignal<FileChangeEvent>(scope, 'file_change', (evt) => {
@@ -87,18 +94,21 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
       release()
       stopSignals()
       stopWatch()
-      setAttached(false)
     }
   }, [store, wsId, wanted])
 
+  // The first read never waits on the stream, which may be down.
   useEffect(() => {
-    if (!active || !chatScopeReady || !attached) return
+    if (!active || !chatScopeReady) return
     const { fileTreeStatus, fileTreeActions } = store.getState()
     if (fileTreeStatus === 'loading' || fileTreeStatus === 'ready') return
     fileTreeActions.setFileTreeStatus('loading')
+    const seen = syncs.current
     void fetchFileTree(wsId).then(
       (root) => {
+        if (store.getState().fileTreeStatus !== 'loading') return // refused meanwhile
         store.setState({ files: root, fileTreeStatus: 'ready' })
+        if (syncs.current !== seen) void refreshDirectory(wsId, store)
         // Documents restored while this workspace was never shown may predate disk.
         reconcileDocuments(wsId)
       },
@@ -107,7 +117,7 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
         report(err, { action: 'Load the file tree' })
       },
     )
-  }, [store, wsId, active, chatScopeReady, attached])
+  }, [store, wsId, active, chatScopeReady])
 
   // Lazily fetch a directory's children the first time it is expanded, and
   // re-check on every `files` change: an expanded folder whose children were

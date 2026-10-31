@@ -110,23 +110,54 @@ describe('useWorkspaceFileTree', () => {
     )
   })
 
-  it('holds files:<ws> before reading the tree, so a change during the read is applied', async () => {
+  it('re-lists after the first read when the snapshot lands during it', async () => {
     let attach: () => void = () => {}
     streamDaemon.answer = ({ op, scope }) => {
       if (op === 'sub') attach = () => streamDaemon.deliver({ t: 'synced', scope })
       return []
     }
+    let read: (files: AppFile[]) => void = () => {}
+    fetchFileTree.mockReturnValueOnce(new Promise<AppFile[]>((resolve) => (read = resolve)))
     const { store, unmount } = setup()
     await waitFor(() => expect(held()).toEqual(['files:ws-test']))
-    expect(fetchFileTree).not.toHaveBeenCalled()
+    expect(fetchFileTree).toHaveBeenCalledTimes(1)
 
-    attach()
-    await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
+    attach() // a change before the attach may be missing from the read
     fetchFileTree.mockResolvedValueOnce([rootTree[1]])
-    fileChange({ type: 'deleted', path: 'src' })
-    await waitFor(() => expect(store.getState().files).toHaveLength(1))
+    read(rootTree)
+    await waitFor(() => expect(store.getState().files).toEqual([rootTree[1]]))
     unmount()
     expect(held()).toEqual([])
+  })
+
+  it('loads the tree while the stream is down', async () => {
+    streamDaemon.drop()
+    onTestFinished(reconnectStream)
+    const { store } = setup()
+    await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
+    expect(store.getState().files).toEqual(rootTree)
+  })
+
+  it('a refused files: scope fails the tree and says why', async () => {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    onTestFinished(() => toastAdd.mockRestore())
+    fetchFileTree.mockReturnValueOnce(new Promise<AppFile[]>(() => {}))
+    streamDaemon.answer = ({ op, scope }) =>
+      op === 'sub'
+        ? [
+            {
+              t: 'closed',
+              scope,
+              reason: 'refused',
+              problem: { code: 'not_found', message: 'no workspace' },
+            },
+          ]
+        : []
+    const { store } = setup()
+    await waitFor(() => expect(store.getState().fileTreeStatus).toBe('failed'))
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Follow the file tree', description: 'no workspace' }),
+    )
   })
 
   // A structural change is applied in place and a plain content edit never
@@ -166,7 +197,10 @@ describe('useWorkspaceFileTree', () => {
   it('fetches an expanded folder’s children once, and again if a re-list drops them', async () => {
     const srcChildren: AppFile[] = [{ name: 'index.ts', path: 'src/index.ts', isDir: false }]
     useFileTreeStore.setState({ expandedPathsByWorkspace: { 'ws-test': new Set(['src']) } })
-    fetchFileTree.mockResolvedValueOnce(rootTree).mockResolvedValueOnce(srcChildren)
+    // The snapshot may land during the first read, which then re-lists the root.
+    fetchFileTree.mockImplementation(async (_ws: string, path?: string) =>
+      path === 'src' ? srcChildren : rootTree,
+    )
 
     const { store } = setup()
     await waitFor(() => expect(fetchFileTree).toHaveBeenCalledWith('ws-test', 'src'))
@@ -174,11 +208,12 @@ describe('useWorkspaceFileTree', () => {
       expect(store.getState().files.find((f) => f.path === 'src')?.children).toEqual(srcChildren),
     )
 
-    fetchFileTree.mockResolvedValueOnce(srcChildren)
+    fetchFileTree.mockClear()
     store.getState().fileTreeActions.setFiles(rootTree)
     await waitFor(() =>
       expect(store.getState().files.find((f) => f.path === 'src')?.children).toEqual(srcChildren),
     )
+    expect(fetchFileTree).toHaveBeenCalledWith('ws-test', 'src')
   })
 
   it('waits for the chat scope before fetching an expanded folder’s children', async () => {
