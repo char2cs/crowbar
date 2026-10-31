@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
-import { ROW_INACTIVE } from './workspace-row-base'
+import { ROW_HAS_VIEW_IDLE, ROW_INACTIVE } from './workspace-row-base'
 
 /**
  * Where the pointer sits INSIDE the row it grabbed, in that row's own box.
@@ -167,7 +167,17 @@ const LIFTED =
  * keeps its own styling (faded while the drag is in flight); only the clone is lifted.
  */
 function liftClone(clone: HTMLElement): void {
-  for (const cls of ROW_INACTIVE.split(/\s+/)) clone.classList.remove(cls)
+  for (const cls of `${ROW_INACTIVE} ${ROW_HAS_VIEW_IDLE}`.split(/\s+/)) clone.classList.remove(cls)
+  // An open or showing row is keyed to an inverted ground (`*-foreground-inverse`) that the
+  // lifted white surface no longer sits on, so those colours would read white-on-white.
+  for (const el of [
+    clone,
+    ...clone.querySelectorAll<HTMLElement>('[class*="foreground-inverse"]'),
+  ]) {
+    for (const cls of [...el.classList]) {
+      if (cls.includes('foreground-inverse')) el.classList.remove(cls)
+    }
+  }
   for (const cls of LIFTED.split(/\s+/)) clone.classList.add(cls)
 }
 

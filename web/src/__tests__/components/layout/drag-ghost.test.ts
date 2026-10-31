@@ -17,6 +17,19 @@ describe('lifted drag ghost surface', () => {
     expect(nodes[0].classList.contains('bg-background')).toBe(false)
   })
 
+  it('strips the open-row ground and inverted text an active row wears, on the row and its children', () => {
+    const el = row()
+    el.classList.add('bg-sidebar-element-idle', 'text-foreground-inverse')
+    const glyph = document.createElement('span')
+    glyph.className = 'size-4 text-foreground-inverse'
+    el.appendChild(glyph)
+    const { nodes } = cloneGhostRows([el], 1)
+    expect(nodes[0].classList.contains('bg-sidebar-element-idle')).toBe(false)
+    expect(nodes[0].classList.contains('text-foreground-inverse')).toBe(false)
+    expect(nodes[0].querySelector('.text-foreground-inverse')).toBeNull()
+    expect(el.classList.contains('text-foreground-inverse')).toBe(true)
+  })
+
   it('lifts a cloned view tab onto the control surface too', () => {
     const { nodes } = cloneGhostTab(row())
     expect(nodes[0].classList.contains('control-surface')).toBe(true)
