@@ -18,6 +18,8 @@ func TestParseScope_AcceptsEveryKind(t *testing.T) {
 		"git:w1":   {Kind: "git", Key: "w1"},
 		"files:w1": {Kind: "files", Key: "w1"},
 		"lsp:c1":   {Kind: "lsp", Key: "c1"},
+		// A host path is the key as it is: it may hold the separator itself.
+		"doc:/h/a:b.md": {Kind: "doc", Key: "/h/a:b.md"},
 	}
 	for raw, want := range cases {
 		got, err := stream.ParseScope(raw)
@@ -28,7 +30,7 @@ func TestParseScope_AcceptsEveryKind(t *testing.T) {
 }
 
 func TestParseScope_RefusesAnUnknownKindOrAMissingKey(t *testing.T) {
-	for _, raw := range []string{"", "nope", "nope:x", "chat", "chat:", "ws:", "projects:p1", ":x"} {
+	for _, raw := range []string{"", "nope", "nope:x", "chat", "chat:", "ws:", "doc:", "projects:p1", ":x"} {
 		_, err := stream.ParseScope(raw)
 		require.Error(t, err, raw)
 		assert.Equal(t, problem.InvalidArgument, problem.CodeOf(err), raw)

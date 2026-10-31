@@ -61,6 +61,9 @@ const (
 	TreeForkChain      Code = "tree_fork_chain"
 	TreeSubtreeWorking Code = "tree_subtree_working"
 
+	// The OS has no file watches left to follow a document with.
+	WatchLimit Code = "watch_limit"
+
 	// Written by core/bootgate itself, which stays free of dependencies.
 	DaemonMigrating         Code = "daemon_migrating"
 	DaemonHalted            Code = "daemon_halted"
@@ -92,6 +95,8 @@ func (c Code) Status() int {
 		return http.StatusFailedDependency
 	case BadGateway, CatalogOutputLimit, CatalogCommandFailed, CatalogMalformedOutput:
 		return http.StatusBadGateway
+	case WatchLimit:
+		return http.StatusInsufficientStorage
 	case Unavailable, DaemonMigrating, DaemonHalted:
 		return http.StatusServiceUnavailable
 	case Timeout, CatalogTimeout:

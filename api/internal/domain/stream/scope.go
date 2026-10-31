@@ -21,9 +21,13 @@ const (
 	KindGit      ScopeKind = "git"
 	KindFiles    ScopeKind = "files"
 	KindLsp      ScopeKind = "lsp"
+	// KindDoc is a host document, keyed by its absolute path as is.
+	KindDoc ScopeKind = "doc"
 )
 
-var keyed = map[ScopeKind]bool{KindChat: true, KindWs: true, KindGit: true, KindFiles: true, KindLsp: true}
+var keyed = map[ScopeKind]bool{
+	KindChat: true, KindWs: true, KindGit: true, KindFiles: true, KindLsp: true, KindDoc: true,
+}
 
 // Scope is one thing a client holds: "projects", or "<kind>:<key>".
 type Scope struct {

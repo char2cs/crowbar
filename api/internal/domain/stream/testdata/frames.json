@@ -3,6 +3,8 @@
   { "t": "entity", "scope": "projects", "kind": "operation", "id": "op1", "v": 7, "data": { "id": "op1" } },
   { "t": "entity", "scope": "projects", "kind": "operation", "id": "op1", "v": 8, "gone": true },
   { "t": "synced", "scope": "projects" },
+  { "t": "entity", "scope": "ws:w1", "kind": "review_thread", "id": "th1", "v": 9, "data": { "id": "th1" } },
+  { "t": "signal", "scope": "git:w1", "kind": "git_status", "data": { "branch": "main" } },
   {
     "t": "closed",
     "scope": "nope:x",

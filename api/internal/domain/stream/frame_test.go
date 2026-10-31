@@ -21,6 +21,8 @@ func TestFrame_EveryTypeMarshalsAsTheGoldenFile(t *testing.T) {
 		{T: stream.FrameEntity, Scope: "projects", Kind: string(stream.KindOperation), ID: "op1", V: 7, Data: json.RawMessage(`{"id":"op1"}`)},
 		{T: stream.FrameEntity, Scope: "projects", Kind: string(stream.KindOperation), ID: "op1", V: 8, Gone: true},
 		stream.Synced("projects"),
+		{T: stream.FrameEntity, Scope: "ws:w1", Kind: string(stream.KindReviewThread), ID: "th1", V: 9, Data: json.RawMessage(`{"id":"th1"}`)},
+		{T: stream.FrameSignal, Scope: "git:w1", Kind: "git_status", Data: json.RawMessage(`{"branch":"main"}`)},
 		stream.Closed("nope:x", stream.ReasonRefused, &refused),
 		stream.Closed("projects", stream.ReasonResync, nil),
 		stream.Errored(problem.Problem{Code: problem.InvalidArgument, Message: "stream: unknown op \"gossip\""}),

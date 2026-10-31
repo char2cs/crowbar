@@ -55,6 +55,8 @@ func TestCode_StatusTable(t *testing.T) {
 		problem.TreeForkChain:      http.StatusConflict,
 		problem.TreeSubtreeWorking: http.StatusConflict,
 
+		problem.WatchLimit: http.StatusInsufficientStorage,
+
 		problem.DaemonMigrating:         http.StatusServiceUnavailable,
 		problem.DaemonHalted:            http.StatusServiceUnavailable,
 		problem.DaemonReportUnencodable: http.StatusInternalServerError,

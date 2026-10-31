@@ -9,8 +9,13 @@ import (
 // EntityKind names the payload of an entity frame.
 type EntityKind string
 
-// KindOperation is a domain.Operation.
-const KindOperation EntityKind = "operation"
+// The entity kinds a frame carries.
+const (
+	// KindOperation is a domain.Operation.
+	KindOperation EntityKind = "operation"
+	// KindReviewThread is one review thread of a workspace.
+	KindReviewThread EntityKind = "review_thread"
+)
 
 // Frame types, the value of Frame.T.
 const (
@@ -18,6 +23,8 @@ const (
 	FrameEntity = "entity"
 	FrameSynced = "synced"
 	FrameClosed = "closed"
+	// FrameSignal is news about a scope that has no version: git status, a file change.
+	FrameSignal = "signal"
 	// FrameError is a refused request that names no scope it may drop.
 	FrameError = "error"
 )
