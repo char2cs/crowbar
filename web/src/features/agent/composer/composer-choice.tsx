@@ -23,7 +23,11 @@ import {
   ChoiceSchema,
 } from '@/features/agent/composer/composer-choice-controls'
 import { ChoiceRequest } from '@/features/agent/composer/composer-choice-request'
-import type { AskRequest } from '@/features/agent/composer/lib/ask-request'
+import {
+  requestView,
+  SHOWN_LINES,
+  type AskRequest,
+} from '@/features/agent/composer/lib/ask-request'
 
 // The verbs an elicitation is answered with. They are the PROVIDER's own words
 // (MCP's accept / decline / cancel) and they go in `optionIds` — a prompt with no
@@ -135,6 +139,10 @@ export function ComposerChoice({
 }) {
   const detail = choiceDetail(choice, toolTarget)
   const [stored, setStored] = useState<CardState>(() => freshCard(choice.id))
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const expanded = expandedId === choice.id
+  const view = request && choice.kind === 'tool_permission' ? requestView(request) : null
+  const hiddenLines = view && !expanded ? Math.max(0, view.code.length - SHOWN_LINES) : 0
   // Read through the stamp rather than resetting in an effect: an effect runs
   // AFTER the paint, so there would be one frame in which the previous prompt's
   // picks were on screen and pressable.
@@ -216,7 +224,9 @@ export function ComposerChoice({
     >
       {/* ── above the bar: everything there is to read ── */}
       {choice.schema && <ChoiceSchema schema={choice.schema} />}
-      {request && choice.kind === 'tool_permission' && <ChoiceRequest request={request} />}
+      {view && (
+        <ChoiceRequest view={view} expanded={expanded} onExpand={() => setExpandedId(choice.id)} />
+      )}
       {canAnswerHere && questions.length > 0 && (
         <ChoiceQuestions
           questions={questions}
@@ -247,6 +257,11 @@ export function ComposerChoice({
           {card.sent && (
             <span className="sub" data-testid="agent-choice-sent">
               Answer sent. Waiting for {providerLabel} to confirm it.
+            </span>
+          )}
+          {hiddenLines > 0 && (
+            <span className="sub choice-hidden-lines" data-testid="agent-choice-hidden-lines">
+              {hiddenLines} more lines not shown
             </span>
           )}
           {pending > 1 && (

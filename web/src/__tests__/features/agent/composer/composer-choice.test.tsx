@@ -648,6 +648,46 @@ describe('ComposerChoice request body', () => {
   })
 })
 
+describe('ComposerChoice shows a command as it is', () => {
+  it('writes bidi, control and zero-width characters out visibly', () => {
+    const command = 'echo build done \u202E; rm -rf ~ #\u202C\u200B\u0007'
+    show({}, { request: { toolName: 'Bash', toolInput: { command } } })
+    const body = screen.getByTestId('agent-choice-request')
+    expect(body.textContent).not.toMatch(/[\u202E\u202C\u200B\u0007]/)
+    expect(body).toHaveTextContent('\\u{202E}')
+    expect(body).toHaveTextContent('\\u{200B}')
+    expect(body).toHaveTextContent('\\u{7}')
+  })
+
+  it('escapes MCP args and edit previews the same way', () => {
+    show(
+      { toolName: 'mcp__echo__shout' },
+      {
+        request: {
+          toolName: 'mcp__echo__shout',
+          mcpServer: 'echo',
+          toolInput: { text: 'a\u202Eb' },
+        },
+      },
+    )
+    expect(screen.getByTestId('agent-choice-request')).toHaveTextContent('a\\u{202E}b')
+  })
+
+  it('says how many lines are not shown, beside the answer, until shown', () => {
+    const command = Array.from({ length: 20 }, (_, i) => `step ${i}`).join('\n')
+    show({}, { request: { toolName: 'Bash', toolInput: { command } } })
+    const body = screen.getByTestId('agent-choice-request')
+    expect(body).toHaveTextContent('step 11')
+    expect(body).not.toHaveTextContent('step 12')
+    expect(screen.getByTestId('agent-choice-hidden-lines')).toHaveTextContent(
+      '8 more lines not shown',
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Show all 20 lines' }))
+    expect(body).toHaveTextContent('step 19')
+    expect(screen.queryByTestId('agent-choice-hidden-lines')).toBeNull()
+  })
+})
+
 describe('ComposerChoice keys', () => {
   it('picks an option with its number key', async () => {
     show()

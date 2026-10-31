@@ -8,17 +8,27 @@ export interface AskRequest {
   mcpServer?: string
 }
 
-export type RequestBody =
-  | { kind: 'truncated'; text: string }
-  | { kind: 'mcp'; server: string; tool: string; args: string[] }
-  | { kind: 'command'; command: string; description: string }
-  | { kind: 'edit'; path: string; removed: string[]; added: string[] }
-  | { kind: 'none' }
+export interface CodeLine {
+  text: string
+  tone?: 'del' | 'add'
+}
+
+/** The card's body: a heading (an MCP server, a path), the lines, a note. */
+export interface RequestView {
+  server?: string
+  head?: string
+  code: CodeLine[]
+  note?: string
+}
+
+/** Lines shown before the card says how many more there are. */
+export const SHOWN_LINES = 12
 
 const MCP_ARGS = 6
 const ARG_CHARS = 80
 
 const str = (value: unknown) => (typeof value === 'string' ? value : '')
+const plain = (text: string): CodeLine[] => text.split('\n').map((line) => ({ text: line }))
 
 function argText(value: unknown): string {
   const text = typeof value === 'string' ? value : JSON.stringify(value)
@@ -34,24 +44,62 @@ function mcpArgsSummary(input: unknown): string[] {
   return lines
 }
 
-/** The body of a permission card, by what the gated call is. */
-export function requestBody(req: AskRequest): RequestBody {
+function mcpView(req: AskRequest): RequestView {
+  const server = req.mcpServer ?? ''
+  const prefix = `mcp__${server}__`
+  const name = req.toolName ?? ''
+  const tool = name.startsWith(prefix) ? name.slice(prefix.length) : name
+  return { server, head: tool, code: mcpArgsSummary(req.toolInput).map((text) => ({ text })) }
+}
+
+/** The body of a permission card, by what the gated call is; null for none. */
+export function requestView(req: AskRequest): RequestView | null {
   // A truncated input is the leading text of its JSON: shown, never parsed.
-  if (req.truncated) return { kind: 'truncated', text: str(req.toolInput) }
+  if (req.truncated) return { code: plain(str(req.toolInput)), note: 'Input truncated' }
+  if (req.mcpServer) return mcpView(req)
   const input = (req.toolInput ?? {}) as Record<string, unknown>
-  if (req.mcpServer) {
-    const prefix = `mcp__${req.mcpServer}__`
-    const name = req.toolName ?? ''
-    const tool = name.startsWith(prefix) ? name.slice(prefix.length) : name
-    return { kind: 'mcp', server: req.mcpServer, tool, args: mcpArgsSummary(req.toolInput) }
-  }
   const command = str(input.command)
-  if (command) return { kind: 'command', command, description: str(input.description) }
+  if (command) return { code: plain(command), note: str(input.description) || undefined }
   const removed = str(input.old_string)
   const added = str(input.new_string)
   if (removed || added) {
-    const path = str(input.file_path) || req.toolTarget || ''
-    return { kind: 'edit', path, removed: removed.split('\n'), added: added.split('\n') }
+    const head = str(input.file_path) || req.toolTarget || undefined
+    const lines = (text: string, tone: CodeLine['tone']) =>
+      text.split('\n').map((line) => ({ text: line, tone }))
+    return { head, code: [...lines(removed, 'del'), ...lines(added, 'add')] }
   }
-  return { kind: 'none' }
+  return null
+}
+
+// Bidi controls, other control characters and zero-width ones: drawn raw they
+// reorder or hide what the command does, so each is written out instead.
+const HIDDEN_RANGES: [number, number][] = [
+  [0x00, 0x08],
+  [0x0b, 0x1f],
+  [0x7f, 0x9f],
+  [0x061c, 0x061c],
+  [0x200b, 0x200f],
+  [0x202a, 0x202e],
+  [0x2060, 0x2069],
+  [0xfeff, 0xfeff],
+]
+
+const hidden = (cp: number) => HIDDEN_RANGES.some(([lo, hi]) => cp >= lo && cp <= hi)
+
+/** `text` split into what draws as itself and the characters written out. */
+export function visibleParts(text: string): { text: string; escaped: boolean }[] {
+  const parts: { text: string; escaped: boolean }[] = []
+  let run = ''
+  for (const ch of text) {
+    const cp = ch.codePointAt(0)!
+    if (!hidden(cp)) {
+      run += ch
+      continue
+    }
+    if (run) parts.push({ text: run, escaped: false })
+    run = ''
+    parts.push({ text: `\\u{${cp.toString(16).toUpperCase()}}`, escaped: true })
+  }
+  if (run) parts.push({ text: run, escaped: false })
+  return parts
 }
