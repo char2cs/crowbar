@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MobileSidebarPage } from '@/features/window/components/mobile-sidebar-page'
+import { ROW_HAS_VIEW_IDLE } from '@/components/layout/workspace-row-base'
 import type { NativeSidebar } from '@/lib/native-chrome'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import type { Project } from '@/lib/types'
@@ -378,6 +379,22 @@ describe('MobileSidebarPage', () => {
       fireEvent.touchEnd(held, { changedTouches: [{ clientX: 40, clientY: 10 }] })
       act(() => vi.advanceTimersByTime(600))
       expect(posted).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'rowMenu' }))
+    })
+
+    // Opaque on every platform: --chrome-bg is only opaque on iOS, and the idle fill is translucent.
+    it('lifts the held row onto the opaque control surface', () => {
+      render(<MobileSidebarPage />)
+      push(snapshot)
+      fireEvent.touchStart(rowEl('Ask about tax'), touch(10))
+      act(() => vi.advanceTimersByTime(260))
+      fireEvent.touchMove(rowEl('Ask about tax'), touch(40))
+      const overlay = document.querySelector('[data-drag-overlay]')!
+      const lifted = overlay.querySelector<HTMLElement>('[data-sidebar-row-id]')!
+      expect(overlay.classList.contains('control-surface')).toBe(true)
+      expect(overlay.classList.contains('bg-chrome-bg')).toBe(false)
+      for (const cls of ROW_HAS_VIEW_IDLE.split(/\s+/)) {
+        expect(lifted.classList.contains(cls)).toBe(false)
+      }
     })
 
     // The lifted copy sits under the finger, so a hit test finds it first; the row beneath is the target.

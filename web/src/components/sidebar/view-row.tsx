@@ -4,6 +4,7 @@ import { PushPinIcon, XIcon } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
+import { TAB_IDLE } from '@/components/layout/workspace-row-base'
 import { useRecentsChat } from '@/components/sidebar/lib/use-recents-chat'
 import { recentsChatIcon } from '@/components/sidebar/lib/recents-for-project'
 import type { SidebarDrag } from '@/components/sidebar/hooks/use-sidebar-drag'
@@ -165,10 +166,6 @@ const noop = () => {}
 const TAB_ACTIVE =
   'control-surface outline outline-1 shadow-xs shadow-black/10 ' +
   'inset-shadow-[0_1px_var(--elevated-highlight)] active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
-const TAB_IDLE =
-  'border-transparent hover:bg-sidebar-element-hover hover:shadow-xs hover:shadow-black/10 ' +
-  'hover:inset-shadow-[0_1px_var(--elevated-highlight)]'
-
 // A member as one string, so the shallow-compared selector above re-renders
 // only when a member actually changes. Ids never contain NUL.
 const memberKey = (m: ViewMember): string => `${m.chatId}\x00${m.workspaceId ?? ''}`

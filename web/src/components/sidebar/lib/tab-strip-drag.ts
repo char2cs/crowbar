@@ -68,9 +68,9 @@ function gapOffsets(count: number, to: number, pitch: number): number[] {
   return Array.from({ length: count }, (_, i) => (i >= to ? pitch : 0))
 }
 
-/** The insertion index: how many tabs' midpoints sit left of the subject's centre. */
+/** The insertion index: how many whole tabs lie left of the subject's centre, so a subject sitting on a slot takes it. */
 function insertIndex(slots: readonly TabSlot[], centerX: number): number {
-  return slots.filter((slot) => slot.left + slot.width / 2 < centerX).length
+  return slots.filter((slot) => slot.left + slot.width <= centerX).length
 }
 
 // Pointer travel past this before a slide changes hands, so a boundary does not flicker.
@@ -173,23 +173,26 @@ export function createStripDrag(
   const outside = (x: number, y: number) =>
     Math.max(distanceOutside(x, box.left, box.right), distanceOutside(y, box.top, box.bottom))
   const inBand = (x: number, y: number) => outside(x, y) <= margin
-  // The tab travels over the tabs themselves, not the empty strip beyond the last one; an
-  // outside subject may centre on either end, so it can be dropped before the first or after the last.
+  // The tab travels over the tabs themselves, not the empty strip beyond the last one. An outside
+  // subject lands exactly on the first or last slot, and hangs half off only where the strip is full.
   const leftFor = (x: number) => {
     const now = slotsNow()
     const end = now[highest]
     const start = now[lowest] ?? end
-    const overhang = external ? width / 2 : 0
-    const reach = {
-      ...box,
-      left:
-        Math.max(box.left, lowest < now.length ? start.left : start.left + start.width) - overhang,
-      right: Math.min(box.right, end.left + end.width) + overhang,
-    }
+    const first = lowest < now.length ? start.left : start.left + start.width
+    const last = end.left + end.width
+    const half = width / 2
+    const reach = external
+      ? {
+          ...box,
+          left: Math.max(first, box.left - half),
+          right: Math.min(last, box.right - half) + width,
+        }
+      : { ...box, left: Math.max(box.left, first), right: Math.min(box.right, last) }
     return clampTabLeft(x, grab.dx, width, reach)
   }
   const indexAt = (x: number, shift: number) => {
-    const left = leftFor(x) + shift
+    const left = leftFor(x + shift)
     return external
       ? insertIndex(slotsNow(), left + width / 2)
       : targetIndex(slotsNow(), from, left, left + width)

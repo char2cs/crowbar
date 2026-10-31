@@ -156,7 +156,7 @@ function DragOverlayRow({ rows, id }: { rows: SidebarRowType[]; id: string }) {
   const row = rows.find((r) => r.id === id)
   return row ? (
     <div aria-hidden>
-      <SidebarRow row={row} depth={0} onOpen={selectRow} inlineRenameDisabled hasViewIdle />
+      <SidebarRow row={row} depth={0} onOpen={selectRow} inlineRenameDisabled />
     </div>
   ) : null
 }

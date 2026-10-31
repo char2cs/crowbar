@@ -285,3 +285,24 @@ describe('TabBar strip-level render isolation', () => {
     expect(commits).toBe(baseline)
   })
 })
+
+describe('TabBar drag preview', () => {
+  it('lifts the dragged tab onto the control surface, whatever the pane behind it is', () => {
+    const store = setupStore([makeEditorBuffer(0), makeEditorBuffer(1)])
+    act(() => {
+      renderTabBar(store)
+    })
+    const pointer = { pointerId: 1, isPrimary: true, button: 0, buttons: 1 }
+    act(() => {
+      fireEvent.pointerDown(screen.getAllByRole('tab')[0], { ...pointer, clientX: 10, clientY: 10 })
+      fireEvent.pointerMove(document, { ...pointer, clientX: 40, clientY: 10 })
+    })
+    const preview = document.querySelector('.tab-drag-preview')!
+    expect(preview.textContent).toContain('file-0.ts')
+    expect(preview.classList.contains('control-surface')).toBe(true)
+    expect(preview.closest('[data-drag-overlay]')).not.toBeNull()
+    act(() => {
+      fireEvent.pointerUp(document, { ...pointer, buttons: 0, clientX: 40, clientY: 10 })
+    })
+  })
+})

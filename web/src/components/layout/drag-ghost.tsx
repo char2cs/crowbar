@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
-import { ROW_INACTIVE } from './workspace-row-base'
+import { ROW_HAS_VIEW_IDLE, ROW_INACTIVE, ROW_NEST_TARGET, TAB_IDLE } from './workspace-row-base'
 
 /**
  * Where the pointer sits INSIDE the row it grabbed, in that row's own box.
@@ -155,19 +155,30 @@ export function DragGhostRows({ rows }: { rows: GhostRows }) {
 
 // The raised white control surface, pinned in every mode: --background goes charcoal in dark,
 // which vanishes over the dark chrome the ghost is dragged across.
-const LIFTED =
-  'control-surface outline outline-1 shadow-md shadow-black/15 ' +
+export const LIFTED =
+  'control-surface outline outline-1 outline-border! shadow-md shadow-black/15 ' +
   'inset-shadow-[0_1px_var(--elevated-highlight)]'
 
+const AMBIENT = `${ROW_INACTIVE} ${ROW_HAS_VIEW_IDLE} ${ROW_NEST_TARGET} ${TAB_IDLE}`.split(/\s+/)
+
 /**
- * Give a cloned row a raised surface of its own, whatever it wore in the list.
+ * Give a clone a raised surface of its own, whatever it wore in the list.
  *
- * An inactive row carries ROW_INACTIVE, a transparent border and no fill: legible on the
- * sidebar's own surface, close to invisible once flown over the editor pane. The source row
- * keeps its own styling (faded while the drag is in flight); only the clone is lifted.
+ * Whatever a row or tab wears at rest, open or as a drop target is keyed to the sidebar's
+ * surface: transparent borders, translucent fills, inverted text. Flown over the editor pane
+ * those are close to invisible or white-on-white, so the clone drops them and takes the lifted
+ * surface. The source keeps its own styling (faded while the drag is in flight).
  */
 function liftClone(clone: HTMLElement): void {
-  for (const cls of ROW_INACTIVE.split(/\s+/)) clone.classList.remove(cls)
+  for (const cls of AMBIENT) clone.classList.remove(cls)
+  for (const el of [
+    clone,
+    ...clone.querySelectorAll<HTMLElement>('[class*="foreground-inverse"]'),
+  ]) {
+    for (const cls of [...el.classList]) {
+      if (cls.includes('foreground-inverse')) el.classList.remove(cls)
+    }
+  }
   for (const cls of LIFTED.split(/\s+/)) clone.classList.add(cls)
 }
 
@@ -214,7 +225,7 @@ export function cloneGhostTab(shell: HTMLElement): GhostRows {
   for (const el of [clone, ...clone.querySelectorAll<HTMLElement>('[data-testid]')]) {
     el.removeAttribute('data-testid')
   }
-  for (const cls of LIFTED.split(/\s+/)) clone.classList.add(cls)
+  liftClone(clone)
   clone.style.position = 'absolute'
   clone.style.left = '0'
   clone.style.top = '0'

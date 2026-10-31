@@ -147,7 +147,7 @@ function SidebarToastOverlayInner({ sidebarOpen, sidebarSide }: SidebarToastOver
   return (
     <Toast.Portal>
       <Toast.Viewport
-        className={`fixed bottom-4 z-[var(--z-overlay,60)] flex w-72 flex-col gap-2 ${fixedSideClass}`}
+        className={`fixed bottom-4 z-60 flex w-72 flex-col gap-2 ${fixedSideClass}`}
         data-slot="sidebar-toast-viewport-fallback"
       >
         {toasts.map((toast) => (
