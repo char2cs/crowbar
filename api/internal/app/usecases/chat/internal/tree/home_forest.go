@@ -153,7 +153,7 @@ func (u *chatFolderUsecase) correctHomePlacement(
 // SAME densify/sibling-count pass as its chat/folder siblings sharing
 // project home's own bare root — this is the direct replacement for
 // project.go's now-deleted cross-aggregate merge: every home-scope sibling
-// now comes from ONE Node.ListByParent walk.
+// now comes from ONE walk over every node.
 //
 // includeRepoPhantoms is false for a repo-scoped (non-home) chat placement's
 // own merge (Task 8): a repo is never a legitimate sibling INSIDE a repo's
@@ -231,6 +231,14 @@ func (u *chatFolderUsecase) mergeForest(
 		byID[row.ID] = i
 	}
 	aliases := u.levelAliasesOf(ctx, baseRows)
+	all, err := u.nodes.ListAll(ctx)
+	if err != nil {
+		return forest{}, fmt.Errorf("agent chat folder: node forest: %w", err)
+	}
+	byParent := map[string][]dtree.Node{}
+	for _, n := range all {
+		byParent[n.ParentID] = append(byParent[n.ParentID], n)
+	}
 	homeIDs := map[string]bool{}
 	nodeSeen := map[string]bool{}
 	queried := map[string]bool{}
@@ -250,11 +258,7 @@ func (u *chatFolderUsecase) mergeForest(
 			continue
 		}
 		queried[parent] = true
-		children, err := u.nodes.ListByParent(ctx, parent)
-		if err != nil {
-			return forest{}, fmt.Errorf("agent chat folder: node forest: %w", err)
-		}
-		for _, n := range children {
+		for _, n := range byParent[parent] {
 			if nodeSeen[n.ID] {
 				continue
 			}

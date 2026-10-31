@@ -69,6 +69,25 @@ func (r *eventSourced) SetOrder(
 	return chat, nil
 }
 
+// GetChats is every chat of ids that exists, placed in one placement read.
+func (r *eventSourced) GetChats(
+	ctx context.Context,
+	ids []string,
+) ([]domain.Chat, error) {
+	rows := make([]domain.Chat, 0, len(ids))
+	for _, id := range ids {
+		chat, err := r.store.GetChat(ctx, id)
+		if errors.Is(mapNotFound(err), ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("agentchat: get chats: %w", err)
+		}
+		rows = append(rows, chat)
+	}
+	return r.placedAll(ctx, rows)
+}
+
 // placed is chat with its placement read back on.
 func (r *eventSourced) placed(ctx context.Context, chat domain.Chat) (domain.Chat, error) {
 	p, err := r.placements.ChatPlacement(ctx, chat.ID)

@@ -402,24 +402,6 @@ func (r *eventSourced) GetChat(
 	return r.placed(ctx, chat)
 }
 
-func (r *eventSourced) GetChats(
-	ctx context.Context,
-	ids []string,
-) ([]domain.Chat, error) {
-	rows := make([]domain.Chat, 0, len(ids))
-	for _, id := range ids {
-		chat, err := r.store.GetChat(ctx, id)
-		if errors.Is(mapNotFound(err), ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("agentchat: get chats: %w", err)
-		}
-		rows = append(rows, chat)
-	}
-	return r.placedAll(ctx, rows)
-}
-
 func (r *eventSourced) Get(
 	ctx context.Context,
 	id string,

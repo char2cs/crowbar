@@ -200,6 +200,10 @@ func foldersReachableFrom(
 	nodes TreeNodes,
 	workspaceRows []domain.Chat,
 ) ([]domain.Chat, error) {
+	byParent, err := childrenByParent(ctx, nodes)
+	if err != nil {
+		return nil, err
+	}
 	var found []domain.Chat
 	queried := map[string]bool{}
 	seenFolder := map[string]bool{}
@@ -215,11 +219,7 @@ func foldersReachableFrom(
 			continue
 		}
 		queried[parent] = true
-		children, err := nodes.ListByParent(ctx, parent)
-		if err != nil {
-			return nil, err
-		}
-		for _, n := range children {
+		for _, n := range byParent[parent] {
 			if n.Kind != tree.KindFolder || seenFolder[n.ID] {
 				continue
 			}
@@ -311,4 +311,18 @@ func correctHomeChats(
 		}
 	}
 	return out
+}
+
+// childrenByParent is every node under each parent, from one read of them all:
+// a walk asks for many levels, and each read decodes every project's Tree.
+func childrenByParent(ctx context.Context, nodes TreeNodes) (map[string][]tree.Node, error) {
+	all, err := nodes.ListAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]tree.Node{}
+	for _, n := range all {
+		out[n.ParentID] = append(out[n.ParentID], n)
+	}
+	return out, nil
 }

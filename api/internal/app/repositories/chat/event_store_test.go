@@ -20,7 +20,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
-	"github.com/char2cs/crowbar/api/internal/domain/tree"
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
@@ -57,32 +56,6 @@ func newRepoWithDeps(
 ) (context.Context, chat.EventStore, *gormdb.DB, *captureBroadcast) {
 	t.Helper()
 	return newRepoOver(t, testutil.Placements(t))
-}
-
-func newRepoOver(
-	t *testing.T,
-	placements chat.Placements,
-) (context.Context, chat.EventStore, *gormdb.DB, *captureBroadcast) {
-	t.Helper()
-	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-	rm, err := chat.OpenReadModel(db)
-	require.NoError(t, err)
-	b := asynx.New[domain.Chat]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
-	chat.Subscriber(rm)(b)
-	ax, err := b.Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
-	cap := &captureBroadcast{}
-	repo, err := chat.NewEventSourced(context.Background(), ax, es, rm, cap.watch, placements)
-	require.NoError(t, err)
-	return context.Background(), repo, db, cap
 }
 
 func newRepo(
@@ -525,44 +498,4 @@ func TestAgentChat_PlacementWatchFiresAfterTheReadModelSaved(t *testing.T) {
 
 	assert.Equal(t, []string{"c0:w0:", "c1::", "c1:w2:", "c1:gone"}, log.entries(),
 		"created, workspace_set and the delete announce; a title change does not, a placement is the Tree's to announce")
-}
-
-// countedPlacements counts the reads of one chat's placement and of all of them.
-type countedPlacements struct {
-	chat.Placements
-	one, all int
-}
-
-func (c *countedPlacements) ChatPlacement(ctx context.Context, chatID string) (tree.Placement, error) {
-	c.one++
-	return c.Placements.ChatPlacement(ctx, chatID)
-}
-
-func (c *countedPlacements) ChatPlacements(ctx context.Context, chatIDs []string) (map[string]tree.Placement, error) {
-	c.all++
-	return c.Placements.ChatPlacements(ctx, chatIDs)
-}
-
-// GetChats places every chat it finds in one placement read, and skips an id
-// no chat has.
-func TestAgentChat_GetChats_PlacesEveryChatInOneRead(t *testing.T) {
-	counted := &countedPlacements{Placements: testutil.Placements(t)}
-	ctx, repo, _, _ := newRepoOver(t, counted)
-	now := time.Unix(1, 0).UTC()
-	for _, id := range []string{"c1", "c2", "c3"} {
-		createChat(t, ctx, repo, id, "ws", now)
-	}
-	_, err := repo.SetPlacement(ctx, "c2", "f-1", 4)
-	require.NoError(t, err)
-	require.Eventually(t, func() bool { _, err := repo.GetChat(ctx, "c3"); return err == nil }, 5*time.Second, time.Millisecond)
-	counted.one, counted.all = 0, 0
-
-	got, err := repo.GetChats(ctx, []string{"c1", "nope", "c2", "c3"})
-
-	require.NoError(t, err)
-	require.Len(t, got, 3)
-	assert.Equal(t, "f-1", got[1].ParentID)
-	assert.Equal(t, 4, got[1].Order)
-	assert.Equal(t, 1, counted.all)
-	assert.Zero(t, counted.one)
 }
