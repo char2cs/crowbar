@@ -11,7 +11,7 @@ export function setPrompt(fold: FeedFold, requestId: string, fact: PromptFact) {
 }
 
 export function applyUserMessage(fold: FeedFold, row: LedgerRow<'user_message'>) {
-  const { requestId, text, origin } = row.body
+  const { requestId, text, origin, delivery } = row.body
   const id = userItemId(requestId, row.seq)
   fold.put({
     kind: 'user',
@@ -31,7 +31,9 @@ export function applyUserMessage(fold: FeedFold, row: LedgerRow<'user_message'>)
   setPrompt(
     fold,
     requestId,
-    steered ? { state: 'delivered', turnId: row.turnId! } : { state: 'pending', seq: row.seq },
+    steered
+      ? { state: 'delivered', turnId: row.turnId! }
+      : { state: 'pending', seq: row.seq, ...(delivery === 'restart' && { launch: true }) },
   )
 }
 
@@ -77,13 +79,14 @@ const PILL_MARKERS = new Set([
 const LAUNCH_DIVIDERS = new Set(['provider_switched', 'model_changed', 'effort_changed'])
 
 /** Draws a pill marker; a launch's lands above the prompt it carries, which
- *  the ledger records first so the new CLI can find it. */
+ *  the ledger records first so the new CLI can find it. A selection change
+ *  takes no busy guard, so a queued prompt stays where it is. */
 export function divider(fold: FeedFold, kind: string, draw: () => void) {
   if (!PILL_MARKERS.has(kind)) return
   let carried: string | undefined
   let newest = -1
   for (const [requestId, fact] of Object.entries(fold.facts.prompts)) {
-    if (fact.state !== 'pending' || fact.seq < newest) continue
+    if (fact.state !== 'pending' || !fact.launch || fact.seq < newest) continue
     newest = fact.seq
     carried = userItemId(requestId, fact.seq)
   }

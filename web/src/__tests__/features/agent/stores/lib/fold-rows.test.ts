@@ -314,13 +314,34 @@ describe('applyRow', () => {
       l.prompt('r0', 'earlier'),
       l.start('turn-0', 'r0'),
       l.end('turn-0'),
-      l.prompt('r1', 'on the other provider'),
+      l.row('user_message', {
+        requestId: 'r1',
+        text: 'on',
+        origin: 'crowbar',
+        delivery: 'restart',
+      }),
       l.row('marker', { kind: 'provider_switched', detail: 'p2' }),
       l.row('marker', { kind: 'model_changed', detail: 'big' }),
       l.start('turn-1', 'r1'),
       l.row('marker', { kind: 'compaction_ended' }),
     ])
     expect(feed.order).toEqual(['p:r0', 'k:5', 'k:6', 'p:r1', 'k:8'])
+  })
+
+  it('leaves a queued prompt above a selection change made while it waits', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.prompt('r0', 'earlier'),
+      l.start('turn-0', 'r0'),
+      l.row('user_message', {
+        requestId: 'r1',
+        text: 'queued',
+        origin: 'crowbar',
+        delivery: 'api',
+      }),
+      l.row('marker', { kind: 'model_changed', detail: 'big' }),
+    ])
+    expect(feed.order).toEqual(['p:r0', 'p:r1', 'k:4'])
   })
 
   it('shows a message that joins its turn reply as that reply', () => {

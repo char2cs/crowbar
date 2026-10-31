@@ -80,7 +80,8 @@ export interface MarkerItem extends ItemBase {
 export type TranscriptItem = UserItem | TextItem | ToolItem | AskItem | MarkerItem
 
 export type PromptFact =
-  | { state: 'pending'; seq: number }
+  /** `launch` when a CLI launch carries it: that launch's dividers read above it. */
+  | { state: 'pending'; seq: number; launch?: true }
   | { state: 'delivered'; turnId: string }
   | { state: 'settled' }
   | { state: 'refused'; reason: string }
