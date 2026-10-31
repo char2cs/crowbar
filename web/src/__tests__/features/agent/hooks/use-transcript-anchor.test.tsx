@@ -49,7 +49,7 @@ function Host({ rev: _rev, measuring = false, arriving = true, ...options }: Hos
       onScroll={() => anchor.onScroll()}
       {...anchor.intent}
     >
-      <pre data-testid="inner" style={{ overflowY: 'auto' }} />
+      <pre data-testid="inner" />
       <input data-testid="field" />
     </div>
   )
@@ -77,8 +77,9 @@ function readerScrollsTo(scroller: HTMLElement, top: number) {
   fireEvent.scroll(scroller)
 }
 
-// A tool's payload: a scroller inside the transcript, scrolled to `top`.
-function nestedBox(el: HTMLElement, top: number) {
+// A tool's payload: a box inside the transcript, scrolled to `top`.
+function nestedBox(el: HTMLElement, top: number, overflowY = 'auto') {
+  el.style.overflowY = overflowY
   Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => 500 })
   Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => 100 })
   Object.defineProperty(el, 'scrollTop', { configurable: true, get: () => top })
@@ -210,17 +211,18 @@ describe('useTranscriptAnchor', () => {
   it('keeps following when a wheel up scrolls a nested box that can still scroll up', () => {
     const { scroller, grow, getByTestId } = mount()
     const inner = nestedBox(getByTestId('inner'), 200)
-
     fireEvent.wheel(inner, { deltaY: -100 })
     grow(1300)
     frames(1500)
     expect(scroller.scrollTop).toBe(900)
   })
 
-  it('lets go when the nested box is already at its top and the wheel chains on', () => {
+  it.each([
+    ['at its top', 0, 'auto'],
+    ['clipped, not a scroller', 200, 'hidden'],
+  ])('lets go when the nested box is %s and the wheel chains on', (_, top, overflowY) => {
     const { scroller, grow, getByTestId } = mount()
-    const inner = nestedBox(getByTestId('inner'), 0)
-
+    const inner = nestedBox(getByTestId('inner'), top, overflowY)
     fireEvent.wheel(inner, { deltaY: -100 })
     grow(1300)
     frames(1500)
@@ -232,7 +234,6 @@ describe('useTranscriptAnchor', () => {
     fireEvent.wheel(scroller, { deltaY: 100 })
     fireEvent.wheel(scroller, { deltaY: -100, ctrlKey: true })
     fireEvent.wheel(scroller, { deltaY: -2 })
-
     grow(1300)
     frames(1500)
     expect(scroller.scrollTop).toBe(900)
@@ -245,7 +246,6 @@ describe('useTranscriptAnchor', () => {
     grow(1300)
     frames(1500)
     expect(scroller.scrollTop).toBe(900)
-
     fireEvent.keyDown(scroller, { key: ' ', shiftKey: true })
     grow(1400)
     frames(1500)
