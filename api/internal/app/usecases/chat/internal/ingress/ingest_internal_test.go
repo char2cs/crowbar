@@ -273,7 +273,7 @@ func TestRecorder_ACrowbarPromptTitlesTheChatOnceItsTurnSpeaks(t *testing.T) {
 	kept := newRecorderFixture(t, "claude")
 	openCrowbarTurn(t, kept, "kept")
 	assert.Empty(t, kept.titles.titles, "a retract may still take it back")
-	_, _, err := kept.dispatch(t, reply)
+	_, _, err := kept.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookMessageDelta, Delta: &engineagents.MessageDelta{MessageID: "m1", Text: "on it"}})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"kept"}, kept.titles.titles)
 

@@ -78,24 +78,25 @@ func Map(st ledger.State, ev engineagents.CanonicalEvent, src Source, refs BlobR
 	}
 	rows, fx, err := mapMain(st, ev, src, refs)
 	if err == nil && fx.Title == "" {
-		fx.Title = keptPrompt(st, rows)
+		fx.Title = keptPrompt(st, rows, fx.Live)
 	}
 	return rows, fx, err
 }
 
-// keptPrompt is the words of the Crowbar prompt whose running turn rows speak
-// in: a retract takes a prompt back until then, and what a CLI flushes after a
-// retract ended the turn speaks for a prompt already handed back.
-func keptPrompt(st ledger.State, rows []ledger.Row) string {
+// keptPrompt is the words of the Crowbar prompt whose running turn speaks, in
+// rows or a stream: a retract takes it back until then, and what a CLI flushes
+// after a retract ended the turn speaks for a prompt already handed back.
+func keptPrompt(st ledger.State, rows []ledger.Row, live *LiveDelta) string {
 	turn, ok := st.RunningTurn()
 	if !ok || turn.RequestID == "" {
 		return ""
 	}
-	for _, r := range rows {
-		if r.Scope == "" && r.TurnID == turn.ID && spoke(r.Kind) {
-			p, _ := st.Receipt(turn.RequestID)
-			return p.Text
-		}
+	streamed := live != nil && live.Scope == "" && live.TurnID == turn.ID
+	if streamed || slices.ContainsFunc(rows, func(r ledger.Row) bool {
+		return r.Scope == "" && r.TurnID == turn.ID && spoke(r.Kind)
+	}) {
+		p, _ := st.Receipt(turn.RequestID)
+		return p.Text
 	}
 	return ""
 }
