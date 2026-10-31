@@ -200,7 +200,7 @@ describe('WSManager', () => {
 
   describe('opened', () => {
     /** A subscription whose socket is still connecting. */
-    function connecting(mgr: ReturnType<typeof createWSManager>, endpoint = '/v0/documents/ws') {
+    function connecting(mgr: ReturnType<typeof createWSManager>, endpoint = '/v0/chats/c1/ws') {
       const unsubscribe = mgr.subscribe(endpoint, vi.fn())
       const socket = MockWebSocket.instances.at(-1)!
       socket.readyState = MockWebSocket.CONNECTING
@@ -216,12 +216,12 @@ describe('WSManager', () => {
     it('resolves when the endpoint socket opens, and at once when it already is', async () => {
       const mgr = createWSManager()
       const { socket } = connecting(mgr)
-      const waiting = settled(mgr.opened('/v0/documents/ws'))
+      const waiting = settled(mgr.opened('/v0/chats/c1/ws'))
 
       socket.simulateOpen()
 
       expect(await waiting).toBe('opened')
-      expect(await settled(mgr.opened('/v0/documents/ws'))).toBe('opened')
+      expect(await settled(mgr.opened('/v0/chats/c1/ws'))).toBe('opened')
     })
 
     it('rejects when the socket closes before it opens', async () => {
@@ -229,7 +229,7 @@ describe('WSManager', () => {
       try {
         const mgr = createWSManager()
         const { socket } = connecting(mgr)
-        const waiting = settled(mgr.opened('/v0/documents/ws'))
+        const waiting = settled(mgr.opened('/v0/chats/c1/ws'))
 
         socket.simulateClose()
 
@@ -244,7 +244,7 @@ describe('WSManager', () => {
       try {
         const mgr = createWSManager()
         const { socket } = connecting(mgr)
-        const waiting = mgr.opened('/v0/documents/ws').catch((error: unknown) => error)
+        const waiting = mgr.opened('/v0/chats/c1/ws').catch((error: unknown) => error)
 
         socket.onerror?.('ws upgrade: HTTP error: 507 Insufficient Storage')
         socket.simulateClose()
@@ -259,10 +259,10 @@ describe('WSManager', () => {
 
     it('rejects when nothing subscribes to the endpoint, or the last subscriber leaves first', async () => {
       const mgr = createWSManager()
-      expect(await settled(mgr.opened('/v0/documents/ws'))).toBe('refused')
+      expect(await settled(mgr.opened('/v0/chats/c1/ws'))).toBe('refused')
 
       const { unsubscribe } = connecting(mgr)
-      const waiting = settled(mgr.opened('/v0/documents/ws'))
+      const waiting = settled(mgr.opened('/v0/chats/c1/ws'))
       unsubscribe()
 
       expect(await waiting).toBe('refused')
@@ -276,13 +276,13 @@ describe('WSManager', () => {
         socket.simulateOpen()
         socket.simulateClose()
 
-        const back = settled(mgr.opened('/v0/documents/ws'))
+        const back = settled(mgr.opened('/v0/chats/c1/ws'))
         vi.advanceTimersByTime(1000)
         MockWebSocket.instances[1].simulateOpen()
         expect(await back).toBe('opened')
 
         MockWebSocket.instances[1].simulateClose()
-        const refused = settled(mgr.opened('/v0/documents/ws'))
+        const refused = settled(mgr.opened('/v0/chats/c1/ws'))
         vi.advanceTimersByTime(1000)
         MockWebSocket.instances[2].simulateClose()
         expect(await refused).toBe('refused')
@@ -296,7 +296,7 @@ describe('WSManager', () => {
       try {
         const mgr = createWSManager()
         const dropped = vi.fn()
-        mgr.onDrop('/v0/documents/ws', dropped)
+        mgr.onDrop('/v0/chats/c1/ws', dropped)
         const { socket, unsubscribe } = connecting(mgr)
         socket.simulateClose()
         expect(dropped).not.toHaveBeenCalled()
@@ -323,16 +323,16 @@ describe('WSManager', () => {
     vi.useFakeTimers()
     try {
       const mgr = createWSManager()
-      expect(mgr.subscribed('/v0/documents/ws')).toBe(false)
-      const unsubscribe = mgr.subscribe('/v0/documents/ws', vi.fn())
+      expect(mgr.subscribed('/v0/chats/c1/ws')).toBe(false)
+      const unsubscribe = mgr.subscribe('/v0/chats/c1/ws', vi.fn())
       MockWebSocket.instances[0].simulateClose()
-      expect(mgr.subscribed('/v0/documents/ws')).toBe(true)
+      expect(mgr.subscribed('/v0/chats/c1/ws')).toBe(true)
       vi.advanceTimersByTime(1000)
-      expect(mgr.subscribed('/v0/documents/ws')).toBe(true)
+      expect(mgr.subscribed('/v0/chats/c1/ws')).toBe(true)
 
       unsubscribe()
 
-      expect(mgr.subscribed('/v0/documents/ws')).toBe(false)
+      expect(mgr.subscribed('/v0/chats/c1/ws')).toBe(false)
     } finally {
       vi.useRealTimers()
     }
@@ -349,9 +349,9 @@ describe('WSManager', () => {
     try {
       const fresh = await import('@/lib/ws/manager')
       const mgr = fresh.createWSManager()
-      mgr.subscribe('/v0/documents/ws', vi.fn())
+      mgr.subscribe('/v0/chats/c1/ws', vi.fn())
 
-      await expect(mgr.opened('/v0/documents/ws')).rejects.toThrow()
+      await expect(mgr.opened('/v0/chats/c1/ws')).rejects.toThrow()
       expect(MockWebSocket.instances).toHaveLength(0)
     } finally {
       vi.doUnmock('@/lib/ws/url')
