@@ -60,8 +60,6 @@ export interface WSManager {
   opened(endpoint: string): Promise<void>
   /** `listener` hears each drop of `endpoint`'s open socket while it has subscribers. */
   onDrop(endpoint: string, listener: () => void): () => void
-  /** Whether anything subscribes to `endpoint`, its socket open or not. */
-  subscribed(endpoint: string): boolean
 }
 
 // Closing a socket that is still CONNECTING makes the browser log
@@ -216,10 +214,6 @@ export function createWSManager(): WSManager {
       }
       if (ch.socket.readyState === WebSocket.OPEN) return Promise.resolve()
       return new Promise((resolve, reject) => ch.waiters.push({ resolve, reject }))
-    },
-
-    subscribed(endpoint) {
-      return (channels.get(endpoint)?.callbacks.size ?? 0) > 0
     },
 
     onDrop(endpoint, listener) {

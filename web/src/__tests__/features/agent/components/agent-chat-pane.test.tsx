@@ -14,7 +14,7 @@ import {
 import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
 import { chatStore } from '@/features/agent/stores/chat-store'
 import { ledger, seedFeed, spokenIn } from '@/__tests__/__fixtures__/ledger-rows'
-import { wsManager } from '@/lib/ws/manager'
+import { feedHeld } from '@/__tests__/__fixtures__/stream-daemon'
 import { resetChatPresentationMemoryForTests } from '@/features/agent/hooks/use-chat-presentation'
 import { nanoid } from 'nanoid'
 
@@ -828,7 +828,7 @@ describe('AgentChatPane', () => {
     })
     await renderPane(store, paneId)
 
-    expect(wsManager.subscribed('/v0/chats/c1/feed')).toBe(true)
+    expect(feedHeld('/v0/chats/c1/feed')).toBe(true)
   })
 
   // The feed is addressed by chat id alone, so no workspace has to vouch for it.
@@ -837,7 +837,7 @@ describe('AgentChatPane', () => {
     const paneId = openChatPane(store, 'c1', 'r1')
     await renderPane(store, paneId)
 
-    expect(wsManager.subscribed('/v0/chats/c1/feed')).toBe(true)
+    expect(feedHeld('/v0/chats/c1/feed')).toBe(true)
   })
 
   it('threads isActivePane=false through to the terminal', async () => {

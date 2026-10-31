@@ -46,3 +46,11 @@ export function resetStreamDaemon(): void {
   streamDaemon.sent.length = 0
   streamDaemon.answer = synced
 }
+
+/** Each chat feed's subscribers at setup's fake manager. */
+export const feeds = new Map<string, number>()
+
+/** Whether anything subscribes to the chat feed at `endpoint`. */
+export function feedHeld(endpoint: string): boolean {
+  return (feeds.get(endpoint) ?? 0) > 0
+}

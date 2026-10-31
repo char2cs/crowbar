@@ -258,11 +258,10 @@ if (typeof navigator !== 'undefined' && !navigator.clipboard) {
 const setupManager = vi.hoisted(() => ({ current: null as unknown }))
 vi.mock('@/lib/ws/manager', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/ws/manager')>()
-  const { streamDaemon } = await import('@/__tests__/__fixtures__/stream-daemon')
+  const { streamDaemon, feeds: held } = await import('@/__tests__/__fixtures__/stream-daemon')
   const real = actual.wsManager
   const stream = (endpoint: string) => endpoint === '/v0/stream'
   const feed = (endpoint: string) => /^\/v0\/chats\/[^/]+\/feed$/.test(endpoint)
-  const held = new Map<string, number>()
   const hold = (endpoint: string, n: number) => held.set(endpoint, (held.get(endpoint) ?? 0) + n)
   const wsManager: typeof real = {
     subscribe: (endpoint, cb, url) => {
@@ -292,12 +291,6 @@ vi.mock('@/lib/ws/manager', async (importOriginal) => {
       }
       return feed(endpoint) ? () => {} : real.onDrop(endpoint, listener)
     },
-    subscribed: (endpoint) =>
-      stream(endpoint)
-        ? true
-        : feed(endpoint)
-          ? (held.get(endpoint) ?? 0) > 0
-          : real.subscribed(endpoint),
   }
   setupManager.current = wsManager
   return { ...actual, wsManager }

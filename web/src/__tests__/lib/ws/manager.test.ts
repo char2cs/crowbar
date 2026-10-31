@@ -167,7 +167,6 @@ describe('WSManager', () => {
       MockWebSocket.instances[0].simulateClose()
       vi.advanceTimersByTime(1000)
       expect(MockWebSocket.instances[1].url).toContain('/v0/chats/c1/feed?since=7')
-      expect(mgr.subscribed('/v0/chats/c1/feed')).toBe(true)
     } finally {
       vi.useRealTimers()
     }
@@ -317,25 +316,6 @@ describe('WSManager', () => {
         vi.useRealTimers()
       }
     })
-  })
-
-  it('subscribed holds while anything subscribes, through a reconnect', () => {
-    vi.useFakeTimers()
-    try {
-      const mgr = createWSManager()
-      expect(mgr.subscribed('/v0/chats/c1/ws')).toBe(false)
-      const unsubscribe = mgr.subscribe('/v0/chats/c1/ws', vi.fn())
-      MockWebSocket.instances[0].simulateClose()
-      expect(mgr.subscribed('/v0/chats/c1/ws')).toBe(true)
-      vi.advanceTimersByTime(1000)
-      expect(mgr.subscribed('/v0/chats/c1/ws')).toBe(true)
-
-      unsubscribe()
-
-      expect(mgr.subscribed('/v0/chats/c1/ws')).toBe(false)
-    } finally {
-      vi.useRealTimers()
-    }
   })
 
   it('opened rejects when the transport cannot carry a socket', async () => {
