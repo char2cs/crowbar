@@ -8,7 +8,7 @@ import {
   chatMarkdownToValue,
   chatValueToMarkdown,
 } from '@/features/agent/composer/plate/chat-composer-serialization'
-import { insertAttachmentMarkdownInto } from '@/features/agent/composer/plate/chat-markdown-editor'
+import { insertAttachmentMarkdownInto } from '@/features/agent/composer/plate/chat-attachment-insert'
 
 /** The composer's own editor, plugin-for-plugin — `chat-markdown-editor.tsx`
  *  adds `chatComposerStructurePlugin` to `chatComposerPlugins` for the box

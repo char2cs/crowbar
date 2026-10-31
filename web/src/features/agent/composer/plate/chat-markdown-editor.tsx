@@ -1,19 +1,13 @@
 import { useCallback, useImperativeHandle, useMemo, useRef } from 'react'
 import { layoutHeight } from '@/lib/layout-size'
 import type { CSSProperties, KeyboardEvent, Ref } from 'react'
-import {
-  NodeApi,
-  PathApi,
-  PointApi,
-  RangeApi,
-  type Path,
-  type Point,
-  type TRange,
-  type Value,
-} from 'platejs'
-import type { PlateEditor } from 'platejs/react'
+import { PointApi, RangeApi, type Value } from 'platejs'
 import { createPlatePlugin, Plate, PlateContent, usePlateEditor } from 'platejs/react'
-import { CodeBlockPlugin } from '@platejs/code-block/react'
+import {
+  insertAttachmentMarkdownInto,
+  insertPendingImageInto,
+  settlePendingImageInto,
+} from '@/features/agent/composer/plate/chat-attachment-insert'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
 import { chatComposerStructurePlugin } from '@/features/agent/composer/plate/chat-composer-structure'
 import {
@@ -99,153 +93,6 @@ export interface ChatMarkdownEditorProps {
   className?: string
   style?: CSSProperties
   ref?: Ref<ChatMarkdownEditorHandle>
-}
-
-/** The path of an EMPTY paragraph ancestor at `at`, or null — used instead of
- *  the point itself so `insertNodes` inserts at that array index (pushing
- *  the still-empty paragraph after the new content) rather than splitting
- *  the paragraph at a text offset, which would leave two empty halves
- *  straddling the new content instead of one trailing one. Real (non-empty)
- *  text at `at` returns null, unchanged from before this existed: attaching
- *  something mid-sentence still inserts inline at that exact point. */
-function emptyParagraphPathAt(
-  editor: PlateEditor,
-  at: Point | Path | TRange | undefined,
-): Path | null {
-  if (!at) return null
-  const entry = editor.api.above({ at, match: { type: 'p' } })
-  if (!entry) return null
-  const [node, path] = entry
-  return NodeApi.string(node) === '' ? path : null
-}
-
-/** After inserting an attachment, lands the caret on a fresh, empty line
- *  right after it — reported live: there was nowhere to keep typing except
- *  clicking below the block yourself. A no-op beyond moving the caret if the
- *  document's last node is ALREADY an empty paragraph (either the ordinary
- *  empty draft an attachment was just inserted into, or the same trailing
- *  line a previous attachment already made) — insertAttachmentMarkdownInto's
- *  own `emptyParagraphPathAt` redirect is what keeps that ONE paragraph
- *  trailing rather than stacking a new one behind each attachment. */
-function ensureTrailingEditableLine(editor: PlateEditor): void {
-  const last = editor.children.at(-1)
-  const alreadyEmpty = !!last && last.type === 'p' && NodeApi.string(last) === ''
-  if (!alreadyEmpty) {
-    editor.tf.insertNodes([{ type: 'p', children: [{ text: '' }] }], {
-      at: [editor.children.length],
-    })
-  }
-  const end = editor.api.end([])
-  if (end) editor.tf.select(end)
-}
-
-/**
- * Where an attachment inserted from OUTSIDE the editable lands, and the
- * insert itself. Split out from focusing the box and reporting the change
- * (the imperative handle below still does both, right after calling this)
- * so the one real branch here — was there already a selection to insert at,
- * or not — can be proven against a bare `createPlateEditor`, with no
- * mounted DOM: `editor.tf.focus()` throws without one.
- *
- * Fenced blocks get their own branch: inserted right after its `code_block`
- * path rather than at the raw point, or it splits the fence's OWN internals
- * and silently drops the new node's content instead of appending it as a
- * sibling (this is what two attachments inserted back-to-back, still inside
- * the first one's own structure, would otherwise hit). Detected specifically
- * via `CodeBlockPlugin` — NOT a blanket `mode: 'highest'`, which "fixes" this
- * by always walking to the top-level block, and in doing so splits a `table`
- * in two (header row separated from body) for the unrelated, previously-fine
- * case of a caret sitting inside a table cell.
- *
- * Lands the caret on a fresh trailing empty line afterward — see
- * `ensureTrailingEditableLine` — so the person can keep typing immediately.
- */
-function attachmentInsertionPath(editor: PlateEditor): Path | Point | TRange | undefined {
-  const at = editor.selection ?? editor.api.end([])
-  const codeBlock = editor.api.above({ at, match: { type: CodeBlockPlugin.key } })
-  return codeBlock ? PathApi.next(codeBlock[1]) : (emptyParagraphPathAt(editor, at) ?? at)
-}
-
-export function insertAttachmentMarkdownInto(editor: PlateEditor, markdown: string): void {
-  const nodes = chatMarkdownToValue(markdown)
-  editor.tf.insertNodes(nodes, { at: attachmentInsertionPath(editor) })
-  ensureTrailingEditableLine(editor)
-}
-
-/**
- * Inserts an image node pointing at a LOCAL, temporary `objectUrl` (from
- * `URL.createObjectURL`) — the optimistic half of an attachment upload: the
- * preview appears immediately, before the network round trip that produces
- * the real, persistable ref even starts. Built as a raw node rather than
- * routed through `insertAttachmentMarkdownInto`'s markdown codec so a
- * filename with `]`/`)` in it can never be misparsed as markdown syntax —
- * this bypasses markdown entirely, exactly once, for exactly this node.
- * `settlePendingImageInto` (below) is what replaces it once the upload
- * settles, one way or the other.
- */
-export function insertPendingImageInto(editor: PlateEditor, objectUrl: string, alt: string): void {
-  const node = {
-    type: 'img',
-    url: objectUrl,
-    caption: [{ text: alt }],
-    children: [{ text: '' }],
-  } as unknown as Value[number]
-  editor.tf.insertNodes([node], { at: attachmentInsertionPath(editor) })
-  ensureTrailingEditableLine(editor)
-}
-
-/**
- * Resolves a pending image previously inserted by `insertPendingImageInto`,
- * found by its own `objectUrl` (unique for the life of that blob, never
- * reused) — NOT by position, since the person may have kept typing or
- * reordered attachments while the upload was in flight.
- *
- * `finalMarkdown` is the real `![alt](ref)` `uploadAttachmentMarkdown`
- * resolved to: its `url` replaces the placeholder's IN PLACE, preserving
- * whatever position the placeholder ended up in. `null` means the upload
- * failed — the placeholder is removed instead, matching what happened
- * before this existed (a failed upload never left anything behind either).
- * Either way the object URL is revoked: once swapped, the browser holds the
- * real image; once removed, there is nothing left to preview.
- */
-export function settlePendingImageInto(
-  editor: PlateEditor,
-  objectUrl: string,
-  finalMarkdown: string | null,
-): void {
-  const [entry] = Array.from(
-    editor.api.nodes({
-      at: [],
-      match: (n) =>
-        (n as { type?: string }).type === 'img' && (n as { url?: string }).url === objectUrl,
-    }),
-  )
-  if (entry) {
-    const [, path] = entry
-    if (finalMarkdown === null) {
-      editor.tf.removeNodes({ at: path })
-    } else {
-      const nodes = chatMarkdownToValue(finalMarkdown)
-      const [finalNode] = nodes as unknown as { url?: string }[]
-      if (finalNode?.url) {
-        editor.tf.setNodes({ url: finalNode.url }, { at: path })
-      } else {
-        // The upload resolved to something other than an image — the
-        // server's own sniffed content type disagreed with the browser's
-        // guess that put this on the optimistic image path in the first
-        // place (uploadAttachmentMarkdown fell back to fileMarkdown, which
-        // deserializes to a link nested in a wrapping paragraph, not a
-        // top-level node with its own `.url`). Patching `url` in place
-        // would leave a void `img` node pointing at a non-image file —
-        // replace the placeholder with whatever it actually resolved to.
-        editor.tf.withoutNormalizing(() => {
-          editor.tf.removeNodes({ at: path })
-          editor.tf.insertNodes(nodes, { at: path })
-        })
-      }
-    }
-  }
-  URL.revokeObjectURL(objectUrl)
 }
 
 /**
