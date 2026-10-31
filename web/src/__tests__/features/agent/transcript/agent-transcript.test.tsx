@@ -213,6 +213,23 @@ describe('AgentTranscript', () => {
     expect(screen.getByTestId('agent-interrupted-divider')).toHaveTextContent('Interrupted')
   })
 
+  it('keeps the turn actions of earlier turns while a new one runs', () => {
+    const l = ledger()
+    seedFeed('chat-1', [
+      ...[1, 2].flatMap((n) => [
+        l.prompt(`r${n}`, `ask ${n}`),
+        l.start(`turn-${n}`, `r${n}`),
+        l.text(`turn-${n}`, `m${n}`, 0, `answer ${n}`, true),
+        l.end(`turn-${n}`),
+      ]),
+      l.prompt('r3', 'ask 3'),
+      l.start('turn-3', 'r3'),
+    ])
+    draw({ working: true })
+
+    expect(screen.getAllByTestId('message-turn-actions')).toHaveLength(2)
+  })
+
   it('symptom 6: rows are visible on the first render', () => {
     const l = ledger()
     seedFeed('chat-1', [l.prompt('r1', 'first'), l.start('turn-1', 'r1'), l.prompt('r2', 'last')])
@@ -421,6 +438,36 @@ describe('AgentTranscript', () => {
     // Two rows of 800, the gap above the dock's room, and that room (dock + 32).
     expect(stream.style.minHeight).toBe(`${1600 + 18 + 92 + 32}px`)
     expect(stream.dataset.pin).toBe('released')
+  })
+
+  it('keeps the pin for a reader up the page until they come back down', () => {
+    const l = ledger()
+    seedFeed('chat-1', [l.prompt('r1', 'one')])
+    const { container, redraw } = draw({ dockHeight: 92 })
+    const stream = container.querySelector<HTMLElement>('.stream')!
+    const list = screen.getByTestId('agent-message-list')
+    const box = { scrollHeight: 3200, clientHeight: 800 }
+    layOut(list, box)
+    act(() => chatStore.setState({ outbox: { 'chat-1': [outboxItem('r2')] } }))
+    act(() => {
+      seedFeed('chat-1', [l.prompt('r2', 'two'), l.start('turn-2', 'r2')])
+      chatStore.setState({ outbox: { 'chat-1': [] } })
+    })
+    redraw({ dockHeight: 92, working: true })
+    list.scrollTop = 2400 - 250
+    fireEvent.scroll(list)
+
+    act(() => seedFeed('chat-1', [l.end('turn-2')]))
+    redraw({ dockHeight: 92, working: false })
+    expect(stream.style.minHeight).toBe(`${800 + 800}px`)
+    expect(list.scrollTop).toBe(2150)
+
+    act(() => {
+      list.scrollTop = 2400
+      fireEvent.scroll(list)
+    })
+    expect(stream.dataset.pin).toBe('released')
+    expect(stream.style.minHeight).toBe(`${1600 + 18 + 92 + 32}px`)
   })
 
   it("lands the opening's correction of estimated row heights", () => {

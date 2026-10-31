@@ -186,10 +186,10 @@
   gap: 18px;
 }
 /* A released pin's room slides away: removing it at once drops the reply by
-   the whole blank height in one frame. Only the release animates, so a new
-   pin's floor is there in the frame the follow targets it. */
+   the whole blank height in one frame, and an ease-out spends most of it in the
+   first two. Only the release animates, so a new pin's floor is there at once. */
 .agent-chat .stream[data-pin='released'] {
-  transition: min-height 320ms cubic-bezier(0, 0, 0.2, 1);
+  transition: min-height 560ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* THE CONVERSATION RUNS UNDER THE COMPOSER — this is the reservation for

@@ -48,6 +48,8 @@ export interface TranscriptAnchor {
   /** The view is held to the bottom: a row resizing above it is the anchor's to
    *  answer, not the virtualizer's (its shift paints a frame before the total). */
   holdsBottom: () => boolean
+  /** Hears `holdsBottom` change, for a render that depends on it. */
+  subscribe: (listener: () => void) => () => void
 }
 
 export interface ReaderIntent {
@@ -83,6 +85,15 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   const touchY = useRef<number | null>(null)
   const wasMeasuring = useRef(false)
   const shown = useRef(options.visible ?? true)
+  const [listeners] = useState(() => new Set<() => void>())
+  const setStuck = useCallback(
+    (next: boolean) => {
+      if (stuck.current === next) return
+      stuck.current = next
+      for (const listener of listeners) listener()
+    },
+    [listeners],
+  )
   const optionsRef = useRef(options)
   optionsRef.current = options
 
@@ -200,11 +211,18 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   }, [])
 
   const stick = useCallback(() => {
-    stuck.current = true
+    setStuck(true)
     reading.current = false
-  }, [])
+  }, [setStuck])
 
   const holdsBottom = useCallback(() => stuck.current, [])
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      listeners.add(listener)
+      return () => void listeners.delete(listener)
+    },
+    [listeners],
+  )
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current
@@ -215,19 +233,19 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     seen.current = el.scrollTop
     fromBottom.current = el.scrollHeight - el.scrollTop
     if (reading.current && rising) return
-    stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_SLACK
+    setStuck(el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_SLACK)
     if (stuck.current) reading.current = false
-  }, [])
+  }, [setStuck])
 
   const letGo = useCallback(() => {
     if (!stuck.current) return
-    stuck.current = false
+    setStuck(false)
     reading.current = true
     easeFrom.current = null
     follow.current?.pause()
     const el = scrollRef.current
     if (el) fromBottom.current = el.scrollHeight - el.scrollTop
-  }, [])
+  }, [setStuck])
 
   const [intent] = useState<ReaderIntent>(() => ({
     onWheel: (event) => {
@@ -255,5 +273,6 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     noteScrollWrite,
     stick,
     holdsBottom,
+    subscribe,
   }
 }

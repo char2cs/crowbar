@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react'
 import { flushSync } from 'react-dom'
 import {
@@ -208,7 +209,8 @@ const samePlace = (a: RowPlace | undefined, b: RowPlace) =>
 
 /** What each row's position says: the first turn and its reply keep the
  *  document hand, a reply is timed from its prompt, and only the reply that
- *  hands control back (no reply after it before the next prompt) gets a turnbar. */
+ *  hands control back (no reply after it before the next prompt) gets a turnbar;
+ *  the newest run hands it back only once nothing runs. */
 function placesOf(
   ids: string[],
   itemOf: (id: string) => TranscriptItem | undefined,
@@ -220,16 +222,16 @@ function placesOf(
   let firstReply: string | undefined
   let lastUserAt: string | undefined
   let lastText: string | undefined
-  const closeRun = () => {
+  const closeRun = (handedBack: boolean) => {
     const place = lastText ? places.get(lastText) : undefined
-    if (place && !working) place.turnbar = true
+    if (place && handedBack) place.turnbar = true
     lastText = undefined
   }
   for (const id of ids) {
     const item = itemOf(id)
     if (item?.kind === 'user') {
       if (item.origin === 'harness' || item.origin === 'note') continue
-      closeRun()
+      closeRun(true)
       lastUserAt = item.at
       places.set(id, { firstTurn: id === firstTurn })
     } else if (item?.kind === 'text') {
@@ -238,7 +240,7 @@ function placesOf(
       places.set(id, { firstReply: id === firstReply, turnbar: false, precedingUserAt: lastUserAt })
     }
   }
-  closeRun()
+  closeRun(!working)
   return places
 }
 
@@ -272,17 +274,24 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   const pinnedState = useChatStore((s) =>
     pinnedId ? s.feeds[chatId]?.facts.prompts[pinnedId.slice(2)]?.state : undefined,
   )
-  const released = !props.working && pinnedState !== undefined && pinnedState !== 'pending'
+  const turnOver = !props.working && pinnedState !== undefined && pinnedState !== 'pending'
+  // Released once, for a reader at the bottom: one reading up the page keeps the
+  // room (and their place) until they come back down.
+  const [releasedId, setReleasedId] = useState<string | null>(null)
   const reportOffset = useRef<OffsetReport | null>(null)
   const anchor = useTranscriptAnchor({
     loadingHistory: props.status === 'connecting',
     initialPosition: props.initialScrollPosition,
     onPositionChange: props.onScrollPositionChange,
     visible: props.visible,
-    arriving: props.working || (pinnedId !== null && !released),
+    arriving: props.working || (pinnedId !== null && !turnOver),
     onWrite: (top) => reportOffset.current?.(top),
   })
   const { afterCommit, notifyReflow, noteScrollWrite, stick, holdsBottom, scrollRef } = anchor
+  const holding = useSyncExternalStore(anchor.subscribe, holdsBottom)
+  const releaseFor = turnOver ? (holding ? pinnedId : releasedId) : null
+  if (releaseFor !== releasedId) setReleasedId(releaseFor)
+  const released = turnOver && releaseFor === pinnedId
   const [measureRow] = useState(() => measureRowInto(measured))
   const [observeElementRect] = useState(() => observeScrollRectFor(notifyReflow))
   const [observeOffset] = useState(() =>
