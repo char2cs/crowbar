@@ -54,7 +54,6 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   const written = useRef<number | null>(null)
   // Where the current catch-up began, so a staircase of corrections is one gap.
   const easeFrom = useRef<number | null>(null)
-  const boxed = useRef(true)
   const landNext = useRef(true)
   const wasMeasuring = useRef(false)
   const shown = useRef(options.visible ?? true)
@@ -70,14 +69,9 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     (correcting = false) => {
       const el = scrollRef.current
       if (!el) return
-      if (el.clientHeight === 0) {
-        boxed.current = false
-        return
-      }
-      if (!boxed.current) {
-        boxed.current = true
-        landNext.current = true
-      }
+      // A display:none box measures 0; the report that hid it asked for a landing
+      // (notifyReflow), which waits here until the box is back.
+      if (el.clientHeight === 0) return
       const land = landNext.current
       landNext.current = false
       if (!stuck.current) {
