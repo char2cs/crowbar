@@ -3,12 +3,17 @@
 package tests
 
 import (
+	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -322,4 +327,80 @@ func TestChatFeed_ToolPayloadIsReadableByItsRef(t *testing.T) {
 	assert.JSONEq(t, `{"command":"ls -la"}`, string(body))
 	bad := h.raw(http.MethodGet, "/v0/chats/"+chatID+"/blobs/not-a-ref", nil, http.StatusBadRequest)
 	require.NoError(t, bad.Body.Close())
+}
+
+var updateRowsFixture = flag.Bool("update-rows-fixture", false,
+	"write the recorded subagent session's rows fixture for the web tests")
+
+const recordedRowsFixture = "../../web/src/__tests__/__fixtures__/claude-subagent-session.rows.json"
+
+// runIDs is what the daemon mints per run (chat, turn, runner, session ids)
+// and the blob digests, some of whose content names the run's session.
+var runIDs = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{64}`)
+
+// stableRows is the feed's replay with what differs between runs replaced, in
+// order of appearance, by fixed placeholders; ids the recording carries stay.
+func stableRows(t *testing.T, conn *websocket.Conn, recorded string) []byte {
+	t.Helper()
+	var rows []json.RawMessage
+	for {
+		require.NoError(t, conn.SetReadDeadline(time.Now().Add(45*time.Second)))
+		_, raw, err := conn.ReadMessage()
+		require.NoError(t, err)
+		var f struct {
+			Type string          `json:"type"`
+			Row  json.RawMessage `json:"row"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &f))
+		if f.Type == "ready" {
+			break
+		}
+		rows = append(rows, f.Row)
+	}
+	out, err := json.MarshalIndent(rows, "", "  ")
+	require.NoError(t, err)
+	names := map[string]string{}
+	text := runIDs.ReplaceAllStringFunc(string(out), func(id string) string {
+		if strings.Contains(recorded, id) {
+			return id
+		}
+		if _, ok := names[id]; !ok && len(id) == 64 {
+			names[id] = fmt.Sprintf("%064x", len(names)+1)
+		} else if !ok {
+			names[id] = fmt.Sprintf("id-%d", len(names)+1)
+		}
+		return names[id]
+	})
+	at := regexp.MustCompile(`"at": "[^"]+"`)
+	n := 0
+	text = at.ReplaceAllStringFunc(text, func(string) string {
+		n++
+		return fmt.Sprintf(`"at": "2026-10-01T12:%02d:%02dZ"`, n/60, n%60)
+	})
+	return append([]byte(text), '\n')
+}
+
+// The web transcript's tests render this session's real rows; the file is
+// written only from here, so it never drifts from the ingress.
+func TestFeedRows_RecordedSubagentSessionFixture(t *testing.T) {
+	c := newTurnChat(t, newHarness(t))
+	c.replayRange(t, 0, 1000)
+	var recorded bytes.Buffer
+	entries, err := os.ReadDir(subagentSessionDir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		raw, err := os.ReadFile(subagentSessionDir + "/" + e.Name())
+		require.NoError(t, err)
+		recorded.Write(raw)
+	}
+
+	got := stableRows(t, dialFeed(t, c.h, c.chatID, 0), recorded.String())
+
+	if *updateRowsFixture {
+		require.NoError(t, os.WriteFile(recordedRowsFixture, got, 0o600))
+		return
+	}
+	want, err := os.ReadFile(recordedRowsFixture)
+	require.NoError(t, err, "write it with -args -update-rows-fixture")
+	assert.Equal(t, string(want), string(got), "the rows drifted: rerun with -args -update-rows-fixture")
 }
