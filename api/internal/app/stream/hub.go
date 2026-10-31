@@ -344,7 +344,7 @@ func (h *Hub) letGo(c *connection) {
 // admit reads a sub's scope and its source, answering the client itself when either is wrong.
 func (h *Hub) admit(c *connection, raw string) (stream.Scope, Source, bool) {
 	if len(raw) > stream.MaxScopeLen {
-		c.push(stream.Errored(problem.Of(problem.New(problem.InvalidArgument, "stream: scope too long"))), false)
+		refuse(c, raw, problem.New(problem.InvalidArgument, "stream: scope too long"))
 		return stream.Scope{}, nil, false
 	}
 	scope, err := stream.ParseScope(raw)

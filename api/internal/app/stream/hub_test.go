@@ -201,19 +201,21 @@ func TestHub_TooManyScopesAreRefused(t *testing.T) {
 	assert.Equal(t, stream.ReasonRefused, closed.Reason)
 }
 
-func TestHub_AnOverlongScopeIsRefusedWithoutEchoingIt(t *testing.T) {
+// An overlong scope is that scope's refusal, so a holder waiting on it hears why.
+func TestHub_AnOverlongScopeIsRefused(t *testing.T) {
 	hub, _ := projectsHub(map[string]string{})
 	conn := newFakeConn()
 	served(t, hub, conn)
 
-	conn.send(t, stream.OpSub, "chat:"+strings.Repeat("x", stream.MaxScopeLen))
+	long := "doc:/" + strings.Repeat("x", stream.MaxScopeLen)
+	conn.send(t, stream.OpSub, long)
 	got := conn.next(t)
 
-	assert.Equal(t, stream.FrameError, got.T)
-	assert.Empty(t, got.Scope)
+	assert.Equal(t, stream.FrameClosed, got.T)
+	assert.Equal(t, long, got.Scope)
+	assert.Equal(t, stream.ReasonRefused, got.Reason)
 	require.NotNil(t, got.Problem)
 	assert.Equal(t, problem.InvalidArgument, got.Problem.Code)
-	assert.NotContains(t, got.Problem.Message, "xxxx")
 }
 
 // An op the hub does not know is the connection's error, never a held scope's.
