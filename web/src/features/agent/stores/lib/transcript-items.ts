@@ -1,5 +1,6 @@
 import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import type { MarkerKind, PlanItem, RowBodies, ToolCallBody } from '@/features/agent/api/chat-rows'
+import type { ToolFamily } from '@/features/agent/transcript/lib/tool-family'
 
 interface ItemBase {
   id: string
@@ -56,6 +57,8 @@ export interface ToolItem extends ItemBase {
   scope: string
   body: ToolCallBody
   status: ToolStatus
+  /** Decided by the call's first row; it never changes. */
+  family: ToolFamily
 }
 
 /** `choice.id` is the ask id; it stays pending until its ask_resolved row. */

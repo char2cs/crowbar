@@ -6,7 +6,6 @@ import {
   choiceQuestions,
   describeChoice,
   describeResolvedChoice,
-  formatDuration,
   optionLabel,
 } from '@/features/agent/lib/agent-activity'
 
@@ -27,22 +26,6 @@ function choice(overrides: Partial<AgentChoice> = {}): AgentChoice {
     ...overrides,
   }
 }
-
-describe('formatDuration', () => {
-  it.each([
-    [undefined, ''],
-    [0, ''],
-    [-5, ''],
-    // Sub-second work in milliseconds: "0s" reads as "nothing happened".
-    [37, '37ms'],
-    [1500, '1.5s'],
-    [59_000, '59.0s'],
-    [60_000, '1m'],
-    [90_000, '1m 30s'],
-  ])('renders %s as %s', (ms, expected) => {
-    expect(formatDuration(ms)).toBe(expected)
-  })
-})
 
 describe('describeChoice', () => {
   it('names the tool a permission gates', () => {

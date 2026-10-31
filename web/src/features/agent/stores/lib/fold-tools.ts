@@ -8,6 +8,7 @@ import {
   type AskItem,
   type ToolItem,
 } from '@/features/agent/stores/lib/transcript-items'
+import { toolFamily } from '@/features/agent/transcript/lib/tool-family'
 
 type Apply<K extends RowKind> = (fold: FeedFold, row: LedgerRow<K>) => void
 
@@ -35,6 +36,7 @@ export const applyToolCall: Apply<'tool_call'> = (fold, row) => {
           scope,
           body,
           status,
+          family: toolFamily(body),
         },
   )
   markOutput(fold, row)

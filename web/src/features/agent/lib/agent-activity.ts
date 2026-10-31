@@ -84,24 +84,3 @@ export function describeResolvedChoice(choice: AgentChoice): string {
   const verb = picked.length > 0 ? picked.join(', ') : 'Answered'
   return `${subject} · ${verb}`
 }
-
-/** The newest `limit` characters of live text on one line, emphasis runs
- *  stripped: the newest words say what is happening now. */
-export function tailOf(text: string, limit: number): string {
-  const flat = text
-    .replace(/\*{1,3}/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-  if (flat.length <= limit) return flat
-  return `…${flat.slice(flat.length - limit)}`
-}
-
-/** A duration read at a glance; sub-second work in ms, since "0s" reads as nothing. */
-export function formatDuration(ms: number | undefined): string {
-  if (!ms || ms < 0) return ''
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
-  const minutes = Math.floor(ms / 60_000)
-  const seconds = Math.round((ms % 60_000) / 1000)
-  return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`
-}

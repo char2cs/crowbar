@@ -7,6 +7,7 @@ import {
   type TranscriptItem,
   type TurnFacts,
 } from '@/features/agent/stores/lib/transcript-items'
+import { displayRows, type DisplayRow } from '@/features/agent/transcript/lib/tool-runs'
 
 const EMPTY_IDS: string[] = []
 
@@ -20,6 +21,25 @@ const feedOf = (feeds: Record<string, ChatFeed>, chatId: string | undefined) =>
 
 export function useChatOrder(chatId: string | undefined): string[] {
   return useChatStore((s) => feedOf(s.feeds, chatId)?.order ?? EMPTY_IDS)
+}
+
+const NO_ROWS: DisplayRow[] = []
+// An order array is replaced whenever an item joins it, and the grouping reads
+// only facts an item never changes, so one result per order array is exact.
+const drawn = new WeakMap<string[], DisplayRow[]>()
+
+/** The main-scope order as drawn: hidden calls left out, read-only runs folded. */
+export function useDisplayRows(chatId: string | undefined): DisplayRow[] {
+  return useChatStore((s) => {
+    const feed = feedOf(s.feeds, chatId)
+    if (!feed) return NO_ROWS
+    let rows = drawn.get(feed.order)
+    if (!rows) {
+      rows = displayRows(feed.order, feed.items)
+      drawn.set(feed.order, rows)
+    }
+    return rows
+  })
 }
 
 export function useLiveTail(chatId: string | undefined): string[] {

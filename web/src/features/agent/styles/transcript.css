@@ -746,6 +746,88 @@
   opacity: 0.6;
 }
 
+/* A live verb shimmers; a settled one does not. The app-wide reduced-motion
+   switch (index.css) stops the sweep. */
+.agent-chat .tool-call-verb[data-live] {
+  background: linear-gradient(
+      90deg,
+      var(--foreground) 0%,
+      var(--muted-foreground) 50%,
+      var(--foreground) 100%
+    )
+    0 0 / 200% 100%;
+  background-clip: text;
+  color: transparent;
+  animation: tool-verb-shimmer 1.6s linear infinite;
+}
+@keyframes tool-verb-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+.agent-chat .tool-call-label {
+  display: inline-flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+}
+.agent-chat .tool-glyph {
+  flex: none;
+}
+.agent-chat .tool-call-state,
+.agent-chat .tool-call-stat,
+.agent-chat .tool-call-command {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+.agent-chat .tools li[data-status='abandoned'] .tool-call-state {
+  color: var(--warning-foreground);
+}
+.agent-chat .tool-call-command {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+/* A non-zero exit is not a failure by itself: a neutral chip, not the error colour. */
+.agent-chat .tool-call-exit {
+  flex: none;
+  padding: 0 4px;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+.agent-chat .mcp-server {
+  --mcp-hue: var(--chart-1);
+  flex: none;
+  padding: 0 5px;
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--mcp-hue) 16%, transparent);
+  color: color-mix(in srgb, var(--mcp-hue) 70%, var(--foreground));
+  font-weight: 500;
+}
+.agent-chat .mcp-server[data-hue='2'] {
+  --mcp-hue: var(--chart-2);
+}
+.agent-chat .mcp-server[data-hue='3'] {
+  --mcp-hue: var(--chart-3);
+}
+.agent-chat .mcp-server[data-hue='4'] {
+  --mcp-hue: var(--chart-4);
+}
+.agent-chat .mcp-server[data-hue='5'] {
+  --mcp-hue: var(--chart-5);
+}
+.agent-chat .tool-run-members {
+  margin: 2px 0 4px 18px;
+}
+
 /* The compaction boundary. Everything above it is out of the model's context and
    still in the transcript — this line is the only thing that says so. */
 .agent-chat .divider {

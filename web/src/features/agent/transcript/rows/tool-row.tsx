@@ -1,113 +1,129 @@
 import { memo, useState } from 'react'
 import { CaretRightIcon } from '@phosphor-icons/react'
-import type { ToolCallBody } from '@/features/agent/api/chat-rows'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { TurnDiffPreview } from '@/features/agent/activity/turn-diff-preview'
 import { useLiveText } from '@/features/agent/hooks/use-chat-feed'
-import { describeResolvedChoice, formatDuration, tailOf } from '@/features/agent/lib/agent-activity'
+import { describeResolvedChoice } from '@/features/agent/lib/agent-activity'
 import {
+  CheckIcon,
+  CloseIcon,
   FetchIcon,
   FileIcon,
   PencilIcon,
   SearchIcon,
+  SubagentIcon,
   TerminalIcon,
   ToolIcon,
 } from '@/features/agent/shared/agent-icons'
 import type { AskItem, ToolItem } from '@/features/agent/stores/lib/transcript-items'
+import {
+  commandProgramName,
+  diffStat,
+  formatDuration,
+  labelText,
+  tailOf,
+  toolLabel,
+} from '@/features/agent/transcript/lib/tool-label'
+import { McpServerBadge } from '@/features/agent/transcript/rows/mcp-server-badge'
 import { ToolPayload } from '@/features/agent/transcript/rows/tool-payload'
 
 /** A running tool's output is a progress signal, not a log: one line's worth. */
 const TOOL_OUTPUT_LIMIT = 120
 
-const KIND_ICONS: Record<string, typeof ToolIcon> = {
+/** An edit this small reads at a glance, so its diff starts open. */
+const OPEN_DIFF_LINES = 12
+
+const FAMILY_ICONS: Partial<Record<ToolItem['family'], typeof ToolIcon>> = {
   read: FileIcon,
   edit: PencilIcon,
   execute: TerminalIcon,
   search: SearchIcon,
   fetch: FetchIcon,
+  subagent: SubagentIcon,
 }
 
-const VERBS: Record<string, [string, string]> = {
-  read: ['Reading', 'Read'],
-  edit: ['Editing', 'Edited'],
-  execute: ['Running', 'Ran'],
-  search: ['Searching', 'Searched'],
-  fetch: ['Fetching', 'Fetched'],
+/** What a call that never finished says in place of a result. */
+const STATE_TEXT: Partial<Record<ToolItem['status'], string>> = {
+  declined: 'Denied',
+  interrupted: 'Stopped',
+  abandoned: 'Result unavailable',
 }
 
-function humanizeToolName(name: string): string {
-  const words = name
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/[_-]+/g, ' ')
-    .trim()
-    .toLowerCase()
-  return words ? `${words[0]?.toUpperCase()}${words.slice(1)}` : ''
+function StatusGlyph({ status }: { status: ToolItem['status'] }) {
+  if (status === 'running') return <FlickerSpinner className="size-3" />
+  if (status === 'ok') return <CheckIcon size={12} className="tool-glyph" />
+  return <CloseIcon size={12} className="tool-glyph" />
 }
 
-function toolVerb(body: ToolCallBody, status: ToolItem['status']): string {
-  if (status === 'declined') return 'Denied'
-  const running = status === 'running'
-  const verbs = body.kind ? VERBS[body.kind] : undefined
-  if (verbs) return verbs[running ? 0 : 1]
-  return humanizeToolName(body.name ?? '') || 'Tool'
-}
-
-/** The last three segments name a file; the full path stays in the tooltip. */
-function compactPath(path: string): string {
-  const normalized = path.replaceAll('\\', '/').replace(/\/+$/, '')
-  if (!normalized.startsWith('/')) return normalized
-  return normalized.split('/').filter(Boolean).slice(-3).join('/') || path
-}
-
-function toolSubject(body: ToolCallBody): { full: string; display: string } | undefined {
-  const location = body.locations?.[0]
-  if (location) {
-    const line = location.line ? `:${location.line}` : ''
-    const extra =
-      body.locations && body.locations.length > 1 ? ` +${body.locations.length - 1}` : ''
-    return {
-      full: `${location.path}${line}${extra}`,
-      display: `${compactPath(location.path)}${line}${extra}`,
-    }
-  }
-  const target = body.target?.trim()
-  if (!target) return undefined
-  const pathLike =
-    (body.kind === 'read' || body.kind === 'edit' || body.kind === 'search') &&
-    target.startsWith('/') &&
-    !target.includes('\n')
-  return { full: target, display: pathLike ? compactPath(target) : target }
-}
-
-function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
-  const [open, setOpen] = useState(false)
-  const { body, status } = item
-  const running = status === 'running'
-  const output = useLiveText(chatId, item.toolId, 'tool_output')
-  const liveDiff = useLiveText(chatId, item.toolId, 'diff')
-  const subject = toolSubject(body)
-  const Icon = body.kind ? (KIND_ICONS[body.kind] ?? ToolIcon) : null
-  const patch = body.diff || liveDiff
-  const expandable = Boolean(body.inputRef || body.resultRef)
-  const summary = (
-    <span className="tool-call-summary">
-      {running && <FlickerSpinner className="size-3" />}
-      {Icon && (
-        <span className="kind" title={body.kind} data-tool-kind={body.kind}>
-          <Icon size={12} />
+function Label({ item }: { item: ToolItem }) {
+  const { verb, subject } = toolLabel(item)
+  const live = item.status === 'running' ? '' : undefined
+  if (item.family === 'mcp') {
+    return (
+      <span className="tool-call-label" data-testid="agent-tool-label">
+        <McpServerBadge server={verb} />
+        <span className="tool-call-verb" data-live={live}>
+          {' · '}
+          {subject?.display}
         </span>
-      )}
-      <span className="tool-call-verb">{toolVerb(body, status)}</span>
+      </span>
+    )
+  }
+  return (
+    <span className="tool-call-label" data-testid="agent-tool-label">
+      <span className="tool-call-verb" data-live={live}>
+        {verb}
+      </span>
       {subject && (
-        <span
-          className="tool-call-subject"
-          data-tool-location={body.locations?.length ? '' : undefined}
-          title={subject.full}
-        >
+        <span className="tool-call-subject" title={subject.full}>
           {subject.display}
         </span>
       )}
-      {body.error && <span className="err">{body.error}</span>}
+    </span>
+  )
+}
+
+/** The command itself, when the label named it by something else. */
+function commandLine(item: ToolItem): string {
+  const target = item.body.target?.trim() ?? ''
+  if (item.family !== 'execute' || !target) return ''
+  const shown = item.body.title || commandProgramName(target)
+  return shown === target ? '' : (target.split('\n')[0] ?? '')
+}
+
+function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
+  const [toggled, setToggled] = useState<boolean | null>(null)
+  const { body, status, family } = item
+  const running = status === 'running'
+  const output = useLiveText(chatId, item.toolId, 'tool_output')
+  const liveDiff = useLiveText(chatId, item.toolId, 'diff')
+  const patch = family === 'edit' ? body.diff || liveDiff || '' : ''
+  const stat = patch ? diffStat(patch) : null
+  const showDiff = toggled ?? (stat !== null && stat.added + stat.removed <= OPEN_DIFF_LINES)
+  const expandable = Boolean(body.inputRef || body.resultRef || patch)
+  const Icon = FAMILY_ICONS[family] ?? ToolIcon
+  const errorLine = status === 'error' ? body.error?.split('\n')[0] : undefined
+  const exit =
+    body.exitCode && (body.resultRef || output) ? (
+      <span className="tool-call-exit">exit {body.exitCode}</span>
+    ) : null
+  const command = commandLine(item)
+  const summary = (
+    <span className="tool-call-summary">
+      <StatusGlyph status={status} />
+      <span className="kind" data-tool-kind={body.kind}>
+        <Icon size={12} />
+      </span>
+      <Label item={item} />
+      {STATE_TEXT[status] && <span className="tool-call-state">{STATE_TEXT[status]}</span>}
+      {stat && (
+        <span className="tool-call-stat">
+          +{stat.added} −{stat.removed}
+        </span>
+      )}
+      {exit}
+      {errorLine && <span className="err">{errorLine}</span>}
+      {command && <span className="tool-call-command">$ {command}</span>}
       {body.durationMs !== undefined && (
         <span className="tool-call-duration">{formatDuration(body.durationMs)}</span>
       )}
@@ -124,33 +140,34 @@ function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
       data-row-id={item.id}
       data-testid="agent-activity-tool"
       data-tool-id={item.toolId}
+      data-family={family}
+      aria-label={labelText(item)}
     >
       <div className="assistant">
         <ul className="tools">
           <li data-status={status}>
-            {expandable ? (
-              <div className="tool-row">
-                {summary}
+            <div className="tool-row">
+              {summary}
+              {expandable && (
                 <button
                   type="button"
                   className="tool-row-toggle"
                   aria-label="Show tool details"
-                  aria-expanded={open}
-                  onClick={() => setOpen((o) => !o)}
+                  aria-expanded={toggled ?? showDiff}
+                  onClick={() => setToggled(!(toggled ?? showDiff))}
                 >
                   <CaretRightIcon size={12} />
                 </button>
-              </div>
-            ) : (
-              summary
-            )}
-            {open && (
-              <ToolPayload chatId={chatId} inputRef={body.inputRef} resultRef={body.resultRef} />
-            )}
-            {body.kind === 'edit' && patch && (
+              )}
+            </div>
+            {patch && showDiff && (
               <div className="turn-diff tool-turn-diff" data-testid="agent-tool-diff">
                 <TurnDiffPreview diff={patch} turnId={item.toolId} />
               </div>
+            )}
+            {/* The blobs are read only once someone asks for them. */}
+            {toggled && (body.inputRef || body.resultRef) && (
+              <ToolPayload chatId={chatId} inputRef={body.inputRef} resultRef={body.resultRef} />
             )}
           </li>
         </ul>

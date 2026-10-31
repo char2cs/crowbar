@@ -75,14 +75,98 @@ describe('ToolRow', () => {
       ),
     ])
     draw('t:tool-1')
-    expect(screen.getByText('c/d/e.ts:4')).toHaveAttribute('title', '/a/b/c/d/e.ts:4')
+    expect(screen.getByText('c/d/e.ts L4')).toHaveAttribute('title', '/a/b/c/d/e.ts:4')
   })
 
-  it('reads a tool its turn closed on as abandoned', () => {
+  it('reads Result unavailable for a tool its turn abandoned', () => {
     const l = ledger()
-    seed([l.start('turn-1'), l.tool('turn-1', 'tool-1', 'pre'), l.end('turn-1', 'interrupted')])
+    seed([l.start('turn-1'), l.tool('turn-1', 'tool-1', 'pre'), l.end('turn-1')])
     draw('t:tool-1')
     expect(status()).toBe('abandoned')
+    expect(screen.getByText('Result unavailable')).toBeInTheDocument()
+  })
+
+  const edit = (diff: string) => ({
+    toolId: 'tool-1',
+    phase: 'post' as const,
+    name: 'Edit',
+    kind: 'edit',
+    target: '/repo/README.md',
+    diff,
+  })
+  const lines = (count: number) => Array.from({ length: count }, (_, i) => `+line ${i}`).join('\n')
+
+  it('opens an edit diff by default when it changes 12 lines or fewer', () => {
+    const l = ledger()
+    seed([l.row('tool_call', edit(`@@ -0,0 +1,12 @@\n${lines(12)}`), { turnId: 'turn-1' })])
+    draw('t:tool-1')
+    expect(screen.getByTestId('agent-tool-diff')).toBeInTheDocument()
+    expect(screen.getByText('+12 −0')).toBeInTheDocument()
+  })
+
+  it('keeps a larger edit diff closed until it is opened', () => {
+    const l = ledger()
+    seed([l.row('tool_call', edit(`@@ -0,0 +1,13 @@\n${lines(13)}`), { turnId: 'turn-1' })])
+    draw('t:tool-1')
+    expect(screen.queryByTestId('agent-tool-diff')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Show tool details' }))
+    expect(screen.getByTestId('agent-tool-diff')).toBeInTheDocument()
+  })
+
+  it('shows the first error line of a failed tool inline', () => {
+    const l = ledger()
+    const call = { toolId: 'tool-1', name: 'Bash', kind: 'execute', target: 'cat missing.txt' }
+    seed([
+      l.row(
+        'tool_call',
+        { ...call, phase: 'fail', error: 'cat: missing.txt: No such file\nexit status 1' },
+        { turnId: 'turn-1' },
+      ),
+    ])
+    draw('t:tool-1')
+    expect(status()).toBe('error')
+    expect(screen.getByText('cat: missing.txt: No such file')).toBeInTheDocument()
+    expect(screen.queryByText(/exit status 1/)).toBeNull()
+  })
+
+  it('shows a neutral exit chip for a non-zero exit with output', () => {
+    const l = ledger()
+    const call = {
+      toolId: 'tool-1',
+      name: 'Bash',
+      kind: 'execute',
+      title: 'Find x',
+      target: 'grep x y',
+    }
+    seed([
+      l.row(
+        'tool_call',
+        { ...call, phase: 'post', status: 'ok', exitCode: 1, resultRef: 'sha256:out' },
+        { turnId: 'turn-1' },
+      ),
+    ])
+    draw('t:tool-1')
+    expect(status()).toBe('ok')
+    expect(screen.getByText('exit 1')).toBeInTheDocument()
+    expect(screen.getByText('$ grep x y')).toBeInTheDocument()
+  })
+
+  it('reads Stopped for a tool an interrupt cut off', () => {
+    const l = ledger()
+    const call = { toolId: 'tool-1', name: 'Bash', kind: 'execute', target: 'sleep 9' }
+    seed([l.row('tool_call', { ...call, phase: 'fail', interrupted: true }, { turnId: 'turn-1' })])
+    draw('t:tool-1')
+    expect(status()).toBe('interrupted')
+    expect(screen.getByText('Stopped')).toBeInTheDocument()
+  })
+
+  it('names an MCP server as the noun of its row', () => {
+    const l = ledger()
+    const call = { toolId: 'tool-1', kind: 'mcp', name: 'mcp__echo__shout', mcpServer: 'echo' }
+    seed([l.row('tool_call', { ...call, mcpTool: 'shout', phase: 'post' }, { turnId: 'turn-1' })])
+    draw('t:tool-1')
+    expect(screen.getByTestId('agent-mcp-server')).toHaveTextContent('echo')
+    expect(screen.getByTestId('agent-tool-label')).toHaveTextContent('echo · shout')
   })
 
   // A denied permission stops the tool before it runs, and no post/fail row

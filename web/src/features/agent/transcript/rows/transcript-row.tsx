@@ -5,6 +5,7 @@ import { useChatStore } from '@/features/agent/stores/chat-store'
 import { MarkerRow } from '@/features/agent/transcript/rows/marker-row'
 import { TextRow } from '@/features/agent/transcript/rows/text-row'
 import { AskRow, ToolRow } from '@/features/agent/transcript/rows/tool-row'
+import { ToolRunRow } from '@/features/agent/transcript/rows/tool-run-row'
 import { UserRow, type PromptActions } from '@/features/agent/transcript/rows/user-row'
 
 /** What a row's place in the conversation says about it, from the transcript. */
@@ -26,16 +27,20 @@ function TranscriptRowBody({
   providers,
   place,
   actions,
+  members,
 }: {
   chatId: string
   id: string
   providers: AgentProvider[]
   place?: RowPlace
   actions: PromptActions
+  /** A run's calls, when `id` names a run. */
+  members?: string[]
 }) {
   const item = useChatItem(chatId, id)
   const provider = useTurnFact(chatId, item?.turnId, 'providers')
   const effort = useTurnFact(chatId, item?.turnId, 'efforts')
+  if (members) return <ToolRunRow chatId={chatId} id={id} members={members} />
   switch (item?.kind) {
     case undefined:
     case 'user':

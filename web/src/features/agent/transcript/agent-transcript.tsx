@@ -22,7 +22,7 @@ import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { WorkingLine } from '@/features/agent/activity/working-line'
-import { useChatItems, useChatOrder, useLiveTail } from '@/features/agent/hooks/use-chat-feed'
+import { useChatItems, useDisplayRows, useLiveTail } from '@/features/agent/hooks/use-chat-feed'
 import {
   useTranscriptAnchor,
   type TranscriptScrollPosition,
@@ -112,8 +112,8 @@ function estimateRowHeight(item: TranscriptItem | undefined): number {
 }
 
 /** Tool, ask and marker rows of one run sit flush; prose gets the gap. */
-const compact = (item: TranscriptItem | undefined) =>
-  item?.kind === 'tool' || item?.kind === 'ask' || item?.kind === 'marker'
+const compact = (id: string, item: TranscriptItem | undefined) =>
+  id.startsWith('g:') || item?.kind === 'tool' || item?.kind === 'ask' || item?.kind === 'marker'
 
 /** tanstack's `observeElementRect`, held back while a pane is dragged and never
  *  reporting a parked (0×0) view, which would unmount every row. The anchor hears
@@ -263,7 +263,7 @@ const asUser = (item: OutboxItem): UserItem => ({
 // react-doctor-disable-next-line no-giant-component -- the virtualizer, anchor and pin share the row offsets
 export function AgentTranscript(props: AgentTranscriptProps) {
   const { chatId } = props
-  const order = useChatOrder(chatId)
+  const display = useDisplayRows(chatId)
   const liveTail = useLiveTail(chatId)
   const items = useChatItems(chatId)
   const outbox = useChatStore((s) => s.outbox[chatId] ?? NO_OUTBOX)
@@ -308,6 +308,11 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     }
     return byId
   }, [outbox, items])
+  const order = useMemo(() => display.map((row) => row.id), [display])
+  const runs = useMemo(
+    () => new Map(display.flatMap((row) => (row.members ? [[row.id, row.members]] : []))),
+    [display],
+  )
   const rows = useMemo(() => {
     const all =
       liveTail.length + unsent.size > 0 ? [...order, ...liveTail, ...unsent.keys()] : order
@@ -438,7 +443,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
               const id = rows[virtualRow.index]
               if (!id) return null
               const next = rows[virtualRow.index + 1]
-              const flush = !next || (compact(itemOf(id)) && compact(itemOf(next)))
+              const flush = !next || (compact(id, itemOf(id)) && compact(next, itemOf(next)))
               const firstTurn = places.get(id)?.firstTurn === true
               return (
                 <div
@@ -460,6 +465,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
                     providers={props.providers}
                     place={places.get(id)}
                     actions={props.promptActions}
+                    members={runs.get(id)}
                   />
                   {firstTurn && <FirstTurnDivider />}
                 </div>
