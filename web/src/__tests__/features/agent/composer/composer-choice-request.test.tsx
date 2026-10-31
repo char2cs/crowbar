@@ -62,6 +62,8 @@ describe('ChoiceRequest with a very long input', () => {
     show({ request: { toolName: 'Bash', toolInput: { command } }, expanded: true })
     const code = screen.getByTestId('agent-choice-request').querySelector('pre')!
     expect(code.textContent).toBe(`${command}\n`)
+    // It scrolls inside its own bound, so it must be reachable by keyboard.
+    expect(code).toHaveAttribute('tabindex', '0')
   })
 
   it('shows every MCP argument and the whole of each once asked to', () => {
