@@ -47,6 +47,13 @@ func TestCode_StatusTable(t *testing.T) {
 		problem.OperationIDConflict: http.StatusConflict,
 		problem.OperationRunning:    http.StatusConflict,
 
+		problem.TreeCycle:          http.StatusConflict,
+		problem.TreeNotAContainer:  http.StatusConflict,
+		problem.TreeCrossContext:   http.StatusConflict,
+		problem.TreeCrossWorkspace: http.StatusConflict,
+		problem.TreeForkChain:      http.StatusConflict,
+		problem.TreeSubtreeWorking: http.StatusConflict,
+
 		problem.DaemonMigrating:         http.StatusServiceUnavailable,
 		problem.DaemonHalted:            http.StatusServiceUnavailable,
 		problem.DaemonReportUnencodable: http.StatusInternalServerError,

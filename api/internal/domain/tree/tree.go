@@ -9,8 +9,10 @@
 package tree
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
+	"slices"
 
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
@@ -35,13 +37,15 @@ func KindOf(legacy string) (Kind, error) {
 	}
 }
 
-// Node is one row's position: the row it hangs off ("" for its scope's root)
-// and its dense index among that parent's children. ID is the entity's own id.
+// Node is one row's position: the node it hangs off ("" for the project root)
+// and its dense index among that parent's children. ID is the entity's own id;
+// Name is a folder's.
 type Node struct {
 	ID       string `json:"id"`
 	Kind     Kind   `json:"kind"`
 	ParentID string `json:"parentId,omitempty"`
 	Order    int    `json:"order"`
+	Name     string `json:"name,omitempty"`
 }
 
 // Folder is a folder's identity. RepoID == "" is a project-home folder, and
@@ -144,4 +148,38 @@ func (t Tree) Without(id string) (rest, taken Tree) {
 		delete(rest.Chats, id)
 	}
 	return rest, taken
+}
+
+// Children is parentID's children by Order, then ID.
+func (t Tree) Children(parentID string) []Node {
+	return t.byParent()[parentID]
+}
+
+// Subtree is id, then its descendants depth-first in order.
+func (t Tree) Subtree(id string) []string {
+	kids := t.byParent()
+	out := []string{}
+	var walk func(id string)
+	walk = func(id string) {
+		out = append(out, id)
+		for _, c := range kids[id] {
+			walk(c.ID)
+		}
+	}
+	walk(id)
+	return out
+}
+
+// byParent is every node under its parent, each level by Order, then ID.
+func (t Tree) byParent() map[string][]Node {
+	out := map[string][]Node{}
+	for _, n := range t.Nodes {
+		out[n.ParentID] = append(out[n.ParentID], n)
+	}
+	for _, level := range out {
+		slices.SortFunc(level, func(a, b Node) int {
+			return cmp.Or(cmp.Compare(a.Order, b.Order), cmp.Compare(a.ID, b.ID))
+		})
+	}
+	return out
 }

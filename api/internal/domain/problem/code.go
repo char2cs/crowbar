@@ -52,6 +52,14 @@ const (
 	OperationIDConflict Code = "operation_id_conflict"
 	OperationRunning    Code = "operation_running"
 
+	// A sidebar move the Tree refuses, one code per rule it breaks.
+	TreeCycle          Code = "tree_cycle"
+	TreeNotAContainer  Code = "tree_not_a_container"
+	TreeCrossContext   Code = "tree_cross_context"
+	TreeCrossWorkspace Code = "tree_cross_workspace"
+	TreeForkChain      Code = "tree_fork_chain"
+	TreeSubtreeWorking Code = "tree_subtree_working"
+
 	// Written by core/bootgate itself, which stays free of dependencies.
 	DaemonMigrating         Code = "daemon_migrating"
 	DaemonHalted            Code = "daemon_halted"
@@ -72,7 +80,8 @@ func (c Code) Status() int {
 	case NotFound:
 		return http.StatusNotFound
 	case Conflict, Locked, ChatBusy, SessionLost, RequestOutcomeUncertain, RequestIDConflict,
-		CatalogSuperseded, WorkAtRisk, IDConflict, OperationIDConflict, OperationRunning:
+		CatalogSuperseded, WorkAtRisk, IDConflict, OperationIDConflict, OperationRunning,
+		TreeCycle, TreeNotAContainer, TreeCrossContext, TreeCrossWorkspace, TreeForkChain, TreeSubtreeWorking:
 		return http.StatusConflict
 	case TooLarge:
 		return http.StatusRequestEntityTooLarge
