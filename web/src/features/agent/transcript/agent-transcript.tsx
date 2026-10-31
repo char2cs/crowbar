@@ -175,18 +175,16 @@ const keepsRowsStill =
   }
 
 /** tanstack's `observeElementOffset`, also handed every offset the anchor writes
- *  (through `hear`) and read once at the start: its scroll event alone arrives a
- *  frame late, after the old window is painted at the new offset. */
+ *  (through `hear`): its scroll event alone arrives a frame late, after the old
+ *  window is painted at the new offset. */
 const observeScrollOffsetFor =
   (hear: (report: OffsetReport | null) => void) =>
   (
     instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
     cb: (offset: number, isScrolling: boolean) => void,
   ) => {
-    const element = instance.scrollElement
-    if (!element) return
+    if (!instance.scrollElement) return
     hear((offset) => cb(offset, false))
-    cb(element.scrollTop, false)
     const stop = observeElementOffset(instance, cb)
     return () => {
       hear(null)
