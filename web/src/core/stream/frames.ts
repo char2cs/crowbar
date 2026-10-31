@@ -17,6 +17,8 @@ export type Frame =
     }
   | { t: 'synced'; scope: string }
   | { t: 'closed'; scope: string; reason: 'resync' | 'deleted' | 'refused'; problem?: Problem }
+  /** A refused request that names no scope to drop. */
+  | { t: 'error'; problem: Problem }
 
 /** A frame this client cannot read; `scope` names what it was about, when it said. */
 export class FrameError extends Error {
@@ -67,6 +69,7 @@ const SHAPES: Record<Frame['t'], Record<string, { check: Check; optional?: true 
     reason: { check: (v) => str(v) && REASONS.has(v as string) },
     problem: { check: problem, optional: true },
   },
+  error: { problem: { check: problem } },
 }
 
 /** Reads one message; an unknown type or field, or a field of the wrong shape, throws. */

@@ -1,7 +1,7 @@
 import { createStore } from 'zustand'
 import { registerScopeKind } from '@/core/stream/stream'
 import type { Frame } from '@/core/stream/frames'
-import { forgetLocalOperation } from '@/lib/store/local-operations'
+import { forgetLocalOperation, forgetUnstreamedReplies } from '@/lib/store/local-operations'
 import type { Operation } from '@/lib/store/operations'
 
 interface Versioned<T> {
@@ -84,7 +84,7 @@ function applyEntityFrame(f: EntityFrame): void {
     >
     return { ...marked, byKind: { ...s.byKind, [kind]: { ...s.byKind[kind], [f.id]: next } } }
   })
-  if (kind === 'operation') forgetLocalOperation(f.id)
+  if (kind === 'operation' && !f.gone) forgetLocalOperation(f.id, (f.data as Operation).version)
 }
 
 /** A sub for `scope` went out: what its snapshot leaves out is pruned at synced. */
@@ -134,6 +134,9 @@ registerScopeKind('projects', {
   epoch: resetForEpoch,
   frame(f) {
     if (f.t === 'entity') applyEntityFrame(f)
-    else if (f.t === 'synced') applySynced(f.scope)
+    else if (f.t === 'synced') {
+      applySynced(f.scope)
+      forgetUnstreamedReplies((id) => id in entityStore.getState().byKind.operation)
+    }
   },
 })

@@ -2,7 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { entityStore } from '@/core/entities/entity-store'
 import { holdScope, startStream } from '@/core/stream/stream'
 import { useLocalOperationsStore } from '@/lib/store/local-operations'
-import type { Operation } from '@/lib/store/operations'
+import { operationsState, putLocalOperation, type Operation } from '@/lib/store/operations'
 
 const socket = vi.hoisted(() => ({ deliver: (_data: unknown) => {}, drop: () => {} }))
 
@@ -127,6 +127,23 @@ describe('entity store', () => {
       },
     })
     entity('op1', 2)
+    expect(Object.keys(useLocalOperationsStore.getState().ops)).toEqual(['mine'])
+  })
+
+  it('an older frame arriving after a newer daemon reply keeps the reply', () => {
+    putLocalOperation({ ...operation('op1', 'failed'), dismissed: true, version: 4 })
+    entity('op1', 2, { ...operation('op1', 'failed'), version: 3 })
+    expect(operationsState().ops.op1).toMatchObject({ dismissed: true, version: 4 })
+
+    entity('op1', 3, { ...operation('op1', 'failed'), dismissed: true, version: 4 })
+    expect(useLocalOperationsStore.getState().ops).toEqual({})
+  })
+
+  it('synced forgets a daemon reply the stream no longer carries, never an in-flight one', () => {
+    putLocalOperation({ ...operation('pruned'), version: 2 })
+    putLocalOperation({ ...operation('mine'), local: true, version: 0 })
+    reconnect(`e${epochs}`)
+    synced()
     expect(Object.keys(useLocalOperationsStore.getState().ops)).toEqual(['mine'])
   })
 })

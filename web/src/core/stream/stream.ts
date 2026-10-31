@@ -84,6 +84,7 @@ function onReady(next: string): void {
 
 function onFrame(f: Frame): void {
   if (f.t === 'ready') return onReady(f.epoch)
+  if (f.t === 'error') return report(new Error(f.problem.message), { action: 'Stream' })
   if (!holds.has(f.scope)) return
   handlers.get(kindOf(f.scope))?.frame(f)
   if (f.t !== 'closed') return

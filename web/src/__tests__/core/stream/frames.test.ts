@@ -14,6 +14,7 @@ const golden = [
     problem: { code: 'invalid_argument', message: 'stream: unknown scope kind "nope"' },
   },
   { t: 'closed', scope: 'projects', reason: 'resync' },
+  { t: 'error', problem: { code: 'invalid_argument', message: 'stream: unknown op "gossip"' } },
 ]
 
 describe('decodeFrame', () => {

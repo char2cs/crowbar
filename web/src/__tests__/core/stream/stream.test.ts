@@ -140,6 +140,30 @@ describe('the one stream', () => {
     expect(socket.sent).toEqual([])
   })
 
+  it('an error frame is reported and drops no scope', () => {
+    const report = vi.spyOn(reporting, 'report').mockImplementation(() => {})
+    hold('chat:a')
+    socket.deliver({
+      t: 'error',
+      problem: { code: 'invalid_argument', message: 'stream: unknown op' },
+    })
+    expect(report).toHaveBeenCalledTimes(1)
+
+    socket.sent.length = 0
+    reconnect()
+    expect(socket.sent).toEqual([{ op: 'sub', scope: 'chat:a' }])
+  })
+
+  // A snapshot the daemon could not read closes the socket with resync, never the scope.
+  it('a socket closed for resync resubscribes every held scope on its next ready', () => {
+    hold('projects')
+    socket.sent.length = 0
+
+    reconnect()
+
+    expect(socket.sent).toEqual([{ op: 'sub', scope: 'projects' }])
+  })
+
   it('a ready frame with a new epoch reaches every registered kind before any entity frame', () => {
     const calls: string[] = []
     register('chat', { epoch: (e) => void calls.push(`chat ${e}`), frame: () => {} })

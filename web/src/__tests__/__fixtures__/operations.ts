@@ -9,7 +9,7 @@ export function streamOperation(op: Operation): void {
   entityStore.setState((s) => ({
     byKind: { ...s.byKind, operation: { ...s.byKind.operation, [op.id]: { v: ++v, data: op } } },
   }))
-  forgetLocalOperation(op.id)
+  forgetLocalOperation(op.id, op.version)
 }
 
 /** No operation anywhere. */
