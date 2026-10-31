@@ -160,7 +160,7 @@ export interface TurnFacts {
   /** By scope, latest. */
   plan: Record<string, PlanItem[]>
   lastExit: { runnerId: string; reason: string; exitCode?: number; seq: number } | null
-  /** The turn Stop was pressed on, until that turn ends. */
+  /** The turn Stop was pressed on; it reads as stopping only while it runs. */
   stopping: string | null
   /** Turn ids that produced text or a tool. */
   output: Record<string, true>

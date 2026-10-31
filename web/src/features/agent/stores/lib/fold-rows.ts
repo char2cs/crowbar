@@ -274,7 +274,6 @@ const applyTurnStarted: Apply<'turn_started'> = (fold, row) => {
 
 function closeRunning(fold: FeedFold, turnId: string | undefined) {
   if (fold.facts.running && fold.facts.running.turnId === turnId) fold.set('running', null)
-  if (fold.facts.stopping !== null && fold.facts.stopping === turnId) fold.set('stopping', null)
 }
 
 const applyTurnEnded: Apply<'turn_ended'> = (fold, row) => {
@@ -304,7 +303,6 @@ const applyTurnFailed: Apply<'turn_failed'> = (fold, row) => {
 const applyRunnerExited: Apply<'runner_exited'> = (fold, row) => {
   const { runnerId, reason, exitCode } = row.body
   fold.set('lastExit', { runnerId, reason, exitCode, seq: row.seq })
-  if (fold.facts.stopping !== null) fold.set('stopping', null)
   endTurn(fold, null)
   interruptSubagents(fold, row)
   if (!row.scope && ABNORMAL_EXITS.has(reason))
