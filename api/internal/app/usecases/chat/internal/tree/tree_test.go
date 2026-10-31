@@ -260,7 +260,7 @@ func TestCreate_RefusesAChatParentFromAnotherRepo(t *testing.T) {
 	_, _, err := uc.Create(context.Background(), tree.CreateInput{
 		RepoID: repoID, ParentID: "c-other", Name: "spikes",
 	})
-	assert.ErrorIs(t, err, tree.ErrCrossRepo)
+	assert.ErrorIs(t, err, tree.ErrCrossContext)
 }
 
 // The same chat parent, now in a workspace the fixture's own repo actually

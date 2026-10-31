@@ -24,6 +24,9 @@ func (u *chatFolderUsecase) CreateChat(
 		return u.createImportChat(ctx, in)
 	case WorktreeNone:
 	}
+	if in.WorkspaceID == "" && in.ParentID == "" {
+		return CreatedChat{}, ErrNowhereToRun
+	}
 	if err := u.checkWorkspaceProvisioned(ctx, in.WorkspaceID); err != nil {
 		return CreatedChat{}, err
 	}
@@ -270,6 +273,9 @@ func (u *chatFolderUsecase) placeChat(
 	}
 	if mErr := u.checkChatMove(ctx, snapshot, workspaceID, chatID, destination, ownWorktree); mErr != nil {
 		return domain.Chat{}, nil, mErr
+	}
+	if fErr := u.checkOwnedForkChain(ctx, snapshot, current, destination); fErr != nil {
+		return domain.Chat{}, nil, fErr
 	}
 	if wErr := guardNotWorking(ctx, snapshot.subtreeIDs(chatID), u.busy); wErr != nil {
 		return domain.Chat{}, nil, wErr

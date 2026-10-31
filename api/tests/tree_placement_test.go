@@ -139,9 +139,13 @@ func TestTree_PlacementVerbsOverHTTP(t *testing.T) {
 	ws := importBranch(t, h, f, "feature/a")
 	owner := owningChatID(t, h, ws)
 	requirePlaced(t, h, p, "branch import", placed{owner, f.mainWSID, 0})
-	placeChat(t, h, repo, owner, map[string]any{"parentId": experiments, "order": 0})
-	requirePlaced(t, h, p, "branch filed", placed{owner, experiments, 0}, placed{experiments, "", 1})
-	assert.Equal(t, experiments, workspaceFolderOf(t, h, repo, ws), "the branch's workspace is filed too")
+	wip := createChatFolder(t, h, repo, "WIP", f.mainWSID).ID
+	placeChat(t, h, repo, owner, map[string]any{"parentId": wip, "order": 0})
+	requirePlaced(t, h, p, "branch filed under its fork parent", placed{owner, wip, 0}, placed{wip, f.mainWSID, 0})
+	assert.Equal(t, wip, workspaceFolderOf(t, h, repo, ws), "the branch's workspace is filed too")
+	assert.Equal(t, placementRefusal{http.StatusConflict, "tree_fork_chain"},
+		patchRefusal(t, h, repo+"/chats/"+owner+"/placement", map[string]any{"parentId": experiments}),
+		"a branch filed away from the branch it forks")
 
 	thread := createChatWithProvider(t, h, repo, "livestub", ws, owner)
 	requirePlaced(t, h, p, "thread create", placed{thread, owner, 0})
@@ -159,9 +163,9 @@ func TestTree_PlacementVerbsOverHTTP(t *testing.T) {
 	h.patch(repo+"/chats/folders/"+experiments, map[string]any{"name": "Spikes"}, nil)
 	requirePlaced(t, h, p, "repo folder rename", placed{experiments, "", 2})
 
-	h.del(repo+"/chats/folders/"+experiments, nil, http.StatusOK, nil)
-	requirePlaced(t, h, p, "repo folder delete", placed{owner, "", 0}, placed{thread, "", 0})
-	assert.Empty(t, workspaceFolderOf(t, h, repo, ws), "the branch's workspace rises with its row")
+	h.del(repo+"/chats/folders/"+wip, nil, http.StatusOK, nil)
+	requirePlaced(t, h, p, "folder delete", placed{owner, f.mainWSID, 0}, placed{thread, "", 0})
+	assert.Equal(t, f.mainWSID, workspaceFolderOf(t, h, repo, ws), "the branch's workspace rises with its row")
 }
 
 // placementRefusal is the status and problem code a refused placement answers with.
@@ -193,9 +197,8 @@ func patchRefusal(
 	return placementRefusal{status: resp.StatusCode, code: env.Code}
 }
 
-// TestTree_PlacementRefusals records each refusal as today's envelope gives it.
-// Filing a home folder into a repo row answers 500: ErrNotAContainer is a plain
-// error with no problem code. T3 gives every one of them its own tree_* code.
+// TestTree_PlacementRefusals: every refused move answers 409 with the code of
+// the rule it breaks, and moves nothing.
 func TestTree_PlacementRefusals(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
@@ -209,27 +212,75 @@ func TestTree_PlacementRefusals(t *testing.T) {
 	wsB := importBranch(t, h, f, "feature/b")
 	ownerB := owningChatID(t, h, wsB)
 	chat := createChatWithProvider(t, h, repo, "livestub", f.mainWSID, "")
-	conflict := placementRefusal{http.StatusConflict, "conflict"}
 	rows := []string{outer, inner, homeFolder, chat, ownerB, owningChatID(t, h, wsA)}
 	before := make([]placed, 0, len(rows))
 	for _, id := range rows {
 		parentID, order := placementOf(t, h, f.projectID, id)
 		before = append(before, placed{id, parentID, order})
 	}
+	refused := func(code string) placementRefusal { return placementRefusal{http.StatusConflict, code} }
 
-	assert.Equal(t, conflict, patchRefusal(t, h, repo+"/chats/folders/"+outer,
+	assert.Equal(t, refused("tree_cycle"), patchRefusal(t, h, repo+"/chats/folders/"+outer,
 		map[string]any{"parentId": inner}), "a folder moved into its own child")
-	assert.Equal(t, conflict, patchRefusal(t, h, repo+"/chats/"+chat+"/placement",
+	assert.Equal(t, refused("tree_cross_workspace"), patchRefusal(t, h, repo+"/chats/"+chat+"/placement",
 		map[string]any{"parentId": ownerB}), "a chat moved under a chat of another workspace")
-	assert.Equal(t, conflict, patchRefusal(t, h, repo+"/chats/folders/"+outer,
+	assert.Equal(t, refused("tree_cross_context"), patchRefusal(t, h, repo+"/chats/folders/"+outer,
 		map[string]any{"parentId": homeFolder}), "a repo folder moved to the home level")
-	assert.Equal(t, conflict, patchRefusal(t, h, repo+"/workspaces/"+wsA+"/placement",
+	assert.Equal(t, refused("tree_fork_chain"), patchRefusal(t, h, repo+"/workspaces/"+wsA+"/placement",
 		map[string]any{"parentId": ownerB}), "a forked workspace filed away from its fork parent")
-	assert.Equal(t, placementRefusal{http.StatusInternalServerError, "internal"},
-		patchRefusal(t, h, home+"/chats/folders/"+homeFolder,
-			map[string]any{"parentId": f.repoID}), "a home folder filed into a repo row")
+	assert.Equal(t, refused("tree_not_a_container"), patchRefusal(t, h, home+"/chats/folders/"+homeFolder,
+		map[string]any{"parentId": f.repoID}), "a home folder filed into a repo row")
 
 	requirePlaced(t, h, f.projectID, "the refusals", before...)
+}
+
+// TestRegression_Tree_ABranchFiledInAFolderUnderAnotherBranchIsRefused: a
+// folder hanging under one branch's row resolves to that branch, so filing
+// another branch there splits its fork chain, through either placement route.
+func TestRegression_Tree_ABranchFiledInAFolderUnderAnotherBranchIsRefused(t *testing.T) {
+	h := newHarness(t)
+	writeLiveStubProviderDescriptor(t, h)
+	f := newImportFixture(t, h)
+	repo := f.repoBase()
+	wsA := importBranch(t, h, f, "feature/a")
+	wsB := importBranch(t, h, f, "feature/b")
+	ownerA, ownerB := owningChatID(t, h, wsA), owningChatID(t, h, wsB)
+	underB := createChatFolder(t, h, repo, "under b", ownerB).ID
+	parentID, order := placementOf(t, h, f.projectID, ownerA)
+	folderID := workspaceFolderOf(t, h, repo, wsA)
+
+	assert.Equal(t, placementRefusal{http.StatusConflict, "tree_fork_chain"},
+		patchRefusal(t, h, repo+"/chats/"+ownerA+"/placement", map[string]any{"parentId": underB}))
+	assert.Equal(t, placementRefusal{http.StatusConflict, "tree_fork_chain"},
+		patchRefusal(t, h, repo+"/workspaces/"+wsA+"/placement", map[string]any{"parentId": underB}))
+
+	requirePlaced(t, h, f.projectID, "the refusals", placed{ownerA, parentID, order})
+	assert.Equal(t, folderID, workspaceFolderOf(t, h, repo, wsA))
+}
+
+// TestRegression_Tree_AChatWithNowhereToRunIsRefusedBeforeItIsMade: a repo
+// chat create naming neither a workspace nor a parent row is a bad request,
+// and leaves no chat behind.
+func TestRegression_Tree_AChatWithNowhereToRunIsRefusedBeforeItIsMade(t *testing.T) {
+	h := newHarness(t)
+	writeLiveStubProviderDescriptor(t, h)
+	f := newImportFixture(t, h)
+	var before []placedRow
+	h.get(f.repoBase()+"/chats", &before)
+
+	resp := h.raw(http.MethodPost, f.repoBase()+"/chats", map[string]string{"provider": "livestub"},
+		http.StatusBadRequest)
+	var env struct {
+		Code string `json:"code"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&env))
+	require.NoError(t, resp.Body.Close())
+	assert.Equal(t, "invalid_argument", env.Code)
+
+	h.Quiesce()
+	var after []placedRow
+	h.get(f.repoBase()+"/chats", &after)
+	assert.Equal(t, before, after, "no chat is left behind")
 }
 
 // TestTree_AMoveReachesALiveChatSocket: placement lives in the Tree, and a move

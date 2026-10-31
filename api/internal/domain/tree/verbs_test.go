@@ -39,6 +39,9 @@ func TestMove_WithinOneLevelReorders(t *testing.T) {
 	out, err = out.Move("f-ideas", "", 99, f)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"c-notes", "r-alpha", "f-ideas"}, level(t, out, ""), "an index past the end appends")
+	out, err = out.Move("f-ideas", "", -3, f)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"f-ideas", "c-notes", "r-alpha"}, level(t, out, ""), "a negative index goes first")
 }
 
 func TestInsert_AtAnIndexShiftsLaterSiblings(t *testing.T) {

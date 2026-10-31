@@ -4,10 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
-
-var ErrSubtreeWorking = problem.New(problem.Conflict, "tree: a working chat refuses this verb")
 
 // Busy answers whether a chat is working.
 type Busy interface {
@@ -25,7 +22,7 @@ func guardNotWorking(
 			return fmt.Errorf("tree: is %s working: %w", id, err)
 		}
 		if working {
-			return ErrSubtreeWorking
+			return fmt.Errorf("tree: %s is working: %w", id, ErrSubtreeWorking)
 		}
 	}
 	return nil

@@ -65,8 +65,7 @@ func deleteChat(t *testing.T, h *harness, base, chatID string) (int, string) {
 }
 
 // forkedMain is the field setup: the repo home holds a chat and a folder, and
-// the locked managed main has fork children release/1.0 (locked) and feature-a,
-// whose row is dragged out beside main when beside is set.
+// the locked managed main has fork children release/1.0 (locked) and feature-a.
 type forkedMain struct {
 	importFixture
 	mainOwner   string
@@ -75,7 +74,7 @@ type forkedMain struct {
 	featurePath string
 }
 
-func newForkedMain(t *testing.T, h *harness, beside bool) forkedMain {
+func newForkedMain(t *testing.T, h *harness) forkedMain {
 	t.Helper()
 	writePromoteStubProviderDescriptor(t, h)
 	f := newImportFixture(t, h)
@@ -113,9 +112,6 @@ func newForkedMain(t *testing.T, h *harness, beside bool) forkedMain {
 	}
 	require.NotEmpty(t, m.mainOwner, "main has an owning chat")
 	require.NotEmpty(t, m.featureChat, "feature-a has an owning chat")
-	if beside {
-		h.patch(f.repoBase()+"/chats/"+m.featureChat+"/placement", map[string]any{"parentId": "", "order": 9}, nil)
-	}
 	return m
 }
 
@@ -126,19 +122,19 @@ func (m forkedMain) unlockMain(t *testing.T, h *harness) {
 }
 
 // Deleting main's owner answered 422 after its git cascade had already taken
-// feature-a (whose row sat outside main's subtree), reminted release/1.0 under
-// the gone main and re-attached the checkout. The delete must land whole.
+// feature-a, reminted release/1.0 under the gone main and re-attached the
+// checkout. The delete must land whole; feature-a's row is in main's subtree.
 func TestRegression_DeleteMainWithForkChildrenIsAllOrNothing(t *testing.T) {
 	h := newHarness(t)
-	m := newForkedMain(t, h, true)
+	m := newForkedMain(t, h)
 	m.unlockMain(t, h)
 
 	status, body := deleteChat(t, h, m.repoBase(), m.mainOwner)
 	after := readDeleteWorld(t, h, m.importFixture)
 
 	require.Equalf(t, http.StatusOK, status, "%s", body)
-	assert.JSONEq(t, `{"success":true,"data":{"takenChatIds":["`+m.featureChat+`"]}}`, body,
-		"the reply names the chat taken beyond the selection")
+	assert.JSONEq(t, `{"success":true,"data":{"takenChatIds":[]}}`, body,
+		"feature-a's chat is in the selection, so nothing is taken beyond it")
 	requireNoDanglingLinks(t, after)
 	release := workspacesOnBranch(t, h, m.repoID, "release/1.0")
 	require.Len(t, release, 1, "the locked fork child survives")
@@ -175,20 +171,15 @@ func TestRegression_ARefusedDeleteChangesNothing(t *testing.T) {
 		m.unlockMain(t, h)
 		require.NoError(t, os.WriteFile(filepath.Join(m.featurePath, "wip.txt"), []byte("wip\n"), 0o600))
 	}
-	cases := map[string]struct {
-		beside  bool
-		arrange func(t *testing.T, h *harness, m forkedMain)
-	}{
-		"main is still locked":                         {beside: false, arrange: locked},
-		"main is still locked, feature-a beside it":    {beside: true, arrange: locked},
-		"feature-a holds uncommitted work":             {beside: false, arrange: atRisk},
-		"feature-a beside main holds uncommitted work": {beside: true, arrange: atRisk},
+	cases := map[string]func(t *testing.T, h *harness, m forkedMain){
+		"main is still locked":             locked,
+		"feature-a holds uncommitted work": atRisk,
 	}
-	for name, tc := range cases {
+	for name, arrange := range cases {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t)
-			m := newForkedMain(t, h, tc.beside)
-			tc.arrange(t, h, m)
+			m := newForkedMain(t, h)
+			arrange(t, h, m)
 			before := readDeleteWorld(t, h, m.importFixture)
 
 			status, body := deleteChat(t, h, m.repoBase(), m.mainOwner)

@@ -134,7 +134,7 @@ func TestCreate_Home_RefusesUnderARepoScopedFolder(t *testing.T) {
 		domain.Chat{ID: "repo-folder", Type: domain.ChatTypeFolder, RepoID: repoID})
 
 	_, _, err := uc.Create(context.Background(), tree.CreateInput{ParentID: "repo-folder", Name: "docs"})
-	assert.ErrorIs(t, err, tree.ErrCrossRepo)
+	assert.ErrorIs(t, err, tree.ErrCrossContext)
 }
 
 // A create that mints the Folder row but fails to place it takes the Folder

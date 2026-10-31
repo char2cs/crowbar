@@ -13,7 +13,7 @@ import (
 
 // checkForkChainSplit refuses a WORKSPACE placement that would carry its row
 // out of the space its own fork parent owns — the guard usecases/folder took
-// with it when it was retired (11b72c720 flagged ErrForkChainSplit as having no
+// with it when it was retired (11b72c720 flagged ErrForkChain as having no
 // unified-tree equivalent and left it out), restored here against the unified
 // tree's own vocabulary.
 //
@@ -54,13 +54,55 @@ func (u *chatFolderUsecase) checkForkChainSplit(
 			move.workspaceID, move.destination, err,
 		)
 	}
-	if anchor == forkParentID {
+	if anchor == forkParentID || u.isRepoGround(ctx, anchor) && u.isRepoGround(ctx, forkParentID) {
 		return nil
 	}
 	return fmt.Errorf(
 		"agent chat folder: place workspace %s under %s, whose fork parent is %q, not %q: %w",
-		move.workspaceID, move.destination, anchor, forkParentID, ErrForkChainSplit,
+		move.workspaceID, move.destination, anchor, forkParentID, ErrForkChain,
 	)
+}
+
+// checkOwnedForkChain is checkForkChainSplit for a chat that owns a repo
+// workspace: moving that chat moves the workspace's row, so the chat route
+// owes the workspace route's guard.
+func (u *chatFolderUsecase) checkOwnedForkChain(
+	ctx context.Context,
+	snapshot *treeSnapshot,
+	chat domain.Chat,
+	destination string,
+) error {
+	if !chat.OwnsWorkspace || chat.WorkspaceID == "" {
+		return nil
+	}
+	repoID, err := u.workspaces.RepoOf(ctx, chat.WorkspaceID)
+	if err != nil {
+		return fmt.Errorf("agent chat folder: place %s: repo of %s: %w", chat.ID, chat.WorkspaceID, err)
+	}
+	if repoID == "" {
+		return nil
+	}
+	if def, err := u.workspaces.DefaultWorkspaceOf(ctx, repoID); err == nil && def == chat.WorkspaceID {
+		return nil
+	}
+	return u.checkForkChainSplit(ctx, snapshot, workspaceMove{
+		repoID: repoID, workspaceID: chat.WorkspaceID, nodeID: chat.ID,
+		origin: chat.ParentID, destination: destination,
+	})
+}
+
+// isRepoGround: "" and the repo's default checkout both name the repo root,
+// where a fork with no visible parent belongs.
+func (u *chatFolderUsecase) isRepoGround(ctx context.Context, workspaceID string) bool {
+	if workspaceID == "" {
+		return true
+	}
+	repoID, err := u.workspaces.RepoOf(ctx, workspaceID)
+	if err != nil || repoID == "" {
+		return false
+	}
+	def, err := u.workspaces.DefaultWorkspaceOf(ctx, repoID)
+	return err == nil && def == workspaceID
 }
 
 // forkAnchorAt answers the workspace a row placed at id would fork FROM: the

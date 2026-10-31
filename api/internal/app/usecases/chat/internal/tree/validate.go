@@ -304,7 +304,7 @@ func (u *chatFolderUsecase) checkFolderContainer(
 	if parentRepoID != nil && *parentRepoID != folderRepoID {
 		return fmt.Errorf(
 			"agent chat folder: parent %s belongs to repo %q, not %q: %w",
-			parentID, *parentRepoID, folderRepoID, ErrCrossRepo,
+			parentID, *parentRepoID, folderRepoID, ErrCrossContext,
 		)
 	}
 	return nil

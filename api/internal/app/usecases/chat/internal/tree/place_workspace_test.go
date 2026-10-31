@@ -199,7 +199,7 @@ func TestPlaceWorkspace_RefusesACrossRepoContainer(t *testing.T) {
 	_, _, err := uc.PlaceWorkspace(
 		context.Background(), "branch-1", tree.PlaceInput{ParentID: name("f-other-repo")})
 
-	require.ErrorIs(t, err, tree.ErrCrossRepo)
+	require.ErrorIs(t, err, tree.ErrCrossContext)
 }
 
 // Pins the exact design hazard checkWorkspaceMove's own doc calls out:
@@ -282,7 +282,7 @@ func TestPlaceWorkspace_RefusesWorkingSubtree(t *testing.T) {
 //
 // Restored from the deleted api/tests/regression_folders_test.go's
 // TestRegression_WorkspaceMoveRefusedWhenItWouldSplitAForkChain: 11b72c720
-// retired usecases/folder and flagged ErrForkChainSplit as having no
+// retired usecases/folder and flagged ErrForkChain as having no
 // unified-tree equivalent, and nothing refused this until now.
 func TestRegression_PlaceWorkspace_RefusedWhenItWouldSplitAForkChain(t *testing.T) {
 	chats, _, nodes, gitStatus, uc := newWorkspacePlacementUsecase(t)
@@ -292,7 +292,7 @@ func TestRegression_PlaceWorkspace_RefusedWhenItWouldSplitAForkChain(t *testing.
 	_, _, err := uc.PlaceWorkspace(
 		context.Background(), "ws-fork", tree.PlaceInput{ParentID: name("spikes")})
 
-	require.ErrorIs(t, err, tree.ErrForkChainSplit)
+	require.ErrorIs(t, err, tree.ErrForkChain)
 	assert.Contains(t, err.Error(), "fork parent",
 		"the refusal has to say what is wrong, not just refuse")
 	assert.Equal(t, "branch-1", nodeRowFor(t, nodes, "fork-chat").ParentID,

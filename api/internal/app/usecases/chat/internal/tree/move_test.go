@@ -133,7 +133,7 @@ func TestMove_RefusesAMoveAcrossRepos(t *testing.T) {
 	)
 
 	_, _, err := uc.Move(context.Background(), "root", tree.MoveInput{ParentID: name("other-repo-folder")})
-	assert.ErrorIs(t, err, tree.ErrCrossRepo)
+	assert.ErrorIs(t, err, tree.ErrCrossContext)
 }
 
 // The golden rule's finer grain (checkFolderContextMove): "context", in
@@ -142,7 +142,7 @@ func TestMove_RefusesAMoveAcrossRepos(t *testing.T) {
 // never jump to a different one, even inside the SAME repo. These three
 // tests exercise that boundary directly: refused root -> a branch's own
 // subtree, refused branch -> a DIFFERENT branch's own subtree (same repo,
-// same ErrCrossRepo-passing check, still refused), and allowed within one
+// same ErrCrossContext-passing check, still refused), and allowed within one
 // branch's own subtree. Caught live: dragging a repo-root folder onto a
 // branch (or vice versa) silently reverted with no explanation — this is
 // the check that was missing, not merely the toast that now names it.
