@@ -12,16 +12,18 @@ import (
 )
 
 // deliveryLaunch is the provider a send launches itself: the one staged with it
-// when that is not the chat's own, else a dormant chat's. launches=false leaves
-// a live chat's CLI to the ordinary delivery.
+// when that is not the chat's own (a chat no CLI ever ran on has none), else a
+// dormant chat's. launches=false leaves a live chat's CLI to the ordinary delivery.
 func (rs *Runners) deliveryLaunch(ctx context.Context, chat domain.Chat, staged string) (string, bool, error) {
-	if staged != "" {
-		current, err := rs.conversations.ChatProviderID(ctx, chat.ID)
-		if err != nil || staged != current {
-			return staged, err == nil, err
-		}
+	live, isLive := rs.live.byChat(chat.ID)
+	current := chat.ProviderID
+	if isLive {
+		current = live.ProviderID
 	}
-	if _, live := rs.live.byChat(chat.ID); live {
+	if staged != "" && staged != current {
+		return staged, true, nil
+	}
+	if isLive {
 		return "", false, nil
 	}
 	providerID, err := rs.lastActiveProviderID(ctx, chat.ID)

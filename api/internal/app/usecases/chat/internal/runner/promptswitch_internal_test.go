@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -12,6 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -119,6 +121,31 @@ func TestSubmitPromptWithSwitch_AStagedPickIsTheChatsOnceItsLaunchRuns(t *testin
 			}, dividers(t, h.rs.ledger, h.chatID))
 		})
 	}
+}
+
+// providerlessConversations is the record of a chat no CLI ever ran on: it
+// names no provider, as an owning chat is minted.
+type providerlessConversations struct{ stagedConversations }
+
+func (providerlessConversations) ChatProviderID(context.Context, string) (string, error) {
+	return "", fmt.Errorf("agent: chat provider: no provider has ever run on this chat: %w", problem.ErrUnprocessable)
+}
+
+// The first send of a chat no CLI ever ran on launches the provider staged with it.
+func TestSubmitPromptWithSwitch_AProviderlessChatLaunchesTheStagedProvider(t *testing.T) {
+	h := newSpawnHarness(t, "")
+	installDescriptor(t, h.home, selectionCarrierDescriptor)
+	var committed []string
+	h.rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: h.chatID, WorkspaceID: "ws-1"}}
+	h.rs.conversations = providerlessConversations{stagedConversations{committed: &committed}}
+
+	submission, err := h.rs.SubmitPromptWithSwitch(t.Context(), h.chatID, "hello", uuid.NewString(),
+		"carrier-test", &domain.ChatSelection{Model: "deep"})
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, submission.RunnerID)
+	assert.Contains(t, h.term.lastCall().argv, "hello", "the staged provider's CLI carries the prompt")
+	assert.Equal(t, []string{"deep/"}, committed)
 }
 
 // A revive whose pick is the chat's own writes nothing: the composer re-posts
