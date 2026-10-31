@@ -129,23 +129,51 @@ func TestRefcount_StartRunsOutsideTheHubLock(t *testing.T) {
 	slow.until(t, syncedOn("git:w1"))
 }
 
+// A Start of a key never runs while that key's Stop does: repeated, so a
+// Start that did not wait would enter during one of the held Stops.
 func TestRefcount_AStartWaitsForTheStopBeforeIt(t *testing.T) {
 	res := newRecorder()
+	res.stopGate = make(chan struct{})
 	hub := gitHubOver(res)
 	first, second := newFakeConn(), newFakeConn()
 	served(t, hub, first)
 	served(t, hub, second)
-	first.sub(t, "git:w1")
 
-	res.gated = true
-	first.send(t, stream.OpUnsub, "git:w1")
-	res.enteredAs(t, "stop w1")
-	second.send(t, stream.OpSub, "git:w1")
-	res.gate <- struct{}{}
-	res.enteredAs(t, "start w1")
-	res.gate <- struct{}{}
-	second.until(t, syncedOn("git:w1"))
+	for range 32 {
+		first.sub(t, "git:w1")
+		first.send(t, stream.OpUnsub, "git:w1")
+		res.enteredAs(t, "stop w1")
+		second.send(t, stream.OpSub, "git:w1")
+		res.stopGate <- struct{}{}
+		second.until(t, syncedOn("git:w1"))
+		second.send(t, stream.OpUnsub, "git:w1")
+		res.enteredAs(t, "stop w1")
+		res.stopGate <- struct{}{}
+	}
 
-	assert.Equal(t, []string{"start w1", "stop w1", "start w1"}, res.history())
-	close(res.gate) // the cleanup's own stop passes
+	res.mu.Lock()
+	defer res.mu.Unlock()
+	assert.Zero(t, res.overlaps, "a Start ran while its key's Stop did")
+	assert.Equal(t, 64, res.starts["w1"])
+}
+
+// A scope naming two resources whose second fails to start stops the first:
+// the refused scope holds nothing.
+func TestRefcount_AFailedLaterStartStopsTheEarlierOnes(t *testing.T) {
+	first, second := newRecorder(), newRecorder()
+	second.fail["w1"] = problem.New(problem.Unavailable, "no")
+	src := newEntities(map[string]string{})
+	hub := newHub(
+		map[stream.ScopeKind]appstream.Source{stream.KindGit: src, stream.KindProjects: src},
+		map[stream.ScopeKind][]appstream.Resource{stream.KindGit: {first, second}},
+	)
+	conn := newFakeConn()
+	served(t, hub, conn)
+
+	conn.send(t, stream.OpSub, "git:w1")
+	assert.Equal(t, stream.ReasonRefused, conn.next(t).Reason)
+	conn.sub(t, "projects")
+
+	starts, stops := first.counts("w1")
+	assert.Equal(t, []int{1, 1}, []int{starts, stops}, "the first resource was rolled back")
 }

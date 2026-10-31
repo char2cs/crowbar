@@ -210,12 +210,18 @@ type recorder struct {
 	gated   bool
 	entered chan string
 	gate    chan struct{}
+
+	// With stopGate set, only each Stop waits on it; a Start entering while a
+	// Stop of its key is still running counts in overlaps.
+	stopGate chan struct{}
+	stopping map[string]bool
+	overlaps int
 }
 
 func newRecorder() *recorder {
 	return &recorder{
 		starts: map[string]int{}, stops: map[string]int{}, fail: map[string]error{},
-		entered: make(chan string, 16), gate: make(chan struct{}),
+		entered: make(chan string, 16), gate: make(chan struct{}), stopping: map[string]bool{},
 	}
 }
 
@@ -228,6 +234,11 @@ func (r *recorder) wait(what string) {
 }
 
 func (r *recorder) Start(key string) error {
+	r.mu.Lock()
+	if r.stopping[key] {
+		r.overlaps++
+	}
+	r.mu.Unlock()
 	r.wait("start " + key)
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -238,10 +249,18 @@ func (r *recorder) Start(key string) error {
 
 func (r *recorder) Stop(key string) {
 	r.wait("stop " + key)
+	if r.stopGate != nil {
+		r.mu.Lock()
+		r.stopping[key] = true
+		r.mu.Unlock()
+		r.entered <- "stop " + key
+		<-r.stopGate
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.stops[key]++
 	r.log = append(r.log, "stop "+key)
+	r.stopping[key] = false
 }
 
 func (r *recorder) history() []string {
