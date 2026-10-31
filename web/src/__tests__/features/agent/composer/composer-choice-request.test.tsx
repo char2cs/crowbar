@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { ChoiceRequest } from '@/features/agent/composer/composer-choice-request'
 import { requestView, type AskRequest } from '@/features/agent/composer/lib/ask-request'
 
-function show({ request }: { request: AskRequest }) {
-  return render(<ChoiceRequest view={requestView(request)} expanded={false} onExpand={() => {}} />)
+function show({ request, expanded = false }: { request: AskRequest; expanded?: boolean }) {
+  return render(
+    <ChoiceRequest view={requestView(request)} expanded={expanded} onExpand={() => {}} />,
+  )
 }
 
 describe('ChoiceRequest request body', () => {
@@ -40,6 +42,41 @@ describe('ChoiceRequest request body', () => {
     const body = screen.getByTestId('agent-choice-request')
     expect(body).toHaveTextContent(text)
     expect(body).toHaveTextContent('Input truncated')
+  })
+})
+
+describe('ChoiceRequest with a very long input', () => {
+  const command = 'x'.repeat(1 << 20)
+
+  it('draws a 1 MB single line bounded, and quickly', () => {
+    const start = performance.now()
+    show({ request: { toolName: 'Bash', toolInput: { command } } })
+    // Drawn whole, this took ~300 ms in escaping alone; bounded it is a few.
+    expect(performance.now() - start).toBeLessThan(150)
+    const code = screen.getByTestId('agent-choice-request').querySelector('pre')!
+    expect(code.textContent!.length).toBeLessThan(300)
+    expect(screen.getByRole('button', { name: 'Show all 1048576 characters' })).toBeInTheDocument()
+  })
+
+  it('draws all of it once asked to', () => {
+    show({ request: { toolName: 'Bash', toolInput: { command } }, expanded: true })
+    const code = screen.getByTestId('agent-choice-request').querySelector('pre')!
+    expect(code.textContent).toBe(`${command}\n`)
+  })
+
+  it('shows every MCP argument and the whole of each once asked to', () => {
+    const toolInput = Object.fromEntries(
+      Array.from({ length: 14 }, (_, i) => [`k${i}`, i === 0 ? 'z'.repeat(500) : i]),
+    )
+    const request = { toolName: 'mcp__echo__shout', mcpServer: 'echo', toolInput }
+    const { unmount } = show({ request })
+    const body = screen.getByTestId('agent-choice-request')
+    expect(body).not.toHaveTextContent('k13')
+    expect(body.textContent).not.toContain('z'.repeat(500))
+    unmount()
+    show({ request, expanded: true })
+    expect(screen.getByTestId('agent-choice-request')).toHaveTextContent('k13: 13')
+    expect(screen.getByTestId('agent-choice-request').textContent).toContain('z'.repeat(500))
   })
 })
 

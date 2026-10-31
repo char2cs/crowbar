@@ -11,6 +11,8 @@ export interface AskRequest {
 export interface CodeLine {
   text: string
   tone?: 'del' | 'add'
+  /** Drawn short: the rest of the line is counted, not shown. */
+  cut?: boolean
 }
 
 /** The card's body: a heading (an MCP server, a path), the lines, a note. */
@@ -21,29 +23,21 @@ export interface RequestView {
   note?: string
 }
 
-/** Lines shown before the card says how many more there are. */
-export const SHOWN_LINES = 12
-
-const MCP_ARGS = 6
-const ARG_CHARS = 80
+/** What a folded card draws before it says how much more there is. */
+const SHOWN_LINES = 12
+const LINE_CHARS = 240
 
 const str = (value: unknown) => (typeof value === 'string' ? value : '')
 // A CRLF pair is one break; a lone carriage return is left for the escapes.
 const lines = (text: string) => text.split(/\r?\n/)
 const plain = (text: string): CodeLine[] => lines(text).map((line) => ({ text: line }))
 
-function argText(value: unknown): string {
-  const text = typeof value === 'string' ? value : JSON.stringify(value)
-  return text.length > ARG_CHARS ? `${text.slice(0, ARG_CHARS)}…` : text
-}
+const argText = (value: unknown) => (typeof value === 'string' ? value : JSON.stringify(value))
 
-/** An MCP call's arguments, one `key: value` line each, the first few only. */
-function mcpArgsSummary(input: unknown): string[] {
+/** An MCP call's arguments, one `key: value` line each. */
+function mcpArgs(input: unknown): string[] {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return []
-  const entries = Object.entries(input as Record<string, unknown>)
-  const lines = entries.slice(0, MCP_ARGS).map(([key, value]) => `${key}: ${argText(value)}`)
-  if (entries.length > MCP_ARGS) lines.push(`+${entries.length - MCP_ARGS} more`)
-  return lines
+  return Object.entries(input as Record<string, unknown>).map(([key, v]) => `${key}: ${argText(v)}`)
 }
 
 function mcpView(req: AskRequest): RequestView {
@@ -51,7 +45,7 @@ function mcpView(req: AskRequest): RequestView {
   const prefix = `mcp__${server}__`
   const name = req.toolName ?? ''
   const tool = name.startsWith(prefix) ? name.slice(prefix.length) : name
-  return { server, head: tool, code: mcpArgsSummary(req.toolInput).map((text) => ({ text })) }
+  return { server, head: tool, code: mcpArgs(req.toolInput).map((text) => ({ text })) }
 }
 
 const toned = (text: string, tone: CodeLine['tone']): CodeLine[] =>
@@ -118,22 +112,63 @@ const HIDDEN_RANGES: [number, number][] = [
   [0xe0100, 0xe01ef],
 ]
 
-const hidden = (cp: number) => HIDDEN_RANGES.some(([lo, hi]) => cp >= lo && cp <= hi)
+const HIDDEN = new RegExp(
+  `[${HIDDEN_RANGES.map(([lo, hi]) => `\\u{${lo.toString(16)}}-\\u{${hi.toString(16)}}`).join('')}]`,
+  'gu',
+)
 
 /** `text` split into what draws as itself and the characters written out. */
 export function visibleParts(text: string): { text: string; escaped: boolean }[] {
   const parts: { text: string; escaped: boolean }[] = []
-  let run = ''
-  for (const ch of text) {
-    const cp = ch.codePointAt(0)!
-    if (!hidden(cp)) {
-      run += ch
-      continue
-    }
-    if (run) parts.push({ text: run, escaped: false })
-    run = ''
+  let last = 0
+  for (const match of text.matchAll(HIDDEN)) {
+    if (match.index > last) parts.push({ text: text.slice(last, match.index), escaped: false })
+    const cp = match[0].codePointAt(0)!
     parts.push({ text: `\\u{${cp.toString(16).toUpperCase()}}`, escaped: true })
+    last = match.index + match[0].length
   }
-  if (run) parts.push({ text: run, escaped: false })
+  if (last < text.length) parts.push({ text: text.slice(last), escaped: false })
   return parts
+}
+
+/** A folded card's lines, each cut to a budget, and what that leaves out. */
+export interface FoldedCode {
+  lines: CodeLine[]
+  moreLines: number
+  moreChars: number
+}
+
+/** A line cut at `max` without splitting a surrogate pair. */
+function cutLine(line: CodeLine, max: number): CodeLine {
+  let end = max
+  const unit = line.text.charCodeAt(end - 1)
+  if (unit >= 0xd800 && unit <= 0xdbff) end -= 1
+  return { ...line, text: line.text.slice(0, end), cut: true }
+}
+
+export function foldCode(code: CodeLine[]): FoldedCode {
+  let moreChars = 0
+  const lines = code.slice(0, SHOWN_LINES).map((line) => {
+    if (line.text.length <= LINE_CHARS) return line
+    const cut = cutLine(line, LINE_CHARS)
+    moreChars += line.text.length - cut.text.length
+    return cut
+  })
+  return { lines, moreLines: code.length - lines.length, moreChars }
+}
+
+const count = (n: number, noun: string) => `${n} more ${noun}${n === 1 ? '' : 's'}`
+
+/** What a folded card leaves out, in words; empty when it leaves nothing. */
+export function foldedCue({ moreLines, moreChars }: FoldedCode): string {
+  const parts = [moreLines && count(moreLines, 'line'), moreChars && count(moreChars, 'character')]
+  const said = parts.filter(Boolean).join(' and ')
+  return said && `${said} not shown`
+}
+
+/** The "show everything" label: by lines when lines are left out, else by characters. */
+export function showAllLabel(code: CodeLine[], folded: FoldedCode): string {
+  if (folded.moreLines > 0) return `Show all ${code.length} lines`
+  const chars = code.reduce((sum, line) => sum + line.text.length, 0)
+  return `Show all ${chars} characters`
 }

@@ -24,8 +24,9 @@ import {
 } from '@/features/agent/composer/composer-choice-controls'
 import { ChoiceRequest } from '@/features/agent/composer/composer-choice-request'
 import {
+  foldCode,
+  foldedCue,
   requestView,
-  SHOWN_LINES,
   type AskRequest,
 } from '@/features/agent/composer/lib/ask-request'
 
@@ -142,7 +143,7 @@ export function ComposerChoice({
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const expanded = expandedId === choice.id
   const view = request && choice.kind === 'tool_permission' ? requestView(request) : null
-  const hiddenLines = view && !expanded ? Math.max(0, view.code.length - SHOWN_LINES) : 0
+  const hiddenCue = view && !expanded ? foldedCue(foldCode(view.code)) : ''
   // Read through the stamp rather than resetting in an effect: an effect runs
   // AFTER the paint, so there would be one frame in which the previous prompt's
   // picks were on screen and pressable.
@@ -262,9 +263,9 @@ export function ComposerChoice({
               Answer sent. Waiting for {providerLabel} to confirm it.
             </span>
           )}
-          {hiddenLines > 0 && (
+          {hiddenCue && (
             <span className="sub choice-hidden-lines" data-testid="agent-choice-hidden-lines">
-              {hiddenLines} more lines not shown
+              {hiddenCue}
             </span>
           )}
           {pending > 1 && (

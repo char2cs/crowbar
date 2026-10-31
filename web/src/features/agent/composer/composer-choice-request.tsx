@@ -1,5 +1,5 @@
 import type { CodeLine, RequestView } from '@/features/agent/composer/lib/ask-request'
-import { SHOWN_LINES } from '@/features/agent/composer/lib/ask-request'
+import { foldCode, showAllLabel } from '@/features/agent/composer/lib/ask-request'
 import { Visible } from '@/features/agent/composer/visible-text'
 import { McpServerBadge } from '@/features/agent/transcript/rows/mcp-server-badge'
 
@@ -15,7 +15,9 @@ export function ChoiceRequest({
   expanded: boolean
   onExpand: () => void
 }) {
-  const shown = expanded ? view.code : view.code.slice(0, SHOWN_LINES)
+  const folded = foldCode(view.code)
+  const shown = expanded ? view.code : folded.lines
+  const more = !expanded && (folded.moreLines > 0 || folded.moreChars > 0)
   return (
     <div className="choice-request" data-testid="agent-choice-request">
       {(view.server || view.head) && (
@@ -30,20 +32,26 @@ export function ChoiceRequest({
         </span>
       )}
       {view.code.length > 0 && (
-        <pre className="choice-request-code">
+        // Unfolded it scrolls inside its own bound, so the answers stay in reach.
+        <pre
+          className="choice-request-code"
+          data-expanded={expanded || undefined}
+          tabIndex={expanded ? 0 : undefined}
+        >
           {shown.map((line, i) => (
             // react-doctor-disable-next-line no-array-index-as-key -- lines are positional and never reorder
             <span key={i} className={line.tone ? `choice-diff-${line.tone}` : undefined}>
               {line.tone && TONE[line.tone]}
               <Visible text={line.text} />
+              {line.cut && <span className="choice-request-cut">…</span>}
               {'\n'}
             </span>
           ))}
         </pre>
       )}
-      {shown.length < view.code.length && (
+      {more && (
         <button type="button" className="choice-request-more" onClick={onExpand}>
-          Show all {view.code.length} lines
+          {showAllLabel(view.code, folded)}
         </button>
       )}
       {view.note && (

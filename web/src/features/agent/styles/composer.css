@@ -1190,6 +1190,13 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.agent-chat .choice-request-code[data-expanded] {
+  max-height: min(40vh, 24rem);
+  overflow-y: auto;
+}
+.agent-chat .choice-request-cut {
+  color: var(--muted-foreground);
+}
 .agent-chat .choice-diff-del {
   color: var(--destructive);
 }

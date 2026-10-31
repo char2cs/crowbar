@@ -620,6 +620,14 @@ describe('ComposerChoice with a long request', () => {
     expect(body).toHaveTextContent('step 19')
     expect(screen.queryByTestId('agent-choice-hidden-lines')).toBeNull()
   })
+
+  it('counts the characters cut from long lines as well as the lines left out', () => {
+    const command = Array.from({ length: 13 }, () => 'y'.repeat(300)).join('\n')
+    show({}, { request: { toolName: 'Bash', toolInput: { command } } })
+    expect(screen.getByTestId('agent-choice-hidden-lines')).toHaveTextContent(
+      '1 more line and 720 more characters not shown',
+    )
+  })
 })
 
 describe('ComposerChoice keys', () => {
