@@ -1,6 +1,6 @@
 import { act } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
-import { ledger, seedFeed } from '@/__tests__/__fixtures__/ledger-rows'
+import { delta, ledger, seedFeed } from '@/__tests__/__fixtures__/ledger-rows'
 import * as commands from '@/features/agent/api/agent-chat-commands'
 import * as feeds from '@/features/agent/stores/chat-feed'
 import {
@@ -191,6 +191,31 @@ describe('chat outbox', () => {
 
     await expect(restored).resolves.toBeNull()
     expect(chatStore.getState().feeds.c1?.order[0]).toBe(`p:${sentId()}`)
+  })
+
+  it('keeps the text off the composer when a send Esc raced was streaming its reply', async () => {
+    seedFeed('c1', [])
+    const sent = deferred<typeof accepted>()
+    submit.mockReturnValue(sent.promise)
+    send('streamed twice')
+    const l = ledger('c1')
+    retract.mockImplementation(async () => {
+      seedFeed('c1', [l.prompt(sentId(), 'streamed twice'), l.start('turn-1', sentId())])
+      applyFeedFrame('c1', {
+        type: 'delta',
+        delta: delta('m1', 1, 'Already', { turnId: 'turn-1' }),
+      })
+      seedFeed('c1', [
+        l.row('turn_ended', { status: 'interrupted', reason: 'retracted' }, { turnId: 'turn-1' }),
+      ])
+      return { state: 'interrupted', text: 'streamed twice' }
+    })
+
+    const restored = retractNewest('w1', 'c1')
+    sent.resolve(accepted)
+
+    await expect(restored).resolves.toBeNull()
+    expect(chatStore.getState().feeds.c1?.order).toEqual([`p:${sentId()}`, 'm:turn-1:m1', 'k:3'])
   })
 
   it('gives the text back when a send Esc raced was refused', async () => {

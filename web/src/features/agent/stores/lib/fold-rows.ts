@@ -148,13 +148,15 @@ export class FeedFold {
   }
 
   /** Moves `turn`'s streamed text into the order, above the turn's end, holding
-   *  the words streamed so far: settled text no longer follows its stream. */
+   *  the words streamed so far: settled text no longer follows its stream. What
+   *  streamed is output the turn showed, so a retract keeps it and its prompt. */
   placeLive(turn: string) {
     for (const id of this.liveTail ?? this.base.liveTail) {
       const item = this.item(id)
       if (item?.kind !== 'text' || item.turnId !== turn) continue
       const live = this.base.live[liveKey('answer', item.messageId)] ?? ''
       this.put({ ...item, text: fuller(item.text, live) })
+      this.record('output')[turn] = true
       this.place(id, '')
     }
   }
@@ -259,10 +261,10 @@ const applyTurnEnded: Apply<'turn_ended'> = (fold, row) => {
   if (row.scope || !row.turnId) return
   // A provider may report an end Crowbar already recorded: one marker per turn.
   const ending = fold.facts.running?.turnId === row.turnId
+  fold.placeLive(row.turnId)
   retractTurn(fold, row)
   closeRunning(fold, row.turnId)
   if (row.body.effort) fold.record('efforts')[row.turnId] = row.body.effort
-  fold.placeLive(row.turnId)
   endTurn(fold, row.turnId)
   if (row.body.status === 'interrupted' && ending)
     marker(fold, row, 'turn_interrupted', undefined, row.body.reason)
