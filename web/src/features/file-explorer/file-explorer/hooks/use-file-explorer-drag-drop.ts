@@ -92,12 +92,12 @@ export function useFileExplorerDragDrop(
         z-index: 9999;
         opacity: 0.95;
         padding: 6px 12px;
-        background-color: var(--color-primary-bg);
-        border: 2px solid var(--color-accent);
+        background-color: var(--control-surface);
+        border: 1px solid var(--control-surface);
         border-radius: 6px;
         font-size: var(--ui-text-sm);
         font-family: var(--app-font-family);
-        color: var(--color-text);
+        color: var(--control-foreground);
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
       `
       preview.textContent = dragState.draggedItem?.name || ''
