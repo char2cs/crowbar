@@ -20,7 +20,7 @@ import {
   endSubagents,
   interruptSubagents,
   notePlan,
-  placePlan,
+  endPlan,
 } from '@/features/agent/stores/lib/fold-subagents'
 import {
   liveKey,
@@ -286,7 +286,7 @@ const applyTurnEnded: Apply<'turn_ended'> = (fold, row) => {
   fold.placeLive(row.turnId)
   const interrupted = row.body.status === 'interrupted'
   endTurn(fold, row.turnId, interrupted ? 'interrupted' : 'abandoned')
-  placePlan(fold, row.turnId)
+  endPlan(fold, row.turnId)
   endSubagents(fold, row)
   if (interrupted && ending) marker(fold, row, 'turn_interrupted', undefined, row.body.reason)
 }
@@ -295,7 +295,7 @@ const applyTurnFailed: Apply<'turn_failed'> = (fold, row) => {
   if (row.scope || !row.turnId) return
   closeRunning(fold, row.turnId)
   endTurn(fold, row.turnId)
-  placePlan(fold, row.turnId)
+  endPlan(fold, row.turnId)
   endSubagents(fold, row)
   marker(fold, row, 'turn_failed', row.body.detail, row.body.reason)
 }

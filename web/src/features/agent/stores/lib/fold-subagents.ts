@@ -250,7 +250,11 @@ export function notePlan(fold: FeedFold, row: LedgerRow<'plan'>) {
   fold.put(snapshot)
 }
 
-export function placePlan(fold: FeedFold, turnId: string) {
+/** The turn's end leaves its plan in the transcript and ends the live one. */
+export function endPlan(fold: FeedFold, turnId: string) {
   const id = planItemId(turnId)
   if (fold.item(id) && !fold.placed(id)) fold.place(id, '')
+  if (!fold.facts.plan['']) return
+  const { '': _ended, ...rest } = fold.facts.plan
+  fold.set('plan', rest)
 }

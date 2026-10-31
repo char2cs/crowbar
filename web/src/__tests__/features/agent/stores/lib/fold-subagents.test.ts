@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emptyFeed } from '@/features/agent/stores/lib/fold-rows'
+import { emptyFeed, FeedFold } from '@/features/agent/stores/lib/fold-rows'
 import type {
   PlanSnapshotItem,
   ReasoningItem,
@@ -231,8 +231,41 @@ describe('reasoning and plan rows', () => {
       ),
       l.end('turn-1'),
     ])
-    expect(feed.facts.plan['']).toEqual([{ id: '1', text: 'Read', status: 'done' }])
     expect(feed.order).toEqual(['l:turn-1'])
-    expect((feed.items['l:turn-1'] as PlanSnapshotItem).items).toEqual(feed.facts.plan[''])
+    expect((feed.items['l:turn-1'] as PlanSnapshotItem).items).toEqual([
+      { id: '1', text: 'Read', status: 'done' },
+    ])
   })
+
+  // The strip and the working line read the live plan: it ends with its turn.
+  const ends = {
+    completed: (l: ReturnType<typeof ledger>) => l.end('turn-1'),
+    interrupted: (l: ReturnType<typeof ledger>) => l.end('turn-1', 'interrupted'),
+    failed: (l: ReturnType<typeof ledger>) =>
+      l.row('turn_failed', { reason: 'provider_error' }, { turnId: 'turn-1' }),
+  }
+  it.each(Object.entries(ends))(
+    'ends the live plan with a %s turn, live and on reload',
+    (_, end) => {
+      const l = ledger()
+      const rows = [
+        l.start('turn-1'),
+        l.row(
+          'plan',
+          { op: 'replace', items: [{ id: '1', text: 'Fix', status: 'active' }] },
+          { turnId: 'turn-1' },
+        ),
+        end(l),
+      ]
+      const live = rows.reduce((feed, row) => applyRows(feed, [row]), emptyFeed())
+      const fold = new FeedFold(emptyFeed())
+      for (const row of rows) fold.apply(row)
+      for (const feed of [live, fold.finish()]) {
+        expect(feed.facts.plan['']).toBeUndefined()
+        expect((feed.items['l:turn-1'] as PlanSnapshotItem).items).toEqual([
+          { id: '1', text: 'Fix', status: 'active' },
+        ])
+      }
+    },
+  )
 })
