@@ -70,3 +70,61 @@ describe('ToolRunRow', () => {
     expect(screen.getByTestId('agent-activity-tool')).toHaveAttribute('data-tool-id', 'a')
   })
 })
+
+describe('ToolRunRow with an ask on a member', () => {
+  const fetches = (l: ReturnType<typeof ledger>) => [
+    l.start('turn-1'),
+    ...['f1', 'f2'].map((toolId) =>
+      l.row(
+        'tool_call',
+        { toolId, phase: 'pre', name: 'WebFetch', kind: 'fetch', target: `https://x/${toolId}` },
+        { turnId: 'turn-1' },
+      ),
+    ),
+    l.row(
+      'ask',
+      {
+        askId: 'q1',
+        event: 'permission',
+        kind: 'tool_permission',
+        toolId: 'f2',
+        answerable: true,
+        options: [
+          { id: 'ok', kind: 'allow', label: 'Allow' },
+          { id: 'no', kind: 'deny', label: 'Deny' },
+        ],
+      },
+      { turnId: 'turn-1' },
+    ),
+  ]
+  const deny = (l: ReturnType<typeof ledger>) =>
+    l.row('ask_resolved', { askId: 'q1', resolution: 'answered', optionIds: ['no'] })
+  const draw = () => render(<ToolRunRow chatId="chat-1" id="g:t:f1" members={['t:f1', 't:f2']} />)
+  const statusOf = (toolId: string) =>
+    document.querySelector(`[data-tool-id="${toolId}"] li`)?.getAttribute('data-status')
+
+  it('shows the call waiting on approval as its own row, then its denial', () => {
+    const l = ledger()
+    for (const row of fetches(l)) push(row)
+    draw()
+    expect(statusOf('f2')).toBe('awaiting_approval')
+    expect(screen.getByText('Waiting for your approval')).toBeInTheDocument()
+
+    push(deny(l))
+    expect(statusOf('f2')).toBe('declined')
+    expect(screen.getByTestId('agent-tool-ask-note')).toHaveTextContent('Denied')
+    expect(screen.queryByTestId('agent-tool-run')).toBeNull()
+  })
+
+  it('reads the same after a reload', () => {
+    const l = ledger()
+    chatStore.setState({ feeds: {} })
+    openFeed('chat-1')
+    for (const row of [...fetches(l), deny(l)]) applyFeedFrame('chat-1', { type: 'row', row })
+    applyFeedFrame('chat-1', { type: 'ready', epoch: 'e2' })
+    draw()
+    expect(statusOf('f2')).toBe('declined')
+    expect(screen.getByTestId('agent-tool-ask-note')).toHaveTextContent('Denied')
+    expect(screen.queryByTestId('agent-tool-run')).toBeNull()
+  })
+})

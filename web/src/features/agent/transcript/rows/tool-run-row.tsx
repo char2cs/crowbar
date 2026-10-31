@@ -9,6 +9,11 @@ import { liveLabel } from '@/features/agent/transcript/lib/tool-label'
 import { runSentence } from '@/features/agent/transcript/lib/tool-runs'
 import { ToolRow } from '@/features/agent/transcript/rows/tool-row'
 
+const standsAlone = (item: ToolItem) =>
+  item.askId !== undefined ||
+  item.askNote !== undefined ||
+  (item.status !== 'running' && item.status !== 'ok')
+
 /** Consecutive read-only calls as one line: a ticker on the newest while any
  *  runs, a sentence once they are done; expanding lists each call's own row. */
 function ToolRunRowBody({
@@ -27,7 +32,11 @@ function ToolRunRowBody({
     ),
   )
   const tools = items.filter((item): item is ToolItem => item?.kind === 'tool')
-  if (tools.length === 1) return <ToolRow chatId={chatId} item={tools[0]!} />
+  // A call that was asked about or did not succeed is a fact of its own: the
+  // run unfolds rather than summing it into a green sentence.
+  if (tools.length === 1 || tools.some(standsAlone)) {
+    return tools.map((item) => <ToolRow key={item.id} chatId={chatId} item={item} />)
+  }
   const running = tools.filter((item) => item.status === 'running')
   const live = running.length > 0
   const newest = running.at(-1)
