@@ -8,7 +8,8 @@ import {
   newestProblem,
   selectEntityBusy,
   selectFailedOps,
-  useOperationsStore,
+  useOperations,
+  operationsState,
 } from '@/lib/store/operations'
 
 // Watches sidebar state and fires ONE error toast per newly-observed
@@ -29,7 +30,7 @@ import {
 export function PlaceholderToastWatcher() {
   const repos = useSidebarStore((s) => s.repos)
   const openDetach = useDetachModalStore((s) => s.open)
-  const failedOps = useOperationsStore(useShallow(selectFailedOps))
+  const failedOps = useOperations(useShallow(selectFailedOps))
   const seen = useRef(new Set<string>())
 
   useEffect(() => {
@@ -38,7 +39,7 @@ export function PlaceholderToastWatcher() {
         if (placeholderKind(ws, repo.defaultBranch) !== 'unprovisioned') continue
         if (seen.current.has(ws.id)) continue
         const named = [ws.id, ws.owningChatId ?? '']
-        const ops = useOperationsStore.getState()
+        const ops = operationsState()
         if (named.some((id) => id && selectEntityBusy(ops, id))) continue
         seen.current.add(ws.id)
         if (newestProblem(failedOps, named)) continue

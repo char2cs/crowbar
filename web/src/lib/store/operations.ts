@@ -1,4 +1,6 @@
-import { create } from 'zustand'
+import { useSyncExternalStore } from 'react'
+import { entityStore, type EntityState } from '@/core/entities/entity-store'
+import { useLocalOperationsStore } from '@/lib/store/local-operations'
 import type { Problem } from '@/lib/errors/problem'
 
 export type OperationState = 'accepted' | 'running' | 'succeeded' | 'failed'
@@ -33,7 +35,7 @@ export interface Operation {
   updatedAt: string
   /** Started by this client and not yet answered by the daemon. */
   local?: true
-  /** Sent on connect (the stream's snapshot), not as a live change. */
+  /** Met in its scope's snapshot, not as a live change. */
   snapshot?: boolean
 }
 
@@ -43,39 +45,71 @@ export interface OperationsState {
   latestFor: Record<string, string>
 }
 
-export const useOperationsStore = create<OperationsState>()(() => ({ ops: {}, latestFor: {} }))
-
 function namedIds(op: Operation): string[] {
   return [op.subject.id, ...op.items.map((item) => item.ref.id)]
 }
 
-function put(s: OperationsState, op: Operation): OperationsState {
-  const latestFor = { ...s.latestFor }
-  for (const id of namedIds(op)) {
-    const newest = s.ops[latestFor[id]]
-    // By time, not text: stamps differ in offset and fractional precision.
-    if (!newest || newest.id === op.id || Date.parse(newest.createdAt) <= Date.parse(op.createdAt))
-      latestFor[id] = op.id
+function newestFor(ops: Record<string, Operation>): Record<string, string> {
+  const latestFor: Record<string, string> = {}
+  for (const op of Object.values(ops)) {
+    for (const id of namedIds(op)) {
+      const newest = ops[latestFor[id]]
+      // By time, not text: stamps differ in offset and fractional precision.
+      if (!newest || Date.parse(newest.createdAt) <= Date.parse(op.createdAt)) latestFor[id] = op.id
+    }
   }
-  return { ops: { ...s.ops, [op.id]: op }, latestFor }
+  return latestFor
 }
 
-/** Upserts a daemon frame; one that is not newer than what is held is ignored,
- *  except that it always replaces a local entry. Snapshot frames apply the same way. */
-export function applyOperationFrame(op: Operation): void {
-  useOperationsStore.setState((s) => {
-    const held = s.ops[op.id]
-    if (held && !held.local && op.version <= held.version) return s
-    return put(s, op)
+let memo:
+  | {
+      server: EntityState['byKind']['operation']
+      local: Record<string, Operation>
+      view: OperationsState
+    }
+  | undefined
+
+/** Every operation: the stream's rows, and the local ones it has not delivered yet. */
+export function operationsState(): OperationsState {
+  const server = entityStore.getState().byKind.operation
+  const local = useLocalOperationsStore.getState().ops
+  if (memo?.server === server && memo.local === local) return memo.view
+  const ops: Record<string, Operation> = { ...local }
+  for (const [id, held] of Object.entries(server)) {
+    const reply = local[id]
+    // A daemon reply newer than the stream's row (a dismiss) shows until its frame arrives.
+    if (!reply || reply.local || reply.version <= held.data.version) ops[id] = held.data
+  }
+  memo = { server, local, view: { ops, latestFor: newestFor(ops) } }
+  return memo.view
+}
+
+/** Calls `listener` whenever operationsState() may have changed. */
+export function subscribeOperations(listener: () => void): () => void {
+  const stopServer = entityStore.subscribe((s, prev) => {
+    if (s.byKind.operation !== prev.byKind.operation) listener()
   })
+  const stopLocal = useLocalOperationsStore.subscribe(listener)
+  return () => {
+    stopServer()
+    stopLocal()
+  }
 }
 
-/** Writes a local operation, unless the daemon's own row for it has arrived. */
+/** A component's narrow read of every operation. */
+export function useOperations<T>(selector: (s: OperationsState) => T): T {
+  return useSyncExternalStore(subscribeOperations, () => selector(operationsState()))
+}
+
+/** Writes an operation the stream has not delivered: a local one, or a daemon
+ *  reply newer than what is held. */
 export function putLocalOperation(op: Operation): void {
-  useOperationsStore.setState((s) => {
+  const streamed = entityStore.getState().byKind.operation[op.id]
+  if (streamed && (op.local || streamed.data.version >= op.version)) return
+  useLocalOperationsStore.setState((s) => {
     const held = s.ops[op.id]
-    if (held && !held.local) return s
-    return put(s, op)
+    if (held && !held.local && !op.local && op.version <= held.version) return s
+    return { ops: { ...s.ops, [op.id]: op } }
   })
 }
 

@@ -40,7 +40,8 @@ import { useAgentProvidersStore } from '@/features/settings/stores/agent-provide
 import { useSettingsStore } from '@/features/settings/store'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useCreateDraftStore } from '@/lib/store/create-draft'
-import { useOperationsStore } from '@/lib/store/operations'
+import { resetOperations } from '@/__tests__/__fixtures__/operations'
+import { operationsState } from '@/lib/store/operations'
 import { rowsFromOperations } from '@/components/sidebar/lib/rows-from-operations'
 import { ApiError } from '@/lib/errors/api-error'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
@@ -77,7 +78,7 @@ beforeEach(() => {
   useRemovalTrayStore.setState(getInitialRemovalState())
   useHomeTreeStore.setState({ trees: {} })
   useCreateDraftStore.setState({ draft: null })
-  useOperationsStore.setState({ ops: {}, latestFor: {} })
+  resetOperations()
   // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
   // CLI, unlike the old chat-less postWorkspace) — the global provider store
   // (agent-providers-store.ts), not a per-workspace one, since there is no
@@ -317,11 +318,9 @@ describe('creating a workspace off a REGULAR fork row', () => {
     handleCreate('ws-a', 'workspace', navigate)
     confirmArmedBranchName('feature/x', navigate)
     const chatId = mintedForkId()
-    await vi.waitFor(() =>
-      expect(Object.values(useOperationsStore.getState().ops)[0]?.state).toBe('succeeded'),
-    )
+    await vi.waitFor(() => expect(Object.values(operationsState().ops)[0]?.state).toBe('succeeded'))
 
-    const rows = rowsFromOperations(Object.values(useOperationsStore.getState().ops), {
+    const rows = rowsFromOperations(Object.values(operationsState().ops), {
       projectId: 'p1',
     })
     expect(rows).toMatchObject([
@@ -358,9 +357,9 @@ describe('creating a workspace off a REGULAR fork row', () => {
       to: '/ide/$projectId/$repoId/$wsId',
       params: { projectId: 'p1', repoId: 'r1', wsId: 'ws-new' },
     })
-    expect(
-      rowsFromOperations(Object.values(useOperationsStore.getState().ops), { projectId: 'p1' }),
-    ).toEqual([])
+    expect(rowsFromOperations(Object.values(operationsState().ops), { projectId: 'p1' })).toEqual(
+      [],
+    )
   })
 
   it('a branch create the daemon refuses keeps its row with the reason', async () => {
@@ -378,7 +377,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
 
     await vi.waitFor(() =>
       expect(
-        rowsFromOperations(Object.values(useOperationsStore.getState().ops), { projectId: 'p1' }),
+        rowsFromOperations(Object.values(operationsState().ops), { projectId: 'p1' }),
       ).toMatchObject([
         {
           label: 'feature/x',

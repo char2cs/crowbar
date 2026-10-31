@@ -117,7 +117,8 @@ import { setChatPlacement } from '@/features/agent/api/agent-chat-commands'
 import { toast } from '@/features/window/stores/toast-store'
 import { toastManager } from '@/lib/toast-manager'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
-import { applyOperationFrame, useOperationsStore, type Operation } from '@/lib/store/operations'
+import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
+import { operationsState, type Operation } from '@/lib/store/operations'
 import {
   destroyWorkspaceStore,
   getAllActiveWorkspaceIds,
@@ -272,7 +273,7 @@ beforeEach(() => {
   useProjectDataStore.setState({ data: idle() })
   fetchWorkspaces.mockResolvedValue([])
   setActiveWorkspaceId('ws-1')
-  useOperationsStore.setState({ ops: {}, latestFor: {} })
+  resetOperations()
   vi.spyOn(toastManager, 'add')
   // A reparent is addressed by the fork's owning chat (worktreeVerbBaseForWorkspace).
   for (const { id } of makeRepo().workspaces)
@@ -704,7 +705,7 @@ describe('performSidebarDrop — a reparent runs as an operation', () => {
       op = { id, kind: 'workspace.reparent', subject: { kind: 'workspace', id: wsId } } as Operation
       return { operation: { ...op, state: 'accepted', items: [], version: 1, createdAt: '' } }
     })
-    return { settle: (change) => applyOperationFrame({ ...op, items: [], version: 2, ...change }) }
+    return { settle: (change) => streamOperation({ ...op, items: [], version: 2, ...change }) }
   }
 
   it('a reparent the daemon refuses reports its reason and skips the placement call', async () => {
@@ -716,8 +717,7 @@ describe('performSidebarDrop — a reparent runs as an operation', () => {
     await done
 
     expect(placeWorkspace).not.toHaveBeenCalled()
-    const [op] = Object.values(useOperationsStore.getState().ops)
-    expect(op.error?.message).toBe('has fork children')
+    expect(Object.values(operationsState().ops)[0].error?.message).toBe('has fork children')
     // The operations watcher toasts it; the drop does not toast it twice.
     expect(toastManager.add).not.toHaveBeenCalled()
   })

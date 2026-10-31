@@ -3,7 +3,8 @@ import { afterEach, describe, it, expect, vi } from 'vitest'
 import { BranchSection } from '@/features/git/components/branch-section'
 import type { GitFile } from '@/features/git/types/git-types'
 import { pushChanges } from '@/features/git/api/git-remotes-api'
-import { applyOperationFrame, useOperationsStore } from '@/lib/store/operations'
+import { streamOperation } from '@/__tests__/__fixtures__/operations'
+import { operationsState } from '@/lib/store/operations'
 
 // Stub the heavy children so this test isolates BranchSection's own rendering.
 vi.mock('@/features/git/components/commit-box', () => ({
@@ -107,12 +108,12 @@ describe('BranchSection', () => {
 
     await waitFor(() => expect(pushChanges).toHaveBeenCalled())
     const opId = vi.mocked(pushChanges).mock.calls[0][1]
-    expect(useOperationsStore.getState().ops[opId]).toMatchObject({ kind: 'git.push' })
+    expect(operationsState().ops[opId]).toMatchObject({ kind: 'git.push' })
     expect(await screen.findByRole('button', { name: /Pushing/ })).toBeDisabled()
 
     act(() => {
-      const held = useOperationsStore.getState().ops[opId]
-      applyOperationFrame({
+      const held = operationsState().ops[opId]
+      streamOperation({
         ...held,
         state: 'failed',
         version: held.version + 1,
@@ -140,7 +141,7 @@ describe('BranchSection', () => {
       updatedAt: '2026-10-28T13:00:00Z',
       error: { code: 'internal' as const, message: 'rejected by the remote' },
     }
-    act(() => applyOperationFrame(failed))
+    act(() => streamOperation(failed))
     const fetchMock = vi
       .fn()
       .mockResolvedValue(

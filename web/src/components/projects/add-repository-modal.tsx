@@ -18,7 +18,7 @@ import { useProjectStore } from '@/lib/store/projects'
 import { upsertEntity } from '@/lib/persistence/entity-cache'
 import { syncSidebarFromCache } from '@/lib/store/sidebar-sync'
 import { runOperation, whenSettled } from '@/lib/store/run-operation'
-import { useOperationsStore, type Operation } from '@/lib/store/operations'
+import { operationsState, type Operation } from '@/lib/store/operations'
 import { OperationFailedError } from '@/lib/errors/operation-failed'
 
 interface AddRepositoryModalProps {
@@ -41,7 +41,7 @@ async function settledOrPartial(opId: string): Promise<Operation> {
   try {
     return await whenSettled(opId)
   } catch (err) {
-    const op = useOperationsStore.getState().ops[opId]
+    const op = operationsState().ops[opId]
     if (op && addedRepoItem(op)) return op
     throw err
   }

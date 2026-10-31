@@ -19,12 +19,9 @@ vi.mock('@/lib/api/sidebar-placement', () => ({
 import { commitRemoval, flushDrainingRemovals } from '@/components/layout/removal-commit'
 import { toast } from '@/features/window/stores/toast-store'
 import { toastManager } from '@/lib/toast-manager'
-import {
-  applyOperationFrame,
-  selectEntityProblem,
-  useOperationsStore,
-  type Operation,
-} from '@/lib/store/operations'
+import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
+import { useLocalOperationsStore } from '@/lib/store/local-operations'
+import { selectEntityProblem, operationsState, type Operation } from '@/lib/store/operations'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import {
   useRemovalTrayStore,
@@ -105,13 +102,13 @@ beforeEach(() => {
   deleteHomeFolder.mockClear().mockResolvedValue([])
   toastError?.mockRestore()
   toastError = vi.spyOn(toast, 'error')
-  useOperationsStore.setState({ ops: {}, latestFor: {} })
+  resetOperations()
   __resetWorkspaceScopesForTest()
   useRemovalTrayStore.setState(getInitialRemovalState())
   useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set<string>() } as never)
   useSidebarStore.setState({ repos: [repo()] })
   useHomeTreeStore.setState({ trees: {} })
-  useOperationsStore.setState({ ops: {}, latestFor: {} })
+  resetOperations()
 })
 
 describe('committing a workspace removal', () => {
@@ -181,12 +178,12 @@ describe('committing a workspace removal', () => {
       ...{ version: 1, createdAt: '', updatedAt: '', local: true },
     }
     const other: Operation = { ...created, id: 'op-other', items: [] }
-    useOperationsStore.setState({ ops: { [created.id]: created, [other.id]: other } })
+    useLocalOperationsStore.setState({ ops: { [created.id]: created, [other.id]: other } })
 
     await commitRemoval(entry(), context)
 
-    expect(useOperationsStore.getState().ops['op-create']?.dismissed).toBe(true)
-    expect(useOperationsStore.getState().ops['op-other']?.dismissed).toBe(false)
+    expect(operationsState().ops['op-create']?.dismissed).toBe(true)
+    expect(operationsState().ops['op-other']?.dismissed).toBe(false)
   })
 
   // A partly failed import keeps its failed sibling's reason until the user acts on it.
@@ -200,11 +197,11 @@ describe('committing a workspace removal', () => {
       ],
       ...{ version: 1, createdAt: '', updatedAt: '', local: true },
     }
-    useOperationsStore.setState({ ops: { [partial.id]: partial } })
+    useLocalOperationsStore.setState({ ops: { [partial.id]: partial } })
 
     await commitRemoval(entry(), context)
 
-    expect(useOperationsStore.getState().ops['op-import']?.dismissed).toBe(false)
+    expect(operationsState().ops['op-import']?.dismissed).toBe(false)
   })
 
   it('a removal whose fallback is the repo home leaves for it', async () => {
@@ -389,7 +386,7 @@ describe('committing a repo removal', () => {
   it('a remove releases the tray once the repo is gone', async () => {
     hideRepo()
     await commitRemoval(repoEntry(), context)
-    applyOperationFrame(removeOp(sentOpId(), 2, { state: 'succeeded' }))
+    streamOperation(removeOp(sentOpId(), 2, { state: 'succeeded' }))
     expect(useRemovalTrayStore.getState().hiddenIds.has('r1')).toBe(true)
 
     useSidebarStore.setState({ repos: [] })
@@ -402,10 +399,10 @@ describe('committing a repo removal', () => {
     hideRepo()
     await commitRemoval(repoEntry(), context)
     const reason: Problem = { code: 'internal', message: 'worktree wedged' }
-    applyOperationFrame(removeOp(sentOpId(), 2, { state: 'failed', error: reason }))
+    streamOperation(removeOp(sentOpId(), 2, { state: 'failed', error: reason }))
 
     await vi.waitFor(() => expect(useRemovalTrayStore.getState().hiddenIds.has('r1')).toBe(false))
-    expect(selectEntityProblem(useOperationsStore.getState(), 'r1')).toEqual(reason)
+    expect(selectEntityProblem(operationsState(), 'r1')).toEqual(reason)
     // The operations watcher tells it, once.
     expect(toastError).not.toHaveBeenCalled()
   })

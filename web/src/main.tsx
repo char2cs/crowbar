@@ -16,7 +16,8 @@ import { installPerfObserver, perfEnabled, pushPerfEntry } from '@/lib/perf/inst
 import { prefetchEditorChunks } from '@/features/panes/components/prefetch-editor-chunks'
 import { hydrateCriticalStores } from '@/lib/boot'
 import { installGlobalReporting, report } from '@/lib/errors/report'
-import { startOperationsStream } from '@/lib/store/operations-stream'
+import { holdScope, startStream } from '@/core/stream/stream'
+import '@/core/entities/entity-store'
 import './index.css'
 
 // Must run before anything else in boot: markStart/markEnd calls elsewhere
@@ -31,10 +32,14 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => uninstallGlobalReporting())
 }
 
-// Every operation's outcome reaches the operations store, whatever is mounted.
-const stopOperationsStream = startOperationsStream()
+// The one stream; every operation's outcome rides the projects scope, whatever is mounted.
+const stopStream = startStream()
+const releaseProjects = holdScope('projects')
 if (import.meta.hot) {
-  import.meta.hot.dispose(() => stopOperationsStream())
+  import.meta.hot.dispose(() => {
+    releaseProjects()
+    stopStream()
+  })
 }
 
 // Required for Zustand stores that use immer middleware with Set/Map state

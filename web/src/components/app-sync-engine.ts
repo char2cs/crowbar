@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { useProjectDataStore, useProjectStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { useOperationsStore, type Operation } from '@/lib/store/operations'
+import { operationsState, subscribeOperations, type Operation } from '@/lib/store/operations'
 import { getVisibleProjectIds } from '@/lib/store/project-visibility'
 import { toSidebarRepo } from '@/lib/store/build-repo-tree'
 import { subscribeHomeTree } from '@/lib/store/home-tree'
@@ -520,7 +520,7 @@ export function useAppSyncEngine(): void {
       // rows via collapsedChatRows, which hides nothing the streams feed), so
       // each one keeps both its workspaces and its folders+chats streams open.
       const { repos } = useSidebarStore.getState()
-      const { ops } = useOperationsStore.getState()
+      const { ops } = operationsState()
       goneKeys.clear()
       for (const repo of repos) {
         const projectId = repo.projectId
@@ -605,7 +605,7 @@ export function useAppSyncEngine(): void {
           if (s.repos !== prev.repos) reconcile()
         }),
       )
-      rootUnsubscribes.push(useOperationsStore.subscribe(reconcile))
+      rootUnsubscribes.push(subscribeOperations(reconcile))
     }
 
     void start()

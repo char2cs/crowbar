@@ -9,7 +9,7 @@ import {
   type DropPolicy,
 } from '@/components/tree-dnd/drop-core'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import { selectEntityBusy, useOperationsStore } from '@/lib/store/operations'
+import { selectEntityBusy, operationsState } from '@/lib/store/operations'
 import { isWorkspaceLockedInSidebar } from '@/lib/store/repo-tree'
 import { chatStore } from '@/features/agent/stores/chat-store'
 import {
@@ -210,7 +210,7 @@ export function levelWorkspaceOfBranchRow(
  */
 export function allowedModes(subjects: readonly SidebarRow[], target: DropTargetRow): AllowedModes {
   if (subjects.length === 0) return NO_MODES
-  const ops = useOperationsStore.getState()
+  const ops = operationsState()
   if (subjects.some((s) => s.working || (s.workspaceId && selectEntityBusy(ops, s.workspaceId))))
     return NO_MODES
   // Never drop a row onto itself.

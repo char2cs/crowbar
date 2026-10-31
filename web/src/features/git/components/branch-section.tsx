@@ -7,7 +7,7 @@ import { MergePopover } from './merge-popover'
 import { resolveBranchAction } from '../lib/branch-action'
 import { pushChanges, pullChanges } from '../api/git-remotes-api'
 import { rebaseOntoParent } from '@/lib/api/workspace'
-import { selectEntityProblem, useOperationsStore } from '@/lib/store/operations'
+import { selectEntityProblem, useOperations } from '@/lib/store/operations'
 import { dismissOperation, runOperation, whenSettled } from '@/lib/store/run-operation'
 import { report } from '@/lib/errors/report'
 import type { GitFile } from '../types/git-types'
@@ -35,9 +35,9 @@ export function BranchSection({
   const [remoteBusy, setRemoteBusy] = useState(false)
   const [rebasing, setRebasing] = useState(false)
   // The workspace's last failed operation owns the reason; a later success clears it.
-  const opError = useOperationsStore((s) => selectEntityProblem(s, wsId)?.message ?? null)
-  const latestOpId = useOperationsStore((s) => s.latestFor[wsId])
-  const latestKind = useOperationsStore((s) => s.ops[s.latestFor[wsId]]?.kind)
+  const opError = useOperations((s) => selectEntityProblem(s, wsId)?.message ?? null)
+  const latestOpId = useOperations((s) => s.latestFor[wsId])
+  const latestKind = useOperations((s) => s.ops[s.latestFor[wsId]]?.kind)
 
   const action = resolveBranchAction({
     hasUncommitted: files.length > 0,

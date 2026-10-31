@@ -52,7 +52,8 @@ import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import type { EntityChange } from '@/lib/ws/entity-stream'
-import { applyOperationFrame, useOperationsStore, type Operation } from '@/lib/store/operations'
+import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
+import { type Operation } from '@/lib/store/operations'
 import type { ChatDTO, Project, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 interface StreamOptions {
@@ -152,7 +153,7 @@ async function bootWithWorkspaces(rows: WorkspaceDTO[]): Promise<void> {
 beforeEach(async () => {
   vi.clearAllMocks()
   opened.length = 0
-  useOperationsStore.setState({ ops: {}, latestFor: {} })
+  resetOperations()
   subscribeEntityStream.mockImplementation((options: StreamOptions) => {
     const dispose = vi.fn()
     opened.push({ ...options, dispose })
@@ -277,7 +278,7 @@ describe('a repo tombstone', () => {
     await bootWithWorkspaces([workspace('owner-locked')])
     const streamOf = (endpoint: string) => opened.find((s) => s.endpoint === endpoint)
     const rebuild = vi.spyOn(useWorkspaceListStore.getState(), 'fetch')
-    act(() => applyOperationFrame(removeOp(1, 'running')))
+    act(() => streamOperation(removeOp(1, 'running')))
     const deleting: RepoDTO = { ...repoDTO, deleting: true }
     await upsertEntity('crowbar_repos', deleting)
     act(() => {
@@ -297,13 +298,13 @@ describe('a repo tombstone', () => {
   it('a repo whose delete stopped streams again', async () => {
     await bootWithWorkspaces([workspace('owner-locked')])
     const repos = opened.find((s) => s.endpoint === '/v0/projects/p1/repos')!
-    act(() => applyOperationFrame(removeOp(1, 'running')))
+    act(() => streamOperation(removeOp(1, 'running')))
     const deleting: RepoDTO = { ...repoDTO, deleting: true }
     await upsertEntity('crowbar_repos', deleting)
     act(() => {
       repos.onChange?.({ kind: 'frame', frame: deleting })
     })
-    act(() => applyOperationFrame(removeOp(2, 'failed')))
+    act(() => streamOperation(removeOp(2, 'failed')))
     await waitFor(() =>
       expect(opened.filter((s) => s.endpoint === '/v0/projects/p1/repos/r1/chats/ws')).toHaveLength(
         2,
@@ -321,7 +322,7 @@ describe('a repo tombstone', () => {
   it('a repo whose delete failed keeps streaming across its later frames', async () => {
     await bootWithWorkspaces([workspace('owner-locked')])
     const repos = opened.find((s) => s.endpoint === '/v0/projects/p1/repos')!
-    act(() => applyOperationFrame(removeOp(2, 'failed')))
+    act(() => streamOperation(removeOp(2, 'failed')))
     const renamed: RepoDTO = { ...repoDTO, name: 'renamed', deleting: true }
     await upsertEntity('crowbar_repos', renamed)
     act(() => {
@@ -337,12 +338,12 @@ describe('a repo tombstone', () => {
     const repos = opened.find((s) => s.endpoint === '/v0/projects/p1/repos')!
     const deleting: RepoDTO = { ...repoDTO, deleting: true }
     await upsertEntity('crowbar_repos', deleting)
-    act(() => applyOperationFrame(removeOp(1, 'running')))
+    act(() => streamOperation(removeOp(1, 'running')))
     act(() => {
       repos.onChange?.({ kind: 'frame', frame: deleting })
     })
     await waitFor(() => expect(liveChatStreams()).toHaveLength(0))
-    act(() => applyOperationFrame(removeOp(2, 'succeeded')))
+    act(() => streamOperation(removeOp(2, 'succeeded')))
     act(() => {
       repos.onChange?.({ kind: 'frame', frame: deleting })
     })

@@ -2,7 +2,8 @@ import { act, render } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { OperationsWatcher } from '@/components/layout/operations-watcher'
 import { toast } from '@/features/window/stores/toast-store'
-import { applyOperationFrame, useOperationsStore, type Operation } from '@/lib/store/operations'
+import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
+import { type Operation } from '@/lib/store/operations'
 
 vi.mock('@/features/window/stores/toast-store', () => ({ toast: { show: vi.fn() } }))
 
@@ -25,15 +26,15 @@ function op(over: Partial<Operation>): Operation {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useOperationsStore.setState({ ops: {}, latestFor: {} })
+  resetOperations()
 })
 
 describe('OperationsWatcher', () => {
   it('toasts the label and reason when an operation it saw running fails', () => {
     render(<OperationsWatcher />)
-    act(() => applyOperationFrame(op({})))
+    act(() => streamOperation(op({})))
     act(() =>
-      applyOperationFrame(
+      streamOperation(
         op({ state: 'failed', version: 2, error: { code: 'internal', message: 'origin gone' } }),
       ),
     )
@@ -48,10 +49,10 @@ describe('OperationsWatcher', () => {
   })
 
   it('does not toast an operation that was already failed when first seen', () => {
-    applyOperationFrame(op({ state: 'failed', error: { code: 'internal', message: 'old' } }))
+    streamOperation(op({ state: 'failed', error: { code: 'internal', message: 'old' } }))
     render(<OperationsWatcher />)
     act(() =>
-      applyOperationFrame(
+      streamOperation(
         op({
           id: 'op2',
           state: 'failed',
@@ -68,7 +69,7 @@ describe('OperationsWatcher', () => {
   it('toasts an operation first seen failed on a live frame', () => {
     render(<OperationsWatcher />)
     act(() =>
-      applyOperationFrame(
+      streamOperation(
         op({
           id: 'op3',
           label: 'Remove feature/a',

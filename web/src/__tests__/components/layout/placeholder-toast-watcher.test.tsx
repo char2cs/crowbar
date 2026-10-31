@@ -7,7 +7,7 @@ import { toast } from '@/features/window/stores/toast-store'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { PlaceholderToastWatcher } from '@/components/layout/placeholder-toast-watcher'
 import type { Repo } from '@/lib/store/sidebar'
-import { applyOperationFrame, useOperationsStore } from '@/lib/store/operations'
+import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
 
 const repoWith = (over = {}): Repo => ({
   id: 'r1',
@@ -30,7 +30,7 @@ const repoWith = (over = {}): Repo => ({
 beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState({ repos: [] })
-  useOperationsStore.setState({ ops: {}, latestFor: {} })
+  resetOperations()
 })
 
 describe('PlaceholderToastWatcher', () => {
@@ -57,7 +57,7 @@ describe('PlaceholderToastWatcher', () => {
 
   // The operations watcher already toasted the failure; the placeholder must not say it again.
   it('a placeholder whose operation already failed is not toasted twice', () => {
-    applyOperationFrame({
+    streamOperation({
       id: 'op-1',
       kind: 'workspace.retry_provision',
       subject: { kind: 'workspace', id: 'ph' },
@@ -73,7 +73,7 @@ describe('PlaceholderToastWatcher', () => {
     })
     useSidebarStore.setState({ repos: [repoWith()] })
     const { rerender } = render(<PlaceholderToastWatcher />)
-    useOperationsStore.setState({ ops: {}, latestFor: {} })
+    resetOperations()
     rerender(<PlaceholderToastWatcher />)
     expect(toast.show).not.toHaveBeenCalled()
   })

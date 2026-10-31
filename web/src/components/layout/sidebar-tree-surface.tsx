@@ -27,7 +27,7 @@ import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { performSidebarPaneDrop } from '@/components/sidebar/lib/pane-drop-actions'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { newestProblem, selectFailedOps, useOperationsStore } from '@/lib/store/operations'
+import { newestProblem, selectFailedOps, useOperations } from '@/lib/store/operations'
 import { useShallow } from 'zustand/react/shallow'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { toast } from '@/features/window/stores/toast-store'
@@ -168,7 +168,7 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
   )
   // A create whose entity has not arrived is drawn from its operation, and the
   // fork being named from its draft, here where chrome and render path converge.
-  const ops = useOperationsStore((s) => s.ops)
+  const ops = useOperations((s) => s.ops)
   const draft = useCreateDraftStore((s) => s.draft)
   const createRefs = useMemo(() => createItemRefs(Object.values(ops)), [ops])
   const present = usePresentEntities(createRefs)
@@ -184,7 +184,7 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
   )
   // A row explains itself with the newest failed operation naming it or its workspace.
   // Shallow: rows re-derive only when some failure changes, not on every frame.
-  const failedOps = useOperationsStore(useShallow(selectFailedOps))
+  const failedOps = useOperations(useShallow(selectFailedOps))
   const problemOf = useCallback(
     (...entityIds: string[]) => newestProblem(failedOps, entityIds),
     [failedOps],

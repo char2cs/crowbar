@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render } from '@testing-library/react'
 import { SidebarRowActions } from '@/components/sidebar/sidebar-row-actions'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
-import { useOperationsStore } from '@/lib/store/operations'
+import { resetOperations } from '@/__tests__/__fixtures__/operations'
+import { operationsState } from '@/lib/store/operations'
 
 const { retryProvision } = vi.hoisted(() => ({
   retryProvision: vi.fn().mockResolvedValue({ items: [] }),
@@ -71,13 +72,13 @@ describe('SidebarRowActions', () => {
   })
 
   it('Retry runs a retry_provision operation', () => {
-    useOperationsStore.setState({ ops: {}, latestFor: {} })
+    resetOperations()
     const { container } = renderActions({ ...provisioned, locked: false, isPlaceholder: true })
     const retry = container.querySelector('[data-control="retry-provision"]')
     if (!retry) throw new Error('no Retry control')
     fireEvent.click(retry)
 
-    const [op] = Object.values(useOperationsStore.getState().ops)
+    const [op] = Object.values(operationsState().ops)
     expect(op).toMatchObject({
       kind: 'workspace.retry_provision',
       subject: { kind: 'workspace', id: 'ws-1' },

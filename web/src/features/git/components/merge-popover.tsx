@@ -12,7 +12,7 @@ import {
   subscribeActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
 import { isEntityPresent, subscribeEntityPresence } from '@/lib/store/entity-presence'
-import { selectEntityBusy, useOperationsStore } from '@/lib/store/operations'
+import { selectEntityBusy, useOperations } from '@/lib/store/operations'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { getPostDeleteNavigationTarget, holdsWorkspace } from '@/lib/store/repo-tree'
 import { runOperation, whenSettled } from '@/lib/store/run-operation'
@@ -71,7 +71,7 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
   const [strategyError, setStrategyError] = useState<string | null>(null)
   const navigate = useNavigate()
   // One hierarchy verb at a time per workspace; the daemon refuses a second too.
-  const busy = useOperationsStore((s) => selectEntityBusy(s, wsId))
+  const busy = useOperations((s) => selectEntityBusy(s, wsId))
   const strategy = useWorkspaceStoreById(wsId, (s) => s.branchReview.mergeStrategy)
   const active = STRATEGIES.find((s) => s.value === strategy) ?? STRATEGIES[0]
 

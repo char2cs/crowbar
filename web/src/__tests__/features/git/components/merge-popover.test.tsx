@@ -3,7 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Button } from '@/components/ui/button'
 import { MergePopover } from '@/features/git/components/merge-popover'
-import { useOperationsStore } from '@/lib/store/operations'
+import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
+import { operationsState } from '@/lib/store/operations'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
@@ -31,13 +32,13 @@ async function mergeFoldsTheChild() {
   return { items: [] }
 }
 
-const settledOp = () => Object.values(useOperationsStore.getState().ops)[0]?.state
+const settledOp = () => Object.values(operationsState().ops)[0]?.state
 
 beforeEach(() => {
   vi.clearAllMocks()
   mergeIntoParent.mockImplementation(mergeFoldsTheChild)
   setActiveWorkspaceId('w1')
-  useOperationsStore.setState({ ops: {}, latestFor: {} })
+  resetOperations()
   useSidebarStore.setState({
     repos: [
       {
@@ -73,7 +74,7 @@ describe('MergePopover', () => {
     await user.click(screen.getByRole('button', { name: 'Merge into develop' }))
     await user.click(await screen.findByRole('button', { name: 'Create merge commit' }))
 
-    const [op] = Object.values(useOperationsStore.getState().ops)
+    const [op] = Object.values(operationsState().ops)
     expect(op).toMatchObject({
       kind: 'workspace.merge_into_parent',
       subject: { kind: 'workspace', id: 'w1' },
@@ -108,9 +109,7 @@ describe('MergePopover', () => {
     await user.click(screen.getByRole('button', { name: 'Merge into develop' }))
     await user.click(await screen.findByRole('button', { name: 'Create merge commit' }))
 
-    await waitFor(() =>
-      expect(Object.values(useOperationsStore.getState().ops)[0]?.state).toBe('succeeded'),
-    )
+    await waitFor(() => expect(Object.values(operationsState().ops)[0]?.state).toBe('succeeded'))
     expect(navigateMock).not.toHaveBeenCalled()
   })
 
@@ -178,15 +177,10 @@ describe('MergePopover', () => {
   })
 
   it('the merge cannot start while an operation on the workspace runs', async () => {
-    useOperationsStore.setState({
-      ops: {
-        busy: {
-          ...{ id: 'busy', kind: 'workspace.sync', subject: { kind: 'workspace', id: 'w1' } },
-          ...{ projectId: 'p1', label: 'Sync', state: 'running', items: [], dismissed: false },
-          ...{ version: 1, createdAt: '', updatedAt: '' },
-        },
-      },
-      latestFor: { w1: 'busy' },
+    streamOperation({
+      ...{ id: 'busy', kind: 'workspace.sync', subject: { kind: 'workspace', id: 'w1' } },
+      ...{ projectId: 'p1', label: 'Sync', state: 'running', items: [], dismissed: false },
+      ...{ version: 1, createdAt: '', updatedAt: '' },
     })
     renderPopover()
 
@@ -200,9 +194,7 @@ describe('MergePopover', () => {
     await user.click(screen.getByRole('button', { name: 'Merge into develop' }))
     await user.click(await screen.findByRole('button', { name: 'Create merge commit' }))
 
-    await waitFor(() =>
-      expect(Object.values(useOperationsStore.getState().ops)[0]?.state).toBe('failed'),
-    )
+    await waitFor(() => expect(Object.values(operationsState().ops)[0]?.state).toBe('failed'))
     expect(navigateMock).not.toHaveBeenCalled()
   })
 

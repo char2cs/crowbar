@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import { useOperationsStore } from '@/lib/store/operations'
+import { useOperations } from '@/lib/store/operations'
 import { mergeRunsOn, shouldRedirectUnknownWorkspace } from '@/lib/store/workspace-route-guard'
 
 export const Route = createFileRoute('/_shell/ide/$projectId/$repoId/$wsId')({
@@ -15,7 +15,7 @@ function WorkspaceRouteGuard() {
   const repos = useSidebarStore((state) => state.repos)
   const workspacesRead = useFolderSignalStore((state) => state.seededWorkspaceRepoIds)
   const reposRead = useFolderSignalStore((state) => state.seededRepoListProjectIds)
-  const merging = useOperationsStore((state) => mergeRunsOn(state.ops, wsId))
+  const merging = useOperations((state) => mergeRunsOn(state.ops, wsId))
 
   // The hierarchical scope (project+repo) for this workspace is recorded
   // synchronously by the IDE shell from the route path BEFORE WorkspaceView

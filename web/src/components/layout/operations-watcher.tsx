@@ -1,6 +1,11 @@
 import { useEffect } from 'react'
 import { toast } from '@/features/window/stores/toast-store'
-import { useOperationsStore, type Operation, type OperationState } from '@/lib/store/operations'
+import {
+  operationsState,
+  subscribeOperations,
+  type Operation,
+  type OperationState,
+} from '@/lib/store/operations'
 
 function reason(op: Operation): string | undefined {
   return (op.error ?? op.items.find((item) => item.error)?.error)?.message
@@ -30,8 +35,8 @@ export function OperationsWatcher() {
         })
       }
     }
-    look(useOperationsStore.getState().ops, false)
-    return useOperationsStore.subscribe((s) => look(s.ops, true))
+    look(operationsState().ops, false)
+    return subscribeOperations(() => look(operationsState().ops, true))
   }, [])
   return null
 }

@@ -36,7 +36,8 @@ import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { useCreateDraftStore } from '@/lib/store/create-draft'
-import { useOperationsStore } from '@/lib/store/operations'
+import { resetOperations } from '@/__tests__/__fixtures__/operations'
+import { operationsState } from '@/lib/store/operations'
 import { rowsFromOperations } from '@/components/sidebar/lib/rows-from-operations'
 import { ApiError } from '@/lib/errors/api-error'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
@@ -61,13 +62,12 @@ beforeEach(() => {
   useRemovalTrayStore.setState(getInitialRemovalState())
   useHomeTreeStore.setState({ trees: {} })
   useCreateDraftStore.setState({ draft: null })
-  useOperationsStore.setState({ ops: {}, latestFor: {} })
+  resetOperations()
   useAgentProvidersStore.setState({ status: 'ready', providers: [] })
 })
 
 const ANY = expect.any(String)
-const opRows = () =>
-  rowsFromOperations(Object.values(useOperationsStore.getState().ops), { projectId: 'p1' })
+const opRows = () => rowsFromOperations(Object.values(operationsState().ops), { projectId: 'p1' })
 const mintedChatId = () => (createChat.mock.calls.at(-1) as unknown as [string])[0]
 
 // Regression, reported live: a project-home chat's Fork was offered with no
@@ -100,9 +100,7 @@ describe('a project-home chat row resolves Thread through its home workspace, an
     )
     const chatId = mintedChatId()
     expect(opRows()).toMatchObject([{ id: chatId, kind: 'chat', parentId: 'c1', working: true }])
-    await vi.waitFor(() =>
-      expect(Object.values(useOperationsStore.getState().ops)[0]?.state).toBe('succeeded'),
-    )
+    await vi.waitFor(() => expect(Object.values(operationsState().ops)[0]?.state).toBe('succeeded'))
     // Succeeded, but the chat is not in the home tree yet: the row still stands in.
     expect(opRows()).toHaveLength(1)
 

@@ -55,11 +55,9 @@ func newHarness(
 	return newHarnessAt(t, t.TempDir())
 }
 
-// newHarnessAt boots the full backend rooted at an EXPLICIT crowbar home. It
-// backs the daemon-restart suites: shut a harness down (harness.shutdown) and
-// boot a second one over the SAME home to exercise every startup path that
-// reads persisted state (terminal restore, agent boot reconcile) exactly as a
-// real daemon restart does.
+// newHarnessAt boots the full backend rooted at an EXPLICIT crowbar home, so a
+// restart suite can boot a second one over the SAME home and exercise every
+// startup path that reads persisted state, as a real daemon restart does.
 func newHarnessAt(
 	t *testing.T,
 	home string,

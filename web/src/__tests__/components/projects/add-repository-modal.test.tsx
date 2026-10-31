@@ -19,12 +19,8 @@ import { OperationsWatcher } from '@/components/layout/operations-watcher'
 import { rowsFromOperations } from '@/components/sidebar/lib/rows-from-operations'
 import { useProjectStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import {
-  applyOperationFrame,
-  useOperationsStore,
-  type Operation,
-  type OperationItem,
-} from '@/lib/store/operations'
+import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
+import { operationsState, type Operation, type OperationItem } from '@/lib/store/operations'
 import { toastManager } from '@/lib/toast-manager'
 import { wipeEntityCache } from '@/lib/persistence/idb'
 import type { Problem } from '@/lib/errors/problem'
@@ -123,7 +119,7 @@ beforeEach(async () => {
   ])
   useProjectStore.setState({ activeProjectId: 'proj-1' })
   useSidebarStore.setState({ repos: [] })
-  useOperationsStore.setState({ ops: {}, latestFor: {} })
+  resetOperations()
   await wipeEntityCache()
 })
 
@@ -142,7 +138,7 @@ test('Add stays disabled for a relative path and shows a hint', () => {
 test('posts the repo under the active project with the folder-name fallback', async () => {
   const opId = await startAdd()
   expect(vi.mocked(api.postRepo)).toHaveBeenCalledWith('proj-1', 'my-repo', '/tmp/my-repo', opId)
-  expect(useOperationsStore.getState().ops[opId]).toMatchObject({
+  expect(operationsState().ops[opId]).toMatchObject({
     kind: 'repo.create',
     label: 'Add my-repo',
   })
@@ -151,10 +147,10 @@ test('posts the repo under the active project with the folder-name fallback', as
 test('adding waits on the operation, then opens the default workspace', async () => {
   const onOpenChange = vi.fn()
   const opId = await startAdd(onOpenChange)
-  await waitFor(() => expect(useOperationsStore.getState().ops[opId]?.version).toBe(1))
+  await waitFor(() => expect(operationsState().ops[opId]?.version).toBe(1))
   expect(navigateMock).not.toHaveBeenCalled()
 
-  applyOperationFrame(
+  streamOperation(
     addOp(opId, 2, { state: 'succeeded', items: [{ ...repoItem, state: 'succeeded' }] }),
   )
   useSidebarStore.getState().mergeRepos([
@@ -181,10 +177,10 @@ test('a failed add re-enables the dialog; the reason comes from the operation', 
   const add = vi.spyOn(toastManager, 'add')
   const onOpenChange = vi.fn()
   const opId = await startAdd(onOpenChange)
-  await waitFor(() => expect(useOperationsStore.getState().ops[opId]?.version).toBe(1))
+  await waitFor(() => expect(operationsState().ops[opId]?.version).toBe(1))
 
   const problem: Problem = { code: 'invalid_argument', message: 'not a git repository' }
-  applyOperationFrame(
+  streamOperation(
     addOp(opId, 2, {
       state: 'failed',
       error: problem,
@@ -204,7 +200,7 @@ test('a failed add re-enables the dialog; the reason comes from the operation', 
 
 test('a partly failed add opens the repo home; the failed branch is drawn with its reason', async () => {
   const opId = await startAdd()
-  await waitFor(() => expect(useOperationsStore.getState().ops[opId]?.version).toBe(1))
+  await waitFor(() => expect(operationsState().ops[opId]?.version).toBe(1))
 
   const reason: Problem = { code: 'internal', message: 'mkdir: not a directory' }
   const partial = addOp(opId, 2, {
@@ -221,7 +217,7 @@ test('a partly failed add opens the repo home; the failed branch is drawn with i
       },
     ],
   })
-  applyOperationFrame(partial)
+  streamOperation(partial)
 
   await waitFor(() =>
     expect(navigateMock).toHaveBeenCalledWith(

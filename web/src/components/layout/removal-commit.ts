@@ -9,7 +9,7 @@ import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useHomeTreeStore, removeHomeFolder, applyHomeFolders } from '@/lib/store/home-tree'
 import { toSidebarFolder } from '@/lib/store/build-repo-tree'
 import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
-import { applyOperationFrame, useOperationsStore, type Operation } from '@/lib/store/operations'
+import { operationsState, putLocalOperation, type Operation } from '@/lib/store/operations'
 import { dismissOperation, whenSettled, type OperationReply } from '@/lib/store/run-operation'
 import { report } from '@/lib/errors/report'
 import { holdsWorkspace } from '@/lib/store/repo-tree'
@@ -101,7 +101,7 @@ function releaseWhenSettled(entry: RemovalEntry, opId: string): void {
 async function sendOperation(send: (opId: string) => Promise<OperationReply>): Promise<string> {
   const opId = crypto.randomUUID()
   const reply = await send(opId)
-  if ('operation' in reply) applyOperationFrame(reply.operation)
+  if ('operation' in reply) putLocalOperation(reply.operation)
   return opId
 }
 
@@ -321,7 +321,7 @@ function allSucceeded(op: Operation): boolean {
  *  removed that entity it never will, so the operation is settled history. */
 function dismissCreatesOf(ids: readonly string[]): void {
   const removed = new Set(ids)
-  for (const op of Object.values(useOperationsStore.getState().ops)) {
+  for (const op of Object.values(operationsState().ops)) {
     if (op.dismissed || !allSucceeded(op)) continue
     if (op.items.some((item) => removed.has(item.ref.id)))
       void dismissOperation(op.id).catch((err: unknown) => report(err, { action: 'Dismiss' }))

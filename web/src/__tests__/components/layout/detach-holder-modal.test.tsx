@@ -7,12 +7,13 @@ vi.mock('@/lib/api/workspace', () => ({ detachHolder: vi.fn().mockResolvedValue(
 import { detachHolder } from '@/lib/api/workspace'
 import { useDetachModalStore } from '@/features/window/stores/detach-modal-store'
 import { DetachHolderModal } from '@/components/layout/detach-holder-modal'
-import { useOperationsStore } from '@/lib/store/operations'
+import { resetOperations } from '@/__tests__/__fixtures__/operations'
+import { operationsState } from '@/lib/store/operations'
 
 beforeEach(() => {
   vi.clearAllMocks()
   useDetachModalStore.setState({ target: null })
-  useOperationsStore.setState({ ops: {}, latestFor: {} })
+  resetOperations()
 })
 
 describe('DetachHolderModal', () => {
@@ -34,7 +35,7 @@ describe('DetachHolderModal', () => {
     useDetachModalStore.setState({ target: { wsId: 'w1', branch: 'develop', heldByPath: '/repo' } })
     render(<DetachHolderModal />)
     await userEvent.click(screen.getByRole('button', { name: /^detach$/i }))
-    const [op] = Object.values(useOperationsStore.getState().ops)
+    const [op] = Object.values(operationsState().ops)
     expect(op).toMatchObject({
       kind: 'workspace.detach_holder',
       subject: { kind: 'workspace', id: 'w1' },

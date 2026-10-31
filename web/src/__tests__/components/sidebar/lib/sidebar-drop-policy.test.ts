@@ -15,7 +15,7 @@ import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import { resetChatStore, setChatWorking } from '@/__tests__/__fixtures__/agent-chat'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
-import { useOperationsStore } from '@/lib/store/operations'
+import { resetOperations } from '@/__tests__/__fixtures__/operations'
 import { runOperation, type OperationReply } from '@/lib/store/run-operation'
 
 // `resolveHomeRowScope` (home-tree.ts) reads this; its fetch is not under test.
@@ -59,7 +59,7 @@ describe('SIDEBAR_DROP_POLICY', () => {
   beforeEach(() => {
     // Module state outliving a test would refuse a later drag for no reason it set up.
     resetChatStore()
-    useOperationsStore.setState({ ops: {}, latestFor: {} })
+    resetOperations()
     vi.clearAllMocks()
     useHomeTreeStore.setState({ trees: {} })
     // repo-1 and repo-2 share proj-1; repo-3 is a different project entirely.

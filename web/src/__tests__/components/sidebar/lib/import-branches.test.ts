@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { performImportBranches } from '@/components/sidebar/lib/import-branches'
 import { rowsFromOperations } from '@/components/sidebar/lib/rows-from-operations'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
-import { useOperationsStore } from '@/lib/store/operations'
+import { resetOperations } from '@/__tests__/__fixtures__/operations'
+import { operationsState } from '@/lib/store/operations'
 import { ApiError } from '@/lib/errors/api-error'
 import * as api from '@/lib/api'
 
@@ -10,7 +11,7 @@ const importBranches = vi.spyOn(api, 'importBranches')
 
 beforeEach(() => {
   importBranches.mockReset()
-  useOperationsStore.setState({ ops: {}, latestFor: {} })
+  resetOperations()
   useSidebarStore.setState({
     ...getInitialState(),
     repos: [
@@ -32,7 +33,7 @@ beforeEach(() => {
 })
 
 const opRows = () =>
-  rowsFromOperations(Object.values(useOperationsStore.getState().ops), { projectId: 'proj-1' })
+  rowsFromOperations(Object.values(operationsState().ops), { projectId: 'proj-1' })
 
 describe('performImportBranches', () => {
   it('a mixed lock choice is one import, each branch carrying its own lock', () => {

@@ -5,11 +5,11 @@ import {
 } from '@/components/sidebar/lib/rows-from-operations'
 import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
 import {
-  applyOperationFrame,
   newestProblem,
   selectFailedOps,
-  useOperationsStore,
+  operationsState,
   type Operation,
   type OperationItem,
 } from '@/lib/store/operations'
@@ -61,7 +61,7 @@ const rows = (ops: Operation[]) =>
 
 beforeEach(() => {
   useSidebarStore.setState({ ...getInitialState(), repos: [repo()] })
-  useOperationsStore.setState({ ops: {}, latestFor: {} })
+  resetOperations()
 })
 
 describe('rowsFromOperations', () => {
@@ -211,7 +211,7 @@ describe('rowsFromOperations', () => {
         },
       ],
     })
-    applyOperationFrame(
+    streamOperation(
       importOp({
         id: 'push',
         kind: 'workspace.retry_provision',
@@ -221,12 +221,12 @@ describe('rowsFromOperations', () => {
         error: { code: 'conflict', message: 'branch is still held' },
       }),
     )
-    const failed = selectFailedOps(useOperationsStore.getState())
+    const failed = selectFailedOps(operationsState())
     const row = rowsFromRepo(placeholder, (...ids) => newestProblem(failed, ids)).find(
       (r) => r.id === 'chat-1',
     )
     expect(row?.placeholderReason).toContain('branch is still held')
     // Not a create: no row of its own.
-    expect(rows(Object.values(useOperationsStore.getState().ops))).toEqual([])
+    expect(rows(Object.values(operationsState().ops))).toEqual([])
   })
 })

@@ -2,7 +2,7 @@ import { act, render } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { SidebarRowGlyph } from '@/components/sidebar/sidebar-row-glyph'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
-import { applyOperationFrame, useOperationsStore } from '@/lib/store/operations'
+import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
 
 // A branch row's id is its chat's; the operation names the workspace.
 const row: SidebarRowType = {
@@ -17,7 +17,7 @@ const row: SidebarRowType = {
   hasView: false,
 }
 
-beforeEach(() => useOperationsStore.setState({ ops: {}, latestFor: {} }))
+beforeEach(() => resetOperations())
 
 describe('SidebarRowGlyph', () => {
   it('a workspace row spins while an operation naming it runs', () => {
@@ -38,10 +38,10 @@ describe('SidebarRowGlyph', () => {
       createdAt: '2026-10-28T12:00:00Z',
       updatedAt: '2026-10-28T12:00:00Z',
     }
-    act(() => applyOperationFrame(op))
+    act(() => streamOperation(op))
     expect(spinner()).toBeInTheDocument()
 
-    act(() => applyOperationFrame({ ...op, state: 'succeeded', version: 3 }))
+    act(() => streamOperation({ ...op, state: 'succeeded', version: 3 }))
     expect(spinner()).toBeNull()
   })
 })

@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/lib/errors/api-error'
 import { OperationFailedError } from '@/lib/errors/operation-failed'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import { applyOperationFrame, useOperationsStore, type Operation } from '@/lib/store/operations'
+import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
+import { operationsState, subscribeOperations, type Operation } from '@/lib/store/operations'
 import {
   dismissOperation,
   runOperation,
@@ -45,10 +46,10 @@ function repoWith(over: Partial<Repo>): Repo {
   return { id: 'r1', name: 'r', avatarLabel: 'R', avatarColor: '#000', workspaces: [], ...over }
 }
 
-const ops = () => useOperationsStore.getState().ops
+const ops = () => operationsState().ops
 
 beforeEach(() => {
-  useOperationsStore.setState({ ops: {}, latestFor: {} })
+  resetOperations()
   useSidebarStore.setState(getInitialState())
 })
 
@@ -103,13 +104,13 @@ describe('runOperation', () => {
 function whenSettledOrState(id: string, match: (op: Operation) => boolean): Promise<void> {
   return new Promise((resolve) => {
     const check = () => {
-      const op = useOperationsStore.getState().ops[id]
+      const op = operationsState().ops[id]
       if (op && match(op)) {
         stop()
         resolve()
       }
     }
-    const stop = useOperationsStore.subscribe(check)
+    const stop = subscribeOperations(check)
     check()
   })
 }
@@ -122,7 +123,7 @@ describe('whenSettled', () => {
       label: 'a',
       state: 'succeeded' as const,
     }
-    applyOperationFrame(server(id, { kind: 'branch.import', state: 'succeeded', items: [chat] }))
+    streamOperation(server(id, { kind: 'branch.import', state: 'succeeded', items: [chat] }))
     let settled = false
     const done = whenSettled(id).then(() => (settled = true))
 
@@ -136,10 +137,10 @@ describe('whenSettled', () => {
   })
 
   it('whenSettled rejects with OperationFailedError carrying the problem', async () => {
-    applyOperationFrame(server('op-f', { state: 'running' }))
+    streamOperation(server('op-f', { state: 'running' }))
     const settled = whenSettled('op-f')
 
-    applyOperationFrame(
+    streamOperation(
       server('op-f', { state: 'failed', version: 2, error: { code: 'internal', message: 'gone' } }),
     )
 
@@ -155,7 +156,7 @@ describe('whenSettled', () => {
       label: 'r',
       state: 'succeeded' as const,
     }
-    applyOperationFrame(server('op-d', { kind: 'repo.delete', state: 'succeeded', items: [repo] }))
+    streamOperation(server('op-d', { kind: 'repo.delete', state: 'succeeded', items: [repo] }))
     let settled = false
     const done = whenSettled('op-d').then(() => (settled = true))
 
@@ -170,7 +171,7 @@ describe('whenSettled', () => {
       { ref: { kind: 'chat' as const, id: 'c1' }, label: 'c', state: 'succeeded' as const },
       { ref: { kind: 'workspace' as const, id: 'ws9' }, label: 'w', state: 'succeeded' as const },
     ]
-    applyOperationFrame(server('op-b', { kind: 'branch.create', state: 'succeeded', items }))
+    streamOperation(server('op-b', { kind: 'branch.create', state: 'succeeded', items }))
     let settled = false
     const done = whenSettled('op-b').then(() => (settled = true))
 
@@ -192,10 +193,10 @@ describe('whenSettled', () => {
   })
 
   it('whenSettled for a git push resolves on succeeded alone', async () => {
-    applyOperationFrame(server('op-p', { state: 'running' }))
+    streamOperation(server('op-p', { state: 'running' }))
     const done = whenSettled('op-p')
 
-    applyOperationFrame(server('op-p', { state: 'succeeded', version: 2 }))
+    streamOperation(server('op-p', { state: 'succeeded', version: 2 }))
 
     await expect(done).resolves.toMatchObject({ state: 'succeeded' })
   })
@@ -206,7 +207,7 @@ afterEach(() => vi.unstubAllGlobals())
 describe('dismissOperation', () => {
   it('asks the daemon to dismiss and keeps the dismissed row it answers', async () => {
     const failed = server('op-x', { state: 'failed', version: 3 })
-    applyOperationFrame(failed)
+    streamOperation(failed)
     const fetchMock = vi
       .fn()
       .mockResolvedValue(

@@ -12,7 +12,8 @@ vi.mock('@/lib/native-dialog', () => ({
 import * as api from '@/lib/api'
 import { CreateSpacePanel } from '@/components/layout/create-space-panel'
 import { useProjectDataStore } from '@/lib/store/projects'
-import { applyOperationFrame, useOperationsStore, type Operation } from '@/lib/store/operations'
+import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
+import { operationsState, type Operation } from '@/lib/store/operations'
 import { success } from '@/lib/loadable'
 import type { Project } from '@/lib/types'
 
@@ -37,7 +38,7 @@ beforeEach(() => {
   vi.mocked(api.postProject).mockImplementation(async (_n, _p, opId) => ({
     operation: createOp(opId, 1, 'accepted'),
   }))
-  useOperationsStore.setState({ ops: {}, latestFor: {} })
+  resetOperations()
   useProjectDataStore.setState({ data: success([]) })
 })
 
@@ -53,9 +54,9 @@ test('import waits on the operation and hands over the project from the store', 
   await waitFor(() => expect(vi.mocked(api.postProject)).toHaveBeenCalledTimes(1))
   const [name, path, opId] = vi.mocked(api.postProject).mock.calls[0]
   expect([name, path]).toEqual(['space', '/tmp/space'])
-  await waitFor(() => expect(useOperationsStore.getState().ops[opId]?.version).toBe(1))
+  await waitFor(() => expect(operationsState().ops[opId]?.version).toBe(1))
 
-  applyOperationFrame(createOp(opId, 2, 'succeeded'))
+  streamOperation(createOp(opId, 2, 'succeeded'))
   const space: Project = {
     id: 'space-id',
     name: 'space',

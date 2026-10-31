@@ -3,9 +3,9 @@ import { OperationFailedError } from '@/lib/errors/operation-failed'
 import { problemOf, type Problem } from '@/lib/errors/problem'
 import { isEntityPresent, subscribeEntityPresence } from '@/lib/store/entity-presence'
 import {
-  applyOperationFrame,
   putLocalOperation,
-  useOperationsStore,
+  operationsState,
+  subscribeOperations,
   type EntityRef,
   type Operation,
   type OperationItem,
@@ -29,7 +29,7 @@ export function operationHeaders(opId: string): Record<string, string> {
 }
 
 function settleLocal(id: string, change: Partial<Operation>): void {
-  const held = useOperationsStore.getState().ops[id]
+  const held = operationsState().ops[id]
   if (!held?.local) return
   putLocalOperation({ ...held, ...change, updatedAt: new Date().toISOString() })
 }
@@ -54,7 +54,7 @@ export function runOperation(
   putLocalOperation(local)
   void send(local.id).then(
     (reply) => {
-      if (reply && 'operation' in reply) applyOperationFrame(reply.operation)
+      if (reply && 'operation' in reply) putLocalOperation(reply.operation)
       else settleLocal(local.id, { state: 'succeeded', items: reply?.items ?? local.items })
     },
     (err: unknown) => settleLocal(local.id, { state: 'failed', error: problemOf(err) }),
@@ -106,7 +106,7 @@ export function whenSettled(opId: string): Promise<Operation> {
     let done = false
     const check = () => {
       if (done) return
-      const op = useOperationsStore.getState().ops[opId]
+      const op = operationsState().ops[opId]
       if (!op) return
       if (op.state === 'failed') {
         done = true
@@ -117,17 +117,17 @@ export function whenSettled(opId: string): Promise<Operation> {
       }
       if (done) stops.forEach((stop) => stop())
     }
-    stops.push(useOperationsStore.subscribe(check), subscribeEntityPresence(check))
+    stops.push(subscribeOperations(check), subscribeEntityPresence(check))
     check()
   })
 }
 
 /** Clears a settled operation's reason; the daemon records the dismissal. */
 export async function dismissOperation(opId: string): Promise<void> {
-  const held = useOperationsStore.getState().ops[opId]
+  const held = operationsState().ops[opId]
   if (held?.local) {
     putLocalOperation({ ...held, dismissed: true })
     return
   }
-  applyOperationFrame(await apiFetch<Operation>(`/v0/operations/${opId}`, { method: 'DELETE' }))
+  putLocalOperation(await apiFetch<Operation>(`/v0/operations/${opId}`, { method: 'DELETE' }))
 }
