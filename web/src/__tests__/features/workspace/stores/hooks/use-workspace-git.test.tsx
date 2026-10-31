@@ -7,17 +7,14 @@ import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-con
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
 import { toastManager } from '@/lib/toast-manager'
+import { heldScopes, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
 
-const { fetchGitData, subscribe } = vi.hoisted(() => ({
-  fetchGitData: vi.fn(),
-  subscribe: vi.fn(() => () => {}),
-}))
+const { fetchGitData } = vi.hoisted(() => ({ fetchGitData: vi.fn() }))
 
 vi.mock('@/features/git/api/git-data-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/features/git/api/git-data-api')>()
   return { ...actual, fetchGitData }
 })
-vi.mock('@/lib/ws/manager', () => ({ wsManager: { subscribe, send: vi.fn() } }))
 
 const status = { branch: 'main', ahead: 0, behind: 0, files: [] }
 
@@ -41,10 +38,9 @@ function setup(opts: { owningChatId?: string | null; home?: boolean } = {}) {
   return { store, reloadStatusAndLog, ...hook }
 }
 
-const onGitFrame = () => {
-  const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
-  return calls.find(([ep]) => ep === '/v0/chats/chat-test/git/status')![1]
-}
+const held = () => heldScopes('git:')
+const onGitFrame = () => (data: unknown) =>
+  streamDaemon.deliver({ t: 'signal', scope: 'git:ws-test', kind: 'git_status', data })
 
 // The slice loads its API modules on first use; transform them once, outside the waitFor budget.
 beforeAll(async () => {
@@ -63,16 +59,16 @@ beforeEach(() => {
 })
 
 describe('useWorkspaceGit', () => {
-  it('loads once the workspace is shown, then subscribes to the git status topic', async () => {
-    const { store } = setup()
+  it('holds git:<ws> while mounted and applies git_status signals', async () => {
+    const { store, reloadStatusAndLog, unmount } = setup()
     await waitFor(() => expect(store.getState().gitLoad).toBe('ready'))
     expect(fetchGitData).toHaveBeenCalledWith('ws-test')
-    await waitFor(() =>
-      expect(subscribe).toHaveBeenCalledWith(
-        '/v0/chats/chat-test/git/status',
-        expect.any(Function),
-      ),
-    )
+    await waitFor(() => expect(held()).toEqual(['git:ws-test']))
+
+    onGitFrame()({ ...status, ahead: 3 })
+    await waitFor(() => expect(reloadStatusAndLog).toHaveBeenCalledTimes(1))
+    unmount()
+    expect(held()).toEqual([])
   })
 
   it('does nothing while the workspace has never been shown', () => {
@@ -83,23 +79,23 @@ describe('useWorkspaceGit', () => {
       ),
     })
     expect(fetchGitData).not.toHaveBeenCalled()
-    expect(subscribe).not.toHaveBeenCalled()
+    expect(held()).toEqual([])
   })
 
   it('has no git surface for the home workspace', () => {
     setup({ home: true, owningChatId: null })
     expect(fetchGitData).not.toHaveBeenCalled()
-    expect(subscribe).not.toHaveBeenCalled()
+    expect(held()).toEqual([])
   })
 
   it('waits for the owning chat id, then loads and subscribes', async () => {
     const { store, rerender } = setup({ owningChatId: null })
     expect(fetchGitData).not.toHaveBeenCalled()
-    expect(subscribe).not.toHaveBeenCalled()
+    expect(held()).toEqual([])
 
     rerender({ active: true, chat: 'chat-test' })
     await waitFor(() => expect(store.getState().gitLoad).toBe('ready'))
-    await waitFor(() => expect(subscribe).toHaveBeenCalled())
+    await waitFor(() => expect(held()).toEqual(['git:ws-test']))
   })
 
   describe('status stream', () => {
@@ -109,7 +105,7 @@ describe('useWorkspaceGit', () => {
     async function ready() {
       const ctx = setup()
       await vi.waitFor(() => expect(ctx.store.getState().gitLoad).toBe('ready'))
-      await vi.waitFor(() => expect(subscribe).toHaveBeenCalled())
+      await vi.waitFor(() => expect(held()).toEqual(['git:ws-test']))
       return ctx
     }
 

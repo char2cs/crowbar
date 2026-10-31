@@ -8,10 +8,10 @@ import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-
 import { setWorkspaceScope } from '@/lib/workspace-scope'
 import type { AppFile } from '@/features/file-system/types/app'
 import { toastManager } from '@/lib/toast-manager'
+import { heldScopes, reconnectStream, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
 
-const { fetchFileTree, subscribe, reconcileBuffers } = vi.hoisted(() => ({
+const { fetchFileTree, reconcileBuffers } = vi.hoisted(() => ({
   fetchFileTree: vi.fn(),
-  subscribe: vi.fn(() => () => {}),
   reconcileBuffers: vi.fn(async (_wsId: string) => {}),
 }))
 
@@ -19,7 +19,6 @@ vi.mock('@/features/files/lib/file-tree-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/features/files/lib/file-tree-api')>()
   return { ...actual, fetchFileTree }
 })
-vi.mock('@/lib/ws/manager', () => ({ wsManager: { subscribe, send: vi.fn() } }))
 vi.mock('@/features/workspace/lib/external-buffer-sync', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/workspace/lib/external-buffer-sync')>()),
   reconcileWorkspaceDocuments: reconcileBuffers,
@@ -42,10 +41,9 @@ function setup(wsId = 'ws-test', ready = true) {
   return { store, ...hook }
 }
 
-const filesHandler = () => {
-  const calls = subscribe.mock.calls as unknown as [string, (evt: unknown) => void][]
-  return calls.find(([ep]) => ep.endsWith('/files/ws'))![1]
-}
+const held = () => heldScopes('files:')
+const fileChange = (data: unknown) =>
+  streamDaemon.deliver({ t: 'signal', scope: 'files:ws-test', kind: 'file_change', data })
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -57,7 +55,6 @@ beforeEach(() => {
 describe('useWorkspaceFileTree', () => {
   it('loads the root tree into the workspace’s own store when first shown', async () => {
     const { store } = setup()
-    expect(store.getState().fileTreeStatus).toBe('loading')
     await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
     expect(fetchFileTree).toHaveBeenCalledWith('ws-test')
     expect(store.getState().files).toEqual(rootTree)
@@ -113,14 +110,32 @@ describe('useWorkspaceFileTree', () => {
     )
   })
 
-  // The files stream carries no snapshot on subscribe: a structural change is
-  // applied in place and a plain content edit never re-lists a directory.
+  it('holds files:<ws> before reading the tree, so a change during the read is applied', async () => {
+    let attach: () => void = () => {}
+    streamDaemon.answer = ({ op, scope }) => {
+      if (op === 'sub') attach = () => streamDaemon.deliver({ t: 'synced', scope })
+      return []
+    }
+    const { store, unmount } = setup()
+    await waitFor(() => expect(held()).toEqual(['files:ws-test']))
+    expect(fetchFileTree).not.toHaveBeenCalled()
+
+    attach()
+    await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
+    fetchFileTree.mockResolvedValueOnce([rootTree[1]])
+    fileChange({ type: 'deleted', path: 'src' })
+    await waitFor(() => expect(store.getState().files).toHaveLength(1))
+    unmount()
+    expect(held()).toEqual([])
+  })
+
+  // A structural change is applied in place and a plain content edit never
+  // re-lists a directory.
   it('re-lists the parent directory on a structural change only', async () => {
     const { store } = setup()
     await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
-    await waitFor(() => expect(subscribe).toHaveBeenCalled())
     fetchFileTree.mockClear()
-    const onEvent = filesHandler()
+    const onEvent = fileChange
 
     onEvent({ type: 'modified', path: 'src/a.ts' })
     expect(fetchFileTree).not.toHaveBeenCalled()
@@ -133,16 +148,16 @@ describe('useWorkspaceFileTree', () => {
     await waitFor(() => expect(store.getState().files).toHaveLength(3))
   })
 
-  // The stream has no snapshot on subscribe, so after a reconnect the tree and
-  // any open buffers may have missed writes: both are re-read from disk.
+  // After a reconnect the tree and any open buffers may have missed writes: the
+  // resubscribe's synced re-reads both from disk.
   it('re-lists the root and reconciles open buffers when the stream reconnects', async () => {
     const { store } = setup()
     await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
-    await waitFor(() => expect(subscribe).toHaveBeenCalled())
     fetchFileTree.mockClear()
+    reconcileBuffers.mockClear()
     fetchFileTree.mockResolvedValueOnce([rootTree[1]])
 
-    filesHandler()({ reconnected: true })
+    reconnectStream()
 
     await waitFor(() => expect(store.getState().files).toHaveLength(1))
     expect(reconcileBuffers).toHaveBeenCalledWith('ws-test')

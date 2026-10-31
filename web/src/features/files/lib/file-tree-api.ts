@@ -36,19 +36,10 @@ export async function fetchFileTree(wsId: string, path?: string): Promise<AppFil
   return nodes.map(toAppFile)
 }
 
-// The file-change WS is the `.../files/ws` leaf of the same base the REST calls
-// above use — a chat-scoped `/v0/chats/:chatId/files/ws` for a worktree-backed
-// workspace, the project's own home leaf for the home one. It is its own route
-// rather than a dual-serve of `/tree`, so the path is a real suffix, not an
-// upgrade on an existing GET.
-export function filesWsEndpoint(wsId: string): string {
-  return `${filesBaseForWorkspace(wsId)}/ws`
-}
-
 // File-tree mutations against the workspace files endpoint. Paths are
 // workspace-relative (the same `path` the tree nodes carry). On success the tree
-// refreshes automatically: the daemon emits a structural FileChangeEvent over the
-// files-WS, which use-workspace-effects reconciles — so callers do NOT refetch.
+// refreshes automatically: the daemon signals a structural file_change on the
+// workspace's files: scope, which use-workspace-file-tree reconciles — so callers do NOT refetch.
 
 /** Create a file (`type: 'file'`) or directory (`type: 'dir'`) at `path`. */
 export async function createFileNode(
