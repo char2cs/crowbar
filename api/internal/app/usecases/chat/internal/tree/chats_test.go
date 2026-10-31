@@ -129,16 +129,16 @@ func TestRegression_CreateChat_MintsTheChatWithItsProvider(t *testing.T) {
 		"the row records its vendor from the instant it exists, not from a later spawn")
 }
 
-// The ownWorktree create takes the same path and must carry the same fact: it
-// mints the row first too, and its CLI comes up later still (a worktree has to be
-// forked in between), so it has even more window in which the spawn can fail.
+// The ownWorktree create mints first too and its CLI comes up later still, so it
+// carries the same fact; with no provider to start it mints nothing at all.
 func TestRegression_CreateChat_OwnWorktreeMintsTheChatWithItsProvider(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
-
-	_, _, err := createChat(context.Background(), uc, workspaceID, "codex", "",
-		tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
-
+	fork := tree.WorktreeSpec{Mode: tree.WorktreeFork}
+	_, _, err := createChat(context.Background(), uc, workspaceID, "", "", fork, "")
+	require.ErrorIs(t, err, tree.ErrForkNeedsProvider)
+	assert.Empty(t, chats.Minted)
+	_, _, err = createChat(context.Background(), uc, workspaceID, "codex", "", fork, "")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"codex"}, chats.MintedProviders)
 }
