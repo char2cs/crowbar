@@ -42,6 +42,7 @@ export type ProblemCode =
   | 'tree_cross_workspace'
   | 'tree_fork_chain'
   | 'tree_subtree_working'
+  | 'watch_limit'
   | 'daemon_migrating'
   | 'daemon_halted'
   | 'daemon_report_unencodable'

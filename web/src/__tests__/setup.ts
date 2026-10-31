@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 import 'fake-indexeddb/auto'
 import { enableMapSet } from 'immer'
-import { vi } from 'vitest'
+import { afterEach, vi } from 'vitest'
 
 // main.tsx calls this once at real app boot — stores that keep a Set/Map in
 // Immer state (e.g. file-explorer-tree-store's expandedPathsByWorkspace)
@@ -251,28 +251,68 @@ if (typeof navigator !== 'undefined' && !navigator.clipboard) {
   })
 }
 
-// No daemon answers a test: a host document's watch socket opens at once and hears nothing,
-// so every open path reaches its read; a chat's feed replays nothing and is ready, so it
-// shows what the test seeded into chatStore. Every other endpoint keeps the real manager.
+// No daemon answers a test: `/v0/stream` is the fake in `__fixtures__/stream-daemon`, which
+// answers every sub with its synced unless the test says otherwise; a chat's feed replays
+// nothing and is ready, so it shows what the test seeded into chatStore. Every other endpoint
+// keeps the real manager.
+const setupManager = vi.hoisted(() => ({ current: null as unknown }))
 vi.mock('@/lib/ws/manager', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/ws/manager')>()
+  const { streamDaemon } = await import('@/__tests__/__fixtures__/stream-daemon')
   const real = actual.wsManager
+  const stream = (endpoint: string) => endpoint === '/v0/stream'
   const feed = (endpoint: string) => /^\/v0\/chats\/[^/]+\/feed$/.test(endpoint)
-  const watch = (endpoint: string) => endpoint.startsWith('/v0/documents/ws?') || feed(endpoint)
   const held = new Map<string, number>()
   const hold = (endpoint: string, n: number) => held.set(endpoint, (held.get(endpoint) ?? 0) + n)
   const wsManager: typeof real = {
     subscribe: (endpoint, cb, url) => {
-      if (!watch(endpoint)) return real.subscribe(endpoint, cb, url)
+      if (stream(endpoint)) {
+        streamDaemon.deliver = cb
+        queueMicrotask(() => cb({ t: 'ready', epoch: 'test' }))
+        return () => {}
+      }
+      if (!feed(endpoint)) return real.subscribe(endpoint, cb, url)
       hold(endpoint, 1)
-      if (feed(endpoint)) cb({ type: 'ready', epoch: 'test' })
+      cb({ type: 'ready', epoch: 'test' })
       return () => void hold(endpoint, -1)
     },
-    send: (endpoint, data) => real.send(endpoint, data),
-    opened: (endpoint) => (watch(endpoint) ? Promise.resolve() : real.opened(endpoint)),
-    onDrop: (endpoint, listener) => (watch(endpoint) ? () => {} : real.onDrop(endpoint, listener)),
+    send: (endpoint, data) => {
+      if (!stream(endpoint)) return real.send(endpoint, data)
+      const req = data as { op: string; scope: string }
+      streamDaemon.sent.push(req)
+      const frames = streamDaemon.answer(req)
+      queueMicrotask(() => frames.forEach((f) => streamDaemon.deliver(f)))
+    },
+    opened: (endpoint) =>
+      stream(endpoint) || feed(endpoint) ? Promise.resolve() : real.opened(endpoint),
+    onDrop: (endpoint, listener) => {
+      if (stream(endpoint)) {
+        streamDaemon.drop = listener
+        return () => {}
+      }
+      return feed(endpoint) ? () => {} : real.onDrop(endpoint, listener)
+    },
     subscribed: (endpoint) =>
-      watch(endpoint) ? (held.get(endpoint) ?? 0) > 0 : real.subscribed(endpoint),
+      stream(endpoint)
+        ? true
+        : feed(endpoint)
+          ? (held.get(endpoint) ?? 0) > 0
+          : real.subscribed(endpoint),
   }
+  setupManager.current = wsManager
   return { ...actual, wsManager }
+})
+
+// The stream starts when a file first uses it, as main.tsx starts it, unless the file fakes the
+// socket manager itself.
+vi.mock('@/core/stream/stream', async (importOriginal) => {
+  const stream = await importOriginal<typeof import('@/core/stream/stream')>()
+  const { wsManager } = await import('@/lib/ws/manager')
+  if (wsManager === setupManager.current) stream.startStream()
+  return stream
+})
+
+afterEach(async () => {
+  const { resetStreamDaemon } = await import('@/__tests__/__fixtures__/stream-daemon')
+  resetStreamDaemon()
 })

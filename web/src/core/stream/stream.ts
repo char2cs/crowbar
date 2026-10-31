@@ -31,6 +31,8 @@ const handlers = new Map<string, ScopeKindHandler>()
 const holds = new Map<string, number>()
 const watches = new Map<string, Set<ScopeWatch>>()
 const signals = new Map<string, Set<(f: SignalFrame) => void>>()
+/** Held scopes whose snapshot has landed since their latest sub. */
+const current = new Set<string>()
 /** The current socket said ready, so a sub sent now is answered. */
 let ready = false
 let epoch: string | undefined
@@ -54,6 +56,7 @@ export function registerScopeKind(kind: string, h: ScopeKindHandler): () => void
 }
 
 function sub(scope: string): void {
+  current.delete(scope)
   const h = handlers.get(kindOf(scope))
   h?.subscribed?.(scope)
   const since = h?.since?.(keyOf(scope))
@@ -76,6 +79,7 @@ export function holdScope(scope: string): () => void {
     }
     // A dropped scope is no longer held; its holders' releases are no-ops.
     if (!holds.delete(scope)) return
+    current.delete(scope)
     if (ready) wsManager.send(ENDPOINT, { op: 'unsub', scope })
   }
 }
@@ -94,9 +98,11 @@ function listen<T>(registry: Map<string, Set<T>>, scope: string, listener: T): (
   }
 }
 
-/** Hears `scope`'s synced and refusal frames; returns the stop. */
+/** Hears `scope`'s synced and refusal frames; a scope already synced is heard at once. */
 export function watchScope(scope: string, watch: ScopeWatch): () => void {
-  return listen(watches, scope, watch)
+  const stop = listen(watches, scope, watch)
+  if (current.has(scope)) watch.synced?.()
+  return stop
 }
 
 /** Hears `scope`'s signals of `kind`; returns the stop. */
@@ -110,6 +116,7 @@ export function onSignal<T>(scope: string, kind: string, cb: (data: T) => void):
 function dropScope(scope: string, why: unknown, problem?: Problem): void {
   const told = [...(watches.get(scope) ?? [])].filter((w) => w.refused)
   if (told.length === 0) report(why, { action: `Stream ${scope}` })
+  current.delete(scope)
   if (holds.delete(scope) && ready) wsManager.send(ENDPOINT, { op: 'unsub', scope })
   for (const w of told) w.refused?.(problem)
 }
@@ -129,7 +136,10 @@ function onFrame(f: Frame): void {
   if (!holds.has(f.scope)) return
   handlers.get(kindOf(f.scope))?.frame(f)
   if (f.t === 'signal') for (const cb of [...(signals.get(f.scope) ?? [])]) cb(f)
-  if (f.t === 'synced') for (const w of [...(watches.get(f.scope) ?? [])]) w.synced?.()
+  if (f.t === 'synced') {
+    current.add(f.scope)
+    for (const w of [...(watches.get(f.scope) ?? [])]) w.synced?.()
+  }
   if (f.t !== 'closed') return
   if (f.reason === 'resync') sub(f.scope)
   else dropScope(f.scope, new Error(f.problem?.message ?? `${f.scope} was ${f.reason}`), f.problem)
@@ -154,6 +164,7 @@ function onMessage(raw: unknown): void {
 export function startStream(): () => void {
   const stopDrops = wsManager.onDrop(ENDPOINT, () => {
     ready = false
+    current.clear()
   })
   const stop = wsManager.subscribe(ENDPOINT, onMessage)
   return () => {

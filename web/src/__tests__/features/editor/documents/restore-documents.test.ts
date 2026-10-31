@@ -14,7 +14,8 @@ vi.mock('@/features/editor/host/editor-host', async (importOriginal) => {
   return { ...actual, loadEditorHost }
 })
 
-import { MONACO_LOAD_MS, WATCH_LIMIT_REFUSAL } from '@/__tests__/__fixtures__/documents'
+import { MONACO_LOAD_MS, WATCH_LIMIT } from '@/__tests__/__fixtures__/documents'
+import { heldScopes, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
 import { ApiError } from '@/lib/errors/api-error'
 import { HOST_DOCUMENT_TRANSPORT_CODE, workspaceRef, type DocumentRef } from '@/lib/api/documents'
 import { documentUri } from '@/features/editor/documents/document-ref'
@@ -40,7 +41,6 @@ import {
   reconcileWorkspaceDocuments,
 } from '@/features/workspace/lib/external-buffer-sync'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { wsManager } from '@/lib/ws/manager'
 
 const A = workspaceRef('ws-restore', 'src/a.ts')
 const B = workspaceRef('ws-restore', 'src/b.ts')
@@ -48,17 +48,22 @@ const UNTITLED = workspaceRef('ws-restore', 'untitled:Untitled')
 const host = (path: string): DocumentRef => ({ authority: 'host', path })
 const NOTES = { authority: 'host', path: '/tmp/s5/notes.md' } as const
 
-/** Host watch sockets: the calls in order, how many are held, and what an open answers. */
-function watches(opened: (endpoint: string) => Promise<void> = () => Promise.resolve()) {
-  const w = { calls: [] as string[], held: 0, opened }
-  vi.spyOn(wsManager, 'subscribe').mockImplementation(() => {
+const REFUSED = { code: 'unavailable', message: 'refused' }
+
+/** Host watches at the stream daemon: the calls in order, how many are held, and what a sub answers. */
+function watches(opened: (scope: string) => Promise<void> = () => Promise.resolve()) {
+  const w = { calls: [] as string[], opened, held: 0 }
+  streamDaemon.answer = ({ op, scope }) => {
+    if (op !== 'sub') return []
     w.calls.push('subscribe')
-    w.held++
-    return () => void w.held--
-  })
-  vi.spyOn(wsManager, 'opened').mockImplementation((e) => (w.calls.push('opened'), w.opened(e)))
-  vi.spyOn(wsManager, 'subscribed').mockImplementation(() => w.held > 0)
-  return w
+    w.opened(scope).then(
+      () => (w.calls.push('opened'), streamDaemon.deliver({ t: 'synced', scope })),
+      (problem: unknown) =>
+        streamDaemon.deliver({ t: 'closed', scope, reason: 'refused', problem }),
+    )
+    return []
+  }
+  return Object.defineProperty(w, 'held', { get: () => heldScopes('doc:').length })
 }
 
 /** Another opener's work: the document's model, holding a watch of its own. */
@@ -456,14 +461,15 @@ describe('a restored host document and its watch', () => {
     await restoring
 
     expect([documentText(NOTES), w.held]).toEqual(['mine', 1])
+    const subs = w.calls.length
     await restoreDocuments()
-    expect(w.calls.filter((c) => c === 'subscribe')).toHaveLength(2)
+    expect(w.calls).toHaveLength(subs)
     resetWindowPaneStoreForTests()
     expect(w.held).toBe(0)
   })
 
   it('whose watch is refused opens nowhere and says why', async () => {
-    watches((e) => Promise.reject(e.includes('full') ? WATCH_LIMIT_REFUSAL : new Error('refused')))
+    watches((scope) => Promise.reject(scope.includes('full') ? WATCH_LIMIT : REFUSED))
     const ids = [NOTES, host('/tmp/S5/b.md'), host('/tmp/s5/full.md')].map((r) => restoredTab(r))
     readDocument.mockImplementation(async (ref: DocumentRef) => ({
       ref: ref.path === '/tmp/S5/b.md' ? host('/tmp/s5/b.md') : ref,
@@ -481,7 +487,7 @@ describe('a restored host document and its watch', () => {
   })
 
   it('under an unsaved draft whose watch is refused opens unwatched, says so once, and follows again when reopened', async () => {
-    const w = watches(() => Promise.reject(new Error('refused')))
+    const w = watches(() => Promise.reject(REFUSED))
     const id = restoredTab(NOTES)
     await putDrafts([draft(NOTES, 'mine', 'disk')])
     readDocument.mockResolvedValue({ ref: NOTES, text: 'disk' })

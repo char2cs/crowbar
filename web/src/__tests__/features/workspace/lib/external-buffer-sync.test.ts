@@ -35,34 +35,35 @@ const { reconcileWorkspaceDocuments, syncBufferWithDisk } =
   await import('@/features/workspace/lib/external-buffer-sync')
 const { findDocumentBuffer, openDocument } =
   await import('@/features/editor/documents/open-document')
-const { wsManager } = await import('@/lib/ws/manager')
-const { resetConnectionState, useConnectionStore } = await import('@/lib/ws/connection-store')
+const { reconnectStream, streamDaemon } = await import('@/__tests__/__fixtures__/stream-daemon')
 const { useFileWatcherStore } =
   await import('@/features/file-system/controllers/file-watcher-store')
 const { loadEditorHost } = await import('@/features/editor/host/editor-host')
 
 const README = workspaceRef('ws-1', 'README.md')
 const NOTES = { authority: 'host', path: '/tmp/s5/notes.md' } as const
-const NOTES_WATCH = '/v0/documents/ws?path=%2Ftmp%2Fs5%2Fnotes.md'
+const NOTES_WATCH = `doc:${NOTES.path}`
 const change = (type: string) => ({ type, authority: 'host', path: NOTES.path, wsId: '' })
 
-/** The daemon as one host document meets it: its file, its watch socket, and the calls in order. */
+/** The daemon as one host document meets it: its file, its watch scope, and the calls in order. */
 function hostDaemon(disk = 'v1') {
-  const d = { disk, calls: [] as string[], held: 0, reads: [] as Promise<string>[] }
+  const d = { disk, calls: [] as string[], reads: [] as Promise<string>[] }
   const daemon = Object.assign(d, {
-    frame: (_: unknown) => {},
-    drop: () => {},
+    frame: (data: unknown) =>
+      streamDaemon.deliver({ t: 'signal', scope: NOTES_WATCH, kind: 'file_change', data }),
+    /** How a sub is answered: resolving arms the watch, rejecting with a problem refuses it. */
     opened: (): Promise<void> => Promise.resolve(),
   })
-  vi.spyOn(wsManager, 'subscribe').mockImplementation((endpoint, cb) => {
-    d.calls.push(`subscribe ${endpoint}`)
-    d.held++
-    daemon.frame = cb
-    return () => void (d.calls.push(`unsubscribe ${endpoint}`), d.held--)
-  })
-  vi.spyOn(wsManager, 'opened').mockImplementation(() => (d.calls.push('opened'), daemon.opened()))
-  vi.spyOn(wsManager, 'onDrop').mockImplementation((_, drop) => ((daemon.drop = drop), () => {}))
-  vi.spyOn(wsManager, 'subscribed').mockImplementation(() => d.held > 0)
+  streamDaemon.answer = ({ op, scope }) => {
+    d.calls.push(`${op} ${scope}`)
+    if (op !== 'sub') return []
+    daemon.opened().then(
+      () => (d.calls.push('opened'), streamDaemon.deliver({ t: 'synced', scope })),
+      (problem: unknown) =>
+        streamDaemon.deliver({ t: 'closed', scope, reason: 'refused', problem }),
+    )
+    return []
+  }
   readDocumentMock.mockImplementation(
     async () => (d.calls.push('read'), { ref: NOTES, text: d.disk }),
   )
@@ -72,6 +73,8 @@ function hostDaemon(disk = 'v1') {
   })
   return daemon
 }
+
+const REFUSED = { code: 'unavailable', message: 'cannot watch' }
 
 /** Every read the daemon was sent has landed. */
 const landed = (d: ReturnType<typeof hostDaemon>) => Promise.all(d.reads)
@@ -290,7 +293,7 @@ describe('reconcileWorkspaceDocuments', () => {
 
     await reconcileWorkspaceDocuments('ws-1')
 
-    expect(d.calls).toEqual([`subscribe ${NOTES_WATCH}`, 'opened', 'read'])
+    expect(d.calls).toEqual([`sub ${NOTES_WATCH}`, 'opened', 'read'])
     expect(documentText(NOTES)).toBe('back')
     expect(getBuffer().unavailable).toBeUndefined()
   })
@@ -301,13 +304,13 @@ describe('reconcileWorkspaceDocuments', () => {
 
     await reconcileWorkspaceDocuments('ws-1')
 
-    expect(d.calls).toEqual([`subscribe ${NOTES_WATCH}`, 'opened', 'read'])
+    expect(d.calls).toEqual([`sub ${NOTES_WATCH}`, 'opened', 'read'])
     expect(documentText(NOTES)).toBe('v2')
     d.calls.length = 0
     await reconcileWorkspaceDocuments('ws-1')
     expect(d.calls).toEqual([])
     resetWindowPaneStoreForTests()
-    expect(d.calls).toEqual([`unsubscribe ${NOTES_WATCH}`])
+    expect(d.calls).toEqual([`unsub ${NOTES_WATCH}`])
   })
 
   it('a refusal keeps the tab and says why once', async () => {
@@ -324,10 +327,7 @@ describe('reconcileWorkspaceDocuments', () => {
 
 describe('followHostDocument', () => {
   beforeEach(() => resetWindowPaneStoreForTests())
-  afterEach(() => {
-    vi.restoreAllMocks()
-    resetConnectionState()
-  })
+  afterEach(() => vi.restoreAllMocks())
 
   it(
     'reads a host document only after its watch is armed, and lets the watch go with it',
@@ -337,14 +337,14 @@ describe('followHostDocument', () => {
       d.opened = () => new Promise((resolve) => (arm = resolve))
 
       const opening = openDocument(NOTES)
-      await vi.waitFor(() => expect(d.calls).toEqual([`subscribe ${NOTES_WATCH}`, 'opened']))
+      await vi.waitFor(() => expect(d.calls).toEqual([`sub ${NOTES_WATCH}`]))
       arm()
 
       expect(await opening).not.toBeNull()
-      expect(d.calls).toEqual([`subscribe ${NOTES_WATCH}`, 'opened', 'read'])
+      expect(d.calls).toEqual([`sub ${NOTES_WATCH}`, 'opened', 'read'])
       expect(documentText(NOTES)).toBe('v1')
       resetWindowPaneStoreForTests()
-      expect(d.calls.at(-1)).toBe(`unsubscribe ${NOTES_WATCH}`)
+      expect(d.calls.at(-1)).toBe(`unsub ${NOTES_WATCH}`)
     },
     MONACO_LOAD_MS,
   )
@@ -358,7 +358,7 @@ describe('followHostDocument', () => {
 
     expect(await openDocument({ absolutePath: NOTES.path })).not.toBeNull()
 
-    expect(d.calls).toEqual(['read', `subscribe ${NOTES_WATCH}`, 'opened', 'read'])
+    expect(d.calls).toEqual(['read', `sub ${NOTES_WATCH}`, 'opened', 'read'])
     expect(documentText(NOTES)).toBe('after the ack')
   })
 
@@ -448,7 +448,7 @@ describe('followHostDocument', () => {
 
   it('opens no host document whose watch is refused, and says why', async () => {
     const d = hostDaemon('v1')
-    d.opened = () => Promise.reject(new Error('closed before it opened'))
+    d.opened = () => Promise.reject(REFUSED)
     readDocumentMock.mockRejectedValueOnce(
       new ApiError('refused', 403, HOST_DOCUMENT_TRANSPORT_CODE),
     )
@@ -457,44 +457,36 @@ describe('followHostDocument', () => {
 
     expect(findDocumentBuffer(NOTES)).toBeNull()
     expect(toastError).toHaveBeenCalledWith("Can't open this file here", expect.any(String))
-    expect(d.calls).toContain(`unsubscribe ${NOTES_WATCH}`)
+    expect(d.calls).toContain(`unsub ${NOTES_WATCH}`)
     expect(await openDocument(NOTES)).toBeNull()
     expect(toastError).toHaveBeenLastCalledWith('Failed to open file', 'notes.md')
   })
 
-  it('says once that it stopped following when the daemon keeps refusing its watch', async () => {
+  it('says once that it stopped following when the daemon refuses its watch again', async () => {
     const d = hostDaemon('v1')
     await openDocument(NOTES)
-    useConnectionStore.setState({ status: 'connected' })
-    let attempts = 0
-    d.opened = () => (++attempts, Promise.reject(new Error('refused')))
+    d.opened = () => Promise.reject({ code: 'watch_limit', message: 'no watches left' })
 
-    d.drop()
+    reconnectStream()
 
     await vi.waitFor(() => expect(toastWarning).toHaveBeenCalledTimes(1))
     expect(toastWarning).toHaveBeenCalledWith(
       'Not following changes to notes.md',
-      expect.any(String),
+      'The OS has no file watches left.',
     )
-    expect(attempts).toBe(2)
   })
 
-  it('a drop while the daemon is down says nothing, and the reopened socket reads once more', async () => {
+  it('a re-armed watch after a reconnect reads once more', async () => {
     const d = hostDaemon('v1')
     await openDocument(NOTES)
-    useConnectionStore.setState({ status: 'disconnected' })
-    const outcomes = [false, false, true]
-    d.opened = () => (outcomes.shift() ? Promise.resolve() : Promise.reject(new Error('down')))
 
-    d.drop()
-    await vi.waitFor(() => expect(outcomes).toEqual([]))
     d.calls.length = 0
     d.disk = 'while it was down'
-    d.frame({ reconnected: true })
+    reconnectStream()
+    await vi.waitFor(() => expect(d.calls).toEqual([`sub ${NOTES_WATCH}`, 'opened', 'read']))
     await landed(d)
 
     expect(toastWarning).not.toHaveBeenCalled()
-    expect(d.calls).toEqual(['read'])
     expect(documentText(NOTES)).toBe('while it was down')
   })
 })

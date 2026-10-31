@@ -1,13 +1,12 @@
 import { isNotFoundError } from '@/lib/errors/api-error'
+import { holding as streamHolds, holdScope, onSignal, watchScope } from '@/core/stream/stream'
 import {
-  documentWatchEndpoint,
   readDocument,
   readDocumentFromDisk,
+  WatchRefusal,
   type DocumentRef,
 } from '@/lib/api/documents'
-import { useConnectionStore } from '@/lib/ws/connection-store'
-import { wsManager } from '@/lib/ws/manager'
-import { isReconnectSentinel } from '@/lib/ws/types'
+import type { Problem } from '@/lib/errors/problem'
 import {
   documentName,
   documentRefOf,
@@ -96,59 +95,50 @@ const changesText = (frame: unknown) => {
   return type === 'modified' || type === 'created'
 }
 
-/**
- * Follows a host document's file through its own watch socket. Resolves with the way to stop
- * once the daemon has armed the watch, so a read made after it misses no change; rejects, holding
- * nothing, when the socket closes before it opens.
- */
-export async function followHostDocument(ref: HostRef): Promise<() => void> {
-  const endpoint = documentWatchEndpoint(ref.path)
-  let following = true
-  // A reopened socket is a re-armed watch: what changed while it was down is read once.
-  const unsubscribe = wsManager.subscribe(endpoint, (frame) => {
-    if (isReconnectSentinel(frame) || changesText(frame)) void syncBufferWithDisk(ref)
-  })
-  const stopNoticing = wsManager.onDrop(endpoint, () => {
-    void noticeRefusal(endpoint, ref, () => following)
-  })
-  const stop = () => {
-    if (!following) return
-    following = false
-    stopNoticing()
-    unsubscribe()
-  }
-  try {
-    await wsManager.opened(endpoint)
-  } catch (error) {
-    stop()
-    throw error
-  }
-  return stop
-}
+const docScope = (ref: HostRef) => `doc:${ref.path}`
 
 /**
- * The manager retries a dropped socket forever. Two failed reconnects in a row while the
- * daemon answers other streams mean it refuses this watch: the user is told once per drop.
+ * Follows a host document's file through its `doc:` scope. Resolves with the way to stop
+ * once the daemon has armed the watch, so a read made after it misses no change; rejects,
+ * holding nothing, when the daemon refuses the watch.
  */
-async function noticeRefusal(
-  endpoint: string,
-  ref: HostRef,
-  following: () => boolean,
-  refusals = 0,
-): Promise<void> {
-  const reopened = await wsManager.opened(endpoint).then(
-    () => true,
-    () => false,
-  )
-  if (reopened || !following()) return
-  if (useConnectionStore.getState().status !== 'connected') {
-    return noticeRefusal(endpoint, ref, following)
-  }
-  if (refusals === 0) return noticeRefusal(endpoint, ref, following, 1)
-  toast.warning(
-    `Not following changes to ${documentName(ref)}`,
-    "Crowbar can't watch this file right now and keeps trying.",
-  )
+export function followHostDocument(ref: HostRef): Promise<() => void> {
+  const scope = docScope(ref)
+  return new Promise((resolve, reject) => {
+    let armed = false
+    const stopSignals = onSignal(scope, 'file_change', (frame) => {
+      if (changesText(frame)) void syncBufferWithDisk(ref)
+    })
+    const stopWatch = watchScope(scope, {
+      synced: () => {
+        // A later synced is a re-armed watch: what changed while it was down is read once.
+        if (armed) return void syncBufferWithDisk(ref)
+        armed = true
+        resolve(stop)
+      },
+      refused: (problem) => {
+        stop()
+        if (armed)
+          return toast.warning(`Not following changes to ${documentName(ref)}`, refusedWhy(problem))
+        reject(new WatchRefusal(problem ?? { code: 'internal', message: `${scope} was refused` }))
+      },
+    })
+    const release = holdScope(scope)
+    let stopped = false
+    function stop() {
+      if (stopped) return
+      stopped = true
+      stopWatch()
+      stopSignals()
+      release()
+    }
+  })
+}
+
+function refusedWhy(problem: Problem | undefined): string {
+  return problem?.code === 'watch_limit'
+    ? 'The OS has no file watches left.'
+    : "Crowbar can't watch this file right now."
 }
 
 /** A host document open without its watch follows again, then reads what it missed. */
@@ -169,7 +159,7 @@ function heldUnwatched(buffer: EditorContent): boolean {
   return (
     ref.authority === 'host' &&
     !!getEditorHost()?.documents.has(documentUri(ref)) &&
-    !wsManager.subscribed(documentWatchEndpoint(ref.path))
+    !streamHolds(docScope(ref))
   )
 }
 

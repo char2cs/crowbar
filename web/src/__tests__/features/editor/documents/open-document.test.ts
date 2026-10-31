@@ -15,7 +15,8 @@ vi.mock('@/lib/crowbar-bridge', async (importOriginal) => ({
   isTauri: () => desktop.value,
 }))
 
-import { MONACO_LOAD_MS, WATCH_LIMIT_REFUSAL } from '@/__tests__/__fixtures__/documents'
+import { MONACO_LOAD_MS, WATCH_LIMIT } from '@/__tests__/__fixtures__/documents'
+import { heldScopes, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
 import { ApiError } from '@/lib/errors/api-error'
 import {
   HOST_DOCUMENT_TRANSPORT_CODE,
@@ -43,7 +44,6 @@ import {
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { toast } from '@/features/window/stores/toast-store'
-import { wsManager } from '@/lib/ws/manager'
 
 const host = (path: string): DocumentRef => ({ authority: 'host', path })
 const NOTES = host('/tmp/s5/notes.md')
@@ -188,9 +188,7 @@ describe('openDocument', () => {
   })
 
   it('a host document holds one watch however many opens race for it, and only while open', async () => {
-    let held = 0
-    vi.spyOn(wsManager, 'subscribe').mockImplementation(() => (held++, () => void held--))
-    vi.spyOn(wsManager, 'subscribed').mockImplementation(() => held > 0)
+    const held = () => heldScopes('doc:').length
     let finish: () => void = () => {}
     readDocument
       .mockReturnValueOnce(new Promise((resolve) => (finish = () => resolve(readsAsHost(NOTES)))))
@@ -202,16 +200,17 @@ describe('openDocument', () => {
     finish()
 
     expect(await first).toBe(second)
-    expect([editors().length, held]).toEqual([1, 1])
+    expect([editors().length, held()]).toEqual([1, 1])
     readDocument.mockRejectedValueOnce(new ApiError('gone', 404))
     expect(await openDocument(host('/tmp/s5/gone.md'))).toBeNull()
-    expect(held).toBe(1)
+    expect(held()).toBe(1)
     resetWindowPaneStoreForTests()
-    expect(held).toBe(0)
+    expect(held()).toBe(0)
   })
 
   it('a host document the OS has no file watch left for opens nowhere and says so', async () => {
-    vi.spyOn(wsManager, 'opened').mockRejectedValueOnce(WATCH_LIMIT_REFUSAL)
+    streamDaemon.answer = ({ op, scope }) =>
+      op === 'sub' ? [{ t: 'closed', scope, reason: 'refused', problem: WATCH_LIMIT }] : []
     readDocument.mockImplementation(readsAsHost)
 
     expect(await openDocument(NOTES)).toBeNull()

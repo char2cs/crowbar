@@ -242,4 +242,37 @@ describe('the one stream', () => {
     expect(report).not.toHaveBeenCalled()
     expect(holding('doc:/tmp/a')).toBe(false)
   })
+
+  it('a watch on a scope already synced hears it at once; one on a resubscribing scope waits', () => {
+    hold('doc:/tmp/a')
+    socket.deliver({ t: 'synced', scope: 'doc:/tmp/a' })
+    const late = vi.fn()
+    cleanups.push(watchScope('doc:/tmp/a', { synced: late }))
+    expect(late).toHaveBeenCalledTimes(1)
+
+    socket.drop()
+    const waiting = vi.fn()
+    cleanups.push(watchScope('doc:/tmp/a', { synced: waiting }))
+    expect(waiting).not.toHaveBeenCalled()
+    socket.deliver({ t: 'ready', epoch: `e${epochs}` })
+    socket.deliver({ t: 'synced', scope: 'doc:/tmp/a' })
+    socket.deliver({ t: 'closed', scope: 'doc:/tmp/a', reason: 'resync' })
+    waiting.mockClear()
+    cleanups.push(watchScope('doc:/tmp/a', { synced: waiting }))
+    expect(waiting).not.toHaveBeenCalled()
+  })
+
+  it('a scope let go or refused is not synced to the next watch on it', () => {
+    vi.spyOn(reporting, 'report').mockImplementation(() => {})
+    const release = hold('doc:/tmp/b')
+    socket.deliver({ t: 'synced', scope: 'doc:/tmp/b' })
+    release()
+    hold('doc:/tmp/c')
+    socket.deliver({ t: 'synced', scope: 'doc:/tmp/c' })
+    socket.deliver({ t: 'closed', scope: 'doc:/tmp/c', reason: 'refused' })
+
+    const synced = vi.fn()
+    cleanups.push(watchScope('doc:/tmp/b', { synced }), watchScope('doc:/tmp/c', { synced }))
+    expect(synced).not.toHaveBeenCalled()
+  })
 })

@@ -1,5 +1,5 @@
 import { apiFetch } from '@/lib/api/fetch'
-import { problemOf, type ProblemCode } from '@/lib/errors/problem'
+import { problemOf, type Problem, type ProblemCode } from '@/lib/errors/problem'
 import { report } from '@/lib/errors/report'
 import {
   decodeFileContent,
@@ -50,14 +50,17 @@ export async function readDocument(target: DocumentTarget): Promise<DocumentRead
   return { ref: toRef(doc), text: decodeFileContent(doc) }
 }
 
-/** The socket that holds the daemon's watch on a host document's file while it is open. */
-export function documentWatchEndpoint(path: string): string {
-  return `/v0/documents/ws?path=${encodeURIComponent(path)}`
+/** The daemon would not arm a host document's watch, and why. */
+export class WatchRefusal extends Error {
+  constructor(readonly problem: Problem) {
+    super(problem.message)
+    this.name = 'WatchRefusal'
+  }
 }
 
-/** The daemon refused a host document's watch because the OS has no file watches left (507). */
+/** The daemon refused a host document's watch because the OS has no file watches left. */
 export function isWatchLimit(refusal: unknown): boolean {
-  return refusal instanceof Error && /\b507\b/.test(String(refusal.cause))
+  return refusal instanceof WatchRefusal && refusal.problem.code === 'watch_limit'
 }
 
 // A peek may point at a host or SDK file the transport or the daemon will not serve.
