@@ -2,6 +2,7 @@ package ingress
 
 import (
 	"cmp"
+	"slices"
 
 	"github.com/google/uuid"
 
@@ -75,11 +76,45 @@ func Map(st ledger.State, ev engineagents.CanonicalEvent, src Source, refs BlobR
 	if src.Scope != "" {
 		return mapNested(st, ev, src, refs)
 	}
+	rows, fx, err := mapMain(st, ev, src, refs)
+	if err == nil && fx.Title == "" {
+		fx.Title = keptPrompt(st, rows)
+	}
+	return rows, fx, err
+}
+
+// keptPrompt is the words of the Crowbar prompt whose turn rows first speak in:
+// a retract can take a prompt back only until then, so only then may it title.
+func keptPrompt(st ledger.State, rows []ledger.Row) string {
+	turn, ok := st.LastTurn()
+	if !ok || turn.RequestID == "" {
+		return ""
+	}
+	for _, r := range rows {
+		if r.Scope == "" && r.TurnID == turn.ID && spoke(r.Kind) {
+			p, _ := st.Receipt(turn.RequestID)
+			return p.Text
+		}
+	}
+	return ""
+}
+
+func spoke(kind ledger.Kind) bool {
+	switch kind {
+	case ledger.KindAssistantText, ledger.KindReasoning, ledger.KindToolCall, ledger.KindAsk, ledger.KindPlan:
+		return true
+	}
+	return false
+}
+
+func mapMain(st ledger.State, ev engineagents.CanonicalEvent, src Source, refs BlobRefs) ([]ledger.Row, Effects, error) {
 	switch ev.Kind {
 	case engineagents.HookUserPrompt:
 		rows, err := mapPrompt(st, ev, src)
 		fx := Effects{}
-		if len(rows) > 0 && src.Prompt.Origin == ledger.OriginProvider {
+		// Words typed into the CLI are nobody's to take back: they title at once.
+		typed := slices.ContainsFunc(rows, func(r ledger.Row) bool { return r.Kind == ledger.KindUserMessage })
+		if typed && src.Prompt.Origin == ledger.OriginProvider {
 			fx.Title = src.Prompt.Text
 		}
 		return rows, fx, err
