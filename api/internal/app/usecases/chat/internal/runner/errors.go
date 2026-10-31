@@ -91,6 +91,10 @@ var (
 	// provider accepted.
 	ErrPromptOutcomeUnknown = &problem.Error{Code: problem.RequestOutcomeUncertain, Message: "agent: prior prompt delivery outcome is uncertain; inspect the chat before retrying with a new request id", Err: problem.ErrConflict}
 
+	// ErrPromptWithProvider means a retract came after the CLI was handed the
+	// prompt: only stopping its turn takes it back now.
+	ErrPromptWithProvider = &problem.Error{Code: problem.PromptWithProvider, Message: "the prompt is already with its provider", Err: problem.ErrConflict}
+
 	// ErrPromptSessionLost means the launch carrying the prompt was refused the
 	// session it resumed: the provider never took the prompt.
 	ErrPromptSessionLost = &problem.Error{Code: problem.SessionLost, Message: "agent: the provider no longer has this chat's session", Err: problem.ErrConflict}

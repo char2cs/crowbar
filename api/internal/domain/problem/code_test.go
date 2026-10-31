@@ -30,6 +30,7 @@ func TestCode_StatusTable(t *testing.T) {
 		problem.PromptSubmitUnsupported: http.StatusUnprocessableEntity,
 		problem.LiveTUIRequired:         http.StatusUnprocessableEntity,
 		problem.SessionLost:             http.StatusConflict,
+		problem.PromptWithProvider:      http.StatusConflict,
 
 		problem.CatalogUnsupported:        http.StatusUnprocessableEntity,
 		problem.CatalogTimeout:            http.StatusGatewayTimeout,

@@ -35,6 +35,7 @@ const (
 	PromptSubmitUnsupported Code = "prompt_submit_unsupported"
 	LiveTUIRequired         Code = "live_tui_required"
 	SessionLost             Code = "session_lost"
+	PromptWithProvider      Code = "prompt_with_provider"
 
 	CatalogUnsupported        Code = "catalog_unsupported"
 	CatalogTimeout            Code = "catalog_timeout"
@@ -79,7 +80,7 @@ func (c Code) Status() int {
 		return http.StatusForbidden
 	case NotFound:
 		return http.StatusNotFound
-	case Conflict, Locked, ChatBusy, SessionLost, RequestOutcomeUncertain, RequestIDConflict,
+	case Conflict, Locked, ChatBusy, SessionLost, PromptWithProvider, RequestOutcomeUncertain, RequestIDConflict,
 		CatalogSuperseded, WorkAtRisk, IDConflict, OperationIDConflict, OperationRunning,
 		TreeCycle, TreeNotAContainer, TreeCrossContext, TreeCrossWorkspace, TreeForkChain, TreeSubtreeWorking:
 		return http.StatusConflict

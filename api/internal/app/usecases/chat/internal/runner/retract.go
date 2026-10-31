@@ -103,7 +103,7 @@ func retract(st ledger.State, requestID string, held func(ledger.Prompt) bool) (
 		return retraction{}, fmt.Errorf("prompt %s: %w", requestID, problem.ErrNotFound)
 	}
 	if p.Status == ledger.PromptStatusPending && held(p) {
-		return retraction{}, fmt.Errorf("prompt %s is with its provider: %w", requestID, problem.ErrConflict)
+		return retraction{}, ErrPromptWithProvider
 	}
 	if p.Status == ledger.PromptStatusPending {
 		rows, err := ledger.Settle(st, func(q ledger.Prompt) bool { return q.RequestID == requestID },

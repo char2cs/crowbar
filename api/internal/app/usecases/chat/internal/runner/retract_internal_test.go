@@ -108,6 +108,7 @@ func TestRetract_APromptItsLiveCLIAlreadyHoldsIsAConflict(t *testing.T) {
 			_, err := rs.Retract(t.Context(), "chat-1", "r1")
 
 			require.ErrorIs(t, err, problem.ErrConflict)
+			assert.Equal(t, problem.PromptWithProvider, problem.CodeOf(err), "a client words it apart from a settled prompt")
 			assert.Equal(t, head, chatState(t, rs.ledger).Head(), "the prompt stays pending")
 			assert.Empty(t, term.signalled())
 			v, _ := rs.live.view("chat-1")
