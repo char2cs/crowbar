@@ -61,6 +61,28 @@ interface ReaderIntent {
 
 const READ_UP_KEYS = new Set(['ArrowUp', 'PageUp', 'Home'])
 
+/** A trackpad at rest still reports a pixel or two: not a reader going back. */
+const WHEEL_JITTER_PX = 4
+
+/** A box between the event's target and the transcript that still scrolls up
+ *  takes the gesture itself (a tool's payload); the transcript does not move. */
+function takenInside(target: EventTarget, scroller: HTMLElement | null): boolean {
+  for (let el = target instanceof Element ? target : null; el && el !== scroller;) {
+    const scrolls =
+      el.scrollHeight > el.clientHeight && /auto|scroll/.test(getComputedStyle(el).overflowY)
+    if (scrolls && el.scrollTop > 0) return true
+    el = el.parentElement
+  }
+  return false
+}
+
+const typing = (target: EventTarget) =>
+  target instanceof HTMLElement &&
+  (target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')
+
+const readsUp = (event: React.KeyboardEvent) =>
+  READ_UP_KEYS.has(event.key) || (event.key === ' ' && event.shiftKey)
+
 /**
  * Keeps a transcript on its newest line while the reader is there, and out of
  * their way once they scroll up. Growth eases (follow-scroll); anything that is
@@ -249,10 +271,13 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
 
   const [intent] = useState<ReaderIntent>(() => ({
     onWheel: (event) => {
-      if (event.deltaY < 0) letGo()
+      const jitter = event.deltaMode === 0 && event.deltaY > -WHEEL_JITTER_PX
+      if (event.deltaY >= 0 || jitter || event.ctrlKey) return
+      if (!takenInside(event.target, scrollRef.current)) letGo()
     },
     onKeyDown: (event) => {
-      if (READ_UP_KEYS.has(event.key)) letGo()
+      if (!readsUp(event) || typing(event.target)) return
+      if (!takenInside(event.target, scrollRef.current)) letGo()
     },
     onTouchStart: (event) => {
       touchY.current = event.touches[0]?.clientY ?? null

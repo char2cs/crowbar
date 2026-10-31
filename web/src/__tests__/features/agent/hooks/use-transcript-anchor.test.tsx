@@ -48,7 +48,10 @@ function Host({ rev: _rev, measuring = false, arriving = true, ...options }: Hos
       }}
       onScroll={() => anchor.onScroll()}
       {...anchor.intent}
-    />
+    >
+      <pre data-testid="inner" style={{ overflowY: 'auto' }} />
+      <input data-testid="field" />
+    </div>
   )
 }
 
@@ -72,6 +75,14 @@ function mount(props: HostProps = {}) {
 function readerScrollsTo(scroller: HTMLElement, top: number) {
   scroller.scrollTop = top
   fireEvent.scroll(scroller)
+}
+
+/** A scroller inside the transcript (a tool's payload), scrolled to `top`. */
+function nestedBox(el: HTMLElement, top: number) {
+  Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => 500 })
+  Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => 100 })
+  Object.defineProperty(el, 'scrollTop', { configurable: true, get: () => top })
+  return el
 }
 
 const frames = (ms: number) => act(() => vi.advanceTimersByTime(ms))
@@ -181,14 +192,6 @@ describe('useTranscriptAnchor', () => {
     expect(scroller.scrollTop).toBe(1000)
   })
 
-  it('a wheel down keeps following', () => {
-    const { scroller, grow } = mount()
-    fireEvent.wheel(scroller, { deltaY: 100 })
-    grow(1300)
-    frames(1500)
-    expect(scroller.scrollTop).toBe(900)
-  })
-
   it('lets go on a key that reads up, or a finger dragging the text down', () => {
     const keyed = mount()
     fireEvent.keyDown(keyed.scroller, { key: 'PageUp' })
@@ -196,7 +199,6 @@ describe('useTranscriptAnchor', () => {
     frames(1500)
     expect(keyed.scroller.scrollTop).toBe(600)
     keyed.unmount()
-
     scrollHeight = 1000
     const dragged = mount()
     fireEvent.touchStart(dragged.scroller, { touches: [{ clientY: 100 }] })
@@ -204,6 +206,50 @@ describe('useTranscriptAnchor', () => {
     dragged.grow(1300)
     frames(1500)
     expect(dragged.scroller.scrollTop).toBe(600)
+  })
+
+  it('keeps following when a wheel up scrolls a nested box that can still scroll up', () => {
+    const { scroller, grow, getByTestId } = mount()
+    const inner = nestedBox(getByTestId('inner'), 200)
+
+    fireEvent.wheel(inner, { deltaY: -100 })
+    grow(1300)
+    frames(1500)
+    expect(scroller.scrollTop).toBe(900)
+  })
+
+  it('lets go when the nested box is already at its top and the wheel chains on', () => {
+    const { scroller, grow, getByTestId } = mount()
+    const inner = nestedBox(getByTestId('inner'), 0)
+
+    fireEvent.wheel(inner, { deltaY: -100 })
+    grow(1300)
+    frames(1500)
+    expect(scroller.scrollTop).toBe(600)
+  })
+
+  it('keeps following through a wheel down, a zoom wheel and a trackpad jitter', () => {
+    const { scroller, grow } = mount()
+    fireEvent.wheel(scroller, { deltaY: 100 })
+    fireEvent.wheel(scroller, { deltaY: -100, ctrlKey: true })
+    fireEvent.wheel(scroller, { deltaY: -2 })
+
+    grow(1300)
+    frames(1500)
+    expect(scroller.scrollTop).toBe(900)
+  })
+
+  it('reads keys typed into a field as typing, and Shift+Space as reading up', () => {
+    const { scroller, grow, getByTestId } = mount()
+    fireEvent.keyDown(getByTestId('field'), { key: 'PageUp' })
+    grow(1300)
+    frames(1500)
+    expect(scroller.scrollTop).toBe(900)
+
+    fireEvent.keyDown(scroller, { key: ' ', shiftKey: true })
+    grow(1400)
+    frames(1500)
+    expect(scroller.scrollTop).toBe(900)
   })
 
   it('keeps the reader position when a row above the viewport grows', () => {
