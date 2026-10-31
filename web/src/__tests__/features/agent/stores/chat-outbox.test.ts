@@ -330,11 +330,13 @@ describe('chat outbox', () => {
   it('keeps the prompt the provider already holds when Esc is refused', async () => {
     const l = ledger('c1')
     seedFeed('c1', [l.prompt('r1', 'already gone')])
+    seedFeed('c2', [ledger('c2').prompt('r2', 'still asking')])
     const answer = deferred<never>()
-    retract.mockReturnValue(answer.promise)
+    retract.mockReturnValueOnce(answer.promise).mockReturnValueOnce(deferred<never>().promise)
 
     const taken = retractNewest('w1', 'c1')
-    expect(toasts.mock.calls.map(([toast]) => toast.type)).toEqual(['loading'])
+    void retractNewest('w1', 'c2')
+    expect(toasts.mock.calls.map(([toast]) => toast.type)).toEqual(['loading', 'loading'])
     answer.reject(
       new ApiError(
         'agent: retract: the prompt is already with its provider',
@@ -345,8 +347,9 @@ describe('chat outbox', () => {
 
     await expect(taken).resolves.toBeNull()
     expect(chatStore.getState().feeds.c1?.order).toEqual(['p:r1'])
-    expect(closed).toHaveBeenCalledWith(toasts.mock.calls[0]?.[0].id)
-    expect(toasts.mock.calls[1]?.[0]).toEqual({
+    expect(closed.mock.calls).toEqual([[toasts.mock.calls[0]?.[0].id]])
+    expect(toasts.mock.calls[1]?.[0].id).not.toBe(toasts.mock.calls[0]?.[0].id)
+    expect(toasts.mock.calls[2]?.[0]).toEqual({
       type: 'error',
       title: 'Its provider already has this prompt',
       description: 'Stop ends its turn.',

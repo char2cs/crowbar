@@ -176,17 +176,11 @@ async function takeBack(
 }
 
 const WITH_PROVIDER = 'Its provider already has this prompt'
-const RETRACTING = 'retracting'
-
 /** Says Esc was heard while the daemon decides; a launch can hold the answer. */
-function retracting(answer: Promise<string | null>) {
-  toastManager.add({
-    id: RETRACTING,
-    type: 'loading',
-    title: 'Taking the prompt back…',
-    timeout: 0,
-  })
-  return answer.finally(() => toastManager.close(RETRACTING))
+function retracting(requestId: string, answer: Promise<string | null>) {
+  const id = `retracting:${requestId}`
+  toastManager.add({ id, type: 'loading', title: 'Taking the prompt back…', timeout: 0 })
+  return answer.finally(() => toastManager.close(id))
 }
 
 let watching = false
@@ -241,10 +235,10 @@ export function retractNewest(wsId: string, chatId: string): Promise<string | nu
       let resolve: (text: string | null) => void = () => {}
       const promise = new Promise<string | null>((settle) => (resolve = settle))
       takeBackOnAck.set(requestId, { promise, resolve })
-      return retracting(promise)
+      return retracting(requestId, promise)
     }
     case 'held':
-      return retracting(takeBack(wsId, chatId, target.requestId, target.text))
+      return retracting(target.requestId, takeBack(wsId, chatId, target.requestId, target.text))
     case 'stop':
       return stopChat(wsId, chatId).then(
         () => null,
