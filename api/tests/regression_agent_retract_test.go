@@ -127,14 +127,24 @@ func TestRegression_Symptom5_RetractingASettledPromptIs409(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, status, "nothing was sent under an unknown id")
 }
 
-func TestRegression_Symptom5_RetractingAPromptTheCLIHoldsIs409(t *testing.T) {
+func TestRegression_Symptom5_ALateAckAfterRetractIsRecordedAsAProviderTurn(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 	c.startTurn(t, c.launch, "A")
 	r1 := uuid.NewString()
 	require.Equal(t, http.StatusOK, postPrompt(t, c.h, c.imported, c.chatID, "late text", r1), "steered into turn A")
+	require.Equal(t, retractAnswer{State: "retracted", Text: "late text"}, c.retract(t, r1))
 
-	status, _ := answerOf(t, c.h, c.retractPath(r1), nil)
-	require.Equal(t, http.StatusConflict, status, "the CLI already holds a steered prompt")
+	c.hook(t, c.launch, "turn_stop", map[string]any{"prompt_id": "A", "last_assistant_message": ""})
+	c.hook(t, c.launch, "user_prompt", map[string]any{"prompt": "late text", "prompt_id": "B"})
 
-	assert.Empty(t, settledAs(t, c.feedRows(t), r1), "r1 was never withdrawn")
+	assert.True(t, c.working(t), "the provider's own turn runs")
+	rows := c.feedRows(t)
+	late := rowsOf(t, rows, ledger.KindUserMessage, func(b ledger.UserMessage) bool { return b.Text == "late text" })
+	require.Len(t, late, 2, "r1's row, then the provider's")
+	assert.Equal(t, ledger.OriginCrowbar, late[0].Origin)
+	assert.Equal(t, ledger.OriginProvider, late[1].Origin)
+	assert.Empty(t, late[1].RequestID, "the late ack is not r1")
+	assert.Equal(t, []ledger.PromptSettled{{RequestID: r1, Reason: ledger.ReasonRetracted}}, settledAs(t, rows, r1),
+		"r1 stays retracted")
+	assert.Equal(t, "turn_started", rows[len(rows)-1].Row.Kind, "the provider's prompt opened its turn")
 }

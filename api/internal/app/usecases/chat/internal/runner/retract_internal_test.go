@@ -86,18 +86,13 @@ func took(t *testing.T, rs *Runners) {
 	appendRow(t, rs, ledger.KindTurnStarted, "T-1", ledger.TurnStarted{RequestID: "r1", RunnerID: "runner-1"})
 }
 
-// A CLI that already holds the prompt acts on it whatever the ledger says, so
-// the retract refuses rather than handing the text back.
+// A CLI handed the prompt over its connection acts on it whatever the ledger
+// says, so the retract refuses rather than handing the text back.
 func TestRetract_APromptItsLiveCLIAlreadyHoldsIsAConflict(t *testing.T) {
 	for name, setup := range map[string]func(*testing.T, *Runners){
 		"pushed over the connection": func(t *testing.T, rs *Runners) {
 			t.Helper()
 			sent(t, rs, ledger.DeliveryAPI)
-		},
-		"steered into a running turn": func(t *testing.T, rs *Runners) {
-			t.Helper()
-			appendRow(t, rs, ledger.KindTurnStarted, "T-0", ledger.TurnStarted{RunnerID: "runner-1"})
-			sent(t, rs, ledger.DeliverySteer)
 		},
 		"launched over a connection": func(t *testing.T, rs *Runners) {
 			t.Helper()
@@ -136,6 +131,23 @@ func TestRetract_ARestartDeliveredPromptTerminatesTheRunnerItStarted(t *testing.
 
 	rs.reconcileRunnerExit(t.Context(), "runner-1") // the PTY's exit callback
 	assert.Equal(t, domain.AgentExitRetracted, retiredAs(t, rs))
+}
+
+func TestRetract_ASteerDeliveredPromptLeavesTheRunnerRunning(t *testing.T) {
+	rs, term := retracting(t)
+	appendRow(t, rs, ledger.KindTurnStarted, "T-0", ledger.TurnStarted{RunnerID: "runner-1"})
+	sent(t, rs, ledger.DeliverySteer)
+
+	got, err := rs.Retract(t.Context(), "chat-1", "r1")
+
+	require.NoError(t, err)
+	assert.Equal(t, RetractResult{State: RetractRetracted, Text: "rename it"}, got)
+	assert.Empty(t, term.signalled(), "the CLI the prompt was steered into keeps running its turn")
+	turn, running := chatState(t, rs.ledger).RunningTurn()
+	assert.True(t, running)
+	assert.Equal(t, "T-0", turn.ID, "the turn r1 was steered into is not the retract's to end")
+	v, _ := rs.live.view("chat-1")
+	assert.False(t, v.exiting)
 }
 
 func TestRetract_ARunningTurnEndsInterruptedBeforeTheProviderIsSignalled(t *testing.T) {
