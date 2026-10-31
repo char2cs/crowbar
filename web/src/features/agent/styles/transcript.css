@@ -1022,3 +1022,35 @@
     will-change: auto;
   }
 }
+
+/* How an ask on a call was decided, and a call still waiting on one. */
+.agent-chat .tool-call-note {
+  flex: none;
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+}
+.agent-chat .tools li[data-status='awaiting_approval'] .tool-call-state {
+  color: var(--warning-foreground);
+}
+/* What a failure or a lost session offers, under its pill. */
+.agent-chat .marker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding-bottom: 6px;
+}
+.agent-chat .marker-detail {
+  flex-basis: 100%;
+  max-height: 10rem;
+  overflow: auto;
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  white-space: pre-wrap;
+}
