@@ -1,19 +1,7 @@
 import type { CodeLine, RequestView } from '@/features/agent/composer/lib/ask-request'
-import { SHOWN_LINES, visibleParts } from '@/features/agent/composer/lib/ask-request'
+import { SHOWN_LINES } from '@/features/agent/composer/lib/ask-request'
+import { Visible } from '@/features/agent/composer/visible-text'
 import { McpServerBadge } from '@/features/agent/transcript/rows/mcp-server-badge'
-
-function Visible({ text }: { text: string }) {
-  return visibleParts(text).map((part, i) =>
-    part.escaped ? (
-      // react-doctor-disable-next-line no-array-index-as-key -- parts of one fixed string, never reordered
-      <span key={i} className="choice-escape" title="A character that does not draw">
-        {part.text}
-      </span>
-    ) : (
-      part.text
-    ),
-  )
-}
 
 const TONE: Record<NonNullable<CodeLine['tone']>, string> = { del: '- ', add: '+ ' }
 

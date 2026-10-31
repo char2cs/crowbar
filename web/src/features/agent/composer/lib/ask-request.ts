@@ -28,7 +28,9 @@ const MCP_ARGS = 6
 const ARG_CHARS = 80
 
 const str = (value: unknown) => (typeof value === 'string' ? value : '')
-const plain = (text: string): CodeLine[] => text.split('\n').map((line) => ({ text: line }))
+// A CRLF pair is one break; a lone carriage return is left for the escapes.
+const lines = (text: string) => text.split(/\r?\n/)
+const plain = (text: string): CodeLine[] => lines(text).map((line) => ({ text: line }))
 
 function argText(value: unknown): string {
   const text = typeof value === 'string' ? value : JSON.stringify(value)
@@ -53,7 +55,7 @@ function mcpView(req: AskRequest): RequestView {
 }
 
 const toned = (text: string, tone: CodeLine['tone']): CodeLine[] =>
-  text ? text.split('\n').map((line) => ({ text: line, tone })) : []
+  text ? lines(text).map((line) => ({ text: line, tone })) : []
 
 /** One replacement as removed then added lines; an empty side draws nothing. */
 const replacement = (edit: Record<string, unknown>) => [
@@ -92,17 +94,28 @@ export function requestView(req: AskRequest): RequestView {
   )
 }
 
-// Bidi controls, other control characters and zero-width ones: drawn raw they
-// reorder or hide what the command does, so each is written out instead.
+// Controls, bidi and format characters, and ones that draw as blank: shown raw
+// they reorder or hide what the command does, so each is written out instead.
 const HIDDEN_RANGES: [number, number][] = [
   [0x00, 0x08],
   [0x0b, 0x1f],
   [0x7f, 0x9f],
+  [0xad, 0xad],
+  [0x034f, 0x034f],
   [0x061c, 0x061c],
+  [0x115f, 0x1160],
+  [0x180e, 0x180e],
   [0x200b, 0x200f],
-  [0x202a, 0x202e],
-  [0x2060, 0x2069],
+  [0x2028, 0x202e],
+  [0x2060, 0x206f],
+  [0x2800, 0x2800],
+  [0x3164, 0x3164],
+  [0xfe00, 0xfe0f],
   [0xfeff, 0xfeff],
+  [0xffa0, 0xffa0],
+  [0xfff9, 0xfffc],
+  [0xe0000, 0xe007f],
+  [0xe0100, 0xe01ef],
 ]
 
 const hidden = (cp: number) => HIDDEN_RANGES.some(([lo, hi]) => cp >= lo && cp <= hi)
