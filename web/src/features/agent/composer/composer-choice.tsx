@@ -200,8 +200,11 @@ export function ComposerChoice({
   // A digit picks that option; Enter allows once, only from the card itself so
   // an Enter meant for the composer never grants a permission.
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    // Only from the card itself: a key on a control inside it is that control's.
+    if (event.target !== event.currentTarget || event.repeat || event.nativeEvent.isComposing)
+      return
     if (!flat || busy || event.metaKey || event.ctrlKey || event.altKey) return
-    const picked = keyedOption(controls, event.key, event.target === event.currentTarget)
+    const picked = keyedOption(controls, event.key)
     if (!picked) return
     event.preventDefault()
     void send([picked.id])
@@ -296,6 +299,7 @@ export function ComposerChoice({
                 ) : (
                   <ChoiceButtons
                     options={controls}
+                    keyed={flat}
                     busy={busy}
                     onPick={(option) => void send([option.id])}
                   />
@@ -320,10 +324,9 @@ export function ComposerChoice({
   )
 }
 
-/** The option a key names: a digit its place, Enter (from the card) allowing once. */
-function keyedOption(controls: AgentChoiceOption[], key: string, onCard: boolean) {
-  if (key === 'Enter')
-    return onCard ? controls.find((option) => option.kind === 'allow') : undefined
+/** The option a key names: a digit its place, Enter allowing once. */
+function keyedOption(controls: AgentChoiceOption[], key: string) {
+  if (key === 'Enter') return controls.find((option) => option.kind === 'allow')
   return /^[1-9]$/.test(key) ? controls[Number(key) - 1] : undefined
 }
 

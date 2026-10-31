@@ -181,16 +181,19 @@ function ChoiceCheckboxes({
  *  elicitation's verbs. */
 export function ChoiceButtons({
   options,
+  keyed = false,
   busy,
   onPick,
 }: {
   options: AgentChoiceOption[]
+  /** The card answers digit keys: each button shows its digit. */
+  keyed?: boolean
   busy: boolean
   onPick: (option: AgentChoiceOption) => void
 }) {
   return (
     <div className="flex flex-wrap gap-2" data-testid="agent-choice-options">
-      {options.map((option) => (
+      {options.map((option, i) => (
         <Button
           key={option.id}
           size="sm"
@@ -200,6 +203,11 @@ export function ChoiceButtons({
           onClick={() => onPick(option)}
         >
           {optionLabel(option)}
+          {keyed && i < 9 && (
+            <kbd className="choice-key" aria-hidden="true">
+              {i + 1}
+            </kbd>
+          )}
         </Button>
       ))}
     </div>

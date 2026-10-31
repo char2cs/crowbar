@@ -1215,3 +1215,12 @@
   color: var(--warning-foreground);
   font-weight: 600;
 }
+.agent-chat .choice-key {
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+}

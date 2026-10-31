@@ -699,12 +699,33 @@ describe('ComposerChoice keys', () => {
 
   it('allows once on Enter only while the card has focus', async () => {
     show()
-    fireEvent.keyDown(screen.getByRole('button', { name: 'Deny' }), { key: 'Enter' })
+    fireEvent.keyDown(screen.getByRole('button', { name: /Deny/ }), { key: 'Enter' })
     expect(answerChoiceFn).not.toHaveBeenCalled()
     fireEvent.keyDown(screen.getByTestId('agent-choice-prompt'), { key: 'Enter' })
     await waitFor(() =>
       expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', { optionIds: ['allow'] }),
     )
+  })
+
+  it('answers nothing for a key pressed on a control inside the card', () => {
+    draw()
+    fireEvent.keyDown(screen.getByTestId('chat-permission-level-trigger'), { key: '1' })
+    fireEvent.keyDown(screen.getByRole('button', { name: /Deny/ }), { key: '2' })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+  })
+
+  it('answers nothing for a held key or an Enter that ends an IME composition', () => {
+    show()
+    const card = screen.getByTestId('agent-choice-prompt')
+    fireEvent.keyDown(card, { key: '1', repeat: true })
+    fireEvent.keyDown(card, { key: 'Enter', isComposing: true })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+  })
+
+  it('shows which digit answers with which option', () => {
+    show()
+    expect(screen.getByRole('button', { name: /Allow/ })).toHaveTextContent('1')
+    expect(screen.getByRole('button', { name: /Deny/ })).toHaveTextContent('2')
   })
 
   it('answers nothing by key while it cannot be answered here', () => {
