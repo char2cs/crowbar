@@ -16,27 +16,8 @@ const standsAlone = (item: ToolItem) =>
 
 /** Consecutive read-only calls as one line: a ticker on the newest while any
  *  runs, a sentence once they are done; expanding lists each call's own row. */
-function ToolRunRowBody({
-  chatId,
-  id,
-  members,
-}: {
-  chatId: string
-  id: string
-  members: string[]
-}) {
+function FoldedRun({ chatId, id, tools }: { chatId: string; id: string; tools: ToolItem[] }) {
   const [open, setOpen] = useState(false)
-  const items = useChatStore(
-    useShallow((s) =>
-      members.map((member) => s.feeds[chatId]?.items[member] as ToolItem | undefined),
-    ),
-  )
-  const tools = items.filter((item): item is ToolItem => item?.kind === 'tool')
-  // A call that was asked about or did not succeed is a fact of its own: the
-  // run unfolds rather than summing it into a green sentence.
-  if (tools.length === 1 || tools.some(standsAlone)) {
-    return tools.map((item) => <ToolRow key={item.id} chatId={chatId} item={item} />)
-  }
   const running = tools.filter((item) => item.status === 'running')
   const live = running.length > 0
   const newest = running.at(-1)
@@ -82,6 +63,54 @@ function ToolRunRowBody({
         </ul>
       </div>
     </article>
+  )
+}
+
+/** A run cut around its calls that stand alone, in order; the rest stay folded. */
+function segments(tools: ToolItem[]): ToolItem[][] {
+  const out: ToolItem[][] = []
+  let folded: ToolItem[] = []
+  for (const item of tools) {
+    if (!standsAlone(item)) {
+      folded.push(item)
+      continue
+    }
+    if (folded.length > 0) out.push(folded)
+    out.push([item])
+    folded = []
+  }
+  if (folded.length > 0) out.push(folded)
+  return out
+}
+
+function ToolRunRowBody({
+  chatId,
+  id,
+  members,
+}: {
+  chatId: string
+  id: string
+  members: string[]
+}) {
+  const items = useChatStore(
+    useShallow((s) =>
+      members.map((member) => s.feeds[chatId]?.items[member] as ToolItem | undefined),
+    ),
+  )
+  const tools = items.filter((item): item is ToolItem => item?.kind === 'tool')
+  // A call that was asked about or did not succeed is a fact of its own: it is
+  // drawn as its own row, and the calls around it fold on either side.
+  return segments(tools).map((part, i) =>
+    part.length === 1 ? (
+      <ToolRow key={part[0].id} chatId={chatId} item={part[0]} />
+    ) : (
+      <FoldedRun
+        key={part[0].id}
+        chatId={chatId}
+        id={i === 0 ? id : `g:${part[0].id}`}
+        tools={part}
+      />
+    ),
   )
 }
 

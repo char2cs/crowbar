@@ -173,3 +173,53 @@ describe('ToolRunRow with an ask on a member', () => {
     expect(screen.queryByTestId('agent-tool-run')).toBeNull()
   })
 })
+
+describe('ToolRunRow around one call that stands alone', () => {
+  const ids = Array.from({ length: 101 }, (_, i) => `r${i}`)
+  const rows = (l: ReturnType<typeof ledger>) => [
+    l.start('turn-1'),
+    ...ids.map((toolId) =>
+      l.row(
+        'tool_call',
+        { toolId, phase: 'post', name: 'Read', kind: 'read', target: `/${toolId}` },
+        { turnId: 'turn-1' },
+      ),
+    ),
+    l.row(
+      'ask',
+      {
+        askId: 'q1',
+        event: 'permission',
+        kind: 'tool_permission',
+        toolId: 'r40',
+        answerable: true,
+        options: [{ id: 'ok', kind: 'allow', label: 'Allow' }],
+      },
+      { turnId: 'turn-1' },
+    ),
+  ]
+  const draw = () =>
+    render(<ToolRunRow chatId="chat-1" id="g:t:r0" members={ids.map((id) => `t:${id}`)} />)
+  // In page order: each folded run's sentence, and the one call drawn as its own row.
+  const shape = () =>
+    [...document.querySelectorAll('[data-testid="agent-tool-run"], [data-tool-id]')].map((el) =>
+      el.matches('[data-tool-id]') ? el.getAttribute('data-tool-id') : el.textContent,
+    )
+
+  it('folds the calls on each side of it into their own runs', () => {
+    const l = ledger()
+    for (const row of rows(l)) push(row)
+    draw()
+    expect(shape()).toEqual(['Read 40 files', 'r40', 'Read 60 files'])
+  })
+
+  it('reads the same after a reload', () => {
+    const l = ledger()
+    chatStore.setState({ feeds: {} })
+    openFeed('chat-1')
+    for (const row of rows(l)) applyFeedFrame('chat-1', { type: 'row', row })
+    applyFeedFrame('chat-1', { type: 'ready', epoch: 'e2' })
+    draw()
+    expect(shape()).toEqual(['Read 40 files', 'r40', 'Read 60 files'])
+  })
+})
