@@ -271,6 +271,30 @@ func TestRecorder_ACrowbarPromptTitlesTheChatOnceItsTurnSpeaks(t *testing.T) {
 	assert.Equal(t, []string{"sent from crowbar"}, f.titles.titles)
 }
 
+// What a CLI flushes after a retract ended its turn speaks for a prompt already
+// handed back: it titles nothing.
+func TestRecorder_AReplyFlushedAfterARetractTitlesNothing(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	_, _, err := f.ledger.Append(t.Context(), testChat, row(t, ledger.KindUserMessage, "T-req-1", "", ledger.UserMessage{
+		RequestID: "req-1", Text: "taken back", Origin: ledger.OriginCrowbar, Delivery: ledger.DeliveryRestart, RunnerID: "run-1",
+	}))
+	require.NoError(t, err)
+	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "taken back"})
+	require.NoError(t, err)
+	turn, _ := f.state(t).RunningTurn()
+	_, _, err = f.ledger.Append(t.Context(), testChat, row(t, ledger.KindTurnEnded, turn.ID, "",
+		ledger.TurnEnded{Status: string(ledger.TurnStatusInterrupted), Reason: ledger.ReasonRetracted, RunnerID: "run-1"}))
+	require.NoError(t, err)
+
+	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{
+		Kind: engineagents.HookMessageComplete, Complete: &engineagents.MessageComplete{MessageID: "m1", Text: "ok"},
+	})
+
+	require.NoError(t, err)
+	require.Contains(t, kinds(f.rows(t)), ledger.KindAssistantText, "the flushed reply is recorded")
+	assert.Empty(t, f.titles.titles)
+}
+
 // Crowbar's own injected context is nobody's words: its echo opens the turn and
 // says nothing.
 func TestRecorder_AnInjectedEchoSaysNothing(t *testing.T) {

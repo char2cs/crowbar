@@ -83,10 +83,11 @@ func Map(st ledger.State, ev engineagents.CanonicalEvent, src Source, refs BlobR
 	return rows, fx, err
 }
 
-// keptPrompt is the words of the Crowbar prompt whose turn rows first speak in:
-// a retract can take a prompt back only until then, so only then may it title.
+// keptPrompt is the words of the Crowbar prompt whose running turn rows speak
+// in: a retract takes a prompt back until then, and what a CLI flushes after a
+// retract ended the turn speaks for a prompt already handed back.
 func keptPrompt(st ledger.State, rows []ledger.Row) string {
-	turn, ok := st.LastTurn()
+	turn, ok := st.RunningTurn()
 	if !ok || turn.RequestID == "" {
 		return ""
 	}
