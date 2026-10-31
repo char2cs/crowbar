@@ -40,12 +40,16 @@ export function toolStatus(body: RowBodies['tool_call'], prev: ToolStatus | unde
   return prev ?? 'running'
 }
 
+/** The status of an upserted step that leaves the plan (ledger/plan.go). */
+const STEP_REMOVED = 'removed'
+
 /** `items` with each of `next` replacing the item of its id, or appended. */
 export function upsertPlan(items: PlanItem[], next: PlanItem[]): PlanItem[] {
-  const out = [...items]
+  let out = [...items]
   for (const item of next) {
     const at = item.id ? out.findIndex((other) => other.id === item.id) : -1
-    if (at >= 0) out[at] = item
+    if (item.status === STEP_REMOVED) out = at >= 0 ? out.filter((_, i) => i !== at) : out
+    else if (at >= 0) out[at] = item
     else out.push(item)
   }
   return out
@@ -80,7 +84,48 @@ export interface MarkerItem extends ItemBase {
   reason?: string
 }
 
-export type TranscriptItem = UserItem | TextItem | ToolItem | AskItem | MarkerItem
+export type SubagentStatus =
+  'starting' | 'running' | 'done' | 'failed' | 'interrupted' | 'abandoned'
+
+/** A subagent from spawn to result, keyed by the call that spawned it (or its
+ *  scope when no call did); its rows are `scoped[scope]` once bound. */
+export interface SubagentItem extends ItemBase {
+  kind: 'subagent'
+  spawnToolId?: string
+  scope?: string
+  title: string
+  type: string
+  status: SubagentStatus
+  result?: string
+  usage?: { tokens?: number; toolUses?: number; durationMs?: number }
+  /** The parent is waiting on, or closing, this subagent. */
+  parentWaiting: boolean
+  startedAt: string
+  endedAt?: string
+}
+
+export interface ReasoningItem extends ItemBase {
+  kind: 'reasoning'
+  text: string
+  startedAt: string
+  endedAt: string
+}
+
+/** The main plan as its turn left it. */
+export interface PlanSnapshotItem extends ItemBase {
+  kind: 'plan'
+  items: PlanItem[]
+}
+
+export type TranscriptItem =
+  | UserItem
+  | TextItem
+  | ToolItem
+  | AskItem
+  | MarkerItem
+  | SubagentItem
+  | ReasoningItem
+  | PlanSnapshotItem
 
 export type PromptFact =
   /** `launch` when a CLI launch carries it: that launch's dividers read above it. */
@@ -91,20 +136,18 @@ export type PromptFact =
   /** `turnId` when its turn spoke before the retract ended it: the row stays. */
   | { state: 'retracted'; turnId?: string }
 
-export interface LiveSubagent {
-  scope: string
-  type?: string
-  title?: string
-  startedAt: string
-}
-
 export interface TurnFacts {
   running: { turnId: string; requestId?: string; startedAt: string; seq: number } | null
   /** requestId → its state, from rows. */
   prompts: Record<string, PromptFact>
   compacting: boolean
   openAsks: string[]
-  liveSubagents: Record<string, LiveSubagent>
+  /** Subagent cards still starting or running. */
+  liveSubagents: string[]
+  /** scope → the card bound to it. */
+  subagentScopes: Record<string, string>
+  /** A subagent that announced its scope while a spawn it may be is unbound. */
+  pendingScopes: Record<string, { type?: string; title?: string }>
   /** By scope, latest. */
   plan: Record<string, PlanItem[]>
   lastExit: { runnerId: string; reason: string; exitCode?: number; seq: number } | null
@@ -149,4 +192,6 @@ export const textItemId = (turnId: string | undefined, messageId: string) =>
 export const toolItemId = (toolId: string) => `t:${toolId}`
 export const askItemId = (askId: string) => `a:${askId}`
 export const markerItemId = (seq: number) => `k:${seq}`
+export const subagentItemId = (key: string) => `s:${key}`
+export const planItemId = (turnId: string) => `l:${turnId}`
 export const liveKey = (stream: string, id: string) => `${stream}:${id}`

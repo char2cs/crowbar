@@ -21,7 +21,7 @@ import { markEnd } from '@/lib/perf/instrumentation'
 import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
-import { WorkingLine } from '@/features/agent/activity/working-line'
+import { WorkingLine, type WorkingLineProps } from '@/features/agent/activity/working-line'
 import { useChatItems, useDisplayRows, useLiveTail } from '@/features/agent/hooks/use-chat-feed'
 import {
   useTranscriptAnchor,
@@ -44,13 +44,8 @@ interface AgentTranscriptProps {
   providers: AgentProvider[]
   status?: ChatFeed['status']
   working: boolean
-  /** When the running turn started. */
-  since?: string
-  compacting: boolean
-  reasoning?: string
-  plan?: { text: string; status?: string }[]
-  /** An ask holds the composer. */
-  asking: boolean
+  /** What the working line at the tail says. */
+  line: WorkingLineProps
   /** A row the composer already shows (the provider's halt notice): said once. */
   suppressId?: string
   onOpenTerminal: () => void
@@ -473,14 +468,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
             })}
           </div>
         )}
-        <WorkingLine
-          working={props.working}
-          since={props.since}
-          compacting={props.compacting}
-          reasoning={props.reasoning}
-          plan={props.plan}
-          asking={props.asking}
-        />
+        <WorkingLine {...props.line} />
         <div className="dock-spacer" aria-hidden="true" />
       </div>
     </div>

@@ -8,6 +8,7 @@ import {
   type AskItem,
   type ToolItem,
 } from '@/features/agent/stores/lib/transcript-items'
+import { addressSubagent, openSpawn } from '@/features/agent/stores/lib/fold-subagents'
 import { toolFamily } from '@/features/agent/transcript/lib/tool-family'
 
 type Apply<K extends RowKind> = (fold: FeedFold, row: LedgerRow<K>) => void
@@ -18,6 +19,13 @@ export const markOutput = (fold: FeedFold, row: LedgerRow) => {
 }
 
 export const applyToolCall: Apply<'tool_call'> = (fold, row) => {
+  // A spawning call is its subagent's card, which takes the call's place.
+  if (toolFamily(row.body) === 'subagent') {
+    markOutput(fold, row)
+    openSpawn(fold, row)
+    return
+  }
+  if (row.body.addressesScope) addressSubagent(fold, row)
   const scope = row.scope ?? ''
   const id = toolItemId(row.body.toolId)
   const known = fold.item<ToolItem>(id)

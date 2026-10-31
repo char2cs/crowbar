@@ -7,6 +7,7 @@ import { compactChat, stopChat } from '@/features/agent/api/agent-chat-commands'
 import type { SlashCatalogItem } from '@/features/agent/api/agent-chat-reads'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { SubagentShelf } from '@/features/agent/activity/subagent-shelf'
+import { TodoStrip } from '@/features/agent/activity/todo-strip'
 import { AgentComposer } from '@/features/agent/composer/agent-composer'
 import { acceptsTyping, resolveComposerState } from '@/features/agent/composer/lib/composer-state'
 import { ComposerSlashPicker } from '@/features/agent/composer/composer-slash-picker'
@@ -291,11 +292,17 @@ export function AgentChatView({
       providers={providers}
       status={facts.status}
       working={working}
-      since={facts.since}
-      compacting={compacting}
-      reasoning={facts.reasoning}
-      plan={facts.plan}
-      asking={facts.asks.length > 0}
+      line={{
+        working: facts.active,
+        since: facts.since,
+        compacting,
+        asking: facts.asks.length > 0,
+        activeTodo: facts.activeTodo,
+        toolLabel: facts.toolLabel,
+        agents: facts.agents,
+        reasoning: facts.reasoning,
+        streaming: facts.streaming,
+      }}
       suppressId={halted?.id}
       onOpenTerminal={onOpenTerminal}
       promptActions={prompts.actions}
@@ -350,7 +357,8 @@ export function AgentChatView({
           {blank && stashPicker && <div className="blank-stash-picker">{stashPicker}</div>}
           {!settling && (
             <div ref={blank ? undefined : dock.dockRef} className={blank ? 'docframe' : 'dock'}>
-              {!blank && <SubagentShelf subagents={facts.subagents} />}
+              {!blank && <TodoStrip plan={facts.plan} />}
+              {!blank && <SubagentShelf chatId={chatId} />}
               {!blank && stashPicker}
               {!blank && slash.open && (
                 <ComposerSlashPicker

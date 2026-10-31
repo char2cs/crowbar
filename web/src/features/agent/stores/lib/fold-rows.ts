@@ -15,6 +15,14 @@ import {
   markOutput,
 } from '@/features/agent/stores/lib/fold-tools'
 import {
+  applyReasoning,
+  applySubagent,
+  endSubagents,
+  interruptSubagents,
+  notePlan,
+  placePlan,
+} from '@/features/agent/stores/lib/fold-subagents'
+import {
   liveKey,
   markerItemId,
   textItemId,
@@ -31,7 +39,9 @@ const emptyFacts: TurnFacts = {
   prompts: {},
   compacting: false,
   openAsks: [],
-  liveSubagents: {},
+  liveSubagents: [],
+  subagentScopes: {},
+  pendingScopes: {},
   plan: {},
   lastExit: null,
   sessionLost: null,
@@ -59,7 +69,8 @@ export function emptyFeed(): ChatFeed {
 }
 
 // Markers a reader sees as a pill; the rest change facts only.
-type FactRecord = 'prompts' | 'output' | 'traceless' | 'efforts' | 'providers'
+type FactRecord =
+  'prompts' | 'output' | 'traceless' | 'efforts' | 'providers' | 'subagentScopes' | 'pendingScopes'
 
 /** Edits to a feed over one or many rows. Each part is copied on its first
  *  write, so what the rows leave alone keeps its identity, and a replay of
@@ -159,6 +170,17 @@ export class FeedFold {
       this.record('output')[turn] = true
       this.place(id, '')
     }
+  }
+
+  /** Places a main-scope item above the first output of `turn`. */
+  placeAbove(id: string, turn: string) {
+    this.order ??= [...this.base.order]
+    const at = this.order.findIndex((other) => {
+      const item = this.item(other)
+      return item?.turnId === turn && item.kind !== 'user'
+    })
+    if (at < 0) this.place(id, '')
+    else this.order.splice(at, 0, id)
   }
 
   placed(id: string) {
@@ -261,6 +283,8 @@ const applyTurnEnded: Apply<'turn_ended'> = (fold, row) => {
   if (row.body.effort) fold.record('efforts')[row.turnId] = row.body.effort
   fold.placeLive(row.turnId)
   endTurn(fold, row.turnId)
+  placePlan(fold, row.turnId)
+  endSubagents(fold, row)
   if (row.body.status === 'interrupted' && ending)
     marker(fold, row, 'turn_interrupted', undefined, row.body.reason)
 }
@@ -269,6 +293,8 @@ const applyTurnFailed: Apply<'turn_failed'> = (fold, row) => {
   if (row.scope || !row.turnId) return
   closeRunning(fold, row.turnId)
   endTurn(fold, row.turnId)
+  placePlan(fold, row.turnId)
+  endSubagents(fold, row)
   marker(fold, row, 'turn_failed', row.body.detail, row.body.reason)
 }
 
@@ -276,6 +302,7 @@ const applyRunnerExited: Apply<'runner_exited'> = (fold, row) => {
   const { runnerId, reason, exitCode } = row.body
   fold.set('lastExit', { runnerId, reason, exitCode, seq: row.seq })
   endTurn(fold, null)
+  interruptSubagents(fold, row)
 }
 
 const applySessionLost: Apply<'session_lost'> = (fold, row) => {
@@ -336,21 +363,6 @@ const applyAssistantText: Apply<'assistant_text'> = (fold, row) => {
   if (!known || (known.seq === 0 && !fold.placed(id))) fold.place(id, scope)
 }
 
-const applySubagent: Apply<'subagent'> = (fold, row) => {
-  const { phase, spawnToolId, type, title } = row.body
-  const spawnKey = spawnToolId ? `s:${spawnToolId}` : ''
-  const key = row.scope || spawnKey
-  if (!key) return
-  const live = { ...fold.facts.liveSubagents }
-  if (phase === 'start') live[key] = { scope: key, type, title, startedAt: row.at }
-  if (phase === 'bound' && row.scope && spawnKey && live[spawnKey]) {
-    live[row.scope] = { ...live[spawnKey], scope: row.scope }
-    delete live[spawnKey]
-  }
-  if (phase === 'stop' || phase === 'result') delete live[key]
-  fold.set('liveSubagents', live)
-}
-
 const applyPlan: Apply<'plan'> = (fold, row) => {
   const scope = row.scope ?? ''
   const { op, items } = row.body
@@ -359,6 +371,7 @@ const applyPlan: Apply<'plan'> = (fold, row) => {
     ...fold.facts.plan,
     [scope]: op === 'replace' ? items : upsertPlan(current, items),
   })
+  notePlan(fold, row)
 }
 
 const ignore: Apply<RowKind> = () => {}
@@ -374,7 +387,7 @@ const appliers: { [K in RowKind]: Apply<K> } = {
   runner_started: ignore,
   runner_exited: applyRunnerExited,
   assistant_text: applyAssistantText,
-  reasoning: ignore,
+  reasoning: applyReasoning,
   marker: applyMarker,
   tool_call: applyToolCall,
   ask: applyAsk,

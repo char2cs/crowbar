@@ -87,7 +87,8 @@ describe('applyRow', () => {
     const feed = applyRows(emptyFeed(), rows)
 
     const reply = feed.order.find((id) => feed.items[id]?.kind === 'text')
-    expect(feed.order).toEqual([`p:${prompt.body.requestId}`, reply, 'k:54'])
+    const thought = feed.order.find((id) => feed.items[id]?.kind === 'reasoning')
+    expect(feed.order).toEqual([`p:${prompt.body.requestId}`, thought, reply, 'k:54'])
     expect(feed.items[reply!]?.turnId).toBe(turn)
   })
 
@@ -99,10 +100,12 @@ describe('applyRow', () => {
     let feed = applyRows(emptyFeed(), rows.slice(0, 2))
     feed = applyLive(feed, delta(reply.body.messageId, 1, '1. Apple', { turnId: prompt.turnId! }))
     const shown = (f: ChatFeed) => [...f.order, ...f.liveTail]
-    const want = [`p:${prompt.body.requestId}`, text, 'k:54']
+    const thought = `r:${prompt.turnId}:${reply.body.messageId}`
     for (const row of rows.slice(2)) {
       feed = applyRow(feed, row)
-      expect(shown(feed)).toEqual(want)
+      // The reasoning row lands at the turn's end and reads above the reply.
+      const reasoned = row.seq >= 57 ? [thought] : []
+      expect(shown(feed)).toEqual([`p:${prompt.body.requestId}`, ...reasoned, text, 'k:54'])
       // A settled text stops following its stream, so it must hold the words itself.
       const item = feed.items[text] as TextItem
       if (item.settled) expect(item.text).toMatch(/^1\. Apple/)
@@ -245,7 +248,7 @@ describe('applyRow', () => {
     expect(after.scoped).toBe(before.scoped)
   })
 
-  it('keeps a subagent scope out of the order', () => {
+  it('keeps a subagent scope out of the order, under its card', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [
       l.row('subagent', { phase: 'start', type: 'explore' }, { turnId: 'turn-1', scope: 'sub-1' }),
@@ -255,9 +258,9 @@ describe('applyRow', () => {
         { turnId: 'turn-1', scope: 'sub-1' },
       ),
     ])
-    expect(feed.order).toEqual([])
+    expect(feed.order).toEqual(['s:sub-1'])
     expect(feed.scoped['sub-1']).toEqual(['t:inner'])
-    expect(Object.keys(feed.facts.liveSubagents)).toEqual(['sub-1'])
+    expect(feed.facts.liveSubagents).toEqual(['s:sub-1'])
   })
 
   it('opens an ask as a pending choice and resolves it', () => {

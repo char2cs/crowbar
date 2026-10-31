@@ -46,8 +46,7 @@ function draw(overrides: Partial<ComponentProps<typeof AgentTranscript>> = {}) {
     providers: [],
     status: 'live',
     working: false,
-    compacting: false,
-    asking: false,
+    line: { working: false },
     onOpenTerminal: () => {},
     promptActions,
     ...overrides,
@@ -101,8 +100,7 @@ describe('AgentTranscript', () => {
           providers={[]}
           status="connecting"
           working={false}
-          compacting={false}
-          asking={false}
+          line={{ working: false }}
           onOpenTerminal={() => {}}
           promptActions={promptActions}
         />
@@ -234,7 +232,7 @@ describe('AgentTranscript', () => {
 
     // A streaming row's growth reaches the list as a virtualizer re-render.
     box.scrollHeight = 2300
-    redraw({ since: '2026-10-01T12:00:00Z' })
+    redraw({ line: { working: false, since: '2026-10-01T12:00:00Z' } })
     expect(list.scrollTop).toBe(1200)
     act(() => vi.advanceTimersByTime(1500))
     expect(list.scrollTop).toBe(1500)
@@ -249,9 +247,9 @@ describe('AgentTranscript', () => {
     const list = screen.getByTestId('agent-message-list')
     const box = { scrollHeight: 2000, clientHeight: 800 }
     layOut(list, box)
-    redraw({ since: 'a' })
+    redraw({ line: { working: false, since: 'a' } })
     box.scrollHeight = 2300
-    redraw({ since: 'b' })
+    redraw({ line: { working: false, since: 'b' } })
     act(() => vi.advanceTimersByTime(16))
     fireEvent.scroll(list)
 
@@ -262,7 +260,7 @@ describe('AgentTranscript', () => {
     act(() => observed.get(first)?.([{ target: first } as never], {} as ResizeObserver))
     fireEvent.scroll(list)
     box.scrollHeight = 2600
-    redraw({ since: 'c' })
+    redraw({ line: { working: false, since: 'c' } })
     act(() => vi.advanceTimersByTime(1500))
 
     expect(list.scrollTop).toBe(1800)
@@ -276,7 +274,7 @@ describe('AgentTranscript', () => {
     const list = screen.getByTestId('agent-message-list')
     const box = { scrollHeight: 2600, clientHeight: 800 }
     layOut(list, box)
-    redraw({ since: 'a' })
+    redraw({ line: { working: false, since: 'a' } })
     expect(list.scrollTop).toBe(1800)
 
     // Its report comes between layout and paint; the re-render it asks for comes after.
@@ -294,7 +292,7 @@ describe('AgentTranscript', () => {
     const list = screen.getByTestId('agent-message-list')
     const box = { scrollHeight: 2700, clientHeight: 800 }
     layOut(list, box)
-    redraw({ since: 'a' })
+    redraw({ line: { working: false, since: 'a' } })
     list.scrollTop = 1700
     fireEvent.scroll(list)
 
@@ -333,14 +331,14 @@ describe('AgentTranscript', () => {
     const list = screen.getByTestId('agent-message-list')
     const box = { scrollHeight: 3000, clientHeight: 800 }
     layOut(list, box)
-    redraw({ since: 'a' })
+    redraw({ line: { working: false, since: 'a' } })
     list.scrollTop = 500
     fireEvent.scroll(list)
 
     act(() => chatStore.setState({ outbox: { 'chat-1': [outboxItem('r2')] } }))
     act(() => chatStore.setState({ outbox: { 'chat-1': [] } }))
     box.scrollHeight = 3400
-    redraw({ since: 'b' })
+    redraw({ line: { working: false, since: 'b' } })
 
     expect(list.scrollTop).toBe(500)
   })
@@ -461,7 +459,7 @@ describe('AgentTranscript', () => {
     const list = screen.getByTestId('agent-message-list')
     const box = { scrollHeight: 2000, clientHeight: 800 }
     layOut(list, box)
-    redraw({ since: 'a' })
+    redraw({ line: { working: false, since: 'a' } })
     expect(list.scrollTop).toBe(1200)
 
     // The dock measures after the opening, and its room grows the list.

@@ -33,12 +33,6 @@ describe('WorkingLine', () => {
     expect(screen.queryByRole('list')).not.toBeInTheDocument()
   })
 
-  // A chat waiting on a person is not working; the composer speaks for the ask.
-  it('says nothing at all while an ask holds the composer', () => {
-    const { container } = render(<WorkingLine working asking />)
-    expect(container).toBeEmptyDOMElement()
-  })
-
   it('keeps working during compaction, with a fixed verb instead of the rotating list', () => {
     render(<WorkingLine working compacting />)
     expect(screen.getByText('Compacting…')).toBeInTheDocument()
@@ -87,34 +81,34 @@ describe('WorkingLine', () => {
     expect(screen.queryByTestId('agent-reasoning')).not.toBeInTheDocument()
   })
 
-  it("shows the agent's own to-do list with the active step marked", () => {
+  it('symptom 8: names the active todo while a turn runs', () => {
     render(
-      <WorkingLine
-        working
-        plan={[
-          { text: 'Run the command', status: 'done' },
-          { text: 'Summarise it', status: 'active' },
-          { text: 'Clean up', status: 'pending' },
-        ]}
-      />,
+      <WorkingLine working activeTodo="Survey docs" toolLabel="Reading a.ts" reasoning="Hmm" />,
     )
-    const list = screen.getByTestId('agent-plan')
-    expect(list).toHaveTextContent('Run the command')
-    const active = [...list.querySelectorAll('li')].filter(
-      (li) => li.getAttribute('data-status') === 'active',
-    )
-    expect(active).toHaveLength(1)
-    expect(active[0]).toHaveTextContent('Summarise it')
+    expect(screen.getByTestId('agent-working-heading')).toHaveTextContent('Survey docs')
   })
 
-  // Dropping a step whose status the descriptor did not map would shorten the plan.
-  it('still renders a step whose status it does not recognise', () => {
-    render(<WorkingLine working plan={[{ text: 'Mystery', status: 'whoKnows' }]} />)
-    expect(screen.getByTestId('agent-plan')).toHaveTextContent('Mystery')
+  it('prefers a pending approval over every other state', () => {
+    render(<WorkingLine working asking compacting activeTodo="Survey docs" agents={2} />)
+    expect(screen.getByTestId('agent-working-heading')).toHaveTextContent('Waiting for your answer')
+    expect(screen.queryByRole('status')).toBeNull()
   })
 
-  it('lists nothing while compacting — there is nothing to enumerate', () => {
-    render(<WorkingLine working compacting plan={[{ text: 'Step', status: 'active' }]} />)
-    expect(screen.queryByRole('list')).not.toBeInTheDocument()
+  it('names the running tool, then the agents it waits on, before any thought', () => {
+    const { rerender } = render(
+      <WorkingLine working toolLabel="Running npm test" agents={2} reasoning="Hmm" />,
+    )
+    const heading = () => screen.getByTestId('agent-working-heading')
+    expect(heading()).toHaveTextContent('Running npm test')
+    rerender(<WorkingLine working agents={2} reasoning="Hmm" />)
+    expect(heading()).toHaveTextContent('Waiting for 2 agents')
+    rerender(<WorkingLine working agents={1} reasoning="Hmm" />)
+    expect(heading()).toHaveTextContent('Waiting for 1 agent')
+  })
+
+  it('shows nothing extra while answer text streams', () => {
+    render(<WorkingLine working streaming since="2026-08-18T12:00:00Z" />)
+    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-working-heading')).toBeNull()
   })
 })

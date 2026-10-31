@@ -828,6 +828,77 @@
   margin: 2px 0 4px 18px;
 }
 
+/* A subagent from spawn to result: its header, what it does now, its own rows. */
+.agent-chat .subagent-card .assistant {
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: var(--radius-lg);
+  font-size: var(--ui-text-xs);
+}
+.agent-chat .subagent-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 26px;
+  color: var(--muted-foreground);
+}
+.agent-chat .subagent-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
+  font-weight: 500;
+}
+.agent-chat .subagent-type,
+.agent-chat .subagent-clock,
+.agent-chat .subagent-usage {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.agent-chat .subagent-type {
+  padding: 0 4px;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--muted);
+}
+.agent-chat .subagent-action,
+.agent-chat .subagent-waiting {
+  margin: 2px 0 0 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+}
+.agent-chat .subagent-work {
+  margin: 6px 0 0 12px;
+}
+.agent-chat .subagent-result {
+  margin: 6px 0 0;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  color: var(--foreground);
+}
+.agent-chat .reasoning-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: var(--ui-text-xs);
+  cursor: pointer;
+}
+.agent-chat .reasoning-text {
+  margin-top: 4px;
+  color: var(--muted-foreground);
+}
+/* Commentary between tool calls is lighter than the reply. */
+.agent-chat .row[data-phase='commentary'] .agent-prose {
+  color: var(--muted-foreground);
+}
+
 /* The compaction boundary. Everything above it is out of the model's context and
    still in the transcript — this line is the only thing that says so. */
 .agent-chat .divider {

@@ -207,7 +207,14 @@ export function sendPrompt(wsId: string, chatId: string, input: PromptInput): Se
   const refused = refusal(text)
   if (refused !== null) return refused ? { ok: false, error: refused } : { ok: false }
   watch()
-  const item: OutboxItem = { ...input, text, wsId, requestId: mintRequestId(), state: 'queued' }
+  const item: OutboxItem = {
+    ...input,
+    text,
+    wsId,
+    requestId: mintRequestId(),
+    state: 'queued',
+    enteredAt: new Date().toISOString(),
+  }
   update(chatId, (items) => [...items, item])
   drain(chatId)
   return { ok: true }

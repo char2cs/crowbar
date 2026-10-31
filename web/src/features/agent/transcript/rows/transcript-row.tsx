@@ -6,6 +6,9 @@ import { MarkerRow } from '@/features/agent/transcript/rows/marker-row'
 import { TextRow } from '@/features/agent/transcript/rows/text-row'
 import { AskRow, ToolRow } from '@/features/agent/transcript/rows/tool-row'
 import { ToolRunRow } from '@/features/agent/transcript/rows/tool-run-row'
+import { PlanRow } from '@/features/agent/transcript/rows/plan-row'
+import { ReasoningRow } from '@/features/agent/transcript/rows/reasoning-row'
+import { SubagentCard } from '@/features/agent/transcript/rows/subagent-card'
 import { UserRow, type PromptActions } from '@/features/agent/transcript/rows/user-row'
 
 /** What a row's place in the conversation says about it, from the transcript. */
@@ -76,6 +79,12 @@ function TranscriptRowBody({
       return <AskRow item={item} />
     case 'marker':
       return <MarkerRow item={item} providers={providers} />
+    case 'subagent':
+      return <SubagentCard chatId={chatId} id={id} />
+    case 'reasoning':
+      return <ReasoningRow item={item} />
+    case 'plan':
+      return <PlanRow item={item} />
   }
 }
 

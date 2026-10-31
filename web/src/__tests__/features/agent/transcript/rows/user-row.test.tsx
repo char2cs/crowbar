@@ -42,8 +42,7 @@ function draw() {
       providers={[]}
       status="live"
       working={false}
-      compacting={false}
-      asking={false}
+      line={{ working: false }}
       onOpenTerminal={() => {}}
       promptActions={actions}
     />,

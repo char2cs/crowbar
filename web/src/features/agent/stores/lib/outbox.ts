@@ -7,6 +7,8 @@ export interface OutboxItem {
   wsId: string
   text: string
   state: 'queued' | 'sending' | 'failed'
+  /** When Enter queued it: the working line's clock runs from here until a turn starts. */
+  enteredAt?: string
   /** The send answered 202: the daemon holds it and its row is on the way. */
   acked?: boolean
   error?: string

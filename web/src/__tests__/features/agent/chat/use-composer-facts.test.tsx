@@ -1,0 +1,89 @@
+import { act, renderHook } from '@testing-library/react'
+import { beforeEach, describe, expect, it } from 'vitest'
+import type { LedgerRow } from '@/features/agent/api/chat-rows'
+import { useComposerFacts } from '@/features/agent/chat/use-composer-facts'
+import { applyFeedFrame, chatStore, openFeed } from '@/features/agent/stores/chat-store'
+import { delta, ledger } from '@/__tests__/__fixtures__/ledger-rows'
+
+const push = (row: LedgerRow) => act(() => void applyFeedFrame('chat-1', { type: 'row', row }))
+
+beforeEach(() => {
+  chatStore.setState({ feeds: {}, outbox: {} })
+  openFeed('chat-1')
+  applyFeedFrame('chat-1', { type: 'ready', epoch: 'e1' })
+})
+
+describe('useComposerFacts', () => {
+  it('counts the clock from Enter before the turn starts', () => {
+    const { result } = renderHook(() => useComposerFacts('chat-1'))
+    expect(result.current.active).toBe(false)
+    act(() =>
+      chatStore.setState({
+        outbox: {
+          'chat-1': [
+            {
+              requestId: 'r1',
+              wsId: 'ws-1',
+              text: 'hi',
+              state: 'sending',
+              steer: false,
+              enteredAt: '2026-10-01T12:00:00Z',
+            },
+          ],
+        },
+      }),
+    )
+    expect(result.current.active).toBe(true)
+    expect(result.current.working).toBe(false)
+    expect(result.current.since).toBe('2026-10-01T12:00:00Z')
+    const l = ledger()
+    push(l.prompt('r1', 'hi'))
+    push(l.start('turn-1', 'r1'))
+    expect(result.current.since).toBe(
+      chatStore.getState().feeds['chat-1']!.facts.running!.startedAt,
+    )
+  })
+
+  it('names the active todo, the running main tool and the agents the turn waits on', () => {
+    const { result } = renderHook(() => useComposerFacts('chat-1'))
+    const l = ledger()
+    push(l.start('turn-1'))
+    push(
+      l.row(
+        'plan',
+        { op: 'replace', items: [{ text: 'Survey docs', status: 'active' }] },
+        { turnId: 'turn-1' },
+      ),
+    )
+    push(
+      l.row(
+        'tool_call',
+        { toolId: 'x', phase: 'pre', kind: 'execute', target: 'npm test' },
+        { turnId: 'turn-1' },
+      ),
+    )
+    push(
+      l.row('subagent', { phase: 'start', type: 'explore' }, { turnId: 'turn-1', scope: 'sub-1' }),
+    )
+    expect(result.current.activeTodo).toBe('Survey docs')
+    expect(result.current.toolLabel).toBe('Running npm test')
+    expect(result.current.agents).toBe(1)
+    push(
+      l.row(
+        'tool_call',
+        { toolId: 'x', phase: 'post', kind: 'execute', target: 'npm test' },
+        { turnId: 'turn-1' },
+      ),
+    )
+    expect(result.current.toolLabel).toBeUndefined()
+  })
+
+  it('reads a reply streaming ahead of its rows as streaming', () => {
+    const { result } = renderHook(() => useComposerFacts('chat-1'))
+    const l = ledger()
+    push(l.start('turn-1'))
+    expect(result.current.streaming).toBe(false)
+    act(() => void applyFeedFrame('chat-1', { type: 'delta', delta: delta('m1', 1, 'Hel') }))
+    expect(result.current.streaming).toBe(true)
+  })
+})

@@ -61,6 +61,7 @@ function TextRowBody({
       className="row"
       data-row-id={item.id}
       data-role="assistant"
+      data-phase={item.phase || undefined}
       data-first-reply={firstReply ? 'true' : undefined}
     >
       <div className={cn('assistant', firstReply && 'frozen')}>

@@ -79,10 +79,9 @@
   overflow-wrap: anywhere;
 }
 
-/* The agent's own to-do list for the turn. A checklist, not prose: one line per
-   step, the active one carried at full strength and the finished ones struck
-   through, so a glance says where in its own plan the agent is. */
-.agent-chat .activity .plan {
+/* The agent's own to-do list: one line per step, the active one at full
+   strength, the finished ones struck through. */
+.agent-chat .plan {
   margin: 2px 0 0;
   padding: 0 0 0 24px;
   list-style: none;
@@ -92,26 +91,26 @@
   font-size: var(--ui-text-xs);
   contain: layout;
 }
-.agent-chat .activity .plan li {
+.agent-chat .plan li {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   opacity: 0.55;
 }
-.agent-chat .activity .plan li::before {
+.agent-chat .plan li::before {
   content: '○ ';
 }
-.agent-chat .activity .plan li[data-status='active'] {
+.agent-chat .plan li[data-status='active'] {
   opacity: 1;
   color: var(--foreground);
 }
-.agent-chat .activity .plan li[data-status='active']::before {
+.agent-chat .plan li[data-status='active']::before {
   content: '◍ ';
 }
-.agent-chat .activity .plan li[data-status='done'] {
+.agent-chat .plan li[data-status='done'] {
   text-decoration: line-through;
 }
-.agent-chat .activity .plan li[data-status='done']::before {
+.agent-chat .plan li[data-status='done']::before {
   content: '● ';
 }
 
@@ -364,4 +363,51 @@
     animation: none;
     opacity: 0.7;
   }
+}
+
+/* The plan docked above the composer: the active step and the progress. */
+.agent-chat .todo-strip {
+  margin: 0 0 6px;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  font-size: var(--ui-text-xs);
+}
+.agent-chat .todo-strip-head {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+}
+.agent-chat .todo-strip-active {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat .todo-strip-count {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.agent-chat .todo-strip-head[aria-expanded='true'] svg,
+.agent-chat .reasoning-toggle[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+.agent-chat .todo-strip .plan {
+  padding: 4px 0 0 2px;
+}
+.agent-chat .subbar .tok .act {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.7;
 }

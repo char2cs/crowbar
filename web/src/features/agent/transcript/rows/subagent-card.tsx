@@ -1,0 +1,134 @@
+import { memo, useMemo, useState } from 'react'
+import { CaretRightIcon } from '@phosphor-icons/react'
+import { FlickerSpinner } from '@/components/ui/flicker-spinner'
+import { formatElapsed } from '@/features/agent/activity/lib/shelf-fit'
+import { useTextClock } from '@/features/agent/activity/lib/text-clock'
+import { useChatItem, useChatItems } from '@/features/agent/hooks/use-chat-feed'
+import { useSubagentAction } from '@/features/agent/hooks/use-subagent-action'
+import { CheckIcon, CloseIcon, SubagentIcon } from '@/features/agent/shared/agent-icons'
+import { useChatStore } from '@/features/agent/stores/chat-store'
+import type { SubagentItem } from '@/features/agent/stores/lib/transcript-items'
+import { displayRows } from '@/features/agent/transcript/lib/tool-runs'
+import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
+import { TextRow } from '@/features/agent/transcript/rows/text-row'
+import { AskRow, ToolRow } from '@/features/agent/transcript/rows/tool-row'
+import { ToolRunRow } from '@/features/agent/transcript/rows/tool-run-row'
+
+const NO_IDS: string[] = []
+
+const tokens = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n))
+
+function spent(card: SubagentItem): string {
+  const parts: string[] = []
+  const uses = card.usage?.toolUses
+  if (uses) parts.push(`${uses} tool ${uses === 1 ? 'use' : 'uses'}`)
+  if (card.usage?.tokens) parts.push(`${tokens(card.usage.tokens)} tokens`)
+  return parts.join(' · ')
+}
+
+function took(card: SubagentItem): string {
+  const ms =
+    card.usage?.durationMs ??
+    (card.endedAt ? Date.parse(card.endedAt) - Date.parse(card.startedAt) : 0)
+  return ms > 0 ? formatElapsed(Math.round(ms / 1000)) : ''
+}
+
+/** The subagent's own rows, by the same components as the main transcript. */
+function Work({ chatId, scope }: { chatId: string; scope: string }) {
+  const ids = useChatStore((s) => s.feeds[chatId]?.scoped[scope] ?? NO_IDS)
+  const items = useChatItems(chatId)
+  const rows = useMemo(() => displayRows(ids, items ?? {}), [ids, items])
+  return (
+    <div className="subagent-work">
+      {rows.map((row) => {
+        if (row.members) {
+          return <ToolRunRow key={row.id} chatId={chatId} id={row.id} members={row.members} />
+        }
+        const item = items?.[row.id]
+        switch (item?.kind) {
+          case 'tool':
+            return <ToolRow key={row.id} chatId={chatId} item={item} />
+          case 'text':
+            return (
+              <TextRow
+                key={row.id}
+                chatId={chatId}
+                item={item}
+                providers={[]}
+                firstReply={false}
+                turnbar={false}
+              />
+            )
+          case 'ask':
+            return <AskRow key={row.id} item={item} />
+          case 'subagent':
+            return <SubagentCard key={row.id} chatId={chatId} id={row.id} />
+          default:
+            return null
+        }
+      })}
+    </div>
+  )
+}
+
+function SubagentCardBody({ chatId, id }: { chatId: string; id: string }) {
+  const card = useChatItem<SubagentItem>(chatId, id)
+  const [open, setOpen] = useState(false)
+  const action = useSubagentAction(chatId, card?.scope)
+  const live = card?.status === 'starting' || card?.status === 'running'
+  const clockRef = useTextClock(live ? card?.startedAt : undefined)
+  if (card?.kind !== 'subagent') return null
+  const usage = live ? '' : spent(card)
+  return (
+    <article
+      className="row subagent-card"
+      data-row-id={card.id}
+      data-testid="agent-subagent-card"
+      data-status={card.status}
+    >
+      <div className="assistant">
+        <div className="subagent-head">
+          {live ? (
+            <FlickerSpinner className="size-3" />
+          ) : card.status === 'done' ? (
+            <CheckIcon size={12} />
+          ) : (
+            <CloseIcon size={12} />
+          )}
+          <SubagentIcon size={12} />
+          <span className="subagent-title">{card.title || card.type || 'Subagent'}</span>
+          {card.type && card.title && <span className="subagent-type">{card.type}</span>}
+          <span className="subagent-clock" ref={clockRef}>
+            {live ? '' : took(card)}
+          </span>
+          {usage && <span className="subagent-usage">· {usage}</span>}
+          {card.scope && (
+            <button
+              type="button"
+              className="tool-row-toggle"
+              aria-label="Show the subagent’s work"
+              aria-expanded={open}
+              onClick={() => setOpen((o) => !o)}
+            >
+              <CaretRightIcon size={12} />
+            </button>
+          )}
+        </div>
+        {live && (
+          <p className="subagent-action" data-testid="agent-subagent-action">
+            ▸ {action}
+          </p>
+        )}
+        {live && card.parentWaiting && <p className="subagent-waiting">Parent waiting…</p>}
+        {open && card.scope && <Work chatId={chatId} scope={card.scope} />}
+        {open && card.result && (
+          <div className="subagent-result" data-testid="agent-subagent-result">
+            <MarkdownMessageStatic>{card.result}</MarkdownMessageStatic>
+          </div>
+        )}
+      </div>
+    </article>
+  )
+}
+
+export const SubagentCard = memo(SubagentCardBody)
