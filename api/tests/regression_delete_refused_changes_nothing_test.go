@@ -14,6 +14,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // deleteWorld is everything a chat delete may touch, read back through the
@@ -115,6 +117,26 @@ func newForkedMain(t *testing.T, h *harness) forkedMain {
 	return m
 }
 
+// reparentOntoRelease unlocks release/1.0 and reparents feature-a onto it.
+// The reparent moves the git parent only: feature-a's row stays under main's.
+func (m forkedMain) reparentOntoRelease(t *testing.T, h *harness) (releaseOwner string) {
+	t.Helper()
+	release := workspacesOnBranch(t, h, m.repoID, "release/1.0")[0]
+	for _, c := range listChats(t, h, m.projectID, m.repoID) {
+		if c.Worktree != nil && c.WorkspaceID == release.ID {
+			releaseOwner = c.ID
+		}
+	}
+	require.NotEmpty(t, releaseOwner, "release/1.0 has an owning chat")
+	require.NoError(t, h.raw(http.MethodPost, m.repoBase()+"/chats/"+releaseOwner+"/lock",
+		map[string]any{"locked": false}, http.StatusNoContent).Body.Close())
+	op := startOperation(t, h, m.repoBase()+"/chats/"+m.featureChat+"/reparent",
+		map[string]any{"newParentId": release.ID})
+	require.Equal(t, domain.OpSucceeded, awaitOperation(t, h, op.ID, operationSettled).State)
+	h.Quiesce()
+	return releaseOwner
+}
+
 func (m forkedMain) unlockMain(t *testing.T, h *harness) {
 	t.Helper()
 	h.raw(http.MethodPost, m.repoBase()+"/chats/"+m.mainOwner+"/lock",
@@ -145,6 +167,28 @@ func TestRegression_DeleteMainWithForkChildrenIsAllOrNothing(t *testing.T) {
 	}
 }
 
+// A fork reparented onto release/1.0 keeps its row under main, outside
+// release's subtree: deleting release takes it beyond the selection, whole.
+func TestRegression_DeleteTakesAReparentedForkChildBeyondTheSelection(t *testing.T) {
+	h := newHarness(t)
+	m := newForkedMain(t, h)
+	releaseOwner := m.reparentOntoRelease(t, h)
+
+	status, body := deleteChat(t, h, m.repoBase(), releaseOwner)
+	after := readDeleteWorld(t, h, m.importFixture)
+
+	require.Equalf(t, http.StatusOK, status, "%s", body)
+	assert.JSONEq(t, `{"success":true,"data":{"takenChatIds":["`+m.featureChat+`"]}}`, body,
+		"the reply names the chat taken beyond the selection")
+	requireNoDanglingLinks(t, after)
+	assert.Empty(t, workspacesOnBranch(t, h, m.repoID, "release/1.0"))
+	assert.Empty(t, workspacesOnBranch(t, h, m.repoID, "feature-a"), "the reparented child goes with release")
+	assert.Len(t, workspacesOnBranch(t, h, m.repoID, "main"), 1, "main stays")
+	for _, row := range after.Chats {
+		assert.NotContains(t, row, m.featureChat)
+	}
+}
+
 // requireNoDanglingLinks fails when a workspace or a tree row names a parent
 // that no longer exists.
 func requireNoDanglingLinks(t *testing.T, w deleteWorld) {
@@ -166,23 +210,31 @@ func requireNoDanglingLinks(t *testing.T, w deleteWorld) {
 // Whatever refuses a delete, it refuses before anything goes: the workspaces,
 // the tree rows, their parent links, the branches and the checkout are as they were.
 func TestRegression_ARefusedDeleteChangesNothing(t *testing.T) {
-	locked := func(*testing.T, *harness, forkedMain) {}
-	atRisk := func(t *testing.T, h *harness, m forkedMain) {
+	locked := func(_ *testing.T, _ *harness, m forkedMain) string { return m.mainOwner }
+	atRisk := func(t *testing.T, h *harness, m forkedMain) string {
 		m.unlockMain(t, h)
 		require.NoError(t, os.WriteFile(filepath.Join(m.featurePath, "wip.txt"), []byte("wip\n"), 0o600))
+		return m.mainOwner
 	}
-	cases := map[string]func(t *testing.T, h *harness, m forkedMain){
+	reparentedAtRisk := func(t *testing.T, h *harness, m forkedMain) string {
+		owner := m.reparentOntoRelease(t, h)
+		require.NoError(t, os.WriteFile(filepath.Join(m.featurePath, "wip.txt"), []byte("wip\n"), 0o600))
+		return owner
+	}
+	// arrange returns the chat whose delete must be refused.
+	cases := map[string]func(t *testing.T, h *harness, m forkedMain) string{
 		"main is still locked":             locked,
 		"feature-a holds uncommitted work": atRisk,
+		"feature-a, reparented onto release outside its subtree, holds uncommitted work": reparentedAtRisk,
 	}
 	for name, arrange := range cases {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t)
 			m := newForkedMain(t, h)
-			arrange(t, h, m)
+			target := arrange(t, h, m)
 			before := readDeleteWorld(t, h, m.importFixture)
 
-			status, body := deleteChat(t, h, m.repoBase(), m.mainOwner)
+			status, body := deleteChat(t, h, m.repoBase(), target)
 
 			require.Equalf(t, http.StatusConflict, status, "%s", body)
 			require.Equal(t, before, readDeleteWorld(t, h, m.importFixture), "a refused delete changes nothing")
