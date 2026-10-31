@@ -497,22 +497,3 @@ func TestMap_ARecordedRunClosesEachTurnOnceAndSaysEachMessageOnce(t *testing.T) 
 		})
 	}
 }
-
-// Words typed into the CLI title the chat as their turn opens; a Crowbar prompt
-// titles it only once its turn says something, so a prompt taken back never does.
-func TestMap_APromptTitlesTheChatOnceItIsKept(t *testing.T) {
-	c := liveChatRows(t)
-	_, typed := liveChatRows(t).mapped(engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, TurnID: "pt-0"},
-		Source{RunnerID: "run-1", Provider: "p1", Held: true, Prompt: Prompt{Text: "typed", Origin: ledger.OriginProvider}})
-	assert.Equal(t, "typed", typed.Title)
-
-	c.commit(crowbarPrompt(t, "req-1", "sent from crowbar", ledger.DeliveryRestart))
-	s := hooksSource()
-	s.Prompt = Prompt{Text: "sent from crowbar", Origin: ledger.OriginProvider}
-	opened, fx := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, TurnID: "pt-1"}, s)
-	require.Equal(t, []ledger.Kind{ledger.KindTurnStarted}, kinds(opened))
-	assert.Empty(t, fx.Title, "a retract may still take it back")
-
-	_, fx = c.mapped(delta(engineagents.HookMessageDelta, "m1", true, false, "on it"), hooksSource())
-	assert.Equal(t, "sent from crowbar", fx.Title)
-}

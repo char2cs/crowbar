@@ -248,6 +248,29 @@ func TestRecorder_APromptOpensATurnAndTitlesTheChat(t *testing.T) {
 	assert.Equal(t, []string{"fix the build"}, f.titles.titles, "a title the chat's words derive, best-effort")
 }
 
+// A Crowbar prompt titles the chat once its turn says something: until then a
+// retract may still take it back.
+func TestRecorder_ACrowbarPromptTitlesTheChatOnceItsTurnSpeaks(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	_, _, err := f.ledger.Append(t.Context(), testChat, row(t, ledger.KindUserMessage, "T-req-1", "", ledger.UserMessage{
+		RequestID: "req-1", Text: "sent from crowbar", Origin: ledger.OriginCrowbar, Delivery: ledger.DeliveryRestart, RunnerID: "run-1",
+	}))
+	require.NoError(t, err)
+
+	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "sent from crowbar"})
+	require.NoError(t, err)
+	turn, running := f.state(t).RunningTurn()
+	require.True(t, running)
+	require.Equal(t, "req-1", turn.RequestID)
+	assert.Empty(t, f.titles.titles, "a retract may still take it back")
+
+	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookMessageDelta, Delta: &engineagents.MessageDelta{
+		MessageID: "m1", Sequenced: true, Text: "on it",
+	}})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"sent from crowbar"}, f.titles.titles)
+}
+
 // Crowbar's own injected context is nobody's words: its echo opens the turn and
 // says nothing.
 func TestRecorder_AnInjectedEchoSaysNothing(t *testing.T) {
