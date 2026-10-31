@@ -18,16 +18,25 @@ func (p *Ports) ChatPlacement(ctx context.Context, chatID string) (tree.Placemen
 	return t.Chats[chatID], nil
 }
 
-// ChatPlacements is every chat's placement in one read.
-func (p *Ports) ChatPlacements(ctx context.Context) (map[string]tree.Placement, error) {
-	trees, err := p.all(ctx)
-	if err != nil {
-		return nil, err
+// ChatPlacements is the placement of every chat of chatIDs a tree holds,
+// reading each tree that holds one once.
+func (p *Ports) ChatPlacements(ctx context.Context, chatIDs []string) (map[string]tree.Placement, error) {
+	byTree := map[string][]string{}
+	for _, id := range chatIDs {
+		if at, ok := p.holder(id); ok {
+			byTree[at] = append(byTree[at], id)
+		}
 	}
 	out := map[string]tree.Placement{}
-	for _, t := range trees {
-		for id, pl := range t.Chats {
-			out[id] = pl
+	for at, ids := range byTree {
+		t, err := p.repo.Get(ctx, at)
+		if err != nil {
+			return nil, err
+		}
+		for _, id := range ids {
+			if pl, ok := t.Chats[id]; ok {
+				out[id] = pl
+			}
 		}
 	}
 	return out, nil

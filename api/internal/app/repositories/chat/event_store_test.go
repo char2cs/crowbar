@@ -538,9 +538,9 @@ func (c *countedPlacements) ChatPlacement(ctx context.Context, chatID string) (t
 	return c.Placements.ChatPlacement(ctx, chatID)
 }
 
-func (c *countedPlacements) ChatPlacements(ctx context.Context) (map[string]tree.Placement, error) {
+func (c *countedPlacements) ChatPlacements(ctx context.Context, chatIDs []string) (map[string]tree.Placement, error) {
 	c.all++
-	return c.Placements.ChatPlacements(ctx)
+	return c.Placements.ChatPlacements(ctx, chatIDs)
 }
 
 // GetChats places every chat it finds in one placement read, and skips an id

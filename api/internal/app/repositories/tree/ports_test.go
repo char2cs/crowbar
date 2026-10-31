@@ -3,8 +3,10 @@ package tree_test
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 
+	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -129,7 +131,7 @@ func TestPorts_ChatPlacementWritesTheChatsRecord(t *testing.T) {
 	assert.Equal(t, tree.Placement{ParentID: "f-1", Order: 1}, got, "an order write keeps the parent")
 	_, err = p.GetNode(ctx, "c-q")
 	require.Error(t, err, "a chat's own placement is not a position row")
-	all, err := p.ChatPlacements(ctx)
+	all, err := p.ChatPlacements(ctx, []string{"c-q"})
 	require.NoError(t, err)
 	assert.Equal(t, map[string]tree.Placement{"c-q": {ParentID: "f-1", Order: 1}}, all)
 
@@ -333,4 +335,33 @@ func TestPorts_ConcurrentDeletesOfOneRowAreBothNoError(t *testing.T) {
 	raceEach(reset, forget, forget, func() bool { return false })
 
 	assert.Empty(t, errs)
+}
+
+// countingGet counts the Tree reads that reach the store.
+type countingGet struct {
+	asynx.Asynx[tree.Tree]
+	reads *atomic.Int64
+}
+
+func (c countingGet) Get(ctx context.Context, id string) (tree.Tree, error) {
+	c.reads.Add(1)
+	return c.Asynx.Get(ctx, id)
+}
+
+// The placements of some chats read only the trees holding them, each once.
+func TestPorts_ChatPlacementsReadsOnlyTheTreesHoldingTheChats(t *testing.T) {
+	ctx := context.Background()
+	var reads atomic.Int64
+	repo := repotree.New(countingGet{Asynx: openTree(t, t.TempDir()), reads: &reads})
+	p := newPorts(t, repo, newWorld())
+	require.NoError(t, p.SetChatPlacement(ctx, "c-q", "ws-alpha", tree.Placement{ParentID: "f-1", Order: 2}))
+	require.NoError(t, p.SetChatPlacement(ctx, "c-notes", "home-p1", tree.Placement{Order: 1}))
+	require.NoError(t, p.SetChatPlacement(ctx, "c-other", "home-p2", tree.Placement{Order: 3}))
+	reads.Store(0)
+
+	got, err := p.ChatPlacements(ctx, []string{"c-q", "c-notes", "c-never"})
+
+	require.NoError(t, err)
+	assert.Equal(t, map[string]tree.Placement{"c-q": {ParentID: "f-1", Order: 2}, "c-notes": {Order: 1}}, got)
+	assert.Equal(t, int64(1), reads.Load(), "both chats are p1's: one read")
 }

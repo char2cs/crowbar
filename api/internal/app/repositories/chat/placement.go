@@ -18,7 +18,7 @@ import (
 // onto every chat it returns.
 type Placements interface {
 	ChatPlacement(ctx context.Context, chatID string) (tree.Placement, error)
-	ChatPlacements(ctx context.Context) (map[string]tree.Placement, error)
+	ChatPlacements(ctx context.Context, chatIDs []string) (map[string]tree.Placement, error)
 	SetChatPlacement(ctx context.Context, chatID, workspaceID string, p tree.Placement) error
 	SetChatOrder(ctx context.Context, chatID, workspaceID string, order int) error
 	// AdoptChat files chatID under its workspace's project once it has one.
@@ -81,7 +81,11 @@ func (r *eventSourced) placed(ctx context.Context, chat domain.Chat) (domain.Cha
 
 // placedAll is placed for a list, in one read of every placement.
 func (r *eventSourced) placedAll(ctx context.Context, chats []domain.Chat) ([]domain.Chat, error) {
-	all, err := r.placements.ChatPlacements(ctx)
+	ids := make([]string, len(chats))
+	for i, c := range chats {
+		ids[i] = c.ID
+	}
+	all, err := r.placements.ChatPlacements(ctx, ids)
 	if err != nil {
 		return nil, fmt.Errorf("agentchat: placements: %w", err)
 	}
