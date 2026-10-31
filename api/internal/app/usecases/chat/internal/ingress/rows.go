@@ -99,13 +99,11 @@ func keptPrompt(st ledger.State, rows []ledger.Row) string {
 	return ""
 }
 
-func spoke(kind ledger.Kind) bool {
-	switch kind {
-	case ledger.KindAssistantText, ledger.KindReasoning, ledger.KindToolCall, ledger.KindAsk, ledger.KindPlan:
-		return true
-	}
-	return false
+var spokenKinds = []ledger.Kind{
+	ledger.KindAssistantText, ledger.KindReasoning, ledger.KindToolCall, ledger.KindAsk, ledger.KindPlan,
 }
+
+func spoke(kind ledger.Kind) bool { return slices.Contains(spokenKinds, kind) }
 
 func mapMain(st ledger.State, ev engineagents.CanonicalEvent, src Source, refs BlobRefs) ([]ledger.Row, Effects, error) {
 	switch ev.Kind {
