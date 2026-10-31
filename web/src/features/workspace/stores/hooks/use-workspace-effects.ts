@@ -1,7 +1,7 @@
-import { useSyncExternalStore } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
+import { holdScope } from '@/core/stream/stream'
 import { isHomeWorkspace } from '@/lib/workspace-scope-url'
 import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
-import { useWorkspaceThreadsStream } from './use-workspace-threads-stream'
 import { useWorkspaceFileTree } from './use-workspace-file-tree'
 import { useWorkspaceGit } from './use-workspace-git'
 
@@ -17,10 +17,10 @@ function useOwningChatId(wsId: string): string | null {
 }
 
 /**
- * A workspace's data feeds: its file tree, git status and review threads, each
- * written to the workspace's own store. Runs for every retained workspace so a
- * switch only changes which store the UI reads; `active` only gates the first
- * tree/git load.
+ * A workspace's data feeds: its file tree and git status, written to the
+ * workspace's own store, and its ws: scope (review threads into the entity store,
+ * and the daemon's forge poll). Runs for every retained workspace so a switch only
+ * changes which store the UI reads; `active` only gates the first tree/git load.
  */
 export function useWorkspaceEffects(wsId: string, active: boolean) {
   const owningChatId = useOwningChatId(wsId)
@@ -29,7 +29,7 @@ export function useWorkspaceEffects(wsId: string, active: boolean) {
   // has recorded one there is nothing a fetch or subscription could address.
   const chatScopeReady = homeWorkspace || owningChatId !== null
 
-  useWorkspaceThreadsStream(wsId)
+  useEffect(() => holdScope(`ws:${wsId}`), [wsId])
   useWorkspaceFileTree(wsId, active, chatScopeReady)
   useWorkspaceGit(wsId, active, owningChatId, homeWorkspace)
 }

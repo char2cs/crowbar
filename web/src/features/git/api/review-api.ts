@@ -36,18 +36,12 @@ function reviewBase(wsId: string): string {
 
 // ── Wire shapes ─────────────────────────────────────────────────────
 
-// Re-export canonical DTO types so consumers (e.g. use-workspace-threads-stream)
-// can import them from a single place without reaching into lib/types directly.
-export type { ThreadDTO, ThreadReplyDTO }
-
-/** Raw composite read model (domain.BranchReview).
- *  Note: the `threads` field here comes from the OLD /review composite endpoint
- *  and is intentionally ignored — threads are sourced exclusively from /threads. */
+/** Raw composite read model (domain.BranchReview). Its threads are ignored: they
+ *  arrive on the workspace's ws: scope. */
 interface WireBranchReview {
   description: string
   mergeStrategy: MergeStrategy
   diff: MultiFileDiff
-  threads: unknown[] | null
   conversations: WireBranchChat[] | null
 }
 
@@ -78,7 +72,7 @@ function mapReply(r: ThreadReplyDTO): ReviewThread['messages'][number] {
   }
 }
 
-/** Map a backend ThreadDTO (from /threads or the WS stream) to the store's ReviewThread.
+/** Map a backend ThreadDTO (as the ws: scope streams it) to the UI's ReviewThread.
  *  The root comment body/author/isAgent live at the top level of ThreadDTO; subsequent
  *  messages are in the replies[] array. */
 export function mapThread(t: ThreadDTO): ReviewThread {
@@ -121,22 +115,18 @@ export interface ReviewState {
   description: string
   mergeStrategy: MergeStrategy
   diff: MultiFileDiff
-  threads: ReviewThread[]
   conversations: ReviewConversation[]
 }
 
 // ── Reads ───────────────────────────────────────────────────────────
 
-/** GET the composite branch-review read model for a workspace.
- *  Threads are intentionally returned as [] — they are sourced exclusively
- *  from /threads + the WS stream (listThreads / useWorkspaceThreadsStream). */
+/** GET the composite branch-review read model for a workspace. */
 export async function getReview(wsId: string): Promise<ReviewState> {
   const raw = await apiFetch<WireBranchReview>(reviewBase(wsId))
   return {
     description: raw.description,
     mergeStrategy: raw.mergeStrategy,
     diff: raw.diff,
-    threads: [],
     conversations: (raw.conversations ?? []).map(mapConversation),
   }
 }
@@ -216,12 +206,6 @@ export interface ReplyToThreadInput {
   author?: string
   isAgent?: boolean
   body: string
-}
-
-/** GET all review threads for a workspace. */
-export async function listThreads(wsId: string): Promise<ReviewThread[]> {
-  const raw = await apiFetch<ThreadDTO[]>(`${workspaceBase(wsId)}/threads`)
-  return (raw ?? []).map(mapThread)
 }
 
 /** POST a new review thread anchored to a file location. Returns the thread. */

@@ -30,7 +30,6 @@ function review(overrides: Partial<ReviewState> = {}): ReviewState {
     description: '',
     mergeStrategy: 'merge',
     diff: { files: [] } as unknown as ReviewState['diff'],
-    threads: [],
     conversations: [],
     ...overrides,
   }

@@ -9,10 +9,9 @@ import {
   deleteThread,
   deleteMessage,
   editMessage,
-  listThreads,
   mapThread,
 } from '@/features/git/api/review-api'
-import type { ThreadDTO } from '@/features/git/api/review-api'
+import type { ThreadDTO } from '@/lib/types'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
 
 // §3: workspace-scoped URLs are hierarchical; register scopes for the test
@@ -204,7 +203,7 @@ describe('review-api request shapes', () => {
       description: 'desc',
       mergeStrategy: 'squash',
       diff: { files: [] },
-      // old /review composite shape — intentionally ignored
+      // threads arrive on the ws: scope; the composite's copy is ignored
       threads: [{ id: 't-old', lineNumber: 1, status: 'open', messages: [] }],
       conversations: null,
     })
@@ -213,8 +212,7 @@ describe('review-api request shapes', () => {
 
     expect(fetchMock.mock.calls[0][0]).toContain('/v0/chats/chat-of-ws-1/review')
     expect(review.mergeStrategy).toBe('squash')
-    // threads must be [] — sourced from /threads not from /review
-    expect(review.threads).toEqual([])
+    expect(review).not.toHaveProperty('threads')
     expect(review.conversations).toEqual([])
   })
 
@@ -374,22 +372,5 @@ describe('review-api request shapes', () => {
     expect(init.method).toBe('PATCH')
     expect(JSON.parse(init.body as string)).toEqual({ body: 'edited' })
     expect(thread.messages[0].body).toBe('edited')
-  })
-
-  it('listThreads GETs /threads and returns mapped array', async () => {
-    const fetchMock = mockFetchEnvelope([
-      wireThreadDTO({ id: 'ta', side: 'old' }),
-      wireThreadDTO({ id: 'tb', side: 'new', resolved: true }),
-    ])
-
-    const threads = await listThreads('ws-1')
-
-    const [url] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toContain('/v0/projects/p1/repos/r1/workspaces/ws-1/threads')
-    expect(url).not.toContain('/review')
-    expect(threads).toHaveLength(2)
-    expect(threads[0].id).toBe('ta')
-    expect(threads[0].side).toBe('old')
-    expect(threads[1].isResolved).toBe(true)
   })
 })

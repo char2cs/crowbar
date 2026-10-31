@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
+import { useStore } from 'zustand'
 import type { ReactNode } from 'react'
 import { Plus } from '@phosphor-icons/react'
 import type {
@@ -10,10 +11,13 @@ import type {
   SelectedLineRange,
 } from '@pierre/diffs'
 import { Button } from '@/components/ui/button'
+import { entityStore } from '@/core/entities/entity-store'
+import { selectReviewThreads } from '@/core/entities/select'
 import {
   deleteMessage,
   deleteThread,
   editMessage,
+  mapThread,
   openThread,
   replyToThread,
   setThreadResolved,
@@ -22,7 +26,6 @@ import { ReviewThreadItem } from '@/features/git/components/review-thread-item'
 import { resolveIdentity, useCurrentIdentity } from '@/features/git/hooks/use-current-identity'
 import { CommentComposer } from '@/features/panes/components/comment-composer'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
-import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 
 /**
  * Review threads as `@pierre/diffs` line annotations.
@@ -30,10 +33,9 @@ import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-
  * This replaces the HOST, not the behaviour. `use-review-comment-layer.tsx` hung
  * the same threads off Monaco view zones anchored to a unified model line; here
  * they are `DiffLineAnnotation`s the renderer portals into LIGHT dom beside the
- * line they belong to. Everything either side of that is unchanged: the threads
- * still come from `branchReview.threads` (kept live by the WS stream, and
- * therefore INDEPENDENT of whether the diff payload has loaded), and every write
- * still goes through `review-api.ts`.
+ * line they belong to. The threads come from the entity store (kept live by the
+ * workspace's ws: scope, and therefore INDEPENDENT of whether the diff payload has
+ * loaded), and every write goes through `review-api.ts`.
  *
  * The one genuinely new problem the annotation host creates: an annotation needs
  * a rendered LINE to attach to, and the windowed surface deliberately leaves
@@ -140,7 +142,8 @@ export interface ReviewAnnotationLayer {
 }
 
 export function useReviewAnnotations({ wsId }: { wsId: string }): ReviewAnnotationLayer {
-  const threads = useWorkspaceStoreContext((s) => s.branchReview.threads)
+  const dtos = useStore(entityStore, (s) => selectReviewThreads(s, wsId))
+  const threads = useMemo(() => dtos.map(mapThread), [dtos])
   const identity = useCurrentIdentity(wsId)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [error, setError] = useState<{ threadId?: string; msg: string } | null>(null)

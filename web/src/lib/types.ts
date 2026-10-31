@@ -319,8 +319,6 @@ export interface ThreadDTO extends AgentAttribution {
   resolved: boolean
   createdAt: string
   replies: ThreadReplyDTO[]
-  /** Tombstone flag on a broadcast frame: the thread was deleted, drop it. */
-  deleted?: boolean
 }
 
 export interface TerminalSessionDTO {

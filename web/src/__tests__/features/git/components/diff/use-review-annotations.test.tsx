@@ -19,15 +19,16 @@ import type { ReviewThread } from '@/features/workspace/stores/slices/branch-rev
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { entityStore } from '@/core/entities/entity-store'
+import type { ThreadDTO } from '@/lib/types'
 
 /**
  * Task C of the windowed Branch Review renderer
  * (docs/superpowers/plans/2026-07-27-diff-perf-phase-3-renderer.md).
  *
  * Review threads stop being Monaco view zones and become `@pierre/diffs` line
- * annotations. The data layer does not move: threads still come from
- * `branchReview.threads`, kept live by the WS stream, and every write still goes
- * through `review-api.ts`. Only the HOST changed.
+ * annotations. Threads come from the entity store's review threads, kept live by
+ * the workspace's ws: scope, and every write goes through `review-api.ts`. Only the HOST changed.
  *
  * Two things this file exists to pin down:
  *
@@ -251,10 +252,41 @@ function deepOutline(): FileOutline {
 
 // ── Harnesses ───────────────────────────────────────────────────────
 
+/** `thread` as ws-1's ws: scope streams it, the root message flattened onto the thread. */
+function putThread(thread: ReviewThread): void {
+  const [root, ...replies] = thread.messages
+  const dto: ThreadDTO = {
+    id: thread.id,
+    projectId: 'p1',
+    repoId: 'r1',
+    workspaceId: 'ws-1',
+    filePath: thread.filePath,
+    line: thread.lineNumber,
+    startLine: thread.startLine,
+    endLine: thread.endLine,
+    side: thread.side,
+    messageId: root.id,
+    body: root.body,
+    author: root.author ?? '',
+    isAgent: root.isAgent,
+    resolved: thread.isResolved,
+    createdAt: root.createdAt,
+    replies: replies.map((r) => ({ ...r, threadId: thread.id, author: r.author ?? '' })),
+  }
+  const { byKind } = entityStore.getState()
+  entityStore.setState({
+    byKind: {
+      ...byKind,
+      review_thread: { ...byKind.review_thread, [dto.id]: { v: 1, data: dto } },
+    },
+  })
+}
+
 function seedStore(threads: readonly ReviewThread[]): WorkspaceStore {
-  const store = createWorkspaceStore('ws-1')
-  for (const thread of threads) store.getState().upsertReviewThread(thread)
-  return store
+  const { byKind } = entityStore.getState()
+  entityStore.setState({ byKind: { ...byKind, review_thread: {} } })
+  threads.forEach(putThread)
+  return createWorkspaceStore('ws-1')
 }
 
 function renderLayer(threads: readonly ReviewThread[] = []) {
@@ -591,14 +623,14 @@ describe('ReviewCodeView thread annotations', () => {
     expect(projectedAnnotationSlots(container)).toContain('annotation-deletions-2')
   })
 
-  it('picks up a thread that arrives after mount, as the WS stream delivers it', async () => {
-    const { container, store } = renderSurface([textFile(0)], [textOutline(0)])
+  it('picks up a thread that arrives after mount, as the stream delivers it', async () => {
+    const { container } = renderSurface([textFile(0)], [textOutline(0)])
 
     await waitForCode(container, markerOf(0))
     expect(projectedAnnotationSlots(container)).toHaveLength(0)
 
     act(() => {
-      store.getState().upsertReviewThread(makeThread({ filePath: pathOf(0), lineNumber: 2 }))
+      putThread(makeThread({ filePath: pathOf(0), lineNumber: 2 }))
     })
 
     await waitFor(() => {

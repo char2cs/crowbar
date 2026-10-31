@@ -40,9 +40,8 @@ export function BranchReviewPane({ wsId, isActivePane }: BranchReviewPaneProps) 
   // Load the composite review read model on mount: description, merge strategy
   // and conversations. The DIFF no longer comes from here — the surface reads
   // /review/files + /review/outline and fetches patches per file.
-  // Threads are intentionally NOT sourced here — they are seeded and kept live
-  // by useWorkspaceThreadsStream (mounted in useWorkspaceEffects) so optimistic
-  // writes and WS pushes are not clobbered on every pane remount.
+  // Threads are not sourced here: the workspace's ws: scope keeps them in the
+  // entity store for as long as the workspace is mounted.
   const load = useCallback(async () => {
     const actions = store.getState()
     actions.setBranchReviewDiffStatus('loading')
