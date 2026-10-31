@@ -139,8 +139,8 @@ func (m forkedMain) reparentOntoRelease(t *testing.T, h *harness) (releaseOwner 
 
 func (m forkedMain) unlockMain(t *testing.T, h *harness) {
 	t.Helper()
-	h.raw(http.MethodPost, m.repoBase()+"/chats/"+m.mainOwner+"/lock",
-		map[string]any{"locked": false}, http.StatusNoContent).Body.Close()
+	require.NoError(t, h.raw(http.MethodPost, m.repoBase()+"/chats/"+m.mainOwner+"/lock",
+		map[string]any{"locked": false}, http.StatusNoContent).Body.Close())
 }
 
 // Deleting main's owner answered 422 after its git cascade had already taken
@@ -212,11 +212,13 @@ func requireNoDanglingLinks(t *testing.T, w deleteWorld) {
 func TestRegression_ARefusedDeleteChangesNothing(t *testing.T) {
 	locked := func(_ *testing.T, _ *harness, m forkedMain) string { return m.mainOwner }
 	atRisk := func(t *testing.T, h *harness, m forkedMain) string {
+		t.Helper()
 		m.unlockMain(t, h)
 		require.NoError(t, os.WriteFile(filepath.Join(m.featurePath, "wip.txt"), []byte("wip\n"), 0o600))
 		return m.mainOwner
 	}
 	reparentedAtRisk := func(t *testing.T, h *harness, m forkedMain) string {
+		t.Helper()
 		owner := m.reparentOntoRelease(t, h)
 		require.NoError(t, os.WriteFile(filepath.Join(m.featurePath, "wip.txt"), []byte("wip\n"), 0o600))
 		return owner
