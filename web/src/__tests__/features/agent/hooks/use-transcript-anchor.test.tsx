@@ -77,7 +77,7 @@ function readerScrollsTo(scroller: HTMLElement, top: number) {
   fireEvent.scroll(scroller)
 }
 
-/** A scroller inside the transcript (a tool's payload), scrolled to `top`. */
+// A tool's payload: a scroller inside the transcript, scrolled to `top`.
 function nestedBox(el: HTMLElement, top: number) {
   Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => 500 })
   Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => 100 })
@@ -184,7 +184,6 @@ describe('useTranscriptAnchor', () => {
     grow(1300)
     frames(1500)
     expect(scroller.scrollTop).toBe(570)
-
     // Back down within a row: the reader rejoins the live end.
     readerScrollsTo(scroller, 900 - 50)
     grow(1400)
@@ -239,9 +238,10 @@ describe('useTranscriptAnchor', () => {
     expect(scroller.scrollTop).toBe(900)
   })
 
-  it('reads keys typed into a field as typing, and Shift+Space as reading up', () => {
+  it('takes keys in a field or a nested scroller as theirs, Shift+Space as reading up', () => {
     const { scroller, grow, getByTestId } = mount()
     fireEvent.keyDown(getByTestId('field'), { key: 'PageUp' })
+    fireEvent.keyDown(nestedBox(getByTestId('inner'), 200), { key: 'ArrowUp' })
     grow(1300)
     frames(1500)
     expect(scroller.scrollTop).toBe(900)
