@@ -10,6 +10,7 @@ import { attachFeed } from '@/features/agent/stores/chat-feed'
 import {
   chatStore,
   setChatSelection,
+  setStopping,
   type ChatStoreState,
 } from '@/features/agent/stores/chat-store'
 import {
@@ -247,16 +248,22 @@ export function retractNewest(wsId: string, chatId: string): Promise<string | nu
     case 'held':
       return retracting(target.requestId, takeBack(wsId, chatId, target.requestId, target.text))
     case 'stop':
-      return stopChat(wsId, chatId).then(
-        () => null,
-        (error: unknown) => {
-          report(error, { action: 'Couldn’t stop the turn' })
-          return null
-        },
-      )
+      return stopTurn(wsId, chatId).then(() => null)
     default:
       return null
   }
+}
+
+/** Stops the running turn, which reads as stopping from this frame on. */
+export function stopTurn(wsId: string, chatId: string): Promise<void> {
+  setStopping(chatId, true)
+  return stopChat(wsId, chatId).then(
+    () => undefined,
+    (error: unknown) => {
+      setStopping(chatId, false)
+      report(error, { action: 'Couldn’t stop the turn' })
+    },
+  )
 }
 
 /** Retry on a failed send, or on a row its prompt left behind (a fresh request). */

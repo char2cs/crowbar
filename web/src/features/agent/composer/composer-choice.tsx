@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type KeyboardEvent } from 'react'
 import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
 import { answerChoice } from '@/features/agent/api/agent-chat-commands'
@@ -8,7 +8,11 @@ import type {
   AgentChoiceQuestion,
 } from '@/features/agent/api/agent-chat-activity'
 import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
-import { choiceDetail, choiceQuestions, describeChoice } from '@/features/agent/lib/agent-activity'
+import {
+  choiceDetail,
+  choiceQuestions,
+  describeChoice,
+} from '@/features/agent/composer/lib/ask-labels'
 import { PermissionLevelSwitcher } from '@/features/agent/composer/permission-level-switcher'
 import { ApiError } from '@/lib/errors/api-error'
 import {
@@ -18,6 +22,8 @@ import {
   ChoiceReadOnly,
   ChoiceSchema,
 } from '@/features/agent/composer/composer-choice-controls'
+import { ChoiceRequest } from '@/features/agent/composer/composer-choice-request'
+import type { AskRequest } from '@/features/agent/composer/lib/ask-request'
 
 // The verbs an elicitation is answered with. They are the PROVIDER's own words
 // (MCP's accept / decline / cancel) and they go in `optionIds` — a prompt with no
@@ -107,7 +113,8 @@ export function ComposerChoice({
   providerLabel,
   permissionLevels,
   onOpenTerminal,
-  showQueueDepth = true,
+  position = 1,
+  request,
 }: {
   wsId: string
   chatId: string
@@ -121,11 +128,12 @@ export function ComposerChoice({
    *  PermissionLevelSwitcher's own doc for why an absent/empty list hides it. */
   permissionLevels?: PermissionLevel[]
   onOpenTerminal?: () => void
-  showQueueDepth?: boolean
+  /** Where this ask stands among the pending ones, from 1. */
+  position?: number
+  /** What a permission would let run, from the ask's own copy of the call. */
+  request?: AskRequest
 }) {
   const detail = choiceDetail(choice, toolTarget)
-  // The bar shows one ask; a parallel subagent's own ask must not vanish unseen.
-  const queued = pending - 1
   const [stored, setStored] = useState<CardState>(() => freshCard(choice.id))
   // Read through the stamp rather than resetting in an effect: an effect runs
   // AFTER the paint, so there would be one frame in which the previous prompt's
@@ -161,6 +169,7 @@ export function ComposerChoice({
   // form Crowbar can't compose, or suggestions with no declared answer shape.
   const needsTerminal = isForm || suggestions.length > 0
   const busy = card.sending || card.sent
+  const flat = canAnswerHere && !card.unsupportedHere && questions.length === 0
 
   const send = async (optionIds: string[]) => {
     update({ error: '', sending: true })
@@ -180,6 +189,16 @@ export function ComposerChoice({
     }
   }
 
+  // A digit picks that option; Enter allows once, only from the card itself so
+  // an Enter meant for the composer never grants a permission.
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!flat || busy || event.metaKey || event.ctrlKey || event.altKey) return
+    const picked = keyedOption(controls, event.key, event.target === event.currentTarget)
+    if (!picked) return
+    event.preventDefault()
+    void send([picked.id])
+  }
+
   // WHAT IS ASKED goes above the bar; the bar is the QUESTION and its controls.
   // Options are a list to read down, and folding them into a 38px row turns them
   // into a column squeezed against the sentence that introduces them.
@@ -192,9 +211,12 @@ export function ComposerChoice({
       data-choice-id={choice.id}
       data-choice-kind={choice.kind}
       data-answerable={String(answerable)}
+      tabIndex={0}
+      onKeyDown={onKeyDown}
     >
       {/* ── above the bar: everything there is to read ── */}
       {choice.schema && <ChoiceSchema schema={choice.schema} />}
+      {request && choice.kind === 'tool_permission' && <ChoiceRequest request={request} />}
       {canAnswerHere && questions.length > 0 && (
         <ChoiceQuestions
           questions={questions}
@@ -227,9 +249,9 @@ export function ComposerChoice({
               Answer sent. Waiting for {providerLabel} to confirm it.
             </span>
           )}
-          {showQueueDepth && queued > 0 && (
-            <span className="sub" data-testid="agent-choice-queue-depth">
-              +{queued} more waiting
+          {pending > 1 && (
+            <span className="sub" data-testid="agent-choice-position">
+              {position}/{pending}
             </span>
           )}
         </span>
@@ -281,6 +303,13 @@ export function ComposerChoice({
       )}
     </div>
   )
+}
+
+/** The option a key names: a digit its place, Enter (from the card) allowing once. */
+function keyedOption(controls: AgentChoiceOption[], key: string, onCard: boolean) {
+  if (key === 'Enter')
+    return onCard ? controls.find((option) => option.kind === 'allow') : undefined
+  return /^[1-9]$/.test(key) ? controls[Number(key) - 1] : undefined
 }
 
 function TerminalLink({ onOpenTerminal }: { onOpenTerminal: () => void }) {

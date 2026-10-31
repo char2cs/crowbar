@@ -4,8 +4,10 @@ import type { LedgerRow } from '@/features/agent/api/chat-rows'
 import { applyFeedFrame, chatStore, openFeed } from '@/features/agent/stores/chat-store'
 import { TranscriptRow } from '@/features/agent/transcript/rows/transcript-row'
 
-const actions = { retry: () => {}, edit: () => {}, cancel: () => {} }
 import { delta, ledger } from '@/__tests__/__fixtures__/ledger-rows'
+import { noRowActions } from '@/__tests__/__fixtures__/row-actions'
+
+const actions = noRowActions
 
 function seed(rows: LedgerRow[]) {
   openFeed('chat-1')
@@ -204,6 +206,98 @@ describe('ToolRow', () => {
     expect(status()).toBe('declined')
     expect(screen.getByText('Denied')).toBeInTheDocument()
     expect(screen.queryByText('Ran')).toBeNull()
+  })
+
+  it('marks the bound tool row awaiting approval and replaces the ask with a one-line note once resolved', () => {
+    const l = ledger()
+    const reveal = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {})
+    const started = l.start('turn-1')
+    const ask = l.row(
+      'ask',
+      {
+        askId: 'q1',
+        event: 'permission',
+        kind: 'tool_permission',
+        toolId: 'tool-1',
+        answerable: true,
+        options: [{ id: 'once', kind: 'allow', label: 'Allow once' }],
+      },
+      { turnId: 'turn-1' },
+    )
+    seed([
+      started,
+      ask,
+      l.row(
+        'tool_call',
+        { toolId: 'tool-1', phase: 'pre', name: 'Bash', kind: 'execute', target: 'ls' },
+        { turnId: 'turn-1' },
+      ),
+    ])
+    expect(chatStore.getState().feeds['chat-1']?.order).toEqual(['t:tool-1'])
+    draw('t:tool-1')
+    expect(status()).toBe('awaiting_approval')
+    expect(screen.getByText('Waiting for your approval')).toBeInTheDocument()
+    expect(reveal).toHaveBeenCalled()
+    act(
+      () =>
+        void applyFeedFrame('chat-1', {
+          type: 'row',
+          row: l.row('ask_resolved', { askId: 'q1', resolution: 'answered', optionIds: ['once'] }),
+        }),
+    )
+    expect(status()).toBe('running')
+    expect(screen.getByTestId('agent-tool-ask-note')).toHaveTextContent('Allowed · Allow once')
+    expect(chatStore.getState().feeds['chat-1']?.order).toEqual(['t:tool-1'])
+  })
+
+  it('says a permission nobody answered in time on its call', () => {
+    const l = ledger()
+    seed([
+      l.start('turn-1'),
+      l.row(
+        'tool_call',
+        { toolId: 'tool-1', phase: 'pre', name: 'Bash', kind: 'execute', target: 'ls' },
+        { turnId: 'turn-1' },
+      ),
+      l.row(
+        'ask',
+        {
+          askId: 'q1',
+          event: 'permission',
+          kind: 'tool_permission',
+          toolId: 'tool-1',
+          answerable: true,
+        },
+        { turnId: 'turn-1' },
+      ),
+      l.row('ask_resolved', { askId: 'q1', resolution: 'refused', optionIds: [] }),
+    ])
+    draw('t:tool-1')
+    expect(screen.getByTestId('agent-tool-ask-note')).toHaveTextContent('No answer in time')
+  })
+
+  it('reads a stopped turn’s running call as stopped, an ended one’s as unavailable', () => {
+    const l = ledger()
+    const call = (toolId: string, turnId: string) =>
+      l.row(
+        'tool_call',
+        { toolId, phase: 'pre', name: 'Bash', kind: 'execute', target: 'ls' },
+        { turnId },
+      )
+    seed([
+      l.start('turn-1'),
+      call('tool-1', 'turn-1'),
+      l.row('turn_ended', { status: 'interrupted', reason: 'stopped' }, { turnId: 'turn-1' }),
+      l.start('turn-2'),
+      call('tool-2', 'turn-2'),
+      l.end('turn-2'),
+    ])
+    draw('t:tool-1')
+    expect(status()).toBe('interrupted')
+    expect(screen.getByText('Stopped')).toBeInTheDocument()
+    expect(chatStore.getState().feeds['chat-1']?.items['t:tool-2']).toMatchObject({
+      status: 'abandoned',
+    })
   })
 
   it('reads its request and result by blob ref only once opened', async () => {

@@ -5,8 +5,10 @@ import type { LedgerRow } from '@/features/agent/api/chat-rows'
 import { applyFeedFrame, chatStore, openFeed } from '@/features/agent/stores/chat-store'
 import { TranscriptRow } from '@/features/agent/transcript/rows/transcript-row'
 
-const actions = { retry: () => {}, edit: () => {}, cancel: () => {} }
 import { delta, ledger } from '@/__tests__/__fixtures__/ledger-rows'
+import { noRowActions } from '@/__tests__/__fixtures__/row-actions'
+
+const actions = noRowActions
 
 const providers = [{ id: 'fake', displayName: 'Fake', icon: '<svg/>' }] as AgentProvider[]
 const ID = 'm:turn-1:m1'

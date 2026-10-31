@@ -84,3 +84,17 @@ export function describeResolvedChoice(choice: AgentChoice): string {
   const verb = picked.length > 0 ? picked.join(', ') : 'Answered'
   return `${subject} · ${verb}`
 }
+
+/** How an ask on a tool call was decided, said on that call's row. */
+export function askNote(choice: AgentChoice): string {
+  if (choice.resolution === 'proceeded') return 'Answered at the terminal'
+  if (choice.resolution === 'refused') return 'No answer in time'
+  if (choice.resolution === 'abandoned') return 'Left unanswered'
+  const ids = new Set(choice.answeredOptionIds)
+  const picked = choice.options.filter((option) => ids.has(option.id))
+  if (picked.some((option) => option.kind === 'deny')) return 'Denied'
+  const allowed = picked.find((option) => option.kind === 'allow')
+  if (allowed) return allowed.label ? `Allowed · ${allowed.label}` : 'Allowed'
+  const labels = pickedOptionLabels(choice)
+  return labels.length > 0 ? labels.join(', ') : 'Answered'
+}

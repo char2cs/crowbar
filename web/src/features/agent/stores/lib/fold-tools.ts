@@ -1,4 +1,5 @@
 import { mapChoice } from '@/features/agent/api/agent-chat-activity'
+import { askNote } from '@/features/agent/composer/lib/ask-labels'
 import type { LedgerRow, RowKind } from '@/features/agent/api/chat-rows'
 import type { FeedFold } from '@/features/agent/stores/lib/fold-rows'
 import {
@@ -45,10 +46,16 @@ export const applyToolCall: Apply<'tool_call'> = (fold, row) => {
           body,
           status,
           family: toolFamily(body),
+          askId: gatingAsk(fold, row.body.toolId),
         },
   )
   markOutput(fold, row)
   if (!known) fold.place(id, scope)
+}
+
+/** A pending ask that named this call before the call's own row landed. */
+function gatingAsk(fold: FeedFold, toolId: string): string | undefined {
+  return fold.facts.openAsks.find((id) => fold.item<AskItem>(id)?.toolId === toolId)
 }
 
 export const applyAsk: Apply<'ask'> = (fold, row) => {
@@ -84,9 +91,14 @@ export const applyAsk: Apply<'ask'> = (fold, row) => {
     choice,
     toolTarget: body.toolTarget || tool?.body.target || '',
     toolId: body.toolId,
+    toolInput: body.toolInput,
+    toolInputTruncated: body.toolInputTruncated,
+    mcpServer: body.mcpServer || tool?.body.mcpServer,
   })
   if (!fold.facts.openAsks.includes(id)) fold.set('openAsks', [...fold.facts.openAsks, id])
-  if (!known) fold.place(id, scope)
+  // An ask on a call is said on the call's row; only a toolless one has a row.
+  if (tool && tool.askId !== id) fold.put({ ...tool, askId: id })
+  if (!known && !body.toolId) fold.place(id, scope)
 }
 
 export const applyAskResolved: Apply<'ask_resolved'> = (fold, row) => {
@@ -106,8 +118,11 @@ export const applyAskResolved: Apply<'ask_resolved'> = (fold, row) => {
     const denied =
       row.body.resolution === 'refused' ||
       known.choice.options.some((o) => o.kind === 'deny' && picked.has(o.id))
-    const tool = denied && known.toolId ? fold.item<ToolItem>(toolItemId(known.toolId)) : undefined
-    if (tool?.status === 'running') fold.put({ ...tool, status: 'declined' })
+    const tool = known.toolId ? fold.item<ToolItem>(toolItemId(known.toolId)) : undefined
+    if (tool) {
+      const status = denied && tool.status === 'running' ? 'declined' : tool.status
+      fold.put({ ...tool, status, askId: undefined, askNote: askNote(choice) })
+    }
   }
   const openAsks = fold.facts.openAsks.filter((other) => other !== id)
   if (openAsks.length !== fold.facts.openAsks.length) fold.set('openAsks', openAsks)

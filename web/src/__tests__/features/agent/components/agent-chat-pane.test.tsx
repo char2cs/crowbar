@@ -910,16 +910,17 @@ describe('AgentChatPane', () => {
       expect(resumeChatFn).not.toHaveBeenCalled()
     })
 
-    it('shows the exit reason from the last runner_exited row', async () => {
+    it.each([
+      ['stopped', 'Stopped. Send a message to continue the conversation.'],
+      ['retracted', 'You took the prompt back. Send a message to continue.'],
+    ])('shows the exit reason from the last runner_exited row (%s)', async (reason, note) => {
       const l = ledger('c1', 10)
-      const exited = l.row('runner_exited', { runnerId: 'r1', reason: 'stopped', exitCode: 0 })
+      const exited = l.row('runner_exited', { runnerId: 'r1', reason, exitCode: 0 })
       seedFeed('c1', [...spokenIn('c1'), exited])
       const store = seedWorkspace([dormantChat({ id: 'c1' })])
       await renderPane(store, openChatPane(store, 'c1', ''))
 
-      expect(screen.getByTestId('agent-session-note')).toHaveTextContent(
-        'Stopped. Send a message to continue the conversation.',
-      )
+      expect(screen.getByTestId('agent-session-note')).toHaveTextContent(note)
     })
 
     it('starts a session from the terminal surface only when asked', async () => {

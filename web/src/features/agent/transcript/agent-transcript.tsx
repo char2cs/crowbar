@@ -36,8 +36,11 @@ import type {
   UserItem,
 } from '@/features/agent/stores/lib/transcript-items'
 import { FirstTurnDivider } from '@/features/agent/transcript/first-turn-divider'
-import { TranscriptRow, type RowPlace } from '@/features/agent/transcript/rows/transcript-row'
-import type { PromptActions } from '@/features/agent/transcript/rows/user-row'
+import {
+  TranscriptRow,
+  type RowActions,
+  type RowPlace,
+} from '@/features/agent/transcript/rows/transcript-row'
 
 interface AgentTranscriptProps {
   chatId: string
@@ -50,7 +53,7 @@ interface AgentTranscriptProps {
   suppressId?: string
   onOpenTerminal: () => void
   /** Stable for the view's life: every prompt row holds it. */
-  promptActions: PromptActions
+  promptActions: RowActions
   /** The dock overlays the transcript by padding, so its height changes reach
    *  the anchor only through this. */
   dockHeight?: number

@@ -37,6 +37,22 @@ describe('describeSpawnError', () => {
     expect(notice.description).not.toMatch(/conflict/)
   })
 
+  it('C27: says the session was lost for a session_lost refusal, with no raw daemon text', () => {
+    const notice = describeSpawnError(
+      new ApiError(
+        'agent: the provider no longer has this chat’s session: conflict',
+        409,
+        'session_lost',
+      ),
+      'Codex',
+      'resume',
+    )
+    expect(notice).toEqual({
+      message: 'The session was lost',
+      description: 'Start a new conversation to continue.',
+    })
+  })
+
   it('carries the verb of the action that failed', () => {
     const resumed = describeSpawnError(new Error('boom'), 'Codex', 'resume')
     expect(resumed.message).toBe('Couldn’t resume Codex chat')

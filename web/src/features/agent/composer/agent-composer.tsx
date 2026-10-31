@@ -358,7 +358,7 @@ function ComposerOccupant({ state, ...props }: ComposerOccupantProps) {
     case 'choices':
       return (
         <div className="choice-stack" data-testid="agent-choice-stack">
-          {state.asks.map((ask) => (
+          {state.asks.map((ask, i) => (
             <ComposerChoice
               key={ask.id}
               wsId={props.wsId}
@@ -369,7 +369,14 @@ function ComposerOccupant({ state, ...props }: ComposerOccupantProps) {
               providerLabel={props.providerLabel}
               permissionLevels={props.permissionLevels}
               onOpenTerminal={props.onOpenTerminal}
-              showQueueDepth={false}
+              position={i + 1}
+              request={{
+                toolName: ask.choice.toolName,
+                toolTarget: ask.toolTarget,
+                toolInput: ask.toolInput,
+                truncated: ask.toolInputTruncated,
+                mcpServer: ask.mcpServer,
+              }}
             />
           ))}
         </div>

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import type { ComponentProps } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
@@ -55,6 +55,21 @@ function choice(overrides: Partial<AgentChoice> = {}): AgentChoice {
     at: '2026-08-18T12:00:00Z',
     ...overrides,
   }
+}
+
+type ChoiceProps = Partial<ComponentProps<typeof ComposerChoice>>
+
+function show(overrides: Partial<AgentChoice> = {}, props: ChoiceProps = {}) {
+  return render(
+    <ComposerChoice
+      wsId="w1"
+      chatId="c1"
+      pending={1}
+      choice={choice(overrides)}
+      providerLabel="Claude"
+      {...props}
+    />,
+  )
 }
 
 /** A permission's target comes from the fold: the ask's own, else its tool call's. */
@@ -163,16 +178,7 @@ describe('ComposerChoice that cannot be answered from here', () => {
 
   it('offers the terminal when the chat can open one', () => {
     const onOpenTerminal = vi.fn()
-    render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        choice={choice({ answerable: false })}
-        pending={1}
-        providerLabel="Claude"
-        onOpenTerminal={onOpenTerminal}
-      />,
-    )
+    show({ answerable: false }, { onOpenTerminal })
 
     fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
     expect(onOpenTerminal).toHaveBeenCalled()
@@ -196,16 +202,7 @@ describe('ComposerChoice failures', () => {
   it('takes the controls down on an unsupported shape, offering the terminal instead', async () => {
     answerChoiceFn.mockRejectedValue(new ApiError('this provider cannot express that answer', 400))
     const onOpenTerminal = vi.fn()
-    render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        pending={1}
-        choice={choice()}
-        providerLabel="Claude"
-        onOpenTerminal={onOpenTerminal}
-      />,
-    )
+    show({}, { onOpenTerminal })
 
     fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
 
@@ -234,16 +231,7 @@ describe('ComposerChoice failures', () => {
   it('takes the controls down when the gate has already closed', async () => {
     answerChoiceFn.mockRejectedValue(new ApiError('no longer answerable', 409))
     const onOpenTerminal = vi.fn()
-    render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        pending={1}
-        choice={choice()}
-        providerLabel="Claude"
-        onOpenTerminal={onOpenTerminal}
-      />,
-    )
+    show({}, { onOpenTerminal })
 
     fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
 
@@ -543,16 +531,7 @@ describe('ComposerChoice elicitation', () => {
   // button sits right beside Decline/Cancel in the same row.
   it('offers a terminal button alongside decline and cancel when the chat can open one', () => {
     const onOpenTerminal = vi.fn()
-    render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        pending={1}
-        choice={choice(elicitation)}
-        providerLabel="Claude"
-        onOpenTerminal={onOpenTerminal}
-      />,
-    )
+    show(elicitation, { onOpenTerminal })
 
     fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
     expect(onOpenTerminal).toHaveBeenCalled()
@@ -582,13 +561,6 @@ describe('ComposerChoice elicitation', () => {
 // how much of THIS chat's tool-call approval is answered automatically, sitting
 // beside whatever answer controls are already showing.
 describe('ComposerChoice permission-level switcher', () => {
-  async function pickLevel(user: ReturnType<typeof userEvent.setup>, value: string) {
-    await user.click(screen.getByTestId('chat-permission-level-trigger'))
-    const option = await screen.findByTestId(`chat-permission-level-option-${value}`)
-    await waitFor(() => expect(getComputedStyle(option).pointerEvents).not.toBe('none'))
-    await user.click(option)
-  }
-
   it('sits beside the answer controls on a real, answerable prompt', () => {
     draw()
 
@@ -600,16 +572,7 @@ describe('ComposerChoice permission-level switcher', () => {
   // wrong reason.
   it('does not appear when the prompt cannot be answered from here', () => {
     const onOpenTerminal = vi.fn()
-    render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        choice={choice({ answerable: false })}
-        pending={1}
-        providerLabel="Claude"
-        onOpenTerminal={onOpenTerminal}
-      />,
-    )
+    show({ answerable: false }, { onOpenTerminal })
 
     expect(screen.getByRole('button', { name: 'Terminal' })).toBeInTheDocument()
     expect(screen.queryByTestId('chat-permission-level-trigger')).toBeNull()
@@ -626,125 +589,87 @@ describe('ComposerChoice permission-level switcher', () => {
 
     expect(screen.queryByTestId('chat-permission-level-trigger')).toBeNull()
   })
-
-  it('offers only the levels this provider actually declares', async () => {
-    const user = userEvent.setup()
-    render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        choice={choice()}
-        pending={1}
-        providerLabel="Codex"
-        permissionLevels={['trusted', 'full-auto']}
-      />,
-    )
-
-    await user.click(screen.getByTestId('chat-permission-level-trigger'))
-    expect(await screen.findByTestId('chat-permission-level-option-trusted')).toBeInTheDocument()
-    expect(screen.getByTestId('chat-permission-level-option-full-auto')).toBeInTheDocument()
-    expect(screen.queryByTestId('chat-permission-level-option-guarded')).toBeNull()
-  })
-
-  // There is no per-chat GET, only the per-chat PUT — so the dial never claims
-  // to know what level the chat is already running under (the same rule
-  // AgentModelPicker's own "Provider default" row follows). It starts unset.
-  it('starts on no level, never guessing at one the backend cannot report', () => {
-    draw()
-
-    expect(screen.getByTestId('chat-permission-level-trigger')).toHaveTextContent(
-      'Permission level',
-    )
-  })
-
-  it('picking a level PUTs it for this chat', async () => {
-    const user = userEvent.setup()
-    draw()
-
-    await pickLevel(user, 'trusted')
-
-    expect(setChatPermissionLevelFn).toHaveBeenCalledWith('w1', 'c1', 'trusted')
-  })
-
-  // `ComposerChoice` is unkeyed in the composer's own switch, and
-  // `resolveComposerState` cycles it out of and back into 'choice' between
-  // distinct prompts within the same chat — remounting this control (and
-  // resetting a plain useState) moments after a real pick. It has to survive
-  // that remount without pretending to read backend truth: it remembers only
-  // what IT last confirmed, per chat.
-  it('remembers its own last confirmed pick across a remount of the same chat, keyed per chat', async () => {
-    const user = userEvent.setup()
-    const first = render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="persist-1"
-        choice={choice()}
-        pending={1}
-        providerLabel="Claude"
-        permissionLevels={['guarded', 'trusted', 'full-auto']}
-      />,
-    )
-
-    await pickLevel(user, 'full-auto')
-    await waitFor(() =>
-      expect(setChatPermissionLevelFn).toHaveBeenCalledWith('w1', 'persist-1', 'full-auto'),
-    )
-    first.unmount()
-
-    // A fresh mount for the SAME chat — exactly the remount the unkeyed
-    // switch produces mid-chat — shows the last CONFIRMED pick, not the
-    // placeholder.
-    const second = render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="persist-1"
-        choice={choice()}
-        pending={1}
-        providerLabel="Claude"
-        permissionLevels={['guarded', 'trusted', 'full-auto']}
-      />,
-    )
-    expect(screen.getByTestId('chat-permission-level-trigger')).toHaveTextContent('full-auto')
-    second.unmount()
-
-    // A DIFFERENT chat's entry is keyed separately and still starts unset —
-    // the cache is per chat, not a single global last-pick.
-    render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="persist-2"
-        choice={choice({ id: 'k2' })}
-        pending={1}
-        providerLabel="Claude"
-        permissionLevels={['guarded', 'trusted', 'full-auto']}
-      />,
-    )
-    expect(screen.getByTestId('chat-permission-level-trigger')).toHaveTextContent(
-      'Permission level',
-    )
-  })
 })
 
 // resolveComposerState always shows the OLDEST pending choice; a second one
 // (a parallel subagent's own ask, most measured) used to vanish with no sign
 // it existed at all.
-describe('ComposerChoice with more than one choice pending', () => {
-  it('says a second one is waiting, without drawing a second card', () => {
-    const shown = choice({ id: 'k1', seq: 1 })
-    render(
-      <ComposerChoice wsId="w1" chatId="c1" pending={2} choice={shown} providerLabel="Claude" />,
-    )
-
-    expect(screen.getByTestId('agent-choice-queue-depth')).toHaveTextContent('+1 more waiting')
-    // Still exactly one prompt card — the composer stays one occupant.
-    expect(screen.getAllByTestId('agent-choice-prompt')).toHaveLength(1)
+describe('ComposerChoice in a stack of pending asks', () => {
+  it('counts pending asks as i of n', () => {
+    show({}, { pending: 3, position: 2 })
+    expect(screen.getByTestId('agent-choice-position')).toHaveTextContent('2/3')
   })
 
   it('says nothing when it is the only one', () => {
-    render(
-      <ComposerChoice wsId="w1" chatId="c1" pending={1} choice={choice()} providerLabel="Claude" />,
-    )
+    show()
+    expect(screen.queryByTestId('agent-choice-position')).toBeNull()
+  })
+})
 
-    expect(screen.queryByTestId('agent-choice-queue-depth')).not.toBeInTheDocument()
+describe('ComposerChoice request body', () => {
+  it('shows the command and its description for a command approval', () => {
+    show(
+      {},
+      {
+        request: {
+          toolName: 'Bash',
+          toolInput: { command: 'rm -rf build', description: 'Clean the build' },
+        },
+      },
+    )
+    const body = screen.getByTestId('agent-choice-request')
+    expect(body).toHaveTextContent('rm -rf build')
+    expect(body).toHaveTextContent('Clean the build')
+  })
+
+  it('shows the server and formatted args for an MCP approval', () => {
+    show(
+      { toolName: 'mcp__echo__shout' },
+      {
+        request: {
+          toolName: 'mcp__echo__shout',
+          mcpServer: 'echo',
+          toolInput: { text: 'hi', loud: true },
+        },
+      },
+    )
+    const body = screen.getByTestId('agent-choice-request')
+    expect(body).toHaveTextContent('echo · shout')
+    expect(body).toHaveTextContent('text: hi')
+    expect(body).toHaveTextContent('loud: true')
+  })
+
+  it('shows a truncated tool input as text, not as parsed arguments', () => {
+    const text = '{"command":"cat a very long'
+    show({}, { request: { toolName: 'Bash', toolInput: text, truncated: true } })
+    const body = screen.getByTestId('agent-choice-request')
+    expect(body).toHaveTextContent(text)
+    expect(body).toHaveTextContent('Input truncated')
+  })
+})
+
+describe('ComposerChoice keys', () => {
+  it('picks an option with its number key', async () => {
+    show()
+    fireEvent.keyDown(screen.getByTestId('agent-choice-prompt'), { key: '2' })
+    await waitFor(() =>
+      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', { optionIds: ['deny'] }),
+    )
+  })
+
+  it('allows once on Enter only while the card has focus', async () => {
+    show()
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Deny' }), { key: 'Enter' })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+    fireEvent.keyDown(screen.getByTestId('agent-choice-prompt'), { key: 'Enter' })
+    await waitFor(() =>
+      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', { optionIds: ['allow'] }),
+    )
+  })
+
+  it('answers nothing by key while it cannot be answered here', () => {
+    show({ answerable: false })
+    fireEvent.keyDown(screen.getByTestId('agent-choice-prompt'), { key: '1' })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
   })
 })

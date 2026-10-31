@@ -150,6 +150,30 @@ describe('AgentChatView', () => {
     expect(submit.mock.calls[0]?.[2]).toBe('rename snake_case_file.py')
   })
 
+  it('shows Stopping… in the same render as the Stop click', async () => {
+    const stop = vi.spyOn(commands, 'stopChat').mockReturnValue(new Promise(() => {}))
+    const l = ledger('c1', 4)
+    seedFeed('c1', [...spokenIn('c1'), l.start('turn-2')])
+    draw('c1')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop this turn' }))
+
+    expect(screen.getByTestId('agent-working-heading')).toHaveTextContent('Stopping…')
+    expect(stop).toHaveBeenCalledWith('w1', 'c1')
+    act(() => {
+      applyFeedFrame('c1', {
+        type: 'row',
+        row: l.row(
+          'turn_ended',
+          { status: 'interrupted', reason: 'stopped' },
+          { turnId: 'turn-2' },
+        ),
+      })
+    })
+    expect(screen.queryByText('Stopping…')).toBeNull()
+    expect(screen.getByText('Interrupted · you stopped this turn')).toBeInTheDocument()
+  })
+
   it('streams a reply the record has not reached yet', async () => {
     seedFeed('c1', spokenIn('c1'))
     draw('c1')

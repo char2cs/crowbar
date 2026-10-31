@@ -10,6 +10,9 @@ const CLI_NOT_FOUND = 424
 /** The daemon's code for a chat that is working and so refuses the action. */
 const CHAT_BUSY = 'chat_busy'
 
+/** The provider no longer has the chat's session: only a new conversation continues it. */
+const SESSION_LOST = 'session_lost'
+
 export interface SpawnErrorNotice {
   message: string
   description: string
@@ -42,6 +45,13 @@ export function describeSpawnError(
     return {
       message: `Can’t ${action} ${providerName} while the chat is working`,
       description: 'Wait for the current turn to finish, or stop it, then try again.',
+    }
+  }
+  // Never the daemon's own text: it names Crowbar's internals, not what to do.
+  if (err instanceof ApiError && err.problem.code === SESSION_LOST) {
+    return {
+      message: 'The session was lost',
+      description: 'Start a new conversation to continue.',
     }
   }
   const detail = problemOf(err).message

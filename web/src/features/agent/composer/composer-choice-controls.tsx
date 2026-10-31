@@ -5,7 +5,7 @@ import type {
   AgentChoiceOption,
   AgentChoiceQuestion,
 } from '@/features/agent/api/agent-chat-activity'
-import { optionLabel } from '@/features/agent/lib/agent-activity'
+import { optionLabel } from '@/features/agent/composer/lib/ask-labels'
 
 /** Every question the prompt asks, and ONE send for all of them.
  *

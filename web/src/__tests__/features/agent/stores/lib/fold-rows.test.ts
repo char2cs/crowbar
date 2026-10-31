@@ -208,7 +208,7 @@ describe('applyRow', () => {
     expect(feed.items['m:turn-1:m1']).toMatchObject({ text: 'Hel', settled: true })
   })
 
-  it('reads a tool still running when its turn ended as abandoned', () => {
+  it('reads a tool still running when its turn was interrupted as interrupted', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [
       l.start('turn-1'),
@@ -218,7 +218,7 @@ describe('applyRow', () => {
       l.end('turn-1', 'interrupted'),
     ])
     expect((feed.items['t:done'] as ToolItem).status).toBe('ok')
-    expect((feed.items['t:open'] as ToolItem).status).toBe('abandoned')
+    expect((feed.items['t:open'] as ToolItem).status).toBe('interrupted')
     expect(feed.facts.running).toBeNull()
     expect(feed.order.at(-1)).toBe('k:5')
     expect(feed.items['k:5']).toMatchObject({ kind: 'marker', marker: 'turn_interrupted' })

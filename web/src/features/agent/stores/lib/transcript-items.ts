@@ -63,6 +63,10 @@ export interface ToolItem extends ItemBase {
   status: ToolStatus
   /** Decided by the call's first row; it never changes. */
   family: ToolFamily
+  /** The ask gating this call, while it is pending. */
+  askId?: string
+  /** How that ask was decided, once it was. */
+  askNote?: string
 }
 
 /** `choice.id` is the ask id; it stays pending until its ask_resolved row. */
@@ -73,9 +77,14 @@ export interface AskItem extends ItemBase {
   /** What a permission is about to touch: the ask's own, else its tool call's. */
   toolTarget: string
   toolId?: string
+  /** The gated call's input; with `toolInputTruncated`, its leading text. */
+  toolInput?: unknown
+  toolInputTruncated?: boolean
+  mcpServer?: string
 }
 
-export type MarkerName = MarkerKind | 'turn_interrupted' | 'turn_failed'
+export type MarkerName =
+  MarkerKind | 'turn_interrupted' | 'turn_failed' | 'session_lost' | 'runner_exited'
 
 export interface MarkerItem extends ItemBase {
   kind: 'marker'
@@ -151,7 +160,8 @@ export interface TurnFacts {
   /** By scope, latest. */
   plan: Record<string, PlanItem[]>
   lastExit: { runnerId: string; reason: string; exitCode?: number; seq: number } | null
-  sessionLost: { provider: string; reason: string; seq: number } | null
+  /** The turn Stop was pressed on, until that turn ends. */
+  stopping: string | null
   /** Turn ids that produced text or a tool. */
   output: Record<string, true>
   /** Turns a retract took back before they said anything, hidden until output follows. */

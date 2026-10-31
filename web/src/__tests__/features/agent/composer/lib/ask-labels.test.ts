@@ -7,7 +7,7 @@ import {
   describeChoice,
   describeResolvedChoice,
   optionLabel,
-} from '@/features/agent/lib/agent-activity'
+} from '@/features/agent/composer/lib/ask-labels'
 
 function choice(overrides: Partial<AgentChoice> = {}): AgentChoice {
   return {

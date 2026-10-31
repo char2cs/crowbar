@@ -2,7 +2,7 @@ import { memo } from 'react'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { useChatItem } from '@/features/agent/hooks/use-chat-feed'
 import { useChatStore } from '@/features/agent/stores/chat-store'
-import { MarkerRow } from '@/features/agent/transcript/rows/marker-row'
+import { MarkerRow, type MarkerActions } from '@/features/agent/transcript/rows/marker-row'
 import { TextRow } from '@/features/agent/transcript/rows/text-row'
 import { AskRow, ToolRow } from '@/features/agent/transcript/rows/tool-row'
 import { ToolRunRow } from '@/features/agent/transcript/rows/tool-run-row'
@@ -10,6 +10,9 @@ import { PlanRow } from '@/features/agent/transcript/rows/plan-row'
 import { ReasoningRow } from '@/features/agent/transcript/rows/reasoning-row'
 import { SubagentCard } from '@/features/agent/transcript/rows/subagent-card'
 import { UserRow, type PromptActions } from '@/features/agent/transcript/rows/user-row'
+
+/** Everything a transcript row can do. */
+export type RowActions = PromptActions & MarkerActions
 
 /** What a row's place in the conversation says about it, from the transcript. */
 export interface RowPlace {
@@ -36,7 +39,7 @@ function TranscriptRowBody({
   id: string
   providers: AgentProvider[]
   place?: RowPlace
-  actions: PromptActions
+  actions: RowActions
   /** A run's calls, when `id` names a run. */
   members?: string[]
 }) {
@@ -78,7 +81,7 @@ function TranscriptRowBody({
     case 'ask':
       return <AskRow item={item} />
     case 'marker':
-      return <MarkerRow item={item} providers={providers} />
+      return <MarkerRow chatId={chatId} item={item} providers={providers} actions={actions} />
     case 'subagent':
       return <SubagentCard chatId={chatId} id={id} />
     case 'reasoning':

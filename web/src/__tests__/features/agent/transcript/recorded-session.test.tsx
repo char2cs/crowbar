@@ -3,10 +3,11 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { subagentSessionRows } from '@/__tests__/__fixtures__/ledger-rows'
 import { applyFeedFrame, chatStore, openFeed } from '@/features/agent/stores/chat-store'
 import { TranscriptRow } from '@/features/agent/transcript/rows/transcript-row'
+import { noRowActions } from '@/__tests__/__fixtures__/row-actions'
+
+const actions = noRowActions
 
 const rows = subagentSessionRows()
-
-const actions = { retry: () => {}, edit: () => {}, cancel: () => {} }
 
 beforeEach(() => {
   chatStore.setState({ feeds: {} })

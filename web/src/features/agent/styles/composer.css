@@ -1163,3 +1163,36 @@
   max-height: min(60vh, 560px);
   overflow-y: auto;
 }
+
+/* What a permission would let run: the command, the edit or the MCP call. */
+.agent-chat .choice-request {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--ui-text-xs);
+}
+.agent-chat .choice-request-head,
+.agent-chat .choice-request-note {
+  color: var(--muted-foreground);
+}
+.agent-chat .choice-request-code {
+  max-height: 10rem;
+  overflow: auto;
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  background: var(--muted);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.agent-chat .choice-diff-del {
+  color: var(--destructive);
+}
+.agent-chat .choice-diff-add {
+  color: var(--success, var(--foreground));
+}
+.agent-chat .asks:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}

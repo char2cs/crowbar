@@ -11,6 +11,9 @@ import {
   observeResizes,
   rect,
 } from '@/__tests__/__fixtures__/transcript-layout'
+import { noRowActions } from '@/__tests__/__fixtures__/row-actions'
+
+const promptActions = noRowActions
 
 const { toolRenders } = vi.hoisted(() => ({ toolRenders: new Map<string, number>() }))
 vi.mock('@/features/agent/transcript/rows/tool-row', async (importOriginal) => {
@@ -58,8 +61,6 @@ function draw(overrides: Partial<ComponentProps<typeof AgentTranscript>> = {}) {
       view.rerender(<AgentTranscript {...props} {...next} />),
   }
 }
-
-const promptActions = { retry: () => {}, edit: () => {}, cancel: () => {} }
 
 const outboxItem = (requestId: string): OutboxItem => ({
   requestId,

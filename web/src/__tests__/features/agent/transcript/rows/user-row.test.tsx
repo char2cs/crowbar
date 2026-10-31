@@ -8,6 +8,7 @@ import { chatStore } from '@/features/agent/stores/chat-store'
 import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
 import { ApiError } from '@/lib/errors/api-error'
 import * as errors from '@/lib/errors/report'
+import { noRowActions } from '@/__tests__/__fixtures__/row-actions'
 
 // jsdom measures 0×0, and a zero-height viewport windows down to no rows; the
 // opening gate keeps the list hidden (T6), so controls are found by label.
@@ -44,7 +45,7 @@ function draw() {
       working={false}
       line={{ working: false }}
       onOpenTerminal={() => {}}
-      promptActions={actions}
+      promptActions={{ ...noRowActions, ...actions }}
     />,
   )
 }

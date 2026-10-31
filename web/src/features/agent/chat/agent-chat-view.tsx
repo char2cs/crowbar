@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
 import { report } from '@/lib/errors/report'
 import { markEnd, markStart } from '@/lib/perf/instrumentation'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
-import { compactChat, stopChat } from '@/features/agent/api/agent-chat-commands'
+import { compactChat, resumeChat } from '@/features/agent/api/agent-chat-commands'
+import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
+import { sendPrompt, stopTurn } from '@/features/agent/stores/chat-outbox'
+import type { RowActions } from '@/features/agent/transcript/rows/transcript-row'
 import type { SlashCatalogItem } from '@/features/agent/api/agent-chat-reads'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { SubagentShelf } from '@/features/agent/activity/subagent-shelf'
@@ -173,6 +176,18 @@ export function AgentChatView({
 
   const provider = providers.find((candidate) => candidate.id === providerId)
   const providerLabel = provider?.displayName ?? providerId
+  const rowActions = useMemo<RowActions>(
+    () => ({
+      ...prompts.actions,
+      resend: (text) => void sendPrompt(wsId, chatId, { text, steer }),
+      openTerminal: onOpenTerminal,
+      newConversation: () =>
+        void resumeChat(wsId, chatId).catch((err: unknown) =>
+          toastSpawnFailure(err, providerLabel, 'start'),
+        ),
+    }),
+    [prompts.actions, wsId, chatId, steer, onOpenTerminal, providerLabel],
+  )
   // The picker shows a staged pick at once; labels and the catalogue stay on the live CLI.
   const effectiveProvider = providers.find((candidate) => candidate.id === effectiveProviderId)
   // The person's pick first, then what the last turn reported running at.
@@ -202,7 +217,7 @@ export function AgentChatView({
     history.reset()
   }
 
-  const handleStop = () => void stopChat(wsId, chatId)
+  const handleStop = () => void stopTurn(wsId, chatId)
 
   const selectSlashItem = (item: SlashCatalogItem) => load(slash.accept(item))
 
@@ -302,10 +317,11 @@ export function AgentChatView({
         agents: facts.agents,
         reasoning: facts.reasoning,
         streaming: facts.streaming,
+        stopping: facts.stopping,
       }}
       suppressId={halted?.id}
       onOpenTerminal={onOpenTerminal}
-      promptActions={prompts.actions}
+      promptActions={rowActions}
       dockHeight={dock.dockHeight}
       visible={visible}
       initialScrollPosition={initialScrollPosition}

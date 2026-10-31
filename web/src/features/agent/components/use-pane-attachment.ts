@@ -33,6 +33,8 @@ function describeDormant(exitReason: string): string {
       return 'The agent moved to another conversation. Send a message to continue this one.'
     case 'displaced':
       return 'Crowbar took the agent off this chat. Send a message to continue.'
+    case 'retracted':
+      return 'You took the prompt back. Send a message to continue.'
     case 'spawn_failed':
       return 'The agent could not start. Check that its CLI is installed, then try again.'
     default:

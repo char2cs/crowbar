@@ -47,6 +47,14 @@ function publish(chatId: string, next: ChatFeed) {
   if (feeds[chatId] !== next) chatStore.setState({ feeds: { ...feeds, [chatId]: next } })
 }
 
+/** Stop was pressed: the running turn reads as stopping until its end lands. */
+export function setStopping(chatId: string, stopping: boolean) {
+  const feed = chatStore.getState().feeds[chatId]
+  const turn = stopping ? (feed?.facts.running?.turnId ?? null) : null
+  if (!feed || feed.facts.stopping === turn) return
+  publish(chatId, { ...feed, facts: { ...feed.facts, stopping: turn } })
+}
+
 /** Starts a chat's feed state, keeping one that is already there. */
 export function openFeed(chatId: string) {
   if (!chatStore.getState().feeds[chatId]) publish(chatId, emptyFeed())

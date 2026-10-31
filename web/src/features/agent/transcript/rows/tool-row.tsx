@@ -1,9 +1,9 @@
-import { memo, useState } from 'react'
+import { memo, useCallback, useState } from 'react'
 import { CaretRightIcon } from '@phosphor-icons/react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { TurnDiffPreview } from '@/features/agent/activity/turn-diff-preview'
 import { useLiveText } from '@/features/agent/hooks/use-chat-feed'
-import { describeResolvedChoice } from '@/features/agent/lib/agent-activity'
+import { describeResolvedChoice } from '@/features/agent/composer/lib/ask-labels'
 import {
   CheckIcon,
   CloseIcon,
@@ -108,6 +108,14 @@ function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
       <span className="tool-call-exit">exit {body.exitCode}</span>
     ) : null
   const command = commandLine(item)
+  // The call waiting on the person is brought into view while it waits.
+  const awaiting = item.askId !== undefined
+  const reveal = useCallback(
+    (el: HTMLLIElement | null) => {
+      if (awaiting) el?.scrollIntoView?.({ block: 'nearest' })
+    },
+    [awaiting],
+  )
   const summary = (
     <span className="tool-call-summary">
       <StatusGlyph status={status} />
@@ -115,7 +123,19 @@ function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
         <Icon size={12} />
       </span>
       <Label item={item} />
-      {STATE_TEXT[status] && <span className="tool-call-state">{STATE_TEXT[status]}</span>}
+      {item.askId ? (
+        <span className="tool-call-state">Waiting for your approval</span>
+      ) : (
+        STATE_TEXT[status] &&
+        STATE_TEXT[status] !== item.askNote && (
+          <span className="tool-call-state">{STATE_TEXT[status]}</span>
+        )
+      )}
+      {item.askNote && (
+        <span className="tool-call-note" data-testid="agent-tool-ask-note">
+          {item.askNote}
+        </span>
+      )}
       {stat && (
         <span className="tool-call-stat">
           +{stat.added} −{stat.removed}
@@ -145,7 +165,7 @@ function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
     >
       <div className="assistant">
         <ul className="tools">
-          <li data-status={status}>
+          <li data-status={awaiting ? 'awaiting_approval' : status} ref={reveal}>
             <div className="tool-row">
               {summary}
               {expandable && (

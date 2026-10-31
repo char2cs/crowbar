@@ -35,6 +35,8 @@ export interface ComposerFacts {
   agents: number
   /** Answer text is streaming. */
   streaming: boolean
+  /** Stop was pressed on the running turn. */
+  stopping: boolean
   /** Pending asks of every scope, oldest first. */
   asks: AskItem[]
   /** The provider's last word on why the chat stopped, while nothing follows it. */
@@ -131,6 +133,7 @@ export function useComposerFacts(chatId: string): ComposerFacts {
     toolLabel: fromOrder.toolLabel,
     agents,
     streaming: liveTail.length > 0 || fromOrder.textStreaming,
+    stopping: running != null && facts?.stopping === running.turnId,
     asks,
     halted: fromOrder.halted,
     userTexts: fromOrder.userTexts,

@@ -13,6 +13,8 @@ export interface WorkingLineProps {
   compacting?: boolean
   /** An ask is waiting on the person. */
   asking?: boolean
+  /** Stop was pressed and the turn has not ended yet. */
+  stopping?: boolean
   activeTodo?: string
   /** The live label of the running main-agent tool. */
   toolLabel?: string
@@ -28,6 +30,7 @@ const clockText = (seconds: number) => (seconds > 0 ? ` · ${formatElapsed(secon
 
 /** The most specific true thing the turn is doing, never a guess, beside its clock. */
 function headingOf(p: WorkingLineProps, thought: string | undefined): string | null {
+  if (p.stopping) return 'Stopping…'
   if (p.asking) return 'Waiting for your answer'
   if (p.compacting) return 'Compacting…'
   if (p.activeTodo) return p.activeTodo
