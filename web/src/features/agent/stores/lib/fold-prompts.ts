@@ -67,3 +67,28 @@ export function reviveTurn(fold: FeedFold, turn: string) {
   fold.place(userItemId(lost.requestId, 0), '')
   if (fold.item(lost.marker)) fold.place(lost.marker, '')
 }
+
+const PILL_MARKERS = new Set([
+  'compaction_ended',
+  'provider_switched',
+  'model_changed',
+  'effort_changed',
+])
+const LAUNCH_DIVIDERS = new Set(['provider_switched', 'model_changed', 'effort_changed'])
+
+/** Draws a pill marker; a launch's lands above the prompt it carries, which
+ *  the ledger records first so the new CLI can find it. */
+export function divider(fold: FeedFold, kind: string, draw: () => void) {
+  if (!PILL_MARKERS.has(kind)) return
+  let carried: string | undefined
+  let newest = -1
+  for (const [requestId, fact] of Object.entries(fold.facts.prompts)) {
+    if (fact.state !== 'pending' || fact.seq < newest) continue
+    newest = fact.seq
+    carried = userItemId(requestId, fact.seq)
+  }
+  const move = LAUNCH_DIVIDERS.has(kind) && carried !== undefined && fold.placed(carried)
+  if (move) fold.unplace(carried!)
+  draw()
+  if (move) fold.place(carried!, '')
+}

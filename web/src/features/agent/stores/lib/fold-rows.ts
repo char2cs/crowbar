@@ -4,6 +4,7 @@ import { applyDelta, fuller, textOf } from '@/features/agent/stores/lib/fold-liv
 import {
   applyPromptSettled,
   applyUserMessage,
+  divider,
   retractTurn,
   reviveTurn,
   setPrompt,
@@ -58,13 +59,6 @@ export function emptyFeed(): ChatFeed {
 }
 
 // Markers a reader sees as a pill; the rest change facts only.
-const PILL_MARKERS = new Set([
-  'compaction_ended',
-  'provider_switched',
-  'model_changed',
-  'effort_changed',
-])
-
 type FactRecord = 'prompts' | 'output' | 'traceless' | 'efforts' | 'providers'
 
 /** Edits to a feed over one or many rows. Each part is copied on its first
@@ -295,7 +289,7 @@ const applyMarker: Apply<'marker'> = (fold, row) => {
   const { kind, detail } = row.body
   if (kind === 'compaction_started') fold.set('compacting', true)
   if (kind === 'compaction_ended') fold.set('compacting', false)
-  if (!row.scope && PILL_MARKERS.has(kind)) marker(fold, row, kind, detail)
+  if (!row.scope) divider(fold, kind, () => marker(fold, row, kind, detail))
 }
 
 /** A message naming the reply its turn closed on is shown as that reply. */

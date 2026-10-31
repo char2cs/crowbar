@@ -307,6 +307,22 @@ describe('applyRow', () => {
     expect(feed.order).toEqual(['k:2', 'k:3'])
   })
 
+  // A launch records its prompt, then the CLI that carries it says what it switched to.
+  it('reads a launch switch above the prompt that caused it', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.prompt('r0', 'earlier'),
+      l.start('turn-0', 'r0'),
+      l.end('turn-0'),
+      l.prompt('r1', 'on the other provider'),
+      l.row('marker', { kind: 'provider_switched', detail: 'p2' }),
+      l.row('marker', { kind: 'model_changed', detail: 'big' }),
+      l.start('turn-1', 'r1'),
+      l.row('marker', { kind: 'compaction_ended' }),
+    ])
+    expect(feed.order).toEqual(['p:r0', 'k:5', 'k:6', 'p:r1', 'k:8'])
+  })
+
   it('shows a message that joins its turn reply as that reply', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [
