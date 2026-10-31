@@ -1,0 +1,13 @@
+[
+  { "t": "ready", "epoch": "e1" },
+  { "t": "entity", "scope": "projects", "kind": "operation", "id": "op1", "v": 7, "data": { "id": "op1" } },
+  { "t": "entity", "scope": "projects", "kind": "operation", "id": "op1", "v": 8, "gone": true },
+  { "t": "synced", "scope": "projects" },
+  {
+    "t": "closed",
+    "scope": "nope:x",
+    "reason": "refused",
+    "problem": { "code": "invalid_argument", "message": "stream: unknown scope kind \"nope\"" }
+  },
+  { "t": "closed", "scope": "projects", "reason": "resync" }
+]
