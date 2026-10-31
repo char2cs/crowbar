@@ -125,12 +125,9 @@ func (c *client) closeDone() {
 func readPump(
 	conn *websocket.Conn,
 ) {
-	if err := conn.SetReadDeadline(time.Now().Add(pongTimeout)); err != nil {
+	if DefaultKeepAlive.Arm(conn) != nil {
 		return
 	}
-	conn.SetPongHandler(func(string) error {
-		return conn.SetReadDeadline(time.Now().Add(pongTimeout))
-	})
 	for {
 		if _, _, err := conn.NextReader(); err != nil {
 			return
@@ -147,7 +144,7 @@ func writePump(
 	cl *client,
 	snapshot [][]byte,
 ) {
-	ticker := time.NewTicker(pingInterval)
+	ticker := DefaultKeepAlive.ticker()
 	defer func() {
 		ticker.Stop()
 		libs.CloseLogged(context.Background(), "ws: write pump: close", conn)
