@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeAll, beforeEach } from 'vitest'
 import { isEditorContent, type EditorContent } from '@/features/panes/types/pane-content'
 import type { DocumentRef } from '@/lib/api/documents'
-import { MONACO_LOAD_MS, openTestDocument } from '@/__tests__/__fixtures__/documents'
+import { MONACO_LOAD_MS, openTestDocument, WATCH_REFUSED } from '@/__tests__/__fixtures__/documents'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
@@ -73,8 +73,6 @@ function hostDaemon(disk = 'v1') {
   })
   return daemon
 }
-
-const REFUSED = { code: 'unavailable', message: 'cannot watch' }
 
 /** Every read the daemon was sent has landed. */
 const landed = (d: ReturnType<typeof hostDaemon>) => Promise.all(d.reads)
@@ -448,7 +446,7 @@ describe('followHostDocument', () => {
 
   it('opens no host document whose watch is refused, and says why', async () => {
     const d = hostDaemon('v1')
-    d.opened = () => Promise.reject(REFUSED)
+    d.opened = () => Promise.reject(WATCH_REFUSED)
     readDocumentMock.mockRejectedValueOnce(
       new ApiError('refused', 403, HOST_DOCUMENT_TRANSPORT_CODE),
     )

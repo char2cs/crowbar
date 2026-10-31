@@ -14,8 +14,12 @@ vi.mock('@/features/editor/host/editor-host', async (importOriginal) => {
   return { ...actual, loadEditorHost }
 })
 
-import { MONACO_LOAD_MS, WATCH_LIMIT } from '@/__tests__/__fixtures__/documents'
-import { heldScopes, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
+import {
+  hostWatches,
+  MONACO_LOAD_MS,
+  WATCH_LIMIT,
+  WATCH_REFUSED,
+} from '@/__tests__/__fixtures__/documents'
 import { ApiError } from '@/lib/errors/api-error'
 import { HOST_DOCUMENT_TRANSPORT_CODE, workspaceRef, type DocumentRef } from '@/lib/api/documents'
 import { documentUri } from '@/features/editor/documents/document-ref'
@@ -47,24 +51,6 @@ const B = workspaceRef('ws-restore', 'src/b.ts')
 const UNTITLED = workspaceRef('ws-restore', 'untitled:Untitled')
 const host = (path: string): DocumentRef => ({ authority: 'host', path })
 const NOTES = { authority: 'host', path: '/tmp/s5/notes.md' } as const
-
-const REFUSED = { code: 'unavailable', message: 'refused' }
-
-/** Host watches at the stream daemon: the calls in order, how many are held, and what a sub answers. */
-function watches(opened: (scope: string) => Promise<void> = () => Promise.resolve()) {
-  const w = { calls: [] as string[], opened, held: 0 }
-  streamDaemon.answer = ({ op, scope }) => {
-    if (op !== 'sub') return []
-    w.calls.push('subscribe')
-    w.opened(scope).then(
-      () => (w.calls.push('opened'), streamDaemon.deliver({ t: 'synced', scope })),
-      (problem: unknown) =>
-        streamDaemon.deliver({ t: 'closed', scope, reason: 'refused', problem }),
-    )
-    return []
-  }
-  return Object.defineProperty(w, 'held', { get: () => heldScopes('doc:').length })
-}
 
 /** Another opener's work: the document's model, holding a watch of its own. */
 async function openElsewhere(ref: typeof NOTES, text: string) {
@@ -390,7 +376,7 @@ describe('restoreDocuments', () => {
 describe('a restored host document and its watch', () => {
   it('is read only once its watch is armed; a workspace document opens none', async () => {
     let arm: () => void = () => {}
-    const w = watches(() => new Promise((resolve) => (arm = resolve)))
+    const w = hostWatches(() => new Promise((resolve) => (arm = resolve)))
     restoredTab(NOTES)
     restoredTab(A)
     readDocument.mockImplementation(async (ref: DocumentRef) => {
@@ -418,7 +404,7 @@ describe('a restored host document and its watch', () => {
     ['its file is gone', new ApiError('gone', 404), undefined, 0],
     ['its file is gone under an unsaved draft', new ApiError('gone', 404), 'mine', 1],
   ])('holds its watch only with its model when %s', async (_, failure, unsavedText, held) => {
-    const w = watches()
+    const w = hostWatches()
     restoredTab(NOTES)
     if (unsavedText) await putDrafts([draft(NOTES, unsavedText, 'disk')])
     readDocument.mockRejectedValue(failure)
@@ -429,7 +415,7 @@ describe('a restored host document and its watch', () => {
   })
 
   it('lets its watch go when its tab closes during the read', async () => {
-    const w = watches()
+    const w = hostWatches()
     restoredTab(NOTES)
     let finish: () => void = () => {}
     readDocument.mockReturnValue(
@@ -446,7 +432,7 @@ describe('a restored host document and its watch', () => {
   })
 
   it('opened elsewhere before or during its read keeps that watch alone, under its draft', async () => {
-    const w = watches()
+    const w = hostWatches()
     restoredTab(NOTES)
     await putDrafts([draft(NOTES, 'mine', 'disk')])
     let finish: () => void = () => {}
@@ -469,7 +455,7 @@ describe('a restored host document and its watch', () => {
   })
 
   it('whose watch is refused opens nowhere and says why', async () => {
-    watches((scope) => Promise.reject(scope.includes('full') ? WATCH_LIMIT : REFUSED))
+    hostWatches((scope) => Promise.reject(scope.includes('full') ? WATCH_LIMIT : WATCH_REFUSED))
     const ids = [NOTES, host('/tmp/S5/b.md'), host('/tmp/s5/full.md')].map((r) => restoredTab(r))
     readDocument.mockImplementation(async (ref: DocumentRef) => ({
       ref: ref.path === '/tmp/S5/b.md' ? host('/tmp/s5/b.md') : ref,
@@ -487,7 +473,7 @@ describe('a restored host document and its watch', () => {
   })
 
   it('under an unsaved draft whose watch is refused opens unwatched, says so once, and follows again when reopened', async () => {
-    const w = watches(() => Promise.reject(REFUSED))
+    const w = hostWatches(() => Promise.reject(WATCH_REFUSED))
     const id = restoredTab(NOTES)
     await putDrafts([draft(NOTES, 'mine', 'disk')])
     readDocument.mockResolvedValue({ ref: NOTES, text: 'disk' })

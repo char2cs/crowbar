@@ -3,12 +3,16 @@ import { loadEditorHost } from '@/features/editor/host/editor-host'
 import { setDocumentDirty } from '@/features/editor/lib/buffer-save'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { DocumentRef } from '@/lib/api/documents'
+import { heldScopes, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
 
 /** The problem a `doc:` scope is refused with when the OS has no file watches left. */
 export const WATCH_LIMIT = {
   code: 'watch_limit',
   message: 'watch: the OS has no file watches left',
 } as const
+
+/** The problem a `doc:` scope is refused with for any other reason. */
+export const WATCH_REFUSED = { code: 'unavailable', message: 'watch: refused' } as const
 
 /** A ceiling for the first Monaco load, not a wait: the chunk takes seconds on a busy CI box. */
 export const MONACO_LOAD_MS = 120_000
@@ -43,4 +47,20 @@ export async function openTestDocument(
   )
   setDocumentDirty(uri, documents.isDirty(uri))
   return id
+}
+
+/** Host watches at the stream daemon: the calls in order, how many are held, and what a sub answers. */
+export function hostWatches(opened: (scope: string) => Promise<void> = () => Promise.resolve()) {
+  const w = { calls: [] as string[], opened, held: 0 }
+  streamDaemon.answer = ({ op, scope }) => {
+    if (op !== 'sub') return []
+    w.calls.push('subscribe')
+    w.opened(scope).then(
+      () => (w.calls.push('opened'), streamDaemon.deliver({ t: 'synced', scope })),
+      (problem: unknown) =>
+        streamDaemon.deliver({ t: 'closed', scope, reason: 'refused', problem }),
+    )
+    return []
+  }
+  return Object.defineProperty(w, 'held', { get: () => heldScopes('doc:').length })
 }

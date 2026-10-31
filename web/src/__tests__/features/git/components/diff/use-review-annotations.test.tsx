@@ -19,8 +19,7 @@ import type { ReviewThread } from '@/features/workspace/stores/slices/branch-rev
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { entityStore } from '@/core/entities/entity-store'
-import type { ThreadDTO } from '@/lib/types'
+import { clearReviewThreads, putReviewThread } from '@/__tests__/__fixtures__/review-threads'
 
 /**
  * Task C of the windowed Branch Review renderer
@@ -252,40 +251,9 @@ function deepOutline(): FileOutline {
 
 // ── Harnesses ───────────────────────────────────────────────────────
 
-/** `thread` as ws-1's ws: scope streams it, the root message flattened onto the thread. */
-function putThread(thread: ReviewThread): void {
-  const [root, ...replies] = thread.messages
-  const dto: ThreadDTO = {
-    id: thread.id,
-    projectId: 'p1',
-    repoId: 'r1',
-    workspaceId: 'ws-1',
-    filePath: thread.filePath,
-    line: thread.lineNumber,
-    startLine: thread.startLine,
-    endLine: thread.endLine,
-    side: thread.side,
-    messageId: root.id,
-    body: root.body,
-    author: root.author ?? '',
-    isAgent: root.isAgent,
-    resolved: thread.isResolved,
-    createdAt: root.createdAt,
-    replies: replies.map((r) => ({ ...r, threadId: thread.id, author: r.author ?? '' })),
-  }
-  const { byKind } = entityStore.getState()
-  entityStore.setState({
-    byKind: {
-      ...byKind,
-      review_thread: { ...byKind.review_thread, [dto.id]: { v: 1, data: dto } },
-    },
-  })
-}
-
 function seedStore(threads: readonly ReviewThread[]): WorkspaceStore {
-  const { byKind } = entityStore.getState()
-  entityStore.setState({ byKind: { ...byKind, review_thread: {} } })
-  threads.forEach(putThread)
+  clearReviewThreads()
+  for (const thread of threads) putReviewThread('ws-1', thread)
   return createWorkspaceStore('ws-1')
 }
 
@@ -630,7 +598,7 @@ describe('ReviewCodeView thread annotations', () => {
     expect(projectedAnnotationSlots(container)).toHaveLength(0)
 
     act(() => {
-      putThread(makeThread({ filePath: pathOf(0), lineNumber: 2 }))
+      putReviewThread('ws-1', makeThread({ filePath: pathOf(0), lineNumber: 2 }))
     })
 
     await waitFor(() => {
