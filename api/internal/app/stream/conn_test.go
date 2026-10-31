@@ -2,7 +2,9 @@ package stream_test
 
 import (
 	"fmt"
+	"runtime"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -132,4 +134,29 @@ func TestHub_ASubUnsubSubBeforeTheWriterDrainsKeepsTheScope(t *testing.T) {
 			assert.Equal(t, []int{2, 1}, []int{starts, stops}, "the second sub holds the resources again")
 		})
 	}
+}
+
+// Holding and letting go of scopes leaks no goroutine per cycle.
+func TestHub_SubUnsubCyclesLeaveNoGoroutineBehind(t *testing.T) {
+	res := newRecorder()
+	hub := newHub(
+		map[stream.ScopeKind]appstream.Source{stream.KindGit: appstream.Unordered(rowsOf(1)), stream.KindChat: rowsOf(1)},
+		map[stream.ScopeKind][]appstream.Resource{stream.KindGit: {res}, stream.KindChat: {res}},
+	)
+	conn := newFakeConn()
+	served(t, hub, conn)
+	conn.sub(t, "git:w0")
+	before := runtime.NumGoroutine()
+
+	for i := range 100 {
+		conn.sub(t, fmt.Sprintf("git:w%d", i%7))
+		conn.sub(t, fmt.Sprintf("chat:c%d", i%5))
+		conn.send(t, stream.OpUnsub, fmt.Sprintf("git:w%d", i%7))
+		conn.send(t, stream.OpUnsub, fmt.Sprintf("chat:c%d", i%5))
+	}
+	conn.sub(t, "git:w0")
+
+	// Eventually checks from a goroutine of its own.
+	require.Eventually(t, func() bool { return runtime.NumGoroutine() <= before+1 },
+		waitBound, time.Millisecond, "goroutines grew from %d", before)
 }
