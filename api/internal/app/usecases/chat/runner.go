@@ -46,8 +46,8 @@ type RunnerUsecase interface {
 		chatID string,
 	) error
 
-	// Retract withdraws a sent prompt: settled while the provider has not taken
-	// it, its turn interrupted once it has. A settled prompt is a conflict.
+	// Retract withdraws a sent prompt: settled while no CLI holds it, its turn
+	// interrupted once it runs. A prompt a CLI holds, or a settled one, is a conflict.
 	Retract(ctx context.Context, chatID, requestID string) (RetractResult, error)
 
 	// CloseChat retires the CLI on a chat nothing displays any more, even

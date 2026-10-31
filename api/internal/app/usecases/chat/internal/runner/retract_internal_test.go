@@ -86,21 +86,39 @@ func took(t *testing.T, rs *Runners) {
 	appendRow(t, rs, ledger.KindTurnStarted, "T-1", ledger.TurnStarted{RequestID: "r1", RunnerID: "runner-1"})
 }
 
-func TestRetract_APendingPromptSettlesRetractedAndReturnsItsText(t *testing.T) {
-	rs, term := retracting(t)
-	sent(t, rs, ledger.DeliveryAPI)
+// A CLI that already holds the prompt acts on it whatever the ledger says, so
+// the retract refuses rather than handing the text back.
+func TestRetract_APromptItsLiveCLIAlreadyHoldsIsAConflict(t *testing.T) {
+	for name, setup := range map[string]func(*testing.T, *Runners){
+		"pushed over the connection": func(t *testing.T, rs *Runners) {
+			t.Helper()
+			sent(t, rs, ledger.DeliveryAPI)
+		},
+		"steered into a running turn": func(t *testing.T, rs *Runners) {
+			t.Helper()
+			appendRow(t, rs, ledger.KindTurnStarted, "T-0", ledger.TurnStarted{RunnerID: "runner-1"})
+			sent(t, rs, ledger.DeliverySteer)
+		},
+		"launched over a connection": func(t *testing.T, rs *Runners) {
+			t.Helper()
+			rs.apiConns.set("runner-1", interruptServer(t, make(chan struct{}), nil))
+			sent(t, rs, ledger.DeliveryRestart)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rs, term := retracting(t)
+			setup(t, rs)
+			head := chatState(t, rs.ledger).Head()
 
-	got, err := rs.Retract(t.Context(), "chat-1", "r1")
+			_, err := rs.Retract(t.Context(), "chat-1", "r1")
 
-	require.NoError(t, err)
-	assert.Equal(t, RetractResult{State: RetractRetracted, Text: "rename it"}, got)
-	p, ok := chatState(t, rs.ledger).Receipt("r1")
-	require.True(t, ok)
-	assert.Equal(t, ledger.PromptStatusSettled, p.Status)
-	assert.False(t, p.Consumed)
-	assert.Equal(t, ledger.ReasonRetracted, p.Reason)
-	assert.Empty(t, chatState(t, rs.ledger).PendingPrompts(), "the chat takes the next prompt at once")
-	assert.Empty(t, term.signalled(), "a prompt pushed over a live connection leaves its CLI alone")
+			require.ErrorIs(t, err, problem.ErrConflict)
+			assert.Equal(t, head, chatState(t, rs.ledger).Head(), "the prompt stays pending")
+			assert.Empty(t, term.signalled())
+			v, _ := rs.live.view("chat-1")
+			assert.False(t, v.exiting, "the CLI keeps the prompt it was given")
+		})
+	}
 }
 
 func TestRetract_ARestartDeliveredPromptTerminatesTheRunnerItStarted(t *testing.T) {
@@ -118,23 +136,6 @@ func TestRetract_ARestartDeliveredPromptTerminatesTheRunnerItStarted(t *testing.
 
 	rs.reconcileRunnerExit(t.Context(), "runner-1") // the PTY's exit callback
 	assert.Equal(t, domain.AgentExitRetracted, retiredAs(t, rs))
-}
-
-func TestRetract_ASteerDeliveredPromptLeavesTheRunnerRunning(t *testing.T) {
-	rs, term := retracting(t)
-	appendRow(t, rs, ledger.KindTurnStarted, "T-0", ledger.TurnStarted{RunnerID: "runner-1"})
-	sent(t, rs, ledger.DeliverySteer)
-
-	got, err := rs.Retract(t.Context(), "chat-1", "r1")
-
-	require.NoError(t, err)
-	assert.Equal(t, RetractResult{State: RetractRetracted, Text: "rename it"}, got)
-	assert.Empty(t, term.signalled(), "the CLI the prompt was steered into keeps running its turn")
-	turn, running := chatState(t, rs.ledger).RunningTurn()
-	assert.True(t, running)
-	assert.Equal(t, "T-0", turn.ID, "the turn r1 was steered into is not the retract's to end")
-	v, _ := rs.live.view("chat-1")
-	assert.False(t, v.exiting)
 }
 
 func TestRetract_ARunningTurnEndsInterruptedBeforeTheProviderIsSignalled(t *testing.T) {
@@ -268,32 +269,20 @@ func TestRetract_APromptWhoseCarrierIsNotLiveYetLeavesTheOutgoingCLIAlone(t *tes
 	assert.False(t, v.exiting)
 }
 
-func TestRetract_AnInterruptibleProviderKeepsItsCLIOnlyForADeliveredPrompt(t *testing.T) {
-	t.Run("delivered: interrupted in place", func(t *testing.T) {
-		rs, term := retracting(t)
-		asked, release := make(chan struct{}), make(chan struct{})
-		defer close(release)
-		rs.apiConns.set("runner-1", interruptServer(t, asked, release))
-		sent(t, rs, ledger.DeliveryAPI)
-		took(t, rs)
+func TestRetract_AnInterruptibleProviderEndsADeliveredTurnInPlace(t *testing.T) {
+	rs, term := retracting(t)
+	asked, release := make(chan struct{}), make(chan struct{})
+	defer close(release)
+	rs.apiConns.set("runner-1", interruptServer(t, asked, release))
+	sent(t, rs, ledger.DeliveryAPI)
+	took(t, rs)
 
-		got, err := rs.Retract(t.Context(), "chat-1", "r1")
+	got, err := rs.Retract(t.Context(), "chat-1", "r1")
 
-		require.NoError(t, err)
-		assert.Equal(t, RetractInterrupted, got.State)
-		require.Empty(t, term.signalled(), "an interruptible provider keeps its CLI")
-		<-asked
-	})
-	t.Run("pending: the carrier is retired", func(t *testing.T) {
-		rs, term := retracting(t)
-		rs.apiConns.set("runner-1", interruptServer(t, make(chan struct{}), nil))
-		sent(t, rs, ledger.DeliveryRestart)
-
-		_, err := rs.Retract(t.Context(), "chat-1", "r1")
-
-		require.NoError(t, err)
-		assert.Len(t, term.signalled(), 1, "no turn runs to interrupt: the CLI carrying r1 goes")
-	})
+	require.NoError(t, err)
+	assert.Equal(t, RetractInterrupted, got.State)
+	require.Empty(t, term.signalled(), "an interruptible provider keeps its CLI")
+	<-asked
 }
 
 // subagentOn records subagent scope live under turnID.

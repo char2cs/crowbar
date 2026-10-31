@@ -32,22 +32,25 @@ type retraction struct {
 	cause   string
 }
 
-// Retract withdraws requestID: pending, it settles and the CLI launched to
-// carry it is retired; delivered, its running turn ends and the provider is
-// signalled as Stop does. The row commits before any signal, which never waits.
+// Retract withdraws requestID: pending and no CLI holds it yet, it settles and
+// the CLI launched to carry it is retired; delivered, its running turn ends and
+// the provider is signalled as Stop does. The row commits before any signal.
 func (rs *Runners) Retract(ctx context.Context, chatID, requestID string) (RetractResult, error) {
 	unlock, err := rs.chatLock.Lock(ctx, chatID)
 	if err != nil {
 		return RetractResult{}, fmt.Errorf("agent: retract: %w", err)
 	}
+	v, live := rs.live.view(chatID)
+	held := func(p ledger.Prompt) bool {
+		return live && rs.cliHolds(v.runner.ID, p)
+	}
 	var r retraction
 	_, _, err = rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
 		var err error
-		r, err = retract(st, requestID)
+		r, err = retract(st, requestID, held)
 		return r.rows, err
 	})
 	retiring := false
-	v, live := rs.live.view(chatID)
 	if err == nil && live && r.carrier != "" && v.runner.ID == r.carrier {
 		retiring = rs.signal(ctx, v.runner, r)
 	}
@@ -76,11 +79,25 @@ func (rs *Runners) signal(ctx context.Context, carrier agents.Runner, r retracti
 	return retiring
 }
 
-// retract decides requestID's withdrawal from st.
-func retract(st ledger.State, requestID string) (retraction, error) {
+// cliHolds reports whether runnerID, the chat's live CLI, already holds pending
+// p: pushed over its connection or steered into its turn, the provider has it.
+// A launch carrying it over a PTY submits it only on its own user_prompt hook.
+func (rs *Runners) cliHolds(runnerID string, p ledger.Prompt) bool {
+	if p.RunnerID != runnerID {
+		return false
+	}
+	return p.Delivery != ledger.DeliveryRestart || rs.HasLiveAPIConnection(runnerID)
+}
+
+// retract decides requestID's withdrawal from st; held says whether a pending
+// prompt is already with its provider, which nothing can take back.
+func retract(st ledger.State, requestID string, held func(ledger.Prompt) bool) (retraction, error) {
 	p, ok := st.Receipt(requestID)
 	if !ok {
 		return retraction{}, fmt.Errorf("prompt %s: %w", requestID, problem.ErrNotFound)
+	}
+	if p.Status == ledger.PromptStatusPending && held(p) {
+		return retraction{}, fmt.Errorf("prompt %s is with its provider: %w", requestID, problem.ErrConflict)
 	}
 	if p.Status == ledger.PromptStatusPending {
 		rows, err := ledger.Settle(st, func(q ledger.Prompt) bool { return q.RequestID == requestID },
