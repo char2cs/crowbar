@@ -66,8 +66,15 @@ export function WorkingLine(props: WorkingLineProps) {
         {!asking && <FlickerSpinner className="size-4" />}
         <span>
           {heading !== null && (
-            <b className="verb" data-testid="agent-working-heading">
-              {heading || `${verbAt(tick)}…`}
+            // Announced on change; the clock beside it stays out of the live region,
+            // and the rotating verb is announced once as "Working".
+            <b className="verb" data-testid="agent-working-heading" aria-live="polite">
+              {heading || (
+                <>
+                  <span className="sr-only">Working</span>
+                  <span aria-hidden="true">{`${verbAt(tick)}…`}</span>
+                </>
+              )}
             </b>
           )}
           {!asking && <span className="dim" ref={clockRef} />}

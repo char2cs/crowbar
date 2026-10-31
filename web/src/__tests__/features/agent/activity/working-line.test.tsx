@@ -111,4 +111,12 @@ describe('WorkingLine', () => {
     expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
     expect(screen.queryByTestId('agent-working-heading')).toBeNull()
   })
+
+  it('announces its heading politely, never the clock', () => {
+    render(<WorkingLine working toolLabel="Reading a.ts" since="2026-08-18T12:00:00Z" />)
+    const live = screen.getByTestId('agent-working-heading')
+    expect(live).toHaveAttribute('aria-live', 'polite')
+    expect(live).toHaveTextContent('Reading a.ts')
+    expect(live).not.toHaveTextContent(/\d:\d\d/)
+  })
 })

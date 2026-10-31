@@ -52,23 +52,44 @@ function mcpView(req: AskRequest): RequestView {
   return { server, head: tool, code: mcpArgsSummary(req.toolInput).map((text) => ({ text })) }
 }
 
-/** The body of a permission card, by what the gated call is; null for none. */
-export function requestView(req: AskRequest): RequestView | null {
+const toned = (text: string, tone: CodeLine['tone']): CodeLine[] =>
+  text ? text.split('\n').map((line) => ({ text: line, tone })) : []
+
+/** One replacement as removed then added lines; an empty side draws nothing. */
+const replacement = (edit: Record<string, unknown>) => [
+  ...toned(str(edit.old_string), 'del'),
+  ...toned(str(edit.new_string), 'add'),
+]
+
+/** A file change: an edit, every edit of a multi-edit, a write, a notebook cell. */
+function fileView(input: Record<string, unknown>, target: string): RequestView | null {
+  const head = str(input.file_path) || str(input.notebook_path) || target || undefined
+  if (Array.isArray(input.edits)) {
+    return { head, code: (input.edits as Record<string, unknown>[]).flatMap(replacement) }
+  }
+  if ('old_string' in input || 'new_string' in input) {
+    const note = input.replace_all === true ? 'Every occurrence' : undefined
+    return { head, code: replacement(input), note }
+  }
+  const content = str(input.content) || str(input.new_source)
+  return content ? { head, code: plain(content) } : null
+}
+
+/** The body of a permission card, by what the gated call is. */
+export function requestView(req: AskRequest): RequestView {
   // A truncated input is the leading text of its JSON: shown, never parsed.
   if (req.truncated) return { code: plain(str(req.toolInput)), note: 'Input truncated' }
   if (req.mcpServer) return mcpView(req)
   const input = (req.toolInput ?? {}) as Record<string, unknown>
   const command = str(input.command)
   if (command) return { code: plain(command), note: str(input.description) || undefined }
-  const removed = str(input.old_string)
-  const added = str(input.new_string)
-  if (removed || added) {
-    const head = str(input.file_path) || req.toolTarget || undefined
-    const lines = (text: string, tone: CodeLine['tone']) =>
-      text.split('\n').map((line) => ({ text: line, tone }))
-    return { head, code: [...lines(removed, 'del'), ...lines(added, 'add')] }
-  }
-  return null
+  return (
+    fileView(input, req.toolTarget ?? '') ?? {
+      head: req.toolTarget || undefined,
+      code: [],
+      note: 'Input not shown',
+    }
+  )
 }
 
 // Bidi controls, other control characters and zero-width ones: drawn raw they

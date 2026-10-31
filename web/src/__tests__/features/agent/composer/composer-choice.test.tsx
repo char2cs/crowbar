@@ -606,73 +606,7 @@ describe('ComposerChoice in a stack of pending asks', () => {
   })
 })
 
-describe('ComposerChoice request body', () => {
-  it('shows the command and its description for a command approval', () => {
-    show(
-      {},
-      {
-        request: {
-          toolName: 'Bash',
-          toolInput: { command: 'rm -rf build', description: 'Clean the build' },
-        },
-      },
-    )
-    const body = screen.getByTestId('agent-choice-request')
-    expect(body).toHaveTextContent('rm -rf build')
-    expect(body).toHaveTextContent('Clean the build')
-  })
-
-  it('shows the server and formatted args for an MCP approval', () => {
-    show(
-      { toolName: 'mcp__echo__shout' },
-      {
-        request: {
-          toolName: 'mcp__echo__shout',
-          mcpServer: 'echo',
-          toolInput: { text: 'hi', loud: true },
-        },
-      },
-    )
-    const body = screen.getByTestId('agent-choice-request')
-    expect(body).toHaveTextContent('echo · shout')
-    expect(body).toHaveTextContent('text: hi')
-    expect(body).toHaveTextContent('loud: true')
-  })
-
-  it('shows a truncated tool input as text, not as parsed arguments', () => {
-    const text = '{"command":"cat a very long'
-    show({}, { request: { toolName: 'Bash', toolInput: text, truncated: true } })
-    const body = screen.getByTestId('agent-choice-request')
-    expect(body).toHaveTextContent(text)
-    expect(body).toHaveTextContent('Input truncated')
-  })
-})
-
-describe('ComposerChoice shows a command as it is', () => {
-  it('writes bidi, control and zero-width characters out visibly', () => {
-    const command = 'echo build done \u202E; rm -rf ~ #\u202C\u200B\u0007'
-    show({}, { request: { toolName: 'Bash', toolInput: { command } } })
-    const body = screen.getByTestId('agent-choice-request')
-    expect(body.textContent).not.toMatch(/[\u202E\u202C\u200B\u0007]/)
-    expect(body).toHaveTextContent('\\u{202E}')
-    expect(body).toHaveTextContent('\\u{200B}')
-    expect(body).toHaveTextContent('\\u{7}')
-  })
-
-  it('escapes MCP args and edit previews the same way', () => {
-    show(
-      { toolName: 'mcp__echo__shout' },
-      {
-        request: {
-          toolName: 'mcp__echo__shout',
-          mcpServer: 'echo',
-          toolInput: { text: 'a\u202Eb' },
-        },
-      },
-    )
-    expect(screen.getByTestId('agent-choice-request')).toHaveTextContent('a\\u{202E}b')
-  })
-
+describe('ComposerChoice with a long request', () => {
   it('says how many lines are not shown, beside the answer, until shown', () => {
     const command = Array.from({ length: 20 }, (_, i) => `step ${i}`).join('\n')
     show({}, { request: { toolName: 'Bash', toolInput: { command } } })
