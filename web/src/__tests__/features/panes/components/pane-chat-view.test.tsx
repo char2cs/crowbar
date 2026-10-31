@@ -21,7 +21,7 @@ async function freshModule(): Promise<Module> {
 }
 
 function renderView({ PaneChatView }: Module) {
-  render(
+  const view = (isActivePane: boolean) =>
     createElement(PaneChatView, {
       ref: null,
       paneId: 'p1',
@@ -35,10 +35,11 @@ function renderView({ PaneChatView }: Module) {
       alongsideEditor: false,
       chatFillsPane: true,
       isBottomPane: false,
-      isActivePane: true,
+      isActivePane,
       isVisible: true,
-    }),
-  )
+    })
+  const { rerender } = render(view(true))
+  return { blur: () => rerender(view(false)) }
 }
 
 describe('PaneChatView chat surface loading', () => {
@@ -52,6 +53,18 @@ describe('PaneChatView chat surface loading', () => {
     await act(async () => {})
 
     expect(screen.getByTestId('chat-surface')).toBeTruthy()
+  })
+
+  // A type swap from the lazy wrapper to the loaded surface would remount the chat.
+  it('keeps the same chat surface when it re-renders after the chunk lands', async () => {
+    const mod = await freshModule()
+    const { blur } = renderView(mod)
+    await act(async () => {})
+    const surface = screen.getByTestId('chat-surface')
+
+    blur()
+
+    expect(screen.getByTestId('chat-surface')).toBe(surface)
   })
 
   it('renders the chat surface in the first commit once it was preloaded', async () => {
