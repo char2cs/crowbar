@@ -2,27 +2,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // LspClient keeps one session per workspace, addressed by the id the caller
 // passes (the buffer's own workspace), never the active one. A session lives
-// while it has an open document or a diagnostics handler; its diagnostics
-// socket is open exactly while it lives AND the workspace's owning chat is
-// known.
+// while it has an open document or a diagnostics handler; it holds the owning
+// chat's lsp: scope exactly while it lives AND that chat is known.
 
 const { apiFetch } = vi.hoisted(() => ({
   apiFetch: vi.fn(async (..._args: unknown[]): Promise<unknown> => null),
 }))
-const { subscribe, unsubscribes } = vi.hoisted(() => {
-  const unsubscribes = new Map<string, ReturnType<typeof vi.fn>>()
-  const subscribe = vi.fn((topic: string, _cb: (frame: unknown) => void) => {
-    const off = vi.fn()
-    unsubscribes.set(topic, off)
-    return off
-  })
-  return { subscribe, unsubscribes }
-})
 
 vi.mock('@/lib/api/fetch', () => ({ apiFetch }))
-vi.mock('@/lib/ws/manager', () => ({ wsManager: { subscribe } }))
 
 import { LspClient } from '@/features/editor/lsp/lsp-client'
+import { holding } from '@/core/stream/stream'
+import { streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
 import { toastManager } from '@/lib/toast-manager'
 import {
   __resetWorkspaceScopesForTest,
@@ -31,20 +22,20 @@ import {
   setWorkspaceScope,
 } from '@/lib/workspace-scope'
 
-const TOPIC_1 = '/v0/chats/chat-1/lsp/ws'
-const TOPIC_2 = '/v0/chats/chat-2/lsp/ws'
+const SCOPE_1 = 'lsp:chat-1'
+const SCOPE_2 = 'lsp:chat-2'
 
 const posts = () => apiFetch.mock.calls.map((c) => String(c[0]))
 const postsTo = (suffix: string) => posts().filter((p) => p.endsWith(suffix))
 const bodyOf = (index: number) =>
   JSON.parse(String((apiFetch.mock.calls[index]?.[1] as RequestInit).body)) as unknown
 
-function frameHandler(topic: string): (frame: unknown) => void {
-  const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
-  const call = calls.filter(([t]) => t === topic).at(-1)
-  if (!call) throw new Error(`never subscribed to ${topic}`)
-  return call[1]
-}
+const signal = (scope: string, data: unknown) =>
+  streamDaemon.deliver({ t: 'signal', scope, kind: 'diagnostics', data })
+const lspHeld = () =>
+  ['lsp:chat-1', 'lsp:chat-2', 'lsp:chat-3', 'lsp:chat-9', 'lsp:home-ws'].filter((scope) =>
+    holding(scope),
+  )
 
 const diag = (filePath: string) => ({
   filePath,
@@ -53,11 +44,14 @@ const diag = (filePath: string) => ({
   message: 'boom',
 })
 
+// A client from an earlier test still holds its scopes; forgetting the workspaces lets them go.
+afterEach(() => {
+  for (const wsId of ['w1', 'w2', 'w3']) forgetWorkspaceScope(wsId)
+})
+
 beforeEach(() => {
   apiFetch.mockReset()
   apiFetch.mockResolvedValue(null)
-  subscribe.mockClear()
-  unsubscribes.clear()
   __resetWorkspaceScopesForTest()
   setWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'w1', owningChatId: 'chat-1' })
   recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'w2', owningChatId: 'chat-2' })
@@ -109,13 +103,15 @@ describe('LspClient document sync', () => {
     client.scheduleChange('w3', 'a.ts', () => 'new')
     await client.flushChange('w3', 'a.ts')
     expect(apiFetch).not.toHaveBeenCalled()
-    expect(subscribe).not.toHaveBeenCalled()
+    expect(lspHeld()).toEqual([])
 
     recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'w3', owningChatId: 'chat-3' })
 
     expect(posts()).toEqual(['/v0/chats/chat-3/lsp/didOpen'])
     expect(bodyOf(0)).toEqual({ path: 'a.ts', languageId: 'typescript', text: 'new' })
-    expect(subscribe).toHaveBeenCalledWith('/v0/chats/chat-3/lsp/ws', expect.any(Function))
+    expect(lspHeld()).toEqual(['lsp:chat-3'])
+    await client.documentClose('w3', 'a.ts')
+    expect(lspHeld()).toEqual([])
   })
 
   it('a document closed before its deferred didOpen went out is never sent', async () => {
@@ -125,7 +121,7 @@ describe('LspClient document sync', () => {
     await client.documentClose('w3', 'a.ts')
     recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'w3', owningChatId: 'chat-3' })
     expect(apiFetch).not.toHaveBeenCalled()
-    expect(subscribe).not.toHaveBeenCalled()
+    expect(lspHeld()).toEqual([])
   })
 
   it('the home workspace has no LSP surface', async () => {
@@ -134,7 +130,7 @@ describe('LspClient document sync', () => {
     client.onDiagnosticsUpdate('home-ws', () => {})
     await client.documentOpen('home-ws', 'a.md', 'x', 'markdown')
     expect(apiFetch).not.toHaveBeenCalled()
-    expect(subscribe).not.toHaveBeenCalled()
+    expect(lspHeld()).toEqual([])
   })
 
   it('reopen re-sends didOpen only for an open document', async () => {
@@ -225,15 +221,15 @@ describe('LspClient didChange debounce and flush', () => {
 })
 
 describe('LspClient diagnostics subscription', () => {
-  it("subscribes to a workspace's topic with its first holder and delivers only its batches", () => {
+  it("holds a workspace's lsp scope with its first holder and delivers only its batches", () => {
     const client = new LspClient()
     const h1 = vi.fn()
     const h2 = vi.fn()
     client.onDiagnosticsUpdate('w1', h1)
     client.onDiagnosticsUpdate('w2', h2)
-    expect(subscribe.mock.calls.map(([t]) => t)).toEqual([TOPIC_1, TOPIC_2])
+    expect(lspHeld()).toEqual([SCOPE_1, SCOPE_2])
 
-    frameHandler(TOPIC_1)({ wsId: 'w1', diagnostics: [diag('src/shared.ts')] })
+    signal(SCOPE_1, { wsId: 'w1', diagnostics: [diag('src/shared.ts')] })
     expect(h1).toHaveBeenCalledWith('src/shared.ts', [diag('src/shared.ts')])
     expect(h2).not.toHaveBeenCalled()
   })
@@ -241,18 +237,17 @@ describe('LspClient diagnostics subscription', () => {
   it('replays the last batch to a late handler and clears files that lost their diagnostics', () => {
     const client = new LspClient()
     client.onDiagnosticsUpdate('w1', () => {})
-    frameHandler(TOPIC_1)({ wsId: 'w1', diagnostics: [diag('a.ts')] })
+    signal(SCOPE_1, { wsId: 'w1', diagnostics: [diag('a.ts')] })
 
     const late = vi.fn()
     client.onDiagnosticsUpdate('w1', late)
     expect(late).toHaveBeenCalledWith('a.ts', [diag('a.ts')])
 
-    frameHandler(TOPIC_1)({ wsId: 'w1', diagnostics: [] })
+    signal(SCOPE_1, { wsId: 'w1', diagnostics: [] })
     expect(late).toHaveBeenLastCalledWith('a.ts', [])
-    expect(subscribe).toHaveBeenCalledTimes(1)
   })
 
-  it('unsubscribes when the last handler and document of the workspace leave', async () => {
+  it('lets the scope go when the last handler and document of the workspace leave', async () => {
     const client = new LspClient()
     const off1 = client.onDiagnosticsUpdate('w1', () => {})
     const off2 = client.onDiagnosticsUpdate('w1', () => {})
@@ -261,32 +256,42 @@ describe('LspClient diagnostics subscription', () => {
 
     off1()
     off2()
-    expect(unsubscribes.get(TOPIC_1)).not.toHaveBeenCalled()
+    expect(lspHeld()).toEqual([SCOPE_1, SCOPE_2])
     await client.documentClose('w1', 'a.ts')
-    expect(unsubscribes.get(TOPIC_1)).toHaveBeenCalledTimes(1)
-    expect(unsubscribes.get(TOPIC_2)).not.toHaveBeenCalled()
+    expect(lspHeld()).toEqual([SCOPE_2])
 
     client.onDiagnosticsUpdate('w1', () => {})
-    expect(subscribe.mock.calls.filter(([t]) => t === TOPIC_1)).toHaveLength(2)
+    expect(lspHeld()).toEqual([SCOPE_1, SCOPE_2])
   })
 
-  it('unsubscribes immediately when the workspace is deleted, and never resubscribes', async () => {
+  it('moves to the new owning chat’s scope when the workspace changes hands', () => {
+    const client = new LspClient()
+    const handler = vi.fn()
+    client.onDiagnosticsUpdate('w1', handler)
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'w1', owningChatId: 'chat-9' })
+
+    expect(lspHeld()).toEqual(['lsp:chat-9'])
+    signal('lsp:chat-9', { wsId: 'w1', diagnostics: [diag('a.ts')] })
+    expect(handler).toHaveBeenCalledWith('a.ts', [diag('a.ts')])
+  })
+
+  it('lets the scope go when the workspace is deleted, and never holds it again', async () => {
     const client = new LspClient()
     const handler = vi.fn()
     client.onDiagnosticsUpdate('w2', handler)
     await client.documentOpen('w2', 'a.ts', 'x', 'typescript')
-    frameHandler(TOPIC_2)({ wsId: 'w2', diagnostics: [diag('a.ts')] })
+    signal(SCOPE_2, { wsId: 'w2', diagnostics: [diag('a.ts')] })
 
     forgetWorkspaceScope('w2')
 
-    expect(unsubscribes.get(TOPIC_2)).toHaveBeenCalledTimes(1)
+    expect(lspHeld()).toEqual([])
     expect(handler).toHaveBeenLastCalledWith('a.ts', [])
     apiFetch.mockClear()
     await client.documentSave('w2', 'a.ts')
     await client.documentClose('w2', 'a.ts')
     client.onDiagnosticsUpdate('w2', () => {})
     expect(apiFetch).not.toHaveBeenCalled()
-    expect(subscribe.mock.calls.filter(([t]) => t === TOPIC_2)).toHaveLength(1)
+    expect(lspHeld()).toEqual([])
   })
 })
 

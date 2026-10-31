@@ -1,12 +1,12 @@
 // LSP client backed by the Go daemon: document sync (didOpen/didChange/
-// didSave/didClose) over REST, diagnostics over the owning chat's /lsp/ws
-// topic, and the feature requests the Monaco providers (monaco-lsp-providers.ts)
+// didSave/didClose) over REST, diagnostics on the owning chat's lsp: stream
+// scope, and the feature requests the Monaco providers (monaco-lsp-providers.ts)
 // make. Everything is addressed by the workspace the caller names — the
 // buffer's own — never by whichever workspace is active.
 
 import { apiFetch } from '@/lib/api/fetch'
+import { holdScope, onSignal } from '@/core/stream/stream'
 import { report } from '@/lib/errors/report'
-import { wsManager } from '@/lib/ws/manager'
 import { isHomeWorkspace, lspBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 
@@ -64,8 +64,8 @@ function post(url: string, body: unknown, signal?: AbortSignal): Promise<unknown
 
 /**
  * One workspace's LSP state. It exists while it holds an open document or a
- * diagnostics handler; its socket is open while it exists and the workspace's
- * owning chat is known (the scope registry is the owner of that fact).
+ * diagnostics handler; it holds the owning chat's lsp: scope while it exists and
+ * that chat is known (the scope registry is the owner of that fact).
  */
 class WorkspaceSession {
   readonly handlers = new Set<DiagnosticsHandler>()
@@ -78,7 +78,7 @@ class WorkspaceSession {
     { read: () => string | null; timer: ReturnType<typeof setTimeout> }
   >()
   private lastByFile = new Map<string, LspDiagnostic[]>()
-  /** The chat whose topic the socket is on, and its unsubscribe. */
+  /** The chat whose lsp: scope is held, and its release. */
   private socket: { chatId: string; close: () => void } | null = null
   private readonly stopWatchingScope: () => void
 
@@ -121,17 +121,25 @@ class WorkspaceSession {
     for (const filePath of [...this.pendingChanges.keys()]) this.cancelChange(filePath)
   }
 
-  // The owning chat arriving opens the socket and sends deferred opens; it
-  // going away (the workspace was deleted) closes the socket for good.
+  // The owning chat arriving holds its scope and sends deferred opens; it going
+  // away (the workspace was deleted) lets the scope go for good.
   private followScope(): void {
     const chatId = this.base() ? getOwningChatId(this.wsId) : null
     if (chatId === (this.socket?.chatId ?? null)) return
     this.closeSocket()
     if (!chatId) return
     const base = this.base()!
+    const scope = `lsp:${chatId}`
+    const stopSignals = onSignal<DiagnosticsEvent>(scope, 'diagnostics', (event) =>
+      this.dispatch(event),
+    )
+    const release = holdScope(scope)
     this.socket = {
       chatId,
-      close: wsManager.subscribe(`${base}/ws`, (raw) => this.dispatch(raw as DiagnosticsEvent)),
+      close: () => {
+        release()
+        stopSignals()
+      },
     }
     const opens = [...this.deferred]
     this.deferred.clear()
