@@ -46,9 +46,7 @@ const UNDESCRIBED_DIRECTIVE_BASELINE = [
   'src/features/terminal/hooks/use-terminal-connection.ts',
   'src/features/terminal/utils/input-tape.ts',
 ]
-const NO_ASSERTION_BASELINE = [
-  'src/__tests__/features/agent/composer/excalidraw-takeover.test.tsx',
-]
+const NO_ASSERTION_BASELINE = ['src/__tests__/features/agent/composer/excalidraw-takeover.test.tsx']
 
 export const BASELINES = [
   { rule: 'max-lines', files: MAX_LINES_BASELINE },

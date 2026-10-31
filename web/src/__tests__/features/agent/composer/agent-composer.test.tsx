@@ -120,6 +120,8 @@ describe('AgentComposer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
 
     expect(onSend).toHaveBeenCalledTimes(1)
+    await load('')
+    expect(screen.getByRole('button', { name: 'Send prompt' })).toBeDisabled()
   })
 
   it('opens the real excalidraw takeover from the plus button and restores the bar on close', async () => {
@@ -336,7 +338,6 @@ describe('AgentComposer drag-and-drop', () => {
     await waitFor(() => expect(markdown()).toContain('[b.pdf](chats/c1/attachments/y-b.pdf)'))
   })
 
-  // A small well-formed CSV is inlined as a table, never uploaded.
   it('resolves a small, well-formed dropped CSV inline as a markdown table, without uploading', async () => {
     const { pill, markdown } = draw()
 

@@ -69,9 +69,11 @@ export interface ComposerShape {
   slashQuery: string | null
 }
 
-// A list or quote paragraph is text-bearing markdown even when it has no letters.
+// A list or quote paragraph is text-bearing markdown even when it has no letters;
+// a block id is the editor's bookkeeping, not markdown.
 function blankParagraph(node: Descendant): boolean {
-  if (!('type' in node) || node.type !== 'p' || Object.keys(node).length > 2) return false
+  const markup = Object.keys(node).filter((key) => key !== 'id' && key !== 'children')
+  if (!('type' in node) || node.type !== 'p' || markup.length > 1) return false
   return NodeApi.string(node).trim() === ''
 }
 
@@ -283,6 +285,8 @@ export function ChatMarkdownEditor({
     // Unused here, and it re-subscribes every edited block to the editor store on
     // each keystroke: one more render queued behind every key typed.
     navigationFeedback: false,
+    // Plate drops block ids under NODE_ENV=test; kept so tests see the browser's blocks.
+    nodeId: true,
   })
 
   // Plate copies its `onChange` prop into its own store from an effect, so a new
