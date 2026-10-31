@@ -1,5 +1,5 @@
 import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
-import type { MarkerKind, PlanItem, ToolCallBody } from '@/features/agent/api/chat-rows'
+import type { MarkerKind, PlanItem, RowBodies, ToolCallBody } from '@/features/agent/api/chat-rows'
 
 interface ItemBase {
   id: string
@@ -30,7 +30,7 @@ export interface TextItem extends ItemBase {
 export type ToolStatus = 'running' | 'ok' | 'error' | 'declined' | 'interrupted' | 'abandoned'
 
 /** A tool's status once `body` lands on it. */
-export function toolStatus(body: ToolCallBody, prev: ToolStatus | undefined): ToolStatus {
+export function toolStatus(body: RowBodies['tool_call'], prev: ToolStatus | undefined): ToolStatus {
   if (body.phase === 'post') return body.status === 'error' ? 'error' : 'ok'
   if (body.phase === 'fail') {
     if (body.interrupted) return 'interrupted'
