@@ -778,6 +778,94 @@ describe('AgentChatPane', () => {
     })
   })
 
+  describe('a dormant chat shown on the terminal starts its session, whichever way it got there', () => {
+    const toggleChord = () =>
+      act(async () => {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: '/', metaKey: true }))
+      })
+    const nonHotswap = (store: Store) =>
+      store.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
+
+    it('starts it from the toggle chord on a hotswap chat', async () => {
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      await renderPane(store, openChatPane(store, 'c1', ''))
+
+      await toggleChord()
+
+      expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1')
+    })
+
+    it('starts it from the toggle chord on a non-hotswap chat', async () => {
+      const store = seedWorkspace([dormantChat({ id: 'c1', provider: 'codex' })])
+      nonHotswap(store)
+      switchToTerminalFn.mockResolvedValue('')
+      await renderPane(store, openChatPane(store, 'c1', ''))
+
+      await toggleChord()
+
+      await vi.waitFor(() => expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1'))
+    })
+
+    it('does not start a chat that went live while the switch was in flight', async () => {
+      const store = seedWorkspace([dormantChat({ id: 'c1', provider: 'codex' })])
+      nonHotswap(store)
+      switchToTerminalFn.mockImplementation(() => {
+        writeChat(store, liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'codex' }))
+        return Promise.resolve('pty1')
+      })
+      await renderPane(store, openChatPane(store, 'c1', ''))
+
+      fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
+
+      expect(await screen.findByTestId('xterm')).toBeInTheDocument()
+      expect(resumeChatFn).not.toHaveBeenCalled()
+    })
+
+    it('starts a chat that went idle while the switch was in flight', async () => {
+      const store = seedWorkspace([
+        liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'codex' }),
+      ])
+      nonHotswap(store)
+      switchToTerminalFn.mockImplementation(() => {
+        writeChat(store, dormantChat({ id: 'c1', provider: 'codex' }))
+        return Promise.resolve('')
+      })
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
+
+      await toggleChord()
+
+      await vi.waitFor(() => expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1'))
+    })
+
+    it.each([
+      ['hotswap', (_store: Store) => undefined],
+      ['non-hotswap', nonHotswap],
+    ])('does not start it on a host that does not answer (%s)', async (_name, configure) => {
+      const store = seedWorkspace([dormantChat({ id: 'c1', provider: 'codex' })])
+      configure(store)
+      switchToTerminalFn.mockResolvedValue('')
+      await renderPane(store, openChatPane(store, 'c1', ''))
+      act(() => reportChannelState(DAEMON_CHANNEL, false, 'local'))
+
+      await toggleChord()
+      fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
+
+      expect(resumeChatFn).not.toHaveBeenCalled()
+      expect(switchToTerminalFn).not.toHaveBeenCalled()
+      expect(toastErrorFn).not.toHaveBeenCalled()
+    })
+
+    it('says the host is offline, and disables Start session, instead', async () => {
+      landOnTerminal()
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      await renderPane(store, openChatPane(store, 'c1', ''))
+
+      act(() => reportChannelState(DAEMON_CHANNEL, false, 'local'))
+
+      expect(screen.getByRole('button', { name: /start session/i })).toBeDisabled()
+    })
+  })
+
   describe('terminal view of a dormant non-hotswap chat', () => {
     it('records the move, then starts the session so the TUI is what comes up', async () => {
       const store = seedWorkspace([dormantChat({ id: 'c1', provider: 'codex' })])

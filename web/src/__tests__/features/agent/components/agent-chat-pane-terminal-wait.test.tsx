@@ -1,4 +1,5 @@
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
+import { reportChannelState } from '@/lib/ws/connection-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { createElement } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -193,13 +194,9 @@ async function setWait(store: Store, wait: { kind: string } | null) {
   })
 }
 
-/** Which surface is showing. The pane keeps both mounted and hides one via
- *  `hidden` on `agent-chat-surface` — read THAT rather than the ViewSwitcher
- *  tab's own `aria-selected`, because the blank chat's copy of that switcher
- *  lives inside AgentEmptyDocument's control-bar slot and is not on screen at
- *  all while a reviving/idle/trust-wait signpost occupies that same slot
- *  instead (the terminal surface still carries its own copy, but it is
- *  itself the thing under test, not a reliable read of it). */
+/** Which surface is showing, read off `hidden` on `agent-chat-surface` rather than the
+ *  switcher tab's `aria-selected`: the blank chat's switcher copy is not on screen while a
+ *  signpost occupies its slot, and the terminal's own copy is the thing under test. */
 const showing = () =>
   (screen.getByTestId('agent-chat-surface').className.includes('hidden') ? 'terminal' : 'chat') as
     'chat' | 'terminal'
@@ -209,6 +206,7 @@ const showing = () =>
 const surfaceToggle = () => screen.getByRole('tab', { name: 'Terminal' })
 
 beforeEach(() => {
+  reportChannelState('test://daemon', true, 'local')
   resetChatPresentationMemoryForTests()
   // The wait banner is about a chat that is on the Chat surface.
   useSettingsStore.setState({

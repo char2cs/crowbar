@@ -39,4 +39,5 @@
 
 [data-theme='crowbar'][data-platform='linux']:not(.dark) {
   --chrome-bg: oklch(0.182 0.005 106.7);
+  --pane-chrome-bg: var(--pane-background);
 }

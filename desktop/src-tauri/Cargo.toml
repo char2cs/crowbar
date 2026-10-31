@@ -81,6 +81,9 @@ objc2-foundation = { version = "0.3", features = ["NSData", "NSDictionary", "NSE
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKWebView", "WKContentWorld", "WKFrameInfo", "WKSnapshotConfiguration"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSPasteboard"] }
 block2 = "0.6"
+# keyring's macOS backend wraps security-framework errors; downcasting them
+# needs the same version keyring already resolves.
+security-framework = "3"
 
 # Agent control of browser tabs on Linux: WebKitGTK's async script call and
 # snapshot. Same versions tauri/wry already resolve; the png feature is for the

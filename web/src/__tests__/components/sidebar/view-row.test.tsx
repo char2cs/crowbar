@@ -1,6 +1,7 @@
 import { act, useRef } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
+import { recentsRowOf, registerRecentsRow } from '@/components/sidebar/lib/recents-row-registry'
 import { RecentsViewRow } from '@/components/sidebar/view-row'
 import { useSidebarDrag } from '@/components/sidebar/hooks/use-sidebar-drag'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
@@ -93,10 +94,17 @@ interface BandProps {
   viewIds: readonly string[]
   onFocus: (viewId: string) => void
   onClose: (viewId: string) => void
+  registerRow?: (row: SidebarRowType) => () => void
 }
 
-function Band({ viewIds, onFocus, onClose }: BandProps) {
+function Band({ viewIds, onFocus, onClose, registerRow }: BandProps) {
   const rows = useRef(new Map<string, SidebarRowType>())
+  const track = (row: SidebarRowType) => {
+    rows.current.set(row.id, row)
+    return () => {
+      rows.current.delete(row.id)
+    }
+  }
   const drag = useSidebarDrag({
     ...DRAG_PROPS,
     subjectsFor: (rowId) => {
@@ -113,7 +121,7 @@ function Band({ viewIds, onFocus, onClose }: BandProps) {
           onFocus={onFocus}
           onClose={onClose}
           drag={drag}
-          registerRow={(row) => rows.current.set(row.id, row)}
+          registerRow={registerRow ?? track}
         />
       ))}
     </div>
@@ -142,6 +150,16 @@ function groupAndSolo() {
 }
 
 describe('RecentsViewRow', () => {
+  it('forgets the row of a chat whose tab closed', () => {
+    groupAndSolo()
+    renderBand({ registerRow: registerRecentsRow })
+    expect(recentsRowOf('chat-3')?.id).toBe('chat-3')
+
+    cleanup()
+
+    expect(recentsRowOf('chat-3')).toBeUndefined()
+  })
+
   it('one row per view: a group draws as one shell around its members', () => {
     groupAndSolo()
     renderBand()

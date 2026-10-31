@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createStripDrag } from '@/components/sidebar/lib/tab-strip-drag'
 
 const BOX = { left: 100, right: 500, top: 0, bottom: 32 }
@@ -349,5 +349,132 @@ describe('createStripDrag', () => {
     const ghost = document.createElement('div')
     drag.move(110, 16, ghost)
     expect(ghostAt(ghost).x).toBe(100)
+  })
+
+  // Queued, never run inline: an edge-scroll frame re-arms itself, so a synchronous clock never returns.
+  let frames: FrameRequestCallback[] = []
+  beforeEach(() => {
+    frames = []
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb))
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+  })
+  afterEach(() => vi.unstubAllGlobals())
+  const flush = () => frames.splice(0).forEach((cb) => cb(0))
+
+  describe('scrolling the strip while a tab is held', () => {
+    it('edge-scrolls the strip sideways from the pointer x, in the band, and stops on dispose', () => {
+      const { strip, tabs } = build()
+      const drag = createStripDrag(strip, tabs[0].row, { dx: 50, dy: 16 })!
+      drag.move(499, 16, null)
+      flush()
+      expect(strip.scrollLeft).toBeGreaterThan(0)
+      const at = strip.scrollLeft
+      drag.dispose()
+      flush()
+      expect(strip.scrollLeft).toBe(at)
+    })
+
+    it('does not scroll when the pointer is out of the band, or mid-strip', () => {
+      const { strip, tabs } = build()
+      const drag = createStripDrag(strip, tabs[0].row, { dx: 50, dy: 16 })!
+      drag.move(300, 16, null)
+      drag.move(499, 300, null)
+      flush()
+      expect(strip.scrollLeft).toBe(0)
+      drag.dispose()
+    })
+
+    it('re-aims the slide at the tabs now under the pointer when the strip scrolls', () => {
+      const { strip, tabs } = build()
+      const drag = createStripDrag(strip, tabs[0].row, { dx: 50, dy: 16 })!
+      drag.move(150, 16, null)
+      expect(slides(tabs)).toEqual(['', '', '', ''])
+      strip.scrollLeft = 100
+      strip.dispatchEvent(new Event('scroll'))
+      expect(slides(tabs)).toEqual(['', 'translateX(-100px)', '', ''])
+      drag.dispose()
+      strip.scrollLeft = 200
+      strip.dispatchEvent(new Event('scroll'))
+      expect(slides(tabs)).toEqual(['', '', '', ''])
+    })
+  })
+
+  describe('settling a dropped tab', () => {
+    it('keeps the transition when a child inside the tab finishes its own', () => {
+      const { strip, tabs } = build()
+      const ghost = document.createElement('div')
+      const drag = createStripDrag(strip, tabs[0].row, { dx: 50, dy: 16 })!
+      drag.move(400, 16, ghost)
+      drag.settle(400)
+      flush()
+      const child = document.createElement('span')
+      tabs[0].tab.appendChild(child)
+      child.dispatchEvent(new Event('transitionend', { bubbles: true }))
+      expect(tabs[0].tab.style.transition).toContain('transform')
+      const own = new Event('transitionend')
+      Object.assign(own, { propertyName: 'transform' })
+      tabs[0].tab.dispatchEvent(own)
+      expect(tabs[0].tab.style.transition).toBe('')
+    })
+
+    it('clears the inline transition at once when there is nowhere to glide from', () => {
+      const { strip, tabs } = build()
+      const ghost = document.createElement('div')
+      const drag = createStripDrag(strip, tabs[0].row, { dx: 50, dy: 16 })!
+      drag.move(100, 16, ghost)
+      drag.settle(100)
+      flush()
+      expect(tabs[0].tab.style.transition).toBe('')
+      expect(tabs[0].tab.style.transform).toBe('')
+    })
+  })
+
+  describe('a shell inset inside its slot', () => {
+    // Real tabs carry mx-0.5 on the shell: it sits 2px inside the slot the strip measures.
+    function buildInset() {
+      const made = build()
+      made.tabs.forEach(({ tab, row }, i) => {
+        const left = 100 + i * 100 + 2
+        row.getBoundingClientRect = () =>
+          ({ left, right: left + 96, width: 96, top: 0, height: 32, bottom: 32 }) as DOMRect
+        void tab
+      })
+      return made
+    }
+
+    it('stops the ghost on the shell positions, not on the slot edges', () => {
+      const { strip, tabs } = buildInset()
+      const ghost = document.createElement('div')
+      const drag = createStripDrag(strip, tabs[1].row, { dx: 48, dy: 16 })!
+      drag.move(100, 16, ghost)
+      expect(ghostAt(ghost).x).toBe(102)
+      drag.move(500, 16, ghost)
+      expect(ghostAt(ghost).x).toBe(402)
+    })
+
+    it('lands the settled tab so its shell, not its slot, meets the ghost', () => {
+      const { strip, tabs } = buildInset()
+      const ghost = document.createElement('div')
+      const drag = createStripDrag(strip, tabs[0].row, { dx: 48, dy: 16 })!
+      drag.move(400, 16, ghost)
+      drag.settle(400)
+      // The ghost sat at 352; slot 2 starts at 300 and its shell 2px in.
+      expect(tabs[0].tab.style.transform).toBe('translate(50px, 0px)')
+    })
+  })
+
+  describe('the gap a pane opens', () => {
+    it("is the new tab's own width once the strip redistributes, within the tab bounds", () => {
+      const { strip, tabs } = build()
+      for (const { tab } of tabs) {
+        tab.style.minWidth = '50px'
+        tab.style.maxWidth = '100px'
+      }
+      const drag = createStripDrag(strip, document.createElement('div'), { dx: 3, dy: 3 })!
+      expect(drag.ghostRows()).toMatchObject({ width: 80 })
+      drag.move(250, 16, null)
+      expect(slides(tabs)).toEqual(['', 'translateX(80px)', 'translateX(80px)', 'translateX(80px)'])
+      drag.dispose()
+    })
   })
 })

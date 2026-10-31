@@ -8,6 +8,7 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import { loadChatHistory, saveChatHistory } from '@/lib/persistence/chat-history'
 import { resetDB } from '@/lib/persistence/idb'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 
 const { listChatMessagesFn } = vi.hoisted(() => ({ listChatMessagesFn: vi.fn() }))
 vi.mock('@/features/agent/api/agent-api', () => ({ listChatMessages: listChatMessagesFn }))
@@ -53,6 +54,7 @@ describe('chat ledger store', () => {
   beforeEach(() => {
     listChatMessagesFn.mockReset()
     chatLedgerStore.setState({ ledgers: {} })
+    useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
     globalThis.indexedDB = new IDBFactory()
     resetDB()
   })
@@ -140,7 +142,7 @@ describe('chat ledger store', () => {
       (await loadChatHistory(chatId))?.messages.map((m) => m.sequence)
 
     it('keeps the cached transcript when the first page cannot be fetched', async () => {
-      await saveChatHistory('c1', { messages: [message(1), message(2)], hasOlder: false })
+      await saveChatHistory('c1', { messages: [message(1), message(2)], hasOlder: false }, 'local')
       listChatMessagesFn.mockRejectedValue(new Error('host unreachable'))
 
       await loadInitial('ws', 'c1')
@@ -151,7 +153,7 @@ describe('chat ledger store', () => {
     })
 
     it('shows the cached transcript while the network is still answering, then replaces it', async () => {
-      await saveChatHistory('c1', { messages: [message(1), message(2)], hasOlder: false })
+      await saveChatHistory('c1', { messages: [message(1), message(2)], hasOlder: false }, 'local')
       const pending = deferred<AgentChatMessagesPage>()
       listChatMessagesFn.mockReturnValue(pending.promise)
 
@@ -173,6 +175,44 @@ describe('chat ledger store', () => {
       merge('c1', [message(2)])
 
       await vi.waitFor(async () => expect(await cachedSequences('c1')).toEqual([1, 2]))
+    })
+
+    it('keeps the cached page when a live message merges in before the cache has painted', async () => {
+      await saveChatHistory('c1', { messages: [message(1), message(2)], hasOlder: false }, 'local')
+      listChatMessagesFn.mockRejectedValue(new Error('host unreachable'))
+
+      const load = loadInitial('ws', 'c1')
+      merge('c1', [message(9)])
+      await load
+
+      expect(ledgerOf('c1').messages.map((m) => m.sequence)).toEqual([1, 2, 9])
+      expect(await cachedSequences('c1')).toEqual([1, 2])
+    })
+
+    it('does not rewrite the cache for a merge that changes nothing', async () => {
+      listChatMessagesFn.mockResolvedValue(page(1))
+      await loadInitial('ws', 'c1')
+      await vi.waitFor(async () => expect(await cachedSequences('c1')).toEqual([1]))
+      await saveChatHistory('c1', { messages: [message(42)], hasOlder: false }, 'local')
+
+      merge('c1', [message(1)])
+
+      expect(await cachedSequences('c1')).toEqual([42])
+    })
+
+    it('forgets the transcripts of a host that is removed', async () => {
+      await saveChatHistory('c1', { messages: [message(1)], hasOlder: false }, 'h1')
+      useHostConfigStore.getState().addHost({
+        id: 'h1',
+        name: 'H1',
+        endpoint: 'https://h1',
+        pairedFingerprint: 'fp',
+        clientId: 'cl',
+      })
+
+      useHostConfigStore.getState().removeHost('h1')
+
+      await vi.waitFor(async () => expect(await cachedSequences('c1')).toBeUndefined())
     })
 
     it('stores only the newest page of a longer ledger and remembers there is more', async () => {
