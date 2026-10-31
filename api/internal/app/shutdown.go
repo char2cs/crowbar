@@ -52,6 +52,8 @@ func (c *Container) Shutdown(
 
 	// Operation work commits events and runs git, so it ends while the reactors and aggregates still run.
 	opsErr := c.Operations.Shutdown(ctx)
+	// Operations publish until they shut down; only then do the sockets close.
+	c.Stream.Close()
 
 	// Before the PTYs die: their exits record daemon_restart, not exited.
 	shutdownAgentRunners(c.Usecases)

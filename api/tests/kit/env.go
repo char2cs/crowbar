@@ -192,7 +192,7 @@ func NewEnvWithHome(
 		return nil, releaseHome(session, fmt.Errorf("kit: adapter: %w", err))
 	}
 
-	appContainer, err := app.New(ctx, eng, adapters, session)
+	appContainer, err := app.New(ctx, eng, adapters, session, v0.EncodeEntity)
 	if err != nil {
 		eng.Close()
 		return nil, releaseHome(session, errors.Join(fmt.Errorf("kit: app: %w", err), adapters.Close()))

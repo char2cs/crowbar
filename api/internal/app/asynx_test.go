@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -17,10 +18,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	domainstream "github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
+
+// encodeJSON stands in for the API layer's encoder, which this package cannot import.
+func encodeJSON(_ domainstream.EntityKind, v any) (json.RawMessage, error) { return json.Marshal(v) }
 
 func TestNewAsynx_BuildsInstance(t *testing.T) {
 	es, err := eventsqlite.NewEventStore(":memory:")
@@ -137,7 +142,7 @@ func TestNewAggregates_AChatHistoryThatPatchedPlacementLoads(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(eng.Close)
 
-	c, err := New(ctx, eng, adapters, migratetest.NoPostOpen())
+	c, err := New(ctx, eng, adapters, migratetest.NoPostOpen(), encodeJSON)
 	require.NoError(t, err)
 
 	got, err := c.Repositories.AgentChat.LoadChat(ctx, "c-1")

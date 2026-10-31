@@ -19,6 +19,7 @@ import (
 	reposPkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/search"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/stream"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/system"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads"
@@ -70,7 +71,8 @@ func (c *Container) Register(
 	// Top-level, non-entity-scoped routes stay on rg (outside /projects).
 	health.Register(rg, c.app.Usecases.AgentTurn)
 	system.Register(rg)
-	operations.Register(rg, c.app.Operations, c.operations.Handle)
+	operations.Register(rg, c.app.Operations)
+	stream.Register(rg, c.app.Stream)
 	if c.logs != nil {
 		console.Register(rg, c.logs)
 	}

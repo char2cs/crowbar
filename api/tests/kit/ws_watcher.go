@@ -116,6 +116,12 @@ func (w *WSWatcher) ReadUntil(
 	}
 }
 
+// WriteJSON sends v to the daemon.
+func (w *WSWatcher) WriteJSON(t *testing.T, v any) {
+	t.Helper()
+	require.NoError(t, w.conn.WriteJSON(v), "ws: WriteJSON")
+}
+
 // Close closes the socket before the test ends, as a client letting go does.
 func (w *WSWatcher) Close(
 	t *testing.T,

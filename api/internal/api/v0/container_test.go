@@ -38,7 +38,7 @@ func newApp(t *testing.T) testContainers {
 	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
-	a, err := app.New(ctx, eng, adapters, migratetest.NoPostOpen())
+	a, err := app.New(ctx, eng, adapters, migratetest.NoPostOpen(), v0.EncodeEntity)
 	require.NoError(t, err)
 	// app.Close stops the asynx pools; t.Context's cancel stops the sweeps.
 	t.Cleanup(a.Close)

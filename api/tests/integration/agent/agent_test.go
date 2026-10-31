@@ -123,7 +123,7 @@ func newHarness(t *testing.T) *harness {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
-	appContainer, err := app.New(ctx, eng, adapters, session)
+	appContainer, err := app.New(ctx, eng, adapters, session, v0.EncodeEntity)
 	require.NoError(t, err)
 
 	router := gin.New()

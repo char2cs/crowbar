@@ -34,7 +34,6 @@ type Container struct {
 	documents  *ws.Broadcaster[domain.FileChangeEvent]
 	lsp        *ws.Broadcaster[lspdomain.DiagnosticsEvent]
 	agentChats *ws.Broadcaster[dto.AgentChatEvent]
-	operations *ws.Broadcaster[operationFrame]
 	// chatScopes answers what each agent-chat frame namespaces under — see
 	// agent_chat_scope.go.
 	chatScopes *agentChatScopes
@@ -72,7 +71,6 @@ func New(
 		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(appContainer), appContainer)),
 		documents:  ws.NewBroadcaster(withHostWatchLifecycle(documentsDef(), appContainer)),
 		lsp:        ws.NewBroadcaster(withLSPLifecycle(lspDef(appContainer, engContainer), appContainer)),
-		operations: ws.NewBroadcaster(operationsDef(appContainer.Operations)),
 		chatScopes: newAgentChatScopes(),
 		app:        appContainer,
 		eng:        engContainer,
@@ -275,11 +273,6 @@ func (c *Container) PushFile(
 func (c *Container) PushPlacementChanged() {
 	c.git.RequestRebind()
 	c.files.RequestRebind()
-}
-
-// PushOperation implements hub.Subscriber.
-func (c *Container) PushOperation(op domain.Operation) {
-	c.operations.Push(operationFrame{Operation: op})
 }
 
 // Close stops the worktree streams' rebind workers. Call it once no placement

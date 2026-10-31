@@ -25,6 +25,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	crowbarapi "github.com/char2cs/crowbar/api/internal/api"
+	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/tests/kit"
@@ -85,7 +86,7 @@ func newHarnessAt(
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 
-	appContainer, err := app.New(ctx, engines, adapters, session)
+	appContainer, err := app.New(ctx, engines, adapters, session, v0.EncodeEntity)
 	require.NoError(t, err)
 
 	apiContainer, err := crowbarapi.New(appContainer, engines, fstest.MapFS{})

@@ -10,6 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 
 	"github.com/char2cs/asynx"
+	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
@@ -19,12 +20,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	repotree "github.com/char2cs/crowbar/api/internal/app/repositories/tree"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	"github.com/char2cs/crowbar/api/internal/app/stream"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	domainstream "github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/internal/engine/provider/poll"
 )
@@ -39,7 +42,9 @@ type Container struct {
 	Usecases     *usecases.Container
 	Realtime     *realtime.Service
 	// Operations runs the work routes hand off after answering 202.
-	Operations  *operation.Service
+	Operations *operation.Service
+	// Stream publishes every operation to the clients holding the projects scope.
+	Stream      *stream.Hub
 	crowbarHome string
 
 	// engines is retained for ONE reason: Shutdown must quiesce the terminal engine
@@ -64,6 +69,7 @@ func New(
 	engines *engine.Container,
 	adapters *adapter.Container,
 	post migrate.PostOpenRunner,
+	encode stream.Encoder,
 ) (*Container, error) {
 	h := hub.NewHub()
 	rm, err := repositories.OpenReadModels(adapters, func(string) { h.BroadcastPlacementChanged() })
@@ -80,7 +86,14 @@ func New(
 		return nil, err
 	}
 
-	ops := operation.New(gormStores.Operations, h.BroadcastOperation, time.Now)
+	// The hub snapshots the service it publishes for, so the publish names it late.
+	var hubStream *stream.Hub
+	ops := operation.New(gormStores.Operations, func(op domain.Operation) {
+		hubStream.Entity(domainstream.Projects, domainstream.KindOperation, op.ID, op)
+	}, time.Now)
+	hubStream = stream.New(uuid.NewString(), map[domainstream.ScopeKind]stream.Source{
+		domainstream.KindProjects: stream.NewProjectsSource(ops, encode),
+	}, nil, encode)
 	chatSnapshots := newChatSnapshots(h)
 	placement, err := newPlacement(ctx, ax, gormStores, h, chatSnapshots)
 	if err != nil {
@@ -114,6 +127,7 @@ func New(
 		GORM:           gormStores,
 		Usecases:       ucs,
 		Operations:     ops,
+		Stream:         hubStream,
 		crowbarHome:    crowbarHome,
 		engines:        engines,
 		axWorkspace:    ax.workspace,

@@ -107,6 +107,4 @@ type Subscriber interface {
 	// PushPlacementChanged receives the fact that some chat or folder was
 	// created, moved, re-anchored or deleted, already visible in the read model.
 	PushPlacementChanged()
-	// PushOperation receives one saved operation row.
-	PushOperation(op domain.Operation)
 }

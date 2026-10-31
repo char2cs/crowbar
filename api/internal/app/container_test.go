@@ -16,6 +16,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/adapter/migrations"
+	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
@@ -38,7 +39,7 @@ func TestApp_New_BootsFullLayer(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
-	c, err := app.New(ctx, newEng(t), adapters, migratetest.NoPostOpen())
+	c, err := app.New(ctx, newEng(t), adapters, migratetest.NoPostOpen(), v0.EncodeEntity)
 	require.NoError(t, err)
 	assert.NotNil(t, c.Hub)
 	assert.NotNil(t, c.Repositories)
@@ -54,7 +55,7 @@ func TestApp_New_UsecasesWorkspaceListEndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
-	c, err := app.New(ctx, newEng(t), adapters, migratetest.NoPostOpen())
+	c, err := app.New(ctx, newEng(t), adapters, migratetest.NoPostOpen(), v0.EncodeEntity)
 	require.NoError(t, err)
 
 	_, err = c.Repositories.Workspace.Create(
@@ -95,7 +96,7 @@ func TestApp_New_HandsEveryPostOpenStepToTheRunner(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, adapters.Close()) })
 	runner := &recordingRunner{}
 
-	c, err := app.New(t.Context(), newEng(t), adapters, runner)
+	c, err := app.New(t.Context(), newEng(t), adapters, runner, v0.EncodeEntity)
 
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
@@ -116,7 +117,7 @@ func TestApp_New_AHaltedMigrationFailsTheBoot(t *testing.T) {
 	halt := &migrate.Halt{Reason: migrate.HaltStepFailed, Message: "step 3 failed"}
 
 	pprof.Do(t.Context(), pprof.Labels("app_new", t.Name()), func(ctx context.Context) {
-		_, err = app.New(ctx, eng, adapters, &recordingRunner{err: halt})
+		_, err = app.New(ctx, eng, adapters, &recordingRunner{err: halt}, v0.EncodeEntity)
 	})
 
 	var got *migrate.Halt
@@ -154,7 +155,7 @@ func TestApp_New_ACancelledBootStillDrainsWhatItStarted(t *testing.T) {
 	defer cancel()
 
 	pprof.Do(ctx, pprof.Labels("app_new", t.Name()), func(ctx context.Context) {
-		_, err = app.New(ctx, eng, adapters, cancellingRunner{cancel: cancel})
+		_, err = app.New(ctx, eng, adapters, cancellingRunner{cancel: cancel}, v0.EncodeEntity)
 	})
 
 	require.ErrorIs(t, err, context.Canceled)

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
+	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
@@ -32,7 +33,7 @@ func TestApp_Shutdown_BoundedByCtx_DoesNotHangOnStuckReactor(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
-	c, err := app.New(ctx, newEng(t), adapters, migratetest.NoPostOpen())
+	c, err := app.New(ctx, newEng(t), adapters, migratetest.NoPostOpen(), v0.EncodeEntity)
 	require.NoError(t, err)
 
 	// A reactor that is inside the gate and never leaves — exactly the shape of a real
@@ -78,7 +79,7 @@ func TestApp_Shutdown_HappyPath_DrainsCleanly(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
-	c, err := app.New(ctx, newEng(t), adapters, migratetest.NoPostOpen())
+	c, err := app.New(ctx, newEng(t), adapters, migratetest.NoPostOpen(), v0.EncodeEntity)
 	require.NoError(t, err)
 
 	require.NoError(t, c.Shutdown(context.Background()))
@@ -97,7 +98,7 @@ func TestApp_Shutdown_LogsAgentToolUsage(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
-	c, err := app.New(ctx, newEng(t), adapters, migratetest.NoPostOpen())
+	c, err := app.New(ctx, newEng(t), adapters, migratetest.NoPostOpen(), v0.EncodeEntity)
 	require.NoError(t, err)
 
 	// One call through DispatchMCP, the daemon's only entry to the tool surface.
@@ -135,7 +136,7 @@ func TestApp_Shutdown_GateRefusesNewWorkOnceDraining(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
-	c, err := app.New(ctx, newEng(t), adapters, migratetest.NoPostOpen())
+	c, err := app.New(ctx, newEng(t), adapters, migratetest.NoPostOpen(), v0.EncodeEntity)
 	require.NoError(t, err)
 
 	gate := c.Repositories.Drain().Gate
@@ -156,7 +157,7 @@ func TestApp_Abandon_AWedgedReactorHoldsItNoLongerThanTheGrace(t *testing.T) {
 	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, adapters.Close()) })
-	c, err := app.New(context.Background(), newEng(t), adapters, migratetest.NoPostOpen())
+	c, err := app.New(context.Background(), newEng(t), adapters, migratetest.NoPostOpen(), v0.EncodeEntity)
 	require.NoError(t, err)
 	gate := c.Repositories.Drain().Gate
 	require.True(t, gate.Enter(), "a reactor that never leaves")

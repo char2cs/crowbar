@@ -577,8 +577,8 @@ func extraRoutes() []string {
 		// /system/prerequisites rather than inside the entity hierarchy.
 		"GET /v0/system/perf",
 		"POST /v0/system/perf",
-		// Operations are process-wide rows, so they mount top-level too.
-		"GET /v0/operations",
+		// The one stream and operations are process-wide, so they mount top-level too.
+		"GET /v0/stream",
 		"DELETE /v0/operations/:id",
 	}
 }

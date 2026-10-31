@@ -275,13 +275,4 @@ func (h *Hub) BroadcastPlacementChanged() {
 	}
 }
 
-// BroadcastOperation fans one saved operation out to every subscriber.
-func (h *Hub) BroadcastOperation(op domain.Operation) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, s := range h.subscribers {
-		s.PushOperation(op)
-	}
-}
-
 var _ WebSocketHub = (*Hub)(nil)

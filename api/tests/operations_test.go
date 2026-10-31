@@ -15,32 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// awaitOperation dials the operations stream and reads frames until done holds
-// for operation id. The snapshot sent on connect carries the operation's current
-// row, so a change that happened before the dial is never missed.
-func awaitOperation(
-	t *testing.T,
-	h *harness,
-	id string,
-	done func(domain.Operation) bool,
-) domain.Operation {
-	t.Helper()
-	conn := h.dial("/v0/operations")
-	var got domain.Operation
-	readUntil(t, conn, func(frame map[string]any) bool {
-		if frame["id"] != id {
-			return false
-		}
-		raw, err := json.Marshal(frame)
-		require.NoError(t, err)
-		got = domain.Operation{}
-		require.NoError(t, json.Unmarshal(raw, &got))
-		return done(got)
-	})
-	require.NoError(t, conn.Close())
-	return got
-}
-
 func operationSettled(op domain.Operation) bool {
 	return op.State == domain.OpSucceeded || op.State == domain.OpFailed
 }
