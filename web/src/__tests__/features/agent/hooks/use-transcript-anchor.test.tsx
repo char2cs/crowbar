@@ -185,8 +185,7 @@ describe('useTranscriptAnchor', () => {
     grow(1300)
     frames(1500)
     expect(scroller.scrollTop).toBe(570)
-    // Back down within a row: the reader rejoins the live end.
-    readerScrollsTo(scroller, 900 - 50)
+    readerScrollsTo(scroller, 900 - 50) // back down within a row: rejoins the live end
     grow(1400)
     frames(1500)
     expect(scroller.scrollTop).toBe(1000)
@@ -229,9 +228,10 @@ describe('useTranscriptAnchor', () => {
     expect(scroller.scrollTop).toBe(600)
   })
 
-  it('keeps following through a wheel down, a zoom wheel and a trackpad jitter', () => {
+  it('keeps following through a wheel down, a sideways wheel, a zoom and a jitter', () => {
     const { scroller, grow } = mount()
     fireEvent.wheel(scroller, { deltaY: 100 })
+    fireEvent.wheel(scroller, { deltaX: -120, deltaY: -6 })
     fireEvent.wheel(scroller, { deltaY: -100, ctrlKey: true })
     fireEvent.wheel(scroller, { deltaY: -2 })
     grow(1300)

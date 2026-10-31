@@ -272,7 +272,8 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   const [intent] = useState<ReaderIntent>(() => ({
     onWheel: (event) => {
       const jitter = event.deltaMode === 0 && event.deltaY > -WHEEL_JITTER_PX
-      if (event.deltaY >= 0 || jitter || event.ctrlKey) return
+      const sideways = Math.abs(event.deltaX) >= Math.abs(event.deltaY)
+      if (event.deltaY >= 0 || jitter || sideways || event.ctrlKey) return
       if (!takenInside(event.target, scrollRef.current)) letGo()
     },
     onKeyDown: (event) => {
