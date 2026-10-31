@@ -42,7 +42,11 @@ func newFakeConn() *fakeConn {
 func (f *fakeConn) ReadJSON(v any) error {
 	select {
 	case req := <-f.in:
-		*v.(*stream.Request) = req
+		out, ok := v.(*stream.Request)
+		if !ok {
+			return errors.New("fake conn: reads only requests")
+		}
+		*out = req
 		return nil
 	case <-f.closed:
 		return errClosed
@@ -57,8 +61,12 @@ func (f *fakeConn) WriteJSON(v any) error {
 			return errClosed
 		}
 	}
+	frame, ok := v.(stream.Frame)
+	if !ok {
+		return errors.New("fake conn: writes only frames")
+	}
 	select {
-	case f.out <- v.(stream.Frame):
+	case f.out <- frame:
 		return nil
 	case <-f.closed:
 		return errClosed
