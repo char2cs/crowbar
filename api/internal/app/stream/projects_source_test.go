@@ -48,17 +48,15 @@ func TestProjectsSource_SnapshotsEveryOperationInOrder(t *testing.T) {
 	}
 }
 
-func TestProjectsSource_AFailedSnapshotRefusesTheScope(t *testing.T) {
+// A failing source is transient: the client reconnects and asks again.
+func TestProjectsSource_AFailedSnapshotClosesTheConnectionWithResync(t *testing.T) {
 	src := appstream.NewProjectsSource(fixedOperations{err: problem.ErrUnavailable}, encodeOperation)
 	hub := newHub(map[stream.ScopeKind]appstream.Source{stream.KindProjects: src}, nil)
 	conn := newFakeConn()
-	served(t, hub, conn)
+	done := served(t, hub, conn)
 
 	conn.send(t, stream.OpSub, "projects")
-	closed := conn.next(t)
 
-	assert.Equal(t, stream.FrameClosed, closed.T)
-	assert.Equal(t, stream.ReasonRefused, closed.Reason)
-	require.NotNil(t, closed.Problem)
-	assert.Equal(t, problem.Unavailable, closed.Problem.Code)
+	ended(t, done)
+	assert.Equal(t, stream.CloseResync, conn.closeCode())
 }

@@ -5,6 +5,7 @@ package stream
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -104,6 +105,9 @@ func (h *Hub) Serve(ctx context.Context, conn Conn) error {
 	for {
 		var req stream.Request
 		if err := conn.ReadJSON(&req); err != nil {
+			if undecodable(err) {
+				h.drop(c, closeUnsupportedData, "not a request")
+			}
 			return fmt.Errorf("stream: read: %w", err)
 		}
 		h.handle(ctx, c, req)
@@ -129,43 +133,52 @@ func (h *Hub) handle(ctx context.Context, c *connection, req stream.Request) {
 		h.releaseLocked(c, req.Scope)
 		h.mu.Unlock()
 	default:
-		refuse(c, req.Scope, problem.New(problem.InvalidArgument, fmt.Sprintf("stream: unknown op %q", req.Op)))
+		c.push(stream.Errored(problem.Of(problem.New(problem.InvalidArgument, "stream: unknown op"))), false)
 	}
 }
 
+func undecodable(err error) bool {
+	var syntax *json.SyntaxError
+	var mistyped *json.UnmarshalTypeError
+	return errors.As(err, &syntax) || errors.As(err, &mistyped)
+}
+
 func (h *Hub) sub(ctx context.Context, c *connection, req stream.Request) {
-	scope, err := stream.ParseScope(req.Scope)
-	if err != nil {
-		refuse(c, req.Scope, err)
-		return
-	}
-	src, ok := h.sources[scope.Kind]
+	scope, src, ok := h.admit(c, req.Scope)
 	if !ok {
-		refuse(c, req.Scope, problem.New(problem.InvalidArgument, fmt.Sprintf("stream: no source serves %q", scope.Kind)))
 		return
 	}
 	name := scope.String()
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.closed {
+	_, holding := c.scopes[name]
+	if h.closed || !holding && len(c.scopes) >= stream.MaxScopes {
+		refuse(c, name, problem.New(problem.InvalidArgument, "stream: too many scopes"))
 		return
 	}
-	start, frames := time.Now(), 0
+	// A snapshot still queued plus the live frames after it is already current.
+	if !c.beginSnapshot(name) {
+		return
+	}
+	start, frames, full := time.Now(), 0, false
 	emit := func(f stream.Frame) {
 		f.Scope = name
 		if f.T == stream.FrameEntity {
 			f.V = h.seq
 		}
 		frames++
-		c.push(f, false)
+		full = full || !c.push(f, false)
 	}
-	if err := src.Attach(ctx, scope.Key, req.Since, emit); err != nil {
-		h.releaseLocked(c, name)
-		refuse(c, name, err)
+	err := src.Attach(ctx, scope.Key, req.Since, emit)
+	if err != nil {
+		slog.WarnContext(ctx, "stream: snapshot", "scope", name, "err", err)
+	}
+	if err != nil || full || !c.push(stream.Synced(name), false) {
+		// The client reconnects and asks again: a failed snapshot is transient.
+		h.dropLocked(c, stream.CloseResync, "resync")
 		return
 	}
-	c.push(stream.Synced(name), false)
-	if _, holding := c.scopes[name]; !holding {
+	if !holding {
 		c.scopes[name] = scope
 		if h.scopes[name] == nil {
 			h.scopes[name] = map[*connection]struct{}{}
@@ -174,6 +187,24 @@ func (h *Hub) sub(ctx context.Context, c *connection, req stream.Request) {
 		h.refs.hold(scope)
 	}
 	slog.DebugContext(ctx, "stream: snapshot", "scope", name, "frames", frames, "locked", time.Since(start))
+}
+
+// admit reads a sub's scope and its source, answering the client itself when either is wrong.
+func (h *Hub) admit(c *connection, raw string) (stream.Scope, Source, bool) {
+	if len(raw) > stream.MaxScopeLen {
+		c.push(stream.Errored(problem.Of(problem.New(problem.InvalidArgument, "stream: scope too long"))), false)
+		return stream.Scope{}, nil, false
+	}
+	scope, err := stream.ParseScope(raw)
+	if err != nil {
+		refuse(c, raw, err)
+		return stream.Scope{}, nil, false
+	}
+	src, ok := h.sources[scope.Kind]
+	if !ok {
+		refuse(c, raw, problem.New(problem.InvalidArgument, fmt.Sprintf("stream: no source serves %q", scope.Kind)))
+	}
+	return scope, src, ok
 }
 
 func refuse(c *connection, scope string, err error) {

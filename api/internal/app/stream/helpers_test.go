@@ -20,6 +20,7 @@ var errClosed = errors.New("fake conn: closed")
 // a token on allow, which is how a test holds the writer still.
 type fakeConn struct {
 	in       chan stream.Request
+	bad      chan error
 	out      chan stream.Frame
 	throttle bool
 	allow    chan struct{}
@@ -33,6 +34,7 @@ type fakeConn struct {
 func newFakeConn() *fakeConn {
 	return &fakeConn{
 		in:     make(chan stream.Request),
+		bad:    make(chan error),
 		out:    make(chan stream.Frame, 4*stream.QueueSize),
 		allow:  make(chan struct{}, 4*stream.QueueSize),
 		closed: make(chan struct{}),
@@ -48,6 +50,8 @@ func (f *fakeConn) ReadJSON(v any) error {
 		}
 		*out = req
 		return nil
+	case err := <-f.bad:
+		return err
 	case <-f.closed:
 		return errClosed
 	}
@@ -92,13 +96,13 @@ func (f *fakeConn) closeCode() int {
 // waitBound fails a test whose awaited frame never comes instead of hanging it.
 const waitBound = 10 * time.Second
 
-// ended waits for Serve to return.
+// ended waits, bounded, for done to close.
 func ended(t *testing.T, done <-chan struct{}) {
 	t.Helper()
 	select {
 	case <-done:
 	case <-time.After(waitBound):
-		require.FailNow(t, "Serve did not return")
+		require.FailNow(t, "it never ended")
 	}
 }
 

@@ -23,6 +23,7 @@ func TestFrame_EveryTypeMarshalsAsTheGoldenFile(t *testing.T) {
 		stream.Synced("projects"),
 		stream.Closed("nope:x", stream.ReasonRefused, &refused),
 		stream.Closed("projects", stream.ReasonResync, nil),
+		stream.Errored(problem.Problem{Code: problem.InvalidArgument, Message: "stream: unknown op \"gossip\""}),
 	}
 	got, err := json.MarshalIndent(frames, "", "  ")
 	require.NoError(t, err)

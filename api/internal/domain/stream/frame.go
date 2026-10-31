@@ -18,6 +18,8 @@ const (
 	FrameEntity = "entity"
 	FrameSynced = "synced"
 	FrameClosed = "closed"
+	// FrameError is a refused request that names no scope it may drop.
+	FrameError = "error"
 )
 
 // Why a scope was closed.
@@ -26,8 +28,18 @@ const (
 	ReasonRefused = "refused"
 )
 
-// QueueSize bounds the live frames waiting on one connection; a snapshot never counts.
+// QueueSize bounds the live frames waiting on one connection.
 const QueueSize = 1024
+
+// HardQueueSize bounds every frame waiting on one connection, snapshots too,
+// so a client that stopped reading is closed instead of growing forever.
+const HardQueueSize = 64 * QueueSize
+
+// MaxScopeLen and MaxScopes bound what one connection may ask for.
+const (
+	MaxScopeLen = 256
+	MaxScopes   = 256
+)
 
 // CloseResync is the WebSocket close code of a connection whose queue overflowed.
 const CloseResync = 4000
@@ -56,6 +68,9 @@ func Synced(scope string) Frame { return Frame{T: FrameSynced, Scope: scope} }
 func Closed(scope, reason string, p *problem.Problem) Frame {
 	return Frame{T: FrameClosed, Scope: scope, Reason: reason, Problem: p}
 }
+
+// Errored refuses a request as the connection's, not a scope's.
+func Errored(p problem.Problem) Frame { return Frame{T: FrameError, Problem: &p} }
 
 // Request ops.
 const (

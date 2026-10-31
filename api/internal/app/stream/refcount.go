@@ -15,7 +15,7 @@ type held struct {
 
 // refcount counts holds per (resource, key) across every scope kind listing
 // the resource, so one watcher under git: and files: starts once. The hub's
-// lock guards it.
+// lock guards it, so Start and Stop run under it: keep them short (T6).
 type refcount struct {
 	byKind map[stream.ScopeKind][]Resource
 	counts map[held]int

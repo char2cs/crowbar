@@ -1,7 +1,10 @@
 package stream_test
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
@@ -179,4 +182,98 @@ func TestHub_CloseEndsEveryConnection(t *testing.T) {
 	ended(t, done)
 
 	assert.Equal(t, uint64(0), hub.Entity(stream.Projects, stream.KindOperation, "op1", "x"), "a closed hub stamps nothing")
+}
+
+func TestHub_TooManyScopesAreRefused(t *testing.T) {
+	src := newEntities(map[string]string{})
+	hub := newHub(map[stream.ScopeKind]appstream.Source{stream.KindChat: src}, nil)
+	conn := newFakeConn()
+	served(t, hub, conn)
+	for i := range stream.MaxScopes {
+		conn.sub(t, fmt.Sprintf("chat:c%d", i))
+	}
+
+	conn.send(t, stream.OpSub, "chat:one-more")
+	closed := conn.next(t)
+
+	assert.Equal(t, stream.FrameClosed, closed.T)
+	assert.Equal(t, "chat:one-more", closed.Scope)
+	assert.Equal(t, stream.ReasonRefused, closed.Reason)
+}
+
+func TestHub_AnOverlongScopeIsRefusedWithoutEchoingIt(t *testing.T) {
+	hub, _ := projectsHub(map[string]string{})
+	conn := newFakeConn()
+	served(t, hub, conn)
+
+	conn.send(t, stream.OpSub, "chat:"+strings.Repeat("x", stream.MaxScopeLen))
+	got := conn.next(t)
+
+	assert.Equal(t, stream.FrameError, got.T)
+	assert.Empty(t, got.Scope)
+	require.NotNil(t, got.Problem)
+	assert.Equal(t, problem.InvalidArgument, got.Problem.Code)
+	assert.NotContains(t, got.Problem.Message, "xxxx")
+}
+
+// An op the hub does not know is the connection's error, never a held scope's.
+func TestHub_AnUnknownOpIsAConnectionLevelError(t *testing.T) {
+	hub, _ := projectsHub(map[string]string{})
+	conn := newFakeConn()
+	served(t, hub, conn)
+	conn.sub(t, "projects")
+
+	conn.send(t, "gossip", "projects")
+	got := conn.next(t)
+	assert.Equal(t, stream.FrameError, got.T)
+	assert.Empty(t, got.Scope)
+
+	hub.Entity(stream.Projects, stream.KindOperation, "op1", "x")
+	assert.Equal(t, "op1", conn.next(t).ID, "projects is still held")
+}
+
+func TestHub_AnUndecodableMessageClosesWithUnsupportedData(t *testing.T) {
+	hub, _ := projectsHub(map[string]string{})
+	conn := newFakeConn()
+	done := served(t, hub, conn)
+
+	conn.bad <- &json.SyntaxError{}
+
+	ended(t, done)
+	ended(t, conn.closed) // the close is sent from aside
+	assert.Equal(t, 1003, conn.closeCode())
+}
+
+// gate is a source whose snapshot, once entered, waits until a live publish is on its way.
+type gate struct{ entered, encoding chan struct{} }
+
+func (g gate) Attach(_ context.Context, _ string, _ int64, emit func(stream.Frame)) error {
+	close(g.entered)
+	<-g.encoding
+	emit(stream.Frame{T: stream.FrameEntity, Kind: string(stream.KindOperation), ID: "op1", Data: []byte(`"snap"`)})
+	return nil
+}
+
+func TestHub_ALiveFrameRacingASnapshotFollowsIt(t *testing.T) {
+	g := gate{entered: make(chan struct{}), encoding: make(chan struct{})}
+	var once sync.Once
+	encode := func(k stream.EntityKind, v any) (json.RawMessage, error) {
+		once.Do(func() { close(g.encoding) })
+		return encodeJSON(k, v)
+	}
+	hub := appstream.New("e", map[stream.ScopeKind]appstream.Source{stream.KindProjects: g}, nil, encode)
+	conn := newFakeConn()
+	served(t, hub, conn)
+
+	conn.send(t, stream.OpSub, "projects")
+	<-g.entered
+	published := make(chan uint64)
+	go func() { published <- hub.Entity(stream.Projects, stream.KindOperation, "op1", "live") }()
+	frames := conn.until(t, func(f stream.Frame) bool { return f.ID == "op1" && string(f.Data) == `"live"` })
+	v := <-published
+
+	require.Len(t, frames, 3, "snapshot, synced, live")
+	assert.Equal(t, `"snap"`, string(frames[0].Data))
+	assert.Equal(t, stream.FrameSynced, frames[1].T)
+	assert.Greater(t, v, frames[0].V)
 }

@@ -15,15 +15,18 @@ type Conn interface {
 	CloseWith(code int, reason string) error
 }
 
-const closeGoingAway = 1001
+const (
+	closeGoingAway       = 1001
+	closeUnsupportedData = 1003
+)
 
 type outgoing struct {
 	frame stream.Frame
 	live  bool
 }
 
-// connection orders every frame for one client. Only live frames count toward
-// the bound: a snapshot of any size is delivered whole (index R8).
+// connection orders every frame for one client. Live frames are bounded by
+// QueueSize; every frame, snapshots too, by HardQueueSize (index R8).
 type connection struct {
 	conn Conn
 	// scopes is what this connection holds, guarded by the hub's lock.
@@ -33,6 +36,8 @@ type connection struct {
 	pending []outgoing
 	live    int
 	ended   bool
+	// snapshotting is each scope whose synced frame is still queued.
+	snapshotting map[string]bool
 
 	wake chan struct{}
 	done chan struct{}
@@ -41,21 +46,22 @@ type connection struct {
 
 func newConnection(conn Conn) *connection {
 	return &connection{
-		conn:   conn,
-		scopes: map[string]stream.Scope{},
-		wake:   make(chan struct{}, 1),
-		done:   make(chan struct{}),
+		conn:         conn,
+		scopes:       map[string]stream.Scope{},
+		snapshotting: map[string]bool{},
+		wake:         make(chan struct{}, 1),
+		done:         make(chan struct{}),
 	}
 }
 
-// push queues f; false means a live frame found the queue full.
+// push queues f; false means the queue is full and the connection must resync.
 func (c *connection) push(f stream.Frame, live bool) bool {
 	c.mu.Lock()
 	if c.ended {
 		c.mu.Unlock()
 		return true
 	}
-	if live && c.live >= stream.QueueSize {
+	if live && c.live >= stream.QueueSize || len(c.pending) >= stream.HardQueueSize {
 		c.mu.Unlock()
 		return false
 	}
@@ -83,7 +89,21 @@ func (c *connection) pop() (stream.Frame, bool) {
 	if next.live {
 		c.live--
 	}
+	if next.frame.T == stream.FrameSynced {
+		delete(c.snapshotting, next.frame.Scope)
+	}
 	return next.frame, true
+}
+
+// beginSnapshot marks scope's snapshot queued; false if one already is.
+func (c *connection) beginSnapshot(scope string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.snapshotting[scope] {
+		return false
+	}
+	c.snapshotting[scope] = true
+	return true
 }
 
 // write drains the queue to the socket until the connection ends or a write fails.
