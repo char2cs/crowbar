@@ -66,9 +66,17 @@ describe('nextToSend', () => {
     expect(nextToSend([item('a', { retractOnAck: true })], emptyFeed(), false)).toBeUndefined()
   })
 
-  it('never lets a later prompt overtake a failed head', () => {
-    const items = onSendFailed([item('a'), item('b')], 'a', { status: 400, message: 'no' })
-    expect(nextToSend(items, emptyFeed(), false)).toBeUndefined()
+  it('sends past a head the daemon refused, but never past one it may hold', () => {
+    const refused = onSendFailed([item('a'), item('b')], 'a', { status: 422, message: 'no' })
+    expect(nextToSend(refused, emptyFeed(), false)?.requestId).toBe('b')
+    for (const failure of [
+      { message: 'offline' },
+      { status: 502, message: 'bad gateway' },
+      { status: 409, code: 'request_outcome_uncertain' as const, message: 'unsure' },
+    ]) {
+      const held = onSendFailed([item('a'), item('b')], 'a', failure)
+      expect(nextToSend(held, emptyFeed(), false)).toBeUndefined()
+    }
   })
 
   it('sends the next prompt on the turn_ended row', () => {

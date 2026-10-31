@@ -57,13 +57,17 @@ export function refusal(text: string): string | null {
   return null
 }
 
-/** The head, when the feed says the chat can take it: only the head ever moves. */
+/** A failed send the daemon definitely refused: it holds nothing, so the queue moves on. */
+const refusedOutright = (item: OutboxItem) =>
+  item.state === 'failed' && !item.sameIdRetry && !recorded(item.code)
+
+/** The first prompt not refused outright, when the feed says the chat can take it. */
 export function nextToSend(
   items: OutboxItem[],
   feed: ChatFeed,
   terminalWait: boolean,
 ): OutboxItem | undefined {
-  const head = items[0]
+  const head = items.find((item) => !refusedOutright(item))
   const { facts } = feed
   if (head?.state !== 'queued' || head.retractOnAck || facts.compacting || terminalWait) {
     return undefined

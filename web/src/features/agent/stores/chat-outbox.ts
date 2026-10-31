@@ -116,6 +116,8 @@ async function send(chatId: string, item: OutboxItem) {
   } catch (error) {
     failure = error
     update(chatId, (items) => onSendFailed(items, item.requestId, failureOf(error)))
+    // Busy waits for a row; a refusal releases what queued behind it now.
+    if (failureOf(error).code !== 'chat_busy') drain(chatId)
   }
   const waiting = takeBackOnAck.get(item.requestId)
   if (waiting) {

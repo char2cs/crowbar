@@ -257,6 +257,34 @@ describe('chat outbox', () => {
     expect(outbox()[0]?.error).toMatch(/session was lost/i)
   })
 
+  it('sends the prompts queued behind one the daemon refused', async () => {
+    busy()
+    submit.mockRejectedValueOnce(new ApiError('no provider: unprocessable entity', 422))
+    send('one')
+    send('two')
+    const l = ledger('c1', 3)
+    seedFeed('c1', [l.end('turn-0')])
+    await flush()
+
+    expect(submit).toHaveBeenCalledTimes(2)
+    expect(submit.mock.calls[1]?.[2]).toBe('two')
+    expect(outbox().map((item) => [item.text, item.state])).toEqual([
+      ['one', 'failed'],
+      ['two', 'sending'],
+    ])
+  })
+
+  it('keeps the prompt the provider already holds when Esc is refused', async () => {
+    const l = ledger('c1')
+    seedFeed('c1', [l.prompt('r1', 'already gone')])
+    retract.mockRejectedValue(new ApiError('prompt is with its provider: conflict', 409))
+
+    await expect(retractNewest('w1', 'c1')).resolves.toBeNull()
+
+    expect(chatStore.getState().feeds.c1?.order).toEqual(['p:r1'])
+    expect(reported).not.toHaveBeenCalled()
+  })
+
   it('commits a staged pick only once the daemon took the prompt', async () => {
     seedFeed('c1', [])
     chatStore.setState({ chats: { c1: { id: 'c1', model: 'old', effort: 'low' } as never } })
