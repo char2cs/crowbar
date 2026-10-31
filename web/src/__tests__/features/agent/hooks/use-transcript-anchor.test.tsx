@@ -329,6 +329,16 @@ describe('useTranscriptAnchor', () => {
     expect(scroller.scrollTop).toBe(900)
   })
 
+  it('lands when the list commits before the viewport reports its box is back', () => {
+    const { scroller, grow } = mount()
+    boxed = false
+    act(() => anchor.notifyReflow())
+
+    boxed = true
+    grow(1300)
+    expect(scroller.scrollTop).toBe(900)
+  })
+
   it('holds a reader mid-history through a display:none round trip', () => {
     const { scroller } = mount()
     readerScrollsTo(scroller, 300)
