@@ -84,26 +84,48 @@ function keyEvent(
   } as unknown as KeyboardEvent<HTMLDivElement>
 }
 
-describe('ChatMarkdownEditor imperative handle', () => {
-  function renderHandle() {
-    const ref = createRef<ChatMarkdownEditorHandle>()
-    const onShapeChange = vi.fn()
-    const { container } = render(
-      <ChatMarkdownEditor
-        ref={ref}
-        wsId="w1"
-        chatId="c1"
-        placeholder=""
-        ariaLabel="Message the agent"
-        onShapeChange={onShapeChange}
-        onKeyDown={vi.fn()}
-      />,
-    )
-    return { ref, onShapeChange, editable: () => container.querySelector('[data-slate-editor]') }
-  }
+const grabbed: { editor?: PlateEditor } = {}
+function GrabEditor() {
+  grabbed.editor = useEditorRef()
+  return null
+}
 
-  it('inserts a block-level node built from markdown, and reports the box no longer empty', () => {
-    const { ref, onShapeChange } = renderHandle()
+async function renderEditor(onShapeChange: (shape: ComposerShape) => void = vi.fn()) {
+  const ref = createRef<ChatMarkdownEditorHandle>()
+  const counter = { commits: 0 }
+  const view = (handler: (shape: ComposerShape) => void) => (
+    <PlateController>
+      <Profiler id="editor" onRender={() => counter.commits++}>
+        <ChatMarkdownEditor
+          ref={ref}
+          wsId="w1"
+          chatId="c1"
+          placeholder=""
+          ariaLabel="Message the agent"
+          onShapeChange={handler}
+          onKeyDown={vi.fn()}
+        />
+      </Profiler>
+      <GrabEditor />
+    </PlateController>
+  )
+  const { container, rerender } = render(view(onShapeChange))
+  await act(async () => {})
+  counter.commits = 0
+  return {
+    ref,
+    counter,
+    editable: () => container.querySelector('[data-slate-editor]'),
+    type: (text: string) =>
+      act(async () => grabbed.editor!.tf.insertText(text, { at: grabbed.editor!.api.end([]) })),
+    rerender: (handler: (shape: ComposerShape) => void) => rerender(view(handler)),
+  }
+}
+
+describe('ChatMarkdownEditor imperative handle', () => {
+  it('inserts a block-level node built from markdown, and reports the box no longer empty', async () => {
+    const onShapeChange = vi.fn()
+    const { ref } = await renderEditor(onShapeChange)
 
     act(() => ref.current?.insertAttachmentMarkdown('```text-attachment:abc123\nhello world\n```'))
 
@@ -111,10 +133,12 @@ describe('ChatMarkdownEditor imperative handle', () => {
     expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null })
   })
 
-  it('settles a pending image to its real ref', () => {
-    const { ref } = renderHandle()
+  it('settles a pending image to its real ref, an image alone being something to send', async () => {
+    const onShapeChange = vi.fn()
+    const { ref } = await renderEditor(onShapeChange)
     act(() => ref.current?.insertPendingImage('blob:local-preview', 'photo.png'))
     expect(ref.current?.getMarkdown()).toContain('blob:local-preview')
+    expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null })
 
     act(() =>
       ref.current?.settlePendingImage(
@@ -128,11 +152,14 @@ describe('ChatMarkdownEditor imperative handle', () => {
   })
 
   // The handle is how text gets in from outside now; none of it may remount.
-  it('loads restored markdown through setMarkdown', async () => {
-    const { ref, onShapeChange, editable } = renderHandle()
+  it('loads restored markdown through setMarkdown, with nothing to undo back to', async () => {
+    const onShapeChange = vi.fn()
+    const { ref, editable, type } = await renderEditor(onShapeChange)
     const before = editable()
+    await type('typed')
 
     await act(async () => ref.current?.setMarkdown('**never mind**\n\nsecond thought'))
+    await act(async () => grabbed.editor!.undo())
 
     expect(editable()).toBe(before)
     expect(editable()).toHaveTextContent('never mindsecond thought')
@@ -140,11 +167,13 @@ describe('ChatMarkdownEditor imperative handle', () => {
     expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: null })
   })
 
-  it('empties the box through clear, with nothing left to undo', () => {
-    const { ref, onShapeChange } = renderHandle()
+  it('empties the box through clear, with nothing left to undo', async () => {
+    const onShapeChange = vi.fn()
+    const { ref } = await renderEditor(onShapeChange)
     act(() => ref.current?.setMarkdown('sent already'))
 
     act(() => ref.current?.clear())
+    act(() => grabbed.editor!.undo())
 
     expect(ref.current?.getMarkdown()).toBe('')
     expect(onShapeChange).toHaveBeenLastCalledWith({ empty: true, slashQuery: null })
@@ -154,42 +183,10 @@ describe('ChatMarkdownEditor imperative handle', () => {
 // Every extra commit per keystroke queues behind the next key; enough in a row
 // is React's #185 "Maximum update depth exceeded".
 describe('ChatMarkdownEditor shape and commits', () => {
-  const grabbed: { editor?: PlateEditor } = {}
-  function GrabEditor() {
-    grabbed.editor = useEditorRef()
-    return null
-  }
-  async function renderCounted(onShapeChange: (shape: ComposerShape) => void) {
-    const counter = { commits: 0 }
-    const view = (handler: (shape: ComposerShape) => void) => (
-      <PlateController>
-        <Profiler id="editor" onRender={() => counter.commits++}>
-          <ChatMarkdownEditor
-            placeholder=""
-            ariaLabel="Message the agent"
-            onShapeChange={handler}
-            onKeyDown={vi.fn()}
-          />
-        </Profiler>
-        <GrabEditor />
-      </PlateController>
-    )
-    const { rerender } = render(view(onShapeChange))
-    await act(async () => {})
-    counter.commits = 0
-    const type = (text: string) =>
-      act(async () => grabbed.editor!.tf.insertText(text, { at: grabbed.editor!.api.end([]) }))
-    return {
-      counter,
-      type,
-      rerender: (handler: (shape: ComposerShape) => void) => rerender(view(handler)),
-    }
-  }
-
   it('reports empty and the slash query without producing markdown', async () => {
     const serialize = vi.spyOn(serialization, 'chatValueToMarkdown')
     const onShapeChange = vi.fn()
-    const { type } = await renderCounted(onShapeChange)
+    const { type } = await renderEditor(onShapeChange)
 
     await type('/')
     expect(onShapeChange).toHaveBeenLastCalledWith({ empty: false, slashQuery: '' })
@@ -205,7 +202,7 @@ describe('ChatMarkdownEditor shape and commits', () => {
 
   it('commits an edit to the text once', async () => {
     const onShapeChange = vi.fn()
-    const { counter, type } = await renderCounted(onShapeChange)
+    const { counter, type } = await renderEditor(onShapeChange)
 
     await type('hi')
 
@@ -216,7 +213,7 @@ describe('ChatMarkdownEditor shape and commits', () => {
   it('takes a new shape handler in one commit, and reports to the newest one', async () => {
     const first = vi.fn()
     const second = vi.fn()
-    const { counter, rerender, type } = await renderCounted(first)
+    const { counter, rerender, type } = await renderEditor(first)
 
     await act(async () => rerender(second))
     expect(counter.commits).toBe(1)
