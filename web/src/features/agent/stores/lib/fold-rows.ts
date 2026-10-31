@@ -261,10 +261,10 @@ const applyTurnEnded: Apply<'turn_ended'> = (fold, row) => {
   if (row.scope || !row.turnId) return
   // A provider may report an end Crowbar already recorded: one marker per turn.
   const ending = fold.facts.running?.turnId === row.turnId
-  fold.placeLive(row.turnId)
   retractTurn(fold, row)
   closeRunning(fold, row.turnId)
   if (row.body.effort) fold.record('efforts')[row.turnId] = row.body.effort
+  fold.placeLive(row.turnId)
   endTurn(fold, row.turnId)
   if (row.body.status === 'interrupted' && ending)
     marker(fold, row, 'turn_interrupted', undefined, row.body.reason)
