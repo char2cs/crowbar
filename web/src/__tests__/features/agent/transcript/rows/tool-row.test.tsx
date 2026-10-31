@@ -175,43 +175,52 @@ describe('ToolRow', () => {
   // follows: the answer to its ask is the only record of what happened.
   // `refused` is the daemon answering on the person's behalf (an auto-deny).
   const denials = {
-    'denied by the person': { resolution: 'answered', optionIds: ['deny'] },
-    'refused by the daemon': { resolution: 'refused', optionIds: [] },
+    'denied by the person': { resolution: 'answered', optionIds: ['deny'], note: 'Denied' },
+    'refused by the daemon': { resolution: 'refused', optionIds: [], note: 'No answer in time' },
   } as const
-  it.each(Object.entries(denials))('reads a tool %s as denied, not ran', (_, answer) => {
-    const l = ledger()
-    const call = { toolId: 'tool-1', name: 'Bash', kind: 'execute', target: 'echo deny' }
-    seed([
-      l.start('turn-1'),
-      l.row('tool_call', { ...call, phase: 'pre' }, { turnId: 'turn-1' }),
-      l.row(
-        'ask',
-        {
-          askId: 'q1',
-          event: 'permission',
-          kind: 'tool_permission',
-          toolId: 'tool-1',
-          answerable: true,
-          options: [
-            { id: 'allow', kind: 'allow' },
-            { id: 'deny', kind: 'deny' },
-          ],
-        },
-        { turnId: 'turn-1' },
-      ),
-      l.row('ask_resolved', { askId: 'q1', ...answer, optionIds: [...answer.optionIds] }),
-      l.end('turn-1'),
-    ])
-    draw('t:tool-1')
-    expect(status()).toBe('declined')
-    expect(screen.getByText('Denied')).toBeInTheDocument()
-    expect(screen.queryByText('Ran')).toBeNull()
-  })
+  it.each(Object.entries(denials))(
+    'reads a tool %s as denied, not ran',
+    (_, { note, ...answer }) => {
+      const l = ledger()
+      const call = { toolId: 'tool-1', name: 'Bash', kind: 'execute', target: 'echo deny' }
+      seed([
+        l.start('turn-1'),
+        l.row('tool_call', { ...call, phase: 'pre' }, { turnId: 'turn-1' }),
+        l.row(
+          'ask',
+          {
+            askId: 'q1',
+            event: 'permission',
+            kind: 'tool_permission',
+            toolId: 'tool-1',
+            answerable: true,
+            options: [
+              { id: 'allow', kind: 'allow' },
+              { id: 'deny', kind: 'deny' },
+            ],
+          },
+          { turnId: 'turn-1' },
+        ),
+        l.row('ask_resolved', { askId: 'q1', ...answer, optionIds: [...answer.optionIds] }),
+        l.end('turn-1'),
+      ])
+      draw('t:tool-1')
+      expect(status()).toBe('declined')
+      expect(screen.getByTestId('agent-tool-ask-note')).toHaveTextContent(note)
+      expect(screen.getAllByText(/Denied|No answer in time/)).toHaveLength(1)
+      expect(screen.queryByText('Ran')).toBeNull()
+    },
+  )
 
   it('marks the bound tool row awaiting approval and replaces the ask with a one-line note once resolved', () => {
     const l = ledger()
     const reveal = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {})
     const started = l.start('turn-1')
+    const call = l.row(
+      'tool_call',
+      { toolId: 'tool-1', phase: 'pre', name: 'Bash', kind: 'execute', target: 'ls' },
+      { turnId: 'turn-1' },
+    )
     const ask = l.row(
       'ask',
       {
@@ -224,15 +233,8 @@ describe('ToolRow', () => {
       },
       { turnId: 'turn-1' },
     )
-    seed([
-      started,
-      ask,
-      l.row(
-        'tool_call',
-        { toolId: 'tool-1', phase: 'pre', name: 'Bash', kind: 'execute', target: 'ls' },
-        { turnId: 'turn-1' },
-      ),
-    ])
+    // The daemon binds an ask only to a call already open: the call comes first.
+    seed([started, call, ask])
     expect(chatStore.getState().feeds['chat-1']?.order).toEqual(['t:tool-1'])
     draw('t:tool-1')
     expect(status()).toBe('awaiting_approval')

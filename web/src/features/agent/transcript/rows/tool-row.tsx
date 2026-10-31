@@ -126,10 +126,9 @@ function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
       {item.askId ? (
         <span className="tool-call-state">Waiting for your approval</span>
       ) : (
+        // How its ask was decided says why it did not run; the state would repeat it.
         STATE_TEXT[status] &&
-        STATE_TEXT[status] !== item.askNote && (
-          <span className="tool-call-state">{STATE_TEXT[status]}</span>
-        )
+        !item.askNote && <span className="tool-call-state">{STATE_TEXT[status]}</span>
       )}
       {item.askNote && (
         <span className="tool-call-note" data-testid="agent-tool-ask-note">

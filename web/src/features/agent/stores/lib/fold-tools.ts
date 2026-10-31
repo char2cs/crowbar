@@ -46,16 +46,10 @@ export const applyToolCall: Apply<'tool_call'> = (fold, row) => {
           body,
           status,
           family: toolFamily(body),
-          askId: gatingAsk(fold, row.body.toolId),
         },
   )
   markOutput(fold, row)
   if (!known) fold.place(id, scope)
-}
-
-/** A pending ask that named this call before the call's own row landed. */
-function gatingAsk(fold: FeedFold, toolId: string): string | undefined {
-  return fold.facts.openAsks.find((id) => fold.item<AskItem>(id)?.toolId === toolId)
 }
 
 export const applyAsk: Apply<'ask'> = (fold, row) => {
