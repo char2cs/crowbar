@@ -9,24 +9,10 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import type { WorkspaceDTO } from '@/lib/types'
 
 /**
- * Open the per-CHAT lifecycle WS stream while a workspace is being viewed.
- *
- * This is load-bearing BEYOND data delivery: the daemon starts its per-connection
- * provider poll (the GitHub/GitLab PR-status detection that flips a workspace to
- * `pr-open`/`pr-merged`/`pr-closed`) ONLY when a client subscribes to a stream
- * that resolves ONE worktree — now `/v0/chats/:chatId/ws`, where the daemon
- * resolves that chat's worktree and refcounts the poll on it. The repo-wide chat
- * stream (`.../repos/:r/chats/ws`, which app-sync-provider opens) resolves no
- * single workspace, so it still never starts the poll — which is why a workspace
- * whose branch had an open PR stayed `new` (plain branch glyph) indefinitely
- * without this.
- *
- * Subscribing here, keyed on the viewed workspace, mirrors the daemon's refcounted
- * per-connection poll lifecycle: the 0->1 subscribe transition starts the poll and
- * the last unsubscribe (navigate away / unmount) stops it. The frames are chat
- * lifecycle EVENTS, not workspace DTOs, so `mapFrame` picks the `worktree_state`
- * ones out and builds the DTO; the resulting status arrives over the entity-cache
- * path and the sidebar icon updates.
+ * Open the per-CHAT lifecycle WS stream while a workspace is being viewed, for
+ * its `worktree_state` frames: `mapFrame` builds the workspace DTO from them so a
+ * PR-status change reaches the sidebar. The daemon's forge poll that produces them
+ * runs while the workspace's ws: scope is held (useWorkspaceEffects), not here.
  *
  * A workspace with no recorded owning chat is skipped rather than thrown on: this
  * runs on every render of the IDE shell, including before the sidebar has recorded
@@ -46,10 +32,7 @@ export function useWorkspaceProviderStream(
   // frame), so on a fresh load the first render — the one the IDE shell mounts
   // this on — has no chat recorded for the route's workspace yet. The effect
   // would return early, none of its deps would ever change again, and the
-  // subscription would never open: no frames, and, far worse, the daemon's
-  // PR-status poll never started for the whole session, leaving every branch
-  // glyph stuck on `new`. That is the exact regression the per-chat mount
-  // exists to prevent.
+  // subscription would never open: no PR-status frames for the whole session.
   //
   // The selector returns a plain string, so the effect re-runs only when the
   // ANSWER changes, not on every unrelated sidebar write.

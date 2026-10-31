@@ -11,12 +11,10 @@ export function selectReviewThreads(s: EntityState, wsId: string): ThreadDTO[] {
   const threads = s.byKind.review_thread
   let memo = byWorkspace.get(threads)
   if (!memo) byWorkspace.set(threads, (memo = new Map()))
-  let selected = memo.get(wsId)
-  if (!selected) {
-    selected = Object.values(threads)
-      .map((held) => held.data)
-      .filter((t) => t.workspaceId === wsId)
-    memo.set(wsId, selected)
-  }
+  const memoized = memo.get(wsId)
+  if (memoized) return memoized
+  const selected: ThreadDTO[] = []
+  for (const { data } of Object.values(threads)) if (data.workspaceId === wsId) selected.push(data)
+  memo.set(wsId, selected)
   return selected
 }

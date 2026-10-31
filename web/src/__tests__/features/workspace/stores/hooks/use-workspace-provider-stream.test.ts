@@ -1,14 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
 
-// The per-CHAT lifecycle WS subscription is load-bearing beyond data: the daemon
-// starts the per-connection provider poll (PR status detection) ONLY when a
-// client subscribes to a stream that resolves ONE worktree — `/v0/chats/:id/ws`,
-// which the daemon resolves to that chat's worktree and refcounts the poll on.
-// The repo-wide chat stream resolves no single workspace and never starts it, so
-// a workspace whose branch has an open PR stayed 'new' (plain branch glyph)
-// forever. This hook is what opens that stream while a workspace is viewed;
-// these tests lock that wiring.
+// The per-CHAT lifecycle WS subscription carries a viewed workspace's
+// `worktree_state` frames, which is how its PR status reaches the sidebar.
 const { subscribeEntityStream, fetchWorkspace, syncSidebarFromCache } = vi.hoisted(() => ({
   subscribeEntityStream: vi.fn(),
   fetchWorkspace: vi.fn(),
@@ -171,10 +165,7 @@ describe('useWorkspaceProviderStream', () => {
   // writes, so on a cold load the first render — the one the IDE shell mounts
   // this on — has no chat recorded for the route's workspace yet. Reading it
   // only inside the effect meant the early return was permanent: no dependency
-  // would ever change again, the subscription never opened, and the daemon's
-  // PR-status poll never started for the entire session, leaving every branch
-  // glyph stuck on `new`. That is precisely the failure the per-chat mount was
-  // added to prevent, reintroduced one layer up.
+  // would ever change again and the subscription never opened.
   it('subscribes as soon as the sidebar learns the owning chat (cold load)', () => {
     __resetWorkspaceScopesForTest()
     recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w1' })
