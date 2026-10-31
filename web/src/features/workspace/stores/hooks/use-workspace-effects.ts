@@ -18,8 +18,8 @@ function useOwningChatId(wsId: string): string | null {
 
 /**
  * A workspace's data feeds: its file tree and git status, written to the
- * workspace's own store, and its ws: scope (review threads into the entity store,
- * and the daemon's forge poll). Runs for every retained workspace so a switch only
+ * workspace's own store, and its ws: scope (review threads into the entity
+ * store). Runs for every retained workspace so a switch only
  * changes which store the UI reads; `active` only gates the first tree/git load.
  */
 export function useWorkspaceEffects(wsId: string, active: boolean) {

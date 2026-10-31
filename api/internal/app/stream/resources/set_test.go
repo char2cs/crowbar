@@ -92,3 +92,43 @@ func TestRefcount_TheWatcherIsSharedByGitAndFiles(t *testing.T) {
 	<-proc.stopped
 	require.Equal(t, int32(1), atomic.LoadInt32(calls))
 }
+
+// polled records every workspace a forge poll asks about.
+type polled chan string
+
+func (p polled) PollWorkspace(_ context.Context, wsID string) error {
+	p <- wsID
+	return nil
+}
+
+// Only the workspace a client marks active (forge:) polls its forge; holding
+// ws: for a retained workspace costs no subprocess.
+func TestSet_OnlyAForgeHoldPollsTheForge(t *testing.T) {
+	polls := make(polled, 16)
+	set := NewSet(context.Background(), nil, Deps{Forge: polls})
+	hub := appstream.New("e1",
+		map[stream.ScopeKind]appstream.Source{stream.KindWs: appstream.Quiet{}, stream.KindForge: appstream.Quiet{}},
+		set.ByKind(),
+		nil,
+	)
+	conn := pipeConn{in: make(chan stream.Request), out: make(chan stream.Frame, 16)}
+	done := make(chan error, 1)
+	go func() { done <- hub.Serve(context.Background(), conn) }()
+
+	conn.hold(t, "ws:retained")
+	conn.hold(t, "forge:active")
+	select {
+	case ws := <-polls:
+		require.Equal(t, "active", ws)
+	case <-time.After(10 * time.Second):
+		require.FailNow(t, "a forge: hold never polled")
+	}
+	close(conn.in)
+	<-done
+	set.Close() // joins every poll still running
+
+	close(polls)
+	for ws := range polls {
+		assert.NotEqual(t, "retained", ws, "a ws: hold polled the forge")
+	}
+}

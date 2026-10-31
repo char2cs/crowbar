@@ -23,10 +23,12 @@ const (
 	KindLsp      ScopeKind = "lsp"
 	// KindDoc is a host document, keyed by its absolute path as is.
 	KindDoc ScopeKind = "doc"
+	// KindForge is the workspace a client is looking at: its forge is polled.
+	KindForge ScopeKind = "forge"
 )
 
 var keyed = map[ScopeKind]bool{
-	KindChat: true, KindWs: true, KindGit: true, KindFiles: true, KindLsp: true, KindDoc: true,
+	KindChat: true, KindWs: true, KindGit: true, KindFiles: true, KindLsp: true, KindDoc: true, KindForge: true,
 }
 
 // Scope is one thing a client holds: "projects", or "<kind>:<key>".

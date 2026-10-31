@@ -18,6 +18,7 @@ func TestParseScope_AcceptsEveryKind(t *testing.T) {
 		"git:w1":   {Kind: "git", Key: "w1"},
 		"files:w1": {Kind: "files", Key: "w1"},
 		"lsp:c1":   {Kind: "lsp", Key: "c1"},
+		"forge:w1": {Kind: "forge", Key: "w1"},
 		// A host path is the key as it is: it may hold the separator itself.
 		"doc:/h/a:b.md": {Kind: "doc", Key: "/h/a:b.md"},
 	}

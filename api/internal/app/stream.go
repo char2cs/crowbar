@@ -63,6 +63,7 @@ func newStream(
 		domainstream.KindFiles:    stream.Quiet{},
 		domainstream.KindLsp:      stream.Unordered(stream.NewLspSource(engines.LSP)),
 		domainstream.KindDoc:      stream.NewDocSource(admitHostDocument(ucs)),
+		domainstream.KindForge:    stream.Quiet{},
 	}, set.ByKind(), encode)
 	engines.LSP.OnDiagnostics(func(ev lspdomain.DiagnosticsEvent) {
 		late.hub.Signal(domainstream.Scope{Kind: domainstream.KindLsp, Key: ev.WsID}, domainstream.SignalDiagnostics, ev)

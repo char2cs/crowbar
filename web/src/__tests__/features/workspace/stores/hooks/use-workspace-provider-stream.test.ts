@@ -22,6 +22,7 @@ vi.mock('@/lib/store/sidebar-sync', () => ({
   syncSidebarFromCache: (...args: unknown[]) => syncSidebarFromCache(...args),
 }))
 
+import { holding } from '@/core/stream/stream'
 import { useWorkspaceProviderStream } from '@/features/workspace/stores/hooks/use-workspace-provider-stream'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import { useSidebarStore } from '@/lib/store/sidebar'
@@ -189,5 +190,24 @@ describe('useWorkspaceProviderStream', () => {
     const { pruneScope } = optionsOf(0)
     expect(pruneScope!({ id: 'w1' } as WorkspaceDTO)).toBe(true)
     expect(pruneScope!({ id: 'w2' } as WorkspaceDTO)).toBe(false)
+  })
+
+  // The daemon polls a workspace's forge only while its forge: scope is held:
+  // the viewed workspace, never every retained one.
+  it('holds forge: for the viewed workspace alone', () => {
+    const { rerender, unmount } = renderHook(
+      ({ w }: { w: string }) => useWorkspaceProviderStream('p1', 'r1', w),
+      {
+        initialProps: { w: 'w1' },
+      },
+    )
+    expect(holding('forge:w1')).toBe(true)
+
+    rerender({ w: 'w2' })
+    expect(holding('forge:w1')).toBe(false)
+    expect(holding('forge:w2')).toBe(true)
+
+    unmount()
+    expect(holding('forge:w2')).toBe(false)
   })
 })

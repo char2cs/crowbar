@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { holdScope } from '@/core/stream/stream'
 import { subscribeEntityStream } from '@/lib/ws/entity-stream'
 import { fetchWorkspace } from '@/lib/api'
 import { workspaceDTOFromWorktreeFrame } from '@/lib/api/wire'
@@ -12,7 +13,7 @@ import type { WorkspaceDTO } from '@/lib/types'
  * Open the per-CHAT lifecycle WS stream while a workspace is being viewed, for
  * its `worktree_state` frames: `mapFrame` builds the workspace DTO from them so a
  * PR-status change reaches the sidebar. The daemon's forge poll that produces them
- * runs while the workspace's ws: scope is held (useWorkspaceEffects), not here.
+ * runs while the viewed workspace's forge: scope is held, so retained ones cost none.
  *
  * A workspace with no recorded owning chat is skipped rather than thrown on: this
  * runs on every render of the IDE shell, including before the sidebar has recorded
@@ -40,6 +41,8 @@ export function useWorkspaceProviderStream(
     void state.repos
     return (wsId ? getOwningChatId(wsId) : null) ?? ''
   })
+
+  useEffect(() => (wsId ? holdScope(`forge:${wsId}`) : undefined), [wsId])
 
   useEffect(() => {
     if (!projectId || !repoId || !wsId || !owningChatId) return

@@ -105,19 +105,9 @@ func (c *Container) Register(
 	chats := rg.Group("/chats")
 	chatScoped := chats.Group("/:chatId")
 	chatScoped.Use(resolveChatWorktree(c.app.Usecases.Worktree))
-	// The per-CHAT lifecycle stream: the same agent-chat broadcaster the
-	// repo-scoped .../chats/ws mount serves, scoped by agentChatDef's chatId
-	// filter to the one chat named here.
-	//
-	// It is the chat-scoped replacement for watching ONE workspace's stream, and
-	// it is load-bearing beyond the frames it carries. Subscribing to a single
-	// workspace is what starts the daemon's provider poll — the GitHub/GitLab
-	// PR-status detection that moves a branch to pr-open/pr-merged/pr-closed —
-	// and the repo-wide list scope resolves no workspace, so it never did. This
-	// mount resolves one through chatScoped's own resolveChatWorktree, which is
-	// exactly what scopeChatWorktreeID reads, so a client watching a chat starts the poll
-	// for the worktree that chat holds. Without it, a frontend that stopped
-	// watching .../workspaces/:wsId would leave every PR status frozen at `new`.
+	// The per-CHAT lifecycle stream: the agent-chat broadcaster scoped to one
+	// chat, carrying its worktree's PR status. The forge poll that moves that
+	// status runs while the viewed workspace's forge: scope is held, not here.
 	chatScoped.GET("/ws", c.agentChats.Handle)
 	// The chat's row feed reads only its ledger, so it mounts outside chatScoped:
 	// a home or bubble chat, with no worktree to resolve, has a feed too.

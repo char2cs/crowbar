@@ -15,7 +15,7 @@ import (
 const GlobalCronInterval = 5 * time.Minute
 
 // PerConnectionInterval is the cadence of the forge poll the stream runs for a
-// workspace while a client holds its ws: scope (D10/§11).
+// workspace while a client holds its forge: scope (D10/§11).
 const PerConnectionInterval = 1 * time.Minute
 
 // perTargetTimeout bounds a single target's pollFn (which runs network

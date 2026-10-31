@@ -21,7 +21,7 @@ type ProviderPoller interface {
 }
 
 // ForgePoll polls a held workspace's forge (pull-request state) while a client
-// holds its ws: scope: once at Start, then every interval. Each poll runs under
+// holds its forge: scope: once at Start, then every interval. Each poll runs under
 // the runner's context, so Stop and Close cancel it rather than wait it out.
 type ForgePoll struct {
 	root     context.Context

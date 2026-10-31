@@ -50,7 +50,7 @@ func NewSet(ctx context.Context, signals Signaler, deps Deps) *Set {
 // ByKind names what each scope kind runs; git: and files: share one watcher.
 func (s *Set) ByKind() map[stream.ScopeKind][]appstream.Resource {
 	return map[stream.ScopeKind][]appstream.Resource{
-		stream.KindWs:    {s.forgePoll},
+		stream.KindForge: {s.forgePoll},
 		stream.KindGit:   {s.watcher, s.originSync},
 		stream.KindFiles: {s.watcher},
 		stream.KindLsp:   {s.lsp},
