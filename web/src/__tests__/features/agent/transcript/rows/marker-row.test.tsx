@@ -20,7 +20,7 @@ function draw(id: string, actions = noRowActions) {
 const markerOf = (feed: ReturnType<typeof seed>) =>
   feed.order.find((id) => feed.items[id]?.kind === 'marker')
 
-beforeEach(() => chatStore.setState({ feeds: {} }))
+beforeEach(() => chatStore.setState({ feeds: {}, outbox: {} }))
 
 describe('MarkerRow', () => {
   it('offers Retry and Open terminal on a failed turn', () => {
@@ -49,6 +49,56 @@ describe('MarkerRow', () => {
     expect(actions.resend).toHaveBeenCalledWith('fix the build')
     fireEvent.click(screen.getByRole('button', { name: 'Open terminal' }))
     expect(actions.openTerminal).toHaveBeenCalled()
+  })
+
+  const failedTurn = (l: ReturnType<typeof ledger>, n: number) => [
+    l.row(
+      'user_message',
+      { requestId: `r${n}`, text: `prompt ${n}`, origin: 'crowbar' },
+      { turnId: `turn-${n}` },
+    ),
+    l.start(`turn-${n}`, `r${n}`),
+    l.row('turn_failed', { reason: 'provider_error' }, { turnId: `turn-${n}` }),
+  ]
+  const markers = (feed: ReturnType<typeof seed>) =>
+    feed.order.filter((id) => feed.items[id]?.kind === 'marker')
+
+  it('offers Retry once, on the newest failed turn only, with that turn’s prompt', () => {
+    const l = ledger()
+    const feed = seed([...failedTurn(l, 1), ...failedTurn(l, 2)])
+    const actions = { ...noRowActions, resend: vi.fn() }
+    const [older, newer] = markers(feed)
+    const first = draw(older!, actions)
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    first.unmount()
+
+    draw(newer!, actions)
+    const retry = screen.getByRole('button', { name: 'Retry' })
+    fireEvent.click(retry)
+    fireEvent.click(retry)
+    expect(actions.resend).toHaveBeenCalledTimes(1)
+    expect(actions.resend).toHaveBeenCalledWith('prompt 2')
+  })
+
+  it('offers no Retry once a later prompt was sent', () => {
+    const l = ledger()
+    const feed = seed([...failedTurn(l, 1), l.prompt('r9', 'something else')])
+    draw(markers(feed)[0]!)
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Open terminal' })).toBeInTheDocument()
+  })
+
+  it('offers no Retry while a prompt is on its way', () => {
+    const l = ledger()
+    const feed = seed(failedTurn(l, 1))
+    chatStore.setState((s) => ({
+      outbox: {
+        ...s.outbox,
+        'chat-1': [{ requestId: 'q', wsId: 'w', text: 'x', state: 'queued', steer: false }],
+      },
+    }))
+    draw(markers(feed)[0]!)
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
   })
 
   it('reads Interrupted · you stopped this turn after Stop', () => {

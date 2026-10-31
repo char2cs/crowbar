@@ -64,6 +64,17 @@ function pill(item: MarkerItem, providers: AgentProvider[]): { label: string; te
   }
 }
 
+/** True while nothing was asked after the marker: no later prompt in the
+ *  transcript or on its way. */
+function useNewestFailure(chatId: string, id: string): boolean {
+  return useChatStore((s) => {
+    const feed = s.feeds[chatId]
+    if (!feed || (s.outbox[chatId]?.length ?? 0) > 0) return false
+    const at = feed.order.indexOf(id)
+    return at >= 0 && feed.order.slice(at + 1).every((later) => feed.items[later]?.kind !== 'user')
+  })
+}
+
 /** The text of the prompt that started `turnId`. */
 function usePromptOf(chatId: string, turnId: string | undefined): string | undefined {
   return useChatStore((s) => {
@@ -79,7 +90,9 @@ function usePromptOf(chatId: string, turnId: string | undefined): string | undef
 
 function FailedActions({ chatId, item, actions }: MarkerProps & { actions: MarkerActions }) {
   const [open, setOpen] = useState(false)
+  const [sent, setSent] = useState(false)
   const prompt = usePromptOf(chatId, item.turnId)
+  const newest = useNewestFailure(chatId, item.id)
   return (
     <div className="marker-actions" data-testid="agent-failed-turn">
       {item.detail && (
@@ -93,8 +106,16 @@ function FailedActions({ chatId, item, actions }: MarkerProps & { actions: Marke
           <CaretRightIcon size={12} />
         </button>
       )}
-      {prompt !== undefined && (
-        <Button size="sm" variant="secondary" onClick={() => actions.resend(prompt)}>
+      {prompt !== undefined && newest && (
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={sent}
+          onClick={() => {
+            setSent(true)
+            actions.resend(prompt)
+          }}
+        >
           Retry
         </Button>
       )}
