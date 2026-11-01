@@ -108,13 +108,11 @@ func TestRegression_ManyAnsweredPermissionsInOneTurnNeverHitMaxOpenPerTurn(t *te
 	}
 
 	assert.Empty(t, pendingChoices(t, f, chatID))
-	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
+	all, err := f.activity.Choices(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, all.Choices, gatedCalls, "every gated call must have opened its own choice")
-	require.Len(t, all.Interruptions, gatedCalls,
-		"every gated call must have opened its own interruption too, not just its choice")
-	for _, i := range all.Interruptions {
-		assert.NotNil(t, i.ResolvedAt,
+	require.Len(t, all, gatedCalls, "every gated call must have opened its own choice")
+	for _, i := range all {
+		assert.NotEmpty(t, i.Resolution,
 			"interruption %s must have closed alongside its answered choice, not been left "+
 				"stranded until turn-close", i.ID)
 	}
@@ -144,13 +142,11 @@ func TestRegression_APermissionWithNoPromptIDStillPairsItsChoiceAndInterruption(
 	}
 
 	assert.Empty(t, pendingChoices(t, f, chatID))
-	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
+	all, err := f.activity.Choices(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, all.Choices, gatedCalls, "every gated call must have opened its own choice")
-	require.Len(t, all.Interruptions, gatedCalls,
-		"every gated call must have opened its own interruption too, not just its choice")
-	for _, i := range all.Interruptions {
-		assert.NotNil(t, i.ResolvedAt,
+	require.Len(t, all, gatedCalls, "every gated call must have opened its own choice")
+	for _, i := range all {
+		assert.NotEmpty(t, i.Resolution,
 			"interruption %s must have closed alongside its answered choice, not been left "+
 				"stranded under an id nothing ever resolves", i.ID)
 	}

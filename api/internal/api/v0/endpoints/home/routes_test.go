@@ -61,6 +61,27 @@ func TestHomeMountsEveryAgentRoute(t *testing.T) {
 	assert.Contains(t, homeRoutes, "POST /chats/runners/:segid/hooks/:provider/:event")
 }
 
+// The transcript reads only the old client spoke are gone from both mounts:
+// the ledger is read through the chat's feed and its blobs.
+func TestRoutes_ServeNoTranscriptReads(t *testing.T) {
+	wsRoutes := agentSubRoutes(t, func(r *gin.Engine) {
+		scope := r.Group("/scope")
+		agentroutes.Register(scope, scope, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, noopWS)
+	}, "/scope")
+	homeRoutes := agentSubRoutes(t, func(r *gin.Engine) {
+		home.Register(r.Group("/scope"), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, noopWS)
+	}, "/scope/home")
+
+	for _, gone := range []string{
+		"GET /chats/:id/messages", "GET /chats/:id/activity", "GET /chats/:id/activity/:toolId/payload",
+		"GET /chats/:id/choices", "GET /chats/:id/pending-prompt",
+	} {
+		assert.NotContains(t, wsRoutes, gone)
+		assert.NotContains(t, homeRoutes, gone)
+	}
+	assert.Contains(t, homeRoutes, "POST /chats/:id/choices/:choiceId/answer", "an answer is a command, not a read")
+}
+
 // agentSubRoutes registers routes via `mount` and returns every "/agent/..." route
 // it produced, as "METHOD path" with the group prefix stripped, so the two mounts
 // are comparable.

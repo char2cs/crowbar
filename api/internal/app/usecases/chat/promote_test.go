@@ -243,10 +243,10 @@ func TestPromote_AppendsThePromotionNote(t *testing.T) {
 	require.NoError(t, err)
 	f.wait()
 
-	page, err := f.usecase.ReadMessages(f.ctx, bubbleID, 0, 0, 0)
+	page, err := f.activity.Turns(f.ctx, bubbleID)
 	require.NoError(t, err)
-	require.NotEmpty(t, page.Items)
-	last := page.Items[len(page.Items)-1]
+	require.NotEmpty(t, page)
+	last := page[len(page)-1]
 	assert.Contains(t, last.Text, "[Crowbar]")
 	assert.Contains(t, last.Text, "promoted")
 

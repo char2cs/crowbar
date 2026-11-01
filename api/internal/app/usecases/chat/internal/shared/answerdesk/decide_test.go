@@ -11,14 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-func choices(ids ...string) []domain.ActivityChoice {
-	out := make([]domain.ActivityChoice, 0, len(ids))
-	for _, id := range ids {
-		out = append(out, domain.ActivityChoice{ID: id})
-	}
-	return out
-}
-
 func permission() domain.ActivityChoice {
 	return domain.ActivityChoice{
 		ID: "choice-1",

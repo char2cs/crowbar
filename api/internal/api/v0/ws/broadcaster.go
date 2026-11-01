@@ -177,7 +177,7 @@ func (b *Broadcaster[T]) Push(
 		// (nor crash the daemon — Push runs on a projection goroutine).
 		func() {
 			defer safego.Recover("broadcaster.Push")
-			sendIfMatch(cl, event, data, b.def.CoalesceKey)
+			sendIfMatch(cl, event, data)
 		}()
 	}
 }
@@ -186,19 +186,9 @@ func sendIfMatch[T any](
 	cl *filteredClient[T],
 	event T,
 	data []byte,
-	coalesceKey func(T) (string, bool),
 ) {
 	if !cl.predicate(event) {
 		return
-	}
-	if coalesceKey != nil {
-		if key, ok := coalesceKey(event); ok {
-			// Never queued, never disconnects — see client.coalesce and
-			// StreamDef.CoalesceKey's own doc comments for why this is safe
-			// only for a stream whose values are already "the state so far".
-			cl.coalesce(key, data)
-			return
-		}
 	}
 	select {
 	case cl.send <- data:
@@ -206,10 +196,6 @@ func sendIfMatch[T any](
 		// Buffer full: this client's writePump is stalled. Dropping the frame
 		// would leave it stale; disconnect so it reconnects to a fresh
 		// snapshot-on-subscribe. closeDone is idempotent.
-		//
-		// A stream declaring CoalesceKey never reaches here for the values it
-		// claims a key for (see above) — this remains the right policy for
-		// everything that does not.
 		cl.closeDone()
 	}
 }

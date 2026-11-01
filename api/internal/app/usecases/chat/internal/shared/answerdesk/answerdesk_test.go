@@ -190,26 +190,6 @@ func TestAbandon_IsSilentForAnAskNobodyIsHolding(t *testing.T) {
 	assert.Empty(t, ledger.all())
 }
 
-func TestAnswerableIDs_KeepsOnlyTheChoicesThisChatStillHolds(t *testing.T) {
-	t.Parallel()
-
-	d, _ := fixture()
-	d.Hold(answerdesk.Prompt{ChoiceID: "choice-2", ChatID: "chat-2", RunnerID: "runner-2"})
-
-	ids := d.AnswerableIDs("chat-1", choices("choice-1", "choice-2", "choice-3"))
-
-	assert.Equal(t, []string{"choice-1"}, ids,
-		"another chat's held prompt and a prompt nobody holds are both unanswerable")
-}
-
-func TestAnswerableIDs_IsEmptyRatherThanNilForNoChoices(t *testing.T) {
-	t.Parallel()
-
-	d := answerdesk.New(answerdesk.DefaultRetention, nil)
-
-	assert.Empty(t, d.AnswerableIDs("chat-1", nil))
-}
-
 func TestLedger_AbandonClosesTheQuestionAsProceeded(t *testing.T) {
 	t.Parallel()
 
@@ -256,44 +236,4 @@ func TestLedger_NilLedgerIsSilent(t *testing.T) {
 
 	d.Abandon(context.Background(), "choice-1")
 	d.ReleaseRunner("runner-1")
-}
-
-func TestWithChange_AnnouncesEachMoveOfTheAnswerableSetAfterTheLockIsReleased(t *testing.T) {
-	t.Parallel()
-
-	var d *answerdesk.Desk
-	var announced []string
-	d = answerdesk.New(answerdesk.DefaultRetention, nil, answerdesk.WithChange(func(chatID string) {
-		// Reading the desk back would deadlock if it were announced under its lock.
-		_ = d.AnswerableIDs(chatID, nil)
-		announced = append(announced, chatID)
-	}))
-
-	slot := d.Hold(answerdesk.Prompt{ChoiceID: "choice-1", ChatID: "chat-1"})
-	require.NoError(t, decide(d, slot, "allow"))
-	other := d.Hold(answerdesk.Prompt{ChoiceID: "choice-2", ChatID: "chat-2"})
-	d.Discard(other)
-
-	assert.Equal(t, []string{"chat-1", "chat-1", "chat-2", "chat-2"}, announced)
-}
-
-func TestWithChange_AReleasedRelayAndADeadRunnerAreAnnounced(t *testing.T) {
-	t.Parallel()
-
-	var announced []string
-	d := answerdesk.New(answerdesk.DefaultRetention, nil, answerdesk.WithChange(func(chatID string) {
-		announced = append(announced, chatID)
-	}))
-	d.Hold(answerdesk.Prompt{
-		ChoiceID: "choice-1", ChatID: "chat-1", RunnerID: "runner-1",
-		Keys: engineagents.AnswerCapability{Wait: time.Millisecond},
-	})
-	d.Hold(answerdesk.Prompt{ChoiceID: "choice-2", ChatID: "chat-2", RunnerID: "runner-2"})
-	announced = nil
-
-	_, err := d.Await(context.Background(), "choice-1", proceeded)
-	require.NoError(t, err)
-	d.ReleaseRunner("runner-2")
-
-	assert.Equal(t, []string{"chat-1", "chat-2"}, announced)
 }

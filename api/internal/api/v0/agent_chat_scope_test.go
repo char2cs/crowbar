@@ -122,30 +122,17 @@ func TestRegression_RepoScopedFeedNeverCarriesAnotherProjectsRepolessFrame(t *te
 		frame dto.AgentChatEvent
 	}{
 		{
-			name: "streamed assistant text",
+			name: "the provider's usage report",
 			frame: dto.AgentChatEvent{
 				ChatID:    "chat-home-p2",
 				ProjectID: "p2",
-				Kind:      dto.AgentChatKindMessageDelta,
-				Message:   &dto.AgentStreamingMessageDTO{ID: "m1", Text: "project B's private reply"},
-			},
-		},
-		{
-			name: "the agent's plan for the turn",
-			frame: dto.AgentChatEvent{
-				ChatID:    "chat-home-p2",
-				ProjectID: "p2",
-				Kind:      dto.AgentChatKindPlan,
-				Plan:      []dto.AgentPlanStepDTO{{Text: "project B's private plan"}},
+				Kind:      dto.AgentChatKindTelemetry,
+				Telemetry: &dto.AgentTelemetryDTO{},
 			},
 		},
 		{
 			name:  "a lifecycle edge",
 			frame: dto.AgentChatEvent{ChatID: "chat-home-p2", ProjectID: "p2", Kind: "turn_started"},
-		},
-		{
-			name:  "a compaction edge",
-			frame: dto.AgentChatEvent{ChatID: "chat-home-p2", ProjectID: "p2", Kind: dto.AgentChatKindCompactionStarted},
 		},
 		{
 			name: "a folder row",
@@ -180,8 +167,8 @@ func TestRegression_RepoScopedFeedStillCarriesItsOwnProjectsRepolessFrame(t *tes
 	assert.True(t, inProjectA(dto.AgentChatEvent{
 		ChatID:    "chat-home-p1",
 		ProjectID: "p1",
-		Kind:      dto.AgentChatKindMessageDelta,
-		Message:   &dto.AgentStreamingMessageDTO{ID: "m1", Text: "same project"},
+		Kind:      dto.AgentChatKindTelemetry,
+		Telemetry: &dto.AgentTelemetryDTO{},
 	}), "a repo-less frame from this subscriber's OWN project still reaches it")
 
 	assert.True(t, inProjectA(dto.AgentChatEvent{
@@ -241,11 +228,8 @@ func TestRegression_RepoScopedChatWSNeverCarriesAnotherProjectsHomeChat(t *testi
 	assert.Equal(t, "r1", gotA["repoId"])
 }
 
-// TestRegression_PushAgentChatPlanIsScopedLikeEveryOtherFrame closes the second
-// half of the leak: PushAgentChatPlan never set RepoID at all, so the agent's
-// own running to-do list — free text the model wrote — fanned out to every
-// repo-scoped subscriber on the daemon regardless of the chat's real scope.
-func TestRegression_PushAgentChatPlanIsScopedLikeEveryOtherFrame(t *testing.T) {
+// A usage report is held to its chat's repo, exactly as every other chat frame.
+func TestPushAgentChatTelemetry_IsScopedLikeEveryOtherFrame(t *testing.T) {
 	a := newAppForSnapshot(t)
 	seedWorkspace(t, a, "A", "p1", "r1", "", "")
 	seedWorkspace(t, a, "B", "p2", "r2", "", "")
@@ -255,47 +239,18 @@ func TestRegression_PushAgentChatPlanIsScopedLikeEveryOtherFrame(t *testing.T) {
 	connB := dialWSAt(t, srv, "/v0/projects/p2/repos/r2/chats/ws")
 	c.agentChats.WaitNRegistered(2)
 
-	c.PushAgentChatPlan("chat-in-b", "B", []agents.PlanStep{{Text: "project B's private plan"}})
+	c.PushAgentChatTelemetry("chat-in-b", "B", agents.Telemetry{})
 
 	gotB := readJSON(t, connB)
-	require.Equal(t, "chat-in-b", gotB["chatId"], "B's own plan reaches B")
+	require.Equal(t, "chat-in-b", gotB["chatId"], "B's own report reaches B")
 
-	c.PushAgentChatPlan("chat-1", "A", []agents.PlanStep{{Text: "project A's plan", Status: "in_progress"}})
-
-	gotA := readJSON(t, connA)
-	assert.Equal(t, "chat-1", gotA["chatId"],
-		"a plan frame must be held to its own repo, exactly as every other chat frame is")
-	assert.Equal(t, "p1", gotA["projectId"])
-	assert.Equal(t, "r1", gotA["repoId"])
-	assert.Equal(t, dto.AgentChatKindPlan, gotA["kind"])
-}
-
-// TestRegression_PushAgentChatCompactionIsScopedLikeEveryOtherFrame is the same
-// omission in the compaction edge: it set no RepoID either, so a compact_pre in
-// one repo announced itself to every other repo's subscribers.
-func TestRegression_PushAgentChatCompactionIsScopedLikeEveryOtherFrame(t *testing.T) {
-	a := newAppForSnapshot(t)
-	seedWorkspace(t, a, "A", "p1", "r1", "", "")
-	seedWorkspace(t, a, "B", "p2", "r2", "", "")
-	c, srv := serveChats(t, a)
-
-	connA := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/chats/ws")
-	connB := dialWSAt(t, srv, "/v0/projects/p2/repos/r2/chats/ws")
-	c.agentChats.WaitNRegistered(2)
-
-	c.PushAgentChatCompaction("chat-in-b", "B", true)
-
-	gotB := readJSON(t, connB)
-	require.Equal(t, "chat-in-b", gotB["chatId"], "B's own compaction edge reaches B")
-
-	c.PushAgentChatCompaction("chat-1", "A", true)
+	c.PushAgentChatTelemetry("chat-1", "A", agents.Telemetry{})
 
 	gotA := readJSON(t, connA)
-	assert.Equal(t, "chat-1", gotA["chatId"],
-		"a compaction frame must be held to its own repo, exactly as every other chat frame is")
+	assert.Equal(t, "chat-1", gotA["chatId"])
 	assert.Equal(t, "p1", gotA["projectId"])
 	assert.Equal(t, "r1", gotA["repoId"])
-	assert.Equal(t, dto.AgentChatKindCompactionStarted, gotA["kind"])
+	assert.Equal(t, dto.AgentChatKindTelemetry, gotA["kind"])
 }
 
 // TestPushChatWorktree_CarriesBothScopingAnswers proves the worktree_state frame

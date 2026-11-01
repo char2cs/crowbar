@@ -34,7 +34,7 @@ func TestMap_UnsequencedDeltaWritesNoRow(t *testing.T) {
 
 	assert.Empty(t, rows)
 	require.NotNil(t, fx.Live)
-	assert.Equal(t, LiveDelta{TurnID: turnID, ID: "m1", Text: "hel", ShownAs: "m1"}, *fx.Live)
+	assert.Equal(t, LiveDelta{TurnID: turnID, ID: "m1", Text: "hel"}, *fx.Live)
 }
 
 // What is only shown while it happens is one stream per block, else per turn.
@@ -98,11 +98,10 @@ func TestMap_AChunkAfterTheTurnEndedJoinsItsReply(t *testing.T) {
 	c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookSubagentPre, Subagent: inA}, hooksSource())
 	c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, Message: "the answer"}, hooksSource())
 
-	rows, fx := c.mapped(delta(engineagents.HookMessageDelta, "m1", true, true, "the answer"), hooksSource())
+	rows, _ := c.mapped(delta(engineagents.HookMessageDelta, "m1", true, true, "the answer"), hooksSource())
 
 	require.Len(t, rows, 1)
 	assert.Equal(t, ledger.ReplyID(turnID), bodyOf[ledger.AssistantText](t, rows[0]).Reply)
-	assert.Equal(t, ledger.ReplyID(turnID), fx.Live.ShownAs, "the live frame names the message it joins")
 	sub := delta(engineagents.HookMessageDelta, "s1", true, true, "the answer")
 	sub.Subagent = inA
 	rows, _ = c.mapped(sub, hooksSource())
@@ -110,9 +109,8 @@ func TestMap_AChunkAfterTheTurnEndedJoinsItsReply(t *testing.T) {
 	assert.Empty(t, bodyOf[ledger.AssistantText](t, rows[0]).Reply)
 }
 
-// A chunk whose message began earlier unseen joins the reply whatever it says,
-// and every later chunk of a joined message is shown as that reply.
-func TestMap_AJoinedMessageIsShownAsItsReply(t *testing.T) {
+// A chunk whose message began earlier unseen joins the reply whatever it says.
+func TestMap_AJoinedMessageJoinsItsReply(t *testing.T) {
 	c := liveChatRows(t)
 	turnID := c.typed("go")
 	c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, Message: "the answer"}, hooksSource())
@@ -122,11 +120,6 @@ func TestMap_AJoinedMessageIsShownAsItsReply(t *testing.T) {
 	rows, _ := c.mapped(mid, hooksSource())
 	require.Len(t, rows, 1)
 	assert.Equal(t, ledger.ReplyID(turnID), bodyOf[ledger.AssistantText](t, rows[0]).Reply)
-
-	next := delta(engineagents.HookMessageDelta, "m1", true, true, " words")
-	next.Delta.Index = 2
-	_, fx := c.mapped(next, hooksSource())
-	assert.Equal(t, ledger.ReplyID(turnID), fx.Live.ShownAs)
 }
 
 // A message keeps the turn it began in; a new message naming no turn is the

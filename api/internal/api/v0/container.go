@@ -48,9 +48,7 @@ func New(
 	for _, option := range options {
 		option(c)
 	}
-	agentChatStream := agentChatDef()
-	agentChatStream.Snapshot = c.agentChatSnapshot
-	c.agentChats = ws.NewBroadcaster(agentChatStream)
+	c.agentChats = ws.NewBroadcaster(agentChatDef())
 	if engContainer != nil && engContainer.Terminal != nil {
 		if appContainer.Usecases != nil && appContainer.Usecases.TerminalMeta != nil {
 			engContainer.Terminal.SetMetaStore(appContainer.Usecases.TerminalMeta)

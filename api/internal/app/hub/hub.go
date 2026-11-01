@@ -2,7 +2,6 @@ package hub
 
 import (
 	"sync"
-	"time"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -74,76 +73,6 @@ func (h *Hub) BroadcastAgentChatEvent(ev dto.AgentChatEvent) {
 	}
 }
 
-// BroadcastAgentChatPromptSettled fans out the edge where a delivered prompt is
-// retired without ever having produced a turn, on the same workspace-scoped feed
-// as BroadcastAgentChat.
-//
-// Fed by the terminal-wait detector, like the wait edge and for the same reason:
-// the fact is derived from a live PTY's screen joined against the chat's busy
-// state and its delivery journal, so no aggregate's event log can emit it.
-//
-// consumed says whether anything proved the provider took the prompt, and rides
-// the frame because a client cannot derive it: both cases look identical in the
-// ledger (neither produced a turn). A client holding the user's typed text may
-// discard it only when consumed is true.
-func (h *Hub) BroadcastAgentChatPromptSettled(
-	chatID string,
-	workspaceID string,
-	requestID string,
-	consumed bool,
-) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, s := range h.subscribers {
-		s.PushAgentChatPromptSettled(chatID, workspaceID, requestID, consumed)
-	}
-}
-
-// BroadcastAgentChatMessageDelta fans a growing assistant message out on the same
-// workspace-scoped feed as every other fact about a conversation.
-//
-// Unlike the other chat broadcasts this one is HIGH FREQUENCY — roughly 1.4 per
-// second per streaming chat — and it is deliberately the only thing in this
-// feature that never touches durable storage. A partial message is a view, not a
-// record; the ledger gets the message once, when it is finished.
-// kind says WHICH stream this text belongs to: the empty string (or "answer")
-// for what the agent is saying, "reasoning" for what it is thinking on the way
-// there. Both are transient views of the same shape; only the answer is ever
-// recorded, and a client renders the two differently.
-func (h *Hub) BroadcastAgentChatMessageDelta(
-	chatID string,
-	workspaceID string,
-	messageID string,
-	text string,
-	kind string,
-	startedAt time.Time,
-) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, s := range h.subscribers {
-		s.PushAgentChatMessageDelta(chatID, workspaceID, messageID, text, kind, startedAt)
-	}
-}
-
-// BroadcastAgentChatPlan fans the agent's own running to-do list out on the same
-// workspace-scoped feed as every other fact about a conversation.
-//
-// Restated WHOLESALE on every update, like the streamed message's text-so-far:
-// the newest list is the entire truth, so a client that missed a frame is correct
-// again on the next one. Like that one it is deliberately never stored — a plan
-// for a turn in progress is a view, not a record.
-func (h *Hub) BroadcastAgentChatPlan(
-	chatID string,
-	workspaceID string,
-	steps []agents.PlanStep,
-) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, s := range h.subscribers {
-		s.PushAgentChatPlan(chatID, workspaceID, steps)
-	}
-}
-
 // BroadcastAgentChatTelemetry fans the provider's newest usage report for a
 // chat out on the same workspace-scoped feed, so the gauge moves when the
 // provider reports instead of on a client poll.
@@ -156,36 +85,6 @@ func (h *Hub) BroadcastAgentChatTelemetry(
 	defer h.mu.RUnlock()
 	for _, s := range h.subscribers {
 		s.PushAgentChatTelemetry(chatID, workspaceID, report)
-	}
-}
-
-// BroadcastAgentChatCompaction fans the live compact_pre/compact_post edge out
-// on the same workspace-scoped feed as every other fact about a conversation,
-// as the ledger records its compaction markers. active is the whole answer.
-func (h *Hub) BroadcastAgentChatCompaction(
-	chatID string,
-	workspaceID string,
-	active bool,
-) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, s := range h.subscribers {
-		s.PushAgentChatCompaction(chatID, workspaceID, active)
-	}
-}
-
-// BroadcastAgentChatChoices fans the whole set of prompts a chat is blocked on
-// out on the same workspace-scoped feed, so a card appears and clears when the
-// daemon's record moves instead of when a client next reads it.
-func (h *Hub) BroadcastAgentChatChoices(
-	chatID string,
-	workspaceID string,
-	choices []dto.AgentChoiceDTO,
-) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, s := range h.subscribers {
-		s.PushAgentChatChoices(chatID, workspaceID, choices)
 	}
 }
 

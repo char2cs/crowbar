@@ -271,17 +271,6 @@ func TestAgentChatDTOFrom_CarriesTheConversationAndOmitsAnUnboundOne(t *testing.
 	assert.NotContains(t, string(raw), `"conversation"`)
 }
 
-// Session says only how the chat's last runner ended.
-func TestAgentSessionDTOFrom_IsTheExitAlone(t *testing.T) {
-	assert.Nil(t, dto.AgentSessionDTOFrom(domain.AgentSession{}))
-	at := time.Unix(100, 0)
-	got := dto.AgentSessionDTOFrom(domain.AgentSession{ExitReason: domain.AgentExitResumeFailed, ExitedAt: at})
-	assert.Equal(t, &dto.AgentSessionDTO{ExitReason: domain.AgentExitResumeFailed, ExitedAt: &at}, got)
-	raw, err := json.Marshal(got)
-	require.NoError(t, err)
-	assert.NotContains(t, string(raw), `"rung"`)
-}
-
 // What the CLI reported it resolved to outranks what Crowbar launched it with,
 // half by half.
 func TestAgentChatDTOFrom_TheReportedLaunchOutranksTheRequestedOne(t *testing.T) {

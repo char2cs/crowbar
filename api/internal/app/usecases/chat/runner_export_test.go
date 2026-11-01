@@ -3,9 +3,9 @@ package chat
 import (
 	"context"
 	"fmt"
+	"github.com/char2cs/crowbar/api/internal/domain"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -16,17 +16,25 @@ const WaitingForPendingPromptLog = runner.WaitingForPendingPromptLog
 // HasPendingPrompt reports whether chatID holds a prompt the provider has not
 // acknowledged yet, read straight off the ledger.
 func HasPendingPrompt(u RunnerUsecase, ctx context.Context, chatID string) bool {
-	_, ok, err := u.PendingPrompt(ctx, chatID)
-	return err == nil && ok
+	st, err := concrete(u).ledger.State(ctx, chatID)
+	return err == nil && len(st.PendingPrompts()) > 0
 }
 
-// ChatSession is how chatID's last runner ended, as its snapshot reports it.
-func ChatSession(u RunnerUsecase, chatID string) domain.AgentSession {
+// ChatTurns is every message chatID said, as get_chat_log and the handoff read it.
+func ChatTurns(u RunnerUsecase, ctx context.Context, chatID string) ([]domain.LedgerTurn, error) {
+	return concrete(u).conversations.ChatTurns(ctx, chatID)
+}
+
+// ChatExitReason is how chatID's last runner ended, as its snapshot reports it.
+func ChatExitReason(u RunnerUsecase, chatID string) string {
 	snap, err := concrete(u).ChatSnapshot(context.Background(), chatID)
 	if err != nil {
 		panic(err)
 	}
-	return snap.Session
+	if snap.Ledger.LastExit == nil {
+		return ""
+	}
+	return snap.Ledger.LastExit.Reason
 }
 
 // concrete is u at the type every test builds; any other is a test bug.

@@ -41,10 +41,6 @@ type LiveDelta struct {
 	// Replace: Text is the stream's whole text, not an increment of it.
 	Replace bool
 	Text    string
-	// ShownAs is the id the frame names: the message's own, or the reply it joins.
-	ShownAs string
-	// Floor is the text a row already shows under ShownAs.
-	Floor string
 }
 
 func (r *Recorder) unrecorded(chatID, runnerID string) Unrecorded {
@@ -55,20 +51,11 @@ func (r *Recorder) unrecorded(chatID, runnerID string) Unrecorded {
 	}
 }
 
-// publishLive shows d once its rows are in, with the stream so far. A frame
-// of a stream shown as a reply never shows less than the reply's own text.
+// publishLive sends what d added to its stream, once its rows are in.
 func (r *Recorder) publishLive(chat domain.Chat, runnerID string, d LiveDelta) {
-	text, startedAt, fed := r.live.observe(chat.ID, runnerID, d, time.Now())
-	if fed != nil {
+	if _, _, fed := r.live.observe(chat.ID, runnerID, d, time.Now()); fed != nil {
 		r.frames.FeedDelta(chat.ID, *fed)
 	}
-	if d.Kind != KindAnswer {
-		startedAt = time.Time{}
-	}
-	if d.Floor != "" && (len(text) <= len(d.Floor) || !strings.HasPrefix(text, d.Floor)) {
-		text = d.Floor
-	}
-	r.frames.MessageDelta(chat.ID, chat.WorkspaceID, d.ShownAs, text, d.Kind, startedAt)
 }
 
 // Snapshot is one Replace frame per stream of chatID no row holds, each at its

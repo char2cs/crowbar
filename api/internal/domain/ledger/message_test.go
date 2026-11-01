@@ -251,8 +251,6 @@ func TestState_KeepsWhatARetriedChunkIsRecognisedBy(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, ledger.ReplyID("T1"), id)
 	assert.Equal(t, "R", reply)
-	assert.Equal(t, ledger.ReplyID("T1"), st.ShownAs("", "late"))
-	assert.Equal(t, "m", st.ShownAs("", "m"))
 }
 
 func TestCheck_AnAssistantTextNeedsAMessageAndATurn(t *testing.T) {

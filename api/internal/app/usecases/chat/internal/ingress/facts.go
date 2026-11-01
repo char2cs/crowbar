@@ -32,7 +32,7 @@ func mapText(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 		return mapChunk(st, ev, src, scope)
 	}
 	turnID, _ := turnFor(st, src, scope, d.TurnID)
-	delta := LiveDelta{TurnID: turnID, Scope: scope, ID: d.MessageID, Index: d.Index, Text: d.Text, ShownAs: d.MessageID}
+	delta := LiveDelta{TurnID: turnID, Scope: scope, ID: d.MessageID, Index: d.Index, Text: d.Text}
 	switch ev.Kind {
 	case engineagents.HookReasoningDelta:
 		delta.Kind = KindReasoning
@@ -44,7 +44,6 @@ func mapText(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 	if delta.Kind != KindAnswer {
 		// One undifferentiated stream per turn names no block: the turn groups it.
 		delta.ID = cmp.Or(d.MessageID, d.TurnID)
-		delta.ShownAs = delta.ID
 	}
 	if delta.ID == "" && delta.Kind == KindAnswer || d.Text == "" && !delta.Replace {
 		return nil, Effects{}, nil
@@ -60,7 +59,6 @@ func mapChunk(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope
 		return nil, Effects{}, nil
 	}
 	turnID, known := st.MessageTurn(scope, d.MessageID)
-	shown := st.ShownAs(scope, d.MessageID)
 	reply := ""
 	if !known {
 		var ok bool
@@ -68,7 +66,6 @@ func mapChunk(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope
 			return nil, Effects{}, errNoTurn
 		}
 		reply = joinedReply(st, scope, turnID, d)
-		shown = cmp.Or(reply, shown)
 	}
 	row, err := ledger.NewRow(ledger.KindAssistantText, turnID, scope, ledger.AssistantText{
 		MessageID: d.MessageID, Index: d.Index, Final: d.Final, Text: d.Text, Reply: reply,
@@ -78,10 +75,7 @@ func mapChunk(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope
 	}
 	live := &LiveDelta{
 		TurnID: turnID, Scope: scope, ID: d.MessageID, Kind: KindAnswer,
-		Index: d.Index, Numbered: true, Text: d.Text, ShownAs: shown,
-	}
-	if shown != d.MessageID {
-		_, live.Floor, _ = st.Reply(turnID)
+		Index: d.Index, Numbered: true, Text: d.Text,
 	}
 	return []ledger.Row{row}, Effects{Live: live}, nil
 }

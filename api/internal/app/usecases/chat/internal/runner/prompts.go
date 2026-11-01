@@ -430,22 +430,6 @@ func (rs *Runners) requireNoPendingPrompt(ctx context.Context, chatID string) er
 	return nil
 }
 
-// PendingPrompt is the chat's oldest prompt still waiting on the provider, so a
-// client that lost its own copy can show the text back.
-func (rs *Runners) PendingPrompt(ctx context.Context, chatID string) (domain.PendingPrompt, bool, error) {
-	st, err := rs.ledger.State(ctx, chatID)
-	if err != nil {
-		return domain.PendingPrompt{}, false, fmt.Errorf("agent: pending prompt: %w", err)
-	}
-	pending := st.PendingPrompts()
-	if len(pending) == 0 {
-		return domain.PendingPrompt{}, false, nil
-	}
-	return domain.PendingPrompt{
-		Text: pending[0].Text, State: string(ledger.PromptStatusPending), RequestID: pending[0].RequestID,
-	}, true, nil
-}
-
 // reconcilePendingPromptsOnBoot settles every prompt a restart left pending: no
 // carrier from before it can acknowledge one now.
 func (rs *Runners) reconcilePendingPromptsOnBoot(ctx context.Context) error {

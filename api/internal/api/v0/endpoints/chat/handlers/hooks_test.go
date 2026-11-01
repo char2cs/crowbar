@@ -124,16 +124,6 @@ type fakeAgentUsecase struct {
 	getChat    domain.Chat
 	getChatErr error
 
-	activity      agentusecase.ChatActivity
-	activityErr   error
-	activityCalls []activityCall
-	payload       []byte
-	payloadErr    error
-	payloadCalls  []payloadCall
-	pending       []domain.ActivityChoice
-	pendingErr    error
-	pendingCalls  []string
-
 	uploadAttachmentCalls []uploadAttachmentCall
 	uploadAttachmentOut   agentusecase.StoredAttachment
 	uploadAttachmentErr   error
@@ -143,7 +133,6 @@ type fakeAgentUsecase struct {
 	readAttachmentType  string
 	readAttachmentErr   error
 
-	answerable  []string
 	answerCalls []answerCall
 	answerErr   error
 
@@ -160,29 +149,17 @@ type fakeAgentUsecase struct {
 	// chat is on a surface whose channel carries no usage report.
 	telemetryOffSurface bool
 
-	messagePage  domain.LedgerPage
-	messageErr   error
-	messageCalls []messageCall
 	promptResult domain.AgentPromptSubmission
 	promptErr    error
 	promptCalls  []promptCall
 	catalog      engineagents.SlashCatalog
 	catalogErr   error
 	catalogCalls []string
-
-	pendingPrompt      domain.PendingPrompt
-	pendingPromptFound bool
-	pendingPromptErr   error
 }
 
 type promptCall struct {
 	chatID, text, requestID, provider string
 	selection                         *domain.ChatSelection
-}
-
-type messageCall struct {
-	chatID               string
-	after, before, limit int
 }
 
 type ingestCall struct {
@@ -279,15 +256,6 @@ func (f *fakeAgentUsecase) ChatSnapshotsOf(
 	return out, nil
 }
 
-func (f *fakeAgentUsecase) ReadMessages(
-	_ context.Context,
-	chatID string,
-	after, before, limit int,
-) (domain.LedgerPage, error) {
-	f.messageCalls = append(f.messageCalls, messageCall{chatID: chatID, after: after, before: before, limit: limit})
-	return f.messagePage, f.messageErr
-}
-
 func (f *fakeAgentUsecase) SubmitPrompt(
 	_ context.Context,
 	chatID, text, requestID, provider string,
@@ -305,13 +273,6 @@ func (f *fakeAgentUsecase) SlashCatalog(
 ) (engineagents.SlashCatalog, error) {
 	f.catalogCalls = append(f.catalogCalls, chatID)
 	return f.catalog, f.catalogErr
-}
-
-func (f *fakeAgentUsecase) PendingPrompt(
-	_ context.Context,
-	_ string,
-) (domain.PendingPrompt, bool, error) {
-	return f.pendingPrompt, f.pendingPromptFound, f.pendingPromptErr
 }
 
 // ConversationsForChat backs the chat DTOs' derived facts, which only the List/Get
@@ -514,38 +475,13 @@ func (f *fakeAgentUsecase) SetModelManifestFetchEnabled(
 	return nil
 }
 
-func (f *fakeAgentUsecase) ReadActivity(
-	_ context.Context, chatID string, after int64, limit int,
-) (agentusecase.ChatActivity, error) {
-	f.activityCalls = append(f.activityCalls, activityCall{chatID: chatID, after: after, limit: limit})
-	return f.activity, f.activityErr
-}
-
 func (f *fakeAgentUsecase) VerifyRunnerToken(runnerID, token string) bool {
 	f.verifyCalls = append(f.verifyCalls, [2]string{runnerID, token})
 	return token == f.validToken && token != ""
 }
 
-func (f *fakeAgentUsecase) ReadToolPayload(
-	_ context.Context, chatID, toolID, side string,
-) ([]byte, error) {
-	f.payloadCalls = append(f.payloadCalls, payloadCall{chatID: chatID, toolID: toolID, side: side})
-	return f.payload, f.payloadErr
-}
-
-func (f *fakeAgentUsecase) ReadPendingChoices(
-	_ context.Context, chatID string,
-) ([]domain.ActivityChoice, error) {
-	f.pendingCalls = append(f.pendingCalls, chatID)
-	return f.pending, f.pendingErr
-}
-
 func (f *fakeAgentUsecase) TerminalWait(string) domain.AgentTerminalWait {
 	return f.terminalWait
-}
-
-func (f *fakeAgentUsecase) AnswerableChoiceIDs(string, []domain.ActivityChoice) []string {
-	return f.answerable
 }
 
 func (f *fakeAgentUsecase) AnswerChoice(
@@ -604,16 +540,6 @@ func (f *fakeAgentUsecase) Telemetry(string) (engineagents.Telemetry, bool) {
 
 func (f *fakeAgentUsecase) TelemetryOnChatSurface(context.Context, string) bool {
 	return !f.telemetryOffSurface
-}
-
-type activityCall struct {
-	chatID string
-	after  int64
-	limit  int
-}
-
-type payloadCall struct {
-	chatID, toolID, side string
 }
 
 // ---------------------------------------------------------------------------

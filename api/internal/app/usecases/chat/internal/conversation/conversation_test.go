@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
@@ -21,7 +22,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/conversation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/transcript"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -37,6 +37,7 @@ type fixture struct {
 	chats         agentchat.EventStore
 	retired       *retiredRunners
 	ledger        *ledgerstore.Store
+	db            *gorm.DB // the ledger's
 	blobs         *ledgerstore.Blobs
 	home          string
 	settle        func()
@@ -112,21 +113,20 @@ func newFixture(t *testing.T, lineage stubLineage) fixture {
 	home := t.TempDir()
 	worktree := filepath.Join(home, "projects", "p1", "slug", "branch", "worktree")
 	retired := &retiredRunners{}
-	chatLedger, projector := newLedger(t)
+	chatLedger, db := newLedger(t)
 	blobs, err := ledgerstore.OpenBlobs(t.TempDir())
 	require.NoError(t, err)
 	level := "guarded"
 
 	conversations := conversation.New(conversation.Deps{
-		Chats:      chats,
-		Transcript: projector,
-		Blobs:      blobs,
-		Telemetry:  telemetry.New(),
-		Agents:     engineagents.New(),
-		Workspace:  stubWorkspace{home: home, worktree: worktree},
-		Lineage:    lineage,
-		Home:       func() (string, error) { return home, nil },
-		Ledger:     chatLedger, Writes: ingress.NewWriter(chatLedger, ingress.NewLocks()),
+		Chats:     chats,
+		Blobs:     blobs,
+		Telemetry: telemetry.New(),
+		Agents:    engineagents.New(),
+		Workspace: stubWorkspace{home: home, worktree: worktree},
+		Lineage:   lineage,
+		Home:      func() (string, error) { return home, nil },
+		Ledger:    chatLedger, Writes: ingress.NewWriter(chatLedger, ingress.NewLocks()),
 
 		DefaultPermissionLevel: func(context.Context) (string, error) { return level, nil },
 	})
@@ -137,6 +137,7 @@ func newFixture(t *testing.T, lineage stubLineage) fixture {
 		chats:         chats,
 		retired:       retired,
 		ledger:        chatLedger,
+		db:            db,
 		blobs:         blobs,
 		home:          home,
 		settle:        waitChats,
@@ -145,8 +146,8 @@ func newFixture(t *testing.T, lineage stubLineage) fixture {
 }
 
 // newLedger is a ledger whose clock ticks a millisecond a commit, so rows are
-// ordered in time as in sequence, and the transcript it publishes to.
-func newLedger(t *testing.T) (*ledgerstore.Store, *transcript.Projector) {
+// ordered in time as in sequence.
+func newLedger(t *testing.T) (*ledgerstore.Store, *gorm.DB) {
 	t.Helper()
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
@@ -159,9 +160,7 @@ func newLedger(t *testing.T) (*ledgerstore.Store, *transcript.Projector) {
 		return now
 	})
 	require.NoError(t, err)
-	projector := transcript.New(chatLedger)
-	chatLedger.Subscribe(func(chatID string, rows []ledger.Row, _ ledger.State) { projector.Apply(chatID, rows) })
-	return chatLedger, projector
+	return chatLedger, db
 }
 
 // say records text as a person's prompt the CLI took, opening its turn.
@@ -348,33 +347,6 @@ func TestAncestors_AnswersThroughTheLineagePort(t *testing.T) {
 	assert.Equal(t, []string{"parent", "grandparent"}, got)
 }
 
-func TestReadMessages_RefusesAPageItCannotServe(t *testing.T) {
-	t.Parallel()
-
-	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "", "ws-1", "", "")
-	require.NoError(t, err)
-
-	_, err = f.conversations.ReadMessages(t.Context(), chatID, 5, 5, 10)
-	require.Error(t, err, "after and before are mutually exclusive")
-	_, err = f.conversations.ReadMessages(t.Context(), chatID, 0, 0, 10_000)
-	require.Error(t, err, "a caller must not be able to pull a whole conversation in one response")
-}
-
-func TestReadMessages_DefaultsThePageSize(t *testing.T) {
-	t.Parallel()
-
-	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "", "ws-1", "", "")
-	require.NoError(t, err)
-	f.settle()
-
-	page, err := f.conversations.ReadMessages(t.Context(), chatID, 0, 0, 0)
-
-	require.NoError(t, err)
-	assert.Empty(t, page.Items, "a chat nobody has spoken in has no turns")
-}
-
 // The selection is validated against the provider's OWN declared catalogue, so a
 // model no descriptor offers cannot be pinned to a chat.
 func TestSetChatSelection_RefusesAModelNoProviderDeclares(t *testing.T) {
@@ -451,13 +423,6 @@ func TestNotes_AppendToAChatAlreadyUnderWay(t *testing.T) {
 	}
 }
 
-// unreadable is a transcript whose record cannot be read.
-type unreadable struct{ conversation.Transcript }
-
-func (unreadable) ChatTurns(context.Context, string) ([]domain.LedgerTurn, error) {
-	return nil, errors.New("record unreadable")
-}
-
 // A record that cannot be read is not an empty one: no note is dropped as if
 // the chat had said nothing.
 func TestNotes_SurfaceAnUnreadableRecord(t *testing.T) {
@@ -468,8 +433,10 @@ func TestNotes_SurfaceAnUnreadableRecord(t *testing.T) {
 			require.NoError(t, err)
 			f.settle()
 
-			c := conversation.New(conversation.Deps{Chats: f.chats, Transcript: unreadable{}})
-			require.ErrorContains(t, n.note(c, t.Context(), chatID), "record unreadable")
+			sqlDB, err := f.db.DB()
+			require.NoError(t, err)
+			require.NoError(t, sqlDB.Close())
+			require.ErrorContains(t, n.note(f.conversations, t.Context(), chatID), "chat turns")
 		})
 	}
 }

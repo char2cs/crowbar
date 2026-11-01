@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"slices"
 	"time"
+
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // How an ask was closed.
@@ -72,6 +74,41 @@ func (s State) PendingAsks() []PendingAsk {
 	}
 	slices.SortFunc(out, func(a, b PendingAsk) int { return cmp.Compare(a.Seq, b.Seq) })
 	return out
+}
+
+// OpenAsks are the open asks that offer a choice, oldest first, as the choices
+// an answer, the answer desk and the terminal-wait check read.
+func (s State) OpenAsks() []domain.ActivityChoice {
+	var out []domain.ActivityChoice
+	for _, p := range s.PendingAsks() {
+		if p.Kind == "" {
+			continue
+		}
+		c := domain.ActivityChoice{
+			ID: p.AskID, TurnID: p.TurnID, ChatID: s.ChatID, Seq: p.Seq, Kind: p.Kind,
+			PromptID: p.PromptID, ToolID: p.ToolID, ToolName: p.ToolName, Title: p.Title,
+			ToolTarget: p.ToolTarget, MCPServer: p.MCPServer,
+			Question: p.Question, Mode: p.Mode, Multi: p.Multi, At: p.At,
+			Options:   decoded[[]domain.ActivityChoiceOption](p.Options),
+			Questions: decoded[[]domain.ActivityChoiceQuestion](p.Questions),
+		}
+		if len(p.Schema) > 0 {
+			c.Schema = string(p.Schema)
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// decoded is raw as T. The mapper wrote it from these same shapes; one that
+// does not decode shows the question without it.
+func decoded[T any](raw json.RawMessage) T {
+	var v T
+	if err := json.Unmarshal(raw, &v); err != nil {
+		var none T
+		return none
+	}
+	return v
 }
 
 // SameAsk is the open ask a's delivery repeats: raised by the same event in

@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -10,51 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
-
-func (h *Handlers) Messages(ctx *gin.Context) {
-	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
-	if !ok {
-		return
-	}
-	after, ok := intQuery(ctx, "after")
-	if !ok {
-		return
-	}
-	before, ok := intQuery(ctx, "before")
-	if !ok {
-		return
-	}
-	limit, ok := intQuery(ctx, "limit")
-	if !ok {
-		return
-	}
-
-	page, err := h.chats.ReadMessages(ctx.Request.Context(), chat.ID, after, before, limit)
-	if err != nil {
-		libs.Fail(ctx, err)
-		return
-	}
-	items := make([]dto.AgentMessageDTO, 0, len(page.Items))
-	for _, item := range page.Items {
-		items = append(items, dto.AgentMessageDTO{
-			Sequence:     item.Sequence,
-			DisplayOrder: item.DisplayOrder,
-			ItemIndex:    item.ItemIndex,
-			TurnID:       item.ID,
-			Role:         item.Role,
-			ProviderID:   item.Provider,
-			Text:         item.Text,
-			Effort:       item.Effort,
-			At:           item.At,
-		})
-	}
-	libs.WriteQueryOK(ctx, dto.AgentMessagePageDTO{
-		Cursor:       page.Cursor,
-		OldestCursor: page.OldestCursor,
-		HasMore:      page.HasMore,
-		Items:        items,
-	})
-}
 
 func (h *Handlers) SubmitPrompt(ctx *gin.Context) {
 	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
@@ -131,19 +85,6 @@ func (h *Handlers) SlashCatalog(ctx *gin.Context) {
 		Items:        items,
 		Warnings:     warnings,
 	})
-}
-
-func intQuery(ctx *gin.Context, name string) (int, bool) {
-	raw := ctx.Query(name)
-	if raw == "" {
-		return 0, true
-	}
-	value, err := strconv.Atoi(raw)
-	if err != nil {
-		libs.WriteErr(ctx, http.StatusBadRequest, name+" must be an integer")
-		return 0, false
-	}
-	return value, true
 }
 
 // derefOr reads an optional wire string, treating absence as "".

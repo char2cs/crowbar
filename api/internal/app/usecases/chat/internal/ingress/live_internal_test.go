@@ -97,38 +97,11 @@ func TestRecorder_AFrameIsShownOnlyOnceItsRowsCommit(t *testing.T) {
 	_, _, err = f.dispatch(t, delta(engineagents.HookMessageDelta, "m1", true, false, "never recorded"))
 
 	require.Error(t, err)
-	assert.Empty(t, f.feed.frames)
+	assert.Empty(t, f.feed.deltas)
 }
 
-// A late stream shown as the reply its turn closed on never shows less of it.
-func TestRecorder_AJoinedStreamsFrameNeverShowsLessThanItsReply(t *testing.T) {
-	f := newRecorderFixture(t, "claude")
-	for _, ev := range []engineagents.CanonicalEvent{
-		{Kind: engineagents.HookUserPrompt, Message: "go"},
-		{Kind: engineagents.HookTurnStop, Message: "Hello world"},
-	} {
-		_, _, err := f.dispatch(t, ev)
-		require.NoError(t, err)
-	}
-	turn, _ := f.state(t).LastTurn()
-	chunk := func(index int, text string) {
-		ev := delta(engineagents.HookMessageDelta, "m1", true, false, text)
-		ev.Delta.Index = index
-		_, _, err := f.dispatch(t, ev)
-		require.NoError(t, err)
-	}
-
-	chunk(0, "Hello")
-	chunk(1, " world, and more")
-
-	require.Len(t, f.feed.frames, 2)
-	assert.Equal(t, frame{ledger.ReplyID(turn.ID), "Hello world", "", f.feed.frames[0].startedAt}, f.feed.frames[0])
-	assert.Equal(t, ledger.ReplyID(turn.ID), f.feed.frames[1].messageID, "every chunk is shown as the reply")
-	assert.Equal(t, "Hello world, and more", f.feed.frames[1].text)
-}
-
-// Every frame carries the stream so far; what its turn's end recorded is
-// dropped with it.
+// Every frame carries what is new of its stream; what its turn's end recorded
+// is dropped with it.
 func TestRecorder_StreamedTextIsShownWholeUntilItsTurnEnds(t *testing.T) {
 	f := newRecorderFixture(t, "claude")
 	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
@@ -142,10 +115,10 @@ func TestRecorder_StreamedTextIsShownWholeUntilItsTurnEnds(t *testing.T) {
 		_, _, err = f.dispatch(t, ev)
 		require.NoError(t, err)
 	}
-	require.Len(t, f.feed.frames, 3)
-	assert.Equal(t, "the answer", f.feed.frames[1].text)
-	assert.False(t, f.feed.frames[1].startedAt.IsZero(), "an answer says when it began")
-	assert.True(t, f.feed.frames[2].startedAt.IsZero())
+	turn, _ := f.state(t).RunningTurn()
+	require.Len(t, f.feed.deltas, 3)
+	assert.Equal(t, ledger.FeedDelta{ID: "m1", TurnID: turn.ID, Stream: "answer", N: 2, Text: "answer"}, f.feed.deltas[1])
+	assert.Equal(t, "reasoning", f.feed.deltas[2].Stream)
 	exit, err := f.r.ExitRows(f.state(t), testChat, "run-1")
 	require.NoError(t, err)
 	assert.Len(t, exit, 1, "what no row holds is the exit's to record")

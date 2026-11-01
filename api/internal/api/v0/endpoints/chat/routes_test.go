@@ -200,12 +200,6 @@ func (s stubUsecase) ChatSnapshotsOf(
 	return out, nil
 }
 
-func (stubUsecase) ReadMessages(
-	context.Context, string, int, int, int,
-) (domain.LedgerPage, error) {
-	return domain.LedgerPage{Items: []domain.LedgerMessage{}}, nil
-}
-
 func (stubUsecase) SubmitPrompt(
 	context.Context, string, string, string, string, *domain.ChatSelection,
 ) (domain.AgentPromptSubmission, error) {
@@ -216,13 +210,6 @@ func (stubUsecase) SlashCatalog(
 	context.Context, string,
 ) (engineagents.SlashCatalog, error) {
 	return engineagents.SlashCatalog{Items: []engineagents.SlashCatalogItem{}}, nil
-}
-
-func (stubUsecase) PendingPrompt(
-	ctx context.Context,
-	chatID string,
-) (domain.PendingPrompt, bool, error) {
-	return domain.PendingPrompt{}, false, nil
 }
 
 func (stubUsecase) ConversationsForChat(
@@ -412,11 +399,9 @@ func TestRegisterMountsRoutes(
 		{http.MethodPost, base + "/chats"},
 		{http.MethodGet, base + "/chats"},
 		{http.MethodGet, base + "/chats/c1"},
-		{http.MethodGet, base + "/chats/c1/messages"},
 		{http.MethodPost, base + "/chats/c1/prompts"},
 		{http.MethodPost, base + "/chats/c1/prompts/r1/retract"},
 		{http.MethodGet, base + "/chats/c1/slash-catalog"},
-		{http.MethodGet, base + "/chats/c1/pending-prompt"},
 		{http.MethodPost, base + "/chats/c1/attachments"},
 		{http.MethodGet, base + "/chats/c1/attachments/f1.png"},
 		{http.MethodPost, base + "/chats/c1/switch"},
@@ -507,29 +492,11 @@ func TestRegisterBindsMCPSegIDFromTheURL(
 	assert.JSONEq(t, `{"jsonrpc":"2.0","id":1,"method":"ping"}`, string(got.message))
 }
 
-func (stubUsecase) ReadActivity(
-	context.Context, string, int64, int,
-) (agentusecase.ChatActivity, error) {
-	return agentusecase.ChatActivity{}, nil
-}
-
-func (stubUsecase) ReadToolPayload(context.Context, string, string, string) ([]byte, error) {
-	return nil, nil
-}
-
 // TerminalWait: this stub is never blocked on anything, which is what every
 // route-mounting assertion here needs it to be.
 func (stubUsecase) TerminalWait(string) domain.AgentTerminalWait {
 	return domain.AgentTerminalWait{}
 }
-
-func (stubUsecase) ReadPendingChoices(
-	context.Context, string,
-) ([]domain.ActivityChoice, error) {
-	return nil, nil
-}
-
-func (stubUsecase) AnswerableChoiceIDs(string, []domain.ActivityChoice) []string { return nil }
 
 func (stubUsecase) AnswerChoice(
 	context.Context, string, string, []string, string, []byte,

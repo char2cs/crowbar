@@ -694,10 +694,10 @@ func TestAudit_SubmitPromptWithStagedProvider_LedgerMustNotPermanentlyStoreTheIn
 		mustJSON(t, map[string]any{"prompt": delivered, "session_id": "sid-claude-native"})))
 	f.wait()
 
-	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
+	page, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 	var storedUserText string
-	for _, item := range page.Items {
+	for _, item := range page {
 		if item.Role == "user" && item.Text != "" && strings.Contains(item.Text, "what did I miss?") {
 			storedUserText = item.Text
 		}
@@ -1668,11 +1668,11 @@ func TestSpawn_AHookFromBeforeRunnerStartedIsRecordedAfterIt(t *testing.T) {
 	require.NoError(t, <-placed)
 	f.wait()
 	assert.Equal(t, runnerID, earlyRunnerID)
-	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
+	page, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, page.Items, 1)
-	assert.Equal(t, "user", page.Items[0].Role)
-	assert.Equal(t, message, page.Items[0].Text)
+	require.Len(t, page, 1)
+	assert.Equal(t, "user", page[0].Role)
+	assert.Equal(t, message, page[0].Text)
 	assert.True(t, f.busy(t, chatID))
 }
 
@@ -1896,10 +1896,10 @@ func TestRegression_EveryShippedProviderDeliversAPromptByReplacingTheCLI(t *test
 				mustJSON(t, map[string]any{"prompt": message})))
 			f.wait()
 
-			page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 0)
+			page, err := f.activity.Turns(f.ctx, chatID)
 			require.NoError(t, err)
-			require.NotEmpty(t, page.Items)
-			last := page.Items[len(page.Items)-1]
+			require.NotEmpty(t, page)
+			last := page[len(page)-1]
 			assert.Equal(t, domain.TurnRoleUser, last.Role)
 			assert.Equal(t, message, last.Text, "recorded verbatim, with no wrapper to strip")
 		})
@@ -3201,7 +3201,7 @@ func TestSubmitPrompt_ARetryAfterAConfirmedDeliveryReturnsTheOriginal(t *testing
 	assert.Equal(t, first, second, "a retry reports the delivery that already happened")
 	assert.Equal(t, spawnsBefore, f.term.callCount(), "and starts no second CLI")
 
-	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	turns, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 	assert.Len(t, turns, 1, "the prompt is recorded once")
 }
@@ -3278,41 +3278,6 @@ func TestUsecase_MatchTerminalPrompt_OrdinaryScreenIsNotABlock(t *testing.T) {
 
 // ─── from message_record_test.go ──────────────────────────────────────
 
-// deltaCallbackRecorder captures every call the usecase makes on the live
-// message-delta callback it was handed at sweep start.
-type deltaCallbackRecorder struct {
-	mu    sync.Mutex
-	calls []deltaCall
-}
-
-type deltaCall struct {
-	chatID      string
-	workspaceID string
-	messageID   string
-	text        string
-	kind        string
-}
-
-func (r *deltaCallbackRecorder) record(chatID, workspaceID, messageID, text, kind string, _ time.Time) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.calls = append(r.calls, deltaCall{chatID, workspaceID, messageID, text, kind})
-}
-
-func (r *deltaCallbackRecorder) snapshot() []deltaCall {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]deltaCall(nil), r.calls...)
-}
-
-func (r *deltaCallbackRecorder) texts() []string {
-	out := []string{}
-	for _, c := range r.snapshot() {
-		out = append(out, c.text)
-	}
-	return out
-}
-
 // deltaHook renders one claude `message_delta` payload exactly as the bundled
 // descriptor declares it (session_id/turn_id/message_id/index/final/delta), so
 // the real engine parses it rather than a shape invented here.
@@ -3327,19 +3292,13 @@ func deltaHook(t *testing.T, messageID string, index int, final bool, text strin
 	})
 }
 
-// Reasoning rides the SAME live channel as the answer, tagged with a kind, and is
-// never written to the ledger. codex spends most of a hard turn emitting nothing
-// but this, so before it was mapped the chat sat on a spinner and a rotating
-// flavour verb for the whole of it.
+// Reasoning streams live only: it is never written to the ledger as said text.
 //
 // Payload shape is a LIVE capture against codex-cli 0.149.1 — see
 // engine/agents/.../testdata/fixtures/codex/item_reasoning_summaryTextDelta.json.
 func TestRegression_ReasoningStreamsLiveAndIsNeverRecorded(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
-
-	deltas := &deltaCallbackRecorder{}
-	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{MessageDelta: deltas.record})
 
 	think := func(index int, text string) {
 		t.Helper()
@@ -3354,20 +3313,7 @@ func TestRegression_ReasoningStreamsLiveAndIsNeverRecorded(t *testing.T) {
 	think(0, "the wording")
 	f.wait()
 
-	calls := deltas.snapshot()
-	require.Len(t, calls, 2, "every reasoning delta must reach the live channel")
-	for _, c := range calls {
-		assert.Equal(t, "reasoning", c.kind, "a thought must not arrive tagged as the answer")
-		assert.Equal(t, chatID, c.chatID)
-		assert.Equal(t, "rs_1", c.messageID)
-	}
-	assert.Equal(t, "**Clarifying** the wording", calls[1].text,
-		"the channel carries the block SO FAR, exactly as the answer channel does")
-
-	// The ledger must be untouched: a thought is a view of a turn in progress,
-	// never a record of it. Recording it would put the model's thinking into the
-	// transcript as though it had said it out loud.
-	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	turns, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 	for _, tn := range turns {
 		assert.NotContains(t, tn.Text, "Clarifying",
@@ -3375,17 +3321,12 @@ func TestRegression_ReasoningStreamsLiveAndIsNeverRecorded(t *testing.T) {
 	}
 }
 
-// Every streamed delta pushes the cumulative message, so a client that missed a
-// frame is right again on the next. fakeCommander has no Screen, so the sweep
-// never starts and every call lands on this goroutine.
-func TestStartTerminalWaitSweep_PushesEveryDeltaAsTheMessageSoFar(t *testing.T) {
+// A streamed message is recorded once, whole, when it completes.
+func TestIngestHook_AStreamedMessageIsRecordedWhole(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "say it"})))
-
-	deltas := &deltaCallbackRecorder{}
-	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{MessageDelta: deltas.record})
 
 	post := func(index int, final bool, text string) {
 		t.Helper()
@@ -3399,23 +3340,10 @@ func TestStartTerminalWaitSweep_PushesEveryDeltaAsTheMessageSoFar(t *testing.T) 
 	post(2, true, "SO FAR")
 	f.wait()
 
-	assert.Equal(t,
-		[]string{"THE ", "THE MESSAGE ", "THE MESSAGE SO FAR"},
-		deltas.texts(),
-		"every delta must push the message SO FAR, so a client that dropped a frame is correct on the next one")
-
-	for _, call := range deltas.snapshot() {
-		assert.Equal(t, chatID, call.chatID, "the frame must name the chat it belongs to")
-		assert.Equal(t, "ws1", call.workspaceID, "the feed is workspace-scoped")
-		assert.Equal(t, "msg-one", call.messageID,
-			"the provider's own message identity is how a client tells a growing message from the next one")
-	}
-
-	// The partials exist ONLY on this callback; the record holds the whole message.
-	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
+	page, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, page.Items, 2, "the prompt, then the reply")
-	assert.Equal(t, "THE MESSAGE SO FAR", page.Items[1].Text)
+	require.Len(t, page, 2, "the prompt, then the reply")
+	assert.Equal(t, "THE MESSAGE SO FAR", page[1].Text)
 }
 
 // Two concurrent sends, each staging its own provider on one chat, never
@@ -3803,7 +3731,7 @@ func TestResumeBySessionID_ARefusedResumeLosesTheSession(t *testing.T) {
 	})
 	f.wait()
 
-	assert.Equal(t, domain.AgentExitResumeFailed, agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).ExitReason)
+	assert.Equal(t, domain.AgentExitResumeFailed, agentusecase.ChatExitReason(f.usecase.RunnerUsecase, chatID))
 	assert.Equal(t, ledger.ConversationLost, f.conversation(t, chatID, "claude").State)
 
 	_, err = f.usecase.ResumeChat(f.ctx, chatID)
@@ -3869,7 +3797,7 @@ func TestResumeBySessionID_AResumeStoppedBeforeItSpeaksIsNotARefusal(t *testing.
 	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
 	f.term.exit(t, result.TerminalSessionID) // the stopped CLI goes
 	f.wait()
-	assert.Equal(t, domain.AgentExitStopped, agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).ExitReason)
+	assert.Equal(t, domain.AgentExitStopped, agentusecase.ChatExitReason(f.usecase.RunnerUsecase, chatID))
 
 	_, err = f.usecase.ResumeChat(f.ctx, chatID)
 	require.NoError(t, err)
@@ -3892,7 +3820,7 @@ func TestSessionExit_AReplacementThatCannotStartRecordsSpawnFailed(t *testing.T)
 
 	_, err = f.liveRunnerFor(t, chatID)
 	require.ErrorIs(t, err, agentusecase.ErrNoLiveRunner)
-	assert.Equal(t, domain.AgentExitSpawnFailed, agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).ExitReason)
+	assert.Equal(t, domain.AgentExitSpawnFailed, agentusecase.ChatExitReason(f.usecase.RunnerUsecase, chatID))
 }
 
 // sessionOp is one step of the invariant walk: anything a user, a CLI or the
@@ -4019,7 +3947,7 @@ func checkSessionInvariants(t *testing.T, f testFixture, w *sessionWalk, trail [
 	// S2: a chat with no runner says why its last one ended.
 	// S3: and has no turn left open — nothing is left that could close it.
 	if _, ok := w.live(f); !ok {
-		assert.NotEmpty(t, agentusecase.ChatSession(f.usecase.RunnerUsecase, w.chatID).ExitReason,
+		assert.NotEmpty(t, agentusecase.ChatExitReason(f.usecase.RunnerUsecase, w.chatID),
 			"S2, after %v", trail)
 		assert.False(t, f.busy(t, w.chatID), "S3, after %v", trail)
 	}
@@ -4099,7 +4027,7 @@ func TestSessionInvariants_AStopAfterADeliveredSendEndsItsRunnerAndSaysWhy(t *te
 
 	_, err = f.liveRunnerFor(t, chatID)
 	require.ErrorIs(t, err, agentusecase.ErrNoLiveRunner)
-	assert.Equal(t, domain.AgentExitStopped, agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).ExitReason)
+	assert.Equal(t, domain.AgentExitStopped, agentusecase.ChatExitReason(f.usecase.RunnerUsecase, chatID))
 	assert.False(t, f.busy(t, chatID))
 }
 

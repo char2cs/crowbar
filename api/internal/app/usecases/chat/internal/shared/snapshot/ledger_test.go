@@ -188,11 +188,11 @@ func TestSnapshots_TheSessionIsTheLedgersLastExit(t *testing.T) {
 	rt.place(liveR1)
 	live, err := s.Get(ctx, "c1")
 	require.NoError(t, err)
-	assert.Zero(t, live.Session)
+	assert.Nil(t, live.Ledger.LastExit)
 
 	rt.vacate("c1")
 	apply(ledger.KindRunnerExited, ledger.RunnerExited{RunnerID: "r1", Reason: domain.AgentExitStopped})
 
-	assert.Equal(t, domain.AgentSession{ExitReason: domain.AgentExitStopped, ExitedAt: t0}, rec.last(t).Snapshot.Session,
-		"the exit is announced")
+	assert.Equal(t, &ledger.RunnerExit{RunnerID: "r1", Reason: domain.AgentExitStopped, At: t0},
+		rec.last(t).Snapshot.Ledger.LastExit, "the exit is announced")
 }

@@ -127,14 +127,8 @@ func (r *recorderRunners) TelemetryOnChatSurface(context.Context, string) bool {
 
 func (r *recorderRunners) ShowingNativeView(string) bool { return false }
 
-type frame struct {
-	messageID, text, kind string
-	startedAt             time.Time
-}
-
 type feedSpy struct {
 	mu        sync.Mutex
-	frames    []frame
 	deltas    []ledger.FeedDelta
 	telemetry int
 }
@@ -143,12 +137,6 @@ func (f *feedSpy) FeedDelta(_ string, d ledger.FeedDelta) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.deltas = append(f.deltas, d)
-}
-
-func (f *feedSpy) MessageDelta(_, _, messageID, text, kind string, startedAt time.Time) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.frames = append(f.frames, frame{messageID, text, kind, startedAt})
 }
 
 func (f *feedSpy) Telemetry(string, string, engineagents.Telemetry) {

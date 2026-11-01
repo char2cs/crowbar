@@ -94,3 +94,16 @@ func TestAppendNote_LandsAfterTheHookHoldingTheChat(t *testing.T) {
 	assert.Equal(t, ledger.KindAssistantText, rows[0].Kind)
 	assert.Equal(t, ledger.KindUserMessage, rows[1].Kind, "the note follows the hook's row")
 }
+
+// The handoff and get_chat_log read what was said off the ledger's rows.
+func TestChatLog_ReadsTextFromLedgerRows(t *testing.T) {
+	b := newRowBook(t)
+	b.open("T1", "what is two and two")
+	b.say("T1", "", "m1", "four")
+	b.add(ledger.KindTurnEnded, "T1", "", ledger.TurnEnded{Status: "done", RunnerID: "run-1"})
+
+	got, err := b.c.renderConversation(t.Context(), "chat-1", time.Time{})
+
+	require.NoError(t, err)
+	assert.Equal(t, "user: what is two and two\n\nassistant (p1): four\n\n", string(got))
+}

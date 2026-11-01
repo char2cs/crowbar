@@ -966,41 +966,6 @@ func newChatStore(
 	return repo, ax.WaitPublish
 }
 
-// activityReads reads a chat's record the way its clients do: through the
-// usecase's projection of the chat's ledger, every page at once.
-type activityReads struct {
-	u     *harnessUsecase
-	blobs *ledgerstore.Blobs
-}
-
-func (a activityReads) read(ctx context.Context, chatID string) (agentusecase.ChatActivity, error) {
-	return a.u.ReadActivity(ctx, chatID, 0, 0)
-}
-
-func (a activityReads) Turns(ctx context.Context, chatID string, _, _ int64, _ int) ([]domain.ActivityTurn, error) {
-	act, err := a.read(ctx, chatID)
-	return act.Turns, err
-}
-
-func (a activityReads) ToolCalls(ctx context.Context, chatID string, _ int64, _ int) ([]domain.ActivityToolCall, error) {
-	act, err := a.read(ctx, chatID)
-	return act.ToolCalls, err
-}
-
-func (a activityReads) Subagents(ctx context.Context, chatID string) ([]domain.ActivitySubagent, error) {
-	act, err := a.read(ctx, chatID)
-	return act.Subagents, err
-}
-
-func (a activityReads) Interruptions(ctx context.Context, chatID string) ([]domain.ActivityInterruption, error) {
-	act, err := a.read(ctx, chatID)
-	return act.Interruptions, err
-}
-
-func (a activityReads) Payload(_ context.Context, ref string) ([]byte, error) {
-	return a.blobs.Get(ref)
-}
-
 func newFixture(tb testing.TB) testFixture {
 	tb.Helper()
 	return newFixtureUsing(tb, nil, "")
@@ -1167,7 +1132,7 @@ func newFixtureUsing(
 		wt:            wt,
 		homeErr:       homeErr,
 		engine:        engine,
-		activity:      activityReads{u: harness, blobs: blobs},
+		activity:      activityReads{u: harness, ledger: chatLedger, blobs: blobs},
 		providerPrefs: providerPrefs,
 		connected:     connected,
 		minter:        minter,

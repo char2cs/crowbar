@@ -310,7 +310,7 @@ func TestPurgeChat_ReapsChatDirOnDisk(t *testing.T) {
 	require.NoError(t, os.MkdirAll(chatDir, 0o700))
 	turn(t, f, runnerID, "claude", "a turn, so the chat has a conversation to purge")
 
-	before, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	before, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 	require.NotEmpty(t, before, "precondition: the chat has a recorded conversation")
 

@@ -40,58 +40,13 @@ type client struct {
 	send      chan []byte
 	done      chan struct{}
 	closeOnce sync.Once
-
-	// coalesceMu guards pending — see coalesce's own doc comment.
-	coalesceMu sync.Mutex
-	pending    map[string][]byte
-	// wake carries no data: it only tells writeNext "something in pending is
-	// worth checking now". Buffered 1 so a burst of coalesce calls between
-	// two writeNext iterations collapses to a single wakeup, exactly the way
-	// the payloads themselves already collapse to one pending value per key.
-	wake chan struct{}
 }
 
 func newClient() *client {
 	return &client{
-		send:    make(chan []byte, sendBuffer),
-		done:    make(chan struct{}),
-		pending: make(map[string][]byte),
-		wake:    make(chan struct{}, 1),
+		send: make(chan []byte, sendBuffer),
+		done: make(chan struct{}),
 	}
-}
-
-// coalesce stores data as the latest still-undelivered payload for key,
-// superseding whatever this client had pending for that SAME key, and wakes
-// the write loop. Never blocks and never disconnects the client — the
-// opposite of the ordinary send path's overflow policy, and deliberately so:
-// see StreamDef.CoalesceKey's own doc comment for which streams this is
-// correct for.
-func (c *client) coalesce(key string, data []byte) {
-	c.coalesceMu.Lock()
-	c.pending[key] = data
-	c.coalesceMu.Unlock()
-	select {
-	case c.wake <- struct{}{}:
-	default:
-	}
-}
-
-// drainPending removes and returns every currently pending coalesced
-// payload. Iteration order across DIFFERENT keys is unspecified — callers
-// only rely on coalesce for streams whose own values carry no cross-key
-// ordering requirement (see StreamDef.CoalesceKey).
-func (c *client) drainPending() [][]byte {
-	c.coalesceMu.Lock()
-	defer c.coalesceMu.Unlock()
-	if len(c.pending) == 0 {
-		return nil
-	}
-	out := make([][]byte, 0, len(c.pending))
-	for key, data := range c.pending {
-		out = append(out, data)
-		delete(c.pending, key)
-	}
-	return out
 }
 
 // closeDone signals the client's writePump to stop, exactly once. Both the
@@ -164,36 +119,14 @@ func writeNext(
 	cl *client,
 	ticker *time.Ticker,
 ) bool {
-	// Ordered traffic drains first, ALWAYS, whenever any is already waiting —
-	// a plain, non-blocking check before the real select below, so a coalesced
-	// (latest-wins) value can never overtake a frame this stream's own
-	// ordering guarantees actually depend on (turn_started/turn_stopped and
-	// the like). Only once cl.send is empty does a pending coalesced value
-	// get a turn.
 	select {
 	case msg := <-cl.send:
 		return writeFrame(conn, msg)
-	default:
-	}
-	select {
-	case msg := <-cl.send:
-		return writeFrame(conn, msg)
-	case <-cl.wake:
-		return writeFrames(conn, cl.drainPending())
 	case <-ticker.C:
 		return writeMessage(conn, websocket.PingMessage, nil)
 	case <-cl.done:
 		return false
 	}
-}
-
-func writeFrames(conn *websocket.Conn, msgs [][]byte) bool {
-	for _, msg := range msgs {
-		if !writeFrame(conn, msg) {
-			return false
-		}
-	}
-	return true
 }
 
 func writeFrame(conn *websocket.Conn, msg []byte) bool {

@@ -58,9 +58,7 @@ type Snapshot struct {
 
 	TerminalWait      domain.AgentTerminalWait
 	AttachedSessionID string
-	// Session is how the chat's last runner ended.
-	Session domain.AgentSession
-	Ledger  LedgerFacts
+	Ledger            LedgerFacts
 }
 
 // Reader is the read model the owner falls back to for a chat no event has
@@ -448,9 +446,6 @@ func (s *Snapshots) buildLocked(chatID string, st *chatState) Snapshot {
 	snap := Snapshot{Chat: st.chat, Version: st.version, Ledger: st.facts}
 	if s.runtime != nil {
 		s.applyRuntimeLocked(chatID, &snap)
-	}
-	if snap.Live == nil && st.facts.LastExit != nil {
-		snap.Session = domain.AgentSession{ExitReason: st.facts.LastExit.Reason, ExitedAt: st.facts.LastExit.At}
 	}
 	if snap.Phase == "" {
 		snap.Phase = PhaseDormant

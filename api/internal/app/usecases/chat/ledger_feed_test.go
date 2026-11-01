@@ -3,7 +3,6 @@ package chat_test
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
@@ -73,23 +71,11 @@ func plantPrompt(t *testing.T, f testFixture, chatID, carrier string) string {
 	return requestID
 }
 
-type settledPrompt struct {
-	chatID, workspaceID, requestID string
-	consumed                       bool
-}
-
-// A prompt whose replacement CLI never started is settled, and the chat's
-// clients hear it by request id: the composer keeps the text, and a resend of
-// that request can never deliver it late.
-func TestLedgerFeed_PublishesAPromptSettledWithoutATurn(t *testing.T) {
+// A prompt whose replacement CLI never started is settled, unconsumed: the
+// composer keeps the text, and a resend of that request can never deliver it late.
+func TestLedgerFeed_SettlesAPromptWithoutATurn(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "codex")
-	settled := make(chan settledPrompt, 1)
-	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{
-		PromptSettled: func(chatID, workspaceID, requestID string, consumed bool) {
-			settled <- settledPrompt{chatID, workspaceID, requestID, consumed}
-		},
-	})
 	f.term.err = errors.New("replacement create failed")
 	requestID := uuid.NewString()
 
@@ -97,15 +83,12 @@ func TestLedgerFeed_PublishesAPromptSettledWithoutATurn(t *testing.T) {
 	require.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown,
 		"a failed create may follow a fork, so the client is not told it never ran")
 
-	deadline, cancel := context.WithTimeout(f.ctx, 10*time.Second)
-	defer cancel()
-	select {
-	case got := <-settled:
-		assert.Equal(t, settledPrompt{chatID, f.chat(t, chatID).WorkspaceID, requestID, false}, got)
-	case <-deadline.Done():
-		t.Fatal("no prompt_settled was published")
-	}
-	assert.False(t, agentusecase.HasPendingPrompt(f.usecase.RunnerUsecase, f.ctx, chatID))
+	require.Eventually(t, func() bool {
+		return !agentusecase.HasPendingPrompt(f.usecase.RunnerUsecase, f.ctx, chatID)
+	}, 10*time.Second, 10*time.Millisecond)
+	p := receipt(t, f, chatID, requestID)
+	assert.Equal(t, ledger.PromptStatusSettled, p.Status)
+	assert.False(t, p.Consumed)
 	f.term.err = nil
 	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "never forked", requestID, "", nil)
 	assert.ErrorIs(t, err, agentusecase.ErrPromptRequestIDConflict)
@@ -119,12 +102,7 @@ func TestLedgerFeed_AChatsFirstCommitCompletesAndItsSnapshotCarriesTheConversati
 	chatID, err := f.usecase.MintChat(f.ctx, "", "ws1", "codex", "")
 	require.NoError(t, err)
 	require.Empty(t, ledgerRows(t, f, chatID), "precondition: nothing has touched the chat's ledger")
-	settled := make(chan settledPrompt, 1)
-	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{
-		PromptSettled: func(chatID, workspaceID, requestID string, consumed bool) {
-			settled <- settledPrompt{chatID, workspaceID, requestID, consumed}
-		},
-	})
+	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{})
 	bound, err := ledger.Assign(ledger.State{}, "codex", "thread-1")
 	require.NoError(t, err)
 	asked, err := ledger.NewRow(ledger.KindUserMessage, "turn-1", "", ledger.UserMessage{
@@ -137,14 +115,6 @@ func TestLedgerFeed_AChatsFirstCommitCompletesAndItsSnapshotCarriesTheConversati
 	require.NoError(t, err)
 
 	appendWithin(t, f, chatID, bound, asked, gaveUp)
-	deadline, cancel := context.WithTimeout(f.ctx, 10*time.Second)
-	defer cancel()
-	select {
-	case got := <-settled:
-		assert.Equal(t, "req-1", got.requestID)
-	case <-deadline.Done():
-		t.Fatal("no prompt_settled was published")
-	}
 
 	snap, err := f.usecase.ChatSnapshot(f.ctx, chatID)
 	require.NoError(t, err)
@@ -157,9 +127,7 @@ func TestLedgerFeed_AChatsFirstCommitCompletesAndItsSnapshotCarriesTheConversati
 // completes: its publication never reads the ledger under the chat's writer.
 func TestLedgerFeed_ACommitForAChatThatCannotBeReadCompletes(t *testing.T) {
 	f := newFixture(t)
-	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{
-		PromptSettled: func(string, string, string, bool) {},
-	})
+	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{})
 	bound, err := ledger.Assign(ledger.State{}, "codex", "thread-1")
 	require.NoError(t, err)
 	asked, err := ledger.NewRow(ledger.KindUserMessage, "turn-1", "", ledger.UserMessage{
@@ -235,36 +203,4 @@ func TestLedgerFeed_ALateTurnStopAnnouncesNothing(t *testing.T) {
 	assert.Empty(t, f.bcKinds(t))
 	assert.True(t, f.busy(t, chatID), "B still runs")
 	assert.Len(t, ledgerRows(t, f, chatID), written, "the late stop closes A no second time")
-}
-
-// A subagent's stop closes the questions it held, and the chat's clients are
-// told: no card is left without its asker.
-func TestLedgerFeed_ASubagentsStopClearsTheQuestionsItHeld(t *testing.T) {
-	f := newFixture(t)
-	chatID, runnerID := f.spawn(t, "claude")
-	var mu sync.Mutex
-	var frames []int
-	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{
-		Choices: func(_, _ string, choices []domain.ActivityChoice, _ []string) {
-			mu.Lock()
-			defer mu.Unlock()
-			frames = append(frames, len(choices))
-		},
-	})
-	row := func(kind ledger.Kind, scope string, body any) ledger.Row {
-		r, err := ledger.NewRow(kind, "T1", scope, body)
-		require.NoError(t, err)
-		return r
-	}
-	appendWithin(t, f, chatID,
-		row(ledger.KindTurnStarted, "", ledger.TurnStarted{RunnerID: runnerID}),
-		row(ledger.KindSubagent, "A", ledger.SubagentBody{Phase: ledger.SubagentStart}),
-		row(ledger.KindAsk, "A", ledger.Ask{AskID: "choice-1", Event: "permission", Kind: domain.ChoiceKindPermission, Answerable: true}),
-	)
-	appendWithin(t, f, chatID, row(ledger.KindSubagent, "A", ledger.SubagentBody{Phase: ledger.SubagentStop}))
-	f.wait()
-
-	mu.Lock()
-	defer mu.Unlock()
-	assert.Equal(t, []int{1, 0}, frames, "the ask, then its close")
 }

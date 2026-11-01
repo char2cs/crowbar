@@ -18,10 +18,8 @@ package seam
 import (
 	"context"
 	"errors"
-	"time"
 
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -39,20 +37,8 @@ var ErrHookNotRecorded = errors.New("agent: hook acknowledged, not recorded")
 // here and one line where the hub is wired — not a new parameter threaded
 // through three signatures.
 type ChatFeed struct {
-	// PromptSettled is a delivered prompt retired without producing a turn.
-	PromptSettled func(chatID, workspaceID, requestID string, consumed bool)
-	// MessageDelta is an assistant message (or thought, or tool output) growing.
-	// startedAt is when the text began; zero for the live-only kinds.
-	MessageDelta func(chatID, workspaceID, messageID, text, kind string, startedAt time.Time)
-	// Compaction is the live compact_pre/compact_post edge.
-	Compaction func(chatID, workspaceID string, active bool)
-	// Plan is the agent's running to-do list, restated wholesale.
-	Plan func(chatID, workspaceID string, steps []engineagents.PlanStep)
 	// Telemetry is the provider's newest usage report for the chat.
 	Telemetry func(chatID, workspaceID string, report engineagents.Telemetry)
-	// Choices is every prompt the chat is blocked on, whole, empty once none is.
-	// answerable names the ones a relay is holding open right now.
-	Choices func(chatID, workspaceID string, choices []domain.ActivityChoice, answerable []string)
 }
 
 // TerminalCommander is the PTY seam every vendor CLI is started, ended and

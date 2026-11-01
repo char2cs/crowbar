@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -51,14 +52,6 @@ type AnswerUsecase interface {
 		reason string,
 		content []byte,
 	) error
-
-	// AnswerableChoiceIDs filters choices down to the ones a relay of chatID is
-	// still blocked on, which is what makes a pending question actionable in the
-	// UI rather than merely visible.
-	AnswerableChoiceIDs(
-		chatID string,
-		choices []domain.ActivityChoice,
-	) []string
 
 	// SetChatPermissionLevel overrides chatID's trust dial for the rest of its
 	// lifetime, independent of the global default (see
@@ -194,6 +187,17 @@ func (r askResolver) resolve(
 	return len(rows) > 0, err
 }
 
+// openAsks are each chat's open questions, read off its ledger.
+type openAsks struct{ ledger *ledgerstore.Store }
+
+func (o openAsks) PendingChoices(ctx context.Context, chatID string) ([]domain.ActivityChoice, error) {
+	st, err := o.ledger.State(ctx, chatID)
+	if err != nil {
+		return nil, fmt.Errorf("agent: open asks: %w", err)
+	}
+	return st.OpenAsks(), nil
+}
+
 // pendingChoice finds the still-open question by id. A prompt the CLI has already
 // resolved its own way is gone from here, which is what makes "no longer pending"
 // a real refusal rather than a race.
@@ -202,7 +206,7 @@ func (u *Usecase) pendingChoice(
 	chatID string,
 	choiceID string,
 ) (domain.ActivityChoice, bool, error) {
-	choices, err := u.transcript.PendingChoices(ctx, chatID)
+	choices, err := openAsks{ledger: u.ledger}.PendingChoices(ctx, chatID)
 	if err != nil {
 		return domain.ActivityChoice{}, false, fmt.Errorf("agent: answer choice: pending: %w", err)
 	}
@@ -234,13 +238,4 @@ func (u *Usecase) agentForChat(
 		return nil, fmt.Errorf("agent: answer choice: descriptor: %w", err)
 	}
 	return agent, nil
-}
-
-// AnswerableChoiceIDs filters choices down to the ones a relay of chatID is still
-// blocked on — what makes a pending question actionable rather than merely visible.
-func (u *Usecase) AnswerableChoiceIDs(
-	chatID string,
-	choices []domain.ActivityChoice,
-) []string {
-	return u.answers.AnswerableIDs(chatID, choices)
 }

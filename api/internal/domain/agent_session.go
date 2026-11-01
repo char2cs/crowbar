@@ -1,17 +1,6 @@
 package domain
 
-import "time"
-
-// AgentSession is why a chat's vendor session is in the state it is, as its
-// ledger records it — so a client renders it and never infers it.
-type AgentSession struct {
-	// ExitReason is how the chat's last runner ended (AgentExit*); empty while
-	// a runner is live or before any has run.
-	ExitReason string
-	ExitedAt   time.Time
-}
-
-// Runner exit reasons.
+// Runner exit reasons: how a chat's last runner ended, as its ledger records it.
 const (
 	AgentExitStopped           = "stopped"
 	AgentExitExited            = "exited"

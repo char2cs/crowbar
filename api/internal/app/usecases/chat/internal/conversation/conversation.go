@@ -52,13 +52,6 @@ type Runners interface {
 	HoldChat(ctx context.Context, chatID string) (release func(), err error)
 }
 
-// Transcript is the chat's ledger in the read shapes its clients speak.
-type Transcript interface {
-	Messages(ctx context.Context, chatID string, after, before, limit int) (domain.LedgerPage, error)
-	ChatTurns(ctx context.Context, chatID string) ([]domain.LedgerTurn, error)
-	Forget(chatID string)
-}
-
 // Writes commits rows to a chat's ledger under the chat's lock.
 type Writes interface {
 	Do(ctx context.Context, chatID string, fn func(ledger.State) ([]ledger.Row, error)) ([]ledger.Row, error)
@@ -67,9 +60,6 @@ type Writes interface {
 // Conversations is the chat record.
 type Conversations struct {
 	chats agentchat.EventStore
-	// transcript is the ledger in the read shapes: every read of what the chat
-	// said comes off it.
-	transcript Transcript
 	// blobs are the tool payloads the chat's rows name.
 	blobs     *ledgerstore.Blobs
 	telemetry *telemetry.Store
@@ -98,16 +88,15 @@ type Conversations struct {
 
 // Deps is everything the chat record is built over.
 type Deps struct {
-	Chats      agentchat.EventStore
-	Transcript Transcript
-	Blobs      *ledgerstore.Blobs
-	Telemetry  *telemetry.Store
-	Agents     engineagents.Agents
-	Workspace  seam.WorkspaceReader
-	Lineage    seam.ChatLineage
-	Home       func() (string, error)
-	Ledger     *ledgerstore.Store
-	Writes     Writes
+	Chats     agentchat.EventStore
+	Blobs     *ledgerstore.Blobs
+	Telemetry *telemetry.Store
+	Agents    engineagents.Agents
+	Workspace seam.WorkspaceReader
+	Lineage   seam.ChatLineage
+	Home      func() (string, error)
+	Ledger    *ledgerstore.Store
+	Writes    Writes
 
 	// DefaultPermissionLevel resolves the current global default at the
 	// moment a chat is minted. It's a closure, not a direct usecase
@@ -119,16 +108,15 @@ type Deps struct {
 // New builds the chat record. The runner port is bound separately, by SetRunners.
 func New(d Deps) *Conversations {
 	return &Conversations{
-		chats:      d.Chats,
-		transcript: d.Transcript,
-		blobs:      d.Blobs,
-		telemetry:  d.Telemetry,
-		agents:     d.Agents,
-		ws:         d.Workspace,
-		lineage:    d.Lineage,
-		home:       d.Home,
-		ledger:     d.Ledger,
-		writes:     d.Writes,
+		chats:     d.Chats,
+		blobs:     d.Blobs,
+		telemetry: d.Telemetry,
+		agents:    d.Agents,
+		ws:        d.Workspace,
+		lineage:   d.Lineage,
+		home:      d.Home,
+		ledger:    d.Ledger,
+		writes:    d.Writes,
 
 		defaultPermissionLevel: d.DefaultPermissionLevel,
 	}
@@ -226,7 +214,6 @@ func (c *Conversations) forgetLedger(ctx context.Context, chatID string) {
 	if err := c.ledger.Forget(ctx, chatID); err != nil {
 		slog.ErrorContext(ctx, "agent: purge chat: forget ledger (best-effort, continuing)", "chat_id", chatID, "err", err)
 	}
-	c.transcript.Forget(chatID)
 	inUse := func(ref string) (bool, error) { return c.ledger.RefInUse(ctx, ref) }
 	for _, ref := range refs {
 		if err := c.blobs.Collect(ref, inUse); err != nil {

@@ -1,18 +1,23 @@
 package chat_test
 
 import (
+	"cmp"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -107,7 +112,7 @@ func TestObservation_ToolActivityIsRecordedWithItsPayloads(t *testing.T) {
 		"tool_response": "applied", "duration_ms": 37,
 	})
 
-	calls, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
+	calls, err := f.activity.ToolCalls(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, calls, 1)
 	assert.Equal(t, "Edit", calls[0].Name)
@@ -140,7 +145,7 @@ func TestRegression_EditToolCallCarriesADiffOfItsOwnChange(t *testing.T) {
 		"tool_response": "applied",
 	})
 
-	calls, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
+	calls, err := f.activity.ToolCalls(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, calls, 1)
 	assert.Equal(t, "--- a/a.go\n+++ b/a.go\n@@ -1,1 +1,1 @@\n-x\n+y\n", calls[0].Diff)
@@ -165,7 +170,7 @@ func TestRegression_ACompletedEditReplacesItsSnippetDiffWithTheProvidersTrueHunk
 		}}},
 	})
 
-	calls, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
+	calls, err := f.activity.ToolCalls(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, calls, 1)
 	assert.Equal(t, "--- a/repo/a.go\n+++ b/repo/a.go\n@@ -8,3 +8,3 @@\n before\n-x\n+y\n after\n", calls[0].Diff)
@@ -182,12 +187,12 @@ func TestRegression_UserPromptHookRestoresTheDurableAttachmentRef(t *testing.T) 
 	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt,
 		map[string]any{"prompt": "check this out ![diagram](" + absPath + ")"})
 
-	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 10)
+	page, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, page.Items, 1)
+	require.Len(t, page, 1)
 	assert.Equal(t,
 		"check this out ![diagram](chats/"+chatID+"/attachments/diagram.png)",
-		page.Items[0].Text)
+		page[0].Text)
 }
 
 func TestObservation_ToolCallsAttachToTheTurnThePromptOpened(t *testing.T) {
@@ -201,22 +206,16 @@ func TestObservation_ToolCallsAttachToTheTurnThePromptOpened(t *testing.T) {
 		map[string]any{"tool_use_id": "t1", "tool_name": "Bash"})
 	turn(t, f, runnerID, "claude", "done")
 
-	calls, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
+	calls, err := f.activity.ToolCalls(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, calls, 1)
 	require.NotEmpty(t, calls[0].TurnID)
 
-	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	turns, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
-	var assistant *domain.ActivityTurn
-	for i := range turns {
-		if turns[i].Role == domain.TurnRoleAssistant {
-			assistant = &turns[i]
-		}
-	}
-	require.NotNil(t, assistant)
-	assert.Equal(t, assistant.ID, calls[0].TurnID,
-		"a tool call must be attributable to the reply it produced")
+	require.NotEmpty(t, turns)
+	assert.Equal(t, domain.TurnRoleUser, turns[0].Role)
+	assert.Equal(t, turns[0].ID, calls[0].TurnID, "a tool call is of the turn its prompt opened")
 }
 
 func TestObservation_SubagentsAreRecorded(t *testing.T) {
@@ -295,13 +294,13 @@ func TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded(t *testing.T) 
 		},
 	})
 
-	calls, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
+	calls, err := f.activity.ToolCalls(f.ctx, chatID)
 	require.NoError(t, err)
 	// Two rows: the PARENT's own spawnAgent call (already-working, ordinary
 	// top-level visibility, unaffected by any of this — SubagentID empty)
 	// and the CHILD's own nested Bash call (SubagentID set).
 	require.Len(t, calls, 2)
-	var parent, nested *domain.ActivityToolCall
+	var parent, nested *toolView
 	for i := range calls {
 		switch calls[i].SubagentID {
 		case "":
@@ -323,18 +322,17 @@ func TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded(t *testing.T) 
 	// 'commandExecution'").
 	assert.Equal(t, "commandExecution", nested.Name)
 	assert.Equal(t, domain.ToolStatusOK, nested.Status)
-	assert.Empty(t, nested.TurnID, "a nested tool call has no top-level turn")
 
 	subs, err = f.activity.Subagents(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, subs, 1)
 	require.NotNil(t, subs[0].EndedAt, "the child's own turn_stop must close it")
 	require.Len(t, subs[0].Messages, 1)
-	assert.Equal(t, "done", subs[0].Messages[0].Text)
+	assert.Equal(t, "done", subs[0].Messages[0])
 
 	// The chat's own top-level turn activity must stay untouched — the whole
 	// point of ROUTING instead of bleeding through.
-	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	turns, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, turns, 1, "only the prompt: the child's reply is the subagent's")
 }
@@ -426,7 +424,7 @@ func TestRegression_ASubagentsPromptAndReplyNeverEnterTheMainTranscript(t *testi
 		},
 	})
 
-	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	turns, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 	for _, recorded := range turns {
 		assert.NotContains(t, recorded.Text, "read-only test-inventory",
@@ -442,7 +440,7 @@ func TestRegression_ASubagentsPromptAndReplyNeverEnterTheMainTranscript(t *testi
 	require.Len(t, subs, 1)
 	require.NotNil(t, subs[0].EndedAt, "the child's own turn_stop closes it")
 	require.Len(t, subs[0].Messages, 1)
-	assert.Equal(t, "Top-level entries: .git, README.md", subs[0].Messages[0].Text)
+	assert.Equal(t, "Top-level entries: .git, README.md", subs[0].Messages[0])
 }
 
 func TestObservation_InterruptionsAreRecordedForEachKind(t *testing.T) {
@@ -476,49 +474,17 @@ func TestObservation_ACompactionOpensAndResolvesTheSameRecord(t *testing.T) {
 	assert.NotNil(t, ints[0].ResolvedAt)
 }
 
-// TestObservation_CompactionPushesTheLiveEdgeDirectly pins the fix for the live
-// "Compacting…" indicator: the ledger's own interruption record for a
-// compaction is born already resolved (TestObservation_ACompactionOpensAndResolvesTheSameRecord,
-// above — no turn is ever open for a bare-prompt /compact, so
-// commands.Interrupt's idle-chat handling resolves it in the SAME event that
-// creates it), so nothing reading that record can ever observe a live
-// "in progress" window. This is what makes the direct compactionStatus push
-// necessary at all: it is the ONLY place "compaction just started" and
-// "compaction just ended" are each observable as their own moment.
-func TestObservation_CompactionPushesTheLiveEdgeDirectly(t *testing.T) {
-	f := newFixture(t)
-	_, runnerID := f.spawn(t, "claude")
-
-	var mu sync.Mutex
-	var calls []bool
-	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{
-		Compaction: func(_, _ string, active bool) {
-			mu.Lock()
-			defer mu.Unlock()
-			calls = append(calls, active)
-		},
-	})
-
-	hook(t, f, runnerID, "claude", engineagents.HookCompactPre, map[string]any{"trigger": "auto"})
-	hook(t, f, runnerID, "claude", engineagents.HookCompactPost, map[string]any{"trigger": "auto"})
-
-	mu.Lock()
-	defer mu.Unlock()
-	require.Equal(t, []bool{true, false}, calls,
-		"compact_pre must push active=true and compact_post must push active=false, in order")
-}
-
 func TestObservation_SessionEndRecordsNothingOfItsOwn(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt, map[string]any{"prompt": "hi"})
 
-	before, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	before, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 
 	hook(t, f, runnerID, "claude", engineagents.HookSessionEnd, map[string]any{"reason": "exit"})
 
-	after, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	after, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 	assert.Len(t, after, len(before))
 }
@@ -532,7 +498,8 @@ func TestObservation_AnUndeclaredEventIsRefusedNotRecorded(t *testing.T) {
 
 	ints, listErr := f.activity.Interruptions(f.ctx, chatID)
 	require.NoError(t, listErr)
-	assert.Empty(t, ints)
+	assert.False(t, slices.ContainsFunc(ints, func(m markView) bool { return m.Kind == ledger.MarkerNotification }),
+		"a refused hook records no notification")
 }
 
 func TestTelemetry_IsHeldPerChatAndReplacedByTheNextReport(t *testing.T) {
@@ -615,7 +582,7 @@ func TestTelemetry_IsNotRecordedAsATurn(t *testing.T) {
 		"context_window": map[string]any{"used_percentage": 19},
 	})
 
-	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	turns, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 	assert.Empty(t, turns)
 }
@@ -648,51 +615,7 @@ func TestTelemetry_IsDroppedWhenTheChatIsPurged(t *testing.T) {
 	assert.False(t, ok, "a report must not outlive the chat it describes")
 }
 
-func TestReadMessages_PagesForwardAndBackward(t *testing.T) {
-	f := newFixture(t)
-	chatID, runnerID := f.spawn(t, "claude")
-	for _, text := range []string{"m0", "m1", "m2", "m3", "m4"} {
-		turn(t, f, runnerID, "claude", text)
-	}
-
-	all, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 50)
-	require.NoError(t, err)
-	require.Len(t, all.Items, 5)
-	assert.Equal(t, "m0", all.Items[0].Text)
-	assert.Equal(t, "m4", all.Items[4].Text)
-	assert.False(t, all.HasMore)
-
-	newest, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 2)
-	require.NoError(t, err)
-	require.Len(t, newest.Items, 2)
-	assert.Equal(t, "m3", newest.Items[0].Text)
-	assert.True(t, newest.HasMore, "older messages remain")
-
-	older, err := f.usecase.ReadMessages(f.ctx, chatID, 0, newest.OldestCursor, 2)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"m1", "m2"}, textsOfPage(older.Items))
-
-	forward, err := f.usecase.ReadMessages(f.ctx, chatID, all.Items[1].Sequence, 0, 2)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"m2", "m3"}, textsOfPage(forward.Items))
-	assert.True(t, forward.HasMore, "newer messages remain")
-}
-
-func TestReadMessages_RefusesAnAmbiguousOrOversizedRequest(t *testing.T) {
-	f := newFixture(t)
-	chatID, _ := f.spawn(t, "claude")
-
-	_, err := f.usecase.ReadMessages(f.ctx, chatID, 5, 5, 10)
-	assert.Error(t, err, "after and before are mutually exclusive")
-
-	_, err = f.usecase.ReadMessages(f.ctx, chatID, -1, 0, 10)
-	assert.Error(t, err)
-
-	_, err = f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100000)
-	assert.Error(t, err)
-}
-
-func textsOfPage(items []domain.LedgerMessage) []string {
+func textsOfPage(items []domain.LedgerTurn) []string {
 	out := make([]string, 0, len(items))
 	for _, m := range items {
 		out = append(out, m.Text)
@@ -708,7 +631,7 @@ func TestObservation_AToolPreWithNoIDIsRejectedNotRecorded(t *testing.T) {
 
 	refusedHook(t, f, runnerID, "claude", engineagents.HookToolPre, map[string]any{"tool_name": "Bash"})
 
-	calls, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
+	calls, err := f.activity.ToolCalls(f.ctx, chatID)
 	require.NoError(t, err)
 	assert.Empty(t, calls, "a tool_pre missing its required tool_id must be rejected, not recorded")
 }
@@ -722,7 +645,7 @@ func TestObservation_AToolCompletionWithNoStatusReadsAsOK(t *testing.T) {
 	hook(t, f, runnerID, "claude", engineagents.HookToolPost,
 		map[string]any{"tool_use_id": "t1", "tool_name": "Read"})
 
-	calls, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
+	calls, err := f.activity.ToolCalls(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, calls, 1)
 	assert.Equal(t, domain.ToolStatusOK, calls[0].Status)
@@ -774,19 +697,19 @@ func TestRegression_ADeadCLIDoesNotLeaveItsToolsRunningForever(t *testing.T) {
 	hook(t, f, runnerID, "claude", engineagents.HookToolPre,
 		map[string]any{"tool_use_id": "t1", "tool_name": "Bash"})
 
-	running, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
+	st, err := f.ledger.State(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, running, 1)
-	require.Equal(t, domain.ToolStatusRunning, running[0].Status)
+	_, running := st.RunningTurn()
+	require.True(t, running)
 
 	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
 	f.wait()
 
-	after, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
+	// A turn closed by its CLI's exit is what ends the tool calls left open in it.
+	st, err = f.ledger.State(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, after, 1)
-	assert.Equal(t, domain.ToolStatusAbandoned, after[0].Status)
-	assert.NotNil(t, after[0].EndedAt)
+	_, running = st.RunningTurn()
+	assert.False(t, running, "a dead CLI's turn must not stay running")
 }
 
 func TestRegression_AfterADeadCLIANewTurnOwnsItsOwnActivity(t *testing.T) {
@@ -806,112 +729,11 @@ func TestRegression_AfterADeadCLIANewTurnOwnsItsOwnActivity(t *testing.T) {
 		map[string]any{"tool_use_id": "t2", "tool_name": "Read"})
 	turn(t, f, revivedRunnerID, "claude", "the second reply")
 
-	calls, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
+	calls, err := f.activity.ToolCalls(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, calls, 2)
 	assert.NotEqual(t, calls[0].TurnID, calls[1].TurnID,
 		"a new turn must not inherit the activity of the one a dead CLI abandoned")
-}
-
-func TestReadActivity_ReturnsWhatTheAgentDid(t *testing.T) {
-	f := newFixture(t)
-	chatID, runnerID := f.spawn(t, "claude")
-	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
-	hook(t, f, runnerID, "claude", engineagents.HookToolPre,
-		map[string]any{"tool_use_id": "t1", "tool_name": "Bash", "tool_input": map[string]any{"command": "ls"}})
-	hook(t, f, runnerID, "claude", engineagents.HookSubagentPre, map[string]any{"agent_id": "a1"})
-	hook(t, f, runnerID, "claude", engineagents.HookPermission, map[string]any{"tool_name": "Bash"})
-
-	got, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
-
-	require.NoError(t, err)
-	require.Len(t, got.ToolCalls, 1)
-	assert.Equal(t, "Bash", got.ToolCalls[0].Name)
-	assert.Len(t, got.Subagents, 1)
-	assert.Len(t, got.Interruptions, 1)
-}
-
-func TestReadActivity_PagesToolCallsFromACursor(t *testing.T) {
-	f := newFixture(t)
-	chatID, runnerID := f.spawn(t, "claude")
-	for _, id := range []string{"t1", "t2", "t3"} {
-		hook(t, f, runnerID, "claude", engineagents.HookToolPre,
-			map[string]any{"tool_use_id": id, "tool_name": id})
-	}
-
-	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
-	require.NoError(t, err)
-	require.Len(t, all.ToolCalls, 3)
-
-	page, err := f.usecase.ReadActivity(f.ctx, chatID, all.ToolCalls[0].Seq, 1)
-	require.NoError(t, err)
-	require.Len(t, page.ToolCalls, 1)
-	assert.Equal(t, "t2", page.ToolCalls[0].Name)
-}
-
-func TestReadActivity_RefusesAChatThatDoesNotExist(t *testing.T) {
-	f := newFixture(t)
-
-	_, err := f.usecase.ReadActivity(f.ctx, "no-such-chat", 0, 0)
-
-	require.Error(t, err)
-}
-
-func TestReadToolPayload_ResolvesBothSides(t *testing.T) {
-	f := newFixture(t)
-	chatID, runnerID := f.spawn(t, "claude")
-	hook(t, f, runnerID, "claude", engineagents.HookToolPre, map[string]any{
-		"tool_use_id": "t1", "tool_name": "Edit",
-		"tool_input": map[string]any{"file_path": "a.go"},
-	})
-	hook(t, f, runnerID, "claude", engineagents.HookToolPost, map[string]any{
-		"tool_use_id": "t1", "tool_name": "Edit", "tool_response": "applied",
-	})
-
-	request, err := f.usecase.ReadToolPayload(f.ctx, chatID, "t1", "request")
-	require.NoError(t, err)
-	assert.Contains(t, string(request), "a.go")
-
-	result, err := f.usecase.ReadToolPayload(f.ctx, chatID, "t1", "result")
-	require.NoError(t, err)
-	assert.Equal(t, "applied", string(result))
-}
-
-func TestReadToolPayload_IsScopedToTheChatThatOwnsTheToolCall(t *testing.T) {
-	f := newFixture(t)
-	ownerChat, ownerRunner := f.spawn(t, "claude")
-	hook(t, f, ownerRunner, "claude", engineagents.HookToolPre, map[string]any{
-		"tool_use_id": "t1", "tool_name": "Read",
-		"tool_input": map[string]any{"file_path": "secret.go"},
-	})
-	otherChat, _ := f.spawn(t, "claude")
-
-	_, err := f.usecase.ReadToolPayload(f.ctx, otherChat, "t1", "request")
-	require.ErrorIs(t, err, agentusecase.ErrToolPayloadGone)
-
-	_, err = f.usecase.ReadToolPayload(f.ctx, ownerChat, "t1", "request")
-	assert.NoError(t, err)
-}
-
-func TestReadToolPayload_MissingToolOrSideIsNotFound(t *testing.T) {
-	f := newFixture(t)
-	chatID, runnerID := f.spawn(t, "claude")
-	hook(t, f, runnerID, "claude", engineagents.HookToolPre,
-		map[string]any{"tool_use_id": "t1", "tool_name": "Bash"})
-
-	_, err := f.usecase.ReadToolPayload(f.ctx, chatID, "no-such-tool", "request")
-	require.ErrorIs(t, err, agentusecase.ErrToolPayloadGone)
-
-	_, err = f.usecase.ReadToolPayload(f.ctx, chatID, "t1", "request")
-	assert.ErrorIs(t, err, agentusecase.ErrToolPayloadGone)
-}
-
-func TestReadToolPayload_RefusesAChatThatDoesNotExist(t *testing.T) {
-	f := newFixture(t)
-
-	_, err := f.usecase.ReadToolPayload(f.ctx, "no-such-chat", "t1", "request")
-
-	require.Error(t, err)
 }
 
 // ─── from hook_delivery_test.go ───────────────────────────────────────
@@ -928,7 +750,7 @@ func TestHook_TwoIdenticalTurnEndsAreTwoTurns(t *testing.T) {
 	}
 	f.wait()
 
-	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	turns, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 	assert.Len(t, turns, 2)
 }
@@ -1005,9 +827,9 @@ func TestRegression_ATurnEndingNoticeFailsTheTurnAndTheChatSaysWhy(t *testing.T)
 
 	assert.False(t, f.busy(t, chatID), "the wedged spinner must stop")
 
-	rows, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	rows, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
-	var notices []domain.ActivityTurn
+	var notices []domain.LedgerTurn
 	for _, r := range rows {
 		if r.Role == domain.TurnRoleNotice {
 			notices = append(notices, r)
@@ -1017,7 +839,7 @@ func TestRegression_ATurnEndingNoticeFailsTheTurnAndTheChatSaysWhy(t *testing.T)
 	assert.Equal(t, codexUsageLimitSentence, notices[0].Text)
 	assert.Contains(t, notices[0].Text, "Aug 22nd, 2026 12:30 PM",
 		"the reset time is the half of the sentence the user actually needs")
-	assert.Equal(t, "codex", notices[0].ProviderID)
+	assert.Equal(t, "codex", notices[0].Provider)
 	assert.Equal(t, runnerID, notices[0].RunnerID)
 	assert.Equal(t, "sess-1", notices[0].SessionID)
 }
@@ -1048,9 +870,9 @@ func TestRegression_ATurnEndingNoticeSalvagesTheAlreadyStreamedText(t *testing.T
 
 	assert.False(t, f.busy(t, chatID), "the wedged spinner must stop")
 
-	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	turns, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
-	var salvaged *domain.ActivityTurn
+	var salvaged *domain.LedgerTurn
 	for i := range turns {
 		if turns[i].Text == "Here is the first part of the answer..." {
 			salvaged = &turns[i]
@@ -1058,7 +880,7 @@ func TestRegression_ATurnEndingNoticeSalvagesTheAlreadyStreamedText(t *testing.T
 	}
 	require.NotNil(t, salvaged,
 		"text Crowbar already streamed to the client must survive the notice, not disappear")
-	assert.Equal(t, "codex", salvaged.ProviderID)
+	assert.Equal(t, "codex", salvaged.Provider)
 }
 
 func TestUsecase_FailTurnOnNotice_WritesNoNoticeWhenThereWasNoTurnToClose(t *testing.T) {
@@ -1072,7 +894,7 @@ func TestUsecase_FailTurnOnNotice_WritesNoNoticeWhenThereWasNoTurnToClose(t *tes
 	agentusecase.FailTurnOnNotice(f.ctx, f.usecase.TurnUsecase, f.runner(t, runnerID), notice)
 	f.wait()
 
-	rows, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	rows, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 	for _, r := range rows {
 		assert.NotEqual(t, domain.TurnRoleNotice, r.Role, "nothing was closed, so nothing is explained")
@@ -1213,13 +1035,6 @@ func permissionPayload() map[string]any {
 	}
 }
 
-func pendingChoices(t *testing.T, f testFixture, chatID string) []domain.ActivityChoice {
-	t.Helper()
-	got, err := f.usecase.ReadPendingChoices(f.ctx, chatID)
-	require.NoError(t, err)
-	return got
-}
-
 func TestObservation_APermissionIsRecordedAsAPendingChoice(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -1297,10 +1112,10 @@ func TestObservation_APendingChoiceClearsWhenTheGatedToolProceeds(t *testing.T) 
 
 	assert.Empty(t, pendingChoices(t, f, chatID),
 		"a prompt answered outside Crowbar must still stop being pending")
-	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
+	all, err := f.activity.Choices(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, all.Choices, 1)
-	assert.Equal(t, domain.ChoiceResolutionProceeded, all.Choices[0].Resolution)
+	require.Len(t, all, 1)
+	assert.Equal(t, domain.ChoiceResolutionProceeded, all[0].Resolution)
 }
 
 func TestObservation_APendingChoiceClearsWhenTheGatedToolFails(t *testing.T) {
@@ -1331,10 +1146,10 @@ func TestObservation_APendingChoiceDoesNotSurviveItsTurn(t *testing.T) {
 	turn(t, f, runnerID, "claude", "I gave up on that")
 
 	assert.Empty(t, pendingChoices(t, f, chatID))
-	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
+	all, err := f.activity.Choices(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, all.Choices, 1)
-	assert.Equal(t, domain.ChoiceResolutionAbandoned, all.Choices[0].Resolution)
+	require.Len(t, all, 1)
+	assert.Equal(t, domain.ChoiceResolutionAbandoned, all[0].Resolution)
 }
 
 // Once its turn ended, only a subagent running past that end can hold the
@@ -1464,7 +1279,8 @@ func TestObservation_ACodexChatObservesNoNotification(t *testing.T) {
 	assert.Empty(t, pendingChoices(t, f, chatID))
 	interruptions, listErr := f.activity.Interruptions(f.ctx, chatID)
 	require.NoError(t, listErr)
-	assert.Empty(t, interruptions)
+	assert.False(t, slices.ContainsFunc(interruptions, func(m markView) bool { return m.Kind == ledger.MarkerNotification }),
+		"a refused hook records no notification")
 }
 
 // The positive case that replaced tool_fail above. A failed or declined codex
@@ -1496,7 +1312,7 @@ func TestRegression_ACodexFailedToolIsRecordedAsAnError(t *testing.T) {
 	})
 	f.wait()
 
-	calls, listErr := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
+	calls, listErr := f.activity.ToolCalls(f.ctx, chatID)
 	require.NoError(t, listErr)
 	require.Len(t, calls, 1, "tool_pre and tool_fail must correlate on item.id")
 	assert.Equal(t, domain.ToolStatusError, calls[0].Status)
@@ -1563,10 +1379,10 @@ func TestRegression_AFailedToolIsCompletedNotLeftRunning(t *testing.T) {
 		"tool_input": map[string]any{"command": "false"},
 	})
 
-	running, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
+	running, err := f.activity.ToolCalls(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, running, 1)
-	require.Equal(t, domain.ToolStatusRunning, running[0].Status)
+	require.Nil(t, running[0].EndedAt, "open until its failure")
 
 	hook(t, f, runnerID, "claude", engineagents.HookToolFail, map[string]any{
 		"tool_use_id": "tool-1", "tool_name": "Bash",
@@ -1574,7 +1390,7 @@ func TestRegression_AFailedToolIsCompletedNotLeftRunning(t *testing.T) {
 		"error":      "exit status 1", "is_interrupt": false, "duration_ms": 42,
 	})
 
-	after, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
+	after, err := f.activity.ToolCalls(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, after, 1)
 	assert.Equal(t, domain.ToolStatusError, after[0].Status,
@@ -1583,7 +1399,7 @@ func TestRegression_AFailedToolIsCompletedNotLeftRunning(t *testing.T) {
 	assert.Equal(t, "exit status 1", after[0].Error)
 	assert.Equal(t, 42, after[0].DurationMS)
 
-	payload, err := f.usecase.ReadToolPayload(f.ctx, chatID, "tool-1", "result")
+	payload, err := f.activity.Payload(f.ctx, after[0].ResultRef)
 	require.NoError(t, err)
 	assert.Equal(t, "exit status 1", string(payload))
 }
@@ -1601,20 +1417,12 @@ func TestRegression_AnInterruptedToolIsFailedNotAbandoned(t *testing.T) {
 	})
 	turn(t, f, runnerID, "claude", "stopped")
 
-	after, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
+	after, err := f.activity.ToolCalls(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, after, 1)
 	assert.Equal(t, domain.ToolStatusError, after[0].Status)
 	assert.NotEqual(t, domain.ToolStatusAbandoned, after[0].Status,
 		"the turn-close sweep must find nothing left to abandon")
-}
-
-func TestReadPendingChoices_RefusesAChatThatDoesNotExist(t *testing.T) {
-	f := newFixture(t)
-
-	_, err := f.usecase.ReadPendingChoices(f.ctx, "no-such-chat")
-
-	assert.Error(t, err)
 }
 
 // ─── from injected_prompt_test.go ─────────────────────────────────────
@@ -1644,11 +1452,11 @@ func TestRegression_HarnessInjectedPromptIsRecordedAsHarnessNotUser(t *testing.T
 		mustJSON(t, map[string]any{"prompt": taskNotificationPrompt})))
 	f.wait()
 
-	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 0)
+	page, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, page.Items, 1, "the injected prompt is recorded, never dropped")
-	assert.Equal(t, domain.TurnRoleHarness, page.Items[0].Role)
-	assert.Equal(t, taskNotificationPrompt, page.Items[0].Text,
+	require.Len(t, page, 1, "the injected prompt is recorded, never dropped")
+	assert.Equal(t, domain.TurnRoleHarness, page[0].Role)
+	assert.Equal(t, taskNotificationPrompt, page[0].Text,
 		"recorded verbatim: it is the context the next reply answers")
 }
 
@@ -1664,9 +1472,9 @@ func TestRegression_PromptFiredInsideASubagentIsNeverRecordedAsTheUsers(t *testi
 		})))
 	f.wait()
 
-	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 0)
+	page, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
-	assert.Empty(t, page.Items, "a subagent's prompt is not something the user said")
+	assert.Empty(t, page, "a subagent's prompt is not something the user said")
 	assert.False(t, f.busy(t, chatID), "a subagent's prompt opens no top-level turn")
 }
 
@@ -1680,10 +1488,10 @@ func TestRegression_TeammateMessageIsRecordedAsHarnessNotUser(t *testing.T) {
 		mustJSON(t, map[string]any{"prompt": prompt})))
 	f.wait()
 
-	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 0)
+	page, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, page.Items, 1)
-	assert.Equal(t, domain.TurnRoleHarness, page.Items[0].Role)
+	require.Len(t, page, 1)
+	assert.Equal(t, domain.TurnRoleHarness, page[0].Role)
 }
 
 func TestRegression_SubagentHandBackIsRecordedAsHarnessNotUser(t *testing.T) {
@@ -1696,10 +1504,10 @@ func TestRegression_SubagentHandBackIsRecordedAsHarnessNotUser(t *testing.T) {
 		mustJSON(t, map[string]any{"prompt": prompt})))
 	f.wait()
 
-	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 0)
+	page, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, page.Items, 1)
-	assert.Equal(t, domain.TurnRoleHarness, page.Items[0].Role)
+	require.Len(t, page, 1)
+	assert.Equal(t, domain.TurnRoleHarness, page[0].Role)
 }
 
 // A user_prompt hook starts the turn for the Crowbar prompt only when its text is
@@ -1754,7 +1562,7 @@ func TestRegression_FinalIncrementAheadOfAnEarlierOneNeverRecordsATruncatedMessa
 		deltaHook(t, "m1", 1, true, "world")))
 	f.wait()
 
-	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	turns, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 	for _, turn := range turns {
 		assert.NotEqual(t, "world", turn.Text, "a message with a missing increment must not be recorded yet")
@@ -1764,7 +1572,7 @@ func TestRegression_FinalIncrementAheadOfAnEarlierOneNeverRecordsATruncatedMessa
 		deltaHook(t, "m1", 0, false, "Hello ")))
 	f.wait()
 
-	turns, err = f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	turns, err = f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 	var recorded []string
 	for _, turn := range turns {
@@ -1801,11 +1609,11 @@ func TestRegression_RealUserPromptsWithNoSourceKeyStayTheUsers(t *testing.T) {
 				mustJSON(t, map[string]any{"prompt": prompt})))
 			f.wait()
 
-			page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 0)
+			page, err := f.activity.Turns(f.ctx, chatID)
 			require.NoError(t, err)
-			require.Len(t, page.Items, 1)
-			assert.Equal(t, domain.TurnRoleUser, page.Items[0].Role)
-			assert.Equal(t, prompt, page.Items[0].Text)
+			require.Len(t, page, 1)
+			assert.Equal(t, domain.TurnRoleUser, page[0].Role)
+			assert.Equal(t, prompt, page[0].Text)
 		})
 	}
 }
@@ -1821,10 +1629,10 @@ func TestIngestHook_UserPrompt_ProviderDeclaringNoInjectedPromptsRecordsEverythi
 		mustJSON(t, map[string]any{"prompt": taskNotificationPrompt})))
 	f.wait()
 
-	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 0)
+	page, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, page.Items, 1)
-	assert.Equal(t, domain.TurnRoleUser, page.Items[0].Role)
+	require.Len(t, page, 1)
+	assert.Equal(t, domain.TurnRoleUser, page[0].Role)
 }
 
 func TestIngestHook_UserPrompt_HarnessInjectionNeverBecomesTheChatTitle(t *testing.T) {
@@ -1920,9 +1728,9 @@ func TestRegression_ASubagentsHandBackIsAnsweredThenTheChatRests(t *testing.T) {
 	f.wait()
 
 	require.False(t, f.busy(t, chatID), "once the work is done the chat MUST rest")
-	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 0)
+	page, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
-	assert.Equal(t, "It finished.", page.Items[len(page.Items)-1].Text, "the hand-back's reply is recorded")
+	assert.Equal(t, "It finished.", page[len(page)-1].Text, "the hand-back's reply is recorded")
 }
 
 // A CLI killed with a subagent running sends no stop; its runner's exit, which
@@ -1979,25 +1787,26 @@ func TestRegression_InterruptedTurnGraduallyFinishingIsNotMisattributedToTheNext
 	require.NoError(t, err)
 	f.wait()
 
-	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	turns, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 
-	var claudeTurn, codexTurn *domain.ActivityTurn
+	var claudeTurn, codexTurn *domain.LedgerTurn
+	var claudeAt, codexAt int
 	for i := range turns {
 		switch turns[i].Text {
 		case "Valve Software: The Reluctant Giant":
-			claudeTurn = &turns[i]
+			claudeTurn, claudeAt = &turns[i], i
 		case "codex reply":
-			codexTurn = &turns[i]
+			codexTurn, codexAt = &turns[i], i
 		}
 	}
 	require.NotNil(t, claudeTurn, "claude's text was recorded at all")
 	require.NotNil(t, codexTurn, "codex's text was recorded at all")
 
-	assert.Equal(t, "claude", claudeTurn.ProviderID,
+	assert.Equal(t, "claude", claudeTurn.Provider,
 		"THE BUG: claude's own text must never be attributed to codex")
-	assert.Equal(t, "codex", codexTurn.ProviderID)
-	assert.Less(t, claudeTurn.DisplayOrder, codexTurn.DisplayOrder,
+	assert.Equal(t, "codex", codexTurn.Provider)
+	assert.Less(t, claudeAt, codexAt,
 		"dispatched first, so displays first, even though it was recorded last")
 }
 
@@ -2025,10 +1834,10 @@ func TestRegression_StopChatSalvagesTheAlreadyStreamedText(t *testing.T) {
 	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
 	f.wait()
 
-	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	turns, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 
-	var salvaged *domain.ActivityTurn
+	var salvaged *domain.LedgerTurn
 	for i := range turns {
 		if turns[i].Text == "The transistor stands as one of the most consequential inventions..." {
 			salvaged = &turns[i]
@@ -2036,7 +1845,7 @@ func TestRegression_StopChatSalvagesTheAlreadyStreamedText(t *testing.T) {
 	}
 	require.NotNil(t, salvaged,
 		"THE BUG: text Crowbar already streamed to the client must survive a Stop, not disappear")
-	assert.Equal(t, "claude", salvaged.ProviderID)
+	assert.Equal(t, "claude", salvaged.Provider)
 }
 
 // TestRegression_ClearMidStreamSalvagesTheAlreadyStreamedText is the same gap as
@@ -2059,10 +1868,10 @@ func TestRegression_ClearMidStreamSalvagesTheAlreadyStreamedText(t *testing.T) {
 
 	require.Equal(t, chatA, f.runner(t, runnerID).CurrentChatID, "precondition: a /clear keeps the runner on its chat")
 
-	turns, err := f.activity.Turns(f.ctx, chatA, 0, 0, 0)
+	turns, err := f.activity.Turns(f.ctx, chatA)
 	require.NoError(t, err)
 
-	var salvaged *domain.ActivityTurn
+	var salvaged *domain.LedgerTurn
 	for i := range turns {
 		if turns[i].Text == "The telegraph transformed long-distance communication..." {
 			salvaged = &turns[i]
@@ -2070,7 +1879,7 @@ func TestRegression_ClearMidStreamSalvagesTheAlreadyStreamedText(t *testing.T) {
 	}
 	require.NotNil(t, salvaged,
 		"the same salvage StopChat gets must also cover the session a /clear left")
-	assert.Equal(t, "claude", salvaged.ProviderID)
+	assert.Equal(t, "claude", salvaged.Provider)
 }
 
 // stopPayload is a claude Stop hook payload on session s1.
@@ -2088,7 +1897,7 @@ func TestRegression_CodexCompactionTurnNeverStopsTheChat(t *testing.T) {
 	chatID, runnerID := f.spawn(t, "codex")
 	f.announce(t, runnerID, "sess-1")
 
-	before, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
+	before, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 	rowsBefore, err := f.ledger.Read(f.ctx, chatID, 0, 0)
 	require.NoError(t, err)
@@ -2124,9 +1933,9 @@ func TestRegression_CodexCompactionTurnNeverStopsTheChat(t *testing.T) {
 		require.Equal(t, ledger.KindMarker, r.Kind, "the compaction's own turn_stop must not touch the chat's turns at all")
 	}
 
-	afterCompaction, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
+	afterCompaction, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Equal(t, len(before.Items), len(afterCompaction.Items),
+	require.Equal(t, len(before), len(afterCompaction),
 		"the compaction's own turn_stop must record NOTHING in the ledger")
 
 	// The guard must be surgically scoped to the armed id, not to turn_stop as
@@ -2145,9 +1954,9 @@ func TestRegression_CodexCompactionTurnNeverStopsTheChat(t *testing.T) {
 
 	require.False(t, f.busy(t, chatID), "the ordinary turn closed normally")
 
-	afterOrdinary, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
+	afterOrdinary, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Greater(t, len(afterOrdinary.Items), len(afterCompaction.Items),
+	require.Greater(t, len(afterOrdinary), len(afterCompaction),
 		"an ordinary turn_stop with its OWN turn id must still record its reply — the guard must not be overbroad")
 }
 
@@ -2163,7 +1972,7 @@ func TestRegression_CodexFailedCompactionTurnRecordsNoFailureNotice(t *testing.T
 	chatID, runnerID := f.spawn(t, "codex")
 	f.announce(t, runnerID, "sess-1")
 
-	before, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
+	before, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 
 	// turn_failed is api-only (no hooks: block at all — same as tool_fail),
@@ -2191,9 +2000,9 @@ func TestRegression_CodexFailedCompactionTurnRecordsNoFailureNotice(t *testing.T
 		},
 	})
 
-	after, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
+	after, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Equal(t, len(before.Items), len(after.Items),
+	require.Equal(t, len(before), len(after),
 		"a failed compaction round trip must record NO notice row in the transcript")
 }
 
@@ -2319,10 +2128,10 @@ func TestUserTurn_ADispatchedPromptIsRecordedUnderItsRequestID(t *testing.T) {
 		mustJSON(t, map[string]any{"prompt": "the dispatched prompt", "session_id": "sid-1"})))
 	f.wait()
 
-	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
+	page, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 	var ids []string
-	for _, item := range page.Items {
+	for _, item := range page {
 		if item.Role == "user" && item.Text == "the dispatched prompt" {
 			ids = append(ids, item.ID)
 		}
@@ -2368,11 +2177,11 @@ func TestRegression_RealClaudeSubagentSession_OnlyTheHumansWordsAreUserRows(t *t
 	chatID, runnerID := f.spawn(t, "claude")
 	replayRealClaudeSession(t, f, runnerID)
 
-	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 0)
+	page, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 	var users []string
 	harness := 0
-	for _, m := range page.Items {
+	for _, m := range page {
 		switch m.Role {
 		case domain.TurnRoleUser:
 			users = append(users, m.Text)
@@ -2390,7 +2199,7 @@ func TestRegression_RealClaudeSubagentSession_OnlyTheHumansWordsAreUserRows(t *t
 	require.Len(t, subs, 2)
 	for _, sub := range subs {
 		require.NotEmpty(t, sub.Messages, sub.ID)
-		assert.Contains(t, sub.Messages[len(sub.Messages)-1].Text, "a.txt contains", "%s's hand-back is its result", sub.ID)
+		assert.Contains(t, sub.Messages[len(sub.Messages)-1], "a.txt contains", "%s's hand-back is its result", sub.ID)
 	}
 }
 
@@ -2399,7 +2208,7 @@ func TestRegression_RealClaudeSubagentSession_SubagentToolCallsAreItsOwn(t *test
 	chatID, runnerID := f.spawn(t, "claude")
 	replayRealClaudeSession(t, f, runnerID)
 
-	calls, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
+	calls, err := f.activity.ToolCalls(f.ctx, chatID)
 	require.NoError(t, err)
 	names := map[string][]string{}
 	for _, c := range calls {
@@ -2424,4 +2233,163 @@ func running(t *testing.T, f testFixture, chatID string) bool {
 	require.NoError(t, err)
 	_, ok := st.RunningTurn()
 	return ok
+}
+
+// activityReads reads a chat's record from its ledger rows, as the feed's
+// client folds them: each tool call, marker, ask and subagent by its rows.
+type activityReads struct {
+	u      *harnessUsecase
+	ledger *ledgerstore.Store
+	blobs  *ledgerstore.Blobs
+}
+
+type toolView struct {
+	ID, TurnID, SubagentID, Name, Target, Status, Error, Diff, RequestRef, ResultRef string
+	DurationMS                                                                       int
+	EndedAt                                                                          *time.Time
+}
+
+type markView struct {
+	Kind, Detail, TurnID string
+	ResolvedAt           *time.Time
+}
+
+type choiceView struct{ ID, Kind, Resolution string }
+
+type subagentView struct {
+	ID, AgentType, Status string
+	EndedAt               *time.Time
+	Messages              []string
+}
+
+func (a activityReads) rows(ctx context.Context, chatID string) ([]ledger.Row, error) {
+	return a.ledger.Read(ctx, chatID, 0, 0)
+}
+
+func (a activityReads) Turns(ctx context.Context, chatID string) ([]domain.LedgerTurn, error) {
+	return agentusecase.ChatTurns(a.u.RunnerUsecase, ctx, chatID)
+}
+
+func (a activityReads) ToolCalls(ctx context.Context, chatID string) ([]toolView, error) {
+	rows, err := a.rows(ctx, chatID)
+	var out []*toolView
+	byID := map[string]*toolView{}
+	for _, r := range rows {
+		b, decErr := ledger.DecodeBody[ledger.ToolCall](r)
+		if r.Kind != ledger.KindToolCall || decErr != nil {
+			continue
+		}
+		v, ok := byID[r.Scope+"/"+b.ToolID]
+		if !ok {
+			v = &toolView{ID: b.ToolID, TurnID: r.TurnID, SubagentID: r.Scope}
+			byID[r.Scope+"/"+b.ToolID], out = v, append(out, v)
+		}
+		v.Name, v.Target, v.RequestRef = cmp.Or(v.Name, b.Name), cmp.Or(v.Target, b.Target), cmp.Or(v.RequestRef, b.InputRef)
+		v.ResultRef, v.Diff = cmp.Or(b.ResultRef, v.ResultRef), cmp.Or(b.Diff, v.Diff)
+		if b.Phase != ledger.ToolPre && v.EndedAt == nil {
+			at := r.At
+			v.Status, v.Error, v.DurationMS, v.EndedAt = b.Status, b.Error, b.DurationMS, &at
+		}
+	}
+	views := make([]toolView, 0, len(out))
+	for _, v := range out {
+		views = append(views, *v)
+	}
+	return views, err
+}
+
+// Interruptions are the chat's markers and asks, a compaction resolved by its
+// end and an ask by its resolution.
+func (a activityReads) Interruptions(ctx context.Context, chatID string) ([]markView, error) {
+	rows, err := a.rows(ctx, chatID)
+	var out []markView
+	asks := map[string]int{}
+	for _, r := range rows {
+		at := r.At
+		if ask, decErr := ledger.DecodeBody[ledger.Ask](r); r.Kind == ledger.KindAsk && decErr == nil {
+			asks[ask.AskID] = len(out)
+			out = append(out, markView{Kind: ask.Event, Detail: ask.Detail, TurnID: r.TurnID})
+		}
+		if res, decErr := ledger.DecodeBody[ledger.AskResolved](r); r.Kind == ledger.KindAskResolved && decErr == nil {
+			if i, ok := asks[res.AskID]; ok {
+				out[i].ResolvedAt = &at
+			}
+		}
+		b, decErr := ledger.DecodeBody[ledger.Marker](r)
+		if r.Kind != ledger.KindMarker || decErr != nil {
+			continue
+		}
+		switch b.Kind {
+		case ledger.MarkerCompactionStarted:
+			out = append(out, markView{Kind: "compaction", Detail: b.Detail, TurnID: r.TurnID})
+		case ledger.MarkerCompactionEnded:
+			if n := len(out) - 1; n >= 0 && out[n].Kind == "compaction" {
+				out[n].ResolvedAt = &at
+			}
+		default:
+			out = append(out, markView{Kind: b.Kind, Detail: b.Detail, TurnID: r.TurnID, ResolvedAt: &at})
+		}
+	}
+	return out, err
+}
+
+// Choices are the chat's asks that offered a choice, each with how its own
+// row resolved it.
+func (a activityReads) Choices(ctx context.Context, chatID string) ([]choiceView, error) {
+	rows, err := a.rows(ctx, chatID)
+	var out []choiceView
+	for _, r := range rows {
+		if ask, decErr := ledger.DecodeBody[ledger.Ask](r); r.Kind == ledger.KindAsk && decErr == nil && ask.Kind != "" {
+			out = append(out, choiceView{ID: ask.AskID, Kind: ask.Kind})
+		}
+		if res, decErr := ledger.DecodeBody[ledger.AskResolved](r); r.Kind == ledger.KindAskResolved && decErr == nil {
+			for i := range out {
+				if out[i].ID == res.AskID {
+					out[i].Resolution = res.Resolution
+				}
+			}
+		}
+	}
+	return out, err
+}
+
+func (a activityReads) Subagents(ctx context.Context, chatID string) ([]subagentView, error) {
+	rows, err := a.rows(ctx, chatID)
+	var text ledger.MessageFold
+	var book ledger.SubagentBook
+	for _, r := range rows {
+		text.Apply(r)
+		book.Apply(r)
+	}
+	var out []subagentView
+	for _, s := range book.All() {
+		v := subagentView{ID: s.Scope, AgentType: s.Type, Status: string(s.Status)}
+		if !s.Status.Live() {
+			at := s.EndedAt
+			v.EndedAt = &at
+		}
+		for _, m := range text.Messages() {
+			if m.Key.Scope == s.Scope && m.Settled && m.Text != "" {
+				v.Messages = append(v.Messages, m.Text)
+			}
+		}
+		if s.Result != "" && !slices.Contains(v.Messages, s.Result) {
+			v.Messages = append(v.Messages, s.Result)
+		}
+		if s.Scope != "" {
+			out = append(out, v)
+		}
+	}
+	return out, err
+}
+
+func (a activityReads) Payload(_ context.Context, ref string) ([]byte, error) {
+	return a.blobs.Get(ref)
+}
+
+func pendingChoices(t *testing.T, f testFixture, chatID string) []domain.ActivityChoice {
+	t.Helper()
+	st, err := f.ledger.State(f.ctx, chatID)
+	require.NoError(t, err)
+	return st.OpenAsks()
 }

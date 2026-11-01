@@ -68,12 +68,6 @@ type ChatUsecase interface {
 		id string,
 	) (domain.Chat, error)
 
-	ReadMessages(
-		ctx context.Context,
-		chatID string,
-		after, before, limit int,
-	) (domain.LedgerPage, error)
-
 	// AssembleHandoff resolves chatID's ledger into the legible handoff blob a
 	// freshly spawned provider CLI can be given as prior context.
 	AssembleHandoff(
@@ -133,28 +127,6 @@ type TurnUsecase interface {
 		channel engineagents.Channel,
 	) (agentusecase.HookReply, error)
 
-	// ReadActivity is what the agent DID: tool calls, subagents, interruptions.
-	ReadActivity(
-		ctx context.Context,
-		chatID string,
-		after int64,
-		limit int,
-	) (agentusecase.ChatActivity, error)
-
-	// ReadToolPayload resolves one tool call's request or result on demand.
-	ReadToolPayload(
-		ctx context.Context,
-		chatID, toolID, side string,
-	) ([]byte, error)
-
-	// ReadPendingChoices is what the agent is BLOCKED on: the prompts it has put to
-	// a human and not yet had answered. Separate from ReadActivity because it is
-	// asked far more often and must not carry a turn's tool calls with it.
-	ReadPendingChoices(
-		ctx context.Context,
-		chatID string,
-	) ([]domain.ActivityChoice, error)
-
 	// Telemetry is the provider's own report of cost and capacity, absent until
 	// the provider makes one.
 	Telemetry(chatID string) (engineagents.Telemetry, bool)
@@ -197,14 +169,6 @@ type RunnerUsecase interface {
 		chatID, text, clientRequestID, provider string,
 		selection *domain.ChatSelection,
 	) (domain.AgentPromptSubmission, error)
-
-	// PendingPrompt returns chatID's oldest prompt the provider has not
-	// acknowledged yet, so a client whose own local copy of the text was lost
-	// can recover it.
-	PendingPrompt(
-		ctx context.Context,
-		chatID string,
-	) (domain.PendingPrompt, bool, error)
 
 	SlashCatalog(
 		ctx context.Context,
@@ -283,13 +247,8 @@ type RunnerUsecase interface {
 	AttachedTerminalSession(runnerID string) (string, bool)
 
 	// TerminalWait is what the agent is blocked on that Crowbar CANNOT answer: a
-	// modal reaching the daemon through no hook, so the only way past it is the
-	// terminal. The complement of ReadPendingChoices, and deliberately not folded
-	// into it — a choice is a question with buttons, this is a signpost.
-	//
-	// It takes no ctx and returns no error because it reads a standing answer the
-	// detector keeps current on its own cadence; a REST read must not be able to
-	// drive provider-screen work on the request path.
+	// modal no hook reports, read off the detector's standing answer so a REST
+	// read never drives provider-screen work.
 	TerminalWait(
 		chatID string,
 	) domain.AgentTerminalWait
@@ -298,14 +257,6 @@ type RunnerUsecase interface {
 // AnswerUsecase is the answer channel: the human deciding a prompt in the chat,
 // and the in-PTY relay holding the provider's gate open until they do.
 type AnswerUsecase interface {
-	// AnswerableChoiceIDs narrows a set of prompts to the ones a relay is holding
-	// the provider's gate open for right now. A prompt outside it is still worth
-	// drawing — the CLI is asking it — but answering it would reach nobody.
-	AnswerableChoiceIDs(
-		chatID string,
-		choices []domain.ActivityChoice,
-	) []string
-
 	// AnswerChoice records a human's decision and hands it to the relay blocking the
 	// provider's gate. optionIDs name what was picked; reason and content carry the
 	// free-form parts a provider accepts (a deny message, an elicitation's filled-in

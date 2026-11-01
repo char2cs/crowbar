@@ -11,25 +11,7 @@ import (
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
-
-// The message page bounds ReadMessages serves under: a caller that asks for
-// nothing gets a screenful, and one that asks for everything is refused rather
-// than being allowed to pull an entire conversation into one response.
-const (
-	defaultMessagePageLimit = 100
-	maxMessagePageLimit     = 200
-)
-
-// ChatTurns is every message of the chat, in the order it is shown.
-func (c *Conversations) ChatTurns(ctx context.Context, chatID string) ([]domain.LedgerTurn, error) {
-	turns, err := c.transcript.ChatTurns(ctx, chatID)
-	if err != nil {
-		return nil, fmt.Errorf("agent: chat turns: %w", err)
-	}
-	return turns, nil
-}
 
 func (c *Conversations) renderConversation(
 	ctx context.Context,
@@ -74,30 +56,6 @@ func (c *Conversations) appendNote(ctx context.Context, chatID, text string) err
 		return fmt.Errorf("agent: append note: %w", err)
 	}
 	return nil
-}
-
-func (c *Conversations) ReadMessages(
-	ctx context.Context,
-	chatID string,
-	after, before, limit int,
-) (domain.LedgerPage, error) {
-	if after < 0 || before < 0 || (after > 0 && before > 0) {
-		return domain.LedgerPage{}, fmt.Errorf("agent: read messages: invalid cursor: %w", problem.ErrInvalidArgument)
-	}
-	if limit == 0 {
-		limit = defaultMessagePageLimit
-	}
-	if limit < 1 || limit > maxMessagePageLimit {
-		return domain.LedgerPage{}, fmt.Errorf("agent: read messages: limit must be between 1 and %d: %w", maxMessagePageLimit, problem.ErrInvalidArgument)
-	}
-	if _, err := c.chats.GetChat(ctx, chatID); err != nil {
-		return domain.LedgerPage{}, fmt.Errorf("agent: read messages: chat: %w", err)
-	}
-	page, err := c.transcript.Messages(ctx, chatID, after, before, limit)
-	if err != nil {
-		return domain.LedgerPage{}, fmt.Errorf("agent: read messages: %w", err)
-	}
-	return page, nil
 }
 
 // speaker names who produced a ledger turn, for the two places this package

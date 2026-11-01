@@ -55,8 +55,8 @@ type MessageText struct {
 
 // messageKeys is what a retried chunk of one message is recognised by.
 type messageKeys struct {
-	turnID, reply string
-	indexes       []int
+	turnID  string
+	indexes []int
 }
 
 // reply is the reply a turn's end recorded while nothing of it had streamed.
@@ -66,11 +66,6 @@ type reply struct{ messageID, text string }
 func (s State) MessageTurn(scope, messageID string) (string, bool) {
 	m, ok := s.keys.messages[ref(scope, messageID)]
 	return m.turnID, ok
-}
-
-// ShownAs is the id the message is shown under: the reply it joins, else its own.
-func (s State) ShownAs(scope, messageID string) string {
-	return cmp.Or(s.keys.messages[ref(scope, messageID)].reply, messageID)
 }
 
 // HasChunk reports whether chunk index of the message is already recorded.
@@ -99,7 +94,7 @@ func (s *State) applyAssistantText(r Row) {
 	key := ref(r.Scope, body.MessageID)
 	m, seen := k.messages[key]
 	if !seen {
-		m.turnID, m.reply = r.TurnID, body.Reply
+		m.turnID = r.TurnID
 		if r.Scope == "" {
 			k.lastMain[r.TurnID] = body.MessageID
 		}

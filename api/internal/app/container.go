@@ -239,16 +239,9 @@ func chatSnapshotEvent(f agentusecase.ChatSnapshotFrame) dto.AgentChatEvent {
 	}
 	conversation, _ := s.Conversation()
 	chat := dto.AgentChatDTOFrom(s.Chat, dto.ChatSnapshotRuntime(s.Live, s.Phase, s.Version,
-		s.TerminalWait, s.AttachedSessionID, s.Session, conversation, s.Ledger.Busy), nil)
+		s.TerminalWait, s.AttachedSessionID, conversation, s.Ledger.Busy), nil)
 	ev.Chat = &chat
 	return ev
-}
-
-// broadcastChoices publishes a chat's pending prompts as the wire frame.
-func broadcastChoices(h *hub.Hub) func(string, string, []domain.ActivityChoice, []string) {
-	return func(chatID, workspaceID string, choices []domain.ActivityChoice, answerable []string) {
-		h.BroadcastAgentChatChoices(chatID, workspaceID, dto.AgentChoiceDTOsFrom(choices, answerable))
-	}
 }
 
 // startTerminalWaitSweep begins the cadence that notices a vendor CLI parked on a
@@ -267,12 +260,7 @@ func startTerminalWaitSweep(
 	ucs *usecases.Container,
 ) {
 	ucs.AgentRunner.StartTerminalWaitSweep(ctx, agentusecase.ChatFeed{
-		PromptSettled: h.BroadcastAgentChatPromptSettled,
-		MessageDelta:  h.BroadcastAgentChatMessageDelta,
-		Compaction:    h.BroadcastAgentChatCompaction,
-		Plan:          h.BroadcastAgentChatPlan,
-		Telemetry:     h.BroadcastAgentChatTelemetry,
-		Choices:       broadcastChoices(h),
+		Telemetry: h.BroadcastAgentChatTelemetry,
 	})
 }
 

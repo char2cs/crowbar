@@ -184,9 +184,9 @@ func TestEndingRunner_ItsLastWordsAfterItsExitAreInTheTranscript(t *testing.T) {
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "turn_stop",
 		mustJSON(t, map[string]any{"last_assistant_message": "the last word"})))
 
-	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 50)
+	page, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
-	assert.Contains(t, textsOfPage(page.Items), "the last word")
+	assert.Contains(t, textsOfPage(page), "the last word")
 }
 
 // A tool's and a subagent's reports that land after their runner's exit, while

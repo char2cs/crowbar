@@ -97,14 +97,6 @@ type RunnerUsecase interface {
 		chatID string,
 	) (engineagents.SlashCatalog, error)
 
-	// PendingPrompt returns the chat's oldest prompt the provider has not
-	// acknowledged yet, so a client whose own local copy of the text was lost
-	// can recover it.
-	PendingPrompt(
-		ctx context.Context,
-		chatID string,
-	) (domain.PendingPrompt, bool, error)
-
 	// SwitchToTerminal moves the chat onto its provider's own TUI — idle-only
 	// when that relaunches or hands over a process — and returns the terminal
 	// session the TUI is ("" for a dormant chat, which only records the move).
@@ -313,15 +305,6 @@ func (u *Usecase) SlashCatalog(
 	chatID string,
 ) (engineagents.SlashCatalog, error) {
 	return u.runners.SlashCatalog(ctx, chatID)
-}
-
-// PendingPrompt returns the chat's oldest prompt the provider has not
-// acknowledged yet.
-func (u *Usecase) PendingPrompt(
-	ctx context.Context,
-	chatID string,
-) (domain.PendingPrompt, bool, error) {
-	return u.runners.PendingPrompt(ctx, chatID)
 }
 
 // ReconcileRunnersOnBoot ends every runner whose PTY did not survive the

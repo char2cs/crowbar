@@ -143,14 +143,6 @@ type ChatUsecase interface {
 		chatID string,
 	) ([]agenttools.ChatTurn, error)
 
-	// ReadMessages pages the conversation record, newest page last. after and
-	// before are mutually exclusive cursors.
-	ReadMessages(
-		ctx context.Context,
-		chatID string,
-		after, before, limit int,
-	) (domain.LedgerPage, error)
-
 	// NoteThreadLineage records, in the chat's own conversation, that it has been
 	// moved under new parents from this point on. It appends nothing to a chat
 	// that has said nothing yet.
@@ -213,12 +205,10 @@ type Usecase struct {
 	chats  agentchat.EventStore
 	agents engineagents.Agents
 	// ledger is every chat's record, and blobs the tool payloads its rows name.
-	ledger *ledgerstore.Store
-	blobs  *ledgerstore.Blobs
-	// transcript is the ledger in the read shapes the clients speak.
-	transcript *feedTranscript
-	ws         WorkspaceReader
-	worktree   WorktreeCreator
+	ledger   *ledgerstore.Store
+	blobs    *ledgerstore.Blobs
+	ws       WorkspaceReader
+	worktree WorktreeCreator
 	// folders/nodes are the Folder+Node ports 2026-09-08
 	// sidebar-placement-unification Task 8's own review fix round added:
 	// own_worktree.go/promote.go/repo_scope.go/cwd_resolver.go all walk the
@@ -248,7 +238,7 @@ type Usecase struct {
 
 	// snapshots is the one owner of every chat's versioned snapshot.
 	snapshots *snapshot.Snapshots
-	// feed is the hub, bound at sweep start; ledger commits publish through it.
+	// feed is the hub, bound at sweep start; telemetry publishes through it.
 	feed atomic.Pointer[ChatFeed]
 	// feeds are the per-chat row feeds.
 	feeds *feeds
@@ -374,15 +364,6 @@ func (u *Usecase) ReadChatLog(
 	chatID string,
 ) ([]agenttools.ChatTurn, error) {
 	return u.conversations.ReadChatLog(ctx, chatID)
-}
-
-// ReadMessages returns one page of the chat's turns.
-func (u *Usecase) ReadMessages(
-	ctx context.Context,
-	chatID string,
-	after, before, limit int,
-) (domain.LedgerPage, error) {
-	return u.conversations.ReadMessages(ctx, chatID, after, before, limit)
 }
 
 // NoteThreadLineage records, in the chat's own log, which chats it was threaded

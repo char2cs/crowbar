@@ -79,8 +79,6 @@ var sharedInstances = map[string][]string{
 	"the CLI lifecycle":   {"runners", "conversations.runners", "recorder.runners", "ingress.runners"},
 	"the turn record":     {"recorder", "ingress.turns", "ingress.descriptors"},
 	"the chat ledger":     {"ledger", "conversations.ledger", "recorder.ledger", "runners.ledger", "ingress.ledger"},
-	// A second projector would answer reads from rows the publication never reached.
-	"the transcript":    {"transcript", "conversations.transcript", "runners.choices"},
 	"the payload store": {"blobs", "conversations.blobs", "recorder.blobs"},
 }
 

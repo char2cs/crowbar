@@ -42,9 +42,6 @@ type ChatRuntime struct {
 	// stores, same reasoning as TerminalWait.
 	AttachedSessionID string
 
-	// Session is the supervisor's record of how the chat's last runner ended.
-	Session domain.AgentSession
-
 	// Conversation is the chat's conversation with its current provider, as its
 	// ledger holds it; the zero value when it has none.
 	Conversation ledger.Conversation
@@ -64,7 +61,6 @@ func ChatSnapshotRuntime(
 	version int64,
 	wait domain.AgentTerminalWait,
 	attachedSessionID string,
-	session domain.AgentSession,
 	conversation ledger.Conversation,
 	working bool,
 ) ChatRuntime {
@@ -73,31 +69,10 @@ func ChatSnapshotRuntime(
 		LiveRunner:        live,
 		TerminalWait:      wait,
 		AttachedSessionID: attachedSessionID,
-		Session:           session,
 		Conversation:      conversation,
 		Version:           version,
 		Phase:             phase,
 	}
-}
-
-// AgentSessionDTO says, while a chat is dormant, how its last runner ended —
-// rendered by the client, never inferred.
-type AgentSessionDTO struct {
-	ExitReason string     `json:"exitReason,omitempty"`
-	ExitedAt   *time.Time `json:"exitedAt,omitempty"`
-}
-
-// AgentSessionDTOFrom collapses an empty record to nil so the field is absent.
-func AgentSessionDTOFrom(s domain.AgentSession) *AgentSessionDTO {
-	if s.ExitReason == "" {
-		return nil
-	}
-	out := &AgentSessionDTO{ExitReason: s.ExitReason}
-	if !s.ExitedAt.IsZero() {
-		at := s.ExitedAt
-		out.ExitedAt = &at
-	}
-	return out
 }
 
 // AgentConversationDTO is the chat's conversation with one provider: the
@@ -251,9 +226,6 @@ type AgentChatDTO struct {
 	// or stopping. The client renders it; it never infers it.
 	Phase string `json:"phase"`
 
-	// Session is why the chat is dormant.
-	Session *AgentSessionDTO `json:"session,omitempty"`
-
 	// Conversation is the chat's conversation with its current provider,
 	// omitted until the chat is bound to a session.
 	Conversation *AgentConversationDTO `json:"conversation,omitempty"`
@@ -289,7 +261,6 @@ func AgentChatDTOFrom(
 		CreatedAt:        c.CreatedAt,
 		Version:          rt.Version,
 		Phase:            rt.Phase,
-		Session:          AgentSessionDTOFrom(rt.Session),
 		Conversation:     agentConversationDTOFrom(rt.Conversation),
 	}
 	if rt.LiveRunner != nil {
@@ -331,18 +302,6 @@ type PromptSubmissionDTO struct {
 type AgentRetractDTO struct {
 	State string `json:"state"`
 	Text  string `json:"text"`
-}
-
-// PendingPromptDTO is the wire shape of domain.PendingPrompt — a prompt the
-// provider has not acknowledged yet, sent so a client whose own local copy was
-// lost can recover the literal text.
-type PendingPromptDTO struct {
-	Text  string `json:"text"`
-	State string `json:"state"`
-	// RequestID is the original client request id, carried through so the
-	// recovered row rejoins this chat's own dedup and settlement broadcasts
-	// instead of a freshly minted id nothing will ever match.
-	RequestID string `json:"requestId"`
 }
 
 // activeProviderID is the live runner's provider while one is placed (mid-switch

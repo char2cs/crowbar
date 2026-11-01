@@ -112,11 +112,7 @@ func Register(
 	// Workspaces' own doc, worktree.go).
 	repoScoped.GET("/workspaces", h.Workspaces)
 	repoScoped.GET("/chats/:id", h.Get)
-	repoScoped.GET("/chats/:id/messages", h.Messages)
 	repoScoped.POST("/chats/:id/prompts", h.SubmitPrompt)
-	repoScoped.GET("/chats/:id/pending-prompt", h.PendingPrompt)
-	repoScoped.GET("/chats/:id/activity", h.Activity)
-	repoScoped.GET("/chats/:id/activity/:toolId/payload", h.ToolPayload)
 	repoScoped.POST("/chats/:id/attachments", h.UploadAttachment)
 	repoScoped.GET("/chats/:id/attachments/:file", h.Attachment)
 	// HEAD, not just GET: the web client's own file-card size label is a
@@ -125,7 +121,6 @@ func Register(
 	// request method, so net/http's own HEAD handling (real headers, body
 	// suppressed) is all a route pointed at it needs.
 	repoScoped.HEAD("/chats/:id/attachments/:file", h.Attachment)
-	repoScoped.GET("/chats/:id/choices", h.Choices)
 	repoScoped.POST("/chats/:id/choices/:choiceId/answer", h.AnswerChoice)
 	repoScoped.PUT("/chats/:id/permission-level", h.SetChatPermissionLevel)
 	repoScoped.GET("/chats/:id/telemetry", h.Telemetry)

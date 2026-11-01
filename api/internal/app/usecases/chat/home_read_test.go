@@ -98,10 +98,6 @@ func (f *fakeChatUsecase) ReadChatLog(context.Context, string) ([]agenttools.Cha
 	panic("unused")
 }
 
-func (f *fakeChatUsecase) ReadMessages(context.Context, string, int, int, int) (domain.LedgerPage, error) {
-	panic("unused")
-}
-
 func (f *fakeChatUsecase) NoteThreadLineage(context.Context, string, []string) error {
 	panic("unused")
 }

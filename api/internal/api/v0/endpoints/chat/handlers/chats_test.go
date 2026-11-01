@@ -501,12 +501,6 @@ func (u *configurableListGetUsecase) TerminalWait(chatID string) domain.AgentTer
 	return u.terminalWait[chatID]
 }
 
-func (*configurableListGetUsecase) ReadMessages(
-	context.Context, string, int, int, int,
-) (domain.LedgerPage, error) {
-	return domain.LedgerPage{}, nil
-}
-
 func (*configurableListGetUsecase) SubmitPrompt(
 	context.Context, string, string, string, string, *domain.ChatSelection,
 ) (domain.AgentPromptSubmission, error) {
@@ -517,12 +511,6 @@ func (*configurableListGetUsecase) SlashCatalog(
 	context.Context, string,
 ) (engineagents.SlashCatalog, error) {
 	return engineagents.SlashCatalog{}, nil
-}
-
-func (*configurableListGetUsecase) PendingPrompt(
-	context.Context, string,
-) (domain.PendingPrompt, bool, error) {
-	return domain.PendingPrompt{}, false, nil
 }
 
 func (u *configurableListGetUsecase) ConversationsForChat(
@@ -1340,30 +1328,6 @@ func TestRename_UsecaseError(
 	h.Rename(ctx)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func (configurableListGetUsecase) ReadActivity(
-	context.Context, string, int64, int,
-) (agentusecase.ChatActivity, error) {
-	return agentusecase.ChatActivity{}, nil
-}
-
-func (configurableListGetUsecase) ReadToolPayload(
-	context.Context, string, string, string,
-) ([]byte, error) {
-	return nil, nil
-}
-
-func (configurableListGetUsecase) ReadPendingChoices(
-	context.Context, string,
-) ([]domain.ActivityChoice, error) {
-	return nil, nil
-}
-
-func (configurableListGetUsecase) AnswerableChoiceIDs(
-	string, []domain.ActivityChoice,
-) []string {
-	return nil
 }
 
 func (configurableListGetUsecase) AnswerChoice(

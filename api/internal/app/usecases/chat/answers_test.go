@@ -147,20 +147,20 @@ func TestAnswer_AHumanAnswerAlsoResolvesThePermissionsOwnInterruption(t *testing
 	chatID, runnerID := f.spawn(t, "claude")
 	ask, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 
-	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
+	all, err := f.activity.Choices(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, all.Interruptions, 1, "the permission must have opened its own interruption")
-	require.Nil(t, all.Interruptions[0].ResolvedAt, "precondition: still open before the answer")
+	require.Len(t, all, 1, "the permission must have opened its own interruption")
+	require.Empty(t, all[0].Resolution, "precondition: still open before the answer")
 
 	printed := await(f, ask)
 	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil))
 	f.wait()
 	<-printed
 
-	all, err = f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
+	all, err = f.activity.Choices(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, all.Interruptions, 1)
-	assert.NotNil(t, all.Interruptions[0].ResolvedAt,
+	require.Len(t, all, 1)
+	assert.NotEmpty(t, all[0].Resolution,
 		"a human's own Allow/Deny must close the permission's interruption banner too, "+
 			"not just its choice — otherwise it lingers until turn-close, still counting "+
 			"against MaxOpenPerTurn for the rest of the turn")
@@ -174,10 +174,10 @@ func TestAnswer_AnAnsweredQuestionAlsoResolvesItsOwnInterruption(t *testing.T) {
 	ask, choice := blockedPermission(t, f, chatID, runnerID, askUserQuestionPermission())
 	require.Equal(t, domain.ChoiceKindQuestion, choice.Kind)
 
-	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
+	all, err := f.activity.Choices(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, all.Interruptions, 1, "the question must have opened its own interruption")
-	require.Nil(t, all.Interruptions[0].ResolvedAt, "precondition: still open before the answer")
+	require.Len(t, all, 1, "the question must have opened its own interruption")
+	require.Empty(t, all[0].Resolution, "precondition: still open before the answer")
 
 	printed := await(f, ask)
 	require.NoError(t, f.usecase.AnswerChoice(
@@ -186,10 +186,10 @@ func TestAnswer_AnAnsweredQuestionAlsoResolvesItsOwnInterruption(t *testing.T) {
 	f.wait()
 	<-printed
 
-	all, err = f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
+	all, err = f.activity.Choices(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, all.Interruptions, 1)
-	assert.NotNil(t, all.Interruptions[0].ResolvedAt,
+	require.Len(t, all, 1)
+	assert.NotEmpty(t, all[0].Resolution,
 		"answering a question must close its own interruption banner too, same as a plain "+
 			"permission choice does — both arrive on the same hook")
 }
@@ -285,7 +285,6 @@ func TestRegression_ACodexPermissionIsAnsweredFromCrowbarAndReachesTheCLI(t *tes
 	require.Len(t, pending, 1)
 	waiting := f.usecase.HoldsAnswer(ask)
 	assert.True(t, waiting, "a codex permission must hold its relay open")
-	assert.Contains(t, f.usecase.AnswerableChoiceIDs(chatID, pending), pending[0].ID)
 
 	printed := await(f, ask)
 	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, pending[0].ID, []string{"allow"}, "", nil))
@@ -524,17 +523,6 @@ func TestAnswer_APromptSweptByItsToolCompletingCanNoLongerBeAnswered(t *testing.
 	require.ErrorIs(t, err, problem.ErrConflict)
 }
 
-func TestAnswer_AnotherChatsRelayDoesNotMakeAPromptAnswerable(t *testing.T) {
-	f := newFixture(t)
-	chatID, runnerID := f.spawn(t, "claude")
-	_, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
-
-	assert.Equal(t, []string{choice.ID},
-		f.usecase.AnswerableChoiceIDs(chatID, []domain.ActivityChoice{choice}))
-	assert.Empty(t,
-		f.usecase.AnswerableChoiceIDs("some-other-chat", []domain.ActivityChoice{choice}))
-}
-
 func TestAnswer_AnUnreadableWorkspaceFailsTheAnswerRatherThanGuessing(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -551,7 +539,6 @@ func TestAnswer_AFailedPendingReadIsAnError(t *testing.T) {
 	chatID, runnerID := f.spawn(t, "claude")
 	_, choice := blockedPermission(t, f, chatID, runnerID, permissionPayload())
 	require.NoError(t, f.ledgerDB.Exec(`ALTER TABLE chat_ledger RENAME TO unreadable`).Error)
-	f.usecase.own.ForgetTranscript(chatID)
 
 	err := f.usecase.AnswerChoice(f.ctx, chatID, choice.ID, []string{"allow"}, "", nil)
 	require.NoError(t, f.ledgerDB.Exec(`ALTER TABLE unreadable RENAME TO chat_ledger`).Error)
@@ -714,11 +701,10 @@ func TestRegression_AVerdictDecidedBeforeTheRelayAsksIsStillDelivered(t *testing
 	require.NoError(t, err)
 	assert.Empty(t, second.Stdout, "a claimed verdict is gone")
 
-	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
+	all, err := f.activity.Choices(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, all.Choices, 1)
-	assert.Equal(t, domain.ChoiceResolutionAnswered, all.Choices[0].Resolution)
-	assert.False(t, all.Choices[0].AutoApproved, "a human's own click must never be tagged auto")
+	require.Len(t, all, 1)
+	assert.Equal(t, domain.ChoiceResolutionAnswered, all[0].Resolution)
 }
 
 func TestAnswer_AnAnswerRacingTheRelaysArrivalReachesItEitherWay(t *testing.T) {
@@ -776,10 +762,10 @@ func TestAnswer_ADeadRunnerSweepsAVerdictNoRelayCollected(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, answer.Stdout)
 
-	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
+	all, err := f.activity.Choices(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, all.Choices, 1)
-	assert.Equal(t, domain.ChoiceResolutionAnswered, all.Choices[0].Resolution,
+	require.Len(t, all, 1)
+	assert.Equal(t, domain.ChoiceResolutionAnswered, all[0].Resolution,
 		"the answer a human really gave must not be rewritten as abandoned")
 }
 
@@ -797,8 +783,8 @@ func TestAnswer_AHangUpAfterAnAnswerDoesNotRewriteTheRecord(t *testing.T) {
 	assert.NotEmpty(t, answer.Stdout, "a verdict already reached is handed over, not abandoned")
 	f.wait()
 
-	all, err := f.usecase.ReadActivity(f.ctx, chatID, 0, 0)
+	all, err := f.activity.Choices(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, all.Choices, 1)
-	assert.Equal(t, domain.ChoiceResolutionAnswered, all.Choices[0].Resolution)
+	require.Len(t, all, 1)
+	assert.Equal(t, domain.ChoiceResolutionAnswered, all[0].Resolution)
 }

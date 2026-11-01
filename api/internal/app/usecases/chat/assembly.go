@@ -16,7 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/transcript"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -120,18 +119,17 @@ func New(d Deps) *Usecase {
 	// justification as the other startup-only Background() reads in this
 	// codebase (e.g. container.go's sweepTargets).
 	u := &Usecase{
-		chats:      d.Chats,
-		ledger:     d.Ledger,
-		blobs:      d.Blobs,
-		transcript: &feedTranscript{Projector: transcript.New(d.Ledger)},
-		agents:     d.Agents,
-		ws:         d.Workspace,
-		worktree:   d.Worktree,
-		tools:      d.Tools,
-		folders:    d.Folders,
-		nodes:      d.Nodes,
-		repoRoots:  d.RepoRoots,
-		feeds:      newFeeds(feedCapacity),
+		chats:     d.Chats,
+		ledger:    d.Ledger,
+		blobs:     d.Blobs,
+		agents:    d.Agents,
+		ws:        d.Workspace,
+		worktree:  d.Worktree,
+		tools:     d.Tools,
+		folders:   d.Folders,
+		nodes:     d.Nodes,
+		repoRoots: d.RepoRoots,
+		feeds:     newFeeds(feedCapacity),
 	}
 	locks := ingress.NewLocks()
 	sh := shared{
@@ -140,7 +138,7 @@ func New(d Deps) *Usecase {
 		writes:    ingress.NewWriter(d.Ledger, locks),
 	}
 	u.asks = askResolver{writes: sh.writes}
-	sh.answers = answerdesk.New(answerdesk.DefaultRetention, u.asks, answerdesk.WithChange(u.announceChoices))
+	sh.answers = answerdesk.New(answerdesk.DefaultRetention, u.asks)
 	u.answers = sh.answers
 	// The tool surface's self-ports, filled in here because the usecase does
 	// not exist when the caller builds the Deps.
@@ -212,16 +210,15 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		})
 	}
 	u.conversations = conversation.New(conversation.Deps{
-		Chats:      d.Chats,
-		Transcript: u.transcript,
-		Blobs:      d.Blobs,
-		Telemetry:  sh.telemetry,
-		Agents:     d.Agents,
-		Workspace:  d.Workspace,
-		Lineage:    d.Lineage,
-		Home:       d.Home,
-		Ledger:     d.Ledger,
-		Writes:     sh.writes,
+		Chats:     d.Chats,
+		Blobs:     d.Blobs,
+		Telemetry: sh.telemetry,
+		Agents:    d.Agents,
+		Workspace: d.Workspace,
+		Lineage:   d.Lineage,
+		Home:      d.Home,
+		Ledger:    d.Ledger,
+		Writes:    sh.writes,
 
 		DefaultPermissionLevel: u.DefaultPermissionLevel,
 	})
@@ -232,7 +229,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	})
 	u.runners = runner.New(runner.Deps{
 		Chats:         d.Chats,
-		Choices:       u.transcript,
+		Choices:       openAsks{ledger: d.Ledger},
 		Agents:        d.Agents,
 		Terminal:      d.Terminal,
 		Workspace:     d.Workspace,
@@ -265,7 +262,6 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 			d.AgentWorking(ctx, wsID, chatID, st.Busy())
 		}
 	})
-	d.Ledger.Subscribe(u.publishLedgerRows)
 	d.Ledger.Subscribe(func(chatID string, rows []ledger.Row, _ ledger.State) { u.feeds.rows(chatID, rows) })
 }
 

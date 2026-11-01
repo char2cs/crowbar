@@ -1,7 +1,6 @@
 package handlers_test
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
@@ -98,32 +96,4 @@ func TestHTTPHook_AFailedWaitIsMapped(t *testing.T) {
 	newChatHandlers(uc).HTTPHook(ctx)
 
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
-}
-
-func TestChoices_StampWhetherAPromptCanStillBeAnswered(t *testing.T) {
-	uc := &fakeAgentUsecase{
-		pending: []domain.ActivityChoice{
-			{ID: "c1", Kind: domain.ChoiceKindPermission, At: activityAt},
-			{ID: "c2", Kind: domain.ChoiceKindPermission, At: activityAt},
-		},
-		answerable: []string{"c1"},
-	}
-	ctx, rec := scoped(t, "/choices")
-
-	newChatHandlers(inWorkspace(uc)).Choices(ctx)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	var envelope struct {
-		Data []struct {
-			ID         string `json:"id"`
-			Pending    bool   `json:"pending"`
-			Answerable bool   `json:"answerable"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
-	require.Len(t, envelope.Data, 2)
-	assert.True(t, envelope.Data[0].Pending)
-	assert.True(t, envelope.Data[0].Answerable)
-	assert.True(t, envelope.Data[1].Pending)
-	assert.False(t, envelope.Data[1].Answerable)
 }

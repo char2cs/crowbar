@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
@@ -128,4 +129,34 @@ func TestCheck_AnAskNeedsAnIDAndAnEventAndClosesAsAKnownResolution(t *testing.T)
 		resolved := row(t, ledger.KindAskResolved, "T1", ledger.AskResolved{AskID: "a", Resolution: how})
 		require.NoError(t, ledger.Check(ledger.State{}, resolved), how)
 	}
+}
+
+// The open asks that offer a choice are what the answer desk, the terminal-wait
+// check and an answer read: in the shape they speak, with the choice decoded.
+func TestState_OpenAsksListsAsksWithNoResolution(t *testing.T) {
+	options := []byte(`[{"id":"allow","kind":"allow_once","label":"Allow"}]`)
+	st := ledger.Fold("c1", sequenced(t,
+		turnStart(t, "T1"),
+		ask(t, ledger.Ask{AskID: "choice-1", Kind: domain.ChoiceKindPermission, ToolID: "tool-1", Options: options}),
+		ask(t, ledger.Ask{AskID: "note", Event: "notification"}),
+		ask(t, ledger.Ask{AskID: "choice-2", Kind: domain.ChoiceKindPermission, Options: []byte(`{"not":"a list"}`)}),
+		ask(t, ledger.Ask{AskID: "choice-3", Kind: domain.ChoiceKindPermission}),
+	))
+	resolved, err := ledger.ResolveAsk(st, "choice-3", ledger.ResolutionAnswered, []string{"allow"})
+	require.NoError(t, err)
+	resolved[0].Seq = 6
+	st.Apply(resolved[0])
+
+	got := st.OpenAsks()
+
+	require.Len(t, got, 2, "an ask with no choice, and an answered one, are not open choices")
+	assert.Equal(t, "choice-1", got[0].ID)
+	assert.Equal(t, "c1", got[0].ChatID)
+	assert.Equal(t, "T1", got[0].TurnID)
+	assert.Equal(t, int64(2), got[0].Seq)
+	assert.Equal(t, "tool-1", got[0].ToolID)
+	assert.Equal(t, []domain.ActivityChoiceOption{{ID: "allow", Kind: "allow_once", Label: "Allow"}}, got[0].Options)
+	assert.True(t, got[0].Pending())
+	assert.Equal(t, "choice-2", got[1].ID)
+	assert.Empty(t, got[1].Options, "options that do not decode leave the question without them")
 }

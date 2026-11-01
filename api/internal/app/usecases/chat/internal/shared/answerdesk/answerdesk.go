@@ -59,19 +59,10 @@ type Desk struct {
 	ledger    Ledger
 	// after is the clock a relay's budget runs out on.
 	after func(time.Duration) <-chan time.Time
-	// changed is told which chat's answerable prompts just moved, always AFTER the
-	// desk's lock is released so it may read the desk back.
-	changed func(chatID string)
 }
 
 // Option configures a Desk.
 type Option func(*Desk)
-
-// WithChange has the desk announce each chat whose set of answerable prompts it
-// changed: a relay parked, a verdict landed, a relay released unanswered.
-func WithChange(changed func(chatID string)) Option {
-	return func(d *Desk) { d.changed = changed }
-}
 
 // New returns an empty desk whose undelivered verdicts expire after retention and
 // whose outcomes are written back to ledger. A nil ledger is legal and simply
@@ -89,19 +80,12 @@ func New(retention time.Duration, ledger Ledger, opts ...Option) *Desk {
 	return d
 }
 
-func (d *Desk) announce(chatID string) {
-	if d.changed != nil {
-		d.changed(chatID)
-	}
-}
-
 // Hold parks a relay on prompt, keyed by its ask id, and returns the slot now
 // holding it. A prompt asked again displaces the relay already holding it,
 // which is released unanswered: the CLI has plainly stopped waiting on it.
 func (d *Desk) Hold(prompt Prompt) *Slot {
 	slot := &Slot{Prompt: prompt, done: make(chan struct{})}
 
-	defer d.announce(prompt.ChatID)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.dropExpiredLocked()
@@ -122,19 +106,6 @@ func (d *Desk) Hold(prompt Prompt) *Slot {
 func (d *Desk) Holds(askID string) bool {
 	_, held := d.held(askID)
 	return held
-}
-
-// AnswerableIDs filters choices down to the ones a relay of chatID is still
-// blocked on. It is what makes a pending question actionable in the UI rather
-// than merely visible.
-func (d *Desk) AnswerableIDs(chatID string, choices []domain.ActivityChoice) []string {
-	out := make([]string, 0, len(choices))
-	for _, choice := range choices {
-		if slot, held := d.ByChoiceID(choice.ID); held && slot.ChatID == chatID {
-			out = append(out, choice.ID)
-		}
-	}
-	return out
 }
 
 // ByChoiceID returns the relay holding a choice open, while it is undecided.
@@ -161,7 +132,6 @@ func (d *Desk) held(askID string) (*Slot, bool) {
 // already been reached. A false verdict is the caller's cue to close the question
 // as proceeded: the provider is resolving it.
 func (d *Desk) Discard(slot *Slot) bool {
-	defer d.announce(slot.ChatID)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	decided := d.claimableLocked(slot)
@@ -174,14 +144,6 @@ func (d *Desk) Discard(slot *Slot) bool {
 // returns them. It writes nothing: the runner's exit closes its questions. A
 // relay whose verdict had already landed is left alone.
 func (d *Desk) ReleaseRunner(runnerID string) []*Slot {
-	blocked := d.releaseRunner(runnerID)
-	for _, slot := range blocked {
-		d.announce(slot.ChatID)
-	}
-	return blocked
-}
-
-func (d *Desk) releaseRunner(runnerID string) []*Slot {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 

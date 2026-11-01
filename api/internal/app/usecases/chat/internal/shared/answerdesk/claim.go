@@ -58,11 +58,6 @@ func (d *Desk) expire(ctx context.Context, slot *Slot, onExpiry string) (HookAns
 // claiming it if one is being recorded, else its release, unless another party
 // has already released it.
 func (d *Desk) lapse(slot *Slot) (stdout []byte, answering <-chan struct{}, released bool) {
-	defer func() {
-		if released {
-			d.announce(slot.ChatID)
-		}
-	}()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	switch {
@@ -158,7 +153,6 @@ func (d *Desk) resolve(ctx context.Context, c *claim, stdout []byte) {
 		slog.WarnContext(ctx, "agent: answer: recorded, but no relay waits on it",
 			"chat_id", slot.ChatID, "choice_id", slot.ChoiceID)
 	}
-	d.announce(slot.ChatID)
 }
 
 // take hands the relay slot's verdict, once.
