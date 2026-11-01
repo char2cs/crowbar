@@ -84,7 +84,7 @@ export function resolveChatRow(
  * opened row... simply anything happens... it should create a view on its
  * own." A bubble still opens SOMEWHERE, though: it always sits inside some
  * real workspace's tree (worst case, the repo's own home), and that ground is
- * exactly what `deriveRows`'s `ancestorWorkspaceId` already resolves
+ * exactly the workspace context `deriveRows` already stamps on the row
  * for it — the caller reads the row's own `workspaceId` (which now folds
  * that fallback in) rather than the chat's, and this function's only job is
  * left as the repo-membership check.

@@ -254,7 +254,7 @@ export function allowedModes(subjects: readonly SidebarRow[], target: DropTarget
   //
   // A branch is not something a chat can become a thread of — that direction
   // still refuses. A FOLDER is legal now: `kind: 'folder'` is one aggregate
-  // in the current unified row model (deriveRows's own folder push is
+  // in the current unified row model (deriveRows' folder row is
   // fed straight off the wire's `AgentChatFolder`/`ChatsFolderWireDTO`, the
   // same one `planChatDrop`'s target resolves against), not the two separate
   // "repo folder" / "chat folder" concepts an earlier, pre-unification
@@ -332,7 +332,7 @@ export function allowedModes(subjects: readonly SidebarRow[], target: DropTarget
     }
   }
 
-  // A BRANCH row can also be a REPO's own header row (deriveRows's
+  // A BRANCH row can also be a REPO's own header row (its
   // `repoIcon`, set only on that one row) — the repo's own placement lives on
   // a different aggregate entirely (domain.Repository, not Workspace/Chat),
   // so it does not answer to the same-repo walk every ordinary branch below

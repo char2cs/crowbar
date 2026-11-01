@@ -51,7 +51,7 @@ export interface SidebarRow {
    * icon `WorkspaceBranchIcon` already draws for the workspace switcher —
    * present only on a `branch` row that owns a real workspace, same
    * condition as `locked` (both come off the identical
-   * `Workspace.status` read in `deriveRows`'s `walk()`).
+   * `Workspace.status` read in views.ts's `workspaceIconFields` call).
    */
   status?: WorkspaceStatus
   /**

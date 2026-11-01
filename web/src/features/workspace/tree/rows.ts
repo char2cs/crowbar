@@ -70,6 +70,8 @@ function drawNode(
     const repo = views.repo(node.id)
     if (!repo) return reportMissing(node)
     const inner = { inRepo: true, workspaceId: repo.workspaceId }
+    // No home checkout, so no header row: its members draw where the header would, so a repo
+    // filed in a home folder draws inside that folder (they drew at the root before).
     if (repo.rowId === null) return walk(node.id, parentId, inner)
     const { rowId, workspaceId, ...fields } = repo
     rows.push({

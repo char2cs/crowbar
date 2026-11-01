@@ -159,7 +159,7 @@ export async function performRenameChat(chatId: string, title: string): Promise<
   const repo = useSidebarStore.getState().repos.find((r) => r.chats?.some((c) => c.id === chatId))
   const chat = repo?.chats?.find((c) => c.id === chatId)
   if (!repo || !chat) return
-  // The rename dialog seeds from the row's LABEL (deriveRows's
+  // The rename dialog seeds from the row's LABEL (views.ts's
   // `chat.title || UNTITLED_CHAT_LABEL`), never the raw title — so an
   // untitled chat's placeholder is what a no-op Enter would send. Compare
   // against the same fallback the dialog was actually seeded with, or a
