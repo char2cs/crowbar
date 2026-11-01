@@ -7,8 +7,12 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/search/handlers"
+	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
 )
 
@@ -122,16 +126,35 @@ func TestReplaceHandlers_EngineUnavailable_Returns503(
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }
 
-// An engine failure answers 500 with what failed, never the wrap chain above it.
-func TestSearchHandlers_AnEngineFailureIsInternalAndKeepsItsWords(
-	t *testing.T,
-) {
-	for _, path := range []string{"/v0/chats/chat1/search", "/v0/chats/chat1/search/replace"} {
-		r := newRouterWith(errSearchEngine{err: fmt.Errorf("search: rg: %w", errors.New("disk full mid-write"))})
+// A search the engine failed answers a fixed 500: ripgrep's own output (its
+// stderr, the paths it read) is not the client's to see. The log keeps the chain.
+func TestSearch_AnEngineFailureIsAFixedMessageAndItsChainIsLogged(t *testing.T) {
+	engineErr := fmt.Errorf("search: rg: %w", errors.New("ripgrep: /repo/secret.env: permission denied"))
+	var noted []string
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Next()
+		noted = append(noted, c.Errors.Errors()...)
+	})
+	h := handlers.New(errSearchEngine{err: engineErr})
+	router.POST("/v0/chats/:chatId/search", func(c *gin.Context) {
+		reqscope.SetWorkspace(c, domain.Workspace{ID: "chat1", WorktreePath: "/repo", Provisioning: domain.WorkspaceProvisioned})
+		h.Search(c)
+	})
 
-		rec := do(r, http.MethodPost, path, map[string]any{"query": "fmt"})
+	rec := do(router, http.MethodPost, "/v0/chats/chat1/search", map[string]any{"query": "fmt"})
 
-		assert.Equal(t, http.StatusInternalServerError, rec.Code, path)
-		assert.JSONEq(t, `{"success":false,"code":"internal","error":"search: rg: disk full mid-write"}`, rec.Body.String(), path)
-	}
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.JSONEq(t, `{"success":false,"code":"internal","error":"search failed"}`, rec.Body.String())
+	assert.Equal(t, []string{engineErr.Error()}, noted)
+}
+
+// A replace the engine failed says what failed, as any uncoded 5xx does.
+func TestReplace_AnEngineFailureKeepsItsWords(t *testing.T) {
+	r := newRouterWith(errSearchEngine{err: fmt.Errorf("search: rg: %w", errors.New("disk full mid-write"))})
+
+	rec := do(r, http.MethodPost, "/v0/chats/chat1/search/replace", map[string]any{"query": "fmt"})
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.JSONEq(t, `{"success":false,"code":"internal","error":"search: rg: disk full mid-write"}`, rec.Body.String())
 }
