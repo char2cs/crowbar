@@ -170,9 +170,8 @@ function SidebarToastOverlayInner({ sidebarOpen, sidebarSide }: SidebarToastOver
  * remount race (HMR, route transition, unmount-after-mount ordering) left it
  * reading false while IDEShell was up and duplicated every toast.
  *
- * Consequence of being the only viewport: toasts fired while IDEShell is
- * unmounted (e.g. the /oobe route) are dropped, not queued — the manager
- * holds no state of its own.
+ * Toasts fired while IDEShell is unmounted (boot, the /oobe route) wait in
+ * the manager and show when this mounts (components/ui/toast.tsx).
  */
 export function SidebarToastOverlay({ sidebarOpen, sidebarSide }: SidebarToastOverlayProps) {
   return (

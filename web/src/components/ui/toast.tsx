@@ -128,7 +128,46 @@ function AnchoredToasts({
   )
 }
 
-export const toastManager: ReturnType<typeof Toast.createToastManager> = Toast.createToastManager()
+type ToastManager = ReturnType<typeof Toast.createToastManager>
+type ToastOptions = Parameters<ToastManager['add']>[0]
+
+// base-ui's manager only emits: a toast added while no viewport listens (a boot
+// failure, a route without the shell) would be lost, so it waits for the next one.
+function heldUntilShown(manager: ToastManager): ToastManager {
+  const held = new Map<string, ToastOptions>()
+  let listening = 0
+  return {
+    ...manager,
+    ' subscribe'(listener) {
+      const stop = manager[' subscribe'](listener)
+      listening++
+      for (const options of held.values()) manager.add(options)
+      held.clear()
+      return () => {
+        listening--
+        stop()
+      }
+    },
+    add(options) {
+      if (listening > 0) return manager.add(options)
+      const id = options.id || crypto.randomUUID()
+      held.set(id, { ...options, id })
+      return id
+    },
+    close(id) {
+      if (id === undefined) held.clear()
+      else held.delete(id)
+      manager.close(id)
+    },
+    update(id, updates) {
+      const options = held.get(id)
+      if (options) held.set(id, { ...options, ...updates })
+      manager.update(id, updates)
+    },
+  }
+}
+
+export const toastManager: ToastManager = heldUntilShown(Toast.createToastManager())
 
 export const anchoredToastManager: ReturnType<typeof Toast.createToastManager> =
   Toast.createToastManager()
