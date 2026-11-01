@@ -15,6 +15,7 @@
   --emph: var(--primary);
   --warn-text: var(--warning-foreground);
   --danger-text: var(--destructive-foreground);
+  --ok-text: var(--success-foreground);
 }
 /* The theme's *-foreground tokens are ink for a tinted chip in light only; in
    dark they are near-black, so text on the page takes the hue itself. */
@@ -22,6 +23,7 @@
   --emph: color-mix(in oklab, var(--primary) 55%, var(--foreground));
   --warn-text: var(--warning);
   --danger-text: var(--destructive);
+  --ok-text: var(--success);
 }
 
 /* OVER the conversation, not after it. Text scrolling up passes behind the box
@@ -1198,13 +1200,13 @@
   color: var(--muted-foreground);
 }
 .agent-chat .choice-diff-del {
-  color: var(--destructive);
+  color: var(--danger-text);
 }
 .agent-chat .choice-diff-add {
-  color: var(--success, var(--foreground));
+  color: var(--ok-text);
 }
 .agent-chat .asks:focus-visible {
-  outline: 2px solid var(--ring);
+  outline: 2px solid var(--emph);
   outline-offset: 2px;
 }
 /* A character that does not draw, written out so it cannot hide or reorder text. */
