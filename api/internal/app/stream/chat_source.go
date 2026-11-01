@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
@@ -24,6 +26,10 @@ func NewChatSource(feeds Feeds) *ChatSource { return &ChatSource{feeds: feeds} }
 // Attach follows chatID's feed until it ends or ctx does; an unknown chat is not found.
 func (s *ChatSource) Attach(ctx context.Context, chatID string, since int64, emit func(stream.Frame)) error {
 	frames, err := s.feeds.OpenFeed(ctx, chatID, since)
+	if problem.CodeOf(err) == problem.NotFound {
+		slog.DebugContext(ctx, "stream: chat refused", "chat_id", chatID, "err", err)
+		return problem.New(problem.NotFound, "That chat no longer exists")
+	}
 	if err != nil {
 		return fmt.Errorf("stream: chat %s: %w", chatID, err)
 	}

@@ -73,7 +73,8 @@ func TestChatSource_AnUnknownChatIsRefused(t *testing.T) {
 
 	assert.Equal(t, "chat:c9", closed.Scope)
 	assert.Equal(t, stream.ReasonRefused, closed.Reason)
-	assert.Equal(t, problem.NotFound, closed.Problem.Code)
+	assert.Equal(t, problem.Problem{Code: problem.NotFound, Message: "That chat no longer exists"}, *closed.Problem,
+		"the client is told what happened, not the daemon's error chain")
 }
 
 // A feed that failed to read is not a resync the client may ask again at
