@@ -117,11 +117,15 @@ func TestStream_ChatScopeResumesFromSinceWithoutGapOrDuplicate(t *testing.T) {
 	c.Sub(t, scope, 0)
 	head := c.Next(t, isSynced(scope)).Seq
 	require.GreaterOrEqual(t, head, int64(2))
-	c.Unsub(t, scope)
+	// The resume is a reconnect: frames the first connection still had in
+	// flight cannot reach the second.
+	require.NoError(t, c.conn.Close())
 
 	for i := range 3 {
 		post("message_delta", delta(fmt.Sprintf("msg-%d", i), 0, true, "HI"))
 	}
+	c = dialStream(t, h)
+	c.Next(t, isReady)
 	c.Sub(t, scope, head-1)
 	var seqs []int64
 	synced := c.Next(t, func(f stream.Frame) bool {
