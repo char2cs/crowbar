@@ -116,7 +116,7 @@ func asksOf(t *testing.T, h *harness, chatID string) []askState {
 	t.Helper()
 	var out []askState
 	for _, f := range chatRows(t, h, chatID) {
-		switch ledger.Kind(f.Row.Kind) {
+		switch f.Row.Kind {
 		case ledger.KindAsk:
 			var b ledger.Ask
 			require.NoError(t, json.Unmarshal(f.Row.Body, &b))
