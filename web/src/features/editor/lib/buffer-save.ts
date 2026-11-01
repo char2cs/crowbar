@@ -39,6 +39,8 @@ import { isEditorContent, type EditorContent } from '@/features/panes/types/pane
 import { useSettingsStore } from '@/features/settings/store'
 import { flagExternalChange } from '@/features/workspace/lib/external-buffer-sync'
 import { toast } from '@/features/window/stores/toast-store'
+import { report } from '@/lib/errors/report'
+import { problemOf } from '@/lib/errors/problem'
 
 /**
  * Quiet period after the last edit before a dirty document's draft and autosave are written.
@@ -73,12 +75,11 @@ function patchEditorBuffer(bufferId: string, patch: (b: EditorContent) => Editor
 // Surface save failures the user would otherwise never see. A locked workspace
 // (protected/default branch) rejects writes with 409 — explain how to fix it.
 function reportSaveError(error: unknown): void {
-  const message = error instanceof Error ? error.message : String(error)
-  if (/locked/i.test(message)) {
+  if (/locked/i.test(problemOf(error).message)) {
     toast.error('Workspace is read-only', 'Create or switch to a child workspace to edit files.')
     return
   }
-  toast.error('Failed to save file', message)
+  report(error, { action: 'Failed to save file' })
 }
 
 const isUntitled = (buffer: PathedBuffer) => buffer.isVirtual || isUntitledRef(buffer)

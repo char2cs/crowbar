@@ -13,7 +13,6 @@ import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store
 import type { AppFile } from '@/features/file-system/types/app'
 import { revealItemInFinder } from '@/lib/crowbar-bridge'
 import { resolveWorkspaceRootPath } from '@/lib/workspace/resolve-root-path'
-import { toast } from '@/features/window/stores/toast-store'
 import { report } from '@/lib/errors/report'
 import { joinPath } from '@/utils/path-helpers'
 
@@ -89,7 +88,7 @@ export function revealInFolder(path: string): void {
   if (root === undefined) return
   const absolute = root ? joinPath(root, path) : path
   revealItemInFinder(absolute).catch((error: unknown) => {
-    toast.error('Reveal in Finder failed', error instanceof Error ? error.message : String(error))
+    report(error, { action: 'Reveal in Finder failed' })
   })
 }
 
@@ -133,7 +132,7 @@ export function createFileTreeHandlers(wsId: string, store: WorkspaceStore) {
       try {
         await copyFileNode(wsId, path, duplicateDestPath(path, store.getState().files))
       } catch (error) {
-        toast.error('Duplicate failed', error instanceof Error ? error.message : String(error))
+        report(error, { action: 'Duplicate failed' })
       }
     },
     handleRenamePath: async (path: string, newName?: string) => {

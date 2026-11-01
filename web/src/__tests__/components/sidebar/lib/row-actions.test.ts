@@ -13,6 +13,13 @@ import * as api from '@/lib/api'
 import * as sidebarPlacement from '@/lib/api/sidebar-placement'
 import * as agentApi from '@/features/agent/api/agent-chat-commands'
 import * as homeWorkspaceResolver from '@/features/workspace/lib/home-workspace-resolver'
+import {
+  expectMigratingShown,
+  expectReported,
+  migratingRefusal,
+  refusal,
+  watchToasts,
+} from '@/__tests__/__fixtures__/reports'
 
 vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-commands')>()),
@@ -213,11 +220,19 @@ describe('row-actions', () => {
     expect(useFolderSignalStore.getState().generations['repo-1']).toBe(1)
   })
 
-  it('a refused lock surfaces a toast and bumps nothing', async () => {
-    vi.mocked(api.setWorkspaceLock).mockRejectedValueOnce(new Error('branch is protected'))
+  it('a refused lock reports the daemon’s reason and bumps nothing', async () => {
+    const toasts = watchToasts()
+    vi.mocked(api.setWorkspaceLock).mockRejectedValueOnce(refusal('branch is protected'))
     await expect(performSetWorkspaceLock('ws-1', true)).resolves.toBeUndefined()
-    expect(toast.error).toHaveBeenCalledWith('branch is protected')
+    expectReported(toasts, 'Failed to update lock', 'branch is protected')
     expect(useFolderSignalStore.getState().generations['repo-1']).toBeUndefined()
+  })
+
+  it('a rename refused while the daemon migrates shows the migrating state, not a toast', async () => {
+    const toasts = watchToasts()
+    vi.mocked(api.renameWorkspaceBranch).mockRejectedValueOnce(migratingRefusal())
+    await performRenameRow('ws-1', 'feature-y')
+    expectMigratingShown(toasts)
   })
 
   it('creating a folder under a regular workspace row passes its id straight through', async () => {

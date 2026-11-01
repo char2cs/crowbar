@@ -17,7 +17,13 @@ vi.mock('@/lib/api/sidebar-placement', () => ({
 }))
 
 import { commitRemoval, flushDrainingRemovals } from '@/components/layout/removal-commit'
-import { toast } from '@/features/window/stores/toast-store'
+import {
+  expectMigratingShown,
+  expectReported,
+  migratingRefusal,
+  refusal,
+  watchToasts,
+} from '@/__tests__/__fixtures__/reports'
 import { toastManager } from '@/lib/toast-manager'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
 import { useLocalOperationsStore } from '@/lib/store/local-operations'
@@ -98,7 +104,7 @@ beforeEach(() => {
   deleteRepo.mockClear().mockResolvedValue({ items: [] })
   deleteHomeFolder.mockClear().mockResolvedValue([])
   toastError?.mockRestore()
-  toastError = vi.spyOn(toast, 'error')
+  toastError = watchToasts()
   resetOperations()
   __resetWorkspaceScopesForTest()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
@@ -216,7 +222,7 @@ describe('committing a workspace removal', () => {
   })
 
   it('un-hides the rows and says why when the delete is refused', async () => {
-    deleteChat.mockRejectedValueOnce(new Error('worktree is busy'))
+    deleteChat.mockRejectedValueOnce(refusal('worktree is busy'))
     treeUiStore.getState().hold([
       {
         kind: 'workspace',
@@ -236,7 +242,13 @@ describe('committing a workspace removal', () => {
 
     expect(treeUiStore.getState().hiddenIds.has('ws-fork')).toBe(false)
     expect(treeUiStore.getState().hiddenIds.has('chat-fork')).toBe(false)
-    expect(toastError).toHaveBeenCalledOnce()
+    expectReported(toastError, "Couldn't remove feature/one", 'worktree is busy')
+  })
+
+  it('a delete refused while the daemon migrates shows the migrating state, not a toast', async () => {
+    deleteChat.mockRejectedValueOnce(migratingRefusal())
+    await commitRemoval(entry(), context)
+    expectMigratingShown(toastError)
   })
 
   it('still refuses when nothing anywhere knows the owning chat', async () => {

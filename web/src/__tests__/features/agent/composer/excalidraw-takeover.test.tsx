@@ -13,6 +13,13 @@ import { ExcalidrawTakeover } from '@/features/agent/composer/excalidraw-takeove
 import { INLINE_ATTACHMENT_MAX_BYTES } from '@/features/agent/composer/lib/inline-attachment-cap'
 import { loadExcalidrawDesign } from '@/features/agent/composer/lib/excalidraw-design-persistence'
 import type { ParsedExcalidrawScene } from '@/features/agent/composer/plate/attachments/excalidraw-scene'
+import {
+  expectMigratingShown,
+  expectReported,
+  migratingRefusal,
+  refusal,
+  watchToasts,
+} from '@/__tests__/__fixtures__/reports'
 
 // The mocked canvas exposes `save()` via the same imperative handle the real
 // one does, invoking `onSave` with whatever this file's `saveResult` holds at
@@ -65,12 +72,11 @@ vi.mock('@/features/agent/api/upload-chat-attachment', () => ({
   })),
 }))
 
-const toastError = vi.fn()
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: (...args: unknown[]) => toastError(...args) },
-}))
+let toastError: ReturnType<typeof watchToasts>
 
 beforeEach(() => {
+  toastError?.mockRestore()
+  toastError = watchToasts()
   localStorage.clear()
   saveResult = {
     sceneJson: '{"elements":[],"appState":{}}',
@@ -237,26 +243,26 @@ describe('ExcalidrawTakeover', () => {
     expect(fenceMarkdown).toContain('excalidraw:')
   })
 
-  it('shows a toast and inserts nothing when the upload fails', async () => {
-    vi.mocked(uploadChatAttachment).mockRejectedValueOnce(new Error('daemon unreachable'))
+  it('reports the daemon’s reason and inserts nothing when the upload fails', async () => {
+    vi.mocked(uploadChatAttachment).mockRejectedValueOnce(refusal('attachment too large'))
     const { onInsertMarkdown, onClose } = await renderOpenTakeover()
 
     clickAttach()
 
     await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1))
-    expect(toastError.mock.calls[0][1]).toContain('daemon unreachable')
+    expectReported(toastError, "Couldn't save this drawing", 'attachment too large')
     expect(onInsertMarkdown).not.toHaveBeenCalled()
     expect(onClose).not.toHaveBeenCalled()
   })
 
-  it('stringifies a non-Error rejection for the toast', async () => {
-    vi.mocked(uploadChatAttachment).mockRejectedValueOnce('413')
-    await renderOpenTakeover()
+  it('an upload refused while the daemon migrates shows the migrating state, not a toast', async () => {
+    vi.mocked(uploadChatAttachment).mockRejectedValueOnce(migratingRefusal())
+    const { onClose } = await renderOpenTakeover()
 
     clickAttach()
 
-    await waitFor(() => expect(toastError).toHaveBeenCalled())
-    expect(toastError.mock.calls[0][1]).toBe('413')
+    await waitFor(() => expectMigratingShown(toastError))
+    expect(onClose).not.toHaveBeenCalled()
   })
 
   // REGRESSION: this is the actual point of saving locally — the next time

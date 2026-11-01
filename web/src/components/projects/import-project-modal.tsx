@@ -10,12 +10,11 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FolderOpen } from '@phosphor-icons/react'
-import { toast } from '@/features/window/stores/toast-store'
 import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { isTauri } from '@/lib/crowbar-bridge'
 import { createProject } from '@/lib/store/create-project'
-import { OperationFailedError } from '@/lib/errors/operation-failed'
 import type { Project } from '@/lib/types'
+import { report } from '@/lib/errors/report'
 
 interface ImportProjectModalProps {
   open: boolean
@@ -54,10 +53,7 @@ export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProje
       setSelectedPath('')
       setProjectName('')
     } catch (err) {
-      // A failed operation was already told by the operations watcher.
-      if (!(err instanceof OperationFailedError)) {
-        toast.error(err instanceof Error ? err.message : 'Failed to import project')
-      }
+      report(err, { action: 'Failed to import project' })
     } finally {
       setLoading(false)
     }

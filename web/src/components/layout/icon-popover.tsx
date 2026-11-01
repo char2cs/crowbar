@@ -15,6 +15,7 @@ import { apiFetch } from '@/lib/api/fetch'
 import { toast } from '@/features/window/stores/toast-store'
 import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { isTauri, convertFileSrc } from '@/lib/crowbar-bridge'
+import { report } from '@/lib/errors/report'
 
 /**
  * A pick made in `onStage` mode (create-space-panel.tsx) — nothing hits the
@@ -133,7 +134,7 @@ export function IconPopover({
       await run()
       setVersion((v) => v + 1)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : failure)
+      report(err, { action: failure })
     } finally {
       setLoading(false)
     }

@@ -9,8 +9,8 @@ import { toast } from '@/features/window/stores/toast-store'
 import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { apiFetch } from '@/lib/api/fetch'
 import { createProject } from '@/lib/store/create-project'
-import { OperationFailedError } from '@/lib/errors/operation-failed'
 import type { Project } from '@/lib/types'
+import { report } from '@/lib/errors/report'
 
 interface CreateSpacePanelProps {
   onCreate: (project: Project) => void
@@ -97,10 +97,7 @@ export function CreateSpacePanel({ onCreate, onCancel }: CreateSpacePanelProps) 
       }
       onCreate(project)
     } catch (err) {
-      // A failed operation was already told by the operations watcher.
-      if (!(err instanceof OperationFailedError)) {
-        toast.error(err instanceof Error ? err.message : 'Failed to create space')
-      }
+      report(err, { action: 'Failed to create space' })
     } finally {
       setLoading(false)
     }

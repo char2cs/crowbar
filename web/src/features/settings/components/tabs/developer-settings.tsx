@@ -20,6 +20,7 @@ import {
   SelectItem,
 } from '@/components/ui/select'
 import { ChatSplitViewSetting } from './chat-split-view-setting'
+import { report } from '@/lib/errors/report'
 
 function handleExport() {
   downloadSettingsFile(useSettingsStore.getState().settings)
@@ -163,7 +164,7 @@ export function DeveloperSettings() {
       const path = await exportDiagnostics()
       toast.success('Diagnostics exported', path)
     } catch (e) {
-      toast.error('Diagnostics export failed', e instanceof Error ? e.message : String(e))
+      report(e, { action: 'Diagnostics export failed' })
     } finally {
       setExportingDiagnostics(false)
     }

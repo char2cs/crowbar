@@ -23,10 +23,7 @@ export function report(error: unknown, context: ReportContext): void {
   if (isCancellation(error) || error instanceof OperationFailedError) return
   const problem = problemOf(error)
   // A migrating or halted daemon has its own screen; a toast per refused call would bury it.
-  if (problem.code === 'daemon_migrating' || problem.code === 'daemon_halted') {
-    reportDaemonRefusal(problem)
-    return
-  }
+  if (reportDaemonRefusal(problem)) return
   toastManager.add({
     id: context.action,
     type: 'error',

@@ -1,9 +1,9 @@
 import { useCallback, useState } from 'react'
 import { findFileInTree } from '@/features/file-system/controllers/file-tree-utils'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
-import { toast } from '@/features/window/stores/toast-store'
 import type { FileEntry } from '@/features/file-system/types/app'
 import { getDirName, joinPath, stripTrailingPathSeparators } from '@/utils/path-helpers'
+import { report } from '@/lib/errors/report'
 
 interface UseFileExplorerInlineEditingProps {
   workspaceId: string | null
@@ -133,7 +133,7 @@ export function useFileExplorerInlineEditing({
           // letting it fail silently — mirroring the duplicate/reveal file ops.
           if (trimmed !== item.name) {
             Promise.resolve(onRenamePath?.(item.path, trimmed)).catch((error: unknown) => {
-              toast.error('Rename failed', error instanceof Error ? error.message : String(error))
+              report(error, { action: 'Rename failed' })
             })
           }
           // Clear the flag now so the node is immediately non-editing; the WS

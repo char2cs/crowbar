@@ -41,6 +41,7 @@ import {
   reorderProviderIds,
 } from './provider-preferences'
 import type { ProviderFlags } from './provider-preferences'
+import { report } from '@/lib/errors/report'
 
 /**
  * The Agents settings tab: the enriched, priority-ordered provider list, drag to
@@ -68,10 +69,10 @@ export const ProvidersSettings = () => {
   const handleDescriptorUpload = async (file: File) => {
     setUploading(true)
     try {
-      const report = await uploadDescriptor(file)
+      const added = await uploadDescriptor(file)
       const seq = beginProviderWrite()
       setDescriptorRefresh((n) => n + 1)
-      toast.success('Agent added', `${report.id} is now available as a provider.`)
+      toast.success('Agent added', `${added.id} is now available as a provider.`)
       try {
         const resolved = await listGlobalProviders()
         if (isLatestProviderWrite(seq)) publish(resolved)
@@ -80,7 +81,7 @@ export const ProvidersSettings = () => {
         toast.error('Could not refresh agents', 'Reopen this tab to load the new provider.')
       }
     } catch (error) {
-      toast.error('Could not add agent', error instanceof Error ? error.message : String(error))
+      report(error, { action: 'Could not add agent' })
     } finally {
       setUploading(false)
     }

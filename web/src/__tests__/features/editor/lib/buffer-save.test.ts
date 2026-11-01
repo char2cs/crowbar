@@ -34,6 +34,7 @@ import {
 import { useSettingsStore } from '@/features/settings/store'
 import { BOTTOM_PANE_ID, ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { toast } from '@/features/window/stores/toast-store'
+import * as reports from '@/__tests__/__fixtures__/reports'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
@@ -450,12 +451,12 @@ describe('buffer-save — Save As onto a document that is already open', () => {
   it('a failed write onto an open document changes nothing and says why', async () => {
     const target = await openIn(BOTTOM_PANE_ID, FOO, 'old')
     const untitled = await openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
-    mockFetch.mockRejectedValueOnce(new Error('disk full'))
-    const error = vi.spyOn(toast, 'error')
+    mockFetch.mockRejectedValueOnce(reports.refusal('disk full'))
+    const toasts = reports.watchToasts()
 
     expect(await saveActiveBuffer()).toBe(false)
 
-    expect(error).toHaveBeenCalledWith('Failed to save file', expect.any(String))
+    reports.expectReported(toasts, 'Failed to save file', 'disk full')
     expect(holdersOfFoo()).toEqual([target])
     expect(textOf(FOO)).toEqual({ text: 'old', saved: 'old' })
     expect(textOf(UNTITLED)).toEqual({ text: 'new text', saved: 'new text' })
@@ -473,14 +474,14 @@ describe('buffer-save — Save As onto a document that is already open', () => {
     expect(documentText(UNTITLED)).toBeNull()
   })
 
-  it('a failed new-file Save As says why and keeps the untitled tab', async () => {
+  it('a new-file Save As refused while migrating keeps the untitled tab, toasting nothing', async () => {
     const untitled = await openIn(ROOT_PANE_ID, UNTITLED, 'new text', { isVirtual: true })
-    mockFetch.mockRejectedValueOnce(new Error('disk full'))
-    const error = vi.spyOn(toast, 'error')
+    mockFetch.mockRejectedValueOnce(reports.migratingRefusal())
+    const toasts = reports.watchToasts()
 
     expect(await saveActiveBuffer()).toBe(false)
 
-    expect(error).toHaveBeenCalledWith('Failed to save file', expect.any(String))
+    reports.expectMigratingShown(toasts)
     expect(bufferById(untitled).path).toBe('untitled:Untitled-1')
     expect(textOf(UNTITLED)).toEqual({ text: 'new text', saved: 'new text' })
   })

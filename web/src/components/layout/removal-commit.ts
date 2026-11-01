@@ -15,7 +15,6 @@ import { dismissOperation, whenSettled, type OperationReply } from '@/lib/store/
 import { report } from '@/lib/errors/report'
 import { holdsWorkspace } from '@/lib/store/repo-tree'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { toast } from '@/features/window/stores/toast-store'
 
 /**
  * Committing a hold — the one step of the removal path that destroys anything.
@@ -296,9 +295,7 @@ export async function commitRemoval(entry: RemovalEntry, context: RemovalContext
       return
     }
     treeUiStore.getState().release(entry.hiddenIds)
-    toast.error(
-      `Couldn't remove ${entry.label}: ${err instanceof Error ? err.message : 'request failed'}`,
-    )
+    report(err, { action: `Couldn't remove ${entry.label}` })
     return
   }
 

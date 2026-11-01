@@ -67,10 +67,13 @@ export function reportMigrating(migrating: Migrating): void {
   publish(migrating)
 }
 
-/** Routes a refusal that names the daemon's own state to that state's owner. */
-export function reportDaemonRefusal(problem: Problem): void {
+/** Routes a refusal that names the daemon's own state to that state's owner;
+ *  true when it did, so the caller shows nothing of its own. */
+export function reportDaemonRefusal(problem: Problem): boolean {
   if (problem.code === 'daemon_migrating') reportMigrating({ message: problem.message })
-  if (problem.code === 'daemon_halted') useDaemonHaltStore.getState().halt(problem.message)
+  else if (problem.code === 'daemon_halted') useDaemonHaltStore.getState().halt(problem.message)
+  else return false
+  return true
 }
 
 /** Test helper: clear all tracked channels. */

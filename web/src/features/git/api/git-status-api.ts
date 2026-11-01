@@ -1,7 +1,7 @@
 import { apiFetch } from '@/lib/api/fetch'
 import { gitBaseForWorkspace } from '@/lib/workspace-scope-url'
-import { toast } from '@/features/window/stores/toast-store'
 import type { GitHunk, GitStatus } from '../types/git-types'
+import { report } from '@/lib/errors/report'
 
 async function gitPost(
   wsId: string,
@@ -17,7 +17,7 @@ async function gitPost(
     return true
   } catch (error) {
     console.error(`git ${action} failed:`, error)
-    toast.error(`git ${action} failed`, error instanceof Error ? error.message : undefined)
+    report(error, { action: `git ${action} failed` })
     return false
   }
 }

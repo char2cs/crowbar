@@ -4,6 +4,7 @@ import { OperationsWatcher } from '@/components/layout/operations-watcher'
 import { toast } from '@/features/window/stores/toast-store'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
 import { type Operation } from '@/lib/store/operations'
+import { resetConnectionState, useConnectionStore } from '@/lib/ws/connection-store'
 
 vi.mock('@/features/window/stores/toast-store', () => ({ toast: { show: vi.fn() } }))
 
@@ -86,5 +87,16 @@ describe('OperationsWatcher', () => {
         description: 'rm: busy',
       }),
     )
+  })
+
+  it('an operation refused while the daemon migrates shows the migrating state, not a toast', () => {
+    resetConnectionState()
+    render(<OperationsWatcher />)
+    act(() => streamOperation(op({})))
+    const migrating = { code: 'daemon_migrating' as const, message: 'upgrading (step 2 of 7)' }
+    act(() => streamOperation(op({ state: 'failed', version: 2, error: migrating })))
+
+    expect(toast.show).not.toHaveBeenCalled()
+    expect(useConnectionStore.getState().migrating).toEqual({ message: migrating.message })
   })
 })

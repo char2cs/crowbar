@@ -46,6 +46,7 @@ import {
   type DaemonWorkspaceEdit,
 } from './lsp-to-monaco'
 import { applyWorkspaceEdit } from './workspace-edit'
+import { report } from '@/lib/errors/report'
 
 /** Monaco language ids the daemon's server registry covers. */
 const LSP_LANGUAGES = ['go', 'typescript', 'javascript', 'python', 'java', 'c', 'cpp']
@@ -240,7 +241,7 @@ export function registerLspProviders(): void {
       command: Command | null,
     ) => {
       void runCommand(wsId, path, edit, command).catch((error: unknown) =>
-        toast.error('Command failed', error instanceof Error ? error.message : undefined),
+        report(error, { action: 'Command failed' }),
       )
     },
   )
@@ -252,8 +253,7 @@ export function registerLspProviders(): void {
       if (!doc) return false
       recordJumpFrom(source)
       void revealInEditor({ doc, position: positionOf(selectionOrPosition) }).catch(
-        (error: unknown) =>
-          toast.error('Could not open file', error instanceof Error ? error.message : undefined),
+        (error: unknown) => report(error, { action: 'Could not open file' }),
       )
       return true
     },

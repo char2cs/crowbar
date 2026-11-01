@@ -12,6 +12,13 @@ vi.mock('@/features/editor/lsp/lsp-client', () => ({
 import { documentUri } from '@/features/editor/documents/document-ref'
 import { query } from '@/features/editor/lsp/lsp-query'
 import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
+import {
+  expectMigratingShown,
+  expectReported,
+  migratingRefusal,
+  refusal,
+  watchToasts,
+} from '@/__tests__/__fixtures__/reports'
 
 const modelOf = (doc: DocumentRef) =>
   ({ uri: { toString: () => documentUri(doc) } }) as unknown as Monaco.editor.ITextModel
@@ -35,5 +42,22 @@ describe('query', () => {
       await query(modelOf({ authority: 'host', path: '/tmp/a.ts' }), 'hover', {}, token),
     ).toBeNull()
     expect(request).not.toHaveBeenCalled()
+  })
+
+  it('a user-invoked query the daemon refuses reports its reason', async () => {
+    const toasts = watchToasts()
+    request.mockRejectedValueOnce(refusal('no language server for .ts', 'unavailable'))
+    const doc = workspaceRef('ws-1', 'src/a.ts')
+
+    expect(await query(modelOf(doc), 'rename', {}, token, 'Rename failed')).toBeNull()
+    expectReported(toasts, 'Rename failed', 'no language server for .ts')
+  })
+
+  it('a user-invoked query refused while the daemon migrates shows the migrating state', async () => {
+    const toasts = watchToasts()
+    request.mockRejectedValueOnce(migratingRefusal())
+
+    await query(modelOf(workspaceRef('ws-1', 'src/a.ts')), 'rename', {}, token, 'Rename failed')
+    expectMigratingShown(toasts)
   })
 })

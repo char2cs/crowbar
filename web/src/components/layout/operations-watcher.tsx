@@ -6,6 +6,7 @@ import {
   type Operation,
   type OperationState,
 } from '@/lib/store/operations'
+import { reportDaemonRefusal } from '@/lib/ws/connection-store'
 
 function reason(op: Operation): string | undefined {
   return (op.error ?? op.items.find((item) => item.error)?.error)?.message
@@ -27,6 +28,7 @@ export function OperationsWatcher() {
         const before = seen.get(op.id)
         seen.set(op.id, op.state)
         if (!isNews(op, before, mounted)) continue
+        if (op.error && reportDaemonRefusal(op.error)) continue
         toast.show({
           key: op.id,
           type: 'error',

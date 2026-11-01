@@ -13,23 +13,22 @@ vi.mock('@/features/editor/lib/monaco-adapters', () => {
 import { SidebarToastOverlay } from '@/components/layout/sidebar-toast-overlay'
 import { useEditorHost } from '@/features/editor/host/use-editor-host'
 import { toastManager } from '@/lib/toast-manager'
-import { toast } from '@/features/window/stores/toast-store'
 
 const LOAD_FAILED = expect.objectContaining({
-  key: 'editor-host-load',
+  id: 'Editor failed to load',
   type: 'error',
-  message: 'Editor failed to load',
+  title: 'Editor failed to load',
 })
 
 afterEach(() => {
-  act(() => toastManager.close('editor-host-load'))
+  act(() => toastManager.close('Editor failed to load'))
   cleanup()
   vi.restoreAllMocks()
 })
 
 describe('useEditorHost', () => {
   it('reports a failed load, and the next mount retries it', async () => {
-    const show = vi.spyOn(toast, 'show')
+    const show = vi.spyOn(toastManager, 'add')
 
     const first = renderHook(() => useEditorHost())
     await waitFor(() => expect(show).toHaveBeenCalledWith(LOAD_FAILED))
@@ -41,7 +40,7 @@ describe('useEditorHost', () => {
   })
 
   it('two panes failing together raise one toast', async () => {
-    const show = vi.spyOn(toast, 'show')
+    const show = vi.spyOn(toastManager, 'add')
     render(createElement(SidebarToastOverlay, { sidebarOpen: true, sidebarSide: 'left' }))
 
     renderHook(() => useEditorHost())

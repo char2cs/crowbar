@@ -1,5 +1,5 @@
 import type React from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // @base-ui/react ships pure ESM and gets its own React copy in the
@@ -37,11 +37,14 @@ vi.mock('@/lib/crowbar-bridge', () => ({
   convertFileSrc: (path: string) => `asset://staged${path}`,
 }))
 
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
-}))
-
 import { IconPopover } from '@/components/layout/icon-popover'
+import {
+  expectMigratingShown,
+  expectReported,
+  migratingRefusal,
+  refusal,
+  watchToasts,
+} from '@/__tests__/__fixtures__/reports'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -74,6 +77,24 @@ describe('IconPopover — real (non-staged) mode is unchanged', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }))
 
     expect(apiFetch).toHaveBeenCalledExactlyOnceWith('/v0/projects/p1/icon', { method: 'DELETE' })
+  })
+
+  it('a refused reset reports the daemon’s reason', async () => {
+    const toasts = watchToasts()
+    apiFetch.mockRejectedValueOnce(refusal('icon is read-only'))
+    render(<IconPopover {...baseProps} base="/v0/projects/p1" emoji="🚀" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }))
+
+    await waitFor(() => expectReported(toasts, 'Failed to reset icon', 'icon is read-only'))
+  })
+
+  it('a reset refused while the daemon migrates shows the migrating state, not a toast', async () => {
+    const toasts = watchToasts()
+    apiFetch.mockRejectedValueOnce(migratingRefusal())
+    render(<IconPopover {...baseProps} base="/v0/projects/p1" emoji="🚀" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }))
+
+    await waitFor(() => expectMigratingShown(toasts))
   })
 
   // A caller (space-header.tsx) toggles this trigger's visibility by wrapping

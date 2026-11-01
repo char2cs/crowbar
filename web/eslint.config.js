@@ -158,6 +158,12 @@ export default tseslint.config(
             "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[body.type='Identifier'][body.name='undefined']",
           message: '.catch(() => undefined) hides a failure: handle it or report() it.',
         },
+        {
+          // A thrown value's own text skips report(): a migrating refusal becomes a toast.
+          selector:
+            "CallExpression[callee.object.name=/^(toast|toastManager)$/] :matches(ConditionalExpression[test.operator='instanceof'][test.right.name='Error'], MemberExpression[object.name=/^(e|err|error)$/][property.name='message'], CallExpression[callee.name='String'][arguments.0.name=/^(e|err|error)$/])",
+          message: "A toast of a thrown value's text skips report(): report(err, { action }) it.",
+        },
       ],
     },
   },

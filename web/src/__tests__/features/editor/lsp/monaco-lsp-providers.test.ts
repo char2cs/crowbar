@@ -62,6 +62,13 @@ import { LspClient } from '@/features/editor/lsp/lsp-client'
 import { query } from '@/features/editor/lsp/lsp-query'
 import { registerLspProviders } from '@/features/editor/lsp/monaco-lsp-providers'
 import { workspaceRef } from '@/lib/api/documents'
+import {
+  expectMigratingShown,
+  expectReported,
+  migratingRefusal,
+  refusal,
+  watchToasts,
+} from '@/__tests__/__fixtures__/reports'
 
 registerLspProviders()
 
@@ -183,5 +190,19 @@ describe('LSP commands', () => {
     await vi.waitFor(() => expect(fill.pushEditOperations).toHaveBeenCalledTimes(2))
     const texts = fill.pushEditOperations.mock.calls.map(([, ops]) => ops[0].text)
     expect(texts).toEqual(['x', 'y'])
+  })
+
+  it('a refused command reports the daemon’s reason', async () => {
+    const toasts = watchToasts()
+    request.mockRejectedValue(refusal('gopls exited', 'failed_dependency'))
+    await run({ id: 'crowbar.lsp.runCommand', title: 'x', arguments: ['ws1', 'main.go', null, {}] })
+    await vi.waitFor(() => expectReported(toasts, 'Command failed', 'gopls exited'))
+  })
+
+  it('a command refused while the daemon migrates shows the migrating state, not a toast', async () => {
+    const toasts = watchToasts()
+    request.mockRejectedValue(migratingRefusal())
+    await run({ id: 'crowbar.lsp.runCommand', title: 'x', arguments: ['ws1', 'main.go', null, {}] })
+    await vi.waitFor(() => expectMigratingShown(toasts))
   })
 })

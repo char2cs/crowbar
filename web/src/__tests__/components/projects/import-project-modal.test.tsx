@@ -8,11 +8,19 @@ vi.mock('@/lib/api', async (importOriginal) => {
 
 import * as api from '@/lib/api'
 import { ImportProjectModal } from '@/components/projects/import-project-modal'
+import { OperationsWatcher } from '@/components/layout/operations-watcher'
 import { useProjectDataStore } from '@/lib/store/projects'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
 import { operationsState, type Operation } from '@/lib/store/operations'
 import { success } from '@/lib/loadable'
 import type { Project } from '@/lib/types'
+import {
+  expectMigratingShown,
+  expectReported,
+  migratingRefusal,
+  refusal,
+  watchToasts,
+} from '@/__tests__/__fixtures__/reports'
 
 /** The daemon's row for the add: the project it names under `server-id`. */
 function createOp(opId: string, version: number, state: Operation['state']): Operation {
@@ -109,4 +117,29 @@ test('a failed import re-enables the Import button', async () => {
 
   await waitFor(() => expect(importButton()).not.toBeDisabled())
   expect(onImport).not.toHaveBeenCalled()
+})
+
+async function refuseImport(error: unknown) {
+  vi.mocked(api.postProject).mockRejectedValueOnce(error)
+  render(
+    <>
+      <OperationsWatcher />
+      <ImportProjectModal open={true} onOpenChange={() => {}} onImport={() => {}} />
+    </>,
+  )
+  fireEvent.change(pathInput(), { target: { value: '/tmp/test-proj' } })
+  fireEvent.click(importButton())
+  await waitFor(() => expect(importButton()).not.toBeDisabled())
+}
+
+test('a refused import reports the daemon’s reason', async () => {
+  const toasts = watchToasts()
+  await refuseImport(refusal('path does not exist', 'invalid_argument'))
+  await waitFor(() => expectReported(toasts, 'Add test-proj failed', 'path does not exist'))
+})
+
+test('an import refused while the daemon migrates shows the migrating state, not a toast', async () => {
+  const toasts = watchToasts()
+  await refuseImport(migratingRefusal())
+  await waitFor(() => expectMigratingShown(toasts))
 })

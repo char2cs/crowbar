@@ -6,9 +6,9 @@
  * screen, and is aborted when Monaco cancels the query.
  */
 import type * as Monaco from 'monaco-editor'
-import { toast } from '@/features/window/stores/toast-store'
 import { refFromUri } from '../documents/document-ref'
 import { LspClient } from './lsp-client'
+import { report } from '@/lib/errors/report'
 
 export interface ModelTarget {
   wsId: string
@@ -52,7 +52,7 @@ export async function query<T>(
     return { target, result }
   } catch (error) {
     if (!isAbort(error) && surface) {
-      toast.error(surface, error instanceof Error ? error.message : undefined)
+      report(error, { action: surface })
     }
     return null
   } finally {

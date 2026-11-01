@@ -9,7 +9,6 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FolderOpen } from '@phosphor-icons/react'
-import { toast } from '@/features/window/stores/toast-store'
 import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { useNavigate } from '@tanstack/react-router'
 import { isTauri } from '@/lib/crowbar-bridge'
@@ -19,7 +18,7 @@ import { upsertEntity } from '@/lib/persistence/entity-cache'
 import { syncSidebarFromCache } from '@/lib/store/sidebar-sync'
 import { runOperation, whenSettled } from '@/lib/store/run-operation'
 import { operationsState, type Operation } from '@/lib/store/operations'
-import { OperationFailedError } from '@/lib/errors/operation-failed'
+import { report } from '@/lib/errors/report'
 
 interface AddRepositoryModalProps {
   open: boolean
@@ -132,10 +131,7 @@ export function AddRepositoryModal({ open, onOpenChange, projectId }: AddReposit
         })
       }
     } catch (err) {
-      // A failed operation was already told by the operations watcher.
-      if (!(err instanceof OperationFailedError)) {
-        toast.error(err instanceof Error ? err.message : 'Failed to add repository')
-      }
+      report(err, { action: 'Failed to add repository' })
     } finally {
       setLoading(false)
     }

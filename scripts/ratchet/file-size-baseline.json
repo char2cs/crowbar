@@ -91,7 +91,7 @@
   "web/src/__tests__/features/agent/components/agent-chat-pane.test.tsx": 1420,
   "web/src/__tests__/features/agent/composer/composer-choice.test.tsx": 665,
   "web/src/__tests__/features/agent/composer/plate/chat-markdown-editor.test.tsx": 548,
-  "web/src/__tests__/features/agent/composer/plate/chat-paste-plugin.test.tsx": 721,
+  "web/src/__tests__/features/agent/composer/plate/chat-paste-plugin.test.tsx": 704,
   "web/src/__tests__/features/agent/transcript/plate/streaming-value-patch.test.ts": 892,
   "web/src/__tests__/features/git/components/diff/review-code-view.test.tsx": 582,
   "web/src/__tests__/features/git/components/diff/use-review-annotations.test.tsx": 665,

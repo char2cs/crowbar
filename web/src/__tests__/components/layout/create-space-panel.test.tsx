@@ -11,11 +11,19 @@ vi.mock('@/lib/native-dialog', () => ({
 
 import * as api from '@/lib/api'
 import { CreateSpacePanel } from '@/components/layout/create-space-panel'
+import { OperationsWatcher } from '@/components/layout/operations-watcher'
 import { useProjectDataStore } from '@/lib/store/projects'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
 import { operationsState, type Operation } from '@/lib/store/operations'
 import { success } from '@/lib/loadable'
 import type { Project } from '@/lib/types'
+import {
+  expectMigratingShown,
+  expectReported,
+  migratingRefusal,
+  refusal,
+  watchToasts,
+} from '@/__tests__/__fixtures__/reports'
 
 function createOp(opId: string, version: number, state: Operation['state']): Operation {
   return {
@@ -66,4 +74,33 @@ test('import waits on the operation and hands over the project from the store', 
   useProjectDataStore.setState({ data: success([space]) })
 
   await waitFor(() => expect(onCreate).toHaveBeenCalledWith(space))
+})
+
+async function refuseCreate(error: unknown) {
+  vi.mocked(api.postProject).mockRejectedValueOnce(error)
+  render(
+    <>
+      <OperationsWatcher />
+      <CreateSpacePanel onCreate={() => {}} onCancel={() => {}} />
+    </>,
+  )
+  fireEvent.click(screen.getByRole('button', { name: /folder/i }))
+  const create = () => screen.getByRole('button', { name: 'Create Space' })
+  await waitFor(() => expect(create()).not.toBeDisabled())
+  fireEvent.click(create())
+  await waitFor(() => expect(vi.mocked(api.postProject)).toHaveBeenCalledTimes(1))
+}
+
+test('a refused create reports the daemon’s reason', async () => {
+  const toasts = watchToasts()
+  await refuseCreate(refusal('a space already uses that folder'))
+  await waitFor(() =>
+    expectReported(toasts, 'Add space failed', 'a space already uses that folder'),
+  )
+})
+
+test('a create refused while the daemon migrates shows the migrating state, not a toast', async () => {
+  const toasts = watchToasts()
+  await refuseCreate(migratingRefusal())
+  await waitFor(() => expectMigratingShown(toasts))
 })

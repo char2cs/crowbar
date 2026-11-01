@@ -7,8 +7,8 @@ import { workspaceRef } from '@/lib/api/documents'
 import { Button } from '@/components/ui/button'
 import { buttonVariants } from '@/components/ui/button-variants'
 import { Dropdown } from '@/components/ui/dropdown'
-import { toast } from '@/features/window/stores/toast-store'
 import { cn } from '@/utils/cn'
+import { report } from '@/lib/errors/report'
 
 const actionButtonClass = cn(buttonVariants({ variant: 'ghost' }), 'rounded text-muted-foreground')
 
@@ -72,10 +72,7 @@ export function LspStatusMenu({ workspaceId, path }: { workspaceId: string; path
       if (next) setStatus(next)
       setRevision((r) => r + 1)
     } catch (error) {
-      toast.error(
-        'Language server action failed',
-        error instanceof Error ? error.message : undefined,
-      )
+      report(error, { action: 'Language server action failed' })
     } finally {
       setBusy(false)
     }

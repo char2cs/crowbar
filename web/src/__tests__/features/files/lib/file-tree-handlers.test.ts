@@ -7,6 +7,11 @@ import {
 import * as fileTreeApi from '@/features/files/lib/file-tree-api'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { toastManager } from '@/lib/toast-manager'
+import {
+  expectMigratingShown,
+  migratingRefusal,
+  watchToasts,
+} from '@/__tests__/__fixtures__/reports'
 
 const { copyFileNode, revealItemInFinder, resolveWorkspaceRootPath } = vi.hoisted(() => ({
   copyFileNode: vi.fn(),
@@ -83,6 +88,15 @@ describe('createFileTreeHandlers', () => {
     expect(toastAdd).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Duplicate failed', description: 'workspace locked' }),
     )
+  })
+
+  it('a duplicate refused while the daemon migrates shows the migrating state, not a toast', async () => {
+    const toasts = watchToasts()
+    copyFileNode.mockRejectedValueOnce(migratingRefusal())
+    await createFileTreeHandlers('ws-test', createWorkspaceStore('ws-test')).handleDuplicatePath(
+      'a.txt',
+    )
+    expectMigratingShown(toasts)
   })
 
   it('starts an inline rename by marking the node editable, idempotently', async () => {

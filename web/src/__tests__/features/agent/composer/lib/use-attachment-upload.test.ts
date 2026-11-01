@@ -1,18 +1,25 @@
-import { act, renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAttachmentUpload } from '@/features/agent/composer/lib/use-attachment-upload'
 import { uploadAttachmentMarkdown } from '@/features/agent/composer/lib/attachment-upload'
+import {
+  expectMigratingShown,
+  expectReported,
+  migratingRefusal,
+  refusal,
+  watchToasts,
+} from '@/__tests__/__fixtures__/reports'
 
 vi.mock('@/features/agent/composer/lib/attachment-upload', () => ({
   uploadAttachmentMarkdown: vi.fn(),
 }))
 
-const toastError = vi.hoisted(() => vi.fn())
-vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: toastError } }))
+let toastError: ReturnType<typeof watchToasts>
 
 beforeEach(() => {
   vi.mocked(uploadAttachmentMarkdown).mockReset()
-  toastError.mockClear()
+  toastError?.mockRestore()
+  toastError = watchToasts()
 })
 
 describe('useAttachmentUpload', () => {
@@ -31,8 +38,8 @@ describe('useAttachmentUpload', () => {
     expect(toastError).not.toHaveBeenCalled()
   })
 
-  it('toasts an Error rejection message and does not insert', async () => {
-    vi.mocked(uploadAttachmentMarkdown).mockRejectedValue(new Error('413 Payload Too Large'))
+  it('reports the daemon’s reason and does not insert', async () => {
+    vi.mocked(uploadAttachmentMarkdown).mockRejectedValue(refusal('413 Payload Too Large'))
     const onInsert = vi.fn()
     const { result } = renderHook(() => useAttachmentUpload('w1', 'c1', onInsert))
 
@@ -40,24 +47,19 @@ describe('useAttachmentUpload', () => {
       await result.current.uploadAndInsert({ path: '/tmp/a.png' })
     })
 
-    expect(toastError).toHaveBeenCalledWith('Could not attach that file', '413 Payload Too Large')
+    expectReported(toastError, 'Could not attach that file', '413 Payload Too Large')
     expect(onInsert).not.toHaveBeenCalled()
   })
 
-  it('falls back to a generic description for a non-Error rejection', async () => {
-    vi.mocked(uploadAttachmentMarkdown).mockRejectedValue('boom')
+  it('an upload refused while the daemon migrates shows the migrating state, not a toast', async () => {
+    vi.mocked(uploadAttachmentMarkdown).mockRejectedValue(migratingRefusal())
     const { result } = renderHook(() => useAttachmentUpload('w1', 'c1', vi.fn()))
 
     await act(async () => {
       await result.current.uploadAndInsert({ path: '/tmp/a.png' })
     })
 
-    await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith(
-        'Could not attach that file',
-        'Crowbar could not reach the daemon — try again.',
-      ),
-    )
+    expectMigratingShown(toastError)
   })
 })
 
@@ -109,7 +111,7 @@ describe('useAttachmentUpload — optimistic image preview', () => {
   })
 
   it('settles the pending image to null (not a toast-only failure) when the upload fails', async () => {
-    vi.mocked(uploadAttachmentMarkdown).mockRejectedValue(new Error('413 Payload Too Large'))
+    vi.mocked(uploadAttachmentMarkdown).mockRejectedValue(refusal('413 Payload Too Large'))
     const onInsertPendingImage = vi.fn()
     const onSettlePendingImage = vi.fn()
     const { result } = renderHook(() =>
@@ -123,7 +125,7 @@ describe('useAttachmentUpload — optimistic image preview', () => {
 
     const [objectUrl] = onInsertPendingImage.mock.calls[0]!
     expect(onSettlePendingImage).toHaveBeenCalledWith(objectUrl, null)
-    expect(toastError).toHaveBeenCalledWith('Could not attach that file', '413 Payload Too Large')
+    expectReported(toastError, 'Could not attach that file', '413 Payload Too Large')
   })
 
   it('does not use the optimistic path for a non-image file, even with callbacks supplied', async () => {

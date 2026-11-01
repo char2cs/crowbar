@@ -25,6 +25,13 @@ import { operationsState, type Operation, type OperationItem } from '@/lib/store
 import { toastManager } from '@/lib/toast-manager'
 import { wipeEntityCache } from '@/lib/persistence/idb'
 import type { Problem } from '@/lib/errors/problem'
+import {
+  expectMigratingShown,
+  expectReported,
+  migratingRefusal,
+  refusal,
+  watchToasts,
+} from '@/__tests__/__fixtures__/reports'
 
 function repoDTO(over: Partial<RepoDTO> = {}): RepoDTO {
   return {
@@ -246,10 +253,20 @@ test('a partly failed add opens the repo home; the failed branch is drawn with i
   ])
 })
 
-test('a refused add re-enables the dialog', async () => {
-  vi.mocked(api.postRepo).mockRejectedValueOnce(new Error('not a git repo'))
+test('a refused add re-enables the dialog and reports the daemon’s reason', async () => {
+  const toasts = watchToasts()
+  vi.mocked(api.postRepo).mockRejectedValueOnce(refusal('path does not exist', 'invalid_argument'))
   await startAdd()
 
   await waitFor(() => expect(addButton()).not.toBeDisabled())
   expect(navigateMock).not.toHaveBeenCalled()
+  await waitFor(() => expectReported(toasts, 'Add my-repo failed', 'path does not exist'))
+})
+
+test('an add refused while the daemon migrates shows the migrating state, not a toast', async () => {
+  const toasts = watchToasts()
+  vi.mocked(api.postRepo).mockRejectedValueOnce(migratingRefusal())
+  await startAdd()
+
+  await waitFor(() => expectMigratingShown(toasts))
 })
