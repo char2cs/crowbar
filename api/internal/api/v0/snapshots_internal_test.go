@@ -15,6 +15,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
@@ -174,7 +175,7 @@ func TestRepoSnapshot(t *testing.T) {
 	require.NoError(t, a.GORM.Repositories.Save(ctx, domain.Repository{ID: "r2", ProjectID: "p1", Name: "two"}))
 	require.NoError(t, a.GORM.Repositories.Save(ctx, domain.Repository{ID: "r3", ProjectID: "p2", Name: "three"}))
 
-	got := repoSnapshot(a)("p1")
+	got := repoSnapshot(a, a.Repositories.Placement.GetNode)("p1")
 	require.Len(t, got, 2)
 
 	byID := map[string]string{}
@@ -195,7 +196,7 @@ func TestRepoSnapshot_EmptyScopeReturnsAll(t *testing.T) {
 	require.NoError(t, a.GORM.Repositories.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 	require.NoError(t, a.GORM.Repositories.Save(ctx, domain.Repository{ID: "r3", ProjectID: "p2"}))
 
-	got := repoSnapshot(a)("")
+	got := repoSnapshot(a, a.Repositories.Placement.GetNode)("")
 	assert.Len(t, got, 2)
 }
 
@@ -204,5 +205,29 @@ func TestRepoSnapshot_EmptyScopeReturnsAll(t *testing.T) {
 func TestRepoSnapshot_ListErrorReturnsNil(t *testing.T) {
 	a := newAppForSnapshot(t)
 	a.GORM.Repositories = errRepoStore{}
-	assert.Nil(t, repoSnapshot(a)("p1"))
+	assert.Nil(t, repoSnapshot(a, a.Repositories.Placement.GetNode)("p1"))
+}
+
+// A list-level subscriber still receives every repo when one project's tree
+// cannot be read: that project's repos are at the root.
+func TestRepoSnapshot_AnUnreadableTreeOnlyUnplacesItsOwnProject(t *testing.T) {
+	a := newAppForSnapshot(t)
+	ctx := context.Background()
+	require.NoError(t, a.GORM.Repositories.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1", Name: "one"}))
+	require.NoError(t, a.GORM.Repositories.Save(ctx, domain.Repository{ID: "r3", ProjectID: "p2", Name: "three"}))
+
+	failingForR1 := func(ctx context.Context, id string) (tree.Node, error) {
+		if id == "r1" {
+			return tree.Node{}, errors.New("tree: read: disk gone")
+		}
+		return a.Repositories.Placement.GetNode(ctx, id)
+	}
+
+	got := repoSnapshot(a, failingForR1)("")
+
+	ids := make([]string, 0, len(got))
+	for _, d := range got {
+		ids = append(ids, d.ID)
+	}
+	assert.ElementsMatch(t, []string{"r1", "r3"}, ids)
 }

@@ -278,31 +278,61 @@ func (brokenNodes) GetNode(context.Context, string) (tree.Node, error) {
 	return tree.Node{}, fmt.Errorf("tree: read p1: %w", errors.New("disk gone"))
 }
 
+// brokenProject fails the position reads of p1's repo only.
+type brokenProject struct{ fakeNodeReader }
+
+func (brokenProject) GetNode(_ context.Context, id string) (tree.Node, error) {
+	if id == "r1" {
+		return tree.Node{}, fmt.Errorf("tree: read p1: %w", errors.New("disk gone"))
+	}
+	return tree.Node{ParentID: "f2", Order: 3}, nil
+}
+
 func placementRouter(t *testing.T, nodes repohandlers.NodeReader, frames *[]dto.RepoDTO) *gin.Engine {
 	t.Helper()
 	repo := domain.Repository{ID: "r1", ProjectID: "p1", Name: "one"}
-	store := &fakeStore{byKey: &repo, all: []domain.Repository{repo}}
+	other := domain.Repository{ID: "r2", ProjectID: "p2", Name: "two"}
+	store := &fakeStore{byKey: &repo, all: []domain.Repository{repo, other}}
 	h := repohandlers.NewWithDeps(store, nil, nil, nil, func(d dto.RepoDTO) { *frames = append(*frames, d) },
 		func() (string, error) { return t.TempDir(), nil }).WithNodes(nodes)
 	r := gin.New()
-	r.GET("/v0/projects/:projectId/repos", h.List)
+	r.GET("/v0/repos", h.List)
 	r.GET("/v0/projects/:projectId/repos/:repoId", h.Detail)
 	r.PUT("/v0/projects/:projectId/repos/:repoId/icon/emoji", h.PutIconEmoji)
 	return r
 }
 
-// A failed position read is a failure, not a repo silently moved to the root.
+// A failed position read of the one repo asked for fails that read, rather
+// than answer the repo silently moved to the root.
 func TestDetail_AFailedPositionReadFailsTheRead(t *testing.T) {
 	var frames []dto.RepoDTO
 	r := placementRouter(t, brokenNodes{}, &frames)
 
-	for _, path := range []string{"/v0/projects/p1/repos", "/v0/projects/p1/repos/r1"} {
-		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v0/projects/p1/repos/r1", nil))
 
-		assert.Equal(t, http.StatusInternalServerError, rec.Code, path)
-		assert.JSONEq(t, `{"success":false,"code":"internal","error":"repos: placement of r1: tree: read p1: disk gone"}`, rec.Body.String(), path)
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.JSONEq(t, `{"success":false,"code":"internal","error":"repos: placement of r1: tree: read p1: disk gone"}`,
+		rec.Body.String())
+}
+
+// One project's unreadable tree does not fail the list of every project: its
+// repos are listed at the root, the others where they are.
+func TestList_AnUnreadableTreeOnlyUnplacesItsOwnProject(t *testing.T) {
+	var frames []dto.RepoDTO
+	r := placementRouter(t, brokenProject{}, &frames)
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v0/repos", nil))
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var env struct{ Data []dto.RepoDTO }
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	placed := map[string][2]any{}
+	for _, d := range env.Data {
+		placed[d.ID] = [2]any{d.FolderID, d.Order}
 	}
+	assert.Equal(t, map[string][2]any{"r1": {"", 0}, "r2": {"f2", 3}}, placed)
 }
 
 func TestDetail_ARepoWithNoPositionRowYetSitsAtTheRoot(t *testing.T) {

@@ -2,7 +2,6 @@ package v0
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"strings"
 
@@ -52,10 +51,15 @@ func projectSnapshot(
 // DTOs, scoped to the project parsed from the connecting client's subscription
 // prefix ("p/..."). An empty project component matches every project, so a
 // list-level subscription snapshots every repo. A failed list degrades to a nil
-// snapshot.
+// snapshot; one project's unreadable tree only lists its repos at the root.
 func repoSnapshot(
 	appContainer *app.Container,
+	positionOf func(ctx context.Context, repoID string) (tree.Node, error),
 ) func(scope string) []dto.RepoDTO {
+	placements := dto.NewPlacements(positionOf, func(ctx context.Context, projectID string, err error) {
+		slog.ErrorContext(ctx, "stream: repo snapshot: tree unreadable, its repos listed at the root",
+			"project", projectID, "err", err)
+	})
 	return func(scope string) []dto.RepoDTO {
 		ctx := context.Background()
 		projectID, _ := parseRepoScope(scope)
@@ -64,31 +68,8 @@ func repoSnapshot(
 			return nil
 		}
 		rows = scopeReposToProject(rows, projectID)
-		placements, err := repoPlacements(ctx, appContainer, rows)
-		if err != nil {
-			slog.ErrorContext(ctx, "stream: repo snapshot", "err", err)
-			return nil
-		}
-		return dto.RepoDTOList(rows, placements)
+		return dto.RepoDTOList(rows, placements.Of(ctx, rows))
 	}
-}
-
-// repoPlacements resolves every repo's own sidebar position from its Node row
-// (see dto.RepoPlacement); a repo with no row yet sits at the root's first slot.
-func repoPlacements(
-	ctx context.Context,
-	appContainer *app.Container,
-	rows []domain.Repository,
-) (map[string]dto.RepoPlacement, error) {
-	placements := make(map[string]dto.RepoPlacement, len(rows))
-	for _, r := range rows {
-		n, err := tree.OrUnplaced(appContainer.Repositories.Placement.GetNode(ctx, r.ID))
-		if err != nil {
-			return nil, fmt.Errorf("repo snapshot: placement of %s: %w", r.ID, err)
-		}
-		placements[r.ID] = dto.RepoPlacement{FolderID: n.ParentID, Order: n.Order}
-	}
-	return placements, nil
 }
 
 // scopeReposToProject filters rows to those under the given projectID. An empty

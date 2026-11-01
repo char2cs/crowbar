@@ -160,6 +160,7 @@ type Handlers struct {
 	importer    RepoImporter
 	updater     RepoUpdater
 	nodes       NodeReader
+	placements  *dto.Placements
 	crowbarHome func() (string, error)
 	fetchAvatar AvatarBytesFetcher
 	broadcast   func(dto.RepoDTO)
@@ -177,13 +178,17 @@ func New(
 	if crowbarHome == nil {
 		panic("repos: crowbarHome is required")
 	}
-	return &Handlers{
+	h := &Handlers{
 		store:       store,
 		crowbarHome: crowbarHome,
 		fetchAvatar: fetchGithubAvatarBytes,
 		broadcast:   func(dto.RepoDTO) {},
 		stat:        os.Stat,
 	}
+	h.placements = dto.NewPlacements(h.positionOf, func(ctx context.Context, projectID string, err error) {
+		slog.ErrorContext(ctx, "repos: list: tree unreadable, its repos listed at the root", "project", projectID, "err", err)
+	})
+	return h
 }
 
 // NewWithDeps builds Handlers with the optional provider + workspace deps
@@ -286,31 +291,19 @@ func (h *Handlers) placementOf(
 	ctx context.Context,
 	repoID string,
 ) (dto.RepoPlacement, error) {
-	if h.nodes == nil {
-		return dto.RepoPlacement{}, nil
-	}
-	n, err := tree.OrUnplaced(h.nodes.GetNode(ctx, repoID))
+	n, err := tree.OrUnplaced(h.positionOf(ctx, repoID))
 	if err != nil {
 		return dto.RepoPlacement{}, fmt.Errorf("repos: placement of %s: %w", repoID, err)
 	}
 	return dto.RepoPlacement{FolderID: n.ParentID, Order: n.Order}, nil
 }
 
-// placementsOf resolves every repo's own position in one pass, for the List
-// path — see placementOf.
-func (h *Handlers) placementsOf(
-	ctx context.Context,
-	repos []domain.Repository,
-) (map[string]dto.RepoPlacement, error) {
-	placements := make(map[string]dto.RepoPlacement, len(repos))
-	for _, r := range repos {
-		p, err := h.placementOf(ctx, r.ID)
-		if err != nil {
-			return nil, err
-		}
-		placements[r.ID] = p
+// positionOf is repoID's Node row; with no Node surface wired every repo is unplaced.
+func (h *Handlers) positionOf(ctx context.Context, repoID string) (tree.Node, error) {
+	if h.nodes == nil {
+		return tree.Node{}, problem.ErrNotFound
 	}
-	return placements, nil
+	return h.nodes.GetNode(ctx, repoID)
 }
 
 // broadcastRepo fans repo out at its own position. A mutation that already
@@ -349,12 +342,7 @@ func (h *Handlers) List(
 		projectID = c.Query("projectId")
 	}
 	repos = filterByProject(repos, projectID)
-	placements, err := h.placementsOf(c.Request.Context(), repos)
-	if err != nil {
-		libs.Fail(c, err)
-		return
-	}
-	libs.WriteQueryOK(c, dto.RepoDTOList(repos, placements))
+	libs.WriteQueryOK(c, dto.RepoDTOList(repos, h.placements.Of(c.Request.Context(), repos)))
 }
 
 // Detail handles GET /v0/projects/:projectId/repos/:repoId, returning a single RepoDTO. The workspace
