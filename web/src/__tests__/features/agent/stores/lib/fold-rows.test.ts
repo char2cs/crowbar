@@ -9,6 +9,9 @@ import type {
 } from '@/features/agent/stores/lib/transcript-items'
 import { applyRows, delta, ledger, recordedRows } from '@/__tests__/__fixtures__/ledger-rows'
 
+/** A recording cut mid-ledger: the feed already holds every row before it. */
+const feedAt = (seq: number): ChatFeed => ({ ...emptyFeed(), seq })
+
 describe('applyRow', () => {
   it('orders items by the seq of their first row and never re-sorts', () => {
     const l = ledger()
@@ -84,7 +87,7 @@ describe('applyRow', () => {
     const rows = recordedRows('feed-codex-pre-unix.txt', 52, 58)
     const prompt = rows[0] as LedgerRow<'user_message'>
     const turn = prompt.turnId!
-    const feed = applyRows(emptyFeed(), rows)
+    const feed = applyRows(feedAt(prompt.seq - 1), rows)
 
     const reply = feed.order.find((id) => feed.items[id]?.kind === 'text')
     const thought = feed.order.find((id) => feed.items[id]?.kind === 'reasoning')
@@ -97,7 +100,7 @@ describe('applyRow', () => {
     const prompt = rows[0] as LedgerRow<'user_message'>
     const reply = rows[4] as LedgerRow<'assistant_text'>
     const text = `m:${prompt.turnId}:${reply.body.messageId}`
-    let feed = applyRows(emptyFeed(), rows.slice(0, 2))
+    let feed = applyRows(feedAt(prompt.seq - 1), rows.slice(0, 2))
     feed = applyLive(feed, delta(reply.body.messageId, 1, '1. Apple', { turnId: prompt.turnId! }))
     const shown = (f: ChatFeed) => [...f.order, ...f.liveTail]
     const thought = `r:${prompt.turnId}:${reply.body.messageId}`

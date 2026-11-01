@@ -914,7 +914,7 @@ describe('AgentChatPane', () => {
       ['stopped', 'Stopped. Send a message to continue the conversation.'],
       ['retracted', 'You took the prompt back. Send a message to continue.'],
     ])('shows the exit reason from the last runner_exited row (%s)', async (reason, note) => {
-      const l = ledger('c1', 10)
+      const l = ledger('c1', 4)
       const exited = l.row('runner_exited', { runnerId: 'r1', reason, exitCode: 0 })
       seedFeed('c1', [...spokenIn('c1'), exited])
       const store = seedWorkspace([dormantChat({ id: 'c1' })])

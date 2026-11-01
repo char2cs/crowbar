@@ -91,9 +91,10 @@ export class FeedFold {
     this.seq = base.seq
   }
 
-  /** Folds one row; a row at or below the folded seq is already applied. */
+  /** Folds the row right after the folded seq. One at or below it is already
+   *  applied; one past the next is dropped, since only a replay fills a hole. */
   apply(row: LedgerRow) {
-    if (row.seq <= this.seq) return
+    if (row.seq !== this.seq + 1) return
     const apply = appliers[row.kind] as Apply<RowKind> | undefined
     apply?.(this, row)
     this.seq = row.seq
@@ -403,9 +404,9 @@ const appliers: { [K in RowKind]: Apply<K> } = {
   plan: applyPlan,
 }
 
-/** Folds one row; a row at or below the feed's seq is already applied. */
+/** Folds the row right after the feed's seq; any other is not applied. */
 export function applyRow(feed: ChatFeed, row: LedgerRow): ChatFeed {
-  if (row.seq <= feed.seq) return feed
+  if (row.seq !== feed.seq + 1) return feed
   const fold = new FeedFold(feed)
   fold.apply(row)
   return fold.finish()

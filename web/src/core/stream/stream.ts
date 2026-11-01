@@ -85,6 +85,14 @@ export function holdScope(scope: string): () => void {
   }
 }
 
+/** Asks again for a held scope from where its kind says it resumes. */
+export function resubscribe(scope: string): void {
+  if (!holds.has(scope) || !ready) return
+  current.delete(scope)
+  wsManager.send(ENDPOINT, { op: 'unsub', scope })
+  sub(scope)
+}
+
 /** Whether some holder still holds `scope`: a refused one is let go. */
 export function holding(scope: string): boolean {
   return holds.has(scope)

@@ -142,6 +142,38 @@ func TestStream_ChatScopeResumesFromSinceWithoutGapOrDuplicate(t *testing.T) {
 	assert.Equal(t, head+4, live.Row.Seq, "live rows follow the replay with no gap")
 }
 
+// A pane that lets go of a chat and takes it back on one connection may still
+// get a row the first sub had in flight. A client that applies only the row
+// after its last one, as the web does, ends with every row once and no gap.
+func TestStream_ChatScopeResubscribedOnOneConnectionHasNoGap(t *testing.T) {
+	h := newHarness(t)
+	_, chatID, post := newFeedChat(t, h, "streamstub", streamStubProviderDescriptorYAML)
+	post("session_start", `{"session_id":"sess-1"}`)
+	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
+	scope := "chat:" + chatID
+	c := dialStream(t, h)
+	c.Next(t, isReady)
+	c.Sub(t, scope, 0)
+	head := c.Next(t, isSynced(scope)).Seq
+
+	c.Unsub(t, scope)
+	for i := range 3 {
+		post("message_delta", delta(fmt.Sprintf("msg-%d", i), 0, true, "HI"))
+	}
+	c.Sub(t, scope, head)
+	applied, rows := head, []int64{}
+	synced := c.Next(t, func(f stream.Frame) bool {
+		if f.Scope == scope && f.T == stream.FrameRow && f.Row.Seq == applied+1 {
+			applied++
+			rows = append(rows, applied)
+		}
+		return isSynced(scope)(f)
+	})
+
+	assert.Equal(t, contiguous(head+1, head+3), rows)
+	assert.Equal(t, applied, synced.Seq, "the synced names the last row applied")
+}
+
 func TestStream_DeletedChatClosesItsScopeOnly(t *testing.T) {
 	h := newHarness(t)
 	imported, chatID, _ := newFeedChat(t, h, "streamstub", streamStubProviderDescriptorYAML)

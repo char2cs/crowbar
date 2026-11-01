@@ -337,7 +337,7 @@ describe('AgentChatView Esc', () => {
     const retract = vi
       .spyOn(commands, 'retractPrompt')
       .mockResolvedValue({ state: 'retracted', text: 'never mind' })
-    const l = ledger('c1', 10)
+    const l = ledger('c1', 4)
     seedFeed('c1', spokenIn('c1'))
     draw('c1')
 
@@ -359,7 +359,7 @@ describe('AgentChatView Esc', () => {
     vi.spyOn(commands, 'retractPrompt').mockReturnValue(
       new Promise((resolve) => (answer = resolve)) as never,
     )
-    const l = ledger('c1', 10)
+    const l = ledger('c1', 4)
     seedFeed('c1', [...spokenIn('c1'), l.prompt('r1', 'take back')])
     draw('c1')
 
@@ -376,7 +376,7 @@ describe('AgentChatView Esc', () => {
   // A drop or a menu paste edits the box with no key; the recalled-and-edited
   // prompt must still come back from the walk it abandoned.
   it('abandons a history walk on an edit that came with no key', async () => {
-    const l = ledger('c1', 10)
+    const l = ledger('c1', 4)
     seedFeed('c1', [...spokenIn('c1'), l.prompt('r1', 'first'), l.prompt('r2', 'second')])
     draw('c1')
     const atEdge = (edge: 'start' | 'end') =>
@@ -400,7 +400,7 @@ describe('AgentChatView Esc', () => {
     vi.spyOn(commands, 'retractPrompt').mockReturnValue(
       new Promise((resolve) => (answer = resolve)) as never,
     )
-    const l = ledger('c1', 10)
+    const l = ledger('c1', 4)
     seedFeed('c1', [...spokenIn('c1'), l.prompt('r1', 'keep me')])
     const view = draw('c1')
 
@@ -417,7 +417,7 @@ describe('AgentChatView Esc', () => {
       const submit = vi
         .spyOn(commands, 'submitAgentPrompt')
         .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
-      const l = ledger('c1', 10)
+      const l = ledger('c1', 4)
       seedFeed('c1', spokenIn('c1'))
       const first = draw('c1')
       await type('held')

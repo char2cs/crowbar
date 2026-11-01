@@ -1,4 +1,10 @@
-import { holdScope, registerScopeKind, streamOpened, watchScope } from '@/core/stream/stream'
+import {
+  holdScope,
+  registerScopeKind,
+  resubscribe,
+  streamOpened,
+  watchScope,
+} from '@/core/stream/stream'
 import type { Frame } from '@/core/stream/frames'
 import type { FeedDelta, FeedFrame, LedgerRow } from '@/features/agent/api/chat-rows'
 import {
@@ -15,6 +21,8 @@ interface Attachment {
   release: () => void
   pending: FeedDelta[]
   frame: number | null
+  /** A synced disagreed with the last applied row and the scope was asked for again. */
+  reasked: boolean
 }
 
 const attachments = new Map<string, Attachment>()
@@ -63,6 +71,20 @@ function onFrame(chatId: string, attachment: Attachment, f: Frame) {
   flush(chatId, attachment)
   const frame = feedFrameOf(f)
   if (frame) applyFeedFrame(chatId, frame)
+  if (f.t === 'synced') checkHead(chatId, attachment, f.seq)
+}
+
+/** A synced names the ledger's head: one past the last applied row means rows
+ *  were dropped, so the scope is asked for again once, then the feed fails. */
+function checkHead(chatId: string, attachment: Attachment, head: number | undefined) {
+  const seq = chatStore.getState().feeds[chatId]?.seq
+  if (head === undefined || seq === undefined || head === seq) {
+    attachment.reasked = false
+    return
+  }
+  if (attachment.reasked) return failFeed(chatId, 'This chat’s history did not line up')
+  attachment.reasked = true
+  resubscribe(scopeOf(chatId))
 }
 
 registerScopeKind('chat', {
@@ -84,7 +106,13 @@ export function attachFeed(chatId: string): () => void {
   let attachment = attachments.get(chatId)
   if (!attachment) {
     const scope = scopeOf(chatId)
-    const fresh: Attachment = { refs: 0, release: () => {}, pending: [], frame: null }
+    const fresh: Attachment = {
+      refs: 0,
+      release: () => {},
+      pending: [],
+      frame: null,
+      reasked: false,
+    }
     attachment = fresh
     attachments.set(chatId, fresh)
     openFeed(chatId)

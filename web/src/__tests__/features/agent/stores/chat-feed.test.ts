@@ -81,6 +81,70 @@ describe('attachFeed', () => {
     expect(feed()?.order).toEqual([])
   })
 
+  it('drops a row that does not follow the last applied one, so the replay fills the hole', () => {
+    attachFeed('chat-1')
+    const l = ledger()
+    for (const id of ['r1', 'r2', 'r3']) push({ t: 'row', row: l.prompt(id, id) })
+    push({ t: 'synced', seq: 3 })
+    push({ t: 'closed', reason: 'resync', seq: 3 })
+    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 3 })
+    const [r4, r5, r6] = [l.prompt('r4', 'r4'), l.prompt('r5', 'r5'), l.prompt('r6', 'r6')]
+
+    // The old sub's row 5 was still in flight when the new sub went out.
+    push({ t: 'row', row: r5 })
+    for (const row of [r4, r5, r6]) push({ t: 'row', row })
+    push({ t: 'synced', seq: 6 })
+
+    expect(feed()).toMatchObject({ seq: 6, status: 'live' })
+    expect(feed()?.order).toEqual(['p:r1', 'p:r2', 'p:r3', 'p:r4', 'p:r5', 'p:r6'])
+  })
+
+  it('drops a live row past the next one, so the order never skips', () => {
+    attachFeed('chat-1')
+    const l = ledger()
+    push({ t: 'row', row: l.prompt('r1', 'r1') })
+    push({ t: 'synced', seq: 1 })
+    const [r2, r3] = [l.prompt('r2', 'r2'), l.prompt('r3', 'r3')]
+
+    push({ t: 'row', row: r3 })
+    expect(feed()).toMatchObject({ seq: 1, order: ['p:r1'] })
+    push({ t: 'row', row: r2 })
+    push({ t: 'row', row: r3 })
+    expect(feed()).toMatchObject({ seq: 3, order: ['p:r1', 'p:r2', 'p:r3'] })
+  })
+
+  it('a synced past the last applied row resubscribes from it once, then fails', () => {
+    attachFeed('chat-1')
+    const l = ledger()
+    push({ t: 'row', row: l.prompt('r1', 'r1') })
+    push({ t: 'row', row: l.prompt('r2', 'r2') })
+    const sent = streamDaemon.sent.length
+
+    push({ t: 'synced', seq: 5 })
+    expect(streamDaemon.sent.slice(sent)).toEqual([
+      { op: 'unsub', scope: SCOPE },
+      { op: 'sub', scope: SCOPE, since: 2 },
+    ])
+
+    push({ t: 'synced', seq: 5 })
+    expect(feed()).toMatchObject({ status: 'error', seq: 2 })
+    expect(streamDaemon.sent.slice(sent)).toHaveLength(2)
+  })
+
+  it('a synced that agrees again clears the one resubscribe it allows', () => {
+    attachFeed('chat-1')
+    const l = ledger()
+    push({ t: 'row', row: l.prompt('r1', 'r1') })
+    push({ t: 'synced', seq: 2 })
+    push({ t: 'row', row: l.prompt('r2', 'r2') })
+    push({ t: 'synced', seq: 2 })
+    push({ t: 'row', row: l.prompt('r3', 'r3') })
+    push({ t: 'synced', seq: 4 })
+
+    expect(feed()?.status).toBe('live')
+    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 3 })
+  })
+
   it('discards an unpublished replay on a resync before synced', () => {
     attachFeed('chat-1')
     push({ t: 'row', row: ledger().prompt('r1', 'hi') })
