@@ -184,7 +184,25 @@ describe('the one stream', () => {
     socket.deliver({ t: 'synced', scope: 'lsp:c1' })
     reconnect('restarted')
 
-    expect(calls).toEqual(['chat restarted', 'lsp restarted', 'lsp synced'])
+    expect(calls).toEqual([
+      `chat e${epochs}`,
+      `lsp e${epochs}`,
+      'chat restarted',
+      'lsp restarted',
+      'lsp synced',
+    ])
+  })
+
+  // A lazily loaded feature registers after the first ready; it must still
+  // know which daemon run its frames come from.
+  it('a kind registered after ready learns the current epoch at once', () => {
+    reconnect('current')
+    const heard: string[] = []
+    register('chat', { epoch: (e) => void heard.push(e), frame: () => {} })
+    expect(heard).toEqual(['current'])
+    reconnect('current')
+    reconnect('next')
+    expect(heard).toEqual(['current', 'next'])
   })
 
   it('a resubscribe snapshot removes an entity deleted while offline', () => {

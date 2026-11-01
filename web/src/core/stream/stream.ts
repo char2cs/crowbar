@@ -47,9 +47,10 @@ function keyOf(scope: string): string {
   return colon < 0 ? '' : scope.slice(colon + 1)
 }
 
-/** A store claims the frames of `kind`; returns the unregister. */
+/** A store claims the frames of `kind`; one registered after a ready hears its epoch at once. */
 export function registerScopeKind(kind: string, h: ScopeKindHandler): () => void {
   handlers.set(kind, h)
+  if (epoch !== undefined) h.epoch?.(epoch)
   return () => {
     if (handlers.get(kind) === h) handlers.delete(kind)
   }
