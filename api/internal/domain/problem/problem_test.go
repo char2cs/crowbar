@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	asynxmodels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -41,6 +42,15 @@ func TestOf_ABareCategoryIsToldByTheWrapThatDeclaredIt(t *testing.T) {
 	declared := fmt.Errorf("agent: chat deleted: %w", problem.ErrNotFound)
 
 	assert.Equal(t, "agent: chat deleted: not found", problem.Of(fmt.Errorf("send: load: %w", declared)).Message)
+}
+
+func TestOf_ABareForeignSentinelIsToldByTheWrapThatDeclaredIt(t *testing.T) {
+	declared := fmt.Errorf("delete review message: cannot delete root comment: %w", asynxmodels.ErrValidation)
+
+	got := problem.Of(fmt.Errorf("review thread: %w", declared))
+
+	assert.Equal(t, problem.Unprocessable, got.Code)
+	assert.Equal(t, declared.Error(), got.Message)
 }
 
 func TestOf_ACodedErrorSaysItsMessageThenWhatItsCauseSays(t *testing.T) {

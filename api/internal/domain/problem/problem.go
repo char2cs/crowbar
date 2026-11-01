@@ -95,11 +95,11 @@ func messageOf(err error) string {
 	var outer error
 	node := err
 	for {
+		if outer != nil && isSentinel(node) {
+			return outer.Error()
+		}
 		switch n := node.(type) { //nolint:errorlint // the walk inspects each node itself
 		case *Error:
-			if outer != nil && isSentinel(n) {
-				return outer.Error()
-			}
 			if n.Message != "" {
 				return withCause(n.Message, n.Err)
 			}
@@ -121,9 +121,18 @@ func messageOf(err error) string {
 	}
 }
 
+// isSentinel reports whether err is itself a category sentinel, Crowbar's or
+// a foreign one: a name for the failure, not a description of it.
 func isSentinel(err error) bool {
-	e, ok := err.(*Error) //nolint:errorlint // identity of the node itself, not its tree
-	return ok && slices.Contains(sentinels, e)
+	if e, ok := err.(*Error); ok && slices.Contains(sentinels, e) { //nolint:errorlint // the node itself, not its tree
+		return true
+	}
+	for _, f := range foreign {
+		if err == f.err { //nolint:errorlint // the node itself, not its tree
+			return true
+		}
+	}
+	return false
 }
 
 // isPrefixWrap reports whether node is fmt.Errorf("ctx: %w", inner): context
