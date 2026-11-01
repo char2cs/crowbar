@@ -32,7 +32,7 @@ func (c DeleteReviewMessage) Validate(
 	current *domain.ReviewThread,
 ) error {
 	if current == nil {
-		return fmt.Errorf("delete review message: %w", asynxModels.ErrValidation)
+		return domain.ReviewThreadNotFound(asynxModels.ErrValidation)
 	}
 	if c.MessageID == "" {
 		return fmt.Errorf("delete review message: missing message id: %w", asynxModels.ErrValidation)

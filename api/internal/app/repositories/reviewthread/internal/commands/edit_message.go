@@ -34,7 +34,7 @@ func (c EditReviewMessage) Validate(
 	current *domain.ReviewThread,
 ) error {
 	if current == nil {
-		return fmt.Errorf("edit review message: %w", asynxModels.ErrValidation)
+		return domain.ReviewThreadNotFound(asynxModels.ErrValidation)
 	}
 	if c.MessageID == "" {
 		return fmt.Errorf("edit review message: missing message id: %w", asynxModels.ErrValidation)

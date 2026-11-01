@@ -18,6 +18,7 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // captureBroadcast records every frame the hub projection fans out so tests can
@@ -103,24 +104,6 @@ func TestReviewThread_Open_ErrorOnDuplicate(t *testing.T) {
 	assert.Error(t, err)
 	// A duplicate Open is a state-guard rejection (ErrValidation), never retried.
 	assert.ErrorIs(t, err, asynxModels.ErrValidation)
-}
-
-func TestReviewThread_Get_ErrorOnMissing(t *testing.T) {
-	ctx, repo := newRepo(t)
-	_, err := repo.Get(ctx, "does-not-exist")
-	assert.Error(t, err)
-}
-
-func TestReviewThread_Resolve_ErrorOnMissing(t *testing.T) {
-	ctx, repo := newRepo(t)
-	_, err := repo.Resolve(ctx, "does-not-exist")
-	assert.Error(t, err)
-}
-
-func TestReviewThread_Reopen_ErrorOnMissing(t *testing.T) {
-	ctx, repo := newRepo(t)
-	_, err := repo.Reopen(ctx, "does-not-exist")
-	assert.Error(t, err)
 }
 
 func TestReviewThread_Resolve_ErrorWhenAlreadyResolved(t *testing.T) {
@@ -238,10 +221,25 @@ func TestReviewThread_ListByWorkspace_FiltersWsID(t *testing.T) {
 	assert.Empty(t, none)
 }
 
-func TestReviewThread_Reply_ErrorOnMissing(t *testing.T) {
+// Every verb on a thread that does not exist answers not found in the user's
+// words, as a GET of it does.
+func TestReviewThread_AnUnknownThreadIsNotFound(t *testing.T) {
 	ctx, repo := newRepo(t)
-	_, err := repo.Reply(ctx, reviewthread.ReplyInput{ID: "no-thread", MessageID: "m1", Body: "body"}, time.Unix(1, 0))
-	assert.Error(t, err)
+	verbs := map[string]func() error{
+		"get": func() error { _, err := repo.Get(ctx, "ghost"); return err },
+		"reply": func() error {
+			_, err := repo.Reply(ctx, reviewthread.ReplyInput{ID: "ghost", MessageID: "m1", Body: "body"}, time.Unix(1, 0))
+			return err
+		},
+		"edit":           func() error { _, err := repo.EditMessage(ctx, "ghost", "m1", "x"); return err },
+		"delete message": func() error { _, err := repo.DeleteMessage(ctx, "ghost", "m1"); return err },
+		"resolve":        func() error { _, err := repo.Resolve(ctx, "ghost"); return err },
+		"reopen":         func() error { _, err := repo.Reopen(ctx, "ghost"); return err },
+		"delete thread":  func() error { return repo.DeleteThread(ctx, "ghost") },
+	}
+	for verb, run := range verbs {
+		assert.Equal(t, problem.Problem{Code: problem.NotFound, Message: "review thread not found"}, problem.Of(run()), verb)
+	}
 }
 
 func TestReviewThread_DeleteThread_Forgets(t *testing.T) {

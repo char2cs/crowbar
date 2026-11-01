@@ -40,7 +40,30 @@ func TestRoute_AFailureCarriesItsCodeAndNotItsChain(t *testing.T) {
 		},
 		{
 			"unknown thread", http.MethodGet, threadsBase(imported) + "/threads/ghost", nil,
-			http.StatusNotFound, problem.NotFound, "reviewthread: get: asynx: aggregate not found",
+			http.StatusNotFound, problem.NotFound, "review thread not found",
+		},
+		{
+			"reply to an unknown thread", http.MethodPost, threadsBase(imported) + "/threads/ghost/replies",
+			map[string]any{"body": "hi"},
+			http.StatusNotFound, problem.NotFound, "review thread not found",
+		},
+		{
+			"resolve an unknown thread", http.MethodPatch, threadsBase(imported) + "/threads/ghost",
+			map[string]any{"isResolved": true},
+			http.StatusNotFound, problem.NotFound, "review thread not found",
+		},
+		{
+			"edit a message of an unknown thread", http.MethodPatch, threadsBase(imported) + "/threads/ghost/messages/m1",
+			map[string]any{"body": "x"},
+			http.StatusNotFound, problem.NotFound, "review thread not found",
+		},
+		{
+			"delete an unknown thread", http.MethodDelete, threadsBase(imported) + "/threads/ghost", nil,
+			http.StatusNotFound, problem.NotFound, "review thread not found",
+		},
+		{
+			"delete a message of an unknown thread", http.MethodDelete, threadsBase(imported) + "/threads/ghost/messages/m1", nil,
+			http.StatusNotFound, problem.NotFound, "review thread not found",
 		},
 		{
 			"the root through the message route", http.MethodDelete,

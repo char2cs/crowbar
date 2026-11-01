@@ -2,6 +2,7 @@ package reviewthread
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -241,7 +242,12 @@ func (r *reviewThread) DeleteThread(
 	ctx context.Context,
 	id string,
 ) error {
-	if err := r.ax.Forget(ctx, id); err != nil {
+	err := r.ax.Forget(ctx, id)
+	// Forget's one refusal is an aggregate it does not hold.
+	if errors.Is(err, asynxModels.ErrValidation) {
+		return domain.ReviewThreadNotFound(asynxModels.ErrValidation)
+	}
+	if err != nil {
 		return fmt.Errorf("reviewthread: delete thread: %w", err)
 	}
 	return nil
@@ -276,6 +282,9 @@ func (r *reviewThread) Get(
 	// Per-id reads fold the aggregate directly from the event log (§3.7), so Get is
 	// always current and needs no read-model rebuild.
 	got, err := r.ax.Get(ctx, id)
+	if errors.Is(err, asynxModels.ErrNotFound) {
+		return domain.ReviewThread{}, domain.ReviewThreadNotFound(err)
+	}
 	if err != nil {
 		return domain.ReviewThread{}, fmt.Errorf("reviewthread: get: %w", err)
 	}

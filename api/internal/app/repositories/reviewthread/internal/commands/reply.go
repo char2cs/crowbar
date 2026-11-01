@@ -41,7 +41,7 @@ func (c ReplyReviewThread) Validate(
 	current *domain.ReviewThread,
 ) error {
 	if current == nil {
-		return fmt.Errorf("reply review thread: %w", asynxModels.ErrValidation)
+		return domain.ReviewThreadNotFound(asynxModels.ErrValidation)
 	}
 	if c.MessageID == "" {
 		return fmt.Errorf("reply review thread: missing message id: %w", asynxModels.ErrValidation)
