@@ -6,7 +6,8 @@ const redirectMock = vi.fn((opts: unknown) => {
   return err
 })
 
-vi.mock('@tanstack/react-router', () => ({
+vi.mock('@tanstack/react-router', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@tanstack/react-router')>()),
   createFileRoute: () => (config: unknown) => ({ options: config }),
   redirect: redirectMock,
   isRedirect: (e: unknown) => (e as { isRedirect?: boolean })?.isRedirect === true,
