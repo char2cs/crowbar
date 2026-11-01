@@ -82,7 +82,7 @@ func (h *Handlers) PutIconEmoji(c *gin.Context) {
 	repo.AvatarEmoji = body.Emoji
 	repo.AvatarHasIcon = false
 	if err := h.store.Save(c.Request.Context(), *repo); err != nil {
-		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
+		libs.Fail(c, err)
 		return
 	}
 	// Deliver the updated avatar to every client on the repos WS stream — the
@@ -106,7 +106,7 @@ func (h *Handlers) DeleteIcon(c *gin.Context) {
 	repo.AvatarHasIcon = false
 	repo.AvatarEmoji = ""
 	if err := h.store.Save(c.Request.Context(), *repo); err != nil {
-		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
+		libs.Fail(c, err)
 		return
 	}
 	// Deliver the updated avatar to every client on the repos WS stream — the
@@ -136,7 +136,7 @@ func (h *Handlers) PutIcon(c *gin.Context) {
 		return
 	}
 	if err := h.storeIconBytes(c, data); err != nil {
-		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
+		libs.Fail(c, err)
 		return
 	}
 
@@ -146,7 +146,7 @@ func (h *Handlers) PutIcon(c *gin.Context) {
 	// ?v= param changes and clients refetch the image.
 	repo.AvatarVersion++
 	if err := h.store.Save(c.Request.Context(), *repo); err != nil {
-		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
+		libs.Fail(c, err)
 		return
 	}
 	// 204, consistent with the other icon mutations: the FE apiFetch throws on
@@ -187,7 +187,7 @@ func (h *Handlers) PutIconGithub(c *gin.Context) {
 		return
 	}
 	if err := h.storeIconBytes(c, data); err != nil {
-		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
+		libs.Fail(c, err)
 		return
 	}
 	repo.AvatarHasIcon = true
@@ -196,7 +196,7 @@ func (h *Handlers) PutIconGithub(c *gin.Context) {
 	// ?v= param changes and clients refetch the image.
 	repo.AvatarVersion++
 	if err := h.store.Save(c.Request.Context(), *repo); err != nil {
-		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
+		libs.Fail(c, err)
 		return
 	}
 	// Deliver the updated avatar to every client on the repos WS stream — the

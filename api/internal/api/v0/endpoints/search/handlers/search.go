@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -53,7 +52,7 @@ func (h *Handlers) Search(
 		Exclude:       body.Exclude,
 	})
 	if err != nil {
-		handleSearchError(ctx, err)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -97,38 +96,9 @@ func (h *Handlers) Replace(
 		Regex:         body.Regex,
 	}, ws.Status == domain.WorkspaceStatusLocked)
 	if err != nil {
-		handleReplaceError(ctx, err)
+		libs.Fail(ctx, err)
 		return
 	}
 
 	ctx.Status(http.StatusOK)
-}
-
-// handleSearchError maps Search errors to appropriate HTTP responses.
-func handleSearchError(
-	ctx *gin.Context,
-	err error,
-) {
-	if errors.Is(err, enginesearch.ErrBadPattern) {
-		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
-		return
-	}
-	libs.WriteErr(ctx, http.StatusInternalServerError, "search failed")
-}
-
-// handleReplaceError maps Replace errors to appropriate HTTP responses.
-func handleReplaceError(
-	ctx *gin.Context,
-	err error,
-) {
-	switch {
-	case errors.Is(err, enginesearch.ErrLocked):
-		libs.WriteErr(ctx, http.StatusForbidden, "workspace is locked")
-	case errors.Is(err, enginesearch.ErrPathOutsideWorkspace):
-		libs.WriteErr(ctx, http.StatusBadRequest, "replace path is outside the workspace")
-	case errors.Is(err, enginesearch.ErrBadPattern):
-		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
-	default:
-		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
-	}
 }

@@ -141,7 +141,7 @@ func failPatch(
 		return
 	}
 	ctx.Writer.Header().Del("Content-Type")
-	libs.WriteErr(ctx, reviewErrorStatus(err), err.Error())
+	libs.Fail(ctx, err)
 }
 
 // patchMaxLines reads the cap. An absent value takes the default; a

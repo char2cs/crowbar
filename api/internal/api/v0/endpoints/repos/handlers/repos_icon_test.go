@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	asynxmodels "github.com/char2cs/asynx/models"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -156,6 +158,24 @@ func TestPutIconEmoji_SaveError_Returns500(t *testing.T) {
 	r.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+// A save the store refused for a full queue is a busy daemon, not a crash.
+func TestPutIconEmoji_AFullQueueIsUnavailable(t *testing.T) {
+	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
+	store.SaveFn = func(context.Context, domain.Repository) error {
+		return fmt.Errorf("repos: save r1: %w", fmt.Errorf("dispatch: %w", asynxmodels.ErrQueueFull))
+	}
+	r := iconRouter(store, t.TempDir(), nil, http.MethodPut, "/v0/projects/:projectId/repos/:repoId/icon/emoji")
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/v0/projects/p1/repos/r1/icon/emoji",
+		strings.NewReader(`{"emoji":"🦊"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.JSONEq(t, `{"success":false,"code":"unavailable","error":"dispatch: asynx: queue full"}`, rec.Body.String())
 }
 
 // ---------------------------------------------------------------------------

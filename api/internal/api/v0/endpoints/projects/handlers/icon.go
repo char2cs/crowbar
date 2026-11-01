@@ -73,7 +73,7 @@ func (h *Handlers) PutIcon(
 		return
 	}
 	if err := icons.Store(path, data); err != nil {
-		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
+		libs.Fail(c, err)
 		return
 	}
 	// An image replaces an emoji, and new bytes behind the stable icon URL need

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 
 	projecthandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects/handlers"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -95,6 +96,26 @@ func TestPutIconStoresBytesAndClearsEmoji(t *testing.T) {
 	if !reader.updatedWith.BumpAvatarVersion {
 		t.Error("new bytes behind a stable URL must bump the cache-busting version")
 	}
+}
+
+// A write the disk refused answers with the refusal, not the wraps above it.
+func TestPutIconAWriteFailureNamesThePathNotTheChain(t *testing.T) {
+	r, _, home := iconRouter(t)
+	stored := filepath.Join(home, "projects", "p1", "icon")
+	if err := os.MkdirAll(stored, 0o750); err != nil {
+		t.Fatalf("block the icon path: %v", err)
+	}
+	src := filepath.Join(t.TempDir(), "logo.png")
+	if err := os.WriteFile(src, pngBytes(), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	rec := putIconFromPath(t, r, src)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("PUT icon = %d, want 500 (body %s)", rec.Code, rec.Body.String())
+	}
+	assert.JSONEq(t, `{"success":false,"code":"internal","error":"open `+stored+`: is a directory"}`, rec.Body.String())
 }
 
 func TestPutIconRejectsANonImage(t *testing.T) {

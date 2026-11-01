@@ -53,7 +53,7 @@ func (h *Handlers) SearchDiff(
 		opts,
 	)
 	if err != nil {
-		libs.WriteErr(ctx, reviewErrorStatus(err), err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	if hits == nil {

@@ -13,7 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 
-	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -60,7 +59,7 @@ func (h *Handlers) CreateSession(ctx *gin.Context) {
 		prof,
 	)
 	if err != nil {
-		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -110,11 +109,7 @@ func (h *Handlers) KillSession(ctx *gin.Context) {
 	sid := ctx.Param("sessionId")
 
 	if err := eng.Kill(ctx.Request.Context(), sid); err != nil {
-		if errors.Is(err, engineterminal.ErrSessionNotFound) {
-			libs.WriteErr(ctx, http.StatusNotFound, err.Error())
-			return
-		}
-		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 

@@ -29,7 +29,7 @@ func (h *Handlers) GetOutline(
 ) {
 	files, err := h.reviewUsecase.GetOutline(ctx.Request.Context(), h.workspaceID(ctx), scopeCommit(ctx))
 	if err != nil {
-		libs.WriteErr(ctx, reviewErrorStatus(err), err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	if files == nil {

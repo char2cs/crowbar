@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"testing"
@@ -66,10 +67,14 @@ func newErrRouter(uc handlers.ReviewUsecase) *gin.Engine {
 func TestReviewHandlers_NotFound(
 	t *testing.T,
 ) {
-	r := newErrRouter(errUsecase{err: problem.ErrNotFound})
+	gone := fmt.Errorf("branch review: workspace ws1 is gone: %w", problem.ErrNotFound)
+	r := newErrRouter(errUsecase{err: fmt.Errorf("review: get ws1: %w", gone)})
 
-	assert.Equal(t, http.StatusNotFound, do(r, http.MethodGet, "/v0/chats/chat1/review", nil).Code)
-	assert.Equal(t, http.StatusNotFound, do(r, http.MethodGet, "/v0/chats/chat1/review/files", nil).Code)
+	for _, path := range []string{"/v0/chats/chat1/review", "/v0/chats/chat1/review/files", "/v0/chats/chat1/review/outline"} {
+		rec := do(r, http.MethodGet, path, nil)
+		assert.Equal(t, http.StatusNotFound, rec.Code, path)
+		assert.JSONEq(t, `{"success":false,"code":"not_found","error":"`+gone.Error()+`"}`, rec.Body.String(), path)
+	}
 }
 
 func TestReviewHandlers_InternalError(

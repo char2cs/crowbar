@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"image/color"
 	"net/http"
 	"net/http/httptest"
@@ -114,7 +115,7 @@ func (notFoundEngine) Kill(
 	_ context.Context,
 	_ string,
 ) error {
-	return engineterminal.ErrSessionNotFound
+	return fmt.Errorf("terminal: kill ghost: %w", engineterminal.ErrSessionNotFound)
 }
 
 // chatPath is the flat chat-scoped terminals collection path.
@@ -289,5 +290,6 @@ func TestKillSession_404OnUnknownSession(
 	mountSessions(r, h)
 
 	rec := do(r, http.MethodDelete, chatPath+"/ghost", nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code, "a wrapped not-found is still a 404")
+	assert.JSONEq(t, `{"success":false,"code":"not_found","error":"terminal: session not found"}`, rec.Body.String())
 }

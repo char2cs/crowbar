@@ -16,7 +16,7 @@ import (
 func (h *Handlers) ListProfiles(ctx *gin.Context) {
 	profiles, err := h.profileStore.FindAll(ctx.Request.Context())
 	if err != nil {
-		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -28,7 +28,7 @@ func (h *Handlers) GetProfile(ctx *gin.Context) {
 	id := ctx.Param("id")
 	p, err := h.profileStore.FindByKey(ctx.Request.Context(), id)
 	if err != nil {
-		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	if p == nil {
@@ -52,7 +52,7 @@ func (h *Handlers) CreateProfile(ctx *gin.Context) {
 	}
 
 	if err := h.profileStore.Save(ctx.Request.Context(), p); err != nil {
-		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -65,7 +65,7 @@ func (h *Handlers) UpdateProfile(ctx *gin.Context) {
 
 	existing, err := h.profileStore.FindByKey(ctx.Request.Context(), id)
 	if err != nil {
-		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	if existing == nil {
@@ -81,7 +81,7 @@ func (h *Handlers) UpdateProfile(ctx *gin.Context) {
 	p.ID = id
 
 	if err := h.profileStore.Save(ctx.Request.Context(), p); err != nil {
-		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -94,7 +94,7 @@ func (h *Handlers) DeleteProfile(ctx *gin.Context) {
 
 	existing, err := h.profileStore.FindByKey(ctx.Request.Context(), id)
 	if err != nil {
-		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	if existing == nil {
@@ -103,7 +103,7 @@ func (h *Handlers) DeleteProfile(ctx *gin.Context) {
 	}
 
 	if err := h.profileStore.Delete(ctx.Request.Context(), id); err != nil {
-		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 

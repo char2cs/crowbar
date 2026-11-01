@@ -1,10 +1,8 @@
 package handlers
 
 import (
-	"errors"
 	"net/http"
 
-	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
@@ -12,29 +10,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // newUUID is the default id factory for new threads and messages.
 func newUUID() string {
 	return uuid.NewString()
-}
-
-// threadErrorStatus maps a store error to an HTTP status: a not-found aggregate
-// yields 404, a command validation failure (e.g. deleting the root via the
-// message route, or editing a message that no longer exists) yields 400 as a
-// deterministic client error, and every other failure yields 500 so a real
-// store error is never masked.
-func threadErrorStatus(
-	err error,
-) int {
-	if errors.Is(err, problem.ErrNotFound) {
-		return http.StatusNotFound
-	}
-	if errors.Is(err, asynxModels.ErrValidation) {
-		return http.StatusBadRequest
-	}
-	return http.StatusInternalServerError
 }
 
 // scope reads the hierarchical project/repo/workspace ids from the request path.
@@ -54,7 +34,7 @@ func (h *Handlers) List(
 	projectID, repoID, wsID := scope(ctx)
 	threads, err := h.store.ListByWorkspace(ctx.Request.Context(), wsID)
 	if err != nil {
-		libs.WriteErr(ctx, threadErrorStatus(err), err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, dto.ThreadDTOList(threads, projectID, repoID))
@@ -96,7 +76,7 @@ func (h *Handlers) OpenThread(
 		Body:       body.Body,
 	}, h.now())
 	if err != nil {
-		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	d := dto.ThreadDTOFrom(thread.NormalizedMessages(), projectID, repoID)
@@ -113,7 +93,7 @@ func (h *Handlers) Detail(
 	projectID, repoID, _ := scope(ctx)
 	thread, err := h.store.Get(ctx.Request.Context(), ctx.Param("threadId"))
 	if err != nil {
-		libs.WriteErr(ctx, threadErrorStatus(err), err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, dto.ThreadDTOFrom(thread.NormalizedMessages(), projectID, repoID))
@@ -137,7 +117,7 @@ func (h *Handlers) SetResolved(
 	}
 	thread, err := h.setResolved(ctx, threadID, body.IsResolved)
 	if err != nil {
-		libs.WriteErr(ctx, threadErrorStatus(err), err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	d := dto.ThreadDTOFrom(thread.NormalizedMessages(), projectID, repoID)
@@ -186,7 +166,7 @@ func (h *Handlers) Reply(
 		Body:      body.Body,
 	}, h.now())
 	if err != nil {
-		libs.WriteErr(ctx, threadErrorStatus(err), err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	d := dto.ThreadDTOFrom(thread.NormalizedMessages(), projectID, repoID)
@@ -213,7 +193,7 @@ func (h *Handlers) EditMessage(
 	}
 	thread, err := h.store.EditMessage(ctx.Request.Context(), threadID, messageID, body.Body)
 	if err != nil {
-		libs.WriteErr(ctx, threadErrorStatus(err), err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	d := dto.ThreadDTOFrom(thread.NormalizedMessages(), projectID, repoID)
@@ -224,7 +204,7 @@ func (h *Handlers) EditMessage(
 // DeleteMessage handles DELETE
 // /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId/messages/:messageId,
 // removing a single reply. The root comment cannot be removed this way (deleting
-// the root is DELETE on the thread); attempting it yields a 400. Returns 200 with
+// the root is DELETE on the thread); attempting it is refused as unprocessable. Returns 200 with
 // the updated thread DTO and broadcasts it.
 func (h *Handlers) DeleteMessage(
 	ctx *gin.Context,
@@ -234,7 +214,7 @@ func (h *Handlers) DeleteMessage(
 	messageID := ctx.Param("messageId")
 	thread, err := h.store.DeleteMessage(ctx.Request.Context(), threadID, messageID)
 	if err != nil {
-		libs.WriteErr(ctx, threadErrorStatus(err), err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	d := dto.ThreadDTOFrom(thread.NormalizedMessages(), projectID, repoID)
@@ -253,7 +233,7 @@ func (h *Handlers) DeleteThread(
 	projectID, repoID, wsID := scope(ctx)
 	threadID := ctx.Param("threadId")
 	if err := h.store.DeleteThread(ctx.Request.Context(), threadID); err != nil {
-		libs.WriteErr(ctx, threadErrorStatus(err), err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	tombstone := dto.ThreadDTO{

@@ -23,7 +23,7 @@ func (h *Handlers) GetFiles(
 ) {
 	files, err := h.reviewUsecase.GetFiles(ctx.Request.Context(), h.workspaceID(ctx), scopeCommit(ctx))
 	if err != nil {
-		libs.WriteErr(ctx, reviewErrorStatus(err), err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	if files == nil {

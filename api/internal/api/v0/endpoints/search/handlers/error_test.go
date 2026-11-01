@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -50,7 +51,8 @@ func TestSearchHandlers_ReplaceErrors(
 	r := newRouterWith(errSearchEngine{err: enginesearch.ErrLocked})
 	rec := do(r, http.MethodPost, "/v0/chats/chat1/search/replace",
 		map[string]any{"query": "fmt"})
-	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Equal(t, http.StatusConflict, rec.Code, "a locked workspace answers as every other locked write does")
+	assert.Contains(t, rec.Body.String(), `"code":"locked"`)
 
 	r2 := newRouterWith(errSearchEngine{err: enginesearch.ErrPathOutsideWorkspace})
 	rec = do(r2, http.MethodPost, "/v0/chats/chat1/search/replace",
@@ -120,35 +122,16 @@ func TestReplaceHandlers_EngineUnavailable_Returns503(
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }
 
-// TestHandleSearchError_UnrecognisedErrorIsA500WithAFixedMessage proves
-// handleSearchError's default branch: an error that is not ErrBadPattern
-// answers with the FIXED "search failed" message, never the raw err.Error()
-// text, so an engine-internal error string is never leaked to the client.
-func TestHandleSearchError_UnrecognisedErrorIsA500WithAFixedMessage(
+// An engine failure answers 500 with what failed, never the wrap chain above it.
+func TestSearchHandlers_AnEngineFailureIsInternalWithoutItsChain(
 	t *testing.T,
 ) {
-	r := newRouterWith(errSearchEngine{err: errors.New("ripgrep: exit status 2")})
+	for _, path := range []string{"/v0/chats/chat1/search", "/v0/chats/chat1/search/replace"} {
+		r := newRouterWith(errSearchEngine{err: fmt.Errorf("search: rg: %w", errors.New("disk full mid-write"))})
 
-	rec := do(r, http.MethodPost, "/v0/chats/chat1/search",
-		map[string]any{"query": "fmt"})
+		rec := do(r, http.MethodPost, path, map[string]any{"query": "fmt"})
 
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-	assert.Contains(t, rec.Body.String(), "search failed")
-	assert.NotContains(t, rec.Body.String(), "ripgrep",
-		"the raw engine error must not leak to the client")
-}
-
-// TestHandleReplaceError_UnrecognisedErrorIsA500WithItsOwnMessage proves
-// handleReplaceError's default branch, which — unlike handleSearchError's —
-// surfaces the error's own text rather than a fixed message.
-func TestHandleReplaceError_UnrecognisedErrorIsA500WithItsOwnMessage(
-	t *testing.T,
-) {
-	r := newRouterWith(errSearchEngine{err: errors.New("disk full mid-write")})
-
-	rec := do(r, http.MethodPost, "/v0/chats/chat1/search/replace",
-		map[string]any{"query": "fmt"})
-
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-	assert.Contains(t, rec.Body.String(), "disk full mid-write")
+		assert.Equal(t, http.StatusInternalServerError, rec.Code, path)
+		assert.JSONEq(t, `{"success":false,"code":"internal","error":"disk full mid-write"}`, rec.Body.String(), path)
+	}
 }
