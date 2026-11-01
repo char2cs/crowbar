@@ -333,6 +333,33 @@ describe('workspaces and folders', () => {
   })
 })
 
+describe('chats', () => {
+  it('a filed chat sits where it is filed, not on its workspace ground', () => {
+    const { kids } = treeOf(
+      [ws('w1')],
+      [folder('f1')],
+      [
+        chat('filed', { workspaceId: 'w1', parentId: 'f1' }),
+        chat('parent', { workspaceId: 'w1' }),
+        chat('thread', { workspaceId: 'w1', parentId: 'parent' }),
+      ],
+    )
+    expect(kids('f1')).toEqual(['filed'])
+    expect(kids('w1')).toEqual(['parent'])
+    expect(kids('parent')).toEqual(['thread'])
+  })
+
+  it('a chat filed nowhere nests under its workspace, else at the repo root', () => {
+    const { kids, roots } = treeOf(
+      [ws('w1', { order: 0 })],
+      [],
+      [chat('a', { workspaceId: 'w1' }), chat('b')],
+    )
+    expect(kids('w1')).toEqual(['a'])
+    expect(roots).toEqual(['w1', 'b'])
+  })
+})
+
 describe('sibling order', () => {
   it('un-ordered rows keep the order they arrived in', () => {
     expect(treeOf([ws('c'), ws('a'), ws('b')]).roots).toEqual(['c', 'a', 'b'])
