@@ -123,13 +123,13 @@ export interface SidebarRow {
     state: OperationState
     problem: Problem | null
   }
-  /** The sidebar's naming input for a create not yet sent (`create-draft.ts`). */
+  /** The sidebar's naming input for a create not yet sent (the tree UI store's `draft`). */
   draft?: true
   /**
    * Present on a REAL, already-existing row that is currently held in the
-   * removal tray (`useRemovalTrayStore`) — attached by
+   * removal tray (the tree UI store) — attached by
    * `removal-plan.ts`'s `attachRemovalState`, cross-referencing the store's
-   * `entries` against this row (a `branch` row matches by `workspaceId`,
+   * `removals` against this row (a `branch` row matches by `workspaceId`,
    * since a 'workspace'-kind entry's own `id` is the raw workspace id, never
    * the owning-chat id the row is actually rendered/looked-up by — see that
    * function's own doc). `sidebar-row.tsx` renders this row transformed IN

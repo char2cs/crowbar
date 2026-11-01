@@ -3,7 +3,7 @@ import { resolveRowRepo } from '@/components/sidebar/lib/sidebar-drop-policy'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { dataOf } from '@/lib/loadable'
-import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { applyPendingRemovals, renderedHiddenIds } from '@/components/layout/removal-plan'
 import { compareSidebarRows } from '@/components/sidebar/lib/row-order'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
@@ -34,10 +34,10 @@ export function insertIndex(rest: string[], targetId: string, mode: 'before' | '
  * they are on screen.
  */
 export function visibleRepos(): Repo[] {
-  const tray = useRemovalTrayStore.getState()
+  const tray = treeUiStore.getState()
   return applyPendingRemovals(
     useSidebarStore.getState().repos,
-    renderedHiddenIds(tray.hiddenIds, tray.entries),
+    renderedHiddenIds(tray.hiddenIds, tray.removals),
   )
 }
 

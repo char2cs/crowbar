@@ -35,11 +35,10 @@ import {
 } from '@/components/layout/create-actions'
 import { handleTrash } from '@/components/layout/trash-actions'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import { useCreateDraftStore } from '@/lib/store/create-draft'
 import { resetOperations } from '@/__tests__/__fixtures__/operations'
 import { operationsState } from '@/lib/store/operations'
 import { operationRows } from '@/__tests__/__fixtures__/tree-rows'
@@ -75,9 +74,9 @@ afterEach(() => {
 beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState(getInitialState())
-  useRemovalTrayStore.setState(getInitialRemovalState())
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
   useHomeTreeStore.setState({ trees: {} })
-  useCreateDraftStore.setState({ draft: null })
+  treeUiStore.setState({ draft: null })
   resetOperations()
   // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
   // CLI, unlike the old chat-less postWorkspace) — the global provider store
@@ -90,7 +89,7 @@ const ANY = expect.any(String)
 
 /** Confirms the naming input `handleCreate` opened, as the row's input does. */
 function confirmArmedBranchName(name = 'typed-branch', navigate = vi.fn()): void {
-  if (!useCreateDraftStore.getState().draft) throw new Error('no draft is open')
+  if (!treeUiStore.getState().draft) throw new Error('no draft is open')
   confirmCreateDraft(name, navigate)
 }
 
@@ -109,7 +108,7 @@ describe('a chat row does not borrow another row kind’s refusal', () => {
     expect(handleTrash('c1')).toBe(true)
 
     expect(deleteChat).not.toHaveBeenCalled()
-    const entries = useRemovalTrayStore.getState().entries
+    const entries = treeUiStore.getState().removals
     expect(entries).toHaveLength(1)
     expect(entries[0]).toMatchObject({ kind: 'chat', id: 'c1', label: 'a chat' })
     // repo()'s default `defaultWorkspaceId` ('home-1') is the scoped
@@ -392,18 +391,18 @@ describe('creating a workspace off a REGULAR fork row', () => {
     useSidebarStore.setState({ repos: [forkRepo()] })
 
     handleCreate('ws-a', 'workspace', vi.fn())
-    expect(useCreateDraftStore.getState().draft).toMatchObject({
+    expect(treeUiStore.getState().draft).toMatchObject({
       kind: 'branch',
       parentId: 'c-owner',
       repoId: 'r1',
     })
     cancelCreateDraft()
-    expect(useCreateDraftStore.getState().draft).toBeNull()
+    expect(treeUiStore.getState().draft).toBeNull()
     expect(createChatWithOwnWorktree).not.toHaveBeenCalled()
 
     handleCreate('ws-a', 'workspace', vi.fn())
     confirmArmedBranchName('feature/y')
-    expect(useCreateDraftStore.getState().draft).toBeNull()
+    expect(treeUiStore.getState().draft).toBeNull()
     expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
       ANY,
       ANY,

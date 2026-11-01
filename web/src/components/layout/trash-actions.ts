@@ -1,5 +1,5 @@
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { dataOf } from '@/lib/loadable'
 import { planRemoval, type DragSubject } from './removal-plan'
@@ -60,7 +60,7 @@ export function handleTrash(id: string): boolean {
   const projects = dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS
   const drafts = planRemoval([subject], currentRepos, projects)
   if (drafts.length === 0) return false
-  useRemovalTrayStore.getState().hold(drafts)
+  treeUiStore.getState().hold(drafts)
   return true
 }
 
@@ -80,7 +80,7 @@ export function handleTrashProject(projectId: string): boolean {
   const projects = dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS
   const drafts = planRemoval([{ kind: 'project', id: projectId }], currentRepos, projects)
   if (drafts.length === 0) return false
-  useRemovalTrayStore.getState().hold(drafts)
+  treeUiStore.getState().hold(drafts)
   return true
 }
 
@@ -99,6 +99,6 @@ export function handleTrashRepo(repoId: string): boolean {
   const projects = dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS
   const drafts = planRemoval([{ kind: 'repo', id: repoId }], currentRepos, projects)
   if (drafts.length === 0) return false
-  useRemovalTrayStore.getState().hold(drafts)
+  treeUiStore.getState().hold(drafts)
   return true
 }

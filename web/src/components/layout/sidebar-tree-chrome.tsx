@@ -1,7 +1,7 @@
 import { useEffect, useState, type RefObject } from 'react'
 import { SidebarRowContextMenu } from '@/components/sidebar/row-context-menu'
 import { performImportBranches } from '@/components/sidebar/lib/import-branches'
-import { useSidebarInlineRenameStore } from '@/lib/store/sidebar-inline-rename'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { resolveRow } from './open-actions'
 import type { Repo } from '@/lib/store/sidebar'
 import { RepoImportDialog } from './repo-import-dialog'
@@ -46,9 +46,8 @@ export function SidebarTreeChrome({ treeRef, rows, repos }: SidebarTreeChromePro
   // Double-click-to-rename, restored from the deleted tree's per-row inline
   // editors (git history: cf422bc5) — as a REAL inline `<input>` in place of
   // the row's label (sidebar-row.tsx), matching `develop`'s actual behavior.
-  // This listener only starts the inline-rename store
-  // (sidebar-inline-rename.ts); the row that reads `renamingRowId` off it and
-  // actually draws the input lives several components away (SpaceScroller's
+  // This listener only starts the inline rename in the tree UI store; the row
+  // that reads `renaming` off it and actually draws the input lives several components away (SpaceScroller's
   // own tree), so the two can't share a prop chain — a store, not this
   // component's own state, is what lets both sides reach the same value. The
   // right-click menu's Rename item (`row-context-menu.tsx`) starts the exact
@@ -76,7 +75,7 @@ export function SidebarTreeChrome({ treeRef, rows, repos }: SidebarTreeChromePro
       // rename write is silently dropped downstream (performRenameWorkspaceBranch),
       // so starting the inline editor here would look like it worked and didn't.
       if (row.kind === 'branch' && row.locked) return
-      useSidebarInlineRenameStore.getState().startRenaming(rowId)
+      treeUiStore.getState().startRenaming(rowId)
     }
     tree.addEventListener('dblclick', onDoubleClick)
     return () => tree.removeEventListener('dblclick', onDoubleClick)

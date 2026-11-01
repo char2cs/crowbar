@@ -1,6 +1,6 @@
 import { useStore } from 'zustand'
 import { useChatWorking } from '@/features/agent/hooks/use-chat-entity'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { treeUiStore, useTreeUi } from '@/features/workspace/tree/tree-ui-store'
 import { DragGhost, DragGhostRows } from '@/components/layout/drag-ghost'
 import { DropIndicator } from '@/components/layout/drop-indicator'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
@@ -55,10 +55,8 @@ function SidebarTreeRow({
  * holding nothing renders the one affordance row (§3.5) in place of its
  * children, rather than nothing.
  *
- * Fold state reuses `collapsedChatRows` off the always-alive `useSidebarStore`
- * — the same set `agent-chats-panel.tsx` folds Chats-panel rows into today —
- * rather than a second fold-state store. It already survives what this tree
- * will too: a remount local component state would not.
+ * Fold state lives in the tree UI store, which survives the remounts local
+ * component state would not.
  */
 export function SidebarTree({
   rows,
@@ -69,7 +67,7 @@ export function SidebarTree({
   onDrop,
   onPaneDrop,
 }: SidebarTreeProps) {
-  const collapsed = useSidebarStore((s) => s.collapsedChatRows)
+  const collapsed = useTreeUi((s) => s.collapsed)
 
   const ids = new Set(rows.map((r) => r.id))
   const childrenByParent = new Map<string, SidebarRowType[]>()
@@ -122,9 +120,7 @@ export function SidebarTree({
           // no visible effect — explicit product correction from the old
           // "every row is a container" stance (spec §3.1) this used to
           // follow unconditionally.
-          onToggleFold={
-            hasChildren ? (id) => useSidebarStore.getState().toggleChatRow(id) : undefined
-          }
+          onToggleFold={hasChildren ? (id) => treeUiStore.getState().toggleChatRow(id) : undefined}
           folded={folded}
           dragProps={drag.dragProps(row, { path: childPath, expanded: !folded, hasChildren })}
           isDragging={drag.draggingIds.has(row.id)}

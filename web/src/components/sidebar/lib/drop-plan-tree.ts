@@ -5,7 +5,8 @@ import {
   owningChatIdOfWorkspace,
   workspaceIdOfBranchRow,
 } from '@/components/sidebar/lib/branch-row-id'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/lib/store/sidebar'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { resolveHomeOwnerId } from '@/components/sidebar/lib/workspace-owners'
 import {
   insertIndex,
@@ -101,7 +102,7 @@ export function planTreeRowDrop(
   target: SidebarRow,
   mode: DropMode,
 ): RowPlacementCall[] {
-  const { collapsedChatRows } = useSidebarStore.getState()
+  const { collapsed } = treeUiStore.getState()
   // The tree the user actually sees (and dropped into) is removal-tray-
   // filtered. Planning against the raw repos during an in-progress hold can
   // count a held (about-to-vanish) sibling in `rest`/`insertIndex`'s math,
@@ -129,7 +130,7 @@ export function planTreeRowDrop(
   const hasChildren = rows.some((r) => r.parentId === target.id)
   // Keyed by the ROW id, not the translated one — the collapse set holds what
   // the tree draws (`SidebarTreeSurface`/`toggleChatRow`), which is the row.
-  const expanded = !collapsedChatRows.has(target.id)
+  const expanded = !collapsed.has(target.id)
   const firstChild =
     mode !== 'into' &&
     resolvesToFirstChild({ kind: target.kind, id: target.id, expanded, hasChildren }, mode)

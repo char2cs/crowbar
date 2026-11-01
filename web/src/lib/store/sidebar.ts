@@ -9,14 +9,8 @@ import {
   reconcileRepos,
   recordRepoScopes,
 } from '@/lib/store/repo-tree'
-import {
-  createSidebarUISlice,
-  initialSidebarUIState,
-  type SidebarUIState,
-} from '@/lib/store/sidebar-ui'
-
-// The sidebar store: the repo tree (row types below, appliers in repo-tree.ts)
-// plus the sidebar's UI slice (sidebar-ui.ts).
+// The sidebar store: the repo tree (row types below, appliers in repo-tree.ts).
+// Its view-only state lives in the tree UI store (features/workspace/tree).
 
 // §5 7-value status union (drops the old 'agent-running' overlay — an agent in
 // flight is now the separate `working` flag). locked / pr-conflicts / deleted
@@ -264,13 +258,11 @@ interface RepoTreeState {
   applyFolderDTO: (dto: FolderDTO) => void
 }
 
-type SidebarState = RepoTreeState & SidebarUIState
-
 export function getInitialState() {
-  return { repos: [] as Repo[], ...initialSidebarUIState() }
+  return { repos: [] as Repo[] }
 }
 
-export const useSidebarStore = create<SidebarState>()((set, get, api) => {
+export const useSidebarStore = create<RepoTreeState>()((set, get) => {
   /** Write `repos` only when an applier actually changed it. */
   const writeRepos = (apply: (repos: Repo[]) => Repo[]) =>
     set((s) => {
@@ -278,7 +270,6 @@ export const useSidebarStore = create<SidebarState>()((set, get, api) => {
       return next === s.repos ? s : { repos: next }
     })
   return {
-    ...createSidebarUISlice(set, get, api),
     repos: [],
     applyPlacement: (placement) => writeRepos((repos) => applyPlacementTo(repos, placement)),
     setRepos: (incoming) => {

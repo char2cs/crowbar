@@ -5,10 +5,7 @@ import { inputOf, repoRows } from '@/__tests__/__fixtures__/tree-rows'
 import { deriveRows } from '@/features/workspace/tree/rows'
 import { useSidebarStore, getInitialState, type Repo } from '@/lib/store/sidebar'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
-import {
-  getInitialInlineRenameState,
-  useSidebarInlineRenameStore,
-} from '@/lib/store/sidebar-inline-rename'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import * as api from '@/lib/api'
 import * as sidebarPlacement from '@/lib/api/sidebar-placement'
@@ -199,7 +196,7 @@ const homeThreadRow: SidebarRow = {
 beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState({ ...getInitialState(), repos: [REPO] })
-  useSidebarInlineRenameStore.setState(getInitialInlineRenameState())
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
   useHomeTreeStore.setState({
     trees: {
       'proj-1': {
@@ -378,7 +375,7 @@ describe('SidebarRowContextMenu', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, 'folder-1')
     fireEvent.click(screen.getByText('Rename'))
-    expect(useSidebarInlineRenameStore.getState().renamingRowId).toBe('folder-1')
+    expect(treeUiStore.getState().renaming).toBe('folder-1')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 

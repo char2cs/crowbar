@@ -5,11 +5,7 @@ import { treeInputFor, useTreeInput } from '@/features/workspace/tree/input'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import {
-  getInitialRemovalState,
-  useRemovalTrayStore,
-  type RemovalEntry,
-} from '@/lib/store/sidebar-removal'
+import { treeUiStore, type RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
 import type { Operation, OperationItem } from '@/lib/store/operations'
 import type { Chat, Folder } from '@/lib/store/sidebar'
@@ -71,7 +67,7 @@ const importOp = (over: Partial<Operation> = {}): Operation => ({
 beforeEach(() => {
   useSidebarStore.setState({ ...getInitialState(), repos: [repo()] })
   useHomeTreeStore.setState({ trees: {} })
-  useRemovalTrayStore.setState(getInitialRemovalState())
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
   useFolderSignalStore.setState({ seededRepoIds: new Set(), seededWorkspaceRepoIds: new Set() })
   resetOperations()
   __resetHomeWorkspaceResolverForTest()
@@ -132,8 +128,8 @@ describe('useTreeInput', () => {
     ensureHomeWorkspaceResolved('p1')
     await waitFor(() => expect(ids('p1')).toEqual(['c-1', 'c-2']))
     const held = { kind: 'chat', id: 'c-1', entryId: 'e1', deadlineAt: 1, extra: 1 }
-    useRemovalTrayStore.setState({
-      entries: [{ ...held, hiddenIds: ['c-1', 'c-2'] } as unknown as RemovalEntry],
+    treeUiStore.setState({
+      removals: [{ ...held, hiddenIds: ['c-1', 'c-2'] } as unknown as RemovalEntry],
       hiddenIds: new Set(['c-1', 'c-2']),
     })
     const rows = deriveRows(treeInputFor('p1'))

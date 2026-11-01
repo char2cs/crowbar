@@ -8,7 +8,7 @@ import { GitPanel } from '@/features/git/components/git-panel'
 import { SidebarCarouselFilesPanel } from './sidebar-carousel-files-panel'
 import { useCardResizeDrag } from './use-card-resize-drag'
 import { useCarouselScrollSync } from './use-carousel-scroll-sync'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { useTreeUi } from '@/features/workspace/tree/tree-ui-store'
 import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'
 import { CARD_BOTTOM_INSET_VAR, loadCardHeightFraction } from './sidebar-card-height'
 import {
@@ -48,8 +48,8 @@ interface SidebarCarouselProps {
 }
 
 export function SidebarCarousel({ sidebarHeight, railRef, onHeightChange }: SidebarCarouselProps) {
-  const activeTab = useSidebarStore((s) => s.activeTab)
-  const setActiveTab = useSidebarStore((s) => s.setActiveTab)
+  const activeTab = useTreeUi((s) => s.activeTab)
+  const setActiveTab = useTreeUi((s) => s.setActiveTab)
   const containerRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   // The user's own committed open height, as a proportion of `sidebarHeight`

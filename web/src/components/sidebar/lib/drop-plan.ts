@@ -4,7 +4,7 @@ import {
   levelWorkspaceOfBranchRow,
   resolveRowRepo,
 } from '@/components/sidebar/lib/sidebar-drop-policy'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { homeOwnerRowId } from '@/features/workspace/tree/legacy-tree-index'
 import { useHomeTreeStore, resolveHomeRowScope } from '@/lib/store/home-tree'
 import {
@@ -75,7 +75,7 @@ function planChatDrop(
       {
         kind: target.kind,
         id: target.id,
-        expanded: !useSidebarStore.getState().collapsedChatRows.has(target.id),
+        expanded: !treeUiStore.getState().collapsed.has(target.id),
         hasChildren: rows.some((r) => r.parentId === target.id),
       },
       mode,
@@ -130,7 +130,7 @@ function planHomeFolderDrop(
   // Siblings come from the rows the panel draws: at the home root a repo's header is one.
   const rows = renderedProjectRows(projectId)
   const hasChildren = rows.some((r) => r.parentId === target.id)
-  const expanded = !useSidebarStore.getState().collapsedChatRows.has(target.id)
+  const expanded = !treeUiStore.getState().collapsed.has(target.id)
   // Only a home chat/folder has a first-child slot: an expanded repo header holds its own branches.
   const firstChild =
     mode !== 'into' &&

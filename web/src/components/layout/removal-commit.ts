@@ -8,7 +8,7 @@ import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useHomeTreeStore, removeHomeFolder, applyHomeFolders } from '@/lib/store/home-tree'
 import { toSidebarFolder } from '@/lib/store/build-repo-tree'
-import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
+import { treeUiStore, type RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
 import { operationsState, putLocalOperation, type Operation } from '@/lib/store/operations'
 import { dismissOperation, whenSettled, type OperationReply } from '@/lib/store/run-operation'
 import { report } from '@/lib/errors/report'
@@ -75,7 +75,7 @@ function stillPresent(repos: Repo[], ids: readonly string[]): boolean {
  */
 function releaseWhenGone(entry: RemovalEntry): void {
   const ids = entry.hiddenIds
-  const release = () => useRemovalTrayStore.getState().release(ids)
+  const release = () => treeUiStore.getState().release(ids)
   if (!stillPresent(useSidebarStore.getState().repos, ids)) {
     release()
     return
@@ -90,7 +90,7 @@ function releaseWhenGone(entry: RemovalEntry): void {
 /** A repo or project delete is an operation: its rows come back when it fails,
  *  and the operations watcher has told why. */
 function releaseWhenSettled(entry: RemovalEntry, opId: string): void {
-  const release = () => useRemovalTrayStore.getState().release(entry.hiddenIds)
+  const release = () => treeUiStore.getState().release(entry.hiddenIds)
   whenSettled(opId).then(release, (err: unknown) => {
     release()
     report(err, { action: `Remove ${entry.label}` })
@@ -254,14 +254,14 @@ function bumpRepoTree(repoId: string): void {
  * which a DELETE with no body is comfortably inside.
  */
 export function flushDrainingRemovals(): void {
-  for (const entry of useRemovalTrayStore.getState().entries) {
+  for (const entry of treeUiStore.getState().removals) {
     if (entry.deadlineAt === null) continue
     // Settled BEFORE the send, which makes this idempotent: the tray is drawn in
     // two places now (the workspace tree and the Chats panel), both are mounted
     // at once inside the sidebar carousel, and both register the pagehide
     // handler that calls this — so without it one unload would post every
     // pending delete twice.
-    useRemovalTrayStore.getState().settle(entry.entryId)
+    treeUiStore.getState().settle(entry.entryId)
     // No await: the document is unloading and there is nothing to roll back to;
     // a refusal still reaches the user if the page outlives it.
     sendRemoval(entry, { keepalive: true }).catch((err: unknown) =>
@@ -283,7 +283,7 @@ export function flushDrainingRemovals(): void {
  * that work and ask whether to delete it anyway.
  */
 export async function commitRemoval(entry: RemovalEntry, context: RemovalContext): Promise<void> {
-  useRemovalTrayStore.getState().settle(entry.entryId)
+  treeUiStore.getState().settle(entry.entryId)
 
   let opId: string | void
   try {
@@ -291,10 +291,10 @@ export async function commitRemoval(entry: RemovalEntry, context: RemovalContext
   } catch (err) {
     const atRisk = workAtRiskOf(err)
     if (atRisk && !entry.atRisk) {
-      useRemovalTrayStore.getState().askToDiscard(entry, atRisk)
+      treeUiStore.getState().askToDiscard(entry, atRisk)
       return
     }
-    useRemovalTrayStore.getState().release(entry.hiddenIds)
+    treeUiStore.getState().release(entry.hiddenIds)
     toast.error(
       `Couldn't remove ${entry.label}: ${err instanceof Error ? err.message : 'request failed'}`,
     )

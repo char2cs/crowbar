@@ -3,8 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useHomeTreeStore, type HomeTree } from '@/lib/store/home-tree'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
-import { useCreateDraftStore, type CreateDraft } from '@/lib/store/create-draft'
+import { treeUiStore, useTreeUi, type CreateDraft, type RemovalEntry } from './tree-ui-store'
 import {
   newestProblem,
   operationsState,
@@ -80,13 +79,13 @@ export function treeInputFor(
   projectId: string,
   repos: readonly Repo[] = useSidebarStore.getState().repos,
 ): TreeInput {
-  const tray = useRemovalTrayStore.getState()
+  const tray = treeUiStore.getState()
   const ops = operationsState()
   return inputFrom(
     {
       repos,
-      hidden: renderedHiddenIds(tray.hiddenIds, tray.entries),
-      removals: tray.entries,
+      hidden: renderedHiddenIds(tray.hiddenIds, tray.removals),
+      removals: tray.removals,
       drawn: () => true,
       homeTrees: useHomeTreeStore.getState().trees,
       homeOf: (id) => ({
@@ -94,7 +93,7 @@ export function treeInputFor(
         owningChatId: getHomeOwningChatId(id),
       }),
       operations: Object.values(ops.ops),
-      draft: useCreateDraftStore.getState().draft,
+      draft: treeUiStore.getState().draft,
       problemOf: problemsIn(selectFailedOps(ops)),
       isPresent: isEntityPresent,
     },
@@ -105,14 +104,14 @@ export function treeInputFor(
 /** Every project's input for a component, re-derived when a store it reads changes. */
 export function useTreeInput(): (projectId: string) => TreeInput {
   const repos = useSidebarStore((s) => s.repos)
-  const removals = useRemovalTrayStore((s) => s.entries)
-  const trayHidden = useRemovalTrayStore((s) => s.hiddenIds)
+  const removals = useTreeUi((s) => s.removals)
+  const trayHidden = useTreeUi((s) => s.hiddenIds)
   const seeded = useFolderSignalStore((s) => s.seededRepoIds)
   const seededWorkspaces = useFolderSignalStore((s) => s.seededWorkspaceRepoIds)
   const homeTrees = useHomeTreeStore((s) => s.trees)
   const homes = useHomeWorkspaceStates()
   const ops = useOperations((s) => s.ops)
-  const draft = useCreateDraftStore((s) => s.draft)
+  const draft = useTreeUi((s) => s.draft)
   // Shallow: rows re-derive only when some failure changes, not on every frame.
   const failed = useOperations(useShallow(selectFailedOps))
   const operations = useMemo(() => Object.values(ops), [ops])

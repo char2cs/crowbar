@@ -23,11 +23,7 @@ import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/opera
 import { useLocalOperationsStore } from '@/lib/store/local-operations'
 import { selectEntityProblem, operationsState, type Operation } from '@/lib/store/operations'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import {
-  useRemovalTrayStore,
-  getInitialRemovalState,
-  type RemovalEntry,
-} from '@/lib/store/sidebar-removal'
+import { treeUiStore, type RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
@@ -104,7 +100,7 @@ beforeEach(() => {
   toastError = vi.spyOn(toast, 'error')
   resetOperations()
   __resetWorkspaceScopesForTest()
-  useRemovalTrayStore.setState(getInitialRemovalState())
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
   useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set<string>() } as never)
   useSidebarStore.setState({ repos: [repo()] })
   useHomeTreeStore.setState({ trees: {} })
@@ -220,7 +216,7 @@ describe('committing a workspace removal', () => {
 
   it('un-hides the rows and says why when the delete is refused', async () => {
     deleteChat.mockRejectedValueOnce(new Error('worktree is busy'))
-    useRemovalTrayStore.getState().hold([
+    treeUiStore.getState().hold([
       {
         kind: 'workspace',
         id: 'ws-fork',
@@ -237,8 +233,8 @@ describe('committing a workspace removal', () => {
 
     await commitRemoval(entry(), context)
 
-    expect(useRemovalTrayStore.getState().hiddenIds.has('ws-fork')).toBe(false)
-    expect(useRemovalTrayStore.getState().hiddenIds.has('chat-fork')).toBe(false)
+    expect(treeUiStore.getState().hiddenIds.has('ws-fork')).toBe(false)
+    expect(treeUiStore.getState().hiddenIds.has('chat-fork')).toBe(false)
     expect(toastError).toHaveBeenCalledOnce()
   })
 
@@ -324,7 +320,7 @@ describe('committing a project-home removal', () => {
         },
       },
     })
-    useRemovalTrayStore.getState().hold([
+    treeUiStore.getState().hold([
       {
         kind: 'chat',
         id: 'c1',
@@ -351,14 +347,14 @@ describe('committing a project-home removal', () => {
       context,
     )
 
-    expect(useRemovalTrayStore.getState().hiddenIds.has('c1')).toBe(false)
+    expect(treeUiStore.getState().hiddenIds.has('c1')).toBe(false)
     expect(toastError).toHaveBeenCalledOnce()
   })
 })
 
 // A repo or project delete is an operation; the rows wait on it.
 describe('committing a repo removal', () => {
-  const hideRepo = () => useRemovalTrayStore.setState({ hiddenIds: new Set(['r1']) })
+  const hideRepo = () => treeUiStore.setState({ hiddenIds: new Set(['r1']) })
   const repoEntry = () =>
     entry({ kind: 'repo', id: 'r1', label: 'checkout', hiddenIds: ['r1'], deadlineAt: null })
   const removeOp = (opId: string, version: number, over: Partial<Operation> = {}): Operation => ({
@@ -387,11 +383,11 @@ describe('committing a repo removal', () => {
     hideRepo()
     await commitRemoval(repoEntry(), context)
     streamOperation(removeOp(sentOpId(), 2, { state: 'succeeded' }))
-    expect(useRemovalTrayStore.getState().hiddenIds.has('r1')).toBe(true)
+    expect(treeUiStore.getState().hiddenIds.has('r1')).toBe(true)
 
     useSidebarStore.setState({ repos: [] })
 
-    await vi.waitFor(() => expect(useRemovalTrayStore.getState().hiddenIds.has('r1')).toBe(false))
+    await vi.waitFor(() => expect(treeUiStore.getState().hiddenIds.has('r1')).toBe(false))
     expect(toastError).not.toHaveBeenCalled()
   })
 
@@ -401,7 +397,7 @@ describe('committing a repo removal', () => {
     const reason: Problem = { code: 'internal', message: 'worktree wedged' }
     streamOperation(removeOp(sentOpId(), 2, { state: 'failed', error: reason }))
 
-    await vi.waitFor(() => expect(useRemovalTrayStore.getState().hiddenIds.has('r1')).toBe(false))
+    await vi.waitFor(() => expect(treeUiStore.getState().hiddenIds.has('r1')).toBe(false))
     expect(selectEntityProblem(operationsState(), 'r1')).toEqual(reason)
     // The operations watcher tells it, once.
     expect(toastError).not.toHaveBeenCalled()
@@ -412,7 +408,7 @@ describe('a removal sent as the page unloads', () => {
   it('an unload-time remove that fails is reported', async () => {
     const add = vi.spyOn(toastManager, 'add')
     deleteChat.mockRejectedValueOnce(new ApiError('daemon is gone', 500))
-    useRemovalTrayStore.getState().hold([entry()])
+    treeUiStore.getState().hold([entry()])
 
     flushDrainingRemovals()
 
@@ -437,16 +433,16 @@ describe('a removal refused over work at risk', () => {
 
   it('goes back in the tray, rows still hidden, waiting on an answer with the list', async () => {
     deleteChat.mockRejectedValueOnce(refusal())
-    useRemovalTrayStore.getState().hold([entry()])
-    const [held] = useRemovalTrayStore.getState().entries
+    treeUiStore.getState().hold([entry()])
+    const [held] = treeUiStore.getState().removals
 
     await commitRemoval(held, context)
 
-    expect(useRemovalTrayStore.getState().entries).toHaveLength(1)
-    const [asked] = useRemovalTrayStore.getState().entries
+    expect(treeUiStore.getState().removals).toHaveLength(1)
+    const [asked] = treeUiStore.getState().removals
     expect(asked?.deadlineAt).toBeNull()
     expect(asked?.atRisk).toEqual(lost)
-    expect(useRemovalTrayStore.getState().hiddenIds.has('ws-fork')).toBe(true)
+    expect(treeUiStore.getState().hiddenIds.has('ws-fork')).toBe(true)
     expect(toastError).not.toHaveBeenCalled()
   })
 

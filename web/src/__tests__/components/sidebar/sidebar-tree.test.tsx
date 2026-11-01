@@ -6,7 +6,6 @@ vi.mock('@/lib/persistence/sidebar-ui', () => ({
   loadSidebarUI: vi.fn().mockResolvedValue(null),
 }))
 
-import { useSidebarStore } from '@/lib/store/sidebar'
 import { SidebarTree } from '@/components/sidebar/sidebar-tree'
 import {
   windowPaneStore,
@@ -15,6 +14,7 @@ import {
 import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { resetChatStore, setChatWorking } from '@/__tests__/__fixtures__/agent-chat'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 
 // Task 21's drag wiring — a null scrollRef and no-op commit callbacks are
 // enough for every test below, none of which exercises a live drag.
@@ -50,7 +50,7 @@ const rows: SidebarRow[] = [
 ]
 
 beforeEach(() => {
-  useSidebarStore.setState({ collapsedChatRows: new Set<string>() })
+  treeUiStore.setState({ collapsed: new Set<string>() })
   resetWindowPaneStoreForTests()
 })
 

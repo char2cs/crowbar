@@ -21,7 +21,7 @@ import { restoreDocuments } from '@/features/editor/documents/restore-documents'
 import { fetchHomeChats, fetchRepoChats, fetchRepos } from '@/lib/api'
 import { isNotFoundError } from '@/lib/errors/api-error'
 import { loadSidebarUI } from './sidebar-ui'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 
 /**
  * One-time, window-level hydration of pane/buffer layout — awaited at boot
@@ -182,9 +182,9 @@ export async function hydrateSidebar(): Promise<void> {
   if (!sidebarUI) return
   // `collapsedRepos`/`collapsedWorkspaces`/`collapsedProjects` are retired
   // keys the pre-restyle tree wrote (see schemas.ts) — never replayed.
-  useSidebarStore.setState({
+  treeUiStore.setState({
     // Absent on a record written before the Chats panel was collapsible —
     // replays as "nothing folded", the product default (see schemas.ts).
-    collapsedChatRows: new Set(sidebarUI.collapsedChatRows ?? []),
+    collapsed: new Set(sidebarUI.collapsedChatRows ?? []),
   })
 }

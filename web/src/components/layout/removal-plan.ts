@@ -1,6 +1,6 @@
 import { type Chat, type Folder, type Repo } from '@/lib/store/sidebar'
 import { getPostDeleteNavigationTarget, EMPTY_CHATS, EMPTY_FOLDERS } from '@/lib/store/repo-tree'
-import type { RemovalDraft, RemovalEntry } from '@/lib/store/sidebar-removal'
+import type { RemovalDraft, RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
 import type { DragSubjectBase } from '@/components/tree-dnd/drop-core'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'

@@ -42,7 +42,7 @@ import { repoRows } from '@/__tests__/__fixtures__/tree-rows'
 import { placeRepo } from '@/lib/api/sidebar-placement'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 
 const repo = (n: number): Repo => ({
   id: `repo-${n}`,
@@ -62,7 +62,7 @@ const repo = (n: number): Repo => ({
 beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState({ ...getInitialState(), repos: [repo(1), repo(2), repo(3)] })
-  useRemovalTrayStore.setState(getInitialRemovalState())
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
   getHomeWorkspaceId.mockReturnValue('home-ws-1')
   useHomeTreeStore.setState({
     trees: {

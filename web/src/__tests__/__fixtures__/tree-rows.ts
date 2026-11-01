@@ -1,7 +1,6 @@
 import type { Chat, Folder, Repo, Workspace } from '@/lib/store/sidebar'
 import type { EntityRef, Operation } from '@/lib/store/operations'
-import type { CreateDraft } from '@/lib/store/create-draft'
-import type { RemovalEntry } from '@/lib/store/sidebar-removal'
+import { type CreateDraft, type RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { legacyTreeIndex, type LegacyHome } from '@/features/workspace/tree/legacy-tree-index'
 import { viewsFromStores, type ProblemLookup } from '@/features/workspace/tree/views'

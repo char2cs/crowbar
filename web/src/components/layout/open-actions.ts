@@ -1,5 +1,6 @@
 import type { useNavigate } from '@tanstack/react-router'
-import { useSidebarStore, type Chat, type Repo } from '@/lib/store/sidebar'
+import type { Chat, Repo } from '@/lib/store/sidebar'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import type { DragSubject } from './removal-plan'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
@@ -289,7 +290,7 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
   const homeRow = resolveHomeRowScope(id)
   if (homeRow) {
     if (homeRow.kind === 'folder') {
-      useSidebarStore.getState().toggleChatRow(id)
+      treeUiStore.getState().toggleChatRow(id)
       return
     }
     openChatRoute(repos, id, homeRow.homeWorkspaceId, navigate)
@@ -306,7 +307,7 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
       : null
     const wsId = isOpenableWorkspaceOfRepo(chatRow.repo, rowWsId)
     if (!wsId || !chatRow.repo.projectId) {
-      useSidebarStore.getState().toggleChatRow(id)
+      treeUiStore.getState().toggleChatRow(id)
       return
     }
     openChatRoute(repos, id, wsId, navigate)
@@ -318,7 +319,7 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
   // A folder has no destination — the row body toggles it, same as the
   // tree it replaces.
   if (found.subject.kind === 'folder') {
-    useSidebarStore.getState().toggleChatRow(id)
+    treeUiStore.getState().toggleChatRow(id)
     return
   }
   if (!found.repo.projectId) return
@@ -328,7 +329,7 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
   // into. Fold, exactly like a folder.
   const isRepoHome = found.subject.id === found.repo.defaultWorkspaceId
   if (isRepoHome || found.subject.locked) {
-    useSidebarStore.getState().toggleChatRow(id)
+    treeUiStore.getState().toggleChatRow(id)
     return
   }
   // A real, unlocked workspace row IS a chat — the one that owns it — so it

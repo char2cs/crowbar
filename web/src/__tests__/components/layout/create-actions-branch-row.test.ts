@@ -21,10 +21,9 @@ import { resolveChatRow, resolveRow } from '@/components/layout/open-actions'
 import { handleCreate, confirmCreateDraft } from '@/components/layout/create-actions'
 import { handleTrash } from '@/components/layout/trash-actions'
 import { getInitialState, useSidebarStore, type Chat, type Repo } from '@/lib/store/sidebar'
-import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
-import { useCreateDraftStore } from '@/lib/store/create-draft'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
@@ -51,16 +50,16 @@ afterEach(() => {
 beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState(getInitialState())
-  useRemovalTrayStore.setState(getInitialRemovalState())
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
   useHomeTreeStore.setState({ trees: {} })
-  useCreateDraftStore.setState({ draft: null })
+  treeUiStore.setState({ draft: null })
   useAgentProvidersStore.setState({ status: 'ready', providers: [] })
 })
 
 const ANY = expect.any(String)
 
 function confirmArmedBranchName(name = 'typed-branch'): void {
-  if (!useCreateDraftStore.getState().draft) throw new Error('no draft is open')
+  if (!treeUiStore.getState().draft) throw new Error('no draft is open')
   confirmCreateDraft(name, vi.fn())
 }
 
@@ -163,10 +162,10 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
     // call, in the same repo, does reach the tray.
     expect(handleTrash('develop-row')).toBe(false)
     expect(deleteChat).not.toHaveBeenCalled()
-    expect(useRemovalTrayStore.getState().entries).toEqual([])
+    expect(treeUiStore.getState().removals).toEqual([])
 
     expect(handleTrash('ws-open')).toBe(true)
-    expect(useRemovalTrayStore.getState().entries).toHaveLength(1)
+    expect(treeUiStore.getState().removals).toHaveLength(1)
     expect(deleteChat).not.toHaveBeenCalled()
   })
 })

@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { RefObject } from 'react'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import type { SidebarTab } from '@/lib/store/sidebar-ui'
+import { treeUiStore, type SidebarTab } from '@/features/workspace/tree/tree-ui-store'
 
 // 'workspaces' and 'chats' are both dropped: spec §6.1's card holds two
 // glyphs and nothing else, Files and Git. Part B's SidebarTree and Part D's
@@ -51,7 +50,7 @@ export function useCarouselScrollSync(
     if (!el || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(() => {
       isUserGesture.current = false
-      const index = TABS.indexOf(useSidebarStore.getState().activeTab)
+      const index = TABS.indexOf(treeUiStore.getState().activeTab)
       if (index === -1) return
       // A collapsed sidebar has zero width: no offset identifies a panel, and
       // the browser has already clamped scrollLeft to 0. Leave it — the resize
@@ -80,7 +79,7 @@ export function useCarouselScrollSync(
     if (!el || el.clientWidth === 0) return
     const index = Math.round(el.scrollLeft / el.clientWidth)
     const tab = TABS[index]
-    if (tab && tab !== useSidebarStore.getState().activeTab) {
+    if (tab && tab !== treeUiStore.getState().activeTab) {
       setActiveTab(tab)
     }
   }

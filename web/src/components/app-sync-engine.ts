@@ -517,7 +517,7 @@ export function useAppSyncEngine(): void {
       }
 
       // Every visible repo draws its whole tree (the restyled sidebar folds
-      // rows via collapsedChatRows, which hides nothing the streams feed), so
+      // rows via the tree UI store's `collapsed`, which hides nothing the streams feed), so
       // each one keeps both its workspaces and its folders+chats streams open.
       const { repos } = useSidebarStore.getState()
       const { ops } = operationsState()

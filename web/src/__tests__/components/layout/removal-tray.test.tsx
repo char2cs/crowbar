@@ -93,7 +93,7 @@ import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { useProjectDataStore } from '@/lib/store/projects'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
 import { RemovalTray } from '@/components/layout/removal-tray'
 import { planRemoval, type DragSubject } from '@/components/layout/removal-plan'
@@ -168,7 +168,7 @@ const rows = () =>
 /** Put `subjects` in the tray, exactly as a drop on the pane would. */
 function hold(...subjects: DragSubject[]) {
   act(() => {
-    useRemovalTrayStore.getState().hold(planRemoval(subjects, useSidebarStore.getState().repos))
+    treeUiStore.getState().hold(planRemoval(subjects, useSidebarStore.getState().repos))
   })
 }
 
@@ -203,7 +203,7 @@ beforeEach(() => {
   router.pathname = '/'
   useWorkspaceListStore.setState({ data: idle() })
   useProjectDataStore.setState({ data: success([project]) })
-  useRemovalTrayStore.setState(getInitialRemovalState())
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
   useSidebarStore.setState({ repos: [repo()] })
   // Rows are only built for a repo whose tree has been read back — see
   // SidebarTreeSurface's own gate.

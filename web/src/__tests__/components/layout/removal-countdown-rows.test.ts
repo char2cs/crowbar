@@ -13,7 +13,7 @@ import {
 } from '@/components/layout/removal-plan'
 import { repoRows } from '@/__tests__/__fixtures__/tree-rows'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import { useRemovalTrayStore, getInitialRemovalState } from '@/lib/store/sidebar-removal'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useProjectDataStore } from '@/lib/store/projects'
 
 /**
@@ -26,7 +26,7 @@ import { useProjectDataStore } from '@/lib/store/projects'
  * unit test of any one of them could see it:
  *
  *     handleTrash            -> resolve the clicked row, plan what goes
- *     useRemovalTrayStore    -> hold it, hiding those ids
+ *     treeUiStore    -> hold it, hiding those ids
  *     applyPendingRemovals   -> the repo as the sidebar now reads it
  *     deriveRows           -> the rows actually drawn during the countdown
  *
@@ -104,7 +104,7 @@ function repo(): Repo {
 /** The rows on screen right now: descendants strip out, while the held row's own primary id
  *  stays so it has a row left to transform in place (`renderedHiddenIds`). */
 function rowsOnScreen() {
-  const { entries, hiddenIds } = useRemovalTrayStore.getState()
+  const { removals: entries, hiddenIds } = treeUiStore.getState()
   const repos = applyPendingRemovals(
     useSidebarStore.getState().repos,
     renderedHiddenIds(hiddenIds, entries),
@@ -116,7 +116,7 @@ function rowsOnScreen() {
 }
 
 beforeEach(() => {
-  useRemovalTrayStore.setState(getInitialRemovalState())
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
   useSidebarStore.setState({ repos: [repo()] })
   useProjectDataStore.setState({ data: { status: 'success', data: [PROJECT] } } as never)
 })
@@ -153,7 +153,7 @@ describe('a held workspace row during its countdown', () => {
 
   it('puts the row back as a BRANCH row on cancel, not as a bubble', () => {
     handleTrash('chat-fork')
-    const { entries, cancel } = useRemovalTrayStore.getState()
+    const { removals: entries, cancel } = treeUiStore.getState()
     cancel(entries[0].entryId)
 
     expect(rowsOnScreen().find((r) => r.id === 'chat-fork')).toMatchObject({
@@ -166,7 +166,7 @@ describe('a held workspace row during its countdown', () => {
   it('takes the owning chat’s id into hiddenIds, not just the workspace’s', () => {
     handleTrash('chat-fork')
 
-    const hidden = useRemovalTrayStore.getState().hiddenIds
+    const hidden = treeUiStore.getState().hiddenIds
     expect(hidden.has('ws-fork')).toBe(true)
     expect(hidden.has('chat-fork')).toBe(true)
   })

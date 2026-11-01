@@ -21,7 +21,7 @@ import { deriveRows } from '@/features/workspace/tree/rows'
 import { inputOf, repoRows } from '@/__tests__/__fixtures__/tree-rows'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
-import { useCreateDraftStore } from '@/lib/store/create-draft'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 
@@ -57,7 +57,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   __resetWorkspaceScopesForTest()
   useHomeTreeStore.setState({ trees: {} })
-  useCreateDraftStore.setState({ draft: null })
+  treeUiStore.setState({ draft: null })
   useSidebarStore.setState(getInitialState())
   useSidebarStore.getState().setRepos([repo()])
   useAgentProvidersStore.setState({
@@ -76,7 +76,7 @@ describe('owner known to the workspace DTO but absent from the chat list', () =>
 
   it('fork off that row parents the naming input at the rendered row, not at an unlisted chat', () => {
     handleCreate('owner-locked', 'workspace', navigate)
-    const draft = useCreateDraftStore.getState().draft!
+    const draft = treeUiStore.getState().draft!
     const rendered = deriveRows(inputOf({ repos: [repo()], draft }))
     const ids = new Set(rendered.map((r) => r.id))
     // sidebar-tree.tsx roots any row whose parentId names no rendered row.

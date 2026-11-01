@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import type { WorkAtRisk } from '@/lib/errors/api-error'
-import type { RemovalEntry } from '@/lib/store/sidebar-removal'
+import type { RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
 
 /**
  * The last question before a repo or a project is deleted — or before anything

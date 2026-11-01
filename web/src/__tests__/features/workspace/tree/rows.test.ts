@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Operation } from '@/lib/store/operations'
-import type { RemovalEntry } from '@/lib/store/sidebar-removal'
+import { type RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { indexNodes, type TreeNode } from '@/features/workspace/tree/tree-index'
 import type { RowViews } from '@/features/workspace/tree/views'

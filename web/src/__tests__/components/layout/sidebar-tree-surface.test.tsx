@@ -40,7 +40,7 @@ import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
 import { getInitialState, useSidebarStore, type Chat, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { planRemoval } from '@/components/layout/removal-plan'
 import * as api from '@/lib/api'
 import {
@@ -104,7 +104,7 @@ beforeEach(() => {
   // align its panel.
   HTMLElement.prototype.scrollTo = vi.fn()
   useSidebarStore.setState(getInitialState())
-  useRemovalTrayStore.setState(getInitialRemovalState())
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
   useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set() })
   useHomeTreeStore.setState({ trees: {} })
   // GET /home: p1's home resolves, every other project's stays in flight.
@@ -176,7 +176,7 @@ describe('SidebarTreeSurface', () => {
     )
 
     act(() => {
-      useRemovalTrayStore
+      treeUiStore
         .getState()
         .hold(
           planRemoval(

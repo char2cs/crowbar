@@ -17,7 +17,7 @@ import { formatChangeCount } from '@/components/layout/format-change-count'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { performRenameRow } from '@/components/sidebar/lib/row-actions'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
-import { useSidebarInlineRenameStore } from '@/lib/store/sidebar-inline-rename'
+import { treeUiStore, useTreeUi } from '@/features/workspace/tree/tree-ui-store'
 import { SidebarRowActions } from '@/components/sidebar/sidebar-row-actions'
 import { SidebarRowGlyph } from '@/components/sidebar/sidebar-row-glyph'
 import { OperationSidebarRow } from '@/components/sidebar/operation-sidebar-row'
@@ -165,14 +165,14 @@ export function SidebarRow({
   // vary the hook count render to render for that one instance. Harmless to
   // run early: the two returns below render an entirely different component,
   // which never reads this value at all.
-  // Includes `renamingRole` in the selector itself (not just `renamingRowId`)
+  // Includes `renamingRole` in the selector itself (not just `renaming`)
   // so this instance only answers true when the STORE — not a static
   // per-caller flag — decided this is the one that draws the editor; see
   // `inlineRenameDisabled`'s own doc below for why a shared id can resolve to
   // either this instance or its tree/Recents counterpart.
-  const isThisRowRenaming = useSidebarInlineRenameStore(
+  const isThisRowRenaming = useTreeUi(
     (s) =>
-      s.renamingRowId === row.id &&
+      s.renaming === row.id &&
       (inlineRenameDisabled ? s.renamingRole === 'recents' : s.renamingRole !== 'recents'),
   )
   // A create whose entity has not arrived (or is still being named) has no
@@ -292,10 +292,10 @@ export function SidebarRow({
             defaultValue={row.label}
             mono={row.kind === 'branch' && !showBranchSecondLine}
             onConfirm={(name) => {
-              useSidebarInlineRenameStore.getState().stopRenaming()
+              treeUiStore.getState().stopRenaming()
               if (name !== row.label) void performRenameRow(row.id, name)
             }}
-            onCancel={() => useSidebarInlineRenameStore.getState().stopRenaming()}
+            onCancel={() => treeUiStore.getState().stopRenaming()}
           />
         ) : showBranchSecondLine ? (
           // A flex COLUMN, not a row (matches the retired workspace tree's own

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useNavigate, useRouter } from '@tanstack/react-router'
-import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
+import { treeUiStore, useTreeUi, type RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
 import { commitRemoval, flushDrainingRemovals, type RemovalNavigate } from './removal-commit'
 import { RemovalConfirmDialog } from './removal-confirm-dialog'
 
@@ -35,7 +35,7 @@ function secondsLeft(deadlineAt: number, now: number): number {
  * stage, the numerals sat at 8 forever and no DELETE ever left the app.
  */
 export function RemovalTray() {
-  const entries = useRemovalTrayStore((s) => s.entries)
+  const entries = useTreeUi((s) => s.removals)
   // A repo/project entry never drains (`deadlineAt === null` — hold()'s own
   // rule), and it is the only kind that ever needs an answer before
   // anything commits — so the first one in the list is exactly what to ask
@@ -98,7 +98,7 @@ export function RemovalTray() {
     const timer = setTimeout(
       () => {
         const now = Date.now()
-        for (const entry of useRemovalTrayStore.getState().entries) {
+        for (const entry of treeUiStore.getState().removals) {
           if (entry.deadlineAt !== null && entry.deadlineAt <= now) commit(entry)
         }
       },
@@ -156,7 +156,7 @@ export function RemovalTray() {
     <RemovalConfirmDialog
       entry={pending}
       onCancel={() => {
-        if (pending) useRemovalTrayStore.getState().cancel(pending.entryId)
+        if (pending) treeUiStore.getState().cancel(pending.entryId)
       }}
       onConfirm={(entry) => commit(entry)}
     />

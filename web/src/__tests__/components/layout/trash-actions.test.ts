@@ -26,7 +26,7 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 
 import { handleTrash } from '@/components/layout/trash-actions'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
@@ -55,7 +55,7 @@ afterEach(() => {
 beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState(getInitialState())
-  useRemovalTrayStore.setState(getInitialRemovalState())
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
   useHomeTreeStore.setState({ trees: {} })
   // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
   // CLI, unlike the old chat-less postWorkspace) — the global provider store
@@ -72,8 +72,8 @@ describe('handleTrash', () => {
 
     expect(handleTrash('ws-a')).toBe(true)
 
-    expect(useRemovalTrayStore.getState().entries).toHaveLength(1)
-    expect(useRemovalTrayStore.getState().entries[0]?.id).toBe('ws-a')
+    expect(treeUiStore.getState().removals).toHaveLength(1)
+    expect(treeUiStore.getState().removals[0]?.id).toBe('ws-a')
   })
 
   it('is a no-op for the repo-home row (no matching row for planRemoval to draft), and reports it', () => {
@@ -81,7 +81,7 @@ describe('handleTrash', () => {
 
     expect(handleTrash('home-1')).toBe(false)
 
-    expect(useRemovalTrayStore.getState().entries).toEqual([])
+    expect(treeUiStore.getState().removals).toEqual([])
   })
 
   // The literal live-caught bug: the daemon's ListInRepo never filters by
@@ -108,7 +108,7 @@ describe('handleTrash', () => {
 
     expect(handleTrash('home-folder-1')).toBe(true)
 
-    const entries = useRemovalTrayStore.getState().entries
+    const entries = treeUiStore.getState().removals
     expect(entries).toHaveLength(1)
     expect(entries[0]).toMatchObject({
       kind: 'folder',
@@ -137,7 +137,7 @@ describe('handleTrash', () => {
 
     expect(handleTrash('ws-locked')).toBe(false)
 
-    expect(useRemovalTrayStore.getState().entries).toEqual([])
+    expect(treeUiStore.getState().removals).toEqual([])
   })
 
   // Addendum §2: a chat's delete now holds in the SAME removal tray every
@@ -160,7 +160,7 @@ describe('handleTrash', () => {
       expect(handleTrash('c1')).toBe(true)
 
       expect(deleteChat).not.toHaveBeenCalled()
-      const entries = useRemovalTrayStore.getState().entries
+      const entries = treeUiStore.getState().removals
       expect(entries).toHaveLength(1)
       expect(entries[0]).toMatchObject({ kind: 'chat', id: 'c1', wsId: 'ws-a' })
     })
@@ -179,7 +179,7 @@ describe('handleTrash', () => {
       expect(handleTrash('c1')).toBe(false)
 
       expect(deleteChat).not.toHaveBeenCalled()
-      expect(useRemovalTrayStore.getState().entries).toEqual([])
+      expect(treeUiStore.getState().removals).toEqual([])
     })
   })
 })

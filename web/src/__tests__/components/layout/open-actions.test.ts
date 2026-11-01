@@ -25,7 +25,7 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 
 import { resolveRow, handleOpen } from '@/components/layout/open-actions'
 import { getInitialState, useSidebarStore, type Chat, type Repo } from '@/lib/store/sidebar'
-import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
@@ -60,7 +60,7 @@ afterEach(() => {
 beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState(getInitialState())
-  useRemovalTrayStore.setState(getInitialRemovalState())
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
   useHomeTreeStore.setState({ trees: {} })
   // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
   // CLI, unlike the old chat-less postWorkspace) — the global provider store
@@ -115,7 +115,7 @@ describe('handleOpen', () => {
 
   it('toggles a folder instead of navigating', () => {
     const navigate = vi.fn()
-    const toggle = vi.spyOn(useSidebarStore.getState(), 'toggleChatRow')
+    const toggle = vi.spyOn(treeUiStore.getState(), 'toggleChatRow')
     const repos = [repo({ folders: [{ id: 'f1', repoId: 'r1', name: 'spikes', order: 0 }] })]
     handleOpen('f1', repos, navigate)
     expect(toggle).toHaveBeenCalledWith('f1')
@@ -223,7 +223,7 @@ describe('handleOpen', () => {
     // ws that is not under :r would be a URL nothing resolves.
     it('folds rather than routing to a workspace that is not in this repo', () => {
       const navigate = vi.fn()
-      const toggle = vi.spyOn(useSidebarStore.getState(), 'toggleChatRow')
+      const toggle = vi.spyOn(treeUiStore.getState(), 'toggleChatRow')
       handleOpen('c1', [withChat({ id: 'c1', workspaceId: 'ws-in-another-repo' })], navigate)
       expect(toggle).toHaveBeenCalledWith('c1')
       expect(navigate).not.toHaveBeenCalled()
@@ -372,7 +372,7 @@ describe('handleOpen', () => {
       useHomeTreeStore.setState({
         trees: { p1: { chats: [], folders: [{ id: 'f1', repoId: '', name: 'Notes', order: 0 }] } },
       })
-      const toggle = vi.spyOn(useSidebarStore.getState(), 'toggleChatRow')
+      const toggle = vi.spyOn(treeUiStore.getState(), 'toggleChatRow')
       const navigate = vi.fn()
 
       handleOpen('f1', [], navigate)

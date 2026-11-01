@@ -22,10 +22,9 @@ const presetChatLandingPresentation = vi
 
 import { handleCreate, confirmCreateDraft } from '@/components/layout/create-actions'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
-import { useCreateDraftStore } from '@/lib/store/create-draft'
 import { resetOperations } from '@/__tests__/__fixtures__/operations'
 import { operationRows } from '@/__tests__/__fixtures__/tree-rows'
 import { ApiError } from '@/lib/errors/api-error'
@@ -61,9 +60,9 @@ afterEach(() => {
 beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState(getInitialState())
-  useRemovalTrayStore.setState(getInitialRemovalState())
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
   useHomeTreeStore.setState({ trees: {} })
-  useCreateDraftStore.setState({ draft: null })
+  treeUiStore.setState({ draft: null })
   resetOperations()
   // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
   // CLI, unlike the old chat-less postWorkspace) — the global provider store
@@ -75,7 +74,7 @@ beforeEach(() => {
 const ANY = expect.any(String)
 
 function confirmArmedBranchName(name = 'typed-branch'): void {
-  if (!useCreateDraftStore.getState().draft) throw new Error('no draft is open')
+  if (!treeUiStore.getState().draft) throw new Error('no draft is open')
   confirmCreateDraft(name, vi.fn())
 }
 
@@ -442,7 +441,7 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
     useSidebarStore.setState({ repos: [forkRepo()] })
 
     handleCreate('c1', 'workspace', vi.fn())
-    expect(useCreateDraftStore.getState().draft).toMatchObject({ parentId: 'c-owner' })
+    expect(treeUiStore.getState().draft).toMatchObject({ parentId: 'c-owner' })
     confirmArmedBranchName()
     await Promise.resolve()
 

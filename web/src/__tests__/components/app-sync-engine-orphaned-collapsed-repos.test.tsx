@@ -122,10 +122,7 @@ beforeEach(() => {
   useProjectStore.setState({ activeProjectId: 'p1' })
   useProjectDataStore.setState({ data: success([project('p1')]) })
   // The restyled tree's own fold set is empty — nothing on screen is folded.
-  useSidebarStore.setState({
-    repos: [],
-    collapsedChatRows: new Set<string>(),
-  })
+  useSidebarStore.setState({ repos: [] })
   useFolderSignalStore.setState({
     generations: {},
     seededRepoIds: new Set(),

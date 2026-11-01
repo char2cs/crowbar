@@ -22,18 +22,14 @@ vi.mock('@tanstack/react-router', () => ({
 
 import { SidebarTreeChrome } from '@/components/layout/sidebar-tree-chrome'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
-import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
-import {
-  getInitialInlineRenameState,
-  useSidebarInlineRenameStore,
-} from '@/lib/store/sidebar-inline-rename'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState(getInitialState())
-  useRemovalTrayStore.setState(getInitialRemovalState())
-  useSidebarInlineRenameStore.setState(getInitialInlineRenameState())
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
 })
 
 function renderChrome() {
@@ -101,7 +97,7 @@ describe('double-click-to-rename', () => {
     const treeRef = renderChromeWithRows()
     const label = makeRowLabel(treeRef.current, 'chat-1')
     fireEvent.doubleClick(label)
-    expect(useSidebarInlineRenameStore.getState().renamingRowId).toBe('chat-1')
+    expect(treeUiStore.getState().renaming).toBe('chat-1')
   })
 
   it('double-clicking does NOT open a rename dialog', () => {
@@ -122,14 +118,14 @@ describe('double-click-to-rename', () => {
     item.appendChild(trash)
     treeRef.current.appendChild(item)
     fireEvent.doubleClick(trash)
-    expect(useSidebarInlineRenameStore.getState().renamingRowId).toBeNull()
+    expect(treeUiStore.getState().renaming).toBeNull()
   })
 
   it('double-clicking a label for an id not in `rows` is a no-op', () => {
     const treeRef = renderChromeWithRows()
     const label = makeRowLabel(treeRef.current, 'nonexistent')
     fireEvent.doubleClick(label)
-    expect(useSidebarInlineRenameStore.getState().renamingRowId).toBeNull()
+    expect(treeUiStore.getState().renaming).toBeNull()
   })
 
   // performRenameWorkspaceBranch (row-actions.ts) already refuses a locked
@@ -155,7 +151,7 @@ describe('double-click-to-rename', () => {
     render(<SidebarTreeChrome treeRef={treeRef} rows={lockedRows} repos={[]} />)
     const label = makeRowLabel(treeRef.current, 'branch-1')
     fireEvent.doubleClick(label)
-    expect(useSidebarInlineRenameStore.getState().renamingRowId).toBeNull()
+    expect(treeUiStore.getState().renaming).toBeNull()
   })
 })
 
@@ -191,7 +187,7 @@ describe('right-click Rename starts the same inline rename as double-click', () 
     render(<SidebarTreeChrome treeRef={treeRef} rows={rows} repos={[]} />)
     rightClick(treeRef.current, 'chat-1')
     fireEvent.click(screen.getByText('Rename'))
-    expect(useSidebarInlineRenameStore.getState().renamingRowId).toBe('chat-1')
+    expect(treeUiStore.getState().renaming).toBe('chat-1')
   })
 
   it('right-click Rename does not open a dialog', () => {

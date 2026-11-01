@@ -32,10 +32,9 @@ const presetChatLandingPresentation = vi
 import { handleCreate } from '@/components/layout/create-actions'
 import { handleCreateHomeThread } from '@/components/layout/home-actions'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
-import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
-import { useCreateDraftStore } from '@/lib/store/create-draft'
 import { resetOperations } from '@/__tests__/__fixtures__/operations'
 import { operationsState } from '@/lib/store/operations'
 import { operationRows } from '@/__tests__/__fixtures__/tree-rows'
@@ -59,9 +58,9 @@ afterEach(() => {
 beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState(getInitialState())
-  useRemovalTrayStore.setState(getInitialRemovalState())
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
   useHomeTreeStore.setState({ trees: {} })
-  useCreateDraftStore.setState({ draft: null })
+  treeUiStore.setState({ draft: null })
   resetOperations()
   useAgentProvidersStore.setState({ status: 'ready', providers: [] })
 })
@@ -158,7 +157,7 @@ describe('a project-home chat row resolves Thread through its home workspace, an
     handleCreate('c1', 'workspace', vi.fn())
 
     expect(createChatWithOwnWorktree).not.toHaveBeenCalled()
-    expect(useCreateDraftStore.getState().draft).toBeNull()
+    expect(treeUiStore.getState().draft).toBeNull()
   })
 })
 

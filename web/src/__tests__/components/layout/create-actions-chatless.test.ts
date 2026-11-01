@@ -27,7 +27,7 @@ import { handleCreate, confirmCreateDraft } from '@/components/layout/create-act
 import { performSetWorkspaceLock, performRenameRow } from '@/components/sidebar/lib/row-actions'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
-import { useCreateDraftStore } from '@/lib/store/create-draft'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 
@@ -56,7 +56,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   __resetWorkspaceScopesForTest()
   useHomeTreeStore.setState({ trees: {} })
-  useCreateDraftStore.setState({ draft: null })
+  treeUiStore.setState({ draft: null })
   useSidebarStore.setState(getInitialState())
   useSidebarStore.getState().setRepos([repo()])
   useAgentProvidersStore.setState({
@@ -78,7 +78,7 @@ describe('chatless workspace rows — create verbs send the WORKSPACE id as the 
 
   it('new branch off a chatless repo header posts parentId = the default workspace id', () => {
     handleCreate('ws-main', 'workspace', navigate)
-    expect(useCreateDraftStore.getState().draft?.parentId).toBe('ws-main')
+    expect(treeUiStore.getState().draft?.parentId).toBe('ws-main')
     confirmCreateDraft('test/test', navigate)
     expect(createChatWithOwnWorktree).toHaveBeenCalledWith(
       ANY,

@@ -33,7 +33,7 @@ import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { setChatPlacement } from '@/features/agent/api/agent-chat-commands'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
-import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { getAllActiveWorkspaceIds } from '@/features/workspace/stores/workspace-store-registry'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
@@ -52,7 +52,7 @@ const homeRow = (id: string, order: number): SidebarRow => ({
 beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState(getInitialState())
-  useRemovalTrayStore.setState(getInitialRemovalState())
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
   getHomeWorkspaceId.mockReturnValue('home-ws-1')
   // Three home chats, as the sidebar renders them — and NO workspace store
   // for home: its pane is not open.

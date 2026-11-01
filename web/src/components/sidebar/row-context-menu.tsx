@@ -11,7 +11,7 @@ import {
 } from '@phosphor-icons/react'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { useSidebarInlineRenameStore } from '@/lib/store/sidebar-inline-rename'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import {
   performCreateFolder,
   performCreateFolderFromChat,
@@ -167,7 +167,7 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
       id: 'rename',
       label: 'Rename',
       icon: <PencilSimpleLine />,
-      onClick: () => useSidebarInlineRenameStore.getState().startRenaming(row.id),
+      onClick: () => treeUiStore.getState().startRenaming(row.id),
     })
   }
 

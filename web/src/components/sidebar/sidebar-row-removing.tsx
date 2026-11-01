@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import {
   ROW_BASE,
   ROW_GLYPH_BOX,
@@ -68,7 +68,7 @@ export function RemovingSidebarRow({
           title="Keep"
           onClick={(e) => {
             e.stopPropagation()
-            useRemovalTrayStore.getState().cancel(removal.entryId)
+            treeUiStore.getState().cancel(removal.entryId)
           }}
         >
           <svg

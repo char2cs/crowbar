@@ -50,6 +50,7 @@ import { viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
 import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo } from '@/lib/store/sidebar'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 
 const HYDRATE_TEST_REPOS: Repo[] = [
   {
@@ -575,14 +576,13 @@ describe('hydrateSidebar', () => {
     globalThis.indexedDB = new IDBFactory()
     useSidebarStore.setState({
       repos: HYDRATE_TEST_REPOS.map((r) => ({ ...r, workspaces: [...r.workspaces] })),
-      collapsedChatRows: new Set<string>(),
-      activeTab: 'workspaces',
     })
+    treeUiStore.setState(treeUiStore.getInitialState(), true)
   })
 
   it('does nothing when IDB is empty', async () => {
     await hydrateSidebar()
-    expect(useSidebarStore.getState().collapsedChatRows.size).toBe(0)
+    expect(treeUiStore.getState().collapsed.size).toBe(0)
   })
 
   // REGRESSION (restyle v2): the previous build's tree collapsed every repo
@@ -598,17 +598,17 @@ describe('hydrateSidebar', () => {
       collapsedChatRows: ['f1'],
     })
     await hydrateSidebar()
-    const state = useSidebarStore.getState() as unknown as Record<string, unknown>
+    const state = treeUiStore.getState() as unknown as Record<string, unknown>
     expect(state.collapsedRepos).toBeUndefined()
-    expect(useSidebarStore.getState().collapsedChatRows.has('f1')).toBe(true)
+    expect(treeUiStore.getState().collapsed.has('f1')).toBe(true)
   })
 
   it('ignores the retired collapsedWorkspaces key a previous build persisted', async () => {
     await saveSidebarUI({ collapsedRepos: [], collapsedWorkspaces: ['ws3', 'ws1'] })
     await hydrateSidebar()
-    const state = useSidebarStore.getState() as unknown as Record<string, unknown>
+    const state = treeUiStore.getState() as unknown as Record<string, unknown>
     expect(state.collapsedWorkspaces).toBeUndefined()
-    expect(useSidebarStore.getState().collapsedChatRows.size).toBe(0)
+    expect(treeUiStore.getState().collapsed.size).toBe(0)
   })
 
   // REGRESSION (restyle v2): the old build's project-row fold persisted this
@@ -623,23 +623,21 @@ describe('hydrateSidebar', () => {
       collapsedChatRows: ['f1'],
     })
     await hydrateSidebar()
-    const state = useSidebarStore.getState() as unknown as Record<string, unknown>
+    const state = treeUiStore.getState() as unknown as Record<string, unknown>
     expect(state.collapsedProjects).toBeUndefined()
-    expect(useSidebarStore.getState().collapsedChatRows.has('f1')).toBe(true)
+    expect(treeUiStore.getState().collapsed.has('f1')).toBe(true)
   })
 
   it('restores collapsedChatRows from IDB', async () => {
     await saveSidebarUI({ collapsedRepos: [], collapsedChatRows: ['f1', 'c7'] })
     await hydrateSidebar()
-    const { collapsedChatRows } = useSidebarStore.getState()
-    expect(collapsedChatRows.has('f1')).toBe(true)
-    expect(collapsedChatRows.has('c7')).toBe(true)
+    expect([...treeUiStore.getState().collapsed]).toEqual(['f1', 'c7'])
   })
 
   it('replays a record written before the Chats panel was collapsible as "all open"', async () => {
-    useSidebarStore.setState({ collapsedChatRows: new Set(['stale']) })
+    treeUiStore.setState({ collapsed: new Set(['stale']) })
     await saveSidebarUI({ collapsedRepos: ['crowbar'], collapsedWorkspaces: [] })
     await hydrateSidebar()
-    expect(useSidebarStore.getState().collapsedChatRows.size).toBe(0)
+    expect(treeUiStore.getState().collapsed.size).toBe(0)
   })
 })

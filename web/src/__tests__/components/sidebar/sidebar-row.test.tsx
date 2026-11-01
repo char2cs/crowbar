@@ -6,10 +6,7 @@ import { SidebarRow } from '@/components/sidebar/sidebar-row'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import * as rowActions from '@/components/sidebar/lib/row-actions'
 import * as createActions from '@/components/layout/create-actions'
-import {
-  getInitialInlineRenameState,
-  useSidebarInlineRenameStore,
-} from '@/lib/store/sidebar-inline-rename'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 
 vi.mock('@/components/sidebar/lib/row-actions', async (importOriginal) => ({
   ...(await importOriginal<typeof rowActions>()),
@@ -26,7 +23,7 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarInlineRenameStore.setState(getInitialInlineRenameState())
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
 })
 
 const baseRow: SidebarRowType = {
@@ -905,7 +902,7 @@ describe('SidebarRow', () => {
   describe('inline rename', () => {
     it('renders the real, focused input in place of the label when this row is the one renaming', () => {
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
-      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
+      act(() => treeUiStore.getState().startRenaming('row-1'))
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
       const input = screen.getByRole('textbox') as HTMLInputElement
       expect(input).toHaveValue('Fix the thing')
@@ -914,34 +911,34 @@ describe('SidebarRow', () => {
 
     it('a different row renaming leaves this row showing its plain label', () => {
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
-      act(() => useSidebarInlineRenameStore.getState().startRenaming('some-other-row'))
+      act(() => treeUiStore.getState().startRenaming('some-other-row'))
       expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
       expect(screen.getByText('Fix the thing')).toBeInTheDocument()
     })
 
     it('confirming (Enter) calls performRenameRow with the row id and stops renaming', () => {
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
-      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
+      act(() => treeUiStore.getState().startRenaming('row-1'))
       const input = screen.getByRole('textbox')
       fireEvent.change(input, { target: { value: 'New title' } })
       fireEvent.keyDown(input, { key: 'Enter' })
       expect(rowActions.performRenameRow).toHaveBeenCalledWith('row-1', 'New title')
-      expect(useSidebarInlineRenameStore.getState().renamingRowId).toBeNull()
+      expect(treeUiStore.getState().renaming).toBeNull()
     })
 
     it('Escape cancels with no call to performRenameRow', () => {
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
-      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
+      act(() => treeUiStore.getState().startRenaming('row-1'))
       const input = screen.getByRole('textbox')
       fireEvent.change(input, { target: { value: 'New title' } })
       fireEvent.keyDown(input, { key: 'Escape' })
       expect(rowActions.performRenameRow).not.toHaveBeenCalled()
-      expect(useSidebarInlineRenameStore.getState().renamingRowId).toBeNull()
+      expect(treeUiStore.getState().renaming).toBeNull()
     })
 
     it('blur without Enter/Escape commits the rename, matching develop', () => {
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
-      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
+      act(() => treeUiStore.getState().startRenaming('row-1'))
       const input = screen.getByRole('textbox')
       fireEvent.change(input, { target: { value: 'Blurred title' } })
       fireEvent.blur(input)
@@ -950,7 +947,7 @@ describe('SidebarRow', () => {
 
     it('unchanged value does not call performRenameRow', () => {
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
-      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
+      act(() => treeUiStore.getState().startRenaming('row-1'))
       fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
       expect(rowActions.performRenameRow).not.toHaveBeenCalled()
     })
@@ -958,7 +955,7 @@ describe('SidebarRow', () => {
     it('clicking inside the input does not fire onOpen', () => {
       const onOpen = vi.fn()
       render(<SidebarRow row={baseRow} depth={0} onOpen={onOpen} />)
-      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
+      act(() => treeUiStore.getState().startRenaming('row-1'))
       fireEvent.click(screen.getByRole('textbox'))
       expect(onOpen).not.toHaveBeenCalled()
     })
@@ -971,7 +968,7 @@ describe('SidebarRow', () => {
           onOpen={vi.fn()}
         />,
       )
-      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
+      act(() => treeUiStore.getState().startRenaming('row-1'))
       expect(screen.getByRole('textbox')).toHaveClass('font-mono')
     })
 
@@ -1001,10 +998,10 @@ describe('SidebarRow', () => {
           />
         </>,
       )
-      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
+      act(() => treeUiStore.getState().startRenaming('row-1'))
       const input = screen.getByRole('textbox') as HTMLInputElement
       expect(input).toHaveFocus()
-      expect(useSidebarInlineRenameStore.getState().renamingRowId).toBe('row-1')
+      expect(treeUiStore.getState().renaming).toBe('row-1')
       fireEvent.change(input, { target: { value: 'New title' } })
       fireEvent.keyDown(input, { key: 'Enter' })
       expect(rowActions.performRenameRow).toHaveBeenCalledWith('row-1', 'New title')
@@ -1031,7 +1028,7 @@ describe('SidebarRow', () => {
             />
           </>,
         )
-        act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
+        act(() => treeUiStore.getState().startRenaming('row-1'))
         expect(scrollIntoView).toHaveBeenCalledTimes(1)
         expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole('textbox'))
       } finally {
@@ -1056,7 +1053,7 @@ describe('SidebarRow', () => {
           dragProps={{ 'data-sidebar-recents-row': '' }}
         />,
       )
-      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
+      act(() => treeUiStore.getState().startRenaming('row-1'))
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
       const input = screen.getByRole('textbox') as HTMLInputElement
       expect(input).toHaveValue('Fix the thing')

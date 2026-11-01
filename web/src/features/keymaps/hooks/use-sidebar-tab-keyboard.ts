@@ -7,8 +7,7 @@ import {
   SIDEBAR_TAB_GIT,
   SIDEBAR_TAB_CHATS,
 } from '@/features/keymaps/registry'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import type { SidebarTab } from '@/lib/store/sidebar-ui'
+import { treeUiStore, type SidebarTab } from '@/features/workspace/tree/tree-ui-store'
 
 // Strip order — same order as the registry and the tab bar itself.
 //
@@ -32,7 +31,7 @@ export function useSidebarTabKeyboard(): void {
         const chord = chordMap[commandId]
         if (chord && eventMatchesChord(e, chord)) {
           e.preventDefault()
-          useSidebarStore.getState().setActiveTab(tab)
+          treeUiStore.getState().setActiveTab(tab)
           return
         }
       }

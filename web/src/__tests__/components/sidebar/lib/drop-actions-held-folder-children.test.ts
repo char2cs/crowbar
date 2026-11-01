@@ -2,11 +2,7 @@ import { describe, expect, it, beforeEach } from 'vitest'
 
 import { visibleRepos } from '@/components/sidebar/lib/rendered-rows'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import {
-  getInitialRemovalState,
-  useRemovalTrayStore,
-  type RemovalDraft,
-} from '@/lib/store/sidebar-removal'
+import { treeUiStore, type RemovalDraft } from '@/features/workspace/tree/tree-ui-store'
 
 /**
  * A folder held for removal transforms IN PLACE (sidebar-row.tsx's
@@ -52,12 +48,12 @@ const heldFolder: RemovalDraft = {
 
 beforeEach(() => {
   useSidebarStore.setState({ ...getInitialState(), repos: [repo] })
-  useRemovalTrayStore.setState(getInitialRemovalState())
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
 })
 
 describe('the drop planner while a folder is held for removal', () => {
   it('keeps the held folder and leaves its children under it', () => {
-    useRemovalTrayStore.getState().hold([heldFolder])
+    treeUiStore.getState().hold([heldFolder])
     const [visible] = visibleRepos()
     expect(visible.folders?.map((f) => f.id)).toEqual(['folder-1', 'folder-child'])
     expect(visible.folders?.find((f) => f.id === 'folder-child')?.parentId).toBe('folder-1')
@@ -78,7 +74,7 @@ describe('the drop planner while a folder is held for removal', () => {
         },
       ],
     })
-    useRemovalTrayStore.getState().hold([
+    treeUiStore.getState().hold([
       {
         ...heldFolder,
         kind: 'chat',

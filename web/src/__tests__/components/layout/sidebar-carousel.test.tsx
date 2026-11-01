@@ -2,11 +2,11 @@ import React from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { SidebarCarousel } from '@/components/layout/sidebar-carousel'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import {
   publishFocusedWorkspaceContext,
   type FocusedWorkspaceContext,
 } from '@/features/window/stores/focused-workspace-context-store'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 
 const { treeProps } = vi.hoisted(() => ({ treeProps: vi.fn() }))
 vi.mock('@/features/file-explorer/components/file-explorer-tree', () => ({
@@ -93,7 +93,7 @@ vi.mock('@phosphor-icons/react', () => ({
 
 describe('SidebarCarousel', () => {
   beforeEach(() => {
-    useSidebarStore.setState(getInitialState())
+    treeUiStore.setState(treeUiStore.getInitialState(), true)
     publishFocusedWorkspaceContext(REPO_CTX)
     treeProps.mockClear()
     mockMatch = null
@@ -135,7 +135,7 @@ describe('SidebarCarousel', () => {
     scrollToSpy.mockClear()
 
     act(() => {
-      useSidebarStore.setState({ activeTab: 'git' })
+      treeUiStore.setState({ activeTab: 'git' })
     })
 
     expect(scrollToSpy).toHaveBeenCalledWith(
@@ -185,7 +185,7 @@ describe('SidebarCarousel', () => {
     it('clicking the Git glyph switches activeTab', () => {
       render(<SidebarCarousel />)
       fireEvent.click(screen.getByRole('button', { name: 'Git' }))
-      expect(useSidebarStore.getState().activeTab).toBe('git')
+      expect(treeUiStore.getState().activeTab).toBe('git')
     })
 
     // The panel follows the focused workspace context, never the route
@@ -214,14 +214,14 @@ describe('SidebarCarousel', () => {
       it('focus moves to the home pane with Git active: Git hides, Files takes over, scoped to home', () => {
         mockMatch = HOME_MATCH
         publishFocusedWorkspaceContext(BRANCH_CTX)
-        useSidebarStore.setState({ activeTab: 'git' })
+        treeUiStore.setState({ activeTab: 'git' })
         render(<SidebarCarousel />)
-        expect(useSidebarStore.getState().activeTab).toBe('git')
+        expect(treeUiStore.getState().activeTab).toBe('git')
 
         act(() => publishFocusedWorkspaceContext(HOME_CTX))
 
         expect(screen.queryByRole('button', { name: 'Git' })).not.toBeInTheDocument()
-        expect(useSidebarStore.getState().activeTab).toBe('files')
+        expect(treeUiStore.getState().activeTab).toBe('files')
         expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute(
           'aria-pressed',
           'true',
@@ -232,10 +232,10 @@ describe('SidebarCarousel', () => {
       })
 
       it('no split, repo route: both glyphs, Git stays active, Files scoped to the repo', () => {
-        useSidebarStore.setState({ activeTab: 'git' })
+        treeUiStore.setState({ activeTab: 'git' })
         render(<SidebarCarousel />)
         expect(screen.getByRole('button', { name: 'Git' })).toHaveAttribute('aria-pressed', 'true')
-        expect(useSidebarStore.getState().activeTab).toBe('git')
+        expect(treeUiStore.getState().activeTab).toBe('git')
         expect(treeProps).toHaveBeenLastCalledWith(
           expect.objectContaining({ workspaceId: 'ws-repo', rootFolderPath: '/repo' }),
         )
@@ -293,7 +293,7 @@ describe('SidebarCarousel', () => {
     // ignored the scroll below for a reason that has nothing to do with gestures.
     function selectGitAndSettle(el: HTMLElement) {
       act(() => {
-        useSidebarStore.setState({ activeTab: 'git' })
+        treeUiStore.setState({ activeTab: 'git' })
       })
       fireEvent(el, new Event('scrollend'))
     }
@@ -309,7 +309,7 @@ describe('SidebarCarousel', () => {
       setGeometry(el, 400, 400)
       fireEvent.scroll(el)
 
-      expect(useSidebarStore.getState().activeTab).toBe('git')
+      expect(treeUiStore.getState().activeTab).toBe('git')
     })
 
     it('ignores scrolls while the sidebar is collapsed to zero width', () => {
@@ -323,7 +323,7 @@ describe('SidebarCarousel', () => {
       setGeometry(el, 0, 0)
       fireEvent.scroll(el)
 
-      expect(useSidebarStore.getState().activeTab).toBe('git')
+      expect(treeUiStore.getState().activeTab).toBe('git')
     })
 
     it('still follows a wheel/swipe gesture onto the neighbouring panel', () => {
@@ -335,7 +335,7 @@ describe('SidebarCarousel', () => {
       setGeometry(el, 400, 0)
       fireEvent.scroll(el)
 
-      expect(useSidebarStore.getState().activeTab).toBe('files')
+      expect(treeUiStore.getState().activeTab).toBe('files')
     })
   })
 
@@ -544,7 +544,7 @@ describe('SidebarCarousel', () => {
     it('clicking the caret folds the card: hides the body, keeps the head and its tab selection', () => {
       render(<SidebarCarousel />)
       fireEvent.click(screen.getByRole('button', { name: 'Git' }))
-      expect(useSidebarStore.getState().activeTab).toBe('git')
+      expect(treeUiStore.getState().activeTab).toBe('git')
 
       fireEvent.click(foldToggle())
 

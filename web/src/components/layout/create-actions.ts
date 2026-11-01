@@ -2,7 +2,7 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import { createChatWithOwnWorktree } from '@/features/agent/api/agent-chat-creates'
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import { useCreateDraftStore } from '@/lib/store/create-draft'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { runOperation, whenSettled } from '@/lib/store/run-operation'
 import { report } from '@/lib/errors/report'
 import type { OperationItem } from '@/lib/store/operations'
@@ -78,7 +78,7 @@ export function handleCreate(
     const order = renderedProjectRows(projectId).filter(
       (r) => r.parentId === placementParentId,
     ).length
-    useCreateDraftStore.getState().start({
+    treeUiStore.getState().startDraft({
       kind: 'branch',
       projectId,
       repoId: repo.id,
@@ -121,8 +121,8 @@ export function handleCreate(
  * the daemon's reason) until its chat and workspace arrive; then the chat opens.
  */
 export function confirmCreateDraft(name: string, navigate: NavigateFn): void {
-  const draft = useCreateDraftStore.getState().draft
-  useCreateDraftStore.getState().cancel()
+  const draft = treeUiStore.getState().draft
+  treeUiStore.getState().cancelDraft()
   if (draft?.kind !== 'branch' || !draft.repoId) return
   const provider = enabledProvider()
   if (!provider) return
@@ -171,7 +171,7 @@ export function confirmCreateDraft(name: string, navigate: NavigateFn): void {
 
 /** Closes the naming input; nothing was sent, so nothing rolls back. */
 export function cancelCreateDraft(): void {
-  useCreateDraftStore.getState().cancel()
+  treeUiStore.getState().cancelDraft()
 }
 
 /**

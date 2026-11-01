@@ -19,8 +19,8 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
 }))
 
 const setActiveTab = vi.fn()
-vi.mock('@/lib/store/sidebar', () => ({
-  useSidebarStore: {
+vi.mock('@/features/workspace/tree/tree-ui-store', () => ({
+  treeUiStore: {
     getState: () => ({ setActiveTab }),
   },
 }))

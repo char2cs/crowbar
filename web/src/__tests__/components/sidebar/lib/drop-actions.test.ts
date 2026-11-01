@@ -131,7 +131,7 @@ import {
   type Folder,
   type Repo,
 } from '@/lib/store/sidebar'
-import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import {
@@ -268,7 +268,7 @@ function confirmReparent(wsId: string, parentId: string): void {
 beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState({ ...getInitialState(), repos: [makeRepo()] })
-  useRemovalTrayStore.setState(getInitialRemovalState())
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
   useHomeTreeStore.setState({ trees: {} })
   useProjectDataStore.setState({ data: idle() })
   fetchWorkspaces.mockResolvedValue([])
@@ -665,7 +665,7 @@ describe('performSidebarDrop — crossing a fork parent', () => {
   })
 
   it('the same "after" drop on a COLLAPSED row is a plain sibling reorder instead', async () => {
-    useSidebarStore.setState({ collapsedChatRows: new Set(['ws-a']) })
+    treeUiStore.setState({ collapsed: new Set(['ws-a']) })
 
     await performSidebarDrop(
       [branchRow('ws-b')],
@@ -877,7 +877,7 @@ describe('performSidebarDrop — removal-tray hold', () => {
     // ws-a's own children (ws-fork, folder-3 holding ws-d) are all held for
     // removal — hidden from the tree, but still sitting in the raw store
     // until the hold either commits or is cancelled.
-    useRemovalTrayStore.setState({ hiddenIds: new Set(['ws-fork', 'folder-3', 'ws-d']) })
+    treeUiStore.setState({ hiddenIds: new Set(['ws-fork', 'folder-3', 'ws-d']) })
 
     // Planned against the RAW repos, ws-a would still read as having
     // children and — expanded — "after" it would reparent ws-b as its
@@ -1026,7 +1026,7 @@ describe('performSidebarDrop — chats', () => {
     })
 
     it('is a plain sibling reorder once that parent is COLLAPSED', async () => {
-      useSidebarStore.setState({ collapsedChatRows: new Set(['chat-a']) })
+      treeUiStore.setState({ collapsed: new Set(['chat-a']) })
 
       await performSidebarDrop([rootChatRow('chat-b')], rootChatRow('chat-a'), 'after')
 
