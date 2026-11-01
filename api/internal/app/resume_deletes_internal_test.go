@@ -46,7 +46,12 @@ func TestResumeDeletes_ResumedDeletesSettleBeforeItReturns(t *testing.T) {
 	}
 	assert.Equal(t, domain.OpSucceeded, byLabel["Remove alpha"].State)
 	assert.Equal(t, domain.EntityRef{Kind: domain.EntityRepo, ID: "r1"}, byLabel["Remove alpha"].Subject)
+	require.Len(t, byLabel["Remove alpha"].Items, 1)
+	assert.Equal(t, domain.OpSucceeded, byLabel["Remove alpha"].Items[0].State, "a finished delete's item finished with it")
 	failed := byLabel["Remove beta"]
+	require.Len(t, failed.Items, 1)
+	assert.Equal(t, domain.OpFailed, failed.Items[0].State)
+	assert.Equal(t, failed.Error, failed.Items[0].Error)
 	assert.Equal(t, domain.OpFailed, failed.State)
 	require.NotNil(t, failed.Error)
 	assert.Contains(t, failed.Error.Message, "worktree wedged")

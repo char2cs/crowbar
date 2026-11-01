@@ -62,3 +62,25 @@ func TestService_RecoverKeepsTheNewest500Settled(t *testing.T) {
 	assert.Equal(t, "op-004", f.row(t, "op-004").ID)
 	assert.Equal(t, domain.OpFailed, f.row(t, "old-running").State, "an interrupted row is never pruned at the boot that settles it")
 }
+
+// An item a restart cut short fails with its operation; one that had finished keeps its outcome.
+func TestService_RecoverFailsTheItemsTheRestartCutShort(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, f.store.Save(context.Background(), domain.Operation{
+		ID: "delete", Kind: domain.OpRepoDelete, State: domain.OpRunning, Version: 1, UpdatedAt: epoch,
+		Subject: domain.EntityRef{Kind: domain.EntityRepo, ID: "r1"},
+		Items: []domain.OperationItem{
+			{Label: "Remove alpha", State: domain.OpSucceeded},
+			{Label: "Remove gamma", State: domain.OpRunning},
+		},
+	}))
+
+	require.NoError(t, f.svc.Recover(context.Background()))
+
+	items := f.row(t, "delete").Items
+	assert.Equal(t, domain.OpSucceeded, items[0].State)
+	assert.Nil(t, items[0].Error)
+	assert.Equal(t, domain.OpFailed, items[1].State)
+	require.NotNil(t, items[1].Error)
+	assert.Equal(t, problem.Interrupted, items[1].Error.Code)
+}

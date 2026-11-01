@@ -29,6 +29,7 @@ func (s *Service) Recover(ctx context.Context) error {
 		}
 		op.State = domain.OpFailed
 		op.Error = &problem.Problem{Code: problem.Interrupted, Message: interruptedMessage}
+		settleItems(&op)
 		if err := s.saveLocked(ctx, &op); err != nil {
 			return fmt.Errorf("operation: recover: %w", err)
 		}
