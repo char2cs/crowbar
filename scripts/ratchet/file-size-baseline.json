@@ -23,7 +23,7 @@
   "api/internal/app/usecases/chat/internal/tree/tree_test.go": 929,
   "api/internal/app/usecases/chat/providers_test.go": 845,
   "api/internal/app/usecases/chat/runner_test.go": 4057,
-  "api/internal/app/usecases/chat/turn_test.go": 2395,
+  "api/internal/app/usecases/chat/turn_test.go": 2392,
   "api/internal/app/usecases/container.go": 883,
   "api/internal/app/usecases/git/git_write.go": 546,
   "api/internal/app/usecases/mocks/mocks.go": 1956,
@@ -109,8 +109,6 @@
   "web/src/components/ui/font-color-toolbar-button.tsx": 515,
   "web/src/components/ui/table-icons.tsx": 687,
   "web/src/components/ui/table-node.tsx": 1308,
-  "web/src/features/agent/controls/agent-selection-picker.tsx": 502,
-  "web/src/features/agent/transcript/plate/streaming-value-patch.ts": 1002,
   "web/src/features/editor/monaco/language-contributions.ts": 545,
   "web/src/features/tabs/components/tab-bar.tsx": 745
 }
