@@ -35,6 +35,8 @@ interface Channel {
   /** Waiting on this socket's open; once it has closed, on the reconnect's, which takes them. */
   waiters: Waiter[]
   everOpen: boolean
+  /** Sent while this socket connected; dies with it, as a reconnect's subscribers ask afresh. */
+  outbox: string[]
   /** What the transport reported failing, handed to the waiters it refuses. */
   failure?: unknown
 }
@@ -93,6 +95,7 @@ export function createWSManager(): WSManager {
       endpoint,
       waiters: [],
       everOpen: false,
+      outbox: [],
     }
 
     // A successful connection resets the backoff so the next outage starts
@@ -101,6 +104,7 @@ export function createWSManager(): WSManager {
       ch.reconnectDelay = 1000
       if (channels.get(endpoint) !== ch) return
       ch.everOpen = true
+      for (const data of ch.outbox.splice(0)) ch.socket.send(data)
       noteSocketOpened()
       reportChannelState(endpoint, true)
       for (const waiter of ch.waiters.splice(0)) waiter.resolve()
@@ -194,9 +198,8 @@ export function createWSManager(): WSManager {
 
     send(endpoint, data) {
       const ch = channels.get(endpoint)
-      if (ch?.socket.readyState === WebSocket.OPEN) {
-        ch.socket.send(JSON.stringify(data))
-      }
+      if (ch?.socket.readyState === WebSocket.OPEN) ch.socket.send(JSON.stringify(data))
+      else if (ch?.socket.readyState === WebSocket.CONNECTING) ch.outbox.push(JSON.stringify(data))
     },
 
     opened(endpoint) {

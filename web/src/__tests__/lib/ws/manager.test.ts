@@ -301,6 +301,49 @@ describe('WSManager', () => {
     })
   })
 
+  describe('send', () => {
+    it('holds what is sent while the socket connects and sends it once, in order, on open', () => {
+      const mgr = createWSManager()
+      mgr.subscribe('/v0/stream', vi.fn())
+      const socket = MockWebSocket.instances[0]
+      socket.readyState = MockWebSocket.CONNECTING
+
+      mgr.send('/v0/stream', { op: 'sub', scope: 'projects' })
+      mgr.send('/v0/stream', { op: 'sub', scope: 'ws:w1' })
+      expect(socket.send).not.toHaveBeenCalled()
+
+      socket.simulateOpen()
+      mgr.send('/v0/stream', { op: 'unsub', scope: 'ws:w1' })
+
+      expect(socket.send.mock.calls).toEqual([
+        ['{"op":"sub","scope":"projects"}'],
+        ['{"op":"sub","scope":"ws:w1"}'],
+        ['{"op":"unsub","scope":"ws:w1"}'],
+      ])
+    })
+
+    // The reconnect's own open is where its subscribers say again what they need.
+    it('never replays on the reconnect what a socket that closed before opening held', () => {
+      vi.useFakeTimers()
+      try {
+        const mgr = createWSManager()
+        mgr.subscribe('/v0/stream', vi.fn())
+        const socket = MockWebSocket.instances[0]
+        socket.readyState = MockWebSocket.CONNECTING
+        mgr.send('/v0/stream', { op: 'sub', scope: 'projects' })
+
+        socket.simulateClose()
+        vi.advanceTimersByTime(1000)
+        MockWebSocket.instances[1].simulateOpen()
+
+        expect(socket.send).not.toHaveBeenCalled()
+        expect(MockWebSocket.instances[1].send).not.toHaveBeenCalled()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
+
   it('opened rejects when the transport cannot carry a socket', async () => {
     vi.resetModules()
     // The real manager, loaded afresh over a transport that cannot carry a socket.
