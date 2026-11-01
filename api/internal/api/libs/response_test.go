@@ -209,3 +209,19 @@ func TestFail_AnUncodedErrorIsInternal(t *testing.T) {
 	assert.Equal(t, "internal", body["code"])
 	assert.Equal(t, "boom", body["error"])
 }
+
+// The client reads a 5xx's message; the access log keeps the whole chain once,
+// and a refusal the client can act on is not logged as a failure.
+func TestFail_AServerFailureNotesItsWholeChainForTheLog(t *testing.T) {
+	ctx, _ := newCtx(t)
+	err := fmt.Errorf("repos: list: %w", errors.New("db down"))
+
+	libs.Fail(ctx, err)
+
+	require.Len(t, ctx.Errors, 1)
+	assert.Equal(t, err.Error(), ctx.Errors[0].Error())
+
+	refused, _ := newCtx(t)
+	libs.Fail(refused, fmt.Errorf("load: %w", problem.ErrNotFound))
+	assert.Empty(t, refused.Errors)
+}
