@@ -45,7 +45,9 @@ type connection struct {
 	snapshotting map[string]bool
 
 	wake chan struct{}
-	// room hears each frame the writer takes, for a replay waiting to queue.
+	// room hears each frame the writer takes, for a replay waiting to queue. One
+	// token serves many waiters: a waiter parks only behind QueueSize frames and
+	// every pop offers a token, so one that misses a token hears the next.
 	room chan struct{}
 	done chan struct{}
 	once sync.Once
