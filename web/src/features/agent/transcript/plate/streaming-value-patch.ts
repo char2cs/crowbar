@@ -15,12 +15,6 @@ import {
   type Node,
 } from '@/features/agent/transcript/plate/streaming-value-blocks'
 
-export {
-  stableBlockCount,
-  trailingTextDivergence,
-  type TextDivergence,
-} from '@/features/agent/transcript/plate/streaming-value-blocks'
-
 /** The fade-in mark, only ever a Slate decoration — never in the document. */
 export const CHAT_FRESH_MARK = 'chatFresh'
 /** This leaf's `animation-delay` in ms. Constant per run: a changing value
@@ -31,7 +25,7 @@ export const CHAT_FRESH_DELAY_MARK = 'chatFreshDelay'
 export const CHAT_FRESH_BORN_MARK = 'chatFreshBornAt'
 /** A finished fade kept only to hold the leaf split stable for later words;
  *  matches no plugin, so it renders as plain text with no animation to restart. */
-export const CHAT_FRESH_HELD = 'chatFreshHeld'
+const CHAT_FRESH_HELD = 'chatFreshHeld'
 /** Per-word index and generation total, only on a per-word split, so each word's
  *  `animationend` counts on its own instead of the first one settling the run. */
 export const CHAT_FRESH_WORD_INDEX_MARK = 'chatFreshWordIndex'
@@ -454,7 +448,7 @@ export function applyStreamedValue(editor: PlateEditor, next: Value): void {
 }
 
 /** The fade delay a DECORATED leaf (`props.leaf`) carries, if any. */
-export function freshLeafDelay(leaf: TText): number | null {
+function freshLeafDelay(leaf: TText): number | null {
   const record = leaf as unknown as Record<string, unknown>
   if (typeof record[CHAT_FRESH_MARK] !== 'number') return null
   const delay = record[CHAT_FRESH_DELAY_MARK]

@@ -76,7 +76,7 @@
     "src/features/agent/hooks/use-chat-title.ts": ["exports"],
     "src/features/agent/lib/spawn-error.ts": ["exports", "types"],
     "src/features/agent/shared/agent-icons.tsx": ["types"],
-    "src/features/agent/transcript/plate/streaming-value-patch.ts": ["exports", "types"],
+    "src/features/agent/transcript/plate/streaming-value-patch.ts": ["exports"],
     "src/features/editor/components/editor-surface.tsx": ["duplicates"],
     "src/features/editor/extensions/builtin/syntax-highlighting.ts": ["exports"],
     "src/features/editor/hooks/use-preserved-scroll.ts": ["exports"],
