@@ -112,6 +112,10 @@ func messageOf(err error) string {
 			if d := strings.TrimSpace(n.Detail()); d != "" {
 				return d
 			}
+		case interface{ Unwrap() []error }:
+			if said, ok := joined(node, n.Unwrap()); ok {
+				return said
+			}
 		}
 		inner := errors.Unwrap(node)
 		if inner == nil || !isPrefixWrap(node, inner) {
@@ -119,6 +123,20 @@ func messageOf(err error) string {
 		}
 		outer, node = node, inner
 	}
+}
+
+// joined is what each part of fmt.Errorf("%w: %w", a, b) says, when that is
+// all node says; a join with words of its own is kept whole.
+func joined(node error, parts []error) (string, bool) {
+	texts := make([]string, len(parts))
+	said := make([]string, len(parts))
+	for i, part := range parts {
+		texts[i], said[i] = part.Error(), messageOf(part)
+	}
+	if node.Error() != strings.Join(texts, ": ") {
+		return "", false
+	}
+	return strings.Join(said, ": "), true
 }
 
 // isSentinel reports whether err is itself a category sentinel, Crowbar's or

@@ -80,6 +80,13 @@ func TestOf_MessageCarriesTheToolsOutputUnderACode(t *testing.T) {
 	assert.Equal(t, problem.Problem{Code: problem.InvalidArgument, Message: "git: no_remote: fatal: gone"}, got)
 }
 
+func TestOf_ACodeJoinedToItsCauseSaysBoth(t *testing.T) {
+	cause := fmt.Errorf("match: build pattern: %w", errors.New("missing closing )"))
+	err := fmt.Errorf("search: %w", fmt.Errorf("%w: %w", problem.New(problem.InvalidArgument, "invalid search pattern"), cause))
+
+	assert.Equal(t, "invalid search pattern: missing closing )", problem.Of(err).Message)
+}
+
 func TestOf_AnUncodedToolFailureIsItsOutput(t *testing.T) {
 	got := problem.Of(fmt.Errorf("import chat: create child: worktree checkout: %w", toolErr{}))
 
