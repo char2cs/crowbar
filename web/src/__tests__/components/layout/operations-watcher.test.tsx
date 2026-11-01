@@ -99,4 +99,41 @@ describe('OperationsWatcher', () => {
     expect(toast.show).not.toHaveBeenCalled()
     expect(useConnectionStore.getState().migrating).toEqual({ message: migrating.message })
   })
+
+  // The shape the daemon settles a partly failed import with (worktree/handlers/import.go).
+  it('a partly failed import names each failed branch and its reason', () => {
+    const branch = (id: string, label: string) => ({ ref: { kind: 'chat' as const, id }, label })
+    const running = op({ kind: 'branch.import', label: 'Import 3 branches' })
+    render(<OperationsWatcher />)
+    act(() => streamOperation(running))
+    act(() =>
+      streamOperation({
+        ...running,
+        state: 'failed',
+        version: 2,
+        error: { code: 'partial', message: '2 of 3 failed' },
+        items: [
+          { ...branch('c1', 'feature/a'), state: 'succeeded' },
+          {
+            ...branch('c2', 'feature/b'),
+            state: 'failed',
+            error: { code: 'not_found', message: "branch 'feature/b' is not on origin" },
+          },
+          {
+            ...branch('c3', 'feature/c'),
+            state: 'failed',
+            error: { code: 'conflict', message: 'a worktree already uses feature/c' },
+          },
+        ],
+      }),
+    )
+
+    expect(toast.show).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Import 3 branches failed',
+        description:
+          "2 of 3 failed: feature/b — branch 'feature/b' is not on origin; feature/c — a worktree already uses feature/c",
+      }),
+    )
+  })
 })

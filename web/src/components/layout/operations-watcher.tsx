@@ -8,8 +8,15 @@ import {
 } from '@/lib/store/operations'
 import { reportDaemonRefusal } from '@/lib/ws/connection-store'
 
+// A partial failure's own reason is only a count; each failed item carries the why.
 function reason(op: Operation): string | undefined {
-  return (op.error ?? op.items.find((item) => item.error)?.error)?.message
+  if (op.error?.code !== 'partial') {
+    return (op.error ?? op.items.find((item) => item.error)?.error)?.message
+  }
+  const failed = op.items.flatMap((item) =>
+    item.error ? [`${item.label} — ${item.error.message}`] : [],
+  )
+  return failed.length ? `${op.error.message}: ${failed.join('; ')}` : op.error.message
 }
 
 // A failure is news when it was seen running, or arrives failed on a live
