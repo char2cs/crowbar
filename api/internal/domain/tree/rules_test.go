@@ -129,7 +129,7 @@ func TestMove_RefusesASubtreeHoldingAWorkingChat(t *testing.T) {
 	f.Working["c-try"] = true
 	_, err := tr.Move("f-alpha", "ws-feat", 0, f)
 	requireRefused(t, tree.ErrSubtreeWorking, err)
-	assert.Equal(t, "Stop the running chat before moving it", tree.ErrSubtreeWorking.Message)
+	assert.Equal(t, "A chat in here is still working; stop it first", tree.ErrSubtreeWorking.Message)
 	_, err = tr.Move("c-alpha-q", "f-alpha", 0, f)
 	require.NoError(t, err, "a working chat elsewhere does not refuse the move")
 }

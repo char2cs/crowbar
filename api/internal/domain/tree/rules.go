@@ -13,7 +13,7 @@ var (
 	ErrCrossContext   = problem.New(problem.TreeCrossContext, "A row stays in the project home or the repo it belongs to")
 	ErrCrossWorkspace = problem.New(problem.TreeCrossWorkspace, "A thread stays in its chat's workspace")
 	ErrForkChain      = problem.New(problem.TreeForkChain, "A branch stays under the branch it was forked from")
-	ErrSubtreeWorking = problem.New(problem.TreeSubtreeWorking, "Stop the running chat before moving it")
+	ErrSubtreeWorking = problem.New(problem.TreeSubtreeWorking, "A chat in here is still working; stop it first")
 	ErrNameRequired   = problem.New(problem.InvalidArgument, "A folder needs a name")
 	ErrExists         = problem.New(problem.IDConflict, "tree: the row is already placed")
 )
