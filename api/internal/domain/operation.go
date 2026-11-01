@@ -28,6 +28,8 @@ const (
 	OpRepoDelete                OperationKind = "repo.delete"
 	OpProjectCreate             OperationKind = "project.create"
 	OpProjectDelete             OperationKind = "project.delete"
+	// OpEntitySave is the daemon giving up on saving an entity's changes.
+	OpEntitySave OperationKind = "entity.save"
 )
 
 // OperationState is where an operation is in accepted → running → succeeded | failed.

@@ -19,12 +19,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// newAsynx builds the shared asynx wiring every aggregate type gets. opts run
-// last, right before Build, so a caller layers its aggregate's own config (its
+// newAsynx builds the shared asynx wiring every aggregate type gets; parked
+// hears an aggregate whose durable delivery ran out of attempts. opts run last,
+// right before Build, so a caller layers its aggregate's own config (its
 // durable read model, an upcaster) onto the same defaults.
 func newAsynx[T any](
 	es asynxModels.Store,
 	ss asynxModels.SnapshotStore,
+	parked parkedReport[T],
 	opts ...func(*asynx.Builder[T]),
 ) (asynx.Asynx[T], error) {
 	b := asynx.New[T]().
@@ -41,7 +43,12 @@ func newAsynx[T any](
 			slog.ErrorContext(ctx, "asynx publish error",
 				"aggregate", evt.AggregateID, "event", evt.EventName, "version", evt.Version, "err", err)
 		}).
-		WithDeliveryErrorHandler(logDeliveryError[T])
+		WithDeliveryErrorHandler(func(ctx context.Context, evt asynxModels.Event[T], err error, attempt int) {
+			logDeliveryError(ctx, evt, err, attempt)
+			if errors.Is(err, asynxModels.ErrDeliveryParked) {
+				parked(ctx, evt, err)
+			}
+		})
 	for _, opt := range opts {
 		opt(b)
 	}
@@ -60,34 +67,35 @@ type aggregates struct {
 func newAggregates(
 	adapters *adapter.Container,
 	rm *repositories.ReadModels,
+	parked parkedReports,
 ) (*aggregates, error) {
 	var (
 		ax  aggregates
 		err error
 	)
-	if ax.reviewThread, err = newAsynx(adapters.ReviewThreadES(), adapters.ReviewThreadSS(),
+	if ax.reviewThread, err = newAsynx(adapters.ReviewThreadES(), adapters.ReviewThreadSS(), parked.reviewThread,
 		reviewthread.Subscriber(rm.ReviewThread)); err != nil {
 		return nil, fmt.Errorf("app: asynx review thread: %w", err)
 	}
 	// The upcaster strips the patches of fields domain.Workspace no longer has.
-	if ax.workspace, err = newAsynx(adapters.WorkspaceES(), adapters.WorkspaceSS(),
+	if ax.workspace, err = newAsynx(adapters.WorkspaceES(), adapters.WorkspaceSS(), parked.workspace,
 		workspace.RetiredFields,
 		workspace.Subscriber(rm.Workspace)); err != nil {
 		return nil, fmt.Errorf("app: asynx workspace: %w", err)
 	}
 	// The upcaster strips the placement patches: placement lives in the Tree.
-	if ax.agentChat, err = newAsynx(adapters.AgentChatES(), adapters.AgentChatSS(),
+	if ax.agentChat, err = newAsynx(adapters.AgentChatES(), adapters.AgentChatSS(), parked.agentChat,
 		agentchat.StripRetiredPlacementFields,
 		agentchat.Subscriber(rm.AgentChat)); err != nil {
 		return nil, fmt.Errorf("app: asynx agent chat: %w", err)
 	}
-	if ax.tree, err = newAsynx(adapters.TreeES(), adapters.TreeSS(), repotree.Schema); err != nil {
+	if ax.tree, err = newAsynx(adapters.TreeES(), adapters.TreeSS(), parked.tree, repotree.Schema); err != nil {
 		return nil, fmt.Errorf("app: asynx tree: %w", err)
 	}
 	return &ax, nil
 }
 
-// logDeliveryError reports a failed durable attempt; the one that ran out of
+// logDeliveryError logs a failed durable attempt; the one that ran out of
 // attempts parks the aggregate until a restart, so it says that, not "retrying".
 func logDeliveryError[T any](
 	ctx context.Context,

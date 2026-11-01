@@ -74,11 +74,6 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("app: %w", err)
 	}
-	ax, err := newAggregates(adapters, rm)
-	if err != nil {
-		return nil, err
-	}
-
 	gormStores, err := newGORMStores(adapters.GlobalView())
 	if err != nil {
 		return nil, err
@@ -86,6 +81,10 @@ func New(
 
 	late := &lateStream{}
 	ops := operation.New(gormStores.Operations, late.operation, time.Now)
+	ax, err := newAggregates(adapters, rm, newParkedReports(ops))
+	if err != nil {
+		return nil, err
+	}
 	chatSnapshots := newChatSnapshots(h)
 	placement, err := newPlacement(ctx, ax, gormStores, chatSnapshots)
 	if err != nil {

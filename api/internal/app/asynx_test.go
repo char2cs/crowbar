@@ -27,26 +27,28 @@ import (
 // encodeJSON stands in for the API layer's encoder, which this package cannot import.
 func encodeJSON(_ domainstream.EntityKind, v any) (json.RawMessage, error) { return json.Marshal(v) }
 
+func ignoreParked[T any](context.Context, asynxModels.Event[T], error) {}
+
 func TestNewAsynx_BuildsInstance(t *testing.T) {
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
 	ss, err := eventsqlite.NewSnapshotStore(":memory:")
 	require.NoError(t, err)
-	ax, err := newAsynx[domain.Workspace](es, ss)
+	ax, err := newAsynx[domain.Workspace](es, ss, ignoreParked[domain.Workspace])
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 	assert.NotNil(t, ax)
 }
 
 func TestNewAsynx_NilStore_ReturnsError(t *testing.T) {
-	_, err := newAsynx[domain.Workspace](nil, nil)
+	_, err := newAsynx[domain.Workspace](nil, nil, ignoreParked[domain.Workspace])
 	assert.Error(t, err)
 }
 
 func TestNewAsynx_NilSnapshotStore_ReturnsError(t *testing.T) {
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	_, err = newAsynx[domain.Workspace](es, nil)
+	_, err = newAsynx[domain.Workspace](es, nil, ignoreParked[domain.Workspace])
 	assert.Error(t, err)
 }
 
@@ -80,7 +82,7 @@ func TestNewAsynx_TheLastFailedAttemptIsLoggedAsParked(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(prev) })
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := newAsynx(es, asynxstore.NewSnapshots(), func(b *asynx.Builder[tree.Node]) {
+	ax, err := newAsynx(es, asynxstore.NewSnapshots(), ignoreParked[tree.Node], func(b *asynx.Builder[tree.Node]) {
 		b.WithDeliveryMaxAttempts(1).
 			WithSubscriber("node.*", func(context.Context, asynxModels.Event[tree.Node]) error {
 				return errors.New("read model down")
