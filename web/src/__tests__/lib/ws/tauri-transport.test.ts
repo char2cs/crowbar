@@ -288,9 +288,9 @@ describe('TauriWebSocket', () => {
 
 describe('the stream over the desktop transport', () => {
   const sent = () =>
-    invoke.mock.calls
+    (invoke.mock.calls as unknown as [string, { data: string }][])
       .filter(([cmd]) => cmd === 'ws_send')
-      .map(([, args]) => JSON.parse((args as { data: string }).data) as unknown)
+      .map(([, args]) => JSON.parse(args.data) as unknown)
 
   beforeAll(() => {
     ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
