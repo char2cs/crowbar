@@ -131,11 +131,24 @@ const FORK_ROW_ID = 'ws-1'
 
 let rows: SidebarRow[] = []
 
-function renderMenu() {
+/** The tree's inline editor for whichever row the store is renaming. */
+function RenamingRow() {
+  const stop = () => treeUiStore.getState().stopRenaming()
+  const renaming = useTreeUi((s) => s.renaming)
+  return renaming && <InlineRenameInput defaultValue="" onConfirm={stop} onCancel={stop} />
+}
+
+/** `tree` renders in the menu's own React tree, as the sidebar's rows do. */
+function renderMenu(tree?: React.ReactNode) {
   const treeRef = { current: document.createElement('div') }
   document.body.appendChild(treeRef.current)
   const onImport = vi.fn()
-  render(<SidebarRowContextMenu treeRef={treeRef} rows={rows} onImport={onImport} />)
+  render(
+    <>
+      {tree}
+      <SidebarRowContextMenu treeRef={treeRef} rows={rows} onImport={onImport} />
+    </>,
+  )
   return { treeRef, onImport }
 }
 
@@ -143,7 +156,10 @@ function rightClick(tree: HTMLElement, rowId: string) {
   const target = document.createElement('div')
   target.setAttribute('role', 'treeitem')
   target.setAttribute('data-sidebar-row-id', rowId)
+  target.tabIndex = 0
   tree.appendChild(target)
+  // The row holds focus when the menu opens, so that is where the menu returns it.
+  target.focus()
   fireEvent.contextMenu(target)
   return target
 }
@@ -244,12 +260,8 @@ describe('SidebarRowContextMenu', () => {
     expect(rows.find((r) => r.id === LOCKED_ROW_ID)?.workspaceId).toBe('ws-2')
   })
 
-  // Amended in fix round 1: Lock/Unlock must NOT appear on the project-home
-  // row — it IS the repo's own checkout, the one branch that must stay put
-  // (the deleted row-menu-model.ts's own documented rule). The original Task
-  // 29 submission gated Lock on `row.ownsWorktree`, which the project-home
-  // row also carries true, so it wrongly offered a Lock that silently did
-  // nothing when clicked (the row's id is never in `repo.workspaces`).
+  // The project-home row IS the repo's own checkout, the one branch that must stay put,
+  // even though it carries `ownsWorktree` like any fork.
   it('right-clicking the project-home row offers Rename and Import, but not Lock/Unlock', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, HOME_ROW_ID)
@@ -286,17 +298,8 @@ describe('SidebarRowContextMenu', () => {
     expect(screen.queryByText('Import branches')).not.toBeInTheDocument()
   })
 
-  /**
-   * Finding 1 of the final whole-plan review, and the reason this file's rows
-   * are now derived rather than written.
-   *
-   * `locked` was read by matching the ROW id against `w.id`. A locked branch
-   * row's id is its owning chat's, which matches no workspace — so the menu
-   * offered "Lock" on an already-locked branch forever, and the click behind it
-   * resolved no repo and sent nothing. With `DeleteCascade` refusing to delete a
-   * locked workspace, that made locking a one-way door: never unlockable,
-   * never deletable, from any surface the UI offers.
-   */
+  // A locked branch row's id is its owning chat's, which matches no workspace:
+  // `locked` must be read in the workspace id space or the lock is a one-way door.
   describe('a LOCKED branch row, addressed by its owning chat id', () => {
     it('offers Unlock rather than Lock', () => {
       const { treeRef } = renderMenu()
@@ -381,41 +384,11 @@ describe('SidebarRowContextMenu', () => {
   })
 
   it('a rename started from the menu keeps its focused input once the menu has closed', async () => {
-    // The row the input draws on, as the tree draws it: the real inline editor
-    // while the store names it, the label otherwise.
-    function RenamingRow() {
-      const renaming = useTreeUi((s) => s.renaming)
-      if (renaming !== 'folder-1') return null
-      return (
-        <InlineRenameInput
-          defaultValue="Bugs"
-          onConfirm={() => treeUiStore.getState().stopRenaming()}
-          onCancel={() => treeUiStore.getState().stopRenaming()}
-        />
-      )
-    }
-    // One React tree, as in the sidebar: the input mounts in the commit that unmounts the menu.
-    const treeRef = { current: document.createElement('div') }
-    document.body.appendChild(treeRef.current)
-    render(
-      <>
-        <RenamingRow />
-        <SidebarRowContextMenu treeRef={treeRef} rows={rows} onImport={vi.fn()} />
-      </>,
-    )
-    // The row holds focus when the menu opens: that is where the menu returns it.
-    const row = document.createElement('div')
-    row.setAttribute('role', 'treeitem')
-    row.setAttribute('data-sidebar-row-id', 'folder-1')
-    row.tabIndex = 0
-    treeRef.current.appendChild(row)
-    row.focus()
-    fireEvent.contextMenu(row)
+    const { treeRef } = renderMenu(<RenamingRow />)
+    rightClick(treeRef.current, 'folder-1')
     fireEvent.click(screen.getByText('Rename'))
     await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
-    const input = screen.getByRole('textbox')
-    expect(input).toHaveFocus()
-    expect(treeUiStore.getState().renaming).toBe('folder-1')
+    expect(screen.getByRole('textbox')).toHaveFocus()
   })
 
   it('clicking Import branches calls onImport with the project-home row id', () => {
