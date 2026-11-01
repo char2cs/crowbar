@@ -1,5 +1,12 @@
 package problem
 
+import (
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+)
+
 // Problem is a failure as the client reads it.
 type Problem struct {
 	Code    Code   `json:"code"`
@@ -46,6 +53,11 @@ var (
 	ErrFailedDependency = New(FailedDependency, "failed dependency")
 )
 
+var sentinels = []*Error{
+	ErrNotFound, ErrLocked, ErrInvalidArgument, ErrUnavailable, ErrConflict,
+	ErrUnprocessable, ErrTimeout, ErrBadGateway, ErrFailedDependency,
+}
+
 // CodeOf is the code a response for err carries. Of every code in err's tree,
 // the one whose category ranks first wins; on a tie a specific code beats a
 // category, then the outermost wins. None is Internal.
@@ -59,12 +71,100 @@ func CodeOf(err error) Code {
 	return best
 }
 
-// Of is err as the client reads it.
+// Detailer is an error that carries what the tool it ran said, such as git's
+// stderr: the part of a failure a user can act on.
+type Detailer interface {
+	Detail() string
+}
+
+const internalMessage = "internal error"
+
+// Of is err as the client reads it: its code, and a message that starts at its
+// outermost coded or tool error, never the wrap chain around it.
 func Of(err error) Problem {
 	if err == nil {
-		return Problem{Code: Internal, Message: "internal error"}
+		return Problem{Code: Internal, Message: internalMessage}
 	}
-	return Problem{Code: CodeOf(err), Message: err.Error()}
+	return Problem{Code: CodeOf(err), Message: messageOf(err)}
+}
+
+// messageOf drops the context prefixes plain wraps added above the failure
+// itself: a coded error says its message and its cause's, a tool error its
+// output. A bare category sentinel says nothing, so the wrap that declared it speaks.
+func messageOf(err error) string {
+	var outer error
+	node := err
+	for {
+		switch n := node.(type) { //nolint:errorlint // the walk inspects each node itself
+		case *Error:
+			if outer != nil && isSentinel(n) {
+				return outer.Error()
+			}
+			if n.Message != "" {
+				return withCause(n.Message, n.Err)
+			}
+			if n.Err == nil {
+				return internalMessage
+			}
+			outer, node = node, n.Err
+			continue
+		case Detailer:
+			if d := strings.TrimSpace(n.Detail()); d != "" {
+				return d
+			}
+		}
+		inner := errors.Unwrap(node)
+		if inner == nil || !isPrefixWrap(node, inner) {
+			return orInternal(withDetails(node))
+		}
+		outer, node = node, inner
+	}
+}
+
+func isSentinel(err error) bool {
+	e, ok := err.(*Error) //nolint:errorlint // identity of the node itself, not its tree
+	return ok && slices.Contains(sentinels, e)
+}
+
+// isPrefixWrap reports whether node is fmt.Errorf("ctx: %w", inner): context
+// only. A wrap that says more (fmt.Errorf("%w: why", inner)) is part of the message.
+func isPrefixWrap(node, inner error) bool {
+	return fmt.Sprintf("%T", node) == "*fmt.wrapError" && strings.HasSuffix(node.Error(), ": "+inner.Error())
+}
+
+// withCause is message followed by what its cause says, when that says anything.
+func withCause(message string, cause error) string {
+	if cause == nil || isSentinel(cause) {
+		return message
+	}
+	if said := messageOf(cause); said != internalMessage {
+		return message + ": " + said
+	}
+	return message
+}
+
+// withDetails is err's text with the first tool error in it cut to its output.
+func withDetails(err error) string {
+	text := err.Error()
+	visit(err, func(node error) bool {
+		d, ok := node.(Detailer)
+		if !ok {
+			return false
+		}
+		detail := strings.TrimSpace(d.Detail())
+		if detail != "" {
+			text = strings.Replace(text, node.Error(), detail, 1)
+		}
+		return detail != ""
+	})
+	return text
+}
+
+func orInternal(message string) string {
+	if strings.TrimSpace(message) == "" {
+		return internalMessage
+	}
+	return message
 }
 
 // DataOf is the Data of the first coded error in err's tree that has any.

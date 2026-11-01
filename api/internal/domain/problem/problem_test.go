@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,10 +25,68 @@ func TestCodeOf_SentinelIdentityIsKept(t *testing.T) {
 	assert.NotErrorIs(t, problem.New(problem.NotFound, "a"), problem.ErrNotFound)
 }
 
-func TestOf_MessageIsTheWholeChain(t *testing.T) {
-	got := problem.Of(fmt.Errorf("import: %w", problem.New(problem.Conflict, "held")))
+func TestOf_MessageDropsTheContextAboveTheCodedError(t *testing.T) {
+	got := problem.Of(fmt.Errorf("import: create: %w", problem.New(problem.Conflict, "held")))
 
-	assert.Equal(t, problem.Problem{Code: problem.Conflict, Message: "import: held"}, got)
+	assert.Equal(t, problem.Problem{Code: problem.Conflict, Message: "held"}, got)
+}
+
+func TestOf_MessageKeepsWhatAWrapSaysAfterTheCode(t *testing.T) {
+	err := fmt.Errorf("chat: answer: %w", fmt.Errorf("%w: this prompt is no longer pending", problem.ErrConflict))
+
+	assert.Equal(t, "conflict: this prompt is no longer pending", problem.Of(err).Message)
+}
+
+func TestOf_ABareCategoryIsToldByTheWrapThatDeclaredIt(t *testing.T) {
+	declared := fmt.Errorf("agent: chat deleted: %w", problem.ErrNotFound)
+
+	assert.Equal(t, "agent: chat deleted: not found", problem.Of(fmt.Errorf("send: load: %w", declared)).Message)
+}
+
+func TestOf_ACodedErrorSaysItsMessageThenWhatItsCauseSays(t *testing.T) {
+	err := &problem.Error{Code: problem.ChatBusy, Message: "chat is busy", Err: fmt.Errorf("runner: %w", errors.New("turn t1 runs"))}
+
+	assert.Equal(t, "chat is busy: turn t1 runs", problem.Of(fmt.Errorf("send: %w", err)).Message)
+}
+
+func TestOf_ACodedErrorOverABareCategorySaysOnlyItsMessage(t *testing.T) {
+	err := &problem.Error{Code: problem.ChatBusy, Message: "chat is busy", Err: problem.ErrConflict}
+
+	assert.Equal(t, "chat is busy", problem.Of(fmt.Errorf("send: %w", err)).Message)
+}
+
+// toolErr stands in for a subprocess failure: its text is the wrap, Detail
+// is what the tool printed.
+type toolErr struct{}
+
+func (toolErr) Error() string  { return "push: exit 128: fatal: gone" }
+func (toolErr) Detail() string { return "fatal: gone" }
+
+func TestOf_MessageCarriesTheToolsOutputUnderACode(t *testing.T) {
+	coded := fmt.Errorf("%w: %w", problem.New(problem.InvalidArgument, "git: no_remote"), toolErr{})
+
+	got := problem.Of(fmt.Errorf("git: mutate: %w", coded))
+
+	assert.Equal(t, problem.Problem{Code: problem.InvalidArgument, Message: "git: no_remote: fatal: gone"}, got)
+}
+
+func TestOf_AnUncodedToolFailureIsItsOutput(t *testing.T) {
+	got := problem.Of(fmt.Errorf("import chat: create child: worktree checkout: %w", toolErr{}))
+
+	assert.Equal(t, problem.Problem{Code: problem.Internal, Message: "fatal: gone"}, got)
+}
+
+func TestOf_AMissingPathNamesThePath(t *testing.T) {
+	_, statErr := os.Stat(filepath.Join(t.TempDir(), "missing"))
+
+	got := problem.Of(fmt.Errorf("import: resolve path: %w", statErr))
+
+	assert.Equal(t, problem.NotFound, got.Code)
+	assert.Equal(t, statErr.Error(), got.Message)
+}
+
+func TestOf_AnEmptyMessageIsAnInternalError(t *testing.T) {
+	assert.Equal(t, "internal error", problem.Of(fmt.Errorf("x: %w", errors.New(""))).Message)
 }
 
 func TestOf_NilIsAnInternalError(t *testing.T) {

@@ -156,15 +156,18 @@ func Replayed(
 	return found
 }
 
-// Fail writes err as a failure: the status of its problem code, its whole
-// chain as the message, and the data its coded error carries.
+// Fail writes err as a failure: the status of its problem code, its user-facing
+// message, and the data its coded error carries. A 5xx's whole chain goes to the
+// access log only.
 func Fail(
 	c *gin.Context,
 	err error,
 ) {
 	p := problem.Of(err)
 	status := p.Code.Status()
-	noteFailure(c, status, p.Message)
+	if status >= http.StatusInternalServerError {
+		NoteError(c, err)
+	}
 	c.JSON(
 		status,
 		Envelope{

@@ -134,7 +134,12 @@ func TestCodeOf_EverySentinelKeepsItsStatus(t *testing.T) {
 			assert.Equal(t, tc.status, problem.CodeOf(tc.err).Status())
 			wrapped := fmt.Errorf("agent chat folder: move f1: %w", tc.err)
 			assert.Equal(t, tc.status, problem.CodeOf(wrapped).Status())
-			assert.Equal(t, wrapped.Error(), problem.Of(wrapped).Message)
+			// A declared sentinel speaks for itself; a bare category through its wrap.
+			want := tc.err.Error()
+			if isCategory(tc.err) {
+				want = wrapped.Error()
+			}
+			assert.Equal(t, want, problem.Of(wrapped).Message)
 		})
 	}
 }
@@ -173,4 +178,16 @@ func TestCodeOf_PriorityAtTheMultiWrapSites(t *testing.T) {
 			assert.Equal(t, tc.want, problem.CodeOf(tc.err).Status())
 		})
 	}
+}
+
+func isCategory(err error) bool {
+	for _, c := range []error{
+		problem.ErrNotFound, problem.ErrLocked, problem.ErrInvalidArgument, problem.ErrUnavailable, problem.ErrConflict,
+		problem.ErrUnprocessable, problem.ErrTimeout, problem.ErrBadGateway, problem.ErrFailedDependency,
+	} {
+		if err == c { //nolint:errorlint // identity of the bare sentinel is the question
+			return true
+		}
+	}
+	return false
 }

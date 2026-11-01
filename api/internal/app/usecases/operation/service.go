@@ -117,6 +117,7 @@ func (s *Service) Fail(
 	failure := problem.Of(cause)
 	op, run, err := s.admit(ctx, spec, domain.OpFailed, &failure)
 	if run != nil {
+		logFailure(ctx, op, cause)
 		// Before release, so a Shutdown that returns has no prune left in flight.
 		s.mu.Lock()
 		s.pruneLocked(ctx)
@@ -382,6 +383,7 @@ func (s *Service) execute(
 	run := &running{s: s, ctx: ctx, op: op}
 	run.update(func(o *domain.Operation) { o.State = domain.OpRunning })
 	err := call(ctx, op.Kind, run, work)
+	logFailure(ctx, op, err)
 	run.update(func(o *domain.Operation) { settle(ctx, o, err) })
 	s.mu.Lock()
 	s.pruneLocked(ctx)
@@ -400,6 +402,13 @@ func call(
 		err = &problem.Error{Code: problem.Internal, Message: fmt.Sprintf("internal error: %v", r)}
 	})
 	return work(ctx, p)
+}
+
+// logFailure keeps the whole chain the operation's reason leaves out.
+func logFailure(ctx context.Context, op domain.Operation, err error) {
+	if err != nil {
+		slog.ErrorContext(ctx, "operation failed", "op", op.ID, "kind", op.Kind, "err", err)
+	}
 }
 
 func settle(

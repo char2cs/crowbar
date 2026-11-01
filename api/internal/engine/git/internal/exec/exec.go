@@ -59,6 +59,18 @@ func (e *GitError) Error() string {
 	return fmt.Sprintf("%s: exit %d: %s", e.Op, e.ExitCode, e.Message)
 }
 
+// Detail is what git said, without its hints: the failure as a user reads it.
+func (e *GitError) Detail() string {
+	var lines []string
+	for _, line := range strings.Split(e.Message, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "hint:") {
+			lines = append(lines, line)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 // Result holds the captured output of a git invocation.
 type Result struct {
 	Stdout   string

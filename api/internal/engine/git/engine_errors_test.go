@@ -3,13 +3,16 @@ package git_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
@@ -71,6 +74,42 @@ func TestFetchPrune_NoRemote_ReturnsError(t *testing.T) {
 	err := e.FetchPrune(ctx, dir)
 
 	assert.Error(t, err, "a repo with no origin remote must fail FetchPrune, not hang or silently succeed")
+}
+
+// A failed push reads as its code's message and git's own words, not the
+// wrap chain the usecase built around them.
+func TestPush_OriginNotARepo_ReasonIsGitsStderr(t *testing.T) {
+	ctx := context.Background()
+	dir := initRepo(t)
+	makeCommit(t, dir, "file.txt", "content\n", "init")
+	gitRun(t, dir, "remote", "add", "origin", filepath.Join(t.TempDir(), "gone"))
+	gitRun(t, dir, "config", "push.autoSetupRemote", "true")
+
+	err := git.New().Push(ctx, dir)
+
+	require.ErrorIs(t, err, git.ErrNoRemote)
+	got := problem.Of(fmt.Errorf("git: mutate: %w", err))
+	assert.Equal(t, problem.InvalidArgument, got.Code)
+	assert.True(t, strings.HasPrefix(got.Message, "git: no_remote: fatal: "), got.Message)
+	assert.Contains(t, got.Message, "does not appear to be a git repository")
+	assert.NotContains(t, got.Message, "exit 128")
+	assert.NotContains(t, got.Message, "mutate")
+}
+
+func TestWorktreeAddAtRef_PathTaken_ReasonIsGitsStderr(t *testing.T) {
+	ctx := context.Background()
+	dir := initRepo(t)
+	makeCommit(t, dir, "file.txt", "content\n", "init")
+	taken := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(taken, "x"), []byte("x"), 0o600))
+
+	_, err := git.New().WorktreeAddAtRef(ctx, dir, taken, "feature", "HEAD")
+
+	require.Error(t, err)
+	got := problem.Of(fmt.Errorf("import chat: create workspace: create child: worktree checkout: %w", err))
+	assert.Contains(t, got.Message, "fatal: '"+taken+"' already exists")
+	assert.NotContains(t, got.Message, "import chat")
+	assert.NotContains(t, got.Message, "exit 128")
 }
 
 func TestFastForwardBranch_NoRemote_ReturnsError(t *testing.T) {

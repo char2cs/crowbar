@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // errBadRequest is the internal signal that a helper has already written the
@@ -100,14 +100,14 @@ func (h *Handlers) foldMergedChildIfLeaf(
 ) error {
 	leaf, err := h.workspaceIsLeaf(ctx, id)
 	if err != nil {
-		return fmt.Errorf("merge succeeded but post-merge cleanup failed: %w", err)
+		return &problem.Error{Code: problem.Internal, Message: "merge succeeded but post-merge cleanup failed", Err: err}
 	}
 	if !leaf {
 		return nil
 	}
 	// Never with consent: a fold nobody reviewed must not destroy unmerged work.
 	if err := h.hierarchy.DeleteCascade(ctx, id, domain.KeepWorkAtRisk); err != nil {
-		return fmt.Errorf("merge succeeded but removing the workspace failed: %w", err)
+		return &problem.Error{Code: problem.Internal, Message: "merge succeeded but removing the workspace failed", Err: err}
 	}
 	return nil
 }

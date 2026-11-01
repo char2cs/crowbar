@@ -234,7 +234,7 @@ func classifyGitError(op string, r gitexec.Result) error {
 		return nil
 	}
 	if sentinel := matchRules(r.ExitCode, r.Stderr+r.Stdout); sentinel != nil {
-		return fmt.Errorf("%w: %s", sentinel, base)
+		return fmt.Errorf("%w: %w", sentinel, base)
 	}
 	return base
 }
@@ -251,7 +251,7 @@ func reclassifyError(err error) error {
 		return err
 	}
 	if sentinel := matchRules(gitErr.ExitCode, gitErr.Message); sentinel != nil {
-		return fmt.Errorf("%w: %s", sentinel, err)
+		return fmt.Errorf("%w: %w", sentinel, err)
 	}
 	return err
 }
