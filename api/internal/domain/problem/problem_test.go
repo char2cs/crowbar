@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -56,7 +57,7 @@ func TestOf_ABareForeignSentinelIsToldByTheWrapThatDeclaredIt(t *testing.T) {
 func TestOf_ACodedErrorSaysItsMessageThenWhatItsCauseSays(t *testing.T) {
 	err := &problem.Error{Code: problem.ChatBusy, Message: "chat is busy", Err: fmt.Errorf("runner: %w", errors.New("turn t1 runs"))}
 
-	assert.Equal(t, "chat is busy: turn t1 runs", problem.Of(fmt.Errorf("send: %w", err)).Message)
+	assert.Equal(t, "chat is busy: runner: turn t1 runs", problem.Of(fmt.Errorf("send: %w", err)).Message)
 }
 
 func TestOf_ACodedErrorOverABareCategorySaysOnlyItsMessage(t *testing.T) {
@@ -81,10 +82,10 @@ func TestOf_MessageCarriesTheToolsOutputUnderACode(t *testing.T) {
 }
 
 func TestOf_ACodeJoinedToItsCauseSaysBoth(t *testing.T) {
-	cause := fmt.Errorf("match: build pattern: %w", errors.New("missing closing )"))
+	cause := fmt.Errorf("parse %q: %w", "(", errors.New("missing closing )"))
 	err := fmt.Errorf("search: %w", fmt.Errorf("%w: %w", problem.New(problem.InvalidArgument, "invalid search pattern"), cause))
 
-	assert.Equal(t, "invalid search pattern: missing closing )", problem.Of(err).Message)
+	assert.Equal(t, `invalid search pattern: parse "(": missing closing )`, problem.Of(err).Message)
 }
 
 func TestOf_AnUncodedToolFailureIsItsOutput(t *testing.T) {
@@ -95,15 +96,31 @@ func TestOf_AnUncodedToolFailureIsItsOutput(t *testing.T) {
 
 func TestOf_AMissingPathNamesThePath(t *testing.T) {
 	_, statErr := os.Stat(filepath.Join(t.TempDir(), "missing"))
+	err := fmt.Errorf("import: resolve path: %w", statErr)
 
-	got := problem.Of(fmt.Errorf("import: resolve path: %w", statErr))
+	got := problem.Of(err)
 
 	assert.Equal(t, problem.NotFound, got.Code)
-	assert.Equal(t, statErr.Error(), got.Message)
+	assert.Equal(t, err.Error(), got.Message)
+}
+
+// A wrap's words can carry what the failure was about; with nothing coded or
+// tool-made below it, every word of an uncoded failure is kept.
+func TestOf_AnUncodedFailureKeepsWhatItsWrapsFormatted(t *testing.T) {
+	exitErr := exec.CommandContext(t.Context(), os.Args[0], "-test.no-such-flag").Run()
+	var exit *exec.ExitError
+	require.ErrorAs(t, exitErr, &exit)
+	err := fmt.Errorf("pr create: %w",
+		fmt.Errorf("gh %s: stderr=%q: %w", "pr", "GraphQL: A pull request already exists", exitErr))
+
+	got := problem.Of(err)
+
+	assert.Equal(t, problem.Internal, got.Code)
+	assert.Contains(t, got.Message, "GraphQL: A pull request already exists")
 }
 
 func TestOf_AnEmptyMessageIsAnInternalError(t *testing.T) {
-	assert.Equal(t, "internal error", problem.Of(fmt.Errorf("x: %w", errors.New(""))).Message)
+	assert.Equal(t, "internal error", problem.Of(errors.New(" ")).Message)
 }
 
 func TestOf_NilIsAnInternalError(t *testing.T) {

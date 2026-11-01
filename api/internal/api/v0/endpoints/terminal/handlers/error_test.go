@@ -97,7 +97,7 @@ func TestTerminalHandlers_ProfileErrors(
 		doTerminal(r, http.MethodDelete, "/v0/settings/terminal/profiles/p1", nil),
 	} {
 		assert.Equal(t, http.StatusInternalServerError, rec.Code)
-		assert.JSONEq(t, `{"success":false,"code":"internal","error":"db down"}`, rec.Body.String(),
-			"the store's failure, not the chain it was wrapped in")
+		assert.JSONEq(t, `{"success":false,"code":"internal","error":"terminal profiles: query: db down"}`, rec.Body.String(),
+			"an uncoded failure keeps every word")
 	}
 }

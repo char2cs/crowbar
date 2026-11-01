@@ -273,7 +273,7 @@ func (g *ghProvider) runGH(
 	cmd.Stderr = &errBuf
 
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("gh %s: stderr=%q: %w", args[0], strings.TrimSpace(errBuf.String()), err)
+		return "", &providertypes.CLIError{Tool: "gh", Verb: args[0], Stderr: strings.TrimSpace(errBuf.String()), Err: err}
 	}
 	return out.String(), nil
 }

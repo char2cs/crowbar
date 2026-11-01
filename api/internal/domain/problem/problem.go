@@ -2,7 +2,6 @@ package problem
 
 import (
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 )
@@ -88,9 +87,9 @@ func Of(err error) Problem {
 	return Problem{Code: CodeOf(err), Message: messageOf(err)}
 }
 
-// messageOf drops the context prefixes plain wraps added above the failure
-// itself: a coded error says its message and its cause's, a tool error its
-// output. A bare category sentinel says nothing, so the wrap that declared it speaks.
+// messageOf starts at the outermost coded or tool error, dropping the wraps
+// above it unless one says more after it; a bare sentinel is told by the wrap
+// that declared it. With none of those, every word is kept: a wrap may format what it was about.
 func messageOf(err error) string {
 	var outer error
 	node := err
@@ -118,11 +117,24 @@ func messageOf(err error) string {
 			}
 		}
 		inner := errors.Unwrap(node)
-		if inner == nil || !isPrefixWrap(node, inner) {
+		if inner == nil || !named(inner) {
+			return orInternal(withDetails(err))
+		}
+		if !strings.HasSuffix(node.Error(), inner.Error()) {
 			return orInternal(withDetails(node))
 		}
 		outer, node = node, inner
 	}
+}
+
+// named reports whether err's tree holds a node that names the failure itself:
+// a coded error, a tool error or a category sentinel.
+func named(err error) bool {
+	return visit(err, func(node error) bool {
+		_, coded := node.(*Error) //nolint:errorlint // one node of a tree visit walks
+		_, tool := node.(Detailer)
+		return coded || tool || isSentinel(node)
+	})
 }
 
 // joined is what each part of fmt.Errorf("%w: %w", a, b) says, when that is
@@ -151,12 +163,6 @@ func isSentinel(err error) bool {
 		}
 	}
 	return false
-}
-
-// isPrefixWrap reports whether node is fmt.Errorf("ctx: %w", inner): context
-// only. A wrap that says more (fmt.Errorf("%w: why", inner)) is part of the message.
-func isPrefixWrap(node, inner error) bool {
-	return fmt.Sprintf("%T", node) == "*fmt.wrapError" && strings.HasSuffix(node.Error(), ": "+inner.Error())
 }
 
 // withCause is message followed by what its cause says, when that says anything.

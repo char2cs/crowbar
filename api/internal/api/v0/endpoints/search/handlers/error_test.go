@@ -123,7 +123,7 @@ func TestReplaceHandlers_EngineUnavailable_Returns503(
 }
 
 // An engine failure answers 500 with what failed, never the wrap chain above it.
-func TestSearchHandlers_AnEngineFailureIsInternalWithoutItsChain(
+func TestSearchHandlers_AnEngineFailureIsInternalAndKeepsItsWords(
 	t *testing.T,
 ) {
 	for _, path := range []string{"/v0/chats/chat1/search", "/v0/chats/chat1/search/replace"} {
@@ -132,6 +132,6 @@ func TestSearchHandlers_AnEngineFailureIsInternalWithoutItsChain(
 		rec := do(r, http.MethodPost, path, map[string]any{"query": "fmt"})
 
 		assert.Equal(t, http.StatusInternalServerError, rec.Code, path)
-		assert.JSONEq(t, `{"success":false,"code":"internal","error":"disk full mid-write"}`, rec.Body.String(), path)
+		assert.JSONEq(t, `{"success":false,"code":"internal","error":"search: rg: disk full mid-write"}`, rec.Body.String(), path)
 	}
 }

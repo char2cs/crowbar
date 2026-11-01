@@ -301,7 +301,7 @@ func TestDetail_AFailedPositionReadFailsTheRead(t *testing.T) {
 		r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 
 		assert.Equal(t, http.StatusInternalServerError, rec.Code, path)
-		assert.JSONEq(t, `{"success":false,"code":"internal","error":"disk gone"}`, rec.Body.String(), path)
+		assert.JSONEq(t, `{"success":false,"code":"internal","error":"repos: placement of r1: tree: read p1: disk gone"}`, rec.Body.String(), path)
 	}
 }
 

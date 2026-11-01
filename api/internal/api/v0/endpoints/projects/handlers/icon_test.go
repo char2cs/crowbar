@@ -99,7 +99,7 @@ func TestPutIconStoresBytesAndClearsEmoji(t *testing.T) {
 }
 
 // A write the disk refused answers with the refusal, not the wraps above it.
-func TestPutIconAWriteFailureNamesThePathNotTheChain(t *testing.T) {
+func TestPutIconAWriteFailureNamesThePath(t *testing.T) {
 	r, _, home := iconRouter(t)
 	stored := filepath.Join(home, "projects", "p1", "icon")
 	if err := os.MkdirAll(stored, 0o750); err != nil {
@@ -115,7 +115,7 @@ func TestPutIconAWriteFailureNamesThePathNotTheChain(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("PUT icon = %d, want 500 (body %s)", rec.Code, rec.Body.String())
 	}
-	assert.JSONEq(t, `{"success":false,"code":"internal","error":"open `+stored+`: is a directory"}`, rec.Body.String())
+	assert.JSONEq(t, `{"success":false,"code":"internal","error":"write error: open `+stored+`: is a directory"}`, rec.Body.String())
 }
 
 func TestPutIconRejectsANonImage(t *testing.T) {
