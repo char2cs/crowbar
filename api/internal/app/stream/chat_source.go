@@ -2,6 +2,7 @@ package stream
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
@@ -27,10 +28,17 @@ func (s *ChatSource) Attach(ctx context.Context, chatID string, since int64, emi
 		return fmt.Errorf("stream: chat %s: %w", chatID, err)
 	}
 	for f := range frames {
+		if f.Type == agentusecase.FeedFailed {
+			return fmt.Errorf("stream: chat %s: %w", chatID, errFeedFailed)
+		}
 		emit(chatFrame(f))
 	}
 	return nil
 }
+
+// errFeedFailed is a ledger read that failed: the hub closes the connection so
+// the client's reconnect backoff paces the retries.
+var errFeedFailed = errors.New("the chat's ledger could not be read")
 
 func chatFrame(f agentusecase.FeedFrame) stream.Frame {
 	switch {

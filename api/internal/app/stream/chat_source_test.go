@@ -75,3 +75,22 @@ func TestChatSource_AnUnknownChatIsRefused(t *testing.T) {
 	assert.Equal(t, stream.ReasonRefused, closed.Reason)
 	assert.Equal(t, problem.NotFound, closed.Problem.Code)
 }
+
+// A feed that failed to read is not a resync the client may ask again at
+// once: the connection closes so its reconnect backoff paces the retries.
+func TestChatSource_AFailedFeedClosesTheConnectionWithResync(t *testing.T) {
+	src := &feeds{frames: []agentusecase.FeedFrame{{Type: agentusecase.FeedFailed}}}
+	hub := newHub(map[stream.ScopeKind]appstream.Source{
+		stream.KindChat: appstream.Following(appstream.NewChatSource(src)),
+	}, nil)
+	conn := newFakeConn()
+	done := served(t, hub, conn)
+
+	conn.send(t, stream.OpSub, "chat:c1")
+
+	ended(t, done)
+	assert.Equal(t, stream.CloseResync, conn.closeCode())
+	for len(conn.out) > 0 {
+		assert.NotEqual(t, stream.FrameClosed, (<-conn.out).T, "no scope-level resync to loop on")
+	}
+}

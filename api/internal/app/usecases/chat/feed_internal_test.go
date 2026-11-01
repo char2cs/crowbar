@@ -224,8 +224,8 @@ func TestFeeds_AFeedClosesWhenItsContextEndsOrItsAttachFails(t *testing.T) {
 
 	assert.Empty(t, drain(out))
 	failed := f.open(t.Context(), "c1", 500, func(func(FeedFrame) bool) error { return errors.New("disk gone") })
-	assert.Equal(t, []FeedFrame{{Type: FeedResync, Seq: 500}}, drain(failed),
-		"a feed that cannot attach says so, from what the client already has")
+	assert.Equal(t, []FeedFrame{{Type: FeedFailed}}, drain(failed),
+		"a feed that cannot attach fails: asking again at once would fail the same way")
 	assert.Empty(t, f.byChat)
 }
 

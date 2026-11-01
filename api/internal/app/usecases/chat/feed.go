@@ -14,13 +14,15 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// The frame types a chat feed sends. A feed ends after a resync or a deleted.
+// The frame types a chat feed sends. A feed ends after a resync, a deleted or
+// a failed: a resync is answered by asking again, a failed read is not.
 const (
 	feedRow     = "row"
 	FeedReady   = "ready"
 	feedDelta   = "delta"
 	FeedResync  = "resync"
 	FeedDeleted = "deleted"
+	FeedFailed  = "failed"
 )
 
 // feedCapacity is how many frames a feed's client may leave unread before it
@@ -275,7 +277,7 @@ func (s *feedSub) pump(
 	if err := attach(w.emit); err != nil {
 		if !errors.Is(err, errFeedEnded) && ctx.Err() == nil {
 			slog.Warn("chat feed: attach", "chat_id", chatID, "err", err)
-			w.emit(FeedFrame{Type: FeedResync, Seq: w.last})
+			w.emit(FeedFrame{Type: FeedFailed})
 		}
 		return
 	}
