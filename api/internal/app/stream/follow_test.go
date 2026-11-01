@@ -257,6 +257,40 @@ func TestHub_UnsubEndsTheFollowAndItsFrames(t *testing.T) {
 	assert.Len(t, seen, 1, "the hold let go of told the client nothing")
 }
 
+// Frames an unsub finds still queued are dropped: only the one the writer
+// already took can reach the client after it.
+func TestHub_UnsubDropsTheScopesQueuedFrames(t *testing.T) {
+	src := newLedgerSrc(int64(stream.QueueSize + 5))
+	hub := ledgerHub(src)
+	conn := newFakeConn()
+	conn.throttle = true
+	served(t, hub, conn)
+	conn.send(t, stream.OpSub, "chat:c1")
+	require.Eventually(t, replayWaits, waitBound, time.Millisecond)
+
+	conn.send(t, stream.OpUnsub, "chat:c1")
+	require.Eventually(t, func() bool { return !replayWaits() }, waitBound, time.Millisecond)
+	conn.send(t, stream.OpSub, "projects")
+	go func() {
+		for {
+			select {
+			case conn.allow <- struct{}{}:
+			case <-conn.closed:
+				return
+			}
+		}
+	}()
+	seen := conn.until(t, syncedOn("projects"))
+
+	rows := 0
+	for _, f := range seen {
+		if f.Scope == "chat:c1" {
+			rows++
+		}
+	}
+	assert.LessOrEqual(t, rows, 1, "queued frames of a scope let go of still reached the client")
+}
+
 func TestHub_LedgerHoldsLeaveNoGoroutineBehind(t *testing.T) {
 	src := newLedgerSrc(1)
 	hub := ledgerHub(src)

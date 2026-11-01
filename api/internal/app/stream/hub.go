@@ -175,6 +175,8 @@ func (h *Hub) handle(ctx context.Context, c *connection, req stream.Request) {
 	case stream.OpUnsub:
 		h.mu.Lock()
 		h.releaseLocked(c, req.Scope)
+		// Under the hub lock no follow or broadcast can queue another frame of it.
+		c.purge(req.Scope)
 		h.mu.Unlock()
 		h.letGoOf(c, req.Scope)
 	default:

@@ -111,6 +111,30 @@ func (c *connection) pop() (stream.Frame, bool) {
 	return next.frame, true
 }
 
+// purge drops the frames of scope still queued, so none of a released hold's
+// reach the client after its unsub was read.
+func (c *connection) purge(scope string) {
+	c.mu.Lock()
+	kept := c.pending[:0]
+	for _, o := range c.pending {
+		if o.frame.Scope != scope {
+			kept = append(kept, o)
+			continue
+		}
+		if o.live {
+			c.live--
+		}
+	}
+	clear(c.pending[len(kept):])
+	c.pending = kept
+	delete(c.snapshotting, scope)
+	c.mu.Unlock()
+	select {
+	case c.room <- struct{}{}:
+	default:
+	}
+}
+
 // await blocks while QueueSize frames wait; false once the connection or ctx ends.
 func (c *connection) await(ctx context.Context) bool {
 	for {
