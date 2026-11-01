@@ -46,3 +46,14 @@ describe('visibleParts', () => {
     expect(drawn).toHaveLength(invisible.length)
   })
 })
+
+describe('requestView for an MCP call', () => {
+  it('counts each line of a multi-line argument as a line of its own', () => {
+    const view = requestView({
+      toolName: 'mcp__echo__shout',
+      mcpServer: 'echo',
+      toolInput: { text: 'one\r\ntwo\nthree', loud: true },
+    })
+    expect(view.code.map((line) => line.text)).toEqual(['text: one', 'two', 'three', 'loud: true'])
+  })
+})

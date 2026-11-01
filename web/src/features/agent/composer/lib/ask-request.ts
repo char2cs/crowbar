@@ -45,7 +45,7 @@ function mcpView(req: AskRequest): RequestView {
   const prefix = `mcp__${server}__`
   const name = req.toolName ?? ''
   const tool = name.startsWith(prefix) ? name.slice(prefix.length) : name
-  return { server, head: tool, code: mcpArgs(req.toolInput).map((text) => ({ text })) }
+  return { server, head: tool, code: mcpArgs(req.toolInput).flatMap(plain) }
 }
 
 const toned = (text: string, tone: CodeLine['tone']): CodeLine[] =>
