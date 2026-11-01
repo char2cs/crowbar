@@ -22,7 +22,12 @@ import { Button } from '@/components/ui/button'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { WorkingLine, type WorkingLineProps } from '@/features/agent/activity/working-line'
-import { useChatItems, useDisplayRows, useLiveTail } from '@/features/agent/hooks/use-chat-feed'
+import {
+  useChatItems,
+  useDisplayRows,
+  useFeedError,
+  useLiveTail,
+} from '@/features/agent/hooks/use-chat-feed'
 import {
   useTranscriptAnchor,
   type TranscriptScrollPosition,
@@ -263,6 +268,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   const { chatId } = props
   const display = useDisplayRows(chatId)
   const liveTail = useLiveTail(chatId)
+  const refusal = useFeedError(chatId)
   const items = useChatItems(chatId)
   const outbox = useChatStore((s) => s.outbox[chatId] ?? NO_OUTBOX)
   const [measured] = useState(() => new Set<Key>())
@@ -429,7 +435,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
         )}
         {props.status === 'error' && empty && (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center text-sm">
-            <p>Couldn’t reach this chat. Crowbar keeps trying.</p>
+            <p>{refusal || 'Couldn’t reach this chat. Crowbar keeps trying.'}</p>
             <Button size="sm" variant="ghost" onClick={props.onOpenTerminal}>
               <TerminalIcon /> Terminal
             </Button>

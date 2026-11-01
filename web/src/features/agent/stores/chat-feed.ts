@@ -102,8 +102,9 @@ export function attachFeed(chatId: string): () => void {
       stopWatch()
       letGo()
     }
-    streamOpened().catch((error: unknown) => {
-      if (attachments.get(chatId) === fresh) failFeed(chatId, String(error))
+    // An unreachable stream keeps retrying, so the feed says so without a reason.
+    streamOpened().catch(() => {
+      if (attachments.get(chatId) === fresh) failFeed(chatId)
     })
   }
   const held = attachment

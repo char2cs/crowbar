@@ -102,11 +102,16 @@ describe('attachFeed', () => {
     expect(heldScopes('chat:')).toEqual(['chat:chat-2'])
   })
 
-  it('an unknown chat is refused and its feed says so', () => {
+  it('a refused chat says why and is not asked for again, even after a reconnect', () => {
     attachFeed('chat-1')
-    push({ t: 'closed', reason: 'refused', problem: { code: 'not_found', message: 'no chat' } })
-    expect(feed()).toMatchObject({ status: 'error', error: 'no chat' })
+    const unreadable = "This chat's history could not be read"
+    push({ t: 'closed', reason: 'refused', problem: { code: 'unavailable', message: unreadable } })
+    expect(feed()).toMatchObject({ status: 'error', error: unreadable })
     expect(heldScopes('chat:')).toEqual([])
+
+    streamDaemon.drop()
+    streamDaemon.deliver({ t: 'ready', epoch: 'e1' })
+    expect(subs()).toHaveLength(1)
   })
 
   it('a new epoch resets every feed', () => {

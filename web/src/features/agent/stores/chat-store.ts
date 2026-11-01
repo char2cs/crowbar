@@ -60,7 +60,8 @@ export function openFeed(chatId: string) {
   if (!chatStore.getState().feeds[chatId]) publish(chatId, emptyFeed())
 }
 
-export function failFeed(chatId: string, error: string) {
+/** Marks the feed failed; `error` is the daemon's word for why, when it gave one. */
+export function failFeed(chatId: string, error?: string) {
   const feed = chatStore.getState().feeds[chatId]
   if (feed) publish(chatId, { ...feed, status: 'error', error })
 }

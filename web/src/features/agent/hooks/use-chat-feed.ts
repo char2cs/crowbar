@@ -83,3 +83,8 @@ export function useTurnFacts(chatId: string | undefined): TurnFacts | undefined 
 export function useFeedStatus(chatId: string | undefined): ChatFeed['status'] | undefined {
   return useChatStore((s) => feedOf(s.feeds, chatId)?.status)
 }
+
+/** Why the daemon refused the chat's feed, when it said. */
+export function useFeedError(chatId: string | undefined): string | undefined {
+  return useChatStore((s) => feedOf(s.feeds, chatId)?.error)
+}

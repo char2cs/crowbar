@@ -3,7 +3,6 @@ package stream
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
@@ -23,7 +22,8 @@ type ChatSource struct{ feeds Feeds }
 // NewChatSource builds the chat scope's source over feeds.
 func NewChatSource(feeds Feeds) *ChatSource { return &ChatSource{feeds: feeds} }
 
-// Attach follows chatID's feed until it ends or ctx does; an unknown chat is not found.
+// Attach follows chatID's feed until it ends or ctx does. An unknown chat is
+// not found and an unreadable one unavailable, each in words for the client.
 func (s *ChatSource) Attach(ctx context.Context, chatID string, since int64, emit func(stream.Frame)) error {
 	frames, err := s.feeds.OpenFeed(ctx, chatID, since)
 	if problem.CodeOf(err) == problem.NotFound {
@@ -31,20 +31,23 @@ func (s *ChatSource) Attach(ctx context.Context, chatID string, since int64, emi
 		return problem.New(problem.NotFound, "That chat no longer exists")
 	}
 	if err != nil {
-		return fmt.Errorf("stream: chat %s: %w", chatID, err)
+		return unreadable(ctx, chatID, err)
 	}
 	for f := range frames {
 		if f.Type == agentusecase.FeedFailed {
-			return fmt.Errorf("stream: chat %s: %w", chatID, errFeedFailed)
+			return unreadable(ctx, chatID, errors.New("its feed failed"))
 		}
 		emit(chatFrame(f))
 	}
 	return nil
 }
 
-// errFeedFailed is a ledger read that failed: the hub closes the connection so
-// the client's reconnect backoff paces the retries.
-var errFeedFailed = errors.New("the chat's ledger could not be read")
+// unreadable refuses a chat whose ledger cannot be read: asking again at once
+// fails the same way, so the client waits for its pane to reopen.
+func unreadable(ctx context.Context, chatID string, err error) error {
+	slog.WarnContext(ctx, "stream: chat unreadable", "chat_id", chatID, "err", err)
+	return problem.New(problem.Unavailable, "This chat's history could not be read")
+}
 
 func chatFrame(f agentusecase.FeedFrame) stream.Frame {
 	switch {

@@ -2,6 +2,7 @@ package stream_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -77,21 +78,30 @@ func TestChatSource_AnUnknownChatIsRefused(t *testing.T) {
 		"the client is told what happened, not the daemon's error chain")
 }
 
-// A feed that failed to read is not a resync the client may ask again at
-// once: the connection closes so its reconnect backoff paces the retries.
-func TestChatSource_AFailedFeedClosesTheConnectionWithResync(t *testing.T) {
-	src := &feeds{frames: []agentusecase.FeedFrame{{Type: agentusecase.FeedFailed}}}
-	hub := newHub(map[stream.ScopeKind]appstream.Source{
-		stream.KindChat: appstream.Following(appstream.NewChatSource(src)),
-	}, nil)
-	conn := newFakeConn()
-	done := served(t, hub, conn)
+// A chat whose ledger cannot be read is refused on its own: asking again at
+// once would fail the same way, and the connection's other scopes go on.
+func TestChatSource_AFailedFeedRefusesItsScopeOnly(t *testing.T) {
+	for name, src := range map[string]*feeds{
+		"a failed read": {frames: []agentusecase.FeedFrame{{Type: agentusecase.FeedFailed}}},
+		"a failed open": {err: errors.New("chat feed: c1: disk gone")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			hub := newHub(map[stream.ScopeKind]appstream.Source{
+				stream.KindChat:     appstream.Following(appstream.NewChatSource(src)),
+				stream.KindProjects: newEntities(map[string]string{}),
+			}, nil)
+			conn := newFakeConn()
+			served(t, hub, conn)
 
-	conn.send(t, stream.OpSub, "chat:c1")
+			conn.send(t, stream.OpSub, "chat:c1")
+			closed := conn.next(t)
+			conn.send(t, stream.OpSub, "projects")
+			conn.until(t, syncedOn("projects"))
 
-	ended(t, done)
-	assert.Equal(t, stream.CloseResync, conn.closeCode())
-	for len(conn.out) > 0 {
-		assert.NotEqual(t, stream.FrameClosed, (<-conn.out).T, "no scope-level resync to loop on")
+			assert.Equal(t, stream.ReasonRefused, closed.Reason)
+			assert.Equal(t, problem.Problem{Code: problem.Unavailable, Message: "This chat's history could not be read"},
+				*closed.Problem)
+			assert.Equal(t, 0, conn.closeCode(), "one broken chat leaves the connection open")
+		})
 	}
 }

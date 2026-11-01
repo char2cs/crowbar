@@ -2,7 +2,7 @@ import { Profiler, type ComponentProps } from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { delta, ledger, seedFeed } from '@/__tests__/__fixtures__/ledger-rows'
-import { applyFeedFrame, chatStore, openFeed } from '@/features/agent/stores/chat-store'
+import { applyFeedFrame, chatStore, failFeed, openFeed } from '@/features/agent/stores/chat-store'
 import type { OutboxItem } from '@/features/agent/stores/lib/outbox'
 import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
 import {
@@ -475,5 +475,14 @@ describe('AgentTranscript', () => {
 
     expect(screen.getByText(/couldn’t reach this chat/i)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
+  })
+
+  it('says why when the daemon refused the chat, and does not promise to keep trying', () => {
+    openFeed('chat-1')
+    failFeed('chat-1', "This chat's history could not be read")
+    draw({ status: 'error' })
+
+    expect(screen.getByText("This chat's history could not be read")).toBeInTheDocument()
+    expect(screen.queryByText(/keeps trying/i)).not.toBeInTheDocument()
   })
 })

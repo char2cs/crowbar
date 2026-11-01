@@ -55,18 +55,17 @@ func (h *Hub) runFollow(ctx context.Context, c *connection, scope stream.Scope, 
 	if c.follows[name] != f {
 		return
 	}
-	switch {
-	case err != nil && problem.CodeOf(err) == problem.NotFound:
-		h.releaseLocked(c, name)
-		refuse(c, name, err)
-	case err != nil:
-		slog.WarnContext(ctx, "stream: follow", "scope", name, "err", err)
-		h.dropLocked(c, stream.CloseResync, "resync")
-	default:
+	h.releaseLocked(c, name)
+	if err == nil {
 		// The ledger ended without saying why: the client asks again from its seq.
-		h.releaseLocked(c, name)
 		c.push(stream.Closed(name, stream.ReasonResync, nil), false)
+		return
 	}
+	// A failed ledger is refused on its own; the connection's other scopes go on.
+	if problem.CodeOf(err) == problem.Internal {
+		slog.WarnContext(ctx, "stream: follow", "scope", name, "err", err)
+	}
+	refuse(c, name, err)
 }
 
 // followed queues one frame of f's hold, if it still holds. The replay waits

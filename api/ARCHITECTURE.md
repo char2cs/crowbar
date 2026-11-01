@@ -115,7 +115,8 @@ the usecases they call.
   document's watch while its `doc:` is, the LSP host for `lsp:` and the forge
   poll only for the viewed workspace's `forge:`. A `chat:<id>` scope is the
   chat's ledger: rows after the sub's `since`, `synced` at the head, then live
-  rows and streamed-text deltas, followed outside the hub's lock.
+  rows and streamed-text deltas, followed outside the hub's lock. A chat that
+  is gone or whose ledger cannot be read is refused on its own scope.
 - `Shutdown` is ordered: kill PTYs and join their exit callbacks (they write
   runner exits), close the drain gate, wait out reactors, drain each asynx
   singleton — all before the adapter closes the DBs.
