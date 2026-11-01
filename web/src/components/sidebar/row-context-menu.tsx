@@ -138,7 +138,7 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
     }
   }, [treeRef, rows, openAt])
 
-  if (!menu.isOpen || !menu.data) return null
+  if (!menu.data) return null
   const { row, locked } = menu.data
   // The repo header is identified by the row itself, never by its parent: a
   // repo's entry may be filed into a project-home folder and is still the repo.
@@ -269,5 +269,7 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
     )
   }
 
-  return <ContextMenu isOpen items={items} position={menu.position} onClose={menu.close} />
+  return (
+    <ContextMenu isOpen={menu.isOpen} items={items} position={menu.position} onClose={menu.close} />
+  )
 }

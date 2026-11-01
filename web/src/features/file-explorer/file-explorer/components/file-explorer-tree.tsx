@@ -187,7 +187,7 @@ function FileExplorerTreeComponent({
       showAlertDialog,
     })
 
-  const { setContextMenu, handleContextMenu, contextMenuElement, fileFeedback } =
+  const { closeContextMenu, handleContextMenu, contextMenuElement, fileFeedback } =
     useFileExplorerContextMenu({
       workspaceId,
       rootFolderPath,
@@ -217,7 +217,7 @@ function FileExplorerTreeComponent({
   useEventListener(
     'keydown',
     (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setContextMenu(null)
+      if (e.key === 'Escape') closeContextMenu()
     },
     documentRef,
   )
@@ -225,7 +225,6 @@ function FileExplorerTreeComponent({
   useEventListener('dragover', (e: DragEvent) => e.preventDefault(), documentRef)
 
   const openSearch = useCallback(() => setSearchOpen(true), [setSearchOpen])
-  const closeContextMenu = useCallback(() => setContextMenu(null), [setContextMenu])
   const containerEvents = useTreeContainerEvents({
     workspaceId,
     rootFolderPath,

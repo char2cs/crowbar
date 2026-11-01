@@ -1,5 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { useState } from 'react'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
+import { stubLayout } from '@/__tests__/__mocks__/stub-layout'
 import { FileExplorerTree } from '@/features/file-explorer/file-explorer/components/file-explorer-tree'
 import type { FileEntry } from '@/features/file-system/types/app'
 
@@ -78,5 +80,34 @@ describe('FileExplorerTree keyboard', () => {
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(screen.queryByLabelText('Filter files in tree')).toBeNull()
     expect(tree.getAttribute('aria-activedescendant')).toBe('file-tree-row-b_ts')
+  })
+})
+
+describe('FileExplorerTree context menu', () => {
+  it('New File from the menu leaves its name input focused once the menu has closed', async () => {
+    function Harness() {
+      const [tree, setTree] = useState(files)
+      return (
+        <FileExplorerTree
+          workspaceId="ws1"
+          files={tree}
+          isLoading={false}
+          rootFolderPath="/repos/r1"
+          onFileSelect={vi.fn()}
+          onFileOpen={vi.fn()}
+          onCreateNewFileInDirectory={vi.fn()}
+          onUpdateFiles={setTree}
+        />
+      )
+    }
+    onTestFinished(stubLayout())
+    render(<Harness />)
+    const tree = screen.getByRole('tree')
+    // The tree holds focus when the menu opens: that is where the menu returns it.
+    tree.focus()
+    fireEvent.contextMenu(tree)
+    fireEvent.click(await screen.findByText('New File'))
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+    expect(screen.getByRole('textbox')).toHaveFocus()
   })
 })

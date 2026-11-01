@@ -1,12 +1,13 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
 import { SidebarRowContextMenu } from '@/components/sidebar/row-context-menu'
 import { inputOf, repoRows } from '@/__tests__/__fixtures__/tree-rows'
 import { deriveRows } from '@/features/workspace/tree/rows'
 import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
 import type { Repo } from '@/core/entities/repo-types'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
+import { treeUiStore, useTreeUi } from '@/features/workspace/tree/tree-ui-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import * as api from '@/lib/api'
 import * as sidebarPlacement from '@/lib/api/sidebar-placement'
@@ -377,6 +378,44 @@ describe('SidebarRowContextMenu', () => {
     fireEvent.click(screen.getByText('Rename'))
     expect(treeUiStore.getState().renaming).toBe('folder-1')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('a rename started from the menu keeps its focused input once the menu has closed', async () => {
+    // The row the input draws on, as the tree draws it: the real inline editor
+    // while the store names it, the label otherwise.
+    function RenamingRow() {
+      const renaming = useTreeUi((s) => s.renaming)
+      if (renaming !== 'folder-1') return null
+      return (
+        <InlineRenameInput
+          defaultValue="Bugs"
+          onConfirm={() => treeUiStore.getState().stopRenaming()}
+          onCancel={() => treeUiStore.getState().stopRenaming()}
+        />
+      )
+    }
+    // One React tree, as in the sidebar: the input mounts in the commit that unmounts the menu.
+    const treeRef = { current: document.createElement('div') }
+    document.body.appendChild(treeRef.current)
+    render(
+      <>
+        <RenamingRow />
+        <SidebarRowContextMenu treeRef={treeRef} rows={rows} onImport={vi.fn()} />
+      </>,
+    )
+    // The row holds focus when the menu opens: that is where the menu returns it.
+    const row = document.createElement('div')
+    row.setAttribute('role', 'treeitem')
+    row.setAttribute('data-sidebar-row-id', 'folder-1')
+    row.tabIndex = 0
+    treeRef.current.appendChild(row)
+    row.focus()
+    fireEvent.contextMenu(row)
+    fireEvent.click(screen.getByText('Rename'))
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+    const input = screen.getByRole('textbox')
+    expect(input).toHaveFocus()
+    expect(treeUiStore.getState().renaming).toBe('folder-1')
   })
 
   it('clicking Import branches calls onImport with the project-home row id', () => {

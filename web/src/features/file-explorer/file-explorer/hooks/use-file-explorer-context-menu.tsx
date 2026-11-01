@@ -135,7 +135,13 @@ export function useFileExplorerContextMenu({
     if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth
     if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight
 
-    setContextMenu({ x, y, path: filePath, isDir })
+    setContextMenu({ x, y, path: filePath, isDir, isOpen: true })
+  }, [])
+
+  // Closing keeps the menu mounted until base-ui finishes closing it, so an
+  // item that moved focus (an inline name input) keeps it.
+  const closeContextMenu = useCallback(() => {
+    setContextMenu((menu) => menu && { ...menu, isOpen: false })
   }, [])
 
   const contextMenuItems = useMemo<ContextMenuItem[]>(() => {
@@ -441,10 +447,10 @@ export function useFileExplorerContextMenu({
       <>
         {contextMenu && (
           <ContextMenu
-            isOpen
+            isOpen={contextMenu.isOpen === true}
             position={{ x: contextMenu.x ?? 0, y: contextMenu.y ?? 0 }}
             items={contextMenuItems}
-            onClose={() => setContextMenu(null)}
+            onClose={closeContextMenu}
             className="file-tree-context-menu min-w-[220px]"
           />
         )}
@@ -461,7 +467,7 @@ export function useFileExplorerContextMenu({
 
   return {
     contextMenu,
-    setContextMenu,
+    closeContextMenu,
     handleContextMenu,
     contextMenuElement,
     fileFeedback,

@@ -189,8 +189,11 @@ export function useContextMenu<T = unknown>() {
     setState({ isOpen: true, position, data: data ?? null })
   }, [])
 
+  // Keeps position/data so the caller can keep the menu mounted while it closes:
+  // base-ui only skips its focus return when an item moved focus (a rename input)
+  // if the popup outlives that focus move; unmounting it on close steals focus back.
   const close = useCallback(() => {
-    setState({ isOpen: false, position: { x: 0, y: 0 }, data: null })
+    setState((s) => ({ ...s, isOpen: false }))
   }, [])
 
   return { ...state, open, openAt, close }
@@ -232,8 +235,7 @@ function ContextMenuHost({
         // Do NOT call onClose here — the fallback ImperativeContextMenu's own
         // dismissal calls the real onClose when the user actually dismisses
         // it. Closing immediately would flip the caller's `isOpen` to false
-        // and unmount the fallback before it ever renders, since every real
-        // call site gates its own render on that same `isOpen`.
+        // and close the fallback before it ever renders.
       }
     })()
     return () => {
