@@ -38,7 +38,7 @@ import { useSettingsStore } from '@/features/settings/store'
 import { useCreateDraftStore } from '@/lib/store/create-draft'
 import { resetOperations } from '@/__tests__/__fixtures__/operations'
 import { operationsState } from '@/lib/store/operations'
-import { rowsFromOperations } from '@/components/sidebar/lib/rows-from-operations'
+import { operationRows } from '@/__tests__/__fixtures__/tree-rows'
 import { ApiError } from '@/lib/errors/api-error'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
@@ -67,7 +67,7 @@ beforeEach(() => {
 })
 
 const ANY = expect.any(String)
-const opRows = () => rowsFromOperations(Object.values(operationsState().ops), { projectId: 'p1' })
+const opRows = () => operationRows('p1')
 const mintedChatId = () => (createChat.mock.calls.at(-1) as unknown as [string])[0]
 
 // Regression, reported live: a project-home chat's Fork was offered with no

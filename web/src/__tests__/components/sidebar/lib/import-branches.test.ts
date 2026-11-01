@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { performImportBranches } from '@/components/sidebar/lib/import-branches'
-import { rowsFromOperations } from '@/components/sidebar/lib/rows-from-operations'
+import { operationRows } from '@/__tests__/__fixtures__/tree-rows'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import { resetOperations } from '@/__tests__/__fixtures__/operations'
-import { operationsState } from '@/lib/store/operations'
 import { ApiError } from '@/lib/errors/api-error'
 import * as api from '@/lib/api'
 
@@ -32,8 +31,7 @@ beforeEach(() => {
   })
 })
 
-const opRows = () =>
-  rowsFromOperations(Object.values(operationsState().ops), { projectId: 'proj-1' })
+const opRows = () => operationRows('proj-1')
 
 describe('performImportBranches', () => {
   it('a mixed lock choice is one import, each branch carrying its own lock', () => {

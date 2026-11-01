@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import { useNavigate } from '@tanstack/react-router'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -8,7 +8,6 @@ import { RecentsBand } from './recents-band'
 import { CARD_BOTTOM_INSET_VAR } from '@/components/layout/sidebar-card-height'
 import { findScrollParent } from '@/components/layout/edge-scroll'
 import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
-import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
 import { AddRepositoryModal } from '@/components/projects/add-repository-modal'
 import {
   ensureHomeWorkspaceResolved,
@@ -16,9 +15,6 @@ import {
 } from '@/features/workspace/lib/home-workspace-resolver'
 import { handleCreateHomeThread } from '@/components/layout/home-actions'
 import { toast } from '@/features/window/stores/toast-store'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
-import { attachRemovalState, renderedHiddenIds } from '@/components/layout/removal-plan'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { selectProjectViewIds } from '@/features/panes/lib/view-selectors'
@@ -34,6 +30,7 @@ interface SpaceScrollerProps {
    *  the SAME value, ide-shell.tsx's `activeProjectIdFromRoute`). */
   activeProjectId: string | undefined
   onActiveProjectChange: (id: string) => void
+  /** Every row the project's panel draws (`deriveRows`). */
   rowsForProject: (projectId: string) => SidebarRow[]
   onOpen: (id: string) => void
   onTrash: (id: string) => void
@@ -78,95 +75,15 @@ function SpacePanel({
   onTrashProject,
 }: SpacePanelProps) {
   const projectId = project.id
-  const repoRows = rowsForProject(projectId)
-  // The REAL project-home workspace — project-scoped, not repo-scoped
-  // (home-workspace-resolver.ts: "home is a project-level concept, not a
-  // repo workspace"). Target for the header's Thread button and the
-  // add-menu's "Create a folder" item — NOT a repo's own home row (a
-  // different workspace entirely; conflating the two was a real bug, a
-  // "New thread on the project" button that silently created the thread
-  // under a REPO instead, caught live).
-  const { wsId: homeWorkspaceId, owningChatId: homeOwningChatId } = useHomeWorkspaceState(projectId)
+  const rows = rowsForProject(projectId)
+  // The project-home workspace: the header's Thread and New folder act on it, never a repo's home.
+  const { wsId: homeWorkspaceId } = useHomeWorkspaceState(projectId)
   useEffect(() => {
     ensureHomeWorkspaceResolved(projectId)
   }, [projectId])
-  // Every chat-scoped API call for this workspace (`setChatPlacement`,
-  // `createChat`, `workspaceBase`'s own throw) needs its scope RECORDED
-  // first (workspace-scope.ts) — `ide-shell.tsx` only ever records the
-  // ACTIVE route's home workspace, but `SpacePanel` mounts one per VISIBLE
-  // project, not just the active one. Without this, dragging/reordering (or
-  // even just opening) a home chat on any project OTHER than the one
-  // currently on screen throws "no project/repo scope recorded" instead of
-  // working — `recordWorkspaceScope` (not `setWorkspaceScope`) is the one
-  // that writes without also claiming this workspace as ACTIVE, exactly
-  // matching how `lib/store/sidebar.ts` already records every repo
-  // workspace's scope "as its data arrives," per that function's own doc.
-  //
-  // Recorded SYNCHRONOUSLY during render, not in a `useEffect` — mirrors
-  // `ide-shell.tsx`'s own `setWorkspaceScope` call and its doc comment: a
-  // `useEffect` here left a window, right after `homeWorkspaceId` first
-  // resolves, where the header's already-enabled Thread button reads a real
-  // `homeWorkspaceId` but the scope effect for THIS same value has not yet
-  // committed — a click landing in that window (caught live) threw "no
-  // project/repo scope recorded" from a workspace that plainly exists.
-  // `recordWorkspaceScope`'s listener notify is `useSyncExternalStore`-safe
-  // (see `useOwningChatId`, use-workspace-effects.ts) precisely so callers
-  // can do this — call it mid-render — the same guarantee `setWorkspaceScope`
-  // already relies on above.
+  // Recorded during render, not in an effect: a Thread click right after home resolves must
+  // find its scope, and SpacePanel mounts for every visible project, not only the active one.
   if (homeWorkspaceId) recordWorkspaceScope({ projectId, repoId: '', wsId: homeWorkspaceId })
-  // This project's home chats/folders — the same two aggregates a repo's
-  // OWN tree holds, kept in their own per-project store (home-tree.ts) since
-  // project home rides no repo. Rendered as FLAT TOP-LEVEL rows, exactly
-  // like a repo itself — explicit user correction: `rowsFromHome` first drew
-  // a container "Home" row for these to nest under, mirroring a repo's own
-  // home row, and it was rejected outright; there is no such container here.
-  const homeTree = useHomeTreeStore((s) => s.trees[projectId])
-  // `rowsFromHome` degrades gracefully (never throws) while its owning chat
-  // has not resolved yet — same as `rowsFromRepo`'s own home row — so this
-  // only needs to gate on the tree itself having seeded, the same way
-  // `SidebarTreeSurface`'s `seededRepoIds` keeps a repo's rows from being
-  // built before ITS seed has landed. Task 9 deleted the boot backfill that
-  // used to make that resolution a real (if narrow) race — the owning chat
-  // is minted chat-first, atomically, at this workspace's own creation.
-  const homeSeeded = homeWorkspaceId !== null && homeTree !== undefined
-  // A held home chat/folder's cascade descendants disappear the same way a
-  // held repo row's do — `repoRows` above comes in already filtered AND
-  // marked for the in-place transform (`SidebarTreeSurface`'s
-  // `rowsForProjectFn`), but a home tree is never part of `repos` for that
-  // projection to reach, so it is filtered/marked here instead. The PRIMARY
-  // id stays (removal-plan.ts's `descendantHiddenIds` doc) — only its
-  // cascade goes. Filtered against the tray's own `hiddenIds`, not an
-  // `entries`-derived set — see `sidebar-tree-surface.tsx`'s identical
-  // `renderedHiddenIds` swap for why: `entries` drops a row the instant its
-  // commit fires, before the DELETE it just sent has resolved, and deriving
-  // from `entries` alone let that row ghost back onto the tree for the
-  // length of the round trip.
-  const removalEntries = useRemovalTrayStore((s) => s.entries)
-  const trayHiddenIds = useRemovalTrayStore((s) => s.hiddenIds)
-  const hiddenIds = useMemo(
-    () => renderedHiddenIds(trayHiddenIds, removalEntries),
-    [trayHiddenIds, removalEntries],
-  )
-  // A repo header row already in `repoRows` (rowsFromRepo's own push) carries
-  // its own real `parentId`/`order` straight off the wire — Task 3 put a
-  // repo's position on its own `Node` row, computed server-side against
-  // these SAME real home chat/folder siblings, so it needs no correction
-  // here any more: it interleaves into the same sibling sort as
-  // `rowsFromHome`'s rows just by sitting in the same flat list, exactly the
-  // way a chat or folder row already does.
-  const homeRows =
-    homeSeeded && homeTree
-      ? attachRemovalState(
-          rowsFromHome(
-            homeWorkspaceId,
-            homeTree.chats.filter((c) => !hiddenIds.has(c.id)),
-            homeTree.folders.filter((f) => !hiddenIds.has(f.id)),
-            homeOwningChatId ?? undefined,
-          ),
-          removalEntries,
-        )
-      : []
-  const rows = [...homeRows, ...repoRows]
   const navigate = useNavigate()
   // The tree and Recents sit in ONE shared scroll region (spec §2) and both
   // take `useSidebarDrag` (Task 21) — each resolves its own edge-scroll

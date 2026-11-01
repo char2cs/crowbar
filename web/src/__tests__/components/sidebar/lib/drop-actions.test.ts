@@ -508,7 +508,7 @@ describe('performSidebarDrop — folder edge for a workspace container that owns
       ],
     })
 
-    // The tree draws ws-a by its owner's id (rows-from-repo.ts folds on the
+    // The tree draws ws-a by its owner's id (deriveRows folds on the
     // DTO's `owningChatId` alone), so its children's rows carry that parent.
     await performSidebarDrop(
       [branchRow('ws-fork')],
@@ -843,7 +843,7 @@ describe('performSidebarDrop — the repo home row', () => {
 
   it('dropping "after" the EXPANDED home row lands as the FIRST root-level row, not the last', async () => {
     // The home row is a row like any other, but it is not a node in
-    // `buildSidebarTree`'s own graph — its rendered children ARE the
+    // `legacyTreeIndex`'s own graph — its rendered children ARE the
     // tree's roots. Naively reusing `findNode` for it would always report
     // zero children and silently turn this into an append-at-the-end.
     await performSidebarDrop(
@@ -919,7 +919,7 @@ const chat = (id: string, wsId: string, over: Partial<AgentChat> = {}): AgentCha
 
 /**
  * A repo whose (chatless) main checkout `ws-x` holds the chats/folders a test
- * seeds — drawn by `rowsFromRepo` under its header row, id'd `ws-x`. The
+ * seeds — drawn by `deriveRows` under its header row, id'd `ws-x`. The
  * sidebar store IS what the tree draws; a drop plans over those rows and never
  * reads (or mints) the per-workspace store, which is empty unless that
  * workspace's pane happens to be mounted.
@@ -952,7 +952,7 @@ const repoChat = (id: string, over: Partial<Chat> = {}): Chat => ({
   ...over,
 })
 
-/** A chat row as `rowsFromRepo` draws one at repo-chat-x's root: under the header. */
+/** A chat row as `deriveRows` draws one at repo-chat-x's root: under the header. */
 const rootChatRow = (id: string, over: Partial<SidebarRow> = {}) =>
   chatRow(id, 'ws-x', { parentId: 'ws-x', ...over })
 
@@ -1041,7 +1041,7 @@ describe('performSidebarDrop — chats', () => {
   // succeeded (confirmed live — the daemon had the chat under its new
   // parent, survived a reload) but nothing on screen ever moved, because
   // `setChatPlacement`'s own response used to be discarded here entirely —
-  // the sidebar tree's own `repos` (what `rowsFromRepo` actually reads,
+  // the sidebar tree's own `repos` (what `deriveRows` actually reads,
   // separate from the ChatStore the other tests in
   // this block seed) was never told. Pins the fix: the response is now
   // applied straight to `useSidebarStore`, and the SAME repo/workspace
@@ -1126,7 +1126,7 @@ describe('performSidebarDrop — chats', () => {
   // The literal "can't group chats into a folder" gap, caught live: filing a
   // chat into a folder used to be a silent no-op — `planChatDrop` refused any
   // non-chat target outright. `kind: 'folder'` is one aggregate in the
-  // current unified row model (rows-from-repo.ts's folder push is the same
+  // current unified row model (deriveRows's folder push is the same
   // `AgentChatFolder` this targets), so there is a real placement to make.
   it('a chat dropped onto a folder row files it there', async () => {
     seedRepoChats(
@@ -1149,7 +1149,7 @@ describe('performSidebarDrop — chats', () => {
   // A folder row carries no `workspaceId` of its own (pure organisation) —
   // this pins that the dragged chat's OWN workspace is what the drop still
   // resolves against, the same way it must for a project-home folder
-  // (rows-from-home.ts), which can never have a `workspaceId` to fall back
+  // (deriveRows), which can never have a `workspaceId` to fall back
   // on any other way.
   it('a chat dropped onto a home folder still resolves the home workspace off the chat itself', async () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
@@ -1186,7 +1186,7 @@ describe('performSidebarDrop — chats', () => {
   // `planChatDropOntoBranch` computes the index over the same combined
   // tree that actually renders this level.
   describe('reordering past a branch row', () => {
-    /** repo-1's header row as `rowsFromRepo` draws it: `repoIcon` marks it. */
+    /** repo-1's header row as `deriveRows` draws it: `repoIcon` marks it. */
     const repoHeader = (id: string) =>
       branchRow(id, {
         parentId: null,
@@ -1731,12 +1731,12 @@ describe('performSidebarPaneDrop — rows that name no chat', () => {
  * It used to be refused with every other non-chat kind ("no pane has an
  * 'open into' meaning for them yet"), which is precisely why dragging a
  * workspace row onto the pane area did nothing at all. It has a meaning, and
- * it is the same one a chat row has: `rows-from-repo.ts` gives every
+ * it is the same one a chat row has: `deriveRows` gives every
  * workspace-owning row the id of the CHAT that owns its worktree, so a
  * workspace row IS a chat row wearing a workspace's clothes.
  */
 describe('performSidebarPaneDrop — a workspace row', () => {
-  /** A row exactly as `rows-from-repo.ts` builds one for a fork: id'd from the
+  /** A row exactly as `deriveRows` builds one for a fork: id'd from the
    *  owning chat, carrying the workspace it owns. */
   const workspaceRow = (chatId: string, wsId: string) => branchRow(chatId, { workspaceId: wsId })
 
@@ -2186,8 +2186,8 @@ describe('performSidebarPaneDrop — cross-workspace', () => {
 /**
  * The FOURTH id-space consumer of a branch row's id, after
  * `resolveChatRow`/`resolveRow`/`performRenameRow`. A branch row is addressed
- * by the chat that owns its workspace (`rows-from-repo.ts`), and everything
- * this file computes with — `buildSidebarTree`'s nodes, `placeWorkspace`,
+ * by the chat that owns its workspace (`deriveRows`), and everything
+ * this file computes with — `legacyTreeIndex`'s nodes, `placeWorkspace`,
  * `reparentWorkspace` — is in the WORKSPACE id space. Untranslated,
  * `resolveRowRepo` returned null for the repo-home row and every locked
  * branch, `planTreeRowDrop` returned `[]`, and the drop the indicator had just

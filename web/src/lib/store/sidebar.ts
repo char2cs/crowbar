@@ -124,7 +124,7 @@ export interface Workspace {
    * this workspace names as its parent (`handleCreate`).
    *
    * It is NOT this workspace's row id. For a locked branch or a repo home the
-   * two coincide — `rows-from-repo.ts` draws those rows AS their owning
+   * two coincide — `deriveRows` draws those rows AS their owning
    * `branch` row — but a regular fork's owner is an ordinary conversation that
    * already renders as its own row beside it, so the workspace points at it
    * rather than becoming it.
@@ -142,11 +142,11 @@ export interface Repo {
   projectId?: string
   /** Dense index within its project's section. Backend-supplied; older frames
    *  omit it, in which case the repo sorts after the ordered ones in arrival
-   *  order (the same rule buildSidebarTree applies to a workspace's). */
+   *  order (the same rule legacyTreeIndex applies to a workspace's). */
   order?: number
   /** Project-home folder this repo's own entry is filed under, undefined (or
    *  '') for the project's home root. Lets the repo header row interleave
-   *  with the project's home chats/folders — see rows-from-repo.ts. */
+   *  with the project's home chats/folders — see deriveRows. */
   folderId?: string
   name: string
   avatarLabel: string
@@ -179,7 +179,7 @@ export interface Repo {
   /** `WorkspaceDTO.owningChatId` of the default (repo-home) workspace,
    *  lifted here for the same reason `defaultBranch`/`defaultWorking` are:
    *  the default workspace is never a `Workspace` tree row, so there is no
-   *  `Workspace.owningChatId` for `rows-from-repo.ts` to read directly. `''`
+   *  `Workspace.owningChatId` for `deriveRows` to read directly. `''`
    *  when the daemon resolved none yet; absent on a row cached before the
    *  field existed — both mean "fall back to a chat that claims the row
    *  itself" (see `resolveHomeOwnerId`). */

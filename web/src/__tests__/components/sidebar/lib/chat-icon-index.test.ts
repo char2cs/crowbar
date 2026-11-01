@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
+import { repoRows } from '@/__tests__/__fixtures__/tree-rows'
 import { chatIconIndex } from '@/components/sidebar/lib/chat-icon-index'
 import type { Chat, Repo, Workspace } from '@/lib/store/sidebar'
 
@@ -14,7 +14,7 @@ function makeTestChat(over: Partial<Chat> & { id: string; title: string }): Chat
 /**
  * The id of the `branch` row every fixture's repo home owns.
  *
- * Every repo with a home workspace has one by the time `rowsFromRepo` is
+ * Every repo with a home workspace has one by the time `deriveRows` is
  * called (2026-09-08 sidebar-placement-unification Task 9: chat-first, at
  * creation — `MintOwningChat`/`AttachOwningWorkspace`, never a boot
  * backfill), and `SidebarTreeSurface` does not build rows for a repo until
@@ -23,17 +23,17 @@ function makeTestChat(over: Partial<Chat> & { id: string; title: string }): Chat
  * modelling the loading state the caller already excludes. Its OWN `type` is
  * deliberately `'chat'`, not `'branch'` — Task 9 retires the retype, so
  * `makeTestRepo` also stamps `defaultOwningChatId`, the direct field
- * `rowsFromRepo` reads instead.
+ * `deriveRows` reads instead.
  */
 const HOME_ROW_ID = 'home-branch-row'
 
 /**
  * A workspace wired to the chat that owns it, `Workspace.owningChatId` ->
- * `Chat.id`, the way `rows-from-repo.ts`'s `resolveOwnerChats` reads it for
+ * `Chat.id`, the way `deriveRows`'s `resolveOwnerChats` reads it for
  * every fold — a locked branch and an ordinary fork alike. Neither half is
  * useful alone once a test cares about folding: a workspace with no
  * `owningChatId` (or a chat this repo hasn't seeded) is the "genuinely
- * chat-less" state `rowsFromRepo` deliberately leaves unfolded, covered on
+ * chat-less" state `deriveRows` deliberately leaves unfolded, covered on
  * its own below.
  */
 function makeOwnedWorkspace(
@@ -72,20 +72,20 @@ function makeTestRepo(over: Partial<Repo> = {}): Repo {
 /**
  * `chatIconIndex` is what `recents-band.tsx` (via `recents-for-project.ts`)
  * reads instead of hand-building a row with no ownership data — it must
- * agree with `rowsFromRepo`'s own branch-row icon fields for the identical
+ * agree with `deriveRows`'s own branch-row icon fields for the identical
  * chat, since the two draw the same chat in two different places (the tree
  * and Recents) and a divergence between them is exactly the bug this file
  * exists to prevent.
  */
 describe('chatIconIndex', () => {
-  it("agrees with rowsFromRepo's own icon fields for a workspace-owning chat", () => {
+  it("agrees with deriveRows's own icon fields for a workspace-owning chat", () => {
     const { workspace, chat } = makeOwnedWorkspace(
       { id: 'ws-1', branch: 'feature/x', status: 'pr-conflicts' },
       { id: 'branch-chat-1' },
     )
     const repo = makeTestRepo({ workspaces: [workspace], chats: [chat] })
 
-    const treeRow = rowsFromRepo(repo).find((r) => r.id === 'branch-chat-1')
+    const treeRow = repoRows(repo).find((r) => r.id === 'branch-chat-1')
     const icon = chatIconIndex([repo]).get('branch-chat-1')
 
     expect(icon).toEqual({
@@ -111,7 +111,7 @@ describe('chatIconIndex', () => {
   })
 
   it('a fresh fork whose Workspace record has not landed yet still marks ownership, with no decoration', () => {
-    // Mirrors rowsFromRepo's own "ownedWorkspaceId resolved but no Workspace
+    // Mirrors deriveRows's own "ownedWorkspaceId resolved but no Workspace
     // node" branch — resolveOwnerOfChat only needs Chat.ownsWorktree, not a
     // Workspace record, to know this chat owns something.
     const chat = makeTestChat({

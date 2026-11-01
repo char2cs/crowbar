@@ -656,7 +656,7 @@ describe('SIDEBAR_DROP_POLICY', () => {
 
     // The literal "can't group chats into a folder" gap, caught live: a
     // `kind: 'folder'` row is one aggregate in the current unified row
-    // model (rows-from-repo.ts's folder push is the same
+    // model (deriveRows's folder push is the same
     // `AgentChatFolder`/`ChatsFolderWireDTO` `planChatDrop` targets), not
     // the two separate "repo folder" / "chat folder" concepts an earlier,
     // pre-unification version of this policy refused to mix.
@@ -676,7 +676,7 @@ describe('SIDEBAR_DROP_POLICY', () => {
     })
   })
 
-  // Project-home folders (rows-from-home.ts) ride no repo at all — the
+  // Project-home folders (deriveRows) ride no repo at all — the
   // literal "can't drag/group a home folder" gap, caught live: `resolveRowRepo`
   // can never see them, so the repo-scoped walk below refused every one.
   describe('project-home folders are project-scoped, not repo-scoped', () => {

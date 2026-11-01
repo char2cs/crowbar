@@ -134,7 +134,7 @@ describe('SidebarTree', () => {
     expect(onCreate).toHaveBeenCalledWith('folder-1', 'workspace')
   })
 
-  // A project-home folder (rows-from-home.ts) owns no worktree at all — no
+  // A project-home folder (deriveRows) owns no worktree at all — no
   // repo means no worktree to fork — so it gets no Fork button, and still
   // renders nothing beneath it when empty. It DOES still get Thread: project
   // home applies the same logic to a folder it applies to a chat, and a home
@@ -274,7 +274,7 @@ describe('SidebarTree', () => {
   // Recents' OWN muted-label mechanism is untouched — only the tree
   // (`SidebarTreeRow`) opts into the new ground via `hasViewIdle`.
   it('gives a chat row whose chat is live open in a pane the idle ground, not a greyed label — even though the row prop itself always arrives hasView: false', () => {
-    // Every row in `rows` is seeded with `hasView: false` (rows-from-repo.ts
+    // Every row in `rows` is seeded with `hasView: false` (deriveRows
     // never seeds live state into the row object — see its own note). The
     // signal has to come from a LIVE subscription to pane membership, not
     // from the prop, so open chat-1 in a real view on the

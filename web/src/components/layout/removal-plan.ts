@@ -1,4 +1,3 @@
-import { buildSidebarTree, indexSidebarTree } from './workspace-tree-utils'
 import { type Chat, type Folder, type Repo } from '@/lib/store/sidebar'
 import { getPostDeleteNavigationTarget, EMPTY_CHATS, EMPTY_FOLDERS } from '@/lib/store/repo-tree'
 import type { RemovalDraft, RemovalEntry } from '@/lib/store/sidebar-removal'
@@ -7,6 +6,8 @@ import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { resolveHomeRowScope, getHomeTree } from '@/lib/store/home-tree'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+import { legacyTreeIndex } from '@/features/workspace/tree/legacy-tree-index'
+import { descendantIds } from '@/features/workspace/tree/tree-index'
 
 /** The little a removal needs to know about a project: which one, and its label. */
 export interface ProjectRow {
@@ -258,14 +259,11 @@ function draftFor(
   // tray must never accept one and promise otherwise.
   if (!workspace || workspace.status === 'locked') return null
 
-  const tree = indexSidebarTree(
-    buildSidebarTree(repo.workspaces, repo.folders ?? EMPTY_FOLDERS),
-    repo.id,
-  )
-  const descendants = tree.index.descendantsOf(workspace.id)
+  // Its branches and folders as drawn; chats are collected below by the workspace they run in.
+  const descendants = descendantIds(legacyTreeIndex([{ ...repo, chats: [] }], null), workspace.id)
   // BOTH HALVES OF EVERY ROW THAT GOES, NOT JUST THE WORKSPACE HALF.
   //
-  // A workspace row IS its owning chat (`rows-from-repo.ts`) and the delete is
+  // A workspace row IS its owning chat (`deriveRows`) and the delete is
   // literally `deleteChat` — so hiding the `Workspace` records alone left every
   // one of those owning chats visible for the whole eight-second countdown.
   // With its workspace gone from under it, such a chat has no workspace node to
@@ -287,7 +285,7 @@ function draftFor(
     kind: 'workspace',
     id: workspace.id,
     // The row this held workspace actually renders as is keyed by its OWNING
-    // CHAT's id, not the raw workspace id above — `descendantHiddenIds` needs
+    // CHAT's id, not the raw workspace id above — `renderedHiddenIds` needs
     // this to keep that chat un-hidden too (see this field's own doc), or the
     // fold has nothing left to fold onto and the row re-keys the instant it's
     // held, losing its DOM identity for no reason. Falls back to the
@@ -397,47 +395,9 @@ export function applyPendingRemovals(
 }
 
 /**
- * What `applyPendingRemovals` should actually strip, now that a held row
- * transforms IN PLACE (sidebar-row.tsx's `RemovingSidebarRow`) instead of
- * vanishing into a separate tray: every hidden id MINUS each entry's own
- * PRIMARY id, which stays on screen so it has a row left to transform.
- * `RemovalEntry.hiddenIds` always lists the primary id first, then its
- * cascade (`chatDescendantsOf`/the workspace-subtree walk above) — those
- * descendants still disappear outright, same as before, since the primary
- * row already accounts for them (the "+N goes with it" count).
- *
- * 'repo'/'project' are the exception: `attachRemovalState`'s own doc notes
- * neither ever matches a row here, so there is no in-place row for their
- * primary id to stay visible FOR — excluding it would just stop the whole
- * repo/project from being hidden at all (their `hiddenIds` IS the primary,
- * for a repo). Those two kinds keep their full `hiddenIds`, primary
- * included; only a kind `attachRemovalState` can actually transform gets
- * its own id held back.
- *
- * A 'workspace' entry holds back TWO ids, not one: `entry.id` (the raw
- * Workspace id, so the record survives for `rows-from-repo.ts` to read) and
- * `entry.primaryRowId` (the owning chat's id, so the fold has a chat left to
- * fold onto and the rendered row keeps the same key it always had — see that
- * field's own doc on `RemovalEntry`). Every other kind's `id` already IS its
- * `primaryRowId`.
- */
-export function descendantHiddenIds(entries: readonly RemovalEntry[]): Set<string> {
-  const out = new Set<string>()
-  for (const entry of entries) {
-    const transformsInPlace = entry.kind !== 'repo' && entry.kind !== 'project'
-    const primaryRowId = entry.primaryRowId ?? entry.id
-    for (const id of entry.hiddenIds) {
-      if (transformsInPlace && (id === entry.id || id === primaryRowId)) continue
-      out.add(id)
-    }
-  }
-  return out
-}
-
-/**
- * The tray store's own `hiddenIds`, corrected by the same rule
- * {@link descendantHiddenIds} applies — for a caller that needs BOTH halves of
- * what the tree draws.
+ * The tray store's own `hiddenIds` minus each live entry's PRIMARY row id(s),
+ * which stay on screen transformed in place; a repo or project entry has no
+ * such row, so it keeps its full set.
  *
  * The store's set outlives the tray row on purpose: a committed entry leaves
  * `entries` immediately while its rows stay hidden until the daemon's
@@ -468,7 +428,7 @@ export function renderedHiddenIds(
  *
  * A 'workspace'-kind entry's own `id` is the RAW workspace id — but the
  * branch row it corresponds to is rendered/looked-up by its OWNING CHAT's
- * id (`rows-from-repo.ts`'s fold), never the raw one. Matching on `row.id`
+ * id (`deriveRows`'s fold), never the raw one. Matching on `row.id`
  * for that kind would silently find nothing. `row.workspaceId` is the one
  * field every branch row still carries the raw id on, so that is what a
  * 'workspace' entry matches against; a 'chat'/'folder' entry's `id` already

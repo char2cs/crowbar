@@ -196,7 +196,7 @@ describe('handleOpen', () => {
     // Regression: a bubble at the repo root used to fold instead of opening
     // — it owns no `Workspace` of its own, so `chat.workspaceId` is null, and
     // that null used to be read as "this row opens nothing." It now falls
-    // back to its nearest ANCESTOR workspace (rows-from-repo.ts's own
+    // back to its nearest ANCESTOR workspace (deriveRows's own
     // `ancestorWorkspaceId`) — the repo's own home, for a bubble with no
     // workspace/folder ancestor above it at all. Live-reported: "clicking on
     // a not opened row... it should create a view on its own."

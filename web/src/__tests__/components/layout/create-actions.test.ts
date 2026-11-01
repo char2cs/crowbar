@@ -42,7 +42,7 @@ import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useCreateDraftStore } from '@/lib/store/create-draft'
 import { resetOperations } from '@/__tests__/__fixtures__/operations'
 import { operationsState } from '@/lib/store/operations'
-import { rowsFromOperations } from '@/components/sidebar/lib/rows-from-operations'
+import { operationRows } from '@/__tests__/__fixtures__/tree-rows'
 import { ApiError } from '@/lib/errors/api-error'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import {
@@ -320,9 +320,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
     const chatId = mintedForkId()
     await vi.waitFor(() => expect(Object.values(operationsState().ops)[0]?.state).toBe('succeeded'))
 
-    const rows = rowsFromOperations(Object.values(operationsState().ops), {
-      projectId: 'p1',
-    })
+    const rows = operationRows('p1')
     expect(rows).toMatchObject([
       { id: chatId, kind: 'branch', label: 'feature/x', parentId: 'c-owner', working: true },
     ])
@@ -357,9 +355,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
       to: '/ide/$projectId/$repoId/$wsId',
       params: { projectId: 'p1', repoId: 'r1', wsId: 'ws-new' },
     })
-    expect(rowsFromOperations(Object.values(operationsState().ops), { projectId: 'p1' })).toEqual(
-      [],
-    )
+    expect(operationRows('p1')).toEqual([])
   })
 
   it('a branch create the daemon refuses keeps its row with the reason', async () => {
@@ -376,9 +372,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
     confirmArmedBranchName('feature/x')
 
     await vi.waitFor(() =>
-      expect(
-        rowsFromOperations(Object.values(operationsState().ops), { projectId: 'p1' }),
-      ).toMatchObject([
+      expect(operationRows('p1')).toMatchObject([
         {
           label: 'feature/x',
           working: false,

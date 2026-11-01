@@ -12,10 +12,6 @@ import { create } from 'zustand'
  * its own. Nothing here writes both fields in one call, which is the mechanical
  * guarantee that clearing the selection cannot disturb a row you deliberately
  * kept: zustand merges the partial, so the untouched field keeps its identity.
- *
- * The rules over these sets live in `components/layout/keep-set.ts` as pure
- * functions; this store only holds the result. Keeping them apart is what lets
- * a store hold UI state without importing from `components/`.
  */
 
 /** Stable empties, so a store that has never been written hands out one identity. */

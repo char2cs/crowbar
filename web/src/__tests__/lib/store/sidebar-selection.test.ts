@@ -1,8 +1,7 @@
 /**
  * The store half of the two-state keep model.
  *
- * `keep-set.ts` pins the RULES; this pins the thing that makes them safe to
- * apply — that the two sets never move together. A single write that touched
+ * It pins that the two sets never move together. A single write that touched
  * both is how "clear the selection" ends up wiping rows the user deliberately
  * kept, and nothing about that failure looks like a state bug when you see it:
  * the rows simply vanish when you click elsewhere.

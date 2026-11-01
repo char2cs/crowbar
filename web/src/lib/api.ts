@@ -56,7 +56,7 @@ export function fetchRepos(projectId: string): Promise<RepoDTO[]> {
  * repo's own default checkout before anyone has chatted in it, or any locked
  * tracking branch nobody ever opened a conversation in. Neither has a chat row
  * to derive from, so the old join silently produced zero rows for them — not
- * just missing branches, but a missing REPO HEADER (rows-from-repo.ts mints
+ * just missing branches, but a missing REPO HEADER (deriveRows mints
  * that from the default workspace) — reproduced live against real production
  * data: an entire repo, and a repo's own other locked branches, absent from
  * the sidebar.

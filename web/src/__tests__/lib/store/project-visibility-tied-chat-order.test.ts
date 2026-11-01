@@ -1,7 +1,7 @@
 /**
  * K3 class (f), repo-internal half: the sidebar's repo rows are rebuilt from
  * the IndexedDB entity cache (`readVisibleRepoTree`), which iterates by key —
- * the chat id. `buildSidebarTree` breaks an `order` tie by arrival, so a
+ * the chat id. `legacyTreeIndex` breaks an `order` tie by arrival, so a
  * legacy level whose chats all still carry order 0 is drawn in ID order. The
  * daemon's chat writer breaks that same tie by CreatedAt (tree.compareNodes:
  * order, kind rank, createdAt, id), so a chat↔chat drag on such a level is
@@ -15,7 +15,7 @@ import { resetDB } from '@/lib/persistence/idb'
 import { upsertEntity } from '@/lib/persistence/entity-cache'
 import { success } from '@/lib/loadable'
 import { readVisibleRepoTree } from '@/lib/store/project-visibility'
-import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
+import { repoRows } from '@/__tests__/__fixtures__/tree-rows'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { useProjectDataStore, useProjectStore } from '@/lib/store/projects'
 import type { ChatDTO, Project, RepoDTO } from '@/lib/types'
@@ -72,7 +72,7 @@ describe('a legacy all-zero chat level rebuilt from the entity cache', () => {
     const repos = await readVisibleRepoTree()
     const repo = repos.find((r) => r.id === 'r1')
     expect(repo).toBeDefined()
-    const chatRows = rowsFromRepo(repo!)
+    const chatRows = repoRows(repo!)
       .filter((row) => row.kind === 'chat')
       .map((row) => row.id)
     expect(chatRows).toEqual(['c-z', 'c-m', 'c-a'])

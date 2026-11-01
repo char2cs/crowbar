@@ -4,6 +4,7 @@ import { SpaceScroller } from '@/components/sidebar/space-scroller'
 import { handleCreateHomeThread } from '@/components/layout/home-actions'
 import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { homeRows } from '@/__tests__/__fixtures__/tree-rows'
 import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
@@ -739,37 +740,34 @@ describe('SpaceScroller', () => {
     // right above it) for these to nest under — rejected outright. Home's
     // chats/folders are FLAT TOP-LEVEL rows, exactly like a repo itself.
     it("renders the project's home chats and folders as flat top-level rows, not nested under anything", () => {
-      useHomeTreeStore.setState({
-        trees: {
-          p1: {
-            chats: [
-              {
-                id: HOME_ROW_ID,
-                repoId: '',
-                ownsWorktree: true,
-                workspaceId: 'home-ws-1',
-                title: '',
-                order: 0,
-              },
-              {
-                id: 'c-1',
-                repoId: '',
-                workspaceId: 'home-ws-1',
-                title: 'Fix the thing',
-                order: 0,
-              },
-            ],
-            folders: [{ id: 'f-1', repoId: '', name: 'Notes', order: 1 }],
+      const home = homeRows(
+        'home-ws-1',
+        [
+          {
+            id: HOME_ROW_ID,
+            repoId: '',
+            ownsWorktree: true,
+            workspaceId: 'home-ws-1',
+            title: '',
+            order: 0,
           },
-        },
-      })
+          {
+            id: 'c-1',
+            repoId: '',
+            workspaceId: 'home-ws-1',
+            title: 'Fix the thing',
+            order: 0,
+          },
+        ],
+        [{ id: 'f-1', repoId: '', name: 'Notes', order: 1 }],
+      )
       const projects = [makeProject('p1')]
       render(
         <SpaceScroller
           projects={projects}
           activeProjectId="p1"
           onActiveProjectChange={vi.fn()}
-          rowsForProject={() => [makeRow('row-1', 'Repo thread', { kind: 'branch' })]}
+          rowsForProject={() => [...home, makeRow('row-1', 'Repo thread', { kind: 'branch' })]}
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={vi.fn()}
@@ -799,26 +797,23 @@ describe('SpaceScroller', () => {
     // project-home root, so a repo always rendered after every home row
     // regardless of what either one's `order` actually said. This renders
     // the real component (not just the row-building unit) to prove the fix
-    // holds end to end: SpacePanel's own merge of rowsForProject + rowsFromHome.
+    // holds end to end: home rows and a repo header in one project's rows.
     it('interleaves a repo among home chats by raw order, not "home always first"', () => {
-      useHomeTreeStore.setState({
-        trees: {
-          p1: {
-            chats: [
-              {
-                id: HOME_ROW_ID,
-                repoId: '',
-                ownsWorktree: true,
-                workspaceId: 'home-ws-1',
-                title: '',
-                order: 0,
-              },
-              { id: 'c-testing', repoId: '', workspaceId: 'home-ws-1', title: 'testing', order: 1 },
-            ],
-            folders: [],
+      const home = homeRows(
+        'home-ws-1',
+        [
+          {
+            id: HOME_ROW_ID,
+            repoId: '',
+            ownsWorktree: true,
+            workspaceId: 'home-ws-1',
+            title: '',
+            order: 0,
           },
-        },
-      })
+          { id: 'c-testing', repoId: '', workspaceId: 'home-ws-1', title: 'testing', order: 1 },
+        ],
+        [],
+      )
       const projects = [makeProject('p1')]
       render(
         <SpaceScroller
@@ -826,6 +821,7 @@ describe('SpaceScroller', () => {
           activeProjectId="p1"
           onActiveProjectChange={vi.fn()}
           rowsForProject={() => [
+            ...home,
             makeRow('repo-row', 'checkout', {
               kind: 'branch',
               order: 0,
@@ -875,30 +871,27 @@ describe('SpaceScroller', () => {
     // rows-from-home.test.ts's own "not a index compacted from array
     // position"), or the two rows collide the moment they share this root.
     it('a repo dragged BETWEEN two home chats renders between them, not always first or last', () => {
-      useHomeTreeStore.setState({
-        trees: {
-          p1: {
-            chats: [
-              {
-                id: HOME_ROW_ID,
-                repoId: '',
-                ownsWorktree: true,
-                workspaceId: 'home-ws-1',
-                title: '',
-                order: 0,
-              },
-              { id: 'c-alpha', repoId: '', workspaceId: 'home-ws-1', title: 'alpha', order: 0 },
-              // Gap at 1 is deliberate: after a repo-focused reorder, the
-              // backend densifies the WHOLE merged sibling set (repo + home
-              // chats/folders) together, so a chat sitting after the repo
-              // keeps whatever slot that merge left it — never necessarily
-              // adjacent to another chat's own order.
-              { id: 'c-bravo', repoId: '', workspaceId: 'home-ws-1', title: 'bravo', order: 2 },
-            ],
-            folders: [],
+      const home = homeRows(
+        'home-ws-1',
+        [
+          {
+            id: HOME_ROW_ID,
+            repoId: '',
+            ownsWorktree: true,
+            workspaceId: 'home-ws-1',
+            title: '',
+            order: 0,
           },
-        },
-      })
+          { id: 'c-alpha', repoId: '', workspaceId: 'home-ws-1', title: 'alpha', order: 0 },
+          // Gap at 1 is deliberate: after a repo-focused reorder, the
+          // backend densifies the WHOLE merged sibling set (repo + home
+          // chats/folders) together, so a chat sitting after the repo
+          // keeps whatever slot that merge left it — never necessarily
+          // adjacent to another chat's own order.
+          { id: 'c-bravo', repoId: '', workspaceId: 'home-ws-1', title: 'bravo', order: 2 },
+        ],
+        [],
+      )
       const projects = [makeProject('p1')]
       render(
         <SpaceScroller
@@ -906,6 +899,7 @@ describe('SpaceScroller', () => {
           activeProjectId="p1"
           onActiveProjectChange={vi.fn()}
           rowsForProject={() => [
+            ...home,
             makeRow('repo-row', 'checkout', {
               kind: 'branch',
               order: 1,

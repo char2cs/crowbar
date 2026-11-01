@@ -18,8 +18,7 @@ import {
 } from '@/components/sidebar/lib/branch-row-id'
 import { resolveHomeRowScope } from '@/lib/store/home-tree'
 import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
-import { foldWorkspaceOwners, resolveOwnerChats } from '@/components/sidebar/lib/workspace-owners'
-import { buildSidebarTree, indexSidebarTree } from '@/components/layout/workspace-tree-utils'
+import { legacyTreeIndex } from '@/features/workspace/tree/legacy-tree-index'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 /**
@@ -80,7 +79,7 @@ export type DropTargetRow = SidebarRow & { inRecents?: boolean }
  */
 export function resolveRowRepo(repos: readonly Repo[], rowId: string): RowScope | null {
   // A BRANCH row is addressed by the id of the chat that owns its workspace
-  // (`rows-from-repo.ts`), so it matches none of the three id spaces below on
+  // (`deriveRows`), so it matches none of the three id spaces below on
   // its own. Left untranslated, the repo-home row and every locked branch
   // resolved to null and a drop onto them became a silent no-op — the drag
   // indicator promising a move that fired no request at all.
@@ -117,7 +116,7 @@ export function resolveChatRepo(repos: readonly Repo[], chatId: string): RowScop
  * `undefined` for a repo header row every single time a real drag asks —
  * while a hand-built `SidebarRow` in a test answers correctly, which is how
  * three separate rules shipped refusing a legal drop. Resolved instead the
- * way `rows-from-repo.ts` minted the row: its id translates (via
+ * way `deriveRows` minted the row: its id translates (via
  * `workspaceIdOfBranchRow`) to that repo's `defaultWorkspaceId`.
  * `resolveRowRepo` is not enough — it matches ANY row in the repo, not only
  * its header.
@@ -137,25 +136,19 @@ export function repoOfHeaderRow(repos: readonly Repo[], rowId: string): Repo | n
  * or both the bare root). `""` is the bare repo root, a real answer, not
  * "not found".
  *
- * Built from the SAME folded tree `rows-from-repo.ts` renders (`buildSidebarTree`
- * + `foldWorkspaceOwners`), so a folder's anchor here always agrees with the
- * row the user actually sees it nested under — never re-derived off raw
- * `Workspace`/`Chat` lineage, which is what let a chat's own `workspaceId`
- * (every chat carries one, folder or not) stand in for an anchor it never
- * earned; see `nearestWorkspaceAnchor`'s own doc for the exact bug that
- * caused live.
+ * Walks the same tree the rows are drawn from, so a folder's anchor always agrees
+ * with the row the user sees it nested under, never raw `Workspace`/`Chat` lineage.
  */
-function nearestBranchAnchor(repo: Repo, id: string): string {
-  const ownerChats = resolveOwnerChats(repo.workspaces, repo.chats ?? [])
-  const roots = buildSidebarTree(repo.workspaces, repo.folders ?? [], repo.chats ?? [])
-  const { nodeById, parentById } = indexSidebarTree(foldWorkspaceOwners(roots, ownerChats), '')
-
+function nearestBranchAnchor(repo: Repo, rowId: string): string {
+  const index = legacyTreeIndex([repo], null)
   const seen = new Set<string>()
-  let cursor = id
+  let cursor = workspaceIdOfBranchRow([repo], rowId) ?? rowId
   while (cursor !== '' && !seen.has(cursor)) {
     seen.add(cursor)
-    if (nodeById.get(cursor)?.kind === 'workspace') return cursor
-    cursor = parentById.get(cursor) ?? ''
+    const node = index.node(cursor)
+    if (!node || node.kind === 'repo') return ''
+    if (node.kind === 'workspace') return cursor
+    cursor = node.parentId
   }
   return ''
 }
@@ -261,7 +254,7 @@ export function allowedModes(subjects: readonly SidebarRow[], target: DropTarget
   //
   // A branch is not something a chat can become a thread of — that direction
   // still refuses. A FOLDER is legal now: `kind: 'folder'` is one aggregate
-  // in the current unified row model (rows-from-repo.ts's own folder push is
+  // in the current unified row model (deriveRows's own folder push is
   // fed straight off the wire's `AgentChatFolder`/`ChatsFolderWireDTO`, the
   // same one `planChatDrop`'s target resolves against), not the two separate
   // "repo folder" / "chat folder" concepts an earlier, pre-unification
@@ -284,12 +277,12 @@ export function allowedModes(subjects: readonly SidebarRow[], target: DropTarget
     if (target.kind !== 'chat' && target.kind !== 'folder' && target.kind !== 'branch') {
       return NO_MODES
     }
-    // A tree chat row is built with `working: false` (rows-from-repo.ts), so the
+    // A tree chat row is built with `working: false` (deriveRows), so the
     // refusal above cannot answer it: ask the ChatStore at the instant of the drag.
     const { chats } = chatStore.getState()
     if (subjects.some((s) => chats[s.id]?.working)) return NO_MODES
     // A BRANCH row — a repo's own header, a locked branch, or an ordinary
-    // fork folded to look like one (`rows-from-repo.ts`'s own doc: `kind:
+    // fork folded to look like one (`deriveRows`'s own doc: `kind:
     // 'branch'` either way) — is never a container a chat can thread INTO
     // (see this function's own doc above: "A branch is not something a
     // chat can become a thread of"), but it IS a real sibling a chat may
@@ -313,7 +306,7 @@ export function allowedModes(subjects: readonly SidebarRow[], target: DropTarget
     return ALL_MODES
   }
 
-  // A FOLDER can also be a project-home one (rows-from-home.ts) — home rides
+  // A FOLDER can also be a project-home one (deriveRows) — home rides
   // no repo at all, so `resolveRowRepo` below can never see it (the literal
   // "can't drag/group a home folder" gap, caught live). Home never forks, so
   // nothing but a folder ever reaches here for it. Its scope question is
@@ -339,7 +332,7 @@ export function allowedModes(subjects: readonly SidebarRow[], target: DropTarget
     }
   }
 
-  // A BRANCH row can also be a REPO's own header row (rows-from-repo.ts's
+  // A BRANCH row can also be a REPO's own header row (deriveRows's
   // `repoIcon`, set only on that one row) — the repo's own placement lives on
   // a different aggregate entirely (domain.Repository, not Workspace/Chat),
   // so it does not answer to the same-repo walk every ordinary branch below

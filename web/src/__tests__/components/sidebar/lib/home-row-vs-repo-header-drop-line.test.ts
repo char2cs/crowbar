@@ -67,7 +67,7 @@ describe('a project-home row against a live DOM-reconstructed repo header target
       projectId === 'proj-1' ? 'projhome-1' : projectId === 'proj-2' ? 'projhome-2' : null,
     )
     // A repo header row is addressed by the chat that owns the repo's default
-    // workspace (`rows-from-repo.ts`), so the live target id is that chat id.
+    // workspace (`deriveRows`), so the live target id is that chat id.
     useSidebarStore.setState({
       ...getInitialState(),
       repos: [

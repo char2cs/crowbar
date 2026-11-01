@@ -27,8 +27,7 @@ import { useAgentProvidersStore } from '@/features/settings/stores/agent-provide
 import { useSettingsStore } from '@/features/settings/store'
 import { useCreateDraftStore } from '@/lib/store/create-draft'
 import { resetOperations } from '@/__tests__/__fixtures__/operations'
-import { operationsState } from '@/lib/store/operations'
-import { rowsFromOperations } from '@/components/sidebar/lib/rows-from-operations'
+import { operationRows } from '@/__tests__/__fixtures__/tree-rows'
 import { ApiError } from '@/lib/errors/api-error'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
@@ -85,7 +84,7 @@ function mintedChatId(): string {
   return (createChat.mock.calls.at(-1) as unknown as [string])[0]
 }
 
-const opRows = () => rowsFromOperations(Object.values(operationsState().ops), { projectId: 'p1' })
+const opRows = () => operationRows('p1')
 
 describe('a refused thread create', () => {
   it('keeps its row with the daemon’s own reason', async () => {

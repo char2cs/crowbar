@@ -16,7 +16,6 @@
     "src/components/layout/context-pill-model.ts": ["files"],
     "src/components/layout/drag-ghost.tsx": ["exports"],
     "src/components/layout/edge-scroll.ts": ["exports"],
-    "src/components/layout/keep-set.ts": ["exports"],
     "src/components/layout/project-icon-mark.tsx": ["types"],
     "src/components/layout/removal-plan.ts": ["types"],
     "src/components/layout/repo-avatar.tsx": ["exports", "types"],

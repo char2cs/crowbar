@@ -28,7 +28,7 @@ export type ChatIconFields = Pick<
 
 /**
  * The `Workspace`-derived subset of a `branch` row's icon fields — exactly
- * the fields `walkTreeIntoRows`'s workspace-node branch stamps below,
+ * the fields `deriveRows`'s workspace-node branch stamps below,
  * factored out so `chatIconIndex` (Recents' own icon fallback, below) can
  * produce the identical shape without re-deriving it.
  *

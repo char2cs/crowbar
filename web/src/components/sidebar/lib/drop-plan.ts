@@ -5,18 +5,13 @@ import {
   resolveRowRepo,
 } from '@/components/sidebar/lib/sidebar-drop-policy'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { buildSidebarTree } from '@/components/layout/workspace-tree-utils'
-import { homeOwnerRowId } from '@/components/sidebar/lib/rows-from-home'
+import { homeOwnerRowId } from '@/features/workspace/tree/legacy-tree-index'
 import { useHomeTreeStore, resolveHomeRowScope } from '@/lib/store/home-tree'
 import {
   getHomeOwningChatId,
   getHomeWorkspaceId,
 } from '@/features/workspace/lib/home-workspace-resolver'
-import {
-  findNode,
-  planTreeRowDrop,
-  type RowPlacementCall,
-} from '@/components/sidebar/lib/drop-plan-tree'
+import { planTreeRowDrop, type RowPlacementCall } from '@/components/sidebar/lib/drop-plan-tree'
 import {
   insertIndex,
   projectOfWorkspace,
@@ -70,7 +65,7 @@ function planChatDrop(
     projectOfWorkspace(repos, destWorkspaceId)
   if (!projectId) return []
 
-  const rows = renderedProjectRows(repos, projectId)
+  const rows = renderedProjectRows(projectId)
   // 'after' an EXPANDED chat/folder is the slot before its first child — where
   // the line is drawn (`resolvesToFirstChild`). Never for a branch target: its
   // children are another workspace's level, which a chat cannot join.
@@ -108,10 +103,8 @@ function planChatDrop(
  * clone), so nothing but a folder ever reaches this: the fork-lineage half
  * of `planTreeRowDrop` (reparent calls, `workspaceAnchor`) has no home
  * counterpart to mirror — only the container/sibling-index math does.
- * `homeWorkspaceId` roots the SAME id space `rows-from-home.ts` builds:
- * `buildSidebarTree([], ...)`, one root workspace that owns every chat and
- * folder, its own owning branch chat excluded from the sibling space it can
- * never itself be dropped relative to (it is not a row at all).
+ * `homeWorkspaceId` roots the same id space the tree draws home rows in, its
+ * owning chat excluded (it is the level, not a row in it).
  */
 function planHomeFolderDrop(
   projectId: string,
@@ -129,26 +122,22 @@ function planHomeFolderDrop(
     tree.chats,
     getHomeOwningChatId(projectId) ?? undefined,
   )
-  const roots = buildSidebarTree(
-    [],
-    tree.folders,
-    tree.chats.filter((c) => c.id !== homeRowId),
-  )
+  // A home chat or folder; the owner is the home level itself, never a row in it.
+  const isHomeNode = (id: string) =>
+    tree.folders.some((f) => f.id === id) ||
+    (id !== homeRowId && tree.chats.some((c) => c.id === id))
   const targetId = target.id
-  // Siblings come from the rows the panel draws, not `roots`: at the home
-  // root a repo's own header row is a real sibling `roots` never holds.
-  const rows = renderedProjectRows(visibleRepos(), projectId)
+  // Siblings come from the rows the panel draws: at the home root a repo's header is one.
+  const rows = renderedProjectRows(projectId)
   const hasChildren = rows.some((r) => r.parentId === target.id)
   const expanded = !useSidebarStore.getState().collapsedChatRows.has(target.id)
-  // Only a home chat/folder (a node of `roots`) has a first-child slot: an
-  // expanded repo header's children are its own branches, not home rows.
+  // Only a home chat/folder has a first-child slot: an expanded repo header holds its own branches.
   const firstChild =
     mode !== 'into' &&
-    findNode(roots, targetId) !== undefined &&
+    isHomeNode(targetId) &&
     resolvesToFirstChild({ kind: target.kind, id: target.id, expanded, hasChildren }, mode)
   const requested = mode === 'into' || firstChild ? targetId : target.parentId || ''
-  const containerNode = requested === '' ? undefined : findNode(roots, requested)
-  const containerId = requested !== '' && !containerNode ? '' : requested
+  const containerId = requested !== '' && !isHomeNode(requested) ? '' : requested
 
   const lifted = new Set(subjects.map((s) => s.id))
   const rest = renderedSiblings(rows, containerId, lifted)
@@ -228,7 +217,7 @@ function planRepoHomeDrop(
   // Lifted by its ROW id (the header row is id'd by the checkout's owning
   // chat when it has one), the same id space `target.id` is looked up in.
   const rest = renderedSiblings(
-    renderedProjectRows(visibleRepos(), scope.projectId),
+    renderedProjectRows(scope.projectId),
     containerId,
     new Set([subject.id]),
   )

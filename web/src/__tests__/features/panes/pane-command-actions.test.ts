@@ -225,7 +225,7 @@ describe('pane command actions', () => {
 })
 
 // Every workspace already has a real owning chat, minted by the daemon
-// (rows-from-repo.ts). These lock the actual bug fix in: a pane that hasn't
+// (deriveRows). These lock the actual bug fix in: a pane that hasn't
 // been told its workspace's chat yet must REUSE that real chat, never mint a
 // second, redundant one — and must do nothing at all when no owning chat can
 // be resolved, rather than silently creating one.

@@ -138,7 +138,7 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
   folders: [{ id: 'f1', repoId: 'r1', name: 'spikes', order: 2 }],
   // The chat minted chat-first for the home workspace. The tree is only
   // built for a repo whose chat seed has landed, and by then every home
-  // owns one — see rows-from-repo.ts's `resolveHomeOwnerId`.
+  // owns one — see deriveRows's `resolveHomeOwnerId`.
   chats: [
     {
       id: 'w-default-row',
@@ -462,7 +462,7 @@ describe('a ghost row during the DELETE round trip', () => {
   // countdown UI is gone (`attachRemovalState` has nothing left to mark), but
   // the row's underlying data is still sitting in `useSidebarStore` — nothing
   // has deleted it yet. If the tree's row-building only ever consults
-  // `entries` (via `descendantHiddenIds`) rather than the tray's own
+  // `entries` (via `renderedHiddenIds`) rather than the tray's own
   // `hiddenIds` (populated at `hold()`, cleared only at `release()`), the row
   // falls through and paints again as an ordinary, fully interactive row for
   // as long as the network round trip takes — reported live as "the row was

@@ -181,8 +181,8 @@ export function SidebarRowActions({
           — a folder applies "the same logic as its parent," not a rule of
           its own:
 
-            - Fork: `row.ownsWorktree` (`rows-from-repo.ts`: true under a
-              real repo; `rows-from-home.ts`: always false — no repo means
+            - Fork: `row.ownsWorktree` (`deriveRows`: true under a
+              real repo; `deriveRows`: always false — no repo means
               no worktree to clone), identical to a `branch` row's own gate.
             - Thread: no extra gate at all, identical to every OTHER row
               kind here (a `branch` row gets Thread even when `locked`) —

@@ -124,7 +124,7 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<string | 
       // an unloading page still catches it.
       //
       // Resolved from the SIDEBAR TREE first (`owningChatIdOfWorkspace` — the
-      // same union `rows-from-repo.ts` renders the row from), and only then
+      // same union `deriveRows` renders the row from), and only then
       // from `workspace-scope.ts`'s side registry. That order is the fix: the
       // registry is a second copy of this fact, written on navigation and on
       // seed, and a workspace the user has only ever SEEN as a row — never

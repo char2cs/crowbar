@@ -83,7 +83,7 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
       if (!row) return null
       // Asked in the WORKSPACE id space, which a branch row's id is not in: a
       // locked branch is id'd by the chat that owns its workspace
-      // (`rows-from-repo.ts`), so matching the raw row id against `w.id`
+      // (`deriveRows`), so matching the raw row id against `w.id`
       // answered `false` for precisely the rows that ARE locked — the menu
       // offered "Lock" on an already-locked branch and never "Unlock".
       const repos = useSidebarStore.getState().repos

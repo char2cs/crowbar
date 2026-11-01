@@ -37,7 +37,7 @@ function makeRepo(overrides: Partial<Repo> = {}): Repo {
 
 // The chat's own worktree OWNERSHIP is the only signal that may gate branch
 // chrome — `Chat.workspaceId` cannot, because a thread carries its parent's
-// and so names a worktree it does not own. Same authority `rows-from-repo.ts`
+// and so names a worktree it does not own. Same authority `deriveRows`
 // folds a `branch` row from.
 describe('chatIsThreadIn', () => {
   it('calls a chat that owns no worktree on its parent branch a thread', () => {

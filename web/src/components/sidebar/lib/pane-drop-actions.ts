@@ -127,7 +127,7 @@ interface PaneChatSubject {
  *     the band always grabs exactly one chat, which is what makes "one chat
  *     per pane" fall out for free);
  *   - a **branch** row — a WORKSPACE row, and already a chat row wearing a
- *     workspace's clothes: `rows-from-repo.ts` gives every workspace-owning
+ *     workspace's clothes: `deriveRows` gives every workspace-owning
  *     row the id of the CHAT that owns its worktree. This used to be refused
  *     outright ("no pane has an 'open into' meaning for them yet"), which is
  *     exactly why dragging a workspace row onto the pane area did nothing.

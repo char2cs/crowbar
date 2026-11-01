@@ -66,7 +66,7 @@ function confirmArmedBranchName(name = 'typed-branch'): void {
 
 /**
  * A `branch` row's id is the id of the CHAT that owns its workspace
- * (`rows-from-repo.ts`), which puts it in the chat id space while making it no
+ * (`deriveRows`), which puts it in the chat id space while making it no
  * chat at all. Every dispatcher here picks its behaviour by which space an id
  * falls in, so each one has to be able to tell the two apart — the bug this
  * closes is a locked branch's "+" going silently inert because `resolveChatRow`

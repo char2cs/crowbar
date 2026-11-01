@@ -21,7 +21,7 @@ export interface SidebarRow {
    * on a `chat`-kind row (a `branch`/`folder` row already answers this via
    * `ownsWorktree`, which a chat can never set): a project-home bubble rides
    * no repo at all — the same reason a project-home FOLDER's Fork is already
-   * hidden (`foldersCanFork`, `walkTreeIntoRows`) — so it sets this `false`
+   * hidden (`foldersCanFork`, `deriveRows`) — so it sets this `false`
    * rather than offering a button with no worktree to clone. Undefined (a
    * repo-scoped chat) means true — its ground workspace always resolves to
    * a real repo.
@@ -40,7 +40,7 @@ export interface SidebarRow {
   /** Whether the workspace this row owns is a protected/locked branch — the
    *  Lock glyph's own signal (RowGlyph, sidebar-row.tsx). A `branch` row's `id`
    *  no longer doubles as this signal now that every workspace-owning row,
-   *  locked or not, is id'd from its owning chat (`rows-from-repo.ts`) rather
+   *  locked or not, is id'd from its owning chat (`deriveRows`) rather
    *  than only a locked one. */
   locked?: boolean
   /**
@@ -51,7 +51,7 @@ export interface SidebarRow {
    * icon `WorkspaceBranchIcon` already draws for the workspace switcher —
    * present only on a `branch` row that owns a real workspace, same
    * condition as `locked` (both come off the identical
-   * `Workspace.status` read in `rows-from-repo.ts`'s `walk()`).
+   * `Workspace.status` read in `deriveRows`'s `walk()`).
    */
   status?: WorkspaceStatus
   /**
@@ -92,7 +92,7 @@ export interface SidebarRow {
   placeholderReason?: string
   /**
    * The repo's own identity, present only on the repo's own home row (the
-   * repo's default-workspace row, `rows-from-repo.ts`'s one root push — its
+   * repo's default-workspace row, `deriveRows`'s one root push — its
    * `parentId` is that repo's own `folderId`, not always null: a repo's entry
    * may itself be filed into a project-home folder) — what its click-to-edit
    * icon (EditableRepoIcon, repo-icon-mark.tsx) needs to reach the repo's own

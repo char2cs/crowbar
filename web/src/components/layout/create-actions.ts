@@ -8,7 +8,7 @@ import { report } from '@/lib/errors/report'
 import type { OperationItem } from '@/lib/store/operations'
 import { toast } from '@/features/window/stores/toast-store'
 import { resolveHomeRowScope } from '@/lib/store/home-tree'
-import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
+import { renderedProjectRows } from '@/components/sidebar/lib/rendered-rows'
 import { resolveHomeOwnerId } from '@/components/sidebar/lib/workspace-owners'
 import {
   navigateThenOpenChat,
@@ -56,8 +56,8 @@ export function handleCreate(
 
   if (kind === 'workspace') {
     // The daemon places by CHAT id, and the clicked row's own id is only that
-    // id for a branch row (a locked branch, the repo home — `rows-from-repo.ts`
-    // draws those AS their owning `branch` chat). A REGULAR fork's row is id'd
+    // id for a branch row (a locked branch, the repo home — the tree draws
+    // those AS their owning `branch` chat). A REGULAR fork's row is id'd
     // from its `Workspace`, because its owner is an ordinary conversation
     // already drawn beside it, so its owning chat has to be read off the
     // workspace record instead. Falls back to the clicked row for the ids that
@@ -75,7 +75,9 @@ export function handleCreate(
     if (createInFlight.has(`workspace:${placementParentId}`) || !enabledProvider()) return
     // EVERY sibling counts, any kind: the daemon appends a fork by counting all
     // rows under the same parent (owning_chat.go's placeOwningRow).
-    const order = rowsFromRepo(repo).filter((r) => r.parentId === placementParentId).length
+    const order = renderedProjectRows(projectId).filter(
+      (r) => r.parentId === placementParentId,
+    ).length
     useCreateDraftStore.getState().start({
       kind: 'branch',
       projectId,
@@ -90,7 +92,7 @@ export function handleCreate(
 
   // A thread runs in a real workspace: a `workspace` subject is one; a folder
   // takes its nearest owning workspace, stamped on its row at build time.
-  const siblingRows = rowsFromRepo(repo)
+  const siblingRows = renderedProjectRows(projectId)
   const wsId =
     subject.kind === 'workspace'
       ? subject.id

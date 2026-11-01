@@ -55,8 +55,10 @@ const UNRESOLVED: HomeWorkspaceState = {
 const states = new Map<string, HomeWorkspaceState>()
 const inflight = new Set<string>()
 const listeners = new Set<() => void>()
+let snapshot: ReadonlyMap<string, HomeWorkspaceState> = new Map()
 
 function notify(): void {
+  snapshot = new Map(states)
   for (const listener of listeners) listener()
 }
 
@@ -124,7 +126,7 @@ export function getHomeWorkspaceId(projectId: string): string | null {
 
 /** The chat that owns `projectId`'s home workspace, as GET /home reported it,
  *  or `null` before it resolved. The home chat list carries no marker for it,
- *  so this is what `rowsFromHome` needs to keep the owner off the tree. */
+ *  so this is what the sidebar tree needs to keep the owner off it. */
 export function getHomeOwningChatId(projectId: string): string | null {
   return states.get(projectId)?.owningChatId ?? null
 }
@@ -140,6 +142,11 @@ function getSnapshot(projectId: string | null): HomeWorkspaceState {
   return (projectId ? states.get(projectId) : undefined) ?? UNRESOLVED
 }
 
+/** Every project's home resolution, for a reader of all of them; a new map on each change. */
+export function useHomeWorkspaceStates(): ReadonlyMap<string, HomeWorkspaceState> {
+  return useSyncExternalStore(subscribe, () => snapshot)
+}
+
 /** The resolution state of `projectId`'s home workspace (or the stable
  * "unresolved" sentinel while a fetch is in flight / not yet started). */
 export function useHomeWorkspaceState(projectId: string | null): HomeWorkspaceState {
@@ -150,4 +157,5 @@ export function useHomeWorkspaceState(projectId: string | null): HomeWorkspaceSt
 export function __resetHomeWorkspaceResolverForTest(): void {
   states.clear()
   inflight.clear()
+  snapshot = new Map()
 }

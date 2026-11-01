@@ -193,7 +193,7 @@ export function SidebarRow({
   // project header itself (spec §3.1), and also the one row spec §9 calls a
   // protected branch. Keyed on `repoIcon`, not on `parentId === null`: a
   // header filed into a home folder keeps its parent, and must keep its
-  // identity (icon picker, overflow menu, no Lock/Remove). `rows-from-repo.ts`
+  // identity (icon picker, overflow menu, no Lock/Remove). `deriveRows`
   // stamps `repoIcon` on exactly that one row per repo. `!inlineRenameDisabled`
   // stays as a second guard: it is the one signal that means "this SidebarRow
   // instance is Recents' mirror, not the tree's own row" (see that prop's own
@@ -209,7 +209,7 @@ export function SidebarRow({
   // doc), so this is just that value.
   const renaming = isThisRowRenaming
   // Rule 6: a `branch` row that owns a real, unlocked workspace draws its
-  // OWNING CHAT's title on the label line now (`rows-from-repo.ts`'s own
+  // OWNING CHAT's title on the label line now (`deriveRows`'s own
   // `label`/`branchName` split), with the branch name and change counts moved
   // to a second line beneath it. A locked branch, the project-home row, and a
   // genuinely chat-less workspace (no owner resolved yet) all keep the single

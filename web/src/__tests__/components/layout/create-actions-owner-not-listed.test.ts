@@ -17,8 +17,8 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 }))
 
 import { handleCreate } from '@/components/layout/create-actions'
-import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
-import { rowFromDraft } from '@/components/sidebar/lib/rows-from-operations'
+import { deriveRows } from '@/features/workspace/tree/rows'
+import { inputOf, repoRows } from '@/__tests__/__fixtures__/tree-rows'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useCreateDraftStore } from '@/lib/store/create-draft'
@@ -68,7 +68,7 @@ beforeEach(() => {
 
 describe('owner known to the workspace DTO but absent from the chat list', () => {
   it('renders the locked branch by its owner id, labelled by its branch', () => {
-    const rows = rowsFromRepo(repo())
+    const rows = repoRows(repo())
     const row = rows.find((r) => r.id === 'owner-locked')
     expect(row).toMatchObject({ kind: 'branch', workspaceId: 'ws-locked', label: 'release' })
     expect(rows.map((r) => r.id)).not.toContain('ws-locked')
@@ -77,7 +77,7 @@ describe('owner known to the workspace DTO but absent from the chat list', () =>
   it('fork off that row parents the naming input at the rendered row, not at an unlisted chat', () => {
     handleCreate('owner-locked', 'workspace', navigate)
     const draft = useCreateDraftStore.getState().draft!
-    const rendered = [...rowsFromRepo(repo()), rowFromDraft(draft)]
+    const rendered = deriveRows(inputOf({ repos: [repo()], draft }))
     const ids = new Set(rendered.map((r) => r.id))
     // sidebar-tree.tsx roots any row whose parentId names no rendered row.
     expect(ids.has(draft.parentId)).toBe(true)

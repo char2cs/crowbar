@@ -159,7 +159,7 @@ export async function performRenameChat(chatId: string, title: string): Promise<
   const repo = useSidebarStore.getState().repos.find((r) => r.chats?.some((c) => c.id === chatId))
   const chat = repo?.chats?.find((c) => c.id === chatId)
   if (!repo || !chat) return
-  // The rename dialog seeds from the row's LABEL (rows-from-repo.ts's
+  // The rename dialog seeds from the row's LABEL (deriveRows's
   // `chat.title || UNTITLED_CHAT_LABEL`), never the raw title — so an
   // untitled chat's placeholder is what a no-op Enter would send. Compare
   // against the same fallback the dialog was actually seeded with, or a
@@ -255,7 +255,7 @@ export async function performRenameProject(projectId: string, name: string): Pro
  * typed is indistinguishable from one that worked and was then reverted.
  *
  * A FIFTH wrinkle joins the first: a branch row's id is no longer only a
- * locked branch or a repo home — `rows-from-repo.ts` folds an ordinary fork's
+ * locked branch or a repo home — `deriveRows` folds an ordinary fork's
  * (and a forked thread's) owning chat into its row the same way now, and rule
  * 6 makes that row's LABEL the chat's title, not its branch. Renaming it has
  * to retitle the chat, same as a bubble does — only a LOCKED branch keeps its
@@ -307,7 +307,7 @@ export function performRenameRow(rowId: string, name: string): Promise<void> {
  *
  * `rowId`, not a workspace id, and the translation below is what makes unlock
  * reachable at all: a LOCKED branch row is id'd by the chat that owns its
- * workspace (`rows-from-repo.ts`), so the raw id matched no `w.id`, no repo was
+ * workspace (`deriveRows`), so the raw id matched no `w.id`, no repo was
  * found and the request was never sent. With `hierarchy.DeleteCascade` refusing
  * to delete a locked workspace, that made locking a one-way door — the row could
  * neither be unlocked nor deleted from any surface the UI offers.
@@ -316,7 +316,7 @@ export function performRenameRow(rowId: string, name: string): Promise<void> {
  * IS: the daemon mints the workspace's `branch` row inside this very call
  * (`workspace.go`'s reconcileOwningChat, synchronously, "so the row exists
  * before the caller is told the lock succeeded"), and from then on
- * `rows-from-repo.ts` identifies the row by that chat and THROWS without it. The
+ * `deriveRows` identifies the row by that chat and THROWS without it. The
  * client otherwise learns of the lock only through `applyWorkspaceDTO`, which
  * writes `status` alone and triggers no chats reseed — leaving a store that says
  * `locked` for a workspace whose `repo.chats` has never seen its branch row, and

@@ -11,7 +11,7 @@ import {
 /**
  * A folder held for removal transforms IN PLACE (sidebar-row.tsx's
  * `RemovingSidebarRow`) and keeps its children nested under it for the whole
- * eight-second hold — `descendantHiddenIds` deliberately holds the entry's own
+ * eight-second hold — `renderedHiddenIds` deliberately holds the entry's own
  * primary row back so there is a row left to transform.
  *
  * `visibleRepos` read the tray store's RAW `hiddenIds` instead, which does

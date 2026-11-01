@@ -41,7 +41,7 @@ const baseRow: SidebarRowType = {
   hasView: false,
 }
 
-/** What rows-from-repo.ts stamps on the ONE header row per repo — the
+/** What deriveRows stamps on the ONE header row per repo — the
  *  field that makes a branch row the repo's project-home row. */
 const headerIcon: NonNullable<SidebarRowType['repoIcon']> = {
   repoId: 'r1',
@@ -237,7 +237,7 @@ describe('SidebarRow', () => {
 
   // Regression, reported live: Fork was offered on a project-home chat with
   // no git repo behind it at all. `row.canFork` is how such a row (set by
-  // rows-from-home.ts) says so — Thread stays unaffected, since threading
+  // deriveRows) says so — Thread stays unaffected, since threading
   // into the project's own home workspace is real (create-actions.ts).
   it('hides Fork (never Thread) on a chat row whose canFork is explicitly false', () => {
     const onCreate = vi.fn()
@@ -358,10 +358,10 @@ describe('SidebarRow', () => {
   })
 
   // Addendum §6: a locked/protected branch (repo/project home, or any other
-  // locked branch `rows-from-repo.ts` mints) must draw the Lock glyph, not
+  // locked branch `deriveRows` mints) must draw the Lock glyph, not
   // the plain GitBranch mark every ordinary workspace draws — confirmed live
   // as wrong for `main`. Every workspace-owning row is now id'd from its
-  // owning chat, locked or not (`rows-from-repo.ts`'s `foldWorkspaceOwners`), so
+  // owning chat, locked or not (`legacyTreeIndex`), so
   // `row.locked` (`Workspace.status === 'locked'`, carried straight onto the
   // row) is the signal now — the old id-vs-workspaceId mismatch stopped being
   // unique to the locked case the moment a regular fork started folding too.
@@ -451,7 +451,7 @@ describe('SidebarRow', () => {
         isPlaceholder: true,
         // The narrower half: Crowbar TRIED and could not. The repo's own
         // checkout holding its own default branch is `isPlaceholder` too and
-        // must NOT draw this glyph (rows-from-repo-own-default-branch.test.ts).
+        // must NOT draw this glyph (views.test.ts).
         needsProvisioning: true,
       }
       const html = iconMarkup(<SidebarRow row={placeholderRow} depth={0} onOpen={vi.fn()} />)
@@ -508,7 +508,7 @@ describe('SidebarRow', () => {
       expect(html).toBe(expected)
     })
 
-    // A row whose Workspace half has not landed yet (walkTreeIntoRows's
+    // A row whose Workspace half has not landed yet (deriveRows's
     // "no Workspace record" push) carries no `status` at all — this must
     // still fall back to the plain locked/GitBranch guess, not blow up.
     it('falls back to the plain GitBranch glyph with no status to delegate on', () => {
@@ -855,7 +855,7 @@ describe('SidebarRow', () => {
     expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['thread', 'fork', 'fold'])
   })
 
-  // A project-home folder (rows-from-home.ts) never owns a worktree — no
+  // A project-home folder (deriveRows) never owns a worktree — no
   // repo, nothing to fork — so it gets no Fork button. It DOES still get
   // Thread: project home applies the same logic to a folder it applies to a
   // chat, and a home chat has always gotten Thread with no repo required.

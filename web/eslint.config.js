@@ -12,7 +12,6 @@ const MAX_LINES_BASELINE = [
   'src/__tests__/components/layout/sidebar-carousel.test.tsx',
   'src/__tests__/components/sidebar/hooks/use-sidebar-drag.test.ts',
   'src/__tests__/components/sidebar/lib/drop-actions.test.ts',
-  'src/__tests__/components/sidebar/lib/rows-from-repo.test.ts',
   'src/__tests__/components/sidebar/lib/sidebar-drop-policy.test.ts',
   'src/__tests__/components/sidebar/sidebar-row.test.tsx',
   'src/__tests__/components/sidebar/space-header.test.tsx',

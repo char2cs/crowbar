@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 // REGRESSION (restyle v2, K3): a repo header row is RENDERED with the id of
-// the chat that owns its default workspace (`rows-from-repo.ts`
+// the chat that owns its default workspace (`deriveRows`
 // `resolveHomeOwnerId`: `defaultOwningChatId || defaultWorkspaceId`), but
 // `projectHomeContainerSiblings` (drop-actions.ts) lists every sibling repo
 // by `defaultWorkspaceId`. For any repo whose main checkout has ever been
@@ -38,7 +38,7 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 }))
 
 import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
-import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
+import { repoRows } from '@/__tests__/__fixtures__/tree-rows'
 import { placeRepo } from '@/lib/api/sidebar-placement'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
@@ -85,7 +85,7 @@ beforeEach(() => {
 
 describe('a repo header dropped relative to ANOTHER repo header', () => {
   it('indexes by the rendered header row id (its owning chat), not the raw workspace id', async () => {
-    const header = (n: number) => rowsFromRepo(repo(n))[0]
+    const header = (n: number) => repoRows(repo(n))[0]
     expect(header(2).id).toBe('chat-main-2')
 
     // [repo-1, repo-2, repo-3]: drag repo-3 BEFORE repo-2 -> rest = [1, 2],
@@ -102,7 +102,7 @@ describe('a repo reorder the daemon refuses', () => {
   it('leaves the headers exactly where they were', async () => {
     vi.mocked(placeRepo).mockRejectedValueOnce(new Error('409 conflict'))
     const before = useSidebarStore.getState().repos.map((r) => [r.id, r.order])
-    const header = (n: number) => rowsFromRepo(repo(n))[0]
+    const header = (n: number) => repoRows(repo(n))[0]
 
     await performSidebarDrop([header(3)], header(1), 'before')
 

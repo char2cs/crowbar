@@ -1,7 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { SidebarRowContextMenu } from '@/components/sidebar/row-context-menu'
-import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
+import { inputOf, repoRows } from '@/__tests__/__fixtures__/tree-rows'
+import { deriveRows } from '@/features/workspace/tree/rows'
 import { useSidebarStore, getInitialState, type Repo } from '@/lib/store/sidebar'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import {
@@ -75,20 +76,8 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', async (importOrigina
   getHomeWorkspaceId: () => 'home-ws-1',
 }))
 
-/**
- * THE FIXTURE IS THE STORE, AND THE ROWS ARE DERIVED FROM IT.
- *
- * The previous version of this file hand-wrote its rows with `id: 'ws-2'` under
- * a comment claiming it "matches what rowsFromRepo.ts actually produces" — which
- * stopped being true the moment a locked branch row started carrying the id of
- * the CHAT that owns its workspace. Every id-space bug on this seam therefore
- * passed CI: the menu compared a row id against `w.id` and the fixture handed it
- * a row id that WAS `w.id`.
- *
- * So this file no longer writes rows at all. It writes the repo the store holds
- * and runs `rowsFromRepo` over it, exactly as `SidebarTreeSurface` does — the
- * rows below are whatever that function really produces, id space included.
- */
+// The fixture is the store and the rows are derived from it, id space included: hand-written
+// row ids hid every id-space bug on this seam (a row id that was `w.id` matched a check on `w.id`).
 const REPO: Repo = {
   id: 'repo-1',
   projectId: 'proj-1',
@@ -176,8 +165,8 @@ function clickRepoMenuButton(tree: HTMLElement, rowId: string) {
   return button
 }
 
-/** A project-home folder, exactly as `rowsFromHome` would draw it — home
- *  rides no repo, so it is never part of `rowsFromRepo(REPO)`'s output. */
+/** A project-home folder, exactly as `deriveRows` would draw it — home
+ *  rides no repo, so it is never part of `repoRows(REPO)`'s output. */
 const HOME_FOLDER_ROW_ID = 'home-folder-1'
 const homeFolderRow: SidebarRow = {
   id: HOME_FOLDER_ROW_ID,
@@ -193,7 +182,7 @@ const homeFolderRow: SidebarRow = {
 
 /** A plain (home-scoped) thread, same gap as `THREAD_ROW_ID` above but for a
  *  project's home rather than a repo — likewise synthetic, since home rows
- *  never come out of `rowsFromRepo`. */
+ *  never come out of `deriveRows`. */
 const HOME_THREAD_ROW_ID = 'home-thread-1'
 const homeThreadRow: SidebarRow = {
   id: HOME_THREAD_ROW_ID,
@@ -235,14 +224,14 @@ beforeEach(() => {
       },
     },
   })
-  rows = [...rowsFromRepo(REPO), homeFolderRow, homeThreadRow]
+  rows = [...repoRows(REPO), homeFolderRow, homeThreadRow]
 })
 
 describe('SidebarRowContextMenu', () => {
   // The rows this menu is driven by really do carry the ids this file asserts —
-  // if `rowsFromRepo` ever stops giving a locked branch its owning chat's id,
+  // if `deriveRows` ever stops giving a locked branch its owning chat's id,
   // the fixture must follow it rather than the other way round.
-  it('is driven by rowsFromRepo’s real output, where a locked branch is id’d by its owning chat', () => {
+  it('is driven by deriveRows’s real output, where a locked branch is id’d by its owning chat', () => {
     expect(rows.map((r) => r.id).sort()).toEqual(
       [
         HOME_ROW_ID,
@@ -288,9 +277,9 @@ describe('SidebarRowContextMenu', () => {
   })
 
   // Amended in fix round 1: a folder row with `ownsWorktree: true` (matching
-  // rowsFromRepo.ts's real output) must still not offer Lock/Unlock — the gate
+  // deriveRows's real output) must still not offer Lock/Unlock — the gate
   // has to be kind-based, not `ownsWorktree`-based.
-  it('right-clicking a folder row (ownsWorktree: true, matching real rowsFromRepo output) offers only Rename', () => {
+  it('right-clicking a folder row (ownsWorktree: true, matching real deriveRows output) offers only Rename', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, 'folder-1')
     expect(screen.getByText('Rename')).toBeInTheDocument()
@@ -416,12 +405,14 @@ describe('SidebarRowContextMenu', () => {
   })
 
   // A repo's entry can be filed into a project-home folder (`repo.folderId`,
-  // rows-from-repo.ts's header push) — it is still the repo, so its menu is
+  // deriveRows's header push) — it is still the repo, so its menu is
   // the repo header's, not a plain branch row's. Identity was keyed on
   // `parentId === null`, so the filed header lost Import/Delete Repo and
   // gained a Lock that `performSetWorkspaceLock` silently no-ops for.
   it('a repo header filed into a home folder keeps the repo menu: Import and Delete Repo, never Lock', () => {
-    rows = [...rowsFromRepo({ ...REPO, folderId: HOME_FOLDER_ROW_ID }), homeFolderRow]
+    const folder = { id: HOME_FOLDER_ROW_ID, repoId: '', name: 'Home Folder', order: 0 }
+    const home = { workspaceId: 'home-ws-1', chats: [], folders: [folder] }
+    rows = deriveRows(inputOf({ repos: [{ ...REPO, folderId: HOME_FOLDER_ROW_ID }], home }))
     expect(rows.find((r) => r.id === HOME_ROW_ID)?.parentId).toBe(HOME_FOLDER_ROW_ID)
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, HOME_ROW_ID)

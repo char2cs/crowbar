@@ -4,19 +4,12 @@ import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { dataOf } from '@/lib/loadable'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
-import {
-  applyPendingRemovals,
-  descendantHiddenIds,
-  renderedHiddenIds,
-} from '@/components/layout/removal-plan'
-import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
+import { applyPendingRemovals, renderedHiddenIds } from '@/components/layout/removal-plan'
 import { compareSidebarRows } from '@/components/sidebar/lib/row-order'
-import { rowsForProject } from '@/components/sidebar/lib/rows-for-project'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
-import {
-  getHomeOwningChatId,
-  getHomeWorkspaceId,
-} from '@/features/workspace/lib/home-workspace-resolver'
+import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
+import { deriveRows } from '@/features/workspace/tree/rows'
+import { treeInputFor } from '@/features/workspace/tree/input'
 
 /** Where a row lands among `rest`, relative to `targetId`. A stale/foreign
  *  `targetId` clamps to the end rather than refusing the drop. */
@@ -27,8 +20,7 @@ export function insertIndex(rest: string[], targetId: string, mode: 'before' | '
 }
 
 /**
- * The repos as the tree draws them — removal-tray-filtered, like
- * `SidebarTreeSurface` feeds `rowsFromRepo`.
+ * The repos as the tree draws them — removal-tray-filtered, like the tree input.
  *
  * Through `renderedHiddenIds`, not the tray store's raw `hiddenIds`: the two
  * differ by every LIVE entry's own primary row, which stays on screen
@@ -49,31 +41,10 @@ export function visibleRepos(): Repo[] {
   )
 }
 
-/**
- * The exact rows one project's panel draws — `SpacePanel`'s own
- * `[...homeRows, ...repoRows]`. Every sibling index below is computed over
- * these, never over a per-workspace store (populated only while that
- * workspace's pane is mounted, so empty for the common repo-pane-open,
- * home-not-mounted drag — every reorder then wrote `order: 0`) or a hand-
- * merged chat/folder/repo list (which id'd a repo header by its workspace
- * while the row carries its owning chat's id, so the target was never found
- * and the index clamped to the end).
- */
-export function renderedProjectRows(repos: readonly Repo[], projectId: string): SidebarRow[] {
-  const homeWorkspaceId = getHomeWorkspaceId(projectId)
-  const homeTree = homeWorkspaceId ? useHomeTreeStore.getState().trees[projectId] : undefined
-  const hidden = descendantHiddenIds(useRemovalTrayStore.getState().entries)
-  return [
-    ...(homeWorkspaceId && homeTree
-      ? rowsFromHome(
-          homeWorkspaceId,
-          homeTree.chats.filter((c) => !hidden.has(c.id)),
-          homeTree.folders.filter((f) => !hidden.has(f.id)),
-          getHomeOwningChatId(projectId) ?? undefined,
-        )
-      : []),
-    ...rowsForProject(repos, projectId),
-  ]
+/** The rows one project's panel draws from the daemon's data: a drop index counts these,
+ *  never an operation's or a draft's stand-in row, which the daemon has not heard of. */
+export function renderedProjectRows(projectId: string, repos?: readonly Repo[]): SidebarRow[] {
+  return deriveRows(treeInputFor(projectId, repos)).filter((r) => !r.operation && !r.draft)
 }
 
 /** `containerId`'s members in the order `SidebarTree` draws them, minus the lifted rows. */

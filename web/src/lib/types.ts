@@ -193,7 +193,7 @@ export interface FolderDTO {
  * sidebar-placement-unification Task 9's `validChatType` to the two values a
  * write path can still mint). `branch` and `folder` are gone: a locked
  * branch, a repo home and a project home are `Node{Kind:workspace}` rows
- * read straight off `Workspace`/`Repository` now (rows-from-repo.ts), never
+ * read straight off `Workspace`/`Repository` now (deriveRows), never
  * a `Chat` retyped to stand in for one, and a folder is `domain.Folder` (see
  * `FolderDTO`), never `ChatTypeFolder`. Both old values may still arrive on
  * a legacy row this migration never touched — `type` stays optional on
@@ -243,7 +243,7 @@ export interface ChatDTO {
    * DIFFERENT KIND OF ROW (a chat bubble where a branch row belongs).
    *
    * Optional only because a row cached before the daemon emitted it carries
-   * none; `rows-from-repo.ts` falls back to the old `Workspace.owningChatId`
+   * none; `deriveRows` falls back to the old `Workspace.owningChatId`
    * join for those.
    */
   ownsWorktree?: boolean

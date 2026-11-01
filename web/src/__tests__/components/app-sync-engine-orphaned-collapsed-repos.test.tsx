@@ -50,7 +50,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 
 import { AppSyncProvider } from '@/components/app-sync-provider'
 import { SidebarTree } from '@/components/sidebar/sidebar-tree'
-import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
+import { repoRows } from '@/__tests__/__fixtures__/tree-rows'
 import { success } from '@/lib/loadable'
 import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
@@ -145,7 +145,7 @@ describe('a repo the OLD build persisted as collapsed', () => {
   it('is drawn fully expanded by the restyled tree (its fold state lives in collapsedChatRows)', () => {
     render(
       <SidebarTree
-        rows={rowsFromRepo(repo)}
+        rows={repoRows(repo)}
         onOpen={() => {}}
         onTrash={() => {}}
         onCreate={() => {}}

@@ -6,7 +6,7 @@ import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { toast } from '@/features/window/stores/toast-store'
 import { openChatInOwnPane } from '@/components/sidebar/lib/pane-drop-actions'
 import { resolveHomeRowScope } from '@/lib/store/home-tree'
-import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
+import { renderedProjectRows } from '@/components/sidebar/lib/rendered-rows'
 import { chatNotLoadedYet } from '@/components/sidebar/lib/row-actions'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 
@@ -37,7 +37,7 @@ export interface ResolvedRow {
  * row came to look like every other row while silently doing nothing.
  *
  * AND it deliberately does NOT match a `branch` row, even though one lives in
- * the chat id space: `rows-from-repo.ts` gives EVERY workspace-owning row —
+ * the chat id space: `deriveRows` gives EVERY workspace-owning row —
  * a locked branch, a repo home, and an ordinary fork or forked thread alike —
  * the id of the chat that owns its workspace, because that is what the daemon
  * places by. Such a row is a WORKSPACE — `resolveRow` answers for it, via
@@ -51,7 +51,7 @@ export function resolveChatRow(
   id: string,
 ): { repo: Repo; chat: Chat } | null {
   // A workspace-owning row lives in the chat id space but is NOT a chat row —
-  // `rows-from-repo.ts` gives that workspace's row this id precisely so the
+  // `deriveRows` gives that workspace's row this id precisely so the
   // daemon can place under it. Matching it below would send every verb down
   // the chat path: "+" would go silently inert, trash would delete the
   // branch's own row, and rename would retitle it instead of moving the git
@@ -84,7 +84,7 @@ export function resolveChatRow(
  * opened row... simply anything happens... it should create a view on its
  * own." A bubble still opens SOMEWHERE, though: it always sits inside some
  * real workspace's tree (worst case, the repo's own home), and that ground is
- * exactly what `rows-from-repo.ts`'s `ancestorWorkspaceId` already resolves
+ * exactly what `deriveRows`'s `ancestorWorkspaceId` already resolves
  * for it — the caller reads the row's own `workspaceId` (which now folds
  * that fallback in) rather than the chat's, and this function's only job is
  * left as the repo-membership check.
@@ -298,15 +298,12 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
 
   const chatRow = resolveChatRow(repos, id)
   if (chatRow) {
-    // The row's OWN `workspaceId`, not the raw `Chat.workspaceId` — a bubble
-    // with none of its own already has this filled in with its nearest real
-    // ancestor workspace (`rows-from-repo.ts`'s own `ancestorWorkspaceId`
-    // fallback), the ground it has always conceptually belonged to. Rebuilt
-    // here rather than threaded in from a caller: `resolveChatRow` above
-    // works off the raw store, and this is the one place that needs the
-    // rendered row too — same "build this repo's rows, read the matching
-    // one" shape `handleCreate`'s own Fork/Thread resolution already uses.
-    const rowWsId = rowsFromRepo(chatRow.repo).find((r) => r.id === id)?.workspaceId ?? null
+    // The drawn row's `workspaceId`, not the raw `Chat.workspaceId`: a bubble with none
+    // of its own runs in its nearest ancestor workspace, which only the tree knows.
+    const { projectId } = chatRow.repo
+    const rowWsId = projectId
+      ? (renderedProjectRows(projectId, repos).find((r) => r.id === id)?.workspaceId ?? null)
+      : null
     const wsId = isOpenableWorkspaceOfRepo(chatRow.repo, rowWsId)
     if (!wsId || !chatRow.repo.projectId) {
       useSidebarStore.getState().toggleChatRow(id)
@@ -337,7 +334,7 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
   // A real, unlocked workspace row IS a chat — the one that owns it — so it
   // opens the same way clicking that chat's own bubble would (spec §8.4).
   // The row itself is addressed by the WORKSPACE's id for a regular fork
-  // (`rows-from-repo.ts`'s own note on why); its owning conversation is a
+  // (`deriveRows`'s own note on why); its owning conversation is a
   // separate id, read off the `Workspace` record the same way
   // `handleCreate` already does.
   const owningChatId = found.repo.workspaces.find((w) => w.id === found.subject.id)?.owningChatId

@@ -3,7 +3,7 @@ import type { Repo } from '@/lib/store/sidebar'
 /**
  * The two id spaces a branch row straddles.
  *
- * `rows-from-repo.ts` gives EVERY workspace-owning row — a locked branch, a
+ * `deriveRows` gives EVERY workspace-owning row — a locked branch, a
  * repo/project home, and an ordinary fork or forked thread alike — the id of
  * the CHAT that owns its workspace, because that is the id the daemon
  * resolves a placement against — a row id'd from the `Workspace` names
@@ -14,7 +14,7 @@ import type { Repo } from '@/lib/store/sidebar'
  * helper inside either — importing one from the other closes a cycle.
  *
  * `Workspace.owningChatId` is the authoritative direction for every ROW
- * workspace (`rows-from-repo.ts`'s own `resolveOwnerChats`) — a chat's own
+ * workspace (`deriveRows`'s own `resolveOwnerChats`) — a chat's own
  * `workspaceId` cannot serve here instead, since a thread carries its
  * parent's, not just the true owner's. The repo/project home is the one
  * exception: it is never a member of `repo.workspaces`, so there is no
@@ -27,7 +27,7 @@ import type { Repo } from '@/lib/store/sidebar'
  * The other direction: the chat that owns `wsId`'s worktree, straight off the
  * sidebar store.
  *
- * `rows-from-repo.ts`'s `resolveOwnerChats`/`resolveHomeOwnerId` resolve, in
+ * `deriveRows`'s `resolveOwnerChats`/`resolveHomeOwnerId` resolve, in
  * single-id form — `Workspace.owningChatId` (or, for the repo/project home,
  * `Repo.defaultOwningChatId`) first, then a `Chat` that claims the workspace
  * itself (`Chat.ownsWorktree`, which lands with the chat rather than with the

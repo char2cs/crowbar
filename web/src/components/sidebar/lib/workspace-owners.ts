@@ -1,16 +1,15 @@
 import type { Chat, Workspace } from '@/lib/store/sidebar'
-import type { SidebarTreeNode } from '@/components/layout/workspace-tree-utils'
 
 /**
  * The chat that owns a repo/project HOME workspace's worktree, straight off
- * `defaultOwningChatId` — the direct field `rows-from-repo.ts`/`toSidebarRepo`
+ * `defaultOwningChatId` — the direct field `deriveRows`/`toSidebarRepo`
  * lift from `WorkspaceDTO.owningChatId` for exactly this row, since the home
  * workspace is never a `Workspace` row (it lives on `repo.defaultWorkspaceId`,
  * outside `repo.workspaces` entirely) for {@link resolveOwnerChats} to read
  * directly the way it does for every other row.
  *
  * `defaultOwningChatId` is absent only for a caller with no `Repo` to lift it
- * from at all (`rows-from-home.ts`'s project home, which has no `Repository`
+ * from at all (`deriveRows`'s project home, which has no `Repository`
  * either) or a frame that predates the field — both fall back to the same
  * `ownsWorktree` signal {@link resolveOwnerChats} uses for every other row's
  * degrade case. Never a `Chat.type` check: Task 9 stopped minting/retyping a
@@ -39,14 +38,14 @@ export function resolveHomeOwnerId(
  * `Chat.type`.
  *
  * "Confirmed" means the WORKSPACE side is present — this is
- * {@link foldWorkspaceOwners}'s whole input, and it deliberately excludes a
+ * {@link legacyTreeIndex}'s whole input, and it deliberately excludes a
  * chat's own unconfirmed `ownsWorktree` claim (see
  * {@link resolveOwnerOfChat}): folding requires a real workspace NODE to fold
  * onto, and a workspace this repo has not seeded has none. A chat whose
  * workspace is merely absent from `workspaces` (deleted, or its own
  * `WorkspaceDTO` has not landed yet) must NOT be treated as foldable, or
- * `foldWorkspaceOwners` strips it from the tree with nowhere to put it back —
- * the exact regression `walkTreeIntoRows`'s own chat branch exists to render
+ * `legacyTreeIndex` strips it from the tree with nowhere to put it back —
+ * the exact regression `deriveRows`'s own chat branch exists to render
  * instead (see `removal-countdown-rows.test.ts`'s "still draws a branch row
  * off the chat alone").
  *
@@ -71,7 +70,7 @@ export function resolveOwnerChats(
 /**
  * Chat id -> the workspace it owns, present or not — the WIDER set
  * {@link resolveOwnerChats} deliberately excludes. The authority
- * `walkTreeIntoRows` draws a `branch` row off even when that workspace's own
+ * `deriveRows` draws a `branch` row off even when that workspace's own
  * `Workspace` record has not arrived yet (a fresh fork) or is hidden
  * mid-delete: a chat this map names IS a workspace row, full stop, and only
  * its DECORATION (branch name, diff counts, lock) depends on the missing
@@ -97,68 +96,4 @@ export function resolveOwnerOfChat(
     ownerOfChat.set(chat.id, chat.workspaceId)
   }
   return ownerOfChat
-}
-
-/**
- * Fold every workspace-owning chat into the ONE row its workspace already
- * renders as, instead of the two-row split `buildSidebarTree` produces on its
- * own (product rule 6: "a chat with a workspace" is ONE row, not two).
- *
- * Runs on the tree `buildSidebarTree` already built from UNFILTERED
- * workspaces and chats — never on its inputs. That matters: a workspace's own
- * `folderId`/`parentId` lineage is the one edge drag-and-drop actually writes
- * (`WorkspacePlacementWrite`), and `buildSidebarTree`'s folder-anchor
- * compatibility walk, cycle guard and sibling sort already resolve it
- * correctly for a NESTED fork — an owning chat's own `parentId` is used only
- * to find what hangs off it (a real thread), never to decide where the
- * folded row itself renders.
- *
- * Two passes:
- *   1. `stripOwners` removes every owning-chat node whose workspace is ALSO
- *      in this tree, from wherever it sits, and records it (real children
- *      included) by id. Pass 2 always re-attaches its children onto the
- *      workspace it owns, so nothing is spliced back into its old spot.
- *   2. `mergeWorkspaces` relabels every workspace node with a resolved owner
- *      to that owner's id, appending the owner's own (stripped) children
- *      onto its own (none yet when the owner's chat row has not seeded). A
- *      workspace with no owner at all is left completely untouched, exactly
- *      as `buildSidebarTree` built it: still a `branch` row (see
- *      `walkTreeIntoRows`'s workspace branch), just missing the
- *      title/decoration only the chat half carries.
- */
-export function foldWorkspaceOwners(
-  roots: SidebarTreeNode[],
-  ownerChats: ReadonlyMap<string, string>,
-): SidebarTreeNode[] {
-  const foldableOwnerIds = new Set(ownerChats.values())
-  const detached = new Map<string, SidebarTreeNode>()
-
-  const stripOwners = (nodes: SidebarTreeNode[]): SidebarTreeNode[] => {
-    const kept: SidebarTreeNode[] = []
-    for (const node of nodes) {
-      const children = stripOwners(node.children)
-      if (node.kind === 'chat' && foldableOwnerIds.has(node.id)) {
-        detached.set(node.id, { ...node, children })
-        continue
-      }
-      kept.push({ ...node, children })
-    }
-    return kept
-  }
-
-  const mergeWorkspaces = (nodes: SidebarTreeNode[]): SidebarTreeNode[] =>
-    nodes.map((node) => {
-      const children = mergeWorkspaces(node.children)
-      if (node.kind === 'workspace') {
-        const ownerId = ownerChats.get(node.id)
-        if (ownerId) {
-          const owner = detached.get(ownerId)
-          const ownerChildren = owner ? mergeWorkspaces(owner.children) : []
-          return { ...node, id: ownerId, children: [...children, ...ownerChildren] }
-        }
-      }
-      return { ...node, children }
-    })
-
-  return mergeWorkspaces(stripOwners(roots))
 }

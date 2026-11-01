@@ -335,7 +335,7 @@ describe('SidebarTreeSurface — rows wait for the repo’s tree seed', () => {
 /**
  * `SidebarTreeChrome`'s `rows` prop (which `SidebarRowContextMenu` and the
  * double-click-to-rename listener both look a right-clicked/double-clicked
- * id up in) used to come ONLY from `treeRepos.flatMap(rowsFromRepo)` — a
+ * id up in) used to come ONLY from `treeRepos.flatMap(deriveRows)` — a
  * project-home chat or folder was never a member of it, so right-clicking
  * (or double-clicking) one found no matching row and did nothing at all: no
  * menu, no inline editor. Caught live as "can't create folders with right

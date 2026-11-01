@@ -437,7 +437,7 @@ describe('folders reseed-on-signal', () => {
 /**
  * The CHAT half of the same per-repo tree subscription (Task D).
  *
- * Chat rows reach `Repo.chats` — and therefore `rows-from-repo.ts`'s tree — the
+ * Chat rows reach `Repo.chats` — and therefore `deriveRows`'s tree — the
  * same way folders reach `Repo.folders`: one repo-scoped GET on open, replayed
  * whenever this repo's tree generation moves. Same file, same real rebuild
  * pipeline, because the point is the same: proving the row a reseed writes
@@ -631,7 +631,7 @@ describe('chat rows on the same reseed loop', () => {
  * The other thing the chats half of a reseed produces: the record that this
  * repo's tree has been READ, which is what lets a consumer tell an empty chat
  * list apart from one that has not arrived (`Repo.chats`'s own "not yet"
- * contract). `rows-from-repo.ts` cannot identify a branch row without it.
+ * contract). `deriveRows` cannot identify a branch row without it.
  */
 describe('the chats reseed records that the repo’s tree has been read', () => {
   it('marks the repo seeded once its chats come back — even when there are none', async () => {
@@ -656,7 +656,7 @@ describe('the chats reseed records that the repo’s tree has been read', () => 
   // 16ms timer and awaits the workspace list before `setRepos` puts the rows in
   // the store. A render landing in that window saw the repo marked seeded while
   // `repos` still held the PRE-seed chats (no `type` at all, on any cached row
-  // written before the field existed), and `rows-from-repo.ts` throws on those.
+  // written before the field existed), and `deriveRows` throws on those.
   it('does not raise the flag until the rebuilt rows are actually in the store', async () => {
     fetchRepoChats.mockResolvedValue([
       chatDTO('b1', 'r1', { type: 'workflow', workspaceId: 'ws-1' }),
@@ -915,7 +915,7 @@ describe('the chats reseed records that the repo’s tree has been read', () => 
   // inside that write when a newer one superseded it publishes `success(stale)`
   // anyway, LAST — a brand-new object carrying a read that predates the chats.
   // Identity cannot see that either, so the gate opened onto pre-seed rows and
-  // `rows-from-repo.ts` threw in render, exactly as in the three rounds before.
+  // `deriveRows` threw in render, exactly as in the three rounds before.
   it('does not open the gate from a pre-claim read that wrote LATE, after its own supersede', async () => {
     const r1Chats = deferred<ChatDTO[]>()
     fetchRepoChats.mockImplementation(() => r1Chats.promise)

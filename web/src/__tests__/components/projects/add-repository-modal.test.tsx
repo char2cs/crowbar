@@ -16,7 +16,8 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 import * as api from '@/lib/api'
 import { AddRepositoryModal } from '@/components/projects/add-repository-modal'
 import { OperationsWatcher } from '@/components/layout/operations-watcher'
-import { rowsFromOperations } from '@/components/sidebar/lib/rows-from-operations'
+import { deriveRows } from '@/features/workspace/tree/rows'
+import { inputOf } from '@/__tests__/__fixtures__/tree-rows'
 import { useProjectStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
@@ -227,8 +228,12 @@ test('a partly failed add opens the repo home; the failed branch is drawn with i
     ),
   )
   const present = new Set(['ws-home'])
-  const rows = rowsFromOperations([partial], { projectId: 'proj-1', repoId: 'repo-9' }, (ref) =>
-    present.has(ref.id),
+  const rows = deriveRows(
+    inputOf({
+      projectId: 'proj-1',
+      operations: [partial],
+      isPresent: (ref) => present.has(ref.id),
+    }),
   )
   expect(rows).toEqual([
     expect.objectContaining({

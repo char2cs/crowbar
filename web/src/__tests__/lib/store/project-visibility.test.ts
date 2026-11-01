@@ -159,7 +159,7 @@ describe('readVisibleRepoTree', () => {
     const nested = folders.find((f) => f.id === 'f2')!
     expect(nested).toMatchObject({ parentId: 'f1', name: 'nested', order: 3 })
     // A root folder's empty parentId becomes undefined, which is what
-    // buildSidebarTree reads as "hangs off the repo".
+    // legacyTreeIndex reads as "hangs off the repo".
     expect(folders.find((f) => f.id === 'f1')!.parentId).toBeUndefined()
   })
 

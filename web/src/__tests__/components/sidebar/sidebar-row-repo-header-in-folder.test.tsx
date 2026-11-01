@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
-import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
+import { inputOf, repoRows } from '@/__tests__/__fixtures__/tree-rows'
+import { deriveRows } from '@/features/workspace/tree/rows'
 import type { Repo } from '@/lib/store/sidebar'
 
 vi.mock('@/features/window/stores/toast-store', () => ({
@@ -33,7 +34,7 @@ function makeRepo(folderId: string): Repo {
 }
 
 function renderHeader(folderId: string) {
-  const [header] = rowsFromRepo(makeRepo(folderId))
+  const [header] = repoRows(makeRepo(folderId))
   render(
     <SidebarRow row={header} depth={1} onOpen={vi.fn()} onTrash={vi.fn()} onCreate={vi.fn()} />,
   )
@@ -41,8 +42,11 @@ function renderHeader(folderId: string) {
 }
 
 describe('SidebarRow: a repo header filed into a home folder', () => {
-  it('is drawn by rowsFromRepo with the folder as its parent', () => {
-    expect(rowsFromRepo(makeRepo('home-folder-1'))[0]?.parentId).toBe('home-folder-1')
+  it('is drawn with the home folder as its parent', () => {
+    const folder = { id: 'home-folder-1', repoId: '', name: 'Filed', order: 0 }
+    const home = { workspaceId: 'home-ws', chats: [], folders: [folder] }
+    const rows = deriveRows(inputOf({ repos: [makeRepo('home-folder-1')], home }))
+    expect(rows.find((r) => r.repoIcon)?.parentId).toBe('home-folder-1')
   })
 
   it('keeps its overflow menu and icon picker, and never gains the Remove control', () => {

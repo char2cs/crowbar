@@ -9,9 +9,9 @@ import { handleTrash } from '@/components/layout/trash-actions'
 import {
   applyPendingRemovals,
   attachRemovalState,
-  descendantHiddenIds,
+  renderedHiddenIds,
 } from '@/components/layout/removal-plan'
-import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
+import { repoRows } from '@/__tests__/__fixtures__/tree-rows'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useRemovalTrayStore, getInitialRemovalState } from '@/lib/store/sidebar-removal'
 import { useProjectDataStore } from '@/lib/store/projects'
@@ -28,14 +28,14 @@ import { useProjectDataStore } from '@/lib/store/projects'
  *     handleTrash            -> resolve the clicked row, plan what goes
  *     useRemovalTrayStore    -> hold it, hiding those ids
  *     applyPendingRemovals   -> the repo as the sidebar now reads it
- *     rowsFromRepo           -> the rows actually drawn during the countdown
+ *     deriveRows           -> the rows actually drawn during the countdown
  *
  * What went wrong: a workspace row IS its owning chat (they render as one row),
- * but the hold hid only the `Workspace` half. The chat survived, `rowsFromRepo`
+ * but the hold hid only the `Workspace` half. The chat survived, `deriveRows`
  * found it with no workspace to fold onto, and drew it as a `kind: 'chat'`
  * BUBBLE. So the row the user had just deleted did not disappear — it visibly
  * turned into a conversation and sat there for eight seconds. Testing
- * `foldWorkspaceOwners` alone would have passed the whole time: its inputs were
+ * `legacyTreeIndex` alone would have passed the whole time: its inputs were
  * fine, and the skew was introduced one layer up.
  */
 
@@ -101,17 +101,16 @@ function repo(): Repo {
   }
 }
 
-/** The rows on screen right now, exactly as `SidebarTreeSurface` derives them:
- *  descendants strip out, the held row's own primary id stays so it has a
- *  row left to transform in place (`removal-plan.ts`'s `descendantHiddenIds`
- *  / `attachRemovalState`), never the store's raw `hiddenIds` (which still
- *  lists the primary too — that field backs this file's own hiddenIds
- *  assertions, not what the tree actually draws). */
+/** The rows on screen right now: descendants strip out, while the held row's own primary id
+ *  stays so it has a row left to transform in place (`renderedHiddenIds`). */
 function rowsOnScreen() {
-  const entries = useRemovalTrayStore.getState().entries
-  const repos = applyPendingRemovals(useSidebarStore.getState().repos, descendantHiddenIds(entries))
+  const { entries, hiddenIds } = useRemovalTrayStore.getState()
+  const repos = applyPendingRemovals(
+    useSidebarStore.getState().repos,
+    renderedHiddenIds(hiddenIds, entries),
+  )
   return attachRemovalState(
-    repos.flatMap((r) => rowsFromRepo(r)),
+    repos.flatMap((r) => repoRows(r)),
     entries,
   )
 }

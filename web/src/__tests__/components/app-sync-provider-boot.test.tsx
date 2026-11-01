@@ -385,7 +385,7 @@ describe('AppSyncProvider boot, end to end', () => {
   // every turn_started/turn_stopped in a home chat pushed a worktree_state with
   // an empty repoId onto EVERY repo's socket. Each repo's mapper then stamped
   // its OWN repo id onto it and merged the home workspace in as that repo's
-  // workspace — and since a home worktree's branch is '', rows-from-repo.ts
+  // workspace — and since a home worktree's branch is '', deriveRows
   // drew it as a labelless `branch` row under every repo header. Live-reported:
   // "for each thread that becomes active, we're creating ghost rows on the
   // first level of each repo."

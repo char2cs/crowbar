@@ -44,7 +44,8 @@
       "web/src/components/sidebar",
       "web/src/components/layout",
       "web/src/components/tree-dnd",
-      "web/src/lib/store"
+      "web/src/lib/store",
+      "web/src/features/workspace/tree"
     ],
     "editor": ["web/src/features/editor", "web/src/components/editor"],
     "kit-ui": ["web/src/components/ui"],

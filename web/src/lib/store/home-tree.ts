@@ -16,7 +16,7 @@ import {
  * A project's home-workspace chat rows and folders — the same two aggregates
  * `Repo.chats`/`Repo.folders` hold, kept in their OWN per-project map instead
  * of shoehorned into `useSidebarStore`'s `Repo[]`: project home rides no
- * repo at all (see `rows-from-home.ts`'s own doc), so nothing here can be a
+ * repo at all (see `deriveRows`'s own doc), so nothing here can be a
  * `Repo` without faking one.
  */
 export interface HomeTree {

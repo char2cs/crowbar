@@ -8,7 +8,7 @@ beforeEach(() => {
 /**
  * The flag that tells "this repo has no chats" apart from "its chat seed has
  * not landed yet" — a distinction `Repo.chats` documents but nothing recorded,
- * and the one `rows-from-repo.ts` needs before it can identify a branch row by
+ * and the one `deriveRows` needs before it can identify a branch row by
  * the chat that owns it.
  */
 describe('markTreeSeeded', () => {

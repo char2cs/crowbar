@@ -200,11 +200,11 @@ describe('row-actions', () => {
   // A lock is the one mutation that CHANGES WHAT A ROW IS: the daemon mints the
   // workspace's `branch` row synchronously inside the lock call
   // (`workspace.go`'s reconcileOwningChat, "so the row exists before the caller
-  // is told the lock succeeded"), and from that instant `rows-from-repo.ts`
+  // is told the lock succeeded"), and from that instant `deriveRows`
   // identifies the row by that chat. The client only hears about the lock
   // through `applyWorkspaceDTO`, which writes `status` and nothing else — so
   // without a reseed the store holds `status: 'locked'` for a workspace whose
-  // `repo.chats` has never seen its branch row, and `rowsFromRepo` THROWS in
+  // `repo.chats` has never seen its branch row, and `deriveRows` THROWS in
   // render ("workspace <id> owns no branch row"). Nothing wraps
   // `SidebarTreeSurface` in an ErrorBoundary, so that throw takes the whole
   // sidebar down with no recovery UI.
@@ -241,7 +241,7 @@ describe('row-actions', () => {
 
 /**
  * A FIFTH id space, and the one that overlaps a fourth: a `branch` row's id is
- * the id of the CHAT that owns its workspace (`rows-from-repo.ts`). Without
+ * the id of the CHAT that owns its workspace (`deriveRows`). Without
  * translating first, the repo-home row stops matching `defaultWorkspaceId`,
  * falls into the chat branch, and renaming the repo silently retitles a
  * conversation instead — a locked branch's rename must still move the git

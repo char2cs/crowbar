@@ -435,7 +435,7 @@ export function applyFolderDTOTo(repos: Repo[], dto: FolderDTO): Repo[] {
   if (existingIdx !== -1 && isSameRow(existing[existingIdx], folder)) return repos
   // Merged, never replaced: this is one folder's frame, not the repo's set.
   // Appending is enough for placement — folders and workspaces share one
-  // sibling space that buildSidebarTree sorts by `order`, so array position
+  // sibling space that legacyTreeIndex sorts by `order`, so array position
   // carries nothing.
   const folders =
     existingIdx === -1

@@ -44,7 +44,7 @@ interface FolderSignalState {
    * that has no subscription at all) where a repo has workspaces and no chats.
    *
    * Nothing recorded the difference before, so no consumer could tell the two
-   * apart. `rows-from-repo.ts` is the one that must: a workspace's row is
+   * apart. `deriveRows` is the one that must: a workspace's row is
    * identified by the chat that owns it, so asking during the window would
    * either hand out an id that changes when the seed lands — and a row id is
    * the React key, the `collapsedChatRows` key and the selection key — or

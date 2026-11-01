@@ -58,7 +58,7 @@ function chatIsInAnyHomeTree(homeTrees: Record<string, HomeTree>, chatId: string
   return false
 }
 
-/** Every authority `rows-from-repo.ts` folds a worktree-owning row from: the
+/** Every authority `deriveRows` folds a worktree-owning row from: the
  *  chat's own claim (atomic with the row), the repo home's lifted
  *  `owningChatId` (home is never a member of `repo.workspaces`), and the
  *  `Workspace` record's own join for a row cached before `ownsWorktree`. */

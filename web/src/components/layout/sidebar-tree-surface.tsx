@@ -2,38 +2,24 @@ import { memo, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { SpaceScroller } from '@/components/sidebar/space-scroller'
-import { rowsForProject } from '@/components/sidebar/lib/rows-for-project'
-import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
-import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
-import {
-  createItemRefs,
-  placeUnderRepoHomes,
-  rowFromDraft,
-  rowsFromOperations,
-} from '@/components/sidebar/lib/rows-from-operations'
-import { useCreateDraftStore } from '@/lib/store/create-draft'
-import { entityKey, usePresentEntities } from '@/lib/store/entity-presence'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
-import {
-  getHomeOwningChatId,
-  getHomeWorkspaceId,
-} from '@/features/workspace/lib/home-workspace-resolver'
+import { deriveRows } from '@/features/workspace/tree/rows'
+import { useTreeInput } from '@/features/workspace/tree/input'
 import { focusRecent, closeRecent, closeRecentChat } from '@/components/sidebar/lib/recents-actions'
 import { handleOpen as openSidebarRow } from './open-actions'
 import { handleTrash, handleTrashProject as trashProject } from './trash-actions'
 import { handleCreate as createSidebarRow } from './create-actions'
-import { applyPendingRemovals, attachRemovalState, renderedHiddenIds } from './removal-plan'
+import { applyPendingRemovals, renderedHiddenIds } from './removal-plan'
 import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { performSidebarPaneDrop } from '@/components/sidebar/lib/pane-drop-actions'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { newestProblem, selectFailedOps, useOperations } from '@/lib/store/operations'
-import { useShallow } from 'zustand/react/shallow'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { toast } from '@/features/window/stores/toast-store'
 import { SidebarTreeChrome } from './sidebar-tree-chrome'
 import { CreateSpacePanel } from './create-space-panel'
 import type { Project } from '@/lib/types'
+import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+
+const NO_ROWS: SidebarRow[] = []
 
 interface SidebarTreeSurfaceProps {
   projects: Project[]
@@ -50,25 +36,8 @@ interface SidebarTreeSurfaceProps {
 }
 
 /**
- * SpaceScroller's real mount point, plus the chrome (RemovalTray,
- * RepoImportDialog, SidebarRowContextMenu) it needs mounted
- * once alongside it — split out of `ide-shell.tsx` itself
- * rather than inlined there, on purpose: `ide-shell.tsx`'s OWN comment on
- * `sidebarWorkspacePath` (a few lines up from where this used to be wired)
- * already establishes why — "subscribing to the whole repos array made
- * every live status/count frame rebuild the complete IDE shell." The tree
- * genuinely needs the full `repos` array (there is no narrower shape that
- * still builds every project's rows), so that subscription has to live
- * somewhere; isolating it here means a git-status/PR tick re-renders this
- * component alone, not `IDEShell` and everything under it.
- *
- * MEMOIZED too, for the reverse direction: `IDEShell` re-renders on plenty
- * (an active-pane switch within one workspace, a settings toggle) that
- * touches none of the props below — `ide-shell.tsx`'s own callers are
- * `useCallback`'d so those stay referentially stable across such a render.
- * The tree's own reactivity (repos, removals, folder signals, home trees) is
- * unaffected: those are internal subscriptions, read above, that trigger a
- * re-render on their own regardless of what any parent does.
+ * SpaceScroller's mount plus the chrome it needs once. Its own component so the store
+ * subscriptions every row needs re-render it alone, never `IDEShell`; memoized for the reverse.
  */
 export const SidebarTreeSurface = memo(function SidebarTreeSurface({
   projects,
@@ -79,136 +48,26 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
   onCancelCreateSpace = () => {},
 }: SidebarTreeSurfaceProps) {
   const navigate = useNavigate()
-  // Every project's rows come off the SAME removal-tray-filtered `repos` the
-  // old SidebarTreePanel derived once for its single flat tree: a row held
-  // for removal must disappear from whichever project's panel renders it,
-  // exactly as it disappeared from the one flat tree before.
+  // Opening, resolving and focusing a row ask about the repo the user sees: the
+  // tray's held rows taken out, its live primary rows kept (`renderedHiddenIds`).
   const allRepos = useSidebarStore((s) => s.repos)
   const removalEntries = useRemovalTrayStore((s) => s.entries)
-  // The tray's own `hiddenIds`, not an `entries`-derived set: `entries` loses
-  // a row the INSTANT its commit fires (`sidebar-removal.ts`'s `settle()`),
-  // well before the DELETE it just sent has resolved — deriving hiddenIds
-  // from `entries` alone let a settled-but-not-yet-confirmed row fall
-  // straight through to an ordinary, interactive row for the length of that
-  // round trip (the "ghost row" bug). `renderedHiddenIds` corrects for the
-  // one case that must stay visible regardless: a still-LIVE entry's own
-  // primary id, which stays on screen transformed in place
-  // (sidebar-row.tsx's `RemovingSidebarRow`) — only its cascade descendants
-  // vanish outright while the entry is held (removal-plan.ts's own doc).
   const trayHiddenIds = useRemovalTrayStore((s) => s.hiddenIds)
-  const hiddenIds = useMemo(
-    () => renderedHiddenIds(trayHiddenIds, removalEntries),
-    [trayHiddenIds, removalEntries],
+  const repos = useMemo(
+    () => applyPendingRemovals(allRepos, renderedHiddenIds(trayHiddenIds, removalEntries)),
+    [allRepos, trayHiddenIds, removalEntries],
   )
-  const repos = useMemo(() => applyPendingRemovals(allRepos, hiddenIds), [allRepos, hiddenIds])
-  // ROWS come only from repos whose tree has actually been read back.
-  //
-  // A row's identity is the chat that owns its workspace, and a repo's chats
-  // arrive on their own reseed loop — independent of the repo and workspace
-  // streams that put `repos` above into the store. Drawing during that window
-  // would give every row an id that changes the moment the seed lands, and a
-  // row id is the React key, the `collapsedChatRows` key and the selection
-  // key: the tree would silently drop the user's folds and selection a beat
-  // after painting. So a repo's rows appear once, with final ids. Everything
-  // else here still reads the FULL `repos` — resolving, opening and dropping a
-  // row are questions about the repo, not about its rows.
-  const seededRepoIds = useFolderSignalStore((s) => s.seededRepoIds)
-  // A repo whose WORKSPACES have seeded (folder-signal.ts's
-  // seededWorkspaceRepoIds) is admitted too, even before its TREE has. Its own
-  // header/branch rows are safe to draw from workspace data alone: a
-  // WorkspaceDTO's `owningChatId` is already backend-resolved (dto.
-  // WorkspaceDTOFrom), so a row's id is the SAME one this tree would settle
-  // on once chats/folders also arrive — never the "id changes under you"
-  // case the comment above warns about, which is about a row whose identity
-  // can ONLY be resolved by scanning chats. Loose/extra chats and thread
-  // nesting (which genuinely do need the tree) simply wait, same as before.
-  const seededWorkspaceRepoIds = useFolderSignalStore((s) => s.seededWorkspaceRepoIds)
-  const treeRepos = useMemo(
-    () => repos.filter((r) => seededRepoIds.has(r.id) || seededWorkspaceRepoIds.has(r.id)),
-    [repos, seededRepoIds, seededWorkspaceRepoIds],
+  const inputFor = useTreeInput()
+  const rowsByProject = useMemo(
+    () => new Map(projects.map((p) => [p.id, deriveRows(inputFor(p.id))])),
+    [projects, inputFor],
   )
-  // Every row across every project — SidebarRowContextMenu looks
-  // up a row by id regardless of which project's panel drew it (a row's id
-  // is never ambiguous by project), so the chrome mounted once below needs
-  // the whole set, not any one project's slice.
-  //
-  // Repo rows are not the whole story: a project-home chat or folder is a row
-  // too (`space-scroller.tsx`'s own `SpacePanel` draws it via the identical
-  // `rowsFromHome`), and until it is ALSO in this set, `SidebarRowContextMenu`
-  // silently finds no row for one and returns before even opening — a home
-  // folder never gets a right-click menu at all, caught live (no "New
-  // folder", no "Rename", nothing — not a refusal, just no menu).
-  const homeTrees = useHomeTreeStore((s) => s.trees)
-  const homeRows = useMemo(
-    () =>
-      projects.flatMap((project) => {
-        const homeWorkspaceId = getHomeWorkspaceId(project.id)
-        const homeTree = homeTrees[project.id]
-        // Mirrors `space-scroller.tsx`'s own `homeSeeded` guard: `rowsFromHome`
-        // degrades gracefully (never throws) while its owning chat has not
-        // resolved yet, so this only needs the tree itself to have seeded.
-        if (!homeWorkspaceId || !homeTree) return []
-        // A held home chat/folder's cascade descendants disappear the same
-        // way a held repo row's do via `applyPendingRemovals` above —
-        // filtered here rather than there, since a home tree is never part
-        // of `repos` for that projection to reach at all. The PRIMARY id
-        // stays (same `descendantHiddenIds` rule); `attachRemovalState`
-        // below marks it for the in-place transform.
-        return attachRemovalState(
-          rowsFromHome(
-            homeWorkspaceId,
-            homeTree.chats.filter((c) => !hiddenIds.has(c.id)),
-            homeTree.folders.filter((f) => !hiddenIds.has(f.id)),
-            getHomeOwningChatId(project.id) ?? undefined,
-          ),
-          removalEntries,
-        )
-      }),
-    [projects, homeTrees, hiddenIds, removalEntries],
+  const rowsForProject = useCallback(
+    (projectId: string) => rowsByProject.get(projectId) ?? NO_ROWS,
+    [rowsByProject],
   )
-  // A create whose entity has not arrived is drawn from its operation, and the
-  // fork being named from its draft, here where chrome and render path converge.
-  const ops = useOperations((s) => s.ops)
-  const draft = useCreateDraftStore((s) => s.draft)
-  const createRefs = useMemo(() => createItemRefs(Object.values(ops)), [ops])
-  const present = usePresentEntities(createRefs)
-  const createRowsFor = useCallback(
-    (projectId: string) => [
-      ...placeUnderRepoHomes(
-        rowsFromOperations(Object.values(ops), { projectId }, (ref) => present.has(entityKey(ref))),
-        treeRepos,
-      ),
-      ...(draft?.projectId === projectId ? [rowFromDraft(draft)] : []),
-    ],
-    [ops, draft, treeRepos, present],
-  )
-  // A row explains itself with the newest failed operation naming it or its workspace.
-  // Shallow: rows re-derive only when some failure changes, not on every frame.
-  const failedOps = useOperations(useShallow(selectFailedOps))
-  const problemOf = useCallback(
-    (...entityIds: string[]) => newestProblem(failedOps, entityIds),
-    [failedOps],
-  )
-  const repoRows = useMemo(
-    () =>
-      attachRemovalState(
-        treeRepos.flatMap((r) => rowsFromRepo(r, problemOf)),
-        removalEntries,
-      ),
-    [treeRepos, removalEntries, problemOf],
-  )
-  const allRows = useMemo(
-    () => [...homeRows, ...repoRows, ...projects.flatMap((p) => createRowsFor(p.id))],
-    [homeRows, repoRows, projects, createRowsFor],
-  )
-
-  const rowsForProjectFn = useCallback(
-    (projectId: string) => [
-      ...attachRemovalState(rowsForProject(treeRepos, projectId, problemOf), removalEntries),
-      ...createRowsFor(projectId),
-    ],
-    [treeRepos, removalEntries, createRowsFor, problemOf],
-  )
+  // The chrome (context menu, trash label) looks a row up by id whichever panel drew it.
+  const allRows = useMemo(() => [...rowsByProject.values()].flat(), [rowsByProject])
   const openRow = useCallback(
     (id: string) => openSidebarRow(id, repos, navigate),
     [repos, navigate],
@@ -258,7 +117,7 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
             projects={projects}
             activeProjectId={activeProjectId}
             onActiveProjectChange={onActiveProjectChange}
-            rowsForProject={rowsForProjectFn}
+            rowsForProject={rowsForProject}
             onOpen={openRow}
             onTrash={onTrash}
             onCreate={createRow}

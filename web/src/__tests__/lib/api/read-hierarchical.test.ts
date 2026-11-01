@@ -206,7 +206,7 @@ describe('workspaceDTOFromWorktreeFrame', () => {
   // root bubbles survive. The PROJECT-HOME worktree has no repo either, so its
   // worktree_state reached every repo's socket — and this mapper stamped the
   // SUBSCRIPTION's own repo id onto it, minting the home workspace as that
-  // repo's workspace. Its branch is '', so rows-from-repo.ts drew it as a
+  // repo's workspace. Its branch is '', so deriveRows drew it as a
   // labelless `branch` row under every repo header, in every project, the
   // instant a home chat took a turn. Live-reported twice.
   it('returns null for a repo-less (project-home) worktree instead of claiming it', () => {
@@ -265,10 +265,10 @@ describe('fetchWorkspaces', () => {
   // at all — a repo's own default checkout before anyone has chatted in it,
   // or a locked tracking branch nobody ever opened a conversation in — which
   // had no chat row to derive from and so never appeared anywhere, taking the
-  // repo's own header row with it (rows-from-repo.ts mints that from the
+  // repo's own header row with it (deriveRows mints that from the
   // default workspace). Reproduced live against real production data. The
   // real resource has no such blind spot: it reports the workspace with
-  // owningChatId: '', which rows-from-repo.ts already renders as an unfolded
+  // owningChatId: '', which deriveRows already renders as an unfolded
   // branch row.
   it('includes a workspace with no owning chat at all', async () => {
     const workspaces = [dto({ id: 'w1', isDefault: true, owningChatId: '' })]

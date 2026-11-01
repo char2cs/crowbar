@@ -6,10 +6,13 @@ import {
   workspaceIdOfBranchRow,
 } from '@/components/sidebar/lib/branch-row-id'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import { buildSidebarTree, type SidebarTreeNode } from '@/components/layout/workspace-tree-utils'
-import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
 import { resolveHomeOwnerId } from '@/components/sidebar/lib/workspace-owners'
-import { insertIndex, renderedSiblings, visibleRepos } from '@/components/sidebar/lib/rendered-rows'
+import {
+  insertIndex,
+  renderedProjectRows,
+  renderedSiblings,
+  visibleRepos,
+} from '@/components/sidebar/lib/rendered-rows'
 
 /** One request `performSidebarDrop` fires, in the order it must land — the
  *  scoped-down `PlacementCall` from `drop-plan.ts` (git show 9ad89156), minus
@@ -47,13 +50,10 @@ export type RowPlacementCall =
     }
   | { kind: 'repoHome'; projectId: string; repoId: string; folderId: string; order: number }
 
-export function findNode(nodes: SidebarTreeNode[], id: string): SidebarTreeNode | undefined {
-  for (const node of nodes) {
-    if (node.id === id) return node
-    const hit = findNode(node.children, id)
-    if (hit) return hit
-  }
-  return undefined
+/** A container a branch or folder can land in, by its workspace-space id. */
+function containerKindOf(repo: Repo, id: string): 'workspace' | 'folder' | undefined {
+  if (repo.workspaces.some((w) => w.id === id)) return 'workspace'
+  return repo.folders?.some((f) => f.id === id) ? 'folder' : undefined
 }
 
 /** The workspace whose fork-child space owns `containerId` — '' for a
@@ -62,7 +62,7 @@ export function findNode(nodes: SidebarTreeNode[], id: string): SidebarTreeNode 
  *  A folder's own `parentId` names whatever row it was filed under in ROW
  *  space, which for a workspace-owning row (a locked branch, or an ordinary
  *  fork once it has a chat) is that row's OWNING CHAT id, never the raw
- *  workspace id (`rows-from-repo.ts`, the same id `performCreateFolder`
+ *  workspace id (`deriveRows`, the same id `performCreateFolder`
  *  sends as `parentId` for exactly this reason). Checking only
  *  `workspaceIds.has(cursor)` missed that translation: a folder filed
  *  directly under such a row walked straight past its real anchor to bare
@@ -89,7 +89,7 @@ function workspaceAnchor(repo: Repo, containerId: string): string {
 /**
  * A `branch`/`folder` drop — adapts `drop-plan.ts`'s `planRowDrop` (git show
  * 9ad89156) to `SidebarRow`. Kept: the container/fork-lineage math
- * (`findNode`/`workspaceAnchor`/`resolvesToFirstChild`) and the
+ * (`containerKindOf`/`workspaceAnchor`/`resolvesToFirstChild`) and the
  * folder-edge-vs-fork-parent precedence. Dropped: `project`/`repo` subjects
  * (out of this drag's scope now — see `SIDEBAR_DROP_POLICY`) and the
  * `writes`/`capturePlacement` optimistic half (this plan's no-optimistic-
@@ -118,23 +118,15 @@ export function planTreeRowDrop(
   if (!repo || !scope?.projectId) return []
   const { repoId, projectId } = scope
 
-  // Everything below this line is the WORKSPACE/FOLDER id space: `roots` is
-  // built from `repo.workspaces`, and `placeWorkspace`/`reparentWorkspace`/
-  // `placeFolder` all address rows by those ids. A branch row arrives here
-  // carrying the id of the CHAT that owns it (`rows-from-repo.ts`), so it is
-  // translated once, at this boundary, rather than at each of the six places
-  // an id is compared below — the same move `resolveRowRepo` above makes.
+  // Below is the WORKSPACE/FOLDER id space `placeWorkspace`/`reparentWorkspace`/`placeFolder`
+  // address; a branch row carries its owning chat's id, translated once here.
   const wsSpace = (id: string) => workspaceIdOfBranchRow(repos, id) ?? id
   const targetId = wsSpace(target.id)
 
-  const roots = buildSidebarTree(repo.workspaces, repo.folders ?? [])
-  // `roots` holds no chats — it exists for the fork-lineage math only. What
-  // the target holds, and which siblings a reorder indexes into, come from
-  // the rows the tree draws: a level interleaves branches, folders AND
-  // chats on one order, so an index over `roots` alone is off by every chat
-  // sibling the row actually has.
-  const repoRows = rowsFromRepo(repo)
-  const hasChildren = repoRows.some((r) => r.parentId === target.id)
+  // What the target holds, and which siblings a reorder indexes into, come from the rows
+  // the tree draws: a level interleaves branches, folders AND chats on one order.
+  const rows = renderedProjectRows(projectId)
+  const hasChildren = rows.some((r) => r.parentId === target.id)
   // Keyed by the ROW id, not the translated one — the collapse set holds what
   // the tree draws (`SidebarTreeSurface`/`toggleChatRow`), which is the row.
   const expanded = !collapsedChatRows.has(target.id)
@@ -143,18 +135,18 @@ export function planTreeRowDrop(
     resolvesToFirstChild({ kind: target.kind, id: target.id, expanded, hasChildren }, mode)
   const requestedRow = mode === 'into' || firstChild ? target.id : (target.parentId ?? '')
   const requested = requestedRow === '' ? '' : wsSpace(requestedRow)
-  const containerNode = requested === '' ? undefined : findNode(roots, requested)
-  const containerId = requested !== '' && !containerNode ? '' : requested
-  const containerKind = containerNode?.kind ?? 'root'
-  // The repo root's members hang off the header ROW (`rows-from-repo.ts`),
-  // which is not a node in `roots` — hence the row-space translation.
+  const found = requested === '' ? undefined : containerKindOf(repo, requested)
+  const containerId = found === undefined ? '' : requested
+  const containerKind = found ?? 'root'
+  // The repo root's members hang off the header ROW, which names no workspace of
+  // `repo.workspaces` — hence the row-space translation.
   const homeRowId = repo.defaultWorkspaceId
     ? resolveHomeOwnerId(repo.defaultWorkspaceId, repo.defaultOwningChatId, repo.chats ?? [])
     : ''
   const containerRowId = containerId === '' ? homeRowId : requestedRow
 
   const lifted = new Set(subjects.map((s) => s.id))
-  const rest = renderedSiblings(repoRows, containerRowId, lifted).map(wsSpace)
+  const rest = renderedSiblings(rows, containerRowId, lifted).map(wsSpace)
   const at = mode === 'into' ? rest.length : firstChild ? 0 : insertIndex(rest, targetId, mode)
 
   const calls: RowPlacementCall[] = []

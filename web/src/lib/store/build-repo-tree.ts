@@ -114,7 +114,7 @@ export function toSidebarChat(chat: ChatDTO): Chat {
     parentId: chat.parentId || undefined,
     workspaceId: chat.workspaceId || undefined,
     // Undefined, not `false`, when the cached row predates the field: `false`
-    // would assert "this is a bubble", and `rows-from-repo.ts` must be able to
+    // would assert "this is a bubble", and `deriveRows` must be able to
     // tell that apart from "this row doesn't know yet" so it can fall back to
     // the `Workspace.owningChatId` join for it.
     ...(chat.ownsWorktree === undefined ? {} : { ownsWorktree: chat.ownsWorktree }),
@@ -202,7 +202,7 @@ export function toSidebarRepo(
           defaultWorkspaceStatus: toSidebarStatus(defaultWs),
           // Lifted for the same reason: the default ws is never a member of
           // `workspaces` below, so there is no `Workspace.owningChatId`
-          // `rows-from-repo.ts` can read for it directly — see `Repo`'s own doc.
+          // `deriveRows` can read for it directly — see `Repo`'s own doc.
           defaultOwningChatId: defaultWs.owningChatId ?? '',
         }
       : {}),

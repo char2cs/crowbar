@@ -89,7 +89,7 @@ export function openBranchReviewForActiveWorkspace(): string | null {
 //
 // Every workspace already has a real, permanent owning chat — the daemon
 // mints one per locked branch, repo home and project home
-// (rows-from-repo.ts's `branchRowIds` doc) — so a chatless PANE never means a
+// (deriveRows's `branchRowIds` doc) — so a chatless PANE never means a
 // chatless WORKSPACE. This resolves and reuses that owning chat
 // (`getOwningChatId`, the same read every other workspace-scoped surface
 // uses — lsp-client.ts, terminal.tsx, branch-review-pane.tsx, etc.) rather

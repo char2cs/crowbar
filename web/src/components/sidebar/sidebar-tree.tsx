@@ -27,7 +27,7 @@ interface SidebarTreeProps {
 
 /**
  * The component `renderRow` defers to, so hooks run per row: it subscribes one
- * row to the two live facts `rows-from-repo.ts` seeds inert, pane membership and
+ * row to the two live facts `deriveRows` seeds inert, pane membership and
  * the chat's server-folded `working`.
  */
 function SidebarTreeRow({

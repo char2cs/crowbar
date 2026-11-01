@@ -27,7 +27,7 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 
 import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { allowedModes } from '@/components/sidebar/lib/sidebar-drop-policy'
-import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
+import { repoRows } from '@/__tests__/__fixtures__/tree-rows'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 
@@ -77,7 +77,7 @@ beforeEach(() => {
 // planner anyway says why instead of surfacing the scope registry error.
 describe('dragging a chatless fork into another branch', () => {
   it('is not offered by the drop matrix — only a same-parent reorder is', () => {
-    const rows = rowsFromRepo(repo)
+    const rows = repoRows(repo)
     const subject = rows.find((r) => r.id === 'ws-a')!
     const target = rows.find((r) => r.id === 'owner-b')!
 
@@ -85,7 +85,7 @@ describe('dragging a chatless fork into another branch', () => {
   })
 
   it('says the chat is still loading instead of surfacing the scope registry error verbatim', async () => {
-    const rows = rowsFromRepo(repo)
+    const rows = repoRows(repo)
     const subject = rows.find((r) => r.id === 'ws-a')!
     const target = rows.find((r) => r.id === 'owner-b')!
 
