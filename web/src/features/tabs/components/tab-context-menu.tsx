@@ -59,7 +59,7 @@ const TabContextMenu = ({
   // "a pane group is a group of chats, never of tabs" (Law 3) — a tab's
   // context menu no longer offers a way to split a pane.
 }: TabContextMenuProps) => {
-  if (!isOpen || !buffer) return null
+  if (!buffer) return null
 
   // openContent always sets a real path (file path, or a synthetic scheme for
   // terminal/commitDiff/branchReview) — narrow once rather than per item below.
