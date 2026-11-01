@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 	"unicode/utf8"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -53,7 +52,7 @@ func (r *Recorder) unrecorded(chatID, runnerID string) Unrecorded {
 
 // publishLive sends what d added to its stream, once its rows are in.
 func (r *Recorder) publishLive(chat domain.Chat, runnerID string, d LiveDelta) {
-	if _, _, fed := r.live.observe(chat.ID, runnerID, d, time.Now()); fed != nil {
+	if fed := r.live.observe(chat.ID, runnerID, d); fed != nil {
 		r.frames.FeedDelta(chat.ID, *fed)
 	}
 }
@@ -94,7 +93,6 @@ type liveBlock struct {
 	next  int // the index an unnumbered increment takes: arrival order
 	// numbered: the provider numbered its own increments, so a row holds them.
 	numbered bool
-	at       time.Time
 	order    int // when it began among the chat's streams: the order it was said in
 	dropped  int // the bytes of a tool output trimmed off its head
 	n        int // the feed frames its stream has had
@@ -111,29 +109,28 @@ type live struct {
 
 func newLive() *live { return &live{byChat: map[string]map[liveKey]*liveBlock{}} }
 
-// observe folds d into its stream: its whole text, when it began, and the feed
-// frame of what it added. A numbered stream has none: its rows carry it.
-func (l *live) observe(chatID, runnerID string, d LiveDelta, now time.Time) (string, time.Time, *ledger.FeedDelta) {
+// observe folds d into its stream and is the feed frame of what it added. A
+// numbered stream has none: its rows carry it.
+func (l *live) observe(chatID, runnerID string, d LiveDelta) *ledger.FeedDelta {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	k := liveKey{runnerID: runnerID, turnID: d.TurnID, scope: d.Scope, id: d.ID, kind: d.Kind}
-	b := l.blockLocked(chatID, k, now)
+	b := l.blockLocked(chatID, k)
 	before := b.join(d.Kind)
 	b.fold(d)
 	after := b.join(d.Kind)
 	if d.Kind == KindToolOutput {
 		b.trim()
 	}
-	text := b.text(d.Kind)
 	if b.numbered || after == before {
-		return text, b.at, nil
+		return nil
 	}
 	b.n++
-	fed := k.feed(b.n, text, true)
+	fed := k.feed(b.n, b.text(d.Kind), true)
 	if strings.HasPrefix(after, before) {
 		fed.Text, fed.Replace = after[len(before):], false
 	}
-	return text, b.at, &fed
+	return &fed
 }
 
 // fold takes d into the block's parts: a numbered answer increment at its
@@ -219,7 +216,7 @@ func (b *liveBlock) trim() {
 	b.parts, b.dropped = map[int]string{last: whole[cut:]}, b.dropped+cut
 }
 
-func (l *live) blockLocked(chatID string, k liveKey, now time.Time) *liveBlock {
+func (l *live) blockLocked(chatID string, k liveKey) *liveBlock {
 	blocks := l.byChat[chatID]
 	if blocks == nil {
 		blocks = map[liveKey]*liveBlock{}
@@ -228,7 +225,7 @@ func (l *live) blockLocked(chatID string, k liveKey, now time.Time) *liveBlock {
 	b := blocks[k]
 	if b == nil {
 		l.began++
-		b = &liveBlock{parts: map[int]string{}, at: now, order: l.began}
+		b = &liveBlock{parts: map[int]string{}, order: l.began}
 		blocks[k] = b
 	}
 	return b

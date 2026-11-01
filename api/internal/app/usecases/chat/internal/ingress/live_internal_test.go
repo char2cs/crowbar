@@ -16,8 +16,7 @@ import (
 func TestLive_EveryFrameCarriesTheWholeStream(t *testing.T) {
 	l := newLive()
 	answer := func(index int, numbered bool, text string) string {
-		got, _, _ := l.observe(testChat, "run-1", LiveDelta{TurnID: "T1", ID: "m1", Index: index, Numbered: numbered, Text: text}, at0)
-		return got
+		return observed(l, LiveDelta{TurnID: "T1", ID: "m1", Index: index, Numbered: numbered, Text: text})
 	}
 
 	assert.Equal(t, "the ", answer(0, false, "the "))
@@ -25,9 +24,7 @@ func TestLive_EveryFrameCarriesTheWholeStream(t *testing.T) {
 
 	l2 := newLive()
 	numbered := func(index int, text string) string {
-		got, startedAt, _ := l2.observe(testChat, "run-1", LiveDelta{TurnID: "T1", ID: "m1", Index: index, Numbered: true, Text: text}, at0)
-		assert.Equal(t, at0, startedAt)
-		return got
+		return observed(l2, LiveDelta{TurnID: "T1", ID: "m1", Index: index, Numbered: true, Text: text})
 	}
 	assert.Equal(t, "b", numbered(1, "b"))
 	assert.Equal(t, "ab", numbered(0, "a"), "a numbered one takes its index's place")
@@ -36,16 +33,14 @@ func TestLive_EveryFrameCarriesTheWholeStream(t *testing.T) {
 func TestLive_TheOtherStreamsAppendAndReplace(t *testing.T) {
 	l := newLive()
 	think := func(index int, text string) string {
-		got, _, _ := l.observe(testChat, "run-1", LiveDelta{TurnID: "T1", ID: "r1", Kind: KindReasoning, Index: index, Text: text}, at0)
-		return got
+		return observed(l, LiveDelta{TurnID: "T1", ID: "r1", Kind: KindReasoning, Index: index, Text: text})
 	}
 	assert.Equal(t, "hm", think(0, "hm"))
 	assert.Equal(t, "hmm", think(0, "m"))
 	assert.Equal(t, "hmm\n\nso", think(1, "so"), "its blocks are paragraphs")
 
 	diff := func(text string) string {
-		got, _, _ := l.observe(testChat, "run-1", LiveDelta{TurnID: "T1", ID: "T1", Kind: KindDiff, Replace: true, Text: text}, at0)
-		return got
+		return observed(l, LiveDelta{TurnID: "T1", ID: "T1", Kind: KindDiff, Replace: true, Text: text})
 	}
 	diff("+a")
 	assert.Equal(t, "+b", diff("+b"), "a whole restatement replaces the stream")
@@ -53,7 +48,7 @@ func TestLive_TheOtherStreamsAppendAndReplace(t *testing.T) {
 
 func TestLive_UnrecordedIsWhatNoRowHolds(t *testing.T) {
 	l := newLive()
-	observe := func(runnerID string, d LiveDelta) { l.observe(testChat, runnerID, d, at0) }
+	observe := func(runnerID string, d LiveDelta) { l.observe(testChat, runnerID, d) }
 	observe("run-1", LiveDelta{TurnID: "T1", ID: "b", Text: "second"})
 	observe("run-1", LiveDelta{TurnID: "T1", ID: "a", Text: "first"})
 	observe("run-1", LiveDelta{TurnID: "T1", ID: "n", Numbered: true, Text: "a row holds this"})
@@ -71,9 +66,9 @@ func TestLive_UnrecordedIsWhatNoRowHolds(t *testing.T) {
 
 func TestLive_ForgetDropsWhatEnded(t *testing.T) {
 	l := newLive()
-	l.observe(testChat, "run-1", LiveDelta{TurnID: "T1", ID: "a", Text: "one"}, at0)
-	l.observe(testChat, "run-1", LiveDelta{TurnID: "T2", ID: "b", Text: "two"}, at0)
-	l.observe("chat-2", "run-1", LiveDelta{TurnID: "T1", ID: "c", Text: "elsewhere"}, at0)
+	l.observe(testChat, "run-1", LiveDelta{TurnID: "T1", ID: "a", Text: "one"})
+	l.observe(testChat, "run-1", LiveDelta{TurnID: "T2", ID: "b", Text: "two"})
+	l.observe("chat-2", "run-1", LiveDelta{TurnID: "T1", ID: "c", Text: "elsewhere"})
 
 	l.forget(testChat, "run-1", "T1")
 	assert.Equal(t, []liveText{{TurnID: "T2", ID: "b", Text: "two"}}, l.unrecorded(testChat, "run-1", "", KindAnswer))
@@ -191,8 +186,9 @@ func TestLive_ALongToolOutputKeepsATailWindow(t *testing.T) {
 	var got string
 	for i := range 3 * toolOutputWindow / len(line) {
 		text := fmt.Sprintf("%04d", i) + line[4:]
-		var fd *ledger.FeedDelta
-		got, _, fd = l.observe(testChat, "run-1", LiveDelta{TurnID: "T1", ID: "tool-1", Kind: KindToolOutput, Text: text}, at0)
+		d := LiveDelta{TurnID: "T1", ID: "tool-1", Kind: KindToolOutput, Text: text}
+		fd := l.observe(testChat, "run-1", d)
+		got = textOf(l, d)
 		require.Equal(t, ledger.FeedDelta{ID: "tool-1", TurnID: "T1", Stream: KindToolOutput, N: i + 1, Text: text}, *fd,
 			"the feed carries each increment once, past the window too")
 	}
@@ -213,7 +209,7 @@ func BenchmarkLive_ObserveALongToolOutput(b *testing.B) {
 			for range b.N {
 				l := newLive()
 				for range deltas {
-					l.observe(testChat, "run-1", LiveDelta{TurnID: "T1", ID: "tool-1", Kind: KindToolOutput, Text: line}, at0)
+					l.observe(testChat, "run-1", LiveDelta{TurnID: "T1", ID: "tool-1", Kind: KindToolOutput, Text: line})
 				}
 			}
 			b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N*deltas), "ns/delta")
@@ -223,8 +219,17 @@ func BenchmarkLive_ObserveALongToolOutput(b *testing.B) {
 
 // fed is the feed delta observing d gives, nil when it gives none.
 func fed(l *live, runnerID string, d LiveDelta) *ledger.FeedDelta {
-	_, _, fd := l.observe(testChat, runnerID, d, at0)
-	return fd
+	return l.observe(testChat, runnerID, d)
+}
+
+// observed is d's stream's whole text on run-1 once d is folded into it.
+func observed(l *live, d LiveDelta) string {
+	l.observe(testChat, "run-1", d)
+	return textOf(l, d)
+}
+
+func textOf(l *live, d LiveDelta) string {
+	return l.byChat[testChat][liveKey{runnerID: "run-1", turnID: d.TurnID, scope: d.Scope, id: d.ID, kind: d.Kind}].text(d.Kind)
 }
 
 func TestLive_EachDeltaCarriesOnlyTheNewSuffix(t *testing.T) {
@@ -271,7 +276,7 @@ func TestLive_SnapshotHasOneReplacePerLiveStream(t *testing.T) {
 	fed(l, "run-1", LiveDelta{TurnID: "T1", ID: "tool-1", Kind: KindToolOutput, Text: "$ ls"})
 	fed(l, "run-2", LiveDelta{TurnID: "T1", Scope: "agent-1", ID: "m2", Text: "two"})
 	fed(l, "run-1", LiveDelta{TurnID: "T1", ID: "n", Numbered: true, Text: "a row holds this"})
-	l.observe("chat-2", "run-1", LiveDelta{TurnID: "T1", ID: "m3", Text: "elsewhere"}, at0)
+	l.observe("chat-2", "run-1", LiveDelta{TurnID: "T1", ID: "m3", Text: "elsewhere"})
 
 	assert.Equal(t, []ledger.FeedDelta{
 		{ID: "m1", TurnID: "T1", Stream: StreamAnswer, N: 2, Text: "one more", Replace: true},
