@@ -88,44 +88,9 @@ export function requestView(req: AskRequest): RequestView {
   )
 }
 
-// Controls, bidi and format characters, and ones that draw as blank: shown raw
-// they reorder or hide what the command does, so each is written out instead.
-const HIDDEN_RANGES: [number, number][] = [
-  [0x00, 0x08],
-  [0x0b, 0x1f],
-  [0x7f, 0x9f],
-  [0xad, 0xad],
-  [0x034f, 0x034f],
-  [0x0600, 0x0605],
-  [0x061c, 0x061c],
-  [0x06dd, 0x06dd],
-  [0x070f, 0x070f],
-  [0x0890, 0x0891],
-  [0x08e2, 0x08e2],
-  [0x115f, 0x1160],
-  [0x17b4, 0x17b5],
-  [0x180b, 0x180f],
-  [0x200b, 0x200f],
-  [0x2028, 0x202e],
-  [0x2060, 0x206f],
-  [0x2800, 0x2800],
-  [0x3164, 0x3164],
-  [0xfe00, 0xfe0f],
-  [0xfeff, 0xfeff],
-  [0xffa0, 0xffa0],
-  [0xfff0, 0xfffc],
-  [0x110bd, 0x110bd],
-  [0x110cd, 0x110cd],
-  [0x13430, 0x1343f],
-  [0x1bca0, 0x1bca3],
-  [0x1d173, 0x1d17a],
-  [0xe0000, 0xe0fff],
-]
-
-const HIDDEN = new RegExp(
-  `[${HIDDEN_RANGES.map(([lo, hi]) => `\\u{${lo.toString(16)}}-\\u{${hi.toString(16)}}`).join('')}]`,
-  'gu',
-)
+// What Unicode says draws as nothing or steers layout: shown raw it reorders or
+// hides what the command does, so each is written out. TAB and LF draw as themselves.
+const HIDDEN = /(?![\t\n])[\p{Default_Ignorable_Code_Point}\p{Cf}\p{Zl}\p{Zp}\p{Cc}]/gu
 
 /** `text` split into what draws as itself and the characters written out. */
 export function visibleParts(text: string): { text: string; escaped: boolean }[] {

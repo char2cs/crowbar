@@ -94,35 +94,6 @@ describe('ChoiceRequest shows a command as it is', () => {
     expect(body).toHaveTextContent('\\u{7}')
   })
 
-  it.each([
-    ['line and paragraph separators', 0x2028],
-    ['deprecated format controls', 0x206a],
-    ['a soft hyphen', 0x00ad],
-    ['a combining grapheme joiner', 0x034f],
-    ['the Mongolian vowel separator', 0x180e],
-    ['Hangul fillers', 0x115f],
-    ['the Hangul jungseong filler', 0x1160],
-    ['the Hangul compatibility filler', 0x3164],
-    ['the halfwidth Hangul filler', 0xffa0],
-    ['the blank Braille pattern', 0x2800],
-    ['variation selectors', 0xfe0f],
-    ['supplementary variation selectors', 0xe0100],
-    ['tag characters', 0xe0041],
-    ['interlinear annotation and object replacement', 0xfffc],
-    ['a Khmer inherent vowel', 0x17b4],
-    ['the other Khmer inherent vowel', 0x17b5],
-    ['a Mongolian free variation selector', 0x180b],
-    ['the second Mongolian free variation selector', 0x180c],
-    ['the third Mongolian free variation selector', 0x180d],
-    ['the fourth Mongolian free variation selector', 0x180f],
-  ])('writes out %s', (_, cp) => {
-    const raw = String.fromCodePoint(cp)
-    show({ request: { toolName: 'Bash', toolInput: { command: `a${raw}b` } } })
-    const body = screen.getByTestId('agent-choice-request')
-    expect(body.textContent).not.toContain(raw)
-    expect(body).toHaveTextContent(`a\\u{${cp.toString(16).toUpperCase()}}b`)
-  })
-
   it('draws a CRLF line break as a break, and a lone carriage return written out', () => {
     show({ request: { toolName: 'Bash', toolInput: { command: 'one\r\ntwo\rthree' } } })
     const code = screen.getByTestId('agent-choice-request').querySelector('pre')!

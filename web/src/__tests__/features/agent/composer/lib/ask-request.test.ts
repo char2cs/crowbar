@@ -45,6 +45,10 @@ describe('visibleParts', () => {
     expect(raw.join('')).toBe('')
     expect(drawn).toHaveLength(invisible.length)
   })
+
+  it('leaves a tab and a line feed as they are', () => {
+    expect(visibleParts('a\tb\nc')).toEqual([{ text: 'a\tb\nc', escaped: false }])
+  })
 })
 
 describe('requestView for an MCP call', () => {
