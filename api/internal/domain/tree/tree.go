@@ -83,6 +83,15 @@ const Unplaced = "unplaced"
 // ErrUnknownNode is a write against a row the tree does not hold.
 var ErrUnknownNode = problem.New(problem.NotFound, "tree: no such node")
 
+// OrUnplaced is a position read's answer with a row not written yet read as
+// the root's first slot, where every reader shows it; any other failure stays.
+func OrUnplaced(n Node, err error) (Node, error) {
+	if err != nil && problem.CodeOf(err) == problem.NotFound {
+		return Node{}, nil
+	}
+	return n, err
+}
+
 // Empty is projectID's tree before anything was placed in it.
 func Empty(projectID string) Tree {
 	return Tree{

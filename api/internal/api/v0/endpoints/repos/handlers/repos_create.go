@@ -14,7 +14,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -94,7 +93,7 @@ func (h *Handlers) importRepo(
 		p.Item(item)
 		return err
 	}
-	h.broadcast(dto.RepoDTOFrom(repo, h.placementOf(ctx, repo.ID)))
+	h.broadcastRepo(ctx, repo)
 	item.Ref.ID, item.State = repo.ID, domain.OpSucceeded
 	p.Item(item)
 	return nil

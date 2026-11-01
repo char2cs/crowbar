@@ -2,11 +2,14 @@ package v0
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // parseRepoScope splits a hierarchical subscription prefix ("p", "p/r", or
@@ -61,27 +64,31 @@ func repoSnapshot(
 			return nil
 		}
 		rows = scopeReposToProject(rows, projectID)
-		return dto.RepoDTOList(rows, repoPlacements(ctx, appContainer, rows))
+		placements, err := repoPlacements(ctx, appContainer, rows)
+		if err != nil {
+			slog.ErrorContext(ctx, "stream: repo snapshot", "err", err)
+			return nil
+		}
+		return dto.RepoDTOList(rows, placements)
 	}
 }
 
 // repoPlacements resolves every repo's own sidebar position from its Node row
-// (see dto.RepoPlacement), degrading a repo with no row yet (or any read
-// failure) to the zero value rather than dropping it from the snapshot.
+// (see dto.RepoPlacement); a repo with no row yet sits at the root's first slot.
 func repoPlacements(
 	ctx context.Context,
 	appContainer *app.Container,
 	rows []domain.Repository,
-) map[string]dto.RepoPlacement {
+) (map[string]dto.RepoPlacement, error) {
 	placements := make(map[string]dto.RepoPlacement, len(rows))
 	for _, r := range rows {
-		n, err := appContainer.Repositories.Placement.GetNode(ctx, r.ID)
+		n, err := tree.OrUnplaced(appContainer.Repositories.Placement.GetNode(ctx, r.ID))
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("repo snapshot: placement of %s: %w", r.ID, err)
 		}
 		placements[r.ID] = dto.RepoPlacement{FolderID: n.ParentID, Order: n.Order}
 	}
-	return placements
+	return placements, nil
 }
 
 // scopeReposToProject filters rows to those under the given projectID. An empty

@@ -412,8 +412,10 @@ func (s *worktreeScope) placementOf(
 			return placementAt{owner.ParentID, owner.Order}
 		}
 	}
-	n, err := s.handlers.nodes.GetNode(ctx, workspaceID)
+	n, err := tree.OrUnplaced(s.handlers.nodes.GetNode(ctx, workspaceID))
 	if err != nil {
+		// The reader answers no error; the scope caches the slot, so this logs once.
+		slog.ErrorContext(ctx, "worktree: placement", "workspace", workspaceID, "err", err)
 		return placementAt{}
 	}
 	return placementAt{n.ParentID, n.Order}

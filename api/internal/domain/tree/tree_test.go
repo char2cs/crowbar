@@ -1,6 +1,8 @@
 package tree_test
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -52,4 +54,28 @@ func TestTree_WithoutTakesEveryRecordOfAnID(t *testing.T) {
 	assert.True(t, rest.Holds("c1"))
 	assert.Equal(t, "F", taken.Folders["f1"].Name)
 	assert.True(t, a.Holds("f1"), "the receiver is not changed")
+}
+
+func TestOrUnplaced_ARowNotWrittenYetIsTheRootsFirstSlot(t *testing.T) {
+	n, err := tree.OrUnplaced(tree.Node{}, fmt.Errorf("tree: node r1: %w", tree.ErrUnknownNode))
+
+	require.NoError(t, err)
+	assert.Equal(t, tree.Node{}, n)
+}
+
+func TestOrUnplaced_AnyOtherFailureStays(t *testing.T) {
+	broken := errors.New("disk gone")
+
+	_, err := tree.OrUnplaced(tree.Node{}, broken)
+
+	require.ErrorIs(t, err, broken)
+}
+
+func TestOrUnplaced_ARowReadsAsItself(t *testing.T) {
+	want := tree.Node{ID: "r1", ParentID: "f1", Order: 2}
+
+	n, err := tree.OrUnplaced(want, nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, want, n)
 }

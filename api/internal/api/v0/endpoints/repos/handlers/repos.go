@@ -3,6 +3,8 @@ package handlers
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/gin-gonic/gin"
@@ -277,36 +279,53 @@ func (h *Handlers) WithStat(
 	return h
 }
 
-// placementOf resolves repoID's own sidebar position from its Node row,
-// degrading to the zero value (root, order 0) when no reader is wired or no
-// row exists yet — a repo created through the bare buildRepo+Save fallback (no
-// importer wired) never gets one, and every RepoDTO must still render. This is
-// display-only: never fails the request it enriches.
+// placementOf resolves repoID's own sidebar position from its Node row. No
+// reader wired, or no row yet (a repo created through the bare buildRepo+Save
+// fallback never gets one), is the root's first slot; a failed read is the caller's.
 func (h *Handlers) placementOf(
 	ctx context.Context,
 	repoID string,
-) dto.RepoPlacement {
+) (dto.RepoPlacement, error) {
 	if h.nodes == nil {
-		return dto.RepoPlacement{}
+		return dto.RepoPlacement{}, nil
 	}
-	n, err := h.nodes.GetNode(ctx, repoID)
+	n, err := tree.OrUnplaced(h.nodes.GetNode(ctx, repoID))
 	if err != nil {
-		return dto.RepoPlacement{}
+		return dto.RepoPlacement{}, fmt.Errorf("repos: placement of %s: %w", repoID, err)
 	}
-	return dto.RepoPlacement{FolderID: n.ParentID, Order: n.Order}
+	return dto.RepoPlacement{FolderID: n.ParentID, Order: n.Order}, nil
 }
 
-// placementsOf resolves every repo's own position in one pass, for the List/
-// snapshot paths — see placementOf.
+// placementsOf resolves every repo's own position in one pass, for the List
+// path — see placementOf.
 func (h *Handlers) placementsOf(
 	ctx context.Context,
 	repos []domain.Repository,
-) map[string]dto.RepoPlacement {
+) (map[string]dto.RepoPlacement, error) {
 	placements := make(map[string]dto.RepoPlacement, len(repos))
 	for _, r := range repos {
-		placements[r.ID] = h.placementOf(ctx, r.ID)
+		p, err := h.placementOf(ctx, r.ID)
+		if err != nil {
+			return nil, err
+		}
+		placements[r.ID] = p
 	}
-	return placements
+	return placements, nil
+}
+
+// broadcastRepo fans repo out at its own position. A mutation that already
+// landed has nobody to fail, so a failed position read skips the frame rather
+// than move the row to the root on every client.
+func (h *Handlers) broadcastRepo(
+	ctx context.Context,
+	repo domain.Repository,
+) {
+	p, err := h.placementOf(ctx, repo.ID)
+	if err != nil {
+		slog.ErrorContext(ctx, "repos: broadcast", "repo", repo.ID, "err", err)
+		return
+	}
+	h.broadcast(dto.RepoDTOFrom(repo, p))
 }
 
 // List handles GET /v0/repos, returning every repo as RepoDTO[]. The optional
@@ -330,7 +349,12 @@ func (h *Handlers) List(
 		projectID = c.Query("projectId")
 	}
 	repos = filterByProject(repos, projectID)
-	libs.WriteQueryOK(c, dto.RepoDTOList(repos, h.placementsOf(c.Request.Context(), repos)))
+	placements, err := h.placementsOf(c.Request.Context(), repos)
+	if err != nil {
+		libs.Fail(c, err)
+		return
+	}
+	libs.WriteQueryOK(c, dto.RepoDTOList(repos, placements))
 }
 
 // Detail handles GET /v0/projects/:projectId/repos/:repoId, returning a single RepoDTO. The workspace
@@ -348,7 +372,12 @@ func (h *Handlers) Detail(
 		libs.Fail(c, problem.ErrNotFound)
 		return
 	}
-	libs.WriteQueryOK(c, dto.RepoDTOFrom(*repo, h.placementOf(c.Request.Context(), repo.ID)))
+	placement, err := h.placementOf(c.Request.Context(), repo.ID)
+	if err != nil {
+		libs.Fail(c, err)
+		return
+	}
+	libs.WriteQueryOK(c, dto.RepoDTOFrom(*repo, placement))
 }
 
 // filterByProject keeps only the repos whose ProjectID matches projectID; an

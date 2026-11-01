@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -268,4 +269,68 @@ func TestRegression_PatchRepo_BroadcastsTheDecidedPlacementAndEveryShiftedRepo(t
 func TestNew_NilCrowbarHomePanics(t *testing.T) {
 	assert.Panics(t, func() { repohandlers.New(&fakeStore{}, nil) })
 	assert.Panics(t, func() { repohandlers.NewWithDeps(&fakeStore{}, nil, nil, nil, nil, nil) })
+}
+
+// brokenNodes fails every position read the way an unreadable tree does.
+type brokenNodes struct{ fakeNodeReader }
+
+func (brokenNodes) GetNode(context.Context, string) (tree.Node, error) {
+	return tree.Node{}, fmt.Errorf("tree: read p1: %w", errors.New("disk gone"))
+}
+
+func placementRouter(t *testing.T, nodes repohandlers.NodeReader, frames *[]dto.RepoDTO) *gin.Engine {
+	t.Helper()
+	repo := domain.Repository{ID: "r1", ProjectID: "p1", Name: "one"}
+	store := &fakeStore{byKey: &repo, all: []domain.Repository{repo}}
+	h := repohandlers.NewWithDeps(store, nil, nil, nil, func(d dto.RepoDTO) { *frames = append(*frames, d) },
+		func() (string, error) { return t.TempDir(), nil }).WithNodes(nodes)
+	r := gin.New()
+	r.GET("/v0/projects/:projectId/repos", h.List)
+	r.GET("/v0/projects/:projectId/repos/:repoId", h.Detail)
+	r.PUT("/v0/projects/:projectId/repos/:repoId/icon/emoji", h.PutIconEmoji)
+	return r
+}
+
+// A failed position read is a failure, not a repo silently moved to the root.
+func TestDetail_AFailedPositionReadFailsTheRead(t *testing.T) {
+	var frames []dto.RepoDTO
+	r := placementRouter(t, brokenNodes{}, &frames)
+
+	for _, path := range []string{"/v0/projects/p1/repos", "/v0/projects/p1/repos/r1"} {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
+
+		assert.Equal(t, http.StatusInternalServerError, rec.Code, path)
+		assert.JSONEq(t, `{"success":false,"code":"internal","error":"disk gone"}`, rec.Body.String(), path)
+	}
+}
+
+func TestDetail_ARepoWithNoPositionRowYetSitsAtTheRoot(t *testing.T) {
+	var frames []dto.RepoDTO
+	r := placementRouter(t, fakeNodeReader{}, &frames)
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v0/projects/p1/repos/r1", nil))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var env struct{ Data dto.RepoDTO }
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	assert.Empty(t, env.Data.FolderID)
+	assert.Equal(t, 0, env.Data.Order)
+}
+
+// A mutation that landed is not failed by the position read after it; the
+// frame that would have put the row at the root is not sent.
+func TestPutIconEmoji_AFailedPositionReadSendsNoFrame(t *testing.T) {
+	var frames []dto.RepoDTO
+	r := placementRouter(t, brokenNodes{}, &frames)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/v0/projects/p1/repos/r1/icon/emoji",
+		bytes.NewReader([]byte(`{"emoji":"🦊"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Empty(t, frames)
 }

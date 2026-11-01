@@ -144,7 +144,7 @@ func (h *Handlers) DeleteRepo(
 		libs.Fail(c, err)
 		return
 	}
-	h.broadcast(dto.RepoDTOFrom(marked, h.placementOf(c.Request.Context(), repoID)))
+	h.broadcastRepo(c.Request.Context(), marked)
 	ref := domain.EntityRef{Kind: domain.EntityRepo, ID: repoID}
 	item := domain.OperationItem{Ref: ref, Label: marked.Name, State: domain.OpRunning}
 	op, err := h.ops.Start(c.Request.Context(), operation.Spec{
