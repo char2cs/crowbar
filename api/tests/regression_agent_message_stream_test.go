@@ -4,7 +4,6 @@ package tests
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,6 +12,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 const streamStubProviderDescriptorYAML = `id: streamstub
@@ -115,20 +117,12 @@ func createStubChat(t *testing.T, h *harness, imported importedRepo, provider st
 	return created.ID, detail.LiveRunnerID
 }
 
-type recordedMessage struct {
-	Sequence int    `json:"sequence"`
-	TurnID   string `json:"turnId"`
-	Role     string `json:"role"`
-	Text     string `json:"text"`
-}
+type recordedMessage = kit.Message
 
-func readRecordedMessages(t *testing.T, h *harness, imported importedRepo, chatID string) []recordedMessage {
+// readRecordedMessages is what chatID's feed rows say, as a client shows it.
+func readRecordedMessages(t *testing.T, h *harness, _ importedRepo, chatID string) []recordedMessage {
 	t.Helper()
-	var page struct {
-		Items []recordedMessage `json:"items"`
-	}
-	h.get(repoBase(imported)+"/chats/"+chatID+"/messages?limit=200", &page)
-	return page.Items
+	return kit.Said(ledgerRows(t, h, chatID))
 }
 
 func assistantTexts(messages []recordedMessage) []string {
@@ -184,21 +178,14 @@ func TestRegression_EveryAssistantMessageOfATurnIsRecorded(t *testing.T) {
 
 	require.Len(t, messages, 3)
 	assert.Equal(t, "user", messages[0].Role)
-	assert.Less(t, messages[1].Sequence, messages[2].Sequence,
+	assert.Less(t, messages[1].Seq, messages[2].Seq,
 		"the first message the agent said must sit ABOVE the second in the record")
-	assert.NotEqual(t, messages[1].TurnID, messages[2].TurnID,
-		"each message needs its own turn id, or the UI cannot say which tools produced which reply")
+	assert.NotEqual(t, messages[1].ID, messages[2].ID, "each message keeps its own id")
 
-	var activity struct {
-		ToolCalls []struct {
-			ID     string `json:"id"`
-			TurnID string `json:"turnId"`
-		} `json:"toolCalls"`
-	}
-	h.get(repoBase(imported)+"/chats/"+chatID+"/activity", &activity)
-	require.Len(t, activity.ToolCalls, 1, "the tool call must be recorded exactly once")
-	assert.Equal(t, messages[2].TurnID, activity.ToolCalls[0].TurnID,
-		"the tool call ran in the segment that ended with the second message, and must attach to it")
+	require.Len(t, toolCalls(t, h, chatID), 1, "the tool call must be recorded exactly once")
+	ran := seqOf(t, chatRows(t, h, chatID), ledger.KindToolCall, func(b ledger.ToolCall) bool { return b.ToolID == "tool-1" })
+	assert.Greater(t, ran, messages[1].Seq, "the tool ran after the first message")
+	assert.Less(t, ran, messages[2].Seq, "and before the second")
 }
 
 func TestRegression_AMessageIsVisibleBEFOREItsTurnEnds(t *testing.T) {
@@ -220,68 +207,43 @@ func TestRegression_AMessageIsVisibleBEFOREItsTurnEnds(t *testing.T) {
 		"a completed message must be readable while its turn is still running")
 }
 
-// TestRegression_AGrowingMessageReachesTheChatSocketBeforeTheTurnEnds is the
-// half TestRegression_AMessageIsVisibleBEFOREItsTurnEnds cannot cover: that one
-// reads the REST ledger, and the ledger is written by the ingest path whether or
-// not anything is wired to the LIVE feed. Live streaming runs through a plain
-// callback field on the agent usecase, assigned by the composition root
-// (app.New → startTerminalWaitSweep → BroadcastAgentChatMessageDelta). Drop that
-// wiring and the pane goes silent until the turn ends while every ledger
-// assertion in this file stays green — so this test watches the socket.
-//
-// BEFORE is proven positively: the newest partial is read before turn_stop is
-// even posted. Only the newest is awaited because the feed coalesces deltas
-// latest-wins per message, so an earlier partial may be superseded unsent.
-//
-// Both partials are NON-FINAL, and the ledger is checked while they are in
-// flight: "STILL GROWING" exists nowhere durable at that point, so the socket is
-// the only channel that could have carried it.
-func TestRegression_AGrowingMessageReachesTheChatSocketBeforeTheTurnEnds(t *testing.T) {
+// A growing message reaches the chat's feed while its turn runs, though it is
+// not a settled message yet.
+func TestRegression_AGrowingMessageReachesTheFeedBeforeTheTurnEnds(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
 	imported := importWritableWorkspace(t, h)
-
-	// Subscribe BEFORE the chat exists, then take its own `created` frame as the
-	// barrier proving this connection is registered — a frame broadcast before the
-	// subscriber attached is a frame no amount of waiting recovers.
-	conn := h.dial(repoBase(imported) + "/chats/ws")
 	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
-	chatFrame := func(kind string) func(map[string]any) bool {
-		return func(m map[string]any) bool { return m["chatId"] == chatID && m["kind"] == kind }
-	}
-	readUntil(t, conn, chatFrame("created"))
+	feed := dialFeed(t, h, chatID, 0)
+	untilReady(t, feed)
 
 	post := func(event, payload string) {
 		postHook(t, h, repoBase(imported), "streamstub", runnerID, event, payload)
 	}
 	post("session_start", `{"session_id":"sess-1"}`)
 	post("user_prompt", `{"session_id":"sess-1","prompt":"narrate while you work"}`)
-	readUntil(t, conn, chatFrame("turn_started"))
-
 	post("message_delta", delta("msg-one", 0, false, "STILL "))
 	post("message_delta", delta("msg-one", 1, false, "GROWING"))
 
-	growing := func(text string) func(map[string]any) bool {
-		return func(m map[string]any) bool {
-			if !chatFrame("message_delta")(m) {
-				return false
-			}
-			message, ok := m["message"].(map[string]any)
-			return ok && message["id"] == "msg-one" && message["text"] == text
+	// A numbered chunk rides the feed as its own row the moment it lands.
+	var said string
+	for said != "STILL GROWING" {
+		f := nextFeedFrame(t, feed)
+		var chunk ledger.AssistantText
+		if f.Row != nil && f.Row.Kind == ledger.KindAssistantText &&
+			json.Unmarshal(f.Row.Body, &chunk) == nil && chunk.MessageID == "msg-one" {
+			said += chunk.Text
 		}
 	}
-	readUntil(t, conn, growing("STILL GROWING"))
-
 	assert.Empty(t, assistantTexts(readRecordedMessages(t, h, imported, chatID)),
-		"an unfinished message is a view, not a record — the socket is the only place it exists")
+		"an unfinished message is not yet said")
 
 	post("turn_stop", `{"session_id":"sess-1","last_assistant_message":"STILL GROWING"}`)
-	readUntil(t, conn, chatFrame("turn_stopped"))
 	h.Quiesce()
 
 	assert.Equal(t, []string{"STILL GROWING"},
 		assistantTexts(readRecordedMessages(t, h, imported, chatID)),
-		"the finished message lands in the ledger once, after the partials the socket already carried")
+		"the finished message lands in the ledger once")
 }
 
 func TestRegression_ProviderWithNoStreamingHookRecordsExactlyWhatItAlwaysDid(t *testing.T) {
@@ -374,20 +336,13 @@ func TestRegression_AStreamedReplyIsNotRecordedTwice(t *testing.T) {
 		assistantTexts(readRecordedMessages(t, h, imported, chatID)))
 }
 
-// The bug of 2026-08-29: a turn_stop that beat its own final delta recorded the
-// reply twice, once from each hook. The late delta joins the reply its turn_stop
-// recorded, the fuller text wins, and it streams under the id it is recorded by:
-// the client drops a live bubble only once a row of that id confirms it.
+// A turn_stop that beats its own final delta records the reply once: the late
+// delta joins the reply its turn_stop recorded, and the fuller text wins.
 func TestRegression_AFinalDeltaAfterItsTurnStopJoinsTheReply(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
 	imported := importWritableWorkspace(t, h)
-	conn := h.dial(repoBase(imported) + "/chats/ws")
 	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
-	frame := func(kind string) func(map[string]any) bool {
-		return func(m map[string]any) bool { return m["chatId"] == chatID && m["kind"] == kind }
-	}
-	readUntil(t, conn, frame("created"))
 
 	post := func(event, payload string) {
 		postHook(t, h, repoBase(imported), "streamstub", runnerID, event, payload)
@@ -396,16 +351,9 @@ func TestRegression_AFinalDeltaAfterItsTurnStopJoinsTheReply(t *testing.T) {
 	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
 	post("turn_stop", `{"session_id":"sess-1","last_assistant_message":"SAID"}`)
 	post("message_delta", delta("msg-one", 0, true, "SAID IN FULL"))
-	live, _ := readUntil(t, conn, frame("message_delta"))["message"].(map[string]any)
 	h.Quiesce()
 
-	recorded := readRecordedMessages(t, h, imported, chatID)
-	assert.Equal(t, []string{"SAID IN FULL"}, assistantTexts(recorded))
-	for _, m := range recorded {
-		if m.Role == "assistant" {
-			assert.Equal(t, m.TurnID, fmt.Sprintf("msg-%v", live["id"]), "the live bubble's id is the recorded reply's")
-		}
-	}
+	assert.Equal(t, []string{"SAID IN FULL"}, assistantTexts(readRecordedMessages(t, h, imported, chatID)))
 }
 
 func TestRegression_CrowbarDeclaresNoProviderTranscript(t *testing.T) {

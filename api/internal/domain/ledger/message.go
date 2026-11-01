@@ -119,8 +119,6 @@ type MessageFold struct {
 	open []*message
 	// joiners are the messages naming each reply, by the reply's key.
 	joiners map[MessageKey][]*message
-	// touched are the messages whose text or settling moved since Changed.
-	touched []*message
 }
 
 type chunk struct {
@@ -135,7 +133,6 @@ type message struct {
 	completes []string
 	forced    bool // settled by an end rather than by its own rows
 	late      bool // began after its turn had ended
-	touched   bool // in the fold's touched
 }
 
 // Apply folds r, which must follow every row already folded.
@@ -210,9 +207,6 @@ func (f *MessageFold) update(m *message, r Row) {
 	if settled && (!m.Settled || text != m.Text) {
 		m.SettleSeq, m.SettledAt = r.Seq, r.At
 	}
-	if (text != m.Text || settled != m.Settled) && !m.touched {
-		m.touched, f.touched = true, append(f.touched, m)
-	}
 	m.Text, m.Settled = text, settled
 }
 
@@ -283,39 +277,6 @@ func Related(a, b string) bool {
 func (f *MessageFold) Messages() []MessageText {
 	out := make([]MessageText, 0, len(f.order))
 	for _, m := range f.order {
-		if _, joined := f.joins(m); !joined {
-			out = append(out, f.shown(m))
-		}
-	}
-	return out
-}
-
-// Changed is, as Messages shows them, the messages the rows folded since the
-// last Changed moved, with the replies they join and the messages joining
-// them; a message shown as its reply is left out.
-func (f *MessageFold) Changed() []MessageText {
-	var moved []*message
-	seen := map[*message]bool{}
-	add := func(m *message) {
-		if !seen[m] {
-			seen[m], moved = true, append(moved, m)
-		}
-	}
-	for _, m := range f.touched {
-		m.touched = false
-		add(m)
-		if target, ok := f.joins(m); ok {
-			add(target)
-		}
-		for _, j := range f.joiners[m.Key] {
-			add(j)
-		}
-	}
-	clear(f.touched)
-	f.touched = f.touched[:0]
-	slices.SortFunc(moved, func(a, b *message) int { return cmp.Compare(a.FirstSeq, b.FirstSeq) })
-	out := make([]MessageText, 0, len(moved))
-	for _, m := range moved {
 		if _, joined := f.joins(m); !joined {
 			out = append(out, f.shown(m))
 		}

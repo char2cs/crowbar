@@ -42,16 +42,8 @@ interface LifecycleFrame {
   telemetry?: AgentTelemetry
 }
 
-// A turn's live views belong to each chat's own feed (chat-feed.ts).
-const FEED_KINDS = new Set([
-  'message_delta',
-  'plan',
-  'choice',
-  'compaction_started',
-  'compaction_stopped',
-  'prompt_settled',
-  'worktree_state',
-])
+// A chat's worktree state is the workspace's: use-workspace-provider-stream maps it.
+const FEED_KINDS = new Set(['worktree_state'])
 
 interface Scope {
   /** Attach count by workspace; every workspace here shares the endpoint. */

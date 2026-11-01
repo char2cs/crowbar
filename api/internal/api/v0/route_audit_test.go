@@ -403,10 +403,6 @@ func extraRoutes() []string {
 		// terminal rather than the chat's own pane.
 		"POST " + repo + "/chats/:id/switch-to-terminal",
 		"POST " + repo + "/chats/:id/switch-to-native",
-		// The read surface the Chats tab polls: the activity feed, a tool call's
-		// full payload, open choices, message history, and provider telemetry.
-		"GET " + repo + "/chats/:id/activity",
-		"GET " + repo + "/chats/:id/activity/:toolId/payload",
 		// Chat attachments: an uploaded file (image, CSV, text) a message
 		// references. GET serves the stored bytes; HEAD the same response's
 		// headers alone (the composer's own file-card size lookup) — the
@@ -415,8 +411,6 @@ func extraRoutes() []string {
 		"POST " + repo + "/chats/:id/attachments",
 		"GET " + repo + "/chats/:id/attachments/:file",
 		"HEAD " + repo + "/chats/:id/attachments/:file",
-		"GET " + repo + "/chats/:id/choices",
-		"GET " + repo + "/chats/:id/messages",
 		"GET " + repo + "/chats/:id/telemetry",
 		// The provider's own slash-command list, so the composer can autocomplete
 		// commands the CLI itself defines.
@@ -427,10 +421,9 @@ func extraRoutes() []string {
 		"PUT " + repo + "/chats/:id/permission-level",
 		// A human deciding a question the agent put to them mid-turn.
 		"POST " + repo + "/chats/:id/choices/:choiceId/answer",
-		// Sending the user's text, withdrawing it (Esc after send), and recovering it.
+		// Sending the user's text, and withdrawing it (Esc after send).
 		"POST " + repo + "/chats/:id/prompts",
 		"POST " + repo + "/chats/:id/prompts/:requestId/retract",
-		"GET " + repo + "/chats/:id/pending-prompt",
 		// Provider PRIORITY + enable/disable is a GLOBAL user setting (the CLIs are
 		// machine-level, not per workspace), so its write route mounts outside the
 		// entity hierarchy beside /settings/terminal/profiles. It is the write
@@ -533,10 +526,6 @@ func extraRoutes() []string {
 		"DELETE " + home + "/chats/folders/:folderId",
 		// The same read, slash-catalog, selection, answer and prompt routes: a
 		// chat in the project home behaves like a chat anywhere else.
-		"GET " + home + "/chats/:id/activity",
-		"GET " + home + "/chats/:id/activity/:toolId/payload",
-		"GET " + home + "/chats/:id/choices",
-		"GET " + home + "/chats/:id/messages",
 		"GET " + home + "/chats/:id/telemetry",
 		// Same attachments pair as the workspace group above, mounted on home
 		// for the same reason as the rest of this block.
@@ -549,7 +538,6 @@ func extraRoutes() []string {
 		"POST " + home + "/chats/:id/choices/:choiceId/answer",
 		"POST " + home + "/chats/:id/prompts",
 		"POST " + home + "/chats/:id/prompts/:requestId/retract",
-		"GET " + home + "/chats/:id/pending-prompt",
 		// The home hosts a file tree, so it hosts the file tree's duplicate op too.
 		"POST " + home + "/files/copy",
 		// The daemon's timing-ring read/arm seam. Process-wide, not scoped to a

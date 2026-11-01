@@ -109,7 +109,10 @@ func (f *turnFold) apply(r ledger.Row) {
 		if body, err := ledger.DecodeBody[ledger.RunnerStarted](r); err == nil {
 			f.runners[body.RunnerID] = body.Provider
 		}
-	default:
+	case ledger.KindPromptSettled, ledger.KindSessionBound, ledger.KindSessionLost, ledger.KindMarker,
+		ledger.KindRunnerExited, ledger.KindAssistantText, ledger.KindReasoning, ledger.KindToolCall,
+		ledger.KindAsk, ledger.KindAskResolved, ledger.KindSubagent, ledger.KindPlan:
+		// the message fold reads the text; the rest says no message
 	}
 }
 

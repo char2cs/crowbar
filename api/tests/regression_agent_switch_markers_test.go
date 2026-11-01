@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
 // switchableStubProviderDescriptorYAML is streamStubProviderDescriptorYAML
@@ -86,28 +88,14 @@ runtime:
     format: json
 `
 
-type interruptionDTO struct {
-	ID     string `json:"id"`
-	Kind   string `json:"kind"`
-	Detail string `json:"detail"`
-}
-
-func readInterruptions(t *testing.T, h *harness, imported importedRepo, chatID string) []interruptionDTO {
+// readInterruptions are the markers chatID's feed records.
+func readInterruptions(t *testing.T, h *harness, _ importedRepo, chatID string) []ledger.Marker {
 	t.Helper()
-	var activity struct {
-		Interruptions []interruptionDTO `json:"interruptions"`
-	}
-	h.get(repoBase(imported)+"/chats/"+chatID+"/activity", &activity)
-	return activity.Interruptions
+	return rowsOf(t, chatRows(t, h, chatID), ledger.KindMarker, func(ledger.Marker) bool { return true })
 }
 
-// TestRegression_ProviderSwitchRecordsAMarkerInterruption is the integration
-// counterpart of the internal/runner package's
-// TestRegression_CloseAbandonedTurn_* family and chat_test.go's
-// TestSwitchProvider_RecordsAProviderSwitchedInterruption — those exercise
-// switchProviderLocked directly; this drives the real POST .../switch
-// endpoint the composer actually calls, and reads the marker back through
-// the real GET .../activity endpoint the transcript actually renders from.
+// The real POST .../switch records the marker the transcript draws its
+// divider from, on the chat's feed.
 func TestRegression_ProviderSwitchRecordsAMarkerInterruption(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
@@ -237,48 +225,8 @@ func TestRegression_SwitchingProvidersDropsAModelTheNewProviderDoesNotDeclare(t 
 			"the stale effort with it rather than leave a mismatched pair")
 }
 
-// orderedMessage is recordedMessage plus DisplayOrder, which the transcript
-// actually sorts by — see TestRegression_AFailureFromBeforeTheSwitchSortsBeforeIt.
-type orderedMessage struct {
-	DisplayOrder int64  `json:"displayOrder"`
-	Role         string `json:"role"`
-	Text         string `json:"text"`
-}
-
-func readOrderedMessages(t *testing.T, h *harness, imported importedRepo, chatID string) []orderedMessage {
-	t.Helper()
-	var page struct {
-		Items []orderedMessage `json:"items"`
-	}
-	h.get(repoBase(imported)+"/chats/"+chatID+"/messages?limit=200", &page)
-	return page.Items
-}
-
-// orderedInterruption is interruptionDTO plus DisplayOrder.
-type orderedInterruption struct {
-	Kind         string `json:"kind"`
-	Detail       string `json:"detail"`
-	DisplayOrder int64  `json:"displayOrder"`
-}
-
-func readOrderedInterruptions(t *testing.T, h *harness, imported importedRepo, chatID string) []orderedInterruption {
-	t.Helper()
-	var activity struct {
-		Interruptions []orderedInterruption `json:"interruptions"`
-	}
-	h.get(repoBase(imported)+"/chats/"+chatID+"/activity", &activity)
-	return activity.Interruptions
-}
-
-// TestRegression_AFailureFromBeforeTheSwitchSortsBeforeIt is the reported bug
-// behind a screenshot: a codex turn failed with "model_not_found", the chat
-// went idle, the user then switched to claude — and the transcript rendered
-// the OLD codex failure notice AFTER the "Switched to Claude"/"Model: haiku"
-// divider pair, as if it belonged to the new session. The failure and the
-// switch are not concurrent here — the failure is fully recorded, and the
-// chat is fully idle, before the switch is even requested — so if THIS
-// still sorts wrong, the bug is in how DisplayOrder is computed or compared,
-// not in a race between an async hook and a synchronous switch.
+// A turn that failed before a switch is recorded before the switch's marker,
+// so the old provider's error is never drawn as the new session's.
 func TestRegression_AFailureFromBeforeTheSwitchSortsBeforeIt(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
@@ -304,26 +252,8 @@ func TestRegression_AFailureFromBeforeTheSwitchSortsBeforeIt(t *testing.T) {
 		map[string]string{"provider": "quietstub"}, http.StatusOK, &result)
 	h.Quiesce()
 
-	messages := readOrderedMessages(t, h, imported, chatID)
-	var notice *orderedMessage
-	for i := range messages {
-		if messages[i].Role == "notice" {
-			notice = &messages[i]
-		}
-	}
-	require.NotNil(t, notice, "the codex failure must be recorded as a notice-role message")
-
-	interruptions := readOrderedInterruptions(t, h, imported, chatID)
-	var switchMarker *orderedInterruption
-	for i := range interruptions {
-		if interruptions[i].Kind == "provider_switched" {
-			switchMarker = &interruptions[i]
-		}
-	}
-	require.NotNil(t, switchMarker, "the switch must record a provider_switched marker")
-
-	assert.Less(t, notice.DisplayOrder, switchMarker.DisplayOrder,
-		"the codex failure happened, and was fully recorded, BEFORE the switch was even "+
-			"requested — its DisplayOrder must sort before the switch marker's, or the "+
-			"transcript renders the old provider's error as if it belonged to the new session")
+	rows := chatRows(t, h, chatID)
+	failed := seqOf(t, rows, ledger.KindTurnFailed, func(ledger.TurnFailed) bool { return true })
+	switched := seqOf(t, rows, ledger.KindMarker, func(b ledger.Marker) bool { return b.Kind == ledger.MarkerProviderSwitched })
+	assert.Less(t, failed, switched, "the failure was recorded before the switch was requested")
 }

@@ -387,7 +387,7 @@ func TestSwitchProvider_WorkspaceReaderFailure_ReturnsWrappedError(t *testing.T)
 	chatID, _ := f.spawn(t, "claude")
 
 	// A workspace-reader failure surfaces wrapped, at the preflight WorktreeDir
-	// read: the pending-prompt wait before it reads only the chat ledger.
+	// read: the wait for a pending prompt reads only the chat ledger before it.
 	f.ws.err = errors.New("boom: workspace lookup")
 	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.Error(t, err)

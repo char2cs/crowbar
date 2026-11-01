@@ -206,14 +206,11 @@ func TestRegression_AfterRestart_ResumeStillWorks(t *testing.T) {
 		"resume brings back the provider the chat was last on, read from its conversation history")
 }
 
-// exitReason is how chatID's last runner ended, as the chat's session reports it.
-func exitReason(t *testing.T, h *harness, imported importedRepo, chatID string) string {
+// exitReason is how chatID's last runner ended, as its feed records it.
+func exitReason(t *testing.T, h *harness, _ importedRepo, chatID string) string {
 	t.Helper()
-	view := readChatSession(t, h, imported, chatID)
-	if view.Session == nil {
-		return ""
-	}
-	return view.Session.ExitReason
+	exit, _ := chatState(t, h, chatID).LastExit()
+	return exit.Reason
 }
 
 // A chat's last exit reason is a ledger fact, so the next daemon still knows

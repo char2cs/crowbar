@@ -153,14 +153,9 @@ func readAttachmentFromPath(ctx *gin.Context) ([]byte, string, string, bool) {
 	return data, body.ID, filepath.Base(body.Path), true
 }
 
-// Attachment handles GET .../workspaces/:wsId/chats/:id/attachments/:file,
-// serving one durable attachment's raw bytes with a sniffed Content-Type — the
-// asset-serving endpoint the frontend's MarkdownAssetContext resolver calls to
-// turn a stored ![]()/[]() ref into fetchable pixels (design spec,
-// "Rendering in the composer & transcript"). Unlike
-// .../activity/:toolId/payload (its closest shape precedent), this endpoint
-// sniffs the real Content-Type rather than hardcoding text/plain, since an
-// attachment is exactly as likely to be an image or a PDF as text.
+// Attachment serves one durable attachment's raw bytes, so a stored markdown
+// ref resolves to something fetchable; the Content-Type is sniffed because an
+// attachment is as likely an image or a PDF as text.
 func (h *Handlers) Attachment(ctx *gin.Context) {
 	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
 	if !ok {

@@ -62,6 +62,8 @@ func TestChatTurns_ACrowbarPromptIsSaidOnceItsTurnStarts(t *testing.T) {
 		RequestID: "req-1", Text: "do it", Origin: ledger.OriginCrowbar, Delivery: ledger.DeliveryRestart,
 	})
 	assert.Empty(t, b.turns(), "a prompt not taken yet is not said")
+	b.add(ledger.KindTurnEnded, "T1", "", ledger.TurnEnded{Status: "done", RunnerID: "run-1"})
+	assert.Empty(t, b.turns(), "nor is one whose turn ended without starting")
 
 	b.add(ledger.KindTurnStarted, "T1", "", ledger.TurnStarted{Provider: "p1", RunnerID: "run-1", SessionID: "s-1"})
 

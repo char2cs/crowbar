@@ -137,7 +137,10 @@ func TestState_OpenAsksListsAsksWithNoResolution(t *testing.T) {
 	options := []byte(`[{"id":"allow","kind":"allow_once","label":"Allow"}]`)
 	st := ledger.Fold("c1", sequenced(t,
 		turnStart(t, "T1"),
-		ask(t, ledger.Ask{AskID: "choice-1", Kind: domain.ChoiceKindPermission, ToolID: "tool-1", Options: options}),
+		ask(t, ledger.Ask{
+			AskID: "choice-1", Kind: domain.ChoiceKindPermission, ToolID: "tool-1", ToolName: "Bash",
+			Question: "Run it?", Options: options,
+		}),
 		ask(t, ledger.Ask{AskID: "note", Event: "notification"}),
 		ask(t, ledger.Ask{AskID: "choice-2", Kind: domain.ChoiceKindPermission, Options: []byte(`{"not":"a list"}`)}),
 		ask(t, ledger.Ask{AskID: "choice-3", Kind: domain.ChoiceKindPermission}),
@@ -155,6 +158,8 @@ func TestState_OpenAsksListsAsksWithNoResolution(t *testing.T) {
 	assert.Equal(t, "T1", got[0].TurnID)
 	assert.Equal(t, int64(2), got[0].Seq)
 	assert.Equal(t, "tool-1", got[0].ToolID)
+	assert.Equal(t, "Bash", got[0].ToolName)
+	assert.Equal(t, "Run it?", got[0].Question)
 	assert.Equal(t, []domain.ActivityChoiceOption{{ID: "allow", Kind: "allow_once", Label: "Allow"}}, got[0].Options)
 	assert.True(t, got[0].Pending())
 	assert.Equal(t, "choice-2", got[1].ID)

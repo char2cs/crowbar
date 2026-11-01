@@ -3,11 +3,13 @@
 package tests
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -16,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -66,6 +69,19 @@ func (c turnChat) messages(t *testing.T) []recordedMessage {
 	return readRecordedMessages(t, c.h, c.imported, c.chatID)
 }
 
+// scopedToolIDs are the tool calls the feed records under scope, by their first row.
+func (c turnChat) scopedToolIDs(t *testing.T, scope string) []string {
+	t.Helper()
+	var out []string
+	for _, r := range ledgerRows(t, c.h, c.chatID) {
+		b, err := ledger.DecodeBody[ledger.ToolCall](r)
+		if r.Kind == ledger.KindToolCall && r.Scope == scope && err == nil && !slices.Contains(out, b.ToolID) {
+			out = append(out, b.ToolID)
+		}
+	}
+	return out
+}
+
 func TestRegression_Symptom3_ATailChunkAfterStopNeverOverwritesTheReply(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 	reply := fixtureField(t, "28-Stop.json", "last_assistant_message")
@@ -86,47 +102,30 @@ func TestRegression_Symptom3_ASubagentsToolCallsAreRecorded(t *testing.T) {
 
 	c.replayRange(t, 0, 11)
 
-	var activity struct {
-		ToolCalls []struct {
-			ID         string `json:"id"`
-			SubagentID string `json:"subagentId"`
-		} `json:"toolCalls"`
-	}
-	c.h.get(repoBase(c.imported)+"/chats/"+c.chatID+"/activity", &activity)
-	var scoped []string
-	for _, call := range activity.ToolCalls {
-		if call.SubagentID == subagent {
-			scoped = append(scoped, call.ID)
-		}
-	}
-	assert.Equal(t, []string{fixtureField(t, "10-PreToolUse.json", "tool_use_id")}, scoped,
+	assert.Equal(t, []string{fixtureField(t, "10-PreToolUse.json", "tool_use_id")}, c.scopedToolIDs(t, subagent),
 		"the subagent's own tool call is recorded under it")
 }
 
-// backgroundActivity is each subagent's state and each tool call's status,
-// by the fixture file that opened it.
+// backgroundActivity is each subagent's state and each tool call's status
+// ("running" until a row closes it), by the fixture file that opened it.
 func (c turnChat) backgroundActivity(t *testing.T, files ...string) map[string]string {
 	t.Helper()
-	var activity struct {
-		ToolCalls []struct {
-			ID     string `json:"id"`
-			Status string `json:"status"`
-		} `json:"toolCalls"`
-		Subagents []struct {
-			ID      string  `json:"id"`
-			EndedAt *string `json:"endedAt"`
-		} `json:"subagents"`
-	}
-	c.h.get(repoBase(c.imported)+"/chats/"+c.chatID+"/activity", &activity)
+	rows := ledgerRows(t, c.h, c.chatID)
+	var book ledger.SubagentBook
 	got := map[string]string{}
-	for _, s := range activity.Subagents {
-		got[s.ID] = "running"
-		if s.EndedAt != nil {
-			got[s.ID] = "stopped"
+	for _, r := range rows {
+		book.Apply(r)
+		if b, err := ledger.DecodeBody[ledger.ToolCall](r); r.Kind == ledger.KindToolCall && err == nil {
+			if _, seen := got[b.ToolID]; !seen || b.Phase != ledger.ToolPre {
+				got[b.ToolID] = cmp.Or(b.Status, "running")
+			}
 		}
 	}
-	for _, call := range activity.ToolCalls {
-		got[call.ID] = call.Status
+	for _, s := range book.All() {
+		got[s.Scope] = "running"
+		if !s.Status.Live() {
+			got[s.Scope] = "stopped"
+		}
 	}
 	out := map[string]string{}
 	for _, f := range files {
@@ -174,7 +173,7 @@ func TestRegression_ABackgroundSubagentKeepsTheChatWorkingUntilItStops(t *testin
 		"the hand-back's reply is recorded")
 }
 
-// A todo list's steps arrive one by one; the plan frame is the whole list.
+// A todo list's steps arrive one by one, each a plan row; the plan is the whole list.
 func TestRegression_ATodoListBecomesPlanRows(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 	c.startTurn(t, c.launch, "A")
@@ -190,18 +189,9 @@ func TestRegression_ATodoListBecomesPlanRows(t *testing.T) {
 		"tool_response": map[string]any{"statusChange": map[string]any{"from": "pending", "to": "in_progress"}},
 	})
 
-	var plan []struct{ Text, Status string }
-	readUntil(t, c.conn, func(m map[string]any) bool {
-		if m["chatId"] != c.chatID || m["kind"] != "plan" {
-			return false
-		}
-		raw, err := json.Marshal(m["plan"])
-		require.NoError(t, err)
-		require.NoError(t, json.Unmarshal(raw, &plan))
-		return len(plan) == 2 && strings.Contains(string(raw), "active")
-	})
+	c.h.Quiesce()
 	steps := map[string]string{}
-	for _, s := range plan {
+	for _, s := range chatState(t, c.h, c.chatID).Plan() {
 		steps[s.Text] = s.Status
 	}
 	assert.Equal(t, map[string]string{"Read a.txt": "active", "Run echo": "pending"}, steps)
@@ -226,20 +216,7 @@ func TestRegression_AChildsEarlyFrameSurvivesALateTurnEnd(t *testing.T) {
 	})
 	c.h.Quiesce()
 
-	var activity struct {
-		ToolCalls []struct {
-			ID         string `json:"id"`
-			SubagentID string `json:"subagentId"`
-		} `json:"toolCalls"`
-	}
-	c.h.get(repoBase(c.imported)+"/chats/"+c.chatID+"/activity", &activity)
-	var scoped []string
-	for _, call := range activity.ToolCalls {
-		if call.SubagentID == "child" {
-			scoped = append(scoped, call.ID)
-		}
-	}
-	assert.Equal(t, []string{"c1"}, scoped, "the held frame is drained into its scope")
+	assert.Equal(t, []string{"c1"}, c.scopedToolIDs(t, "child"), "the held frame is drained into its scope")
 }
 
 func TestRegression_Symptom3_TextSaidBeforeAProcessExitsIsKept(t *testing.T) {
@@ -288,19 +265,13 @@ func TestRegression_ARetriedHookDeliveryRecordsItsFactOnce(t *testing.T) {
 	for range 2 {
 		postHook(t, h, base, "answerstub", runnerID, "tool_pre", tool)
 		held = append(held, askHook(t.Context(), t, h, base, "answerstub", runnerID, "permission", ask))
-		heldChoice(t, h, base, chatID)
+		heldChoice(t, h, chatID)
 	}
 	require.NoError(t, (<-held[0]).err, "the retry is the same ask, so it takes over the first hold")
 	h.Quiesce()
 
-	var activity struct {
-		ToolCalls []json.RawMessage `json:"toolCalls"`
-	}
-	h.get(base+"/chats/"+chatID+"/activity", &activity)
-	assert.Len(t, activity.ToolCalls, 1, "a retried tool hook is one tool call")
-	var choices []json.RawMessage
-	h.get(base+"/chats/"+chatID+"/choices", &choices)
-	assert.Len(t, choices, 1, "a retried permission is one card")
+	assert.Len(t, toolCalls(t, h, chatID), 1, "a retried tool hook is one tool call")
+	assert.Len(t, asksOf(t, h, chatID), 1, "a retried permission is one card")
 }
 
 func TestRegression_ATurnFailureReasonStaysVisible(t *testing.T) {
@@ -312,14 +283,9 @@ func TestRegression_ATurnFailureReasonStaysVisible(t *testing.T) {
 	})
 	assert.False(t, c.working(t))
 
-	var notices []string
-	for _, m := range c.messages(t) {
-		if m.Role == "notice" {
-			notices = append(notices, m.Text)
-		}
-	}
-	require.Len(t, notices, 1, "the failure is one notice")
-	assert.Contains(t, notices[0], "usage limit")
+	failures := rowsOf(t, c.feedRows(t), ledger.KindTurnFailed, func(ledger.TurnFailed) bool { return true })
+	require.Len(t, failures, 1, "the failure is one notice")
+	assert.Contains(t, cmp.Or(failures[0].Detail, failures[0].Reason), "usage limit")
 }
 
 // A turn_stop that beat its own final delta: whichever lands first, the reply

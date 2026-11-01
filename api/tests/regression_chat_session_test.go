@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -25,11 +26,8 @@ type chatConversationView struct {
 }
 
 type chatSessionView struct {
-	LiveRunnerID string                `json:"liveRunnerId"`
-	Conversation *chatConversationView `json:"conversation"`
-	Session      *struct {
-		ExitReason string `json:"exitReason"`
-	} `json:"session"`
+	LiveRunnerID  string                  `json:"liveRunnerId"`
+	Conversation  *chatConversationView   `json:"conversation"`
 	Conversations []agentChatConversation `json:"conversations"`
 }
 
@@ -107,12 +105,11 @@ func killAndAwaitExit(t *testing.T, h *harness, conn *websocket.Conn, l kit.Laun
 	h.QuiesceReactors()
 }
 
-func chatExitedWith(chatID, reason string) func(map[string]any) bool {
-	return func(m map[string]any) bool {
-		chat, _ := m["chat"].(map[string]any)
-		session, _ := chat["session"].(map[string]any)
-		return m["chatId"] == chatID && session["exitReason"] == reason
-	}
+// untilExitedWith waits for chatID's last runner to have ended for reason.
+func untilExitedWith(t *testing.T, h *harness, chatID, reason string) {
+	t.Helper()
+	require.Eventually(t, func() bool { return exitReason(t, h, importedRepo{}, chatID) == reason },
+		10*time.Second, 10*time.Millisecond, "the chat's runner never exited with %s", reason)
 }
 
 func TestRegression_Symptom2_ALaunchCarriesASessionIDTheChatAlreadyOwns(t *testing.T) {
@@ -211,19 +208,8 @@ func TestRegression_Symptom2_OnlyAnExplicitRefusalLosesTheSession(t *testing.T) 
 	fake.RefuseResume(t, s, "No conversation found with session ID: "+s)
 	requestID := uuid.NewString()
 	postPrompt(t, h, imported, chatID, "three", requestID) // the CLI may die before the spawn answers
-	// One pass for both frames: their order depends on whether the CLI died before
-	// the spawn answered, and readUntil drops every frame it does not match.
-	var settled map[string]any
-	exited := false
-	readUntil(t, conn, func(m map[string]any) bool {
-		if isPromptSettled(requestID)(m) {
-			settled = m
-		}
-		exited = exited || chatExitedWith(chatID, "resume_failed")(m)
-		return settled != nil && exited
-	})
-	assert.Contains(t, []any{nil, false}, settled["promptConsumed"], "a refused resume took no prompt")
-	h.QuiesceReactors()
+	assert.False(t, untilSettled(t, h, chatID, requestID).Consumed, "a refused resume took no prompt")
+	untilExitedWith(t, h, chatID, "resume_failed")
 	view = readChatSession(t, h, imported, chatID)
 	require.NotNil(t, view.Conversation)
 	assert.Equal(t, chatConversationView{ProviderID: "claude", SessionID: s, State: "lost"}, *view.Conversation)
@@ -317,8 +303,8 @@ func TestRegression_Symptom2_SwitchingBackResumesTheProvidersOwnSession(t *testi
 }
 
 // dormantRefusingChat is a dormant chat bound to a session its CLI now refuses
-// to resume, and the lifecycle stream it is watched on.
-func dormantRefusingChat(t *testing.T, h *harness, imported importedRepo) (string, string, *websocket.Conn) {
+// to resume.
+func dormantRefusingChat(t *testing.T, h *harness, imported importedRepo) (string, string) {
 	t.Helper()
 	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
 	chatID, l1 := createFakeChat(t, h, imported, fake)
@@ -328,7 +314,7 @@ func dormantRefusingChat(t *testing.T, h *harness, imported importedRepo) (strin
 	conn := h.dial(repoBase(imported) + "/chats/ws")
 	killAndAwaitExit(t, h, conn, l1)
 	fake.RefuseResume(t, s, "No conversation found with session ID: "+s)
-	return chatID, s, conn
+	return chatID, s
 }
 
 // answerOf is path's status and, for a failure, the problem code it carries.
@@ -364,20 +350,15 @@ func requireAnsweredAsLost(t *testing.T, status int, code string) {
 func TestRegression_C27_ASendRefusedForALostSessionIsTypedSessionLost(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
-	chatID, _, conn := dormantRefusingChat(t, h, imported)
+	chatID, _ := dormantRefusingChat(t, h, imported)
 	requestID := uuid.NewString()
 
 	status, code := answerOf(t, h, repoBase(imported)+"/chats/"+chatID+"/prompts",
 		map[string]string{"text": "two", "clientRequestId": requestID})
 
 	requireAnsweredAsLost(t, status, code)
-	settled, exited := false, false
-	readUntil(t, conn, func(m map[string]any) bool {
-		settled = settled || isPromptSettled(requestID)(m)
-		exited = exited || chatExitedWith(chatID, "resume_failed")(m)
-		return settled && exited
-	})
-	h.QuiesceReactors()
+	untilSettled(t, h, chatID, requestID)
+	untilExitedWith(t, h, chatID, "resume_failed")
 	feed := dialFeed(t, h, chatID, 0)
 	var reasons []string
 	for f := nextFeedFrame(t, feed); f.T != stream.FrameSynced; f = nextFeedFrame(t, feed) {
@@ -392,13 +373,12 @@ func TestRegression_C27_ASendRefusedForALostSessionIsTypedSessionLost(t *testing
 func TestRegression_C27_AResumeRefusedForALostSessionIsTypedSessionLost(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
-	chatID, s, conn := dormantRefusingChat(t, h, imported)
+	chatID, s := dormantRefusingChat(t, h, imported)
 
 	status, code := answerOf(t, h, repoBase(imported)+"/chats/"+chatID+"/resume", nil)
 
 	requireAnsweredAsLost(t, status, code)
-	readUntil(t, conn, chatExitedWith(chatID, "resume_failed"))
-	h.QuiesceReactors()
+	untilExitedWith(t, h, chatID, "resume_failed")
 	view := readChatSession(t, h, imported, chatID)
 	require.NotNil(t, view.Conversation)
 	assert.Equal(t, chatConversationView{ProviderID: "claude", SessionID: s, State: "lost"}, *view.Conversation)

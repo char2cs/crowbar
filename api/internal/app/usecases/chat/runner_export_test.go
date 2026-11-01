@@ -3,9 +3,9 @@ package chat
 import (
 	"context"
 	"fmt"
-	"github.com/char2cs/crowbar/api/internal/domain"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 

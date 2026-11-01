@@ -3,7 +3,6 @@
 package tests
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -136,25 +135,14 @@ func (f steerFixture) submitBody(t *testing.T, body map[string]string, want int)
 	_ = f.h.raw(http.MethodPost, repoBase(f.imported)+"/chats/"+f.chatID+"/prompts", body, want).Body.Close()
 }
 
+// pendingState is the status of the chat's oldest unacknowledged prompt.
 func (f steerFixture) pendingState(t *testing.T) string {
 	t.Helper()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
-		f.h.url+repoBase(f.imported)+"/chats/"+f.chatID+"/pending-prompt", http.NoBody)
-	require.NoError(t, err)
-	resp, err := f.h.server.Client().Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode == http.StatusNoContent {
+	pending := chatState(t, f.h, f.chatID).PendingPrompts()
+	if len(pending) == 0 {
 		return ""
 	}
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var got struct {
-		Data struct {
-			State string `json:"state"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
-	return got.Data.State
+	return string(pending[0].Status)
 }
 
 func (f steerFixture) liveRunner(t *testing.T) string {
@@ -191,7 +179,7 @@ func TestRegression_PromptSentMidTurnReachesTheRunningCLI(t *testing.T) {
 	f.hook(t, "turn_stop", `{"session_id":"sid-1","last_assistant_message":"tests checked"}`)
 	f.h.Quiesce()
 	var order []string
-	for _, m := range readOrderedMessages(t, f.h, f.imported, f.chatID) {
+	for _, m := range readRecordedMessages(t, f.h, f.imported, f.chatID) {
 		order = append(order, m.Role+":"+m.Text)
 	}
 	assert.Equal(t, []string{

@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
-	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
 // A native turn whose close never comes — codex reports idle and sends no
@@ -87,11 +87,7 @@ func TestScripted_CompactIntent(t *testing.T) {
 			require.NoError(t, r.runners().Compact(context.Background(), chatID))
 
 			r.eventually(func() bool {
-				activity, err := r.d.app.Usecases.AgentTurn.ReadActivity(context.Background(), chatID, 0, 0)
-				require.NoError(t, err)
-				return slices.ContainsFunc(activity.Interruptions, func(in domain.ActivityInterruption) bool {
-					return in.Kind == "compacted" || in.Kind == "compaction"
-				})
+				return slices.Contains(r.markers(chatID), ledger.MarkerCompactionStarted)
 			}, "the compaction was never recorded")
 			r.eventually(func() bool { return !r.working(chatID) }, "a compaction left the chat busy")
 			r.continues(chatID, "after compacting")

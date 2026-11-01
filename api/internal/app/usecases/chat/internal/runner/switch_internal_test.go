@@ -50,7 +50,7 @@ func TestDisplaceForSwitch_ARunningTurnIsRefusedNotWaitedFor(t *testing.T) {
 }
 
 // A prompt steered into the turn the switch waited out is waited for too: the
-// switch goes round again to its pending-prompt wait rather than refusing.
+// switch goes round again to wait for the pending prompt rather than refusing.
 func TestDisplaceForSwitch_APromptSteeredAfterTheWaitsSendsTheSwitchRoundAgain(t *testing.T) {
 	rs := runnersForDisplace(t, true /* live */)
 	appendPrompt(t, rs.ledger, "steered", "r-1")

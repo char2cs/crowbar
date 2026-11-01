@@ -10,11 +10,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -65,25 +67,9 @@ func writeLiveStubProviderDescriptorWithPromptSubmit(
 	writeProviderDescriptor(t, h, "livestub", livestubPromptSubmitYAML)
 }
 
-// TestRegression_PendingPromptSurvivesAFrontendThatForgotItsOwnQueue proves
-// the fix for "user's turns after some time of idle is lost, and does not
-// record anywhere": a submitted prompt's literal text is recoverable from
-// the backend even when the client that sent it has no memory of having
-// done so — not merely a hash it cannot use to show the user anything back.
-//
-// This is the first test in this suite to drive the real POST .../prompts
-// route against a live-stub chat (createLiveStubChat) rather than a
-// hooks-simulated one. See livestubPromptSubmitYAML's doc comment for what
-// that turned out to require and why: the shared stub descriptor
-// (writeLiveStubProviderDescriptor) cannot dispatch a prompt at all over
-// this route, a 422 for any text, so this test supplies its own descriptor
-// override instead.
-//
-// The GET below is a single, unretried read straight after the POST
-// returns, with no user_prompt hook ever fired to confirm acceptance — the
-// point of the test is to catch the record BEFORE anything could confirm
-// it, so waiting for settlement here would defeat the assertion rather than
-// stabilise it.
+// A submitted prompt's literal text is on the chat's record as pending the
+// moment the POST returns, before any hook could confirm it, so a client that
+// lost its own copy gets the words back. Read once, unretried, on purpose.
 func TestRegression_PendingPromptSurvivesAFrontendThatForgotItsOwnQueue(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptorWithPromptSubmit(t, h)
@@ -98,19 +84,11 @@ func TestRegression_PendingPromptSurvivesAFrontendThatForgotItsOwnQueue(t *testi
 	)
 	_ = resp.Body.Close()
 
-	var got struct {
-		Text  string `json:"text"`
-		State string `json:"state"`
-	}
-	h.get(repoBase(imported)+"/chats/"+chatID+"/pending-prompt", &got)
-
-	assert.Equal(t, submittedText, got.Text,
-		"the recovered record must carry the literal submitted text, not merely a hash — "+
-			"the whole point of the fix is giving the user their words back")
-	assert.Equal(t, "pending", got.State,
-		"the replacement runner was spawned and its identity durably recorded, but nothing "+
-			"has fired the user_prompt hook that would confirm the provider accepted it, so the "+
-			"record must still read as pending — never accepted")
+	pending := chatState(t, h, chatID).PendingPrompts()
+	require.Len(t, pending, 1)
+	assert.Equal(t, submittedText, pending[0].Text, "the record carries the literal submitted text")
+	assert.Equal(t, ledger.PromptStatusPending, pending[0].Status,
+		"nothing confirmed the provider took it, so it still reads as pending")
 }
 
 // postPrompt submits text under requestID and returns the response status.
@@ -125,14 +103,6 @@ func postPrompt(t *testing.T, h *harness, imported importedRepo, chatID, text, r
 	return statusOf(t, h, req)
 }
 
-func pendingPromptStatus(t *testing.T, h *harness, imported importedRepo, chatID string) int {
-	t.Helper()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
-		h.url+repoBase(imported)+"/chats/"+chatID+"/pending-prompt", http.NoBody)
-	require.NoError(t, err)
-	return statusOf(t, h, req)
-}
-
 func statusOf(t *testing.T, h *harness, req *http.Request) int {
 	t.Helper()
 	resp, err := h.server.Client().Do(req)
@@ -141,10 +111,15 @@ func statusOf(t *testing.T, h *harness, req *http.Request) int {
 	return resp.StatusCode
 }
 
-func isPromptSettled(requestID string) func(map[string]any) bool {
-	return func(m map[string]any) bool {
-		return m["kind"] == "prompt_settled" && m["clientRequestId"] == requestID
-	}
+// untilSettled waits for requestID's prompt_settled row on chatID's feed.
+func untilSettled(t *testing.T, h *harness, chatID, requestID string) ledger.PromptSettled {
+	t.Helper()
+	var settled []ledger.PromptSettled
+	require.Eventually(t, func() bool {
+		settled = settledAs(t, chatRows(t, h, chatID), requestID)
+		return len(settled) > 0
+	}, 10*time.Second, 10*time.Millisecond, "the prompt was never settled")
+	return settled[0]
 }
 
 func TestRegression_APromptWhoseLaunchFailsIsSettledNotLost(t *testing.T) {
@@ -153,16 +128,13 @@ func TestRegression_APromptWhoseLaunchFailsIsSettledNotLost(t *testing.T) {
 	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
 	chatID, _ := createFakeChat(t, h, imported, fake)
 	fake.BreakSpawn(t)
-	conn := h.dial(repoBase(imported) + "/chats/ws")
 	requestID := uuid.NewString()
 
 	status := postPrompt(t, h, imported, chatID, "a prompt no CLI will ever see", requestID)
 
 	assert.GreaterOrEqual(t, status, http.StatusBadRequest, "a launch that failed is not a delivery")
-	settled := readUntil(t, conn, isPromptSettled(requestID))
-	assert.Contains(t, []any{nil, false}, settled["promptConsumed"], "nothing consumed the prompt: absent or false")
-	assert.Equal(t, http.StatusNoContent, pendingPromptStatus(t, h, imported, chatID),
-		"a settled prompt is not pending")
+	assert.False(t, untilSettled(t, h, chatID, requestID).Consumed, "nothing consumed the prompt")
+	assert.Empty(t, chatState(t, h, chatID).PendingPrompts(), "a settled prompt is not pending")
 }
 
 func TestRegression_ResendingTheSameRequestIDNeverDeliversTwice(t *testing.T) {
@@ -211,7 +183,6 @@ func TestRegression_APromptTheProviderNeverAcknowledgesSettlesOnIdle(t *testing.
 	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
 	chatID, _ := createFakeChat(t, h, imported, fake)
 	hookBase := h.url + repoBase(imported)
-	conn := h.dial(repoBase(imported) + "/chats/ws")
 	requestID := uuid.NewString()
 
 	require.Equal(t, http.StatusOK, postPrompt(t, h, imported, chatID, "are you there", requestID))
@@ -225,8 +196,7 @@ func TestRegression_APromptTheProviderNeverAcknowledgesSettlesOnIdle(t *testing.
 		require.Equal(t, http.StatusOK, resp.StatusCode, step.event)
 	}
 
-	settled := readUntil(t, conn, isPromptSettled(requestID))
-	assert.Contains(t, []any{nil, false}, settled["promptConsumed"], "the provider never took the prompt: absent or false")
+	assert.False(t, untilSettled(t, h, chatID, requestID).Consumed, "the provider never took the prompt")
 	assert.Equal(t, http.StatusOK, postPrompt(t, h, imported, chatID, "and now?", uuid.NewString()),
 		"a settled prompt no longer holds the chat busy")
 }

@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
 // channelSplitPermissionStubProviderDescriptorYAML mirrors codex.yaml's OWN
@@ -52,17 +54,10 @@ events:
       deny:  '{"decision":"decline"}'
 `
 
-func permissionChannelSplitChoices(t *testing.T, h *harness, ws importedRepo, chatID string) []struct {
-	ID       string `json:"id"`
-	ToolName string `json:"toolName"`
-} {
+// permissionChannelSplitChoices are the asks chatID's feed records.
+func permissionChannelSplitChoices(t *testing.T, h *harness, chatID string) []ledger.Ask {
 	t.Helper()
-	var out []struct {
-		ID       string `json:"id"`
-		ToolName string `json:"toolName"`
-	}
-	h.get(repoBase(ws)+"/chats/"+chatID+"/choices", &out)
-	return out
+	return rowsOf(t, chatRows(t, h, chatID), ledger.KindAsk, func(ledger.Ask) bool { return true })
 }
 
 // TestRegression_HooksDeliveryOfAChannelSplitAskEventCannotReadAPIShapedFields
@@ -91,9 +86,9 @@ func TestRegression_HooksDeliveryOfAChannelSplitAskEventCannotReadAPIShapedField
 	// is held for the person.
 	askHook(t.Context(), t, h, repoBase(ws), "channelsplitpermstub", runnerID, "permission",
 		`{"session_id":"sess-1","message":"allow this?","tool_name":"Bash"}`)
-	heldChoice(t, h, repoBase(ws), chatID)
+	heldChoice(t, h, chatID)
 
-	choices := permissionChannelSplitChoices(t, h, ws, chatID)
+	choices := permissionChannelSplitChoices(t, h, chatID)
 	require.Len(t, choices, 1, "the genuine hooks-shaped permission must raise one card")
 	assert.Equal(t, "Bash", choices[0].ToolName, "resolved via the hooks: block's tool_name: tool_name")
 
@@ -115,7 +110,7 @@ func TestRegression_HooksDeliveryOfAChannelSplitAskEventCannotReadAPIShapedField
 	require.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
 	h.Quiesce()
 
-	choices = permissionChannelSplitChoices(t, h, ws, chatID)
+	choices = permissionChannelSplitChoices(t, h, chatID)
 	require.Len(t, choices, 1, "the api-shaped delivery is missing its required session_id/tool_name on "+
 		"the hooks: block — required: (design spec 2.3) must reject it outright, not raise a card under "+
 		"a fallback identity")

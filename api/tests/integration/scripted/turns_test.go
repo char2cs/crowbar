@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 var providers = []string{"claude", "codex"}
@@ -35,15 +37,14 @@ turn:
 				return slices.Contains(r.said(chatID), "assistant: all done") && !r.working(chatID)
 			}, "the turn never landed and closed")
 			assert.Contains(t, r.said(chatID), "user: do the thing")
-			activity, err := r.d.app.Usecases.AgentTurn.ReadActivity(context.Background(), chatID, 0, 0)
-			require.NoError(t, err)
-			require.NotEmpty(t, activity.ToolCalls, "the tool call was recorded")
-			for _, call := range activity.ToolCalls {
-				assert.NotNil(t, call.EndedAt, "every tool call closes: %+v", call)
+			st := ledger.Fold(chatID, r.rows(chatID))
+			calls := kit.Bodies[ledger.ToolCall](r.rows(chatID), ledger.KindToolCall)
+			require.NotEmpty(t, calls, "the tool call was recorded")
+			for _, call := range calls {
+				assert.True(t, st.HasToolPhase("", call.ToolID, ledger.ToolPost) || st.HasToolPhase("", call.ToolID, ledger.ToolFail),
+					"every tool call closes: %+v", call)
 			}
-			for _, sub := range activity.Subagents {
-				assert.NotNil(t, sub.EndedAt, "every subagent closes: %+v", sub)
-			}
+			assert.Empty(t, st.Subagents(), "every subagent closes")
 			snap := r.snapshot(chatID)
 			assert.Equal(t, "live", snap.Phase)
 		})

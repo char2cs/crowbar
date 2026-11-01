@@ -190,7 +190,7 @@ describe('subscribeHomeTree', () => {
     dispose()
   })
 
-  it('ignores non-structural frames (turn_started, message_delta, worktree_state)', async () => {
+  it('ignores non-structural frames (turn_started, telemetry, worktree_state)', async () => {
     fetchHomeChatsSpy.mockResolvedValue([])
     fetchHomeFoldersSpy.mockResolvedValue([])
     const dispose = subscribeHomeTree('p1')
@@ -198,7 +198,7 @@ describe('subscribeHomeTree', () => {
     expect(fetchHomeChatsSpy).toHaveBeenCalledTimes(1)
 
     emit({ chatId: 'c1', workspaceId: 'home-1', kind: 'turn_started' })
-    emit({ chatId: 'c1', workspaceId: 'home-1', kind: 'message_delta' })
+    emit({ chatId: 'c1', workspaceId: 'home-1', kind: 'telemetry' })
     emit({ chatId: 'c1', workspaceId: 'home-1', kind: 'worktree_state' })
 
     expect(fetchHomeChatsSpy).toHaveBeenCalledTimes(1)

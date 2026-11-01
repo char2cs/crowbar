@@ -71,7 +71,7 @@ func TestScripted_CodexOpenInTerminalAndBack(t *testing.T) {
 	assert.True(t, slices.ContainsFunc(r.logged("rpc"), func(e logEntry) bool { return e["method"] == "thread/resume" }),
 		"coming back re-established the connection on that thread")
 	assert.Equal(t, "live", r.snapshot(chatID).Phase)
-	assert.NotEqual(t, domain.AgentExitResumeFailed, r.snapshot(chatID).Session.ExitReason)
+	assert.NotEqual(t, domain.AgentExitResumeFailed, r.exitReason(chatID))
 }
 
 // Stopping a chat whose native view is open ends the view and the runner,

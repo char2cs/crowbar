@@ -8,9 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
 // recorded is a payload the claude CLI really sent, as its fixture keeps it,
@@ -33,14 +36,11 @@ func TestRegression_AnMCPToolRowNamesItsServerAndTool(t *testing.T) {
 
 	c.hook(t, c.launch, "tool_pre", c.recorded(t, "PreToolUse.mcp.json"))
 
-	var activity struct {
-		ToolCalls []struct{ Kind, MCPServer, MCPTool string } `json:"toolCalls"`
-	}
-	c.h.get(repoBase(c.imported)+"/chats/"+c.chatID+"/activity", &activity)
-	require.Len(t, activity.ToolCalls, 1)
-	assert.Equal(t, "mcp", activity.ToolCalls[0].Kind)
-	assert.Equal(t, "echo", activity.ToolCalls[0].MCPServer)
-	assert.Equal(t, "shout", activity.ToolCalls[0].MCPTool)
+	calls := toolCalls(t, c.h, c.chatID)
+	require.Len(t, calls, 1)
+	assert.Equal(t, "mcp", calls[0].Kind)
+	assert.Equal(t, "echo", calls[0].MCPServer)
+	assert.Equal(t, "shout", calls[0].MCPTool)
 }
 
 // A permission for a call into an MCP server names the server it asks about.
@@ -53,15 +53,14 @@ func TestRegression_AChoiceForAnMCPCallNamesItsServer(t *testing.T) {
 
 	held := make(chan int, 1)
 	go func() { held <- hookStatus(c.launch, c.h.url+repoBase(c.imported), "permission", string(asked)) }()
-	frame := readUntil(t, c.conn, func(m map[string]any) bool {
-		choices, _ := m["choices"].([]any)
-		return c.frameFor("choice")(m) && len(choices) == 1
-	})
+	var asked1 []ledger.Ask
+	require.Eventually(t, func() bool {
+		asked1 = rowsOf(t, c.feedRows(t), ledger.KindAsk, func(b ledger.Ask) bool { return b.Kind != "" })
+		return len(asked1) == 1
+	}, 10*time.Second, 10*time.Millisecond, "the permission never opened an ask")
 
-	choice, _ := frame["choices"].([]any)[0].(map[string]any)
-	assert.Equal(t, "echo", choice["mcpServer"])
-	choiceID, _ := choice["id"].(string)
-	c.h.post(repoBase(c.imported)+"/chats/"+c.chatID+"/choices/"+choiceID+"/answer",
+	assert.Equal(t, "echo", asked1[0].MCPServer)
+	c.h.post(repoBase(c.imported)+"/chats/"+c.chatID+"/choices/"+asked1[0].AskID+"/answer",
 		map[string]any{"optionIds": []string{"allow"}}, http.StatusOK, nil)
 	assert.Equal(t, http.StatusOK, <-held, "the CLI is handed the answer")
 }

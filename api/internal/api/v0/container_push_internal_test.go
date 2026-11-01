@@ -233,8 +233,8 @@ func TestNew_PanicsOnNilAppContainer(t *testing.T) {
 func TestResolveWorkspaceScope_NilApp(t *testing.T) {
 	c := &Container{}
 	projectID, repoID := c.resolveWorkspaceScope(context.Background(), "w1")
-	assert.Equal(t, "", projectID)
-	assert.Equal(t, "", repoID)
+	assert.Empty(t, projectID)
+	assert.Empty(t, repoID)
 }
 
 // TestResolveWorkspaceScope_UnknownWorkspaceReturnsEmpty proves a workspace id
@@ -243,8 +243,8 @@ func TestResolveWorkspaceScope_UnknownWorkspaceReturnsEmpty(t *testing.T) {
 	a := newAppForSnapshot(t)
 	c := &Container{app: a}
 	projectID, repoID := c.resolveWorkspaceScope(context.Background(), "does-not-exist")
-	assert.Equal(t, "", projectID)
-	assert.Equal(t, "", repoID)
+	assert.Empty(t, projectID)
+	assert.Empty(t, repoID)
 }
 
 // TestResolveWorkspaceScope_ResolvesProjectAndRepo proves a known workspace id

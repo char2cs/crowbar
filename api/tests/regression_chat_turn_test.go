@@ -4,6 +4,7 @@ package tests
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -16,6 +17,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -211,16 +214,10 @@ func TestRegression_ConcurrentHooksForOneChatAllLand(t *testing.T) {
 		assert.Equal(t, http.StatusOK, code)
 	}
 
-	var activity struct {
-		ToolCalls []struct {
-			ID     string `json:"id"`
-			Status string `json:"status"`
-		} `json:"toolCalls"`
-	}
-	c.h.get(repoBase(c.imported)+"/chats/"+c.chatID+"/activity", &activity)
-	require.Len(t, activity.ToolCalls, 20, "every tool call landed")
-	for _, call := range activity.ToolCalls {
-		assert.Equal(t, "ok", call.Status, call.ID)
+	ended := rowsOf(t, c.feedRows(t), ledger.KindToolCall, func(b ledger.ToolCall) bool { return b.Phase != ledger.ToolPre })
+	require.Len(t, ended, 20, "every tool call landed")
+	for _, call := range ended {
+		assert.Equal(t, "ok", call.Status, call.ToolID)
 	}
 }
 
@@ -251,13 +248,14 @@ func TestRegression_AHookRepliesOnlyAfterItsRowsAreReadable(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 	c.hook(t, c.launch, "user_prompt", map[string]any{"prompt": "readable on the reply", "prompt_id": "R"})
 
-	var page struct {
-		Items []recordedMessage `json:"items"`
-	}
-	c.h.get(repoBase(c.imported)+"/chats/"+c.chatID+"/messages?limit=200", &page)
-	texts := make([]string, 0, len(page.Items))
-	for _, m := range page.Items {
-		texts = append(texts, m.Text)
+	// Read straight after the reply, with no quiesce: the rows must already be there.
+	feed := dialFeed(t, c.h, c.chatID, 0)
+	var texts []string
+	for f := nextFeedFrame(t, feed); f.T != stream.FrameSynced; f = nextFeedFrame(t, feed) {
+		var b ledger.UserMessage
+		if f.Row.Kind == ledger.KindUserMessage && json.Unmarshal(f.Row.Body, &b) == nil {
+			texts = append(texts, b.Text)
+		}
 	}
 	assert.Contains(t, texts, "readable on the reply")
 }

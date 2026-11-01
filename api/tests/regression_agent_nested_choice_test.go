@@ -59,23 +59,15 @@ func (c nestedChoiceChat) nestedAsk(t *testing.T, promptID string) (choiceID str
 
 func TestRegression_ANestedConversationsPermissionBecomesAnAnswerableCard(t *testing.T) {
 	c := newNestedChoiceChat(t)
-	conn := c.dial()
 
 	choiceID := c.nestedAsk(t, "np1")
-	readUntil(t, conn, c.choiceFrame(func(choices []map[string]any) bool {
-		return len(choices) == 1 && choices[0]["id"] == choiceID && choices[0]["answerable"] == true
-	}))
-
-	// A redelivery of the same ask must not mint a second card.
-	c.h.Quiesce()
-	var listed []struct {
-		ID string `json:"id"`
-	}
-	c.h.get(repoBase(c.imported)+"/chats/"+c.chatID+"/choices", &listed)
-	require.Len(t, listed, 1)
+	c.untilOpen(t, func(asks []askState) bool {
+		return len(asks) == 1 && asks[0].ID == choiceID && asks[0].Answerable
+	})
+	require.Len(t, asksOf(t, c.h, c.chatID), 1, "a redelivery of the same ask must not mint a second card")
 
 	c.answer(t, choiceID)
-	readUntil(t, conn, c.choiceFrame(func(choices []map[string]any) bool { return len(choices) == 0 }))
+	c.untilOpen(t, func(asks []askState) bool { return len(asks) == 0 })
 
 	assert.JSONEq(t, `{"decision":{"behavior":"allow"}}`, c.reply(t, choiceID),
 		"the reply returns to the nested request's own ask")
@@ -90,10 +82,10 @@ func TestRegression_ANestedAskDoesNotChangeHowNestedToolRowsRender(t *testing.T)
 		`{"session_id":"child","tool_id":"ct1","tool_name":"Bash"}`)
 	c.h.Quiesce()
 
-	calls := channelSplitActivity(t, c.h, c.imported, c.chatID)
+	calls := toolCalls(t, c.h, c.chatID)
 	ids := make([]string, 0, len(calls))
 	for _, call := range calls {
-		ids = append(ids, call.ID)
+		ids = append(ids, call.ToolID)
 	}
 	assert.Contains(t, ids, "ct1", "the child's own tool call is still recorded")
 	assert.Contains(t, ids, "spawn-1")
@@ -104,15 +96,14 @@ func TestRegression_ANestedAskDoesNotChangeHowNestedToolRowsRender(t *testing.T)
 // is a card the person answers, as a held top-level ask outside a turn is.
 func TestRegression_ANestedAskAfterTheTurnClosedIsAnAnswerableCard(t *testing.T) {
 	c := newNestedChoiceChat(t)
-	conn := c.dial()
 	postHook(t, c.h, repoBase(c.imported), "answerstub", c.runnerID, "turn_stop",
 		`{"session_id":"main","last_assistant_message":"done"}`)
 	c.h.Quiesce()
 
 	choiceID := c.nestedAsk(t, "late")
-	readUntil(t, conn, c.choiceFrame(func(choices []map[string]any) bool {
-		return len(choices) == 1 && choices[0]["id"] == choiceID && choices[0]["answerable"] == true
-	}))
+	c.untilOpen(t, func(asks []askState) bool {
+		return len(asks) == 1 && asks[0].ID == choiceID && asks[0].Answerable
+	})
 
 	c.answer(t, choiceID)
 	assert.JSONEq(t, `{"decision":{"behavior":"allow"}}`, c.reply(t, choiceID),

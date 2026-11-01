@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -44,7 +43,7 @@ func TestRegression_CodexBackgroundedSubagentKeepsChatWorking(t *testing.T) {
 		samples              int
 		sawOpenWait          bool
 		sawIdleWhileWaitOpen bool
-		lastWaitStatus       string
+		lastWaitClosed       bool
 		stop                 = make(chan struct{})
 		done                 = make(chan struct{})
 	)
@@ -60,16 +59,13 @@ func TestRegression_CodexBackgroundedSubagentKeepsChatWorking(t *testing.T) {
 			if err != nil {
 				continue
 			}
-			activity, err := h.app.Usecases.AgentTurn.ReadActivity(context.Background(), chatID, 0, 0)
+			rows, err := h.app.Repositories.ChatLedger.Read(context.Background(), chatID, 0, 0)
 			if err != nil {
 				continue
 			}
 			openWait := false
-			for _, c := range activity.ToolCalls {
-				if !isSubagentWaitCall(c.Name) {
-					continue
-				}
-				if c.Status == domain.ToolStatusRunning {
+			for _, c := range runsOf(rows) {
+				if isSubagentWaitCall(c.Name) && !c.Closed {
 					openWait = true
 				}
 			}
@@ -89,11 +85,9 @@ func TestRegression_CodexBackgroundedSubagentKeepsChatWorking(t *testing.T) {
 
 	// awaitTurnComplete releases once the ledger reads idle: a wait call still
 	// running then is the same defect, seen from the barrier.
-	finalActivity, err := h.app.Usecases.AgentTurn.ReadActivity(context.Background(), chatID, 0, 0)
-	require.NoError(t, err)
-	for _, c := range finalActivity.ToolCalls {
+	for _, c := range toolRuns(t, h, chatID) {
 		if isSubagentWaitCall(c.Name) {
-			lastWaitStatus = c.Status
+			lastWaitClosed = c.Closed
 		}
 	}
 
@@ -110,7 +104,7 @@ func TestRegression_CodexBackgroundedSubagentKeepsChatWorking(t *testing.T) {
 	assert.False(t, sawIdleWhileWaitOpen,
 		"the ledger read idle while a real wait tool call was still running: the "+
 			"spinner goes dark under a genuinely live subagent")
-	assert.NotEqual(t, domain.ToolStatusRunning, lastWaitStatus,
+	assert.True(t, lastWaitClosed,
 		"awaitTurnComplete released while the wait call was still running: "+
 			"the barrier itself agrees the turn is over before the subagent actually is")
 }

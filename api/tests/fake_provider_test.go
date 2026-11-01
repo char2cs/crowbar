@@ -124,16 +124,11 @@ func askHook(ctx context.Context, t *testing.T, h *harness, base, provider, runn
 
 // heldChoice is the id of the ask a held hook opened on chatID: the first
 // answerable one not in seen.
-func heldChoice(t *testing.T, h *harness, base, chatID string, seen ...string) string {
+func heldChoice(t *testing.T, h *harness, chatID string, seen ...string) string {
 	t.Helper()
 	var id string
 	require.Eventually(t, func() bool {
-		var choices []struct {
-			ID         string `json:"id"`
-			Answerable bool   `json:"answerable"`
-		}
-		h.get(base+"/chats/"+chatID+"/choices", &choices)
-		for _, c := range choices {
+		for _, c := range openAsks(asksOf(t, h, chatID)) {
 			if c.Answerable && !slices.Contains(seen, c.ID) {
 				id = c.ID
 				return true
@@ -235,11 +230,7 @@ func TestFakeProvider_ReplaysTheRecordedClaudeSubagentSession(t *testing.T) {
 	}
 	assert.Contains(t, userTexts, first.Prompt)
 
-	var activity struct {
-		ToolCalls []json.RawMessage `json:"toolCalls"`
-	}
-	h.get(repoBase(imported)+"/chats/"+chatID+"/activity", &activity)
-	assert.NotEmpty(t, activity.ToolCalls, "the recorded session ran tools")
+	assert.NotEmpty(t, toolCalls(t, h, chatID), "the recorded session ran tools")
 }
 
 func TestFakeProvider_KillEndsTheRunnerWithNoHook(t *testing.T) {

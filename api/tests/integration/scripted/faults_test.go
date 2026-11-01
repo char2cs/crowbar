@@ -31,7 +31,7 @@ func (r *rig) dormantSaying(chatID string, reasons ...string) {
 	r.t.Helper()
 	r.eventually(func() bool {
 		live, _ := r.live(chatID)
-		return !live && !r.working(chatID) && slices.Contains(reasons, r.snapshot(chatID).Session.ExitReason)
+		return !live && !r.working(chatID) && slices.Contains(reasons, r.exitReason(chatID))
 	}, "the chat never went dormant with one of "+strings.Join(reasons, ", "))
 }
 
@@ -91,11 +91,9 @@ func TestScripted_HangThenStop(t *testing.T) {
 			assert.Less(t, time.Since(started), 15*time.Second, "Stop is bounded (S4)")
 
 			r.eventually(func() bool { return !r.working(chatID) }, "the hung turn never closed")
-			activity, err := r.d.app.Usecases.AgentTurn.ReadActivity(context.Background(), chatID, 0, 0)
-			require.NoError(t, err)
 			stopped := 0
-			for _, in := range activity.Interruptions {
-				if in.Kind == "stopped" {
+			for _, kind := range r.markers(chatID) {
+				if kind == ledger.MarkerStopped {
 					stopped++
 				}
 			}
@@ -198,10 +196,9 @@ func TestScripted_AnAskTooBigToHoldIsRefused(t *testing.T) {
 	assert.Empty(t, r.choices(chatID))
 	require.Len(t, r.logged("answer"), 1)
 	assert.NotRegexp(t, `allow|accept`, r.logged("answer")[0]["verdict"])
-	activity, err := r.d.app.Usecases.AgentTurn.ReadActivity(context.Background(), chatID, 0, 0)
-	require.NoError(t, err)
-	require.Len(t, activity.Choices, 1)
-	assert.Equal(t, ledger.ResolutionRefused, activity.Choices[0].Resolution)
+	resolved := kit.Bodies[ledger.AskResolved](r.rows(chatID), ledger.KindAskResolved)
+	require.Len(t, resolved, 1)
+	assert.Equal(t, ledger.ResolutionRefused, resolved[0].Resolution)
 }
 
 // An ask the user answers reaches the CLI as that answer.

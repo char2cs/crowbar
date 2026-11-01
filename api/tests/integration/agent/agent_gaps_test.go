@@ -122,39 +122,17 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 			"user turn, which echoes the driven prompt verbatim); turns=%+v", turns)
 }
 
-// readLedgerTurns returns chatID's whole conversation in order: a single turn
-// Crowbar recorded from a vendor CLI's own UserPromptSubmit/Stop hook. Under
-// descriptor-v2 this is Crowbar's OWN hook-derived record — the oracle for "what
-// each side said" — NOT a vendor transcript. v2 reads no vendor transcript and
-// records no transcript path, so the tests below assert on this record instead.
-//
-// It reads through Agent.ReadMessages, the same reader the Chat pane's message
-// endpoint serves from. It used to read the flat-file ledger directory at
-// <workspaceRoot>/chats/<chatID>/ledger; that store was replaced and NOTHING
-// writes those files any more, so the old
-// body silently returned nil for every chat — which made every assertion built on
-// it either vacuously empty or a five-minute backstop expiry. The lesson is the
-// same one that broke this package's compile: nothing behind the integration tag
-// is exercised by a default `go test ./...`.
-//
-// wsID is retained because resolving the workspace is a real precondition: a chat
-// whose workspace has gone is a fixture fault, and failing on it here says so
-// rather than surfacing as an empty conversation.
-//
-// Returns nil when the chat has no turns yet.
+// readLedgerTurns returns chatID's whole conversation in order, from the rows
+// Crowbar recorded off the CLI's own hooks: the oracle for what each side
+// said. A chat whose workspace has gone is a fixture fault, failed on here.
 func readLedgerTurns(t *testing.T, h *harness, wsID, chatID string) []ledgerTurn {
 	t.Helper()
 	ctx := context.Background()
 	_, err := h.app.Repositories.Workspace.Get(ctx, wsID)
 	require.NoError(t, err, "resolve workspace %s the chat is expected on", wsID)
 
-	// after=0/before=0 is the newest window; maxMessagePageLimit is 200, and no
-	// fixture in this package drives anything near that many turns.
-	page, err := h.app.Usecases.AgentChat.ReadMessages(ctx, chatID, 0, 0, 200)
-	require.NoError(t, err, "read chat %s's conversation record", chatID)
-
 	var turns []ledgerTurn
-	for _, m := range page.Items {
+	for _, m := range kit.Said(chatRows(t, h, chatID)) {
 		turns = append(turns, ledgerTurn{Role: m.Role, Provider: m.Provider, Text: m.Text})
 	}
 	return turns

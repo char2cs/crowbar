@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
 // channelSplitStubProviderDescriptorYAML mirrors codex.yaml's OWN migrated
@@ -50,19 +52,15 @@ events:
         tool_target: tool_input.command
 `
 
-type channelSplitActivityCall struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Target string `json:"target"`
-}
-
-func channelSplitActivity(t *testing.T, h *harness, ws importedRepo, chatID string) []channelSplitActivityCall {
+// toolCalls are the tool calls chatID's feed records, each by its first row.
+func toolCalls(t *testing.T, h *harness, chatID string) []ledger.ToolCall {
 	t.Helper()
-	var out struct {
-		ToolCalls []channelSplitActivityCall `json:"toolCalls"`
-	}
-	h.get(repoBase(ws)+"/chats/"+chatID+"/activity", &out)
-	return out.ToolCalls
+	seen := map[string]bool{}
+	return rowsOf(t, chatRows(t, h, chatID), ledger.KindToolCall, func(b ledger.ToolCall) bool {
+		first := !seen[b.ToolID]
+		seen[b.ToolID] = true
+		return first
+	})
 }
 
 // TestRegression_HooksDeliveryOfAChannelSplitEventCannotReadAPIShapedFields is
@@ -99,9 +97,9 @@ func TestRegression_HooksDeliveryOfAChannelSplitEventCannotReadAPIShapedFields(t
 		`"tool_input":{"command":"echo hi"}}`)
 	h.Quiesce()
 
-	calls := channelSplitActivity(t, h, ws, chatID)
+	calls := toolCalls(t, h, chatID)
 	require.Len(t, calls, 1, "the genuine hooks-shaped tool_pre must record one tool call")
-	assert.Equal(t, "tool-hooks-1", calls[0].ID, "resolved via the hooks: block's tool_id: tool_use_id")
+	assert.Equal(t, "tool-hooks-1", calls[0].ToolID, "resolved via the hooks: block's tool_id: tool_use_id")
 	assert.Equal(t, "Bash", calls[0].Name, "resolved via the hooks: block's tool_name: tool_name")
 	assert.Equal(t, "echo hi", calls[0].Target, "resolved via the hooks: block's tool_target: tool_input.command")
 
@@ -123,11 +121,11 @@ func TestRegression_HooksDeliveryOfAChannelSplitEventCannotReadAPIShapedFields(t
 	require.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
 	h.Quiesce()
 
-	calls = channelSplitActivity(t, h, ws, chatID)
+	calls = toolCalls(t, h, chatID)
 	require.Len(t, calls, 1, "the api-shaped delivery is missing its required session_id/tool_id/"+
 		"tool_name on the hooks: block — required: (design spec 2.3) must reject it outright, "+
 		"not record it under a fallback identity")
-	assert.Equal(t, "tool-hooks-1", calls[0].ID, "the genuine hooks-shaped call must be the only one recorded")
+	assert.Equal(t, "tool-hooks-1", calls[0].ToolID, "the genuine hooks-shaped call must be the only one recorded")
 	assert.Equal(t, "Bash", calls[0].Name)
 	assert.Equal(t, "echo hi", calls[0].Target,
 		"none of the attacker's id/type/command ever reached the ledger")

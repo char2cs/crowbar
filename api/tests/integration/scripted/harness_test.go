@@ -41,6 +41,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/gateway/transports"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
@@ -279,13 +280,37 @@ func (r *rig) live(chatID string) (bool, string) {
 // said reports the ledger's user/assistant texts in order.
 func (r *rig) said(chatID string) []string {
 	r.t.Helper()
-	page, err := r.d.app.Usecases.AgentChat.ReadMessages(context.Background(), chatID, 0, 0, 0)
-	require.NoError(r.t, err)
-	out := make([]string, 0, len(page.Items))
-	for _, m := range page.Items {
+	said := kit.Said(r.rows(chatID))
+	out := make([]string, 0, len(said))
+	for _, m := range said {
 		out = append(out, m.Role+": "+m.Text)
 	}
 	return out
+}
+
+// rows are chatID's ledger rows, as its feed carries them.
+func (r *rig) rows(chatID string) []ledger.Row {
+	r.t.Helper()
+	rows, err := r.d.app.Repositories.ChatLedger.Read(context.Background(), chatID, 0, 0)
+	require.NoError(r.t, err)
+	return rows
+}
+
+// markers are the kinds of chatID's marker rows, in order.
+func (r *rig) markers(chatID string) []string {
+	r.t.Helper()
+	var out []string
+	for _, m := range kit.Bodies[ledger.Marker](r.rows(chatID), ledger.KindMarker) {
+		out = append(out, m.Kind)
+	}
+	return out
+}
+
+// exitReason is how chatID's last runner ended, "" while one is live.
+func (r *rig) exitReason(chatID string) string {
+	r.t.Helper()
+	exit, _ := ledger.Fold(chatID, r.rows(chatID)).LastExit()
+	return exit.Reason
 }
 
 func (r *rig) working(chatID string) bool {
@@ -294,9 +319,7 @@ func (r *rig) working(chatID string) bool {
 
 func (r *rig) choices(chatID string) []domain.ActivityChoice {
 	r.t.Helper()
-	pending, err := r.d.app.Usecases.AgentTurn.ReadPendingChoices(context.Background(), chatID)
-	require.NoError(r.t, err)
-	return pending
+	return ledger.Fold(chatID, r.rows(chatID)).OpenAsks()
 }
 
 // eventually waits for cond, polling what the test can observe.

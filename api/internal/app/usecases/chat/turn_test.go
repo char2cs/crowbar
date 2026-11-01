@@ -1935,7 +1935,7 @@ func TestRegression_CodexCompactionTurnNeverStopsTheChat(t *testing.T) {
 
 	afterCompaction, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Equal(t, len(before), len(afterCompaction),
+	require.Len(t, afterCompaction, len(before),
 		"the compaction's own turn_stop must record NOTHING in the ledger")
 
 	// The guard must be surgically scoped to the armed id, not to turn_stop as
@@ -2002,7 +2002,7 @@ func TestRegression_CodexFailedCompactionTurnRecordsNoFailureNotice(t *testing.T
 
 	after, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
-	require.Equal(t, len(before), len(after),
+	require.Len(t, after, len(before),
 		"a failed compaction round trip must record NO notice row in the transcript")
 }
 

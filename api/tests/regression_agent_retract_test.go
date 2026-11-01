@@ -43,13 +43,54 @@ func (c turnChat) send(t *testing.T, text, requestID string) kit.Launch {
 // feedRows is the chat's whole feed replay, in seq order.
 func (c turnChat) feedRows(t *testing.T) []stream.Frame {
 	t.Helper()
-	c.h.QuiesceReactors()
-	feed := dialFeed(t, c.h, c.chatID, 0)
+	return chatRows(t, c.h, c.chatID)
+}
+
+// chatRows is chatID's whole feed replay, in seq order: what a client reads
+// the chat from.
+func chatRows(t *testing.T, h *harness, chatID string) []stream.Frame {
+	t.Helper()
+	h.app.Repositories.QuiesceReactors(t.Context())
+	feed := dialFeed(t, h, chatID, 0)
 	var rows []stream.Frame
 	for f := nextFeedFrame(t, feed); f.T != stream.FrameSynced; f = nextFeedFrame(t, feed) {
 		rows = append(rows, f)
 	}
 	return rows
+}
+
+// ledgerRows are chatID's feed rows as the ledger rows they carry.
+func ledgerRows(t *testing.T, h *harness, chatID string) []ledger.Row {
+	t.Helper()
+	frames := chatRows(t, h, chatID)
+	rows := make([]ledger.Row, 0, len(frames))
+	for _, f := range frames {
+		rows = append(rows, *f.Row)
+	}
+	return rows
+}
+
+// chatState is chatID's ledger state, folded from its feed rows.
+func chatState(t *testing.T, h *harness, chatID string) ledger.State {
+	t.Helper()
+	st := ledger.State{ChatID: chatID}
+	for _, r := range ledgerRows(t, h, chatID) {
+		st.Apply(r)
+	}
+	return st
+}
+
+// seqOf is the seq of the first row of kind that keep accepts.
+func seqOf[B any](t *testing.T, rows []stream.Frame, kind ledger.Kind, keep func(B) bool) int64 {
+	t.Helper()
+	for _, f := range rows {
+		var b B
+		if f.Row.Kind == kind && json.Unmarshal(f.Row.Body, &b) == nil && keep(b) {
+			return f.Row.Seq
+		}
+	}
+	require.Failf(t, "no such row", "no %s row matched", kind)
+	return 0
 }
 
 // rowsOf decodes the body of every row of kind that keep accepts.

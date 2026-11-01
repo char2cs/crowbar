@@ -238,12 +238,12 @@ describe('attachScope', () => {
     expect(chats().c1).toBeDefined()
   })
 
-  it('writes a telemetry frame and leaves a turn view to the chat feed', async () => {
+  it('writes a telemetry frame and leaves worktree state to the workspace', async () => {
     attach('w1')
     await flush()
     const report = { observedAt: '2026-08-24T12:00:00Z', source: 'callback' as const }
     push({ chatId: 'c1', kind: 'telemetry', telemetry: report })
-    push({ chatId: 'c1', kind: 'message_delta', chat: chat('c1', { title: 'ignored' }) })
+    push({ chatId: 'c1', kind: 'worktree_state', chat: chat('c1', { title: 'ignored' }) })
     expect(chatStore.getState().telemetry.c1).toEqual(report)
     expect(chats().c1?.title).toBe('c1')
     expect(generation()).toBe(0)
