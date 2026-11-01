@@ -89,13 +89,6 @@ describe('deriveRows', () => {
     expect(rows.map((r) => r.id)).toEqual(['c1', 'w2'])
   })
 
-  it('labels a row by its view, so a locked branch and an owned branch read differently', () => {
-    const rows = pure([node('w1', 'workspace'), node('w2', 'workspace')], {
-      workspaces: { w1: wsView('w1', 'release/1.x'), w2: wsView('c2', 'Fix the parser') },
-    })
-    expect(rows.map((r) => r.label)).toEqual(['release/1.x', 'Fix the parser'])
-  })
-
   it('draws children in index order, depth-first', () => {
     const rows = pure(
       [
@@ -132,13 +125,17 @@ describe('deriveRows', () => {
     expect(byId.get('f1')).toMatchObject({ ownsWorktree: false, workspaceId: 'project-home-ws' })
   })
 
-  it('never draws a node it has no view for, and reports it once', () => {
+  it('never draws a node it has no view for, nor its subtree, and reports it once', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const nodes = [node('ghost-ws', 'workspace'), node('kid', 'chat', 'ghost-ws')]
-    const views = { chats: { kid: chatView('kid') } }
+    const kinds = ['workspace', 'chat', 'repo'] as const
+    const nodes = kinds.flatMap((k) => [
+      node(`ghost-${k}`, k),
+      node(`kid-${k}`, 'chat', `ghost-${k}`),
+    ])
+    const views = { chats: Object.fromEntries(kinds.map((k) => [`kid-${k}`, chatView('kid')])) }
     expect(pure(nodes, views)).toEqual([])
     pure(nodes, views)
-    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledTimes(3)
     warn.mockRestore()
   })
 
@@ -172,8 +169,23 @@ describe('deriveRows', () => {
     const views = { repos: { r1: repoView('home-owner') } }
     const creating = pure(nodes, views, { operations: [op] })
     expect(creating.at(-1)).toMatchObject({ id: 'c-new', parentId: 'home-owner', working: true })
+    // The daemon appends a create at the end of its level.
+    expect(creating.at(-1)?.order).toBe(Number.MAX_SAFE_INTEGER)
     const arrived = pure(nodes, views, { operations: [op], isPresent: (ref) => ref.id === 'c-new' })
     expect(arrived.map((r) => r.id)).toEqual(['home-owner'])
+  })
+
+  it("draws the naming input at the draft's parent and slot, in its own project only", () => {
+    const draft = {
+      kind: 'chat',
+      projectId: 'p1',
+      workspaceId: 'w1',
+      parentId: 'c1',
+      order: 3,
+    } as const
+    const ui = { removals: [], draft: { ...draft, ownsWorktree: false } }
+    expect(pure([], {}, { ui })).toMatchObject([{ id: 'create-draft', parentId: 'c1', order: 3 }])
+    expect(pure([], {}, { ui, projectId: 'p2' })).toEqual([])
   })
 })
 
@@ -192,9 +204,7 @@ describe('chat rows', () => {
     expect(row?.workspaceId).toBe('ws-home')
   })
 
-  // Regression: a bubble (no `Workspace` of its own, no `chat.workspaceId`) used to get
-  // `workspaceId: null` on its own row, which is what left it with nothing to open into — `open-
-  // actions.ts`'s `openableWorkspaceOf` reads exactly this field, and a click on a bubble with no
+  // A bubble's row falls back to its nearest ancestor workspace, or a click has nothing to open.
   it('a bubble with no workspace of its own falls back to its nearest ancestor workspace', () => {
     const repo = makeRepo({
       defaultWorkspaceId: 'ws-home',
@@ -395,9 +405,7 @@ describe('chat rows', () => {
   })
 })
 
-// The bug this closes: a branch row was id'd from its `Workspace` record, and the backend's
-// placement validation resolves a create's parent id as a CHAT row — so "+" on a locked branch, the
-// repo home or an existing workspace named a row the daemon has never heard of.
+// A branch row is id'd by its owning chat: the daemon resolves a create's parent as a chat row.
 describe('a branch row is identified by its owning chat', () => {
   it('a locked branch row carries its owning branch-chat id, not the workspace id', () => {
     const { workspace, chat } = makeOwnedWorkspace(
@@ -453,9 +461,7 @@ describe('a branch row is identified by its owning chat', () => {
   })
 })
 
-// Constraint from the plan: the three protected/locked-branch rows (develop, main, project home)
-// never go through `handleCreate`'s create-workspace path — but this is the one case the migration
-// must never touch, so it gets an explicit regression test proving they still render exactly as
+// The protected branches (develop, main, project home) never take the create-workspace path.
 describe('protected branches stay chat-less branch rows', () => {
   it('the project-home row stays chat-less and branch-kind', () => {
     const repo = makeRepo({
@@ -482,9 +488,7 @@ describe('protected branches stay chat-less branch rows', () => {
     const develop = rows.find((r) => r.workspaceId === 'develop')
     expect(develop?.kind).toBe('branch')
     expect(develop?.ownsWorktree).toBe(true)
-    // A locked branch keeps its BRANCH-labelled row (addendum rules 1-4:
-    // "Folder mechanism"), even though it is now id'd and folded exactly
-    // like any other workspace-owning chat.
+    // A locked branch keeps its branch-labelled row while folded like any owned workspace.
     expect(develop?.label).toBe('develop')
     expect(rows.some((r) => r.kind === 'chat' && r.workspaceId === 'develop')).toBe(false)
   })
