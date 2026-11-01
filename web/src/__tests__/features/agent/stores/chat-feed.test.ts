@@ -57,15 +57,17 @@ describe('attachFeed', () => {
   it('a resubscribe sends since = the last applied seq', () => {
     attachFeed('chat-1')
     const l = ledger()
+    // A turn's start adds no item, so the seq is not the item count.
     push({ t: 'row', row: l.prompt('r1', 'hi') })
-    push({ t: 'synced', seq: 1 })
-    push({ t: 'closed', reason: 'resync', seq: 1 })
-    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 1 })
+    push({ t: 'row', row: l.start('turn-1', 'r1') })
+    push({ t: 'synced', seq: 2 })
     expect(feed()?.order).toEqual(['p:r1'])
+    push({ t: 'closed', reason: 'resync', seq: 2 })
+    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 2 })
 
     streamDaemon.drop()
     streamDaemon.deliver({ t: 'ready', epoch: 'e1' })
-    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 1 })
+    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 2 })
   })
 
   it('rebuilds from since=0 when a resync names a seq behind the feed', () => {
