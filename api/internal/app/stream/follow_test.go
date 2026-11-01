@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,7 +27,6 @@ type ledgerSrc struct {
 	linger  bool
 
 	mu       sync.Mutex
-	emitted  atomic.Int64
 	attached []int64
 	lives    chan chan stream.Frame
 	ends     chan int64
@@ -47,7 +46,6 @@ func (l *ledgerSrc) Attach(ctx context.Context, _ string, since int64, emit func
 	}
 	for seq := since + 1; seq <= l.rows; seq++ {
 		emit(stream.Frame{T: stream.FrameRow, Row: &ledger.Row{Seq: seq}})
-		l.emitted.Add(1)
 	}
 	emit(stream.Frame{T: stream.FrameSynced, Seq: l.rows})
 	live := make(chan stream.Frame)
@@ -100,7 +98,7 @@ func ledgerHub(src *ledgerSrc) *appstream.Hub {
 	}, nil)
 }
 
-// A replay past even the hard bound reaches a writer that drains slowly: the
+// A replay past even the hard bound reaches a writer that holds still: the
 // replay waits for room instead of closing the connection (index R8).
 func TestHub_ALedgerReplayLargerThanTheQueueIsDelivered(t *testing.T) {
 	rows := stream.HardQueueSize + stream.QueueSize
@@ -111,9 +109,10 @@ func TestHub_ALedgerReplayLargerThanTheQueueIsDelivered(t *testing.T) {
 	served(t, hub, conn)
 
 	conn.send(t, stream.OpSub, "chat:c1")
-	// The writer holds still until the replay has filled the queue it waits on.
-	require.Eventually(t, func() bool { return src.emitted.Load() >= stream.QueueSize },
-		waitBound, time.Millisecond)
+	// The writer holds still until the replay either waits for room or, had it
+	// not, overran the hard bound and closed the connection.
+	require.Eventually(t, func() bool { return replayWaits() || isClosed(conn) }, waitBound, time.Millisecond)
+	require.False(t, isClosed(conn), "the replay overran the queue instead of waiting")
 	go func() {
 		for range rows + 1 {
 			select {
@@ -128,6 +127,26 @@ func TestHub_ALedgerReplayLargerThanTheQueueIsDelivered(t *testing.T) {
 	require.Len(t, seen, rows+1)
 	assert.Equal(t, int64(rows), seen[rows].Seq)
 	assert.Equal(t, 0, conn.closeCode())
+}
+
+// replayWaits says some goroutine is parked waiting for room in a connection's queue.
+func replayWaits() bool {
+	buf := make([]byte, 1<<22)
+	for _, g := range strings.Split(string(buf[:runtime.Stack(buf, true)]), "\n\n") {
+		if strings.Contains(g, "[select") && strings.Contains(g, "stream.(*connection).await") {
+			return true
+		}
+	}
+	return false
+}
+
+func isClosed(conn *fakeConn) bool {
+	select {
+	case <-conn.closed:
+		return true
+	default:
+		return false
+	}
 }
 
 // Live ledger frames count toward the bound: a client that stops reading is told to resync.
