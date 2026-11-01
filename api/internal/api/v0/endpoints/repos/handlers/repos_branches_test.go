@@ -77,6 +77,7 @@ func TestBranches_Success_AnnotatesProtectionAndWorkspace(t *testing.T) {
 		}}, nil,
 		nil,
 		unusedHome,
+		nil,
 	).WithRemoteRefresher(enginegit.New())
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/branches", h.Branches)
@@ -108,7 +109,7 @@ func TestBranches_NoProviderOrWorkspaceReader_StillListsBranches(t *testing.T) {
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: clone}}
 	// NewWithDeps with nil provider/wsReader exercises both "if h.provider !=
 	// nil" / "if h.wsReader != nil" false branches.
-	h := repohandlers.NewWithDeps(store, nil, nil, nil, nil, unusedHome).WithRemoteRefresher(enginegit.New())
+	h := repohandlers.NewWithDeps(store, nil, nil, nil, nil, unusedHome, nil).WithRemoteRefresher(enginegit.New())
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/branches", h.Branches)
 
@@ -133,7 +134,7 @@ func TestBranches_GitCommandFails_Returns500(t *testing.T) {
 	// branch -r` fails.
 	dir := t.TempDir()
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: dir}}
-	h := repohandlers.NewWithDeps(store, nil, nil, nil, nil, unusedHome).WithRemoteRefresher(enginegit.New())
+	h := repohandlers.NewWithDeps(store, nil, nil, nil, nil, unusedHome, nil).WithRemoteRefresher(enginegit.New())
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/branches", h.Branches)
 
@@ -150,7 +151,7 @@ func TestBranches_GitCommandFails_Returns500(t *testing.T) {
 func TestRegression_Branches_ProtectionLookupFailureIsNotUnprotected(t *testing.T) {
 	clone := initRemoteTrackingRepo(t)
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: clone}}
-	h := repohandlers.NewWithDeps(store, &fakeBranchProvider{protectedErr: errors.New("gh down")}, nil, nil, nil, unusedHome).
+	h := repohandlers.NewWithDeps(store, &fakeBranchProvider{protectedErr: errors.New("gh down")}, nil, nil, nil, unusedHome, nil).
 		WithRemoteRefresher(enginegit.New())
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/branches", h.Branches)
@@ -163,7 +164,7 @@ func TestRegression_Branches_ProtectionLookupFailureIsNotUnprotected(t *testing.
 
 func TestBranches_StoreLookupError_Returns404(t *testing.T) {
 	store := &fakeStore{byKeErr: errors.New("db down")}
-	h := repohandlers.NewWithDeps(store, nil, nil, nil, nil, unusedHome).WithRemoteRefresher(enginegit.New())
+	h := repohandlers.NewWithDeps(store, nil, nil, nil, nil, unusedHome, nil).WithRemoteRefresher(enginegit.New())
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/branches", h.Branches)
 

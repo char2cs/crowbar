@@ -2,6 +2,7 @@ package dto
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -32,13 +33,13 @@ func (p *Placements) Of(ctx context.Context, rows []domain.Repository) map[strin
 		if unreadable[r.ProjectID] {
 			continue
 		}
-		n, err := tree.OrUnplaced(p.at(ctx, r.ID))
+		at, err := p.At(ctx, r.ID)
 		if err != nil {
 			unreadable[r.ProjectID] = true
 			p.report(ctx, r.ProjectID, err)
 			continue
 		}
-		placements[r.ID] = RepoPlacement{FolderID: n.ParentID, Order: n.Order}
+		placements[r.ID] = at
 	}
 	for _, r := range rows {
 		if unreadable[r.ProjectID] {
@@ -46,6 +47,16 @@ func (p *Placements) Of(ctx context.Context, rows []domain.Repository) map[strin
 		}
 	}
 	return placements
+}
+
+// At is repoID's own position; a row not written yet is the root, any other
+// failed read is the caller's.
+func (p *Placements) At(ctx context.Context, repoID string) (RepoPlacement, error) {
+	n, err := tree.OrUnplaced(p.at(ctx, repoID))
+	if err != nil {
+		return RepoPlacement{}, fmt.Errorf("placement of %s: %w", repoID, err)
+	}
+	return RepoPlacement{FolderID: n.ParentID, Order: n.Order}, nil
 }
 
 func (p *Placements) report(ctx context.Context, projectID string, err error) {

@@ -16,7 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
-	"github.com/char2cs/crowbar/api/internal/domain/tree"
 	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
 
@@ -111,22 +110,6 @@ type RepoImporter interface {
 	) error
 }
 
-// NodeReader is the narrow Node surface the repos handlers need: reading a
-// RepoDTO's own sidebar position (Order/FolderID — see tree.Node and
-// dto.RepoPlacement), and forgetting the row when the repo goes. Every other
-// WRITE to a repo's position goes through RepoUpdater
-// (project.Usecase.UpdateRepo) instead.
-type NodeReader interface {
-	Forget(
-		ctx context.Context,
-		id string,
-	) error
-	GetNode(
-		ctx context.Context,
-		id string,
-	) (tree.Node, error)
-}
-
 // RepoUpdater applies a partial repository update — display name (and its
 // derived avatar), sidebar order, owning project — and returns the updated repo
 // so the handler can broadcast the new RepoDTO.
@@ -159,7 +142,6 @@ type Handlers struct {
 	remote      RemoteRefresher
 	importer    RepoImporter
 	updater     RepoUpdater
-	nodes       NodeReader
 	placements  *dto.Placements
 	crowbarHome func() (string, error)
 	fetchAvatar AvatarBytesFetcher
@@ -185,16 +167,13 @@ func New(
 		broadcast:   func(dto.RepoDTO) {},
 		stat:        os.Stat,
 	}
-	h.placements = dto.NewPlacements(h.positionOf, func(ctx context.Context, projectID string, err error) {
-		slog.ErrorContext(ctx, "repos: list: tree unreadable, its repos listed at the root", "project", projectID, "err", err)
-	})
 	return h
 }
 
 // NewWithDeps builds Handlers with the optional provider + workspace deps
 // needed for the Branches endpoint, the operations service create and delete
-// run under, and the Repos-channel broadcast func. A nil broadcast degrades to
-// a no-op.
+// run under, the Repos-channel broadcast func, and the app's one position read
+// (nil puts every repo at the root). A nil broadcast degrades to a no-op.
 func NewWithDeps(
 	store Store,
 	prov BranchProviderEngine,
@@ -202,8 +181,10 @@ func NewWithDeps(
 	ops Operations,
 	broadcast func(dto.RepoDTO),
 	crowbarHome func() (string, error),
+	placements *dto.Placements,
 ) *Handlers {
 	h := New(store, crowbarHome)
+	h.placements = placements
 	h.provider = prov
 	h.wsReader = wsReader
 	h.ops = ops
@@ -260,19 +241,6 @@ func (h *Handlers) WithUpdater(
 	return h
 }
 
-// WithNodes wires the read-only Node surface a RepoDTO reads its own sidebar
-// position from (see NodeReader). A nil arg leaves every RepoDTO's Order/
-// FolderID at the zero value (root, order 0) — the same degrade a repo with no
-// Node row yet renders as.
-func (h *Handlers) WithNodes(
-	nodes NodeReader,
-) *Handlers {
-	if nodes != nil {
-		h.nodes = nodes
-	}
-	return h
-}
-
 // WithStat overrides the filesystem stat used to validate the create path
 // synchronously. Intended for tests; a nil arg leaves os.Stat in place.
 func (h *Handlers) WithStat(
@@ -284,26 +252,32 @@ func (h *Handlers) WithStat(
 	return h
 }
 
-// placementOf resolves repoID's own sidebar position from its Node row. No
-// reader wired, or no row yet (a repo created through the bare buildRepo+Save
-// fallback never gets one), is the root's first slot; a failed read is the caller's.
+// placementOf resolves repoID's own sidebar position. With no position read
+// wired, or no row yet (a repo created through the bare buildRepo+Save fallback
+// never gets one), it is the root's first slot; a failed read is the caller's.
 func (h *Handlers) placementOf(
 	ctx context.Context,
 	repoID string,
 ) (dto.RepoPlacement, error) {
-	n, err := tree.OrUnplaced(h.positionOf(ctx, repoID))
-	if err != nil {
-		return dto.RepoPlacement{}, fmt.Errorf("repos: placement of %s: %w", repoID, err)
+	if h.placements == nil {
+		return dto.RepoPlacement{}, nil
 	}
-	return dto.RepoPlacement{FolderID: n.ParentID, Order: n.Order}, nil
+	p, err := h.placements.At(ctx, repoID)
+	if err != nil {
+		return dto.RepoPlacement{}, fmt.Errorf("repos: %w", err)
+	}
+	return p, nil
 }
 
-// positionOf is repoID's Node row; with no Node surface wired every repo is unplaced.
-func (h *Handlers) positionOf(ctx context.Context, repoID string) (tree.Node, error) {
-	if h.nodes == nil {
-		return tree.Node{}, problem.ErrNotFound
+// placementsOf is every listed repo's position; see dto.Placements.
+func (h *Handlers) placementsOf(
+	ctx context.Context,
+	repos []domain.Repository,
+) map[string]dto.RepoPlacement {
+	if h.placements == nil {
+		return nil
 	}
-	return h.nodes.GetNode(ctx, repoID)
+	return h.placements.Of(ctx, repos)
 }
 
 // broadcastRepo fans repo out at its own position. A mutation that already
@@ -342,7 +316,7 @@ func (h *Handlers) List(
 		projectID = c.Query("projectId")
 	}
 	repos = filterByProject(repos, projectID)
-	libs.WriteQueryOK(c, dto.RepoDTOList(repos, h.placements.Of(c.Request.Context(), repos)))
+	libs.WriteQueryOK(c, dto.RepoDTOList(repos, h.placementsOf(c.Request.Context(), repos)))
 }
 
 // Detail handles GET /v0/projects/:projectId/repos/:repoId, returning a single RepoDTO. The workspace

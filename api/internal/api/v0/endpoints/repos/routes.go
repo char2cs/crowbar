@@ -21,7 +21,7 @@ func Register(
 	wsReader repohandlers.WorkspaceReader,
 	importer repohandlers.RepoImporter,
 	updater repohandlers.RepoUpdater,
-	nodes repohandlers.NodeReader,
+	placements *dto.Placements,
 	remote repohandlers.RemoteRefresher,
 	deleter repohandlers.RepoDeleter,
 	ops repohandlers.Operations,
@@ -30,10 +30,9 @@ func Register(
 	reposWS gin.HandlerFunc,
 	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
 ) {
-	h := repohandlers.NewWithDeps(store, prov, wsReader, ops, broadcast, crowbarHome).
+	h := repohandlers.NewWithDeps(store, prov, wsReader, ops, broadcast, crowbarHome, placements).
 		WithImporter(importer).
 		WithUpdater(updater).
-		WithNodes(nodes).
 		WithRemoteRefresher(remote).
 		WithRepoDeleter(deleter)
 	rg.POST("/repos", h.Create)

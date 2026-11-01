@@ -154,7 +154,7 @@ func newCreateRouter(
 	bc *recordingRepoBroadcaster,
 ) *gin.Engine {
 	r := gin.New()
-	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, ops, bc.push, unusedHome).
+	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, ops, bc.push, unusedHome, nil).
 		WithStat(statRepoOK).
 		WithImporter(imp)
 	r.Group("/v0/projects/:projectId").POST("/repos", h.Create)
@@ -266,7 +266,7 @@ func TestCreate_AlreadyImported_409(t *testing.T) {
 func TestCreate_PathMissing_4xx(t *testing.T) {
 	imp := &fakeRepoImporter{}
 	r := gin.New()
-	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, newRecordedOps(t), nil, unusedHome).
+	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, newRecordedOps(t), nil, unusedHome, nil).
 		WithStat(func(string) (os.FileInfo, error) { return nil, os.ErrNotExist }).
 		WithImporter(imp)
 	r.Group("/v0/projects/:projectId").POST("/repos", h.Create)

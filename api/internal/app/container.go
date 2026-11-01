@@ -39,6 +39,9 @@ type Container struct {
 	Usecases     *usecases.Container
 	// Operations runs the work routes hand off after answering 202.
 	Operations *operation.Service
+	// RepoPlacements is the one position read every repo list goes through, so
+	// a project whose tree cannot be read is logged once per boot.
+	RepoPlacements *dto.Placements
 	// Stream serves every client the scopes it holds.
 	Stream *stream.Hub
 	// resources are what a held scope runs; Close stops what is still running.
@@ -114,11 +117,14 @@ func New(
 	repos.PurgeChat = ucs.AgentChat.PurgeChat
 	set := newStream(ctx, late, encode, ops, repos, ucs, engines)
 	c := &Container{
-		Hub:            h,
-		Repositories:   repos,
-		GORM:           gormStores,
-		Usecases:       ucs,
-		Operations:     ops,
+		Hub:          h,
+		Repositories: repos,
+		GORM:         gormStores,
+		Usecases:     ucs,
+		Operations:   ops,
+		RepoPlacements: dto.NewPlacements(repos.Placement.GetNode, func(ctx context.Context, projectID string, err error) {
+			slog.ErrorContext(ctx, "repos: tree unreadable, its repos listed at the root", "project", projectID, "err", err)
+		}),
 		Stream:         late.hub,
 		resources:      set,
 		crowbarHome:    crowbarHome,

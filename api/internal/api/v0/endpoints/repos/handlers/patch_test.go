@@ -59,7 +59,7 @@ func patchRouter(
 	home := t.TempDir()
 	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, nil, func(d dto.RepoDTO) {
 		*frames = append(*frames, d)
-	}, func() (string, error) { return home, nil }).WithUpdater(updater)
+	}, func() (string, error) { return home, nil }, nil).WithUpdater(updater)
 	r := gin.New()
 	r.PATCH("/v0/projects/:projectId/repos/:repoId", h.Patch)
 	return r
@@ -99,14 +99,18 @@ func TestPatchRepo_BroadcastsRenamedDTO(t *testing.T) {
 	assert.Equal(t, "R", frames[0].AvatarLabel)
 }
 
-// fakeNodeReader is a trivial repohandlers.NodeReader: a fixed map of id ->
-// tree.Node, so a test can pin the Order/FolderID a RepoDTO broadcast reads
-// off the repo's own Node row without standing up the real repository.
+// fakeNodeReader is a fixed map of id -> tree.Node, so a test can pin the
+// Order/FolderID a RepoDTO reads off the repo's own Node row without standing
+// up the real repository.
 type fakeNodeReader map[string]tree.Node
 
-func (f fakeNodeReader) Forget(_ context.Context, id string) error {
-	delete(f, id)
-	return nil
+// positionReader is what a test's placements read positions from.
+type positionReader interface {
+	GetNode(ctx context.Context, id string) (tree.Node, error)
+}
+
+func placementsOver(nodes positionReader) *dto.Placements {
+	return dto.NewPlacements(nodes.GetNode, func(context.Context, string, error) {})
 }
 
 func (f fakeNodeReader) GetNode(_ context.Context, id string) (tree.Node, error) {
@@ -126,7 +130,7 @@ func TestPatchRepo_OrderOnlyNeedsNoName(t *testing.T) {
 	var frames []dto.RepoDTO
 	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, nil, func(d dto.RepoDTO) {
 		frames = append(frames, d)
-	}, func() (string, error) { return t.TempDir(), nil }).WithUpdater(upd)
+	}, func() (string, error) { return t.TempDir(), nil }, nil).WithUpdater(upd)
 	r := gin.New()
 	r.PATCH("/v0/projects/:projectId/repos/:repoId", h.Patch)
 
@@ -216,7 +220,7 @@ func TestPatchRepo_ProjectMoveSurvivesAnUnresolvableHome(t *testing.T) {
 	var frames []dto.RepoDTO
 	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, nil, func(d dto.RepoDTO) {
 		frames = append(frames, d)
-	}, func() (string, error) { return "", errors.New("no home") }).
+	}, func() (string, error) { return "", errors.New("no home") }, nil).
 		WithUpdater(upd)
 	r := gin.New()
 	r.PATCH("/v0/projects/:projectId/repos/:repoId", h.Patch)
@@ -243,9 +247,10 @@ func TestRegression_PatchRepo_BroadcastsTheDecidedPlacementAndEveryShiftedRepo(t
 	store := &fakeStore{all: []domain.Repository{{ID: "r1", ProjectID: "p1"}, {ID: "r2", ProjectID: "p1", Name: "two"}}}
 	h := repohandlers.NewWithDeps(store, nil, nil, nil, func(d dto.RepoDTO) {
 		frames = append(frames, d)
-	}, func() (string, error) { return t.TempDir(), nil }).WithUpdater(upd).
+	}, func() (string, error) { return t.TempDir(), nil },
 		// The projection still serves the PRE-write order.
-		WithNodes(fakeNodeReader{"r1": tree.Node{ID: "r1", Order: 3}, "r2": tree.Node{ID: "r2", Order: 0}})
+		placementsOver(fakeNodeReader{"r1": tree.Node{ID: "r1", Order: 3}, "r2": tree.Node{ID: "r2", Order: 0}})).
+		WithUpdater(upd)
 	r := gin.New()
 	r.PATCH("/v0/projects/:projectId/repos/:repoId", h.Patch)
 
@@ -268,18 +273,18 @@ func TestRegression_PatchRepo_BroadcastsTheDecidedPlacementAndEveryShiftedRepo(t
 // so both constructors refuse it up front.
 func TestNew_NilCrowbarHomePanics(t *testing.T) {
 	assert.Panics(t, func() { repohandlers.New(&fakeStore{}, nil) })
-	assert.Panics(t, func() { repohandlers.NewWithDeps(&fakeStore{}, nil, nil, nil, nil, nil) })
+	assert.Panics(t, func() { repohandlers.NewWithDeps(&fakeStore{}, nil, nil, nil, nil, nil, nil) })
 }
 
 // brokenNodes fails every position read the way an unreadable tree does.
-type brokenNodes struct{ fakeNodeReader }
+type brokenNodes struct{}
 
 func (brokenNodes) GetNode(context.Context, string) (tree.Node, error) {
 	return tree.Node{}, fmt.Errorf("tree: read p1: %w", errors.New("disk gone"))
 }
 
 // brokenProject fails the position reads of p1's repo only.
-type brokenProject struct{ fakeNodeReader }
+type brokenProject struct{}
 
 func (brokenProject) GetNode(_ context.Context, id string) (tree.Node, error) {
 	if id == "r1" {
@@ -288,13 +293,13 @@ func (brokenProject) GetNode(_ context.Context, id string) (tree.Node, error) {
 	return tree.Node{ParentID: "f2", Order: 3}, nil
 }
 
-func placementRouter(t *testing.T, nodes repohandlers.NodeReader, frames *[]dto.RepoDTO) *gin.Engine {
+func placementRouter(t *testing.T, nodes positionReader, frames *[]dto.RepoDTO) *gin.Engine {
 	t.Helper()
 	repo := domain.Repository{ID: "r1", ProjectID: "p1", Name: "one"}
 	other := domain.Repository{ID: "r2", ProjectID: "p2", Name: "two"}
 	store := &fakeStore{byKey: &repo, all: []domain.Repository{repo, other}}
 	h := repohandlers.NewWithDeps(store, nil, nil, nil, func(d dto.RepoDTO) { *frames = append(*frames, d) },
-		func() (string, error) { return t.TempDir(), nil }).WithNodes(nodes)
+		func() (string, error) { return t.TempDir(), nil }, placementsOver(nodes))
 	r := gin.New()
 	r.GET("/v0/repos", h.List)
 	r.GET("/v0/projects/:projectId/repos/:repoId", h.Detail)

@@ -39,7 +39,7 @@ func broadcastIconRouter(
 ) *gin.Engine {
 	h := repohandlers.NewWithDeps(store, nil, nil, nil, func(d dto.RepoDTO) {
 		*frames = append(*frames, d)
-	}, func() (string, error) { return home, nil }).WithAvatarFetcher(fetch)
+	}, func() (string, error) { return home, nil }, nil).WithAvatarFetcher(fetch)
 	r := gin.New()
 	r.PUT("/v0/projects/:projectId/repos/:repoId/icon", h.PutIcon)
 	r.PUT("/v0/projects/:projectId/repos/:repoId/icon/emoji", h.PutIconEmoji)

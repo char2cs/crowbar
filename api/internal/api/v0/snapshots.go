@@ -2,13 +2,11 @@ package v0
 
 import (
 	"context"
-	"log/slog"
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // parseRepoScope splits a hierarchical subscription prefix ("p", "p/r", or
@@ -54,12 +52,7 @@ func projectSnapshot(
 // snapshot; one project's unreadable tree only lists its repos at the root.
 func repoSnapshot(
 	appContainer *app.Container,
-	positionOf func(ctx context.Context, repoID string) (tree.Node, error),
 ) func(scope string) []dto.RepoDTO {
-	placements := dto.NewPlacements(positionOf, func(ctx context.Context, projectID string, err error) {
-		slog.ErrorContext(ctx, "stream: repo snapshot: tree unreadable, its repos listed at the root",
-			"project", projectID, "err", err)
-	})
 	return func(scope string) []dto.RepoDTO {
 		ctx := context.Background()
 		projectID, _ := parseRepoScope(scope)
@@ -68,7 +61,7 @@ func repoSnapshot(
 			return nil
 		}
 		rows = scopeReposToProject(rows, projectID)
-		return dto.RepoDTOList(rows, placements.Of(ctx, rows))
+		return dto.RepoDTOList(rows, appContainer.RepoPlacements.Of(ctx, rows))
 	}
 }
 

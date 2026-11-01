@@ -1,13 +1,11 @@
 package v0
 
 import (
-	"context"
 	"encoding/json"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/app"
-	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // projectsDef serves the Projects topic. Its hierarchical namespace is the bare
@@ -33,9 +31,7 @@ func reposDef(
 	return ws.StreamDef[dto.RepoDTO]{
 		Namespace: func(d dto.RepoDTO) string { return d.ProjectID + "/" + d.ID },
 		Serialize: func(d dto.RepoDTO) ([]byte, error) { return json.Marshal(d) },
-		Snapshot: repoSnapshot(appContainer, func(ctx context.Context, repoID string) (tree.Node, error) {
-			return appContainer.Repositories.Placement.GetNode(ctx, repoID)
-		}),
+		Snapshot:  repoSnapshot(appContainer),
 	}
 }
 

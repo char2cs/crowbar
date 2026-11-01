@@ -73,7 +73,7 @@ func newDeleteRouter(
 	ops repohandlers.Operations,
 	bc *recordingRepoBroadcaster,
 ) *gin.Engine {
-	h := repohandlers.NewWithDeps(store, nil, nil, ops, bc.push, unusedHome)
+	h := repohandlers.NewWithDeps(store, nil, nil, ops, bc.push, unusedHome, nil)
 	if deleter != nil {
 		h = h.WithRepoDeleter(deleter)
 	}

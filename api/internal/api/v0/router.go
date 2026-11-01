@@ -129,7 +129,7 @@ func (c *Container) Register(
 		c.app.Repositories.Workspace,
 		c.app.Usecases.ProjectImport,
 		c.app.Usecases.Project,
-		c.app.Repositories.Placement,
+		c.app.RepoPlacements,
 		c.eng.Git,
 		c.app.Usecases.ProjectDelete,
 		c.app.Operations,
