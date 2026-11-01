@@ -210,4 +210,15 @@ describe('a project-home chat or folder', () => {
     // resolved this against the bled-into repo instead.
     expect(draft.repoId).toBe('')
   })
+
+  // Corrupt input: a parentId cycle must not overflow the stack while the subtree is walked.
+  it('takes each thread once when chats name each other as parents', () => {
+    const chats = [
+      { id: 'c1', repoId: 'r1', title: 'a', order: 0, parentId: 'c3' },
+      { id: 'c2', repoId: 'r1', title: 'b', order: 0, parentId: 'c1' },
+      { id: 'c3', repoId: 'r1', title: 'c', order: 0, parentId: 'c2' },
+    ]
+    const [draft] = planRemoval([{ kind: 'chat', id: 'c1', repoId: 'r1' }], [repo({ chats })])
+    expect([...draft.hiddenIds].sort()).toEqual(['c1', 'c2', 'c3'])
+  })
 })

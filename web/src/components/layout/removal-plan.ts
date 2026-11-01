@@ -101,8 +101,12 @@ function chatDescendantsOf(chats: readonly Chat[], id: string): string[] {
     else childrenOf.set(c.parentId, [c.id])
   }
   const out: string[] = []
+  // A corrupt parentId cycle would otherwise recurse forever.
+  const seen = new Set([id])
   const walk = (parentId: string) => {
     for (const childId of childrenOf.get(parentId) ?? []) {
+      if (seen.has(childId)) continue
+      seen.add(childId)
       out.push(childId)
       walk(childId)
     }
