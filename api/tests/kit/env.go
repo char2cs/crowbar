@@ -346,24 +346,6 @@ func (e *Env) WorktreePath(
 	return ws.WorktreePath
 }
 
-// WorkspaceStorageDir mirrors worktreepath.StorageDir:
-// <home>/projects/<P>/<R>/workspaces/<W>/storages.
-func (e *Env) WorkspaceStorageDir(
-	projectID string,
-	repoID string,
-	wsID string,
-) string {
-	return filepath.Join(
-		e.homeDir,
-		"projects",
-		projectID,
-		repoID,
-		"workspaces",
-		wsID,
-		"storages",
-	)
-}
-
 // ProviderState is a scripted provider poll result for the mock-provider seam
 // (PushProviderState). It mirrors the fields the workspace aggregate consumes to
 // drive PR-status and protected-branch transitions, avoiding a direct dependency
@@ -604,46 +586,6 @@ func WaitForState(
 			return got == status
 		},
 	)
-}
-
-// WaitForListLen reads DTOs from a list-scoped stream w until it has observed n
-// DISTINCT entity ids (snapshot + live merged), returning the latest DTO seen
-// for each id in first-arrival order. Use it to await "the list now has n items"
-// without polling; a repeated/updated DTO for an already-seen id does not
-// advance the count.
-func WaitForListLen(
-	t *testing.T,
-	w *WSWatcher,
-	n int,
-	timeout time.Duration,
-) []map[string]any {
-	t.Helper()
-	if n <= 0 {
-		return nil
-	}
-	seen := make(map[string]map[string]any, n)
-	order := make([]string, 0, n)
-	readUntilWorktree(
-		t,
-		w,
-		timeout,
-		func(msg map[string]any) bool {
-			id, _ := msg["id"].(string)
-			if id == "" {
-				return false
-			}
-			if _, ok := seen[id]; !ok {
-				order = append(order, id)
-			}
-			seen[id] = msg
-			return len(seen) >= n
-		},
-	)
-	out := make([]map[string]any, 0, len(order))
-	for _, id := range order {
-		out = append(out, seen[id])
-	}
-	return out
 }
 
 // WaitForWorkspaceState reads WS events from w until a WorkspaceDTO with the
@@ -1320,30 +1262,6 @@ func (e *Env) PushProviderState(
 	require.NoError(t, err, "PushProviderState: SyncProviderState")
 }
 
-// DecodeJSON decodes the response body into dest and closes the body.
-func DecodeJSON(
-	t *testing.T,
-	resp *http.Response,
-	dest any,
-) {
-	t.Helper()
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
-	require.NoError(
-		t,
-		err,
-	)
-	require.NoError(
-		t,
-		json.Unmarshal(
-			raw,
-			dest,
-		),
-		"body: %s",
-		string(raw),
-	)
-}
-
 // RequireStatus fails the test if the response status doesn't match.
 func RequireStatus(
 	t *testing.T,
@@ -1373,13 +1291,6 @@ func wsURL(
 // Now returns a stable deterministic time for test commands.
 func Now() time.Time {
 	return time.Unix(1_700_000_000, 0).UTC()
-}
-
-// NowPlus returns Now() advanced by d.
-func NowPlus(
-	d time.Duration,
-) time.Time {
-	return Now().Add(d)
 }
 
 // Ctx returns a background context.

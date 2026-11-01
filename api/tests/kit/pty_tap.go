@@ -327,21 +327,6 @@ func (p *PTYTap) WaitForScreen(
 	return p.Screen()
 }
 
-// WaitForAnyScreen blocks until the PTY has painted any one of needles, and
-// returns the one it saw. Use it when a real CLI has more than one legitimate
-// way to reach the same state (e.g. it shows a trust dialog, or it was already
-// trusted and went straight to its composer).
-func (p *PTYTap) WaitForAnyScreen(
-	t *testing.T,
-	ctx context.Context,
-	needles ...string,
-) string {
-	t.Helper()
-	return Await(t, ctx, "PTY to paint any of "+strings.Join(needles, " | "), func() (string, bool) {
-		return p.ContainsAny(needles...)
-	}, p.sig)
-}
-
 // ScreenContains reports whether captured PTY output contains needle, comparing on
 // squeezed alphanumerics so wrapping, box borders and styling cannot hide a match
 // (see squeeze).

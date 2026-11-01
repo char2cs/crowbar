@@ -10,9 +10,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/char2cs/crowbar/api/internal/domain"
-	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 // projectDirOf mirrors worktreepath.ProjectDir for the oracle's path-shape
@@ -140,61 +137,6 @@ func AssertWorkspaceConsistency(
 			"oracle: branch in read-model (%s) disagrees with disk (%s)",
 			ws.Branch,
 			diskBranch,
-		)
-	}
-}
-
-// AssertGitStateMatchesReadModel verifies that a conflicted git worktree is
-// reflected by the workspace read-model's status (spec §5): if the worktree has
-// conflicted files, the workspace Status must be pr-conflicts. (HasConflicts was
-// removed; conflict state is now carried by the status enum.)
-func AssertGitStateMatchesReadModel(
-	t *testing.T,
-	env *Env,
-	wsID string,
-) {
-	t.Helper()
-	ctx := context.Background()
-
-	ws, err := env.app.Repositories.Workspace.Get(
-		ctx,
-		wsID,
-	)
-	require.NoError(
-		t,
-		err,
-		"oracle: get workspace for git state check",
-	)
-
-	if ws.WorktreePath == "" {
-		return
-	}
-
-	status, err := env.engine.Git.Status(
-		ctx,
-		ws.WorktreePath,
-	)
-	require.NoError(
-		t,
-		err,
-		"oracle: git status",
-	)
-
-	hasConflicts := false
-	for _, f := range status.Files {
-		if f.Status == gitdomain.GitFileStatusConflicted {
-			hasConflicts = true
-			break
-		}
-	}
-
-	if hasConflicts {
-		assert.Equal(
-			t,
-			domain.WorkspaceStatusPRConflicts,
-			ws.Status,
-			"oracle: conflicted worktree must set status pr-conflicts for workspace %s",
-			wsID,
 		)
 	}
 }

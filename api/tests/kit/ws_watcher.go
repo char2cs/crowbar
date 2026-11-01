@@ -221,30 +221,3 @@ func (w *WSWatcher) SendJSON(
 	require.NoError(t, err, "ws: SendJSON marshal")
 	require.NoError(t, w.conn.WriteMessage(websocket.TextMessage, raw), "ws: SendJSON write")
 }
-
-// ReadRawMsg reads one raw WebSocket frame (binary or text) within timeout.
-// Use this for non-JSON protocols such as terminal PTY streams.
-func (w *WSWatcher) ReadRawMsg(
-	t *testing.T,
-	timeout time.Duration,
-) []byte {
-	t.Helper()
-	require.NoError(
-		t,
-		w.conn.SetReadDeadline(time.Now().Add(timeout)),
-		"ws: SetReadDeadline",
-	)
-	msgType, raw, err := w.conn.ReadMessage()
-	require.NoError(
-		t,
-		err,
-		"ws: ReadMessage failed",
-	)
-	require.True(
-		t,
-		msgType == websocket.BinaryMessage || msgType == websocket.TextMessage,
-		"unexpected ws message type %d, want binary (2) or text (1)",
-		msgType,
-	)
-	return raw
-}
