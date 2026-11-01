@@ -79,45 +79,44 @@ async function rename(d, id, via, value, end) {
   await d.until(`row ${id}'s editor to close`, editorGone, id)
 }
 
+const rowIdByLabel = (label) =>
+  document.querySelector(`[role="treeitem"][aria-label="${label}"]`)?.dataset.sidebarRowId ?? null
+
 export default {
   name: 'menu-rename',
   async run({ d, daemon, fx, target }) {
     const fork = await createWorkspaceChat(daemon, fx)
-    const base = await getChat(daemon, fx, fx.baseChatId)
-    const thread = await createChat(daemon, fx, base.workspaceId)
+    const thread = await createChat(daemon, fx, fork.workspaceId)
     const { folder } = await daemon.post(`${fx.base}/chats/folders`, { name: 'Bugs', parentId: '' })
-    const title = async () => (await getChat(daemon, fx, thread.id)).title
-    const folderName = async () => {
-      const listed = await daemon.get(`${fx.base}/chats/folders`)
-      return (Array.isArray(listed) ? listed : listed.folders).find((f) => f.id === folder.id)?.name
+    const repoRowId = await d.until('the repo header row', rowIdByLabel, 'e2e-repo', {
+      timeout: 30_000,
+    })
+    const chatTitle = (id) => async () => (await getChat(daemon, fx, id)).title
+    // A folder is a chat row on the daemon: its name is its title.
+    const folderName = async () =>
+      (await daemon.get(`${fx.base}/chats/folders`)).find((f) => f.id === folder.id)?.title
+    const repoName = async () =>
+      (await daemon.get(`/v0/projects/${fx.projectId}/repos`)).find((r) => r.id === fx.repoId)?.name
+    // Each kind of row the menu renames, each ending the edit a different way.
+    const rows = [
+      { kind: 'thread', id: thread.id, read: chatTitle(thread.id), end: 'Enter' },
+      { kind: 'workspace', id: fork.id, read: chatTitle(fork.id), end: 'Enter' },
+      { kind: 'folder', id: folder.id, read: folderName, end: 'blur' },
+      { kind: 'repo', id: repoRowId, read: repoName, end: 'Enter' },
+    ]
+
+    for (const via of target === 'browser' ? ['menu', 'dblclick'] : ['dblclick']) {
+      for (const row of rows) {
+        const name = `${row.kind}-via-${via}`
+        await rename(d, row.id, via, name, row.end)
+        await until(
+          `the ${row.kind} to be named "${name}"`,
+          async () => (await row.read()) === name,
+        )
+
+        await rename(d, row.id, via, 'never-saved', 'Escape')
+        assertEqual(await row.read(), name, `Escape leaves the ${row.kind} named ${name}`)
+      }
     }
-    const branch = async () => (await getChat(daemon, fx, fork.id)).worktree?.branch
-
-    const vias = target === 'browser' ? ['menu', 'dblclick'] : ['dblclick']
-    for (const via of vias) {
-      await rename(d, thread.id, via, `thread via ${via}`, 'Enter')
-      await until(
-        `the chat title to be "thread via ${via}"`,
-        async () => (await title()) === `thread via ${via}`,
-      )
-
-      await rename(d, folder.id, via, `folder via ${via}`, 'blur')
-      await until(
-        `the folder name to be "folder via ${via}"`,
-        async () => (await folderName()) === `folder via ${via}`,
-      )
-
-      const before = await folderName()
-      await rename(d, folder.id, via, 'never saved', 'Escape')
-      assertEqual(await folderName(), before, 'Escape leaves the folder name as it was')
-    }
-
-    // A fork's row is id'd by its workspace; the branch rename is its own endpoint.
-    const forkVia = vias[0]
-    await rename(d, fork.workspaceId, forkVia, `e2e-renamed-${forkVia}`, 'Enter')
-    await until(
-      'the fork branch to be renamed',
-      async () => (await branch()) === `e2e-renamed-${forkVia}`,
-    )
   },
 }
