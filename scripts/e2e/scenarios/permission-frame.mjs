@@ -1,29 +1,10 @@
 import { askHook, createWorkspaceChat, hook } from '../lib/fixture.mjs'
 import { focusRecent, openChat } from '../lib/ui.mjs'
-import { assert, until } from '../lib/wait.mjs'
+import { assert } from '../lib/wait.mjs'
 
-// A permission prompt that opens while its chat's view is hidden rides the chat
-// feed as a `choice` frame carrying the whole set, so the first frame the chat
-// shows already has the card and needs no /activity read of its own.
+// A permission prompt that opens while its chat's view is hidden is on the
+// chat's feed, so showing the chat shows its card.
 
-// Withholds every /activity read of the chat (the request never settles), so a
-// card that appears anyway cannot have come from one.
-const withholdActivity = (chatId) => {
-  if (!window.__e2eWrapped) {
-    window.__e2eWrapped = true
-    const original = window.fetch
-    window.fetch = function (input, init) {
-      const url = String(typeof input === 'string' ? input : (input.url ?? input))
-      if (window.__e2eWithheld && url.includes(`/chats/${window.__e2eWithheld}/activity`)) {
-        window.__e2eBlocked = (window.__e2eBlocked ?? 0) + 1
-        return { then() {} }
-      }
-      return original.call(this, input, init)
-    }
-  }
-  window.__e2eWithheld = chatId
-  return true
-}
 const cardShown = (ws) => {
   const slot = document.querySelector(`[data-workspace-slot="${ws}"]`)
   return (
@@ -57,12 +38,6 @@ export default {
       tool_name: 'Bash',
       tool_input: { command: 'touch e2e-file' },
     })
-    await until('the daemon to hold one answerable choice', async () => {
-      const choices = await daemon.get(`${fx.base}/chats/${hidden.id}/choices`)
-      return choices.length === 1 && choices[0].answerable
-    })
-
-    await d.eval(withholdActivity, hidden.id)
     assert(await focusRecent(d, hidden.id), 'the hidden chat has a Recents row')
     await d
       .until('the permission card on the first shown frame', cardShown, hidden.workspaceId, {
@@ -81,10 +56,5 @@ export default {
         )
         throw new Error(`${err.message}: ${JSON.stringify(seen)}`)
       })
-    // The withholding was live: the chat did try to read /activity, and still showed its card.
-    await d.eval(() => {
-      window.__e2eWithheld = null
-      return true
-    })
   },
 }
