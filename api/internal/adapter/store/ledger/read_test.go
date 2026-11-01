@@ -122,3 +122,21 @@ func TestRead_BlobRefsSkipsRowsThatAreNotToolCallsAndToolCallsItCannotDecode(t *
 	require.NoError(t, err)
 	assert.Equal(t, []string{"sha256:in"}, refs)
 }
+
+func TestRead_AStoredRowItCannotScanIsUnreadableForItsChatOnly(t *testing.T) {
+	db := openDB(t, filepath.Join(t.TempDir(), ledgerstore.FileName))
+	s, err := ledgerstore.Open(t.Context(), db, clock)
+	require.NoError(t, err)
+	ctx := context.Background()
+	_, _, err = s.Append(ctx, "c1", prompt(t, "r1", "a"))
+	require.NoError(t, err)
+	_, _, err = s.Append(ctx, "c2", prompt(t, "r2", "b"))
+	require.NoError(t, err)
+	require.NoError(t, db.Exec(`UPDATE chat_ledger SET at = 'not-a-time' WHERE chat_id = 'c1'`).Error)
+
+	_, err = s.Read(ctx, "c1", 0, 0)
+	require.ErrorIs(t, err, ledger.ErrUnreadableRow)
+	rows, err := s.Read(ctx, "c2", 0, 0)
+	require.NoError(t, err)
+	assert.Equal(t, []int64{1}, seqs(rows))
+}

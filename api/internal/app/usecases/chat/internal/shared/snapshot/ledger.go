@@ -2,6 +2,8 @@ package snapshot
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"slices"
 
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -69,6 +71,7 @@ func (snap Snapshot) Conversation() (ledger.Conversation, bool) {
 
 // preloadLedger fills the facts of every chat in chatIDs that has none under
 // the chat's ledger writer, so no publication lands between read and install.
+// One chat's unreadable rows fail only that chat's facts, never the read.
 func (s *Snapshots) preloadLedger(ctx context.Context, chatIDs []string) error {
 	s.mu.Lock()
 	reader := s.reader
@@ -88,6 +91,13 @@ func (s *Snapshots) preloadLedger(ctx context.Context, chatIDs []string) error {
 			s.installFacts(chatID, FactsOf(st))
 			return nil
 		})
+		if errors.Is(err, ledger.ErrUnreadableRow) {
+			// Its rows fail the same way every time: the chat is answered without
+			// ledger facts, held so it is read and logged once, and its feed refuses.
+			slog.ErrorContext(ctx, "agent: chat snapshot: ledger unreadable", "chat_id", chatID, "err", err)
+			s.installFacts(chatID, LedgerFacts{})
+			continue
+		}
 		if err != nil {
 			return err
 		}

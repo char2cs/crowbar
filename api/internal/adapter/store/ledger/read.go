@@ -21,25 +21,37 @@ type record struct {
 }
 
 // Read returns chatID's rows after afterSeq in seq order, at most limit of
-// them; limit <= 0 is all of them.
-func (s *Store) Read(ctx context.Context, chatID string, afterSeq int64, limit int) ([]ledger.Row, error) {
+// them; limit <= 0 is all of them. A stored row that cannot be scanned is
+// ledger.ErrUnreadableRow, apart from a query that failed.
+func (s *Store) Read(ctx context.Context, chatID string, afterSeq int64, limit int) (_ []ledger.Row, err error) {
 	if limit <= 0 {
 		limit = -1 // SQLite: no limit
 	}
-	var recs []record
-	err := s.db.WithContext(ctx).Raw(
+	cur, err := s.db.WithContext(ctx).Raw(
 		`SELECT chat_id, seq, kind, turn_id, scope, at, body FROM chat_ledger
 		 WHERE chat_id = ? AND seq > ? ORDER BY seq LIMIT ?`, chatID, afterSeq, limit,
-	).Scan(&recs).Error
+	).Rows()
 	if err != nil {
 		return nil, fmt.Errorf("ledger: read %s: %w", chatID, err)
 	}
-	rows := make([]ledger.Row, 0, len(recs))
-	for _, r := range recs {
+	defer func() {
+		if closeErr := cur.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("ledger: read %s: close: %w", chatID, closeErr)
+		}
+	}()
+	rows := make([]ledger.Row, 0)
+	for cur.Next() {
+		var r record
+		if err := cur.Scan(&r.ChatID, &r.Seq, &r.Kind, &r.TurnID, &r.Scope, &r.At, &r.Body); err != nil {
+			return nil, fmt.Errorf("ledger: read %s: %w: %w", chatID, ledger.ErrUnreadableRow, err)
+		}
 		rows = append(rows, ledger.Row{
 			ChatID: r.ChatID, Seq: r.Seq, Kind: ledger.Kind(r.Kind), TurnID: r.TurnID,
 			Scope: r.Scope, At: fromMicros(r.At), Body: r.Body,
 		})
+	}
+	if err := cur.Err(); err != nil {
+		return nil, fmt.Errorf("ledger: read %s: %w", chatID, err)
 	}
 	return rows, nil
 }

@@ -36,6 +36,10 @@ const (
 // ErrMalformedRow is a row the ledger refuses to record.
 var ErrMalformedRow = errors.New("ledger: malformed row")
 
+// ErrUnreadableRow is a stored row the ledger cannot read back: its chat's
+// history cannot be folded, and asking again fails the same way.
+var ErrUnreadableRow = errors.New("ledger: unreadable row")
+
 // Row is the envelope every ledger fact travels in.
 type Row struct {
 	ChatID string          `json:"chatId"`

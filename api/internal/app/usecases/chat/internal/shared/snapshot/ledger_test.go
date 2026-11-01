@@ -3,6 +3,7 @@ package snapshot_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -92,6 +93,40 @@ func TestSnapshots_AChatWithoutFactsReadsItsLedgerWithTheLockReleased(t *testing
 
 	_, err = s.Get(ctx, "c2")
 	require.Error(t, err)
+}
+
+// A chat whose stored ledger cannot be read is answered without its ledger
+// facts, read once; any other failure still fails the read.
+func TestSnapshots_AnUnreadableLedgerLeavesOnlyItsChatWithoutFacts(t *testing.T) {
+	ctx := context.Background()
+	rd := &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", ProviderID: "p1"}, "c2": {ID: "c2"}, "c3": {ID: "c3"}}}
+	s, _, _ := newOwner(t, rd)
+	reads := map[string]int{}
+	rd.ledger = func(chatID string) (ledger.State, error) {
+		reads[chatID]++
+		switch chatID {
+		case "c2":
+			return ledger.State{}, fmt.Errorf("scan: %w", ledger.ErrUnreadableRow)
+		case "c3":
+			return ledger.State{}, errors.New("disk gone")
+		}
+		return boundTo(t, [2]string{"p1", "S1"}), nil
+	}
+
+	for range 2 {
+		snaps, err := s.GetMany(ctx, []string{"c1", "c2"})
+		require.NoError(t, err)
+		require.Len(t, snaps, 2)
+		c, ok := snaps[0].Conversation()
+		require.True(t, ok)
+		assert.Equal(t, "S1", c.SessionID, "a readable sibling keeps its facts")
+		assert.Equal(t, "c2", snaps[1].Chat.ID)
+		assert.Equal(t, snapshot.LedgerFacts{}, snaps[1].Ledger)
+	}
+	assert.Equal(t, 1, reads["c2"], "an unreadable ledger is read once")
+
+	_, err := s.GetMany(ctx, []string{"c1", "c3"})
+	require.Error(t, err, "a failure that is not the rows' own is no verdict on the chat")
 }
 
 // A commit landing as the fill's writer is released, whose publication drops
