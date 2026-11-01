@@ -13,8 +13,8 @@ import (
 // retained is how many settled operations survive a restart.
 const retained = 500
 
-// Recover fails what a restart interrupted, then drops settled operations past
-// the newest retained. It runs once at boot, before the API opens.
+// Recover fails what a restart interrupted and drops the saves the last boot
+// parked, then drops settled operations past the newest retained. It runs once at boot, before the API opens.
 func (s *Service) Recover(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -24,6 +24,13 @@ func (s *Service) Recover(ctx context.Context) error {
 	}
 	for i := range ops {
 		op := ops[i]
+		if op.Kind == domain.OpEntitySave && op.CreatedAt.Before(s.booted) {
+			// A save the last boot parked: this boot redelivers its aggregate.
+			if err := s.store.Delete(ctx, op.ID); err != nil {
+				return fmt.Errorf("operation: recover: drop parked save %s: %w", op.ID, err)
+			}
+			continue
+		}
 		if settled(op.State) {
 			continue
 		}

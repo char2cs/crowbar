@@ -82,3 +82,16 @@ func TestNewParkedReports_NameEachAggregatesEntity(t *testing.T) {
 		assert.Equal(t, domain.OpFailed, op.State)
 	}
 }
+
+// The rows no project can be named for yet have no entity a user sees, so their
+// parked tree is a log line, not an operation nobody can show.
+func TestNewParkedReports_TheUnplacedTreeIsOnlyLogged(t *testing.T) {
+	ops, frames := recordingOps(t)
+	reports := newParkedReports(ops)
+	ctx := context.Background()
+
+	reports.tree(ctx, asynxModels.Event[tree.Tree]{AggregateID: tree.Unplaced}, asynxModels.ErrDeliveryParked)
+	reports.tree(ctx, asynxModels.Event[tree.Tree]{AggregateID: "p1"}, asynxModels.ErrDeliveryParked)
+
+	assert.Equal(t, domain.EntityRef{Kind: domain.EntityProject, ID: "p1"}, published(t, frames).Subject)
+}

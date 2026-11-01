@@ -17,7 +17,7 @@ type parkedReport[T any] func(ctx context.Context, evt asynxModels.Event[T], cau
 
 // reportParked records a parked aggregate as a failed operation on its entity:
 // until a restart redelivers it, every later change to it is refused, and the
-// user is owed the reason rather than a log line.
+// user is owed the reason. One with no entity a user sees (zero ref) is logged.
 func reportParked[T any](
 	ops *operation.Service,
 	what string,
@@ -25,6 +25,10 @@ func reportParked[T any](
 ) parkedReport[T] {
 	return func(ctx context.Context, evt asynxModels.Event[T], cause error) {
 		ref, projectID := subject(evt)
+		if ref.ID == "" {
+			slog.ErrorContext(ctx, "app: delivery parked", "what", what, "aggregate", evt.AggregateID, "cause", cause)
+			return
+		}
 		spec := operation.Spec{Kind: domain.OpEntitySave, Subject: ref, ProjectID: projectID, Label: "Save " + what}
 		reason := &problem.Error{
 			Code:    problem.Unavailable,
@@ -57,8 +61,11 @@ func newParkedReports(ops *operation.Service) parkedReports {
 		agentChat: reportParked(ops, "chat", func(e asynxModels.Event[domain.Chat]) (domain.EntityRef, string) {
 			return domain.EntityRef{Kind: domain.EntityChat, ID: e.AggregateID}, ""
 		}),
-		// The sidebar tree is one per project, keyed by it.
+		// The sidebar tree is one per project, keyed by it; the unplaced one is no project's.
 		tree: reportParked(ops, "sidebar", func(e asynxModels.Event[tree.Tree]) (domain.EntityRef, string) {
+			if e.AggregateID == tree.Unplaced {
+				return domain.EntityRef{}, ""
+			}
 			return domain.EntityRef{Kind: domain.EntityProject, ID: e.AggregateID}, e.AggregateID
 		}),
 	}

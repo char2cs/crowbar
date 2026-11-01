@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
@@ -83,4 +84,29 @@ func TestService_RecoverFailsTheItemsTheRestartCutShort(t *testing.T) {
 	assert.Equal(t, domain.OpFailed, items[1].State)
 	require.NotNil(t, items[1].Error)
 	assert.Equal(t, problem.Interrupted, items[1].Error.Code)
+}
+
+// A parked save is about the boot that parked it: the restart redelivers the
+// aggregate, so the failure is gone at the next boot instead of shown forever.
+func TestService_RecoverDropsTheSavesTheLastBootParked(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, f.store.Save(context.Background(), domain.Operation{
+		ID: "parked", Kind: domain.OpEntitySave, State: domain.OpFailed, Version: 1,
+		CreatedAt: epoch.Add(-time.Hour), UpdatedAt: epoch.Add(-time.Hour),
+		Subject: domain.EntityRef{Kind: domain.EntityWorkspace, ID: "ws1"},
+		Error:   &problem.Problem{Code: problem.Unavailable, Message: "Crowbar stopped saving this workspace's changes until it restarts"},
+	}))
+	seed(t, f, "push", domain.OpFailed, epoch)
+	thisBoot, err := f.svc.Fail(context.Background(), operation.Spec{
+		Kind: domain.OpEntitySave, Subject: domain.EntityRef{Kind: domain.EntityChat, ID: "c1"}, Label: "Save chat",
+	}, problem.New(problem.Unavailable, "parked again"))
+	require.NoError(t, err)
+
+	require.NoError(t, f.svc.Recover(context.Background()))
+
+	got, err := f.store.FindByKey(context.Background(), "parked")
+	require.NoError(t, err)
+	assert.Nil(t, got)
+	assert.Equal(t, domain.OpFailed, f.row(t, thisBoot.ID).State, "a save this boot parked is still news")
+	assert.Equal(t, domain.OpFailed, f.row(t, "push").State, "any other failure stays until the user dismisses it")
 }

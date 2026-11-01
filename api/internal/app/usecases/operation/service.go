@@ -50,6 +50,7 @@ type Service struct {
 	store   store.Store[domain.Operation, string]
 	publish func(domain.Operation)
 	clock   func() time.Time
+	booted  time.Time
 
 	// mu orders every write, so versions reach the store and the stream in order.
 	mu       sync.Mutex
@@ -69,7 +70,7 @@ func New(
 	clock func() time.Time,
 ) *Service {
 	return &Service{
-		store: opStore, publish: publish, clock: clock,
+		store: opStore, publish: publish, clock: clock, booted: clock(),
 		cancels: map[*context.CancelFunc]struct{}{}, busy: map[domain.EntityRef]string{},
 	}
 }
