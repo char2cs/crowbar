@@ -43,6 +43,8 @@ export class TauriWebSocket {
   // leak for every StrictMode double-mount or rapid scope switch. We defer the
   // real ws_close to the ws_open .then() instead.
   private closed = false
+  /** Frames forwarded before ws_open resolved; null once it has. */
+  private early: (string | ArrayBuffer)[] | null = []
 
   /**
    * `idleTimeoutMs`: judge the socket half-open — and close it — when the daemon
@@ -52,29 +54,24 @@ export class TauriWebSocket {
   constructor(path: string, options?: { idleTimeoutMs?: number }) {
     this.connId = crypto.randomUUID()
 
-    // The Channel carries each raw text frame the Rust reader forwards; surface
-    // it as a MessageEvent-like `{ data }` so the manager's onmessage parses it
-    // exactly as it would a native frame.
+    // The Channel carries each raw frame the Rust reader forwards, which starts
+    // before ws_open's reply: frames that beat it wait in `early`, so onopen
+    // always precedes onmessage as the WebSocket contract promises.
     const channel = new Channel<string | ArrayBuffer>()
-    channel.onmessage = (text) => {
-      // A daemon-side close (restart/timeout/error) arrives as the sentinel:
-      // surface it as a close so wsManager reconnects and the §6 cache re-seeds.
-      if (text === WS_CLOSE_SENTINEL) {
-        if (this.readyState === TauriWebSocket.CLOSED) return
-        this.readyState = TauriWebSocket.CLOSED
-        this.onclose?.()
-        return
-      }
-      this.onmessage?.({ data: text })
+    channel.onmessage = (frame) => {
+      if (this.early) this.early.push(frame)
+      else this.deliver(frame)
     }
 
-    invoke('ws_open', {
+    void invoke('ws_open', {
       connId: this.connId,
       path,
       onMessage: channel,
       idleTimeoutMs: options?.idleTimeoutMs ?? null,
-    })
-      .then(() => {
+    }).then(
+      () => {
+        const early = this.early ?? []
+        this.early = null
         // Closed while CONNECTING: the Rust connection is only now registered,
         // so issue the deferred ws_close to tear it down. Per the WebSocket
         // contract a close before open yields no onopen — just a clean teardown.
@@ -84,13 +81,29 @@ export class TauriWebSocket {
         }
         this.readyState = TauriWebSocket.OPEN
         this.onopen?.()
-      })
-      .catch((err) => {
+        for (const frame of early) this.deliver(frame)
+      },
+      (err: unknown) => {
+        this.early = null
         this.readyState = TauriWebSocket.CLOSED
         if (this.closed) return
         this.onerror?.(err)
         this.onclose?.()
-      })
+      },
+    )
+  }
+
+  /** One frame of an open socket; once closed, frames still in flight are dropped. */
+  private deliver(frame: string | ArrayBuffer): void {
+    if (this.readyState !== TauriWebSocket.OPEN) return
+    // A daemon-side close (restart/timeout/error) arrives as the sentinel:
+    // surface it as a close so wsManager reconnects and the §6 cache re-seeds.
+    if (frame === WS_CLOSE_SENTINEL) {
+      this.readyState = TauriWebSocket.CLOSED
+      this.onclose?.()
+      return
+    }
+    this.onmessage?.({ data: frame })
   }
 
   send(data: string): void {

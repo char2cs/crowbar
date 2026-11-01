@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // The transport mints a Tauri Channel and bridges its frames into the
 // WebSocket-like onmessage callback. We mock @tauri-apps/api/core so a frame
@@ -20,6 +20,7 @@ vi.mock('@tauri-apps/api/core', () => ({
     }
   },
   invoke,
+  convertFileSrc: (path: string) => path,
 }))
 
 beforeEach(() => {
@@ -29,6 +30,33 @@ beforeEach(() => {
 })
 
 const { TauriWebSocket } = await import('@/lib/ws/tauri-transport')
+
+/** Holds the next ws_open unresolved until `resolve`: Rust's reader may already be forwarding. */
+function gateOpen() {
+  let resolve = () => {}
+  let reject = (_err: unknown) => {}
+  invoke.mockImplementationOnce(
+    () =>
+      new Promise<undefined>((res, rej) => {
+        resolve = () => res(undefined)
+        reject = rej
+      }),
+  )
+  return { resolve: () => resolve(), reject: (err: unknown) => reject(err) }
+}
+
+/** Records the shim's events in the order the manager would hear them. */
+function record(sock: InstanceType<typeof TauriWebSocket>) {
+  const events: string[] = []
+  sock.onopen = () => void events.push(`open@${sock.readyState}`)
+  sock.onmessage = (e) => void events.push(`msg ${String(e.data)}@${sock.readyState}`)
+  sock.onclose = () => void events.push('close')
+  sock.onerror = () => void events.push('error')
+  return events
+}
+
+const opened = (sock: InstanceType<typeof TauriWebSocket>) =>
+  vi.waitFor(() => expect(sock.readyState).toBe(TauriWebSocket.OPEN))
 
 describe('TauriWebSocket', () => {
   it('exposes the WebSocket readyState constants', () => {
@@ -62,7 +90,7 @@ describe('TauriWebSocket', () => {
     const onmessage = vi.fn()
     sock.onmessage = onmessage
 
-    await vi.waitFor(() => expect(channels.length).toBe(1))
+    await opened(sock)
     const dto = '{"id":"ws-1","status":"new","data":"not-extracted"}'
     channels[0].onmessage?.(dto)
 
@@ -76,7 +104,7 @@ describe('TauriWebSocket', () => {
     sock.onmessage = onmessage
     sock.onclose = onclose
 
-    await vi.waitFor(() => expect(channels.length).toBe(1))
+    await opened(sock)
     // The Rust reader pushes this exact sentinel when the daemon closes the stream.
     channels[0].onmessage?.('\u0000crowbar-ws-close')
 
@@ -99,6 +127,7 @@ describe('TauriWebSocket', () => {
     const sock = new TauriWebSocket('/v0/chats/c/terminals/s/ws')
     const onmessage = vi.fn()
     sock.onmessage = onmessage
+    await opened(sock)
     const bytes = new Uint8Array([0, 104, 105]).buffer
     channels[channels.length - 1].onmessage?.(bytes)
     expect(onmessage).toHaveBeenCalledWith({ data: bytes })
@@ -163,5 +192,170 @@ describe('TauriWebSocket', () => {
     )
     expect(onopen).not.toHaveBeenCalled()
     expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
+  })
+
+  // Rust forwards frames as soon as the daemon sends them, and the Channel races the
+  // ws_open reply: a frame may land while the shim still says CONNECTING.
+  describe('a frame that arrives before ws_open resolves', () => {
+    it('is held until onopen has fired, then delivered once, while OPEN', async () => {
+      const gate = gateOpen()
+      const sock = new TauriWebSocket('/v0/stream')
+      const events = record(sock)
+
+      channels[0].onmessage?.('{"t":"ready","epoch":"e1"}')
+      expect(events).toEqual([])
+
+      gate.resolve()
+      await opened(sock)
+      channels[0].onmessage?.('{"t":"synced","scope":"projects"}')
+
+      expect(events).toEqual([
+        'open@1',
+        'msg {"t":"ready","epoch":"e1"}@1',
+        'msg {"t":"synced","scope":"projects"}@1',
+      ])
+    })
+
+    it('keeps the order of a 5,000-frame burst, each frame once', async () => {
+      const gate = gateOpen()
+      const sock = new TauriWebSocket('/v0/stream')
+      const seen: string[] = []
+      sock.onmessage = (e) => void seen.push(String(e.data))
+
+      const burst = Array.from({ length: 5000 }, (_, i) => `{"n":${i}}`)
+      for (const frame of burst) channels[0].onmessage?.(frame)
+      gate.resolve()
+      await opened(sock)
+
+      expect(seen).toEqual(burst)
+    })
+
+    it('a daemon close among them closes after the frames before it, and drops the ones after', async () => {
+      const gate = gateOpen()
+      const sock = new TauriWebSocket('/v0/stream')
+      const events = record(sock)
+
+      channels[0].onmessage?.('a')
+      channels[0].onmessage?.('\u0000crowbar-ws-close')
+      channels[0].onmessage?.('b')
+      gate.resolve()
+      await vi.waitFor(() => expect(events).toContain('close'))
+
+      expect(events).toEqual(['open@1', 'msg a@1', 'close'])
+      expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
+    })
+
+    it('is never delivered when the socket is closed while connecting', async () => {
+      const gate = gateOpen()
+      const sock = new TauriWebSocket('/v0/stream')
+      const events = record(sock)
+
+      channels[0].onmessage?.('a')
+      sock.close()
+      gate.resolve()
+      await vi.waitFor(() =>
+        expect(invoke).toHaveBeenCalledWith('ws_close', { connId: 'conn-fixed-id' }),
+      )
+      channels[0].onmessage?.('b')
+
+      expect(events).toEqual(['close'])
+    })
+
+    it('is never delivered when ws_open fails', async () => {
+      const gate = gateOpen()
+      const sock = new TauriWebSocket('/v0/stream')
+      const events = record(sock)
+
+      channels[0].onmessage?.('a')
+      gate.reject(new Error('ws upgrade: 503'))
+      await vi.waitFor(() => expect(events).toContain('close'))
+
+      expect(events).toEqual(['error', 'close'])
+    })
+  })
+
+  it('drops a frame that arrives after close()', async () => {
+    const sock = new TauriWebSocket('/v0/stream')
+    await opened(sock)
+    const events = record(sock)
+
+    sock.close()
+    channels[0].onmessage?.('late')
+
+    expect(events).toEqual(['close'])
+  })
+})
+
+describe('the stream over the desktop transport', () => {
+  const sent = () =>
+    invoke.mock.calls
+      .filter(([cmd]) => cmd === 'ws_send')
+      .map(([, args]) => JSON.parse((args as { data: string }).data) as unknown)
+
+  beforeAll(() => {
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+  })
+  afterAll(() => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+  })
+
+  it('subscribes every held scope on a ready that beat ws_open, applies the snapshot, and again after a daemon restart', async () => {
+    // The real manager and stream, not setup's fake stream daemon.
+    vi.doUnmock('@/lib/ws/manager')
+    vi.doUnmock('@/core/stream/stream')
+    vi.resetModules()
+    const stream = await import('@/core/stream/stream')
+    const frames: string[] = []
+    const releases = [
+      stream.registerScopeKind('projects', { frame: (f) => void frames.push(f.t) }),
+      stream.registerScopeKind('ws', { frame: () => {} }),
+      stream.holdScope('projects'),
+      stream.holdScope('ws:w1'),
+    ]
+    const synced = vi.fn()
+    releases.push(stream.watchScope('projects', { synced }))
+
+    const first = gateOpen()
+    releases.push(stream.startStream())
+    channels[0].onmessage?.('{"t":"ready","epoch":"e1"}')
+    first.resolve()
+    await vi.waitFor(() => expect(sent()).toHaveLength(2))
+    expect(sent()).toEqual([
+      { op: 'sub', scope: 'projects' },
+      { op: 'sub', scope: 'ws:w1' },
+    ])
+
+    channels[0].onmessage?.(
+      JSON.stringify({
+        t: 'entity',
+        scope: 'projects',
+        kind: 'operation',
+        id: 'op1',
+        v: 1,
+        data: { id: 'op1', kind: 'repo.add', subject: { kind: 'project', id: 'p1' }, items: [] },
+      }),
+    )
+    channels[0].onmessage?.('{"t":"synced","scope":"projects"}')
+    expect(frames).toEqual(['entity', 'synced'])
+    expect(synced).toHaveBeenCalledTimes(1)
+
+    vi.useFakeTimers({ toFake: ['setTimeout'] })
+    try {
+      invoke.mockClear()
+      const second = gateOpen()
+      channels[0].onmessage?.('\u0000crowbar-ws-close')
+      vi.advanceTimersByTime(1000)
+      expect(channels).toHaveLength(2)
+      channels[1].onmessage?.('{"t":"ready","epoch":"e2"}')
+      second.resolve()
+    } finally {
+      vi.useRealTimers()
+    }
+    await vi.waitFor(() => expect(sent()).toHaveLength(2))
+    expect(sent()).toEqual([
+      { op: 'sub', scope: 'projects' },
+      { op: 'sub', scope: 'ws:w1' },
+    ])
+    releases.reverse().forEach((release) => release())
   })
 })
