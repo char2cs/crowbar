@@ -10,7 +10,7 @@ import { AgentChatView } from '@/features/agent/chat/agent-chat-view'
 import * as serialization from '@/features/agent/composer/plate/chat-composer-serialization'
 import * as transcriptModule from '@/features/agent/transcript/agent-transcript'
 import { loadPromptStashes } from '@/features/agent/composer/lib/prompt-stash-persistence'
-import { applyFeedFrame, chatStore } from '@/features/agent/stores/chat-store'
+import { applyFeedFrame, chatStore, failFeed } from '@/features/agent/stores/chat-store'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
@@ -148,6 +148,24 @@ describe('AgentChatView', () => {
     await press('Enter')
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
     expect(submit.mock.calls[0]?.[2]).toBe('rename snake_case_file.py')
+  })
+
+  // The rows on screen stay, but nothing new will reach them: the bar says why
+  // instead of taking a prompt the pane would never show the answer to.
+  it('says why a chat with rows stopped following its ledger, in place of the input', () => {
+    seedFeed('c1', spokenIn('c1', 'an earlier answer'))
+    draw('c1')
+    expect(box()).toBeInTheDocument()
+
+    act(() => failFeed('c1', "This chat's history could not be read"))
+
+    expect(screen.getByText('an earlier answer')).toBeInTheDocument()
+    expect(
+      screen
+        .getAllByRole('status')
+        .some((el) => el.textContent?.includes("This chat's history could not be read")),
+    ).toBe(true)
+    expect(screen.queryByRole('textbox', { name: COMPOSER })).not.toBeInTheDocument()
   })
 
   it('shows Stopping… in the same render as the Stop click', async () => {

@@ -22,6 +22,21 @@ describe('resolveComposerState', () => {
     expect(resolveComposerState(inputs())).toEqual({ kind: 'input' })
   })
 
+  it('says why the chat stopped following its ledger ahead of everything else', () => {
+    const state = resolveComposerState(
+      inputs({
+        feedError: 'This chat’s history did not line up',
+        haltedMessage: 'limit',
+        asks: [askItem()],
+      }),
+    )
+    expect(state).toEqual({
+      kind: 'signpost',
+      reason: 'unfollowed',
+      message: 'This chat’s history did not line up',
+    })
+  })
+
   it('is a signpost with no runner, whatever else is true', () => {
     const state = resolveComposerState(inputs({ live: false, asks: [askItem()] }))
     expect(state).toMatchObject({ kind: 'signpost', reason: 'dormant' })

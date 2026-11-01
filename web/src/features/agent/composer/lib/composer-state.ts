@@ -21,6 +21,8 @@ export type SignpostReason =
   | 'terminal_wait'
   /** The daemon is placing a CLI (a revive, a switch). */
   | 'reviving'
+  /** The pane stopped following the chat's ledger, so an answer would never show. */
+  | 'unfollowed'
 
 /** The daemon placing a CLI this pane did not ask for — richer than the
  *  collapsed `live` boolean. A dormant chat is NOT one: sending revives it. */
@@ -36,6 +38,8 @@ export interface ComposerInputs {
   /** The provider's own words about why it stopped, from a `notice` message. */
   haltedMessage?: string
   haltedResetsAt?: string
+  /** Why the chat's feed failed, while it has. */
+  feedError?: string
 }
 
 export const TERMINAL_WAIT_TRUST = 'workspace_trust'
@@ -48,11 +52,12 @@ export function describeTerminalWait(wait: AgentTerminalWait): string {
 }
 
 /** Resolves the bar in precedence order, the one thing a person can act on
- *  first: dormant, unsupported, terminal wait, ask, halted, compacting,
- *  input. A trust dialog outranks an ask because only it can be acted on. */
+ *  first: unfollowed, dormant, unsupported, terminal wait, ask, halted,
+ *  compacting, input. A trust dialog outranks an ask because only it can be acted on. */
 export function resolveComposerState(inputs: ComposerInputs): ComposerState {
   const { live, submitUnavailable, terminalWait, compacting, asks } = inputs
 
+  if (inputs.feedError) return { kind: 'signpost', reason: 'unfollowed', message: inputs.feedError }
   if (!live) return { kind: 'signpost', reason: 'dormant', message: 'Loading this chat…' }
   if (submitUnavailable) {
     return {

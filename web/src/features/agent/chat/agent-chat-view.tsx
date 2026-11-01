@@ -32,7 +32,7 @@ import { useComposerDraft } from '@/features/agent/chat/use-composer-draft'
 import { useComposerFacts } from '@/features/agent/chat/use-composer-facts'
 import { useDock } from '@/features/agent/chat/use-dock'
 import { useTypeToFocus } from '@/features/agent/chat/use-type-to-focus'
-import { useChatFeed } from '@/features/agent/hooks/use-chat-feed'
+import { useChatFeed, useFeedError } from '@/features/agent/hooks/use-chat-feed'
 import { useChatTelemetry, limitResetsAt } from '@/features/agent/hooks/use-chat-entity'
 import {
   getScrollPosition,
@@ -127,6 +127,12 @@ export function AgentChatView({
 }: AgentChatViewProps) {
   useChatFeed(chatId)
   const facts = useComposerFacts(chatId)
+  const feedError = useFeedError(chatId)
+  // A failed feed keeps its rows on screen but takes no more, so the bar says why.
+  const unfollowed =
+    facts.status === 'error'
+      ? feedError || 'Couldn’t reach this chat. Crowbar keeps trying.'
+      : undefined
   const { working, compacting } = facts
   const telemetry = useChatTelemetry(wsId, chatId, visible)
   // Read once: the view remounts per chat, and the anchor restores on mount.
@@ -278,6 +284,7 @@ export function AgentChatView({
       asks: facts.asks,
       haltedMessage: halted?.text,
       haltedResetsAt: limitResetsAt(telemetry),
+      feedError: unfollowed,
     })
   useTypeToFocus({
     wsId,
@@ -405,6 +412,7 @@ export function AgentChatView({
                 terminalWait={terminalWait}
                 haltedMessage={halted?.text}
                 haltedResetsAt={limitResetsAt(telemetry)}
+                feedError={unfollowed}
                 canStop={live}
                 slashOpen={slash.open}
                 onShapeChange={composer.noteShape}

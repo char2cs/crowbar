@@ -59,6 +59,8 @@ interface AgentComposerProps {
   terminalWait?: AgentTerminalWait
   haltedMessage?: string
   haltedResetsAt?: string
+  /** Why the chat's feed failed, while it has. */
+  feedError?: string
   canStop: boolean
 
   /** The blank chat's document, or the dock under a conversation: one editor either way. */
@@ -208,6 +210,7 @@ export function AgentComposer(props: AgentComposerProps) {
     asks: props.asks,
     haltedMessage: props.haltedMessage,
     haltedResetsAt: props.haltedResetsAt,
+    feedError: props.feedError,
   })
   const document = props.placement === 'document'
   // The document always takes the first prompt; its banner says why it waits.
