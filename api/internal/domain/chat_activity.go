@@ -16,155 +16,10 @@ const (
 )
 
 const (
-	ToolStatusRunning   = "running"
-	ToolStatusOK        = "ok"
-	ToolStatusError     = "error"
-	ToolStatusDeclined  = "declined"
-	ToolStatusAbandoned = "abandoned"
+	ToolStatusOK       = "ok"
+	ToolStatusError    = "error"
+	ToolStatusDeclined = "declined"
 )
-
-type ActivityTurn struct {
-	ID     string `json:"id"`
-	ChatID string `json:"chatId"`
-	Seq    int64  `json:"seq"`
-	// DisplayOrder is reserved once, at the moment the turn is DISPATCHED
-	// (OpenTurn), and inherited unchanged by whatever CloseTurn eventually
-	// records the reply — unlike Seq, which CloseTurn mints fresh at
-	// COMPLETION time. Stopping a turn is a graceful request, not a kill: the
-	// stopped CLI can keep producing and complete after a different turn
-	// (dispatched later) already has, which would otherwise give the
-	// earlier-sent turn a HIGHER Seq and sort it after the later one.
-	DisplayOrder int64 `json:"displayOrder"`
-	// ItemIndex is this message's position within its own turn — always 0,
-	// except a provider that splits one turn's reply across several
-	// message items, each persisted separately but sharing one DisplayOrder.
-	ItemIndex  int    `json:"itemIndex"`
-	Role       string `json:"role"`
-	ProviderID string `json:"providerId"`
-	RunnerID   string `json:"runnerId"`
-	SessionID  string `json:"sessionId"`
-
-	Text   string `json:"text"`
-	Effort string `json:"effort,omitempty"`
-	// Status preserves the terminal outcome of an assistant turn. Empty is
-	// accepted for legacy rows and means completed when EndedAt is present.
-	Status string `json:"status,omitempty"`
-	// Diff is the provider's final unified-diff snapshot for this turn, when
-	// available. It is optional so providers that do not report diffs remain
-	// unchanged and old activity rows continue to decode.
-	Diff string `json:"diff,omitempty"`
-	// Plan is the latest provider-neutral plan snapshot observed while this
-	// turn was open. Providers translate their own step vocabulary before it
-	// reaches this domain type; an absent plan remains nil for legacy turns and
-	// providers that do not report one.
-	Plan          []ActivityPlanStep `json:"plan,omitempty"`
-	PlanUpdatedAt *time.Time         `json:"planUpdatedAt,omitempty"`
-
-	// Assistant messages use their first observed text time when streamed, so
-	// activity that follows stays after the text in the transcript. Older rows
-	// and non-streamed replies retain the turn-open time.
-	StartedAt time.Time  `json:"startedAt"`
-	EndedAt   *time.Time `json:"endedAt,omitempty"`
-}
-
-// ActivityPlanStep is one durable item in an assistant turn's latest plan.
-// Status is canonical Crowbar vocabulary supplied by descriptor translation.
-type ActivityPlanStep struct {
-	Text   string `json:"text"`
-	Status string `json:"status,omitempty"`
-}
-
-type ActivityToolCall struct {
-	ID     string `json:"id"`
-	TurnID string `json:"turnId"`
-	ChatID string `json:"chatId"`
-	Seq    int64  `json:"seq"`
-
-	Name string `json:"name"`
-	// Kind is Crowbar's provider-neutral semantic category, declared through
-	// the descriptor rather than inferred from a provider tool name.
-	Kind      string                 `json:"kind,omitempty"`
-	Locations []ActivityToolLocation `json:"locations,omitempty"`
-
-	Target string `json:"target,omitempty"`
-	// Title is the agent's own line for the call; MCPServer and MCPTool name a
-	// call into an MCP server, and ExitCode a command's exit status.
-	Title     string `json:"title,omitempty"`
-	MCPServer string `json:"mcpServer,omitempty"`
-	MCPTool   string `json:"mcpTool,omitempty"`
-	ExitCode  *int   `json:"exitCode,omitempty"`
-
-	RequestRef string `json:"requestRef,omitempty"`
-	ResultRef  string `json:"resultRef,omitempty"`
-	// Diff is a unified diff of this edit call's own changes, sourced from
-	// provider file diffs, patch hunks, or replaced/replacement text.
-	Diff string `json:"diff,omitempty"`
-
-	Status string `json:"status"`
-
-	Error      string `json:"error,omitempty"`
-	DurationMS int    `json:"durationMs,omitempty"`
-
-	// SubagentID is non-empty when this tool call belongs to a SUBAGENT's own
-	// nested activity — a call the subagent's own child conversation made,
-	// not one the chat's top-level turn made directly — in which case TurnID
-	// is empty: a nested tool call has no top-level turn of its own to
-	// belong to. See ActivitySubagent's own doc.
-	SubagentID string `json:"subagentId,omitempty"`
-
-	StartedAt time.Time  `json:"startedAt"`
-	EndedAt   *time.Time `json:"endedAt,omitempty"`
-}
-
-type ActivityToolLocation struct {
-	Path string `json:"path"`
-	Line int    `json:"line,omitempty"`
-}
-
-type ActivitySubagent struct {
-	ID        string     `json:"id"`
-	TurnID    string     `json:"turnId"`
-	ChatID    string     `json:"chatId"`
-	Seq       int64      `json:"seq"`
-	AgentType string     `json:"agentType,omitempty"`
-	Title     string     `json:"title,omitempty"`
-	Status    string     `json:"status"`
-	ToolUses  int64      `json:"toolUses,omitempty"`
-	Tokens    int64      `json:"tokens,omitempty"`
-	StartedAt time.Time  `json:"startedAt"`
-	EndedAt   *time.Time `json:"endedAt,omitempty"`
-
-	// Messages is the subagent's own replies, in the order said: a nested
-	// conversation can run more than one turn of its own.
-	Messages []ActivitySubagentMessage `json:"messages,omitempty"`
-}
-
-// ActivitySubagentMessage is one closed turn of a subagent's own nested
-// conversation.
-type ActivitySubagentMessage struct {
-	Text string    `json:"text"`
-	At   time.Time `json:"at"`
-}
-
-type ActivityInterruption struct {
-	ID     string `json:"id"`
-	TurnID string `json:"turnId"`
-	ChatID string `json:"chatId"`
-	Seq    int64  `json:"seq"`
-	// DisplayOrder inherits the DisplayOrder of the turn this interruption was
-	// opened against (ActivityTurn.DisplayOrder), not a fresh Seq of its own —
-	// same reasoning as ActivityTurn's own field: an interruption recorded
-	// late (RecordStop firing only after a switch's grace period elapses, or
-	// any interruption processed while a concurrent second runner's turns are
-	// also landing) would otherwise mint a Seq that sorts it after activity it
-	// logically preceded. Falls back to Seq when no turn is open to inherit
-	// from (an idle chat has nothing to anchor to anyway).
-	DisplayOrder int64      `json:"displayOrder"`
-	Kind         string     `json:"kind"`
-	Detail       string     `json:"detail,omitempty"`
-	At           time.Time  `json:"at"`
-	ResolvedAt   *time.Time `json:"resolvedAt,omitempty"`
-}
 
 const (
 	ChoiceKindPermission  = "tool_permission"
@@ -180,13 +35,8 @@ const (
 )
 
 const (
-	ChoiceResolutionAnswered = "answered"
-
 	ChoiceResolutionProceeded = "proceeded"
-
-	ChoiceResolutionRefused = "refused"
-
-	ChoiceResolutionAbandoned = "abandoned"
+	ChoiceResolutionRefused   = "refused"
 )
 
 type ActivityChoice struct {
@@ -215,24 +65,7 @@ type ActivityChoice struct {
 
 	Schema string `json:"schema,omitempty"`
 
-	At         time.Time  `json:"at"`
-	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
-	Resolution string     `json:"resolution,omitempty"`
-	// AutoApproved distinguished a policy-decided answer from a human's own
-	// click. Crowbar no longer decides permissions itself — every provider's
-	// own native mode does (PermissionLevel), so every answer that reaches
-	// here is a human's — and this is currently always false. Kept on the
-	// wire rather than removed outright: a client reading it still gets a
-	// truthful answer, just a constant one.
-	AutoApproved bool `json:"autoApproved,omitempty"`
-	// AnsweredOptionIDs is which of Options (or a question's own options) was
-	// actually picked, when Resolution is "answered" — set only by an answer
-	// that went through Crowbar, never guessed at for one that proceeded at the
-	// provider's own terminal or was abandoned with its turn. A reader resolves
-	// these ids against Options/Questions to say WHAT was decided, not merely
-	// THAT it was — the transcript record of a permission is otherwise
-	// indistinguishable from one that was denied.
-	AnsweredOptionIDs []string `json:"answeredOptionIds,omitempty"`
+	At time.Time `json:"at"`
 }
 
 type ActivityChoiceQuestion struct {
@@ -250,8 +83,6 @@ type ActivityChoiceOption struct {
 	Label       string `json:"label,omitempty"`
 	Description string `json:"description,omitempty"`
 }
-
-func (c ActivityChoice) Pending() bool { return c.ResolvedAt == nil }
 
 type ChoiceAnswer struct {
 	Question ActivityChoiceQuestion

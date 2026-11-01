@@ -1047,7 +1047,6 @@ func TestObservation_APermissionIsRecordedAsAPendingChoice(t *testing.T) {
 	assert.Equal(t, domain.ChoiceKindPermission, got[0].Kind)
 	assert.Equal(t, "81899da5", got[0].PromptID)
 	assert.Equal(t, "Bash", got[0].ToolName)
-	assert.True(t, got[0].Pending())
 	require.Len(t, got[0].Options, 4, "allow, deny, and both of claude's suggestions")
 	assert.Equal(t, domain.ChoiceOptionAllow, got[0].Options[0].Kind)
 	assert.Equal(t, domain.ChoiceOptionDeny, got[0].Options[1].Kind)
@@ -1149,7 +1148,7 @@ func TestObservation_APendingChoiceDoesNotSurviveItsTurn(t *testing.T) {
 	all, err := f.activity.Choices(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, all, 1)
-	assert.Equal(t, domain.ChoiceResolutionAbandoned, all[0].Resolution)
+	assert.Equal(t, ledger.ResolutionAbandoned, all[0].Resolution)
 }
 
 // Once its turn ended, only a subagent running past that end can hold the
@@ -1420,9 +1419,7 @@ func TestRegression_AnInterruptedToolIsFailedNotAbandoned(t *testing.T) {
 	after, err := f.activity.ToolCalls(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, after, 1)
-	assert.Equal(t, domain.ToolStatusError, after[0].Status)
-	assert.NotEqual(t, domain.ToolStatusAbandoned, after[0].Status,
-		"the turn-close sweep must find nothing left to abandon")
+	assert.Equal(t, domain.ToolStatusError, after[0].Status, "the turn-close sweep must find nothing left to abandon")
 }
 
 // ─── from injected_prompt_test.go ─────────────────────────────────────

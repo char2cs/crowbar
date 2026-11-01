@@ -2,13 +2,9 @@ package domain
 
 import "time"
 
-// LedgerTurn is one entry in a chat's ledger: who spoke, under which provider and
-// runner, and what was said.
-//
-// It is distinct from ActivityTurn, which is the live activity stream a running
-// CLI emits. The ledger is what a chat REMEMBERS — it outlives every runner that
-// wrote to it, which is why a turn carries the runner and session it came from
-// rather than pointing at one.
+// LedgerTurn is one message of a chat: who spoke, under which provider and
+// runner, and what was said. It outlives every runner that wrote it, so it
+// names the runner and session rather than pointing at one.
 type LedgerTurn struct {
 	ID       string `json:"id"`
 	Role     string `json:"role"`
@@ -20,23 +16,4 @@ type LedgerTurn struct {
 	Text      string    `json:"text"`
 	Effort    string    `json:"effort,omitempty"`
 	At        time.Time `json:"at"`
-}
-
-// LedgerMessage is a LedgerTurn at its position in the chat's ordering.
-type LedgerMessage struct {
-	Sequence int
-	// DisplayOrder/ItemIndex — see ActivityTurn. What a client actually
-	// sorts by; Sequence stays the unique row identity and paging cursor.
-	DisplayOrder int64
-	ItemIndex    int
-	LedgerTurn
-}
-
-// LedgerPage is one window over a chat's ledger, with the cursors needed to walk
-// further back.
-type LedgerPage struct {
-	Cursor       int
-	OldestCursor int
-	HasMore      bool
-	Items        []LedgerMessage
 }

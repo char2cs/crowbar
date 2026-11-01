@@ -12,6 +12,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	ledgerrows "github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -39,7 +40,7 @@ func (l *recordingLedger) ResolveAsk(_ context.Context, chatID, askID, verdict s
 
 // answer writes a person's answer to choice-1, and reports whether it was first.
 func (l *recordingLedger) answer() bool {
-	return l.close(resolution{"chat-1", "choice-1", domain.ChoiceResolutionAnswered})
+	return l.close(resolution{"chat-1", "choice-1", ledgerrows.ResolutionAnswered})
 }
 
 func (l *recordingLedger) close(r resolution) bool {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	ledgerrows "github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
@@ -237,7 +238,7 @@ func TestAnswer_ARelayHangingUpAfterItsAnswerIsWrittenLeavesItAnswered(t *testin
 
 	require.NoError(t, err)
 	assert.True(t, answered)
-	assert.Equal(t, []resolution{{"chat-1", "choice-1", domain.ChoiceResolutionAnswered}}, ledger.all())
+	assert.Equal(t, []resolution{{"chat-1", "choice-1", ledgerrows.ResolutionAnswered}}, ledger.all())
 }
 
 // An answer whose relay its runner's exit released before the write is refused
@@ -274,7 +275,7 @@ func TestRegression_AnAskAskedAgainMidRecordHandsTheAnswerToItsNewRelay(t *testi
 	require.NoError(t, err)
 	assert.True(t, answered)
 	assert.Equal(t, "allow", <-printed, "the relay now holding the ask is handed its answer")
-	assert.Equal(t, []resolution{{"chat-1", "choice-1", domain.ChoiceResolutionAnswered}}, ledger.all())
+	assert.Equal(t, []resolution{{"chat-1", "choice-1", ledgerrows.ResolutionAnswered}}, ledger.all())
 }
 
 // An answer that looked its relay up just before a re-ask displaced it is

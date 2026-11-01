@@ -704,7 +704,7 @@ func TestRegression_AVerdictDecidedBeforeTheRelayAsksIsStillDelivered(t *testing
 	all, err := f.activity.Choices(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, all, 1)
-	assert.Equal(t, domain.ChoiceResolutionAnswered, all[0].Resolution)
+	assert.Equal(t, ledger.ResolutionAnswered, all[0].Resolution)
 }
 
 func TestAnswer_AnAnswerRacingTheRelaysArrivalReachesItEitherWay(t *testing.T) {
@@ -765,7 +765,7 @@ func TestAnswer_ADeadRunnerSweepsAVerdictNoRelayCollected(t *testing.T) {
 	all, err := f.activity.Choices(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, all, 1)
-	assert.Equal(t, domain.ChoiceResolutionAnswered, all[0].Resolution,
+	assert.Equal(t, ledger.ResolutionAnswered, all[0].Resolution,
 		"the answer a human really gave must not be rewritten as abandoned")
 }
 
@@ -786,5 +786,5 @@ func TestAnswer_AHangUpAfterAnAnswerDoesNotRewriteTheRecord(t *testing.T) {
 	all, err := f.activity.Choices(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, all, 1)
-	assert.Equal(t, domain.ChoiceResolutionAnswered, all[0].Resolution)
+	assert.Equal(t, ledger.ResolutionAnswered, all[0].Resolution)
 }

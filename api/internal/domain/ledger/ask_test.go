@@ -161,7 +161,6 @@ func TestState_OpenAsksListsAsksWithNoResolution(t *testing.T) {
 	assert.Equal(t, "Bash", got[0].ToolName)
 	assert.Equal(t, "Run it?", got[0].Question)
 	assert.Equal(t, []domain.ActivityChoiceOption{{ID: "allow", Kind: "allow_once", Label: "Allow"}}, got[0].Options)
-	assert.True(t, got[0].Pending())
 	assert.Equal(t, "choice-2", got[1].ID)
 	assert.Empty(t, got[1].Options, "options that do not decode leave the question without them")
 }
