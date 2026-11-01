@@ -7,6 +7,7 @@ import {
   type UploadedChatAttachment,
 } from '@/features/agent/api/upload-chat-attachment'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
+import * as reports from '@/__tests__/__fixtures__/reports'
 
 vi.mock('@/features/agent/api/upload-chat-attachment', () => ({
   uploadChatAttachment: vi.fn(
@@ -34,15 +35,14 @@ vi.mock('@/features/file-system/lib/tauri-file-drop', () => ({
   useTauriFileDrop: vi.fn(),
 }))
 
-const toastError = vi.hoisted(() => vi.fn())
-vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: toastError } }))
+let toastError: ReturnType<typeof reports.watchToasts>
 
 afterEach(cleanup)
 
 beforeEach(() => {
   vi.mocked(uploadChatAttachment).mockClear()
   vi.mocked(useTauriFileDrop).mockClear()
-  toastError.mockClear()
+  toastError = reports.watchToasts()
 })
 
 function draw(overrides: Partial<Parameters<typeof AttachFileModal>[0]> = {}) {
@@ -303,7 +303,9 @@ describe('AttachFileModal', () => {
 
   describe('a failed upload', () => {
     it('surfaces a failed upload as a toast, without inserting or closing', async () => {
-      vi.mocked(uploadChatAttachment).mockRejectedValueOnce(new Error('413 Payload Too Large'))
+      vi.mocked(uploadChatAttachment).mockRejectedValueOnce(
+        reports.refusal('413 Payload Too Large'),
+      )
       const onInsertMarkdown = vi.fn()
       const onClose = vi.fn()
       draw({ onInsertMarkdown, onClose })
@@ -313,30 +315,19 @@ describe('AttachFileModal', () => {
       fireEvent.change(input, { target: { files: [file] } })
 
       await waitFor(() =>
-        expect(toastError).toHaveBeenCalledWith(
-          'Could not attach that file',
-          '413 Payload Too Large',
-        ),
+        reports.expectReported(toastError, 'Could not attach that file', '413 Payload Too Large'),
       )
       expect(onInsertMarkdown).not.toHaveBeenCalled()
       expect(onClose).not.toHaveBeenCalled()
     })
 
-    // A failure that isn't an `Error` instance (e.g. a plain thrown string)
-    // still gets a description, not a crash — the shared hook's own fallback
-    // description, same as agent-composer.tsx's.
-    it('falls back to a generic description for a non-Error rejection', async () => {
-      vi.mocked(uploadChatAttachment).mockRejectedValueOnce('boom')
+    it('an upload refused while the daemon migrates shows the migrating state', async () => {
+      vi.mocked(uploadChatAttachment).mockRejectedValueOnce(reports.migratingRefusal())
       draw()
       const input = screen.getByLabelText(/choose a file/i) as HTMLInputElement
       fireEvent.change(input, { target: { files: [new File(['x'], 'huge.png')] } })
 
-      await waitFor(() =>
-        expect(toastError).toHaveBeenCalledWith(
-          'Could not attach that file',
-          'Crowbar could not reach the daemon — try again.',
-        ),
-      )
+      await waitFor(() => reports.expectMigratingShown(toastError))
     })
 
     // The upload state must clear on failure too, or the picker would stay
@@ -354,7 +345,7 @@ describe('AttachFileModal', () => {
     })
 
     it('surfaces a failed dropped upload the same way', async () => {
-      vi.mocked(uploadChatAttachment).mockRejectedValueOnce(new Error('disk full'))
+      vi.mocked(uploadChatAttachment).mockRejectedValueOnce(reports.refusal('disk full'))
       draw()
       const zone = screen.getByTestId('attach-file-dropzone')
       const file = new File(['bytes'], 'huge.png', { type: 'image/png' })
@@ -362,7 +353,7 @@ describe('AttachFileModal', () => {
       fireEvent.drop(zone, { dataTransfer: { types: ['Files'], files: [file] } })
 
       await waitFor(() =>
-        expect(toastError).toHaveBeenCalledWith('Could not attach that file', 'disk full'),
+        reports.expectReported(toastError, 'Could not attach that file', 'disk full'),
       )
     })
   })

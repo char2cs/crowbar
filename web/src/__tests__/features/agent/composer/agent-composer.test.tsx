@@ -15,7 +15,7 @@ import {
 import type { ParsedExcalidrawScene } from '@/features/agent/composer/plate/attachments/excalidraw-scene'
 import type { ChatMarkdownEditorHandle } from '@/features/agent/composer/plate/chat-markdown-editor'
 import * as tauriDrop from '@/features/file-system/lib/tauri-file-drop'
-import { toast } from '@/features/window/stores/toast-store'
+import * as reports from '@/__tests__/__fixtures__/reports'
 
 // The real canvas mounts `@excalidraw/excalidraw`, which jsdom cannot host; its
 // `onSave` is captured so a test can save the way the canvas's button would.
@@ -39,7 +39,7 @@ type AgentComposerProps = Parameters<typeof AgentComposer>[0]
 
 let upload: MockInstance<typeof uploadApi.uploadChatAttachment>
 let tauriHook: MockInstance<typeof tauriDrop.useTauriFileDrop>
-let toastError: MockInstance<typeof toast.error>
+let toastError: ReturnType<typeof reports.watchToasts>
 
 beforeEach(() => {
   localStorage.clear()
@@ -47,7 +47,7 @@ beforeEach(() => {
   upload = vi.spyOn(uploadApi, 'uploadChatAttachment')
   // A no-op under jsdom (`isTauri()` is false); its `onDrop` is invoked directly.
   tauriHook = vi.spyOn(tauriDrop, 'useTauriFileDrop').mockImplementation(() => {})
-  toastError = vi.spyOn(toast, 'error').mockImplementation(() => '')
+  toastError = reports.watchToasts()
 })
 
 afterEach(() => vi.restoreAllMocks())
@@ -440,33 +440,25 @@ describe('AgentComposer drag-and-drop', () => {
   })
 
   it('surfaces a failed upload as a toast and leaves nothing of it in the box', async () => {
-    upload.mockRejectedValueOnce(new Error('413 Payload Too Large'))
+    upload.mockRejectedValueOnce(reports.refusal('413 Payload Too Large'))
     const { pill, markdown } = draw({}, { dnd: true })
 
     drop(pill(), [new File(['bytes'], 'huge.png', { type: 'image/png' })])
 
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith(
-        'Could not attach that file',
-        '413 Payload Too Large',
-      ),
+      reports.expectReported(toastError, 'Could not attach that file', '413 Payload Too Large'),
     )
     expect(markdown()).not.toContain('blob:')
     expect(markdown()).not.toContain('huge.png')
   })
 
-  it('falls back to a generic description for a non-Error rejection', async () => {
-    upload.mockRejectedValueOnce('boom')
+  it('an upload refused while the daemon migrates shows the migrating state', async () => {
+    upload.mockRejectedValueOnce(reports.migratingRefusal())
     const { pill } = draw()
 
     drop(pill(), [new File(['bytes'], 'huge.png', { type: 'image/png' })])
 
-    await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith(
-        'Could not attach that file',
-        'Crowbar could not reach the daemon — try again.',
-      ),
-    )
+    await waitFor(() => reports.expectMigratingShown(toastError))
   })
 
   // An upload that outlives the pane must not throw when it tries to insert.
