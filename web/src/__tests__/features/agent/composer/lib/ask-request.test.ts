@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { foldCode, foldedCue, requestView } from '@/features/agent/composer/lib/ask-request'
+import {
+  foldCode,
+  foldedCue,
+  requestView,
+  visibleParts,
+} from '@/features/agent/composer/lib/ask-request'
 
 const folded = (command: string) =>
   foldCode(requestView({ toolName: 'Bash', toolInput: { command } }).code)
@@ -21,5 +26,23 @@ describe('foldCode', () => {
     const [shown] = folded(line).lines
     expect(shown.text).toBe('a'.repeat(239))
     expect(shown.cut).toBe(true)
+  })
+})
+
+describe('visibleParts', () => {
+  // Every code point Unicode says draws as nothing or controls layout; TAB and
+  // LF draw as themselves, and a CRLF's CR is dropped before this.
+  const INVISIBLE = /[\p{Default_Ignorable_Code_Point}\p{Cf}\p{Zl}\p{Zp}\p{Cc}]/u
+  const invisible: number[] = []
+  for (let cp = 0; cp <= 0x10ffff; cp++) {
+    if (cp >= 0xd800 && cp <= 0xdfff) continue
+    if (cp !== 0x09 && cp !== 0x0a && INVISIBLE.test(String.fromCodePoint(cp))) invisible.push(cp)
+  }
+
+  it('writes out every invisible code point Unicode names', () => {
+    const drawn = visibleParts(String.fromCodePoint(...invisible))
+    const raw = drawn.filter((part) => !part.escaped).map((part) => part.text)
+    expect(raw.join('')).toBe('')
+    expect(drawn).toHaveLength(invisible.length)
   })
 })

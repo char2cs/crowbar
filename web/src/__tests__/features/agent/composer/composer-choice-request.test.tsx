@@ -109,6 +109,12 @@ describe('ChoiceRequest shows a command as it is', () => {
     ['supplementary variation selectors', 0xe0100],
     ['tag characters', 0xe0041],
     ['interlinear annotation and object replacement', 0xfffc],
+    ['a Khmer inherent vowel', 0x17b4],
+    ['the other Khmer inherent vowel', 0x17b5],
+    ['a Mongolian free variation selector', 0x180b],
+    ['the second Mongolian free variation selector', 0x180c],
+    ['the third Mongolian free variation selector', 0x180d],
+    ['the fourth Mongolian free variation selector', 0x180f],
   ])('writes out %s', (_, cp) => {
     const raw = String.fromCodePoint(cp)
     show({ request: { toolName: 'Bash', toolInput: { command: `a${raw}b` } } })
