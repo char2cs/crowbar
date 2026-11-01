@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { planRemoval } from '@/components/layout/removal-plan'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 
 const PROJECTS = [
   { id: 'p1', name: 'harbour' },

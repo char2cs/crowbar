@@ -21,7 +21,7 @@ import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { viewMembers } from '@/features/panes/lib/view-state'
 import type { ViewMember } from '@/features/panes/types/pane'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { selectRepos, useSelect } from '@/core/entities/select'
 
 const NO_ICON: Partial<ChatIconFields> = {}
 const LOADING_CHAT_LABEL = 'Loading…'
@@ -216,7 +216,7 @@ function RecentsMemberRow({
   drag: SidebarDrag
   registerRow: (row: SidebarRowType) => void
 }) {
-  const icon = useSidebarStore(useShallow((s) => recentsChatIcon(s.repos, chatId) ?? NO_ICON))
+  const icon = useSelect(useShallow((s) => recentsChatIcon(selectRepos(s), chatId) ?? NO_ICON))
   // The workspace store when one is mounted (live title, the spinner), else
   // the sidebar's own chat record. A row is its record: with no chat data
   // yet it still draws (as loading), and its × works.

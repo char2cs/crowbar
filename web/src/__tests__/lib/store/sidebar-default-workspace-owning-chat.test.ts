@@ -1,5 +1,6 @@
 import { beforeEach, expect, test } from 'vitest'
-import { useSidebarStore, getInitialState, type Repo } from '@/lib/store/sidebar'
+import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { getOwningChatId, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import { buildRepoTree } from '@/lib/store/build-repo-tree'
 import type { RepoDTO, WorkspaceDTO } from '@/lib/types'

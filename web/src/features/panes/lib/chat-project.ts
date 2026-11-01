@@ -1,5 +1,5 @@
-import { useSidebarStore } from '@/lib/store/sidebar'
-import { resolveHomeRowScope, useHomeTreeStore } from '@/lib/store/home-tree'
+import { readSelect, selectHomeTrees, selectRepos } from '@/core/entities/select'
+import { resolveHomeRowScope } from '@/lib/store/home-tree'
 import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
 import { resolveChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace'
 
@@ -23,7 +23,7 @@ export function resolveChatProjectId(chatId: string, workspaceHint?: string | nu
   const home = resolveHomeRowScope(chatId)
   if (home?.kind === 'chat') return home.projectId
 
-  const repos = useSidebarStore.getState().repos
+  const repos = readSelect(selectRepos)
   for (const repo of repos) {
     if (repo.projectId && repo.chats?.some((c) => c.id === chatId)) return repo.projectId
   }
@@ -38,12 +38,12 @@ export function resolveChatProjectId(chatId: string, workspaceHint?: string | nu
  * workspace it is, asked the same way `resolveHomeRowScope` asks.
  */
 export function resolveWorkspaceProjectId(wsId: string): string | null {
-  for (const repo of useSidebarStore.getState().repos) {
+  for (const repo of readSelect(selectRepos)) {
     if (!repo.projectId) continue
     if (repo.defaultWorkspaceId === wsId) return repo.projectId
     if (repo.workspaces.some((w) => w.id === wsId)) return repo.projectId
   }
-  for (const projectId of Object.keys(useHomeTreeStore.getState().trees)) {
+  for (const projectId of Object.keys(readSelect(selectHomeTrees))) {
     if (getHomeWorkspaceId(projectId) === wsId) return projectId
   }
   return null

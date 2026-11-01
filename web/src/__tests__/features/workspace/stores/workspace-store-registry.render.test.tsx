@@ -15,7 +15,8 @@ import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 
 const repoWithChat = (chatId: string, wsId: string): Repo => ({
   id: 'repo-1',

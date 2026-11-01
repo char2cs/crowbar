@@ -1,14 +1,12 @@
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import type { Operation } from '@/lib/store/operations'
 import { holdsWorkspace } from '@/lib/store/repo-tree'
 
-/** What the sidebar tree holds, and which parts of it the daemon has answered. */
+/** What the sidebar tree holds, and whether the daemon has answered for the route. */
 export interface WorkspaceRouteKnowledge {
   repos: Repo[]
-  /** Repos whose workspace list, as the daemon answered it, is in `repos`. */
-  workspacesRead: ReadonlySet<string>
-  /** Projects whose repo list, as the daemon answered it, is in `repos`. */
-  reposRead: ReadonlySet<string>
+  /** `selectProjectsSynced` for the route's project and repo. */
+  synced: boolean
   /** A merge folding the routed workspace runs: the merge, not the guard, moves the user. */
   merging: boolean
 }
@@ -25,8 +23,7 @@ export function shouldRedirectUnknownWorkspace(
   const { wsId } = route
   if (!wsId || known.merging) return false
   if (known.repos.some((r) => holdsWorkspace(r, wsId))) return false
-  const repo = known.repos.find((r) => r.id === route.repoId)
-  return repo ? known.workspacesRead.has(repo.id) : known.reposRead.has(route.projectId)
+  return known.synced
 }
 
 /**

@@ -83,7 +83,6 @@ vi.mock('@/lib/api/sidebar-placement', () => ({
   // channel any more.
   deleteFolder: vi.fn(() => Promise.resolve([])),
 }))
-
 import { deleteRepo } from '@/lib/api'
 import { deleteChat } from '@/features/agent/api/agent-chat-commands'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
@@ -91,7 +90,8 @@ import { deleteFolder } from '@/lib/api/sidebar-placement'
 import { idle, success } from '@/lib/loadable'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { useProjectDataStore } from '@/lib/store/projects'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'

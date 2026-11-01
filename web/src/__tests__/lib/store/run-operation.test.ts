@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/lib/errors/api-error'
 import { OperationFailedError } from '@/lib/errors/operation-failed'
-import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
 import { operationsState, subscribeOperations, type Operation } from '@/lib/store/operations'
 import {

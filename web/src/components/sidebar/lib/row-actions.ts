@@ -1,4 +1,5 @@
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { applyFolderPlacements } from '@/lib/store/applied-placement'
 import { applyHomeFolders, getHomeTree, resolveHomeRowScope } from '@/lib/store/home-tree'

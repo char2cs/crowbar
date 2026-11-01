@@ -1,5 +1,5 @@
 import type { Problem } from '@/lib/errors/problem'
-import type { Workspace } from '@/lib/store/sidebar'
+import type { Workspace } from '@/core/entities/repo-types'
 
 /**
  * Why a workspace has no on-disk worktree.

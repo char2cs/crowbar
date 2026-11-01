@@ -41,9 +41,9 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 
 import { AppSyncProvider, SUBSCRIPTION_GRACE_MS } from '@/components/app-sync-provider'
 import { idle, success } from '@/lib/loadable'
-import { useProjectStore } from '@/lib/store/projects'
-import { useProjectDataStore } from '@/lib/store/projects'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
 import { hydrateSidebar } from '@/lib/persistence/hydrate'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'

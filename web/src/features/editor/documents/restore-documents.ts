@@ -1,6 +1,6 @@
 import { isNotFoundError } from '@/lib/errors/api-error'
 import { readDocument, type DocumentRef } from '@/lib/api/documents'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { readSelect, selectRepos } from '@/core/entities/select'
 import { workspaceNames } from '@/lib/workspace/workspace-branch'
 import {
   getEditorHost,
@@ -262,7 +262,7 @@ function sayFailures(failures: Failures): void {
   }
   for (const [title, kind] of kinds) {
     const ids = [...new Set(kind.map((f) => f.workspaceId))]
-    const names = workspaceNames(useSidebarStore.getState().repos, ids)
+    const names = workspaceNames(readSelect(selectRepos), ids)
     const labels = new Set(kind.map((failure) => failureLabel(failure, kind, names)))
     toast.error(title, [...labels].join(', '))
   }

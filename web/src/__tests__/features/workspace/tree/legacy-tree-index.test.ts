@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
-import type { Chat, Folder, Repo, Workspace } from '@/lib/store/sidebar'
+import type { Chat, Folder, Repo, Workspace } from '@/core/entities/repo-types'
 import { legacyTreeIndex } from '@/features/workspace/tree/legacy-tree-index'
 import {
   HOME_ROW_ID,

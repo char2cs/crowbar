@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
 import { inputOf, repoRows } from '@/__tests__/__fixtures__/tree-rows'
 import { deriveRows } from '@/features/workspace/tree/rows'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },

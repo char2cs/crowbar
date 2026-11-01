@@ -12,7 +12,8 @@ import {
   renderedHiddenIds,
 } from '@/components/layout/removal-plan'
 import { repoRows } from '@/__tests__/__fixtures__/tree-rows'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useProjectDataStore } from '@/lib/store/projects'
 

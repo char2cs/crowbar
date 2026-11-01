@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button'
 import { MergePopover } from '@/features/git/components/merge-popover'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
 import { operationsState } from '@/lib/store/operations'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
 const { patchMergeStrategy, mergeIntoParent, navigateMock } = vi.hoisted(() => ({

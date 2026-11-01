@@ -12,7 +12,7 @@ import {
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import type { Chat, Repo } from '@/lib/store/sidebar'
+import type { Chat, Repo } from '@/core/entities/repo-types'
 import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 const { openBranchReviewMock } = vi.hoisted(() => ({ openBranchReviewMock: vi.fn() }))

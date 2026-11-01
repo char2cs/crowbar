@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { hydrateCriticalStores } from '@/lib/boot'
 import type { Loadable } from '@/lib/loadable'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 
 const { hydrateSidebar, hydrateWindowPaneLayout, placeRestoredChatMembers } = vi.hoisted(() => ({
   hydrateSidebar: vi.fn().mockResolvedValue(undefined),

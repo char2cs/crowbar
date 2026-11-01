@@ -5,7 +5,7 @@ import {
   shouldRedirectUnknownWorkspace,
   type WorkspaceRouteKnowledge,
 } from '@/lib/store/workspace-route-guard'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 
 const REPOS: Repo[] = [
   {
@@ -21,28 +21,16 @@ const REPOS: Repo[] = [
   },
 ]
 
-const NONE: ReadonlySet<string> = new Set()
-const READ: WorkspaceRouteKnowledge = {
-  repos: REPOS,
-  workspacesRead: new Set(['repo-1']),
-  reposRead: new Set(['p1']),
-  merging: false,
-}
+const READ: WorkspaceRouteKnowledge = { repos: REPOS, synced: true, merging: false }
 
 const route = (wsId: string | undefined, repoId = 'repo-1') => ({ projectId: 'p1', repoId, wsId })
 
 // A deep link on a cold cache: the tree is empty only because nothing has
 // been read from the daemon yet, which says nothing about the workspace.
 test('does not redirect before the daemon has answered for the route', () => {
-  const cold: WorkspaceRouteKnowledge = {
-    ...READ,
-    repos: [],
-    workspacesRead: NONE,
-    reposRead: NONE,
-  }
+  const cold: WorkspaceRouteKnowledge = { ...READ, repos: [], synced: false }
   expect(shouldRedirectUnknownWorkspace(route('ws-base'), cold)).toBe(false)
-  const reposOnly: WorkspaceRouteKnowledge = { ...READ, workspacesRead: NONE }
-  expect(shouldRedirectUnknownWorkspace(route('ghost'), reposOnly)).toBe(false)
+  expect(shouldRedirectUnknownWorkspace(route('ghost'), { ...READ, synced: false })).toBe(false)
 })
 
 test('does not redirect when the workspace exists', () => {
@@ -50,14 +38,9 @@ test('does not redirect when the workspace exists', () => {
   expect(shouldRedirectUnknownWorkspace(route('ws-child'), READ)).toBe(false)
 })
 
-test('redirects once the repo workspace list is read and the id is not in it', () => {
+test('redirects once the daemon has answered and the id is not in the tree', () => {
   expect(shouldRedirectUnknownWorkspace(route('ghost'), READ)).toBe(true)
-})
-
-test('redirects once the project repo list is read and the repo is not in it', () => {
   expect(shouldRedirectUnknownWorkspace(route('ghost', 'repo-gone'), READ)).toBe(true)
-  const unread: WorkspaceRouteKnowledge = { ...READ, reposRead: NONE }
-  expect(shouldRedirectUnknownWorkspace(route('ghost', 'repo-gone'), unread)).toBe(false)
 })
 
 test('no id means nothing to guard', () => {

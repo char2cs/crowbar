@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { recentsChatIcon } from '@/components/sidebar/lib/recents-for-project'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 
 const repos: Repo[] = [
   {

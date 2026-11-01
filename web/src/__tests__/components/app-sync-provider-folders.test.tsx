@@ -94,11 +94,11 @@ vi.mock('@/lib/api', () => ({
   fetchHomeChats: vi.fn().mockResolvedValue([]),
   fetchHomeFolders: vi.fn().mockResolvedValue([]),
 }))
-
 import { AppSyncProvider } from '@/components/app-sync-provider'
 import { success } from '@/lib/loadable'
 import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { upsertEntity } from '@/lib/persistence/entity-cache'

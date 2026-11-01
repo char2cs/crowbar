@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from 'vitest'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 
 const FIXTURE_REPOS: Repo[] = [
   {

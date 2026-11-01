@@ -3,7 +3,8 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { SidebarRowContextMenu } from '@/components/sidebar/row-context-menu'
 import { inputOf, repoRows } from '@/__tests__/__fixtures__/tree-rows'
 import { deriveRows } from '@/features/workspace/tree/rows'
-import { useSidebarStore, getInitialState, type Repo } from '@/lib/store/sidebar'
+import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
@@ -18,7 +19,6 @@ import { useAgentProvidersStore } from '@/features/settings/stores/agent-provide
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }))
-
 vi.mock('@/components/layout/trash-actions', async (importOriginal) => ({
   ...(await importOriginal<typeof trashActions>()),
   handleTrashRepo: vi.fn(),

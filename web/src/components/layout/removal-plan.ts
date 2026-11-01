@@ -1,4 +1,4 @@
-import { type Chat, type Folder, type Repo } from '@/lib/store/sidebar'
+import type { Chat, Folder, Repo } from '@/core/entities/repo-types'
 import { getPostDeleteNavigationTarget, EMPTY_CHATS, EMPTY_FOLDERS } from '@/lib/store/repo-tree'
 import type { RemovalDraft, RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
 import type { DragSubjectBase } from '@/components/tree-dnd/drop-core'

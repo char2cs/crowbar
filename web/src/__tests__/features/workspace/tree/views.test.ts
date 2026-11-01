@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Chat, Repo, Workspace } from '@/lib/store/sidebar'
+import type { Chat, Repo, Workspace } from '@/core/entities/repo-types'
 import { chatIconIndex } from '@/components/sidebar/lib/chat-icon-index'
 import {
   HOME_ROW_ID,

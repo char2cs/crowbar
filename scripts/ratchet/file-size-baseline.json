@@ -82,7 +82,7 @@
   "web/src/__tests__/components/layout/removal-tray.test.tsx": 536,
   "web/src/__tests__/components/layout/sidebar-carousel.test.tsx": 689,
   "web/src/__tests__/components/sidebar/hooks/use-sidebar-drag.test.ts": 1021,
-  "web/src/__tests__/components/sidebar/lib/drop-actions.test.ts": 2571,
+  "web/src/__tests__/components/sidebar/lib/drop-actions.test.ts": 2566,
   "web/src/__tests__/components/sidebar/lib/sidebar-drop-policy.test.ts": 1038,
   "web/src/__tests__/components/sidebar/row-context-menu.test.tsx": 587,
   "web/src/__tests__/components/sidebar/sidebar-row.test.tsx": 1065,

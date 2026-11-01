@@ -4,7 +4,8 @@ import { success } from '@/lib/loadable'
 import { isEntityPresent, usePresentEntities } from '@/lib/store/entity-presence'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { useProjectDataStore } from '@/lib/store/projects'
-import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import type { Project } from '@/lib/types'
 
 const repo = {

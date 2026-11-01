@@ -124,13 +124,8 @@ import {
   getAllActiveWorkspaceIds,
   setActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
-import {
-  getInitialState,
-  useSidebarStore,
-  type Chat,
-  type Folder,
-  type Repo,
-} from '@/lib/store/sidebar'
+import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import type { Chat, Folder, Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'

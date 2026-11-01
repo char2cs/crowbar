@@ -3,7 +3,7 @@ import {
   owningChatIdOfWorkspace,
   workspaceIdOfBranchRow,
 } from '@/components/sidebar/lib/branch-row-id'
-import type { Chat, Repo, Workspace } from '@/lib/store/sidebar'
+import type { Chat, Repo, Workspace } from '@/core/entities/repo-types'
 
 function makeTestWorkspace(over: Partial<Workspace> & { id: string; branch: string }): Workspace {
   return { age: '', ...over }

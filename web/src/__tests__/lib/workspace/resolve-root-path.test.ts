@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveWorkspaceRootPath, workspaceRootPath } from '@/lib/workspace/resolve-root-path'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { useProjectDataStore } from '@/lib/store/projects'
 import { recordWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import { success } from '@/lib/loadable'

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { chatIsThreadIn } from '@/features/panes/hooks/use-chat-is-thread'
-import type { Chat, Repo, Workspace } from '@/lib/store/sidebar'
+import type { Chat, Repo, Workspace } from '@/core/entities/repo-types'
 import type { HomeTree } from '@/lib/store/home-tree'
 
 function makeHomeTree(overrides: Partial<HomeTree> = {}): HomeTree {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { workspaceNames } from '@/lib/workspace/workspace-branch'
 
 function repo(name: string, workspaces: { id: string; branch: string }[]): Repo {

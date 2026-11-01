@@ -78,12 +78,15 @@ type MockWs = {
   status?: string
 } | null
 let mockActiveWs: MockWs = null
-vi.mock('@/lib/store/sidebar', () => ({
-  useSidebarStore: (
-    sel: (s: {
-      repos: Array<{ workspaces: Array<{ id: string } & NonNullable<MockWs>> }>
-    }) => unknown,
-  ) => sel({ repos: mockActiveWs ? [{ workspaces: [{ id: 'ws-active', ...mockActiveWs }] }] : [] }),
+vi.mock('@/core/entities/select', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useSelect: (sel: (s: unknown) => unknown) =>
+    sel({
+      repos: mockActiveWs ? [{ workspaces: [{ id: 'ws-active', ...mockActiveWs }] }] : [],
+      homeTrees: {},
+      workspacesRead: new Set(),
+      reposRead: new Set(),
+    }),
 }))
 
 // The route is mocked only to prove GitPanel ignores it: scope comes from the

@@ -3,7 +3,7 @@ import { wsManager } from '@/lib/ws/manager'
 import { fetchHomeChats, fetchHomeFolders, fetchRepos } from '@/lib/api'
 import { toSidebarChat, toSidebarFolder } from '@/lib/store/build-repo-tree'
 import { applyRepoPlacements, type RowPlacement } from '@/lib/store/applied-placement'
-import { type Chat, type Folder } from '@/lib/store/sidebar'
+import type { Chat, Folder } from '@/core/entities/repo-types'
 import { EMPTY_CHATS, EMPTY_FOLDERS } from '@/lib/store/repo-tree'
 import { NON_STRUCTURAL_CHAT_KINDS } from '@/lib/ws/chat-frame-kinds'
 import {

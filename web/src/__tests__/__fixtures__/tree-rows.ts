@@ -1,4 +1,4 @@
-import type { Chat, Folder, Repo, Workspace } from '@/lib/store/sidebar'
+import type { Chat, Folder, Repo, Workspace } from '@/core/entities/repo-types'
 import type { EntityRef, Operation } from '@/lib/store/operations'
 import { type CreateDraft, type RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'

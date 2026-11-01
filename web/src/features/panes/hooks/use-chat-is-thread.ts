@@ -1,6 +1,5 @@
-import { useSidebarStore } from '@/lib/store/sidebar'
-import type { Chat, Repo } from '@/lib/store/sidebar'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { selectHomeTrees, selectRepos, useSelect } from '@/core/entities/select'
+import type { Chat, Repo } from '@/core/entities/repo-types'
 import type { HomeTree } from '@/lib/store/home-tree'
 
 /**
@@ -25,7 +24,7 @@ import type { HomeTree } from '@/lib/store/home-tree'
  * A project-home chat is a different, PERMANENT case, not a loading gap: it
  * rides no repo at all (`home-tree.ts`'s own doc), so it structurally can
  * never own a worktree — there is no "not yet" to wait out. Any chat found in
- * `homeTrees` (`useHomeTreeStore`'s per-project map, entirely separate from
+ * `homeTrees` (the per-project home map, entirely separate from
  * `repos`) therefore answers `true` unconditionally, the moment it is found,
  * rather than falling through to the `repos`-only loading default.
  */
@@ -68,15 +67,10 @@ function ownsWorktree(repo: Repo, chat: Chat): boolean {
   return repo.workspaces.some((w) => w.owningChatId === chat.id)
 }
 
-/** {@link chatIsThreadIn} in the render path, fed by both stores a chat can
- *  live in: `useSidebarStore`'s `repos[]` for a repo chat, and
- *  `useHomeTreeStore`'s `trees` for a project-home chat (home rides no repo,
- *  so it is never in the former). Narrow selectors on each, per this repo's
- *  store convention, so a write to either store that leaves this chat's
- *  membership unchanged still re-renders once the identity of the touched
- *  slice changes — but never on writes to unrelated slices of either store. */
+/** {@link chatIsThreadIn} in the render path, over the repo chats and the
+ *  project-home chats (home rides no repo, so it is never among the former). */
 export function useChatIsThread(chatId: string | null): boolean {
-  const repos = useSidebarStore((s) => s.repos)
-  const homeTrees = useHomeTreeStore((s) => s.trees)
+  const repos = useSelect(selectRepos)
+  const homeTrees = useSelect(selectHomeTrees)
   return chatIsThreadIn(repos, chatId, homeTrees)
 }

@@ -14,7 +14,7 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import type { Chat, Repo } from '@/lib/store/sidebar'
+import type { Chat, Repo } from '@/core/entities/repo-types'
 
 // TabBar reaches useSidebar() only for the fallback sidebar-reopen toggle,
 // irrelevant here — stub it so the suite needn't stand up a SidebarProvider

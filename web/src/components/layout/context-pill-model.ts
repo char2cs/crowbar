@@ -1,4 +1,4 @@
-import type { Repo, WorkspaceStatus } from '@/lib/store/sidebar'
+import type { Repo, WorkspaceStatus } from '@/core/entities/repo-types'
 import type { Project } from '@/lib/types'
 import type { RepoIconSource } from './repo-icon-mark'
 

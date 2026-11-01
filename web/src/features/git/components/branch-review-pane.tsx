@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { selectWorkspace, useSelect } from '@/core/entities/select'
 import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 import { getReview } from '../api/review-api'
 import { ReviewDiffTab } from './review-diff-tab'
@@ -27,12 +27,10 @@ export function BranchReviewPane({ wsId, isActivePane }: BranchReviewPaneProps) 
 
   // Branch + base for the shared diff header: title = branch name, meta = → base.
   // Sourced from the sidebar workspace record (same data the merge section uses).
-  const branchHeader = useSidebarStore(
+  const branchHeader = useSelect(
     useShallow((s): { title: string; baseBranch?: string } => {
-      for (const repo of s.repos) {
-        const ws = repo.workspaces.find((w) => w.id === wsId)
-        if (ws) return { title: ws.branch || 'Branch Review', baseBranch: ws.parentBranch }
-      }
+      const ws = selectWorkspace(s, wsId)
+      if (ws) return { title: ws.branch || 'Branch Review', baseBranch: ws.parentBranch }
       return { title: 'Branch Review' }
     }),
   )

@@ -1,4 +1,4 @@
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 
 /**
  * The two id spaces a branch row straddles.

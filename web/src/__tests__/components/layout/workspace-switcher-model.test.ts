@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { flattenWorkspaces } from '@/components/layout/workspace-switcher-model'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import type { Project } from '@/lib/types'
 
 const repos: Repo[] = [

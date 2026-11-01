@@ -1,7 +1,8 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 
 import { visibleRepos } from '@/components/sidebar/lib/rendered-rows'
-import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore, type RemovalDraft } from '@/features/workspace/tree/tree-ui-store'
 
 /**

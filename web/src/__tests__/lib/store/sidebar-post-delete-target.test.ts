@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import { getPostDeleteNavigationTarget } from '@/lib/store/repo-tree'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 
 // BUG-007: after drag-to-delete of the ACTIVE workspace the app must navigate
 // to the parent, else the repo's base (locked) workspace, else null (caller

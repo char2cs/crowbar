@@ -1,4 +1,4 @@
-import type { Chat, Folder, Repo, Workspace } from '@/lib/store/sidebar'
+import type { Chat, Folder, Repo, Workspace } from '@/core/entities/repo-types'
 import { createdInstant } from '@/lib/store/created-instant'
 import { resolveHomeOwnerId, resolveOwnerChats } from '@/components/sidebar/lib/workspace-owners'
 import { indexNodes, type TreeIndex, type TreeNode } from './tree-index'

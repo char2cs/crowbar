@@ -3,7 +3,7 @@ import { GitPullRequest, GitBranch, ClockCounterClockwise, CaretRight } from '@p
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/utils/cn'
 import { openBranchReviewForWorkspace } from '@/features/panes/utils/pane-command-actions'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { selectWorkspace, useSelect } from '@/core/entities/select'
 import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
 import {
   hasRepoWorkspace,
@@ -31,14 +31,7 @@ export function GitPanel() {
   const gitStatus = useWorkspaceStoreById(wsId ?? '', (s) => s.gitStatus)
 
   // Active workspace metadata from sidebar store (canMergeLocally, parentBranch, status).
-  const activeWs = useSidebarStore((s) => {
-    if (!wsId) return null
-    for (const repo of s.repos) {
-      const ws = repo.workspaces.find((w) => w.id === wsId)
-      if (ws) return ws
-    }
-    return null
-  })
+  const activeWs = useSelect((s) => (wsId ? (selectWorkspace(s, wsId) ?? null) : null))
 
   // Changed-files tree source: the full branch-vs-parent diff only while the
   // Branch Review pane is open, otherwise the cheap working-tree status (P2b).

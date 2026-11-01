@@ -1,5 +1,5 @@
 import { useLayoutEffect } from 'react'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { selectRepos, useSelect } from '@/core/entities/select'
 import { publishFocusedWorkspaceContext } from '@/features/window/stores/focused-workspace-context-store'
 
 interface PublishInput {
@@ -32,9 +32,9 @@ export function usePublishFocusedWorkspaceContext({
   projectPath,
 }: PublishInput): void {
   const isProjectHome = workspaceId ? workspaceId === homeWorkspaceId : isHomeRoute
-  const sidebarRepoId = useSidebarStore((s) => {
+  const sidebarRepoId = useSelect((s) => {
     if (!workspaceId || isProjectHome) return null
-    for (const repo of s.repos) {
+    for (const repo of selectRepos(s)) {
       if (repo.defaultWorkspaceId === workspaceId) return repo.id
       if (repo.workspaces.some((w) => w.id === workspaceId)) return repo.id
     }

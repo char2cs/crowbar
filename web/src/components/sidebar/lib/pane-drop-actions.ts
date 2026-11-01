@@ -7,7 +7,7 @@ import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { viewChatIds } from '@/features/panes/lib/view-state'
 import { resolveChatProjectId } from '@/features/panes/lib/chat-project'
 import { owningChatIdOfWorkspace } from '@/components/sidebar/lib/branch-row-id'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { readSelect, selectRepos } from '@/core/entities/select'
 
 /**
  * Middle of a Recents row (spec §8.1: "into that view, opened"): every
@@ -147,7 +147,7 @@ function paneChatSubject(row: SidebarRow): PaneChatSubject | null {
     return row.workspaceId ? { chatId: row.id, workspaceId: row.workspaceId } : null
   }
   if (row.kind !== 'branch' || !row.workspaceId) return null
-  const owner = owningChatIdOfWorkspace(useSidebarStore.getState().repos, row.workspaceId)
+  const owner = owningChatIdOfWorkspace(readSelect(selectRepos), row.workspaceId)
   if (!owner) return null
   return { chatId: owner, workspaceId: row.workspaceId }
 }

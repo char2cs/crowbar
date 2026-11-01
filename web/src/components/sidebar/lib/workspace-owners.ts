@@ -1,4 +1,4 @@
-import type { Chat, Workspace } from '@/lib/store/sidebar'
+import type { Chat, Workspace } from '@/core/entities/repo-types'
 
 /**
  * The chat that owns a repo/project HOME workspace's worktree, straight off

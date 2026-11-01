@@ -17,7 +17,7 @@ import {
   CommandPanel,
 } from '@/components/ui/command'
 import { Kbd, KbdGroup } from '@/components/ui/kbd'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { selectRepos, useSelect } from '@/core/entities/select'
 import { useProjectStore, useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { dataOf } from '@/lib/loadable'
 import { fuzzyMatch } from '@/utils/search-match'
@@ -41,7 +41,7 @@ interface WorkspaceSwitcherMenuProps {
 export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const repos = useSidebarStore((s) => s.repos)
+  const repos = useSelect(selectRepos)
   // Live project list — the import-only useProjectStore.projects starts empty
   // (see context-pill).
   const projects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)

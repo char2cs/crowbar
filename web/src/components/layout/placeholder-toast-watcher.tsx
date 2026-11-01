@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { selectRepos, useSelect } from '@/core/entities/select'
 import { toast } from '@/features/window/stores/toast-store'
 import { placeholderKind, placeholderReason } from '@/lib/workspace/placeholder'
 import { useDetachModalStore } from '@/features/window/stores/detach-modal-store'
@@ -28,7 +28,7 @@ import {
 // A placeholder an operation is still making, or one whose operation failed,
 // is the operations watcher's to toast, with the operation's reason.
 export function PlaceholderToastWatcher() {
-  const repos = useSidebarStore((s) => s.repos)
+  const repos = useSelect(selectRepos)
   const openDetach = useDetachModalStore((s) => s.open)
   const failedOps = useOperations(useShallow(selectFailedOps))
   const seen = useRef(new Set<string>())

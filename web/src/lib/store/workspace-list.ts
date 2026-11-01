@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { createLoadableSlice, type LoadableSlice } from '@/lib/store/loadable-slice'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { readVisibleRepoTree } from '@/lib/store/project-visibility'
 
 // §6/§7: the sidebar tree is now derived from the WS-driven entity cache, not a

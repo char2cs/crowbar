@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from 'vitest'
 import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import type { WorkspaceDTO } from '@/lib/types'
 import {
   getWorkspaceScope,

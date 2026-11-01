@@ -1,7 +1,8 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { WorkspaceSwitcherMenu } from '@/components/layout/workspace-switcher'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 
 const navigateMock = vi.fn()
 let mockPathname = '/workspaces/ws3'

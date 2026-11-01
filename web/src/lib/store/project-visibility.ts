@@ -8,7 +8,7 @@ import {
 } from '@/lib/store/build-repo-tree'
 import { resolveHomeRowScope } from '@/lib/store/home-tree'
 import { EMPTY_PROJECTS, useProjectDataStore, useProjectStore } from '@/lib/store/projects'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import type { ChatDTO, FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 // ---------------------------------------------------------------------------

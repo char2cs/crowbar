@@ -1,6 +1,6 @@
 import { assetURL } from '@/lib/api'
 import { createdInstant } from '@/lib/store/created-instant'
-import type { Chat, Folder, Repo, Workspace, WorkspaceStatus } from '@/lib/store/sidebar'
+import type { Chat, Folder, Repo, Workspace, WorkspaceStatus } from '@/core/entities/repo-types'
 import type { ChatDTO, FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 // Re-export the canonical §5 DTOs so existing importers (workspace-list, tests)

@@ -1,4 +1,4 @@
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { chatIconIndex, type ChatIconFields } from './chat-icon-index'
 
 const iconCache = new WeakMap<readonly Repo[], Map<string, ChatIconFields>>()

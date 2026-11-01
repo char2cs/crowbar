@@ -28,7 +28,8 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { allowedModes } from '@/components/sidebar/lib/sidebar-drop-policy'
 import { repoRows } from '@/__tests__/__fixtures__/tree-rows'
-import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 
 const repo: Repo = {

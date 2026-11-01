@@ -20,7 +20,8 @@ import {
   terminalLinksFor,
   type TerminalLinksOptions,
 } from '@/features/terminal/lib/terminal-links'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 
 // The daemon's Go conformance suite wraps the same URL (wrapTestURL, 58 chars).
 const WRAP_URL = 'https://example.com/docs/guide/getting-started?ref=crowbar'

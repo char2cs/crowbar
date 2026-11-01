@@ -12,7 +12,7 @@ import { applyPendingRemovals, renderedHiddenIds } from './removal-plan'
 import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { performSidebarPaneDrop } from '@/components/sidebar/lib/pane-drop-actions'
 import { useTreeUi } from '@/features/workspace/tree/tree-ui-store'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { selectRepos, useSelect } from '@/core/entities/select'
 import { toast } from '@/features/window/stores/toast-store'
 import { SidebarTreeChrome } from './sidebar-tree-chrome'
 import { CreateSpacePanel } from './create-space-panel'
@@ -50,7 +50,7 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
   const navigate = useNavigate()
   // Opening, resolving and focusing a row ask about the repo the user sees: the
   // tray's held rows taken out, its live primary rows kept (`renderedHiddenIds`).
-  const allRepos = useSidebarStore((s) => s.repos)
+  const allRepos = useSelect(selectRepos)
   const removalEntries = useTreeUi((s) => s.removals)
   const trayHiddenIds = useTreeUi((s) => s.hiddenIds)
   const repos = useMemo(

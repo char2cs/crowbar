@@ -13,7 +13,7 @@ import {
 import { CHAT_TITLE_PENDING_LABEL, useChatTitle } from '@/features/agent/hooks/use-chat-title'
 import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
 import { useChatWorking } from '@/features/agent/hooks/use-chat-entity'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { selectWorkspace, useSelect } from '@/core/entities/select'
 import { cn } from '@/lib/utils'
 
 interface ChatBranchHeaderProps {
@@ -47,14 +47,7 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
   // title to edit from).
   const title = useChatTitle(chatId)
   const working = useChatWorking(chatId)
-  const workspace = useSidebarStore((s) => {
-    if (!wsId) return null
-    for (const repo of s.repos) {
-      const ws = repo.workspaces.find((w) => w.id === wsId)
-      if (ws) return ws
-    }
-    return null
-  })
+  const workspace = useSelect((s) => (wsId ? (selectWorkspace(s, wsId) ?? null) : null))
   // A thread owns no branch — it runs on the one its parent owns — so it gets
   // the bubble, never the branch mark, exactly as `RowGlyph` (sidebar-row.tsx)
   // already draws it in the tree. `wsId` above cannot answer this: a thread

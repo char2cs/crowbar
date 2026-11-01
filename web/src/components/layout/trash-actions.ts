@@ -1,4 +1,4 @@
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { readSelect, selectRepos } from '@/core/entities/select'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { dataOf } from '@/lib/loadable'
@@ -46,7 +46,7 @@ import { resolveChatRow, resolveRow } from './open-actions'
  * one.
  */
 export function handleTrash(id: string): boolean {
-  const currentRepos = useSidebarStore.getState().repos
+  const currentRepos = readSelect(selectRepos)
   const homeRow = resolveHomeRowScope(id)
   // Checked BEFORE resolveChatRow/resolveRow, which cannot see a home row at
   // all (and, for a folder, would risk the bleed-prone false match above).
@@ -76,7 +76,7 @@ export function handleTrash(id: string): boolean {
  * a project id no loaded project claims).
  */
 export function handleTrashProject(projectId: string): boolean {
-  const currentRepos = useSidebarStore.getState().repos
+  const currentRepos = readSelect(selectRepos)
   const projects = dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS
   const drafts = planRemoval([{ kind: 'project', id: projectId }], currentRepos, projects)
   if (drafts.length === 0) return false
@@ -95,7 +95,7 @@ export function handleTrashProject(projectId: string): boolean {
  * already has its own cascading-confirm copy for `repo`, same as `project`.
  */
 export function handleTrashRepo(repoId: string): boolean {
-  const currentRepos = useSidebarStore.getState().repos
+  const currentRepos = readSelect(selectRepos)
   const projects = dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS
   const drafts = planRemoval([{ kind: 'repo', id: repoId }], currentRepos, projects)
   if (drafts.length === 0) return false

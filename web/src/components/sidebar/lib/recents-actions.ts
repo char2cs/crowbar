@@ -3,7 +3,7 @@ import { openChatRoute } from '@/components/layout/open-actions'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 
 type NavigateFn = ReturnType<typeof useNavigate>
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { placeholderKind, placeholderReason } from '@/lib/workspace/placeholder'
-import type { Workspace } from '@/lib/store/sidebar'
+import type { Workspace } from '@/core/entities/repo-types'
 
 // The daemon records a workspace with no checkout as a placeholder.
 const ws = (over: Partial<Workspace> = {}): Workspace => ({

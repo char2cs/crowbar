@@ -1,12 +1,12 @@
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { resolveRowRepo } from '@/components/sidebar/lib/sidebar-drop-policy'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
+import { readSelect, selectHomeTrees, selectRepos } from '@/core/entities/select'
 import { useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { dataOf } from '@/lib/loadable'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { applyPendingRemovals, renderedHiddenIds } from '@/components/layout/removal-plan'
 import { compareSidebarRows } from '@/components/sidebar/lib/row-order'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
 import { deriveRows } from '@/features/workspace/tree/rows'
 import { treeInputFor } from '@/features/workspace/tree/input'
@@ -36,7 +36,7 @@ export function insertIndex(rest: string[], targetId: string, mode: 'before' | '
 export function visibleRepos(): Repo[] {
   const tray = treeUiStore.getState()
   return applyPendingRemovals(
-    useSidebarStore.getState().repos,
+    readSelect(selectRepos),
     renderedHiddenIds(tray.hiddenIds, tray.removals),
   )
 }
@@ -67,7 +67,7 @@ export function projectOfWorkspace(repos: readonly Repo[], wsId: string): string
   if (scope?.projectId) return scope.projectId
   const projectIds = new Set<string>([
     ...(dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS).map((p) => p.id),
-    ...Object.keys(useHomeTreeStore.getState().trees),
+    ...Object.keys(readSelect(selectHomeTrees)),
     ...repos.flatMap((r) => (r.projectId ? [r.projectId] : [])),
   ])
   for (const projectId of projectIds) {

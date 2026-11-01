@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { repoRows } from '@/__tests__/__fixtures__/tree-rows'
 import { chatIconIndex } from '@/components/sidebar/lib/chat-icon-index'
-import type { Chat, Repo, Workspace } from '@/lib/store/sidebar'
+import type { Chat, Repo, Workspace } from '@/core/entities/repo-types'
 
 function makeTestWorkspace(over: Partial<Workspace> & { id: string; branch: string }): Workspace {
   return { age: '', ...over }

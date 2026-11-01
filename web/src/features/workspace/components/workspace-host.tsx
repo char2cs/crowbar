@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { selectRepos, useSelect } from '@/core/entities/select'
 import { markEnd, markStart } from '@/lib/perf/instrumentation'
 import {
   destroyWorkspaceStore,
@@ -98,8 +98,8 @@ export function WorkspaceHost({
   // a tree row — it exists only as repo.defaultWorkspaceId — so it must be
   // included explicitly, or leaving it while any child workspace exists would
   // prune-and-destroy it as "closed".
-  const existingIdsKey = useSidebarStore((s) =>
-    s.repos
+  const existingIdsKey = useSelect((s) =>
+    selectRepos(s)
       .flatMap((r) => [
         ...(r.defaultWorkspaceId ? [r.defaultWorkspaceId] : []),
         ...r.workspaces.map((w) => w.id),

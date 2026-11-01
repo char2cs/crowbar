@@ -1,4 +1,4 @@
-import type { Chat, Repo, Workspace, WorkspaceStatus } from '@/lib/store/sidebar'
+import type { Chat, Repo, Workspace, WorkspaceStatus } from '@/core/entities/repo-types'
 import type { Problem } from '@/lib/errors/problem'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { workspaceIconFields, type ChatIconFields } from '@/components/sidebar/lib/chat-icon-index'

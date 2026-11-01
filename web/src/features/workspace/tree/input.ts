@@ -1,7 +1,8 @@
 import { useCallback, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import { useHomeTreeStore, type HomeTree } from '@/lib/store/home-tree'
+import type { Repo } from '@/core/entities/repo-types'
+import { readSelect, selectHomeTrees, selectRepos, useSelect } from '@/core/entities/select'
+import type { HomeTree } from '@/lib/store/home-tree'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { treeUiStore, useTreeUi, type CreateDraft, type RemovalEntry } from './tree-ui-store'
 import {
@@ -77,7 +78,7 @@ const problemsIn =
  *  holds (or the ones the handler was handed), since a handler acts on rows already drawn. */
 export function treeInputFor(
   projectId: string,
-  repos: readonly Repo[] = useSidebarStore.getState().repos,
+  repos: readonly Repo[] = readSelect(selectRepos),
 ): TreeInput {
   const tray = treeUiStore.getState()
   const ops = operationsState()
@@ -87,7 +88,7 @@ export function treeInputFor(
       hidden: renderedHiddenIds(tray.hiddenIds, tray.removals),
       removals: tray.removals,
       drawn: () => true,
-      homeTrees: useHomeTreeStore.getState().trees,
+      homeTrees: readSelect(selectHomeTrees),
       homeOf: (id) => ({
         workspaceId: getHomeWorkspaceId(id),
         owningChatId: getHomeOwningChatId(id),
@@ -103,12 +104,12 @@ export function treeInputFor(
 
 /** Every project's input for a component, re-derived when a store it reads changes. */
 export function useTreeInput(): (projectId: string) => TreeInput {
-  const repos = useSidebarStore((s) => s.repos)
+  const repos = useSelect(selectRepos)
   const removals = useTreeUi((s) => s.removals)
   const trayHidden = useTreeUi((s) => s.hiddenIds)
   const seeded = useFolderSignalStore((s) => s.seededRepoIds)
   const seededWorkspaces = useFolderSignalStore((s) => s.seededWorkspaceRepoIds)
-  const homeTrees = useHomeTreeStore((s) => s.trees)
+  const homeTrees = useSelect(selectHomeTrees)
   const homes = useHomeWorkspaceStates()
   const ops = useOperations((s) => s.ops)
   const draft = useTreeUi((s) => s.draft)

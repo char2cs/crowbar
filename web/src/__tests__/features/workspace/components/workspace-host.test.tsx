@@ -81,7 +81,7 @@ vi.mock('@/features/workspace/components/workspace-layout-root', async () => {
 import { WorkspaceHost } from '@/features/workspace/components/workspace-host'
 import { requestWorkspaceEviction } from '@/features/workspace/lib/workspace-eviction-request'
 import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 
 function seedSidebar(ids: string[], opts: { defaultWorkspaceId?: string } = {}) {
   const repo: Repo = {

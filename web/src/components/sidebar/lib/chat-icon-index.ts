@@ -1,4 +1,4 @@
-import type { Repo, Workspace } from '@/lib/store/sidebar'
+import type { Repo, Workspace } from '@/core/entities/repo-types'
 import { EMPTY_CHATS } from '@/lib/store/repo-tree'
 import { placeholderKind, placeholderReason } from '@/lib/workspace/placeholder'
 import type { Problem } from '@/lib/errors/problem'

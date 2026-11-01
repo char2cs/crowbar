@@ -1,5 +1,5 @@
 import type { useNavigate } from '@tanstack/react-router'
-import type { Chat, Repo } from '@/lib/store/sidebar'
+import type { Chat, Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import type { DragSubject } from './removal-plan'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'

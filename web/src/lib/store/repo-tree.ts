@@ -6,7 +6,8 @@ import {
   toSidebarWorkspace,
 } from '@/lib/store/build-repo-tree'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
-import type { Chat, Folder, Repo, SidebarPlacement, Workspace } from '@/lib/store/sidebar'
+import type { SidebarPlacement } from '@/lib/store/sidebar'
+import type { Chat, Folder, Repo, Workspace } from '@/core/entities/repo-types'
 
 // The sidebar's repo tree appliers: pure folds of daemon DTOs and confirmed
 // placements into `Repo[]`. Each returns the SAME array when nothing changed,

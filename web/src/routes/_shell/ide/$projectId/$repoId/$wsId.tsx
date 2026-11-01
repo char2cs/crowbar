@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { selectProjectsSynced, selectRepos, useSelect } from '@/core/entities/select'
 import { useOperations } from '@/lib/store/operations'
 import { mergeRunsOn, shouldRedirectUnknownWorkspace } from '@/lib/store/workspace-route-guard'
 
@@ -12,9 +11,8 @@ export const Route = createFileRoute('/_shell/ide/$projectId/$repoId/$wsId')({
 function WorkspaceRouteGuard() {
   const { projectId, repoId, wsId } = Route.useParams()
   const navigate = useNavigate()
-  const repos = useSidebarStore((state) => state.repos)
-  const workspacesRead = useFolderSignalStore((state) => state.seededWorkspaceRepoIds)
-  const reposRead = useFolderSignalStore((state) => state.seededRepoListProjectIds)
+  const repos = useSelect(selectRepos)
+  const synced = useSelect((s) => selectProjectsSynced(s, projectId, repoId))
   const merging = useOperations((state) => mergeRunsOn(state.ops, wsId))
 
   // The hierarchical scope (project+repo) for this workspace is recorded
@@ -23,7 +21,7 @@ function WorkspaceRouteGuard() {
   // unknown-workspace redirect.
   const redirect = shouldRedirectUnknownWorkspace(
     { projectId, repoId, wsId },
-    { repos, workspacesRead, reposRead, merging },
+    { repos, synced, merging },
   )
 
   useEffect(() => {

@@ -10,7 +10,7 @@ import {
   Trash,
 } from '@phosphor-icons/react'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { readSelect, selectRepos } from '@/core/entities/select'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import {
   performCreateFolder,
@@ -37,8 +37,7 @@ interface SidebarRowContextMenuProps {
 
 interface MenuData {
   row: SidebarRow
-  /** Read from `useSidebarStore` at open time — `SidebarRow` carries no
-   *  `locked` field yet, so this can't come from the `rows` prop. */
+  /** Read from the repos at open time: `SidebarRow` carries no `locked` field. */
   locked: boolean
 }
 
@@ -86,7 +85,7 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
       // (`deriveRows`), so matching the raw row id against `w.id`
       // answered `false` for precisely the rows that ARE locked — the menu
       // offered "Lock" on an already-locked branch and never "Unlock".
-      const repos = useSidebarStore.getState().repos
+      const repos = readSelect(selectRepos)
       const wsId = workspaceIdOfBranchRow(repos, rowId) ?? rowId
       const locked = repos.some((repo) =>
         repo.workspaces.some((w) => w.id === wsId && w.status === 'locked'),
@@ -205,7 +204,7 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
   }
 
   if (row.kind === 'branch' || row.kind === 'folder' || row.kind === 'chat') {
-    // A home row is never in `useSidebarStore`'s `repos` at all (home rides
+    // A home row is never in the repos at all (home rides
     // no repo), so `performCreateFolder`'s repo lookup finds nothing for one
     // and silently no-ops — needs the home-scoped create instead.
     //

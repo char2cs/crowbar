@@ -1,7 +1,7 @@
 import { GitBranch, GitFork, GitMerge, GitPullRequest, Lock, Warning } from '@phosphor-icons/react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { cn } from '@/lib/utils'
-import type { WorkspaceStatus } from '@/lib/store/sidebar'
+import type { WorkspaceStatus } from '@/core/entities/repo-types'
 
 interface WorkspaceBranchIconProps {
   status: WorkspaceStatus

@@ -10,7 +10,8 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
-import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { nextVersion, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 

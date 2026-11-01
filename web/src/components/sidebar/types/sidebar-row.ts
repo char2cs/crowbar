@@ -1,4 +1,4 @@
-import type { WorkspaceStatus } from '@/lib/store/sidebar'
+import type { WorkspaceStatus } from '@/core/entities/repo-types'
 import type { OperationState } from '@/lib/store/operations'
 import type { Problem } from '@/lib/errors/problem'
 

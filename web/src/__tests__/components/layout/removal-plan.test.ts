@@ -20,7 +20,7 @@ import {
   planRemoval,
   type DragSubject,
 } from '@/components/layout/removal-plan'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({

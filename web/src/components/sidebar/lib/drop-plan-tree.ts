@@ -5,7 +5,7 @@ import {
   owningChatIdOfWorkspace,
   workspaceIdOfBranchRow,
 } from '@/components/sidebar/lib/branch-row-id'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { resolveHomeOwnerId } from '@/components/sidebar/lib/workspace-owners'
 import {

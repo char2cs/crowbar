@@ -3,7 +3,7 @@ import { SidebarRowContextMenu } from '@/components/sidebar/row-context-menu'
 import { performImportBranches } from '@/components/sidebar/lib/import-branches'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { resolveRow } from './open-actions'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { RepoImportDialog } from './repo-import-dialog'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 

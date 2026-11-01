@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import type { PaneContent } from '@/features/panes/types/pane-content'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { selectRepos, useSelect } from '@/core/entities/select'
 import { workspaceNames } from '@/lib/workspace/workspace-branch'
 import { calculateDisplayNames } from '../utils/path-shortener'
 
@@ -65,8 +65,8 @@ export function useBufferDisplayName({ buffers }: UseBufferDisplayNameOptions) {
   }, [sessionFieldTuples])
 
   const workspaceIds = useMemo(() => [...new Set(buffers.map((b) => b.workspaceId))], [buffers])
-  const names = useSidebarStore(
-    useShallow((state) => [...workspaceNames(state.repos, workspaceIds).values()]),
+  const names = useSelect(
+    useShallow((s) => [...workspaceNames(selectRepos(s), workspaceIds).values()]),
   )
   const displayNames = useMemo(
     () => calculateDisplayNames(buffers, new Map(workspaceIds.map((id, i) => [id, names[i]]))),

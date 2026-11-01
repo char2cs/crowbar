@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { isWorkspaceLockedInSidebar } from '@/lib/store/repo-tree'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 
 // The file explorer gates its mutation menu items on this lookup. A workspace
 // lives in one of TWO id spaces: the repo's tree rows (repo.workspaces) or the

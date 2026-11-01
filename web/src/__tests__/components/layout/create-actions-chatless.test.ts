@@ -25,7 +25,8 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 
 import { handleCreate, confirmCreateDraft } from '@/components/layout/create-actions'
 import { performSetWorkspaceLock, performRenameRow } from '@/components/sidebar/lib/row-actions'
-import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useHomeTreeStore } from '@/lib/store/home-tree'

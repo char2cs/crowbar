@@ -13,7 +13,7 @@ import {
 } from '@/features/workspace/stores/workspace-store-registry'
 import { isEntityPresent, subscribeEntityPresence } from '@/lib/store/entity-presence'
 import { selectEntityBusy, useOperations } from '@/lib/store/operations'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { readSelect, selectRepos } from '@/core/entities/select'
 import { getPostDeleteNavigationTarget, holdsWorkspace } from '@/lib/store/repo-tree'
 import { runOperation, whenSettled } from '@/lib/store/run-operation'
 import { setMergeStrategy as patchMergeStrategy, mergeIntoParent } from '../api/review-api'
@@ -98,7 +98,7 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
     if (busy) return
     let redirect: { projectId: string; repoId: string; wsId: string } | null = null
     if (deleteAfterMerge) {
-      const repos = useSidebarStore.getState().repos
+      const repos = readSelect(selectRepos)
       const targetWsId = getPostDeleteNavigationTarget(repos, wsId)
       const repo = targetWsId ? repos.find((r) => holdsWorkspace(r, targetWsId)) : undefined
       if (targetWsId && repo) {

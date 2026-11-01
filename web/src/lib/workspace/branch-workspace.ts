@@ -1,4 +1,4 @@
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 
 /**
  * Returns the id of the Crowbar-MANAGED workspace that already holds `branch` in

@@ -6,7 +6,7 @@ vi.mock('@/features/window/stores/toast-store', () => ({ toast: { show: vi.fn() 
 import { toast } from '@/features/window/stores/toast-store'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { PlaceholderToastWatcher } from '@/components/layout/placeholder-toast-watcher'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
 
 const repoWith = (over = {}): Repo => ({

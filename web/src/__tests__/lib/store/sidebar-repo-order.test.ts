@@ -9,7 +9,8 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { buildRepoTree, sortReposByOrder } from '@/lib/store/build-repo-tree'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import type { RepoDTO } from '@/lib/types'
 
 const repo = (id: string, order?: number, projectId = 'p1'): Repo => ({

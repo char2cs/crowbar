@@ -37,7 +37,8 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 }))
 
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
-import { getInitialState, useSidebarStore, type Chat, type Repo } from '@/lib/store/sidebar'
+import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import type { Chat, Repo } from '@/core/entities/repo-types'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'

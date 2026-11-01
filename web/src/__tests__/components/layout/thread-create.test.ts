@@ -21,7 +21,8 @@ const presetChatLandingPresentation = vi
   .mockImplementation(() => {})
 
 import { handleCreate, confirmCreateDraft } from '@/components/layout/create-actions'
-import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'

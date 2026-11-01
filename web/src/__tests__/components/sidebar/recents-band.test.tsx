@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { RecentsBand } from '@/components/sidebar/recents-band'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
-import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import {
   resetWindowPaneStoreForTests,
   windowPaneStore,

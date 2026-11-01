@@ -13,7 +13,7 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { viewChatIds } from '@/features/panes/lib/view-state'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 
 const repos: Repo[] = [
   {

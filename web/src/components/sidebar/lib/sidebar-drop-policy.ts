@@ -8,7 +8,8 @@ import {
   type AllowedModes,
   type DropPolicy,
 } from '@/components/tree-dnd/drop-core'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { readSelect, selectRepos } from '@/core/entities/select'
+import type { Repo } from '@/core/entities/repo-types'
 import { selectEntityBusy, operationsState } from '@/lib/store/operations'
 import { isWorkspaceLockedInSidebar } from '@/lib/store/repo-tree'
 import { chatStore } from '@/features/agent/stores/chat-store'
@@ -231,7 +232,7 @@ export function allowedModes(subjects: readonly SidebarRow[], target: DropTarget
 
   // One `getState()` per drag frame, shared by every branch below — see
   // `resolveRowRepo`'s own note about this running on every pointermove.
-  const repos = useSidebarStore.getState().repos
+  const repos = readSelect(selectRepos)
 
   // A CHAT IS NOT REPO-SCOPED, so the repo/project walk below does not apply to
   // it — and applying it anyway is what silently refused every single

@@ -13,7 +13,8 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 }))
 
 import { resolveChatProjectId, resolveWorkspaceProjectId } from '@/features/panes/lib/chat-project'
-import { useSidebarStore, type Chat, type Repo, type Workspace } from '@/lib/store/sidebar'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Chat, Repo, Workspace } from '@/core/entities/repo-types'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 
 const workspace = (id: string): Workspace => ({ id, branch: id, age: '1m' })

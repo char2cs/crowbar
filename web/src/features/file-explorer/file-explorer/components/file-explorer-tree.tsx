@@ -4,7 +4,7 @@ import { useEventListener } from '@/hooks/use-event-listener'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { fileOpenBenchmark } from '@/features/editor/utils/file-open-benchmark'
 import type { FileEntry } from '@/features/file-system/types/app'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { selectRepos, useSelect } from '@/core/entities/select'
 import { isWorkspaceLockedInSidebar } from '@/lib/store/repo-tree'
 import { SidebarEmptyActionState } from '@/components/ui/sidebar'
 import { cn } from '@/utils/cn'
@@ -99,7 +99,9 @@ function FileExplorerTreeComponent({
   // "workspace locked"), so the context menu must not offer mutations there.
   // isWorkspaceLockedInSidebar checks tree rows AND the default (main-worktree)
   // workspace. Returns a boolean, so the selector stays referentially stable.
-  const isWorkspaceLocked = useSidebarStore((s) => isWorkspaceLockedInSidebar(s.repos, workspaceId))
+  const isWorkspaceLocked = useSelect((s) =>
+    isWorkspaceLockedInSidebar(selectRepos(s), workspaceId),
+  )
 
   const handleAutoExpandDirectory = useCallback(
     (path: string) => {

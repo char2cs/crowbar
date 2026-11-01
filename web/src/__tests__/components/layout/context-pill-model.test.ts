@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { deriveContextPillModel } from '@/components/layout/context-pill-model'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import type { Project } from '@/lib/types'
 
 const repos: Repo[] = [

@@ -41,7 +41,8 @@ import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { repoRows } from '@/__tests__/__fixtures__/tree-rows'
 import { placeRepo } from '@/lib/api/sidebar-placement'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 
 const repo = (n: number): Repo => ({

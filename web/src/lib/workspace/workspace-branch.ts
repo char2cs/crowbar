@@ -1,4 +1,4 @@
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 
 /**
  * Names for workspaces shown side by side: each one's branch, qualified with

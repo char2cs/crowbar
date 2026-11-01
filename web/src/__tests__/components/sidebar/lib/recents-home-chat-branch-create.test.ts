@@ -8,7 +8,8 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { useSidebarStore, type Repo, type Workspace } from '@/lib/store/sidebar'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo, Workspace } from '@/core/entities/repo-types'
 import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 /**

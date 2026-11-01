@@ -1,5 +1,5 @@
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { readSelect, selectRepos } from '@/core/entities/select'
 import { useProjectDataStore } from '@/lib/store/projects'
 import { getWorkspaceScope } from '@/lib/workspace-scope'
 import { dataOf } from '@/lib/loadable'
@@ -13,7 +13,7 @@ function projectPath(projectId: string): string | undefined {
  * (main-worktree) workspace, or the project's own path for its home workspace.
  */
 export function workspaceRootPath(wsId: string): string | undefined {
-  for (const repo of useSidebarStore.getState().repos) {
+  for (const repo of readSelect(selectRepos)) {
     const ws = repo.workspaces?.find((w) => w.id === wsId)
     if (ws) return ws.localPath ?? repo.localPath
     if (repo.defaultWorkspaceId === wsId) return repo.localPath

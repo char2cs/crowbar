@@ -1,4 +1,4 @@
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { selectRepos, useSelect } from '@/core/entities/select'
 import {
   useActivePaneWorkspaceId,
   usePaneEditorWorkspaceIds,
@@ -76,8 +76,9 @@ export function useIdeShellWorkspaceRetention(
   // active workspace's actual filesystem scope changed.
   // Same id as `effectiveActiveWorkspaceId` — the panel's path and scope must never diverge.
   const sidebarWorkspaceId = effectiveActiveWorkspaceId
-  const sidebarWorkspacePath = useSidebarStore((s) => {
-    // The home workspace is never one of `s.repos`' own workspaces (it rides
+  const sidebarWorkspacePath = useSelect((s) => {
+    const repos = selectRepos(s)
+    // The home workspace is never one of `repos`' own workspaces (it rides
     // no repo — home-workspace-resolver.ts), so resolve its REAL on-disk path
     // directly (GET /home's own `localPath`) rather than falling through the
     // repo scan below and landing on some OTHER repo's directory as a
@@ -85,12 +86,12 @@ export function useIdeShellWorkspaceRetention(
     if (sidebarWorkspaceId && sidebarWorkspaceId === homeWorkspaceId) {
       return (
         homeWorkspacePath ??
-        s.repos.find((r) => r.projectId === activeProjectIdFromRoute)?.localPath ??
+        repos.find((r) => r.projectId === activeProjectIdFromRoute)?.localPath ??
         ''
       )
     }
     if (sidebarWorkspaceId) {
-      for (const repo of s.repos) {
+      for (const repo of repos) {
         if (repo.defaultWorkspaceId === sidebarWorkspaceId) return repo.localPath ?? ''
         const ws = repo.workspaces.find((w) => w.id === sidebarWorkspaceId)
         if (ws) return ws.localPath || repo.localPath || ''
@@ -101,7 +102,7 @@ export function useIdeShellWorkspaceRetention(
     if (!isHomeRoute) return ''
     return (
       homeWorkspacePath ??
-      s.repos.find((r) => r.projectId === activeProjectIdFromRoute)?.localPath ??
+      repos.find((r) => r.projectId === activeProjectIdFromRoute)?.localPath ??
       ''
     )
   })

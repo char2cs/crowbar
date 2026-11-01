@@ -49,7 +49,7 @@ import { createLeaf, getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
 import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 
 const HYDRATE_TEST_REPOS: Repo[] = [
