@@ -15,8 +15,8 @@ import (
 )
 
 // Every route answers a failure from one mapping: the status of its problem
-// code, the code itself, and the failure's own words without the wraps above it.
-func TestRoute_AFailureCarriesItsCodeAndNotItsChain(t *testing.T) {
+// code, the code itself, and its message without the wraps above the coded error.
+func TestRoute_AFailureCarriesItsCodeAndItsMessage(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
 	chat := "/v0/chats/" + imported.chatID
@@ -73,7 +73,7 @@ func TestRoute_AFailureCarriesItsCodeAndNotItsChain(t *testing.T) {
 		{
 			"bad search pattern", http.MethodPost, chat + "/search",
 			map[string]any{"query": "(", "regex": true},
-			http.StatusBadRequest, problem.InvalidArgument, "invalid search pattern: error parsing regexp: missing closing ): `(?i)(`",
+			http.StatusBadRequest, problem.InvalidArgument, "invalid search pattern: match: build pattern: error parsing regexp: missing closing ): `(?i)(`",
 		},
 		{
 			"unknown review chat", http.MethodGet, "/v0/chats/ghost/review", nil,
