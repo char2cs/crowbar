@@ -31,7 +31,6 @@ const MAX_LINES_BASELINE = [
   'src/components/ui/dropdown.tsx',
   'src/components/ui/table-icons.tsx',
   'src/components/ui/table-node.tsx',
-  'src/features/agent/transcript/plate/streaming-value-patch.ts',
   'src/features/tabs/components/tab-bar.tsx',
 ]
 
@@ -40,7 +39,6 @@ const MAX_LINES_BASELINE = [
 // goes when its file is fixed; never add to these lists.
 const UNDESCRIBED_DIRECTIVE_BASELINE = [
   'src/__tests__/features/terminal/hooks/use-terminal-connection.test.ts',
-  'src/features/agent/transcript/plate/chat-fresh-text-plugin.tsx',
   'src/features/panes/components/pane-sash.tsx',
   'src/features/tabs/hooks/use-pane-top-row-edges.ts',
   'src/features/terminal/hooks/use-terminal-connection.ts',

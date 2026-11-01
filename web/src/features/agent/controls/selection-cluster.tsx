@@ -8,7 +8,6 @@ export interface SelectionClusterProps {
   providers: AgentProvider[]
   model: string
   effort: string
-  /** See AgentSelectionPicker's own doc — display only, forwarded untouched. */
   reportedModel?: string
   presentation: ChatPresentation
   splitEnabled: boolean
@@ -20,17 +19,8 @@ export interface SelectionClusterProps {
   onSelectPresentation: (next: ChatPresentation) => void
 }
 
-/**
- * What this chat RUNS AS: which agent, which model, at what effort, on which
- * face of the provider.
- *
- * One cluster because all three answer the same question, which is why they sit
- * closer to each other than to anything else on their row. It exists as its own
- * component because a chat shows it in two places that are not variants of one
- * another — the conversation's underbar, and the blank document's floating
- * handle — and a chat that named its model differently in the two would be
- * describing two different chats.
- */
+/** Shared by the underbar and the blank document's handle so a chat never names
+ *  its model differently in the two. */
 export function SelectionCluster({
   provider,
   providers,
@@ -47,12 +37,7 @@ export function SelectionCluster({
 }: SelectionClusterProps) {
   return (
     <span className="selpos">
-      {/* Provider + model + effort as one merged control — picking a model
-          already picks its provider, so there is nothing left to split into
-          a separate provider chip ahead of it. Stays interactive after the
-          chat has launched too, so the user can still switch — it just shows
-          what the live runner actually resolved to (AgentChatView passes the
-          launch* values once live), not only the sticky request. */}
+      {/* One merged control: picking a model already picks its provider. */}
       <AgentSelectionPicker
         provider={provider}
         providers={providers}
@@ -61,10 +46,7 @@ export function SelectionCluster({
         reportedModel={reportedModel}
         disabled={switchDisabled}
         onSelectionChange={onSelectionChange}
-        // "Default" is display only, the honest "provider decides" — never
-        // baked into `model`/`effort` themselves, which stay '' when unset
-        // all the way up through AgentChatView. See AgentSelectionPicker's
-        // own doc on `unsetLabel`.
+        // Display only: `model`/`effort` stay '' when unset.
         unsetLabel="Default"
       />
       {showSwitcher && <span className="sep" />}

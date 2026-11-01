@@ -1,20 +1,6 @@
 /**
- * The word beside the spinner while a turn runs.
- *
- * CROWBAR'S OWN, and deliberately so. No provider reports a verb on any
- * channel — a CLI's spinner word is painted characters in its terminal and
- * reaches no hook — so this is flavour text, not telemetry. It says only what
- * `working` already says, in a way that reads as alive rather than hung.
- *
- * The vocabulary is INSPIRED BY Claude Code's own spinner verbs, which is a
- * deliberate choice and a bounded one: Crowbar drives several providers, and the
- * verb describes CROWBAR waiting, never the provider speaking. So the list is
- * held here rather than read from anything a CLI emits, no provider name ever
- * sits beside it, and nothing in it names a product.
- *
- * Kept long on purpose. A short loop is worse than no loop: at ten words a
- * reader recognises the cycle within one long turn and the movement stops
- * meaning "alive" and starts meaning "stuck on a carousel".
+ * Flavour text, not telemetry: no provider reports a spinner verb on any channel.
+ * Kept long on purpose — a short loop is recognised within one turn and reads as stuck.
  */
 const VERBS = [
   'Accomplishing',
@@ -205,15 +191,9 @@ const VERBS = [
   'Zigzagging',
 ] as const
 
-/** How long a verb holds before the next one, in ms. Slow enough to read. */
 export const VERB_ROTATION_MS = 3_400
 
-/**
- * The verb for a given tick, stable for a given (turn, tick) pair.
- *
- * Indexed rather than random so a re-render mid-tick never swaps the word under
- * someone's eyes, and so a test can assert the sequence.
- */
+/** Indexed rather than random so a re-render mid-tick never swaps the word. */
 export function verbAt(tick: number): string {
   return VERBS[Math.abs(Math.floor(tick)) % VERBS.length] ?? VERBS[0]
 }

@@ -15,17 +15,8 @@ import { LinkToolbarButton } from '@/components/ui/link-toolbar-button'
 import { MarkToolbarButton } from '@/components/ui/mark-toolbar-button'
 import { ToolbarGroup } from '@/components/ui/toolbar'
 
-/**
- * The chat's own selection formatting toolbar — same shell and button
- * primitives as `FloatingToolbarKit`/`CommentFloatingToolbarKit`, minus the
- * inline-equation button neither of those needs here either: `chatComposerPlugins`
- * doesn't register `MathKit` (see that file's own doc comment), so an equation
- * button would insert a node type the markdown serializer has nowhere to put.
- *
- * Only registered where selecting text is possible with a mouse — the composer
- * pill and the empty-document surface both use `chatComposerPlugins`, so this
- * shows up on both without being duplicated.
- */
+/** No equation button: `chatComposerPlugins` has no `MathKit`, so the serializer
+ *  would have nowhere to put the node. */
 export const ChatFloatingToolbarKit = [
   createPlatePlugin({
     key: 'chat-floating-toolbar',

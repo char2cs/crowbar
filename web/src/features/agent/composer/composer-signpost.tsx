@@ -9,14 +9,8 @@ interface ComposerSignpostProps {
   onOpenTerminal: () => void
 }
 
-/**
- * The bar as a REASON YOU CANNOT TYPE.
- *
- * It occupies the composer's slot instead of sitting above it: the fact it
- * reports IS that there is nothing to type into. Where there is a way out
- * elsewhere (the terminal), it carries it. `reviving` is the daemon placing a
- * CLI — a spinner, nothing to click.
- */
+/** Takes the composer's slot rather than sitting above it: what it reports is
+ *  that there is nothing to type into. */
 export function ComposerSignpost({ reason, message, onOpenTerminal }: ComposerSignpostProps) {
   return (
     <div className="pill halted" role="status">

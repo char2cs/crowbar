@@ -13,32 +13,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-// This control's own memory of its last CONFIRMED pick, per chat — not a
-// fabricated read of backend truth, just this component's state surviving a
-// remount. `ComposerChoice` is unkeyed in the composer's switch and
-// `resolveComposerState` cycles it out of and back into 'choice' between
-// distinct prompts in the same chat, which remounts this component (and would
-// otherwise reset it to unset) moments after a real pick. `chatId` itself
-// never changes on a live instance — the chat pane above it remounts wholesale
-// on chat switch — so this needs no invalidation beyond the module's lifetime.
+// The last confirmed pick per chat, so it survives the remount between prompts.
+// Not backend truth: there is no GET for a chat's level.
 const lastPickedLevel = new Map<string, PermissionLevel>()
 
 /**
- * A quick, write-only dial for THIS chat's own approval level, sitting beside
- * whatever answer controls the current prompt already offers.
- *
- * There is no GET for a single chat's level (only the global default has
- * one), so — same rule AgentModelPicker's "Provider default" row follows —
- * it never shows a value the backend cannot actually confirm. It starts from
- * whatever THIS control last confirmed for this chat (see `lastPickedLevel`),
- * or unset if it has never been touched.
- *
- * `availableLevels` is the SAME "absent capability, absent UI" rule
- * AgentModelPicker applies to models/efforts: a level the current provider
- * does not declare is not merely disabled here, it is not offered at all —
- * the server rejects an explicit pick of one just as firmly. Undefined or
- * empty (provider not yet resolved, or a provider declaring none) hides the
- * whole control rather than offering three options two of which would 400.
+ * Write-only: it never shows a level the backend cannot confirm, and offers only
+ * levels the provider declares — the server rejects the rest.
  */
 export function PermissionLevelSwitcher({
   wsId,
@@ -50,9 +31,7 @@ export function PermissionLevelSwitcher({
   availableLevels?: PermissionLevel[]
 }) {
   const [level, setLevel] = useState<PermissionLevel | ''>(() => lastPickedLevel.get(chatId) ?? '')
-  // Fences overlapping writes the same way DefaultPermissionLevelSetting does:
-  // a late settlement from an earlier pick must not roll back, or cache, over
-  // a later one that already landed.
+  // A late settlement from an earlier pick must not roll back over a later one.
   const writeGeneration = useRef(0)
 
   const handleChange = useCallback(
@@ -79,8 +58,6 @@ export function PermissionLevelSwitcher({
   )
 
   const options = PERMISSION_LEVEL_OPTIONS.filter((opt) => availableLevels?.includes(opt.value))
-  // Absent capability, absent UI — the same rule AgentModelPicker follows for
-  // a provider declaring no catalogue at all.
   if (options.length === 0) return null
 
   return (

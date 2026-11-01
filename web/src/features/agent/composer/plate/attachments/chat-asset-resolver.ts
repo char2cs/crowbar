@@ -2,10 +2,7 @@ import { chatBase } from '@/features/agent/api/agent-chat-reads'
 import { API_BASE } from '@/lib/api/fetch'
 import type { MarkdownAssetInfo } from '@/features/editor/markdown/plate/markdown-asset'
 
-/** A chat-attachment logical reference, as stored in a message's markdown
- *  text: `chats/{chatId}/attachments/{filename}`. The chatId a ref names
- *  isn't necessarily the chat currently open — parsed straight off the
- *  string, which is always enough to build the serving URL. */
+/** `chats/{chatId}/attachments/{filename}`; the chatId need not be the open chat. */
 export interface ParsedChatAttachmentRef {
   chatId: string
   filename: string
@@ -20,13 +17,8 @@ export function parseChatAttachmentRef(ref: string): ParsedChatAttachmentRef | n
   return { chatId, filename }
 }
 
-/** Built through `chatBase` — the same hierarchical, project/repo-scoped
- *  builder every other chat endpoint in `features/agent/api` uses — not a flat
- *  `/workspaces/{wsId}/...` path. `chatBase` throws when `wsId`'s
- *  project/repo scope was never recorded (see `workspaceBase`); that is
- *  swallowed here rather than propagated, so this stays a total function
- *  matching its `string | null` signature — same "never throws" contract as
- *  the fetch helpers below. */
+/** Never throws: `chatBase` throws for an unrecorded workspace scope, and that
+ *  becomes `null` like every other failure here. */
 export function chatAttachmentUrl(wsId: string, ref: string): string | null {
   const parsed = parseChatAttachmentRef(ref)
   if (!parsed) return null
@@ -40,9 +32,7 @@ export function chatAttachmentUrl(wsId: string, ref: string): string | null {
   }
 }
 
-/** Reads `blob` as a data: URL. An abort stops the read too, not just the
- *  fetch before it: a resolver whose image unmounted mid-read must not keep
- *  encoding bytes nobody will look at. */
+/** An abort stops the read too: an image unmounted mid-read must not keep encoding. */
 function blobToDataUrl(blob: Blob, signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -67,10 +57,7 @@ function blobToDataUrl(blob: Blob, signal?: AbortSignal): Promise<string> {
   })
 }
 
-/** Same return contract as `loadLocalImage` (a data: URL, or null) — plugs
- *  straight into `MarkdownAssetInfo.resolve` with no adapter. Never rejects:
- *  a bad ref, an unresolvable workspace scope, a network failure and a
- *  non-ok response all fall back to `null`. */
+/** Never rejects, so it plugs into `MarkdownAssetInfo.resolve` with no adapter. */
 export async function fetchChatAttachmentDataUrl(
   wsId: string,
   ref: string,
@@ -89,16 +76,11 @@ export async function fetchChatAttachmentDataUrl(
 
 export interface ChatAttachmentMetadata {
   filename: string
-  /** null when the server didn't report Content-Length, or the request
-   *  failed — the file card still renders without a size. */
+  /** null when unknown; the file card still renders without a size. */
   size: number | null
 }
 
-/** Metadata for a file card without downloading the body — a HEAD against
- *  the same URL `fetchChatAttachmentDataUrl` GETs. Never rejects: an
- *  unparseable ref or an unresolvable workspace scope resolves to `null`,
- *  and a network failure or non-ok response still resolves with the
- *  filename and a `null` size rather than throwing. */
+/** A HEAD, so the card never downloads the body. Never rejects. */
 export async function fetchChatAttachmentMetadata(
   wsId: string,
   ref: string,
@@ -117,9 +99,6 @@ export async function fetchChatAttachmentMetadata(
   }
 }
 
-/** The `MarkdownAssetContext` value for chat: `resolve` routes through the
- *  attachment-serving endpoint, since every chat-attachment ref carries its
- *  own chatId+filename rather than a path beside a document. */
 export function chatMarkdownAssetInfo(wsId: string): MarkdownAssetInfo {
   return {
     wsId,

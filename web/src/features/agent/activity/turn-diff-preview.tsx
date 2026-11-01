@@ -9,7 +9,6 @@ interface TurnDiffPreviewProps {
   wsId?: string
 }
 
-/** A bounded, provider-neutral unified-diff preview for the current turn. */
 export function TurnDiffPreview({ diff, turnId }: TurnDiffPreviewProps) {
   const items = useMemo(() => parseTurnDiff(diff, turnId), [diff, turnId])
   const options = useMemo<CodeViewOptions<undefined, undefined>>(

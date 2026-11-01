@@ -16,18 +16,8 @@ interface UploadAttachmentResponseBody {
 }
 
 /**
- * Uploads one chat attachment and returns the durable reference to encode
- * into the message's markdown (`![alt](ref)` / `[name](ref)`).
- *
- * Two request shapes, matching the backend's two ingestion paths: multipart
- * bytes for a `File` (clipboard paste, browser picker — never has a host
- * path), or a JSON `{path, id}` body for a host path from a revived desktop
- * drop (the daemon reads it itself).
- *
- * `id` is optional and minted here by default: most callers (drop, Attach
- * File, paste-to-image) don't need to correlate it with anything else. The
- * one exception (the Excalidraw modal) generates its own single id to serve
- * both the fence-tag id and the filename shortid, and passes it through here.
+ * Multipart bytes for a `File` (no host path), or JSON `{path, id}` for a desktop
+ * drop the daemon reads itself. `id` is passed in only when the caller must reuse it.
  */
 export async function uploadChatAttachment(
   wsId: string,
@@ -58,21 +48,9 @@ async function postMultipartAttachment(url: string, file: File, id: string): Pro
 }
 
 /**
- * Hand-encodes the multipart body as a plain `Uint8Array` instead of handing
- * `fetch` a `FormData` holding a `File`. This isn't stylistic: in the Tauri
- * desktop build, `fetch` targets the `crowbar://` custom URI scheme (proxied
- * to the daemon's unix socket by `desktop/src-tauri/src/api_proxy.rs`), and
- * WKWebView delivers any Blob-backed fetch body — a `FormData` containing a
- * `File`, or a bare `Blob` — to that scheme handler as a streamed
- * `httpBodyStream` rather than materialized `httpBody` data. Tauri's
- * asynchronous scheme-handler bridge never drains that stream, so the proxy
- * receives a genuinely EMPTY body and the daemon sees neither `id` nor `file`
- * (`400 {"error":"id required"}`) — reproduced directly against the running
- * dev app: identical FormData minus the File part, or a JSON string body,
- * both forward correctly; only a Blob/File-bearing body is lost in transit.
- * A `Uint8Array` is never Blob-backed, so it always survives the proxy, and
- * it produces the exact wire bytes a native `FormData` would — the backend's
- * `multipart.Reader` parses it identically either way.
+ * Not `FormData`: WKWebView streams Blob-backed bodies to the `crowbar://` scheme
+ * handler, which Tauri never drains, so the daemon gets an empty body. A plain
+ * `Uint8Array` survives the proxy with the same wire bytes.
  */
 async function encodeMultipartAttachment(
   file: File,
@@ -96,11 +74,8 @@ async function encodeMultipartAttachment(
   return { body, contentType: `multipart/form-data; boundary=${boundary}` }
 }
 
-// Mirrors Go's mime/multipart.Writer escapeQuotes (backslash and double-quote
-// escaped) plus stripping CR/LF, which neither escapeQuotes nor a quoted-string
-// header value has any valid escape for — left in, a filename carrying one
-// splits this hand-built Content-Disposition line in two, injecting an extra
-// header-looking line into the multipart body this client sends.
+// Go's multipart escapeQuotes, plus stripping CR/LF: a quoted header value has
+// no escape for them, and one would inject a header line into the body.
 function escapeFormDataValue(value: string): string {
   return value
     .replace(/\\/g, '\\\\')

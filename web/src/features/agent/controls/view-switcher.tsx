@@ -4,32 +4,14 @@ import { cn } from '@/lib/utils'
 
 interface ViewSwitcherProps {
   presentation: ChatPresentation
-  /** The dev-only split instrument is on offer. */
   splitEnabled: boolean
-  /**
-   * The provider cannot hand a live turn to its native view.
-   *
-   * Undefined — the shipped case — means it can: both surfaces stay mounted and
-   * point at the same process, so switching costs nothing. A provider that
-   * declares otherwise disables the terminal side mid-turn rather than hiding
-   * it, because the control still works the moment the turn ends. The same
-   * holds coming back: leaving the provider's terminal mid-turn would kill it.
-   */
+  /** The provider cannot hand a live turn over. Disables rather than hides, since
+   *  the control works again the moment the turn ends. */
   handoverBlocked?: boolean
   onSelect: (next: ChatPresentation) => void
 }
 
-/**
- * Crowbar's chat, or the provider's own terminal.
- *
- * `ui/tabs`' pill variant, icon-only, sitting with the provider controls because
- * that is what it is: a statement about which face of this provider you are
- * looking at, not a window arrangement.
- *
- * Split is a DIAGNOSTIC and appears only where it is enabled — it puts the chat
- * Crowbar reconstructed next to the CLI's own output, which is how a turn that
- * never closed becomes visible by comparison instead of by bisection.
- */
+/** Split is a diagnostic: the reconstructed chat beside the CLI's own output. */
 export function ViewSwitcher({
   presentation,
   splitEnabled,

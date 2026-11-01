@@ -1,10 +1,5 @@
-/**
- * Typing on an unfocused chat should land in the composer, the way it already
- * does in every native chat surface people compare this one to — but only once
- * it's clearly a sentence starting, not a single bare-key shortcut elsewhere in
- * the app being pressed. Buffering a few keys before redirecting is what tells
- * the two apart; see `advanceTypeToFocus`'s own doc for the exact rule.
- */
+// Buffering a few keys before redirecting tells a sentence starting apart from
+// a bare-key shortcut elsewhere in the app.
 
 export interface TypeBuffer {
   chars: string
@@ -15,8 +10,7 @@ export const EMPTY_TYPE_BUFFER: TypeBuffer = { chars: '', lastAt: 0 }
 
 /** Redirect once buffered length exceeds this — i.e. on the 4th key. */
 const REDIRECT_THRESHOLD = 3
-/** A gap this long since the last qualifying key starts a fresh burst, so two
- *  disconnected keystrokes minutes apart never combine into one redirect. */
+/** A gap this long since the last qualifying key starts a fresh burst. */
 const BURST_GAP_MS = 1000
 
 export interface TypeToFocusKeyEvent {
@@ -33,19 +27,8 @@ export type TypeToFocusResult =
   | { action: 'redirect'; buffer: TypeBuffer; text: string }
 
 /**
- * One keydown's worth of the "type anywhere, land in the composer" state
- * machine.
- *
- * A key only ever QUALIFIES if it is a single printable character typed with
- * no modifier and no IME composition in flight — that excludes every
- * navigation/shortcut key (arrows, Enter, Tab, Escape, function keys, a bare
- * Shift/Control/Alt/Meta press) by construction, since none of those report a
- * one-character `key`.
- *
- * A disqualifying key does NOT reset an in-progress buffer: capitalizing a
- * letter fires a bare "Shift" keydown before the letter's own, and treating
- * that as burst-ending would corrupt "aB" typed with a shift-held capital
- * into just "B".
+ * Only an unmodified single printable character qualifies. A disqualifying key
+ * does not reset the buffer: a capital's bare "Shift" keydown would drop "a" from "aB".
  */
 export function advanceTypeToFocus(
   buffer: TypeBuffer,
@@ -67,9 +50,7 @@ export function advanceTypeToFocus(
   return { action: 'redirect', buffer: EMPTY_TYPE_BUFFER, text: chars }
 }
 
-/** Whether focus already lives somewhere text can be typed — the composer
- *  itself, or (just as importantly) any OTHER field elsewhere in the app that
- *  this feature must never steal a keystroke from. */
+/** Any field, not just the composer: this must never steal a keystroke. */
 export function isFocusInEditable(active: Element | null): boolean {
   if (!active) return false
   const tag = active.tagName

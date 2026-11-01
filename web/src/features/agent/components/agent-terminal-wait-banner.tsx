@@ -10,41 +10,9 @@ interface AgentTerminalWaitBannerProps {
   onOpenTerminal: () => void
 }
 
-/** What the chat says when its CLI is blocked on something Crowbar CANNOT answer.
- *
- *  This is the counterpart of the choice card, and the difference between them is
- *  the whole point. A choice arrived over a hook, so the chat shows it with
- *  buttons and answering it there works. This one did not — a workspace-trust
- *  dialog, a first-run screen, a login — and there is no channel to reply on at
- *  all. So the banner does not offer to answer; it says what is happening and
- *  points at the only place it can be dealt with.
- *
- *  It exists because the alternative was NOTHING: no spinner, no message, no
- *  error, a pane that looked dead over a live, blocked process, which is the
- *  single most common way Crowbar has looked broken when it was not.
- *
- *  It NEVER guesses. A kind Crowbar recognises gets a sentence naming the prompt;
- *  anything else — including a kind minted by a newer daemon than this client —
- *  falls back to saying only that input is wanted, which is all that is actually
- *  known.
- *
- *  STAYS pane-level rather than moving into the composer alongside
- *  dormant/unsupported: the composer is unreachable for a chat with no messages
- *  yet, and a workspace-trust prompt is disproportionately a FIRST-TURN event —
- *  see the note where this renders in agent-chat-pane.tsx. Rendered in NORMAL
- *  FLOW there, not as an `absolute` overlay: a fixed offset under an absolute
- *  box reserves no space for its own height, so whatever sat beneath it never
- *  moved when this wrapped to more lines — measured as a real, worsening
- *  overlap with the composer as the pane narrowed.
- *
- *  ONE LINE, ALWAYS — `truncate` on the message rather than letting it wrap —
- *  for the same reason: a fixed, single-line height is what let the pane's own
- *  wrapper reserve exactly enough room for this without measuring it, where a
- *  message that wrapped to two or three lines as the pane narrowed used to grow
- *  into whatever sat below it instead. Same stadium shape AgentComposer's own
- *  ComposerSignpost wears for the equivalent reviving/idle states once the chat
- *  has messages, for the same reason: read as ONE family of "here's why, here's
- *  what to do" rows. */
+/** The CLI is blocked on a prompt with no hook channel (trust, login), so this
+ *  points at the terminal instead of offering to answer. Pane-level because the
+ *  composer is unreachable before the first turn; one line so its height is fixed. */
 export function AgentTerminalWaitBanner({
   kind,
   providerLabel,
@@ -78,16 +46,8 @@ interface AgentReturnToChatNoticeProps {
   onDismiss: () => void
 }
 
-/** The way back, for a user Crowbar moved to the terminal and cannot move back.
- *
- *  Crowbar returns people to the chat automatically when it can (see the pane's
- *  escort state). It deliberately cannot when they have since navigated
- *  elsewhere, or chosen a surface themselves — yanking someone out of a terminal
- *  they are using is worse than the problem it solves.
- *
- *  But leaving them there silently is worse still: they were sent here by
- *  Crowbar, for a reason that has now gone away, and nothing on screen would ever
- *  say so. So it offers, and it takes no for an answer. */
+/** Offered instead of an automatic return once the user has navigated or picked a
+ *  surface themselves: yanking them out of a terminal they are using is worse. */
 export function AgentReturnToChatNotice({ onReturn, onDismiss }: AgentReturnToChatNoticeProps) {
   return (
     <div

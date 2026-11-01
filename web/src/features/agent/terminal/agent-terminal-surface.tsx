@@ -12,16 +12,8 @@ import {
 import { cn } from '@/lib/utils'
 
 /**
- * What the pane knows about the runner this surface is looking at.
- *
- * `pending` is "not answered yet", which is NOT the same as idle: a chat whose
- * liveness has not come back must not be offered a Resume button, or the pane
- * spawns a second CLI onto a chat that already has one.
- *
- * `attached`'s sessionId is null for a runner that IS live but has no terminal
- * to show right now — a non-hotswap api-transport provider (codex) between
- * switches, never attached. That is not dormancy: the chat itself is fine, and
- * offering Resume here would restart an agent that was never down.
+ * `pending` is not idle: offering Resume there would spawn a second CLI. A null
+ * sessionId is a live runner with no terminal (codex), not dormancy.
  */
 export type TerminalAttachment =
   | { state: 'pending' }
@@ -31,11 +23,7 @@ export type TerminalAttachment =
 
 export interface AgentTerminalSurfaceProps {
   wsId: string
-  /**
-   * The chat this PTY belongs to. Terminal routes are chat-scoped, and an
-   * agent chat's vendor-CLI session is owned by the chat itself — not by the
-   * worktree it runs in, which sibling chats share.
-   */
+  /** The CLI session is owned by the chat, not the worktree sibling chats share. */
   chatId: string
   attachment: TerminalAttachment
   presentation: ChatPresentation
@@ -46,7 +34,6 @@ export interface AgentTerminalSurfaceProps {
   basis: number
   isActivePane: boolean
   isVisible: boolean
-  /** The chat's name, shown on the strip. */
   title: string
   /** Right inset so the strip ends on the character grid's last column. */
   gridSlack: number
@@ -54,34 +41,21 @@ export interface AgentTerminalSurfaceProps {
   activeProviderId: string
   switchDisabled: boolean
   splitEnabled: boolean
-  /** A turn is in flight — gates handover back to chat the same way the chat
-   *  surface's own switcher gates handover TO the terminal. */
+  /** A turn is in flight — gates handover back to chat. */
   working?: boolean
   onSwitchProvider: (providerId: string) => void
   onSelectPresentation: (next: ChatPresentation) => void
   onTakeFocus: () => void
   /** A click on this half's dead space, pointed back at the grid. */
   onDeadSpaceMouseDown: (event: MouseEvent<HTMLDivElement>) => void
-  /** The terminal's focus handle, for moving the keyboard onto the grid. */
   terminalRef: XtermTerminalProps['ref']
   /** Bring the chat's provider back without sending anything. */
   onStartSession: () => void
   ref?: Ref<HTMLDivElement>
 }
 
-/**
- * THE PROVIDER'S OWN VIEW.
- *
- * The CLI's real TUI, plus the one strip of chrome that belongs to it: what this
- * conversation is called, which face of the provider you are looking at, and
- * which agent is running it.
- *
- * A SIBLING of the chat surface, not a variant of it. The two answer the same
- * question in genuinely different ways — one reconstructs the conversation from
- * hooks, the other shows the process — and they share exactly one component,
- * the surface switcher, because that is the only thing that is the same fact on
- * both. Everything else here is the terminal's and nothing else's.
- */
+/** A sibling of the chat surface, not a variant: they share only the surface
+ *  switcher, the one fact that is the same on both. */
 export function AgentTerminalSurface({
   wsId,
   chatId,
@@ -111,19 +85,14 @@ export function AgentTerminalSurface({
   return (
     <div
       ref={ref}
-      // Layout chrome: the mousedown handler is whitelisted to clicks that land
-      // on THIS div and nowhere else — the strip of the half the character grid
-      // does not reach — so it is dead space being pointed back at the terminal,
-      // not a control. role="presentation" says so; the terminal keeps its own.
+      // The mousedown only handles dead space around the grid, so this is not a control.
       role="presentation"
       data-testid="agent-terminal-surface"
       data-surface-focused={splitting ? String(focused) : undefined}
       onFocusCapture={splitting ? onTakeFocus : undefined}
       onMouseDown={splitting ? onDeadSpaceMouseDown : undefined}
       className={cn(
-        // A COLUMN: the grid takes the slack and the status strip keeps its
-        // height underneath, which is what stops the strip from being laid out
-        // over the terminal it describes.
+        // A column, so the status strip never lays out over the terminal.
         'flex flex-col',
         splitting
           ? 'relative min-h-0 min-w-0 shrink grow-0'
@@ -132,16 +101,9 @@ export function AgentTerminalSurface({
       style={splitting ? ({ flexBasis: `${basis}%` } as CSSProperties) : undefined}
     >
       {attachment.state === 'attached' && attachment.sessionId && (
-        // NO key={sessionId}. Runner replacement swaps the PTY imperatively
-        // instead of rebuilding xterm; runner movement keeps the same PTY.
-        //
-        // isActive IS FOCUS, not liveness — it is what makes xterm grab the
-        // caret back, with retries. In split it is therefore gated on this half
-        // actually holding the keyboard, or a user typing into the composer
-        // would lose the rest of their sentence to the TUI. isVisible is the
-        // liveness half, and in split it is simply true: both surfaces really
-        // are on screen. Both still hang off the pane's own axes, so a split in
-        // a hidden tab stays as dormant as one in terminal mode does.
+        // No key={sessionId}: runner replacement swaps the PTY imperatively. isActive
+        // is focus (xterm grabs the caret), so in split it needs this half to hold
+        // the keyboard or composer typing would be stolen.
         <LazyXtermTerminal
           sessionId={attachment.sessionId}
           workspaceId={wsId}
@@ -157,9 +119,7 @@ export function AgentTerminalSurface({
       )}
 
       {presentation !== 'chat' && attachment.state === 'attached' && !attachment.sessionId && (
-        // A live, non-hotswap api-transport runner (codex) with nothing attached —
-        // correct and common, not a failure. No Resume button: there is nothing to
-        // restart.
+        // A live runner with nothing attached (codex): no Resume, nothing to restart.
         <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
           <p className="max-w-sm text-center text-muted-foreground text-sm">
             This agent has no terminal view attached right now.
@@ -189,24 +149,15 @@ export function AgentTerminalSurface({
         </div>
       )}
 
-      {/* The status line, spanning the character grid: what this conversation IS
-          on the left, who is running it on the right. Both sit on the column, so
-          the title starts on the agent's first character and the switcher ends
-          on its last one. `min-w-0` is what lets a long title truncate instead
-          of shoving the switcher off the column — a flex child defaults to
-          min-width:auto and refuses to shrink below its content.
-
-          NOT DRAWN ON THE CHAT SURFACE. Chat states what it is running as in its
-          own underbar, on the composer's measure; repeating it under a surface
-          that already says all of it is two answers to one question. */}
+      {/* Not drawn on the chat surface, whose underbar already says this. `min-w-0`
+          lets a long title truncate instead of shoving the switcher off the grid. */}
       {presentation !== 'chat' && (
         <div
           className="flex items-center justify-between gap-3 py-2"
           style={{ paddingRight: gridSlack }}
         >
           <span className="min-w-0 truncate text-muted-foreground text-sm">{title}</span>
-          {/* EXACTLY ONE of these exists on a pane. In split the chat's provider
-              bar is on screen and carries it; here it is the only bar there is. */}
+          {/* One per pane: in split the chat's provider bar carries it. */}
           {presentation === 'terminal' && provider?.hasTerminal !== false && (
             <ViewSwitcher
               presentation={presentation}

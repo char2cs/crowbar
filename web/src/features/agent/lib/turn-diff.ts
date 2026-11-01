@@ -4,11 +4,8 @@ import type { CodeViewItem } from '@pierre/diffs'
 /** Keep parser and syntax-highlighting work bounded for a live preview. */
 export const MAX_TURN_DIFF_PREVIEW_CHARS = 250_000
 
-/**
- * Parse the newest complete diff snapshot into provider-neutral file items.
- * The cache fingerprint changes with the content, while item IDs remain stable
- * within a turn so CodeView can update the same file as the snapshot advances.
- */
+/** The fingerprint changes with content while item IDs stay stable within a turn,
+ *  so CodeView updates the same file as the snapshot advances. */
 export function parseTurnDiff(diff: string, turnId: string): CodeViewItem<undefined>[] {
   if (!diff || diff.length > MAX_TURN_DIFF_PREVIEW_CHARS) return []
 
@@ -28,8 +25,7 @@ export function parseTurnDiff(diff: string, turnId: string): CodeViewItem<undefi
       }),
     )
   } catch {
-    // A provider's partial or unfamiliar patch remains readable via the raw
-    // fallback in the component; a parser failure must not hide the activity.
+    // The component falls back to the raw diff; a parse failure must not hide it.
     return []
   }
 }

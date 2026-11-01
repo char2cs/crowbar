@@ -9,14 +9,8 @@ interface ChatMarkdownAssetProviderProps {
   children: ReactNode
 }
 
-/**
- * Wires `MarkdownAssetContext` (and the chat's id, via `ChatIdContext`) for
- * chat, high enough to cover every render site under `AgentChatView`
- * (`ChatMarkdownEditor`, `MarkdownMessage`, `MarkdownMessageStatic`) with one
- * provider — mirrors `MarkdownEditorPane`'s own pattern: build the asset info
- * once, provide it once, let every descendant node component read it via
- * `useMarkdownAsset()`.
- */
+/** Mounted high enough to cover every render site under `AgentChatView` with one
+ *  provider. */
 export function ChatMarkdownAssetProvider({
   wsId,
   chatId,

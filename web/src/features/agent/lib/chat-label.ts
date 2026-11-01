@@ -1,14 +1,3 @@
-/**
- * What a chat is called before anything has named it.
- *
- * A chat is born untitled and stays that way until the agent titles itself (via
- * `crowbar chat rename`), the first prompt derives one, or the user renames it. Every
- * surface that can show a chat — the sidebar row, the drag ghost, the pane tab — needs
- * the same word for that state, and they must not drift apart: the pane tab and the
- * sidebar naming the same chat differently is a bug the user reads as "these are two
- * different chats".
- *
- * This matters more than it used to. A pane's tab now FOLLOWS its runner, so `/clear`
- * re-points a tab at a brand-new, unnamed chat. The tab has to be able to say so.
- */
+// One word for every surface, so the sidebar and pane tab never name the same
+// chat differently.
 export const UNTITLED_CHAT_LABEL = 'Untitled chat'

@@ -13,16 +13,8 @@ interface ComposerPlusButtonProps {
   onOpenAttachFile: () => void
 }
 
-/**
- * The composer's second control, styled neutrally — it opens a choice, it
- * does not send anything, so it never borrows send's primary treatment.
- *
- * Two entries only, per the design spec: Excalidraw and Attach File are
- * deliberately NOT the same entry point, because Excalidraw opens an editor
- * (produces a scene) while Attach File opens a picker (ingests an existing
- * file) — kind for a picked file is inferred from the file itself, kind for
- * this entry is fixed by which one was clicked.
- */
+/** Styled neutrally: it opens a choice and sends nothing, so it never borrows
+ *  send's primary treatment. */
 export function ComposerPlusButton({
   onOpenExcalidraw,
   onOpenAttachFile,
@@ -32,12 +24,8 @@ export function ComposerPlusButton({
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
-        // `icon-xs` shrinks to `sm:size-6` (24px) at the `sm:` breakpoint —
-        // this app's window is always past that, so it rendered visibly
-        // smaller than `.send`'s fixed 28px. `sm:size-7` beats it (same
-        // conflict group, same modifier) and matches PLUS_DIAMETER ===
-        // SEND_DIAMETER (handle-geometry.ts) — the two must read as one
-        // circle size, not two.
+        // `sm:size-7` overrides icon-xs's `sm:size-6` so plus matches send's 28px
+        // (PLUS_DIAMETER === SEND_DIAMETER in handle-geometry.ts).
         className="plusbtn rounded-full sm:size-7"
         render={<Button variant="ghost" size="icon-xs" />}
         data-open={open || undefined}

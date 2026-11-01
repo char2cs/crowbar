@@ -29,43 +29,13 @@ interface ExcalidrawTakeoverProps {
   open: boolean
   onClose: () => void
   onInsertMarkdown: (markdown: string) => void
-  /** Resume this scene instead of a blank canvas — the chat's own saved
-   *  design (the "+" entry point) or a diagram's Edit button, whichever
-   *  opened the takeover. */
   initialScene?: ParsedExcalidrawScene
 }
 
 /**
- * Full-pane takeover: replaces the chat view for a quick, focused edit
- * rather than floating a dialog over a transcript the user can still half-see
- * (and can't act on) behind it. Renders `absolute inset-0` over `.agent-chat
- * .chat`'s own containing block — the same one `.dock` already positions
- * against — so it covers exactly this chat's pane, not the whole window (a
- * split editor pane beside it stays untouched) and not just a centered box.
- *
- * Header-only chrome: Close and Attach both live in the top bar, not a
- * bottom toolbar (removed — reported live as space the canvas should have
- * had). Escape does nothing here, deliberately: Excalidraw uses it itself
- * (deselecting a shape, leaving text-edit mode), and a global listener that
- * also closed the takeover fought the tool for the same key.
- *
- * Create/edit UI only — the read-only preview renderer for a settled
- * `excalidraw:{id}` fence in the transcript is `excalidraw-preview.tsx`.
- *
- * ONE nanoid drives both halves of the encoding, per the design spec's
- * resolved open question ("the client mints the id and passes it through"):
- * the fence-tag id for the inline JSON, and the shortid the upload endpoint
- * folds into the PNG's filename. Both `excalidrawMarkdown(id, ...)` and
- * `uploadChatAttachment(..., id)` below receive the SAME `id` — never let
- * the upload mint its own.
- *
- * The scene JSON only gets the inline `excalidraw:{id}` fence treatment
- * under `INLINE_ATTACHMENT_MAX_BYTES` (inline-attachment-cap.ts, shared with
- * the paste plugin's text-attachment threshold) — a scene big enough to trip
- * `MAX_PROMPT_TEXT_BYTES` on its own uploads as a `.excalidraw.json` file
- * link instead. The PNG preview always uploads and inserts regardless: it is
- * the human-visible artifact, and losing it just because the SCENE data was
- * too big to inline would throw away the one thing a reader can actually see.
+ * Covers only this chat's pane. Escape is left to Excalidraw, which uses it itself.
+ * One id serves both the fence tag and the PNG's upload, so never let the upload
+ * mint its own; an oversized scene uploads as a file, but the PNG always inserts.
  */
 export function ExcalidrawTakeover({
   wsId,
@@ -102,9 +72,6 @@ export function ExcalidrawTakeover({
     [wsId, chatId, onInsertMarkdown, onClose],
   )
 
-  // Guards the same double-click race `ExcalidrawCanvas`'s own Save button
-  // used to guard internally — the button now lives here instead, so the
-  // in-flight flag does too.
   const handleAttach = useCallback(async () => {
     if (attaching || !canvasReady) return
     setAttaching(true)

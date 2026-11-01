@@ -1,37 +1,25 @@
-/** A subagent as the shelf needs it: what Crowbar knows, and nothing more. */
 export interface ShelfToken {
   id: string
-  /** The provider's word for it, when it gave one. */
   agentType?: string
   /** Seconds since it started. */
   elapsed: number
 }
 
 export interface ShelfLayout {
-  /** Tokens to draw, in order. */
   shown: ShelfToken[]
-  /** How many did not fit. 0 draws no counter. */
   overflow: number
   /** Drop the type names — over four in flight, the count matters more. */
   dense: boolean
 }
 
-/** Names are dropped at five in flight. Below that they fit and they help. */
 export const DENSE_THRESHOLD = 4
 
 /** Room reserved for the `+N` counter, in px. */
 export const OVERFLOW_RESERVE = 30
 
 /**
- * How the shelf sheds detail as a fan-out widens.
- *
- * IN A FIXED ORDER, never by wrapping or scrolling: names first, then whole
- * tokens into a `+N`. The COUNT and the CLOCKS never drop, because count and
- * elapsed time are the only two things `AgentSubagent` actually carries — a
- * shelf that hid them to fit would be hiding the whole payload.
- *
- * `measure` returns a token's rendered width; the caller supplies it from the
- * DOM so this stays pure and testable.
+ * Sheds names first, then whole tokens into a `+N`, never wrapping. Count and
+ * clocks never drop: they are the only things `AgentSubagent` carries.
  */
 export function fitShelf(
   tokens: ShelfToken[],
@@ -54,8 +42,7 @@ export function fitShelf(
     used += width
     shown++
   }
-  // Never render a bare "+N" with nothing beside it: one token plus a counter
-  // says more than a counter alone.
+  // One token plus a counter says more than a bare "+N".
   if (shown === 0) shown = 1
   return {
     shown: tokens.slice(0, shown),
@@ -64,11 +51,8 @@ export function fitShelf(
   }
 }
 
-/**
- * m:ss like a stopwatch below an hour, then h:mm:ss and d hh:mm:ss beyond it —
- * subagents and turns routinely run for hours, and minutes alone stop reading
- * as a clock once they climb past 59 (`142:07` instead of `2:22:07`).
- */
+/** m:ss below an hour, then h:mm:ss and d hh:mm:ss — turns run for hours and
+ *  `142:07` stops reading as a clock. */
 export function formatElapsed(seconds: number): string {
   const safe = Math.max(0, Math.floor(seconds))
   const pad = (n: number) => String(n).padStart(2, '0')

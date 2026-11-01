@@ -1,24 +1,13 @@
 import { useCallback, useRef } from 'react'
 
-/**
- * Shell-style recall through this chat's own sent turns — ArrowUp/ArrowDown
- * step back and forward through what the person has actually typed here,
- * newest first, exactly like a terminal's own history.
- *
- * `texts` is whatever window of the user's own messages is currently loaded,
- * oldest first; recall never reaches past what has actually been paged in; a
- * chat with older history not yet loaded simply runs out of recall at the
- * oldest visible turn, the same way a terminal's history runs out at the
- * start of the session.
- */
+/** `texts` is the loaded window of the user's messages, oldest first; recall never
+ *  reaches past what has been paged in. */
 export function usePromptHistory(texts: string[]) {
-  // -1: not browsing — the box holds the person's own live draft. 0..texts
-  // .length-1: browsing, counting back from the newest entry.
+  // -1: not browsing (the box holds the live draft); otherwise steps back from newest.
   const indexRef = useRef(-1)
   const stashRef = useRef('')
 
-  /** A real edit (typing, not a recall) abandons wherever browsing had gotten
-   *  to — the next ArrowUp starts a fresh walk from the newest turn again. */
+  /** A real edit restarts the next walk from the newest turn. */
   const reset = useCallback(() => {
     indexRef.current = -1
   }, [])

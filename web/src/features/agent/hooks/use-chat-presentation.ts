@@ -12,19 +12,9 @@ export const SPLIT_MIN_STACKED_PX = 160
 export const SPLIT_DEFAULT_SIZES: [number, number] = [45, 55]
 
 /**
- * The measured half of every split this file drives: side by side, or
- * stacked? Read off the CONTAINER's own box — never the window, so a narrow
- * pane inside a wide window is answered correctly — via `ResizeObserver`.
- *
- * Reads `clientWidth`/`clientHeight` rather than `getBoundingClientRect()`
- * specifically so a plain `{ clientWidth, clientHeight }` double is enough to
- * drive it from a test, with no fake DOM rect to construct. On a real element
- * the two are equivalent for this purpose.
- *
- * Shared by both presentation hooks below — the terminal split
- * (`useChatPresentation`) and the pane's chat-view/editor-view split
- * (`usePaneViewPresentation`) size their own splits by the identical rule,
- * against the identical constant.
+ * Measures the CONTAINER, never the window, so a narrow pane inside a wide
+ * window answers correctly. Reads `clientWidth`/`clientHeight` so a plain
+ * object double can drive it in tests.
  */
 function useSplitMeasure<T>(
   active: boolean,
@@ -32,18 +22,9 @@ function useSplitMeasure<T>(
   derive: (width: number, height: number) => T,
   initial: T,
 ): T {
-  // ONLY THE DERIVED ANSWER IS STATE — never the raw pixel size. Every consumer
-  // of this measurement wants a DISCRETE answer (a boolean, or one of three
-  // arrangements) that changes at one threshold, but a pane sash drag rewrites
-  // the pane's flex-basis on every raw pointermove, so storing pixels re-rendered
-  // the whole pane subtree once PER PIXEL of the drag. Measured live in the dev
-  // app, a ~2s sash drag committed 88 renders of PaneContainer (and with it
-  // PlateSlate, the tab bar, every Tooltip under it) for a value that did not
-  // change once. Deriving inside `measure` lets React's `Object.is` bail-out do
-  // its job: a repeated primitive schedules nothing.
-  //
-  // `derive` is read through a ref, so an inline arrow from the caller cannot
-  // re-fire the effect (which would re-observe on every render).
+  // Only the derived discrete answer is state, never raw pixels, so a sash drag
+  // does not re-render the pane per pixel. `derive` is read through a ref so an
+  // inline arrow cannot re-fire the effect.
   const deriveRef = useRef(derive)
   deriveRef.current = derive
   const [value, setValue] = useState<T>(initial)
@@ -54,10 +35,8 @@ function useSplitMeasure<T>(
     const measure = () => {
       const el = containerRef.current
       if (!el) return
-      // A missing/non-finite reading (a bare test double supplying only one
-      // axis) is "unknown", not "zero" for the OTHER axis's comparisons below
-      // — coercing it to 0 keeps Math.max/comparisons meaningful instead of
-      // propagating NaN through every consumer.
+      // A non-finite reading (a double supplying one axis) becomes 0 so NaN
+      // never reaches the comparisons.
       const w = el.clientWidth
       const h = el.clientHeight
       setValue(deriveRef.current(Number.isFinite(w) ? w : 0, Number.isFinite(h) ? h : 0))
@@ -71,50 +50,23 @@ function useSplitMeasure<T>(
   return value
 }
 
-/** Is a split of this measured box too narrow to sit side by side? */
 function deriveStacked(width: number): boolean {
   return width > 0 && width < SPLIT_SIDE_BY_SIDE_MIN_PX
 }
 
-/**
- * A chat's own chat/terminal/split choice, keyed by chat id — remembered
- * across this pane's own lifecycle, not just across a re-seed within it.
- *
- * MODULE SCOPE, NOT A STORE: nothing renders off this map, so it needs no
- * subscription — it is read exactly once per seed (in the hook below) and
- * written exactly once per explicit pick, the same shape agent-chat-pane.tsx's
- * own `reviveInFlightByChatId`/`displacingByChatId` maps already use for
- * chat-scoped bookkeeping that has to outlive one pane. It has to live
- * outside the component: a chat's pane is not retained across a close —
- * `closePane` deletes the pane id outright (pane-slice.ts), it does not hide
- * it — so reopening a chat from its Recents row mounts a brand new
- * AgentChatPane, and a plain `useState` here would have started over. Session-
- * lifetime only, like those two siblings: this is a UI preference, not
- * something an app restart needs to recover.
- */
+/** Each chat's last pick, at module scope because closing a pane deletes it and
+ *  reopening mounts a fresh one; nothing renders off it, so it is not a store.
+ *  Session-lifetime only. */
 const lastChosenByChatId = new Map<string, ChatPresentation>()
 
-/** Test-only: a real session never reuses a chat id, but fixtures across
- *  `it` blocks do — without this, an earlier test's pick leaks into a later
- *  test that expects the plain global default. Mirrors
- *  `resetWindowPaneStoreForTests`'s own naming (window-pane-store.ts). */
+/** Test fixtures reuse chat ids across `it` blocks; a real session never does. */
 export function resetChatPresentationMemoryForTests(): void {
   lastChosenByChatId.clear()
 }
 
-/**
- * Records `chatId`'s landing surface BEFORE its pane ever mounts — the one
- * way a caller outside this hook can put a single, just-minted chat on
- * Terminal without touching `chatIsDefaultPresentation` (which would move
- * every OTHER new chat too, and back again once the user remembered to flip
- * it). Writes the exact same map an explicit in-pane pick does, so the seed
- * below (`lastChosenByChatId.get(shownChatId) ?? getDefaultChatPresentation()`)
- * finds it on that chat's very first mount, same as any other remembered
- * choice.
- *
- * Landing-only, like the setting it stands in for: split is never a place a
- * chat opens by itself, so this cannot request it.
- */
+/** Lands one just-minted chat on a surface before its pane mounts, without
+ *  changing the global default for every other new chat. Landing-only: split
+ *  is never where a chat opens by itself. */
 export function presetChatLandingPresentation(
   chatId: string,
   presentation: LandingChatPresentation,
@@ -122,14 +74,9 @@ export function presetChatLandingPresentation(
   lastChosenByChatId.set(chatId, presentation)
 }
 
-/**
- * Which surface a chat is shown on, and how the split is laid out.
- *
- * The chosen value is SEEDED from the user's preference and never subscribed to
- * it — a chat already open keeps the surface it is on when the setting changes
- * underneath. What IS subscribed is whether split exists at all, because the
- * switcher has to grow and lose its third segment live.
- */
+/** Seeded from the preference, never subscribed, so an open chat keeps its
+ *  surface when the setting changes; split availability is subscribed because
+ *  the switcher gains and loses that segment live. */
 export function useChatPresentation(
   shownChatId: string,
   splitContainerRef: {
@@ -139,13 +86,8 @@ export function useChatPresentation(
   const [chosen, setChosenRaw] = useState<ChatPresentation>(
     () => lastChosenByChatId.get(shownChatId) ?? getDefaultChatPresentation(),
   )
-  // The one path an explicit pick takes (chooseSurface/enterTerminal in
-  // agent-chat-pane.tsx, both via `setPresentation` below) — every pick this
-  // chat's user makes is remembered for it before it is applied, so a later
-  // re-seed or a fresh mount of this chat finds it instead of the global
-  // default. The re-seed branch below restores from the map directly through
-  // `setChosenRaw` instead, since a restore must not overwrite the entry it
-  // is reading.
+  // Explicit picks are remembered per chat; the re-seed below restores through
+  // `setChosenRaw` so a restore never rewrites the entry it reads.
   const setChosen = useCallback(
     (next: ChatPresentation) => {
       lastChosenByChatId.set(shownChatId, next)
@@ -154,38 +96,26 @@ export function useChatPresentation(
     [shownChatId],
   )
   const splitEnabled = useSplitPresentationEnabled()
-  // THE SURFACE ACTUALLY SHOWN. Derived rather than corrected, so switching the
-  // dev toggle off cannot strand a chat on a surface whose button has just gone:
-  // there is no state to write back, and no frame in which the two disagree.
+  // Derived, not corrected, so disabling split cannot strand a chat on a
+  // surface whose button just disappeared.
   const presentation: ChatPresentation = chosen === 'split' && !splitEnabled ? 'chat' : chosen
   const splitting = presentation === 'split'
 
-  // Whether the way back to the chat is being OFFERED — what Crowbar shows when
-  // it moved somebody to the terminal and cannot move them back without
-  // overriding a choice they made themselves.
+  // Offered when Crowbar moved the user to the terminal and cannot move them
+  // back without overriding their own choice.
   const [returnOffered, setReturnOffered] = useState(false)
-  // WHICH HALF OF THE SPLIT OWNS THE KEYBOARD. Two live surfaces means two things
-  // that can eat a keystroke, and the terminal is the greedy one — xterm
-  // re-focuses itself, with retries, whenever it is told it is active. So it is
-  // only told that while it actually holds the caret. The composer wins by
-  // default: typing a prompt into a terminal by accident is the worse mistake.
+  // xterm grabs focus whenever told it is active, so only the half holding the
+  // caret is; the composer wins by default as the safer place for a stray keystroke.
   const [splitFocus, setSplitFocus] = useState<'chat' | 'terminal'>('chat')
 
-  // Re-seed PER CHAT, not per mount. This pane is RETAINED across chat selection,
-  // so a lazy useState initializer runs once for the pane's entire life: turning
-  // the preference off and opening a chat did nothing until a full reload, which
-  // reads — fairly — as "the setting is broken".
+  // Re-seed per chat, not per mount: the pane is retained across chat selection,
+  // so the lazy initializer alone would ignore a changed preference.
   const [seededFor, setSeededFor] = useState(shownChatId)
   if (seededFor !== shownChatId) {
     // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: React's documented "adjust state when a prop changes" pattern. An effect would paint the previous chat's surface for a frame first, which is the flicker this exists to avoid.
     setSeededFor(shownChatId)
-    // Split is an INSTRUMENT the user reached for, not a landing surface, so it
-    // is the one thing that survives the re-seed as itself: somebody comparing
-    // what Crowbar recorded against what the CLI actually printed is doing it
-    // to whichever chat they look at next. Chat/terminal survive it too now —
-    // off whatever THIS chat last showed (lastChosenByChatId), not the global
-    // default — a chat's own choice must outlive being navigated away from and
-    // back to, exactly like split already did.
+    // Split is a tool the user reached for, so it carries over to the next
+    // chat; chat/terminal restore from that chat's own remembered pick.
     if (!splitting) {
       setChosenRaw(lastChosenByChatId.get(shownChatId) ?? getDefaultChatPresentation())
     }
@@ -194,14 +124,8 @@ export function useChatPresentation(
   }
 
   const [splitSizes, setSplitSizes] = useState<[number, number]>(SPLIT_DEFAULT_SIZES)
-  // Side by side, or stacked? The PANE's width decides, not the window's — a
-  // narrow pane inside a wide window is exactly the case a viewport media query
-  // gets wrong. Only observed while the split is up.
-  //
-  // A ZERO WIDTH IS "NOT MEASURED YET", NOT "NARROW". The first read can land
-  // before layout — and answering it with `stacked` makes the split flash
-  // vertical on the way in, then jump. Side by side is the shape this is FOR,
-  // so an unknown width keeps it.
+  // Zero width means "not measured yet", not narrow: answering stacked before
+  // layout would flash the split vertical and then jump.
   const splitStacked = useSplitMeasure(splitting, splitContainerRef, deriveStacked, false)
 
   return {
@@ -220,44 +144,15 @@ export function useChatPresentation(
   }
 }
 
-/** How a pane arranges its chat view against its editor view (spec §7.2). */
+/** How a pane arranges its chat view against its editor view. */
 export type PaneViewPresentation = 'side-by-side' | 'stacked' | 'tabs'
 
-/**
- * Spec §7.2's "two views": the pane-level generalization of the split above,
- * from chat⇄terminal to chat-view⇄editor-view.
- *
- * There is nothing to CHOOSE here, unlike `useChatPresentation`: `editorOpen`
- * is the pane's own persisted split toggle (Task 1: chat-only vs.
- * chat+editor — `PaneGroup.editorOpen`), and once it is on, geometry decides
- * the rest by measuring the PANE itself (never the window):
- *
- *   the split is off                  → 'tabs' — spec's default at every size.
- *   the split is on, but there is not
- *     enough room on EITHER axis      → 'tabs' — the same "downgrade the
- *                                        intent, keep the preference" shape
- *                                        `useChatPresentation` applies for
- *                                        `splitEnabled` above, just driven by
- *                                        size instead of a flag: opting in
- *                                        does not force a cramped split, and
- *                                        growing the pane recovers it with no
- *                                        further click.
- *   wider than tall                   → 'side-by-side' (landscape).
- *   taller than wide                  → 'stacked' (portrait).
- *
- * "Not enough room on either axis" reuses SPLIT_SIDE_BY_SIDE_MIN_PX as a floor
- * on the pane's LONGER axis, not just its width: a stacked layout needs real
- * room on ITS long axis (height) for the same reason side by side needs it on
- * width, and there is no second confirmed constant for that floor.
- */
+/** Too small on the longer axis downgrades to tabs while keeping the toggle, so
+ *  growing the pane recovers the split; one floor serves both axes because a
+ *  stacked layout needs height for the same reason side by side needs width. */
 export function derivePaneViewPresentation(width: number, height: number): PaneViewPresentation {
-  // Unmeasured (0x0, the frame before layout) cannot confirm either
-  // arrangement is usable. Tabs is always valid regardless of size, so
-  // guessing it here would be safe on its own terms — but it is also the ONE
-  // guess guaranteed to be visibly wrong the instant the real measurement
-  // lands whenever the pane turns out to be landscape, which is the common
-  // case: the pane would visibly pop from one view to two. Side by side is
-  // what an unmeasured split defaults to for the identical reason above.
+  // Unmeasured: guess the common landscape case, so the pane does not pop
+  // from one view to two when the real measurement lands.
   if (width === 0 && height === 0) return 'side-by-side'
   if (Math.max(width, height) < SPLIT_SIDE_BY_SIDE_MIN_PX) return 'tabs'
   return width >= height ? 'side-by-side' : 'stacked'
@@ -277,18 +172,9 @@ export function usePaneViewPresentation(
   return editorOpen ? measured : 'tabs'
 }
 
-/**
- * How far xterm's character grid stops short of its own element.
- *
- * A TERMINAL DOES NOT RENDER TO THE EDGE OF ITS OWN BOX. xterm fits
- * `floor(width / cellWidth)` columns and holds back room for a scrollbar, so the
- * canvas is narrower than its container — here by ~16px, a strip that is never
- * drawn to. Anything aligned to the ELEMENT lands on empty space, visibly past
- * where the agent's text stops. This measures the real thing.
- *
- * It cannot be a constant: it moves with the font metrics, the pane width and
- * the scrollbar reservation.
- */
+/** How far xterm's grid stops short of its element (whole columns plus a
+ *  scrollbar reservation), so overlays align with the text rather than the box.
+ *  Measured because it varies with font metrics and pane width. */
 export function useTerminalGridSlack(
   columnRef: { current: HTMLElement | null },
   measuring: boolean,
@@ -307,20 +193,15 @@ export function useTerminalGridSlack(
     const measure = () => {
       const element = column.querySelector('.xterm')
       const canvas = column.querySelector('.xterm canvas')
-      // No canvas yet — the renderer has not drawn. The MutationObserver below
-      // calls back the moment it appears; do NOT fall back to 0, which is what
-      // pinned the status line to the element's edge instead of the grid's.
+      // No canvas yet: the MutationObserver calls back when it appears; a 0 here
+      // would align to the element's edge instead of the grid's.
       if (!element || !canvas) return
       const slack = element.getBoundingClientRect().right - canvas.getBoundingClientRect().right
       setGridSlack(Math.max(0, Math.round(slack)))
     }
 
-    // Two different events change the answer, and BOTH are needed. xterm builds
-    // its canvas asynchronously, after this effect's first frame — measuring only
-    // on mount reads a terminal that has not rendered and silently yields 0, and
-    // since nothing then resizes, it stays 0 forever. On relayout xterm re-fits to
-    // a new column count, measured a frame later because the observer fires when
-    // the CONTAINER resizes and xterm re-fits after that.
+    // Mutations catch the canvas xterm builds asynchronously; resizes catch a
+    // re-fit, measured a frame later because xterm re-fits after the container.
     let frame = 0
     const remeasure = () => {
       cancelAnimationFrame(frame)
