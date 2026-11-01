@@ -443,8 +443,6 @@ const TabBar = ({
     [rootFolderPath],
   )
 
-  // Keeps the tab so the menu stays mounted while base-ui closes it: unmounting
-  // at once returns focus to the tab, stealing it from the Rename prompt.
   const closeContextMenu = useCallback(() => {
     setContextMenu((menu) => ({ ...menu, isOpen: false }))
   }, [])

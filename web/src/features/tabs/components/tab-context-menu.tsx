@@ -59,6 +59,8 @@ const TabContextMenu = ({
   // "a pane group is a group of chats, never of tabs" (Law 3) — a tab's
   // context menu no longer offers a way to split a pane.
 }: TabContextMenuProps) => {
+  // Stays mounted while closed (the tab bar keeps the buffer): unmounting at once
+  // makes base-ui return focus to the tab, stealing it from the Rename prompt.
   if (!buffer) return null
 
   // openContent always sets a real path (file path, or a synthetic scheme for

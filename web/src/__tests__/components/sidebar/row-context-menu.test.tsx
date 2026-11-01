@@ -29,9 +29,7 @@ vi.mock('@/components/layout/create-actions', async (importOriginal) => ({
   handleCreate: vi.fn(),
 }))
 
-// row-context-menu.tsx needs a router `navigate` for handleCreate's fallback
-// (a row whose workspace isn't currently active) — same stub
-// space-scroller.test.tsx already uses for the identical need.
+// handleCreate's fallback needs a router `navigate`.
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
 }))
@@ -65,10 +63,8 @@ vi.mock('@/lib/api/sidebar-placement', async (importOriginal) => ({
   }),
 }))
 
-// `resolveHomeRowScope` needs a resolved home workspace id to recognise any
-// row as home-scoped at all (`getHomeWorkspaceId`) — real elsewhere in this
-// file's fixtures, but real resolution is an async fetch this file has no
-// business exercising.
+// `resolveHomeRowScope` needs a resolved home workspace id; real resolution is
+// an async fetch this file has no business exercising.
 vi.mock('@/features/workspace/lib/home-workspace-resolver', async (importOriginal) => ({
   ...(await importOriginal<typeof homeWorkspaceResolver>()),
   getHomeWorkspaceId: () => 'home-ws-1',
@@ -324,14 +320,8 @@ describe('SidebarRowContextMenu', () => {
       expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-2', false)
     })
 
-    // Finding 2 of the same review: `performCreateFolder` matched `parentId`
-    // against the same three id spaces and was never translated, so "New folder"
-    // on a locked branch (or the repo home) fired nothing at all.
-    //
-    // The value actually sent stays the row's own (chat) id, never the
-    // workspace it translates to along the way — `POST .../chats/folders`
-    // resolves `parentId` as a chat/folder, and sending the workspace id
-    // 404s on the daemon ("agentchat: get chat: not found"), caught live.
+    // `POST .../chats/folders` resolves `parentId` as a chat/folder: the row's own
+    // (chat) id is sent, never the workspace it translates to (that 404s).
     it('clicking New folder actually creates one under the CHAT it owns, not its workspace', () => {
       const { treeRef } = renderMenu()
       rightClick(treeRef.current, LOCKED_ROW_ID)
@@ -352,10 +342,7 @@ describe('SidebarRowContextMenu', () => {
     expect(sidebarPlacement.createFolder).toHaveBeenCalledWith('proj-1', 'repo-1', 'New folder', '')
   })
 
-  // Reported live: right-clicking a plain (repo-scoped) chat row offered no
-  // "New folder" at all — the one item that used to require a branch/folder
-  // row to already exist, so a fresh tree with none yet had no row-level
-  // path to create the first one.
+  // A fresh tree with no branch/folder yet still needs a row-level path to its first folder.
   it('a plain repo-scoped chat row offers New folder, root-normalised (a bubble has no folder-anchor of its own)', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, THREAD_ROW_ID)
@@ -398,9 +385,7 @@ describe('SidebarRowContextMenu', () => {
     expect(onImport).toHaveBeenCalledWith(HOME_ROW_ID)
   })
 
-  // Explicit user correction: the repo-home row's own "..." button used to
-  // open a second, separate one-item menu (just "Delete Repo") that drifted
-  // out of sync with this one. Now it opens this exact menu.
+  // The repo-home row's "..." button opens this same menu, never a separate one.
   it('right-clicking the repo-home row also offers Delete Repo', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, HOME_ROW_ID)
