@@ -183,7 +183,6 @@ func seedClaudeThenSwitchToCodex(
 	codeword string,
 ) (chatID, claudeRunnerID, claudeSessionID, codexRunnerID, codexTermSessID string, codexTap *kit.PTYTap) {
 	t.Helper()
-	ctx := context.Background()
 
 	chatID, claudeRunnerID, claudeTermSessID, claudeTap := spawnReady(t, h, wsID, "claude")
 
@@ -199,12 +198,6 @@ func seedClaudeThenSwitchToCodex(
 	handoff := awaitHandoffContains(t, h, chatID, codeword)
 	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
 
-	codexRunnerID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "codex")
-	require.NoError(t, err)
-
-	codexTermSessID = runnerTerminalSession(t, h, codexRunnerID)
-	require.NotEqual(t, claudeTermSessID, codexTermSessID, "a switch must spawn a NEW PTY for the incoming codex CLI")
-
 	// Bring codex past its trust dialog — and deliberately do NOT wait for it to bind
 	// a conversation. It cannot be waited for: codex creates its rollout, and
 	// therefore fires SessionStart, LAZILY on its first real turn, and a switched-to
@@ -214,7 +207,8 @@ func seedClaudeThenSwitchToCodex(
 	// and would never return. Callers that need codex's conversation id must drive a
 	// turn FIRST and await the bind after (TestAgent_CodexTurnAppendsLedger is the
 	// model).
-	codexTap = attachReady(t, h, codexTermSessID, "codex", codexRunnerID)
+	codexRunnerID, codexTermSessID, codexTap = switchTo(t, h, chatID, "codex")
+	require.NotEqual(t, claudeTermSessID, codexTermSessID, "a switch must spawn a NEW PTY for the incoming codex CLI")
 
 	// The switched-to codex must be IDLE, not answering the handoff: the document
 	// went in through developer_instructions, which is not a user message, so codex
@@ -318,11 +312,12 @@ func TestAgent_CodexUsesHandoff(t *testing.T) {
 //     from without taking a turn), so the gap is EMPTY: claude is spawned with
 //     no conversation document at all. The only place the codeword can come from
 //     is claude's own resumed session.
+//  3. Best-effort: no synthetic housekeeping reply, the one signal left that the
+//     switch's graceful terminate let the outgoing claude exit cleanly.
 func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 	requireCLI(t, "claude")
 	requireCLI(t, "codex")
 	h := newHarness(t)
-	ctx := context.Background()
 
 	repoPath := kit.InitRepo(t)
 	_, _, wsID := h.importRepoAndWorkspace(t, "switch-back", repoPath)
@@ -339,17 +334,11 @@ func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 	require.Contains(t, chatSessionIDs(t, h, chatID), origClaudeSessionID,
 		"the chat's conversation history must still carry claude's conversation after it was switched away from")
 
-	newClaudeRunnerID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "claude")
-	require.NoError(t, err)
-
-	newClaudeTermSessID := runnerTerminalSession(t, h, newClaudeRunnerID)
-	require.NotEqual(t, codexTermSessID, newClaudeTermSessID, "switch-back must spawn a new terminal session")
-	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), newClaudeTermSessID) })
-
 	// The resumed claude is a FRESH PROCESS in a fresh PTY, so it shows its trust
 	// dialog again and — exactly as at first spawn — fires no SessionStart until it
 	// is dismissed. Blocking on that dialog is what makes the bind below arrive.
-	newClaudeTap := attachReady(t, h, newClaudeTermSessID, "claude", newClaudeRunnerID)
+	newClaudeRunnerID, newClaudeTermSessID, newClaudeTap := switchTo(t, h, chatID, "claude")
+	require.NotEqual(t, codexTermSessID, newClaudeTermSessID, "switch-back must spawn a new terminal session")
 
 	resumedProviderSessionID, resumedRunner := awaitSessionBound(t, h, newClaudeRunnerID, newClaudeTermSessID, newClaudeTap)
 	require.NotEmpty(t, resumedProviderSessionID,
@@ -381,127 +370,23 @@ func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 	texts := awaitAssistantReply(t, h, wsID, chatID, "claude", codeword)
 	require.Contains(t, strings.Join(texts, "\n"), codeword,
 		"no claude assistant turn (including the follow-up's) referenced the codeword; turns observed: %q", texts)
-}
-
-// TestAgent_SwitchRoundTrip_ResumesAndAvoidsSyntheticLedgerTurn drives a full
-// switch-away-then-switch-back round trip (claude -> codex -> claude) through
-// SwitchProvider's TerminateGraceful call path (spec §8: SIGTERM + a grace
-// window, falling back to SIGKILL only if the process is still alive after
-// it, applied uniformly to every provider, no per-provider branching) and
-// verifies two things once claude comes back:
-//
-//  1. Native resume continuity: the resumed segment's ProviderSessionID
-//     equals the ORIGINAL (pre-switch) claude segment's — i.e. SwitchProvider's
-//     `--resume <id>` (agent.go's priorSessionID lookup + descriptor
-//     session.resume) actually reattached claude to its own prior native
-//     session rather than minting a new one.
-//  2. No synthetic housekeeping turn: after driving a follow-up turn to force
-//     claude to settle its resumed state, none of claude's own assistant
-//     turns recorded in Crowbar's ledger contain a synthetic "No response
-//     requested." housekeeping reply — the kind of gap-filling turn a resume
-//     over a corrupted native session can produce.
-//
-// v2 CAVEAT (honest scope): this test does NOT verify vendor-native-transcript
-// flush integrity, i.e. it cannot distinguish "the outgoing claude CLI exited
-// cleanly via SIGTERM and flushed its own transcript" from "claude was
-// SIGKILLed mid-flight". Pre-v2 that distinction was directly observable by
-// reading claude's native transcript file, where a hard kill could corrupt or
-// replace the last written reply. Under descriptor-v2 Crowbar never reads the
-// vendor transcript at all — the ledger is built entirely from claude's own
-// turn_stop/user_prompt hooks, and the hook that recorded the pre-switch reply
-// runs to completion and appends to the append-only ledger BEFORE
-// SwitchProvider ever touches the process, so the ledger's copy of that reply
-// is durable no matter how the outgoing process later dies. That distinction
-// is simply no longer observable to Crowbar, so this test does not assert on
-// it. The no-synthetic-turn check above is the one signal that still tracks
-// graceful vs. hard termination, and even it is best-effort: whether a
-// synthetic housekeeping turn (if the CLI ever emits one) fires claude's Stop
-// hook at all was observed to be inconsistent live.
-//
-// Run this multiple times (`go test -tags 'integration noEmbed' -race -p 1
-// -run TestAgent_SwitchRoundTrip_ResumesAndAvoidsSyntheticLedgerTurn -count=N
-// ./tests/integration/agent/...`) to gauge reliability against the real
-// claude/codex binaries — a single pass is not strong evidence either way for
-// a fix whose whole premise is an unverified CLI-internal flush behavior.
-func TestAgent_SwitchRoundTrip_ResumesAndAvoidsSyntheticLedgerTurn(t *testing.T) {
-	requireCLI(t, "claude")
-	requireCLI(t, "codex")
-	h := newHarness(t)
-	ctx := context.Background()
-
-	repoPath := kit.InitRepo(t)
-	_, _, wsID := h.importRepoAndWorkspace(t, "graceful-terminate", repoPath)
-
-	chatID, claudeSegID, claudeTermSessID, claudeTap := spawnReady(t, h, wsID, "claude")
-
-	providerSessionID, runner := awaitSessionBound(t, h, claudeSegID, claudeTermSessID, claudeTap)
-	require.NotEmpty(t, providerSessionID, "claude never bound before a turn could be driven: %+v", runner)
-
-	const codeword = "GRACEFUL-8847"
-	drive(t, h, claudeTap, claudeTermSessID, "Remember this exact codeword for the rest of our conversation: "+
-		codeword+". Reply with only the word: acknowledged.")
-
-	// Block on claude's own Stop hook appending to Crowbar's ledger — proof the turn
-	// is FULLY complete, mirroring every other switch test's synchronisation point.
-	// claude must FINISH its turn before the switch terminates it (see awaitTurnComplete).
-	awaitTurnComplete(t, h, wsID, chatID, "claude")
-	handoff := awaitHandoffContains(t, h, chatID, codeword)
-	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
-
-	// Switch away — the exact call under test: SwitchProvider now uses
-	// TerminateGraceful (SIGTERM + grace, falling back to SIGKILL only if
-	// still alive) instead of the old hard Kill for the outgoing claude CLI.
-	codexSegID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "codex")
-	require.NoError(t, err)
-
-	codexTermSessID := runnerTerminalSession(t, h, codexSegID)
-	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), codexTermSessID) })
-
-	// Switch back to claude immediately — AssembleHandoff only reads
-	// Crowbar's own ledger from disk, so this does not depend on codex having
-	// bound a session or processed anything; it exercises TerminateGraceful a
-	// second time (against codex, which the design doc already established
-	// tolerates a hard kill, so this leg is not the interesting one) and then
-	// the native --resume path back into claude's original session.
-	newClaudeSegID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "claude")
-	require.NoError(t, err)
-
-	newClaudeTermSessID := runnerTerminalSession(t, h, newClaudeSegID)
-	require.NotEqual(t, codexTermSessID, newClaudeTermSessID, "switch-back must spawn a new terminal session")
-	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), newClaudeTermSessID) })
-
-	newClaudeTap := attachReady(t, h, newClaudeTermSessID, "claude", newClaudeSegID)
-
-	resumedProviderSessionID, resumedRunner := awaitSessionBound(t, h, newClaudeSegID, newClaudeTermSessID, newClaudeTap)
-	require.NotEmpty(t, resumedProviderSessionID,
-		"the switched-back claude's SessionStart hook never bound: %+v", resumedRunner)
-	require.Equal(t, providerSessionID, resumedProviderSessionID,
-		"switch-back must --resume the ORIGINAL claude session id (v2's native-resume continuity witness, "+
-			"replacing the pre-v2 transcript-path equality)")
-
-	// Drive one follow-up turn to force claude to settle its resumed state —
-	// TestAgent_SwitchBackRestoresClaudeContext found live that a synthetic
-	// housekeeping turn, when the OLD hard-kill bug produced one, could remain
-	// unsurfaced until further input landed, so reading immediately post-resume
-	// with no follow-up would not reliably exercise the failure mode this test
-	// exists to catch.
-	drive(t, h, newClaudeTap, newClaudeTermSessID,
-		"What was the codeword I asked you to remember earlier in our conversation? Reply with only that word.")
-
-	texts := awaitAssistantReply(t, h, wsID, chatID, "claude", codeword)
-	require.Contains(t, strings.Join(texts, "\n"), codeword,
-		"the follow-up turn's reply never referenced the codeword; turns observed: %q", texts)
-
-	// THE KEY ASSERTION for this round trip (see the v2 CAVEAT above for its
-	// best-effort strength): no synthetic gap-filling "No response requested."
-	// housekeeping entry must have reached claude's own assistant turns — the
-	// surviving regression signal that the graceful SIGTERM+grace terminate
-	// let claude exit cleanly instead of being SIGKILLed mid-flight.
+	// Best-effort: a synthetic "No response requested." housekeeping reply means
+	// the outgoing claude was killed mid-flight instead of exiting on SIGTERM.
 	for _, tx := range texts {
 		assert.NotContains(t, strings.ToLower(tx), "no response requested",
-			"a synthetic housekeeping reply appearing here means claude did not exit cleanly before the "+
-				"outgoing process died; turns observed: %q", texts)
+			"a synthetic housekeeping reply means claude did not exit cleanly; turns observed: %q", texts)
 	}
+}
+
+// switchTo switches chatID to provider and brings the new CLI past its trust
+// dialog; the new PTY is killed with the test.
+func switchTo(t *testing.T, h *harness, chatID, provider string) (runnerID, termSessID string, tap *kit.PTYTap) {
+	t.Helper()
+	runnerID, err := h.app.Usecases.AgentRunner.SwitchProvider(context.Background(), chatID, provider)
+	require.NoError(t, err)
+	termSessID = runnerTerminalSession(t, h, runnerID)
+	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), termSessID) })
+	return runnerID, termSessID, attachReady(t, h, termSessID, provider, runnerID)
 }
 
 // TestAgent_SwitchBackToCodexResumesItsOwnSession closes the counterpart of gap 4
@@ -527,7 +412,6 @@ func TestAgent_SwitchBackToCodexResumesItsOwnSession(t *testing.T) {
 	requireCLI(t, "claude")
 	requireCLI(t, "codex")
 	h := newHarness(t)
-	ctx := context.Background()
 
 	repoPath := kit.InitRepo(t)
 	_, _, wsID := h.importRepoAndWorkspace(t, "codex-switch-back", repoPath)
@@ -559,11 +443,7 @@ func TestAgent_SwitchBackToCodexResumesItsOwnSession(t *testing.T) {
 
 	// Leave codex. This ends its segment and reaps that segment's tmp dir — the very
 	// thing that used to take codex's session with it.
-	claudeSegID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "claude")
-	require.NoError(t, err)
-	claudeTermSessID := runnerTerminalSession(t, h, claudeSegID)
-	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), claudeTermSessID) })
-	claudeLegTap := attachReady(t, h, claudeTermSessID, "claude", claudeSegID)
+	claudeSegID, claudeTermSessID, claudeLegTap := switchTo(t, h, chatID, "claude")
 	// Registered HERE rather than at the top of the test: this is the leg that
 	// costs five minutes when it goes wrong, and a backstop expiry inside
 	// awaitSessionBound reports only an empty session id — the CLI's own screen is
@@ -574,15 +454,10 @@ func TestAgent_SwitchBackToCodexResumesItsOwnSession(t *testing.T) {
 	require.NotEmpty(t, claudeSessionID, "the switched-to claude never bound a session: %+v", claudeRunner)
 
 	// ...and come back.
-	backSegID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "codex")
-	require.NoError(t, err)
-	backTermSessID := runnerTerminalSession(t, h, backSegID)
-	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), backTermSessID) })
-
 	// Drive the follow-up turn FIRST, for the same reason as above: codex announces its
 	// conversation on its first turn, not at startup. That turn does double duty — it is
 	// also the question whose ANSWER proves the resumed codex still has its own history.
-	backTap := attachReady(t, h, backTermSessID, "codex", backSegID)
+	backSegID, backTermSessID, backTap := switchTo(t, h, chatID, "codex")
 	drive(t, h, backTap, backTermSessID, "What was the codeword I asked you to remember? Reply with only that word.")
 
 	resumedSessionID, resumedRunner := awaitSessionBound(t, h, backSegID, backTermSessID, backTap)
