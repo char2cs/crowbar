@@ -90,7 +90,7 @@ func (h *Hub) fly(ctx context.Context, name, key string, src Reader, f *readFlig
 	defer h.reads.Done()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	stop := context.AfterFunc(h.life, cancel)
+	stop := context.AfterFunc(h.life, cancel) //nolint:contextcheck // h.life is the hub's lifetime: Close ends a read no tab will wait for
 	defer stop()
 	for {
 		batch := h.takeBatch(name, f)
