@@ -27,20 +27,20 @@ type homeRow struct {
 // the sidebar renders at the project top level, so an index computed against
 // it lands where the drop line was drawn.
 //
-// homeWorkspaceID is "" when no home workspace resolves (or none is wired):
-// chats then degrade to "every chat sharing the container", the posture
+// With no home workspace resolved (or none wired) chats degrade to "every chat sharing the container", the posture
 // every earlier version of this pass took.
 func (u *projectUsecase) homeLevel(
 	ctx context.Context,
 	projectID string,
 	folderID string,
 	exclude string,
-) (rows []homeRow, homeWorkspaceID string, err error) {
+) (rows []homeRow, err error) {
 	repoIDs, err := u.repoIDSet(ctx, projectID)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	var chats []domain.Chat
+	homeWorkspaceID := ""
 	chatIDs := map[string]bool(nil)
 	if u.workspaces != nil {
 		if ws, hErr := u.workspaces.GetHomeForProject(ctx, projectID); hErr == nil {
@@ -50,7 +50,7 @@ func (u *projectUsecase) homeLevel(
 	if u.homeChats != nil && homeWorkspaceID != "" {
 		chats, err = u.homeChats.ListByWorkspace(ctx, homeWorkspaceID)
 		if err != nil {
-			return nil, "", fmt.Errorf("project: reorder repos: list home chats: %w", err)
+			return nil, fmt.Errorf("project: reorder repos: list home chats: %w", err)
 		}
 		chats = withoutHomeOwner(chats)
 		chatIDs = make(map[string]bool, len(chats))
@@ -60,7 +60,7 @@ func (u *projectUsecase) homeLevel(
 	}
 	nodes, err := u.nodes.ListByParent(ctx, folderID)
 	if err != nil {
-		return nil, "", fmt.Errorf("project: reorder repos: list nodes: %w", err)
+		return nil, fmt.Errorf("project: reorder repos: list nodes: %w", err)
 	}
 	createdAt := make(map[string]time.Time, len(chats))
 	for _, c := range chats {
@@ -75,9 +75,9 @@ func (u *projectUsecase) homeLevel(
 		rows = append(rows, homeRow{Node: n, createdAt: createdAt[n.ID]})
 	}
 	if folderID != "" {
-		return rows, homeWorkspaceID, nil
+		return rows, nil
 	}
-	return u.withNodelessRows(ctx, rows, repoIDs, chats, seen, exclude), homeWorkspaceID, nil
+	return u.withNodelessRows(ctx, rows, repoIDs, chats, seen, exclude), nil
 }
 
 // withNodelessRows appends the root rows that predate Node rows — a repo,
@@ -187,7 +187,7 @@ func (u *projectUsecase) NextHomeSlot(
 	ctx context.Context,
 	projectID string,
 ) (int, error) {
-	rows, _, err := u.homeLevel(ctx, projectID, "", "")
+	rows, err := u.homeLevel(ctx, projectID, "", "")
 	if err != nil {
 		return 0, err
 	}

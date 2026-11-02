@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
@@ -20,7 +19,7 @@ func TestProjectUsecase_UpdateRepo_LoadRepoError(t *testing.T) {
 	_, repos, uc := newProjectUsecase(t)
 	repos.FindByKeyErr = errors.New("db down")
 
-	_, err := uc.UpdateRepo(context.Background(), "r1", project.RepoUpdate{Name: name("x")})
+	err := uc.UpdateRepo(context.Background(), "r1", project.RepoUpdate{Name: name("x")})
 	require.Error(t, err)
 }
 
@@ -32,7 +31,7 @@ func TestProjectUsecase_UpdateRepo_SaveError(t *testing.T) {
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 	repos.SaveErr = errors.New("db down")
 
-	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Name: name("renamed")})
+	err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Name: name("renamed")})
 	require.Error(t, err)
 }
 
@@ -54,40 +53,8 @@ func TestProjectUsecase_UpdateRepo_DensifyNewProjectSaveError(t *testing.T) {
 
 	// Moving r1 to slot 1 (after r2) displaces r2 down to slot 0, so densify
 	// must renumber (and re-save) the sibling r2, not just r1 itself.
-	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Order: index(1)})
+	err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Order: index(1)})
 	require.Error(t, err)
-}
-
-// TestProjectUsecase_UpdateRepo_RefetchFailsFallsBackToInMemoryRow covers the
-// final re-fetch (done purely to hand back a fresher row) failing or finding
-// nothing: UpdateRepo must still return the row it just constructed and saved,
-// rather than erroring on a best-effort read.
-func TestProjectUsecase_UpdateRepo_RefetchFailsFallsBackToInMemoryRow(t *testing.T) {
-	_, repos, uc := newProjectUsecase(t)
-	ctx := context.Background()
-	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1", Name: "old"}))
-
-	calls := 0
-	repos.FindByKeyFn = func(id string) (*domain.Repository, error) {
-		calls++
-		if calls == 1 {
-			// The load at the top of UpdateRepo must still succeed normally.
-			for i := range repos.Saved {
-				if repos.Saved[i].ID == id {
-					row := repos.Saved[i]
-					return &row, nil
-				}
-			}
-			return nil, nil
-		}
-		// The post-save re-fetch fails.
-		return nil, errors.New("refetch boom")
-	}
-
-	updated, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Name: name("renamed")})
-	got := updated.Repo
-	require.NoError(t, err, "a failed best-effort re-fetch must not fail the whole update")
-	assert.Equal(t, "renamed", got.Name, "the caller still gets back the row UpdateRepo itself just built")
 }
 
 // TestProjectUsecase_Reorder_ListError covers Reorder surfacing a failure

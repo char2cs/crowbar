@@ -21,7 +21,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
@@ -110,7 +109,6 @@ func New(
 	homeFunc := func() (string, error) { return crowbarHome, nil }
 	ucs, err := usecases.New(
 		repos, toUsecaseStores(gormStores), engines, homeFunc, late.reviewThread(),
-		announceHomeRow(chatSnapshots),
 		usecases.WithChatSnapshots(chatSnapshots),
 	)
 	if err != nil {
@@ -362,17 +360,4 @@ func startOwningChatReconcile(
 		return
 	}
 	reconcileOwningChats(ctx, workspaces, chats, ucs.AgentChatFolder)
-}
-
-// announceHomeRow publishes a home chat a repo drag shifted as a versioned
-// snapshot, its placement read from the Node this write just moved; a shifted
-// folder reaches the stream through the Tree write's own diff.
-func announceHomeRow(
-	chatSnapshots *agentusecase.ChatSnapshots,
-) project.HomeRowAnnouncer {
-	return func(ctx context.Context, id string, kind tree.Kind) {
-		if kind == tree.KindChat {
-			chatSnapshots.Touch(ctx, id)
-		}
-	}
 }

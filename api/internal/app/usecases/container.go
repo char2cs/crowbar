@@ -150,7 +150,6 @@ func New(
 	engines *engine.Container,
 	crowbarHome func() (string, error),
 	threadBroadcast agentusecase.ToolThreadBroadcast,
-	announceHomeRow project.HomeRowAnnouncer,
 	opts ...Option,
 ) (*Container, error) {
 	var o options
@@ -166,10 +165,6 @@ func New(
 		// homeChats scopes a bare-root repo reorder's CHAT-kind Node siblings
 		// to their project (see project.HomeChats).
 		repos.AgentChat,
-		// Announces a repo reorder's COLLATERAL chat/folder siblings on the
-		// same chats WS their own drag would use — see project.New's own doc
-		// and placeRepoAmongHomeSiblings.
-		announceHomeRow,
 	)
 	workspaceUsecase := workspace.New(
 		repos.Workspace,

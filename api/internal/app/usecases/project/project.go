@@ -50,7 +50,7 @@ type Usecase interface {
 		ctx context.Context,
 		repoID string,
 		in RepoUpdate,
-	) (RepoUpdated, error)
+	) error
 	// Reorder sets a project's sidebar index and densifies the whole list, so
 	// every project ends up holding a distinct 0..n-1 slot.
 	Reorder(
@@ -103,14 +103,6 @@ type Update struct {
 // own Node row (NodePlacements), interleaved against its real home chat and
 // folder siblings, which are Node-backed too now (2026-09-08
 // sidebar-placement-unification Task 5) — see placeRepoAmongHomeSiblings.
-// RepoUpdated is UpdateRepo's answer: the repo, its own decided Node row and
-// every OTHER row (any kind) the placement renumbered.
-type RepoUpdated struct {
-	Repo    domain.Repository
-	Node    tree.Node
-	Shifted []tree.Node
-}
-
 type RepoUpdate struct {
 	Name      *string
 	ProjectID *string
@@ -216,17 +208,7 @@ type projectUsecase struct {
 	folders    Folders
 	nodes      NodePlacements
 	homeChats  HomeChats
-	// broadcastChat announces a collaterally-shifted CHAT/FOLDER-kind Node
-	// row on the same chats WS a chat/folder placement already uses — see
-	// placeRepoAmongHomeSiblings' own doc on why this exists at all. Nilable,
-	// degrading to silence like every other optional dependency here: a repo
-	// reorder still WRITES correctly with it nil, it just leaves a live
-	// client's chat siblings stale until their next reseed.
-	broadcastChat HomeRowAnnouncer
 }
-
-// HomeRowAnnouncer announces one shifted home row by its own kind.
-type HomeRowAnnouncer func(ctx context.Context, id string, kind tree.Kind)
 
 // New builds a Usecase from the project and repository GORM stores, the
 // project-home lookup a root-level repo placement needs, the home-folder
@@ -238,13 +220,7 @@ type HomeRowAnnouncer func(ctx context.Context, id string, kind tree.Kind)
 // already does elsewhere in this file: the bare-root densify simply cannot
 // narrow CHAT-kind siblings to this project and falls back to including
 // them all, rather than failing the request outright.
-//
-// broadcastChat is the chats-WS announce callback a repo reorder needs for
-// exactly the same reason PlaceChat does (see that handler's own comment):
-// every home-scope sibling's write now rides Node, which has no
-// aggregate-command hub projection of its own, so nothing tells a live
-// client a CHAT/FOLDER row it did not drag also moved as collateral of the
-// repo it did drag.
+
 func New(
 	projects store.Store[domain.Project, string],
 	repos store.ScopedStore[domain.Repository, string],
@@ -252,16 +228,14 @@ func New(
 	folders Folders,
 	nodes NodePlacements,
 	homeChats HomeChats,
-	broadcastChat HomeRowAnnouncer,
 ) Usecase {
 	return &projectUsecase{
-		projects:      projects,
-		repos:         repos,
-		workspaces:    workspaces,
-		folders:       folders,
-		nodes:         nodes,
-		homeChats:     homeChats,
-		broadcastChat: broadcastChat,
+		projects:   projects,
+		repos:      repos,
+		workspaces: workspaces,
+		folders:    folders,
+		nodes:      nodes,
+		homeChats:  homeChats,
 	}
 }
 
@@ -332,20 +306,20 @@ func (u *projectUsecase) UpdateRepo(
 	ctx context.Context,
 	repoID string,
 	in RepoUpdate,
-) (RepoUpdated, error) {
+) error {
 	repo, err := u.repos.FindByKey(ctx, repoID)
 	if err != nil {
-		return RepoUpdated{}, fmt.Errorf("project: update repo: %w", err)
+		return fmt.Errorf("project: update repo: %w", err)
 	}
 	if repo == nil {
-		return RepoUpdated{}, fmt.Errorf("project: update repo: id %s: %w", repoID, problem.ErrNotFound)
+		return fmt.Errorf("project: update repo: id %s: %w", repoID, problem.ErrNotFound)
 	}
 	if err := refuseProjectMove(*repo, in.ProjectID); err != nil {
-		return RepoUpdated{}, err
+		return err
 	}
 	subject, err := u.getRepoNode(ctx, repoID)
 	if err != nil {
-		return RepoUpdated{}, fmt.Errorf("project: update repo: node: %w", err)
+		return fmt.Errorf("project: update repo: node: %w", err)
 	}
 	if in.Name != nil {
 		repo.Name = *in.Name
@@ -355,37 +329,23 @@ func (u *projectUsecase) UpdateRepo(
 	originFolder := subject.ParentID
 	targetFolder, err := u.resolveTargetFolder(ctx, in, originFolder)
 	if err != nil {
-		return RepoUpdated{}, err
+		return err
 	}
 	if err := u.repos.Save(ctx, *repo); err != nil {
-		return RepoUpdated{}, fmt.Errorf("project: update repo: save: %w", err)
+		return fmt.Errorf("project: update repo: save: %w", err)
 	}
-	written, err := u.applyRepoPlacement(ctx, *repo, targetFolder, subject, in.Order)
-	if err != nil {
-		return RepoUpdated{}, err
+	if _, err := u.applyRepoPlacement(ctx, *repo, targetFolder, subject, in.Order); err != nil {
+		return err
 	}
 	// The folder the repo LEFT still has a gap where its row used to sit and
 	// needs closing. A plain reorder within the same container is covered by
 	// the densify above; this only fires for an actual move.
 	if originFolder != targetFolder {
-		left, err := u.densifyHomeLevel(ctx, repo.ProjectID, originFolder, repoID)
-		if err != nil {
-			return RepoUpdated{}, err
+		if _, err := u.densifyHomeLevel(ctx, repo.ProjectID, originFolder, repoID); err != nil {
+			return err
 		}
-		written = append(written, left...)
 	}
-	out := RepoUpdated{Repo: *repo, Node: subject}
-	for _, n := range written {
-		if n.ID == repoID {
-			out.Node = n
-			continue
-		}
-		out.Shifted = append(out.Shifted, n)
-	}
-	if updated, err := u.repos.FindByKey(ctx, repoID); err == nil && updated != nil {
-		out.Repo = *updated
-	}
-	return out, nil
+	return nil
 }
 
 // getRepoNode reads repoID's own Node row. Every repo mints one at import
@@ -703,7 +663,7 @@ func (u *projectUsecase) placeRepoAmongHomeSiblings(
 	subject tree.Node,
 	target int,
 ) ([]tree.Node, error) {
-	siblings, homeWorkspaceID, err := u.homeLevel(ctx, projectID, folderID, subject.ID)
+	siblings, err := u.homeLevel(ctx, projectID, folderID, subject.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -711,7 +671,7 @@ func (u *projectUsecase) placeRepoAmongHomeSiblings(
 	slots := homeIndex(rows)
 	reparented := subject.ParentID != folderID
 	decided, written, err := u.writeHomeLevel(ctx, rows, place(slots, subject.ID, &target),
-		folderID, homeWorkspaceID, subject.ID, reparented)
+		folderID, subject.ID, reparented)
 	if err != nil {
 		return nil, err
 	}
@@ -735,23 +695,22 @@ func (u *projectUsecase) densifyHomeLevel(
 	folderID string,
 	exclude string,
 ) ([]tree.Node, error) {
-	rows, homeWorkspaceID, err := u.homeLevel(ctx, projectID, folderID, exclude)
+	rows, err := u.homeLevel(ctx, projectID, folderID, exclude)
 	if err != nil {
 		return nil, err
 	}
 	decided, _, err := u.writeHomeLevel(ctx, rows, place(homeIndex(rows), "", nil),
-		folderID, homeWorkspaceID, "", false)
+		folderID, "", false)
 	return decided, err
 }
 
 // writeHomeLevel writes every move a home-level pass decided, mints the
-// fresh rows the level touched and announces the chats/folders it shifted.
+// fresh rows the level touched; the Tree's own announce publishes each move.
 func (u *projectUsecase) writeHomeLevel(
 	ctx context.Context,
 	rows []homeRow,
 	moves []move,
 	folderID string,
-	homeWorkspaceID string,
 	subjectID string,
 	reparented bool,
 ) ([]tree.Node, map[string]bool, error) {
@@ -770,13 +729,6 @@ func (u *projectUsecase) writeHomeLevel(
 			if err := u.writeNode(ctx, row.ID, folderID, moved.order, reparenting); err != nil {
 				return nil, nil, err
 			}
-		}
-		// The moved chat/folder rows only, not the repo subject: PlaceChat's
-		// own announce covers a chat/folder's OWN drag, this covers the same
-		// rows moving as collateral of a REPO drag instead.
-		if row.ID != subjectID && u.broadcastChat != nil && homeWorkspaceID != "" &&
-			(row.Kind == tree.KindChat || row.Kind == tree.KindFolder) {
-			u.broadcastChat(ctx, row.ID, row.Kind)
 		}
 	}
 	// A legacy root chat whose slot did not move (place reports no change, so

@@ -42,7 +42,7 @@ func newProjectUsecaseWithWorkspaces(
 	repos := mocks.NewRepositoryStore()
 	workspaces := mocks.NewWorkspacePlacements()
 	repos.Nodes = mocks.NewNodePlacements()
-	uc := project.New(projects, repos, workspaces, mocks.NewFolderStore(), repos.Nodes, nil, nil)
+	uc := project.New(projects, repos, workspaces, mocks.NewFolderStore(), repos.Nodes, nil)
 	return projects, repos, workspaces, uc
 }
 
@@ -60,7 +60,7 @@ func newProjectUsecaseWithNodes(
 	repos := mocks.NewRepositoryStore()
 	nodes := mocks.NewNodePlacements()
 	uc := project.New(
-		mocks.NewProjectStore(), repos, mocks.NewWorkspacePlacements(), mocks.NewFolderStore(), nodes, nil, nil,
+		mocks.NewProjectStore(), repos, mocks.NewWorkspacePlacements(), mocks.NewFolderStore(), nodes, nil,
 	)
 	return repos, nodes, uc
 }
@@ -167,8 +167,8 @@ func TestProjectUsecase_UpdateRepo_UpdatesNameAndAvatar(t *testing.T) {
 		ID: "r1", ProjectID: "p1", Name: "widget", AvatarLabel: "W", AvatarColor: "avatar-slate",
 	})
 
-	updated, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Name: name("Renamed Repo")})
-	got := updated.Repo
+	require.NoError(t, uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Name: name("Renamed Repo")}))
+	got, err := repos.FindByKey(ctx, "r1")
 	require.NoError(t, err)
 	assert.Equal(t, "Renamed Repo", got.Name)
 	assert.Equal(t, "R", got.AvatarLabel, "the fallback avatar letter tracks the new name")
@@ -186,10 +186,7 @@ func TestProjectUsecase_UpdateRepo_LeavesThePathSlugAlone(t *testing.T) {
 		ID: "r1", ProjectID: "p1", Name: "widget", PathSlug: "widget",
 	})
 
-	updated, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Name: name("Renamed Repo")})
-	got := updated.Repo
-	require.NoError(t, err)
-	assert.Equal(t, "widget", got.PathSlug, "the on-disk identity survives the rename")
+	require.NoError(t, uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Name: name("Renamed Repo")}))
 
 	stored, err := repos.FindByKey(ctx, "r1")
 	require.NoError(t, err)
@@ -202,7 +199,7 @@ func TestProjectUsecase_UpdateRepo_NotFound(t *testing.T) {
 	_, _, uc := newProjectUsecase(t)
 	ctx := context.Background()
 
-	_, err := uc.UpdateRepo(ctx, "missing", project.RepoUpdate{Name: name("Whatever")})
+	err := uc.UpdateRepo(ctx, "missing", project.RepoUpdate{Name: name("Whatever")})
 	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 

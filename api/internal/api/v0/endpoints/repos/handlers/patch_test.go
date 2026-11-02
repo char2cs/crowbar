@@ -36,11 +36,11 @@ func (f *fakeUpdater) UpdateRepo(
 	_ context.Context,
 	repoID string,
 	in project.RepoUpdate,
-) (project.RepoUpdated, error) {
+) error {
 	f.called = true
 	f.gotID = repoID
 	f.got = in
-	return project.RepoUpdated{Repo: f.repo}, f.err
+	return f.err
 }
 
 // patchRouter mounts PATCH .../repos/:repoId on a handler backed by the

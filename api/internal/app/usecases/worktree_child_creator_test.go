@@ -26,7 +26,7 @@ import (
 // its own fixture with.
 func TestWorktreeChildCreator_ForcesARealWorktree_EvenFromAWorkspacelessForkParent(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
 	require.NoError(t, err)
 
 	root := t.TempDir()

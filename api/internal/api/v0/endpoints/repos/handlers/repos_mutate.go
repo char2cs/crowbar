@@ -55,7 +55,7 @@ func (h *Handlers) Patch(
 	if !ok {
 		return
 	}
-	if _, err := h.updater.UpdateRepo(c.Request.Context(), c.Param("repoId"), update); err != nil {
+	if err := h.updater.UpdateRepo(c.Request.Context(), c.Param("repoId"), update); err != nil {
 		libs.Fail(c, err)
 		return
 	}

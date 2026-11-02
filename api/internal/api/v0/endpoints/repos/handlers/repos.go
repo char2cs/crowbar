@@ -110,14 +110,13 @@ type RepoImporter interface {
 }
 
 // RepoUpdater applies a partial repository update — display name (and its
-// derived avatar), sidebar order, owning project — and returns the updated repo
-// so the handler can broadcast the new RepoDTO.
+// derived avatar), sidebar order, owning project.
 type RepoUpdater interface {
 	UpdateRepo(
 		ctx context.Context,
 		repoID string,
 		in project.RepoUpdate,
-	) (project.RepoUpdated, error)
+	) error
 }
 
 // Operations runs the work a create or a delete hands off after answering 202.
