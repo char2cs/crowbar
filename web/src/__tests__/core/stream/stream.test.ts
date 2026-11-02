@@ -151,6 +151,34 @@ describe('the one stream', () => {
     expect(sentBesidesProjects()).toEqual([])
   })
 
+  it('an undecodable projects frame is reported and the projects asked for again, never let go', () => {
+    const report = vi.spyOn(reporting, 'report').mockImplementation(() => {})
+    socket.deliver({ t: 'synced', scope: 'projects' })
+    socket.deliver({ t: 'synced', scope: 'projects', surprise: true })
+    expect(report).toHaveBeenCalledTimes(1)
+    expect(socket.sent).toEqual([
+      { op: 'unsub', scope: 'projects' },
+      { op: 'sub', scope: 'projects' },
+    ])
+    expect(holding('projects')).toBe(true)
+  })
+
+  it('a snapshot that keeps failing tells its watch how often, until one lands', () => {
+    const failed = vi.fn()
+    cleanups.push(watchScope('projects', { failed }))
+    socket.deliver({ t: 'synced', scope: 'projects' })
+    reconnect()
+    expect(failed).not.toHaveBeenCalled()
+    reconnect()
+    expect(failed).toHaveBeenLastCalledWith(1)
+    reconnect()
+    expect(failed).toHaveBeenLastCalledWith(2)
+    socket.deliver({ t: 'synced', scope: 'projects' })
+    reconnect()
+    reconnect()
+    expect(failed).toHaveBeenLastCalledWith(1)
+  })
+
   it('an error frame is reported and drops no scope', () => {
     const report = vi.spyOn(reporting, 'report').mockImplementation(() => {})
     hold('chat:a')

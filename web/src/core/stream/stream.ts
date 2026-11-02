@@ -23,6 +23,8 @@ interface ScopeWatch {
   synced?(): void
   /** The daemon will not serve the scope; a watch that hears it tells the user itself. */
   refused?(problem: Problem | undefined): void
+  /** The scope's snapshot ended before its synced, `times` in a row. */
+  failed?(times: number): void
 }
 
 type SignalFrame = Extract<Frame, { t: 'signal' }>
@@ -33,6 +35,12 @@ const watches = new Map<string, Set<ScopeWatch>>()
 const signals = new Map<string, Set<(f: SignalFrame) => void>>()
 /** Held scopes whose snapshot has landed since their latest sub. */
 const current = new Set<string>()
+/** Held scopes subscribed on this socket whose synced has not come yet. */
+const awaiting = new Set<string>()
+/** scope → its snapshots in a row that ended before their synced. */
+const failures = new Map<string, number>()
+/** The scope every route reads: the stream holds it for as long as it runs. */
+const PROJECTS = 'projects'
 /** The current socket said ready, so a sub sent now is answered. */
 let ready = false
 let epoch: string | undefined
@@ -58,6 +66,7 @@ export function registerScopeKind(kind: string, h: ScopeKindHandler): () => void
 
 function sub(scope: string): void {
   current.delete(scope)
+  awaiting.add(scope)
   const h = handlers.get(kindOf(scope))
   h?.subscribed?.(scope)
   const since = h?.since?.(keyOf(scope))
@@ -81,6 +90,8 @@ export function holdScope(scope: string): () => void {
     // A dropped scope is no longer held; its holders' releases are no-ops.
     if (!holds.delete(scope)) return
     current.delete(scope)
+    awaiting.delete(scope)
+    failures.delete(scope)
     if (ready) wsManager.send(ENDPOINT, { op: 'unsub', scope })
   }
 }
@@ -121,6 +132,13 @@ export function onSignal<T>(scope: string, kind: string, cb: (data: T) => void):
   })
 }
 
+function snapshotFailed(scope: string): void {
+  awaiting.delete(scope)
+  const times = (failures.get(scope) ?? 0) + 1
+  failures.set(scope, times)
+  for (const w of [...(watches.get(scope) ?? [])]) w.failed?.(times)
+}
+
 /** Stops holding a scope the daemon will not serve, so no reconnect asks again. */
 function dropScope(scope: string, why: unknown, problem?: Problem): void {
   const told = [...(watches.get(scope) ?? [])].filter((w) => w.refused)
@@ -147,11 +165,21 @@ function onFrame(f: Frame): void {
   if (f.t === 'signal') for (const cb of [...(signals.get(f.scope) ?? [])]) cb(f)
   if (f.t === 'synced') {
     current.add(f.scope)
+    awaiting.delete(f.scope)
+    failures.delete(f.scope)
     for (const w of [...(watches.get(f.scope) ?? [])]) w.synced?.()
   }
   if (f.t !== 'closed') return
   if (f.reason === 'resync') sub(f.scope)
   else dropScope(f.scope, new Error(f.problem?.message ?? `${f.scope} was ${f.reason}`), f.problem)
+}
+
+// A projects frame this client cannot read is never a reason to stop reading the projects:
+// told once, it is asked for again, and a second one in a row waits for Retry or a reconnect.
+function askAgain(scope: string, err: unknown): void {
+  report(err, { action: `Stream ${scope}` })
+  if (awaiting.has(scope)) snapshotFailed(scope)
+  if ((failures.get(scope) ?? 0) < 2) resubscribe(scope)
 }
 
 function onMessage(raw: unknown): void {
@@ -162,7 +190,8 @@ function onMessage(raw: unknown): void {
     f = decodeFrame(raw)
   } catch (err) {
     const scope = err instanceof FrameError ? err.scope : undefined
-    if (scope && holds.has(scope)) dropScope(scope, err)
+    if (scope === PROJECTS && holds.has(scope)) askAgain(scope, err)
+    else if (scope && holds.has(scope)) dropScope(scope, err)
     else if (!scope) report(err, { action: 'Stream' })
     return
   }
@@ -180,9 +209,10 @@ export function startStream(): () => void {
   const stopDrops = wsManager.onDrop(ENDPOINT, () => {
     ready = false
     current.clear()
+    for (const scope of [...awaiting]) snapshotFailed(scope)
   })
   const stop = wsManager.subscribe(ENDPOINT, onMessage)
-  const letGoOfProjects = holdScope('projects')
+  const letGoOfProjects = holdScope(PROJECTS)
   return () => {
     letGoOfProjects()
     ready = false
