@@ -82,13 +82,12 @@ func TestDo_ConcurrentCallersShareOneRead(t *testing.T) {
 		return 7, nil
 	}
 	var wg sync.WaitGroup
-	for range 8 {
-		wg.Go(func() {
-			v, err := readonce.Do(ctx, "k", read)
-			assert.NoError(t, err)
-			assert.Equal(t, 7, v)
-		})
+	got, errs := make([]int, 8), make([]error, 8)
+	for i := range got {
+		wg.Go(func() { got[i], errs[i] = readonce.Do(ctx, "k", read) })
 	}
 	wg.Wait()
+	assert.Equal(t, []int{7, 7, 7, 7, 7, 7, 7, 7}, got)
+	assert.Equal(t, make([]error, 8), errs)
 	assert.Equal(t, 1, reads)
 }

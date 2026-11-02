@@ -52,6 +52,7 @@ type spyLifecycle struct {
 }
 
 func newSpyLifecycle(t *testing.T) (*spyLifecycle, *ledgerstore.Store) {
+	t.Helper()
 	l := newTestLedger(t)
 	s := &spyLifecycle{started: make(chan string, 16), exited: make(chan string, 16)}
 	heard := map[ledger.Kind]chan string{ledger.KindRunnerStarted: s.started, ledger.KindRunnerExited: s.exited}
@@ -96,7 +97,6 @@ func newSpawnHarness(t *testing.T, surface string) *spawnHarness {
 	t.Helper()
 	// No vendor serve forks: a test that wants a connection seeds one.
 	t.Setenv("CROWBAR_DISABLE_API_TRANSPORT", "1")
-
 	home := t.TempDir()
 	term := &fakeTermForAttach{}
 	lifecycle, l := newSpyLifecycle(t)
