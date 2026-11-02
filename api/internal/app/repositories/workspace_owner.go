@@ -9,6 +9,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // heardChat is a chat as the event that changed it left it: the read model the
@@ -39,13 +40,38 @@ func (h *heardChat) over(rows []domain.Chat, wsID string) []domain.Chat {
 // the workspace row names its owning chat, which no workspace event carries.
 func (c *Container) ownerMoved(ctx context.Context, evt asynxModels.Event[domain.Chat]) {
 	before, after := evt.PreviousAggregate, evt.Aggregate
-	heard := &heardChat{chat: after}
+	heard := &heardChat{chat: c.placedChat(ctx, after)}
 	if before.OwnsWorkspace && before.WorkspaceID != "" && before.WorkspaceID != after.WorkspaceID {
 		c.republishHearing(ctx, before.WorkspaceID, heard)
 	}
 	if after.OwnsWorkspace && after.WorkspaceID != "" {
 		c.republishHearing(ctx, after.WorkspaceID, heard)
 	}
+}
+
+// placedChat is chat at its Tree placement: the aggregate no longer carries it,
+// and a fork's workspace row is drawn where its owning chat is.
+func (c *Container) placedChat(ctx context.Context, chat domain.Chat) domain.Chat {
+	if c.Placement == nil {
+		return chat
+	}
+	p, err := c.Placement.ChatPlacement(ctx, chat.ID)
+	if err != nil {
+		slog.WarnContext(ctx, "repositories: republish owner: chat placement", "chat_id", chat.ID, "err", err)
+	}
+	chat.ParentID, chat.Order = p.ParentID, p.Order
+	return chat
+}
+
+// RepublishOwnedBy republishes the workspace chatID owns once the chat moved to
+// p: a fork's row is drawn where its owning chat is.
+func (c *Container) RepublishOwnedBy(ctx context.Context, chatID string, p tree.Placement) {
+	chat, err := c.AgentChat.GetChat(ctx, chatID)
+	if err != nil || !chat.OwnsWorkspace || chat.WorkspaceID == "" {
+		return
+	}
+	chat.ParentID, chat.Order = p.ParentID, p.Order
+	c.republishHearing(ctx, chat.WorkspaceID, &heardChat{chat: chat})
 }
 
 // ownerForgotten republishes the workspace a deleted owning chat leaves.

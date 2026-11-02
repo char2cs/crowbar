@@ -348,14 +348,29 @@ func TestStream_ALiveChatIsFiledUnderItsOwnScope(t *testing.T) {
 
 func scopeOf(chat map[string]any) []any { return []any{chat["projectId"], chat["repoId"]} }
 
-// A tab open while a repo imports, a branch chat forks and an owning chat is
-// deleted ends holding each workspace's owner as a fresh tab reads it.
+// A tab open while a repo imports, branch chats fork under a chat, one moves
+// into a folder and an owning chat is deleted ends holding each workspace's
+// owner and place as a fresh tab reads them.
 func TestStream_AnOpenTabHoldsEachWorkspacesOwner(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
 	feed := recordSidebar(t, h)
 	imported := importProject(t, h)
-	forkFromSidebar(t, h, imported, imported.chatID, "feat/owner")
+	var wss []struct {
+		ID        string
+		IsDefault bool `json:"isDefault"`
+	}
+	h.get(repoBase(imported)+"/workspaces", &wss)
+	var plain struct{ ID string }
+	for _, w := range wss {
+		if w.IsDefault {
+			h.post(repoBase(imported)+"/chats", map[string]string{"provider": "promotestub", "workspaceId": w.ID}, http.StatusCreated, &plain)
+		}
+	}
+	forkFromSidebar(t, h, imported, plain.ID, "feat/owner")
+	moved, _ := forkFromSidebar(t, h, imported, plain.ID, "feat/moved")
+	folder := createChatFolder(t, h, repoBase(imported), "F", "")
+	placeChat(t, h, repoBase(imported), moved, map[string]any{"parentId": folder.ID, "order": 0})
 	forked, _ := forkFromSidebar(t, h, imported, imported.chatID, "feat/orphan")
 	_ = h.raw(http.MethodDelete, repoBase(imported)+"/chats/"+forked, nil, http.StatusOK).Body.Close()
 	h.QuiesceReactors()
@@ -368,13 +383,13 @@ func TestStream_AnOpenTabHoldsEachWorkspacesOwner(t *testing.T) {
 		if r.Kind != string(stream.KindWorkspace) {
 			continue
 		}
-		owner := r.Data["owningChatId"]
+		owner, at := r.Data["owningChatId"], r.Data["folderId"]
 		if owner != "" {
 			owned++
 		}
-		feed.await(fmt.Sprintf("workspace %s owned by %q", r.ID, owner), func(i int, live feedRow) bool {
+		feed.await(fmt.Sprintf("workspace %s owned by %q in %q", r.ID, owner, at), func(i int, live feedRow) bool {
 			return live.Kind == r.Kind && live.ID == r.ID && i == lastRowOf(feed, r.Kind, r.ID) &&
-				!live.Gone && live.Data["owningChatId"] == owner
+				!live.Gone && live.Data["owningChatId"] == owner && live.Data["folderId"] == at
 		})
 	}
 	require.Positive(t, owned, "the fresh tab holds owned workspaces")

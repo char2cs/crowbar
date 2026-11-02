@@ -55,8 +55,8 @@ func newPlacement(
 }
 
 // announcePlacement tells live clients each row a Tree write moved: a chat as
-// its snapshot at the new place, a workspace or a repo as its republished row,
-// a folder as itself.
+// its snapshot at the new place (and the workspace it owns, drawn beside it), a
+// workspace or a repo as its republished row, a folder as itself.
 func announcePlacement(
 	ax *aggregates,
 	chatSnapshots *agentusecase.ChatSnapshots,
@@ -66,6 +66,7 @@ func announcePlacement(
 ) error {
 	moved := func(ctx context.Context, chatID string, p tree.Placement) {
 		chatSnapshots.ApplyPlacement(ctx, chatID, p.ParentID, p.Order)
+		workspaces.RepublishOwnedBy(ctx, chatID, p)
 	}
 	nodeMoved := func(ctx context.Context, n tree.Node) {
 		if n.Kind == tree.KindWorkspace {
@@ -77,6 +78,7 @@ func announcePlacement(
 			return
 		}
 		chatSnapshots.ApplyPlacement(ctx, n.ID, n.ParentID, n.Order)
+		workspaces.RepublishOwnedBy(ctx, n.ID, tree.Placement{ParentID: n.ParentID, Order: n.Order})
 	}
 	if err := repotree.Announce(ax.tree, moved, nodeMoved, late.folder); err != nil {
 		return fmt.Errorf("app: placement: %w", err)
