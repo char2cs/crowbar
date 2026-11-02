@@ -18,7 +18,6 @@ import (
 
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	projecthandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
@@ -110,40 +109,6 @@ func (f *fakeDeleter) Delete(ctx context.Context, id string, _ domain.DeleteCons
 	return f.err
 }
 
-// recordingBroadcaster captures each broadcast ProjectDTO and signals a channel
-// so async completion can be awaited without a sleep.
-type recordingBroadcaster struct {
-	ch chan dto.ProjectDTO
-}
-
-func newRecordingBroadcaster() *recordingBroadcaster {
-	return &recordingBroadcaster{ch: make(chan dto.ProjectDTO, 4)}
-}
-
-func (b *recordingBroadcaster) push(d dto.ProjectDTO) {
-	b.ch <- d
-}
-
-// await blocks until the background op broadcasts. The frame's arrival IS the
-// signal, so a plain receive is the whole synchronisation; a broadcast that
-// never comes hangs until `go test -timeout` fires and names this test, instead
-// of a two-second guess that reddens under load.
-func (b *recordingBroadcaster) await(t *testing.T) dto.ProjectDTO {
-	t.Helper()
-	return <-b.ch
-}
-
-// assertNoBroadcast pins a NEGATIVE once the operation has settled: its work
-// has returned by then, so the broadcaster has no writer left.
-func assertNoBroadcast(t *testing.T, bc *recordingBroadcaster) {
-	t.Helper()
-	select {
-	case d := <-bc.ch:
-		t.Fatalf("unexpected broadcast: %+v", d)
-	default:
-	}
-}
-
 // recordedOps is the real operation service over an in-memory store, with
 // every saved row on frames.
 type recordedOps struct {
@@ -191,7 +156,7 @@ func statOK(_ string) (os.FileInfo, error) {
 }
 
 func newRouter(reader projecthandlers.ListGetter, importer projecthandlers.Importer) *gin.Engine {
-	return newRouterWithOps(reader, importer, &fakeDeleter{}, nil, newRecordingBroadcaster())
+	return newRouterWithOps(reader, importer, &fakeDeleter{}, nil)
 }
 
 func newRouterWithOps(
@@ -199,10 +164,9 @@ func newRouterWithOps(
 	importer projecthandlers.Importer,
 	deleter projecthandlers.Deleter,
 	ops projecthandlers.Operations,
-	bc *recordingBroadcaster,
 ) *gin.Engine {
 	r := gin.New()
-	h := projecthandlers.New(reader, importer, deleter, ops, bc.push, unusedHome).WithStat(statOK)
+	h := projecthandlers.New(reader, importer, deleter, ops, unusedHome).WithStat(statOK)
 	rg := r.Group("/v0")
 	rg.GET("/projects", h.List)
 	rg.POST("/projects", h.Import)
@@ -287,11 +251,11 @@ func TestDetailError(t *testing.T) {
 }
 
 // The create answers with its operation, naming the project under the id it
-// minted; the work creates it under that id and announces it.
+// minted; the work creates it under that id.
 func TestCreate_AnswersWithTheOperation(t *testing.T) {
 	importer := &fakeImporter{project: domain.Project{ID: "new-id", Name: "gamma", Path: "/g"}}
-	ops, bc := newRecordedOps(t), newRecordingBroadcaster()
-	rec := do(newRouterWithOps(&fakeReader{}, importer, &fakeDeleter{}, ops, bc), http.MethodPost, "/v0/projects", `{"name":"gamma","path":"/g"}`)
+	ops := newRecordedOps(t)
+	rec := do(newRouterWithOps(&fakeReader{}, importer, &fakeDeleter{}, ops), http.MethodPost, "/v0/projects", `{"name":"gamma","path":"/g"}`)
 
 	op := ops.settled(t, rec)
 	assert.Equal(t, domain.OpProjectCreate, op.Kind)
@@ -303,7 +267,6 @@ func TestCreate_AnswersWithTheOperation(t *testing.T) {
 	assert.Equal(t, importer.gotID, op.ProjectID)
 	assert.Equal(t, "gamma", importer.gotName)
 	assert.Equal(t, "/g", importer.gotPath)
-	assert.Equal(t, "new-id", bc.await(t).ID)
 }
 
 func TestImportBadJSON(t *testing.T) {
@@ -325,8 +288,7 @@ func TestImportMissingPath(t *testing.T) {
 // synchronously with a 4xx before any background work is scheduled.
 func TestImportProject_PathMissing_4xx(t *testing.T) {
 	r := gin.New()
-	bc := newRecordingBroadcaster()
-	h := projecthandlers.New(&fakeReader{}, &fakeImporter{}, &fakeDeleter{}, nil, bc.push, unusedHome).
+	h := projecthandlers.New(&fakeReader{}, &fakeImporter{}, &fakeDeleter{}, nil, unusedHome).
 		WithStat(func(string) (os.FileInfo, error) { return nil, os.ErrNotExist })
 	r.POST("/v0/projects", h.Import)
 
@@ -336,28 +298,25 @@ func TestImportProject_PathMissing_4xx(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// A create that fails says why on its operation, and announces nothing.
+// A create that fails says why on its operation.
 func TestCreate_AFailureIsTheOperations(t *testing.T) {
 	importer := &fakeImporter{err: errors.New("boom")}
-	ops, bc := newRecordedOps(t), newRecordingBroadcaster()
-	rec := do(newRouterWithOps(&fakeReader{}, importer, &fakeDeleter{}, ops, bc), http.MethodPost, "/v0/projects", `{"name":"gamma","path":"/g"}`)
+	ops := newRecordedOps(t)
+	rec := do(newRouterWithOps(&fakeReader{}, importer, &fakeDeleter{}, ops), http.MethodPost, "/v0/projects", `{"name":"gamma","path":"/g"}`)
 
 	op := ops.settled(t, rec)
 	assert.Equal(t, domain.OpFailed, op.State)
 	require.NotNil(t, op.Error)
 	assert.Contains(t, op.Error.Message, "boom")
 	assert.Equal(t, domain.OpFailed, op.Items[0].State)
-	assertNoBroadcast(t, bc)
 }
 
-// A delete announces its intent, answers with its operation, and tombstones
-// the project once it is gone.
 // A retry under the same key is the same request: it answers with the first
 // operation and imports nothing again (R3).
 func TestCreate_ARetryAnswersWithTheFirstOperation(t *testing.T) {
 	importer := &fakeImporter{project: domain.Project{ID: "new-id", Name: "gamma", Path: "/g"}}
 	ops := newRecordedOps(t)
-	r := newRouterWithOps(&fakeReader{}, importer, &fakeDeleter{}, ops, newRecordingBroadcaster())
+	r := newRouterWithOps(&fakeReader{}, importer, &fakeDeleter{}, ops)
 	key := uuid.NewString()
 
 	first := ops.settled(t, doKeyed(r, http.MethodPost, "/v0/projects", `{"name":"gamma","path":"/g"}`, key))
@@ -373,7 +332,7 @@ func TestCreate_ARetryAnswersWithTheFirstOperation(t *testing.T) {
 // the 404 a fresh lookup of the gone project would give.
 func TestDelete_ARetryAfterItFinishedAnswersWithTheOperation(t *testing.T) {
 	ops := newRecordedOps(t)
-	r := newRouterWithOps(&fakeReader{}, &fakeImporter{}, &fakeDeleter{}, ops, newRecordingBroadcaster())
+	r := newRouterWithOps(&fakeReader{}, &fakeImporter{}, &fakeDeleter{}, ops)
 	key := uuid.NewString()
 
 	first := ops.settled(t, doKeyed(r, http.MethodDelete, "/v0/projects/p1", "", key))
@@ -387,7 +346,7 @@ func TestDelete_ARetryAfterItFinishedAnswersWithTheOperation(t *testing.T) {
 // conflict, not an answer with the first project's operation (R3).
 func TestDelete_AKeyReusedForAnotherProjectIsAConflict(t *testing.T) {
 	ops := newRecordedOps(t)
-	r := newRouterWithOps(&fakeReader{}, &fakeImporter{}, &fakeDeleter{}, ops, newRecordingBroadcaster())
+	r := newRouterWithOps(&fakeReader{}, &fakeImporter{}, &fakeDeleter{}, ops)
 	key := uuid.NewString()
 	ops.settled(t, doKeyed(r, http.MethodDelete, "/v0/projects/p1", "", key))
 
@@ -402,7 +361,7 @@ func TestDelete_AKeyReusedForAnotherProjectIsAConflict(t *testing.T) {
 func TestDelete_ASecondDeleteWhileOneRunsIsRefused(t *testing.T) {
 	deleter := &fakeDeleter{hold: make(chan struct{})}
 	ops := newRecordedOps(t)
-	r := newRouterWithOps(&fakeReader{}, &fakeImporter{}, deleter, ops, newRecordingBroadcaster())
+	r := newRouterWithOps(&fakeReader{}, &fakeImporter{}, deleter, ops)
 
 	first := doKeyed(r, http.MethodDelete, "/v0/projects/p1", "", uuid.NewString())
 	second := doKeyed(r, http.MethodDelete, "/v0/projects/p1", "", uuid.NewString())
@@ -415,8 +374,8 @@ func TestDelete_ASecondDeleteWhileOneRunsIsRefused(t *testing.T) {
 
 func TestDelete_AnswersWithTheOperation(t *testing.T) {
 	deleter := &fakeDeleter{}
-	ops, bc := newRecordedOps(t), newRecordingBroadcaster()
-	rec := do(newRouterWithOps(&fakeReader{}, &fakeImporter{}, deleter, ops, bc), http.MethodDelete, "/v0/projects/p1", "")
+	ops := newRecordedOps(t)
+	rec := do(newRouterWithOps(&fakeReader{}, &fakeImporter{}, deleter, ops), http.MethodDelete, "/v0/projects/p1", "")
 
 	op := ops.settled(t, rec)
 	assert.Equal(t, domain.OpProjectDelete, op.Kind)
@@ -425,56 +384,38 @@ func TestDelete_AnswersWithTheOperation(t *testing.T) {
 	assert.Equal(t, []domain.OperationItem{{
 		Ref: domain.EntityRef{Kind: domain.EntityProject, ID: "p1"}, Label: "demo", State: domain.OpSucceeded,
 	}}, op.Items)
-	assert.Equal(t, "p1", bc.await(t).ID, "the intent is announced first")
-	assert.Equal(t, "deleted", bc.await(t).Status)
 	assert.Equal(t, "p1", deleter.gotID)
 }
 
 func TestDeleteNotFound(t *testing.T) {
 	deleter := &fakeDeleter{beginErr: problem.ErrNotFound}
-	r := newRouterWithOps(&fakeReader{}, &fakeImporter{}, deleter, newRecordedOps(t), newRecordingBroadcaster())
+	r := newRouterWithOps(&fakeReader{}, &fakeImporter{}, deleter, newRecordedOps(t))
 	rec := do(r, http.MethodDelete, "/v0/projects/nope", "")
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Contains(t, rec.Body.String(), `"success":false`)
 }
 
-// A delete that stops fails its operation with the reason; no tombstone.
+// A delete that stops fails its operation with the reason.
 func TestDelete_AFailureIsTheOperations(t *testing.T) {
-	ops, bc := newRecordedOps(t), newRecordingBroadcaster()
-	r := newRouterWithOps(&fakeReader{}, &fakeImporter{}, &fakeDeleter{err: errors.New("boom")}, ops, bc)
+	ops := newRecordedOps(t)
+	r := newRouterWithOps(&fakeReader{}, &fakeImporter{}, &fakeDeleter{err: errors.New("boom")}, ops)
 
 	op := ops.settled(t, do(r, http.MethodDelete, "/v0/projects/p1", ""))
 	assert.Equal(t, domain.OpFailed, op.State)
 	require.NotNil(t, op.Items[0].Error)
 	assert.Contains(t, op.Items[0].Error.Message, "boom")
-	bc.await(t) // the recorded intent
-	assertNoBroadcast(t, bc)
 }
 
-// The reorder densifies the whole list, so every project has to reach the
-// client: told only about the row that was dragged, a client holds stale orders
-// for the rest until the next reconnect.
-func TestPatch_ReordersAndBroadcastsTheWholeList(t *testing.T) {
-	reader := &fakeReader{
-		reordered: domain.Project{ID: "p2", Order: 0},
-		list: []domain.Project{
-			{ID: "p2", Order: 0},
-			{ID: "p1", Order: 1},
-		},
-	}
-	bc := newRecordingBroadcaster()
-	r := newRouterWithOps(reader, &fakeImporter{}, &fakeDeleter{}, nil, bc)
+// The reorder passes the body's index to the store and answers 204.
+func TestPatch_ReordersTheProject(t *testing.T) {
+	reader := &fakeReader{reordered: domain.Project{ID: "p2", Order: 1}}
+	r := newRouter(reader, &fakeImporter{})
 
-	rec := do(r, http.MethodPatch, "/v0/projects/p2", `{"order":0}`)
+	rec := do(r, http.MethodPatch, "/v0/projects/p2", `{"order":1}`)
 
 	require.Equal(t, http.StatusNoContent, rec.Code)
-	assert.Equal(t, 0, reader.reorderTo)
-	first := <-bc.ch
-	second := <-bc.ch
-	assert.Equal(t, "p2", first.ID)
-	assert.Equal(t, "p1", second.ID)
-	assert.Equal(t, 1, second.Order, "the shifted row's new order reaches the client")
+	assert.Equal(t, 1, reader.reorderTo)
 }
 
 func TestPatch_MissingOrderIs400(t *testing.T) {
@@ -496,29 +437,11 @@ func TestPatch_MalformedBodyIs400(t *testing.T) {
 
 func TestPatch_UnknownProjectIs404(t *testing.T) {
 	reader := &fakeReader{reorderErr: problem.ErrNotFound}
-	bc := newRecordingBroadcaster()
-	r := newRouterWithOps(reader, &fakeImporter{}, &fakeDeleter{}, nil, bc)
+	r := newRouterWithOps(reader, &fakeImporter{}, &fakeDeleter{}, nil)
 
 	rec := do(r, http.MethodPatch, "/v0/projects/missing", `{"order":0}`)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
-	assert.Empty(t, bc.ch, "a refused reorder broadcasts nothing")
-}
-
-// The reorder already committed; a list that then fails must not turn a
-// successful write into an error response. The client re-reads on reconnect.
-func TestPatch_ListFailureAfterTheWriteStillAnswers204(t *testing.T) {
-	reader := &fakeReader{
-		reordered: domain.Project{ID: "p1"},
-		listErr:   errors.New("read model down"),
-	}
-	bc := newRecordingBroadcaster()
-	r := newRouterWithOps(reader, &fakeImporter{}, &fakeDeleter{}, nil, bc)
-
-	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{"order":0}`)
-
-	assert.Equal(t, http.StatusNoContent, rec.Code)
-	assert.Empty(t, bc.ch)
 }
 
 // The sidebar's inline rename, which PATCH grew alongside the reorder it used to
@@ -526,8 +449,7 @@ func TestPatch_ListFailureAfterTheWriteStillAnswers204(t *testing.T) {
 // deliver the change on the WS stream rather than in the response body.
 func TestPatchRenamesAProject(t *testing.T) {
 	reader := &fakeReader{updated: domain.Project{ID: "p1", Name: "harbour"}}
-	bc := newRecordingBroadcaster()
-	r := newRouterWithOps(reader, &fakeImporter{}, &fakeDeleter{}, nil, bc)
+	r := newRouterWithOps(reader, &fakeImporter{}, &fakeDeleter{}, nil)
 
 	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{"name":"  harbour  "}`)
 
@@ -541,16 +463,6 @@ func TestPatchRenamesAProject(t *testing.T) {
 	// an inline editor makes it far too easy to leave behind.
 	if *reader.updatedWith.Name != "harbour" {
 		t.Errorf("name = %q, want %q", *reader.updatedWith.Name, "harbour")
-	}
-	// A rename shifts nobody, so it delivers the one row it changed — not the
-	// whole list a reorder's densify has to re-broadcast.
-	if got := bc.await(t).ID; got != "p1" {
-		t.Errorf("broadcast project = %q, want p1", got)
-	}
-	select {
-	case extra := <-bc.ch:
-		t.Errorf("a rename broadcast a second frame: %+v", extra)
-	default:
 	}
 }
 
@@ -579,32 +491,23 @@ func TestPatchSurfacesAFailedRename(t *testing.T) {
 	// The store refused. Without propagating, the caller gets a 204 and the
 	// sidebar shows the new name until the next WS frame puts the old one back.
 	reader := &fakeReader{updateErr: problem.ErrNotFound}
-	bc := newRecordingBroadcaster()
-	r := newRouterWithOps(reader, &fakeImporter{}, &fakeDeleter{}, nil, bc)
+	r := newRouterWithOps(reader, &fakeImporter{}, &fakeDeleter{}, nil)
 
 	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{"name":"harbour"}`)
 
 	if rec.Code < 400 {
 		t.Fatalf("PATCH = %d, want a 4xx/5xx", rec.Code)
 	}
-	select {
-	case frame := <-bc.ch:
-		t.Errorf("a refused rename broadcast anyway: %+v", frame)
-	default:
-	}
 }
 
 func TestPatchRenamesAndReordersInOneRequest(t *testing.T) {
-	// A drag can rename nothing and reorder, or (from the inline editor) rename
-	// only — but the endpoint accepts both at once, and the reorder's densify is
-	// what re-delivers every row. The rename must NOT also broadcast on its own
-	// or clients apply the same frame either side of a list that moved.
+	// A drag reorders and the inline editor renames, but the endpoint accepts
+	// both at once and applies each.
 	reader := &fakeReader{
 		updated: domain.Project{ID: "p1", Name: "harbour"},
 		list:    []domain.Project{{ID: "p1", Name: "harbour"}},
 	}
-	bc := newRecordingBroadcaster()
-	r := newRouterWithOps(reader, &fakeImporter{}, &fakeDeleter{}, nil, bc)
+	r := newRouterWithOps(reader, &fakeImporter{}, &fakeDeleter{}, nil)
 
 	rec := do(r, http.MethodPatch, "/v0/projects/p1", `{"name":"harbour","order":0}`)
 
@@ -616,12 +519,5 @@ func TestPatchRenamesAndReordersInOneRequest(t *testing.T) {
 	}
 	if reader.reorderTo != 0 {
 		t.Errorf("reorder index = %d, want 0", reader.reorderTo)
-	}
-	// Exactly one frame: the densify's, not the rename's as well.
-	bc.await(t)
-	select {
-	case extra := <-bc.ch:
-		t.Errorf("a paired rename+reorder broadcast twice: %+v", extra)
-	default:
 	}
 }

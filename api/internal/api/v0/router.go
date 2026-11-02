@@ -112,7 +112,6 @@ func (c *Container) Register(
 		c.app.Usecases.ProjectImport,
 		c.app.Usecases.ProjectDelete,
 		c.app.Operations,
-		c.app.PublishProject,
 		c.crowbarHome,
 	)
 	reposPkg.Register(
@@ -126,7 +125,6 @@ func (c *Container) Register(
 		c.eng.Git,
 		c.app.Usecases.ProjectDelete,
 		c.app.Operations,
-		c.app.PublishRepo,
 		c.crowbarHome,
 	)
 	homePkg.Register(

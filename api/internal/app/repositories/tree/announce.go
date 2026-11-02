@@ -13,8 +13,8 @@ import (
 // ChatMoved hears a chat's new placement.
 type ChatMoved func(ctx context.Context, chatID string, p tree.Placement)
 
-// NodeMoved hears a chat or workspace row whose position Node a Tree write
-// changed or minted. A chat with a Node is drawn where its Node is, so its
+// NodeMoved hears a chat, workspace or repo row whose position Node a Tree
+// write changed or minted. A chat with a Node is drawn where its Node is, so its
 // own record's moves are not heard.
 type NodeMoved func(ctx context.Context, n tree.Node)
 
@@ -24,8 +24,8 @@ type FolderChanged func(ctx context.Context, projectID string, f tree.Folder, at
 
 // Announce tells live clients what each Tree write moved, as the chat
 // aggregate's own events did before placement left it: chatMoved hears every
-// chat whose placement changed, nodeMoved every chat or workspace row whose
-// position Node moved, folderChanged every folder that changed.
+// chat whose placement changed, nodeMoved every chat, workspace or repo row
+// whose position Node moved, folderChanged every folder that changed.
 func Announce(
 	ax asynx.Asynx[tree.Tree],
 	chatMoved ChatMoved,
@@ -60,7 +60,7 @@ func announce(
 
 func announceNodes(ctx context.Context, before, after tree.Tree, moved NodeMoved) {
 	for id, n := range after.Nodes {
-		if n.Kind != tree.KindChat && n.Kind != tree.KindWorkspace {
+		if n.Kind != tree.KindChat && n.Kind != tree.KindWorkspace && n.Kind != tree.KindRepo {
 			continue
 		}
 		if before.Nodes[id] == n {

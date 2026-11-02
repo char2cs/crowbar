@@ -18,7 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	repohandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
@@ -26,41 +25,6 @@ import (
 )
 
 var errStore = errors.New("store failure")
-
-// recordingRepoBroadcaster captures each broadcast RepoDTO.
-type recordingRepoBroadcaster struct {
-	ch chan dto.RepoDTO
-}
-
-func newRecordingRepoBroadcaster() *recordingRepoBroadcaster {
-	return &recordingRepoBroadcaster{ch: make(chan dto.RepoDTO, 4)}
-}
-
-func (b *recordingRepoBroadcaster) push(d dto.RepoDTO) { b.ch <- d }
-
-// next is the next frame already broadcast; read once the operation has
-// settled, when its work has returned.
-func (b *recordingRepoBroadcaster) next(t *testing.T) dto.RepoDTO {
-	t.Helper()
-	select {
-	case d := <-b.ch:
-		return d
-	default:
-		t.Fatal("no broadcast")
-		return dto.RepoDTO{}
-	}
-}
-
-// assertNoBroadcast is exact once nothing can still write: the request was
-// refused, or its operation has settled.
-func assertNoBroadcast(t *testing.T, bc *recordingRepoBroadcaster) {
-	t.Helper()
-	select {
-	case d := <-bc.ch:
-		t.Fatalf("unexpected broadcast: %+v", d)
-	default:
-	}
-}
 
 // recordedOps is the real operation service over an in-memory store, with
 // every saved row on frames.
@@ -151,10 +115,9 @@ func (f *fakeRepoImporter) calls() []project.RepoImport {
 func newCreateRouter(
 	imp *fakeRepoImporter,
 	ops repohandlers.Operations,
-	bc *recordingRepoBroadcaster,
 ) *gin.Engine {
 	r := gin.New()
-	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, ops, bc.push, unusedHome, nil).
+	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, ops, unusedHome, nil).
 		WithStat(statRepoOK).
 		WithImporter(imp)
 	r.Group("/v0/projects/:projectId").POST("/repos", h.Create)
@@ -174,11 +137,11 @@ func doPost(r *gin.Engine, target string, body any) *httptest.ResponseRecorder {
 }
 
 // The add answers with its operation: the repo under the id minted here, then
-// one item per protected branch. The repo is announced once it exists.
+// one item per protected branch.
 func TestCreate_AnswersWithTheOperation(t *testing.T) {
 	imp := &fakeRepoImporter{branches: []branchOutcome{{id: "w-main", branch: "main"}}}
-	ops, bc := newRecordedOps(t), newRecordingRepoBroadcaster()
-	rec := doPost(newCreateRouter(imp, ops, bc), "/v0/projects/p1/repos", map[string]any{"name": "alpha", "path": "/tmp/repo"})
+	ops := newRecordedOps(t)
+	rec := doPost(newCreateRouter(imp, ops), "/v0/projects/p1/repos", map[string]any{"name": "alpha", "path": "/tmp/repo"})
 	var accepted struct {
 		Data struct {
 			Operation domain.Operation `json:"operation"`
@@ -198,9 +161,6 @@ func TestCreate_AnswersWithTheOperation(t *testing.T) {
 		{Ref: domain.EntityRef{Kind: domain.EntityWorkspace, ID: "w-main"}, Label: "main", State: domain.OpSucceeded},
 	}, op.Items)
 	assert.Equal(t, []project.RepoImport{{ID: repoID, ProjectID: "p1", Name: "alpha", Path: "/tmp/repo"}}, imp.calls())
-	got := bc.next(t)
-	assert.Equal(t, repoID, got.ID)
-	assert.Empty(t, got.Status)
 }
 
 // A protected branch that could not be set up fails its item with the reason,
@@ -210,9 +170,9 @@ func TestCreate_AFailedProtectedBranchIsAPartialFailure(t *testing.T) {
 		{id: "w-main", branch: "main", err: errors.New("mkdir: not a directory")},
 		{id: "w-dev", branch: "dev"},
 	}}
-	ops, bc := newRecordedOps(t), newRecordingRepoBroadcaster()
+	ops := newRecordedOps(t)
 
-	op := ops.settled(t, doPost(newCreateRouter(imp, ops, bc), "/v0/projects/p1/repos", map[string]any{"name": "alpha", "path": "/tmp/repo"}))
+	op := ops.settled(t, doPost(newCreateRouter(imp, ops), "/v0/projects/p1/repos", map[string]any{"name": "alpha", "path": "/tmp/repo"}))
 	assert.Equal(t, domain.OpFailed, op.State)
 	require.NotNil(t, op.Error)
 	assert.Equal(t, "partial", string(op.Error.Code))
@@ -222,51 +182,46 @@ func TestCreate_AFailedProtectedBranchIsAPartialFailure(t *testing.T) {
 	require.NotNil(t, op.Items[1].Error)
 	assert.Contains(t, op.Items[1].Error.Message, "not a directory")
 	assert.Equal(t, domain.OpSucceeded, op.Items[2].State)
-	bc.next(t)
 }
 
-// A failed import fails the repo item with its reason and announces nothing.
+// A failed import fails the repo item with its reason.
 func TestCreate_AFailedImportFailsTheRepoItem(t *testing.T) {
 	imp := &fakeRepoImporter{err: errStore}
-	ops, bc := newRecordedOps(t), newRecordingRepoBroadcaster()
+	ops := newRecordedOps(t)
 
-	op := ops.settled(t, doPost(newCreateRouter(imp, ops, bc), "/v0/projects/p1/repos", map[string]any{"name": "alpha", "path": "/tmp/repo"}))
+	op := ops.settled(t, doPost(newCreateRouter(imp, ops), "/v0/projects/p1/repos", map[string]any{"name": "alpha", "path": "/tmp/repo"}))
 	assert.Equal(t, domain.OpFailed, op.State)
 	require.NotNil(t, op.Error)
 	assert.Contains(t, op.Error.Message, errStore.Error())
 	require.Len(t, op.Items, 1)
 	assert.Equal(t, domain.OpFailed, op.Items[0].State)
-	assertNoBroadcast(t, bc)
 }
 
 // Re-adding a folder the project has returns the existing repo, and the
 // item names it rather than the id minted for the request.
 func TestCreate_ReAddingAFolderNamesTheExistingRepo(t *testing.T) {
 	imp := &fakeRepoImporter{repo: domain.Repository{ID: "r-old", ProjectID: "p1"}}
-	ops, bc := newRecordedOps(t), newRecordingRepoBroadcaster()
+	ops := newRecordedOps(t)
 
-	op := ops.settled(t, doPost(newCreateRouter(imp, ops, bc), "/v0/projects/p1/repos", map[string]any{"name": "alpha", "path": "/tmp/repo"}))
+	op := ops.settled(t, doPost(newCreateRouter(imp, ops), "/v0/projects/p1/repos", map[string]any{"name": "alpha", "path": "/tmp/repo"}))
 	assert.Equal(t, domain.EntityRef{Kind: domain.EntityRepo, ID: "r-old"}, op.Items[0].Ref)
-	assert.Equal(t, "r-old", bc.next(t).ID)
 }
 
 // A folder another project owns is refused with the usecase's message, and
 // nothing is imported.
 func TestCreate_AlreadyImported_409(t *testing.T) {
 	imp := &fakeRepoImporter{importable: fmt.Errorf("%w in the project %q", project.ErrRepoAlreadyImported, "Cloned")}
-	bc := newRecordingRepoBroadcaster()
 
-	rec := doPost(newCreateRouter(imp, newRecordedOps(t), bc), "/v0/projects/p2/repos", map[string]any{"name": "alpha", "path": "/tmp/repo"})
+	rec := doPost(newCreateRouter(imp, newRecordedOps(t)), "/v0/projects/p2/repos", map[string]any{"name": "alpha", "path": "/tmp/repo"})
 	assert.Equal(t, http.StatusConflict, rec.Code)
 	assert.Contains(t, rec.Body.String(), "Cloned", "the refusal names the project that has the folder")
 	assert.Empty(t, imp.calls())
-	assertNoBroadcast(t, bc)
 }
 
 func TestCreate_PathMissing_4xx(t *testing.T) {
 	imp := &fakeRepoImporter{}
 	r := gin.New()
-	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, newRecordedOps(t), nil, unusedHome, nil).
+	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, newRecordedOps(t), unusedHome, nil).
 		WithStat(func(string) (os.FileInfo, error) { return nil, os.ErrNotExist }).
 		WithImporter(imp)
 	r.Group("/v0/projects/:projectId").POST("/repos", h.Create)
@@ -277,13 +232,13 @@ func TestCreate_PathMissing_4xx(t *testing.T) {
 }
 
 func TestCreate_MissingName_4xx(t *testing.T) {
-	rec := doPost(newCreateRouter(&fakeRepoImporter{}, newRecordedOps(t), newRecordingRepoBroadcaster()),
+	rec := doPost(newCreateRouter(&fakeRepoImporter{}, newRecordedOps(t)),
 		"/v0/projects/p1/repos", map[string]any{"path": "/tmp/repo"})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestCreate_BadJSON_4xx(t *testing.T) {
-	r := newCreateRouter(&fakeRepoImporter{}, newRecordedOps(t), newRecordingRepoBroadcaster())
+	r := newCreateRouter(&fakeRepoImporter{}, newRecordedOps(t))
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v0/projects/p1/repos", bytes.NewReader([]byte("{not-json")))
 	req.Header.Set("Content-Type", "application/json")
@@ -307,13 +262,12 @@ var traversalNames = []struct{ name, value string }{
 func TestCreate_RejectsNamesThatEscapeTheCrowbarHome(t *testing.T) {
 	for _, c := range traversalNames {
 		t.Run(c.name, func(t *testing.T) {
-			imp, bc := &fakeRepoImporter{}, newRecordingRepoBroadcaster()
-			rec := doPost(newCreateRouter(imp, newRecordedOps(t), bc), "/v0/projects/p1/repos",
+			imp := &fakeRepoImporter{}
+			rec := doPost(newCreateRouter(imp, newRecordedOps(t)), "/v0/projects/p1/repos",
 				map[string]any{"name": c.value, "path": "/tmp/repo"})
 
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 			assert.Empty(t, imp.calls())
-			assertNoBroadcast(t, bc)
 		})
 	}
 }

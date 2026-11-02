@@ -187,39 +187,3 @@ func TestRegression_MoveRepoFolder_NeverRenumbersHomeRows(t *testing.T) {
 		assert.False(t, writesTo(nodes, id), "%s is not a sibling inside repo-A", id)
 	}
 }
-
-// A home chat dragged past a repo header renumbers that repo's Node row, but
-// the chat placement path announced folders and the chat only — the repo's
-// Node write has no hub projection of its own, so the sidebar kept the stale
-// repo order (tied against the chat's new one) until a reload.
-func TestRegression_PlaceChat_AnnouncesEveryRepoItShifted(t *testing.T) {
-	chats := mocks.NewAgentChatPlacements()
-	folders := mocks.NewFolderStore()
-	nodes := mocks.NewNodePlacements()
-	chats.Nodes = nodes
-	gitStatus := mocks.NewAgentWorkspaceGitStatus()
-	gitStatus.SetHomeRepoMembers(homeWorkspaceID, "repo-A", "repo-B")
-	type announced struct {
-		id, parent string
-		order      int
-	}
-	var frames []announced
-	uc := tree.New(chats, chats, newBusyChats(), gitStatus,
-		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats), folders, nodes,
-		tree.WithRepoAnnouncer(func(_ context.Context, id, parent string, order int) {
-			frames = append(frames, announced{id, parent, order})
-		}))
-	chats.Rows = append(chats.Rows,
-		domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID, CreatedAt: time.Unix(1, 0)},
-	)
-	nodes.Rows = []dtree.Node{
-		{ID: "repo-A", Kind: dtree.KindRepo, Order: 0},
-		{ID: "repo-B", Kind: dtree.KindRepo, Order: 1},
-		{ID: "c1", Kind: dtree.KindChat, Order: 2},
-	}
-
-	_, _, err := uc.PlaceChat(context.Background(), homeWorkspaceID, "c1", tree.PlaceInput{ParentID: name(""), Order: index(0)})
-	require.NoError(t, err)
-
-	assert.Equal(t, []announced{{"repo-A", "", 1}, {"repo-B", "", 2}}, frames)
-}

@@ -39,7 +39,7 @@ func holdProjects(t *testing.T) (*lateStream, chan domainstream.Frame) {
 	late := &lateStream{}
 	late.hub = stream.New("e1", map[domainstream.ScopeKind]stream.Source{domainstream.KindProjects: stream.Quiet{}}, nil, encode)
 	conn := pipeConn{in: make(chan domainstream.Request), out: make(chan domainstream.Frame, 8)}
-	go func() { _ = late.hub.Serve(context.Background(), conn) }()
+	go func() { _ = late.hub.Serve(t.Context(), conn) }()
 	t.Cleanup(func() { close(conn.in) })
 	conn.in <- domainstream.Request{Op: domainstream.OpSub, Scope: "projects"}
 	for f := range conn.out {
@@ -108,7 +108,7 @@ func TestSidebarPublish_ADeletedRowIsGone(t *testing.T) {
 
 	late.chatPublisher(context.Background(), fakeWorkspaces{}, fakeWalk{})(deleted)
 	late.workspace(dto.WorkspaceDTO{ID: "w1", Status: domain.WorkspaceStatusDeleted}, 4)
-	publishRepo(late.hub, dto.RepoDTO{ID: "r1", Status: statusDeleted})
+	(&repoEntities{late: late}).gone("r1")
 
 	for _, want := range []struct{ kind, id string }{
 		{string(domainstream.KindChatEntity), "c1"},

@@ -9,7 +9,7 @@ import (
 )
 
 // Register mounts the repo list and detail routes on the supplied router group,
-// backed by the repository GORM store. broadcast publishes each repo a route changed.
+// backed by the repository GORM store, which publishes every row it writes.
 func Register(
 	rg *gin.RouterGroup,
 	store repohandlers.Store,
@@ -21,10 +21,9 @@ func Register(
 	remote repohandlers.RemoteRefresher,
 	deleter repohandlers.RepoDeleter,
 	ops repohandlers.Operations,
-	broadcast func(dto.RepoDTO),
 	crowbarHome func() (string, error),
 ) {
-	h := repohandlers.NewWithDeps(store, prov, wsReader, ops, broadcast, crowbarHome, placements).
+	h := repohandlers.NewWithDeps(store, prov, wsReader, ops, crowbarHome, placements).
 		WithImporter(importer).
 		WithUpdater(updater).
 		WithRemoteRefresher(remote).

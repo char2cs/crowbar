@@ -151,7 +151,6 @@ func New(
 	crowbarHome func() (string, error),
 	threadBroadcast agentusecase.ToolThreadBroadcast,
 	announceHomeRow project.HomeRowAnnouncer,
-	announceRepo agentusecase.TreeRepoAnnouncer,
 	opts ...Option,
 ) (*Container, error) {
 	var o options
@@ -213,7 +212,7 @@ func New(
 		engines.Git,
 		nowFunc,
 	)
-	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast, workspaceUsecase, announceRepo, o.chatSnapshots)
+	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast, workspaceUsecase, o.chatSnapshots)
 	if err != nil {
 		return nil, err
 	}
@@ -336,7 +335,6 @@ func newAgentWiring(
 	review agentusecase.ToolReviewReader,
 	threadBroadcast agentusecase.ToolThreadBroadcast,
 	workspaceUsecase workspace.Usecase,
-	announceRepo agentusecase.TreeRepoAnnouncer,
 	chatSnapshots *agentusecase.ChatSnapshots,
 ) (agentWiring, error) {
 	wsReader := &agentWorkspaceReader{
@@ -422,7 +420,6 @@ func newAgentWiring(
 		// Home-scoped folders and chat placement go through Folder/Node.
 		repos.Placement,
 		repos.Placement,
-		agentusecase.WithTreeRepoAnnouncer(announceRepo),
 	)
 	return agentWiring{
 		chat:     chat,

@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -69,7 +68,7 @@ func TestRegisterMountsRoutes(
 	// repos.Register mounts on the project-scoped group, so build the
 	// hierarchical prefix to mirror the production router chain.
 	projectScoped := r.Group("/v0/projects/:projectId")
-	repos.Register(projectScoped, stubStore{}, nil, nil, nil, nil, nil, nil, nil, stubOps{}, func(dto.RepoDTO) {},
+	repos.Register(projectScoped, stubStore{}, nil, nil, nil, nil, nil, nil, nil, stubOps{},
 		func() (string, error) { return t.TempDir(), nil })
 
 	cases := []struct {

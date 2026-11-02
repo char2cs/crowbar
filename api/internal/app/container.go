@@ -12,7 +12,6 @@ import (
 	"github.com/char2cs/asynx"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
-	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	repotree "github.com/char2cs/crowbar/api/internal/app/repositories/tree"
@@ -95,14 +94,15 @@ func New(
 	if err != nil {
 		return nil, err
 	}
-	if err := announcePlacement(ax, chatSnapshots, late, repos); err != nil {
-		return nil, err
-	}
 	repoPlacements := dto.NewPlacements(repos.Placement.GetNode, func(ctx context.Context, projectID string, err error) {
 		slog.ErrorContext(ctx, "repos: tree unreadable, its repos listed at the root", "project", projectID, "err", err)
 	})
-	gormStores.Projects = publishingProjects{Store: gormStores.Projects, late: late}
-	gormStores.Repositories = publishingRepos{ScopedStore: gormStores.Repositories, late: late, placements: repoPlacements}
+	repoRows := &repoEntities{late: late, rows: gormStores.Repositories, placements: repoPlacements}
+	gormStores.Projects = &publishingProjects{Store: gormStores.Projects, late: late}
+	gormStores.Repositories = publishingRepos{ScopedStore: gormStores.Repositories, entities: repoRows}
+	if err := announcePlacement(ax, chatSnapshots, late, repos, repoRows.publish); err != nil {
+		return nil, err
+	}
 
 	// Path-deriving usecases must share the adapter's resolved home so git
 	// worktrees and per-entity storages land under the same root.
@@ -111,7 +111,6 @@ func New(
 	ucs, err := usecases.New(
 		repos, toUsecaseStores(gormStores), engines, homeFunc, late.reviewThread(),
 		announceHomeRow(chatSnapshots),
-		announceRepoPlacement(late, gormStores.Repositories),
 		usecases.WithChatSnapshots(chatSnapshots),
 	)
 	if err != nil {
@@ -375,21 +374,5 @@ func announceHomeRow(
 		if kind == tree.KindChat {
 			chatSnapshots.Touch(ctx, id)
 		}
-	}
-}
-
-// announceRepoPlacement fans a repo header row's DECIDED placement out as a
-// RepoDTO — for a repo the chat tree renumbered as collateral of a chat or
-// folder drag, whose Node write no projection announces.
-func announceRepoPlacement(
-	late *lateStream,
-	repos store.ScopedStore[domain.Repository, string],
-) func(ctx context.Context, repoID, parentID string, order int) {
-	return func(ctx context.Context, repoID, parentID string, order int) {
-		repo, err := repos.FindByKey(ctx, repoID)
-		if err != nil || repo == nil {
-			return
-		}
-		publishRepo(late.hub, dto.RepoDTOFrom(*repo, dto.RepoPlacement{FolderID: parentID, Order: order}))
 	}
 }

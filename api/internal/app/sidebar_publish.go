@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/stream"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	domainstream "github.com/char2cs/crowbar/api/internal/domain/stream"
@@ -13,28 +12,6 @@ import (
 
 // The sidebar rows a write changed reach the projects scope as the entities
 // its snapshot holds.
-
-const statusDeleted = "deleted"
-
-// PublishProject sends a project a route changed; a deleted one is gone.
-func (c *Container) PublishProject(p dto.ProjectDTO) {
-	if p.Status == statusDeleted {
-		c.Stream.Gone(domainstream.Projects, domainstream.KindProject, p.ID, 0)
-		return
-	}
-	c.Stream.Entity(domainstream.Projects, domainstream.KindProject, p.ID, p, 0)
-}
-
-// PublishRepo sends a repo a route changed; a deleted one is gone.
-func (c *Container) PublishRepo(r dto.RepoDTO) { publishRepo(c.Stream, r) }
-
-func publishRepo(h *stream.Hub, r dto.RepoDTO) {
-	if r.Status == statusDeleted {
-		h.Gone(domainstream.Projects, domainstream.KindRepo, r.ID, 0)
-		return
-	}
-	h.Entity(domainstream.Projects, domainstream.KindRepo, r.ID, r, 0)
-}
 
 // workspace sends a tombstoned workspace as gone: no sidebar reader draws one.
 func (l *lateStream) workspace(w dto.WorkspaceDTO, rev int64) {

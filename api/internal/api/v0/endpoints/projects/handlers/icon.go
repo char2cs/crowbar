@@ -8,7 +8,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/icons"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 )
@@ -147,12 +146,10 @@ func (h *Handlers) saveIcon(
 	projectID string,
 	in project.Update,
 ) {
-	updated, err := h.reader.Update(c.Request.Context(), projectID, in)
-	if err != nil {
+	if _, err := h.reader.Update(c.Request.Context(), projectID, in); err != nil {
 		libs.Fail(c, err)
 		return
 	}
-	h.broadcast(dto.ProjectDTOFrom(updated))
 	c.Status(http.StatusNoContent)
 }
 

@@ -20,18 +20,6 @@ func (u *chatFolderUsecase) writeHomeNode(
 	snapshot *treeSnapshot,
 	row *domain.Chat,
 ) (*domain.Chat, error) {
-	written, err := u.writeHomeNodeRow(ctx, snapshot, row)
-	if err == nil && row.Type == nodePhantomType && u.announceRepo != nil {
-		u.announceRepo(ctx, row.ID, row.ParentID, row.Order)
-	}
-	return written, err
-}
-
-func (u *chatFolderUsecase) writeHomeNodeRow(
-	ctx context.Context,
-	snapshot *treeSnapshot,
-	row *domain.Chat,
-) (*domain.Chat, error) {
 	kind := dtree.KindChat
 	switch row.Type {
 	case domain.ChatTypeFolder:

@@ -84,9 +84,6 @@ func (h *Handlers) PutIconEmoji(c *gin.Context) {
 		libs.Fail(c, err)
 		return
 	}
-	// Deliver the updated avatar to every client on the repos WS stream — the
-	// store Save alone does not fan out.
-	h.broadcastRepo(c.Request.Context(), *repo)
 	c.Status(http.StatusNoContent)
 }
 
@@ -108,9 +105,6 @@ func (h *Handlers) DeleteIcon(c *gin.Context) {
 		libs.Fail(c, err)
 		return
 	}
-	// Deliver the updated avatar to every client on the repos WS stream — the
-	// store Save alone does not fan out.
-	h.broadcastRepo(c.Request.Context(), *repo)
 	c.Status(http.StatusNoContent)
 }
 
@@ -149,9 +143,7 @@ func (h *Handlers) PutIcon(c *gin.Context) {
 		return
 	}
 	// 204, consistent with the other icon mutations: the FE apiFetch throws on
-	// any non-enveloped 200 body, and the updated avatar is delivered on the
-	// repos WS stream by the broadcast below, not in this response.
-	h.broadcastRepo(c.Request.Context(), *repo)
+	// any non-enveloped 200 body, and the store's save publishes the avatar.
 	c.Status(http.StatusNoContent)
 }
 
@@ -198,8 +190,5 @@ func (h *Handlers) PutIconGithub(c *gin.Context) {
 		libs.Fail(c, err)
 		return
 	}
-	// Deliver the updated avatar to every client on the repos WS stream — the
-	// store Save alone does not fan out.
-	h.broadcastRepo(c.Request.Context(), *repo)
 	c.Status(http.StatusNoContent)
 }

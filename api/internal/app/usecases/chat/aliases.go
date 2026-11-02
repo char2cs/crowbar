@@ -153,20 +153,8 @@ func NewTree(
 	holders TreeWorkspaceHolders,
 	folders TreeFolders,
 	nodes TreeNodes,
-	opts ...TreeOption,
 ) TreeUsecase {
-	return tree.New(chats, agent, busy, workspaces, reaper, holders, folders, nodes, opts...)
-}
-
-// TreeOption/TreeRepoAnnouncer/WithTreeRepoAnnouncer re-export the tree's
-// collateral repo announce for the composition root — see tree.RepoAnnouncer.
-type (
-	TreeOption        = tree.Option
-	TreeRepoAnnouncer = tree.RepoAnnouncer
-)
-
-func WithTreeRepoAnnouncer(fn TreeRepoAnnouncer) TreeOption {
-	return tree.WithRepoAnnouncer(fn)
+	return tree.New(chats, agent, busy, workspaces, reaper, holders, folders, nodes)
 }
 
 // TreeBusy is the tree usecase's question of whether a chat is working.

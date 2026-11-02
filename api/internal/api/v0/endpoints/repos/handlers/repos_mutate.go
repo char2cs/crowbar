@@ -7,12 +7,10 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
-	"github.com/char2cs/crowbar/api/internal/domain/tree"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -36,7 +34,7 @@ type patchRequest struct {
 //
 // Validation is synchronous, and so is the write: none of the three is a git
 // operation, so unlike Create this runs inline and answers 204 — the updated
-// avatar and order ride the broadcast, not this response (the FE apiFetch throws
+// avatar and order ride the repos stream, not this response (the FE apiFetch throws
 // on any non-enveloped 200 body, matching the icon mutations).
 //
 // A projectId naming another project is refused with 409: a repo's project is
@@ -57,34 +55,11 @@ func (h *Handlers) Patch(
 	if !ok {
 		return
 	}
-	updated, err := h.updater.UpdateRepo(c.Request.Context(), c.Param("repoId"), update)
-	if err != nil {
+	if _, err := h.updater.UpdateRepo(c.Request.Context(), c.Param("repoId"), update); err != nil {
 		libs.Fail(c, err)
 		return
 	}
-	// The DECIDED placement, never a re-read: the Node projection folds after
-	// the write returns, so a read here can still serve the old order.
-	h.broadcast(dto.RepoDTOFrom(updated.Repo, dto.RepoPlacement{FolderID: updated.Node.ParentID, Order: updated.Node.Order}))
-	h.broadcastShiftedRepos(c.Request.Context(), updated.Shifted)
 	c.Status(http.StatusNoContent)
-}
-
-// broadcastShiftedRepos announces every OTHER repo a placement renumbered as
-// collateral; chat/folder rows ride their own channel.
-func (h *Handlers) broadcastShiftedRepos(
-	ctx context.Context,
-	shifted []tree.Node,
-) {
-	for _, n := range shifted {
-		if n.Kind != tree.KindRepo {
-			continue
-		}
-		repo, err := h.store.FindByKey(ctx, n.ID)
-		if err != nil || repo == nil {
-			continue
-		}
-		h.broadcast(dto.RepoDTOFrom(*repo, dto.RepoPlacement{FolderID: n.ParentID, Order: n.Order}))
-	}
 }
 
 // bindRepoUpdate validates the PATCH body into a project.RepoUpdate, writing the
@@ -144,7 +119,6 @@ func (h *Handlers) DeleteRepo(
 		libs.Fail(c, err)
 		return
 	}
-	h.broadcastRepo(c.Request.Context(), marked)
 	ref := domain.EntityRef{Kind: domain.EntityRepo, ID: repoID}
 	item := domain.OperationItem{Ref: ref, Label: marked.Name, State: domain.OpRunning}
 	op, err := h.ops.Start(c.Request.Context(), operation.Spec{
@@ -161,7 +135,6 @@ func (h *Handlers) DeleteRepo(
 			p.Item(item)
 			return err
 		}
-		h.broadcast(dto.RepoDTO{ID: repoID, ProjectID: projectID, Status: "deleted"})
 		item.State = domain.OpSucceeded
 		p.Item(item)
 		return nil

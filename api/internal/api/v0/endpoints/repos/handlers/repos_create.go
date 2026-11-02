@@ -93,7 +93,6 @@ func (h *Handlers) importRepo(
 		p.Item(item)
 		return err
 	}
-	h.broadcastRepo(ctx, repo)
 	item.Ref.ID, item.State = repo.ID, domain.OpSucceeded
 	p.Item(item)
 	return nil

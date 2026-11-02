@@ -57,22 +57,6 @@ type chatFolderUsecase struct {
 	// (home_ports.go).
 	folders Folders
 	nodes   Nodes
-	// announceRepo tells a live client about a repo header row a densify
-	// shifted as collateral — a repo's Node write has no hub projection of
-	// its own, unlike a chat's. nil announces nothing.
-	announceRepo RepoAnnouncer
-}
-
-// RepoAnnouncer announces one repo's DECIDED placement, for the composition
-// root to fan out as a RepoDTO.
-type RepoAnnouncer func(ctx context.Context, repoID, parentID string, order int)
-
-// Option configures New beyond its required ports.
-type Option func(*chatFolderUsecase)
-
-// WithRepoAnnouncer wires the collateral repo announce — see RepoAnnouncer.
-func WithRepoAnnouncer(fn RepoAnnouncer) Option {
-	return func(u *chatFolderUsecase) { u.announceRepo = fn }
 }
 
 // New builds the tree usecase over the chat row repository and the agent
@@ -110,9 +94,8 @@ func New(
 	holders WorkspaceHolders,
 	folders Folders,
 	nodes Nodes,
-	opts ...Option,
 ) Usecase {
-	u := &chatFolderUsecase{
+	return &chatFolderUsecase{
 		chats:      chats,
 		agent:      agent,
 		busy:       busy,
@@ -122,10 +105,6 @@ func New(
 		folders:    folders,
 		nodes:      nodes,
 	}
-	for _, opt := range opts {
-		opt(u)
-	}
-	return u
 }
 
 // ListInRepo returns repoID's own folder rows — "" for project home, a real

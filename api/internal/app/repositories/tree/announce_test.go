@@ -91,7 +91,8 @@ func TestAnnounce_AMoveReemitsTheChatFrame(t *testing.T) {
 	assert.Empty(t, h.take(), "a position row is not a chat's own placement")
 }
 
-// A row the panel reads from its position Node is heard when that Node moves;
+// A row the panel reads from its position Node (a workspace, a repo, a chat)
+// is heard when that Node moves;
 // a chat with a Node is heard through it, never through its own record.
 func TestAnnounce_AMovedPositionNodeIsHeard(t *testing.T) {
 	ctx := context.Background()
@@ -104,7 +105,9 @@ func TestAnnounce_AMovedPositionNodeIsHeard(t *testing.T) {
 	require.NoError(t, err)
 	_, err = repo.Put(ctx, "p1", tree.Node{ID: "c-n", Kind: tree.KindChat, ParentID: "f-1"})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"workspace:ws-1@f-1", "chat:c-n@f-1"}, h.takeNodes())
+	_, err = repo.Put(ctx, "p1", tree.Node{ID: "r-1", Kind: tree.KindRepo, Order: 1})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"workspace:ws-1@f-1", "chat:c-n@f-1", "repo:r-1@"}, h.takeNodes())
 
 	_, err = repo.Put(ctx, "p1", tree.Node{ID: "c-n", Kind: tree.KindChat, ParentID: "f-1"})
 	require.NoError(t, err)

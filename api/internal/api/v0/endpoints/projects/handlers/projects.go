@@ -84,39 +84,33 @@ type Operations interface {
 // delete usecases. A create or a delete checks what it can, answers 202 with
 // its operation, and delivers the resulting ProjectDTO on the Projects stream.
 type Handlers struct {
-	reader    ListGetter
-	importer  Importer
-	deleter   Deleter
-	ops       Operations
-	broadcast func(dto.ProjectDTO)
-	stat      func(string) (os.FileInfo, error)
+	reader   ListGetter
+	importer Importer
+	deleter  Deleter
+	ops      Operations
+	stat     func(string) (os.FileInfo, error)
 	// Where the project's icon bytes live, as the repo handlers' equivalent is.
 	crowbarHome func() (string, error)
 }
 
 // New builds the projects Handlers from the project usecases, the operations
-// service, the Projects broadcast (nil is a no-op) and the crowbar-home
-// resolver, which is required.
+// service and the crowbar-home resolver, which is required. The project store
+// publishes every row they write.
 func New(
 	reader ListGetter,
 	importer Importer,
 	deleter Deleter,
 	ops Operations,
-	broadcast func(dto.ProjectDTO),
 	crowbarHome func() (string, error),
 ) *Handlers {
 	if crowbarHome == nil {
 		panic("projects: crowbarHome is required")
-	}
-	if broadcast == nil {
-		broadcast = func(dto.ProjectDTO) {}
 	}
 	return &Handlers{
 		reader:      reader,
 		importer:    importer,
 		deleter:     deleter,
 		ops:         ops,
-		broadcast:   broadcast,
 		stat:        os.Stat,
 		crowbarHome: crowbarHome,
 	}
@@ -176,12 +170,7 @@ type patchRequest struct {
 // Patch handles PATCH /v0/projects/:projectId: a sidebar reorder, a rename, or
 // both. Unlike an import either is a single store write, so it runs inline and
 // answers 204 — the updated project rides the Projects WS stream, not this
-// response.
-//
-// A reorder densifies the whole list, so every project it shifts is broadcast
-// too: a client told only about the row that was dragged would hold stale orders
-// for the rest until the next reconnect. A rename shifts nobody, so it
-// broadcasts the one row it changed.
+// response; every row the write shifted rides it too.
 func (h *Handlers) Patch(
 	c *gin.Context,
 ) {
@@ -197,7 +186,7 @@ func (h *Handlers) Patch(
 	ctx := c.Request.Context()
 	projectID := c.Param("projectId")
 
-	if body.Name != nil && !h.rename(c, ctx, projectID, *body.Name, body.Order == nil) {
+	if body.Name != nil && !h.rename(c, ctx, projectID, *body.Name) {
 		return
 	}
 
@@ -206,24 +195,8 @@ func (h *Handlers) Patch(
 			libs.Fail(c, err)
 			return
 		}
-		h.broadcastAll(ctx)
 	}
 	c.Status(http.StatusNoContent)
-}
-
-// broadcastAll re-delivers every project after a reorder. The list is a handful
-// of rows and the reorder already read all of them, so re-broadcasting the set
-// is cheaper than tracking which ones the densify happened to shift.
-func (h *Handlers) broadcastAll(
-	ctx context.Context,
-) {
-	rows, err := h.reader.List(ctx)
-	if err != nil {
-		return
-	}
-	for _, row := range rows {
-		h.broadcast(dto.ProjectDTOFrom(row))
-	}
 }
 
 // Import handles POST /v0/projects. What it can check up front (body, name,
@@ -263,11 +236,9 @@ func (h *Handlers) Import(
 		Label:     "Add " + body.Name,
 		Items:     []domain.OperationItem{item},
 	}, func(ctx context.Context, p operation.Progress) error {
-		created, err := h.importer.Create(ctx, ref.ID, body.Name, body.Path)
-		if err != nil {
+		if _, err := h.importer.Create(ctx, ref.ID, body.Name, body.Path); err != nil {
 			return failItem(p, item, err)
 		}
-		h.broadcast(dto.ProjectDTOFrom(created))
 		item.State = domain.OpSucceeded
 		p.Item(item)
 		return nil
@@ -296,7 +267,6 @@ func (h *Handlers) Delete(
 		libs.Fail(c, err)
 		return
 	}
-	h.broadcast(dto.ProjectDTOFrom(marked))
 	ref := domain.EntityRef{Kind: domain.EntityProject, ID: id}
 	item := domain.OperationItem{Ref: ref, Label: marked.Name, State: domain.OpRunning}
 	op, err := h.ops.Start(c.Request.Context(), operation.Spec{
@@ -310,7 +280,6 @@ func (h *Handlers) Delete(
 		if err := h.deleter.Delete(ctx, id, consent); err != nil {
 			return failItem(p, item, err)
 		}
-		h.broadcast(dto.ProjectDTO{ID: id, Status: "deleted"})
 		item.State = domain.OpSucceeded
 		p.Item(item)
 		return nil
@@ -337,30 +306,20 @@ func failItem(
 // rename applies a project rename and reports whether the request may continue.
 // It writes the error response itself on failure, so a false return means the
 // handler is finished.
-//
-// broadcast says whether to announce the new row NOW. A rename paired with a
-// reorder must not: the densify that follows re-delivers every row anyway, and
-// sending this one twice would have clients apply the same frame either side of a
-// list that moved under it.
 func (h *Handlers) rename(
 	c *gin.Context,
 	ctx context.Context,
 	projectID string,
 	raw string,
-	broadcast bool,
 ) bool {
 	name := strings.TrimSpace(raw)
 	if name == "" {
 		libs.WriteErr(c, http.StatusBadRequest, "name must not be empty")
 		return false
 	}
-	updated, err := h.reader.Update(ctx, projectID, project.Update{Name: &name})
-	if err != nil {
+	if _, err := h.reader.Update(ctx, projectID, project.Update{Name: &name}); err != nil {
 		libs.Fail(c, err)
 		return false
-	}
-	if broadcast {
-		h.broadcast(dto.ProjectDTOFrom(updated))
 	}
 	return true
 }

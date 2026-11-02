@@ -25,13 +25,11 @@ import (
 // fakeUpdater records the UpdateRepo call and returns a canned repo/error so the
 // Patch handler's HTTP contract can be pinned without a real usecase.
 type fakeUpdater struct {
-	repo    domain.Repository
-	node    tree.Node
-	shifted []tree.Node
-	err     error
-	gotID   string
-	got     project.RepoUpdate
-	called  bool
+	repo   domain.Repository
+	err    error
+	gotID  string
+	got    project.RepoUpdate
+	called bool
 }
 
 func (f *fakeUpdater) UpdateRepo(
@@ -42,24 +40,19 @@ func (f *fakeUpdater) UpdateRepo(
 	f.called = true
 	f.gotID = repoID
 	f.got = in
-	return project.RepoUpdated{Repo: f.repo, Node: f.node, Shifted: f.shifted}, f.err
+	return project.RepoUpdated{Repo: f.repo}, f.err
 }
 
-// patchRouter mounts PATCH .../repos/:repoId on a handler whose broadcast
-// fan-out is captured into frames, backed by the supplied updater (nil = the
-// bare handler with no updater wired).
+// patchRouter mounts PATCH .../repos/:repoId on a handler backed by the
+// supplied updater (nil = the bare handler with no updater wired).
 func patchRouter(
 	t *testing.T,
 	updater repohandlers.RepoUpdater,
-	frames *[]dto.RepoDTO,
 ) *gin.Engine {
 	t.Helper()
-	// A throwaway crowbar home keeps the icon paths a broadcast derives out of
-	// the developer's real one.
 	home := t.TempDir()
-	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, nil, func(d dto.RepoDTO) {
-		*frames = append(*frames, d)
-	}, func() (string, error) { return home, nil }, nil).WithUpdater(updater)
+	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, nil, func() (string, error) { return home, nil }, nil).
+		WithUpdater(updater)
 	r := gin.New()
 	r.PATCH("/v0/projects/:projectId/repos/:repoId", h.Patch)
 	return r
@@ -78,15 +71,11 @@ func doPatch(
 	return rec
 }
 
-// TestPatchRepo_BroadcastsRenamedDTO pins the happy path: a valid rename passes
-// the trimmed name + repoId to the updater, answers 204, and broadcasts the
-// updated RepoDTO on the repos WS stream (the sidebar refresh, not the response).
-func TestPatchRepo_BroadcastsRenamedDTO(t *testing.T) {
-	upd := &fakeUpdater{repo: domain.Repository{
-		ID: "r1", ProjectID: "p1", Name: "Renamed Repo", AvatarLabel: "R",
-	}}
-	var frames []dto.RepoDTO
-	rec := doPatch(patchRouter(t, upd, &frames), "/v0/projects/p1/repos/r1",
+// TestPatchRepo_RenamePassesTheTrimmedName pins the happy path: a valid rename
+// passes the trimmed name + repoId to the updater and answers 204.
+func TestPatchRepo_RenamePassesTheTrimmedName(t *testing.T) {
+	upd := &fakeUpdater{repo: domain.Repository{ID: "r1", ProjectID: "p1", Name: "Renamed Repo"}}
+	rec := doPatch(patchRouter(t, upd), "/v0/projects/p1/repos/r1",
 		map[string]string{"name": "  Renamed Repo  "})
 
 	require.Equal(t, http.StatusNoContent, rec.Code)
@@ -94,9 +83,6 @@ func TestPatchRepo_BroadcastsRenamedDTO(t *testing.T) {
 	assert.Equal(t, "r1", upd.gotID)
 	require.NotNil(t, upd.got.Name)
 	assert.Equal(t, "Renamed Repo", *upd.got.Name, "the handler trims surrounding whitespace")
-	require.Len(t, frames, 1, "a rename must broadcast the updated RepoDTO")
-	assert.Equal(t, "Renamed Repo", frames[0].Name)
-	assert.Equal(t, "R", frames[0].AvatarLabel)
 }
 
 // fakeNodeReader is a fixed map of id -> tree.Node, so a test can pin the
@@ -123,62 +109,45 @@ func (f fakeNodeReader) GetNode(_ context.Context, id string) (tree.Node, error)
 
 // TestPatchRepo_OrderOnlyNeedsNoName pins that the PATCH is genuinely partial: a
 // reorder carries no name, and the old name-is-required rule would have 400'd
-// every drag. Order reaches the broadcast from the placement the usecase
-// DECIDED (project.RepoUpdated.Node), never a Node read-model re-read.
+// every drag.
 func TestPatchRepo_OrderOnlyNeedsNoName(t *testing.T) {
-	upd := &fakeUpdater{repo: domain.Repository{ID: "r1", ProjectID: "p1"}, node: tree.Node{ID: "r1", Order: 2}}
-	var frames []dto.RepoDTO
-	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, nil, func(d dto.RepoDTO) {
-		frames = append(frames, d)
-	}, func() (string, error) { return t.TempDir(), nil }, nil).WithUpdater(upd)
-	r := gin.New()
-	r.PATCH("/v0/projects/:projectId/repos/:repoId", h.Patch)
-
-	rec := doPatch(r, "/v0/projects/p1/repos/r1", map[string]any{"order": 2})
+	upd := &fakeUpdater{repo: domain.Repository{ID: "r1", ProjectID: "p1"}}
+	rec := doPatch(patchRouter(t, upd), "/v0/projects/p1/repos/r1", map[string]any{"order": 2})
 
 	require.Equal(t, http.StatusNoContent, rec.Code)
 	assert.Nil(t, upd.got.Name, "an order-only PATCH must not synthesise a rename")
 	require.NotNil(t, upd.got.Order)
 	assert.Equal(t, 2, *upd.got.Order)
-	require.Len(t, frames, 1)
-	assert.Equal(t, 2, frames[0].Order, "the broadcast carries the new order")
 }
 
 // TestPatchRepo_EmptyName_400 pins synchronous name validation: a blank name
-// (whitespace only) is rejected 400 before the updater runs, and nothing is
-// broadcast.
+// (whitespace only) is rejected 400 before the updater runs.
 func TestPatchRepo_EmptyName_400(t *testing.T) {
 	upd := &fakeUpdater{}
-	var frames []dto.RepoDTO
-	rec := doPatch(patchRouter(t, upd, &frames), "/v0/projects/p1/repos/r1",
+	rec := doPatch(patchRouter(t, upd), "/v0/projects/p1/repos/r1",
 		map[string]string{"name": "   "})
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.False(t, upd.called, "the updater must not run on an invalid name")
-	assert.Empty(t, frames)
 }
 
 // TestPatchRepo_NotFound_404 pins that an unknown repo (updater returns
 // ErrNotFound) surfaces as a 404, not a 500.
 func TestPatchRepo_NotFound_404(t *testing.T) {
 	upd := &fakeUpdater{err: problem.ErrNotFound}
-	var frames []dto.RepoDTO
-	rec := doPatch(patchRouter(t, upd, &frames), "/v0/projects/p1/repos/missing",
+	rec := doPatch(patchRouter(t, upd), "/v0/projects/p1/repos/missing",
 		map[string]string{"name": "Whatever"})
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
-	assert.Empty(t, frames, "a failed update broadcasts nothing")
 }
 
 // TestPatchRepo_NoUpdater_500 pins the bare-handler fallback: with no updater
 // wired the endpoint answers 500 rather than panicking.
 func TestPatchRepo_NoUpdater_500(t *testing.T) {
-	var frames []dto.RepoDTO
-	rec := doPatch(patchRouter(t, nil, &frames), "/v0/projects/p1/repos/r1",
+	rec := doPatch(patchRouter(t, nil), "/v0/projects/p1/repos/r1",
 		map[string]string{"name": "Whatever"})
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-	assert.Empty(t, frames)
 }
 
 // The patch endpoint takes the same unsanitised name the create endpoint does,
@@ -188,21 +157,18 @@ func TestPatchRepo_RejectsNamesThatEscapeTheCrowbarHome(t *testing.T) {
 	for _, c := range traversalNames {
 		t.Run(c.name, func(t *testing.T) {
 			upd := &fakeUpdater{}
-			var frames []dto.RepoDTO
-			rec := doPatch(patchRouter(t, upd, &frames), "/v0/projects/p1/repos/r1",
+			rec := doPatch(patchRouter(t, upd), "/v0/projects/p1/repos/r1",
 				map[string]string{"name": c.value})
 
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 			assert.False(t, upd.called, "the updater must not run on an unsafe name")
-			assert.Empty(t, frames)
 		})
 	}
 }
 
 func TestPatchRepo_MalformedBody_400(t *testing.T) {
 	upd := &fakeUpdater{}
-	var frames []dto.RepoDTO
-	r := patchRouter(t, upd, &frames)
+	r := patchRouter(t, upd)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPatch, "/v0/projects/p1/repos/r1", bytes.NewReader([]byte("{")))
@@ -213,67 +179,11 @@ func TestPatchRepo_MalformedBody_400(t *testing.T) {
 	assert.False(t, upd.called)
 }
 
-// A home that cannot be resolved is not a reason to fail an update that already
-// committed: the icon degrades to the generated avatar and the move stands.
-func TestPatchRepo_ProjectMoveSurvivesAnUnresolvableHome(t *testing.T) {
-	upd := &fakeUpdater{repo: domain.Repository{ID: "r1", ProjectID: "p2"}}
-	var frames []dto.RepoDTO
-	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, nil, func(d dto.RepoDTO) {
-		frames = append(frames, d)
-	}, func() (string, error) { return "", errors.New("no home") }, nil).
-		WithUpdater(upd)
-	r := gin.New()
-	r.PATCH("/v0/projects/:projectId/repos/:repoId", h.Patch)
-
-	rec := doPatch(r, "/v0/projects/p1/repos/r1", map[string]any{"projectId": "p2"})
-
-	require.Equal(t, http.StatusNoContent, rec.Code)
-	require.Len(t, frames, 1, "the committed move is still broadcast")
-}
-
-// The broadcast must carry the placement the write DECIDED, not whatever the
-// Node read model happens to hold when the handler asks it: the projection
-// folds asynchronously after SetOrder returns, so a read here can serve the
-// pre-write order (297/300 runs against the real store). And every OTHER repo
-// the densify shifted must be announced too, or a live sidebar keeps their
-// stale orders (tied against the subject's) until a reload.
-func TestRegression_PatchRepo_BroadcastsTheDecidedPlacementAndEveryShiftedRepo(t *testing.T) {
-	upd := &fakeUpdater{
-		repo:    domain.Repository{ID: "r1", ProjectID: "p1"},
-		node:    tree.Node{ID: "r1", Kind: tree.KindRepo, ParentID: "", Order: 0},
-		shifted: []tree.Node{{ID: "r2", Kind: tree.KindRepo, Order: 1}, {ID: "c1", Kind: tree.KindChat, Order: 2}},
-	}
-	var frames []dto.RepoDTO
-	store := &fakeStore{all: []domain.Repository{{ID: "r1", ProjectID: "p1"}, {ID: "r2", ProjectID: "p1", Name: "two"}}}
-	h := repohandlers.NewWithDeps(store, nil, nil, nil, func(d dto.RepoDTO) {
-		frames = append(frames, d)
-	}, func() (string, error) { return t.TempDir(), nil },
-		// The projection still serves the PRE-write order.
-		placementsOver(fakeNodeReader{"r1": tree.Node{ID: "r1", Order: 3}, "r2": tree.Node{ID: "r2", Order: 0}})).
-		WithUpdater(upd)
-	r := gin.New()
-	r.PATCH("/v0/projects/:projectId/repos/:repoId", h.Patch)
-
-	rec := doPatch(r, "/v0/projects/p1/repos/r1", map[string]any{"order": 0})
-
-	require.Equal(t, http.StatusNoContent, rec.Code)
-	byID := map[string]dto.RepoDTO{}
-	for _, f := range frames {
-		byID[f.ID] = f
-	}
-	require.Contains(t, byID, "r1")
-	assert.Equal(t, 0, byID["r1"].Order, "the subject's frame carries the decided order, not the stale projection")
-	require.Contains(t, byID, "r2", "a repo shifted as collateral must be announced")
-	assert.Equal(t, 1, byID["r2"].Order)
-	assert.Equal(t, "two", byID["r2"].Name)
-	assert.NotContains(t, byID, "c1", "a chat rides its own channel")
-}
-
 // A handler built without a crowbar home would resolve one of its own later,
 // so both constructors refuse it up front.
 func TestNew_NilCrowbarHomePanics(t *testing.T) {
 	assert.Panics(t, func() { repohandlers.New(&fakeStore{}, nil) })
-	assert.Panics(t, func() { repohandlers.NewWithDeps(&fakeStore{}, nil, nil, nil, nil, nil, nil) })
+	assert.Panics(t, func() { repohandlers.NewWithDeps(&fakeStore{}, nil, nil, nil, nil, nil) })
 }
 
 // brokenNodes fails every position read the way an unreadable tree does.
@@ -293,25 +203,23 @@ func (brokenProject) GetNode(_ context.Context, id string) (tree.Node, error) {
 	return tree.Node{ParentID: "f2", Order: 3}, nil
 }
 
-func placementRouter(t *testing.T, nodes positionReader, frames *[]dto.RepoDTO) *gin.Engine {
+func placementRouter(t *testing.T, nodes positionReader) *gin.Engine {
 	t.Helper()
 	repo := domain.Repository{ID: "r1", ProjectID: "p1", Name: "one"}
 	other := domain.Repository{ID: "r2", ProjectID: "p2", Name: "two"}
 	store := &fakeStore{byKey: &repo, all: []domain.Repository{repo, other}}
-	h := repohandlers.NewWithDeps(store, nil, nil, nil, func(d dto.RepoDTO) { *frames = append(*frames, d) },
+	h := repohandlers.NewWithDeps(store, nil, nil, nil,
 		func() (string, error) { return t.TempDir(), nil }, placementsOver(nodes))
 	r := gin.New()
 	r.GET("/v0/repos", h.List)
 	r.GET("/v0/projects/:projectId/repos/:repoId", h.Detail)
-	r.PUT("/v0/projects/:projectId/repos/:repoId/icon/emoji", h.PutIconEmoji)
 	return r
 }
 
 // A failed position read of the one repo asked for fails that read, rather
 // than answer the repo silently moved to the root.
 func TestDetail_AFailedPositionReadFailsTheRead(t *testing.T) {
-	var frames []dto.RepoDTO
-	r := placementRouter(t, brokenNodes{}, &frames)
+	r := placementRouter(t, brokenNodes{})
 
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v0/projects/p1/repos/r1", nil))
@@ -324,8 +232,7 @@ func TestDetail_AFailedPositionReadFailsTheRead(t *testing.T) {
 // One project's unreadable tree does not fail the list of every project: its
 // repos are listed at the root, the others where they are.
 func TestList_AnUnreadableTreeOnlyUnplacesItsOwnProject(t *testing.T) {
-	var frames []dto.RepoDTO
-	r := placementRouter(t, brokenProject{}, &frames)
+	r := placementRouter(t, brokenProject{})
 
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v0/repos", nil))
@@ -341,8 +248,7 @@ func TestList_AnUnreadableTreeOnlyUnplacesItsOwnProject(t *testing.T) {
 }
 
 func TestDetail_ARepoWithNoPositionRowYetSitsAtTheRoot(t *testing.T) {
-	var frames []dto.RepoDTO
-	r := placementRouter(t, fakeNodeReader{}, &frames)
+	r := placementRouter(t, fakeNodeReader{})
 
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v0/projects/p1/repos/r1", nil))
@@ -352,20 +258,4 @@ func TestDetail_ARepoWithNoPositionRowYetSitsAtTheRoot(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
 	assert.Empty(t, env.Data.FolderID)
 	assert.Equal(t, 0, env.Data.Order)
-}
-
-// A mutation that landed is not failed by the position read after it; the
-// frame that would have put the row at the root is not sent.
-func TestPutIconEmoji_AFailedPositionReadSendsNoFrame(t *testing.T) {
-	var frames []dto.RepoDTO
-	r := placementRouter(t, brokenNodes{}, &frames)
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/v0/projects/p1/repos/r1/icon/emoji",
-		bytes.NewReader([]byte(`{"emoji":"🦊"}`)))
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusNoContent, rec.Code)
-	assert.Empty(t, frames)
 }

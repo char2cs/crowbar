@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
@@ -111,7 +110,6 @@ func TestRegisterMountsRoutes(
 		stubImporter{},
 		stubDeleter{},
 		stubOps{},
-		func(dto.ProjectDTO) {},
 		func() (string, error) { return t.TempDir(), nil },
 	)
 

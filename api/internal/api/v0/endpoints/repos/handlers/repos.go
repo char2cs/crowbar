@@ -4,7 +4,6 @@ package handlers
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 
 	"github.com/gin-gonic/gin"
@@ -145,14 +144,13 @@ type Handlers struct {
 	placements  *dto.Placements
 	crowbarHome func() (string, error)
 	fetchAvatar AvatarBytesFetcher
-	broadcast   func(dto.RepoDTO)
 	stat        func(string) (os.FileInfo, error)
 	ops         Operations
 }
 
 // New builds the repos Handlers from the repository GORM store and the
 // crowbar-home resolver the icon handlers store and serve through, which is
-// required. The broadcast is a no-op until NewWithDeps wires the fan-out.
+// required.
 func New(
 	store Store,
 	crowbarHome func() (string, error),
@@ -164,7 +162,6 @@ func New(
 		store:       store,
 		crowbarHome: crowbarHome,
 		fetchAvatar: fetchGithubAvatarBytes,
-		broadcast:   func(dto.RepoDTO) {},
 		stat:        os.Stat,
 	}
 	return h
@@ -172,14 +169,12 @@ func New(
 
 // NewWithDeps builds Handlers with the optional provider + workspace deps
 // needed for the Branches endpoint, the operations service create and delete
-// run under, the Repos-channel broadcast func, and the app's one position read
-// (nil puts every repo at the root). A nil broadcast degrades to a no-op.
+// run under, and the app's one position read (nil puts every repo at the root).
 func NewWithDeps(
 	store Store,
 	prov BranchProviderEngine,
 	wsReader WorkspaceReader,
 	ops Operations,
-	broadcast func(dto.RepoDTO),
 	crowbarHome func() (string, error),
 	placements *dto.Placements,
 ) *Handlers {
@@ -188,9 +183,6 @@ func NewWithDeps(
 	h.provider = prov
 	h.wsReader = wsReader
 	h.ops = ops
-	if broadcast != nil {
-		h.broadcast = broadcast
-	}
 	return h
 }
 
@@ -278,21 +270,6 @@ func (h *Handlers) placementsOf(
 		return nil
 	}
 	return h.placements.Of(ctx, repos)
-}
-
-// broadcastRepo fans repo out at its own position. A mutation that already
-// landed has nobody to fail, so a failed position read skips the frame rather
-// than move the row to the root on every client.
-func (h *Handlers) broadcastRepo(
-	ctx context.Context,
-	repo domain.Repository,
-) {
-	p, err := h.placementOf(ctx, repo.ID)
-	if err != nil {
-		slog.ErrorContext(ctx, "repos: broadcast", "repo", repo.ID, "err", err)
-		return
-	}
-	h.broadcast(dto.RepoDTOFrom(repo, p))
 }
 
 // List handles GET /v0/repos, returning every repo as RepoDTO[]. The optional
