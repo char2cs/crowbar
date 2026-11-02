@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const deleteChat = vi.fn().mockResolvedValue(undefined)
+const deleteChat = vi.fn().mockResolvedValue([])
 vi.mock('@/features/agent/api/agent-chat-commands', () => ({
   deleteChat: (...a: unknown[]) => deleteChat(...a),
 }))
@@ -100,7 +100,7 @@ const context = { activeWorkspaceId: '', navigate: vi.fn() }
 let toastError: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
-  deleteChat.mockClear().mockResolvedValue(undefined)
+  deleteChat.mockClear().mockResolvedValue([])
   deleteRepo.mockClear().mockResolvedValue({ items: [] })
   deleteHomeFolder.mockClear().mockResolvedValue([])
   toastError?.mockRestore()
@@ -249,6 +249,18 @@ describe('committing a workspace removal', () => {
     deleteChat.mockRejectedValueOnce(migratingRefusal())
     await commitRemoval(entry(), context)
     expectMigratingShown(toastError)
+  })
+
+  it('names the chats the delete took beyond the selection', async () => {
+    const child = { id: 'chat-child', repoId: 'r1', title: 'Child', order: 1 }
+    useSidebarStore.setState({ repos: [repo({ chats: [...repo().chats!, child] })] })
+    deleteChat.mockResolvedValueOnce(['chat-child'])
+
+    await commitRemoval(entry(), context)
+
+    expect(toastError).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'info', title: 'Also removed 1 chat', description: 'Child' }),
+    )
   })
 
   it('still refuses when nothing anywhere knows the owning chat', async () => {

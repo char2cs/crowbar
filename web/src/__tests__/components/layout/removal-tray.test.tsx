@@ -58,7 +58,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 // is only the workspace the URL is scoped by.
 vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-commands')>()),
-  deleteChat: vi.fn(() => Promise.resolve()),
+  deleteChat: vi.fn(() => Promise.resolve<string[]>([])),
 }))
 
 vi.mock('@/lib/api/sidebar-placement', () => ({
@@ -468,10 +468,10 @@ describe('a ghost row during the DELETE round trip', () => {
   // as long as the network round trip takes — reported live as "the row was
   // deleted, but Crowbar's frontend is still showing it up".
   it('does not fall back to a normal row while the DELETE is still in flight', async () => {
-    let resolveDelete: () => void = () => {}
+    let resolveDelete: (taken: string[]) => void = () => {}
     vi.mocked(deleteChat).mockImplementationOnce(
       () =>
-        new Promise<void>((resolve) => {
+        new Promise<string[]>((resolve) => {
           resolveDelete = resolve
         }),
     )
@@ -492,7 +492,7 @@ describe('a ghost row during the DELETE round trip', () => {
 
     // Let the DELETE resolve so the test leaves nothing dangling.
     await act(async () => {
-      resolveDelete()
+      resolveDelete([])
       await Promise.resolve()
     })
   })

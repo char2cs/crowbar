@@ -13,6 +13,8 @@ import { treeUiStore, type RemovalEntry } from '@/features/workspace/tree/tree-u
 import { operationsState, putLocalOperation, type Operation } from '@/lib/store/operations'
 import { dismissOperation, whenSettled, type OperationReply } from '@/lib/store/run-operation'
 import { report } from '@/lib/errors/report'
+import { toast } from '@/features/window/stores/toast-store'
+import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { holdsWorkspace } from '@/lib/store/repo-tree'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 
@@ -138,9 +140,7 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<string | 
       if (!owningChatId) {
         return Promise.reject(new Error('its chat is still loading — try again in a moment'))
       }
-      return deleteChat(entry.id, owningChatId, ...opts).then(() => {
-        bumpRepoTree(entry.repoId)
-      })
+      return deleteChat(entry.id, owningChatId, ...opts).then(announceTaken(entry))
     }
     case 'folder':
       // A project-home folder rides no repo at all (`repoId` is '' — see
@@ -200,9 +200,33 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<string | 
       // arrive on a real push/reseed channel. But that channel has a condition
       // — see `bumpRepoTree` — and this is one of the surfaces that does not
       // meet it, so the acting client rings its own bell.
-      return deleteChat(entry.wsId, entry.id, ...opts).then(() => {
-        bumpRepoTree(entry.repoId)
-      })
+      return deleteChat(entry.wsId, entry.id, ...opts).then(announceTaken(entry))
+  }
+}
+
+/** The title of each chat in a tree read before the delete, so a taken row is named. */
+function chatTitles(): (id: string) => string {
+  const repos = useSidebarStore.getState().repos
+  const trees = useHomeTreeStore.getState().trees
+  return (id) => {
+    const chats = [
+      ...repos.flatMap((r) => r.chats ?? []),
+      ...Object.values(trees).flatMap((t) => t.chats),
+    ]
+    return chats.find((c) => c.id === id)?.title || UNTITLED_CHAT_LABEL
+  }
+}
+
+/** Once a chat delete lands: reseed its repo, and name the chats its git cascade
+ *  took beyond the selection, which the user never chose. */
+function announceTaken(entry: RemovalEntry): (taken: string[]) => void {
+  const titleOf = chatTitles()
+  return (taken) => {
+    bumpRepoTree(entry.repoId)
+    const extra = taken.filter((id) => !entry.hiddenIds.includes(id))
+    if (extra.length === 0) return
+    const noun = extra.length === 1 ? 'chat' : 'chats'
+    toast.info(`Also removed ${extra.length} ${noun}`, extra.map(titleOf).join(', '))
   }
 }
 

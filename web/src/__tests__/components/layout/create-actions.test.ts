@@ -8,7 +8,7 @@ const { postWorkspace, createChat, createChatWithOwnWorktree, deleteChat, toastE
     createChatWithOwnWorktree: vi.fn((id: string) =>
       Promise.resolve({ id, workspaceId: 'ws-new' }),
     ),
-    deleteChat: vi.fn(() => Promise.resolve()),
+    deleteChat: vi.fn(() => Promise.resolve<string[]>([])),
     toastError: vi.fn(),
   }),
 )
