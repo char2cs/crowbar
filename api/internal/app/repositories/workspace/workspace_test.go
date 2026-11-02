@@ -918,13 +918,14 @@ func TestWorkspace_SyncReturnsOnceItsRowIsPublished(t *testing.T) {
 		release := make(chan struct{})
 		free := sync.OnceFunc(func() { close(release) })
 		t.Cleanup(free)
-		require.NoError(t, workspace.RegisterHubProjection(repo,
+		_, err = workspace.RegisterHubProjection(repo,
 			func(_ context.Context, ws domain.Workspace) domain.Workspace { return ws },
 			func(ws domain.Workspace) {
 				if ws.Added == 3 {
 					<-release
 				}
-			}))
+			})
+		require.NoError(t, err)
 
 		returned := make(chan error, 1)
 		go func() {
