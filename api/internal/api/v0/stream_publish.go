@@ -2,6 +2,7 @@ package v0
 
 import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -27,7 +28,12 @@ func (c *Container) publishRepo(r dto.RepoDTO) {
 	c.app.Stream.Entity(stream.Projects, stream.KindRepo, r.ID, r, 0)
 }
 
+// publishWorkspace sends a tombstoned workspace as gone: no sidebar reader draws one.
 func (c *Container) publishWorkspace(w dto.WorkspaceDTO) {
+	if w.Status == domain.WorkspaceStatusDeleted {
+		c.app.Stream.Gone(stream.Projects, stream.KindWorkspace, w.ID)
+		return
+	}
 	c.app.Stream.Entity(stream.Projects, stream.KindWorkspace, w.ID, w, 0)
 }
 

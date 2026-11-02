@@ -10,6 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app"
 	appstream "github.com/char2cs/crowbar/api/internal/app/stream"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
@@ -80,6 +81,9 @@ func (s *sidebar) appendHome(ctx context.Context, out []appstream.Entity, projec
 // appendRows adds one scope's rows.
 func appendRows(out []appstream.Entity, rows chathandlers.Rows, projectID, repoID string) []appstream.Entity {
 	for _, w := range rows.Workspaces {
+		if w.Status == domain.WorkspaceStatusDeleted {
+			continue
+		}
 		out = append(out, appstream.Entity{Kind: stream.KindWorkspace, ID: w.ID, Data: w})
 	}
 	for _, f := range rows.Folders {
