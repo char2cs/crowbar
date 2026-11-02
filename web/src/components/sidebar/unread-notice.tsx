@@ -15,10 +15,11 @@ export function UnreadNotice({ projectId }: { projectId: string }) {
   const unread = useStore(entityStore, selectUnread)
   const repos = useSelect(selectRepos)
   if (unread.length === 0) return null
+  const ids = new Set(unread)
   const lines: string[] = []
-  if (unread.includes(projectId)) lines.push("Couldn't load this project's chats")
+  if (ids.has(projectId)) lines.push("Couldn't load this project's chats")
   for (const repo of repos) {
-    if (repo.projectId === projectId && unread.includes(repo.id)) {
+    if (repo.projectId === projectId && ids.has(repo.id)) {
       lines.push(`Couldn't load chats in ${repo.name}`)
     }
   }
