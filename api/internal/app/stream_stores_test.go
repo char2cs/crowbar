@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -115,4 +117,54 @@ func TestPublishingStores_AnOvertakenSaveDoesNotRepublishItsStaleRow(t *testing.
 		<-saveOld
 		assert.Equal(t, "new", lastName(out, 2))
 	})
+}
+
+// A repo publish reads its row and its placement as one: a later save's
+// publish waits out an earlier one still reading, so the last frame is the
+// last save.
+func TestRepoEntities_ALaterPublishWaitsOutOneStillReading(t *testing.T) {
+	late, out := holdProjects(t)
+	rows := newHeldStore(func(r domain.Repository) string { return r.ID }, "")
+	reading, release := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	at := func(context.Context, string) (tree.Node, error) {
+		if calls.Add(1) == 1 {
+			close(reading)
+			<-release
+		}
+		return tree.Node{}, nil
+	}
+	repos := publishingRepos{ScopedStore: rows, entities: &repoEntities{
+		late: late, rows: rows, placements: dto.NewPlacements(at, nil),
+	}}
+	saveOld := make(chan struct{})
+	go func() {
+		defer close(saveOld)
+		_ = repos.Save(t.Context(), domain.Repository{ID: "r1", Name: "old"})
+	}()
+	<-reading
+	saveNew := make(chan struct{})
+	go func() {
+		defer close(saveNew)
+		_ = repos.Save(t.Context(), domain.Repository{ID: "r1", Name: "new"})
+	}()
+	require.Eventually(t, func() bool {
+		r, _ := rows.FindByKey(t.Context(), "r1")
+		return r.Name == "new"
+	}, time.Second, time.Millisecond)
+	assert.Never(t, func() bool { return calls.Load() > 1 }, 100*time.Millisecond, time.Millisecond,
+		"the later publish read while the earlier one still was")
+
+	close(release)
+	<-saveOld
+	<-saveNew
+	var names []string
+	for range 2 {
+		var row struct {
+			Name string `json:"name"`
+		}
+		require.NoError(t, json.Unmarshal((<-out).Data, &row))
+		names = append(names, row.Name)
+	}
+	assert.Equal(t, "new", names[1])
 }
