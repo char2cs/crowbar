@@ -14,6 +14,7 @@ import {
 } from '@/lib/persistence/hydrate'
 import { loadDrafts } from '@/features/editor/documents/draft-store'
 import { getDB, resetDB } from '@/lib/persistence/idb'
+import { entityStore } from '@/core/entities/entity-store'
 import {
   WINDOW_LAYOUT_VERSION,
   WINDOW_SESSION_ID,
@@ -135,7 +136,7 @@ describe('hydrateWindowPaneLayout', () => {
   })
 
   // A v1 member carried only its chat; it is restored unplaced, and the projects scope
-  // places it, or drops it when its chat is gone.
+  // places it, or drops it once a snapshot that read every repo leaves its chat out.
   it('upgrades a v1 layout: members gain their workspace once the projects scope answers', async () => {
     resetEntities()
     const db = await getDB()
@@ -173,11 +174,14 @@ describe('hydrateWindowPaneLayout', () => {
     expect(state.panes['pane-a'].workspaceId).toBeNull()
     expect(state.panes['pane-x'].workspaceId).toBeNull()
 
+    // One that could not read some repo places, but says no chat is gone.
+    entityStore.setState({ unread: { projects: ['r-unread'] } })
     syncChats([{ id: 'chat-a', workspaceId: 'ws-a' }])
+    expect(windowPaneStore.getState().panes['pane-a'].workspaceId).toBe('ws-a')
+    expect(windowPaneStore.getState().viewOrder).toEqual(['view-a', 'view-x'])
 
-    const placed = windowPaneStore.getState()
-    expect(placed.panes['pane-a'].workspaceId).toBe('ws-a')
-    expect(placed.viewOrder).toEqual(['view-a'])
+    entityStore.setState({ unread: { projects: [] } })
+    expect(windowPaneStore.getState().viewOrder).toEqual(['view-a'])
   })
 
   it('a payload without views hydrates to an empty band and keeps its buffers', async () => {

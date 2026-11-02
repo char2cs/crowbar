@@ -36,6 +36,8 @@ export interface EntityState {
   synced: Record<string, true>
   /** Scopes whose snapshot has landed once since boot: a resubscribe keeps what they hold. */
   loaded: Record<string, true>
+  /** scope → repos its latest snapshot could not read, so it said nothing of their rows. */
+  unread: Record<string, readonly string[]>
 }
 
 export const entityStore = createStore<EntityState>()(() => ({
@@ -54,6 +56,7 @@ export const entityStore = createStore<EntityState>()(() => ({
   fresh: {},
   synced: {},
   loaded: {},
+  unread: {},
 }))
 
 type EntityFrame = Extract<Frame, { t: 'entity' }>
@@ -147,19 +150,33 @@ function beginSnapshot(scope: string): void {
   }))
 }
 
-/** The scope's snapshot is complete: its rows land, and an entity it no longer carries goes. */
-function applySynced(scope: string): void {
+// A row of a repo the snapshot could not read stays: the snapshot did not say it is gone.
+function inUnreadRepo(byKind: ByKind, kind: StoredKind, id: string, unread: ReadonlySet<string>) {
+  if (unread.size === 0 || (kind !== 'workspace' && kind !== 'chat' && kind !== 'folder')) {
+    return false
+  }
+  const repoId = byKind[kind][id]?.data.repoId
+  return !!repoId && unread.has(repoId)
+}
+
+/** The scope's snapshot is complete: its rows land, and an entity it no longer carries goes,
+ *  unless it is a row of a repo the snapshot could not read. */
+function applySynced(scope: string, unread: readonly string[] = []): void {
   const rows = snapshotRows.get(scope) ?? []
   snapshotRows.delete(scope)
+  const unreadRepos = new Set(unread)
+  if (unreadRepos.size > 0) console.warn(`${scope}: rows of repos ${unread.join(', ')} unread`)
   entityStore.setState((held) => {
     const s = rows.reduce(withFrame, held)
-    const seen = s.fresh[scope] ?? s.members[scope] ?? {}
+    const seen = { ...(s.fresh[scope] ?? s.members[scope]) }
     const members = { ...s.members, [scope]: seen }
     let byKind = s.byKind
     for (const key of Object.keys(s.members[scope] ?? {})) {
       if (seen[key] || Object.values(members).some((keys) => keys[key])) continue
       const [kind, id] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)]
-      if (isStored(kind)) byKind = withoutEntity(byKind, kind, id)
+      if (!isStored(kind)) continue
+      if (inUnreadRepo(byKind, kind, id, unreadRepos)) seen[key] = true
+      else byKind = withoutEntity(byKind, kind, id)
     }
     return {
       byKind,
@@ -167,6 +184,7 @@ function applySynced(scope: string): void {
       fresh: without(s.fresh, scope),
       synced: { ...s.synced, [scope]: true },
       loaded: s.loaded[scope] ? s.loaded : { ...s.loaded, [scope]: true },
+      unread: { ...s.unread, [scope]: unread },
     }
   })
   settleOperations(rows)
@@ -192,7 +210,7 @@ registerScopeKind('projects', {
   frame(f) {
     if (f.t === 'entity') heardEntity(f)
     else if (f.t === 'synced') {
-      applySynced(f.scope)
+      applySynced(f.scope, f.unread)
       forgetUnstreamedReplies((id) => id in entityStore.getState().byKind.operation)
     }
   },

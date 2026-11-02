@@ -8,6 +8,10 @@ import {
 import { holdScope, startStream } from '@/core/stream/stream'
 import { useLocalOperationsStore } from '@/lib/store/local-operations'
 import { operationsState, putLocalOperation, type Operation } from '@/core/entities/operations'
+import { followChatLifecycle } from '@/features/agent/stores/chat-lifecycle'
+import { chatStore } from '@/features/agent/stores/chat-store'
+import type { OutboxItem } from '@/features/agent/stores/lib/outbox'
+import { chatEntity, workspaceDTO } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const socket = vi.hoisted(() => ({ deliver: (_data: unknown) => {}, drop: () => {} }))
 
@@ -248,5 +252,74 @@ describe('a write answer applied before its frames', () => {
     expect(entityStore.getState()).toBe(before)
     forgetEntities('folder', ['f1'])
     expect(folders()).toEqual({})
+  })
+})
+
+describe('a projects snapshot that could not read a repo', () => {
+  const row = (kind: string, id: string, data: unknown) =>
+    socket.deliver({ t: 'entity', scope: 'projects', kind, id, v: 2, data })
+  const repo = (id: string) => row('repo', id, { id, projectId: 'p1', name: id, order: 0 })
+  const rowsOf = (repoId: string) => {
+    row('workspace', `w-${repoId}`, workspaceDTO({ id: `w-${repoId}`, repoId }))
+    row(
+      'chat',
+      `c-${repoId}`,
+      chatEntity({ id: `c-${repoId}`, repoId, workspaceId: `w-${repoId}` }),
+    )
+    row('folder', `f-${repoId}`, {
+      id: `f-${repoId}`,
+      projectId: 'p1',
+      repoId,
+      parentId: '',
+      name: 'F',
+      order: 0,
+    })
+  }
+  const byKind = () => entityStore.getState().byKind
+  const kept = (repoId: string) => [
+    `w-${repoId}` in byKind().workspace,
+    `c-${repoId}` in byKind().chat,
+    `f-${repoId}` in byKind().folder,
+  ]
+  let stopLifecycle = () => {}
+  beforeEach(() => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    repo('r1')
+    repo('r2')
+    rowsOf('r1')
+    rowsOf('r2')
+    stopLifecycle = followChatLifecycle()
+  })
+  afterEach(() => {
+    stopLifecycle()
+    vi.restoreAllMocks()
+  })
+
+  it("keeps the rows of a repo it could not read, and prunes a read repo's", () => {
+    reconnect(`e${epochs}`)
+    repo('r1')
+    socket.deliver({ t: 'synced', scope: 'projects', unread: ['r1'] })
+    expect(kept('r1')).toEqual([true, true, true])
+    expect(kept('r2')).toEqual([false, false, false])
+    expect(console.warn).toHaveBeenCalledOnce()
+  })
+
+  it('still lets the repo list itself follow the snapshot', () => {
+    reconnect(`e${epochs}`)
+    socket.deliver({ t: 'synced', scope: 'projects', unread: ['r2'] })
+    expect(Object.keys(byKind().repo)).toEqual([])
+    expect(kept('r2')).toEqual([true, true, true])
+  })
+
+  it('keeps a held chat its prompts waiting to be sent, and prunes it once a snapshot reads it', () => {
+    const waiting = [{ requestId: 'q1' } as OutboxItem]
+    chatStore.setState({ outbox: { 'c-r1': waiting } })
+    reconnect(`e${epochs}`)
+    socket.deliver({ t: 'synced', scope: 'projects', unread: ['r1'] })
+    expect(chatStore.getState().outbox['c-r1']).toBe(waiting)
+
+    reconnect(`e${epochs}`)
+    synced()
+    expect(chatStore.getState().outbox['c-r1']).toBeUndefined()
   })
 })

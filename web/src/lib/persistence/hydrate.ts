@@ -80,7 +80,9 @@ function unplaceChatPanes(layout: WorkspaceLayout): WorkspaceLayout {
   return { ...layout, panes }
 }
 
-function placeFrom(s: EntityState): void {
+// A chat a snapshot left out is gone only when that snapshot read every repo.
+function placeFrom(s: EntityState): boolean {
+  const definitive = !s.unread.projects?.length
   const { panes, views } = windowPaneStore.getState()
   const placed = new Map<string, string>()
   const gone = new Set<string>()
@@ -89,21 +91,23 @@ function placeFrom(s: EntityState): void {
     if (!pane.chatId || pane.workspaceId || !inView) continue
     const chat = s.byKind.chat[pane.chatId]?.data
     if (chat?.workspaceId) placed.set(pane.chatId, chat.workspaceId)
-    else if (!chat) gone.add(pane.chatId)
+    else if (!chat && definitive) gone.add(pane.chatId)
   }
   if (placed.size > 0 || gone.size > 0) {
     windowPaneStore.getState().paneActions.placeRestoredMembers(placed, gone)
   }
+  return definitive
 }
 
 /** Once the projects scope's first snapshot lands, places each restored chat pane that
- *  names no workspace in its chat's, and drops one whose chat is gone. */
+ *  names no workspace in its chat's, and drops one whose chat is gone; while a snapshot
+ *  could not read some repo, the next one answers for what it left out. */
 export function placeRestoredPanesOnceSynced(): void {
-  if (entityStore.getState().loaded.projects) return placeFrom(entityStore.getState())
-  const stop = entityStore.subscribe((s) => {
-    if (!s.loaded.projects) return
-    stop()
-    placeFrom(s)
+  const now = entityStore.getState()
+  if (now.loaded.projects && placeFrom(now)) return
+  const stop = entityStore.subscribe((s, prev) => {
+    if (!s.loaded.projects || (prev.loaded.projects && s.unread === prev.unread)) return
+    if (placeFrom(s)) stop()
   })
 }
 
