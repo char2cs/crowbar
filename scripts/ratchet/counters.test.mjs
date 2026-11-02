@@ -45,8 +45,11 @@ test('web.swallowed-promise counts .catch handlers that discard the rejection', 
       'p.catch(() => null)',
       'p.catch(() => { /* ignore */ })',
       'p.catch(function () {})',
+      'p.catch(() => false)',
+      "p.catch(() => '')",
+      'p.catch(() => 0)',
     ),
-    6,
+    9,
   )
   assert.equal(count('web.swallowed-promise', 'web', 'p.catch((e) => report(e))', 'p.catch(() => { retry() })', 'p.catch(function (e) { report(e) })'), 0)
 })

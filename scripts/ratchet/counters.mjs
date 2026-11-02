@@ -15,7 +15,7 @@ export const COUNTERS = [
   {
     id: 'web.swallowed-promise',
     lang: 'web',
-    re: /\.catch\(\s*(?:(?:\([^)]*\)|[\w$]+)\s*=>\s*(?:\{(?:\s|\/\/[^\n]*|\/\*[\s\S]*?\*\/)*\}|undefined|null|void 0)|function\s*[\w$]*\s*\([^)]*\)\s*\{(?:\s|\/\/[^\n]*|\/\*[\s\S]*?\*\/)*\})\s*\)/g,
+    re: /\.catch\(\s*(?:(?:\([^)]*\)|[\w$]+)\s*=>\s*(?:\{(?:\s|\/\/[^\n]*|\/\*[\s\S]*?\*\/)*\}|undefined|null|void 0|true|false|-?\d+(?:\.\d+)?|'[^'\n]*'|"[^"\n]*")|function\s*[\w$]*\s*\([^)]*\)\s*\{(?:\s|\/\/[^\n]*|\/\*[\s\S]*?\*\/)*\})\s*\)/g,
   },
 ]
 

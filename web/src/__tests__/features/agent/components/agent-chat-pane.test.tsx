@@ -146,6 +146,7 @@ import {
   resetChatStore,
   setProviders,
 } from '@/__tests__/__fixtures__/agent-chat'
+import { expectReported, watchToasts } from '@/__tests__/__fixtures__/reports'
 
 /**
  * Land this pane on the TERMINAL surface.
@@ -612,22 +613,8 @@ describe('AgentChatPane', () => {
     })
   })
 
-  // ── Header clearance: the chat's own overlay header must never cover pinned UI ──
-  // ChatColumnHeader/ChatOnlyPaneHeader (pane-top-row.tsx) float as an absolute,
-  // z-10 overlay with NO fill of their own — the chat surface behind is meant to
-  // show through and blur/fade under it. But that overlay still owns a REAL,
-  // clickable 44px (Mac) hit-box, and nothing about "no fill" makes it click-
-  // through. A blank chat's reviving/idle/trust signpost rides inside
-  // AgentEmptyDocument's own `.dochandle` now — the same element the ordinary
-  // model/effort/attach/send row occupies, sharing its ONE clearance source
-  // (`--agent-header-clearance` on `.agent-chat.chat`, which `place()`/
-  // `lastLineTop` also reads) — so there is nothing left to double-count and
-  // nothing left to fall out of sync between "the banner" and "the row it
-  // sits on". `belowOverlayHeader` is pane-container's own answer to "does an
-  // overlay header actually sit above me right now" (true for
-  // ChatOnlyPaneHeader's chatFillsPane and ChatColumnHeader's side-by-side/stacked
-  // case; false for the small in-flow ChatBranchHeader the collapsed 'tabs'
-  // presentation uses, which already reserves its own real space).
+  // The overlay header has no fill but a real hit-box: a blank chat's signpost rides
+  // `.dochandle`, sharing the row's one clearance (`--agent-header-clearance`).
   describe('header clearance (overlay chat-blur header)', () => {
     function renderBelowOverlayHeader(store: Store, chatId: string, runnerId: string) {
       const paneId = openChatPane(store, chatId, runnerId)
@@ -1408,13 +1395,21 @@ describe('AgentChatPane', () => {
 
       await renderPane(store, paneId)
 
-      // The read's 404 lands; give it a tick to settle.
       await act(async () => {
         await Promise.resolve()
       })
 
       expect(paneOf(store, paneId)).toBeDefined()
       expect(paneOf(store, paneId)?.chatId).toBe('c1')
+    })
+
+    it('reports a read that failed for any other reason', async () => {
+      const toasts = watchToasts()
+      const store = seedWorkspace([], 'w1')
+      getChatFn.mockRejectedValue(new ApiError('chat store unreadable', 500))
+      await renderPane(store, openChatPane(store, 'c1', '', 'Chat', 'w1'))
+
+      await waitFor(() => expectReported(toasts, 'Open the chat', 'chat store unreadable'))
     })
   })
 })

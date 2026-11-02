@@ -40,6 +40,8 @@ import { useTerminalEscort } from '@/features/agent/components/use-terminal-esco
 import { useWindowChord } from '@/features/agent/components/use-window-chord'
 import { AgentChatView } from '@/features/agent/chat/agent-chat-view'
 import { AgentTerminalSurface } from '@/features/agent/terminal/agent-terminal-surface'
+import { isNotFoundError } from '@/lib/errors/api-error'
+import { report } from '@/lib/errors/report'
 
 interface AgentChatPaneProps {
   /** The chat this pane is pointed at. NOT stable for its life: the pane re-points it. */
@@ -224,9 +226,10 @@ export function AgentChatPane({
     if (!listSeeded || known || !shownChatId) return
     if (resolvedRef.current.has(shownChatId)) return
     resolvedRef.current.add(shownChatId)
-    void readChat(shownChatId)
-      // Gone, or the read failed: `pending` is now an honest "nothing to show".
-      .catch(() => false)
+    void readChat(shownChatId).catch((err: unknown) => {
+      // Gone: `pending` is now an honest "nothing to show"; any other failure is news.
+      if (!isNotFoundError(err)) report(err, { action: 'Open the chat' })
+    })
   }, [readChat, listSeeded, known, shownChatId])
 
   const escort = useTerminalEscort({

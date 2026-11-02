@@ -145,8 +145,8 @@ export default tseslint.config(
         },
         {
           selector:
-            "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[body.type='Literal'][body.raw='null']",
-          message: '.catch(() => null) hides a failure: handle it or report() it.',
+            "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[body.type='Literal']",
+          message: '.catch(() => null/false/…) hides a failure: handle it or report() it.',
         },
         {
           selector:
