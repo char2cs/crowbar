@@ -82,6 +82,20 @@ func TestNew_ReportsItsBoundTCPAddress(t *testing.T) {
 	assert.Regexp(t, `^tcp://127\.0\.0\.1:[1-9][0-9]*$`, c.Address(), "the port it bound, not the one asked")
 }
 
+// A wildcard bind is reachable on loopback; a callback dialing the address it
+// is handed must not be given an unspecified host.
+func TestNew_ReportsAWildcardBindAsLoopback(t *testing.T) {
+	for _, host := range []string{"tcp://0.0.0.0:0", "tcp://[::]:0"} {
+		t.Run(host, func(t *testing.T) {
+			c, err := internal.New(context.Background(), host, nil, internal.WithHomeDir(t.TempDir()))
+			require.NoError(t, err)
+			t.Cleanup(c.Close)
+
+			assert.Regexp(t, `^tcp://127\.0\.0\.1:[1-9][0-9]*$`, c.Address())
+		})
+	}
+}
+
 func TestNew_InvalidHost_ReturnsError(t *testing.T) {
 	_, err := internal.New(context.Background(), "bogus://x", nil, internal.WithHomeDir(t.TempDir()))
 	assert.Error(t, err)

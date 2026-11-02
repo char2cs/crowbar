@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -287,12 +288,18 @@ func (c *Container) release() error {
 }
 
 // addressOf is the address listener is bound to, as a callback's --host:
-// unix://<path>, or tcp://<host:port> with the port the bind chose.
+// unix://<path>, or tcp://<host:port> with the port the bind chose. A wildcard
+// host is not dialable everywhere, so it is named as loopback, which it serves.
 func addressOf(
 	listener net.Listener,
 ) string {
-	if addr, ok := listener.Addr().(*net.UnixAddr); ok {
+	switch addr := listener.Addr().(type) {
+	case *net.UnixAddr:
 		return "unix://" + addr.Name
+	case *net.TCPAddr:
+		if addr.IP.IsUnspecified() {
+			return "tcp://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(addr.Port))
+		}
 	}
 	return "tcp://" + listener.Addr().String()
 }
