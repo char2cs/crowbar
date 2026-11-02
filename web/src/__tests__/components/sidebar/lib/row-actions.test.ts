@@ -18,6 +18,7 @@ import {
   expectReported,
   migratingRefusal,
   refusal,
+  UNWORDED,
   watchToasts,
 } from '@/__tests__/__fixtures__/reports'
 
@@ -226,6 +227,9 @@ describe('row-actions', () => {
     await expect(performSetWorkspaceLock('ws-1', true)).resolves.toBeUndefined()
     expectReported(toasts, 'Failed to update lock', 'branch is protected')
     expect(useFolderSignalStore.getState().generations['repo-1']).toBeUndefined()
+    vi.mocked(api.setWorkspaceLock).mockRejectedValueOnce(UNWORDED)
+    await performSetWorkspaceLock('ws-1', true)
+    expect(toasts).toHaveBeenLastCalledWith(expect.objectContaining({ description: undefined }))
   })
 
   it('a rename refused while the daemon migrates shows the migrating state, not a toast', async () => {

@@ -14,7 +14,7 @@ import {
   insertPendingImageInto,
   settlePendingImageInto,
 } from '@/features/agent/composer/plate/chat-attachment-insert'
-import { report } from '@/lib/errors/report'
+import { report, UNREACHED } from '@/lib/errors/report'
 
 interface ChatPastePluginOptions {
   wsId: string
@@ -126,7 +126,7 @@ export function createChatPastePlugin({ wsId, chatId }: ChatPastePluginOptions) 
               settlePendingImageInto(editor, objectUrl, null)
               // Unhandled otherwise: a paste of a large/rejected image would
               // silently do nothing, mid-typing, with no feedback at all.
-              report(err, { action: 'Could not attach that image' })
+              report(err, { action: 'Could not attach that image', fallback: UNREACHED })
             })
           return true
         }
@@ -147,7 +147,7 @@ export function createChatPastePlugin({ wsId, chatId }: ChatPastePluginOptions) 
                 insertAttachmentMarkdownInto(editor, markdown)
               })
               .catch((err) => {
-                report(err, { action: 'Could not attach that file' })
+                report(err, { action: 'Could not attach that file', fallback: UNREACHED })
               })
           }
           return true
@@ -169,7 +169,7 @@ export function createChatPastePlugin({ wsId, chatId }: ChatPastePluginOptions) 
               insertAttachmentMarkdownInto(editor, markdown)
             })
             .catch((err) => {
-              report(err, { action: 'Could not attach that text' })
+              report(err, { action: 'Could not attach that text', fallback: UNREACHED })
             })
           return true
         }

@@ -7,9 +7,14 @@ import { reportDaemonRefusal } from '@/lib/ws/connection-store'
 /** What the user was doing when it failed. */
 interface ReportContext {
   action: string
+  /** Why, when the throw is not an Error and so carries no words of its own. */
+  fallback?: string
 }
 
 const UNEXPECTED = 'Something went wrong'
+
+/** The fallback for a call whose throw is not an Error: no daemon answered to word it. */
+export const UNREACHED = 'Crowbar could not reach the daemon — try again.'
 
 // A cancelled request or Monaco provider call is a superseded one, not a failure.
 function isCancellation(error: unknown): boolean {
@@ -24,12 +29,8 @@ export function report(error: unknown, context: ReportContext): void {
   const problem = problemOf(error)
   // A migrating or halted daemon has its own screen; a toast per refused call would bury it.
   if (reportDaemonRefusal(problem)) return
-  toastManager.add({
-    id: context.action,
-    type: 'error',
-    title: context.action,
-    description: problem.message,
-  })
+  const description = error instanceof Error ? problem.message : context.fallback
+  toastManager.add({ id: context.action, type: 'error', title: context.action, description })
 }
 
 /** Reports every promise rejection nothing handled; returns the uninstaller. */

@@ -21,6 +21,7 @@ import {
   expectReported,
   migratingRefusal,
   refusal,
+  UNWORDED,
   watchToasts,
 } from '@/__tests__/__fixtures__/reports'
 
@@ -289,10 +290,7 @@ describe('createChatPastePlugin', () => {
     })
   })
 
-  // REGRESSION, reported live: "photos attachments are not loaded
-  // instantly... let's not wait for them." The preview must appear
-  // synchronously, before the upload promise ever resolves — not just
-  // eventually, which the test above already covers.
+  // The preview must appear synchronously, before the upload resolves.
   it('inserts a local preview immediately, before the upload resolves', () => {
     let resolveUpload!: (value: {
       ref: string
@@ -312,8 +310,7 @@ describe('createChatPastePlugin', () => {
 
     onPaste({ editor, event })
 
-    // Synchronous — no `await`/`waitFor` — the upload promise above is still
-    // pending at this point.
+    // No await: the upload above is still pending.
     const markdown = chatValueToMarkdown(editor.children as never)
     expect(markdown).toMatch(/!\[pasted-image\.png\]\(blob:/)
 
@@ -340,9 +337,6 @@ describe('createChatPastePlugin', () => {
     expect(editor.children).toBe(before)
   })
 
-  // Risk class 1 (this task's brief): an unhandled upload rejection used to
-  // be a silent no-op mid-typing. Caught and toasted instead, the same
-  // precedent agent-composer.tsx's own `uploadAndInsert` already set.
   it('surfaces a failed image upload as a toast instead of silently doing nothing', async () => {
     uploadChatAttachmentMock.mockRejectedValueOnce(refusal('413 Payload Too Large'))
     const { onPaste } = pastePluginHandlers()
@@ -369,10 +363,7 @@ describe('createChatPastePlugin', () => {
     await waitFor(() => expectMigratingShown(toastError))
   })
 
-  // REGRESSION: pasting a non-image file (a PDF copied in Finder, say) had no
-  // `image/*` clipboard item and no `text/plain` payload either, so
-  // Cmd/Ctrl+V silently did nothing at all — this is the branch that fixes
-  // that by reading `clipboardData.files` directly.
+  // A non-image file (a PDF copied in Finder) has no image item and no text payload.
   it('uploads a pasted non-image file through the shared upload/markdown resolver', async () => {
     uploadAttachmentMarkdownMock.mockResolvedValue(
       '[report.pdf](chats/c1/attachments/x-report.pdf)',
@@ -420,6 +411,27 @@ describe('createChatPastePlugin', () => {
     await waitFor(() => expectMigratingShown(toastError))
   })
 
+  it('words a paste whose upload threw no Error as an unreachable daemon', async () => {
+    uploadChatAttachmentMock.mockRejectedValue(UNWORDED)
+    uploadAttachmentMarkdownMock.mockRejectedValue(UNWORDED)
+    const { onPaste } = pastePluginHandlers()
+    const image = new File(['bytes'], 'a.png', { type: 'image/png' })
+    const pdf = new File(['bytes'], 'a.pdf', { type: 'application/pdf' })
+    onPaste({ editor: editorWith(''), event: pasteEvent('', [imageItem(image)]).event })
+    onPaste({ editor: editorWith(''), event: pasteEvent('', [], [pdf]).event })
+    const huge = 'x'.repeat(INLINE_ATTACHMENT_MAX_BYTES + 1)
+    onPaste({ editor: editorWith(''), event: pasteEvent(huge).event })
+
+    await waitFor(() => {
+      for (const what of ['image', 'file', 'text'])
+        expectReported(
+          toastError,
+          `Could not attach that ${what}`,
+          'Crowbar could not reach the daemon — try again.',
+        )
+    })
+  })
+
   it('prefers an image clipboard item over a files entry when both are present', () => {
     uploadChatAttachmentMock.mockResolvedValue({
       ref: 'chats/c1/attachments/x-pasted-image.png',
@@ -458,22 +470,8 @@ describe('createChatPastePlugin', () => {
     expect(uploadAttachmentMarkdownMock).not.toHaveBeenCalled()
   })
 
-  // Wave 6, Bug 2 (live-reproduced): two over-threshold pastes back to back,
-  // with no intervening keystroke, merged into a SINGLE text-attachment
-  // fence instead of producing two. Root cause: `insertAttachmentMarkdownInto`
-  // leaves the selection sitting inside the fence's own `code_line` right
-  // after inserting it, so this plugin's OWN "caret inside a code block"
-  // bypass (previously a bare `{ type: CodeBlockPlugin.key }` match) treated
-  // the second paste as "the user is editing real code, leave it alone" and
-  // let it fall through to Slate's default handling, which appended the
-  // second paste's text into the SAME fence. Fixed by `isRealCodeBlock`
-  // narrowing that match to exclude the plugin's own attachment fences
-  // (identified by their `lang` prefix) — a caret left inside one of THOSE
-  // now falls through to this plugin's normal threshold logic instead, whose
-  // existing `insertAttachmentMarkdownInto` redirect (proven by
-  // `TestRegression_insertsTwoFencedAttachmentsAsSeparateSiblingBlocks` in
-  // chat-markdown-editor.test.tsx) correctly appends the new fence as a
-  // sibling of the first rather than corrupting it.
+  // The caret left inside the first attachment fence must not read as real code,
+  // or the second paste is appended into the same fence.
   it('TestRegression_twoConsecutivePastesWithNoInterveningKeystrokeProduceTwoSeparateFences', () => {
     const { onPaste } = pastePluginHandlers()
     const editor = editorWith('')

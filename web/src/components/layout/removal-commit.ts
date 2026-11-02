@@ -320,7 +320,7 @@ export async function commitRemoval(entry: RemovalEntry, context: RemovalContext
       return
     }
     treeUiStore.getState().release(entry.hiddenIds)
-    report(err, { action: `Couldn't remove ${entry.label}` })
+    report(err, { action: `Couldn't remove ${entry.label}`, fallback: 'request failed' })
     return
   }
 

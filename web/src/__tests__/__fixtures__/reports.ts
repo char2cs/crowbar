@@ -16,6 +16,9 @@ export function refusal(message: string, code = 'conflict'): ApiError {
   return new ApiError(message, 409, code)
 }
 
+/** What a client throws when no daemon answered: not an Error, so no words of its own. */
+export const UNWORDED = { status: 0 }
+
 /** The daemon refusing every call while it prepares its home. */
 export function migratingRefusal(): ApiError {
   return new ApiError(MIGRATING, 503, 'daemon_migrating')

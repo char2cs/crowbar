@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import type { UploadChatAttachmentInput } from '@/features/agent/api/upload-chat-attachment'
 import { uploadAttachmentMarkdown } from '@/features/agent/composer/lib/attachment-upload'
-import { report } from '@/lib/errors/report'
+import { report, UNREACHED } from '@/lib/errors/report'
 
 export interface UseAttachmentUploadResult {
   uploadAndInsert: (input: UploadChatAttachmentInput) => Promise<void>
@@ -55,7 +55,7 @@ export function useAttachmentUpload(
           settlePending(objectUrl, markdown)
         } catch (err) {
           settlePending(objectUrl, null)
-          report(err, { action: 'Could not attach that file' })
+          report(err, { action: 'Could not attach that file', fallback: UNREACHED })
         }
         return
       }
@@ -64,7 +64,7 @@ export function useAttachmentUpload(
         const markdown = await uploadAttachmentMarkdown(wsId, chatId, input)
         onInsert(markdown)
       } catch (err) {
-        report(err, { action: 'Could not attach that file' })
+        report(err, { action: 'Could not attach that file', fallback: UNREACHED })
       }
     },
     [wsId, chatId, onInsert, onInsertPendingImage, onSettlePendingImage],

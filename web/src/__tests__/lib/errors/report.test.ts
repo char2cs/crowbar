@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { installGlobalReporting } from '@/lib/errors/report'
+import { installGlobalReporting, report } from '@/lib/errors/report'
 import { ApiError } from '@/lib/errors/api-error'
 import { OperationFailedError } from '@/lib/errors/operation-failed'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
@@ -7,8 +7,8 @@ import { toastManager } from '@/lib/toast-manager'
 
 vi.mock('@/lib/toast-manager', () => ({ toastManager: { add: vi.fn() } }))
 
-// report() has no caller of its own yet: every case reaches it as an
-// unhandled rejection, the route installGlobalReporting gives it.
+// Most cases reach report() as an unhandled rejection, the route
+// installGlobalReporting gives it.
 const target = new EventTarget() as Window
 let dispose: () => void
 
@@ -70,6 +70,15 @@ describe('report', () => {
     )
     expect(logged).toHaveBeenCalledWith(expect.any(String), bug)
     logged.mockRestore()
+  })
+
+  it('words a throw that is not an Error with the caller’s fallback, never its String()', () => {
+    report({ status: 'gone' }, { action: 'Rename', fallback: 'request failed' })
+    report({ status: 'gone' }, { action: 'Move' })
+    report(new Error('disk full'), { action: 'Save', fallback: 'request failed' })
+
+    const descriptions = vi.mocked(toastManager.add).mock.calls.map(([t]) => t.description)
+    expect(descriptions).toEqual(['request failed', undefined, 'disk full'])
   })
 
   it('reports an unhandled rejection once installed, and nothing after dispose', () => {

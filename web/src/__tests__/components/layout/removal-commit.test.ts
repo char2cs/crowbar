@@ -22,6 +22,7 @@ import {
   expectReported,
   migratingRefusal,
   refusal,
+  UNWORDED,
   watchToasts,
 } from '@/__tests__/__fixtures__/reports'
 import { toastManager } from '@/lib/toast-manager'
@@ -237,12 +238,14 @@ describe('committing a workspace removal', () => {
         fallbackWsId: null,
       },
     ])
-
     await commitRemoval(entry(), context)
 
     expect(treeUiStore.getState().hiddenIds.has('ws-fork')).toBe(false)
     expect(treeUiStore.getState().hiddenIds.has('chat-fork')).toBe(false)
     expectReported(toastError, "Couldn't remove feature/one", 'worktree is busy')
+    deleteChat.mockRejectedValueOnce(UNWORDED)
+    await commitRemoval(entry({ entryId: 'e2' }), context)
+    expectReported(toastError, "Couldn't remove feature/one", 'request failed')
   })
 
   it('a delete refused while the daemon migrates shows the migrating state, not a toast', async () => {
@@ -311,8 +314,7 @@ describe('committing a project-home removal', () => {
 
     expect(deleteChat).toHaveBeenCalledExactlyOnceWith('home-ws-1', 'c1')
     expect(toastError).not.toHaveBeenCalled()
-    // Nothing to bump for a repo id that never existed — bumpRepoTree's own
-    // no-op guard, not a missing call.
+    // bumpRepoTree's own no-op guard: there is no such repo.
     expect(useFolderSignalStore.getState().generations['r1'] ?? 0).toBe(before)
   })
 

@@ -7,6 +7,7 @@ import {
   expectReported,
   migratingRefusal,
   refusal,
+  UNWORDED,
   watchToasts,
 } from '@/__tests__/__fixtures__/reports'
 
@@ -49,6 +50,25 @@ describe('useAttachmentUpload', () => {
 
     expectReported(toastError, 'Could not attach that file', '413 Payload Too Large')
     expect(onInsert).not.toHaveBeenCalled()
+  })
+
+  it('words an upload that threw no Error as an unreachable daemon', async () => {
+    vi.mocked(uploadAttachmentMarkdown).mockRejectedValue(UNWORDED)
+    const { result } = renderHook(() => useAttachmentUpload('w1', 'c1', vi.fn(), vi.fn(), vi.fn()))
+
+    await act(async () => {
+      await result.current.uploadAndInsert({ path: '/tmp/a.png' })
+      await result.current.uploadAndInsert({
+        file: new File(['b'], 'a.png', { type: 'image/png' }),
+      })
+    })
+
+    expect(toastError).toHaveBeenCalledTimes(2)
+    expectReported(
+      toastError,
+      'Could not attach that file',
+      'Crowbar could not reach the daemon — try again.',
+    )
   })
 
   it('an upload refused while the daemon migrates shows the migrating state, not a toast', async () => {
