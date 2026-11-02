@@ -2,6 +2,7 @@ package v0
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -12,14 +13,22 @@ import (
 	appstream "github.com/char2cs/crowbar/api/internal/app/stream"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // sidebar reads the projects scope's snapshot through the list routes' own
 // reads, so a row the stream carries is the row REST serves.
 type sidebar struct {
-	app   *app.Container
-	chats *chathandlers.Handlers
+	app  *app.Container
+	rows rowReader
+}
+
+// rowReader is the list routes' reads of one scope's rows.
+type rowReader interface {
+	RepoRows(ctx context.Context, projectID, repoID string) (chathandlers.Rows, error)
+	HomeRows(ctx context.Context, homeID string) (chathandlers.Rows, error)
+	OwnerOf(ctx context.Context, ws domain.Workspace) string
 }
 
 // NewSidebar is the projects scope's snapshot over c.
@@ -29,35 +38,38 @@ func NewSidebar(c *app.Container) appstream.Sidebar {
 		ucs.AgentProvider, ucs.AgentChatFolder).
 		WithWorktrees(chatWorktrees{app: c}).
 		WithNodes(c.Repositories.Placement)
-	return &sidebar{app: c, chats: chats}
+	return &sidebar{app: c, rows: chats}
 }
 
-// Entities is every project, repo, workspace, chat and folder. A project or a
-// repo whose rows will not read is left out and logged, as its list route fails
-// alone; only a failed project or repo list fails the read.
-func (s *sidebar) Entities(ctx context.Context) ([]appstream.Entity, error) {
+// Entities is every project, repo, workspace, chat and folder. A project home
+// or a repo whose rows will not read is unread, as its list route fails alone:
+// the client keeps what it holds of it. Only a failed project or repo list
+// fails the read.
+func (s *sidebar) Entities(ctx context.Context) (appstream.Snapshot, error) {
 	projects, err := s.app.GORM.Projects.FindAll(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("v0: sidebar: projects: %w", err)
+		return appstream.Snapshot{}, fmt.Errorf("v0: sidebar: projects: %w", err)
 	}
 	repos, err := s.app.GORM.Repositories.FindAll(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("v0: sidebar: repos: %w", err)
+		return appstream.Snapshot{}, fmt.Errorf("v0: sidebar: repos: %w", err)
 	}
 	placements := s.app.RepoPlacements.Of(ctx, repos)
-	var out []appstream.Entity
+	var snap appstream.Snapshot
 	for _, p := range projects {
-		out = append(out, appstream.Entity{Kind: stream.KindProject, ID: p.ID, Data: dto.ProjectDTOFrom(p)})
-		out = s.appendHome(ctx, out, p.ID)
+		snap.Entities = append(snap.Entities, appstream.Entity{Kind: stream.KindProject, ID: p.ID, Data: dto.ProjectDTOFrom(p)})
+		s.appendHome(ctx, &snap, p.ID)
 	}
 	rows := s.repoRows(ctx, repos)
 	for i, r := range repos {
-		out = append(out, appstream.Entity{Kind: stream.KindRepo, ID: r.ID, Data: dto.RepoDTOFrom(r, placements[r.ID])})
-		if rows[i] != nil {
-			out = appendRows(out, *rows[i], r.ProjectID, r.ID)
+		snap.Entities = append(snap.Entities, appstream.Entity{Kind: stream.KindRepo, ID: r.ID, Data: dto.RepoDTOFrom(r, placements[r.ID])})
+		if rows[i] == nil {
+			snap.Unread = append(snap.Unread, r.ID)
+			continue
 		}
+		snap.Entities = appendRows(snap.Entities, *rows[i], r.ProjectID, r.ID)
 	}
-	return out, nil
+	return snap, nil
 }
 
 // repoReads is how many repos' rows are read at once: each read runs git for
@@ -74,9 +86,9 @@ func (s *sidebar) repoRows(ctx context.Context, repos []domain.Repository) []*ch
 		slots <- struct{}{}
 		wg.Go(func() {
 			defer func() { <-slots }()
-			rows, err := s.chats.RepoRows(ctx, r.ProjectID, r.ID)
+			rows, err := s.rows.RepoRows(ctx, r.ProjectID, r.ID)
 			if err != nil {
-				slog.ErrorContext(ctx, "v0: sidebar: repo rows unreadable, left out", "repo", r.ID, "err", err)
+				slog.ErrorContext(ctx, "v0: sidebar: repo rows unreadable, kept as held", "repo", r.ID, "err", err)
 				return
 			}
 			out[i] = &rows
@@ -86,21 +98,28 @@ func (s *sidebar) repoRows(ctx context.Context, repos []domain.Repository) []*ch
 	return out
 }
 
-// appendHome adds projectID's home workspace and its rows.
-func (s *sidebar) appendHome(ctx context.Context, out []appstream.Entity, projectID string) []appstream.Entity {
+// appendHome adds projectID's home workspace and its rows; a home that will
+// not read is unread under projectID.
+func (s *sidebar) appendHome(ctx context.Context, snap *appstream.Snapshot, projectID string) {
 	home, err := s.app.Repositories.Workspace.GetHomeForProject(ctx, projectID)
-	if err != nil {
-		slog.WarnContext(ctx, "v0: sidebar: no home workspace", "project", projectID, "err", err)
-		return out
+	if errors.Is(err, problem.ErrNotFound) {
+		slog.WarnContext(ctx, "v0: sidebar: no home workspace", "project", projectID)
+		return
 	}
-	rows, err := s.chats.HomeRows(ctx, home.ID)
 	if err != nil {
-		slog.ErrorContext(ctx, "v0: sidebar: home rows unreadable, left out", "project", projectID, "err", err)
-		return out
+		slog.WarnContext(ctx, "v0: sidebar: home workspace unreadable, kept as held", "project", projectID, "err", err)
+		snap.Unread = append(snap.Unread, projectID)
+		return
+	}
+	rows, err := s.rows.HomeRows(ctx, home.ID)
+	if err != nil {
+		slog.ErrorContext(ctx, "v0: sidebar: home rows unreadable, kept as held", "project", projectID, "err", err)
+		snap.Unread = append(snap.Unread, projectID)
+		return
 	}
 	home.Working = s.app.Repositories.WorkingFor(home.ID)
-	rows.Workspaces = []dto.WorkspaceDTO{dto.WorkspaceDTOFrom(ctx, home, workspace.MergeEligibility{}, s.chats.OwnerOf(ctx, home), nil)}
-	return appendRows(out, rows, projectID, "")
+	rows.Workspaces = []dto.WorkspaceDTO{dto.WorkspaceDTOFrom(ctx, home, workspace.MergeEligibility{}, s.rows.OwnerOf(ctx, home), nil)}
+	snap.Entities = appendRows(snap.Entities, rows, projectID, "")
 }
 
 // appendRows adds one scope's rows.

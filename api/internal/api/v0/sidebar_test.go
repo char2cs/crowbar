@@ -45,7 +45,7 @@ func sidebarIDs(t *testing.T, side appstream.Sidebar, kind stream.EntityKind) []
 	got, err := side.Entities(context.Background())
 	require.NoError(t, err)
 	var ids []string
-	for _, e := range got {
+	for _, e := range got.Entities {
 		if e.Kind == kind {
 			ids = append(ids, e.ID)
 		}
@@ -109,4 +109,42 @@ func TestRepoLists_ShareOnePlacementsSoABrokenProjectLogsOnce(t *testing.T) {
 
 	assert.Equal(t, 2, reads, "both lists read through the app's Placements")
 	assert.Equal(t, 1, logged)
+}
+
+// failingRows is the list routes' reads with one repo's rows unreadable.
+type failingRows struct {
+	rowReader
+	repo string
+}
+
+func (f failingRows) RepoRows(ctx context.Context, projectID, repoID string) (chathandlers.Rows, error) {
+	if repoID == f.repo {
+		return chathandlers.Rows{}, errors.New("disk gone")
+	}
+	return f.rowReader.RepoRows(ctx, projectID, repoID)
+}
+
+// A repo whose rows will not read is unread, not absent: the client keeps the
+// rows it holds of it, while the repo itself and every other repo still read.
+func TestSidebar_ARepoWhoseRowsWillNotReadIsUnread(t *testing.T) {
+	a, _ := newAppAndEngine(t)
+	ctx := context.Background()
+	require.NoError(t, a.GORM.Projects.Save(ctx, domain.Project{ID: "p1", Name: "one"}))
+	require.NoError(t, a.GORM.Repositories.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1", Name: "one"}))
+	require.NoError(t, a.GORM.Repositories.Save(ctx, domain.Repository{ID: "r2", ProjectID: "p1", Name: "two"}))
+	side, ok := NewSidebar(a).(*sidebar)
+	require.True(t, ok)
+	side.rows = failingRows{rowReader: side.rows, repo: "r2"}
+
+	got, err := side.Entities(ctx)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"r2"}, got.Unread)
+	var repos []string
+	for _, e := range got.Entities {
+		if e.Kind == stream.KindRepo {
+			repos = append(repos, e.ID)
+		}
+	}
+	assert.ElementsMatch(t, []string{"r1", "r2"}, repos)
 }

@@ -16,7 +16,7 @@ type OperationSnapshots interface {
 // Sidebar is where the projects scope reads every project, repo, workspace,
 // chat and folder, each as the list routes serve it.
 type Sidebar interface {
-	Entities(ctx context.Context) ([]Entity, error)
+	Entities(ctx context.Context) (Snapshot, error)
 }
 
 // ProjectsSource serves the projects scope.
@@ -48,10 +48,10 @@ func (s *ProjectsSource) Attach(ctx context.Context, _ string, _ int64, emit fun
 }
 
 // Read is the sidebar's entities: slow to read, and its reads may write.
-func (s *ProjectsSource) Read(ctx context.Context, _ string) ([]Entity, error) {
-	entities, err := s.sidebar.Entities(ctx)
+func (s *ProjectsSource) Read(ctx context.Context, _ string) (Snapshot, error) {
+	snap, err := s.sidebar.Entities(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("stream: projects snapshot: %w", err)
+		return Snapshot{}, fmt.Errorf("stream: projects snapshot: %w", err)
 	}
-	return entities, nil
+	return snap, nil
 }

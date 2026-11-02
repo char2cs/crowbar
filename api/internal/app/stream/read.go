@@ -16,12 +16,19 @@ type Entity struct {
 	Data any
 }
 
+// Snapshot is what a Reader read: its entities, and the parts of its scope it
+// could not read, whose entities the client keeps rather than counts absent.
+type Snapshot struct {
+	Entities []Entity
+	Unread   []string
+}
+
 // Reader is a source whose snapshot is too slow to read under the hub's lock,
 // or may itself publish: the hub holds the scope live first, then reads, and
 // emits only the entities no live frame carried since.
 type Reader interface {
 	Source
-	Read(ctx context.Context, key string) ([]Entity, error)
+	Read(ctx context.Context, key string) (Snapshot, error)
 }
 
 // pendingRead is one connection's snapshot read in flight for a scope.
@@ -59,8 +66,8 @@ func (h *Hub) read(ctx context.Context, c *connection, name, key string, src Rea
 	defer h.reads.Done()
 	defer safego.Recover("stream.read")
 	start := time.Now()
-	entities, err := src.Read(ctx, key)
-	frames := h.encodeRead(entities)
+	snap, err := src.Read(ctx, key)
+	frames := h.encodeRead(snap.Entities)
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -72,7 +79,7 @@ func (h *Hub) read(ctx context.Context, c *connection, name, key string, src Rea
 		h.snapshotFailedLocked(ctx, c, name, err)
 		return
 	}
-	if !h.emitReadLocked(c, name, read, frames) {
+	if !h.emitReadLocked(c, name, read, frames, snap.Unread) {
 		h.snapshotFailedLocked(ctx, c, name, nil)
 		return
 	}
@@ -111,7 +118,7 @@ func (h *Hub) encodeRead(entities []Entity) []stream.Frame {
 }
 
 // emitReadLocked queues every read frame no live frame superseded, then synced.
-func (h *Hub) emitReadLocked(c *connection, name string, read *pendingRead, frames []stream.Frame) bool {
+func (h *Hub) emitReadLocked(c *connection, name string, read *pendingRead, frames []stream.Frame, unread []string) bool {
 	for _, f := range frames {
 		if h.stamps[entityKey(name, f.Kind, f.ID)].v > read.since {
 			continue
@@ -121,5 +128,5 @@ func (h *Hub) emitReadLocked(c *connection, name string, read *pendingRead, fram
 			return false
 		}
 	}
-	return c.push(stream.Synced(name), false)
+	return c.push(stream.Synced(name, unread...), false)
 }

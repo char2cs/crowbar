@@ -87,13 +87,18 @@ type Frame struct {
 	Delta   *ledger.FeedDelta `json:"delta,omitempty"`
 	Reason  string            `json:"reason,omitempty"`
 	Problem *problem.Problem  `json:"problem,omitempty"`
+	// Unread names the parts of a synced scope its snapshot could not read:
+	// the client keeps what it holds of them rather than counting them gone.
+	Unread []string `json:"unread,omitempty"`
 }
 
 // Ready is every connection's first frame: a new epoch voids every version the client holds.
 func Ready(epoch string) Frame { return Frame{T: FrameReady, Epoch: epoch} }
 
-// Synced says the scope's snapshot is complete.
-func Synced(scope string) Frame { return Frame{T: FrameSynced, Scope: scope} }
+// Synced says the scope's snapshot is complete, save for the parts unread names.
+func Synced(scope string, unread ...string) Frame {
+	return Frame{T: FrameSynced, Scope: scope, Unread: unread}
+}
 
 // Closed ends the client's hold on scope.
 func Closed(scope, reason string, p *problem.Problem) Frame {

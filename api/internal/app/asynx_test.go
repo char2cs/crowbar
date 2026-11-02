@@ -30,7 +30,7 @@ func encodeJSON(_ domainstream.EntityKind, v any) (json.RawMessage, error) { ret
 
 type emptySidebar struct{}
 
-func (emptySidebar) Entities(context.Context) ([]stream.Entity, error) { return nil, nil }
+func (emptySidebar) Entities(context.Context) (stream.Snapshot, error) { return stream.Snapshot{}, nil }
 
 func noSidebar(*Container) stream.Sidebar { return emptySidebar{} }
 

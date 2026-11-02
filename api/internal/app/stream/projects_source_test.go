@@ -32,17 +32,18 @@ func encodeOperation(kind stream.EntityKind, v any) (json.RawMessage, error) {
 // sidebar is a fake sidebar read; with gate set it waits there, after telling entered.
 type sidebar struct {
 	entities []appstream.Entity
+	unread   []string
 	err      error
 	entered  chan struct{}
 	gate     chan struct{}
 }
 
-func (s *sidebar) Entities(context.Context) ([]appstream.Entity, error) {
+func (s *sidebar) Entities(context.Context) (appstream.Snapshot, error) {
 	if s.gate != nil {
 		s.entered <- struct{}{}
 		<-s.gate
 	}
-	return s.entities, s.err
+	return appstream.Snapshot{Entities: s.entities, Unread: s.unread}, s.err
 }
 
 func TestProjectsSource_SnapshotsEveryKindThenSynced(t *testing.T) {
@@ -114,4 +115,19 @@ func TestProjectsSource_AFailedSnapshotClosesTheConnectionWithResync(t *testing.
 
 	ended(t, done)
 	assert.Equal(t, stream.CloseResync, conn.closeCode())
+}
+
+// The parts a read could not take ride its synced, so the client keeps them.
+func TestProjectsSource_TheUnreadPartsRideTheSynced(t *testing.T) {
+	side := &sidebar{entities: []appstream.Entity{{Kind: stream.KindRepo, ID: "r1", Data: "repo"}}, unread: []string{"r2"}}
+	hub := newHub(map[stream.ScopeKind]appstream.Source{
+		stream.KindProjects: appstream.NewProjectsSource(fixedOperations{}, side, encodeOperation),
+	}, nil)
+	conn := newFakeConn()
+	served(t, hub, conn)
+
+	conn.send(t, stream.OpSub, "projects")
+	frames := conn.until(t, syncedOn("projects"))
+
+	assert.Equal(t, []string{"r2"}, frames[len(frames)-1].Unread)
 }

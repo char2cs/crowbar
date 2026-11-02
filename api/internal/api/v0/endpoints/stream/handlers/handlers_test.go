@@ -25,7 +25,9 @@ func (noOperations) Snapshot(context.Context) ([]domain.Operation, error) { retu
 
 type noSidebar struct{}
 
-func (noSidebar) Entities(context.Context) ([]appstream.Entity, error) { return nil, nil }
+func (noSidebar) Entities(context.Context) (appstream.Snapshot, error) {
+	return appstream.Snapshot{}, nil
+}
 
 func serve(t *testing.T, keep handlers.KeepAlive) string {
 	t.Helper()
