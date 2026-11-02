@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -15,10 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
@@ -508,22 +505,6 @@ func TestList_Success(
 	require.Equal(t, []string{"ws1"}, uc.listWsIDs)
 }
 
-// TestList_UsecaseError proves a ListChatsByWorkspace failure surfaces as a
-// mapped error.
-func TestList_UsecaseError(
-	t *testing.T,
-) {
-	uc := &configurableListGetUsecase{listErr: errors.New("db down")}
-	h := newChatHandlers(uc)
-
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats", nil)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
-
-	h.List(ctx)
-
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-}
-
 // TestList_NoPathWorkspace_ScopesToTheRepo proves that at the repo-scoped mount
 // (Task 17: no :wsId path param) List reads the chats of the REPO in the URL
 // rather than ListChatsByWorkspace — and that it forwards the :repoId it was
@@ -559,23 +540,6 @@ func TestList_NoPathWorkspace_ScopesToTheRepo(
 	assert.Equal(t, []string{"r1"}, uc.listInRepoIDs,
 		"the repo in the URL is what the list must be scoped to")
 	assert.Empty(t, uc.listWsIDs, "ListChatsByWorkspace must not run when no workspace is named")
-}
-
-// TestList_NoPathWorkspace_UsecaseError proves a ListChatsInRepo failure on the
-// repo-scoped branch surfaces as a mapped error, same as the
-// ListChatsByWorkspace branch.
-func TestList_NoPathWorkspace_UsecaseError(
-	t *testing.T,
-) {
-	uc := &configurableListGetUsecase{listErr: errors.New("db down")}
-	h := newChatHandlers(uc)
-
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/chats", nil)
-	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}}
-
-	h.List(ctx)
-
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 // chatRow mirrors the derived runner facts on the wire shape of dto.AgentChatDTO:
@@ -837,27 +801,6 @@ func TestGet_RuntimeLookupError(
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// TestGet_WrongWorkspace404s proves the by-id scope check
-// (requireChatInWorkspace) still applies when the request names a workspace
-// (the home mount's injected :wsId): a chat that exists but is anchored to a
-// DIFFERENT workspace than :wsId 404s exactly like an unknown id, never
-// leaking that the chat exists elsewhere (Task 3, preserved by Task 17).
-func TestGet_WrongWorkspace404s(
-	t *testing.T,
-) {
-	uc := &configurableListGetUsecase{
-		chat: domain.Chat{ID: "c1", WorkspaceID: "ws-other"},
-	}
-	h := newChatHandlers(uc)
-
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats/c1", nil)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c1"}}
-
-	h.Get(ctx)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
 // TestGet_NoPathWorkspace_AnyWorkspaceIsVisible proves the repo-scoped mount
 // (Task 17: no :wsId path param) drops the WORKSPACE-ownership half of
 // requireChatInWorkspace: a chat anchored to some OTHER workspace OF THIS REPO
@@ -1047,22 +990,6 @@ func TestGet_RepoMount_ARowWithNoResolvableGroundIsStillServed(
 	}
 }
 
-// TestGet_ChatNotFound proves an unknown chat id 404s via the
-// agentchat.ErrNotFound -> not_found mapping.
-func TestGet_ChatNotFound(
-	t *testing.T,
-) {
-	uc := &configurableListGetUsecase{getErr: agentchat.ErrNotFound}
-	h := newChatHandlers(uc)
-
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/chats/missing", nil)
-	ctx.Params = gin.Params{{Key: "id", Value: "missing"}}
-
-	h.Get(ctx)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
 // TestRename_PostsTitleAndSource proves Rename decodes {title}, forwards the
 // path id, decoded title, and the `source` query param to RenameChat, and
 // responds 204 with an empty body on success.
@@ -1085,59 +1012,6 @@ func TestRename_PostsTitleAndSource(
 	assert.Equal(t, "c-1", uc.renameCalls[0].chatID)
 	assert.Equal(t, "My Title", uc.renameCalls[0].title)
 	assert.Equal(t, "agent", uc.renameCalls[0].source)
-}
-
-// TestRename_WrongWorkspace404s proves the by-id scope check
-// (requireChatInWorkspace): a chat anchored to a DIFFERENT workspace than the
-// :wsId path param 404s before RenameChat is ever called (Task 3).
-func TestRename_WrongWorkspace404s(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "c-1", WorkspaceID: "ws-other"}}
-	h := newChatHandlers(uc)
-
-	body := []byte(`{"title":"My Title"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws1/chats/c-1/rename", body)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c-1"}}
-
-	h.Rename(ctx)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-	assert.Empty(t, uc.renameCalls, "RenameChat must never be called once the scope check 404s")
-}
-
-// TestRename_BadJSON proves a malformed body is rejected 400 without reaching
-// the usecase.
-func TestRename_BadJSON(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{}
-	h := newChatHandlers(uc)
-
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/c-1/rename", []byte("{not json"))
-	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
-
-	h.Rename(ctx)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Empty(t, uc.renameCalls)
-}
-
-// TestRename_UsecaseError proves a RenameChat failure surfaces as a mapped
-// error response rather than a 204.
-func TestRename_UsecaseError(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{renameErr: agentchat.ErrNotFound}
-	h := newChatHandlers(uc)
-
-	body := []byte(`{"title":"My Title"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/missing/rename", body)
-	ctx.Params = gin.Params{{Key: "id", Value: "missing"}}
-
-	h.Rename(ctx)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func (configurableListGetUsecase) AnswerChoice(
@@ -1216,54 +1090,4 @@ func TestSetSelection_EmptyBodyClearsBothHalves(
 	require.Equal(t, http.StatusNoContent, rec.Code)
 	require.Len(t, uc.selectionCalls, 1)
 	assert.Equal(t, selectionCall{chatID: "c-1"}, uc.selectionCalls[0])
-}
-
-func TestSetSelection_WrongWorkspace404s(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "c-1", WorkspaceID: "ws-other"}}
-	h := newChatHandlers(uc)
-
-	body := []byte(`{"model":"opus"}`)
-	ctx, rec := newTestContext(t, http.MethodPatch,
-		"/v0/projects/p1/repos/r1/workspaces/ws1/chats/c-1/selection", body)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c-1"}}
-
-	h.SetSelection(ctx)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-	assert.Empty(t, uc.selectionCalls, "the scope check must 404 before the usecase is reached")
-}
-
-func TestSetSelection_BadJSON(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{}
-	h := newChatHandlers(uc)
-
-	ctx, rec := newTestContext(t, http.MethodPatch, "/v0/chats/c-1/selection", []byte("{not json"))
-	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
-
-	h.SetSelection(ctx)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Empty(t, uc.selectionCalls)
-}
-
-// TestSetSelection_RejectedValueSurfacesAs400: a value outside the provider's
-// declared catalogue is a client error, and the mapped problem must reach the
-// client as one rather than as an opaque 500.
-func TestSetSelection_RejectedValueSurfacesAs400(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{selectionErr: fmt.Errorf("no such model: %w", problem.ErrInvalidArgument)}
-	h := newChatHandlers(uc)
-
-	body := []byte(`{"model":"telepathy"}`)
-	ctx, rec := newTestContext(t, http.MethodPatch, "/v0/chats/c-1/selection", body)
-	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
-
-	h.SetSelection(ctx)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

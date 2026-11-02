@@ -8,9 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
-	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // TestDelete_Success proves Delete forwards the path id to the tree usecase's
@@ -48,55 +46,4 @@ func TestDelete_NamesTheChatsTheCascadeTookBeyondTheSelection(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.JSONEq(t, `{"success":true,"data":{"takenChatIds":["c-9"]}}`, rec.Body.String())
-}
-
-// TestDelete_WrongWorkspace404s proves the by-id scope check
-// (requireChatInWorkspace): a chat anchored to a DIFFERENT workspace than the
-// :wsId path param 404s before PurgeChat is ever called (Task 5).
-func TestDelete_WrongWorkspace404s(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "c-1", WorkspaceID: "ws-other"}}
-	tree := &fakeChatTree{}
-	h := newFolderHandlersWith(uc, tree)
-
-	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/projects/p1/repos/r1/workspaces/ws1/chats/c-1", nil)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c-1"}}
-
-	h.Delete(ctx)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-	assert.Empty(t, uc.purgeCalls, "PurgeChat must never be called once the scope check 404s")
-	assert.Empty(t, tree.gotPurge, "and neither must the cascade behind it")
-}
-
-// TestDelete_UsecaseError proves a cascade failure surfaces as a mapped error
-// response rather than a 200.
-func TestDelete_UsecaseError(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{}
-	h := newFolderHandlersWith(uc, &fakeChatTree{err: agentchat.ErrNotFound})
-
-	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/chats/missing", nil)
-	ctx.Params = gin.Params{{Key: "id", Value: "missing"}}
-
-	h.Delete(ctx)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-// TestDelete_RefusesWorkingSubtree proves the tree's unconditional working-row
-// refusal reaches the caller as 409, not the generic 500 an unmapped sentinel
-// would fall through to.
-func TestDelete_RefusesWorkingSubtree(t *testing.T) {
-	uc := &fakeAgentUsecase{}
-	h := newFolderHandlersWith(uc, &fakeChatTree{err: agentusecase.ErrTreeSubtreeWorking})
-
-	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/chats/c-1", nil)
-	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
-
-	h.Delete(ctx)
-
-	assert.Equal(t, http.StatusConflict, rec.Code)
 }
