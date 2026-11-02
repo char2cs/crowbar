@@ -142,13 +142,9 @@ func (c *Container) Register(
 		// scope correctly.
 		c.app.Repositories.ReviewThread,
 		threadStream{c.app.Stream},
-		// The agent chat REST surface is re-mounted under the home group so
-		// project-home workspaces get agentic chats too (the same concerns
-		// chat.Register uses on the repo-scoped group); home.Register injects
-		// the resolved home :wsId so it scopes correctly. The chat-FOLDER surface is re-mounted with it, for the same
-		// reason and then some: the home accumulates the most chats of any
-		// workspace, so a home without folders is the one place the panel most
-		// needs them and would not have them.
+		// The chat and chat-folder routes are re-mounted under the home group so
+		// a project home has chats and folders too; home.Register injects the
+		// resolved home :wsId.
 		c.app.Usecases.AgentChat,
 		c.app.Usecases.AgentTurn,
 		c.app.Usecases.AgentRunner,
@@ -212,14 +208,9 @@ func (c *Container) Register(
 		c.eng.Terminal,
 		c.app.GORM.TerminalProfiles,
 	)
-	// The agentic-chat REST surface is repo-scoped (Task 17): a chat's
-	// workspace is optional and mutable, so its routes mount on repoScoped
-	// (.../repos/:repoId) rather than wsScoped — no chat route names a
-	// workspace any more. Handlers that once trusted :wsId now either read
-	// :repoId or resolve a specific chat's own workspace from the chat itself
-	// (GetChat), never from the URL. rg carries the GLOBAL
-	// provider-preferences write route (/settings/chat/providers), mounted
-	// once outside the entity hierarchy like /settings/terminal/profiles.
+	// Chat routes are repo-scoped: a chat's workspace is optional and mutable,
+	// so no chat route names one. rg carries the global provider-preferences
+	// route (/settings/chat/providers).
 	chat.Register(
 		repoScoped,
 		rg,

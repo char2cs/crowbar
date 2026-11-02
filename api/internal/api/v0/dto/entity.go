@@ -2,10 +2,9 @@ package dto
 
 import "time"
 
-// ChatEntityDTO is a chat as the projects scope carries it: the DTO the chat
-// routes answer with, and the project and repo it is listed under ("" for a
-// project home). Its worktree, and whether it owns it, are its workspace
-// entity's: one row to update when either moves.
+// ChatEntityDTO is a chat as the projects scope carries it: the chat routes'
+// DTO and the project and repo it is listed under ("" for a project home).
+// Its worktree, and whether it owns it, are its workspace entity's.
 type ChatEntityDTO struct {
 	AgentChatDTO
 	ProjectID string `json:"projectId"`

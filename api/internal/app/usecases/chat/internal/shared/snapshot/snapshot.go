@@ -243,10 +243,9 @@ func (s *Snapshots) Held(ctx context.Context, chatID string) (Snapshot, error) {
 	return snaps[0], nil
 }
 
-// GetMany returns the current snapshot of every chat in chatIDs, in order,
-// without advancing any version. A chat deleted since it was listed is left
-// out; any other chat that cannot be answered fails the read. The placement overlay runs once for the whole read, after the lock
-// is released: it is a store read, and nothing it adds is versioned.
+// GetMany is every chat of chatIDs' current snapshot, in order; a chat deleted
+// since it was listed is left out, any other that cannot be answered fails it.
+// The placement overlay runs once, after the lock: nothing it adds is versioned.
 func (s *Snapshots) GetMany(ctx context.Context, chatIDs []string) ([]Snapshot, error) {
 	return s.read(ctx, chatIDs, true)
 }
@@ -305,9 +304,8 @@ func (s *Snapshots) preloadChats(ctx context.Context, chatIDs []string) error {
 	return nil
 }
 
-// collect builds every snapshot, uncorrected, under one hold of the lock.
-// collect builds each chat's snapshot under the lock; skipGone leaves out a
-// chat deleted or no longer found instead of failing the read.
+// collect builds every snapshot, uncorrected, under one hold of the lock;
+// skipGone leaves out a chat deleted or no longer found instead of failing.
 func (s *Snapshots) collect(
 	ctx context.Context,
 	chatIDs []string,

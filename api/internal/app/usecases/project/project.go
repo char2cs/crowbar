@@ -97,12 +97,8 @@ type Update struct {
 }
 
 // RepoUpdate is a partial repository update: a nil field is left as it is.
-// ProjectID may only name the repo's own project — a repo's project is fixed
-// at import (see refuseProjectMove). FolderID/Order re-file the
-// repo's own entry within its project's home tree — written to the repo's
-// own Node row (NodePlacements), interleaved against its real home chat and
-// folder siblings, which are Node-backed too now (2026-09-08
-// sidebar-placement-unification Task 5) — see placeRepoAmongHomeSiblings.
+// ProjectID may only name the repo's own project (see refuseProjectMove);
+// FolderID/Order re-file the repo among its home siblings.
 type RepoUpdate struct {
 	Name      *string
 	ProjectID *string
@@ -220,7 +216,6 @@ type projectUsecase struct {
 // already does elsewhere in this file: the bare-root densify simply cannot
 // narrow CHAT-kind siblings to this project and falls back to including
 // them all, rather than failing the request outright.
-
 func New(
 	projects store.Store[domain.Project, string],
 	repos store.ScopedStore[domain.Repository, string],

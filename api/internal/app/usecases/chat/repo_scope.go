@@ -57,10 +57,9 @@ func (u *Usecase) chatsByRepo(ctx context.Context) (map[string][]domain.Chat, er
 	return out, nil
 }
 
-// repoOfRow answers the repo one row runs in, reusing resolved as the per-call
-// memo of what each workspace's repo turned out to be. One list can hold many
-// rows over one workspace, and the answer cannot change mid-call. A folder, or
-// a row with no workspace to run in, is in no repo.
+// repoOfRow answers the repo one row runs in, memoizing each workspace's repo
+// in resolved for the call. A folder, or a row with no workspace to run in, is
+// in no repo.
 func (u *Usecase) repoOfRow(
 	ctx context.Context,
 	row domain.Chat,

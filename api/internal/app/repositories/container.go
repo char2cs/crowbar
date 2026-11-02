@@ -280,10 +280,9 @@ func (c *Container) WorkingFor(
 	return c.agentWorkingFor(wsID)
 }
 
-// Republish pushes the workspace's current row to the hub so a change no
-// workspace event carries (an agent-turn transition, a move of its position
-// Node) is visible without waiting for the next event. A failed read is
-// logged: the Working flip it carried is sent once and nothing repeats it.
+// Republish pushes the workspace's current row to the hub for a change no
+// workspace event carries (an agent turn, a move of its Node). A failed read
+// is logged: nothing repeats the flip it carried.
 func (c *Container) Republish(
 	ctx context.Context,
 	wsID string,

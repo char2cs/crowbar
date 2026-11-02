@@ -42,10 +42,9 @@ func NewSidebar(c *app.Container) appstream.Sidebar {
 	return &sidebar{app: c, rows: chats}
 }
 
-// Entities is every project, repo, workspace, chat and folder. A project home
-// or a repo whose rows will not read is unread, as its list route fails alone:
-// the client keeps what it holds of it. Only a failed project or repo list
-// fails the read.
+// Entities is every project, repo, workspace, chat and folder. A home or repo
+// whose rows will not read is unread, as its list route fails alone; only a
+// failed project or repo list fails the read.
 func (s *sidebar) Entities(ctx context.Context) (appstream.Snapshot, error) {
 	ctx, end := readonce.Begin(ctx)
 	defer end()
