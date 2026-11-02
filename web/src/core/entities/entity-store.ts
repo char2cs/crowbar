@@ -91,42 +91,68 @@ function payload(f: EntityFrame, snapshot: boolean): unknown {
   return f.kind === 'operation' && snapshot ? { ...(f.data as Operation), snapshot: true } : f.data
 }
 
+// One entity frame over `s`: a newer version replaces, an older one is ignored,
+// an equal one keeps the stored object.
+function withFrame(s: EntityState, f: EntityFrame): EntityState {
+  const kind = f.kind
+  if (!isStored(kind)) return s
+  const key = `${kind}:${f.id}`
+  const held = s.byKind[kind][f.id]
+  if (f.gone) {
+    if (!held) return s
+    return {
+      ...s,
+      byKind: withoutEntity(s.byKind, kind, f.id),
+      members: unmarkEverywhere(s.members, key),
+    }
+  }
+  const marked = { ...s, ...mark(s, f.scope, key) }
+  if (held && f.v <= held.v) return marked
+  const next = { v: f.v, data: payload(f, !s.synced[f.scope]) } as Versioned<
+    EntityData[typeof kind]
+  >
+  return { ...marked, byKind: { ...s.byKind, [kind]: { ...s.byKind[kind], [f.id]: next } } }
+}
+
+function settleOperations(frames: readonly EntityFrame[]): void {
+  for (const f of frames) {
+    if (f.kind === 'operation' && !f.gone) forgetLocalOperation(f.id, (f.data as Operation).version)
+  }
+}
+
 /** Applies one entity frame: a newer version replaces, an older one is ignored,
  *  an equal one keeps the stored object. */
 export function applyEntityFrame(f: EntityFrame): void {
-  const kind = f.kind
-  if (!isStored(kind)) return
-  const key = `${kind}:${f.id}`
-  entityStore.setState((s) => {
-    const held = s.byKind[kind][f.id]
-    if (f.gone) {
-      if (!held) return s
-      return {
-        byKind: withoutEntity(s.byKind, kind, f.id),
-        members: unmarkEverywhere(s.members, key),
-      }
-    }
-    const marked = mark(s, f.scope, key)
-    if (held && f.v <= held.v) return marked
-    const next = { v: f.v, data: payload(f, !s.synced[f.scope]) } as Versioned<
-      EntityData[typeof kind]
-    >
-    return { ...marked, byKind: { ...s.byKind, [kind]: { ...s.byKind[kind], [f.id]: next } } }
-  })
-  if (kind === 'operation' && !f.gone) forgetLocalOperation(f.id, (f.data as Operation).version)
+  if (!isStored(f.kind)) return
+  entityStore.setState((s) => withFrame(s, f))
+  settleOperations([f])
+}
+
+// A scope's snapshot rows wait for its synced and land in one write with it: one
+// store update, and one render, for a snapshot of any size.
+const snapshotRows = new Map<string, EntityFrame[]>()
+
+function heardEntity(f: EntityFrame): void {
+  const rows = snapshotRows.get(f.scope)
+  if (rows) rows.push(f)
+  else applyEntityFrame(f)
 }
 
 /** A sub for `scope` went out: what its snapshot leaves out is pruned at synced. */
 function beginSnapshot(scope: string): void {
+  snapshotRows.set(scope, [])
   entityStore.setState((s) => ({
     fresh: { ...s.fresh, [scope]: {} },
     synced: without(s.synced, scope),
   }))
 }
 
-/** The scope's snapshot is complete: an entity it no longer carries goes. */
+/** The scope's snapshot is complete: its rows land, and an entity it no longer carries goes. */
 function applySynced(scope: string): void {
-  entityStore.setState((s) => {
+  const rows = snapshotRows.get(scope) ?? []
+  snapshotRows.delete(scope)
+  entityStore.setState((held) => {
+    const s = rows.reduce(withFrame, held)
     const seen = s.fresh[scope] ?? s.members[scope] ?? {}
     const members = { ...s.members, [scope]: seen }
     let byKind = s.byKind
@@ -143,6 +169,7 @@ function applySynced(scope: string): void {
       loaded: s.loaded[scope] ? s.loaded : { ...s.loaded, [scope]: true },
     }
   })
+  settleOperations(rows)
 }
 
 /** A new daemon epoch: every version held is void, so any version replaces it. */
@@ -163,7 +190,7 @@ registerScopeKind('projects', {
   subscribed: beginSnapshot,
   epoch: resetForEpoch,
   frame(f) {
-    if (f.t === 'entity') applyEntityFrame(f)
+    if (f.t === 'entity') heardEntity(f)
     else if (f.t === 'synced') {
       applySynced(f.scope)
       forgetUnstreamedReplies((id) => id in entityStore.getState().byKind.operation)
@@ -174,7 +201,7 @@ registerScopeKind('projects', {
 registerScopeKind('ws', {
   subscribed: beginSnapshot,
   frame(f) {
-    if (f.t === 'entity') applyEntityFrame(f)
+    if (f.t === 'entity') heardEntity(f)
     else if (f.t === 'synced') applySynced(f.scope)
   },
 })

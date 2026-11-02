@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	chathandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat/handlers"
@@ -49,16 +50,40 @@ func (s *sidebar) Entities(ctx context.Context) ([]appstream.Entity, error) {
 		out = append(out, appstream.Entity{Kind: stream.KindProject, ID: p.ID, Data: dto.ProjectDTOFrom(p)})
 		out = s.appendHome(ctx, out, p.ID)
 	}
-	for _, r := range repos {
+	rows := s.repoRows(ctx, repos)
+	for i, r := range repos {
 		out = append(out, appstream.Entity{Kind: stream.KindRepo, ID: r.ID, Data: dto.RepoDTOFrom(r, placements[r.ID])})
-		rows, err := s.chats.RepoRows(ctx, r.ProjectID, r.ID)
-		if err != nil {
-			slog.ErrorContext(ctx, "v0: sidebar: repo rows unreadable, left out", "repo", r.ID, "err", err)
-			continue
+		if rows[i] != nil {
+			out = appendRows(out, *rows[i], r.ProjectID, r.ID)
 		}
-		out = appendRows(out, rows, r.ProjectID, r.ID)
 	}
 	return out, nil
+}
+
+// repoReads is how many repos' rows are read at once: each read runs git for
+// its worktrees, which the list routes did side by side, one request each.
+const repoReads = 8
+
+// repoRows reads every repo's rows side by side, in repos' order; a repo whose
+// rows will not read is nil and logged.
+func (s *sidebar) repoRows(ctx context.Context, repos []domain.Repository) []*chathandlers.Rows {
+	out := make([]*chathandlers.Rows, len(repos))
+	slots := make(chan struct{}, repoReads)
+	var wg sync.WaitGroup
+	for i, r := range repos {
+		slots <- struct{}{}
+		wg.Go(func() {
+			defer func() { <-slots }()
+			rows, err := s.chats.RepoRows(ctx, r.ProjectID, r.ID)
+			if err != nil {
+				slog.ErrorContext(ctx, "v0: sidebar: repo rows unreadable, left out", "repo", r.ID, "err", err)
+				return
+			}
+			out[i] = &rows
+		})
+	}
+	wg.Wait()
+	return out
 }
 
 // appendHome adds projectID's home workspace and its rows.

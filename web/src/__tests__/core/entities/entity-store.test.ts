@@ -101,6 +101,7 @@ describe('entity store', () => {
     entity('op1', 900, operation('op1', 'running'))
     reconnect(`e${epochs}-restarted`)
     entity('op1', 1, operation('op1', 'failed'))
+    synced()
     expect(held('op1')).toMatchObject({ v: 1, data: { state: 'failed' } })
     expect(entityStore.getState().epoch).toBe(`e${epochs}-restarted`)
   })
@@ -113,6 +114,16 @@ describe('entity store', () => {
     synced()
     expect(held('op1')).toBeDefined()
     expect(held('op2')).toBeUndefined()
+  })
+
+  it("holds a snapshot's rows back until its synced, then lands them together", () => {
+    reconnect(`e${epochs}`)
+    entity('op1', 2)
+    entity('op2', 2)
+    expect(held('op1')).toBeUndefined()
+    synced()
+    expect(held('op1')).toBeDefined()
+    expect(held('op2')).toBeDefined()
   })
 
   it('marks an operation met before its scope synced as a snapshot row', () => {
