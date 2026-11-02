@@ -188,23 +188,61 @@ func TestRegression_EveryAssistantMessageOfATurnIsRecorded(t *testing.T) {
 	assert.Less(t, ran, messages[2].Seq, "and before the second")
 }
 
-func TestRegression_AMessageIsVisibleBEFOREItsTurnEnds(t *testing.T) {
-	h := newHarness(t)
-	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
-	imported := importWritableWorkspace(t, h)
-	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
-
-	post := func(event, payload string) {
-		postHook(t, h, repoBase(imported), "streamstub", runnerID, event, payload)
+// What a turn records as the agent's reply, from its stream and its
+// terminating hook: a completed message is readable while the turn runs; a
+// provider with no stream records the hook's copy; the hook's complete copy
+// fills what a lossy stream dropped, yet a shorter hook report never truncates
+// a stream delivered in full (a live report once lost all but the last
+// paragraph); a streamed reply is recorded once, even when its final delta
+// lands after its turn_stop, and the fuller text wins.
+func TestRegression_TheReplyIsReconciledFromTheStreamAndTheTerminatingHook(t *testing.T) {
+	type hook struct{ event, payload string }
+	stop := func(text string) hook {
+		return hook{"turn_stop", `{"session_id":"sess-1","last_assistant_message":"` + text + `"}`}
 	}
-	post("session_start", `{"session_id":"sess-1"}`)
-	post("user_prompt", `{"session_id":"sess-1","prompt":"speak then work"}`)
-	post("message_delta", delta("msg-one", 0, true, "SAID EARLY"))
-	h.Quiesce()
+	for _, tc := range []struct {
+		name, provider, descriptor string
+		hooks                      []hook
+		want                       []string
+	}{
+		{"a message is visible before its turn ends", "streamstub", streamStubProviderDescriptorYAML,
+			[]hook{{"message_delta", delta("msg-one", 0, true, "SAID EARLY")}}, []string{"SAID EARLY"}},
+		{"a provider with no stream records what it always did", "quietstub", quietStubProviderDescriptorYAML,
+			[]hook{stop("ONLY MESSAGE")}, []string{"ONLY MESSAGE"}},
+		{"the terminating hook supersedes a lossy stream", "streamstub", streamStubProviderDescriptorYAML,
+			[]hook{
+				{"message_delta", delta("msg-one", 0, false, "THE BEGINNING ")},
+				{"message_delta", delta("msg-one", 2, true, "AND THE END")},
+				stop("THE BEGINNING AND THE MIDDLE AND THE END"),
+			}, []string{"THE BEGINNING AND THE MIDDLE AND THE END"}},
+		{"a lossy terminating hook never truncates the stream", "streamstub", streamStubProviderDescriptorYAML,
+			[]hook{
+				{"message_delta", delta("msg-one", 0, false, "THE BEGINNING AND THE MIDDLE ")},
+				{"message_delta", delta("msg-one", 1, true, "AND THE END")},
+				stop("AND THE END"),
+			}, []string{"THE BEGINNING AND THE MIDDLE AND THE END"}},
+		{"a streamed reply is not recorded twice", "streamstub", streamStubProviderDescriptorYAML,
+			[]hook{{"message_delta", delta("msg-one", 0, true, "SAID ONCE")}, stop("SAID ONCE")}, []string{"SAID ONCE"}},
+		{"a final delta after its turn_stop joins the reply", "streamstub", streamStubProviderDescriptorYAML,
+			[]hook{stop("SAID"), {"message_delta", delta("msg-one", 0, true, "SAID IN FULL")}}, []string{"SAID IN FULL"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			writeProviderDescriptor(t, h, tc.provider, tc.descriptor)
+			imported := importWritableWorkspace(t, h)
+			chatID, runnerID := createStubChat(t, h, imported, tc.provider)
+			hooks := append([]hook{
+				{"session_start", `{"session_id":"sess-1"}`},
+				{"user_prompt", `{"session_id":"sess-1","prompt":"hello"}`},
+			}, tc.hooks...)
+			for _, k := range hooks {
+				postHook(t, h, repoBase(imported), tc.provider, runnerID, k.event, k.payload)
+			}
+			h.Quiesce()
 
-	assert.Equal(t, []string{"SAID EARLY"},
-		assistantTexts(readRecordedMessages(t, h, imported, chatID)),
-		"a completed message must be readable while its turn is still running")
+			assert.Equal(t, tc.want, assistantTexts(readRecordedMessages(t, h, imported, chatID)))
+		})
+	}
 }
 
 // A growing message reaches the chat's feed while its turn runs, though it is
@@ -244,116 +282,6 @@ func TestRegression_AGrowingMessageReachesTheFeedBeforeTheTurnEnds(t *testing.T)
 	assert.Equal(t, []string{"STILL GROWING"},
 		assistantTexts(readRecordedMessages(t, h, imported, chatID)),
 		"the finished message lands in the ledger once")
-}
-
-func TestRegression_ProviderWithNoStreamingHookRecordsExactlyWhatItAlwaysDid(t *testing.T) {
-	h := newHarness(t)
-	writeProviderDescriptor(t, h, "quietstub", quietStubProviderDescriptorYAML)
-	imported := importWritableWorkspace(t, h)
-	chatID, runnerID := createStubChat(t, h, imported, "quietstub")
-
-	post := func(event, payload string) {
-		postHook(t, h, repoBase(imported), "quietstub", runnerID, event, payload)
-	}
-	post("session_start", `{"session_id":"sess-1"}`)
-	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
-	post("turn_stop", `{"session_id":"sess-1","last_assistant_message":"ONLY MESSAGE"}`)
-	h.Quiesce()
-
-	assert.Equal(t, []string{"ONLY MESSAGE"},
-		assistantTexts(readRecordedMessages(t, h, imported, chatID)))
-}
-
-func TestRegression_TheTerminatingHookSupersedesALossyStream(t *testing.T) {
-	h := newHarness(t)
-	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
-	imported := importWritableWorkspace(t, h)
-	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
-
-	post := func(event, payload string) {
-		postHook(t, h, repoBase(imported), "streamstub", runnerID, event, payload)
-	}
-	post("session_start", `{"session_id":"sess-1"}`)
-	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
-
-	post("message_delta", delta("msg-one", 0, false, "THE BEGINNING "))
-	post("message_delta", delta("msg-one", 2, true, "AND THE END"))
-	post("turn_stop",
-		`{"session_id":"sess-1","last_assistant_message":"THE BEGINNING AND THE MIDDLE AND THE END"}`)
-	h.Quiesce()
-
-	assert.Equal(t, []string{"THE BEGINNING AND THE MIDDLE AND THE END"},
-		assistantTexts(readRecordedMessages(t, h, imported, chatID)),
-		"the provider's own complete copy must replace what the stream lost")
-}
-
-// TestRegression_ALossyTerminatingHookNeverTruncatesTheStream is
-// TestRegression_TheTerminatingHookSupersedesALossyStream's missing
-// counterpart — the two together are the whole reconciliation contract, and
-// only one direction had a test. Reported live 2026-09-01: a full,
-// multi-paragraph reply was visible while the turn was still streaming, but
-// a real provider's own terminating hook reported only the reply's LAST
-// paragraph, and closeAssistantTurn's reconciliation silently deleted the
-// rest from the persisted transcript on the strength of that shorter report.
-func TestRegression_ALossyTerminatingHookNeverTruncatesTheStream(t *testing.T) {
-	h := newHarness(t)
-	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
-	imported := importWritableWorkspace(t, h)
-	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
-
-	post := func(event, payload string) {
-		postHook(t, h, repoBase(imported), "streamstub", runnerID, event, payload)
-	}
-	post("session_start", `{"session_id":"sess-1"}`)
-	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
-
-	post("message_delta", delta("msg-one", 0, false, "THE BEGINNING AND THE MIDDLE "))
-	post("message_delta", delta("msg-one", 1, true, "AND THE END"))
-	post("turn_stop", `{"session_id":"sess-1","last_assistant_message":"AND THE END"}`)
-	h.Quiesce()
-
-	assert.Equal(t, []string{"THE BEGINNING AND THE MIDDLE AND THE END"},
-		assistantTexts(readRecordedMessages(t, h, imported, chatID)),
-		"a shorter terminating-hook report must never overwrite text the stream already delivered in full")
-}
-
-func TestRegression_AStreamedReplyIsNotRecordedTwice(t *testing.T) {
-	h := newHarness(t)
-	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
-	imported := importWritableWorkspace(t, h)
-	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
-
-	post := func(event, payload string) {
-		postHook(t, h, repoBase(imported), "streamstub", runnerID, event, payload)
-	}
-	post("session_start", `{"session_id":"sess-1"}`)
-	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
-	post("message_delta", delta("msg-one", 0, true, "SAID ONCE"))
-	post("turn_stop", `{"session_id":"sess-1","last_assistant_message":"SAID ONCE"}`)
-	h.Quiesce()
-
-	assert.Equal(t, []string{"SAID ONCE"},
-		assistantTexts(readRecordedMessages(t, h, imported, chatID)))
-}
-
-// A turn_stop that beats its own final delta records the reply once: the late
-// delta joins the reply its turn_stop recorded, and the fuller text wins.
-func TestRegression_AFinalDeltaAfterItsTurnStopJoinsTheReply(t *testing.T) {
-	h := newHarness(t)
-	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
-	imported := importWritableWorkspace(t, h)
-	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
-
-	post := func(event, payload string) {
-		postHook(t, h, repoBase(imported), "streamstub", runnerID, event, payload)
-	}
-	post("session_start", `{"session_id":"sess-1"}`)
-	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
-	post("turn_stop", `{"session_id":"sess-1","last_assistant_message":"SAID"}`)
-	post("message_delta", delta("msg-one", 0, true, "SAID IN FULL"))
-	h.Quiesce()
-
-	assert.Equal(t, []string{"SAID IN FULL"}, assistantTexts(readRecordedMessages(t, h, imported, chatID)))
 }
 
 func TestRegression_CrowbarDeclaresNoProviderTranscript(t *testing.T) {
