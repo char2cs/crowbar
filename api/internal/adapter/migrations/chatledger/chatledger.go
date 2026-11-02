@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,6 +22,10 @@ type Result struct {
 
 // Owner answers which chat already holds a (provider, session) binding.
 type Owner func(provider, sessionID string) (chatID string, ok bool)
+
+// errCorruptRows is a chat with a legacy row the reader could not read: left
+// out, that row could change what every later row means.
+var errCorruptRows = errors.New("rows that cannot be read")
 
 // ErrNotAtRest is a conversion that would leave the chat with work open.
 var ErrNotAtRest = errors.New("chatledger: the converted chat is not at rest")
@@ -44,6 +49,9 @@ const (
 // ConvertChat restates in's records as ledger rows. It is pure: the same
 // input and owner give the same rows, ids included.
 func ConvertChat(in LegacyChat, owner Owner) (Result, error) {
+	if len(in.Corrupt) > 0 {
+		return Result{}, fmt.Errorf("chatledger: convert %s: %w: %s", in.ChatID, errCorruptRows, strings.Join(in.Corrupt, "; "))
+	}
 	c := &conversion{chatID: in.ChatID, skipped: slices.Clone(in.Unreadable)}
 	c.bindSessions(in, owner)
 	c.turns(in)

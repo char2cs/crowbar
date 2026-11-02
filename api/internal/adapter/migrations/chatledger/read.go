@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/core/home"
@@ -97,79 +98,100 @@ func (r *reader) chat(id string) *LegacyChat {
 }
 
 func (r *reader) conversation(rows *sql.Rows) error {
-	var c LegacyConversation
-	var first, last sql.NullTime
-	if err := rows.Scan(&c.ChatID, &c.ProviderID, &c.SessionID, &first, &last); err != nil {
+	c, err := scanCells(rows, 5)
+	if err != nil {
 		return err
 	}
-	c.FirstSeenAt, c.LastActiveAt = timeOf(first), timeOf(last)
-	chat := r.chat(c.ChatID)
-	chat.Conversations = append(chat.Conversations, c)
+	v := LegacyConversation{ChatID: c.str(), ProviderID: c.str(), SessionID: c.str()}
+	v.FirstSeenAt, v.LastActiveAt = c.time("first_seen_at"), c.time("last_active_at")
+	r.add(v.ChatID, "agent_chat_conversations "+v.SessionID, c.err, func(chat *LegacyChat) {
+		chat.Conversations = append(chat.Conversations, v)
+	})
 	return nil
 }
 
 func (r *reader) turn(rows *sql.Rows) error {
-	var t LegacyTurn
-	var started, ended sql.NullTime
-	if err := rows.Scan(&t.ID, &t.ChatID, &t.Role, &t.ProviderID, &t.RunnerID, &t.SessionID, &t.Text,
-		&t.Effort, &t.Status, &t.Diff, &t.Plan, &t.Seq, &t.DisplayOrder, &t.ItemIndex, &started, &ended); err != nil {
+	c, err := scanCells(rows, 16)
+	if err != nil {
 		return err
 	}
-	t.StartedAt, t.EndedAt = timeOf(started), optTime(ended)
-	chat := r.chat(t.ChatID)
-	chat.Turns = append(chat.Turns, t)
+	t := LegacyTurn{
+		ID: c.str(), ChatID: c.str(), Role: c.str(), ProviderID: c.str(), RunnerID: c.str(), SessionID: c.str(),
+		Text: c.str(), Effort: c.str(), Status: c.str(), Diff: c.str(), Plan: c.str(),
+		Seq: c.int("seq"), DisplayOrder: c.int("display_order"), ItemIndex: int(c.int("item_index")),
+		StartedAt: c.time("started_at"), EndedAt: c.optTime("ended_at"),
+	}
+	r.add(t.ChatID, "agent_turns "+t.ID, c.err, func(chat *LegacyChat) { chat.Turns = append(chat.Turns, t) })
 	return nil
 }
 
 func (r *reader) tool(rows *sql.Rows) error {
-	var t LegacyTool
-	var started, ended sql.NullTime
-	if err := rows.Scan(&t.ID, &t.TurnID, &t.ChatID, &t.Name, &t.Kind, &t.Locations, &t.Target, &t.RequestRef,
-		&t.ResultRef, &t.Diff, &t.Status, &t.Error, &t.SubagentID, &t.Seq, &t.DurationMS, &started, &ended); err != nil {
+	c, err := scanCells(rows, 17)
+	if err != nil {
 		return err
 	}
-	t.StartedAt, t.EndedAt = timeOf(started), optTime(ended)
-	chat := r.chat(t.ChatID)
-	chat.Tools = append(chat.Tools, t)
+	t := LegacyTool{
+		ID: c.str(), TurnID: c.str(), ChatID: c.str(), Name: c.str(), Kind: c.str(), Locations: c.str(),
+		Target: c.str(), RequestRef: c.str(), ResultRef: c.str(), Diff: c.str(), Status: c.str(), Error: c.str(),
+		SubagentID: c.str(), Seq: c.int("seq"), DurationMS: int(c.int("duration_ms")),
+		StartedAt: c.time("started_at"), EndedAt: c.optTime("ended_at"),
+	}
+	r.add(t.ChatID, "agent_tool_calls "+t.ID, c.err, func(chat *LegacyChat) { chat.Tools = append(chat.Tools, t) })
 	return nil
 }
 
 func (r *reader) subagent(rows *sql.Rows) error {
-	var s LegacySubagent
-	var started, ended sql.NullTime
-	if err := rows.Scan(&s.ID, &s.TurnID, &s.ChatID, &s.AgentType, &s.Messages, &s.Seq, &started, &ended); err != nil {
+	c, err := scanCells(rows, 8)
+	if err != nil {
 		return err
 	}
-	s.StartedAt, s.EndedAt = timeOf(started), optTime(ended)
-	chat := r.chat(s.ChatID)
-	chat.Subagents = append(chat.Subagents, s)
+	s := LegacySubagent{
+		ID: c.str(), TurnID: c.str(), ChatID: c.str(), AgentType: c.str(), Messages: c.str(),
+		Seq: c.int("seq"), StartedAt: c.time("started_at"), EndedAt: c.optTime("ended_at"),
+	}
+	r.add(s.ChatID, "agent_subagents "+s.ID, c.err, func(chat *LegacyChat) { chat.Subagents = append(chat.Subagents, s) })
 	return nil
 }
 
 func (r *reader) interruption(rows *sql.Rows) error {
-	var i LegacyInterruption
-	var at, resolved sql.NullTime
-	if err := rows.Scan(&i.ID, &i.TurnID, &i.ChatID, &i.Kind, &i.Detail, &i.Seq, &i.DisplayOrder, &at, &resolved); err != nil {
+	c, err := scanCells(rows, 9)
+	if err != nil {
 		return err
 	}
-	i.At, i.ResolvedAt = timeOf(at), optTime(resolved)
-	chat := r.chat(i.ChatID)
-	chat.Interruptions = append(chat.Interruptions, i)
+	i := LegacyInterruption{
+		ID: c.str(), TurnID: c.str(), ChatID: c.str(), Kind: c.str(), Detail: c.str(),
+		Seq: c.int("seq"), DisplayOrder: c.int("display_order"), At: c.time("at"), ResolvedAt: c.optTime("resolved_at"),
+	}
+	r.add(i.ChatID, "agent_interruptions "+i.ID, c.err, func(chat *LegacyChat) {
+		chat.Interruptions = append(chat.Interruptions, i)
+	})
 	return nil
 }
 
 func (r *reader) choice(rows *sql.Rows) error {
-	var c LegacyChoice
-	var at, resolved sql.NullTime
-	if err := rows.Scan(&c.ID, &c.TurnID, &c.ChatID, &c.Kind, &c.PromptID, &c.ToolID, &c.ToolName, &c.Title,
-		&c.Question, &c.Mode, &c.Options, &c.Questions, &c.Schema, &c.Resolution, &c.AnsweredOptionIDs,
-		&c.Multi, &c.Seq, &at, &resolved); err != nil {
+	c, err := scanCells(rows, 19)
+	if err != nil {
 		return err
 	}
-	c.At, c.ResolvedAt = timeOf(at), optTime(resolved)
-	chat := r.chat(c.ChatID)
-	chat.Choices = append(chat.Choices, c)
+	ch := LegacyChoice{
+		ID: c.str(), TurnID: c.str(), ChatID: c.str(), Kind: c.str(), PromptID: c.str(), ToolID: c.str(),
+		ToolName: c.str(), Title: c.str(), Question: c.str(), Mode: c.str(), Options: c.str(), Questions: c.str(),
+		Schema: c.str(), Resolution: c.str(), AnsweredOptionIDs: c.str(), Multi: c.flag("multi"),
+		Seq: c.int("seq"), At: c.time("at"), ResolvedAt: c.optTime("resolved_at"),
+	}
+	r.add(ch.ChatID, "agent_choices "+ch.ID, c.err, func(chat *LegacyChat) { chat.Choices = append(chat.Choices, ch) })
 	return nil
+}
+
+// add files a read row under its chat, or names it on the chat's Corrupt list
+// when one of its values could not be read.
+func (r *reader) add(chatID, row string, err error, keep func(*LegacyChat)) {
+	chat := r.chat(chatID)
+	if err != nil {
+		chat.Corrupt = append(chat.Corrupt, fmt.Sprintf("%s: %v", row, err))
+		return
+	}
+	keep(chat)
 }
 
 // prompts reads <chats>/<chat id>/prompt-requests/*.json. A record that does
@@ -230,17 +252,76 @@ func readDir(dir string) ([]os.DirEntry, error) {
 	return entries, nil
 }
 
-func timeOf(t sql.NullTime) time.Time {
-	if !t.Valid {
-		return time.Time{}
-	}
-	return t.Time.UTC()
+// cells is one legacy row read as text, then parsed column by column in
+// order: a value of the wrong type fails its own row, not the whole read.
+type cells struct {
+	vals []sql.NullString
+	next int
+	err  error
 }
 
-func optTime(t sql.NullTime) *time.Time {
-	if !t.Valid {
+func scanCells(rows *sql.Rows, n int) (*cells, error) {
+	c := &cells{vals: make([]sql.NullString, n)}
+	dest := make([]any, n)
+	for i := range c.vals {
+		dest[i] = &c.vals[i]
+	}
+	if err := rows.Scan(dest...); err != nil {
+		return nil, fmt.Errorf("scan: %w", err)
+	}
+	return c, nil
+}
+
+func (c *cells) take() sql.NullString {
+	v := c.vals[c.next]
+	c.next++
+	return v
+}
+
+func (c *cells) str() string { return c.take().String }
+
+func (c *cells) fail(column, value string, err error) {
+	if c.err == nil {
+		c.err = fmt.Errorf("%s %q: %w", column, value, err)
+	}
+}
+
+func (c *cells) int(column string) int64 {
+	v := c.take()
+	n, err := strconv.ParseInt(v.String, 10, 64)
+	if err != nil {
+		c.fail(column, v.String, err)
+	}
+	return n
+}
+
+func (c *cells) flag(column string) bool {
+	v := c.take()
+	b, err := strconv.ParseBool(v.String)
+	if err != nil {
+		c.fail(column, v.String, err)
+	}
+	return b
+}
+
+func (c *cells) optTime(column string) *time.Time {
+	v := c.take()
+	if !v.Valid {
 		return nil
 	}
-	at := t.Time.UTC()
-	return &at
+	t, err := time.Parse(time.RFC3339Nano, v.String)
+	if err != nil {
+		c.fail(column, v.String, err)
+		return nil
+	}
+	t = t.UTC()
+	return &t
+}
+
+// time is a timestamp; NULL is the zero time.
+func (c *cells) time(column string) time.Time {
+	if t := c.optTime(column); t != nil {
+		return *t
+	}
+	return time.Time{}
 }

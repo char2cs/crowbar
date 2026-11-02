@@ -232,6 +232,36 @@ func TestApply_AChatThatCannotBeConvertedIsSkippedNotAHalt(t *testing.T) {
 	}
 }
 
+// One row the reader cannot read, in any legacy table, keeps only its chat
+// unconverted, and the warning names the row and the column.
+func TestApply_ARowItCannotReadSkipsOnlyItsChat(t *testing.T) {
+	for _, tc := range []struct{ db, table, column string }{
+		{RunnerDB, "agent_chat_conversations", "first_seen_at"},
+		{ActivityDB, "agent_turns", "started_at"},
+		{ActivityDB, "agent_tool_calls", "duration_ms"},
+		{ActivityDB, "agent_subagents", "ended_at"},
+		{ActivityDB, "agent_interruptions", "display_order"},
+		{ActivityDB, "agent_choices", "multi"},
+	} {
+		t.Run(tc.table, func(t *testing.T) {
+			h := testutil.FixtureHome(t)
+			writeLegacy(t, h, chatA(), chatB())
+			spoil(t, h, tc.db, tc.table, tc.column, "chat-a", "garbled")
+			log, got := capture(testutil.Message("chatledger: skipped a chat that cannot be converted"))
+
+			require.NoError(t, bootLogging(t, h, log))
+
+			assert.Empty(t, held(t, h, "chat-a"))
+			assert.Equal(t, convert(t, chatB(), nobody).Rows, held(t, h, "chat-b"), "the other chat converts")
+			require.Len(t, *got, 1)
+			attrs := testutil.Attrs((*got)[0])
+			assert.Equal(t, "chat-a", attrs["chat_id"].String())
+			assert.Contains(t, attrs["err"].String(), tc.table)
+			assert.Contains(t, attrs["err"].String(), tc.column+` "garbled"`)
+		})
+	}
+}
+
 // A legacy database that cannot be read is no chat to skip: the boot halts,
 // naming the step, and the file is left as it was.
 func TestApply_ALegacyDatabaseThatCannotBeReadHalts(t *testing.T) {

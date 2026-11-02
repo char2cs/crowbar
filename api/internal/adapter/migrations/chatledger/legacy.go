@@ -137,7 +137,8 @@ type LegacyPrompt struct {
 }
 
 // LegacyChat is everything the old daemon recorded about one chat. Unreadable
-// names each record the reader could not decode, with why.
+// names each record the reader could not decode, with why; Corrupt names each
+// row holding a value its column's type cannot, which keeps the chat unconverted.
 type LegacyChat struct {
 	ChatID        string
 	Conversations []LegacyConversation
@@ -149,4 +150,5 @@ type LegacyChat struct {
 	Prompts       []LegacyPrompt
 	Runners       []LegacyRunner
 	Unreadable    []string
+	Corrupt       []string
 }

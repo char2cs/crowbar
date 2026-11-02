@@ -178,3 +178,36 @@ func TestReadLegacy_AnUnreadablePromptIsNamedNotFatal(t *testing.T) {
 	assert.Contains(t, got[0].Unreadable[0], "prompt bad.json: unreadable")
 	assert.Contains(t, convert(t, got[0], nobody).Skipped, got[0].Unreadable[0], "the conversion names it as skipped")
 }
+
+// spoil overwrites column of chatID's first row in table with value, as a
+// disk or an older build might have left it.
+func spoil(t *testing.T, h home.Home, db, table, column, chatID string, value any) {
+	t.Helper()
+	conn := writable(t, filepath.Join(h.Store(), db))
+	_, err := conn.ExecContext(t.Context(), "UPDATE "+table+" SET "+column+" = ? WHERE rowid = "+
+		"(SELECT min(rowid) FROM "+table+" WHERE chat_id = ?)", value, chatID)
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
+}
+
+// A row whose column does not hold its type breaks only its own chat: the
+// read goes on, and the chat names the row and the column.
+func TestReadLegacy_ARowItCannotReadIsNamedOnItsChatOnly(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	writeLegacy(t, h, chatA(), chatB())
+	spoil(t, h, ActivityDB, "agent_turns", "started_at", "chat-b", "not-a-date")
+	spoil(t, h, ActivityDB, "agent_interruptions", "seq", "chat-b", "four")
+
+	got, err := ReadLegacy(context.Background(), h)
+
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, chatA(), got[0], "the other chat reads as written")
+	assert.Equal(t, "chat-b", got[1].ChatID)
+	assert.Len(t, got[1].Turns, len(chatB().Turns)-1)
+	assert.Empty(t, got[1].Interruptions)
+	require.Len(t, got[1].Corrupt, 2)
+	assert.Contains(t, got[1].Corrupt[0], "agent_turns u-b1: started_at")
+	assert.Contains(t, got[1].Corrupt[0], "not-a-date")
+	assert.Contains(t, got[1].Corrupt[1], "agent_interruptions i-b1: seq")
+}
