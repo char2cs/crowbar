@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -19,6 +20,16 @@ func importBody(branches ...string) map[string]any {
 		rows = append(rows, map[string]string{"name": b, "chatId": uuid.NewString()})
 	}
 	return map[string]any{"branches": rows}
+}
+
+// linkedWorkspace answers the workspace a chat row of this repo is linked to,
+// other than the adopted main one, or "".
+func (s *WorktreeSuite) linkedWorkspace(chat map[string]any) string {
+	wsID, _ := chat["workspaceId"].(string)
+	if chat["repoId"] != s.imported.RepoID || wsID == s.imported.WorkspaceID {
+		return ""
+	}
+	return wsID
 }
 
 // importBatchURL returns the batch branch-import route, the sole surviving
@@ -35,31 +46,20 @@ func (s *WorktreeSuite) importBatchURL() string {
 // logic is unit-integration-tested against a stubbed PR graph in the worktree
 // usecase.
 //
-// It blocks on each chat's "workspace_set" lifecycle frame rather than a
-// worktree_state one carrying the branch: the atomic mint-then-attach sequence
-// batch import shares with a single chat create (hierarchyOwningChats.
-// AttachOwningWorkspace, container.go — the same pattern
-// chat.SpawnChatWithOwnWorktree uses) mints the owning chat BEFORE the
-// workspace exists, so the workspace's OWN creation-time push resolves no
-// owning chat and is dropped (pushChatWorktree, container.go); attaching the
-// chat afterward only emits the terse chat-lifecycle event, never a re-push of
-// the linked workspace's git state. So "workspace_set" — not a branch-bearing
-// frame — is the only reliable per-branch completion signal this route
-// produces; each branch's actual state is then asserted directly on disk.
+// It blocks on each new chat's entity naming its linked workspace: batch
+// import mints the owning chat before the workspace and attaches it after, so
+// the link is the per-branch completion signal; each branch is then checked on disk.
 func (s *WorktreeSuite) TestWorktree_importCreatesWorkspacesForBranches() {
 	t := s.T()
-	watcher := s.Env.DialRepoChats(t, s.imported.ProjectID, s.imported.RepoID)
+	watcher := s.Env.HoldProjects(t)
 
 	resp := s.Env.POST(t, s.importBatchURL(), importBody("import/alpha", "import/beta"))
 	kit.RequireStatus(t, resp, http.StatusAccepted)
 	resp.Body.Close()
 
 	linked := map[string]bool{}
-	watcher.ReadUntil(t, 20*time.Second, func(m map[string]any) bool {
-		if m["repoId"] != s.imported.RepoID || m["kind"] != "workspace_set" {
-			return false
-		}
-		if wsID, _ := m["workspaceId"].(string); wsID != "" {
+	watcher.Next(t, 20*time.Second, stream.KindChatEntity, func(m map[string]any) bool {
+		if wsID := s.linkedWorkspace(m); wsID != "" {
 			linked[wsID] = true
 		}
 		return len(linked) >= 2
@@ -85,16 +85,9 @@ func (s *WorktreeSuite) TestWorktree_importCreatesWorkspacesForBranches() {
 // localPath, carrying the holder path) that the client can explain, retry and
 // detach.
 //
-// The row is confirmed over REST rather than a branch-bearing WS frame, for
-// the same reason TestWorktree_importCreatesWorkspacesForBranches gives:
-// batch import mints the owning chat before the workspace exists and only
-// broadcasts the terse "workspace_set" link afterward, never the linked
-// workspace's own git state (container.go's pushChatWorktree needs the chat
-// to already be attached, and nothing re-pushes once it is). "workspace_set"
-// firing at all is still the regression's core proof — the old bug was that
-// a held branch produced NO frame whatsoever and the client's row spun
-// forever; here the chat is reliably linked, and its placeholder shape is
-// then read off the row directly.
+// The link reaching the stream at all is the regression's core proof (the old
+// bug produced no row whatsoever); the placeholder's shape is then read off
+// the REST row.
 func (s *WorktreeSuite) TestWorktree_importHeldBranchYieldsPlaceholder() {
 	t := s.T()
 
@@ -103,21 +96,18 @@ func (s *WorktreeSuite) TestWorktree_importHeldBranchYieldsPlaceholder() {
 	holderPath := filepath.Join(t.TempDir(), "external-holder")
 	kit.GitRun(t, s.imported.RepoPath, "worktree", "add", "-b", "import/held", holderPath)
 
-	watcher := s.Env.DialRepoChats(t, s.imported.ProjectID, s.imported.RepoID)
+	watcher := s.Env.HoldProjects(t)
 	resp := s.Env.POST(t, s.importBatchURL(), importBody("import/held"))
 	kit.RequireStatus(t, resp, http.StatusAccepted)
 	resp.Body.Close()
 
 	var chatID string
-	watcher.ReadUntil(t, 20*time.Second, func(m map[string]any) bool {
-		if m["repoId"] != s.imported.RepoID || m["kind"] != "workspace_set" {
+	watcher.Next(t, 20*time.Second, stream.KindChatEntity, func(m map[string]any) bool {
+		if s.linkedWorkspace(m) == "" {
 			return false
 		}
-		if wsID, _ := m["workspaceId"].(string); wsID != "" {
-			chatID, _ = m["chatId"].(string)
-			return true
-		}
-		return false
+		chatID, _ = m["id"].(string)
+		return true
 	})
 	s.Require().NotEmpty(chatID, "import must link the held branch's workspace to an owning chat")
 	s.Env.Quiesce()

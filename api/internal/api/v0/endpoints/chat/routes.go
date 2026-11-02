@@ -11,15 +11,13 @@ import (
 	agenthandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat/handlers"
 )
 
-// Register mounts the agent REST routes and the agent-chat lifecycle WebSocket
-// upgrade route on the supplied repo-scoped router group (repoScoped, i.e.
+// Register mounts the agent REST routes on the supplied repo-scoped router group (repoScoped, i.e.
 // .../projects/:projectId/repos/:repoId), mirroring how files.Register and
 // search.Register already sit on this group. A chat is no longer addressed
 // through a workspace (model spec §5.1), so Create/List/Get/Switch/Rename/
 // Handoff/Delete take only the chat's own :id; a handler that genuinely needs
 // a specific chat's workspace resolves it from the chat itself (GetChat)
-// rather than from the URL. The WS route lands in the SAME group, giving the
-// resulting route .../repos/:repoId/chats/ws.
+// rather than from the URL.
 //
 // .../chats/runners/:segid/mcp is keyed by the RUNNER, not the chat, for two
 // reasons. It resolves runnerID → runner → CurrentChatID at call time, so nothing
@@ -94,10 +92,8 @@ func Register(
 	repos agenthandlers.Repos,
 	worktrees agenthandlers.Worktrees,
 	nodes agenthandlers.Nodes,
-	broadcastFolder func(folderID, workspaceID, kind string),
-	wsHandle gin.HandlerFunc,
 ) {
-	h := agenthandlers.New(chats, turns, runners, answers, providers, folders, broadcastFolder).
+	h := agenthandlers.New(chats, turns, runners, answers, providers, folders).
 		WithRepos(repos).
 		WithWorktrees(worktrees).
 		WithNodes(nodes)
@@ -146,7 +142,6 @@ func Register(
 	repoScoped.POST("/chats/runners/:segid/mcp", h.MCP)
 	repoScoped.POST("/chats/runners/:segid/hooks/:provider/:event", h.HTTPHook)
 	repoScoped.GET("/chats/providers", h.Providers)
-	repoScoped.GET("/chats/ws", wsHandle)
 
 	settingsRG.PUT("/settings/chat/providers", h.UpdateProviderPreferences)
 	settingsRG.GET("/settings/chat/providers", h.Providers)

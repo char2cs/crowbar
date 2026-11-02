@@ -1,4 +1,4 @@
-package ws_test
+package handlers_test
 
 import (
 	"net/http"
@@ -10,10 +10,10 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/stream/handlers"
 )
 
-var short = ws.KeepAlive{Ping: 10 * time.Millisecond, Pong: 200 * time.Millisecond, Write: time.Second}
+var short = handlers.KeepAlive{Ping: 10 * time.Millisecond, Pong: 200 * time.Millisecond, Write: time.Second}
 
 const bound = 10 * time.Second
 

@@ -10,10 +10,7 @@ import (
 
 // Register mounts the project list, detail, import, and delete routes on the
 // supplied router group, backed by the project read, import, and delete
-// usecases. The list and detail GET routes are dual-served: a plain GET answers
-// REST while a WebSocket upgrade is routed to projectsWS (the Broadcaster
-// [ProjectDTO] handle) for the live stream — a list-scope subscriber receives
-// all projects, a :projectId-scope subscriber receives only that project (W7-2).
+// usecases. broadcast publishes each project a route changed.
 func Register(
 	rg *gin.RouterGroup,
 	reader projecthandlers.ListGetter,
@@ -22,13 +19,11 @@ func Register(
 	ops projecthandlers.Operations,
 	broadcast func(dto.ProjectDTO),
 	crowbarHome func() (string, error),
-	projectsWS gin.HandlerFunc,
-	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
 ) {
 	h := projecthandlers.New(reader, importer, deleter, ops, broadcast, crowbarHome)
-	rg.GET("/projects", dispatch(h.List, projectsWS))
+	rg.GET("/projects", h.List)
 	rg.POST("/projects", h.Import)
-	rg.GET("/projects/:projectId", dispatch(h.Detail, projectsWS))
+	rg.GET("/projects/:projectId", h.Detail)
 	rg.PATCH("/projects/:projectId", h.Patch)
 	rg.DELETE("/projects/:projectId", h.Delete)
 	// The icon routes mirror the repo ones a level up, minus /icon/github: a

@@ -23,8 +23,7 @@ func TestDelete_Success(
 ) {
 	uc := &fakeAgentUsecase{}
 	tree := &fakeChatTree{}
-	var frames []folderFrame
-	h := newFolderHandlersWith(uc, tree, &frames)
+	h := newFolderHandlersWith(uc, tree)
 
 	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/chats/c-1", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
@@ -37,35 +36,11 @@ func TestDelete_Success(
 	assert.Empty(t, uc.purgeCalls, "the handler must not purge behind the tree's back")
 }
 
-// A chat delete takes any folder inside its subtree with it, and those folders
-// are a plain row with no projection to announce them — so the handler does.
-func TestDelete_AnnouncesTheFoldersTheCascadeTook(t *testing.T) {
-	tree := &fakeChatTree{deletion: agentusecase.ChatDeletion{
-		Chats:   []string{"c-2", "c-1"},
-		Folders: []string{"f-1"},
-		Shifted: []domain.Chat{{ID: "f-0", Type: domain.ChatTypeFolder}},
-	}}
-	var frames []folderFrame
-	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "c-1", WorkspaceID: "ws-1"}}
-	h := newFolderHandlersWith(uc, tree, &frames)
-
-	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/chats/c-1", nil)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "c-1"}}
-
-	h.Delete(ctx)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Len(t, frames, 2)
-	assert.Equal(t, folderFrame{folderID: "f-1", workspaceID: "ws-1", kind: "folder_deleted"}, frames[0])
-	assert.Equal(t, folderFrame{folderID: "f-0", workspaceID: "ws-1", kind: "folder_updated"}, frames[1])
-}
-
 // The chats the git cascade took beyond the selection are named in the reply,
 // so a client can tell the user what else went.
 func TestDelete_NamesTheChatsTheCascadeTookBeyondTheSelection(t *testing.T) {
 	tree := &fakeChatTree{deletion: agentusecase.ChatDeletion{Chats: []string{"c-1", "c-9"}, Taken: []string{"c-9"}}}
-	var frames []folderFrame
-	h := newFolderHandlersWith(&fakeAgentUsecase{}, tree, &frames)
+	h := newFolderHandlersWith(&fakeAgentUsecase{}, tree)
 	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/chats/c-1", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
 
@@ -83,8 +58,7 @@ func TestDelete_WrongWorkspace404s(
 ) {
 	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "c-1", WorkspaceID: "ws-other"}}
 	tree := &fakeChatTree{}
-	var frames []folderFrame
-	h := newFolderHandlersWith(uc, tree, &frames)
+	h := newFolderHandlersWith(uc, tree)
 
 	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/projects/p1/repos/r1/workspaces/ws1/chats/c-1", nil)
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c-1"}}
@@ -102,8 +76,7 @@ func TestDelete_UsecaseError(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{}
-	var frames []folderFrame
-	h := newFolderHandlersWith(uc, &fakeChatTree{err: agentchat.ErrNotFound}, &frames)
+	h := newFolderHandlersWith(uc, &fakeChatTree{err: agentchat.ErrNotFound})
 
 	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/chats/missing", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: "missing"}}
@@ -118,8 +91,7 @@ func TestDelete_UsecaseError(
 // would fall through to.
 func TestDelete_RefusesWorkingSubtree(t *testing.T) {
 	uc := &fakeAgentUsecase{}
-	var frames []folderFrame
-	h := newFolderHandlersWith(uc, &fakeChatTree{err: agentusecase.ErrTreeSubtreeWorking}, &frames)
+	h := newFolderHandlersWith(uc, &fakeChatTree{err: agentusecase.ErrTreeSubtreeWorking})
 
 	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/chats/c-1", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}

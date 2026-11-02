@@ -19,7 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
@@ -89,24 +88,24 @@ func newAggregates(
 func newRepos(
 	t *testing.T,
 	ad *adapter.Container,
-	h hub.WebSocketHub,
+	h *captureHub,
 ) (*repositories.Container, error) {
 	t.Helper()
 	a := newAggregates(t, ad)
-	return repositories.New(context.Background(), ad, a.rm, h, a.rt, a.ws, a.chat, a.placement, nil, noChatWatch, noGiveUp)
+	return repositories.New(context.Background(), ad, a.rm, h.publish, a.rt, a.ws, a.chat, a.placement, nil, noChatWatch, noGiveUp)
 }
 
-// noChatWatch is the announcement seam for tests that assert nothing about WS frames.
+// noChatWatch is the announcement seam for tests that assert nothing about chat frames.
 func noChatWatch(_ agentchat.ChatEvent)                          {}
 func noGiveUp(context.Context, string, *domain.Workspace, error) {}
 
+// captureHub records every workspace row the container publishes.
 type captureHub struct {
-	hub.WebSocketHub
 	mu         sync.Mutex
 	workspaces []dto.WorkspaceDTO
 }
 
-func (h *captureHub) BroadcastWorkspace(
+func (h *captureHub) publish(
 	ws dto.WorkspaceDTO,
 ) {
 	h.mu.Lock()
@@ -148,7 +147,7 @@ func (h *captureHub) last(
 
 func newContainer(
 	t *testing.T,
-	h hub.WebSocketHub,
+	h *captureHub,
 ) *repositories.Container {
 	t.Helper()
 	c, err := newRepos(t, newAdapter(t), h)
@@ -157,7 +156,7 @@ func newContainer(
 }
 
 func TestContainer_New_BuildsRepos(t *testing.T) {
-	c := newContainer(t, hub.NewHub())
+	c := newContainer(t, &captureHub{})
 	assert.NotNil(t, c.Workspace)
 	assert.NotNil(t, c.ReviewThread)
 	assert.NotNil(t, c.AgentChat)
@@ -168,7 +167,7 @@ func TestContainer_New_NilWorkspaceAxReturnsError(t *testing.T) {
 	ad := newAdapter(t)
 	a := newAggregates(t, ad)
 	_, err := repositories.New(
-		context.Background(), ad, a.rm, hub.NewHub(),
+		context.Background(), ad, a.rm, (&captureHub{}).publish,
 		a.rt, nil /* nil axWorkspace → workspace.New rejects */, a.chat, a.placement,
 		nil, noChatWatch, noGiveUp,
 	)
@@ -478,7 +477,7 @@ func (p *recordingPurge) all() []string {
 // row go too. A chat of another workspace is untouched.
 func TestContainer_DeleteCascade_PurgesEveryChatAndNodeRowOfTheWorkspace(t *testing.T) {
 	ctx := context.Background()
-	c := newContainer(t, hub.NewHub())
+	c := newContainer(t, &captureHub{})
 	purge := &recordingPurge{c: c}
 	c.PurgeChat = purge.purge
 
@@ -515,7 +514,7 @@ func TestContainer_DeleteCascade_PurgesEveryChatAndNodeRowOfTheWorkspace(t *test
 // that aborts the purge and strands the worktree.
 func TestRegression_DeleteCascade_ToleratesAChatAlreadyPurged(t *testing.T) {
 	ctx := context.Background()
-	c := newContainer(t, hub.NewHub())
+	c := newContainer(t, &captureHub{})
 	c.PurgeChat = func(context.Context, string) error {
 		return fmt.Errorf("agent: purge chat: get: %w", agentchat.ErrNotFound)
 	}

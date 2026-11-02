@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -49,12 +50,12 @@ func TestProjects_DeleteCascadesRecordsKeepsRealRepoOnDisk(t *testing.T) {
 	require.NotEqual(t, imported.repoPath, childPath)
 	require.DirExists(t, childPath, "child worktree must exist on disk before delete")
 
-	projectsWS := h.dial("/v0/projects")
+	projectsWS := watchEntities(t, h, stream.KindProject)
 	resp := h.raw(http.MethodDelete, "/v0/projects/"+imported.projectID, nil, http.StatusAccepted)
 	_ = resp.Body.Close()
 
-	tombstone := readUntil(t, projectsWS, func(m map[string]any) bool {
-		return m["id"] == imported.projectID && m["status"] == "deleted"
+	tombstone := projectsWS.read(t, func(m map[string]any) bool {
+		return m["id"] == imported.projectID && m["gone"] == true
 	})
 	assert.Equal(t, imported.projectID, tombstone["id"])
 

@@ -82,9 +82,7 @@ func TestCrash_CommittedStateSurvivesAbruptKill(t *testing.T) {
 	imported := env1.ImportRepo(t, "crash-durable", "")
 	const branch = "feature/durable"
 	// CreateWorkspaceWithChat, not the bare CreateWorkspace: a workspace with no
-	// owning chat never appears on GET .../chats at all (container.go's
-	// pushChatWorktree doc — "a workspace with no resolved owning chat pushes
-	// nothing" — the read side has the same shape), so worktreeStatus below
+	// owning chat never appears on GET .../chats at all, so worktreeStatus below
 	// would find nothing regardless of durability.
 	wsID, _ := env1.CreateWorkspaceWithChat(t, imported.ProjectID, imported.RepoID, branch, "")
 	worktree := friendlyWorktree(env1, imported.ProjectID, imported.RepoPath, branch)
@@ -116,8 +114,8 @@ func TestCrash_CommittedStateSurvivesAbruptKill(t *testing.T) {
 // provider poll observes the drift and re-syncs the aggregate. The poll is
 // injected through the mock-provider seam (PushProviderState, spec §11 — the
 // same deterministic seam the provider suite uses), which applies the sync
-// projection-synchronously and broadcasts the corrected worktree_state frame on
-// the chat feed. The restarted daemon's read model must reflect the new
+// projection-synchronously and publishes the corrected workspace row on the
+// projects scope. The restarted daemon's read model must reflect the new
 // pr-merged state.
 func TestCrash_ProviderDriftWhileDown_ResyncOnRestart(t *testing.T) {
 	home := kit.TempHomeForTest(t)
@@ -148,11 +146,7 @@ func TestCrash_ProviderDriftWhileDown_ResyncOnRestart(t *testing.T) {
 	require.NoError(t, err, "restart over the same home")
 	defer env2.Close(t)
 
-	// Chat ids are durable rows, but the intent here is "what does the REBOOTED
-	// daemon say" (kit.Env.OwningChatID's own guidance), so re-resolve against
-	// env2 rather than trust a chat id carried over from env1.
-	chatID := env2.OwningChatID(t, wsID)
-	watcher := env2.DialChat(t, chatID)
+	watcher := env2.HoldProjects(t)
 	env2.PushProviderState(t, wsID, kit.ProviderState{
 		HasPR:    true,
 		PRStatus: "merged",
@@ -190,7 +184,7 @@ func TestCrash_DeleteConvergesToInvariant(t *testing.T) {
 	env := kit.BuildEnv(t)
 	imported := env.ImportRepo(t, "delete", "")
 	const branch = "feature/delete-me"
-	wsID, chatID := env.CreateWorkspaceWithChat(t, imported.ProjectID, imported.RepoID, branch, "")
+	wsID, _ := env.CreateWorkspaceWithChat(t, imported.ProjectID, imported.RepoID, branch, "")
 	worktree := friendlyWorktree(env, imported.ProjectID, imported.RepoPath, branch)
 	require.True(t, kit.DirExists(t, worktree), "worktree must exist before delete")
 
@@ -198,9 +192,9 @@ func TestCrash_DeleteConvergesToInvariant(t *testing.T) {
 	// deleted DELETE .../workspaces/:wsId route made. This test's subject is the
 	// delete CASCADE converging to its invariant.
 	//
-	// Watching the chat's own lifecycle frame is what proves the delete was
-	// actually dispatched before the barrier below runs.
-	watcher := env.DialChat(t, chatID)
+	// Watching the workspace go from the projects scope is what proves the
+	// delete was actually dispatched before the barrier below runs.
+	watcher := env.HoldProjects(t)
 	env.DeleteWorkspaceCascade(t, wsID)
 	kit.WaitForWorkspaceState(t, watcher, wsID, "deleted", 10*time.Second)
 

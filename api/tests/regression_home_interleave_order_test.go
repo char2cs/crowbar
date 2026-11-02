@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -76,7 +77,7 @@ func addSecondRepo(
 	projectID string,
 ) string {
 	t.Helper()
-	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
+	reposWS := watchEntities(t, h, stream.KindRepo)
 	id := addRepo(t, h, reposWS, projectID, gitRepoWithCommit(t))
 	h.Quiesce()
 	return id

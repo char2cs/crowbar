@@ -227,9 +227,7 @@ func TestRegression_Symptom3_TextSaidBeforeAProcessExitsIsKept(t *testing.T) {
 	})
 
 	c.launch.Kill(t)
-	readUntil(t, c.conn, func(m map[string]any) bool {
-		return m["kind"] == "exited" && m["runnerId"] == c.launch.RunnerID
-	})
+	c.feed.awaitRunnerGone(c.chatID, c.launch.RunnerID)
 	c.h.QuiesceReactors()
 
 	assert.Equal(t, []string{"KEPT"}, assistantTexts(c.messages(t)))

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,14 +24,14 @@ func TestRegression_RepoReorderBroadcastsEveryShiftedRepo(t *testing.T) {
 	repoA := imported.repoID
 	repoB := addSecondRepo(t, h, p)
 
-	reposWS := h.dial("/v0/projects/" + p + "/repos")
+	reposWS := watchEntities(t, h, stream.KindRepo)
 	// [A, B] -> drag B to the front: A shifts to 1 as collateral.
 	h.raw(http.MethodPatch, "/v0/projects/"+p+"/repos/"+repoB, map[string]any{"order": 0}, http.StatusNoContent).Body.Close()
 
 	// The socket opens on a snapshot carrying the PRE-drag orders, so read
 	// frames until both repos have been announced at their decided ones.
 	seen := map[string]float64{}
-	readUntil(t, reposWS, func(m map[string]any) bool {
+	reposWS.read(t, func(m map[string]any) bool {
 		id, _ := m["id"].(string)
 		if id == repoA || id == repoB {
 			seen[id], _ = m["order"].(float64)
@@ -48,11 +49,11 @@ func TestRegression_HomeChatPlacementBroadcastsShiftedRepos(t *testing.T) {
 	p := imported.projectID
 	c1 := createHomeChatStub(t, h, p)
 
-	reposWS := h.dial("/v0/projects/" + p + "/repos")
+	reposWS := watchEntities(t, h, stream.KindRepo)
 	// [repo, c1] -> drag c1 to the front: the repo shifts to 1.
 	h.patch("/v0/projects/"+p+"/home/chats/"+c1+"/placement", map[string]any{"parentId": "", "order": 0}, nil)
 
-	frame := readUntil(t, reposWS, func(m map[string]any) bool {
+	frame := reposWS.read(t, func(m map[string]any) bool {
 		id, _ := m["id"].(string)
 		order, _ := m["order"].(float64)
 		return id == imported.repoID && order == 1

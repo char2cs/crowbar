@@ -16,15 +16,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// newPlacement opens the id-keyed placement ports over every project's Tree and
-// announces each chat a Tree write moved to live clients, as the chat
-// aggregate's own events did before placement moved into the Tree.
+// newPlacement opens the id-keyed placement ports over every project's Tree.
 func newPlacement(
 	ctx context.Context,
 	ax *aggregates,
 	gormStores *GORMStores,
-	chatSnapshots *agentusecase.ChatSnapshots,
-	late *lateStream,
 ) (*repotree.Ports, error) {
 	locate := repotree.NewLocator(repotree.LocatorFacts{
 		ChatWorkspace: func(ctx context.Context, chatID string) (string, error) {
@@ -55,13 +51,32 @@ func newPlacement(
 	if err != nil {
 		return nil, fmt.Errorf("app: placement: %w", err)
 	}
+	return ports, nil
+}
+
+// announcePlacement tells live clients each row a Tree write moved: a chat as
+// its snapshot at the new place, a workspace as its republished row, a folder
+// as itself.
+func announcePlacement(
+	ax *aggregates,
+	chatSnapshots *agentusecase.ChatSnapshots,
+	late *lateStream,
+	workspaces *repositories.Container,
+) error {
 	moved := func(ctx context.Context, chatID string, p tree.Placement, kind string) {
 		chatSnapshots.ApplyPlacement(ctx, chatID, p.ParentID, p.Order, kind)
 	}
-	if err := repotree.Announce(ax.tree, moved, late.folder); err != nil {
-		return nil, fmt.Errorf("app: placement: %w", err)
+	nodeMoved := func(ctx context.Context, n tree.Node) {
+		if n.Kind == tree.KindWorkspace {
+			workspaces.Republish(ctx, n.ID)
+			return
+		}
+		chatSnapshots.ApplyPlacement(ctx, n.ID, n.ParentID, n.Order, "placement_set")
 	}
-	return ports, nil
+	if err := repotree.Announce(ax.tree, moved, nodeMoved, late.folder); err != nil {
+		return fmt.Errorf("app: placement: %w", err)
+	}
+	return nil
 }
 
 // legacySources are the stores the placement-tree step reads the retired

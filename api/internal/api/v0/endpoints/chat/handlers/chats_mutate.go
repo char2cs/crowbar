@@ -141,7 +141,6 @@ func (h *Handlers) Delete(
 ) {
 	rctx := ctx.Request.Context()
 	id := ctx.Param("id")
-	wsID := ctx.Param("wsId")
 
 	if _, ok := h.requireChatInWorkspace(ctx, id); !ok {
 		return
@@ -152,10 +151,6 @@ func (h *Handlers) Delete(
 		libs.Fail(ctx, err)
 		return
 	}
-	for _, folderID := range removed.Folders {
-		h.broadcastFolder(folderID, wsID, "folder_deleted")
-	}
-	h.announceFolders(wsID, removed.Shifted, "folder_updated")
 	taken := removed.Taken
 	if taken == nil {
 		taken = []string{}

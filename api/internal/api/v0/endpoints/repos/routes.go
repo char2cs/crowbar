@@ -9,11 +9,7 @@ import (
 )
 
 // Register mounts the repo list and detail routes on the supplied router group,
-// backed by the repository GORM store. The list and detail GET routes are
-// dual-served: a plain GET answers REST while a WebSocket upgrade is routed to
-// reposWS (the Broadcaster[RepoDTO] handle) for the live stream — a list-scope
-// subscriber at /projects/:p/repos receives that project's repos, a
-// :repoId-scope subscriber receives only that repo (W7-2).
+// backed by the repository GORM store. broadcast publishes each repo a route changed.
 func Register(
 	rg *gin.RouterGroup,
 	store repohandlers.Store,
@@ -27,8 +23,6 @@ func Register(
 	ops repohandlers.Operations,
 	broadcast func(dto.RepoDTO),
 	crowbarHome func() (string, error),
-	reposWS gin.HandlerFunc,
-	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
 ) {
 	h := repohandlers.NewWithDeps(store, prov, wsReader, ops, broadcast, crowbarHome, placements).
 		WithImporter(importer).
@@ -36,8 +30,8 @@ func Register(
 		WithRemoteRefresher(remote).
 		WithRepoDeleter(deleter)
 	rg.POST("/repos", h.Create)
-	rg.GET("/repos", dispatch(h.List, reposWS))
-	rg.GET("/repos/:repoId", dispatch(h.Detail, reposWS))
+	rg.GET("/repos", h.List)
+	rg.GET("/repos/:repoId", h.Detail)
 	rg.PATCH("/repos/:repoId", h.Patch)
 	rg.DELETE("/repos/:repoId", h.DeleteRepo)
 	rg.GET("/repos/:repoId/icon", h.Icon)

@@ -19,17 +19,16 @@ import (
 // Files and review threads are reused from the workspace-scoped surface: the
 // home group has no :wsId path segment, so RequireHomeWorkspace resolves the
 // project's home workspace and injects :wsId before each reused handler runs.
-// That lets the file-change WS handler (filesWS), the dual-served thread list
-// WS (threadsWS), the thread REST handlers, and the agent chat REST + WS
-// (the agent concerns/agentWS) resolve the home workspace by id. Git is intentionally
+// That lets the thread REST handlers and the agent chat REST routes resolve the
+// home workspace by id. Git is intentionally
 // absent — the home workspace is the project root, not a per-workspace git
 // worktree.
 //
 // working is the daemon's working-overlay read seam (the same one the workspaces
 // handlers stamp their list/detail from): GET /home is the ONLY read path for the
 // home workspace's DTO, so without it a home read taken while an agent chat is
-// mid-turn would report working=false and contradict the home workspace's own WS
-// frames.
+// mid-turn would report working=false and contradict the home workspace's own
+// stream entity.
 func Register(
 	projectScoped *gin.RouterGroup,
 	workspaces homehandlers.HomeWorkspaces,
@@ -44,20 +43,18 @@ func Register(
 	agentAnswers chathandlers.AnswerUsecase,
 	agentProviders chathandlers.ProviderUsecase,
 	agentFolders chathandlers.ChatTreeUsecase,
-	agentBroadcastFolder func(folderID, workspaceID, kind string),
 	// agentWorktrees/agentNodes give the home chat list the same worktree
 	// enrichment a repo's has: the home workspace rides no repo and has no
 	// git surface, but its OWNER row still has to say it owns the home
 	// worktree, or the client cannot tell it from an ordinary home chat.
 	agentWorktrees chathandlers.Worktrees,
 	agentNodes chathandlers.Nodes,
-	agentWS gin.HandlerFunc,
 ) {
 	// agentChats already satisfies homehandlers.ChatResolver (ListChatsByWorkspace) —
 	// no new dependency to thread through Register, only to wire in here.
 	ah := chathandlers.New(
 		agentChats, agentTurns, agentRunners, agentAnswers, agentProviders,
-		agentFolders, agentBroadcastFolder,
+		agentFolders,
 	).WithWorktrees(agentWorktrees).WithNodes(agentNodes)
 	// GET /home resolves its owner through the SAME OwnerOf the home chat list
 	// does.
@@ -95,7 +92,7 @@ func Register(
 	home.DELETE("/terminals/:sessionId", h.RequireHomeTerminalScope, terms.KillSession)
 	home.GET("/terminals/:sessionId/ws", terms.WS)
 
-	registerAgent(home, h, ah, agentWS)
+	registerAgent(home, h, ah)
 }
 
 // registerAgent mounts the agent surface under /home.
@@ -109,16 +106,13 @@ func registerAgent(
 	home *gin.RouterGroup,
 	h *homehandlers.Handlers,
 	ah *chathandlers.Handlers,
-	agentWS gin.HandlerFunc,
 ) {
 	// Agentic chats are a home capability too (00 agentic-engine spec: chats must
 	// work for EVERY workspace kind, project-home included). The workspace-scoped
 	// surface (agent.Register) mounts the SAME agent handler set under
 	// .../workspaces/:wsId; here it is re-mounted under the home group with no
 	// :wsId path segment, so RequireHomeWorkspace resolves the project's home
-	// workspace and injects :wsId before each handler — and before the lifecycle
-	// WS (agentWS), whose agentChatDef filter keys on that injected :wsId so a
-	// home client sees exactly the home workspace's chats. This also makes the
+	// workspace and injects :wsId before each handler. This also makes the
 	// CLI's hooks, its handoff callback and the agent's own MCP relay
 	// reachable for a project-home workspace, whose repo-less scope resolves to
 	// this /home/agent mount (see cmd/crowbar/scope.go's home branch).
@@ -158,5 +152,4 @@ func registerAgent(
 	home.POST("/chats/runners/:segid/mcp", h.RequireHomeWorkspace, ah.MCP)
 	home.POST("/chats/runners/:segid/hooks/:provider/:event", h.RequireHomeWorkspace, ah.HTTPHook)
 	home.GET("/chats/providers", h.RequireHomeWorkspace, ah.Providers)
-	home.GET("/chats/ws", h.RequireHomeWorkspace, agentWS)
 }

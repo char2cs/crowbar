@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -97,10 +98,10 @@ func TestRegression_DeleteRepo_KeepsUnmergedAndUncommittedWorkUnlessConfirmed(t 
 	assert.FileExists(t, filepath.Join(worktree, "notes.txt"), "the uncommitted edit is kept")
 	require.Len(t, listRepos(t, h, imported.projectID), 1, "the repo stays")
 
-	reposWS := h.dial("/v0/projects/" + imported.projectID + "/repos")
+	reposWS := watchEntities(t, h, stream.KindRepo)
 	deleteAccepted(t, h, repoPath, true)
-	readUntil(t, reposWS, func(m map[string]any) bool {
-		return m["id"] == imported.repoID && m["status"] == "deleted"
+	reposWS.read(t, func(m map[string]any) bool {
+		return m["id"] == imported.repoID && m["gone"] == true
 	})
 	h.QuiesceReactors()
 
@@ -121,10 +122,10 @@ func TestRegression_DeleteRepo_WithoutConsentStillTakesAMergedCrowbarBranch(t *t
 	ws, err := h.app.Repositories.Workspace.Get(context.Background(), wsID)
 	require.NoError(t, err)
 
-	reposWS := h.dial("/v0/projects/" + imported.projectID + "/repos")
+	reposWS := watchEntities(t, h, stream.KindRepo)
 	deleteAccepted(t, h, "/v0/projects/"+imported.projectID+"/repos/"+imported.repoID, false)
-	readUntil(t, reposWS, func(m map[string]any) bool {
-		return m["id"] == imported.repoID && m["status"] == "deleted"
+	reposWS.read(t, func(m map[string]any) bool {
+		return m["id"] == imported.repoID && m["gone"] == true
 	})
 	h.QuiesceReactors()
 
@@ -167,10 +168,10 @@ func TestRegression_DeleteRepo_NeverRemovesACheckoutCrowbarDidNotCreate(t *testi
 	projectID, repoID := createProjectAndRepo(t, h, linked)
 	h.Quiesce()
 
-	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
+	reposWS := watchEntities(t, h, stream.KindRepo)
 	deleteAccepted(t, h, "/v0/projects/"+projectID+"/repos/"+repoID, true)
-	readUntil(t, reposWS, func(m map[string]any) bool {
-		return m["id"] == repoID && m["status"] == "deleted"
+	reposWS.read(t, func(m map[string]any) bool {
+		return m["id"] == repoID && m["gone"] == true
 	})
 	h.QuiesceReactors()
 

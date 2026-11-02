@@ -44,14 +44,14 @@ func bootReconcileFixture(
 	imported := importProject(t, h)
 	homeBase = "/v0/projects/" + imported.projectID + "/home"
 
-	frames := dialAgentWS(t, h, homeBase+"/chats/ws")
+	feed := recordSidebar(t, h)
 
 	var created struct {
 		ID string `json:"id"`
 	}
 	h.post(homeBase+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
-	waitForChatFrame(t, frames, created.ID, "created")
+	feed.awaitListed(created.ID)
 
 	h.Quiesce()
 	spawned := getAgentChat(t, h, homeBase, created.ID)
@@ -61,12 +61,12 @@ func bootReconcileFixture(
 
 	// Announce a conversation, so the chat has history to be revived from.
 	postHook(t, h, homeBase, "livestub", runnerID, "session_start", `{"session_id":"sess-before-restart"}`)
-	waitForConversation(t, frames, created.ID, "sess-before-restart")
+	feed.awaitConversation(created.ID, "sess-before-restart")
 
 	// Open a turn, so the boot reconcile has a live turn to close — not merely a
 	// runner row to reap (the crash-mid-turn shape the FE spinner depends on).
 	postHook(t, h, homeBase, "livestub", runnerID, "user_prompt", `{"prompt":"hi"}`)
-	waitForChatFrame(t, frames, created.ID, "turn_started")
+	feed.awaitTurnStart(created.ID)
 	h.Quiesce()
 
 	require.True(t, chatBusy(t, h, created.ID), "precondition: the chat is mid-turn before the restart")
@@ -221,7 +221,7 @@ func TestRegression_ARunnersExitReasonSurvivesARestart(t *testing.T) {
 	imported := importWritableWorkspace(t, h)
 	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
 	chatID, l := createFakeChat(t, h, imported, fake)
-	killAndAwaitExit(t, h, h.dial(repoBase(imported)+"/chats/ws"), l)
+	killAndAwaitExit(t, h, recordSidebar(t, h), chatID, l)
 	require.Equal(t, "exited", exitReason(t, h, imported, chatID), "precondition: the exit was reported")
 
 	h.shutdown()

@@ -299,3 +299,31 @@ func TestStream_ADeletedChatIsGoneOnTheProjectsScope(t *testing.T) {
 	assert.True(t, gone.Gone)
 	assert.NotContains(t, sidebarSnapshot(t, dialStream(t, h)), "chat/"+chatID)
 }
+
+// A live chat is filed under the scope its workspace answers: a repo chat in
+// any of its repo's workspaces under that repo, a home chat under its project
+// and no repo, whichever project or repo wrote last.
+func TestStream_ALiveChatIsFiledUnderItsOwnScope(t *testing.T) {
+	h := newHarness(t)
+	writeLiveStubProviderDescriptor(t, h)
+	a := importProject(t, h)
+	b := importProject(t, h)
+	otherWS := createChildWorkspace(t, h, a, "feature/other", a.workspaceID)
+	h.Quiesce()
+	feed := recordSidebar(t, h)
+
+	var inChild, inB struct {
+		ID string `json:"id"`
+	}
+	h.post(repoBase(a)+"/chats", map[string]string{"provider": "livestub", "workspaceId": otherWS},
+		http.StatusCreated, &inChild)
+	h.post(repoBase(b)+"/chats", map[string]string{"provider": "livestub", "workspaceId": b.workspaceID},
+		http.StatusCreated, &inB)
+	home := createHomeChat(t, h, b.projectID)
+
+	assert.Equal(t, []any{a.projectID, a.repoID}, scopeOf(feed.awaitListed(inChild.ID)))
+	assert.Equal(t, []any{b.projectID, b.repoID}, scopeOf(feed.awaitListed(inB.ID)))
+	assert.Equal(t, []any{b.projectID, ""}, scopeOf(feed.awaitListed(home)))
+}
+
+func scopeOf(chat map[string]any) []any { return []any{chat["projectId"], chat["repoId"]} }

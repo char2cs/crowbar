@@ -85,7 +85,7 @@ func newWorktreeHandlers(
 	uc *configurableListGetUsecase,
 	worktrees handlers.Worktrees,
 ) *handlers.Handlers {
-	return handlers.New(uc, uc, uc, uc, uc, &fakeChatTree{}, nil).WithWorktrees(worktrees)
+	return handlers.New(uc, uc, uc, uc, uc, &fakeChatTree{}).WithWorktrees(worktrees)
 }
 
 // fakeNodeReads is the Nodes port: one Node row keyed by id.
@@ -285,7 +285,7 @@ func TestList_AnUnreadableWorktreeStillListsTheChat(t *testing.T) {
 func TestList_UnwiredWorktreeReadsDegradeToAbsent(t *testing.T) {
 	uc := &configurableListGetUsecase{chats: []domain.Chat{{ID: "c1", WorkspaceID: "ws-1"}}}
 
-	rows := listChats(t, handlers.New(uc, uc, uc, uc, uc, &fakeChatTree{}, nil))
+	rows := listChats(t, handlers.New(uc, uc, uc, uc, uc, &fakeChatTree{}))
 
 	require.Len(t, rows, 1)
 	assert.Nil(t, rows[0].Worktree)

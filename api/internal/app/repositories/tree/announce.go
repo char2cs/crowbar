@@ -14,20 +14,27 @@ import (
 // ("placement_set" when the parent changed, else "order_set").
 type ChatMoved func(ctx context.Context, chatID string, p tree.Placement, kind string)
 
+// NodeMoved hears a chat or workspace row whose position Node a Tree write
+// changed or minted; a chat the Tree places by its own record is ChatMoved's.
+type NodeMoved func(ctx context.Context, n tree.Node)
+
 // FolderChanged hears a folder a Tree write created, renamed, moved or (gone)
 // deleted, at the event's version.
 type FolderChanged func(ctx context.Context, projectID string, f tree.Folder, at tree.Node, gone bool, rev int64)
 
 // Announce tells live clients what each Tree write moved, as the chat
 // aggregate's own events did before placement left it: chatMoved hears every
-// chat whose placement changed, folderChanged every folder that changed.
+// chat whose placement changed, nodeMoved every chat or workspace row whose
+// position Node moved, folderChanged every folder that changed.
 func Announce(
 	ax asynx.Asynx[tree.Tree],
 	chatMoved ChatMoved,
+	nodeMoved NodeMoved,
 	folderChanged FolderChanged,
 ) error {
 	if _, err := ax.Subscribe(asynx.Topic("tree.*"), func(ctx context.Context, evt asynxModels.Event[tree.Tree]) {
 		announce(ctx, evt.PreviousAggregate, evt.Aggregate, chatMoved)
+		announceNodes(ctx, evt.PreviousAggregate, evt.Aggregate, nodeMoved)
 		announceFolders(ctx, evt.PreviousAggregate, evt.Aggregate, folderChanged, evt.Version)
 	}); err != nil {
 		return fmt.Errorf("tree: announce: %w", err)
@@ -49,6 +56,18 @@ func announce(
 		case was.Order != p.Order:
 			chatMoved(ctx, id, p, "order_set")
 		}
+	}
+}
+
+func announceNodes(ctx context.Context, before, after tree.Tree, moved NodeMoved) {
+	for id, n := range after.Nodes {
+		if n.Kind != tree.KindChat && n.Kind != tree.KindWorkspace {
+			continue
+		}
+		if _, own := after.Chats[id]; own || before.Nodes[id] == n {
+			continue
+		}
+		moved(ctx, n)
 	}
 }
 

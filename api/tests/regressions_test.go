@@ -321,33 +321,20 @@ func TestRegression_GitDiscardRecoversFromStaleIndexLock(t *testing.T) {
 	require.NoFileExists(t, lock, "the stale lock must have been cleared")
 }
 
-// §13: deleting an unlocked workspace's owning chat returns 202 and then
-// broadcasts a worktree_state frame carrying status:"deleted" on the chat feed,
-// so the client cache drops the entity (spec §4/§6).
-//
-// The deleted POST/DELETE .../workspaces group's own create/delete contract
-// (201+id vs 202+WS-learned-id) does not carry over 1:1: a chat's create is
-// SYNCHRONOUS now (CreateChat's ownWorktree branch calls CreateChildWorkspace
-// inline before answering 201 with the CHAT's id — chats.go/own_worktree.go —
-// so there is no "learn the new id from a later WS frame" step left to pin, and
-// no HTTP route names a caller-chosen branch at all any more, spec §8 step 6).
-// DELETE is what survives that shape: it answers 200 once done, with the
-// outcome delivered on the stream, now via the chat that owns
-// the worktree (worktree/handlers, DeleteCascade through DeleteChat's reap).
+// TestRegression_WorkspaceDeleteBroadcastsDeletedStatus: deleting the chat that
+// owns a worktree reaps it inline and answers 200; the workspace then leaves the
+// projects scope as gone, so every live sidebar drops it.
 func TestRegression_WorkspaceDeleteBroadcastsDeletedStatus(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
 	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
-	conn := repoChatsWS(h, imported)
+	feed := recordSidebar(t, h)
 	resp := h.raw(http.MethodDelete, repoBase+"/chats/"+imported.chatID, nil,
 		http.StatusOK)
 	_ = resp.Body.Close()
 
-	got := readUntilWorktree(t, conn, func(m map[string]any) bool {
-		return m["id"] == imported.workspaceID && m["status"] == "deleted"
-	})
-	require.Equal(t, "deleted", got["status"])
+	feed.awaitGone(stream.KindWorkspace, imported.workspaceID)
 }
 
 // §13: deleting a locked workspace's owning chat is refused SYNCHRONOUSLY
@@ -383,9 +370,8 @@ func TestRegression_DeleteLockedWorkspaceRejected(t *testing.T) {
 }
 
 // §13 / spec §3.6+§3.8: deleting a workspace's owning chat tombstones it under
-// the asynx-alignment delete lifecycle. The DELETE is accepted (202) and a
-// worktree_state frame carrying status:"deleted" is broadcast off the
-// store/hub projections once the tombstone is folded — before the physical
+// the asynx-alignment delete lifecycle. The DELETE is accepted and the
+// workspace leaves the projects scope as gone once the tombstone is folded — before the physical
 // worktree purge (the async, gated delete reactor; Task 8; end-to-end lifecycle
 // validated by the crash/lifecycle integration suite) has necessarily finished.
 // The old entity-scoped storages tree
@@ -412,13 +398,11 @@ func TestRegression_DeleteWorkspaceTombstones(t *testing.T) {
 	require.True(t, found,
 		"the imported workspace must be listable before the delete cascade runs")
 
-	conn := repoChatsWS(h, imported)
+	feed := recordSidebar(t, h)
 	resp := h.raw(http.MethodDelete, repoBase+"/chats/"+imported.chatID, nil,
 		http.StatusOK)
 	_ = resp.Body.Close()
-	readUntilWorktree(t, conn, func(m map[string]any) bool {
-		return m["id"] == imported.workspaceID && m["status"] == "deleted"
-	})
+	feed.awaitGone(stream.KindWorkspace, imported.workspaceID)
 }
 
 // §13: the repo icon is served from on-disk bytes, never proxied live from
@@ -600,21 +584,19 @@ func TestRegression_LinkedWorktreeImportsAsOneRepo(t *testing.T) {
 	runGit(t, repoPath, "worktree", "add", "-b", "feature/linked",
 		filepath.Join(root, "wt"))
 
-	projectsWS := h.dial("/v0/projects")
+	projectsWS := watchEntities(t, h, stream.KindProject)
 	resp := h.raw(http.MethodPost, "/v0/projects",
 		map[string]string{"name": "wt-demo", "path": root}, http.StatusAccepted)
 	_ = resp.Body.Close()
-	project := readUntil(t, projectsWS, func(m map[string]any) bool {
+	project := projectsWS.read(t, func(m map[string]any) bool {
 		return m["path"] == root
 	})
 	projectID, _ := project["id"].(string)
 	require.NotEmpty(t, projectID)
 
-	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
-	addResp := h.raw(http.MethodPost, "/v0/projects/"+projectID+"/repos",
-		map[string]string{"name": "repo", "path": repoPath}, http.StatusAccepted)
-	_ = addResp.Body.Close()
-	repo := readUntil(t, reposWS, func(m map[string]any) bool {
+	reposWS := watchEntities(t, h, stream.KindRepo)
+	importRepo(t, h, "/v0/projects/"+projectID+"/repos", map[string]string{"name": "repo", "path": repoPath})
+	repo := reposWS.read(t, func(m map[string]any) bool {
 		return m["projectId"] == projectID
 	})
 	repoID, _ := repo["id"].(string)
@@ -637,11 +619,8 @@ func TestRegression_LinkedWorktreeImportsAsOneRepo(t *testing.T) {
 	// The sound form of a NEVER is: run the producer to COMPLETION, then assert once.
 	// Quiesce drains the import's projections, so when it returns the importer has
 	// finished deciding what to adopt and nothing is left in flight that could still
-	// add the row. Its absence is then final. It is also the barrier that lets the
-	// settled projection be read straight back over REST below: the repo-scoped chat
-	// feed that replaced the workspaces WS carries no snapshot (agentChatDef), so a
-	// live-frame wait for "main" dialled after this point could hang having already
-	// missed it.
+	// add the row. Its absence is then final, and the settled projection can be
+	// read straight back over REST below.
 	h.Quiesce()
 	require.Zero(t, countBranchRows(t, h, projectID, repoID, "feature/linked"),
 		"a non-protected linked worktree must not be auto-adopted at import")
@@ -1242,9 +1221,7 @@ func TestRegression_CreateChildForksFromOriginTipNotStaleLocal(t *testing.T) {
 	projectID, repoID := createProjectAndRepo(t, h, repoPath)
 
 	// Main provisioning as a managed worktree is the import's completion signal.
-	// Read back rather than awaited on a stream: the chat feed carries no
-	// snapshot (agentChatDef), so Quiesce is the barrier (importProject's own
-	// doc comment gives the full reasoning).
+	// Read back once Quiesce has drained the import's projections.
 	h.Quiesce()
 	var sawMain bool
 	for _, c := range listChats(t, h, projectID, repoID) {

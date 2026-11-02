@@ -21,7 +21,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/app/hub"
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
@@ -67,7 +67,7 @@ func newContainerDeps(
 		context.Background(),
 		adapters,
 		rm,
-		hub.NewHub(),
+		func(dto.WorkspaceDTO) {},
 		newTestAsynx(t, adapters.ReviewThreadES(), reviewthread.Subscriber(rm.ReviewThread)),
 		newTestAsynx(t, adapters.WorkspaceES(), workspace.Subscriber(rm.Workspace)),
 		newTestAsynx(t, adapters.AgentChatES(), agentchat.Subscriber(rm.AgentChat)),
@@ -305,7 +305,7 @@ func TestContainer_New_SurfacesAgentWiringError(t *testing.T) {
 	require.Error(t, err)
 }
 
-// noopThreadBroadcast stands in for the app layer's hub adapter. These tests build
+// noopThreadBroadcast stands in for the app layer's stream adapter. These tests build
 // the usecases container without the api layer, and what the fan-out DOES is proved
 // in the agenttools package; here it only has to be non-nil so the wiring is complete.
 func noopThreadBroadcast(_ domain.ReviewThread, _, _ string) {}

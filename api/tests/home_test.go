@@ -23,12 +23,12 @@ func createProjectForHome(t *testing.T, h *harness) string {
 	t.Helper()
 	dir := gitRepoWithCommit(t)
 
-	projectsWS := h.dial("/v0/projects")
+	projectsWS := watchEntities(t, h, stream.KindProject)
 	resp := h.raw(http.MethodPost, "/v0/projects",
 		map[string]string{"name": "home-demo", "path": dir}, http.StatusAccepted)
 	_ = resp.Body.Close()
 
-	project := readUntil(t, projectsWS, func(m map[string]any) bool {
+	project := projectsWS.read(t, func(m map[string]any) bool {
 		return m["path"] == dir
 	})
 	id, _ := project["id"].(string)

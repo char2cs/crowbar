@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,10 +28,10 @@ func TestRegression_RepoMoveToAnotherProject_IsRefusedAndChangesNothing(t *testi
 	require.DirExists(t, childPath)
 
 	otherPath := gitRepoWithCommit(t)
-	projectsWS := h.dial("/v0/projects")
+	projectsWS := watchEntities(t, h, stream.KindProject)
 	require.NoError(t, h.raw(http.MethodPost, "/v0/projects",
 		map[string]string{"name": "other", "path": otherPath}, http.StatusAccepted).Body.Close())
-	other := readUntil(t, projectsWS, func(m map[string]any) bool { return m["path"] == otherPath })
+	other := projectsWS.read(t, func(m map[string]any) bool { return m["path"] == otherPath })
 	otherID, _ := other["id"].(string)
 	require.NotEmpty(t, otherID)
 	h.Quiesce()

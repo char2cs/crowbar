@@ -122,7 +122,7 @@ func TestRegression_Symptom5_RetractBeforeDeliveryReturnsTheText(t *testing.T) {
 
 	assert.Equal(t, retractAnswer{State: "retracted", Text: "one"}, c.retract(t, r1))
 
-	readUntil(t, c.conn, func(m map[string]any) bool { return m["kind"] == "exited" && m["runnerId"] == l.RunnerID })
+	c.feed.awaitRunnerGone(c.chatID, l.RunnerID)
 	rows := c.feedRows(t)
 	assert.Equal(t, []ledger.PromptSettled{{RequestID: r1, Consumed: false, Reason: ledger.ReasonRetracted}}, settledAs(t, rows, r1))
 	exits := rowsOf(t, rows, ledger.KindRunnerExited, func(b ledger.RunnerExited) bool { return b.RunnerID == l.RunnerID })

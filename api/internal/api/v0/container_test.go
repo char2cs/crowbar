@@ -4,17 +4,13 @@ package v0_test
 
 import (
 	"context"
-	"net/http/httptest"
 	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -41,44 +37,6 @@ func newApp(t *testing.T) testContainers {
 	// app.Close stops the asynx pools; t.Context's cancel stops the sweeps.
 	t.Cleanup(a.Close)
 	return testContainers{app: a, eng: eng}
-}
-
-// workspaceFixture is a worktree a chat OWNS. The owning chat id is what keys
-// the frame PushWorkspace fans out (pushChatWorktree); a row carrying none
-// pushes nothing at all, so a fixture without it would prove nothing.
-func workspaceFixture() dto.WorkspaceDTO {
-	return dto.WorkspaceDTO{ID: "w1", RepoID: "r1", ProjectID: "p1", OwningChatID: "chat-1"}
-}
-
-// serveAgentChats mounts the agent-chat broadcaster on the two shapes its live
-// routes take — the per-chat stream and the repo-scoped one — directly, rather
-// than through Register: the chat group's resolveChatWorktree guard refuses a
-// chat it cannot resolve to a worktree, and these tests are about which client a
-// frame reaches, not about resolving one.
-func serveAgentChats(
-	t *testing.T,
-	tc testContainers,
-) (*v0.Container, *httptest.Server) {
-	t.Helper()
-	gin.SetMode(gin.TestMode)
-	c := v0.New(tc.app, tc.eng)
-	r := gin.New()
-	r.GET("/v0/chats/:chatId/ws", c.AgentChatsHandle)
-	r.GET("/v0/projects/:projectId/repos/:repoId/chats/ws", c.AgentChatsHandle)
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-	return c, srv
-}
-
-// chatWorktreeOf returns the worktree object riding a worktree_state frame.
-func chatWorktreeOf(
-	t *testing.T,
-	frame map[string]any,
-) map[string]any {
-	t.Helper()
-	worktree, ok := frame["worktree"].(map[string]any)
-	require.True(t, ok, "a worktree_state frame carries the worktree it describes")
-	return worktree
 }
 
 // seedRepo creates a real repository row under project p1 so the repo scope guard
@@ -111,129 +69,4 @@ func seedWorkspace(t *testing.T, tc testContainers, id string) {
 		time.Now(),
 	)
 	require.NoError(t, err)
-}
-
-// TestV0_HubWorkspaceBroadcastReachesChatWSClient proves the whole chain a
-// workspace broadcast now takes: hub.BroadcastWorkspace -> PushWorkspace ->
-// pushChatWorktree -> the agent-chat broadcaster -> a live WS client, keyed on
-// the chat that owns the worktree rather than on the worktree itself (spec
-// §7.4).
-func TestV0_HubWorkspaceBroadcastReachesChatWSClient(t *testing.T) {
-	tc := newApp(t)
-	seedRepo(t, tc, "r1")
-	c, srv := serveAgentChats(t, tc)
-
-	conn := dialV0(t, srv, "/v0/chats/chat-1/ws")
-	c.WaitAgentChatsRegistered()
-
-	tc.app.Hub.BroadcastWorkspace(workspaceFixture())
-
-	got := conn.ReadMsg(t, wsReadBound)
-	assert.Equal(t, dto.AgentChatKindWorktreeState, got["kind"])
-	assert.Equal(t, "chat-1", got["chatId"])
-	assert.Equal(t, "w1", got["workspaceId"])
-	assert.Equal(t, "chat-1", chatWorktreeOf(t, got)["owningChatId"])
-}
-
-// TestV0_WorktreeState_ChatScopeIsolatesOtherChats proves the per-chat mount
-// scopes a subscriber to its OWN chat: a worktree owned by another chat never
-// reaches it.
-//
-// The isolation is proven by ORDER, not by a timeout: chat-1's frame is pushed
-// first, so a leak would sit in chat-2's buffered channel ahead of its own
-// frame and be the first thing it reads.
-func TestV0_WorktreeState_ChatScopeIsolatesOtherChats(t *testing.T) {
-	tc := newApp(t)
-	seedRepo(t, tc, "r1")
-	c, srv := serveAgentChats(t, tc)
-
-	owner := dialV0(t, srv, "/v0/chats/chat-1/ws")
-	other := dialV0(t, srv, "/v0/chats/chat-2/ws")
-	c.WaitNAgentChatsRegistered(2)
-
-	tc.app.Hub.BroadcastWorkspace(workspaceFixture())
-	tc.app.Hub.BroadcastWorkspace(dto.WorkspaceDTO{
-		ID: "w2", RepoID: "r1", ProjectID: "p1", OwningChatID: "chat-2",
-	})
-
-	assert.Equal(t, "w1", owner.ReadMsg(t, wsReadBound)["workspaceId"])
-	assert.Equal(t, "w2", other.ReadMsg(t, wsReadBound)["workspaceId"],
-		"chat-2 holds w2: the w1 frame must never have reached it")
-}
-
-// TestV0_WorktreeState_RepoScopeIsolatesOtherRepos proves the repo-scoped mount
-// still holds a subscriber to its own repo once the frame is chat-keyed: the
-// repo a worktree_state frame names is the one its workspace runs in, and a
-// worktree in a sibling repo must not reach an r1-scoped client.
-//
-// Ordering carries the proof here too: the r2 frame is pushed FIRST, so a leak
-// would be this client's first read.
-func TestV0_WorktreeState_RepoScopeIsolatesOtherRepos(t *testing.T) {
-	tc := newApp(t)
-	seedRepo(t, tc, "r1")
-	c, srv := serveAgentChats(t, tc)
-
-	conn := dialV0(t, srv, "/v0/projects/p1/repos/r1/chats/ws")
-	c.WaitAgentChatsRegistered()
-
-	tc.app.Hub.BroadcastWorkspace(dto.WorkspaceDTO{
-		ID: "w2", RepoID: "r2", ProjectID: "p1", OwningChatID: "chat-2",
-	})
-	tc.app.Hub.BroadcastWorkspace(workspaceFixture())
-
-	got := conn.ReadMsg(t, wsReadBound)
-	assert.Equal(t, "w1", got["workspaceId"],
-		"an r1-scoped subscriber must never receive another repo's worktree frame")
-	assert.Equal(t, "r1", got["repoId"])
-}
-
-// TestContainer_PushProject_RouteByPrefix proves the Projects broadcaster routes
-// by hierarchical prefix derived from the :projectId path param: a client scoped
-// to "p1" receives only that project's frame; a sibling project's frame is
-// filtered out (spec §5).
-func TestContainer_PushProject_RouteByPrefix(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	tc := newApp(t)
-	c := v0.New(tc.app, tc.eng)
-	r := gin.New()
-	r.GET("/v0/projects/:projectId", c.ProjectsHandle)
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	conn := dialV0(t, srv, "/v0/projects/p1")
-	c.WaitProjectsRegistered()
-
-	// A sibling project's frame must be filtered out; only p1's arrives.
-	tc.app.Hub.BroadcastProject(dto.ProjectDTO{ID: "p2", Name: "skip"})
-	tc.app.Hub.BroadcastProject(dto.ProjectDTO{ID: "p1", Name: "keep"})
-
-	got := conn.ReadMsg(t, wsReadBound)
-	assert.Equal(t, "p1", got["id"])
-	assert.Equal(t, "keep", got["name"])
-}
-
-// TestContainer_PushRepo_RouteByPrefix proves the Repos broadcaster routes by
-// hierarchical prefix derived from the :projectId path param: a client scoped to
-// the project "p1" (prefix "p1") receives every child repo ("p1/r1") but not a
-// sibling project's repo ("p2/r1") (spec §5).
-func TestContainer_PushRepo_RouteByPrefix(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	tc := newApp(t)
-	c := v0.New(tc.app, tc.eng)
-	r := gin.New()
-	r.GET("/v0/projects/:projectId/repos", c.ReposHandle)
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	conn := dialV0(t, srv, "/v0/projects/p1/repos")
-	c.WaitReposRegistered()
-
-	// A sibling project's repo must be filtered out; only p1's child repo arrives.
-	tc.app.Hub.BroadcastRepo(dto.RepoDTO{ID: "r1", ProjectID: "p2", Name: "skip"})
-	tc.app.Hub.BroadcastRepo(dto.RepoDTO{ID: "r1", ProjectID: "p1", Name: "keep"})
-
-	got := conn.ReadMsg(t, wsReadBound)
-	assert.Equal(t, "r1", got["id"])
-	assert.Equal(t, "p1", got["projectId"])
-	assert.Equal(t, "keep", got["name"])
 }

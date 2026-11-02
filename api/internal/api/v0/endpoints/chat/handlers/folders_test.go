@@ -193,13 +193,6 @@ func (f *fakeChatTree) DiscardOwningChat(
 	return f.err
 }
 
-// folderFrame is one chat-folder frame the handlers pushed on the Chats socket.
-type folderFrame struct {
-	folderID    string
-	workspaceID string
-	kind        string
-}
-
 // agentUsecases is every agent port the handler set takes, behind one type, so
 // one test double can still stand in for all five. Production wires them
 // separately — that is the whole point of the split — and each double here is
@@ -213,11 +206,11 @@ type agentUsecases interface {
 }
 
 // newChatHandlers builds the handler set the chat tests use: a real agent
-// usecase double, an inert tree, and no broadcaster.
+// usecase double and an inert tree.
 func newChatHandlers(
 	uc agentUsecases,
 ) *handlers.Handlers {
-	return handlers.New(uc, uc, uc, uc, uc, &fakeChatTree{}, nil)
+	return handlers.New(uc, uc, uc, uc, uc, &fakeChatTree{})
 }
 
 // newChatHandlersWith is newChatHandlers with the tree double the caller holds,
@@ -228,16 +221,14 @@ func newChatHandlersWith(
 	uc agentUsecases,
 	tree *fakeChatTree,
 ) *handlers.Handlers {
-	return handlers.New(uc, uc, uc, uc, uc, tree, nil)
+	return handlers.New(uc, uc, uc, uc, uc, tree)
 }
 
-// newFolderHandlers builds the handler set the tree tests use, capturing every
-// frame the mutation fans out.
+// newFolderHandlers builds the handler set the tree tests use.
 func newFolderHandlers(
 	tree *fakeChatTree,
-	frames *[]folderFrame,
 ) *handlers.Handlers {
-	return newFolderHandlersWith(&fakeAgentUsecase{}, tree, frames)
+	return newFolderHandlersWith(&fakeAgentUsecase{}, tree)
 }
 
 // newFolderHandlersWith is newFolderHandlers with a caller-supplied agent
@@ -245,16 +236,12 @@ func newFolderHandlers(
 func newFolderHandlersWith(
 	uc agentUsecases,
 	tree *fakeChatTree,
-	frames *[]folderFrame,
 ) *handlers.Handlers {
-	return handlers.New(uc, uc, uc, uc, uc, tree, func(folderID, workspaceID, kind string) {
-		*frames = append(*frames, folderFrame{folderID: folderID, workspaceID: workspaceID, kind: kind})
-	})
+	return handlers.New(uc, uc, uc, uc, uc, tree)
 }
 
 // folderParams sets both :repoId (what the folder CRUD verbs scope by) and
-// :wsId (what the broadcast callback still names), mirroring the real router's
-// nesting where both are always present together.
+// :wsId, mirroring the real router's nesting where both are always present together.
 func folderParams(
 	extra ...gin.Param,
 ) gin.Params {
@@ -265,62 +252,51 @@ func folderParams(
 // folder in another, so the body carries no repo at all.
 func TestCreateFolder_TakesTheScopeFromTheURL(t *testing.T) {
 	tree := &fakeChatTree{created: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder, Title: "spikes"}}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPost, "/chats/folders",
 		[]byte(`{"name":"spikes","parentId":"c1","repoId":"evil"}`))
 	ctx.Params = folderParams()
 
-	newFolderHandlers(tree, &frames).CreateFolder(ctx)
+	newFolderHandlers(tree).CreateFolder(ctx)
 
 	require.Equal(t, http.StatusCreated, rec.Code)
 	assert.Equal(t, "r1", tree.gotCreate.RepoID)
 	assert.Equal(t, "c1", tree.gotCreate.ParentID)
-	require.Len(t, frames, 1)
-	assert.Equal(t, folderFrame{folderID: "f1", workspaceID: "ws-1", kind: "folder_created"}, frames[0])
 }
 
-// A create densifies the level, so the rows it shifted have to reach the client
-// too — otherwise their orders stay stale until the next reconnect.
-func TestCreateFolder_ReturnsAndAnnouncesTheCollateral(t *testing.T) {
+// A create densifies the level, so the rows it shifted ride back with the answer.
+func TestCreateFolder_ReturnsTheCollateral(t *testing.T) {
 	tree := &fakeChatTree{
 		created: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder},
 		shifted: []domain.Chat{{ID: "f0", Type: domain.ChatTypeFolder, Order: 0}},
 	}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPost, "/chats/folders", []byte(`{"name":"spikes"}`))
 	ctx.Params = folderParams()
 
-	newFolderHandlers(tree, &frames).CreateFolder(ctx)
+	newFolderHandlers(tree).CreateFolder(ctx)
 
 	require.Equal(t, http.StatusCreated, rec.Code)
 	body := decodeFolderResponse(t, rec.Body.Bytes())
 	assert.Equal(t, "f1", body.Folder.ID)
 	require.Len(t, body.Shifted, 1)
 	assert.Equal(t, "f0", body.Shifted[0].ID)
-	require.Len(t, frames, 2)
-	assert.Equal(t, "folder_updated", frames[0].kind, "the collateral is announced before the subject")
-	assert.Equal(t, "folder_created", frames[1].kind)
 }
 
 func TestCreateFolder_SurfacesTheUsecaseRefusal(t *testing.T) {
 	tree := &fakeChatTree{err: agentusecase.ErrTreeNameRequired}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPost, "/chats/folders", []byte(`{"name":" "}`))
 	ctx.Params = folderParams()
 
-	newFolderHandlers(tree, &frames).CreateFolder(ctx)
+	newFolderHandlers(tree).CreateFolder(ctx)
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Empty(t, frames, "a refused create announces nothing")
 }
 
 func TestCreateFolder_MalformedBodyIs400(t *testing.T) {
 	tree := &fakeChatTree{}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPost, "/chats/folders", []byte(`{`))
 	ctx.Params = folderParams()
 
-	newFolderHandlers(tree, &frames).CreateFolder(ctx)
+	newFolderHandlers(tree).CreateFolder(ctx)
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Empty(t, tree.gotCreate.RepoID, "a malformed body must not reach the usecase")
@@ -331,11 +307,10 @@ func TestListFolders_ScopesToTheURLRepo(t *testing.T) {
 		{ID: "b", Type: domain.ChatTypeFolder, Order: 1},
 		{ID: "a", Type: domain.ChatTypeFolder, Order: 0},
 	}}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodGet, "/chats/folders", nil)
 	ctx.Params = folderParams()
 
-	newFolderHandlers(tree, &frames).ListFolders(ctx)
+	newFolderHandlers(tree).ListFolders(ctx)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	var env struct {
@@ -349,11 +324,10 @@ func TestListFolders_ScopesToTheURLRepo(t *testing.T) {
 
 func TestListFolders_SurfacesAStoreError(t *testing.T) {
 	tree := &fakeChatTree{err: problem.ErrNotFound}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodGet, "/chats/folders", nil)
 	ctx.Params = folderParams()
 
-	newFolderHandlers(tree, &frames).ListFolders(ctx)
+	newFolderHandlers(tree).ListFolders(ctx)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
@@ -361,12 +335,11 @@ func TestListFolders_SurfacesAStoreError(t *testing.T) {
 // A drag that renames AND moves must land as one answer, not two half-states.
 func TestPatchFolder_RenameThenMove(t *testing.T) {
 	tree := &fakeChatTree{moved: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder, Title: "new", Order: 2}}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1",
 		[]byte(`{"name":"new","parentId":"c1","order":2}`))
 	ctx.Params = folderParams(gin.Param{Key: "folderId", Value: "f1"})
 
-	newFolderHandlers(tree, &frames).PatchFolder(ctx)
+	newFolderHandlers(tree).PatchFolder(ctx)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, 1, tree.renames)
@@ -376,8 +349,6 @@ func TestPatchFolder_RenameThenMove(t *testing.T) {
 	assert.Equal(t, "c1", *tree.gotMove.ParentID)
 	require.NotNil(t, tree.gotMove.Order)
 	assert.Equal(t, 2, *tree.gotMove.Order)
-	require.Len(t, frames, 1, "one gesture, one frame")
-	assert.Equal(t, "folder_updated", frames[0].kind)
 }
 
 // A rename-only PATCH (no parentId, no order) must never fall through to
@@ -388,11 +359,10 @@ func TestPatchFolder_RenameThenMove(t *testing.T) {
 // though what the folder is called has no bearing on any chat inside it.
 func TestRegression_PatchFolder_NameOnlySkipsTheMove(t *testing.T) {
 	tree := &fakeChatTree{renamed: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder, Title: "new"}}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{"name":"new"}`))
 	ctx.Params = folderParams(gin.Param{Key: "folderId", Value: "f1"})
 
-	newFolderHandlers(tree, &frames).PatchFolder(ctx)
+	newFolderHandlers(tree).PatchFolder(ctx)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, 1, tree.renames)
@@ -404,11 +374,10 @@ func TestRegression_PatchFolder_NameOnlySkipsTheMove(t *testing.T) {
 // reach the usecase as "leave it where it is" rather than "move it to the root".
 func TestPatchFolder_OrderOnlyLeavesTheParentNil(t *testing.T) {
 	tree := &fakeChatTree{moved: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder, Order: 1}}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{"order":1}`))
 	ctx.Params = folderParams(gin.Param{Key: "folderId", Value: "f1"})
 
-	newFolderHandlers(tree, &frames).PatchFolder(ctx)
+	newFolderHandlers(tree).PatchFolder(ctx)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Zero(t, tree.renames)
@@ -421,11 +390,10 @@ func TestPatchFolder_OrderOnlyLeavesTheParentNil(t *testing.T) {
 // distinguishable from an absent one.
 func TestPatchFolder_EmptyParentMeansThePanelRoot(t *testing.T) {
 	tree := &fakeChatTree{moved: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder}}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{"parentId":""}`))
 	ctx.Params = folderParams(gin.Param{Key: "folderId", Value: "f1"})
 
-	newFolderHandlers(tree, &frames).PatchFolder(ctx)
+	newFolderHandlers(tree).PatchFolder(ctx)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.NotNil(t, tree.gotMove.ParentID)
@@ -436,81 +404,68 @@ func TestPatchFolder_EmptyParentMeansThePanelRoot(t *testing.T) {
 // still half-apply.
 func TestPatchFolder_FailedRenameSkipsTheMove(t *testing.T) {
 	tree := &fakeChatTree{err: agentusecase.ErrTreeNameRequired}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{"name":" ","order":0}`))
 	ctx.Params = folderParams(gin.Param{Key: "folderId", Value: "f1"})
 
-	newFolderHandlers(tree, &frames).PatchFolder(ctx)
+	newFolderHandlers(tree).PatchFolder(ctx)
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Equal(t, 1, tree.renames)
 	assert.Zero(t, tree.moves, "the placement must not run after a refused rename")
-	assert.Empty(t, frames)
 }
 
 func TestPatchFolder_CycleIsAConflict(t *testing.T) {
 	tree := &fakeChatTree{err: agentusecase.ErrTreeCycle}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{"parentId":"f2"}`))
 	ctx.Params = folderParams(gin.Param{Key: "folderId", Value: "f1"})
 
-	newFolderHandlers(tree, &frames).PatchFolder(ctx)
+	newFolderHandlers(tree).PatchFolder(ctx)
 
 	assert.Equal(t, http.StatusConflict, rec.Code)
-	assert.Empty(t, frames)
 }
 
 func TestPatchFolder_MalformedBodyIs400(t *testing.T) {
 	tree := &fakeChatTree{}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{`))
 	ctx.Params = folderParams(gin.Param{Key: "folderId", Value: "f1"})
 
-	newFolderHandlers(tree, &frames).PatchFolder(ctx)
+	newFolderHandlers(tree).PatchFolder(ctx)
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Zero(t, tree.moves)
 }
 
-// The promoted rows are what stop a folder's children vanishing with it; the
-// tombstone frame is what makes the client drop the folder itself.
-func TestDeleteFolder_AnnouncesThePromotedRowsThenTheTombstone(t *testing.T) {
+// A folder delete promotes its children rather than taking them with it.
+func TestDeleteFolder_DeletesTheAddressedFolder(t *testing.T) {
 	tree := &fakeChatTree{shifted: []domain.Chat{{ID: "child", Type: domain.ChatTypeFolder}}}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodDelete, "/chats/folders/f1", nil)
 	ctx.Params = folderParams(gin.Param{Key: "folderId", Value: "f1"})
 
-	newFolderHandlers(tree, &frames).DeleteFolder(ctx)
+	newFolderHandlers(tree).DeleteFolder(ctx)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "f1", tree.gotID)
-	require.Len(t, frames, 2)
-	assert.Equal(t, folderFrame{folderID: "child", workspaceID: "ws-1", kind: "folder_updated"}, frames[0])
-	assert.Equal(t, folderFrame{folderID: "f1", workspaceID: "ws-1", kind: "folder_deleted"}, frames[1])
 }
 
 func TestDeleteFolder_NotFoundIs404(t *testing.T) {
 	tree := &fakeChatTree{err: problem.ErrNotFound}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodDelete, "/chats/folders/f1", nil)
 	ctx.Params = folderParams(gin.Param{Key: "folderId", Value: "f1"})
 
-	newFolderHandlers(tree, &frames).DeleteFolder(ctx)
+	newFolderHandlers(tree).DeleteFolder(ctx)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
-	assert.Empty(t, frames, "a failed delete must not tombstone a folder that still exists")
 }
 
 // The placement endpoint is where a chat becomes a THREAD of another, so the
 // parent it is given has to reach the usecase verbatim.
 func TestPlaceChat_ForwardsTheRequestedLineage(t *testing.T) {
 	tree := &fakeChatTree{placed: domain.Chat{ID: "c2", WorkspaceID: "ws-1", ParentID: "c1", Order: 3}}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/c2/placement",
 		[]byte(`{"parentId":"c1","order":3}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "c2"}}
 
-	newFolderHandlers(tree, &frames).PlaceChat(ctx)
+	newFolderHandlers(tree).PlaceChat(ctx)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "c2", tree.gotPlaceID)
@@ -527,20 +482,16 @@ func TestPlaceChat_ForwardsTheRequestedLineage(t *testing.T) {
 }
 
 // A chat drop renumbers a level chats and folders SHARE, so the folder rows it
-// moved ride back with the answer and are announced — and the moved chat
-// itself is announced too, not just its shifted siblings (its own write now
-// rides Node, not the Chat aggregate hub projection persist.go's stale doc
-// comment still promises — see PlaceChat's own comment on this call).
-func TestPlaceChat_ReturnsAndAnnouncesTheShiftedFolders(t *testing.T) {
+// moved ride back with the answer.
+func TestPlaceChat_ReturnsTheShiftedFolders(t *testing.T) {
 	tree := &fakeChatTree{
 		placed:  domain.Chat{ID: "c2", WorkspaceID: "ws-1"},
 		shifted: []domain.Chat{{ID: "f0", Type: domain.ChatTypeFolder, Order: 1}},
 	}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/c2/placement", []byte(`{"order":0}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "c2"}}
 
-	newFolderHandlers(tree, &frames).PlaceChat(ctx)
+	newFolderHandlers(tree).PlaceChat(ctx)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	var env struct {
@@ -551,30 +502,6 @@ func TestPlaceChat_ReturnsAndAnnouncesTheShiftedFolders(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
 	require.Len(t, env.Data.Shifted, 1)
 	assert.Equal(t, "f0", env.Data.Shifted[0].ID)
-	require.Len(t, frames, 2)
-	assert.Equal(t, "f0", frames[0].folderID)
-	assert.Equal(t, "folder_updated", frames[0].kind)
-	assert.Equal(t, "c2", frames[1].folderID, "the moved chat itself must be announced too")
-	assert.Equal(t, "placement_set", frames[1].kind)
-}
-
-// TestRegression_PlaceChat_AnnouncesTheMovedChatEvenWithNoFolderSiblingsShifted
-// pins the exact live bug: a chat dragged past a branch/repo header (or past
-// another chat with no folder between them) shifts zero folder rows, so
-// before this fix announceFolders looped zero times and the write vanished
-// from every live client's view despite the PATCH returning 200.
-func TestRegression_PlaceChat_AnnouncesTheMovedChatEvenWithNoFolderSiblingsShifted(t *testing.T) {
-	tree := &fakeChatTree{placed: domain.Chat{ID: "c2", WorkspaceID: "ws-1"}}
-	var frames []folderFrame
-	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/c2/placement", []byte(`{"order":0}`))
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "c2"}}
-
-	newFolderHandlers(tree, &frames).PlaceChat(ctx)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Len(t, frames, 1, "the moved chat must still be announced with no shifted folders")
-	assert.Equal(t, "c2", frames[0].folderID)
-	assert.Equal(t, "placement_set", frames[0].kind)
 }
 
 // TestPlaceChat_NoPathWorkspace_ResolvesWorkspaceFromTheChatItself proves that
@@ -585,11 +512,10 @@ func TestRegression_PlaceChat_AnnouncesTheMovedChatEvenWithNoFolderSiblingsShift
 func TestPlaceChat_NoPathWorkspace_ResolvesWorkspaceFromTheChatItself(t *testing.T) {
 	tree := &fakeChatTree{placed: domain.Chat{ID: "c2", WorkspaceID: "ws-9", ParentID: "c1"}}
 	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "c2", WorkspaceID: "ws-9"}}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/c2/placement", []byte(`{"parentId":"c1"}`))
 	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}, {Key: "id", Value: "c2"}}
 
-	newFolderHandlersWith(uc, tree, &frames).PlaceChat(ctx)
+	newFolderHandlersWith(uc, tree).PlaceChat(ctx)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "ws-9", tree.gotID, "PlaceChat must be called with the chat's OWN workspace")
@@ -602,11 +528,10 @@ func TestPlaceChat_NoPathWorkspace_ResolvesWorkspaceFromTheChatItself(t *testing
 func TestPlaceChat_NoPathWorkspace_GetChatErrorSurfaces(t *testing.T) {
 	tree := &fakeChatTree{}
 	uc := &fakeAgentUsecase{getChatErr: problem.ErrNotFound}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/c2/placement", []byte(`{"parentId":"c1"}`))
 	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}, {Key: "id", Value: "c2"}}
 
-	newFolderHandlersWith(uc, tree, &frames).PlaceChat(ctx)
+	newFolderHandlersWith(uc, tree).PlaceChat(ctx)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Empty(t, tree.gotPlaceID, "the tree usecase must never be reached")
@@ -614,39 +539,23 @@ func TestPlaceChat_NoPathWorkspace_GetChatErrorSurfaces(t *testing.T) {
 
 func TestPlaceChat_CycleIsAConflict(t *testing.T) {
 	tree := &fakeChatTree{err: agentusecase.ErrTreeCycle}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/c1/placement", []byte(`{"parentId":"c2"}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "c1"}}
 
-	newFolderHandlers(tree, &frames).PlaceChat(ctx)
+	newFolderHandlers(tree).PlaceChat(ctx)
 
 	assert.Equal(t, http.StatusConflict, rec.Code)
-	assert.Empty(t, frames)
 }
 
 func TestPlaceChat_MalformedBodyIs400(t *testing.T) {
 	tree := &fakeChatTree{}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/c1/placement", []byte(`{`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "c1"}}
 
-	newFolderHandlers(tree, &frames).PlaceChat(ctx)
+	newFolderHandlers(tree).PlaceChat(ctx)
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Empty(t, tree.gotPlaceID, "a malformed body must not reach the usecase")
-}
-
-// A nil broadcast must degrade to a no-op rather than panic, matching every
-// other handler wired without a hub.
-func TestNew_NilFolderBroadcastDegradesToNoop(t *testing.T) {
-	uc := &fakeAgentUsecase{}
-	h := handlers.New(uc, uc, uc, uc, uc,
-		&fakeChatTree{created: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder}}, nil)
-	ctx, rec := newTestContext(t, http.MethodPost, "/chats/folders", []byte(`{"name":"spikes"}`))
-	ctx.Params = folderParams()
-
-	assert.NotPanics(t, func() { h.CreateFolder(ctx) })
-	assert.Equal(t, http.StatusCreated, rec.Code)
 }
 
 func decodeFolderResponse(
@@ -679,11 +588,10 @@ func homeParams(
 
 func TestRegression_ListFolders_OnTheHomeMountListsThatHomeOnly(t *testing.T) {
 	tree := &fakeChatTree{list: []domain.Chat{{ID: "f-A", Type: domain.ChatTypeFolder}}}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodGet, "/home/chats/folders", nil)
 	ctx.Params = homeParams()
 
-	newFolderHandlers(tree, &frames).ListFolders(ctx)
+	newFolderHandlers(tree).ListFolders(ctx)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "home-A", tree.gotHomeID, "the home mount lists by its injected home workspace")
@@ -694,11 +602,10 @@ func TestRegression_PatchFolder_RefusesAnotherProjectsHomeFolder(t *testing.T) {
 		moved:  domain.Chat{ID: "f-B", Type: domain.ChatTypeFolder},
 		folder: tree.Folder{ID: "f-B", RepoID: "", HomeID: "home-B"},
 	}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPatch, "/home/chats/folders/f-B", []byte(`{"name":"stolen"}`))
 	ctx.Params = homeParams(gin.Param{Key: "folderId", Value: "f-B"})
 
-	newFolderHandlers(tree, &frames).PatchFolder(ctx)
+	newFolderHandlers(tree).PatchFolder(ctx)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Zero(t, tree.renames)
@@ -707,11 +614,10 @@ func TestRegression_PatchFolder_RefusesAnotherProjectsHomeFolder(t *testing.T) {
 
 func TestRegression_DeleteFolder_RefusesAnotherProjectsHomeFolder(t *testing.T) {
 	tree := &fakeChatTree{folder: tree.Folder{ID: "f-B", RepoID: "", HomeID: "home-B"}}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodDelete, "/home/chats/folders/f-B", nil)
 	ctx.Params = homeParams(gin.Param{Key: "folderId", Value: "f-B"})
 
-	newFolderHandlers(tree, &frames).DeleteFolder(ctx)
+	newFolderHandlers(tree).DeleteFolder(ctx)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Empty(t, tree.gotID, "nothing may be deleted")
@@ -719,11 +625,10 @@ func TestRegression_DeleteFolder_RefusesAnotherProjectsHomeFolder(t *testing.T) 
 
 func TestRegression_CreateFolder_OnTheHomeMountRecordsItsHome(t *testing.T) {
 	tree := &fakeChatTree{created: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder, Title: "docs"}}
-	var frames []folderFrame
 	ctx, rec := newTestContext(t, http.MethodPost, "/home/chats/folders", []byte(`{"name":"docs"}`))
 	ctx.Params = homeParams()
 
-	newFolderHandlers(tree, &frames).CreateFolder(ctx)
+	newFolderHandlers(tree).CreateFolder(ctx)
 
 	require.Equal(t, http.StatusCreated, rec.Code)
 	assert.Equal(t, "", tree.gotCreate.RepoID)

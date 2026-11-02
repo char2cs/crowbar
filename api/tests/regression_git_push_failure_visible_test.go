@@ -26,11 +26,11 @@ func failingPush(
 	t.Helper()
 	f := newImportFixture(t, h)
 	f.pushBranchToOrigin(t, "feature/a", "main", "a\n")
-	conn := h.dial(f.repoBase() + "/chats/ws")
+	feed := recordSidebar(t, h)
 	resp := h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
 		importBranches("feature/a"), http.StatusAccepted)
 	require.NoError(t, resp.Body.Close())
-	created := readUntil(t, conn, func(m map[string]any) bool { return m["kind"] == "workspace_set" })
+	created := feed.awaitNewChat("with its workspace", hasWorkspace)
 	wsID, _ := created["workspaceId"].(string)
 	require.NotEmpty(t, wsID)
 

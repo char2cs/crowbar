@@ -238,12 +238,7 @@ func TestFakeProvider_KillEndsTheRunnerWithNoHook(t *testing.T) {
 	imported := importWritableWorkspace(t, h)
 	chatID, l, _ := newFakeClaudeChat(t, h, imported)
 
-	conn := h.dial(repoBase(imported) + "/chats/ws")
-	l.Kill(t)
-	readUntil(t, conn, func(m map[string]any) bool {
-		return m["kind"] == "exited" && m["runnerId"] == l.RunnerID
-	})
-	h.QuiesceReactors()
+	killAndAwaitExit(t, h, recordSidebar(t, h), chatID, l)
 
 	assert.Empty(t, getAgentChat(t, h, repoBase(imported), chatID).LiveRunnerID,
 		"a CLI that exits with no hook leaves the chat dormant")

@@ -14,7 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	repotree "github.com/char2cs/crowbar/api/internal/app/repositories/tree"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
@@ -29,11 +28,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
-// Container is the application layer: the hub, the aggregate repositories, the
+// Container is the application layer: the aggregate repositories, the
 // GORM CRUD stores, the composed usecases, and the stream with the resources
 // its held scopes run.
 type Container struct {
-	Hub          *hub.Hub
 	Repositories *repositories.Container
 	GORM         *GORMStores
 	Usecases     *usecases.Container
@@ -64,7 +62,7 @@ type Container struct {
 }
 
 // New constructs the application layer from the engine and adapter containers,
-// wires the aggregate repositories into the hub (00 §7) and runs post's steps.
+// and runs post's steps.
 func New(
 	ctx context.Context,
 	engines *engine.Container,
@@ -73,7 +71,6 @@ func New(
 	encode stream.Encoder,
 	newSidebar func(*Container) stream.Sidebar,
 ) (*Container, error) {
-	h := hub.NewHub()
 	rm, err := repositories.OpenReadModels(adapters)
 	if err != nil {
 		return nil, fmt.Errorf("app: %w", err)
@@ -89,13 +86,16 @@ func New(
 	if err != nil {
 		return nil, err
 	}
-	chatSnapshots := newChatSnapshots(h)
-	placement, err := newPlacement(ctx, ax, gormStores, chatSnapshots, late)
+	chatSnapshots := agentusecase.NewChatSnapshots()
+	placement, err := newPlacement(ctx, ax, gormStores)
 	if err != nil {
 		return nil, err
 	}
-	repos, err := newRepositoriesContainer(ctx, adapters, rm, h, chatSnapshots, ax, placement, engines, purgeGaveUp(ops))
+	repos, err := newRepositoriesContainer(ctx, adapters, rm, late, chatSnapshots, ax, placement, engines, purgeGaveUp(ops))
 	if err != nil {
+		return nil, err
+	}
+	if err := announcePlacement(ax, chatSnapshots, late, repos); err != nil {
 		return nil, err
 	}
 	repoPlacements := dto.NewPlacements(repos.Placement.GetNode, func(ctx context.Context, projectID string, err error) {
@@ -110,8 +110,8 @@ func New(
 	homeFunc := func() (string, error) { return crowbarHome, nil }
 	ucs, err := usecases.New(
 		repos, toUsecaseStores(gormStores), engines, homeFunc, late.reviewThread(),
-		announceHomeRow(h, chatSnapshots),
-		announceRepoPlacement(h, gormStores.Repositories),
+		announceHomeRow(chatSnapshots),
+		announceRepoPlacement(late, gormStores.Repositories),
 		usecases.WithChatSnapshots(chatSnapshots),
 	)
 	if err != nil {
@@ -122,7 +122,6 @@ func New(
 	// repositories.Container.PurgeChat.
 	repos.PurgeChat = ucs.AgentChat.PurgeChat
 	c := &Container{
-		Hub:            h,
 		Repositories:   repos,
 		GORM:           gormStores,
 		Usecases:       ucs,
@@ -137,6 +136,7 @@ func New(
 	}
 	c.resources = newStream(ctx, late, encode, ops, repos, ucs, engines, newSidebar(c))
 	c.Stream = late.hub
+	chatSnapshots.SetPublish(late.chatPublisher(ctx, repos.Workspace, ucs.AgentChat))
 
 	// Before the API opens: nothing a restart interrupted may still read as running.
 	if err := c.Operations.Recover(ctx); err != nil {
@@ -163,7 +163,7 @@ func New(
 	// Loops start once the boot can no longer fail, so a failed one leaves none.
 	startProviderSweep(ctx, engines, repos, ucs)
 	startOwningChatReconcile(ctx, repos, ucs)
-	startTerminalWaitSweep(ctx, h, ucs)
+	startTerminalWaitSweep(ctx, late, ucs)
 	startModelDiscoveryWarmup(ctx, engines, crowbarHome)
 	go descriptorcheck.LogAll(context.WithoutCancel(ctx), crowbarHome)
 
@@ -177,7 +177,7 @@ func newRepositoriesContainer(
 	ctx context.Context,
 	adapters *adapter.Container,
 	rm *repositories.ReadModels,
-	h *hub.Hub,
+	late *lateStream,
 	chatSnapshots *agentusecase.ChatSnapshots,
 	ax *aggregates,
 	placement *repotree.Ports,
@@ -189,7 +189,7 @@ func newRepositoriesContainer(
 		ctx,
 		adapters,
 		rm,
-		h,
+		late.workspace,
 		ax.reviewThread,
 		ax.workspace,
 		ax.agentChat,
@@ -219,56 +219,23 @@ func toUsecaseStores(
 	}
 }
 
-// newChatSnapshots builds the one owner of every chat's versioned snapshot and
-// binds its frames to the hub. Built before the repositories, because their
-// watch seams feed it; handed to the chat usecase, which binds its read model.
-func newChatSnapshots(h *hub.Hub) *agentusecase.ChatSnapshots {
-	snaps := agentusecase.NewChatSnapshots()
-	snaps.SetPublish(func(f agentusecase.ChatSnapshotFrame) {
-		h.BroadcastAgentChatEvent(chatSnapshotEvent(f))
-	})
-	return snaps
-}
-
-// chatSnapshotEvent is one snapshot frame on the wire: the chat's full DTO
-// (worktree state rides its own worktree_state frame) and the kind of the
-// event that produced it.
-func chatSnapshotEvent(f agentusecase.ChatSnapshotFrame) dto.AgentChatEvent {
-	s := f.Snapshot
-	ev := dto.AgentChatEvent{
-		ChatID:      s.Chat.ID,
-		WorkspaceID: s.Chat.WorkspaceID,
-		Kind:        f.Kind,
-		RunnerID:    f.RunnerID,
-		Version:     s.Version,
-	}
-	if f.Deleted {
-		return ev
-	}
-	conversation, _ := s.Conversation()
-	chat := dto.AgentChatDTOFrom(s.Chat, dto.ChatSnapshotRuntime(s.Live, s.Phase, s.Version,
-		s.TerminalWait, s.AttachedSessionID, conversation, s.Ledger.Busy), nil)
-	ev.Chat = &chat
-	return ev
-}
-
 // startTerminalWaitSweep begins the cadence that notices a vendor CLI parked on a
 // modal Crowbar cannot answer — the workspace-trust dialog and its relatives, which
 // reach the daemon through no hook and otherwise leave a chat pane showing nothing
 // at all over a live, blocked process.
 //
 // Started HERE, beside the boot reconcile, rather than inside the usecase: the
-// detector publishes, and the thing it publishes through is the hub, which is a
-// layer above every usecase. It is also why the sweep begins after
+// detector publishes, and the thing it publishes through is the stream, which is
+// a layer above every usecase. It is also why the sweep begins after
 // reconcileAgentRunners — a restart's first census should be of runners already
 // reconciled, not of rows the reconcile is about to retire.
 func startTerminalWaitSweep(
 	ctx context.Context,
-	h *hub.Hub,
+	late *lateStream,
 	ucs *usecases.Container,
 ) {
 	ucs.AgentRunner.StartTerminalWaitSweep(ctx, agentusecase.ChatFeed{
-		Telemetry: h.BroadcastAgentChatTelemetry,
+		Telemetry: late.telemetry,
 	})
 }
 
@@ -398,20 +365,16 @@ func startOwningChatReconcile(
 	reconcileOwningChats(ctx, workspaces, chats, ucs.AgentChatFolder)
 }
 
-// announceHomeRow fans a home row a repo drag shifted out on the chats WS
-// by its own kind: a chat frame names the chat, a folder frame the folder.
+// announceHomeRow publishes a home chat a repo drag shifted as a versioned
+// snapshot, its placement read from the Node this write just moved; a shifted
+// folder reaches the stream through the Tree write's own diff.
 func announceHomeRow(
-	h *hub.Hub,
 	chatSnapshots *agentusecase.ChatSnapshots,
 ) project.HomeRowAnnouncer {
-	return func(ctx context.Context, id, workspaceID string, kind tree.Kind, event string) {
+	return func(ctx context.Context, id, _ string, kind tree.Kind, event string) {
 		if kind == tree.KindChat {
-			// A versioned snapshot, like every other chat frame: its placement
-			// is read from the Node this write just moved.
 			chatSnapshots.Announce(ctx, id, event)
-			return
 		}
-		h.BroadcastAgentChatFolder(id, workspaceID, event)
 	}
 }
 
@@ -419,7 +382,7 @@ func announceHomeRow(
 // RepoDTO — for a repo the chat tree renumbered as collateral of a chat or
 // folder drag, whose Node write no projection announces.
 func announceRepoPlacement(
-	h *hub.Hub,
+	late *lateStream,
 	repos store.ScopedStore[domain.Repository, string],
 ) func(ctx context.Context, repoID, parentID string, order int) {
 	return func(ctx context.Context, repoID, parentID string, order int) {
@@ -427,6 +390,6 @@ func announceRepoPlacement(
 		if err != nil || repo == nil {
 			return
 		}
-		h.BroadcastRepo(dto.RepoDTOFrom(*repo, dto.RepoPlacement{FolderID: parentID, Order: order}))
+		publishRepo(late.hub, dto.RepoDTOFrom(*repo, dto.RepoPlacement{FolderID: parentID, Order: order}))
 	}
 }

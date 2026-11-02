@@ -3,18 +3,42 @@ package v0
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	chathandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat/handlers"
+	"github.com/char2cs/crowbar/api/internal/app"
 	appstream "github.com/char2cs/crowbar/api/internal/app/stream"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
+	"github.com/char2cs/crowbar/api/internal/engine"
+	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
+
+// newAppAndEngine builds a real app over a real engine, both torn down at
+// cleanup, so no test leaks goroutines into the next.
+func newAppAndEngine(t *testing.T) (*app.Container, *engine.Container) {
+	t.Helper()
+	ctx := t.Context()
+	eng, err := engine.New(ctx)
+	require.NoError(t, err)
+	t.Cleanup(eng.Close)
+	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapters.Close() })
+	a, err := app.New(ctx, eng, adapters, migratetest.NoPostOpen(), EncodeEntity, NewSidebar)
+	require.NoError(t, err)
+	t.Cleanup(a.Close)
+	return a, eng
+}
 
 func sidebarIDs(t *testing.T, side appstream.Sidebar, kind stream.EntityKind) []string {
 	t.Helper()
@@ -32,7 +56,7 @@ func sidebarIDs(t *testing.T, side appstream.Sidebar, kind stream.EntityKind) []
 // One project's unreadable tree lists its repos at the root; every other
 // project's repos keep their place, as the REST list does.
 func TestSidebar_AnUnreadableTreeOnlyUnplacesItsOwnProject(t *testing.T) {
-	a := newAppForSnapshot(t)
+	a, _ := newAppAndEngine(t)
 	ctx := context.Background()
 	require.NoError(t, a.GORM.Projects.Save(ctx, domain.Project{ID: "p1", Name: "one"}))
 	require.NoError(t, a.GORM.Projects.Save(ctx, domain.Project{ID: "p2", Name: "two"}))
@@ -62,4 +86,27 @@ func TestSidebar_ADeletedWorkspaceIsNoEntity(t *testing.T) {
 
 	require.Len(t, got, 1)
 	assert.Equal(t, "live", got[0].ID)
+}
+
+// The REST repo list and the projects scope's snapshot read positions through
+// the app's one Placements, so a broken project is logged once per boot.
+func TestRepoLists_ShareOnePlacementsSoABrokenProjectLogsOnce(t *testing.T) {
+	a, eng := newAppAndEngine(t)
+	ctx := context.Background()
+	require.NoError(t, a.GORM.Repositories.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1", Name: "one"}))
+	reads, logged := 0, 0
+	a.RepoPlacements = dto.NewPlacements(func(context.Context, string) (tree.Node, error) {
+		reads++
+		return tree.Node{}, errors.New("tree: read: disk gone")
+	}, func(context.Context, string, error) { logged++ })
+	r := gin.New()
+	New(a, eng).Register(r.Group("/v0"))
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodGet, "/v0/projects/p1/repos", nil))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, []string{"r1"}, sidebarIDs(t, NewSidebar(a), stream.KindRepo))
+
+	assert.Equal(t, 2, reads, "both lists read through the app's Placements")
+	assert.Equal(t, 1, logged)
 }

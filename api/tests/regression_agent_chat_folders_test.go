@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -501,45 +502,30 @@ func TestRegression_ChatFoldersWorkOnHomeWorkspace(t *testing.T) {
 	assert.True(t, found, "the home chat outlived the folder it was filed in")
 }
 
-// A folder mutation has no aggregate projection to ride, so the handler
-// broadcasts it — on the SAME repo-scoped socket the chats use (Task 17), because
-// one gesture writes both kinds and two feeds would have to be kept in order.
-//
-// The frame's workspaceId is empty here, not ws.workspaceID: a folder carries no
-// workspace of its own (2026-08-23 unified-sidebar-design §3.1), and the
-// repo-scoped mount has no :wsId path segment to source one from either — only
-// the home mount's injected :wsId (RequireHomeWorkspace) ever stamps one on a
-// folder frame, which is a scoping convenience for that one mount, not a fact
-// about the folder.
-func TestRegression_ChatFolderMutationsRideTheChatsStream(t *testing.T) {
+// A folder mutation reaches a live holder of the projects scope as the folder's
+// row: created, renamed, then gone.
+func TestRegression_ChatFolderMutationsReachTheProjectsScope(t *testing.T) {
 	h := newHarness(t)
 	ws := importWritableWorkspace(t, h)
 	base := repoBase(ws)
-
-	frames := dialAgentWS(t, h, base+"/chats/ws")
+	feed := recordSidebar(t, h)
 
 	folder := createChatFolder(t, h, base, "spikes", "")
-	created := waitForFolderFrame(t, frames, folder.ID, "folder_created")
-	assert.Empty(t, created["workspaceId"],
-		"a folder carries no workspace of its own, and the repo-scoped mount has no :wsId to stamp one from")
+	awaitFolder(feed, folder.ID, "spikes")
 
 	h.patch(base+"/chats/folders/"+folder.ID, map[string]any{"name": "experiments"}, nil)
-	waitForFolderFrame(t, frames, folder.ID, "folder_updated")
+	awaitFolder(feed, folder.ID, "experiments")
 
 	h.del(base+"/chats/folders/"+folder.ID, nil, http.StatusOK, nil)
-	waitForFolderFrame(t, frames, folder.ID, "folder_deleted")
+	feed.awaitGone(stream.KindFolder, folder.ID)
 }
 
-// waitForFolderFrame waits for folderID's kind frame.
-func waitForFolderFrame(
-	t *testing.T,
-	frames <-chan map[string]any,
-	folderID string,
-	kind string,
-) map[string]any {
-	t.Helper()
-	return waitForFrame(t, frames, fmt.Sprintf("folder %s's %q frame", folderID, kind),
-		func(f map[string]any) bool { return f["folderId"] == folderID && f["kind"] == kind })
+// awaitFolder waits for folderID's row named name.
+func awaitFolder(feed *sidebarFeed, folderID, name string) {
+	feed.t.Helper()
+	feed.await(fmt.Sprintf("folder %s named %q", folderID, name), func(_ int, r feedRow) bool {
+		return r.Kind == string(stream.KindFolder) && r.ID == folderID && !r.Gone && r.Data["name"] == name
+	})
 }
 
 func folderIDs(

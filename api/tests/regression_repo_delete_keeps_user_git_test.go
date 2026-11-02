@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,11 +39,11 @@ func TestRegression_DeleteRepo_KeepsTheUsersBranchesAndUncommittedWork(t *testin
 	// A branch the user made themselves, which no workspace ever touched.
 	runGit(t, imported.repoPath, "branch", "feature/users-own")
 
-	reposWS := h.dial("/v0/projects/" + imported.projectID + "/repos")
+	reposWS := watchEntities(t, h, stream.KindRepo)
 	require.NoError(t, h.raw(http.MethodDelete, "/v0/projects/"+imported.projectID+"/repos/"+imported.repoID,
 		nil, http.StatusAccepted).Body.Close())
-	readUntil(t, reposWS, func(m map[string]any) bool {
-		return m["id"] == imported.repoID && m["status"] == "deleted"
+	reposWS.read(t, func(m map[string]any) bool {
+		return m["id"] == imported.repoID && m["gone"] == true
 	})
 	h.QuiesceReactors()
 

@@ -140,12 +140,12 @@ func (s *ConflictsSuite) conflictSetup() (childID, chatID string) {
 // status is also produced up front by the merge-tree prediction overlay (a child
 // with diverging edits reads pr-conflicts before any merge is attempted). The
 // reliable post-condition is the worktrees having been aborted clean — so the
-// helper waits on the WS frame after the merge and then verifies both worktrees.
+// helper waits on the workspace row after the merge and then verifies both worktrees.
 func (s *ConflictsSuite) mergeConflict(childID, chatID string) {
 	s.T().Helper()
 	childPath := s.Env.WorktreePath(s.imported.ProjectID, s.imported.RepoID, childID)
 
-	watcher := s.Env.DialChat(s.T(), chatID)
+	watcher := s.Env.HoldProjects(s.T())
 	resp := s.Env.POST(s.T(), s.repoChatBase(chatID)+"/merge-into-parent", map[string]string{
 		"strategy": "merge",
 	})
@@ -203,7 +203,7 @@ func (s *ConflictsSuite) keptRebaseConflictOnChild() (childID, chatID string) {
 	childID, chatID, childPath := s.createChildWithChat(s.parentID, "feature/conflict-rebase-child")
 	kit.CommitFile(s.T(), childPath, "shared.txt", "child version\n", "child edit")
 
-	watcher := s.Env.DialChat(s.T(), chatID)
+	watcher := s.Env.HoldProjects(s.T())
 	// Move under parentB: conflict → moved-but-conflicting, clean worktree.
 	resp := s.Env.POST(s.T(), s.repoChatBase(chatID)+"/reparent", map[string]any{"newParentId": parentBID})
 	kit.RequireStatus(s.T(), resp, http.StatusAccepted)
@@ -226,7 +226,7 @@ func (s *ConflictsSuite) keptRebaseConflictOnChild() (childID, chatID string) {
 }
 
 // TestConflicts_mergeDetectsConflict verifies a conflicting merge transitions
-// the child to Status=pr-conflicts (broadcast over WS) AND — the H6/H7
+// the child to Status=pr-conflicts (published on the stream) AND — the H6/H7
 // regression guard — leaves BOTH the parent and child worktrees clean (the
 // in-progress merge is aborted; neither is ever left stuck).
 func (s *ConflictsSuite) TestConflicts_mergeDetectsConflict() {
@@ -272,7 +272,7 @@ func (s *ConflictsSuite) TestConflicts_mergeConflictsPredictedBeforeMerge() {
 func (s *ConflictsSuite) TestConflicts_mergeConflictsDeliveredOnBroadcast() {
 	childID, chatID := s.conflictSetup() // conflict between child + parent, no merge
 
-	watcher := s.Env.DialChat(s.T(), chatID)
+	watcher := s.Env.HoldProjects(s.T())
 	resp := s.Env.PATCH(s.T(), s.chatBase(chatID)+"/review", map[string]any{"mergeStrategy": "squash"})
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 	resp.Body.Close()
@@ -291,7 +291,7 @@ func (s *ConflictsSuite) TestConflicts_mergeConflictsDeliveredOnBroadcast() {
 func (s *ConflictsSuite) TestConflicts_mergeDeleteSourceKeepsConflictedChild() {
 	childID, chatID := s.conflictSetup()
 
-	watcher := s.Env.DialChat(s.T(), chatID)
+	watcher := s.Env.HoldProjects(s.T())
 	resp := s.Env.POST(s.T(), s.repoChatBase(chatID)+"/merge-into-parent", map[string]any{
 		"strategy":     "merge",
 		"deleteSource": true,

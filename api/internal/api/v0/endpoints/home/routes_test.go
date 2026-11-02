@@ -1,7 +1,6 @@
 package home_test
 
 import (
-	"net/http"
 	"strings"
 	"testing"
 
@@ -32,7 +31,7 @@ func TestHomeMountsEveryAgentRoute(t *testing.T) {
 		// settingsRG carries only the GLOBAL /settings/chat/providers write route,
 		// which is deliberately NOT a home capability — agentSubRoutes filters it out
 		// (it is not a /chats path), so home parity is unaffected by it.
-		agentroutes.Register(scope, scope, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, noopWS)
+		agentroutes.Register(scope, scope, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	}, "/scope")
 
 	homeRoutes := agentSubRoutes(t, func(r *gin.Engine) {
@@ -41,9 +40,8 @@ func TestHomeMountsEveryAgentRoute(t *testing.T) {
 			nil, nil, nil, nil, // home deps: unused, the routing table is what is under test
 			nil, nil, // thread store + publisher
 			nil, nil, nil, nil, nil, // the five agent concerns
-			nil, nil, // chat-folder usecase + broadcast
+			nil,      // chat-folder usecase
 			nil, nil, // worktrees + nodes
-			noopWS, // agent WS
 		)
 	}, "/scope/home")
 
@@ -66,10 +64,10 @@ func TestHomeMountsEveryAgentRoute(t *testing.T) {
 func TestRoutes_ServeNoTranscriptReads(t *testing.T) {
 	wsRoutes := agentSubRoutes(t, func(r *gin.Engine) {
 		scope := r.Group("/scope")
-		agentroutes.Register(scope, scope, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, noopWS)
+		agentroutes.Register(scope, scope, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	}, "/scope")
 	homeRoutes := agentSubRoutes(t, func(r *gin.Engine) {
-		home.Register(r.Group("/scope"), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, noopWS)
+		home.Register(r.Group("/scope"), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	}, "/scope/home")
 
 	for _, gone := range []string{
@@ -94,8 +92,8 @@ func agentSubRoutes(t *testing.T, mount func(*gin.Engine), prefix string) []stri
 	var out []string
 	for _, ri := range r.Routes() {
 		path, ok := strings.CutPrefix(ri.Path, prefix)
-		// The whole chat surface lives under /chats — including folders, hooks,
-		// providers and the WS — so it stays identifiable by one prefix now that the
+		// The whole chat surface lives under /chats — including folders, hooks
+		// and providers — so it stays identifiable by one prefix now that the
 		// /agent segment is gone. That identifiability is what makes this parity
 		// guard possible at all.
 		if !ok || !strings.HasPrefix(path, "/chats") {
@@ -105,8 +103,6 @@ func agentSubRoutes(t *testing.T, mount func(*gin.Engine), prefix string) []stri
 	}
 	return out
 }
-
-func noopWS(c *gin.Context) { c.Status(http.StatusOK) }
 
 // TestHomeTerminalsAreServedByTheOneTerminalHandlerSet pins §7-B "one transport": the
 // home group's terminal routes are the chat-scoped terminal handlers themselves (same
@@ -120,9 +116,8 @@ func TestHomeTerminalsAreServedByTheOneTerminalHandlerSet(t *testing.T) {
 		nil, nil, nil, nil,
 		nil, nil,
 		nil, nil, nil, nil, nil,
+		nil,
 		nil, nil,
-		nil, nil,
-		noopWS,
 	)
 	want := map[string]string{
 		"GET /scope/home/terminals":               "(*Handlers).ListSessions",

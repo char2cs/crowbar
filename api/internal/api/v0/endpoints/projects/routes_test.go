@@ -11,7 +11,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
-	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -106,7 +105,6 @@ func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
 	r := gin.New()
-	noopWS := func(_ *gin.Context) {}
 	projects.Register(
 		r.Group("/v0"),
 		stubReader{},
@@ -115,8 +113,6 @@ func TestRegisterMountsRoutes(
 		stubOps{},
 		func(dto.ProjectDTO) {},
 		func() (string, error) { return t.TempDir(), nil },
-		noopWS,
-		ws.DualServe,
 	)
 
 	cases := []struct {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // An install older than the "worktree" leaf recorded a workspace at
@@ -173,7 +174,7 @@ func TestRegression_Upgrade_PreLeafRepoDeleteKeepsProtectedWorkAndOtherRepos(t *
 	h.Quiesce()
 	otherPath := gitRepoWithCommit(t)
 	runGit(t, otherPath, "remote", "add", "origin", "https://github.com/acme/other.git")
-	addRepo(t, h, h.dial("/v0/projects/"+in.imported.projectID+"/repos"), in.imported.projectID, otherPath)
+	addRepo(t, h, watchEntities(t, h, stream.KindRepo), in.imported.projectID, otherPath)
 	h.Quiesce()
 	otherWip := filepath.Join(worktreepath.ProjectDir(in.home, in.imported.projectID),
 		"github.com/acme/other", "chats", "c1", "attachments", "a.png")

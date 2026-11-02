@@ -4,14 +4,13 @@ package tests
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,119 +18,6 @@ import (
 // The lifecycle frame recorder the agent black-box tests share, and the two
 // contracts a chat keeps over its provider's sessions: deleting a chat leaves the
 // provider's own session alone, and an agent's rename lands on the chat its runner is on.
-
-// agentFrames records every frame the agent lifecycle WebSocket delivers and lets a
-// test wait for one BY PREDICATE, regardless of the order the frames arrive in.
-//
-// A teardown produces frames from several aggregates at once (the chat's
-// `deleted`, its runner's `exited`) in no promised order. waitForChatFrame DISCARDS every
-// frame that does not match; recording first and matching after cannot lose one.
-type agentFrames struct {
-	t    *testing.T
-	mu   sync.Mutex
-	seen []map[string]any
-	// ping carries a single wakeup token: buffered(1) and non-blocking to send, so a
-	// burst of frames can never deadlock the reader and a wakeup can never be lost —
-	// await always re-scans the WHOLE record after waking, so one token covers any
-	// number of frames that arrived while it was not looking.
-	ping chan struct{}
-}
-
-// recordAgentWS dials the agent lifecycle WS at path and starts recording its frames.
-func recordAgentWS(
-	t *testing.T,
-	h *harness,
-	path string,
-) *agentFrames {
-	t.Helper()
-	src := dialAgentWS(t, h, path)
-	f := &agentFrames{t: t, ping: make(chan struct{}, 1)}
-	go func() {
-		for frame := range src {
-			f.mu.Lock()
-			f.seen = append(f.seen, frame)
-			f.mu.Unlock()
-			select {
-			case f.ping <- struct{}{}:
-			default:
-			}
-		}
-	}()
-	return f
-}
-
-// await blocks until some frame satisfying match has been seen — one that arrived
-// before this call included. It never sleeps and never polls: it re-scans on a real
-// signal (a frame landed), backstopped by frameDeadline.
-func (f *agentFrames) await(
-	match func(map[string]any) bool,
-	what string,
-) map[string]any {
-	f.t.Helper()
-	deadline := frameDeadline(f.t)
-	for {
-		f.mu.Lock()
-		for _, frame := range f.seen {
-			if match(frame) {
-				f.mu.Unlock()
-				return frame
-			}
-		}
-		f.mu.Unlock()
-
-		select {
-		case <-f.ping:
-		case <-deadline.Done():
-			f.t.Fatalf("timed out waiting for %s; frames seen: %v", what, f.snapshot())
-			return nil
-		}
-	}
-}
-
-// awaitRunner waits for a runner-lifecycle frame (started/exited) for runnerID,
-// keyed on the runner id alone.
-func (f *agentFrames) awaitRunner(
-	runnerID string,
-	kind string,
-) map[string]any {
-	f.t.Helper()
-	return f.await(
-		func(m map[string]any) bool { return m["runnerId"] == runnerID && m["kind"] == kind },
-		fmt.Sprintf("runner %s's %q frame", runnerID, kind),
-	)
-}
-
-// awaitChat waits for a chat-lifecycle frame (created/turn_started/turn_stopped/
-// title_set/deleted) for chatID.
-func (f *agentFrames) awaitChat(
-	chatID string,
-	kind string,
-) map[string]any {
-	f.t.Helper()
-	return f.await(
-		func(m map[string]any) bool { return m["chatId"] == chatID && m["kind"] == kind },
-		fmt.Sprintf("chat %s's %q frame", chatID, kind),
-	)
-}
-
-// awaitConversation waits for a frame whose chat snapshot shows chatID bound to sessionID.
-func (f *agentFrames) awaitConversation(chatID, sessionID string) {
-	f.t.Helper()
-	f.await(
-		func(m map[string]any) bool { return boundTo(m, chatID, sessionID) },
-		fmt.Sprintf("chat %s bound to session %s", chatID, sessionID),
-	)
-}
-
-// snapshot copies the frames recorded so far, for assertions over the whole stream
-// (e.g. "no turn_started frame for chat A was EVER emitted").
-func (f *agentFrames) snapshot() []map[string]any {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	out := make([]map[string]any, len(f.seen))
-	copy(out, f.seen)
-	return out
-}
 
 // announce fires a session_start hook: the vendor CLI telling Crowbar which
 // conversation it is now in, as a /clear or a /resume inside it does.
@@ -211,7 +97,7 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	base := repoBase(ws)
 	ctx := context.Background()
 
-	frames := recordAgentWS(t, h, base+"/chats/ws")
+	frames := recordSidebar(t, h)
 
 	doomed, doomedRunner := createLiveStubChat(t, h, ws)
 	other, otherRunner := createLiveStubChat(t, h, ws)
@@ -225,11 +111,11 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	// was said, the thing the purge MUST reap (leaving it behind is a privacy bug).
 	const privateText = "something private"
 	postHook(t, h, repoBase(ws), "livestub", doomedRunner, "user_prompt", `{"prompt":"`+privateText+`"}`)
-	frames.awaitChat(doomed, "turn_started")
+	frames.awaitTurnStart(doomed)
 	// Close the turn first: invariant 9 refuses to delete a WORKING row, and this
 	// test is about what survives a delete, not about that refusal.
 	postHook(t, h, repoBase(ws), "livestub", doomedRunner, "turn_stop", `{"last_assistant_message":"noted"}`)
-	frames.awaitChat(doomed, "turn_stopped")
+	frames.awaitTurnEnd(doomed)
 	h.Quiesce()
 
 	// The PROVIDER's own session store, where a vendor CLI actually keeps its
@@ -260,8 +146,8 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	// --- hard delete ---
 	resp := h.raw(http.MethodDelete, base+"/chats/"+doomed, nil, http.StatusOK)
 	_ = resp.Body.Close()
-	frames.awaitChat(doomed, "deleted")
-	frames.awaitRunner(doomedRunner, "exited") // its CLI ends with the chat
+	frames.awaitGone(stream.KindChatEntity, doomed)
+	h.QuiesceReactors() // its CLI ends with the chat
 	h.Quiesce()
 
 	// THE RULE: the vendor's session file is untouched, byte for byte.
@@ -304,7 +190,7 @@ func TestRegression_RenameResolvesChatAtCallTime(t *testing.T) {
 	ws := importWritableWorkspace(t, h)
 	base := repoBase(ws)
 
-	frames := recordAgentWS(t, h, base+"/chats/ws")
+	frames := recordSidebar(t, h)
 
 	chatA, runner := createLiveStubChat(t, h, ws)
 	announce(t, h, ws, runner, "sess-A")
@@ -318,7 +204,7 @@ func TestRegression_RenameResolvesChatAtCallTime(t *testing.T) {
 		context.Background(), runner, title, "agent",
 	))
 
-	frames.awaitChat(chatA, "title_set")
+	frames.awaitChat(chatA, "titled", func(chat map[string]any) bool { return chat["title"] == title })
 	h.Quiesce()
 
 	assert.Equal(t, title, getAgentChat(t, h, base, chatA).Title,

@@ -7,13 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -29,7 +29,7 @@ type turnChat struct {
 	fake     kit.FakeProvider
 	chatID   string
 	launch   kit.Launch
-	conn     *websocket.Conn
+	feed     *sidebarFeed
 }
 
 func newTurnChat(t *testing.T, h *harness) turnChat {
@@ -37,7 +37,7 @@ func newTurnChat(t *testing.T, h *harness) turnChat {
 	c := turnChat{h: h, imported: importWritableWorkspace(t, h)}
 	c.fake = kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
 	c.chatID, c.launch = createFakeChat(t, h, c.imported, c.fake)
-	c.conn = h.dial(repoBase(c.imported) + "/chats/ws")
+	c.feed = recordSidebar(t, h)
 	return c
 }
 
@@ -68,10 +68,6 @@ func (c turnChat) working(t *testing.T) bool {
 	return chat.Working
 }
 
-func (c turnChat) frameFor(kind string) func(map[string]any) bool {
-	return func(m map[string]any) bool { return m["chatId"] == c.chatID && m["kind"] == kind }
-}
-
 // Characterization: a CLI that dies mid-turn closes the turn it was running.
 func TestRegression_Symptom4_ARunnerExitClosesItsTurnAndTheNextPromptGoesThrough(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
@@ -80,7 +76,7 @@ func TestRegression_Symptom4_ARunnerExitClosesItsTurnAndTheNextPromptGoesThrough
 	require.True(t, c.working(t), "precondition: the prompt's turn is running")
 
 	l.Kill(t)
-	readUntil(t, c.conn, c.frameFor("turn_stopped"))
+	c.feed.awaitTurnEnd(c.chatID)
 	assert.False(t, c.working(t), "a CLI that died is running no turn")
 
 	next := promptLaunch(t, c.h, c.imported, c.fake, c.chatID, "two", "")
@@ -94,17 +90,20 @@ func TestRegression_Symptom4_StopClosesTheTurnAtOnce(t *testing.T) {
 	_ = c.h.raw(http.MethodPost, repoBase(c.imported)+"/chats/"+c.chatID+"/stop", nil, http.StatusNoContent).Body.Close()
 	assert.False(t, c.working(t), "Stop records the turn's end before it returns")
 
+	c.feed.awaitRunnerGone(c.chatID, c.launch.RunnerID)
 	var kinds []string
-	readUntil(t, c.conn, func(m map[string]any) bool {
-		if c.frameFor("turn_stopped")(m) {
+	for _, r := range c.feed.liveRows() {
+		if r.Kind != string(stream.KindChatEntity) || r.ID != c.chatID || r.Gone {
+			continue
+		}
+		onRunner := r.Data["liveRunnerId"] == c.launch.RunnerID
+		switch {
+		case onRunner && r.Data["working"] != true && len(kinds) == 0:
 			kinds = append(kinds, "turn_stopped")
-		}
-		if m["kind"] == "exited" && m["runnerId"] == c.launch.RunnerID {
+		case !onRunner && !slices.Contains(kinds, "exited"):
 			kinds = append(kinds, "exited")
-			return true
 		}
-		return false
-	})
+	}
 	assert.Equal(t, []string{"turn_stopped", "exited"}, kinds, "the turn closes before the CLI is told to quit")
 }
 

@@ -32,6 +32,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/gateway"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
@@ -49,9 +50,7 @@ type Env struct {
 	// app exposes the application layer for direct usecase and repository calls.
 	app *app.Container
 	// engine exposes the engine layer for direct engine calls.
-	engine *engine.Container
-	// v0c exposes test helpers for the v0 API container (WaitRegistered).
-	v0c      *v0.Container
+	engine   *engine.Container
 	homeDir  string
 	adapters *adapter.Container
 	session  *migrate.Session
@@ -221,7 +220,6 @@ func NewEnvWithHome(
 		URL:        "http://crowbar",
 		app:        appContainer,
 		engine:     eng,
-		v0c:        apiContainer,
 		homeDir:    homeDir,
 		adapters:   adapters,
 		session:    session,
@@ -359,64 +357,6 @@ type ProviderState struct {
 	PRTargetBranch string
 }
 
-// DialProjects opens a WS watcher on the list-scoped Projects stream
-// (WS /v0/projects) and blocks until the server has registered this client. A
-// list-scope subscriber receives every project's ProjectDTO (snapshot + live).
-func (e *Env) DialProjects(
-	t *testing.T,
-) *WSWatcher {
-	t.Helper()
-	w := Dial(t, e.dialer, wsURL(e.URL, "/v0/projects"))
-	e.v0c.WaitNProjectsRegistered(1)
-	return w
-}
-
-// DialRepos opens a WS watcher on the project-scoped Repos stream
-// (WS /v0/projects/:projectId/repos) and blocks until registration. The
-// subscriber receives that project's RepoDTOs (snapshot + live).
-func (e *Env) DialRepos(
-	t *testing.T,
-	projectID string,
-) *WSWatcher {
-	t.Helper()
-	w := Dial(t, e.dialer, wsURL(e.URL, "/v0/projects/"+projectID+"/repos"))
-	e.v0c.WaitNReposRegistered(1)
-	return w
-}
-
-// DialRepoChats opens a WS watcher on the repo-scoped agent-chat stream
-// (WS /v0/projects/:projectId/repos/:repoId/chats/ws) and blocks until
-// registration. It is the repo-wide replacement for the deleted `workspaces`
-// stream: every worktree in the repo still reports here, now as a
-// worktree_state frame keyed by the chat that holds it (spec §7.4).
-func (e *Env) DialRepoChats(
-	t *testing.T,
-	projectID string,
-	repoID string,
-) *WSWatcher {
-	t.Helper()
-	w := Dial(t, e.dialer, wsURL(e.URL, "/v0/projects/"+projectID+"/repos/"+repoID+"/chats/ws"))
-	e.v0c.WaitNAgentChatsRegistered(1)
-	return w
-}
-
-// DialChat opens a WS watcher on the per-chat lifecycle stream
-// (WS /v0/chats/:chatId/ws) and blocks until registration.
-//
-// This is the chat-scoped replacement for watching ONE workspace's stream
-// (router.go says so at the mount): it resolves the chat's worktree through
-// resolveChatWorktree, which is what starts the daemon's provider poll — the
-// same side effect the old exact-workspace subscription carried.
-func (e *Env) DialChat(
-	t *testing.T,
-	chatID string,
-) *WSWatcher {
-	t.Helper()
-	w := Dial(t, e.dialer, wsURL(e.URL, e.chatScope(chatID)+"/ws"))
-	e.v0c.WaitNAgentChatsRegistered(1)
-	return w
-}
-
 // DialTerminalPTY opens a WS watcher on the raw PTY stream co-located at
 // /v0/chats/:chatId/terminals/:sessionId/ws (W7-2). This is NOT a broadcaster
 // topic (it's a direct engine pipe), so there is no WaitNRegistered gate; the
@@ -477,23 +417,10 @@ func (e *Env) OwningChatID(
 	return owner.ID
 }
 
-// WorktreeFrame projects one chat-feed frame down to the flat workspace map the
-// deleted `workspaces` stream used to send, so a predicate written against that
-// stream reads the same keys off this one.
-//
-// It is an UNWRAP, not a translation. A worktree_state frame is the workspace's
-// own WorkspaceDTO put through dto.ChatWorktreeFrom and hung under `worktree`
-// (container.pushChatWorktree), so every key here is the byte the workspace
-// stream would have sent — this only lifts them back out of the envelope and
-// restores the two identity fields the envelope, not the payload, carries: `id`
-// (the frame's workspaceId) and `repoId`.
-//
-// projectId, createdAt and kind are NOT recoverable: the chat feed never
-// carried them. Nothing asserts on them off this stream.
-//
-// A frame that is not a worktree_state one is returned UNCHANGED, which is what
-// keeps the shared WaitForState usable for the flat DTO streams (threads,
-// repos, projects) as well as this one.
+// WorktreeFrame projects one REST chat row down to the flat workspace map its
+// `worktree` object carries, restoring the identity fields the row, not the
+// object, holds: `id` (the row's workspaceId), `chatId` and `repoId`. A row
+// with no worktree is returned unchanged.
 func WorktreeFrame(
 	m map[string]any,
 ) map[string]any {
@@ -517,89 +444,39 @@ func WorktreeFrame(
 	return out
 }
 
-// readUntilWorktree is ReadUntil over the chat feed with WorktreeFrame applied
-// to every frame before the predicate sees it, returning the PROJECTED map.
-func readUntilWorktree(
-	t *testing.T,
-	w *WSWatcher,
-	timeout time.Duration,
-	pred func(map[string]any) bool,
-) map[string]any {
-	t.Helper()
-	var hit map[string]any
-	w.ReadUntil(t, timeout, func(raw map[string]any) bool {
-		m := WorktreeFrame(raw)
-		if pred(m) {
-			hit = m
-			return true
-		}
-		return false
-	})
-	return hit
-}
-
-// WaitForWorkspace reads WS events from w until a workspace with the given ID
-// and matching predicate is found. Returns the decoded Workspace map.
+// WaitForWorkspace reads the projects scope until the workspace entity wsID
+// satisfies pred, returning its row.
 func WaitForWorkspace(
 	t *testing.T,
-	w *WSWatcher,
+	w *EntityWatcher,
 	wsID string,
 	timeout time.Duration,
 	pred func(map[string]any) bool,
 ) map[string]any {
 	t.Helper()
-	return readUntilWorktree(
-		t,
-		w,
-		timeout,
-		func(msg map[string]any) bool {
-			if msg["id"] != wsID {
-				return false
-			}
-			return pred(msg)
-		},
-	)
+	return w.Next(t, timeout, stream.KindWorkspace, func(row map[string]any) bool {
+		return row["id"] == wsID && pred(row)
+	})
 }
 
-// WaitForState reads WS DTOs from w until one with the given id reaches the
-// given status, returning the decoded DTO. It is the aggregate-agnostic state
-// watcher (spec §5): the same shape works for Workspace and ReviewThread DTOs,
-// which both carry "id" and "status". A blank status matches the omitempty ""
-// state.
-func WaitForState(
-	t *testing.T,
-	w *WSWatcher,
-	id string,
-	status string,
-	timeout time.Duration,
-) map[string]any {
-	t.Helper()
-	return readUntilWorktree(
-		t,
-		w,
-		timeout,
-		func(msg map[string]any) bool {
-			if msg["id"] != id {
-				return false
-			}
-			got, _ := msg["status"].(string)
-			return got == status
-		},
-	)
-}
-
-// WaitForWorkspaceState reads WS events from w until a WorkspaceDTO with the
-// given id reaches the given status. Returns the decoded DTO map. A blank status
-// matches the omitempty "" state (commits, no PR). It delegates to WaitForState.
+// WaitForWorkspaceState reads the projects scope until workspace wsID reaches
+// status. A blank status matches the omitempty "" state; "deleted" matches the
+// gone frame a tombstoned workspace is sent as.
 func WaitForWorkspaceState(
 	t *testing.T,
-	w *WSWatcher,
+	w *EntityWatcher,
 	wsID string,
 	status string,
 	timeout time.Duration,
 ) map[string]any {
 	t.Helper()
-	return WaitForState(t, w, wsID, status, timeout)
+	return WaitForWorkspace(t, w, wsID, timeout, func(row map[string]any) bool {
+		if gone, _ := row["gone"].(bool); gone {
+			return status == string(domain.WorkspaceStatusDeleted)
+		}
+		got, _ := row["status"].(string)
+		return got == status
+	})
 }
 
 // GET issues a GET request to path and returns the response.
@@ -792,23 +669,23 @@ func DecodeEnvData(
 }
 
 // RegisterProject creates a project via POST /v0/projects and returns the
-// server-assigned project id, learned from the ProjectDTO on the Projects WS
-// stream; the 202 carries the create's operation. The WS is dialled BEFORE the
-// POST so the create broadcast is never missed.
+// server-assigned project id, learned from its entity on the projects scope;
+// the 202 carries the create's operation. The scope is held BEFORE the POST so
+// the created row is never missed.
 func (e *Env) RegisterProject(
 	t *testing.T,
 	name string,
 	path string,
 ) string {
 	t.Helper()
-	w := e.DialProjects(t)
+	w := e.WatchProjects(t)
 	resp := e.POST(t, "/v0/projects", map[string]any{
 		"name": name,
 		"path": path,
 	})
 	RequireStatus(t, resp, http.StatusAccepted)
 	resp.Body.Close()
-	msg := w.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
+	msg := w.Next(t, 10*time.Second, stream.KindProject, func(m map[string]any) bool {
 		p, _ := m["path"].(string)
 		return p == path
 	})
@@ -818,9 +695,9 @@ func (e *Env) RegisterProject(
 }
 
 // RegisterRepo creates a repo via POST /v0/projects/:projectId/repos and returns
-// the server-assigned repo id, learned from the RepoDTO on the Repos WS stream;
-// the 202 carries the create's operation. The WS is
-// dialled BEFORE the POST so the create broadcast is never missed. path may be
+// the server-assigned repo id, learned from its entity on the projects scope;
+// the 202 carries the create's operation. The scope is held BEFORE the POST so
+// the created row is never missed. path may be
 // empty for repos that don't need git operations.
 func (e *Env) RegisterRepo(
 	t *testing.T,
@@ -829,14 +706,14 @@ func (e *Env) RegisterRepo(
 	path string,
 ) string {
 	t.Helper()
-	w := e.DialRepos(t, projectID)
+	w := e.WatchProjects(t)
 	resp := e.POST(t, "/v0/projects/"+projectID+"/repos", map[string]any{
 		"name": name,
 		"path": path,
 	})
 	RequireStatus(t, resp, http.StatusAccepted)
 	resp.Body.Close()
-	msg := w.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
+	msg := w.Next(t, 10*time.Second, stream.KindRepo, func(m map[string]any) bool {
 		return m["name"] == name && m["projectId"] == projectID
 	})
 	id, _ := msg["id"].(string)
@@ -1056,29 +933,24 @@ func (e *Env) ImportRepo(
 	projectID := e.RegisterProject(t, name, path)
 	// The repo import (POST .../repos) runs the full importer, which derives the
 	// repo NAME from the on-disk directory — not from the request body — so the
-	// RepoDTO is matched by projectId, not name. Dial repos BEFORE the POST so the
-	// import broadcast is never missed.
-	reposWS := e.DialRepos(t, projectID)
+	// RepoDTO is matched by projectId, not name. Hold projects BEFORE the POST so
+	// the imported row is never missed.
+	reposWS := e.WatchProjects(t)
 	resp := e.POST(t, "/v0/projects/"+projectID+"/repos", map[string]any{
 		"name": name,
 		"path": path,
 	})
-	RequireStatus(t, resp, http.StatusAccepted)
-	resp.Body.Close()
-	repo := reposWS.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
+	// The repo row lands as the import starts; its worktrees by the time the
+	// import's operation settles.
+	e.AwaitOperation(t, resp, 60*time.Second)
+	repo := reposWS.Next(t, 10*time.Second, stream.KindRepo, func(m map[string]any) bool {
 		return m["projectId"] == projectID
 	})
 	repoID, _ := repo["id"].(string)
 	require.NotEmpty(t, repoID, "ImportRepo: import must broadcast a RepoDTO with an id")
 
-	// The adopted main worktree is persisted after the repo in the same async
-	// import job. It is read back, not awaited on the wire, and that is forced:
-	// the adoption is the one worktree event NOTHING can subscribe to in time.
-	// A chat-feed frame is only reachable through a repo-scoped mount, and the
-	// repo whose id that mount needs is created BY this same job — so by the
-	// moment there is a repoId to dial, the adoption it would have carried has
-	// already happened. Quiesce drains the projections, then the chat list is
-	// read; both are real signals, neither is a poll or a sleep.
+	// The adopted main worktree is read back once the import settled: Quiesce
+	// drains the projections, then the chat list is read.
 	e.Quiesce()
 	chats := e.ListChats(t, projectID, repoID)
 	var wsID, chatID string

@@ -41,7 +41,7 @@ func TestApp_New_BootsFullLayer(t *testing.T) {
 
 	c, err := app.New(ctx, newEng(t), adapters, migratetest.NoPostOpen(), v0.EncodeEntity, v0.NewSidebar)
 	require.NoError(t, err)
-	assert.NotNil(t, c.Hub)
+	assert.NotNil(t, c.Stream)
 	assert.NotNil(t, c.Repositories)
 	assert.NotNil(t, c.GORM)
 	assert.NotNil(t, c.Repositories.Workspace)

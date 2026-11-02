@@ -174,16 +174,6 @@ func specRoutes() []string {
 		// worktree-owned — and stays on repo.
 		"GET " + chat + "/provider",
 		"GET " + repo + "/protected-branches",
-		// The per-CHAT lifecycle stream: the same agent-chat broadcaster the
-		// repo-scoped .../chats/ws mount serves, narrowed by agentChatDef's
-		// chatId filter to one chat.
-		//
-		// It is the chat-scoped replacement for watching ONE workspace's stream,
-		// and it carries that stream's SIDE EFFECT as well as its frames:
-		// subscribing to a single workspace is what starts the daemon's provider
-		// poll, and this mount resolves a workspace (chatScoped's own
-		// resolveChatWorktree) where the repo-wide list scope resolves none.
-		"GET " + chat + "/ws",
 		"GET " + chat + "/blobs/:ref",
 		// §2.10 Search, chat-scoped (chat-scoped API spec §4.2's SHARED bucket,
 		// §8 step 4c/6): the flat chat prefix is the only surface left; the old
@@ -370,7 +360,6 @@ func extraRoutes() []string {
 		"PATCH " + repo + "/chats/folders/:folderId",
 		"DELETE " + repo + "/chats/folders/:folderId",
 		"GET " + repo + "/chats/providers",
-		"GET " + repo + "/chats/ws",
 		// The runner model added resume and never declared it here, which is exactly
 		// the drift this audit exists to catch — it caught it. A chat whose CLI is gone
 		// is not gone: its ledger and its provider conversation both outlive the
@@ -486,7 +475,6 @@ func extraRoutes() []string {
 		"GET " + home + "/chats/:id/handoff",
 		"DELETE " + home + "/chats/:id",
 		"GET " + home + "/chats/providers",
-		"GET " + home + "/chats/ws",
 		// The same two forced-terminal/native session moves, mounted here for
 		// the same reason as the rest of this block: a home chat's session
 		// behaves like any other chat's.
@@ -601,6 +589,10 @@ func TestRouteAudit_NoLegacyWsRoutes(t *testing.T) {
 		"GET " + repo + "/ws/files",
 		"GET " + repo + "/ws/lsp",
 		"GET " + repo + "/ws/terminals/:sessionId",
+		// The chat lifecycle sockets the projects stream scope replaced.
+		"GET " + repo + "/chats/ws",
+		"GET /v0/chats/:chatId/ws",
+		"GET /v0/projects/:projectId/home/chats/ws",
 	}
 	for _, r := range legacy {
 		_, ok := got[r]
@@ -826,14 +818,10 @@ func TestRouteAudit_NoWorkspaceScopedGroupRoutes(t *testing.T) {
 	assert.True(t, ok, "home's own files surface must be untouched by this step")
 }
 
-// TestRouteAudit_DualServe_RestMode proves the dual-served live-read routes
-// answer a plain (non-Upgrade) GET on REST — the complement of the WS-upgrade
-// proofs below, so both modes of every route are covered. It exercises the
-// entity list+detail routes (projects, projects/:id, repos, repos/:id) plus
-// the chat-scoped git/status (spec §8 step 6 retired its workspace-scoped
-// twin, so a resolvable CHAT is what admits the request now, not a seeded
-// :wsId).
-func TestRouteAudit_DualServe_RestMode(t *testing.T) {
+// TestRouteAudit_LiveReadRoutesAnswerREST proves the entity reads answer a
+// plain GET, and that an upgrade there opens no lifecycle socket: the stream
+// route is the one live read left.
+func TestRouteAudit_LiveReadRoutesAnswerREST(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
 	seedWorkspace(t, tc, "w1")
@@ -854,43 +842,16 @@ func TestRouteAudit_DualServe_RestMode(t *testing.T) {
 		resp, err := http.Get(srv.URL + path)
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = resp.Body.Close() })
-		assert.NotEqual(
-			t,
-			http.StatusSwitchingProtocols,
-			resp.StatusCode,
-			"plain GET must serve REST, not upgrade: %s",
-			path,
-		)
-	}
-}
+		assert.NotEqual(t, http.StatusSwitchingProtocols, resp.StatusCode, "plain GET must serve REST: %s", path)
 
-// TestRouteAudit_DualServe_WsMode proves every dual-served route upgrades to a
-// live WebSocket stream when the request carries Upgrade: websocket — including
-// the project/repo detail routes (W7-2).
-func TestRouteAudit_DualServe_WsMode(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	tc := newApp(t)
-	seedWorkspace(t, tc, "w1")
-	tc.app.Usecases.Worktree = stubChatWorktreeResolver{chatToWs: map[string]string{"chat-1": "w1"}, workspaces: tc.app.Repositories.Workspace}
-	c := v0.New(tc.app, tc.eng)
-	r := gin.New()
-	c.Register(r.Group("/v0"))
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	for _, path := range []string{
-		"/v0/projects",
-		"/v0/projects/p1",
-		"/v0/projects/p1/repos",
-		"/v0/projects/p1/repos/r1",
-	} {
-		url := "ws" + srv.URL[len("http"):] + path
-		conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
-		if resp != nil {
-			_ = resp.Body.Close()
+		conn, wsResp, err := websocket.DefaultDialer.Dial("ws"+srv.URL[len("http"):]+path, nil)
+		if wsResp != nil {
+			_ = wsResp.Body.Close()
 		}
-		require.NoErrorf(t, err, "upgrade must succeed: %s", path)
-		_ = conn.Close()
+		if conn != nil {
+			_ = conn.Close()
+		}
+		assert.Errorf(t, err, "no lifecycle socket upgrades at %s", path)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -126,9 +127,9 @@ func TestRegression_TelemetryForgetPurgesTheDurableRowAcrossARestart(t *testing.
 	writeProviderDescriptor(t, h1, "telemetrystub", telemetryStubProviderDescriptorYAML)
 	imported := importWritableWorkspace(t, h1)
 
-	frames := dialAgentWS(t, h1, repoBase(imported)+"/chats/ws")
+	feed := recordSidebar(t, h1)
 	chatID, runnerID := createStubChat(t, h1, imported, "telemetrystub")
-	waitForChatFrame(t, frames, chatID, "created")
+	feed.awaitListed(chatID)
 
 	postHook(t, h1, repoBase(imported), "telemetrystub", runnerID, "telemetry",
 		`{"context":{"usedPercent":10,"usedTokens":100,"capacityTokens":10000}}`)
@@ -136,7 +137,7 @@ func TestRegression_TelemetryForgetPurgesTheDurableRowAcrossARestart(t *testing.
 	require.NotNil(t, before.Context, "precondition: the chat has a usage report")
 
 	h1.raw(http.MethodDelete, repoBase(imported)+"/chats/"+chatID, nil, http.StatusOK).Body.Close()
-	waitForChatFrame(t, frames, chatID, "deleted")
+	feed.awaitGone(stream.KindChatEntity, chatID)
 	h1.Quiesce()
 
 	h1.shutdown()

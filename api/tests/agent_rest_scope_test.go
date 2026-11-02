@@ -420,7 +420,7 @@ func TestRegression_ProviderThatExitsDuringStartupIsRefused(t *testing.T) {
 	h := newHarness(t)
 	writeStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
-	frames := recordAgentWS(t, h, repoBase(ws)+"/chats/ws")
+	frames := recordSidebar(t, h)
 
 	status, msg, chatID := spawnStubChat(t, h, ws)
 	h.QuiesceReactors()
@@ -435,10 +435,10 @@ func TestRegression_ProviderThatExitsDuringStartupIsRefused(t *testing.T) {
 		"a CLI that exits during startup is either refused as a dependency failure or "+
 			"accepted as a chat that is already dormant — never any other status")
 	// The 201 path's reconcile rides the PTY's own exit callback, which the
-	// response never waits on: the `exited` frame is the signal it has landed.
-	frames.await(func(m map[string]any) bool {
-		return m["chatId"] == chatID && m["kind"] == "exited"
-	}, "the dead CLI's exited frame")
+	// response never waits on: the chat's dormant row is the signal it has landed.
+	frames.awaitAfter(chatID, "dormant once its CLI died",
+		func(chat map[string]any) bool { return chat["liveRunnerId"] != "" },
+		func(chat map[string]any) bool { return chat["liveRunnerId"] == "" && chat["terminalSessionId"] == "" })
 	var chat agentChatDTO
 	h.get(repoBase(ws)+"/chats/"+chatID, &chat)
 	assert.Empty(t, chat.LiveRunnerID,

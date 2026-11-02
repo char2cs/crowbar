@@ -13,7 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/hub"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	repotree "github.com/char2cs/crowbar/api/internal/app/repositories/tree"
@@ -40,8 +39,9 @@ type Container struct {
 	ChatLedger *ledgerstore.Store
 	// ChatBlobs holds the tool payloads the ledger's rows name.
 	ChatBlobs *ledgerstore.Blobs
-	hub       hub.WebSocketHub
-	git       wsusecase.MergeConflictBatchChecker
+	// publishWorkspace sends a workspace's enriched row to the projects scope.
+	publishWorkspace func(dto.WorkspaceDTO)
+	git              wsusecase.MergeConflictBatchChecker
 	// PurgeChat hard-deletes one chat and everything it owns — its aggregate, the
 	// CLIs on it, its conversation record and telemetry, its conversation history
 	// and its ledger directory. It is the chat usecase's own PurgeChat, the SAME
@@ -76,8 +76,8 @@ type Container struct {
 	drainCancel context.CancelFunc
 }
 
-// New builds all aggregate repositories, wiring each projection's broadcast into
-// the hub. The workspace aggregate is backed by the singleton axWorkspace (one
+// New builds all aggregate repositories, wiring the workspace projection into
+// publishWorkspace. The workspace aggregate is backed by the singleton axWorkspace (one
 // instance per type, routing every id by shard hash) built by the app layer; its
 // read model lives in state/store/workspace.db.
 // The reviewthread aggregate owns its central per-type read model at
@@ -90,7 +90,7 @@ func New(
 	ctx context.Context,
 	adapters *adapter.Container,
 	rm *ReadModels,
-	h hub.WebSocketHub,
+	publishWorkspace func(dto.WorkspaceDTO),
 	axReviewThread asynx.Asynx[domain.ReviewThread],
 	axWorkspace asynx.Asynx[domain.Workspace],
 	axAgentChat asynx.Asynx[domain.Chat],
@@ -100,7 +100,7 @@ func New(
 	onGiveUp func(ctx context.Context, wsID string, tomb *domain.Workspace, err error),
 ) (*Container, error) {
 	c := &Container{
-		hub: h, git: git,
+		publishWorkspace: publishWorkspace, git: git,
 		agentWorking: map[string]map[string]struct{}{}, agentBroadcasts: map[string]bool{},
 		axWorkspace: axWorkspace, axReviewThread: axReviewThread, axAgentChat: axAgentChat,
 		Placement: placement,
@@ -110,14 +110,9 @@ func New(
 		return nil, err
 	}
 	c.Workspace = ws
-	// Register the hub (WS fan-out) projection on the singleton axWorkspace,
-	// injecting the container-owned enrichment: every event-driven frame goes
-	// through the SAME enrichFrame + hub.BroadcastWorkspace as the agent-turn
-	// rebroadcasts, so the FE spinner + merge badges survive the store/hub split
-	// with zero regression (spec §3.5 hub-frame enrichment). The save-only store
-	// projection is registered inside workspace.New; the two derive independently
-	// from evt.Aggregate and cannot drift (decision 5).
-	if err := workspace.RegisterHubProjection(c.Workspace, c.enrichFrame, c.hub.BroadcastWorkspace); err != nil {
+	// Every event-driven workspace row goes through the SAME enrichFrame as the
+	// agent-turn republishes, so its Working and merge fields agree with them.
+	if err := workspace.RegisterHubProjection(c.Workspace, c.enrichFrame, c.publishWorkspace); err != nil {
 		return nil, fmt.Errorf("repositories: workspace hub projection: %w", err)
 	}
 	// reviewthread owns its own central per-type read model at
@@ -303,13 +298,13 @@ func (c *Container) resolveOwningChat(
 	return domain.ResolveOwningChat(rows)
 }
 
-// broadcastWorkspace enriches ws and pushes it to the hub, through the SAME
-// enrichFrame as the hub projection so both agree.
+// broadcastWorkspace enriches ws and publishes it, through the SAME
+// enrichFrame as the workspace projection so both agree.
 func (c *Container) broadcastWorkspace(
 	ctx context.Context,
 	ws domain.Workspace,
 ) {
-	c.hub.BroadcastWorkspace(c.enrichFrame(ctx, ws))
+	c.publishWorkspace(c.enrichFrame(ctx, ws))
 }
 
 // WorkingFor reports whether an agent chat in the workspace is mid-turn. The
@@ -321,9 +316,10 @@ func (c *Container) WorkingFor(
 	return c.agentWorkingFor(wsID)
 }
 
-// rebroadcast pushes the workspace's current row to the hub so an agent-turn
-// transition is visible without waiting for the next event. Best-effort: a
-// missing row (already deleted) skips silently.
+// Republish pushes the workspace's current row to the hub so a change no
+// workspace event carries (an agent-turn transition, a move of its position
+// Node) is visible without waiting for the next event. Best-effort: a missing
+// row (already deleted) skips silently.
 //
 // A read failure here is LOGGED rather than dropped in silence, because the frame
 // it costs us is not interchangeable with the next one. Working is transported as
@@ -334,14 +330,14 @@ func (c *Container) WorkingFor(
 // event log is clean — and it stayed invisible precisely because this returned
 // without a word. ErrNotFound is the expected case (the op deleted its own row)
 // and is not worth a line.
-func (c *Container) rebroadcast(
+func (c *Container) Republish(
 	ctx context.Context,
 	wsID string,
 ) {
 	ws, err := c.Workspace.Get(ctx, wsID)
 	if err != nil {
 		if !errors.Is(err, problem.ErrNotFound) {
-			slog.WarnContext(ctx, "repositories: rebroadcast: get workspace "+
+			slog.WarnContext(ctx, "repositories: republish: get workspace "+
 				"(client overlay may be stale until the next event)",
 				"workspace_id", wsID, "err", err)
 		}

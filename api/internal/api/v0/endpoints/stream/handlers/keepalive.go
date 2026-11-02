@@ -1,4 +1,4 @@
-package ws
+package handlers
 
 import (
 	"time"
@@ -18,7 +18,7 @@ type KeepAlive struct {
 }
 
 // DefaultKeepAlive is every daemon socket's bound.
-var DefaultKeepAlive = KeepAlive{Ping: pingInterval, Pong: pongTimeout, Write: writeTimeout}
+var DefaultKeepAlive = KeepAlive{Ping: 30 * time.Second, Pong: 60 * time.Second, Write: 10 * time.Second}
 
 func (k KeepAlive) ticker() *time.Ticker { return time.NewTicker(k.Ping) }
 
@@ -32,7 +32,7 @@ func (k KeepAlive) Arm(conn *websocket.Conn) error {
 
 // Pings sends pings from aside (WriteControl may run beside a write) until done closes.
 func (k KeepAlive) Pings(conn *websocket.Conn, done <-chan struct{}) {
-	safego.Go("ws.keepalive", func() {
+	safego.Go("stream.keepalive", func() {
 		ticker := k.ticker()
 		defer ticker.Stop()
 		for {

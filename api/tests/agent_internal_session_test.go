@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -120,7 +121,7 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 	ws := importWritableWorkspace(t, h)
 	base := repoBase(ws)
 
-	frames := recordAgentWS(t, h, base+"/chats/ws")
+	frames := recordSidebar(t, h)
 
 	chat, runner := createMemStubChat(t, h, ws)
 
@@ -128,7 +129,7 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 	postHook(t, h, repoBase(ws), "memstub", runner, "session_start", realStart)
 	frames.awaitConversation(chat, realSessionID)
 	postHook(t, h, repoBase(ws), "memstub", runner, "user_prompt", realPrompt)
-	frames.awaitChat(chat, "turn_started")
+	frames.awaitTurnStart(chat)
 	h.Quiesce()
 
 	require.Equal(t, runner, getAgentChat(t, h, base, chat).LiveRunnerID,
@@ -178,29 +179,17 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 	// negative above strict rather than merely un-awaited.
 	postHook(t, h, repoBase(ws), "memstub", runner, "turn_stop",
 		`{"session_id":"`+realSessionID+`","transcript_path":"/h/rollout-019fafae.jsonl","last_assistant_message":"THE-USERS-OWN-ANSWER"}`)
-	frames.awaitChat(chat, "turn_stopped")
+	frames.awaitTurnEnd(chat)
 	h.Quiesce()
 	assert.Contains(t, chatHandoff(t, h, base, chat), "THE-USERS-OWN-ANSWER",
 		"the user's conversation must carry on in the chat it was always in")
 
-	// No CHAT-LIFECYCLE frame for any chat other than the user's was EVER emitted —
-	// the live-signal counterpart of the chat-list assertion, over the whole
-	// recorded stream rather than a point read.
-	//
-	// worktree_state frames are excluded, and the exclusion is the point rather
-	// than a loophole: that kind is not about a conversation at all. It is the
-	// git state of a WORKSPACE, fanned out under whichever chat happens to own
-	// that worktree (v0.Container.pushChatWorktree), so the fixture's own
-	// feature/write row broadcasts one whenever its diff counts or working flag
-	// move. Counting those as "another chat appeared" would fail this test for
-	// the workspace it runs on, not for anything an internal session did.
-	for _, frame := range frames.snapshot() {
-		if frame["kind"] == "worktree_state" {
-			continue
-		}
-		if id, ok := frame["chatId"].(string); ok && id != "" {
-			assert.Equal(t, chat, id,
-				"no chat other than the user's may appear on the wire at all; frame: %v", frame)
+	// No live chat row other than the user's was EVER published — the
+	// live-signal counterpart of the chat-list assertion, over the whole recorded
+	// stream rather than a point read.
+	for _, row := range frames.liveRows() {
+		if row.Kind == string(stream.KindChatEntity) {
+			assert.Equal(t, chat, row.ID, "no chat other than the user's may appear on the wire at all; row: %v", row)
 		}
 	}
 }

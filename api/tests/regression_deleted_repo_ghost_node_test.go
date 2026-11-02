@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,11 +32,11 @@ func TestRegression_DeletedRepoLeavesAGhostNodeInItsHomeFolder(t *testing.T) {
 	h.raw(http.MethodPatch, "/v0/projects/"+p+"/repos/"+imported.repoID,
 		map[string]any{"folderId": folder.ID, "order": 0}, http.StatusNoContent).Body.Close()
 	h.Quiesce()
-	reposWS := h.dial("/v0/projects/" + p + "/repos")
+	reposWS := watchEntities(t, h, stream.KindRepo)
 	h.raw(http.MethodDelete, "/v0/projects/"+p+"/repos/"+imported.repoID, nil, http.StatusAccepted).Body.Close()
 	// The delete runs off the request path; its tombstone frame is the signal.
-	readUntil(t, reposWS, func(m map[string]any) bool {
-		return m["id"] == imported.repoID && m["status"] == "deleted"
+	reposWS.read(t, func(m map[string]any) bool {
+		return m["id"] == imported.repoID && m["gone"] == true
 	})
 	h.QuiesceReactors()
 

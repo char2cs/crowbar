@@ -383,13 +383,8 @@ func TestRegisterMountsRoutes(
 	r := gin.New()
 	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
 	settingsRG := r.Group("/v0")
-	wsHit := false
 	uc := stubUsecase{}
-	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil, nil,
-		func(c *gin.Context) {
-			wsHit = true
-			c.Status(http.StatusOK)
-		})
+	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil)
 
 	const base = "/v0/projects/p1/repos/r1"
 	cases := []struct {
@@ -417,7 +412,6 @@ func TestRegisterMountsRoutes(
 		{http.MethodPost, base + "/chats/runners/seg-1/mcp"},
 		{http.MethodPost, base + "/chats/runners/seg-1/hooks/claude/tool_pre"},
 		{http.MethodGet, base + "/chats/providers"},
-		{http.MethodGet, base + "/chats/ws"},
 		{http.MethodPut, "/v0/settings/chat/providers"},
 		{http.MethodGet, "/v0/settings/chat/permission-level"},
 		{http.MethodPut, "/v0/settings/chat/permission-level"},
@@ -433,7 +427,6 @@ func TestRegisterMountsRoutes(
 		r.ServeHTTP(rec, req)
 		assert.NotEqual(t, http.StatusNotFound, rec.Code, tc.path)
 	}
-	assert.True(t, wsHit, "GET .../chats/ws must delegate to the supplied handler")
 }
 
 // TestChatRoutes_OldWorkspaceScopedPathGone proves the pre-Task-17 shape is
@@ -447,8 +440,7 @@ func TestChatRoutes_OldWorkspaceScopedPathGone(
 	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
 	settingsRG := r.Group("/v0")
 	uc := stubUsecase{}
-	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil, nil,
-		func(c *gin.Context) { c.Status(http.StatusOK) })
+	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet,
 		"/v0/projects/p1/repos/r1/workspaces/w1/chats", http.NoBody)
@@ -474,10 +466,7 @@ func TestRegisterBindsMCPSegIDFromTheURL(
 	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
 	settingsRG := r.Group("/v0")
 	uc := stubUsecase{dispatch: got}
-	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil, nil,
-		func(c *gin.Context) {
-			c.Status(http.StatusOK)
-		})
+	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil)
 
 	const path = "/v0/projects/p1/repos/r1/chats/runners/seg-42/mcp"
 	req := httptest.NewRequest(http.MethodPost, path,

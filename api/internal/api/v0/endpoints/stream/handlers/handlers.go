@@ -12,7 +12,6 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/char2cs/crowbar/api/internal/api/origin"
-	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	appstream "github.com/char2cs/crowbar/api/internal/app/stream"
 )
 
@@ -24,11 +23,11 @@ type Server interface {
 // Handlers serves the stream route.
 type Handlers struct {
 	hub  Server
-	keep ws.KeepAlive
+	keep KeepAlive
 }
 
 // New builds the handlers over the hub; keep bounds each socket.
-func New(hub Server, keep ws.KeepAlive) *Handlers { return &Handlers{hub: hub, keep: keep} }
+func New(hub Server, keep KeepAlive) *Handlers { return &Handlers{hub: hub, keep: keep} }
 
 // readLimit is far above a sub's size; a scope is capped well below it.
 const readLimit = 1024

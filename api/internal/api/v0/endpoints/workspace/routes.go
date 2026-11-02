@@ -22,9 +22,8 @@ import (
 func Register(
 	repoScoped *gin.RouterGroup,
 	placer workspacehandlers.Placer,
-	broadcastFolder func(folderID, workspaceID, kind string),
 ) {
-	h := workspacehandlers.New(placer, broadcastFolder)
+	h := workspacehandlers.New(placer)
 	rg := repoScoped.Group("/workspaces/:wsId")
 	rg.PATCH("/placement", h.PlaceWorkspace)
 }

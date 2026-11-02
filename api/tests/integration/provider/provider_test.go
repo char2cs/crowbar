@@ -114,13 +114,13 @@ func (s *ProviderSuite) TestProvider_disabledStateReflectsInWorkspace() {
 
 // TestRegression_ProviderPoll_PROpenToMerged drives a pr-open → pr-merged
 // transition through the mock-provider seam (PushProviderState) and asserts the
-// resulting WorkspaceDTO arrives on the workspace WS with status pr-merged. No
+// resulting workspace row reaches the projects scope with status pr-merged. No
 // real network and no fixed delay — the seam applies projection-synchronously and
-// the projection broadcasts the row (spec §11/§13).
+// the projection publishes the row.
 func (s *ProviderSuite) TestRegression_ProviderPoll_PROpenToMerged() {
 	t := s.T()
 
-	watcher := s.env.DialChat(t, s.chatID)
+	watcher := s.env.HoldProjects(t)
 
 	// First poll: the PR is open.
 	s.env.PushProviderState(t, s.wsID, kit.ProviderState{

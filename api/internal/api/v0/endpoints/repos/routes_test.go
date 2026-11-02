@@ -11,7 +11,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
-	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -70,9 +69,8 @@ func TestRegisterMountsRoutes(
 	// repos.Register mounts on the project-scoped group, so build the
 	// hierarchical prefix to mirror the production router chain.
 	projectScoped := r.Group("/v0/projects/:projectId")
-	noopWS := func(_ *gin.Context) {}
 	repos.Register(projectScoped, stubStore{}, nil, nil, nil, nil, nil, nil, nil, stubOps{}, func(dto.RepoDTO) {},
-		func() (string, error) { return t.TempDir(), nil }, noopWS, ws.DualServe)
+		func() (string, error) { return t.TempDir(), nil })
 
 	cases := []struct {
 		method string

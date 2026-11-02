@@ -29,12 +29,10 @@ func heldBranchPlaceholder(
 	runGit(t, f.repoPath, "fetch", "origin", branch+":"+branch)
 	runGit(t, f.repoPath, "worktree", "add", filepath.Join(t.TempDir(), "holder"), branch)
 
-	conn := h.dial(f.repoBase() + "/chats/ws")
+	feed := recordSidebar(t, h)
 	_ = h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
 		importBranches(branch), http.StatusAccepted).Body.Close()
-	created := readUntil(t, conn, func(m map[string]any) bool {
-		return m["kind"] == "workspace_set"
-	})
+	created := feed.awaitNewChat("with its workspace", hasWorkspace)
 	wsID, _ := created["workspaceId"].(string)
 	require.NotEmpty(t, wsID, "a branch held elsewhere must still produce a row")
 

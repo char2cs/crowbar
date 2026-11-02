@@ -10,11 +10,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // importedRepo bundles the ids a project import yields: the project, its
@@ -97,7 +97,7 @@ func listChats(
 // importWritableWorkspace to get an unlocked child forked off it. Tests that need
 // the home to STAY on its protected branch (and thus a placeholder) use
 // importProjectHomeHoldsDefault instead. All ids are learned from the
-// hierarchical WS streams (dial-before-POST).
+// projects scope.
 func importProject(
 	t *testing.T,
 	h *harness,
@@ -113,13 +113,8 @@ func importProject(
 	projectID, repoID := createProjectAndRepo(t, h, repoPath)
 
 	// The locked managed worktree for the protected default branch ("main") is
-	// persisted during the background ImportRepo job. It is READ BACK rather than
-	// awaited on a stream, and that is forced: a chat frame is only reachable
-	// through a repo-scoped mount, and the repo whose id that mount needs is
-	// created BY this same job — so by the moment there is a repoId to dial, the
-	// adoption it would have carried has already happened. Quiesce drains the
-	// projections and the chat list is then read; both are real signals, neither
-	// is a poll or a sleep.
+	// persisted by the import createProjectAndRepo waited out; Quiesce drains
+	// the projections and the chat list is then read back.
 	//
 	// With the home detached, "main" is unambiguously that single managed
 	// worktree (the home carries branch==""), and it has a real on-disk path —
@@ -195,34 +190,39 @@ func importProjectHomeHoldsDefault(
 
 // createProjectAndRepo runs the two-step public import flow (POST /v0/projects
 // then POST .../repos) for an on-disk repo at repoPath and returns the project
-// and repo ids learned from the hierarchical WS streams (dial-before-POST).
+// and repo ids learned from the projects scope, once the import has settled.
 func createProjectAndRepo(
 	t *testing.T,
 	h *harness,
 	repoPath string,
 ) (projectID, repoID string) {
 	t.Helper()
-	projectsWS := h.dial("/v0/projects")
+	projectsWS := watchEntities(t, h, stream.KindProject)
 	resp := h.raw(http.MethodPost, "/v0/projects",
 		map[string]string{"name": "demo", "path": repoPath}, http.StatusAccepted)
 	_ = resp.Body.Close()
 
-	project := readUntil(t, projectsWS, func(m map[string]any) bool {
+	project := projectsWS.read(t, func(m map[string]any) bool {
 		return m["path"] == repoPath
 	})
 	projectID, _ = project["id"].(string)
 	require.NotEmpty(t, projectID, "create must broadcast a ProjectDTO with an id")
 
-	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
-	addResp := h.raw(http.MethodPost, "/v0/projects/"+projectID+"/repos",
-		map[string]string{"name": "demo", "path": repoPath}, http.StatusAccepted)
-	_ = addResp.Body.Close()
-	repo := readUntil(t, reposWS, func(m map[string]any) bool {
+	reposWS := watchEntities(t, h, stream.KindRepo)
+	importRepo(t, h, "/v0/projects/"+projectID+"/repos", map[string]string{"name": "demo", "path": repoPath})
+	repo := reposWS.read(t, func(m map[string]any) bool {
 		return m["projectId"] == projectID
 	})
 	repoID, _ = repo["id"].(string)
 	require.NotEmpty(t, repoID, "add-repo must broadcast a RepoDTO with an id")
 	return projectID, repoID
+}
+
+// importRepo POSTs an add-repo and returns once its import settled: the repo
+// row lands as the import starts, its worktrees only by the time it settles.
+func importRepo(t *testing.T, h *harness, path string, body map[string]string) {
+	t.Helper()
+	awaitOperation(t, h, startOperation(t, h, path, body).ID, operationSettled)
 }
 
 // importWritableWorkspace imports a project and then creates a child workspace
@@ -358,16 +358,6 @@ func worktreeOf(
 	}
 	require.Failf(t, "workspace not found", "no chat row holds workspace %s", wsID)
 	return workspaceDTO{}
-}
-
-// repoChatsWS dials the repo-scoped chat feed — the replacement for the deleted
-// repo-scoped `workspaces` stream. Frames are dto.AgentChatEvent; read them with
-// readUntilWorktree so a predicate written in workspace vocabulary still works.
-func repoChatsWS(
-	h *harness,
-	imported importedRepo,
-) *websocket.Conn {
-	return h.dial("/v0/projects/" + imported.projectID + "/repos/" + imported.repoID + "/chats/ws")
 }
 
 // owningChatID resolves the chat that OWNS wsID, through the daemon's own

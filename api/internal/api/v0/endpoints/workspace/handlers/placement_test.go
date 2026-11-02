@@ -45,40 +45,20 @@ func (f *fakePlacer) PlaceWorkspace(
 	return f.placed, f.shifted, f.err
 }
 
-// folderFrame is one frame a placement handler pushed on the chats WS.
-type folderFrame struct {
-	folderID    string
-	workspaceID string
-	kind        string
-}
-
 func newRouter(
 	placer handlers.Placer,
 ) *gin.Engine {
-	r, _ := newRouterWithFrames(placer)
-	return r
-}
-
-// newRouterWithFrames is newRouter plus the broadcast frames it captures,
-// for the tests that assert on what a placement announces.
-func newRouterWithFrames(
-	placer handlers.Placer,
-) (*gin.Engine, *[]folderFrame) {
-	var frames []folderFrame
 	r := gin.New()
-	h := handlers.New(placer, func(folderID, workspaceID, kind string) {
-		frames = append(frames, folderFrame{folderID: folderID, workspaceID: workspaceID, kind: kind})
-	})
+	h := handlers.New(placer)
 	rg := r.Group("/v0")
 	ws := rg.Group("/projects/:projectId/repos/:repoId/workspaces/:wsId")
 	ws.PATCH("/placement", h.PlaceWorkspace)
-	return r, &frames
+	return r
 }
 
-func do(
+// place PATCHes body to the workspace's placement route.
+func place(
 	r *gin.Engine,
-	method string,
-	path string,
 	body any,
 ) *httptest.ResponseRecorder {
 	var b []byte
@@ -86,7 +66,7 @@ func do(
 		b, _ = json.Marshal(body)
 	}
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(method, path, bytes.NewReader(b))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPatch, base, bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(rec, req)
 	return rec
@@ -101,7 +81,7 @@ func TestPlaceWorkspace_ForwardsWorkspaceIDAndBody(t *testing.T) {
 	placer := &fakePlacer{placed: domain.Chat{ID: "branch-1", ParentID: "folder-a", Order: 2}}
 	r := newRouter(placer)
 
-	rec := do(r, http.MethodPatch, base, map[string]any{"parentId": "folder-a", "order": 2})
+	rec := place(r, map[string]any{"parentId": "folder-a", "order": 2})
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "branch-1", placer.wsID)
@@ -136,7 +116,7 @@ func TestPlaceWorkspace_OmittedFieldsStayNil(t *testing.T) {
 	placer := &fakePlacer{}
 	r := newRouter(placer)
 
-	rec := do(r, http.MethodPatch, base, map[string]any{"order": 0})
+	rec := place(r, map[string]any{"order": 0})
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Nil(t, placer.in.ParentID)
@@ -165,61 +145,24 @@ func TestPlaceWorkspace_NotFoundMapsTo404(t *testing.T) {
 	placer := &fakePlacer{err: problem.ErrNotFound}
 	r := newRouter(placer)
 
-	rec := do(r, http.MethodPatch, base, map[string]any{"order": 0})
+	rec := place(r, map[string]any{"order": 0})
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// TestRegression_PlaceWorkspace_AnnouncesTheMovedBranch pins the exact live
-// bug: PlaceWorkspace's write rides Node (placeWorkspaceResponse's own doc),
-// which carries no aggregate-command hub projection, and this handler used to
-// call no broadcast at all — not even for its own subject. A locked branch
-// dragged past a sibling PATCHed 200 and never moved on a live client's
-// screen despite the write succeeding.
-func TestRegression_PlaceWorkspace_AnnouncesTheMovedBranch(t *testing.T) {
-	placer := &fakePlacer{placed: domain.Chat{ID: "branch-1", ParentID: "", Order: 1}}
-	r, frames := newRouterWithFrames(placer)
-
-	rec := do(r, http.MethodPatch, base, map[string]any{"order": 1})
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Len(t, *frames, 1, "the moved branch must be announced even with no folder siblings shifted")
-	assert.Equal(t, folderFrame{folderID: "branch-1", workspaceID: "branch-1", kind: "placement_set"}, (*frames)[0])
-}
-
-// TestRegression_PlaceWorkspace_AnnouncesShiftedFolderSiblingsToo proves the
-// densify's collateral folder rows are announced alongside the branch that
-// actually moved, mirroring PlaceChat's identical announceFolders call.
-func TestRegression_PlaceWorkspace_AnnouncesShiftedFolderSiblingsToo(t *testing.T) {
-	placer := &fakePlacer{
-		placed:  domain.Chat{ID: "branch-1", Order: 0},
-		shifted: []domain.Chat{{ID: "f0", Type: domain.ChatTypeFolder, Order: 1}},
-	}
-	r, frames := newRouterWithFrames(placer)
-
-	rec := do(r, http.MethodPatch, base, map[string]any{"order": 0})
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Len(t, *frames, 2)
-	assert.Equal(t, folderFrame{folderID: "f0", workspaceID: "branch-1", kind: "folder_updated"}, (*frames)[0])
-	assert.Equal(t, folderFrame{folderID: "branch-1", workspaceID: "branch-1", kind: "placement_set"}, (*frames)[1])
-}
-
 // A shifted LOCKED-BRANCH sibling (its workspace-anchor Node row, reported
-// by persist as the branch row it draws as) is announced and answered the
-// same way a folder sibling is: nothing else carries its new order.
-func TestRegression_PlaceWorkspace_AnnouncesShiftedAnchorSiblingsToo(t *testing.T) {
+// by persist as the branch row it draws as) is answered the same way a folder
+// sibling is.
+func TestRegression_PlaceWorkspace_AnswersShiftedAnchorSiblingsToo(t *testing.T) {
 	placer := &fakePlacer{
 		placed:  domain.Chat{ID: "branch-1", Order: 0},
 		shifted: []domain.Chat{{ID: "ws-branch-2", Type: domain.ChatTypeBranch, Order: 1}},
 	}
-	r, frames := newRouterWithFrames(placer)
+	r := newRouter(placer)
 
-	rec := do(r, http.MethodPatch, base, map[string]any{"order": 0})
+	rec := place(r, map[string]any{"order": 0})
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Len(t, *frames, 2)
-	assert.Equal(t, folderFrame{folderID: "ws-branch-2", workspaceID: "branch-1", kind: "folder_updated"}, (*frames)[0])
 	var body struct {
 		Data struct {
 			Shifted []struct {

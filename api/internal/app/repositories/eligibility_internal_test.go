@@ -36,20 +36,18 @@ func (s stubWorkspaceRepo) ListInRepo(
 	return s.rows, s.err
 }
 
+// discardHub keeps the last workspace row published.
 type discardHub struct {
 	last dto.WorkspaceDTO
 }
 
-func (h *discardHub) BroadcastProject(_ dto.ProjectDTO)       {}
-func (h *discardHub) BroadcastRepo(_ dto.RepoDTO)             {}
-func (h *discardHub) BroadcastWorkspace(w dto.WorkspaceDTO)   { h.last = w }
-func (h *discardHub) BroadcastAgentChatFolder(_, _, _ string) {}
+func (h *discardHub) publish(w dto.WorkspaceDTO) { h.last = w }
 
 func TestBroadcastWorkspace_NoParent_EmptyEligibility(t *testing.T) {
 	h := &discardHub{}
 	c := &Container{
-		hub:       h,
-		Workspace: stubWorkspaceRepo{},
+		publishWorkspace: h.publish,
+		Workspace:        stubWorkspaceRepo{},
 	}
 
 	c.broadcastWorkspace(context.Background(), domain.Workspace{ID: "w1", ProjectID: "p1", RepoID: "r1"})
@@ -61,8 +59,8 @@ func TestBroadcastWorkspace_NoParent_EmptyEligibility(t *testing.T) {
 func TestBroadcastWorkspace_ListError_DegradesToEmptyEligibility(t *testing.T) {
 	h := &discardHub{}
 	c := &Container{
-		hub:       h,
-		Workspace: stubWorkspaceRepo{err: errors.New("list failed")},
+		publishWorkspace: h.publish,
+		Workspace:        stubWorkspaceRepo{err: errors.New("list failed")},
 	}
 
 	c.broadcastWorkspace(
@@ -78,7 +76,7 @@ func TestBroadcastWorkspace_ListError_DegradesToEmptyEligibility(t *testing.T) {
 func TestBroadcastWorkspace_SkipsWrongRepoSiblings(t *testing.T) {
 	h := &discardHub{}
 	c := &Container{
-		hub: h,
+		publishWorkspace: h.publish,
 		Workspace: stubWorkspaceRepo{rows: []domain.Workspace{
 			// Same id as the parent but a different repo: must be skipped.
 			{ID: "parent", ProjectID: "p1", RepoID: "rX", Branch: "wrong"},
@@ -98,7 +96,7 @@ func TestBroadcastWorkspace_SkipsWrongRepoSiblings(t *testing.T) {
 func TestBroadcastWorkspace_ParentMissing_EmptyEligibility(t *testing.T) {
 	h := &discardHub{}
 	c := &Container{
-		hub: h,
+		publishWorkspace: h.publish,
 		Workspace: stubWorkspaceRepo{rows: []domain.Workspace{
 			{ID: "other", ProjectID: "p1", RepoID: "r1", Branch: "x"},
 		}},
@@ -116,7 +114,7 @@ func TestBroadcastWorkspace_ParentMissing_EmptyEligibility(t *testing.T) {
 func TestBroadcastWorkspace_ParentLocked_NotEligible(t *testing.T) {
 	h := &discardHub{}
 	c := &Container{
-		hub: h,
+		publishWorkspace: h.publish,
 		Workspace: stubWorkspaceRepo{rows: []domain.Workspace{
 			{ID: "parent", ProjectID: "p1", RepoID: "r1", Branch: "main", Status: domain.WorkspaceStatusLocked},
 		}},
@@ -150,8 +148,8 @@ func TestBroadcastWorkspace_PredictsTheConflictThroughTheBatchedDryRun(t *testin
 	h := &discardHub{}
 	git := &batchOnlyGit{}
 	c := &Container{
-		hub: h,
-		git: git,
+		publishWorkspace: h.publish,
+		git:              git,
 		Workspace: stubWorkspaceRepo{rows: []domain.Workspace{
 			{ID: "parent", ProjectID: "p1", RepoID: "r1", Branch: "feature/p", Status: domain.WorkspaceStatusNew},
 		}},

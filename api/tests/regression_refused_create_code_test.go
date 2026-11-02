@@ -21,10 +21,10 @@ func TestRegression_RefusedCreateCarriesItsCode(t *testing.T) {
 
 	const branch = "feature/a"
 	f.pushBranchToOrigin(t, branch, "main", "a\n")
-	conn := h.dial(f.repoBase() + "/chats/ws")
+	feed := recordSidebar(t, h)
 	require.NoError(t, h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
 		importBranches(branch), http.StatusAccepted).Body.Close())
-	readUntil(t, conn, func(m map[string]any) bool { return m["kind"] == "workspace_set" })
+	feed.awaitNewChat("with its workspace", hasWorkspace)
 	h.Quiesce()
 
 	body, err := json.Marshal(map[string]any{

@@ -3,9 +3,11 @@
 package tests
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,11 +44,10 @@ func writeLiveStubProviderDescriptor(t *testing.T, h *harness) {
 // list (which carries every worktree-owning chat's git state inline) and one
 // workspace's own row within it (worktreeOf; the dedicated GET
 // .../workspaces/:wsId detail route is gone, spec §8 step 6) — stamp the
-// workspace's `working` overlay as want. It is the REST counterpart to the WS
-// readUntilWorktree: the agent-turn overlay is folded synchronously in the SAME
-// axAgentChat projection callback that re-broadcasts the workspace, so once the
-// caller has observed the WS frame the in-memory overlay is already settled and
-// these plain GETs need no polling (block on the WS signal, never on time).
+// workspace's `working` overlay as want. It is the REST counterpart to the
+// workspace's projects-scope row: the overlay is folded synchronously in the SAME
+// axAgentChat projection callback that republishes the workspace, so once the
+// caller has observed that row these plain GETs need no polling.
 func requireRESTWorking(
 	t *testing.T,
 	h *harness,
@@ -91,24 +92,17 @@ func TestRegression_WorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
 	segID := detail.LiveRunnerID
 
-	// The standalone workspaces WS is gone; the repo-scoped chat feed carries the
-	// same worktree_state frames now, wrapped under dto.AgentChatEvent —
-	// readUntilWorktree unwraps them back to the flat vocabulary below.
-	conn := repoChatsWS(h, imported)
+	feed := recordSidebar(t, h)
 
 	// user_prompt opens the turn.
 	postHook(t, h, repoBase, "livestub", segID, "user_prompt", `{"prompt":"hi"}`)
-	readUntilWorktree(t, conn, func(m map[string]any) bool {
-		return m["id"] == imported.workspaceID && m["working"] == true
-	})
+	awaitWorkspaceWorking(feed, imported.workspaceID, true)
 	// REST reads (List + Detail) must now reflect the same live overlay.
 	requireRESTWorking(t, h, imported, true)
 
 	// turn_stop closes it.
 	postHook(t, h, repoBase, "livestub", segID, "turn_stop", `{"last_assistant_message":"done"}`)
-	readUntilWorktree(t, conn, func(m map[string]any) bool {
-		return m["id"] == imported.workspaceID && m["working"] == false
-	})
+	awaitWorkspaceWorking(feed, imported.workspaceID, false)
 	// REST reads must have flipped back too.
 	requireRESTWorking(t, h, imported, false)
 }
@@ -167,13 +161,11 @@ func TestRegression_WorkspaceWorkingOverlappingChatsBroadcastOnce(t *testing.T) 
 	_, segA := createLiveStubChat(t, h, imported)
 	_, segB := createLiveStubChat(t, h, imported)
 
-	conn := repoChatsWS(h, imported)
+	feed := recordSidebar(t, h)
 
 	// Chat A opens a turn: idle → working. The ONE legitimate true frame.
 	postHook(t, h, repoBase(imported), "livestub", segA, "user_prompt", `{"prompt":"a"}`)
-	readUntilWorktree(t, conn, func(m map[string]any) bool {
-		return m["id"] == imported.workspaceID && m["working"] == true
-	})
+	awaitWorkspaceWorking(feed, imported.workspaceID, true)
 
 	// Chat B opens a turn (workspace already working) and chat A closes its turn
 	// (chat B still working). Neither changes the overlay's value. Quiesce blocks on
@@ -189,19 +181,41 @@ func TestRegression_WorkspaceWorkingOverlappingChatsBroadcastOnce(t *testing.T) 
 
 	// Chat B closes the LAST turn: working → idle, the transition the FE needs.
 	postHook(t, h, repoBase(imported), "livestub", segB, "turn_stop", `{"last_assistant_message":"b done"}`)
-	redundant := 0
-	readUntilWorktree(t, conn, func(m map[string]any) bool {
-		if m["id"] != imported.workspaceID {
-			return false
-		}
-		if m["working"] == true {
+	idle := awaitWorkspaceWorking(feed, imported.workspaceID, false)
+	redundant := -1 // the first true row is chat A's legitimate one
+	for _, r := range feed.rows()[:idle] {
+		if r.Kind == string(stream.KindWorkspace) && r.ID == imported.workspaceID && r.Data["working"] == true {
 			redundant++ // a rebroadcast that re-asserted a value nobody changed
-			return false
 		}
-		return m["working"] == false
-	})
+	}
 	require.Zerof(t, redundant,
 		"%d redundant workspace rebroadcast(s): each one costs a git merge-tree under the repo lock", redundant)
 
 	requireRESTWorking(t, h, imported, false)
+}
+
+// awaitWorkspaceWorking waits for wsID's row whose working is want — an idle
+// one only after a working one, since the snapshot's row is idle — and answers
+// its index.
+func awaitWorkspaceWorking(feed *sidebarFeed, wsID string, want bool) int {
+	feed.t.Helper()
+	isWS := func(r feedRow) bool { return r.Kind == string(stream.KindWorkspace) && r.ID == wsID && !r.Gone }
+	at := -1
+	feed.await(fmt.Sprintf("workspace %s working=%v", wsID, want), func(i int, r feedRow) bool {
+		if !isWS(r) || r.Data["working"] != want {
+			return false
+		}
+		if want {
+			at = i
+			return true
+		}
+		for _, before := range feed.rows()[:i] {
+			if isWS(before) && before.Data["working"] == true {
+				at = i
+				return true
+			}
+		}
+		return false
+	})
+	return at
 }

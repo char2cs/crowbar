@@ -31,12 +31,6 @@ func TestWorkspaces_ListAndDetail(t *testing.T) {
 	assert.Equal(t, "main", detail.Branch)
 }
 
-// The standalone repo-scoped workspace WebSocket (dual-served .../workspaces,
-// snapshot-on-connect) is deleted outright (spec §8 step 6): its replacement,
-// the repo-scoped chat feed, is a live event stream with a deliberately nil
-// Snapshot (agentChatDef) — TestWorkspaces_DualServeWSUpgrade asserted exactly
-// the capability that was removed, so it is deleted rather than ported.
-
 func findWorkspace(
 	t *testing.T,
 	workspaces []workspaceDTO,

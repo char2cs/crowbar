@@ -64,12 +64,6 @@ func (h *Handlers) PlaceWorkspace(
 		libs.Fail(ctx, err)
 		return
 	}
-	// The moved branch's own row and every Node-written sibling the densify
-	// shifted: this route's write has no hub projection of its own.
-	for _, row := range shifted {
-		h.broadcastFolder(row.ID, wsID, "folder_updated")
-	}
-	h.broadcastFolder(placed.ID, wsID, "placement_set")
 	libs.WriteQueryOK(ctx, placeWorkspaceResponse{
 		Workspace: workspacePlacementDTO{ID: placed.ID, ParentID: placed.ParentID, Order: placed.Order},
 		Shifted:   dto.AgentChatDTOList(shifted, nil, nil),

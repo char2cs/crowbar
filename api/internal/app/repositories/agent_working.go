@@ -77,7 +77,7 @@ func (c *Container) runAgentBroadcasts(ctx context.Context, wsID string) {
 	defer c.drainGate.Leave()
 	c.drainGate.Proceed(ctx)
 	for c.takeAgentBroadcast(wsID) {
-		c.rebroadcast(ctx, wsID)
+		c.Republish(ctx, wsID)
 	}
 }
 

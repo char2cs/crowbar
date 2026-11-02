@@ -25,7 +25,7 @@ type sidebar struct {
 func NewSidebar(c *app.Container) appstream.Sidebar {
 	ucs := c.Usecases
 	chats := chathandlers.New(ucs.AgentChat, ucs.AgentTurn, ucs.AgentRunner, ucs.AgentAnswer,
-		ucs.AgentProvider, ucs.AgentChatFolder, nil).
+		ucs.AgentProvider, ucs.AgentChatFolder).
 		WithWorktrees(chatWorktrees{app: c}).
 		WithNodes(c.Repositories.Placement)
 	return &sidebar{app: c, chats: chats}

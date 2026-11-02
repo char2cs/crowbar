@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -96,12 +95,10 @@ func promptLaunch(
 	return fake.AwaitLaunch(t, live)
 }
 
-func killAndAwaitExit(t *testing.T, h *harness, conn *websocket.Conn, l kit.Launch) {
+func killAndAwaitExit(t *testing.T, h *harness, feed *sidebarFeed, chatID string, l kit.Launch) {
 	t.Helper()
 	l.Kill(t)
-	readUntil(t, conn, func(m map[string]any) bool {
-		return m["kind"] == "exited" && m["runnerId"] == l.RunnerID
-	})
+	feed.awaitRunnerGone(chatID, l.RunnerID)
 	h.QuiesceReactors()
 }
 
@@ -142,8 +139,7 @@ func TestRegression_Symptom2_EveryLaterLaunchResumesTheBoundSession(t *testing.T
 	assert.Equal(t, s, argAfter(l2.Argv, "--resume"))
 	assert.NotContains(t, l2.Argv, "--session-id", "a bound session is resumed, never assigned again")
 
-	conn := h.dial(repoBase(imported) + "/chats/ws")
-	killAndAwaitExit(t, h, conn, l2)
+	killAndAwaitExit(t, h, recordSidebar(t, h), chatID, l2)
 	l3 := promptLaunch(t, h, imported, fake, chatID, "three", "")
 	assert.Equal(t, s, argAfter(l3.Argv, "--resume"), "an exit with no hook loses nothing")
 
@@ -181,8 +177,7 @@ func TestRegression_Symptom2_HooksBeforeTheAnnouncementNeverUnbindTheSession(t *
 	}
 	assert.Contains(t, users, "two", "a hook on the bound session is the chat's own")
 
-	conn := h.dial(repoBase(imported) + "/chats/ws")
-	killAndAwaitExit(t, h, conn, l2)
+	killAndAwaitExit(t, h, recordSidebar(t, h), chatID, l2)
 	l3 := promptLaunch(t, h, imported, fake, chatID, "three", "")
 	assert.Equal(t, s, argAfter(l3.Argv, "--resume"))
 }
@@ -196,10 +191,10 @@ func TestRegression_Symptom2_OnlyAnExplicitRefusalLosesTheSession(t *testing.T) 
 	s := argAfter(l1.Argv, "--session-id")
 	require.NotEmpty(t, s, "the first launch names its session: %v", l1.Argv)
 	completeTurn(t, h, l1, hookBase, "claude", s, "one")
-	conn := h.dial(repoBase(imported) + "/chats/ws")
+	feed := recordSidebar(t, h)
 
 	killed := promptLaunch(t, h, imported, fake, chatID, "two", "")
-	killAndAwaitExit(t, h, conn, killed)
+	killAndAwaitExit(t, h, feed, chatID, killed)
 	view := readChatSession(t, h, imported, chatID)
 	require.NotNil(t, view.Conversation)
 	assert.Equal(t, chatConversationView{ProviderID: "claude", SessionID: s, State: "bound"}, *view.Conversation,
@@ -275,8 +270,7 @@ func TestRegression_Symptom2_ASessionOwnedByAnotherChatIsNeverTaken(t *testing.T
 	assert.Equal(t, lb.RunnerID, readChatSession(t, h, imported, chatB).LiveRunnerID,
 		"the CLI that resumed another chat's session stays on its own chat")
 
-	conn := h.dial(repoBase(imported) + "/chats/ws")
-	killAndAwaitExit(t, h, conn, lb)
+	killAndAwaitExit(t, h, recordSidebar(t, h), chatB, lb)
 	next := promptLaunch(t, h, imported, fake, chatB, "again", "")
 	assert.NotContains(t, next.Argv, sa, "chat B never takes chat A's session")
 }
@@ -311,8 +305,7 @@ func dormantRefusingChat(t *testing.T, h *harness, imported importedRepo) (strin
 	s := argAfter(l1.Argv, "--session-id")
 	require.NotEmpty(t, s, "the first launch names its session: %v", l1.Argv)
 	completeTurn(t, h, l1, h.url+repoBase(imported), "claude", s, "one")
-	conn := h.dial(repoBase(imported) + "/chats/ws")
-	killAndAwaitExit(t, h, conn, l1)
+	killAndAwaitExit(t, h, recordSidebar(t, h), chatID, l1)
 	fake.RefuseResume(t, s, "No conversation found with session ID: "+s)
 	return chatID, s
 }

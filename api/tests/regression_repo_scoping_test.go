@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -45,11 +46,11 @@ func TestRegression_RepoListIsScopedToTheProjectInThePath(t *testing.T) {
 	imported := importProject(t, h)
 
 	otherPath := gitRepoWithCommit(t)
-	projectsWS := h.dial("/v0/projects")
+	projectsWS := watchEntities(t, h, stream.KindProject)
 	resp := h.raw(http.MethodPost, "/v0/projects",
 		map[string]string{"name": "second", "path": otherPath}, http.StatusAccepted)
 	_ = resp.Body.Close()
-	other := readUntil(t, projectsWS, func(m map[string]any) bool {
+	other := projectsWS.read(t, func(m map[string]any) bool {
 		return m["path"] == otherPath
 	})
 	otherID, _ := other["id"].(string)

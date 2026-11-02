@@ -107,10 +107,10 @@ func importBranch(
 ) string {
 	t.Helper()
 	f.pushBranchToOrigin(t, branch, "main", branch+"\n")
-	conn := h.dial(f.repoBase() + "/chats/ws")
+	feed := recordSidebar(t, h)
 	require.NoError(t, h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
 		importBranches(branch), http.StatusAccepted).Body.Close())
-	created := readUntil(t, conn, func(m map[string]any) bool { return m["kind"] == "workspace_set" })
+	created := feed.awaitNewChat("with its workspace", hasWorkspace)
 	wsID, ok := created["workspaceId"].(string)
 	require.True(t, ok && wsID != "", "import must broadcast a workspace for %s", branch)
 	h.Quiesce()
@@ -283,9 +283,9 @@ func TestRegression_Tree_AChatWithNowhereToRunIsRefusedBeforeItIsMade(t *testing
 	assert.Equal(t, before, after, "no chat is left behind")
 }
 
-// TestTree_AMoveReachesALiveChatSocket: placement lives in the Tree, and a move
-// still tells an open chats socket to re-read placement.
-func TestTree_AMoveReachesALiveChatSocket(t *testing.T) {
+// TestTree_AMoveReachesTheProjectsScope: placement lives in the Tree, and a move
+// reaches a live holder as the chat's new placement.
+func TestTree_AMoveReachesTheProjectsScope(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	f := newImportFixture(t, h)
@@ -293,12 +293,30 @@ func TestTree_AMoveReachesALiveChatSocket(t *testing.T) {
 	folder := createChatFolder(t, h, repo, "Experiments", "").ID
 	chat := createChatWithProvider(t, h, repo, "livestub", f.mainWSID, "")
 	h.Quiesce()
-	conn := h.dial(repo + "/chats/ws")
+	feed := recordSidebar(t, h)
 
 	placeChat(t, h, repo, chat, map[string]any{"parentId": folder, "order": 0})
 
-	readUntil(t, conn, func(m map[string]any) bool { return m["kind"] == "placement_set" })
+	feed.awaitChat(chat, "in the folder", func(m map[string]any) bool { return m["parentId"] == folder })
 	requirePlaced(t, h, f.projectID, "the move", placed{chat, folder, 0})
+}
+
+// TestTree_ALockedBranchMoveReachesTheProjectsScope: a locked branch is placed
+// by its own workspace Node, and a live holder sees it land in the folder.
+func TestTree_ALockedBranchMoveReachesTheProjectsScope(t *testing.T) {
+	h := newHarness(t)
+	f := newImportFixture(t, h)
+	repo := f.repoBase()
+	folder := createChatFolder(t, h, repo, "Branches", "").ID
+	h.Quiesce()
+	feed := recordSidebar(t, h)
+
+	require.Equal(t, placementRefusal{http.StatusOK, ""},
+		patchPlacement(t, h, repo+"/workspaces/"+f.mainWSID+"/placement", map[string]any{"parentId": folder, "order": 0}))
+
+	feed.awaitWorkspace("in the folder", func(ws map[string]any) bool {
+		return ws["id"] == f.mainWSID && ws["folderId"] == folder
+	})
 }
 
 // TestTree_AThreadSpawnedAfterTheUpgradeInheritsItsParent: a thread of a

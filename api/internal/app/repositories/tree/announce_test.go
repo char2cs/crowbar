@@ -15,7 +15,22 @@ import (
 type heard struct {
 	mu      sync.Mutex
 	moved   []string
+	nodes   []string
 	folders []string
+}
+
+func (h *heard) node(_ context.Context, n tree.Node) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.nodes = append(h.nodes, string(n.Kind)+":"+n.ID+"@"+n.ParentID)
+}
+
+func (h *heard) takeNodes() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	nodes := h.nodes
+	h.nodes = nil
+	return nodes
 }
 
 func (h *heard) folder(_ context.Context, projectID string, f tree.Folder, at tree.Node, gone bool, rev int64) {
@@ -57,7 +72,7 @@ func TestAnnounce_AMoveReemitsTheChatFrame(t *testing.T) {
 	ctx := context.Background()
 	ax := openTree(t, t.TempDir())
 	h := &heard{}
-	require.NoError(t, repotree.Announce(ax, h.chat, h.folder))
+	require.NoError(t, repotree.Announce(ax, h.chat, h.node, h.folder))
 	repo := repotree.New(ax)
 
 	_, err := repo.PutChat(ctx, "p1", "c-q", tree.Placement{ParentID: "f-1"})
@@ -75,11 +90,37 @@ func TestAnnounce_AMoveReemitsTheChatFrame(t *testing.T) {
 	assert.Empty(t, h.take(), "a position row is not a chat's own placement")
 }
 
+// A row the panel reads from its position Node is heard when that Node moves;
+// a chat placed by its own record is heard as that record alone.
+func TestAnnounce_AMovedPositionNodeIsHeard(t *testing.T) {
+	ctx := context.Background()
+	ax := openTree(t, t.TempDir())
+	h := &heard{}
+	require.NoError(t, repotree.Announce(ax, h.chat, h.node, h.folder))
+	repo := repotree.New(ax)
+
+	_, err := repo.Put(ctx, "p1", tree.Node{ID: "ws-1", Kind: tree.KindWorkspace, ParentID: "f-1"})
+	require.NoError(t, err)
+	_, err = repo.Put(ctx, "p1", tree.Node{ID: "c-n", Kind: tree.KindChat, ParentID: "f-1"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"workspace:ws-1@f-1", "chat:c-n@f-1"}, h.takeNodes())
+
+	_, err = repo.Put(ctx, "p1", tree.Node{ID: "c-n", Kind: tree.KindChat, ParentID: "f-1"})
+	require.NoError(t, err)
+	assert.Empty(t, h.takeNodes(), "a write that leaves the Node where it was")
+
+	_, err = repo.PutChat(ctx, "p1", "c-q", tree.Placement{ParentID: "f-1"})
+	require.NoError(t, err)
+	_, err = repo.Put(ctx, "p1", tree.Node{ID: "c-q", Kind: tree.KindChat, ParentID: "f-2"})
+	require.NoError(t, err)
+	assert.Empty(t, h.takeNodes(), "a chat placed by its own record")
+}
+
 func TestAnnounce_AFolderChangeIsHeardAtItsVersion(t *testing.T) {
 	ctx := context.Background()
 	ax := openTree(t, t.TempDir())
 	h := &heard{}
-	require.NoError(t, repotree.Announce(ax, h.chat, h.folder))
+	require.NoError(t, repotree.Announce(ax, h.chat, h.node, h.folder))
 	repo := repotree.New(ax)
 
 	_, err := repo.PutFolder(ctx, "p1", tree.Folder{ID: "f-1", Name: "Docs", RepoID: "r1"})

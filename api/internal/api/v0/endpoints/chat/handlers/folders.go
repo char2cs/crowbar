@@ -166,8 +166,6 @@ func (h *Handlers) CreateFolder(
 		libs.Fail(ctx, err)
 		return
 	}
-	h.announceFolders(wsID, shifted, "folder_updated")
-	h.announceFolders(wsID, []domain.Chat{created}, "folder_created")
 	libs.WriteQueryWithStatus(ctx, http.StatusCreated, folderResponse{
 		Folder:  dto.AgentChatDTOFrom(created, dto.ChatRuntime{}, nil),
 		Shifted: h.folderDTOList(ctx, shifted),
@@ -185,7 +183,6 @@ func (h *Handlers) PatchFolder(
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
-	wsID := ctx.Param("wsId")
 	if !h.folderInScope(ctx) {
 		return
 	}
@@ -194,7 +191,6 @@ func (h *Handlers) PatchFolder(
 		libs.Fail(ctx, err)
 		return
 	}
-	h.announceFolders(wsID, append(shifted, updated), "folder_updated")
 	libs.WriteQueryOK(ctx, folderResponse{
 		Folder:  dto.AgentChatDTOFrom(updated, dto.ChatRuntime{}, nil),
 		Shifted: h.folderDTOList(ctx, shifted),
@@ -235,7 +231,6 @@ func (h *Handlers) applyFolderPatch(
 func (h *Handlers) DeleteFolder(
 	ctx *gin.Context,
 ) {
-	wsID := ctx.Param("wsId")
 	id := ctx.Param("folderId")
 	if !h.folderInScope(ctx) {
 		return
@@ -245,8 +240,6 @@ func (h *Handlers) DeleteFolder(
 		libs.Fail(ctx, err)
 		return
 	}
-	h.announceFolders(wsID, promoted, "folder_updated")
-	h.broadcastFolder(id, wsID, "folder_deleted")
 	libs.WriteQueryOK(ctx, deleteFolderResponse{Shifted: h.folderDTOList(ctx, promoted)})
 }
 
@@ -288,22 +281,6 @@ func (h *Handlers) PlaceChat(
 		libs.Fail(ctx, err)
 		return
 	}
-	h.announceFolders(wsID, shifted, "folder_updated")
-	// The moved row itself, not just its shifted siblings: persist's own doc
-	// ("the CHAT rows still need no such handling... the hub projection
-	// broadcasts each one on the way through") stopped being true the moment
-	// PlaceChat started routing every non-bubble chat through Node instead of
-	// Chat.SetOrder/SetPlacement (2026-09-08 sidebar-placement-unification
-	// Task 5 for home-scoped, Task 8 for repo-scoped) — Node's own hub
-	// projection (node/internal/store/hub.go) is wired to nothing yet
-	// (container.go: "nodeWatch is nil in production until a live-update
-	// consumer is wired"). Without this, a reorder that shifts zero folder
-	// siblings (moving a chat past a branch/repo header, or past another
-	// chat with no folder between them) writes to the daemon successfully
-	// and announces NOTHING, so a live client never reseeds and the row
-	// visibly stays put despite the PATCH returning 200 (caught live: a chat
-	// dragged above a repo's own header row).
-	h.broadcastFolder(placed.ID, wsID, "placement_set")
 	_, rt, err := h.chatSnapshot(ctx.Request.Context(), placed.ID)
 	if err != nil {
 		libs.Fail(ctx, err)
@@ -335,18 +312,4 @@ func (h *Handlers) folderInScope(
 		return false
 	}
 	return true
-}
-
-// announceFolders fans one frame per folder row a mutation wrote out on the
-// Chats socket. The collateral matters as much as the subject: a move renumbers
-// the levels it left and joined, and a client told only about the row that was
-// dragged would hold stale orders for its siblings until the next reconnect.
-func (h *Handlers) announceFolders(
-	wsID string,
-	rows []domain.Chat,
-	kind string,
-) {
-	for _, row := range rows {
-		h.broadcastFolder(row.ID, wsID, kind)
-	}
 }

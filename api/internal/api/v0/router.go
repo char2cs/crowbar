@@ -25,7 +25,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspace"
 	worktreePkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/worktree"
-	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 )
 
 // Register mounts the v0 REST and WebSocket routes.
@@ -105,10 +104,6 @@ func (c *Container) Register(
 	chats := rg.Group("/chats")
 	chatScoped := chats.Group("/:chatId")
 	chatScoped.Use(resolveChatWorktree(c.app.Usecases.Worktree))
-	// The per-CHAT lifecycle stream: the agent-chat broadcaster scoped to one
-	// chat, carrying its worktree's PR status. The forge poll that moves that
-	// status runs while the viewed workspace's forge: scope is held, not here.
-	chatScoped.GET("/ws", c.agentChats.Handle)
 	chats.GET("/:chatId/blobs/:ref", chathandlers.NewBlobs(c.app.Usecases.AgentChat).Handle)
 
 	projectsPkg.Register(
@@ -117,10 +112,8 @@ func (c *Container) Register(
 		c.app.Usecases.ProjectImport,
 		c.app.Usecases.ProjectDelete,
 		c.app.Operations,
-		c.app.Hub.BroadcastProject,
+		c.app.PublishProject,
 		c.crowbarHome,
-		c.projects.Handle,
-		ws.DualServe,
 	)
 	reposPkg.Register(
 		projectScoped,
@@ -133,10 +126,8 @@ func (c *Container) Register(
 		c.eng.Git,
 		c.app.Usecases.ProjectDelete,
 		c.app.Operations,
-		c.app.Hub.BroadcastRepo,
+		c.app.PublishRepo,
 		c.crowbarHome,
-		c.repos.Handle,
-		ws.DualServe,
 	)
 	homePkg.Register(
 		projectScoped,
@@ -153,11 +144,10 @@ func (c *Container) Register(
 		// scope correctly.
 		c.app.Repositories.ReviewThread,
 		threadStream{c.app.Stream},
-		// The agent chat surface (REST + lifecycle WS) is re-mounted under the
-		// home group so project-home workspaces get agentic chats too (the same
-		// concerns + WS broadcaster chat.Register uses on the workspace-scoped
-		// group); home.Register injects the resolved home :wsId so both scope
-		// correctly. The chat-FOLDER surface is re-mounted with it, for the same
+		// The agent chat REST surface is re-mounted under the home group so
+		// project-home workspaces get agentic chats too (the same concerns
+		// chat.Register uses on the repo-scoped group); home.Register injects
+		// the resolved home :wsId so it scopes correctly. The chat-FOLDER surface is re-mounted with it, for the same
 		// reason and then some: the home accumulates the most chats of any
 		// workspace, so a home without folders is the one place the panel most
 		// needs them and would not have them.
@@ -167,10 +157,8 @@ func (c *Container) Register(
 		c.app.Usecases.AgentAnswer,
 		c.app.Usecases.AgentProvider,
 		c.app.Usecases.AgentChatFolder,
-		c.app.Hub.BroadcastAgentChatFolder,
 		chatWorktrees{app: c.app},
 		c.app.Repositories.Placement,
-		c.agentChats.Handle,
 	)
 	// The worktree surface a CHAT addresses (spec §4.3): the seven lifecycle
 	// verbs, the branch rename, and the batch branch import. It is what remains
@@ -226,7 +214,7 @@ func (c *Container) Register(
 		c.eng.Terminal,
 		c.app.GORM.TerminalProfiles,
 	)
-	// The agentic-chat REST + WS surface is repo-scoped (Task 17): a chat's
+	// The agentic-chat REST surface is repo-scoped (Task 17): a chat's
 	// workspace is optional and mutable, so its routes mount on repoScoped
 	// (.../repos/:repoId) rather than wsScoped — no chat route names a
 	// workspace any more. Handlers that once trusted :wsId now either read
@@ -257,8 +245,6 @@ func (c *Container) Register(
 		// sidebar-placement-unification, workspace-placement fix) — the SAME
 		// placement store PlaceWorkspace (endpoints/workspace, below) writes.
 		c.app.Repositories.Placement,
-		c.app.Hub.BroadcastAgentChatFolder,
-		c.agentChats.Handle,
 	)
 	// Search, review, and identity are the rest of spec §4.2's SHARED bucket
 	// (§8 step 4c): one worktree, one answer, and every chat holding it sees
@@ -302,7 +288,6 @@ func (c *Container) Register(
 	workspace.Register(
 		repoScoped,
 		c.app.Usecases.AgentChatFolder,
-		c.app.Hub.BroadcastAgentChatFolder,
 	)
 	// Editor/LSP completes spec §4.2's OWNED bucket (§8 step 5): the resolver
 	// still runs, for a CWD, but the LSP session itself is never shared with a

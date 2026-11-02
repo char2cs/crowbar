@@ -443,26 +443,24 @@ type Repos interface {
 // Handlers serves the .../repos/:repoId/chats routes from the agent usecase
 // and the Chats-panel tree usecase.
 type Handlers struct {
-	chats           ChatUsecase
-	turns           TurnUsecase
-	runners         RunnerUsecase
-	answers         AnswerUsecase
-	providers       ProviderUsecase
-	folders         ChatTreeUsecase
-	repos           Repos
-	worktrees       Worktrees
-	nodes           Nodes
-	broadcastFolder func(folderID, workspaceID, kind string)
+	chats     ChatUsecase
+	turns     TurnUsecase
+	runners   RunnerUsecase
+	answers   AnswerUsecase
+	providers ProviderUsecase
+	folders   ChatTreeUsecase
+	repos     Repos
+	worktrees Worktrees
+	nodes     Nodes
 }
 
-// New builds the agent Handlers from the five agent concerns, the Chats-panel
-// tree usecase, and the chat-folder broadcast seam.
+// New builds the agent Handlers from the five agent concerns and the
+// Chats-panel tree usecase.
 //
 // The concerns arrive one per parameter rather than behind one port so that
 // every capability a route needs is a field the compiler can check.
 //
-// A nil broadcast degrades to a no-op so the handler never panics when wired
-// without a hub (tests). A nil tree usecase does NOT degrade: every route that
+// A nil tree usecase does NOT degrade: every route that
 // takes one would have to answer some fiction about a tree it cannot read, and
 // the daemon wires it unconditionally — so the routes are simply not mounted
 // without it (see agentusecase.Register).
@@ -473,19 +471,14 @@ func New(
 	answers AnswerUsecase,
 	providers ProviderUsecase,
 	folders ChatTreeUsecase,
-	broadcastFolder func(folderID, workspaceID, kind string),
 ) *Handlers {
-	if broadcastFolder == nil {
-		broadcastFolder = func(_, _, _ string) {}
-	}
 	return &Handlers{
-		chats:           chats,
-		turns:           turns,
-		runners:         runners,
-		answers:         answers,
-		providers:       providers,
-		folders:         folders,
-		broadcastFolder: broadcastFolder,
+		chats:     chats,
+		turns:     turns,
+		runners:   runners,
+		answers:   answers,
+		providers: providers,
+		folders:   folders,
 	}
 }
 
