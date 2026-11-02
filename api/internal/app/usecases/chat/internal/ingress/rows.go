@@ -75,57 +75,97 @@ func Map(st ledger.State, ev engineagents.CanonicalEvent, src Source, refs BlobR
 	if src.Scope != "" {
 		return mapNested(st, ev, src, refs)
 	}
-	switch ev.Kind {
-	case engineagents.HookUserPrompt:
-		rows, err := mapPrompt(st, ev, src)
-		fx := Effects{}
-		if len(rows) > 0 && src.Prompt.Origin == ledger.OriginProvider {
-			fx.Title = src.Prompt.Text
-		}
-		return rows, fx, err
-	case engineagents.HookTurnStop:
-		return mapStop(st, ev, src)
-	case engineagents.HookTurnFailed:
-		return mapFailure(st, ev, src)
-	case engineagents.HookIdle:
-		return mapIdle(st, src)
-	case engineagents.HookMessageDelta, engineagents.HookMessageComplete,
-		engineagents.HookReasoningDelta, engineagents.HookToolOutputDelta, engineagents.HookDiffUpdate:
-		return mapText(st, ev, src)
-	case engineagents.HookCompactPre, engineagents.HookCompactPost:
-		rows, err := mapCompaction(st, ev, src)
-		return rows, Effects{}, err
-	case engineagents.HookSubagentResult:
-		rows, err := mapHandBack(st, ev, src)
-		return rows, Effects{}, err
-	}
-	return mapActivity(st, ev, src, refs)
-}
-
-// mapActivity decides the rows of what the agent did inside a turn.
-func mapActivity(st ledger.State, ev engineagents.CanonicalEvent, src Source, refs BlobRefs) ([]ledger.Row, Effects, error) {
-	scope := subagentScope(ev)
-	switch ev.Kind {
-	case engineagents.HookToolPre, engineagents.HookToolPost, engineagents.HookToolFail:
-		rows, err := mapTool(st, ev, src, scope, refs)
-		return rows, Effects{}, err
-	case engineagents.HookSubagentPre, engineagents.HookSubagentPost:
-		rows, err := mapSubagent(st, ev, src)
-		return rows, Effects{}, err
-	case engineagents.HookPermission, engineagents.HookElicitation:
-		return mapAsk(st, ev, src, scope)
-	case engineagents.HookPlanUpdate:
-		rows, err := mapPlan(st, ev, src, scope)
-		return rows, Effects{}, err
-	case engineagents.HookPlanStep:
-		rows, err := mapPlanStep(st, ev, src, scope)
-		return rows, Effects{}, err
-	case engineagents.HookNotification:
-		row, err := ledger.NewRow(ledger.KindMarker, runningTurn(st), "",
-			ledger.Marker{Kind: ledger.MarkerNotification, Detail: ev.Message})
-		return []ledger.Row{row}, Effects{}, err
+	if m, ok := mappers[ev.Kind]; ok {
+		return m(st, ev, src, refs)
 	}
 	return nil, Effects{}, nil
+}
+
+// records is whether Map decides rows for an event of kind.
+func records(kind string) bool {
+	_, ok := mappers[kind]
+	return ok
+}
+
+type mapFunc func(ledger.State, engineagents.CanonicalEvent, Source, BlobRefs) ([]ledger.Row, Effects, error)
+
+// mappers is the one table of the events Map decides rows for; the ingest
+// gate reads it too, so the two cannot drift apart.
+var mappers = map[string]mapFunc{
+	engineagents.HookUserPrompt:      mapPromptEvent,
+	engineagents.HookTurnStop:        withoutRefs(mapStop),
+	engineagents.HookTurnFailed:      withoutRefs(mapFailure),
+	engineagents.HookIdle:            mapIdleEvent,
+	engineagents.HookMessageDelta:    withoutRefs(mapText),
+	engineagents.HookMessageComplete: withoutRefs(mapText),
+	engineagents.HookReasoningDelta:  withoutRefs(mapText),
+	engineagents.HookToolOutputDelta: withoutRefs(mapText),
+	engineagents.HookDiffUpdate:      withoutRefs(mapText),
+	engineagents.HookCompactPre:      rowsOnly(mapCompaction),
+	engineagents.HookCompactPost:     rowsOnly(mapCompaction),
+	engineagents.HookSubagentResult:  rowsOnly(mapHandBack),
+	engineagents.HookToolPre:         mapToolCall,
+	engineagents.HookToolPost:        mapToolCall,
+	engineagents.HookToolFail:        mapToolCall,
+	engineagents.HookSubagentPre:     rowsOnly(mapSubagent),
+	engineagents.HookSubagentPost:    rowsOnly(mapSubagent),
+	engineagents.HookPermission:      scoped(mapAsk),
+	engineagents.HookElicitation:     scoped(mapAsk),
+	engineagents.HookPlanUpdate:      scopedRows(mapPlan),
+	engineagents.HookPlanStep:        scopedRows(mapPlanStep),
+	engineagents.HookNotification:    mapNotification,
+}
+
+func withoutRefs(f func(ledger.State, engineagents.CanonicalEvent, Source) ([]ledger.Row, Effects, error)) mapFunc {
+	return func(st ledger.State, ev engineagents.CanonicalEvent, src Source, _ BlobRefs) ([]ledger.Row, Effects, error) {
+		return f(st, ev, src)
+	}
+}
+
+func rowsOnly(f func(ledger.State, engineagents.CanonicalEvent, Source) ([]ledger.Row, error)) mapFunc {
+	return func(st ledger.State, ev engineagents.CanonicalEvent, src Source, _ BlobRefs) ([]ledger.Row, Effects, error) {
+		rows, err := f(st, ev, src)
+		return rows, Effects{}, err
+	}
+}
+
+// scoped and scopedRows map an event in the scope of the subagent it names.
+func scoped(f func(ledger.State, engineagents.CanonicalEvent, Source, string) ([]ledger.Row, Effects, error)) mapFunc {
+	return func(st ledger.State, ev engineagents.CanonicalEvent, src Source, _ BlobRefs) ([]ledger.Row, Effects, error) {
+		return f(st, ev, src, subagentScope(ev))
+	}
+}
+
+func scopedRows(f func(ledger.State, engineagents.CanonicalEvent, Source, string) ([]ledger.Row, error)) mapFunc {
+	return func(st ledger.State, ev engineagents.CanonicalEvent, src Source, _ BlobRefs) ([]ledger.Row, Effects, error) {
+		rows, err := f(st, ev, src, subagentScope(ev))
+		return rows, Effects{}, err
+	}
+}
+
+// mapPromptEvent is a prompt's rows; the provider's own prompt titles the chat.
+func mapPromptEvent(st ledger.State, ev engineagents.CanonicalEvent, src Source, _ BlobRefs) ([]ledger.Row, Effects, error) {
+	rows, err := mapPrompt(st, ev, src)
+	fx := Effects{}
+	if len(rows) > 0 && src.Prompt.Origin == ledger.OriginProvider {
+		fx.Title = src.Prompt.Text
+	}
+	return rows, fx, err
+}
+
+func mapIdleEvent(st ledger.State, _ engineagents.CanonicalEvent, src Source, _ BlobRefs) ([]ledger.Row, Effects, error) {
+	return mapIdle(st, src)
+}
+
+func mapToolCall(st ledger.State, ev engineagents.CanonicalEvent, src Source, refs BlobRefs) ([]ledger.Row, Effects, error) {
+	rows, err := mapTool(st, ev, src, subagentScope(ev), refs)
+	return rows, Effects{}, err
+}
+
+func mapNotification(st ledger.State, ev engineagents.CanonicalEvent, _ Source, _ BlobRefs) ([]ledger.Row, Effects, error) {
+	row, err := ledger.NewRow(ledger.KindMarker, runningTurn(st), "",
+		ledger.Marker{Kind: ledger.MarkerNotification, Detail: ev.Message})
+	return []ledger.Row{row}, Effects{}, err
 }
 
 func subagentScope(ev engineagents.CanonicalEvent) string {

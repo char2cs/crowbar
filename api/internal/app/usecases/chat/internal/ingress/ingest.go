@@ -121,18 +121,6 @@ func (r *Recorder) Descriptor(ctx context.Context, runner engineagents.Runner) (
 	return agent, nil
 }
 
-// mapped are the events the mapper decides rows for.
-var mapped = []string{
-	engineagents.HookUserPrompt, engineagents.HookTurnStop, engineagents.HookTurnFailed, engineagents.HookIdle,
-	engineagents.HookMessageDelta, engineagents.HookMessageComplete, engineagents.HookReasoningDelta,
-	engineagents.HookToolOutputDelta, engineagents.HookDiffUpdate, engineagents.HookPlanUpdate,
-	engineagents.HookToolPre, engineagents.HookToolPost, engineagents.HookToolFail,
-	engineagents.HookSubagentPre, engineagents.HookSubagentPost, engineagents.HookNotification,
-	engineagents.HookPermission, engineagents.HookElicitation,
-	engineagents.HookCompactPre, engineagents.HookCompactPost,
-	engineagents.HookSubagentResult, engineagents.HookPlanStep,
-}
-
 // Dispatch records ev, one hook of runner's parsed by agent, on runner's chat.
 // The caller holds the chat's lock. It returns once the rows are committed,
 // with the stdout the hook's sender must print and the ask its answer is held on.
@@ -170,7 +158,7 @@ func (r *Recorder) Dispatch(
 		return nil, "", r.runners.HandleSessionStart(ctx, runner, ev)
 	case acknowledgedOnly(ev, src):
 		return nil, "", nil
-	case !slices.Contains(mapped, ev.Kind):
+	case !records(ev.Kind):
 		return nil, "", fmt.Errorf("agent: hook: %s: %w", ev.Kind, seam.ErrHookNotRecorded)
 	}
 	capability := r.prepare(ctx, chat, runner, agent, ev, raw, &src)

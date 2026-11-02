@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -445,4 +446,26 @@ func TestDeriveTitle_IsThePromptsFirstLine(t *testing.T) {
 	assert.Empty(t, deriveTitle(" \n "))
 	long := "a very long first line that runs well past the sixty characters a title may hold"
 	assert.Equal(t, "a very long first line that runs well past the sixty charact…", deriveTitle(long))
+}
+
+// Every event of the hook vocabulary is one Map decides rows for, or one the
+// dispatcher handles without the mapper; none falls between the two.
+func TestRecords_EveryHookEventIsMappedOrHandledElsewhere(t *testing.T) {
+	notMapped := []string{engineagents.HookSessionStart, engineagents.HookSessionEnd, engineagents.HookTelemetry}
+	vocabulary := append([]string{
+		engineagents.HookUserPrompt, engineagents.HookTurnStop, engineagents.HookTurnFailed, engineagents.HookIdle,
+		engineagents.HookMessageDelta, engineagents.HookMessageComplete, engineagents.HookReasoningDelta,
+		engineagents.HookToolOutputDelta, engineagents.HookDiffUpdate, engineagents.HookPlanUpdate,
+		engineagents.HookToolPre, engineagents.HookToolPost, engineagents.HookToolFail,
+		engineagents.HookSubagentPre, engineagents.HookSubagentPost, engineagents.HookNotification,
+		engineagents.HookPermission, engineagents.HookElicitation, engineagents.HookCompactPre,
+		engineagents.HookCompactPost, engineagents.HookSubagentResult, engineagents.HookPlanStep,
+	}, notMapped...)
+
+	for _, kind := range vocabulary {
+		assert.Equal(t, !slices.Contains(notMapped, kind), records(kind), kind)
+	}
+	for kind := range mappers {
+		assert.Contains(t, vocabulary, kind, "the mapper decides rows for a known event")
+	}
 }
