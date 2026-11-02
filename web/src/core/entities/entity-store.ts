@@ -150,17 +150,19 @@ function beginSnapshot(scope: string): void {
   }))
 }
 
-// A row of a repo the snapshot could not read stays: the snapshot did not say it is gone.
-function inUnreadRepo(byKind: ByKind, kind: StoredKind, id: string, unread: ReadonlySet<string>) {
+// A row the snapshot could not read stays: it did not say the row is gone. `unread` names
+// repos, and projects whose home rows (no repo) it could not read.
+function inUnreadScope(byKind: ByKind, kind: StoredKind, id: string, unread: ReadonlySet<string>) {
   if (unread.size === 0 || (kind !== 'workspace' && kind !== 'chat' && kind !== 'folder')) {
     return false
   }
-  const repoId = byKind[kind][id]?.data.repoId
-  return !!repoId && unread.has(repoId)
+  const data = byKind[kind][id]?.data
+  const owner = data && (data.repoId || data.projectId)
+  return !!owner && unread.has(owner)
 }
 
 /** The scope's snapshot is complete: its rows land, and an entity it no longer carries goes,
- *  unless it is a row of a repo the snapshot could not read. */
+ *  unless it is a row of a repo or home the snapshot could not read. */
 function applySynced(scope: string, unread: readonly string[] = []): void {
   const rows = snapshotRows.get(scope) ?? []
   snapshotRows.delete(scope)
@@ -175,7 +177,7 @@ function applySynced(scope: string, unread: readonly string[] = []): void {
       if (seen[key] || Object.values(members).some((keys) => keys[key])) continue
       const [kind, id] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)]
       if (!isStored(kind)) continue
-      if (inUnreadRepo(byKind, kind, id, unreadRepos)) seen[key] = true
+      if (inUnreadScope(byKind, kind, id, unreadRepos)) seen[key] = true
       else byKind = withoutEntity(byKind, kind, id)
     }
     return {

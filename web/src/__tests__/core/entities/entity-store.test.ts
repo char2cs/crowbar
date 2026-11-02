@@ -304,6 +304,15 @@ describe('a projects snapshot that could not read a repo', () => {
     expect(console.warn).toHaveBeenCalledOnce()
   })
 
+  it("keeps the home rows of a project it could not read, and prunes a read project's", () => {
+    rowsOf('')
+    row('chat', 'c-p2', chatEntity({ id: 'c-p2', projectId: 'p2' }))
+    reconnect(`e${epochs}`)
+    socket.deliver({ t: 'synced', scope: 'projects', unread: ['p1'] })
+    expect(kept('')).toEqual([true, true, true])
+    expect('c-p2' in byKind().chat).toBe(false)
+  })
+
   it('still lets the repo list itself follow the snapshot', () => {
     reconnect(`e${epochs}`)
     socket.deliver({ t: 'synced', scope: 'projects', unread: ['r2'] })
