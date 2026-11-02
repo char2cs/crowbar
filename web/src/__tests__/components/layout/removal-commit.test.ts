@@ -251,7 +251,7 @@ describe('committing a workspace removal', () => {
     expectMigratingShown(toastError)
   })
 
-  it('names the chats the delete took beyond the selection', async () => {
+  it('names the chats the delete took beyond the selection, not those it held', async () => {
     const child = { id: 'chat-child', repoId: 'r1', title: 'Child', order: 1 }
     useSidebarStore.setState({ repos: [repo({ chats: [...repo().chats!, child] })] })
     deleteChat.mockResolvedValueOnce(['chat-child'])
@@ -261,6 +261,9 @@ describe('committing a workspace removal', () => {
     expect(toastError).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'info', title: 'Also removed 1 chat', description: 'Child' }),
     )
+    deleteChat.mockResolvedValueOnce(['chat-fork'])
+    await commitRemoval(entry({ entryId: 'e2' }), context)
+    expect(toastError).toHaveBeenCalledOnce()
   })
 
   it('still refuses when nothing anywhere knows the owning chat', async () => {

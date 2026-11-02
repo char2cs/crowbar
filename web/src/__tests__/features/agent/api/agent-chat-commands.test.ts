@@ -117,6 +117,15 @@ describe('agent-chat-commands', () => {
     expect(p[0]).toMatchObject({ id: 'claude', displayName: 'Claude' })
   })
 
+  it('deleteChat answers the chats its cascade took, and none for a reply without a list', async () => {
+    apiFetch.mockResolvedValueOnce({ takenChatIds: ['c2', 'c3'] })
+    expect(await api.deleteChat('w1', 'c1')).toEqual(['c2', 'c3'])
+    for (const reply of [undefined, {}, { takenChatIds: 'c2' }, { takenChatIds: null }]) {
+      apiFetch.mockResolvedValueOnce(reply)
+      expect(await api.deleteChat('w1', 'c1')).toEqual([])
+    }
+  })
+
   it('answerChoice POSTs the picked options to the prompt’s own route', async () => {
     apiFetch.mockResolvedValue(undefined)
 

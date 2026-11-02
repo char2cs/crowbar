@@ -88,7 +88,7 @@
   "web/src/__tests__/components/sidebar/sidebar-row.test.tsx": 1065,
   "web/src/__tests__/components/sidebar/space-header.test.tsx": 760,
   "web/src/__tests__/components/sidebar/space-scroller.test.tsx": 1051,
-  "web/src/__tests__/features/agent/components/agent-chat-pane.test.tsx": 1415,
+  "web/src/__tests__/features/agent/components/agent-chat-pane.test.tsx": 1413,
   "web/src/__tests__/features/agent/composer/composer-choice.test.tsx": 665,
   "web/src/__tests__/features/agent/composer/plate/chat-markdown-editor.test.tsx": 548,
   "web/src/__tests__/features/agent/composer/plate/chat-paste-plugin.test.tsx": 704,

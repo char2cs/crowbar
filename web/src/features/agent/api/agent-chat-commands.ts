@@ -222,11 +222,12 @@ export async function renameChat(wsId: string, id: string, title: string): Promi
 // posts the delete the user already walked away from.
 /** Deletes a chat; resolves with the chats its git cascade took beyond it. */
 export async function deleteChat(wsId: string, id: string, init?: RequestInit): Promise<string[]> {
-  const raw = await apiFetch<{ takenChatIds?: string[] } | undefined>(
+  const raw = await apiFetch<{ takenChatIds?: unknown } | undefined>(
     `${chatBase(wsId)}/${encodeURIComponent(id)}`,
     { method: 'DELETE', ...init },
   )
-  return raw?.takenChatIds ?? []
+  const taken = raw?.takenChatIds
+  return Array.isArray(taken) ? taken.filter((id): id is string => typeof id === 'string') : []
 }
 
 /** Move a chat: under `parentId` (a chat, a folder, or '' for the root) at `order`. */

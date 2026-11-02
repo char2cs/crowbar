@@ -1387,20 +1387,18 @@ describe('AgentChatPane', () => {
   // chat list never names the chat 404s, and that is no ground to close it.
   describe('a 404 from a workspace that does not know the chat', () => {
     it('does not close the pane when the ambient workspace never lists the chat', async () => {
-      // Empty chat list for 'w1': `known` is permanently false for 'c1' here,
-      // exactly like a WorkspaceView whose ambient workspace isn't the chat's own.
+      // 'w1' never lists 'c1', like a WorkspaceView whose ambient workspace isn't the chat's own.
+      const toasts = watchToasts()
       const store = seedWorkspace([], 'w1')
-      getChatFn.mockRejectedValue(new ApiError('not found', 404))
+      const read = new ApiError('not found', 404)
+      getChatFn.mockRejectedValue(read)
       const paneId = openChatPane(store, 'c1', '', 'Chat', 'w1')
 
       await renderPane(store, paneId)
+      await act(() => vi.mocked(getChatFn).mock.results[0]?.value.catch(() => read))
 
-      await act(async () => {
-        await Promise.resolve()
-      })
-
-      expect(paneOf(store, paneId)).toBeDefined()
       expect(paneOf(store, paneId)?.chatId).toBe('c1')
+      expect(toasts).not.toHaveBeenCalled()
     })
 
     it('reports a read that failed for any other reason', async () => {
