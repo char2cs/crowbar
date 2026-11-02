@@ -13,6 +13,7 @@ func (c *Container) PushAgentChatEvent(ev dto.AgentChatEvent) {
 	scope := c.freshAgentChatScope(ev.ChatID, ev.WorkspaceID)
 	ev.ProjectID, ev.RepoID = scope.ProjectID, scope.RepoID
 	c.agentChats.Push(ev)
+	c.publishChat(ev, scope)
 }
 
 // PushAgentChatTelemetry implements hub.Subscriber, on the SAME
@@ -32,6 +33,7 @@ func (c *Container) PushAgentChatTelemetry(
 		Kind:        dto.AgentChatKindTelemetry,
 		Telemetry:   &out,
 	})
+	c.publishTelemetry(chatID, report)
 }
 
 // PushAgentChatFolder implements hub.Subscriber. It fans a chat-folder lifecycle

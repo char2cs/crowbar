@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/stream"
 	"github.com/char2cs/crowbar/api/internal/app/stream/resources"
@@ -16,6 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	domainstream "github.com/char2cs/crowbar/api/internal/domain/stream"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
@@ -25,6 +27,17 @@ type lateStream struct{ hub *stream.Hub }
 
 func (l *lateStream) operation(op domain.Operation) {
 	l.hub.Entity(domainstream.Projects, domainstream.KindOperation, op.ID, op, int64(op.Version))
+}
+
+// folder publishes a folder a Tree write changed, as the folder routes list it.
+func (l *lateStream) folder(_ context.Context, projectID string, f tree.Folder, at tree.Node, gone bool, rev int64) {
+	if gone {
+		l.hub.Gone(domainstream.Projects, domainstream.KindFolder, f.ID)
+		return
+	}
+	l.hub.Entity(domainstream.Projects, domainstream.KindFolder, f.ID, dto.FolderEntityDTO{
+		ID: f.ID, ProjectID: projectID, RepoID: f.RepoID, ParentID: at.ParentID, Name: f.Name, Order: at.Order,
+	}, rev)
 }
 
 // reviewThread is how an agent's review comment reaches an open review pane,

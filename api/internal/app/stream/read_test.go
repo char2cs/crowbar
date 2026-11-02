@@ -33,7 +33,7 @@ func TestHub_AChangeDuringASnapshotReadOutranksIt(t *testing.T) {
 	assert.Equal(t, `"live"`, string(frames[0].Data), "published while the read was in flight")
 	assert.Equal(t, live, frames[0].V)
 	assert.Equal(t, "c2", frames[1].ID, "c1's read value is older than its live frame")
-	assert.Greater(t, frames[1].V, uint64(0))
+	assert.Positive(t, frames[1].V)
 }
 
 // A scope let go of while its snapshot reads is not answered by that read.

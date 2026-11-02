@@ -77,19 +77,16 @@ func (s *sidebar) appendHome(ctx context.Context, out []appstream.Entity, projec
 	return appendRows(out, rows, projectID, "")
 }
 
-// appendRows adds one scope's rows, each chat marked with whether it owns its worktree.
+// appendRows adds one scope's rows.
 func appendRows(out []appstream.Entity, rows chathandlers.Rows, projectID, repoID string) []appstream.Entity {
-	owners := make(map[string]string, len(rows.Workspaces))
 	for _, w := range rows.Workspaces {
-		owners[w.ID] = w.OwningChatID
 		out = append(out, appstream.Entity{Kind: stream.KindWorkspace, ID: w.ID, Data: w})
 	}
 	for _, f := range rows.Folders {
 		out = append(out, appstream.Entity{Kind: stream.KindFolder, ID: f.ID, Data: folderEntity(f, projectID, repoID)})
 	}
 	for _, c := range rows.Chats {
-		owns := c.WorkspaceID != "" && owners[c.WorkspaceID] == c.ID
-		out = append(out, appstream.Entity{Kind: stream.KindChatEntity, ID: c.ID, Data: dto.ChatEntityFrom(c, projectID, repoID, owns)})
+		out = append(out, appstream.Entity{Kind: stream.KindChatEntity, ID: c.ID, Data: dto.ChatEntityFrom(c, projectID, repoID)})
 	}
 	return out
 }

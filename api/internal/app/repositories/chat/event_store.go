@@ -293,7 +293,7 @@ func (r *eventSourced) SetPermissionLevel(
 	chatID string,
 	level string,
 ) (domain.Chat, error) {
-	evt, err := r.ax.Send(ctx, commands.SetPermissionLevel{ChatID: chatID, Level: level, Explicit: true})
+	evt, err := r.ax.SendWait(ctx, commands.SetPermissionLevel{ChatID: chatID, Level: level, Explicit: true})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set permission level: %w", err)
 	}
@@ -317,7 +317,7 @@ func (r *eventSourced) SetProvider(
 	chatID string,
 	providerID string,
 ) (domain.Chat, error) {
-	evt, err := r.ax.Send(ctx, commands.SetProvider{ChatID: chatID, ProviderID: providerID})
+	evt, err := r.ax.SendWait(ctx, commands.SetProvider{ChatID: chatID, ProviderID: providerID})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set provider: %w", err)
 	}

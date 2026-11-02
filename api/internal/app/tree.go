@@ -24,6 +24,7 @@ func newPlacement(
 	ax *aggregates,
 	gormStores *GORMStores,
 	chatSnapshots *agentusecase.ChatSnapshots,
+	late *lateStream,
 ) (*repotree.Ports, error) {
 	locate := repotree.NewLocator(repotree.LocatorFacts{
 		ChatWorkspace: func(ctx context.Context, chatID string) (string, error) {
@@ -57,7 +58,7 @@ func newPlacement(
 	moved := func(ctx context.Context, chatID string, p tree.Placement, kind string) {
 		chatSnapshots.ApplyPlacement(ctx, chatID, p.ParentID, p.Order, kind)
 	}
-	if err := repotree.Announce(ax.tree, moved); err != nil {
+	if err := repotree.Announce(ax.tree, moved, late.folder); err != nil {
 		return nil, fmt.Errorf("app: placement: %w", err)
 	}
 	return ports, nil

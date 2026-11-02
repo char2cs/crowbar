@@ -79,6 +79,7 @@ func (c *Container) PushProject(
 	p dto.ProjectDTO,
 ) {
 	c.projects.Push(p)
+	c.publishProject(p)
 }
 
 // PushRepo implements hub.Subscriber.
@@ -86,6 +87,7 @@ func (c *Container) PushRepo(
 	r dto.RepoDTO,
 ) {
 	c.repos.Push(r)
+	c.publishRepo(r)
 }
 
 // PushWorkspace implements hub.Subscriber. It fans a workspace's state onto the
@@ -96,6 +98,7 @@ func (c *Container) PushWorkspace(
 	w dto.WorkspaceDTO,
 ) {
 	c.pushChatWorktree(w)
+	c.publishWorkspace(w)
 }
 
 // pushChatWorktree fans a workspace's git state out on the CHAT feed, keyed on

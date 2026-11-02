@@ -184,7 +184,7 @@ func (w *workspace) SetMergeStrategy(
 	id string,
 	strategy gitdomain.MergeStrategy,
 ) (domain.Workspace, error) {
-	evt, err := w.ax.Send(ctx, commands.SetMergeStrategy{ID: id, Strategy: strategy})
+	evt, err := w.ax.SendWait(ctx, commands.SetMergeStrategy{ID: id, Strategy: strategy})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set merge strategy: %w", err)
 	}
@@ -197,7 +197,7 @@ func (w *workspace) SetLock(
 	locked *bool,
 	protected bool,
 ) (domain.Workspace, error) {
-	evt, err := w.ax.Send(ctx, commands.SetLock{ID: id, Locked: locked, Protected: protected})
+	evt, err := w.ax.SendWait(ctx, commands.SetLock{ID: id, Locked: locked, Protected: protected})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set lock: %w", err)
 	}
@@ -223,7 +223,7 @@ func (w *workspace) Reparent(
 	forkPointSha string,
 	now time.Time,
 ) (domain.Workspace, error) {
-	evt, err := w.ax.Send(ctx, commands.Reparent{
+	evt, err := w.ax.SendWait(ctx, commands.Reparent{
 		ID:              id,
 		NewForkParentID: parentID,
 		ForkPointSha:    forkPointSha,
@@ -240,7 +240,7 @@ func (w *workspace) ResolveConflicts(
 	id string,
 	now time.Time,
 ) (domain.Workspace, error) {
-	evt, err := w.ax.Send(ctx, commands.ResolveConflicts{
+	evt, err := w.ax.SendWait(ctx, commands.ResolveConflicts{
 		ID:  id,
 		Now: now,
 	})
@@ -255,7 +255,7 @@ func (w *workspace) UpdateForkPoint(
 	id string,
 	forkPointSha string,
 ) (domain.Workspace, error) {
-	evt, err := w.ax.Send(ctx, commands.UpdateForkPoint{ID: id, ForkPointSha: forkPointSha})
+	evt, err := w.ax.SendWait(ctx, commands.UpdateForkPoint{ID: id, ForkPointSha: forkPointSha})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: update fork point: %w", err)
 	}
@@ -268,7 +268,7 @@ func (w *workspace) ProvisionInPlace(
 	worktreePath string,
 	forkPointSha string,
 ) (domain.Workspace, error) {
-	evt, err := w.ax.Send(ctx, commands.ProvisionInPlace{
+	evt, err := w.ax.SendWait(ctx, commands.ProvisionInPlace{
 		ID:           id,
 		WorktreePath: worktreePath,
 		ForkPointSha: forkPointSha,
@@ -283,7 +283,7 @@ func (w *workspace) ClearBranch(
 	ctx context.Context,
 	id string,
 ) (domain.Workspace, error) {
-	evt, err := w.ax.Send(ctx, commands.ClearBranch{ID: id})
+	evt, err := w.ax.SendWait(ctx, commands.ClearBranch{ID: id})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: clear branch: %w", err)
 	}
@@ -298,7 +298,7 @@ func (w *workspace) RenameBranch(
 	// WorktreePath is deliberately NOT touched. A workspace's directory is fixed
 	// at creation, so a rename moves nothing, and the purge removes exactly the
 	// tombstone's WorktreePath.
-	evt, err := w.ax.Send(ctx, commands.RenameBranch{ID: id, Branch: branch})
+	evt, err := w.ax.SendWait(ctx, commands.RenameBranch{ID: id, Branch: branch})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: rename branch: %w", err)
 	}
@@ -310,7 +310,7 @@ func (w *workspace) SetParentFromPR(
 	id string,
 	parentID string,
 ) (domain.Workspace, error) {
-	evt, err := w.ax.Send(ctx, commands.SetParentFromPR{ID: id, ParentID: parentID})
+	evt, err := w.ax.SendWait(ctx, commands.SetParentFromPR{ID: id, ParentID: parentID})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set parent from pr: %w", err)
 	}

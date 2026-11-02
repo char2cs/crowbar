@@ -3,6 +3,7 @@
 package tests
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
@@ -189,4 +190,112 @@ func TestStream_DeletedChatClosesItsScopeOnly(t *testing.T) {
 
 	op := startOperation(t, h, "/v0/chats/"+push.chatID+"/git/push", nil)
 	c.Next(t, func(f stream.Frame) bool { return isOperationFrame(f, op.ID) })
+}
+
+// sidebarEntity is one projects-scope entity as a test reads it.
+type sidebarEntity struct {
+	ID        string `json:"id"`
+	ProjectID string `json:"projectId"`
+	RepoID    string `json:"repoId"`
+	ParentID  string `json:"parentId"`
+	Name      string `json:"name"`
+}
+
+func entityIn(t *testing.T, f stream.Frame) sidebarEntity {
+	t.Helper()
+	var e sidebarEntity
+	require.NoError(t, json.Unmarshal(f.Data, &e))
+	return e
+}
+
+// sidebarSnapshot holds projects and answers its snapshot, keyed kind/id.
+func sidebarSnapshot(t *testing.T, c *streamClient) map[string]sidebarEntity {
+	t.Helper()
+	c.Sub(t, "projects", 0)
+	got := map[string]sidebarEntity{}
+	c.Next(t, func(f stream.Frame) bool {
+		if f.T == stream.FrameEntity && f.Kind != string(stream.KindOperation) {
+			got[f.Kind+"/"+f.ID] = entityIn(t, f)
+		}
+		return isSynced("projects")(f)
+	})
+	return got
+}
+
+func TestStream_ProjectsScopeCarriesTheSidebar(t *testing.T) {
+	h := newHarness(t)
+	imported := importProject(t, h)
+	writeLiveStubProviderDescriptor(t, h)
+	folder := createChatFolder(t, h, repoBase(imported), "Docs", "")
+	homeChat := createHomeChat(t, h, imported.projectID)
+
+	snapshot := sidebarSnapshot(t, dialStream(t, h))
+
+	assert.Contains(t, snapshot, "project/"+imported.projectID)
+	assert.Equal(t, imported.projectID, snapshot["repo/"+imported.repoID].ProjectID)
+	assert.Equal(t, imported.repoID, snapshot["workspace/"+imported.workspaceID].RepoID)
+	assert.Equal(t, sidebarEntity{ID: imported.chatID, ProjectID: imported.projectID, RepoID: imported.repoID},
+		snapshot["chat/"+imported.chatID])
+	assert.Equal(t, sidebarEntity{ID: folder.ID, ProjectID: imported.projectID, RepoID: imported.repoID, Name: "Docs"},
+		snapshot["folder/"+folder.ID])
+	assert.Equal(t, sidebarEntity{ID: homeChat, ProjectID: imported.projectID}, snapshot["chat/"+homeChat],
+		"a home chat is listed under its project and no repo")
+}
+
+// A live change reaches the holder as the entity the snapshot would carry.
+func TestStream_ProjectsScopeFollowsALiveFolder(t *testing.T) {
+	h := newHarness(t)
+	imported := importProject(t, h)
+	c := dialStream(t, h)
+	c.Hold(t, "projects")
+
+	folder := createChatFolder(t, h, repoBase(imported), "Live", "")
+	got := c.Next(t, func(f stream.Frame) bool {
+		return f.Kind == string(stream.KindFolder) && f.ID == folder.ID
+	})
+
+	assert.Equal(t, sidebarEntity{ID: folder.ID, ProjectID: imported.projectID, RepoID: imported.repoID, Name: "Live"},
+		entityIn(t, got))
+}
+
+// Index R16: an operation's succeeded frame comes after every entity its work wrote.
+func TestStream_OperationSucceededFollowsItsEntities(t *testing.T) {
+	h := newHarness(t)
+	f := newImportFixture(t, h)
+	f.pushFileToOrigin(t, "feature/a", "main", "a.txt", "a\n")
+	f.pushFileToOrigin(t, "feature/b", "main", "b.txt", "b\n")
+	rows := importedRows(t, h, f, "feature/a", "feature/b")
+	child, parent := rows["feature/b"].WorkspaceID, rows["feature/a"].WorkspaceID
+	c := dialStream(t, h)
+	c.Hold(t, "projects")
+
+	op := startOperation(t, h, f.repoBase()+"/chats/"+owningChatID(t, h, child)+"/reparent",
+		map[string]any{"newParentId": parent})
+	var moved bool
+	settled := c.Next(t, func(fr stream.Frame) bool {
+		if fr.Kind == string(stream.KindWorkspace) && fr.ID == child && entityIn(t, fr).ParentID == parent {
+			moved = true
+		}
+		return isOperationFrame(fr, op.ID) && operationSettled(operationIn(t, fr))
+	})
+
+	require.Equal(t, domain.OpSucceeded, operationIn(t, settled).State)
+	assert.True(t, moved, "the moved workspace reached the client before its operation settled")
+}
+
+func TestStream_ADeletedChatIsGoneOnTheProjectsScope(t *testing.T) {
+	h := newHarness(t)
+	imported := importProject(t, h)
+	writeLiveStubProviderDescriptor(t, h)
+	chatID := createAgentChat(t, h, imported)
+	c := dialStream(t, h)
+	c.Hold(t, "projects")
+
+	_ = h.raw(http.MethodDelete, repoBase(imported)+"/chats/"+chatID, nil, http.StatusOK).Body.Close()
+	gone := c.Next(t, func(f stream.Frame) bool {
+		return f.Kind == string(stream.KindChatEntity) && f.ID == chatID && f.Gone
+	})
+
+	assert.True(t, gone.Gone)
+	assert.NotContains(t, sidebarSnapshot(t, dialStream(t, h)), "chat/"+chatID)
 }

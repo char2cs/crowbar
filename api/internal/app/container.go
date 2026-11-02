@@ -90,7 +90,7 @@ func New(
 		return nil, err
 	}
 	chatSnapshots := newChatSnapshots(h)
-	placement, err := newPlacement(ctx, ax, gormStores, chatSnapshots)
+	placement, err := newPlacement(ctx, ax, gormStores, chatSnapshots, late)
 	if err != nil {
 		return nil, err
 	}
@@ -98,6 +98,11 @@ func New(
 	if err != nil {
 		return nil, err
 	}
+	repoPlacements := dto.NewPlacements(repos.Placement.GetNode, func(ctx context.Context, projectID string, err error) {
+		slog.ErrorContext(ctx, "repos: tree unreadable, its repos listed at the root", "project", projectID, "err", err)
+	})
+	gormStores.Projects = publishingProjects{Store: gormStores.Projects, late: late}
+	gormStores.Repositories = publishingRepos{ScopedStore: gormStores.Repositories, late: late, placements: repoPlacements}
 
 	// Path-deriving usecases must share the adapter's resolved home so git
 	// worktrees and per-entity storages land under the same root.
@@ -117,14 +122,12 @@ func New(
 	// repositories.Container.PurgeChat.
 	repos.PurgeChat = ucs.AgentChat.PurgeChat
 	c := &Container{
-		Hub:          h,
-		Repositories: repos,
-		GORM:         gormStores,
-		Usecases:     ucs,
-		Operations:   ops,
-		RepoPlacements: dto.NewPlacements(repos.Placement.GetNode, func(ctx context.Context, projectID string, err error) {
-			slog.ErrorContext(ctx, "repos: tree unreadable, its repos listed at the root", "project", projectID, "err", err)
-		}),
+		Hub:            h,
+		Repositories:   repos,
+		GORM:           gormStores,
+		Usecases:       ucs,
+		Operations:     ops,
+		RepoPlacements: repoPlacements,
 		crowbarHome:    crowbarHome,
 		engines:        engines,
 		axWorkspace:    ax.workspace,

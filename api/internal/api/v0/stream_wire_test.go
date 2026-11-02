@@ -60,7 +60,7 @@ func TestEncodeEntity_TheSidebarKindsAreTheirListDTOs(t *testing.T) {
 		stream.KindProject:    dto.ProjectDTO{ID: "p1", Name: "P"},
 		stream.KindRepo:       dto.RepoDTO{ID: "r1", ProjectID: "p1", Order: 2},
 		stream.KindWorkspace:  dto.WorkspaceDTO{ID: "w1", RepoID: "r1", Branch: "main"},
-		stream.KindChatEntity: dto.ChatEntityFrom(dto.AgentChatDTO{ID: "c1", Title: "t"}, "p1", "r1", true),
+		stream.KindChatEntity: dto.ChatEntityFrom(dto.AgentChatDTO{ID: "c1", Title: "t"}, "p1", "r1"),
 		stream.KindFolder:     dto.FolderEntityDTO{ID: "f1", RepoID: "r1", Name: "Docs"},
 	}
 	for kind, v := range cases {

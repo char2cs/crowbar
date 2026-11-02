@@ -3,20 +3,19 @@ package dto
 import "time"
 
 // ChatEntityDTO is a chat as the projects scope carries it: the DTO the chat
-// routes answer with (its worktree left to the workspace entity), the project
-// and repo it is listed under ("" for a project home), and whether it owns its
-// workspace's worktree.
+// routes answer with, and the project and repo it is listed under ("" for a
+// project home). Its worktree, and whether it owns it, are its workspace
+// entity's: one row to update when either moves.
 type ChatEntityDTO struct {
 	AgentChatDTO
-	ProjectID    string `json:"projectId"`
-	RepoID       string `json:"repoId"`
-	OwnsWorktree bool   `json:"ownsWorktree"`
+	ProjectID string `json:"projectId"`
+	RepoID    string `json:"repoId"`
 }
 
 // ChatEntityFrom is d listed under projectID and repoID.
-func ChatEntityFrom(d AgentChatDTO, projectID, repoID string, ownsWorktree bool) ChatEntityDTO {
+func ChatEntityFrom(d AgentChatDTO, projectID, repoID string) ChatEntityDTO {
 	d.Worktree = nil
-	return ChatEntityDTO{AgentChatDTO: d, ProjectID: projectID, RepoID: repoID, OwnsWorktree: ownsWorktree}
+	return ChatEntityDTO{AgentChatDTO: d, ProjectID: projectID, RepoID: repoID}
 }
 
 // FolderEntityDTO is a sidebar folder as the projects scope carries it: what

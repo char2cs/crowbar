@@ -16,7 +16,8 @@ import (
 
 // One chat whose stored ledger row can no longer be read breaks that chat
 // alone: its repo's chat list still answers with every chat, a sibling still
-// opens, and the broken chat's feed is refused as unreadable.
+// opens, the projects scope snapshots both, and the broken chat's feed is
+// refused as unreadable.
 func TestRegression_AnUnreadableLedgerRowBreaksOnlyItsChat(t *testing.T) {
 	home := t.TempDir()
 	h1 := newHarnessAt(t, home)
@@ -45,6 +46,9 @@ func TestRegression_AnUnreadableLedgerRowBreaksOnlyItsChat(t *testing.T) {
 	assert.True(t, listed[healthy], "the healthy chat is listed")
 	assert.True(t, listed[broken], "the unreadable chat is still listed")
 	assert.True(t, listed[imported.chatID], "the worktree's own chat is listed")
+	snapshot := sidebarSnapshot(t, dialStream(t, h2))
+	assert.Contains(t, snapshot, "chat/"+healthy, "the projects scope snapshots the healthy chat")
+	assert.Contains(t, snapshot, "chat/"+broken, "and the unreadable one, as its list does")
 
 	assert.Equal(t, []string{"sess-ok"}, readChatSession(t, h2, imported, healthy).sessionIDs())
 	seqs, _ := untilReady(t, dialFeed(t, h2, healthy, 0))
