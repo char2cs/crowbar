@@ -251,7 +251,7 @@ func (s *Snapshots) ApplyPlacement(ctx context.Context, chatID, parentID string,
 
 // Get returns chatID's current snapshot without advancing its version.
 func (s *Snapshots) Get(ctx context.Context, chatID string) (Snapshot, error) {
-	snaps, err := s.GetMany(ctx, []string{chatID})
+	snaps, err := s.read(ctx, []string{chatID}, false)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -262,7 +262,7 @@ func (s *Snapshots) Get(ctx context.Context, chatID string) (Snapshot, error) {
 // reading the ledger: the read for a ledger subscriber, which runs under the
 // chat's writer. It skips the placement overlay.
 func (s *Snapshots) Held(ctx context.Context, chatID string) (Snapshot, error) {
-	snaps, _, err := s.collect(ctx, []string{chatID})
+	snaps, _, err := s.collect(ctx, []string{chatID}, false)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -270,17 +270,21 @@ func (s *Snapshots) Held(ctx context.Context, chatID string) (Snapshot, error) {
 }
 
 // GetMany returns the current snapshot of every chat in chatIDs, in order,
-// without advancing any version. The first chat that cannot be answered fails
-// the read. The placement overlay runs once for the whole read, after the lock
+// without advancing any version. A chat deleted since it was listed is left
+// out; any other chat that cannot be answered fails the read. The placement overlay runs once for the whole read, after the lock
 // is released: it is a store read, and nothing it adds is versioned.
 func (s *Snapshots) GetMany(ctx context.Context, chatIDs []string) ([]Snapshot, error) {
+	return s.read(ctx, chatIDs, true)
+}
+
+func (s *Snapshots) read(ctx context.Context, chatIDs []string, skipGone bool) ([]Snapshot, error) {
 	if err := s.preloadLedger(ctx, chatIDs); err != nil {
 		return nil, err
 	}
 	if err := s.preloadChats(ctx, chatIDs); err != nil {
 		return nil, err
 	}
-	snaps, correct, err := s.collect(ctx, chatIDs)
+	snaps, correct, err := s.collect(ctx, chatIDs, skipGone)
 	if err != nil || correct == nil {
 		return snaps, err
 	}
@@ -328,27 +332,41 @@ func (s *Snapshots) preloadChats(ctx context.Context, chatIDs []string) error {
 }
 
 // collect builds every snapshot, uncorrected, under one hold of the lock.
+// collect builds each chat's snapshot under the lock; skipGone leaves out a
+// chat deleted or no longer found instead of failing the read.
 func (s *Snapshots) collect(
 	ctx context.Context,
 	chatIDs []string,
+	skipGone bool,
 ) ([]Snapshot, func(context.Context, []domain.Chat) []domain.Chat, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	snaps := make([]Snapshot, len(chatIDs))
-	for i, chatID := range chatIDs {
-		if _, gone := s.deleted[chatID]; gone {
-			return nil, nil, ErrDeleted
+	snaps := make([]Snapshot, 0, len(chatIDs))
+	for _, chatID := range chatIDs {
+		snap, err := s.collectLocked(ctx, chatID)
+		if skipGone && problem.CodeOf(err) == problem.NotFound {
+			continue
 		}
-		st := s.stateLocked(chatID)
-		if err := s.loadLocked(ctx, chatID, st); err != nil {
-			if !st.loaded {
-				delete(s.chats, chatID)
-			}
+		if err != nil {
 			return nil, nil, err
 		}
-		snaps[i] = s.buildLocked(chatID, st)
+		snaps = append(snaps, snap)
 	}
 	return snaps, s.correct, nil
+}
+
+func (s *Snapshots) collectLocked(ctx context.Context, chatID string) (Snapshot, error) {
+	if _, gone := s.deleted[chatID]; gone {
+		return Snapshot{}, ErrDeleted
+	}
+	st := s.stateLocked(chatID)
+	if err := s.loadLocked(ctx, chatID, st); err != nil {
+		if !st.loaded {
+			delete(s.chats, chatID)
+		}
+		return Snapshot{}, err
+	}
+	return s.buildLocked(chatID, st), nil
 }
 
 // Forget drops chatID's entry — a chat a client asked about that turned out

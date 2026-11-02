@@ -13,6 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -58,7 +59,7 @@ func (r *reader) GetChat(_ context.Context, id string) (domain.Chat, error) {
 	r.gets++
 	c, ok := r.chats[id]
 	if !ok {
-		return domain.Chat{}, errors.New("not found")
+		return domain.Chat{}, problem.New(problem.NotFound, "no chat "+id)
 	}
 	return c, nil
 }
@@ -370,14 +371,19 @@ func TestSnapshots_GetManyLoadsTheChatsItLacksInOneRead(t *testing.T) {
 	assert.Equal(t, 1, rd.batches, "a read of held chats reads nothing")
 }
 
-// A chat the batch does not find is reported as the single read reports it.
-func TestSnapshots_GetManyOfAnUnknownChatFails(t *testing.T) {
+// A listed chat deleted before the batch reads it is left out of the batch,
+// while the one-chat read still reports it missing.
+func TestSnapshots_GetManyLeavesOutAChatThatNoLongerExists(t *testing.T) {
 	s, _, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"a": {ID: "a"}}})
 
-	_, err := s.GetMany(context.Background(), []string{"a", "nope"})
+	got, err := s.GetMany(context.Background(), []string{"nope", "a"})
 
-	require.Error(t, err)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "a", got[0].Chat.ID)
 	assert.Equal(t, 1, s.Len(), "the unknown chat holds no entry")
+	_, err = s.Get(context.Background(), "nope")
+	require.Error(t, err)
 }
 
 // gatedReader is reader whose batch read waits for release, after saying so on
@@ -431,9 +437,11 @@ func TestSnapshots_AnEventDuringTheBatchReadWins(t *testing.T) {
 		},
 		"a delete": {
 			event: func(s *snapshot.Snapshots) { s.ApplyChat(ctx, domain.Chat{ID: "x"}, 5, "deleted", true) },
-			check: func(t *testing.T, s *snapshot.Snapshots, _ []snapshot.Snapshot, err error) {
+			check: func(t *testing.T, s *snapshot.Snapshots, snaps []snapshot.Snapshot, err error) {
 				t.Helper()
-				require.ErrorIs(t, err, snapshot.ErrDeleted)
+				require.NoError(t, err, "a chat deleted mid-read leaves the batch, not fails it")
+				require.Len(t, snaps, 1)
+				assert.Equal(t, "a", snaps[0].Chat.ID)
 				assert.Equal(t, 1, s.Len(), "the batch holds no entry for the deleted chat")
 				_, err = s.Get(ctx, "x")
 				require.ErrorIs(t, err, snapshot.ErrDeleted, "the batch does not bring the chat back")

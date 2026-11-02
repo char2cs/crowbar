@@ -59,9 +59,12 @@ func (h *Handlers) chatsWithRuntimes(
 	if err != nil {
 		return nil, nil, err
 	}
-	runtimes := make(map[string]dto.ChatRuntime, len(chats))
-	for i, s := range snaps {
-		chats[i], runtimes[ids[i]] = snapshotParts(s)
+	// A chat deleted since it was listed has no snapshot and leaves the list.
+	chats = chats[:0]
+	runtimes := make(map[string]dto.ChatRuntime, len(snaps))
+	for _, s := range snaps {
+		chat, runtime := snapshotParts(s)
+		chats, runtimes[chat.ID] = append(chats, chat), runtime
 	}
 	return chats, runtimes, nil
 }
