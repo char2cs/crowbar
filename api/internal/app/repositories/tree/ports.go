@@ -110,6 +110,22 @@ func (p *Ports) record(id, treeID string) {
 	p.trees[treeID] = true
 }
 
+// writeTo runs write, which may be tree at's first record of id, with id
+// indexed first: the record is readable once committed, before write returns,
+// so another write that read it must find where it is held.
+func (p *Ports) writeTo(ctx context.Context, id, at string, write func() error) error {
+	_, held := p.holder(id)
+	p.record(id, at)
+	err := write()
+	if err == nil || held {
+		return err
+	}
+	if t, gerr := p.repo.Get(ctx, at); gerr == nil {
+		p.forgetIfEmpty(id, t)
+	}
+	return err
+}
+
 // forgetIfEmpty drops id from the index once t holds nothing of it.
 func (p *Ports) forgetIfEmpty(id string, t tree.Tree) {
 	if t.Holds(id) {

@@ -365,3 +365,35 @@ func TestPorts_ChatPlacementsReadsOnlyTheTreesHoldingTheChats(t *testing.T) {
 	assert.Equal(t, map[string]tree.Placement{"c-q": {ParentID: "f-1", Order: 2}, "c-notes": {Order: 1}}, got)
 	assert.Equal(t, int64(1), reads.Load(), "both chats are p1's: one read")
 }
+
+// A row is writable the moment it is visible: a densify that read a fresh
+// Node in the tree may order it while its create still waits on subscribers.
+func TestPorts_ARowIsOrderedWhileItsCreateStillAnnounces(t *testing.T) {
+	ctx, ax := context.Background(), openTree(t, t.TempDir())
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	_, err := ax.Subscribe(asynx.Topic("tree.*"), func(context.Context, asynxModels.Event[tree.Tree]) {
+		once.Do(func() { close(entered); <-release })
+	})
+	require.NoError(t, err)
+	p := newPorts(t, repotree.New(ax), newWorld())
+
+	created := make(chan error, 1)
+	go func() {
+		_, err := p.Create(ctx, "c-notes", tree.KindChat, "", 0)
+		created <- err
+	}()
+	<-entered
+	all, err := p.ListAll(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []string{"c-notes"}, ids(all), "the create is committed and read")
+	ordered := make(chan error, 1)
+	go func() { ordered <- p.SetOrder(ctx, "c-notes", 3) }()
+	close(release)
+
+	require.NoError(t, <-created)
+	require.NoError(t, <-ordered, "a row another write can read is a row it can order")
+	got, err := p.GetNode(ctx, "c-notes")
+	require.NoError(t, err)
+	assert.Equal(t, 3, got.Order)
+}

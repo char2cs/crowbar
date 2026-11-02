@@ -23,10 +23,9 @@ func (p *Ports) Create(
 		return tree.Node{}, err
 	}
 	n := tree.Node{ID: id, Kind: kind, ParentID: parentID, Order: order}
-	if _, err := p.repo.Create(ctx, at, n); err != nil {
+	if err := p.writeTo(ctx, id, at, func() error { _, err := p.repo.Create(ctx, at, n); return err }); err != nil {
 		return tree.Node{}, err
 	}
-	p.record(id, at)
 	return n, nil
 }
 

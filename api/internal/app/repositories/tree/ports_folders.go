@@ -46,11 +46,7 @@ func (p *Ports) Save(ctx context.Context, f tree.Folder) error {
 	if err != nil {
 		return err
 	}
-	if _, err := p.repo.PutFolder(ctx, at, f); err != nil {
-		return err
-	}
-	p.record(f.ID, at)
-	return nil
+	return p.writeTo(ctx, f.ID, at, func() error { _, err := p.repo.PutFolder(ctx, at, f); return err })
 }
 
 // folderTree is the tree f is kept in: the one holding it, unless that is
