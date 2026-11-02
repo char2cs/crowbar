@@ -169,9 +169,7 @@ func (m *mockReviewThread) DeleteMessage(_ context.Context, _, _ string) (domain
 	return domain.ReviewThread{}, nil
 }
 
-func (m *mockReviewThread) DeleteThread(_ context.Context, _ string) error {
-	return nil
-}
+func (m *mockReviewThread) DeleteThread(_ context.Context, _ string) error { return nil }
 
 func (m *mockReviewThread) Resolve(ctx context.Context, id string) (domain.ReviewThread, error) {
 	return m.ResolveFn(ctx, id)
@@ -300,15 +298,11 @@ func (g *mockGitEngine) Stashes(ctx context.Context, repoPath string) ([]gitdoma
 
 func (g *mockGitEngine) StageFile(ctx context.Context, repoPath, filePath string) error { return nil }
 
-func (g *mockGitEngine) StageHunk(ctx context.Context, repoPath, filePath, hunkID string) error {
-	return nil
-}
+func (g *mockGitEngine) StageHunk(context.Context, string, string, string) error { return nil }
 
 func (g *mockGitEngine) UnstageFile(ctx context.Context, repoPath, filePath string) error { return nil }
 
-func (g *mockGitEngine) UnstageHunk(ctx context.Context, repoPath, filePath, hunkID string) error {
-	return nil
-}
+func (g *mockGitEngine) UnstageHunk(context.Context, string, string, string) error { return nil }
 
 func (g *mockGitEngine) Discard(ctx context.Context, repoPath, filePath string) error { return nil }
 

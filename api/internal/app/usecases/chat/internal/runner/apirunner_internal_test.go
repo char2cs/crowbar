@@ -44,28 +44,26 @@ func (s stubChatsForSpawn) SetProvider(_ context.Context, _, providerID string) 
 	return s.chat, nil
 }
 
-// spyLifecycle hears every runner_started and runner_exited row l commits, so a
-// test blocks on the commit a client reads rather than on a timer.
+// spyLifecycle hears every runner_started and runner_exited row its ledger
+// commits, so a test blocks on the commit a client reads rather than on a timer.
 type spyLifecycle struct {
 	started chan string
 	exited  chan string
 }
 
-func newSpyLifecycle(l *ledgerstore.Store) *spyLifecycle {
+func newSpyLifecycle(t *testing.T) (*spyLifecycle, *ledgerstore.Store) {
+	l := newTestLedger(t)
 	s := &spyLifecycle{started: make(chan string, 16), exited: make(chan string, 16)}
+	heard := map[ledger.Kind]chan string{ledger.KindRunnerStarted: s.started, ledger.KindRunnerExited: s.exited}
 	l.Subscribe(func(_ string, rows []ledger.Row, _ ledger.State) {
 		for _, r := range rows {
-			if r.Kind == ledger.KindRunnerStarted {
-				body, _ := ledger.DecodeBody[ledger.RunnerStarted](r)
-				s.started <- body.RunnerID
-			}
-			if r.Kind == ledger.KindRunnerExited {
-				body, _ := ledger.DecodeBody[ledger.RunnerExited](r)
-				s.exited <- body.RunnerID
+			if ch, ok := heard[r.Kind]; ok {
+				body, _ := ledger.DecodeBody[ledger.RunnerExited](r) // both rows carry runnerId
+				ch <- body.RunnerID
 			}
 		}
 	})
-	return s
+	return s, l
 }
 
 func (*spyLifecycle) Touch(context.Context, string) {}
@@ -76,12 +74,7 @@ func startedRow(t *testing.T, l *ledgerstore.Store, runnerID string) ledger.Runn
 	rows, err := l.Read(t.Context(), "chat-1", 0, 0)
 	require.NoError(t, err)
 	for _, r := range rows {
-		if r.Kind != ledger.KindRunnerStarted {
-			continue
-		}
-		body, err := ledger.DecodeBody[ledger.RunnerStarted](r)
-		require.NoError(t, err)
-		if body.RunnerID == runnerID {
+		if body, err := ledger.DecodeBody[ledger.RunnerStarted](r); r.Kind == ledger.KindRunnerStarted && err == nil && body.RunnerID == runnerID {
 			return body
 		}
 	}
@@ -106,8 +99,7 @@ func newSpawnHarness(t *testing.T, surface string) *spawnHarness {
 
 	home := t.TempDir()
 	term := &fakeTermForAttach{}
-	l := newTestLedger(t)
-	lifecycle := newSpyLifecycle(l)
+	lifecycle, l := newSpyLifecycle(t)
 	return &spawnHarness{
 		rs: &Runners{
 			agents:        engineagents.New(),
@@ -247,8 +239,7 @@ func waitProcessGone(t *testing.T, cmd *exec.Cmd) {
 // has left.
 func ptylessRunners(t *testing.T) (*Runners, *spyLifecycle) {
 	t.Helper()
-	l := newTestLedger(t)
-	lifecycle := newSpyLifecycle(l)
+	lifecycle, l := newSpyLifecycle(t)
 	return &Runners{
 		live:      liveWith(t, engineagents.Runner{ID: "runner-1", ProviderID: "codex", CurrentChatID: "chat-1"}),
 		snapshots: lifecycle,

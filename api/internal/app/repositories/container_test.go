@@ -116,12 +116,6 @@ func (h *captureHub) publish(
 	h.revs = append(h.revs, rev)
 }
 
-func (h *captureHub) count() int {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return len(h.workspaces)
-}
-
 func (h *captureHub) lastWorking(
 	wsID string,
 ) (bool, bool) {
@@ -177,46 +171,27 @@ func TestContainer_New_NilWorkspaceAxReturnsError(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// A created workspace is projected and published; each row goes out at the
+// version of the newest event it was read at or after, so the hub drops a
+// republish an event's frame overtook.
 func TestContainer_CreateWorkspace_ProjectsAndBroadcasts(t *testing.T) {
 	ctx := context.Background()
 	h := &captureHub{}
 	c := newContainer(t, h)
 
 	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
-		ID:           "w1",
-		RepoID:       "r1",
-		ProjectID:    "p1",
-		Branch:       "b",
-		Provisioning: domain.WorkspacePlaceholder,
-	}, time.Unix(1, 0).UTC())
-	require.NoError(t, err)
-
-	c.WaitQuiescent()
-
-	list, err := c.Workspace.List(ctx)
-	require.NoError(t, err)
-	require.Len(t, list, 1)
-	assert.Equal(t, "w1", list[0].ID)
-	assert.GreaterOrEqual(t, h.count(), 1)
-}
-
-// Each workspace row goes out at the version of the newest event it was read at
-// or after, so the hub drops a republish an event's frame overtook.
-func TestContainer_AWorkspaceRowCarriesItsEventVersion(t *testing.T) {
-	ctx := context.Background()
-	h := &captureHub{}
-	c := newContainer(t, h)
-	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
-		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
-		Provisioning: domain.WorkspacePlaceholder,
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b", Provisioning: domain.WorkspacePlaceholder,
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 	_, err = c.Workspace.RenameBranch(ctx, "w1", "b2")
 	require.NoError(t, err)
 	c.WaitQuiescent()
-
 	c.Republish(ctx, "w1")
 
+	list, err := c.Workspace.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "w1", list[0].ID)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	assert.Equal(t, []int64{1, 2, 2}, h.revs)
@@ -345,13 +320,8 @@ func TestContainer_ListWorkspaces_ListErrorPropagates(t *testing.T) {
 	assert.Nil(t, rows)
 }
 
-// TestContainer_WireCallbacks_DeleteCascade pins the cross-aggregate delete
-// cascade wireCallbacks wires (Task 14, spec §3.6): deleting a workspace fires the
-// pure Delete command, and the async delete reactor — gated on the persisted
-// "deleted" tombstone — forgets every review thread anchored to the workspace
-// (their rows vanish), rm -rf's the worktree, and Forgets the workspace aggregate
-// (dropping its read-model row). Before wireCallbacks was wired, Delete only
-// tombstoned the row and nothing purged, so this cascade never converged.
+// Deleting a workspace tombstones it; the delete reactor then forgets its review
+// threads, removes the worktree and forgets the workspace aggregate.
 func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
@@ -409,12 +379,8 @@ func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr))
 }
 
-// TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout pins the delete-cascade
-// DATA-LOSS guard: an adopted home/main workspace's WorktreePath is the user's REAL
-// checkout (repo.Path/project.Path), which lives OUTSIDE the crowbar home. Deleting
-// it must reap the record while the async reactor's rm — guarded to the crowbar home
-// — leaves the on-disk checkout untouched. An unguarded os.RemoveAll here would
-// os.RemoveAll the user's repository (the regression this guard prevents).
+// An adopted workspace's WorktreePath is the user's real checkout, outside the
+// crowbar home: deleting it reaps the record and leaves the checkout on disk.
 func TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)

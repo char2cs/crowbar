@@ -165,23 +165,19 @@ describe('hydrateWindowPaneLayout', () => {
       buffers: [],
       updatedAt: Date.now(),
     } as WorkspaceLayout)
-
     await hydrateWindowPaneLayout()
     placeRestoredPanesOnceSynced()
-
-    const state = windowPaneStore.getState()
-    expect(state.viewOrder).toEqual(['view-a', 'view-x'])
-    expect(state.panes['pane-a'].workspaceId).toBeNull()
-    expect(state.panes['pane-x'].workspaceId).toBeNull()
-
+    const placed = () => windowPaneStore.getState().panes
+    const views = () => windowPaneStore.getState().viewOrder
+    expect(views()).toEqual(['view-a', 'view-x'])
+    expect([placed()['pane-a'].workspaceId, placed()['pane-x'].workspaceId]).toEqual([null, null])
     // One that could not read some repo places, but says no chat is gone.
     entityStore.setState({ unread: { projects: ['r-unread'] } })
     syncChats([{ id: 'chat-a', workspaceId: 'ws-a' }])
-    expect(windowPaneStore.getState().panes['pane-a'].workspaceId).toBe('ws-a')
-    expect(windowPaneStore.getState().viewOrder).toEqual(['view-a', 'view-x'])
-
+    expect(placed()['pane-a'].workspaceId).toBe('ws-a')
+    expect(views()).toEqual(['view-a', 'view-x'])
     entityStore.setState({ unread: { projects: [] } })
-    expect(windowPaneStore.getState().viewOrder).toEqual(['view-a'])
+    expect(views()).toEqual(['view-a'])
   })
 
   it('a payload without views hydrates to an empty band and keeps its buffers', async () => {

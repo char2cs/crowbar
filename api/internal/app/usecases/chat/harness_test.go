@@ -193,12 +193,9 @@ func (f *fakeCommander) exitWith(t *testing.T, sessionID string, exit engineterm
 	}
 }
 
-// dieWithDaemon models a DAEMON RESTART: every PTY dies, and NO onExit callback ever
-// fires. That second half is the whole point, and it is what makes a restart different
-// from every other death in these tests — the callback lives in the process that just
-// went away, so nothing records the deaths. What survives is a durable sqlite table full
-// of live-runner rows describing CLIs that no longer exist, which is exactly the state
-// boot reconciliation is handed.
+// dieWithDaemon models a daemon restart: every PTY dies and no onExit fires, since
+// the callback died with the process. What survives is live-runner rows for CLIs
+// that no longer exist, the state boot reconciliation is handed.
 func (f *fakeCommander) dieWithDaemon() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -291,11 +288,8 @@ type fakeWorkspace struct {
 	worktree  string
 	chatsDir  string
 	err       error
-	// lastWorkspaceID records the id WorktreeDir was last called with. The
-	// fake otherwise answers every id identically, including "" — a test
-	// that only checks the CALL succeeded proves nothing about which
-	// workspace a caller actually resolved a bubble's cwd against; a test
-	// that needs that must read this field.
+	// lastWorkspaceID is the id WorktreeDir was last called with: the fake answers
+	// every id alike, so a test of which workspace a cwd resolved against reads it.
 	lastWorkspaceID string
 	// worktreeDirIDs records EVERY id WorktreeDir was called with, in order. A
 	// verb that resolves a cwd more than once (SwitchProvider: a preflight, then
@@ -353,12 +347,9 @@ type fakeWorktreeCreator struct {
 	// look identical from the chat's side.
 	discarded  []string
 	discardErr error
-	// imported records the branch each CreateImportedWorkspace call asked for,
-	// in order, and importErr fails them. They are kept apart from forkedOn
-	// above because the two verbs are the whole distinction this port now
-	// carries: a fork names a PARENT to branch from, an import names the BRANCH
-	// that already exists, and a test that could not tell them apart could not
-	// prove an import took the import path.
+	// imported records the branch each CreateImportedWorkspace call asked for, and
+	// importErr fails them; kept apart from forkedOn, as a fork names a parent and
+	// an import the branch that already exists.
 	imported   []string
 	importedWS domain.Workspace
 	importErr  error
@@ -450,19 +441,9 @@ type fakeChatStore struct {
 	// first: a spawn folds the chat twice — once for its lineage, once for its
 	// selection — so failing every fold can only ever prove the first.
 	failLoadChatAfter int
-	// staleProjection makes GetChat — the READ-MODEL read — answer with the
-	// placement every chat had before it was placed anywhere, while LoadChat (the
-	// event-log fold, reached through the embedded store) keeps answering
-	// correctly.
-	//
-	// It models the real daemon's ordinary state rather than a broken one:
-	// SetPlacement is deliberately on the async Send path, so between that write
-	// returning and its projection folding, the read model genuinely serves the old
-	// parent. Live, that window is microseconds wide and a test racing it passes
-	// half the time — which is how a spawn that decided on projected state, and
-	// therefore threaded nothing, survived a suite. Forcing the window open turns
-	// the property into one a test can actually hold: whatever the projection says,
-	// a decision about placement must not come from it.
+	// staleProjection makes GetChat (the read model) answer each chat's placement
+	// from before it was placed, while LoadChat folds the log: the window an async
+	// SetPlacement leaves open, held open so no placement decision reads it.
 	staleProjection bool
 }
 
@@ -534,13 +515,9 @@ func (s *fakeChatStore) ListByWorkspace(ctx context.Context, workspaceID string)
 	return s.EventStore.ListByWorkspace(ctx, workspaceID)
 }
 
-// harnessUsecase drives a whole chat — spawn, hook, read, answer — through the
-// FIVE PORTS rather than through the concrete usecase behind them.
-//
-// One *Usecase satisfies all five, so this could just be that value. It is not,
-// deliberately: embedding the ports means every call a test makes has to be
-// reachable through the port that declares it, so a method quietly dropped from a
-// port fails here instead of only at the route that needed it.
+// harnessUsecase drives a whole chat through the five ports, not the concrete
+// usecase behind them, so a method dropped from a port fails here instead of
+// only at the route that needed it.
 type harnessUsecase struct {
 	agentusecase.ChatUsecase
 	agentusecase.TurnUsecase
@@ -691,14 +668,9 @@ func (fixtureWorkspaceLister) List(
 	return []domain.Workspace{{ID: "ws1", ProjectID: "p1", RepoID: "r1"}}, nil
 }
 
-// fixtureReviewReader, fixtureThreadReader and fixtureThreadWriter exist only
-// so DispatchMCP's tool surface registers post_review_comment,
-// list_review_threads, get_review_scope, reply_to_review_thread and
-// resolve_review_thread — none of these tests CALL a review tool, so every
-// method here is an empty-returning stand-in. What matters is that the ports
-// are non-nil: the full 8-tool surface has to come from the REAL concerns
-// built through agentusecase.New for TestDispatchMCP_ListsTheChatTools to be a
-// meaningful guard on New's own internal wiring (see that test's doc comment).
+// fixtureReviewReader, fixtureThreadReader and fixtureThreadWriter are non-nil
+// empty stand-ins so DispatchMCP registers the review tools: no test calls one,
+// but TestDispatchMCP_ListsTheChatTools needs New's whole tool surface.
 type fixtureReviewReader struct{}
 
 func (fixtureReviewReader) GetScope(
@@ -795,15 +767,9 @@ func (f testFixture) spawn(t *testing.T, provider string) (chatID, runnerID stri
 	return chatID, runnerID
 }
 
-// announce drives a session_start hook: the vendor CLI reporting which conversation
-// it is now in. This is the ONLY way a conversation change ever reaches Crowbar —
-// nothing inspects terminal input — so every /clear, /new and /resume in these tests
-// is expressed exactly as the real CLI expresses it.
-//
-// transcript_path is part of "exactly": every real hook of a real conversation
-// carries the rollout/transcript it belongs to (verified against codex 0.146.0 on a
-// fresh start, on a resume, and on the internal memory session that DOESN'T have one
-// — see the codex descriptor's require_payload_fields). mustJSON stamps it.
+// announce drives a session_start hook, the only way a conversation change
+// reaches Crowbar, as the real CLI sends it: every real hook carries its
+// transcript_path (see the descriptor's require_payload_fields).
 func (f testFixture) announce(t *testing.T, runnerID, sessionID string) {
 	t.Helper()
 	if sessionID != "" {
@@ -1045,12 +1011,8 @@ func newFixtureUsing(
 	require.NoError(t, err)
 	permissionPrefs, err := storesqlite.New[domain.AgentPermissionDefault, string](":memory:")
 	require.NoError(t, err)
-	// Pinned to guarded by default, not left at the shipped full-auto default:
-	// SpawnChat seeds a spawned chat's level from whatever this global default
-	// currently is (mirroring MintChat's own seed), and this package's tests
-	// assert on that seeded value directly. permissionDefault overrides the
-	// pin for the tests that need a chat seeded at something other than
-	// guarded.
+	// Pinned to guarded, not the shipped default: a spawned chat seeds its level
+	// from this default and the tests assert on it; permissionDefault overrides it.
 	pinnedDefault := permissionDefault
 	if pinnedDefault == "" {
 		pinnedDefault = "guarded"

@@ -87,10 +87,9 @@ func listQuiescent(
 	return rows
 }
 
-// Rows written before Provisioning existed replay without it (from events and
-// from snapshots alike). The boot backfill records it once, as an event, so
-// every later read — aggregate, read model, a cold replay of the history — sees
-// it; running it again changes nothing.
+// Rows written before Provisioning existed replay without it. The boot backfill
+// records it once, as an event, so every later read and cold replay sees it;
+// running it again changes nothing.
 func TestWorkspace_BackfillProvisioning_GivesLegacyRowsTheirExplicitState(t *testing.T) {
 	ctx, repo := newRepo(t)
 	legacy := map[string]domain.Workspace{
@@ -160,11 +159,8 @@ func TestWorkspace_Create_RoundTrips(t *testing.T) {
 	assert.Equal(t, "p1", reloaded.ProjectID)
 }
 
-// TestRegression_RenameBranch_LeavesTheWorktreePathUntouched pins that a rename
-// never moves the workspace: the directory is fixed at creation and never tracks
-// the branch. The purge removes exactly the tombstone's WorktreePath, so a
-// rename that repointed it would aim a later delete at whatever now occupies
-// the other name.
+// A rename never moves the workspace: the purge removes exactly the tombstone's
+// WorktreePath, so a repointed one would aim a delete at the other name.
 func TestRegression_RenameBranch_LeavesTheWorktreePathUntouched(t *testing.T) {
 	ad := newAdapter(t, t.TempDir())
 	repo := buildRepo(t, ad)
@@ -187,11 +183,7 @@ func TestGet_FoldsFromLog(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
 	_, err := repo.Create(ctx, workspace.CreateInput{
-		ID:           "w1",
-		RepoID:       "r1",
-		ProjectID:    "p1",
-		Branch:       "feature/x",
-		Provisioning: domain.WorkspacePlaceholder,
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "feature/x", Provisioning: domain.WorkspacePlaceholder,
 	}, now)
 	require.NoError(t, err)
 
@@ -213,11 +205,8 @@ func TestList_AcrossAggregates(t *testing.T) {
 	listQuiescent(t, ctx, repo, 3)
 }
 
-// TestDelete_PersistsDeletedTombstone proves the Task 7 delete lifecycle: Delete
-// is a pure Send that folds Status=deleted; the store projection PERSISTS that
-// tombstone (it does NOT Forget synchronously — that is the Task 8 reactor's
-// job), so the aggregate still folds from the log and the read-model row survives
-// with Status=deleted for the boot orphan-sweep to find (spec §3.8).
+// Delete folds Status=deleted and the projection persists that tombstone rather
+// than forgetting it, so the boot orphan-sweep can still find the row.
 func TestDelete_PersistsDeletedTombstone(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
@@ -301,11 +290,7 @@ func TestWorkspace_Create_RoundTrips_Timestamps(t *testing.T) {
 	now := time.Unix(1000, 0).UTC()
 
 	_, err := repo.Create(ctx, workspace.CreateInput{
-		ID:           "w2",
-		RepoID:       "r1",
-		ProjectID:    "p1",
-		Branch:       "feature/ts",
-		Provisioning: domain.WorkspacePlaceholder,
+		ID: "w2", RepoID: "r1", ProjectID: "p1", Branch: "feature/ts", Provisioning: domain.WorkspacePlaceholder,
 	}, now)
 	require.NoError(t, err)
 
@@ -635,11 +620,7 @@ func TestGetHomeForProject_Found(t *testing.T) {
 
 	projectID := "proj-abc"
 	_, err := repo.Create(ctx, workspace.CreateInput{
-		ID:           "ws-home-1",
-		ProjectID:    projectID,
-		Kind:         domain.WorkspaceKindHome,
-		WorktreePath: "/projects/myproject",
-		Provisioning: domain.WorkspaceShared,
+		ID: "ws-home-1", ProjectID: projectID, Kind: domain.WorkspaceKindHome, WorktreePath: "/projects/myproject", Provisioning: domain.WorkspaceShared,
 	}, time.Now())
 	require.NoError(t, err)
 
@@ -692,16 +673,9 @@ func TestGetHomeForProject_StorageError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestWorkspace_Sweep_RedrivesThePurgeForEveryResidualDeletedRow proves the
-// boot orphan-sweep seam (spec §3.8, §7-D): every row the durable read model
-// still carries as Status=deleted — here, tombstones whose reactor a draining
-// gate refused, exactly as at a shutdown — is re-purged by the SAME Purger the
-// reactor runs, from the tombstone's own WorktreePath. The live workspace is
-// left alone.
-//
-// w1 is the P0-4 case: a placeholder (no path at creation) provisioned in place
-// later. The retired id→path index was written only at creation, so the sweep
-// used to find no path for it and leak its worktree.
+// The boot sweep re-purges every row still read as deleted from its own
+// WorktreePath, including a placeholder provisioned in place after creation
+// (w1); the live workspace is left alone.
 func TestWorkspace_Sweep_RedrivesThePurgeForEveryResidualDeletedRow(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
@@ -814,15 +788,8 @@ func TestList_DoesNotTriggerReconcile(t *testing.T) {
 	assert.Empty(t, spy.calls(), "List must never trigger per-workspace reconcile")
 }
 
-// TestRegression_SyncProviderState_UnchangedPollAppendsNothing pins the guard on
-// the 5-minute sweep. Without it every visit appended an event and a snapshot
-// whether or not the provider had moved — 43,970 of 44,068 provider_synced events
-// in a real home carried an empty patch set — and each one bumped the aggregate
-// version.
-//
-// The polls below differ only in their timestamp, which is the sweep's steady
-// state and the case a version-bumping no-op hides in. Each broadcast frame costs
-// the daemon git work, so the frame count is pinned alongside the event count.
+// A provider poll that changes nothing appends no event and publishes no frame:
+// the polls below differ only in their timestamp, the sweep's steady state.
 func TestRegression_SyncProviderState_UnchangedPollAppendsNothing(t *testing.T) {
 	ad := newAdapter(t, t.TempDir())
 	repo := buildRepo(t, ad)
@@ -907,8 +874,8 @@ func TestRegression_RepoHomeID_ConcurrentAdoptsYieldOneDefault(t *testing.T) {
 	assert.Equal(t, 1, wins)
 }
 
-// A working-tree sync an operation writes is published before it returns, so
-// the operation's success never reaches a client ahead of the status it changed.
+// A working-tree sync is published before it returns, so an operation's
+// success never reaches a client ahead of the status it changed.
 func TestWorkspace_SyncReturnsOnceItsRowIsPublished(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, repo := newRepo(t)
@@ -916,10 +883,7 @@ func TestWorkspace_SyncReturnsOnceItsRowIsPublished(t *testing.T) {
 		_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
 		require.NoError(t, err)
 		release := make(chan struct{})
-		free := sync.OnceFunc(func() { close(release) })
-		t.Cleanup(free)
-		_, err = workspace.RegisterHubProjection(repo,
-			func(_ context.Context, ws domain.Workspace) domain.Workspace { return ws },
+		_, err = workspace.RegisterHubProjection(repo, func(_ context.Context, ws domain.Workspace) domain.Workspace { return ws },
 			func(ws domain.Workspace) {
 				if ws.Added == 3 {
 					<-release
@@ -933,12 +897,8 @@ func TestWorkspace_SyncReturnsOnceItsRowIsPublished(t *testing.T) {
 			returned <- err
 		}()
 		synctest.Wait()
-		select {
-		case <-returned:
-			t.Fatal("the sync returned while its row was still being published")
-		default:
-		}
-		free()
+		assert.Empty(t, returned, "the sync returned while its row was still being published")
+		close(release)
 		require.NoError(t, <-returned)
 	})
 }

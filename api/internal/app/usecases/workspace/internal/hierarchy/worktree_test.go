@@ -134,11 +134,7 @@ func (f *fakeWorkspace) Delete(
 }
 
 // ObserveWorkingTreeState is the watcher's; the hierarchy's syncs are awaited.
-func (f *fakeWorkspace) ObserveWorkingTreeState(
-	context.Context,
-	workspace.SyncInput,
-	time.Time,
-) (domain.Workspace, error) {
+func (f *fakeWorkspace) ObserveWorkingTreeState(context.Context, workspace.SyncInput, time.Time) (domain.Workspace, error) {
 	panic("hierarchy: a working-tree sync must be awaited")
 }
 
@@ -153,19 +149,11 @@ func (f *fakeWorkspace) SyncWorkingTreeState(
 	return domain.Workspace{}, nil
 }
 
-func (f *fakeWorkspace) SyncProviderState(
-	_ context.Context,
-	_ workspace.ProviderInput,
-	_ time.Time,
-) (domain.Workspace, error) {
+func (f *fakeWorkspace) SyncProviderState(context.Context, workspace.ProviderInput, time.Time) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }
 
-func (f *fakeWorkspace) SetMergeStrategy(
-	_ context.Context,
-	_ string,
-	_ gitdomain.MergeStrategy,
-) (domain.Workspace, error) {
+func (f *fakeWorkspace) SetMergeStrategy(context.Context, string, gitdomain.MergeStrategy) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }
 
