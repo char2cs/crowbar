@@ -100,6 +100,12 @@ describe('the sidebar views of the entity store', () => {
     putEntities('repo', [repoDTO('r2', -1)])
     expect(views().repos.map((r) => r.id)).toEqual(['r2', 'r1'])
   })
+
+  it('a top-level chat owns its workspace only when the workspace names it', () => {
+    putEntities('chat', [chatEntity({ id: 'c-plain', repoId: 'r1', workspaceId: 'ws-fork' })])
+    const owns = Object.fromEntries(views().repos[0]!.chats!.map((c) => [c.id, c.ownsWorktree]))
+    expect(owns).toMatchObject({ 'c-fork': true, 'c-plain': false })
+  })
 })
 
 describe('a workspace and its owning chat, in whichever order they arrive', () => {
