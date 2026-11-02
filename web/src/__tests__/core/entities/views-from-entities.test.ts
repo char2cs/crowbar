@@ -101,3 +101,55 @@ describe('the sidebar views of the entity store', () => {
     expect(views().repos.map((r) => r.id)).toEqual(['r2', 'r1'])
   })
 })
+
+describe('a workspace and its owning chat, in whichever order they arrive', () => {
+  const ws = (owningChatId: string) =>
+    workspaceDTO({ id: 'ws-new', repoId: 'r2', owningChatId, branch: 'feat' })
+  const owner = chatEntity({ id: 'c-new', repoId: 'r2', workspaceId: 'ws-new' })
+  const drawn = () => {
+    const r2 = views().repos.find((r) => r.id === 'r2')!
+    return {
+      workspaces: r2.workspaces.map((w) => [w.id, w.owningChatId]),
+      chats: r2.chats?.map((c) => [c.id, c.ownsWorktree]),
+    }
+  }
+  const settled = () => {
+    resetEntities()
+    putEntities('repo', [repoDTO('r2', 1)])
+    putEntities('workspace', [
+      workspaceDTO({ id: 'ws-r2', repoId: 'r2', isDefault: true }),
+      ws('c-new'),
+    ])
+    putEntities('chat', [owner])
+    return drawn()
+  }
+
+  it('draws the same rows when the chat lands before its workspace', () => {
+    const want = settled()
+    resetEntities()
+    putEntities('repo', [repoDTO('r2', 1)])
+    putEntities('workspace', [workspaceDTO({ id: 'ws-r2', repoId: 'r2', isDefault: true })])
+    putEntities('chat', [owner])
+    drawn()
+    putEntities('workspace', [ws('c-new')])
+    expect(drawn()).toEqual(want)
+  })
+
+  it('draws the owner as the workspace once it is re-sent naming its owning chat', () => {
+    const want = settled()
+    resetEntities()
+    putEntities('repo', [repoDTO('r2', 1)])
+    putEntities('workspace', [workspaceDTO({ id: 'ws-r2', repoId: 'r2', isDefault: true }), ws('')])
+    drawn()
+    putEntities('chat', [owner])
+    expect(drawn().chats).toEqual([['c-new', false]])
+    putEntities('workspace', [ws('c-new')])
+    expect(drawn()).toEqual(want)
+  })
+
+  it('draws the chat as a row again once its workspace is re-sent without an owner', () => {
+    settled()
+    putEntities('workspace', [ws('')])
+    expect(drawn().chats).toEqual([['c-new', false]])
+  })
+})
