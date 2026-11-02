@@ -57,177 +57,57 @@ func TestCreate_Success(
 	assert.Equal(t, createChatCall{WorkspaceID: "ws-1", ProviderID: "vendor-a"}, tree.gotCreate2)
 }
 
-// The landing surface decides which of the provider's faces this chat is born
-// on (design spec 2.5) — and for a mixed-transport provider it decides whether
-// an api connection is opened for the chat at all, so a handler that dropped
-// it would answer 201 with a chat on the wrong face and no sign of it.
-func TestCreate_ForwardsTheSurfaceTheChatIsBornOn(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
+// Create forwards what the request names and nothing it does not: the
+// surface the chat is born on, its parent (thread or panel root), the
+// workspace from the path or the body, and ownWorktree only when no workspace
+// is named. A refused body reaches nothing; a tree failure is a mapped error.
+func TestCreate_ForwardsWhatTheRequestNames(t *testing.T) {
+	const wsPath, repoPath = "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", "/v0/projects/p1/repos/r1/chats"
+	wsParams, repoParams := gin.Params{{Key: "wsId", Value: "ws-1"}}, gin.Params{{Key: "repoId", Value: "r1"}}
+	onWS := createChatCall{WorkspaceID: "ws-1", ProviderID: "vendor-a"}
+	for _, tc := range []struct {
+		name, path, body, surface string
+		params                    gin.Params
+		treeErr                   error
+		code, calls               int
+		want                      createChatCall
+	}{
+		{name: "the surface", path: wsPath, params: wsParams, body: `{"provider":"vendor-a","surface":"terminal"}`,
+			code: http.StatusCreated, calls: 1, want: onWS, surface: "terminal"},
+		{name: "no surface is the provider's default", path: wsPath, params: wsParams, body: `{"provider":"vendor-a"}`,
+			code: http.StatusCreated, calls: 1, want: onWS},
+		{name: "an unknown surface is refused", path: wsPath, params: wsParams, body: `{"provider":"vendor-a","surface":"holodeck"}`,
+			code: http.StatusBadRequest},
+		{name: "the parent", path: wsPath, params: wsParams, body: `{"provider":"vendor-a","parentId":"parent-chat"}`,
+			code: http.StatusCreated, calls: 1, want: createChatCall{WorkspaceID: "ws-1", ProviderID: "vendor-a", ParentID: "parent-chat"}},
+		{name: "bad JSON", path: wsPath, params: wsParams, body: "{not json", code: http.StatusBadRequest},
+		{name: "a tree failure", path: wsPath, params: wsParams, body: `{"provider":"vendor-a"}`, treeErr: errors.New("boom"),
+			code: http.StatusInternalServerError, calls: 1, want: onWS},
+		{name: "the body's workspace at the repo mount", path: repoPath, params: repoParams, body: `{"provider":"vendor-a","workspaceId":"ws-9"}`,
+			code: http.StatusCreated, calls: 1, want: createChatCall{WorkspaceID: "ws-9", ProviderID: "vendor-a"}},
+		{name: "no workspace at all is workspace-less", path: repoPath, params: repoParams, body: `{"provider":"vendor-a"}`,
+			code: http.StatusCreated, calls: 1, want: createChatCall{ProviderID: "vendor-a"}},
+		{name: "ownWorktree at the repo mount", path: repoPath, params: repoParams, body: `{"provider":"vendor-a","parentId":"parent-chat","ownWorktree":true}`,
+			code: http.StatusCreated, calls: 1, want: createChatCall{ProviderID: "vendor-a", ParentID: "parent-chat", OwnWorktree: true}},
+		{name: "ownWorktree is ignored when the path names a workspace", path: wsPath, params: wsParams, body: `{"provider":"vendor-a","ownWorktree":true}`,
+			code: http.StatusCreated, calls: 1, want: onWS},
+		{name: "ownWorktree is ignored when the body names a workspace", path: repoPath, params: repoParams, body: `{"provider":"vendor-a","workspaceId":"ws-9","ownWorktree":true}`,
+			code: http.StatusCreated, calls: 1, want: createChatCall{WorkspaceID: "ws-9", ProviderID: "vendor-a"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}, err: tc.treeErr}
+			h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
+			ctx, rec := newTestContext(t, http.MethodPost, tc.path, []byte(tc.body))
+			ctx.Params = tc.params
 
-	body := []byte(`{"provider":"vendor-a","surface":"terminal"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
+			h.Create(ctx)
 
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusCreated, rec.Code)
-	assert.Equal(t, "terminal", tree.gotSurface)
-}
-
-// Omitted is the overwhelming majority, and means the provider's own default
-// landing — never a surface invented for it.
-func TestCreate_NoSurfaceAskedForForwardsTheProvidersDefault(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
-
-	body := []byte(`{"provider":"vendor-a"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
-
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusCreated, rec.Code)
-	assert.Equal(t, "", tree.gotSurface)
-}
-
-// A surface name design spec 2.5 does not define is a client bug, refused
-// before anything is minted — never silently coerced to a default, which
-// would hand back a chat on a face the caller did not ask for.
-func TestCreate_AnUnknownSurfaceIs400(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
-
-	body := []byte(`{"provider":"vendor-a","surface":"holodeck"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
-
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Zero(t, tree.createChatCalls, "nothing may be minted for a surface that does not exist")
-}
-
-// The parent is the half of a create that decides whether the new chat is a
-// THREAD, so it has to reach the usecase intact. A handler that dropped it would
-// still create a chat, still answer 201, and produce a chat at the panel root that
-// the user asked to be a thread — the failure this asserts against.
-func TestCreate_ForwardsTheParentTheChatIsBornUnder(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
-
-	body := []byte(`{"provider":"vendor-a","parentId":"parent-chat"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
-
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusCreated, rec.Code)
-	assert.Equal(t,
-		createChatCall{WorkspaceID: "ws-1", ProviderID: "vendor-a", ParentID: "parent-chat"},
-		tree.gotCreate2)
-}
-
-// TestCreate_BadJSON proves a malformed body is rejected 400 without reaching
-// the usecase.
-func TestCreate_BadJSON(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
-
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", []byte("{not json"))
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
-
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Equal(t, createChatCall{}, tree.gotCreate2)
-}
-
-// TestCreate_UsecaseError proves a create failure surfaces as a mapped error
-// response.
-func TestCreate_UsecaseError(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{err: errors.New("boom")}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
-
-	body := []byte(`{"provider":"vendor-a"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
-
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-}
-
-// TestCreate_NoPathWorkspace_ReadsWorkspaceIDFromBody proves that at the
-// repo-scoped mount (Task 17: no :wsId path param) Create reads the new
-// chat's workspace anchor from the body's workspaceId instead.
-func TestCreate_NoPathWorkspace_ReadsWorkspaceIDFromBody(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
-
-	body := []byte(`{"provider":"vendor-a","workspaceId":"ws-9"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/chats", body)
-	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}}
-
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusCreated, rec.Code)
-	assert.Equal(t, createChatCall{WorkspaceID: "ws-9", ProviderID: "vendor-a"}, tree.gotCreate2)
-}
-
-// TestCreate_NoPathWorkspaceAndNoBodyWorkspace_CreatesWorkspaceLess proves an
-// omitted body workspaceId at the repo-scoped mount forwards "" rather than
-// inventing one — a workspace-less chat, legal since WorkspaceID became
-// optional (Task 5).
-func TestCreate_NoPathWorkspaceAndNoBodyWorkspace_CreatesWorkspaceLess(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
-
-	body := []byte(`{"provider":"vendor-a"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/chats", body)
-	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}}
-
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusCreated, rec.Code)
-	assert.Equal(t, createChatCall{ProviderID: "vendor-a"}, tree.gotCreate2)
-}
-
-// TestCreate_ForwardsOwnWorktreeAtTheRepoScopedMount proves ownWorktree reaches
-// the tree usecase when the request names no workspace at all — the one shape
-// (model spec §5.1) that is actually allowed to mean "fork me a fresh one".
-func TestCreate_ForwardsOwnWorktreeAtTheRepoScopedMount(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
-
-	body := []byte(`{"provider":"vendor-a","parentId":"parent-chat","ownWorktree":true}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/chats", body)
-	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}}
-
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusCreated, rec.Code)
-	assert.Equal(t,
-		createChatCall{ProviderID: "vendor-a", ParentID: "parent-chat", OwnWorktree: true},
-		tree.gotCreate2)
+			assert.Equal(t, tc.code, rec.Code)
+			assert.Equal(t, tc.calls, tree.createChatCalls)
+			assert.Equal(t, tc.want, tree.gotCreate2)
+			assert.Equal(t, tc.surface, tree.gotSurface)
+		})
+	}
 }
 
 // TestRegression_Create_ForwardsTheTypedBranchNameOnAnOwnWorktreeCreate pins
@@ -251,48 +131,6 @@ func TestRegression_Create_ForwardsTheTypedBranchNameOnAnOwnWorktreeCreate(
 	assert.Equal(t, agentusecase.WorktreeFork, tree.gotWorktree.Mode)
 	assert.Equal(t, "feature/typed-name", tree.gotWorktree.Branch,
 		"the typed branch name must reach WorktreeSpec, not be dropped in favour of the auto-generated one")
-}
-
-// TestCreate_OwnWorktreeIsIgnoredWhenThePathNamesAWorkspace proves the single
-// most important thing to get right here: a request that still names a
-// workspace (the home mount's injected :wsId) takes the EXISTING
-// attach-to-existing-workspace path unchanged, whatever the body's
-// ownWorktree says.
-func TestCreate_OwnWorktreeIsIgnoredWhenThePathNamesAWorkspace(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
-
-	body := []byte(`{"provider":"vendor-a","ownWorktree":true}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
-
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusCreated, rec.Code)
-	assert.Equal(t, createChatCall{WorkspaceID: "ws-1", ProviderID: "vendor-a"}, tree.gotCreate2,
-		"ownWorktree must not survive a request that also names a workspace")
-}
-
-// TestCreate_OwnWorktreeIsIgnoredWhenTheBodyNamesAWorkspace is the same
-// refusal at the repo-scoped mount, where workspaceId arrives in the body
-// instead of the path.
-func TestCreate_OwnWorktreeIsIgnoredWhenTheBodyNamesAWorkspace(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
-
-	body := []byte(`{"provider":"vendor-a","workspaceId":"ws-9","ownWorktree":true}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/chats", body)
-	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}}
-
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusCreated, rec.Code)
-	assert.Equal(t, createChatCall{WorkspaceID: "ws-9", ProviderID: "vendor-a"}, tree.gotCreate2,
-		"ownWorktree must not survive a request that also names a workspace")
 }
 
 // configurableListGetUsecase is a configurable agent-port double dedicated to
