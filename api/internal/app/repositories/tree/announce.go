@@ -10,9 +10,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// ChatMoved hears a chat's new placement; kind is the chat frame kind it rides
-// ("placement_set" when the parent changed, else "order_set").
-type ChatMoved func(ctx context.Context, chatID string, p tree.Placement, kind string)
+// ChatMoved hears a chat's new placement.
+type ChatMoved func(ctx context.Context, chatID string, p tree.Placement)
 
 // NodeMoved hears a chat or workspace row whose position Node a Tree write
 // changed or minted. A chat with a Node is drawn where its Node is, so its
@@ -53,12 +52,8 @@ func announce(
 		if _, drawn := after.Nodes[id]; drawn {
 			continue
 		}
-		was, ok := before.Chats[id]
-		switch {
-		case !ok || was.ParentID != p.ParentID:
-			chatMoved(ctx, id, p, "placement_set")
-		case was.Order != p.Order:
-			chatMoved(ctx, id, p, "order_set")
+		if was, ok := before.Chats[id]; !ok || was != p {
+			chatMoved(ctx, id, p)
 		}
 	}
 }

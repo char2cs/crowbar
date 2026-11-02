@@ -357,7 +357,7 @@ func onceExitRecorded(t *testing.T, f testFixture, live engineagents.Runner, dur
 	var once sync.Once
 	f.usecase.snaps.SetPublish(func(fr agentusecase.ChatSnapshotFrame) {
 		f.snapFrames.record(fr)
-		if fr.RunnerID != live.ID || fr.Kind != "exited" {
+		if exit := fr.Snapshot.Ledger.LastExit; exit == nil || exit.RunnerID != live.ID {
 			return
 		}
 		once.Do(func() {

@@ -426,7 +426,6 @@ func TestResumeChat_ACLIRefusingItsSessionInStartupIsSessionLost(t *testing.T) {
 
 // touches counts the snapshot republishes a chat is given.
 type touches struct {
-	*spyLifecycle
 	n map[string]int
 }
 
@@ -436,7 +435,7 @@ func (s touches) Touch(_ context.Context, chatID string) { s.n[chatID]++ }
 // with, half by half: an unreported half keeps its value, and a report of
 // nothing changes nothing.
 func TestHandleSessionStart_KeepsWhatTheCLIReportsItLaunchedAs(t *testing.T) {
-	snaps := touches{spyLifecycle: newSpyLifecycle(), n: map[string]int{}}
+	snaps := touches{n: map[string]int{}}
 	rs := &Runners{
 		ledger: newTestLedger(t), snapshots: snaps,
 		live: liveWith(t, engineagents.Runner{

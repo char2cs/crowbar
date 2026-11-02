@@ -45,13 +45,12 @@ func owner(t *testing.T) (*snapshot.Snapshots, *[]snapshot.Frame) {
 func TestFanout_ChatEventBecomesASnapshotFrame(t *testing.T) {
 	s, frames := owner(t)
 	fanout.New(s).ChatWatch()(agentchat.ChatEvent{
-		ChatID: "chat-1", WorkspaceID: "ws-1", Kind: "title_set",
+		ChatID: "chat-1", WorkspaceID: "ws-1",
 		Chat: domain.Chat{WorkspaceID: "ws-1", Title: "t"}, Version: 3,
 	})
 
 	require.Len(t, *frames, 1)
 	f := (*frames)[0]
-	assert.Equal(t, "title_set", f.Kind)
 	assert.Equal(t, "chat-1", f.Snapshot.Chat.ID)
 	assert.Equal(t, "t", f.Snapshot.Chat.Title)
 }
@@ -59,7 +58,7 @@ func TestFanout_ChatEventBecomesASnapshotFrame(t *testing.T) {
 func TestFanout_ForgottenChatIsADeleteFrame(t *testing.T) {
 	s, frames := owner(t)
 	fanout.New(s).ChatWatch()(agentchat.ChatEvent{
-		ChatID: "chat-9", WorkspaceID: "ws-1", Kind: "deleted", Forgotten: true,
+		ChatID: "chat-9", WorkspaceID: "ws-1", Forgotten: true,
 	})
 
 	require.Len(t, *frames, 1)

@@ -30,6 +30,6 @@ func (f *Fanout) ChatWatch() agentchat.WatchFunc {
 		if chat.WorkspaceID == "" {
 			chat.WorkspaceID = e.WorkspaceID
 		}
-		f.snaps.ApplyChat(context.Background(), chat, e.Version, e.Kind, e.Forgotten)
+		f.snaps.ApplyChat(context.Background(), chat, e.Version, e.Forgotten)
 	}
 }

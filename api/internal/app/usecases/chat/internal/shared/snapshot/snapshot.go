@@ -44,11 +44,6 @@ const (
 	PhaseStopping  = "stopping"
 )
 
-// KindSnapshot is the frame kind of a snapshot published for a change no
-// aggregate event names — a phase, an attach, a terminal-wait verdict, or the
-// chat a runner left.
-const KindSnapshot = "snapshot"
-
 // Snapshot is one versioned answer about a chat.
 type Snapshot struct {
 	Chat    domain.Chat
@@ -82,12 +77,9 @@ type Runtime interface {
 	LiveRunner(chatID string) (agents.Runner, bool)
 }
 
-// Frame is one published change: the snapshot, the event kind that caused it,
-// and — for a runner event — the runner it was about.
+// Frame is one published change: the chat's snapshot as of it.
 type Frame struct {
 	Snapshot Snapshot
-	Kind     string
-	RunnerID string
 	// Deleted is a chat that no longer exists; Snapshot then carries only its
 	// id, workspace and the version that retires it.
 	Deleted bool
@@ -170,7 +162,7 @@ func (s *Snapshots) Bind(reader Reader, runtime Runtime) {
 }
 
 // ApplyChat records one chat aggregate event and publishes its snapshot.
-func (s *Snapshots) ApplyChat(ctx context.Context, chat domain.Chat, version int64, kind string, forgotten bool) {
+func (s *Snapshots) ApplyChat(ctx context.Context, chat domain.Chat, version int64, forgotten bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, gone := s.deleted[chat.ID]; gone {
@@ -182,7 +174,6 @@ func (s *Snapshots) ApplyChat(ctx context.Context, chat domain.Chat, version int
 		delete(s.chats, chat.ID)
 		s.rememberDeletedLocked(chat.ID)
 		s.emitLocked(Frame{
-			Kind:     kind,
 			Deleted:  true,
 			Snapshot: Snapshot{Chat: domain.Chat{ID: chat.ID, WorkspaceID: chat.WorkspaceID}, Version: st.version},
 		})
@@ -197,42 +188,25 @@ func (s *Snapshots) ApplyChat(ctx context.Context, chat domain.Chat, version int
 		}
 		st.chat, st.chatVersion, st.loaded = chat, version, true
 	}
-	s.emitChatLocked(ctx, chat.ID, kind, "")
-}
-
-// ApplyRunner publishes chatID's snapshot for a lifecycle event of runnerID:
-// started or exited.
-func (s *Snapshots) ApplyRunner(ctx context.Context, chatID, runnerID, kind string) {
-	if chatID == "" {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.emitChatLocked(ctx, chatID, kind, runnerID)
+	s.emitChatLocked(ctx, chat.ID)
 }
 
 // Touch publishes a fresh snapshot of chatID for a change no aggregate event
-// carries. Callers must not hold a lock Runtime also takes.
+// carries: a phase, a runner starting or exiting, a Node placement written as
+// a drag's collateral. Callers must not hold a lock Runtime also takes.
 func (s *Snapshots) Touch(ctx context.Context, chatID string) {
-	s.Announce(ctx, chatID, KindSnapshot)
-}
-
-// Announce is Touch under a named kind — a tree placement written on the Node
-// (a repo drag's collateral renumber), which no chat event carries but which
-// the sidebar must hear about as the structural change it is.
-func (s *Snapshots) Announce(ctx context.Context, chatID, kind string) {
 	if chatID == "" {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.emitChatLocked(ctx, chatID, kind, "")
+	s.emitChatLocked(ctx, chatID)
 }
 
 // ApplyPlacement records chatID's new place in the tree, which no chat event
-// carries, and publishes its snapshot under kind. The Tree announces a write
+// carries, and publishes its snapshot. The Tree announces a write
 // before every reader sees it, so the placement given wins over a load's row.
-func (s *Snapshots) ApplyPlacement(ctx context.Context, chatID, parentID string, order int, kind string) {
+func (s *Snapshots) ApplyPlacement(ctx context.Context, chatID, parentID string, order int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, gone := s.deleted[chatID]; gone {
@@ -246,7 +220,7 @@ func (s *Snapshots) ApplyPlacement(ctx context.Context, chatID, parentID string,
 		return
 	}
 	st.chat.ParentID, st.chat.Order = parentID, order
-	s.emitChatLocked(ctx, chatID, kind, "")
+	s.emitChatLocked(ctx, chatID)
 }
 
 // Get returns chatID's current snapshot without advancing its version.
@@ -420,7 +394,7 @@ func (s *Snapshots) loadLocked(ctx context.Context, chatID string, st *chatState
 	return nil
 }
 
-func (s *Snapshots) emitChatLocked(ctx context.Context, chatID, kind, runnerID string) {
+func (s *Snapshots) emitChatLocked(ctx context.Context, chatID string) {
 	if _, gone := s.deleted[chatID]; gone {
 		return
 	}
@@ -439,7 +413,7 @@ func (s *Snapshots) emitChatLocked(ctx context.Context, chatID, kind, runnerID s
 	if s.correct != nil {
 		snap.Chat = s.correct(ctx, []domain.Chat{snap.Chat})[0]
 	}
-	s.emitLocked(Frame{Snapshot: snap, Kind: kind, RunnerID: runnerID})
+	s.emitLocked(Frame{Snapshot: snap})
 }
 
 func (s *Snapshots) emitLocked(f Frame) {

@@ -371,9 +371,9 @@ func startOwningChatReconcile(
 func announceHomeRow(
 	chatSnapshots *agentusecase.ChatSnapshots,
 ) project.HomeRowAnnouncer {
-	return func(ctx context.Context, id, _ string, kind tree.Kind, event string) {
+	return func(ctx context.Context, id string, kind tree.Kind) {
 		if kind == tree.KindChat {
-			chatSnapshots.Announce(ctx, id, event)
+			chatSnapshots.Touch(ctx, id)
 		}
 	}
 }

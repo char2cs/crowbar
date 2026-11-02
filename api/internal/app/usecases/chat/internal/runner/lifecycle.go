@@ -14,12 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// Frame kinds the runner lifecycle announces on its chat.
-const (
-	frameStarted = "started"
-	frameExited  = "exited"
-)
-
 // exitRows are runner's end as rows: what it streamed that no row holds,
 // then the end itself. They commit together, so a hook recorded meanwhile
 // sees both or neither.
@@ -104,7 +98,7 @@ func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) str
 		return "" // its spawn failed, and records that itself
 	}
 	chatID := entry.runner.CurrentChatID
-	defer rs.announceRunner(ctx, chatID, runnerID, frameExited)
+	defer rs.touch(ctx, chatID)
 	lost := rs.loseRefusedSession(ctx, runnerID, entry.exit)
 	reason := cmp.Or(entry.cause, lost, domain.AgentExitExited)
 	_, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {

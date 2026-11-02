@@ -15,12 +15,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// frame is a captured hub broadcast: the (chatID, workspaceID, kind)
-// lifecycle triple the hub projection hands to a BroadcastFunc.
+// frame is a captured hub announcement: the chat, its workspace, and whether
+// it was forgotten.
 type frame struct {
 	chatID      string
 	workspaceID string
-	kind        string
+	forgotten   bool
 }
 
 // captureHub is a WatchFunc double that records every announcement it receives as the
@@ -31,13 +31,13 @@ type captureHub struct {
 	frames []frame
 }
 
-func (h *captureHub) push(chatID, workspaceID, kind string) {
+func (h *captureHub) push(chatID, workspaceID string, forgotten bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.frames = append(h.frames, frame{
 		chatID:      chatID,
 		workspaceID: workspaceID,
-		kind:        kind,
+		forgotten:   forgotten,
 	})
 }
 
@@ -45,7 +45,7 @@ func (h *captureHub) push(chatID, workspaceID, kind string) {
 // frame the assertions below have always used, so this change is proven against the
 // existing suite rather than a new one.
 func (h *captureHub) watch(e ChatEvent) {
-	h.push(e.ChatID, e.WorkspaceID, e.Kind)
+	h.push(e.ChatID, e.WorkspaceID, e.Forgotten)
 }
 
 func (h *captureHub) all() []frame {
@@ -61,7 +61,7 @@ func createCmd(chatID string) accmds.Create {
 }
 
 // TestHubProjection_Create_BroadcastsCreatedFrame proves a single command
-// against a fresh chat yields exactly one captured (chatID, "created") frame,
+// against a fresh chat yields exactly one captured frame,
 // asserted right after SendWait returns — asynx guarantees every subscriber
 // handler (including the hub projection) has completed by then, so no sleep
 // or poll is needed.
@@ -72,7 +72,7 @@ func TestHubProjection_Create_BroadcastsCreatedFrame(t *testing.T) {
 
 	frames := h.all()
 	require.Len(t, frames, 1)
-	assert.Equal(t, frame{chatID: "c1", workspaceID: "w1", kind: "created"}, frames[0])
+	assert.Equal(t, frame{chatID: "c1", workspaceID: "w1"}, frames[0])
 }
 
 // TestHubProjection_EmitsWorkspaceID proves the hub projection reads the
@@ -103,8 +103,8 @@ func TestHubProjection_ForgetEmitsScopedDeleted(t *testing.T) {
 
 	frames := h.all()
 	require.Len(t, frames, 2)
-	assert.Equal(t, frame{chatID: "c1", workspaceID: "ws-9", kind: "created"}, frames[0])
-	assert.Equal(t, frame{chatID: "c1", workspaceID: "ws-9", kind: "deleted"}, frames[1])
+	assert.Equal(t, frame{chatID: "c1", workspaceID: "ws-9"}, frames[0])
+	assert.Equal(t, frame{chatID: "c1", workspaceID: "ws-9", forgotten: true}, frames[1])
 }
 
 func TestRegisterHubProjection_SubscribeError(t *testing.T) {
@@ -122,30 +122,6 @@ func TestRegisterHubProjection_OnForgetError(t *testing.T) {
 	assert.Contains(t, err.Error(), "agentchat hub projection: onforget")
 }
 
-// TestHubProjector_OnEvent_DerivesKindFromEventName unit-tests eventKind's
-// extraction directly against the hub projector, independent of asynx wiring,
-// and proves the workspace id is read off evt.Aggregate.WorkspaceID (not the
-// event name/id) and passed through untouched.
-func TestHubProjector_OnEvent_DerivesKindFromEventName(t *testing.T) {
-	var got frame
-	p := &hubProjector{watch: func(e ChatEvent) {
-		got = frame{chatID: e.ChatID, workspaceID: e.WorkspaceID, kind: e.Kind}
-	}}
-	p.onEvent(context.Background(), asynxModels.Event[domain.Chat]{
-		AggregateID: "c9",
-		EventName:   "agentchat.segment_opened.c9",
-		Aggregate:   domain.Chat{WorkspaceID: "w9"},
-	})
-	assert.Equal(t, frame{chatID: "c9", workspaceID: "w9", kind: "segment_opened"}, got)
-}
-
-// TestEventKind_UnrecognizedShape falls back to the name (minus the
-// aggregate prefix) rather than dropping the frame, for any future event
-// name that doesn't fit the "agentchat.<kind>.<id>" pattern.
-func TestEventKind_UnrecognizedShape(t *testing.T) {
-	assert.Equal(t, "weird", eventKind("agentchat.weird"))
-}
-
 // --- the watch seam itself -------------------------------------------------
 
 func TestHubProjector_OnEvent_EmitsRepoOwnedChatEvent(t *testing.T) {
@@ -160,7 +136,7 @@ func TestHubProjector_OnEvent_EmitsRepoOwnedChatEvent(t *testing.T) {
 
 	require.Len(t, got, 1)
 	assert.Equal(t, ChatEvent{
-		ChatID: "chat-1", WorkspaceID: "ws-1", Kind: "title_set",
+		ChatID: "chat-1", WorkspaceID: "ws-1",
 		Chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1", Title: "t"},
 	}, got[0])
 }
@@ -175,7 +151,7 @@ func TestHubProjector_OnForget_MarksForgotten(t *testing.T) {
 
 	require.Len(t, got, 1)
 	assert.Equal(t, ChatEvent{
-		ChatID: "chat-9", WorkspaceID: "ws-1", Kind: "deleted", Forgotten: true,
+		ChatID: "chat-9", WorkspaceID: "ws-1", Forgotten: true,
 		Chat: domain.Chat{ID: "chat-9", WorkspaceID: "ws-1"},
 	}, got[0])
 }

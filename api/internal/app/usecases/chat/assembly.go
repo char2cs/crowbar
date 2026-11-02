@@ -257,7 +257,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	// through Held, which never reads the ledger.
 	d.Ledger.Subscribe(func(chatID string, rows []ledger.Row, st ledger.State) {
 		ctx := context.Background()
-		flipped, wsID := u.snapshots.ApplyLedger(ctx, chatID, snapshot.FactsOf(st), turnKind(rows, st))
+		flipped, wsID := u.snapshots.ApplyLedger(ctx, chatID, snapshot.FactsOf(st), movedTurn(rows, st))
 		if flipped && d.AgentWorking != nil {
 			d.AgentWorking(ctx, wsID, chatID, st.Busy())
 		}
@@ -279,21 +279,16 @@ func (t runnerTurns) Hook(ctx context.Context, runnerID, provider, event string,
 	return reply.Ask, err
 }
 
-// turnKind is the chat frame kind the batch's last row that moved the chat's
-// newest turn announces: a turn started, or one stopped; "" for a batch with
-// none. A late row moved nothing and announces nothing.
-func turnKind(rows []ledger.Row, st ledger.State) string {
-	kind := ""
+// movedTurn is whether a row of the batch started or stopped the chat's newest
+// turn. A late row moved nothing and announces nothing.
+func movedTurn(rows []ledger.Row, st ledger.State) bool {
 	for _, r := range rows {
 		if !st.MovedTurn(r) {
 			continue
 		}
-		if r.Kind == ledger.KindTurnStarted {
-			kind = "turn_started"
-		}
-		if r.Kind == ledger.KindTurnEnded || r.Kind == ledger.KindTurnFailed {
-			kind = "turn_stopped"
+		if r.Kind == ledger.KindTurnStarted || r.Kind == ledger.KindTurnEnded || r.Kind == ledger.KindTurnFailed {
+			return true
 		}
 	}
-	return kind
+	return false
 }

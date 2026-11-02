@@ -143,10 +143,10 @@ func TestSnapshots_EveryChangeCarriesALargerVersion(t *testing.T) {
 
 	first, err := s.Get(ctx, "c1")
 	require.NoError(t, err)
-	s.ApplyChat(ctx, domain.Chat{ID: "c1", Title: "t"}, 2, "title_set", false)
+	s.ApplyChat(ctx, domain.Chat{ID: "c1", Title: "t"}, 2, false)
 	started := rec.last(t).Snapshot
 	rt.place(liveR1)
-	s.ApplyRunner(ctx, "c1", "r1", "started")
+	s.Touch(ctx, "c1")
 	placed := rec.last(t).Snapshot
 
 	assert.Greater(t, started.Version, first.Version)
@@ -168,30 +168,28 @@ func TestSnapshots_AFrameNeverLagsTheEventItAnnounces(t *testing.T) {
 	rd := &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", Title: "old"}}}
 	s, rec, _ := newOwner(t, rd)
 
-	s.ApplyChat(ctx, domain.Chat{ID: "c1", Title: "new"}, 5, "title_set", false)
+	s.ApplyChat(ctx, domain.Chat{ID: "c1", Title: "new"}, 5, false)
 	assert.Equal(t, "new", rec.last(t).Snapshot.Chat.Title)
 
-	s.ApplyChat(ctx, domain.Chat{ID: "c1", Title: "old"}, 4, "late", false)
+	s.ApplyChat(ctx, domain.Chat{ID: "c1", Title: "old"}, 4, false)
 	assert.Equal(t, "new", rec.last(t).Snapshot.Chat.Title, "an older aggregate version never overwrites a newer one")
 }
 
-// A runner's start and exit reach its chat under their own kinds, naming the
-// runner, and the live runner is whatever the supervisor holds at the time.
+// A runner's start and exit reach its chat as the live runner the supervisor
+// holds at the time.
 func TestSnapshots_ARunnersStartAndExitReachItsChat(t *testing.T) {
 	ctx := context.Background()
 	s, rec, rt := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}})
 	rt.place(liveR1)
-	s.ApplyRunner(ctx, "c1", "r1", "started")
+	s.Touch(ctx, "c1")
 	started := rec.last(t)
 	require.NotNil(t, started.Snapshot.Live)
 	assert.Equal(t, snapshot.PhaseLive, started.Snapshot.Phase)
 
 	rt.vacate("c1")
-	s.ApplyRunner(ctx, "c1", "r1", "exited")
+	s.Touch(ctx, "c1")
 
 	exited := rec.last(t)
-	assert.Equal(t, "exited", exited.Kind)
-	assert.Equal(t, "r1", exited.RunnerID)
 	assert.Nil(t, exited.Snapshot.Live)
 	assert.Equal(t, snapshot.PhaseDormant, exited.Snapshot.Phase)
 }
@@ -211,7 +209,6 @@ func TestSnapshots_PhaseIsTheOperationsElseDerived(t *testing.T) {
 	rt.mu.Unlock()
 	s.Touch(ctx, "c1")
 	assert.Equal(t, snapshot.PhaseStarting, rec.last(t).Snapshot.Phase)
-	assert.Equal(t, snapshot.KindSnapshot, rec.last(t).Kind)
 }
 
 // A7: deleting a chat removes its entry; the delete frame still carries a
@@ -219,10 +216,10 @@ func TestSnapshots_PhaseIsTheOperationsElseDerived(t *testing.T) {
 func TestSnapshots_ADeletedChatLeavesNothingBehind(t *testing.T) {
 	ctx := context.Background()
 	s, rec, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}})
-	s.ApplyChat(ctx, domain.Chat{ID: "c1"}, 1, "created", false)
+	s.ApplyChat(ctx, domain.Chat{ID: "c1"}, 1, false)
 	before := rec.last(t).Snapshot.Version
 
-	s.ApplyChat(ctx, domain.Chat{ID: "c1"}, 2, "deleted", true)
+	s.ApplyChat(ctx, domain.Chat{ID: "c1"}, 2, true)
 
 	f := rec.last(t)
 	assert.True(t, f.Deleted)
@@ -236,14 +233,14 @@ func TestSnapshots_ADeletedChatLeavesNothingBehind(t *testing.T) {
 func TestSnapshots_AnEventLandingAfterTheDeleteDoesNotResurrectTheChat(t *testing.T) {
 	ctx := context.Background()
 	s, rec, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}})
-	s.ApplyChat(ctx, domain.Chat{ID: "c1"}, 1, "created", false)
-	s.ApplyRunner(ctx, "c1", "r1", "started")
-	s.ApplyChat(ctx, domain.Chat{ID: "c1"}, 3, "deleted", true)
+	s.ApplyChat(ctx, domain.Chat{ID: "c1"}, 1, false)
+	s.Touch(ctx, "c1")
+	s.ApplyChat(ctx, domain.Chat{ID: "c1"}, 3, true)
 	deleted := len(rec.frames)
 
-	s.ApplyChat(ctx, domain.Chat{ID: "c1"}, 2, "title_set", false)
-	s.ApplyLedger(ctx, "c1", snapshot.LedgerFacts{}, "turn_stopped")
-	s.ApplyRunner(ctx, "c1", "r1", "exited")
+	s.ApplyChat(ctx, domain.Chat{ID: "c1"}, 2, false)
+	s.ApplyLedger(ctx, "c1", snapshot.LedgerFacts{}, true)
+	s.ApplyPlacement(ctx, "c1", "f-1", 0)
 	s.Touch(ctx, "c1")
 
 	assert.Len(t, rec.frames, deleted, "nothing is published for a deleted chat")
@@ -320,10 +317,9 @@ func TestSnapshots_AnAnnouncedPlacementWinsOverTheRowALoadReads(t *testing.T) {
 	ctx := context.Background()
 	s, rec, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", Title: "t"}}})
 
-	s.ApplyPlacement(ctx, "c1", "f-1", 3, "placement_set")
+	s.ApplyPlacement(ctx, "c1", "f-1", 3)
 
 	frame := rec.last(t)
-	assert.Equal(t, "placement_set", frame.Kind)
 	assert.Equal(t, "f-1", frame.Snapshot.Chat.ParentID)
 	assert.Equal(t, 3, frame.Snapshot.Chat.Order)
 	held, err := s.Get(ctx, "c1")
@@ -337,10 +333,10 @@ func TestSnapshots_AnAnnouncedPlacementWinsOverTheRowALoadReads(t *testing.T) {
 func TestSnapshots_AChatEventNeverRedrawsAChatAtAPlaceItLeft(t *testing.T) {
 	ctx := context.Background()
 	s, rec, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", ParentID: "f-old"}}})
-	s.ApplyChat(ctx, domain.Chat{ID: "c1", ParentID: "f-old"}, 1, "created", false)
-	s.ApplyPlacement(ctx, "c1", "f-new", 2, "placement_set")
+	s.ApplyChat(ctx, domain.Chat{ID: "c1", ParentID: "f-old"}, 1, false)
+	s.ApplyPlacement(ctx, "c1", "f-new", 2)
 
-	s.ApplyChat(ctx, domain.Chat{ID: "c1", Title: "t", ParentID: "f-old"}, 2, "title_set", false)
+	s.ApplyChat(ctx, domain.Chat{ID: "c1", Title: "t", ParentID: "f-old"}, 2, false)
 
 	got := rec.last(t).Snapshot.Chat
 	assert.Equal(t, "t", got.Title)
@@ -426,7 +422,7 @@ func TestSnapshots_AnEventDuringTheBatchReadWins(t *testing.T) {
 	}{
 		"a newer chat event": {
 			event: func(s *snapshot.Snapshots) {
-				s.ApplyChat(ctx, domain.Chat{ID: "x", Title: "new", ParentID: "f-old"}, 5, "title_set", false)
+				s.ApplyChat(ctx, domain.Chat{ID: "x", Title: "new", ParentID: "f-old"}, 5, false)
 			},
 			check: func(t *testing.T, _ *snapshot.Snapshots, snaps []snapshot.Snapshot, err error) {
 				t.Helper()
@@ -436,7 +432,7 @@ func TestSnapshots_AnEventDuringTheBatchReadWins(t *testing.T) {
 			},
 		},
 		"a delete": {
-			event: func(s *snapshot.Snapshots) { s.ApplyChat(ctx, domain.Chat{ID: "x"}, 5, "deleted", true) },
+			event: func(s *snapshot.Snapshots) { s.ApplyChat(ctx, domain.Chat{ID: "x"}, 5, true) },
 			check: func(t *testing.T, s *snapshot.Snapshots, snaps []snapshot.Snapshot, err error) {
 				t.Helper()
 				require.NoError(t, err, "a chat deleted mid-read leaves the batch, not fails it")
@@ -448,7 +444,7 @@ func TestSnapshots_AnEventDuringTheBatchReadWins(t *testing.T) {
 			},
 		},
 		"a move": {
-			event: func(s *snapshot.Snapshots) { s.ApplyPlacement(ctx, "x", "f-new", 3, "placement_set") },
+			event: func(s *snapshot.Snapshots) { s.ApplyPlacement(ctx, "x", "f-new", 3) },
 			check: func(t *testing.T, _ *snapshot.Snapshots, snaps []snapshot.Snapshot, err error) {
 				t.Helper()
 				require.NoError(t, err)

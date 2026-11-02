@@ -67,7 +67,7 @@ func (rs *Runners) recordRunner(
 		rs.recordChatProvider(ctx, chatID, r.ProviderID)
 	}
 	rs.commitCarriedSelection(ctx, chatID, staged)
-	rs.announceRunner(ctx, chatID, r.ID, frameStarted)
+	rs.touch(ctx, chatID)
 	if exitedEarly {
 		return startupExit(rs.reconcileRunnerExit(context.WithoutCancel(ctx), r.ID))
 	}
@@ -113,7 +113,7 @@ func (rs *Runners) recordSpawnFailure(ctx context.Context, chatID, runnerID stri
 		slog.ErrorContext(ctx, "agent: record a failed spawn", "chat_id", chatID, "runner_id", runnerID, "err", recErr)
 	}
 	slog.InfoContext(ctx, "agent: runner ended", "component", "runner", "chat", chatID, "reason", reason)
-	rs.announceRunner(ctx, chatID, runnerID, frameExited)
+	rs.touch(ctx, chatID)
 }
 
 // recordChatProvider moves the chat's own durable vendor to the CLI just started

@@ -926,17 +926,13 @@ func (f testFixture) bcKinds(t *testing.T) []string {
 	return kinds
 }
 
-// runnerKinds is the kinds of the runner lifecycle frames published so far.
+// runnerKinds is the runner starts and exits the frames published so far show.
 func (f testFixture) runnerKinds(t *testing.T) []string {
 	t.Helper()
 	f.wait()
-	var kinds []string
-	for _, fr := range f.snapFrames.all() {
-		if fr.RunnerID != "" {
-			kinds = append(kinds, fr.Kind)
-		}
-	}
-	return kinds
+	f.snapFrames.mu.Lock()
+	defer f.snapFrames.mu.Unlock()
+	return append([]string(nil), f.snapFrames.runner...)
 }
 
 // newChatStore builds a throwaway in-memory asynx-backed agentchat EventStore wired
@@ -1213,36 +1209,75 @@ func (f testFixture) refuseRows(t *testing.T, kinds ...ledger.Kind) {
 		WHEN NEW.kind IN (`+strings.Join(quoted, ",")+`) BEGIN SELECT RAISE(ABORT, 'log is full'); END`).Error)
 }
 
-// snapshotFrames records every frame the chat snapshot owner publishes.
+// snapshotFrames records every frame the chat snapshot owner publishes, and
+// names what each changed against the chat's frame before it, as a client
+// reading them sees it.
 type snapshotFrames struct {
 	mu     sync.Mutex
 	frames []agentusecase.ChatSnapshotFrame
-	// chats is told every chat frame that names a change ("snapshot" names none).
+	// runner is the runner_started/exited changes since the last reset.
+	runner []string
+	// last is each chat's previous frame; a reset keeps it.
+	last map[string]agentusecase.ChatSnapshotFrame
+	// chats is told every change a frame names to the chat's record or turn.
 	chats *fakeBroadcaster
 }
 
 func (r *snapshotFrames) record(f agentusecase.ChatSnapshotFrame) {
 	r.mu.Lock()
 	r.frames = append(r.frames, f)
+	if r.last == nil {
+		r.last = map[string]agentusecase.ChatSnapshotFrame{}
+	}
+	id := f.Snapshot.Chat.ID
+	prev, seen := r.last[id]
+	r.last[id] = f
+	chatChanges, runnerChanges := changesOf(prev, seen, f)
+	r.runner = append(r.runner, runnerChanges...)
 	chats := r.chats
 	r.mu.Unlock()
-	if chats != nil && f.RunnerID == "" && f.Kind != "snapshot" {
-		chats.BroadcastAgentChat(f.Snapshot.Chat.ID, f.Snapshot.Chat.WorkspaceID, f.Kind)
+	for _, kind := range chatChanges {
+		if chats != nil {
+			chats.BroadcastAgentChat(id, f.Snapshot.Chat.WorkspaceID, kind)
+		}
 	}
 }
 
-// all returns every frame published, oldest first.
-func (r *snapshotFrames) all() []agentusecase.ChatSnapshotFrame {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]agentusecase.ChatSnapshotFrame{}, r.frames...)
+// changesOf names what f changed since prev, in the order a client reads them.
+func changesOf(prev agentusecase.ChatSnapshotFrame, seen bool, f agentusecase.ChatSnapshotFrame) (chat, runner []string) {
+	was, now := prev.Snapshot, f.Snapshot
+	if f.Deleted {
+		return []string{"deleted"}, nil
+	}
+	if !seen {
+		chat = append(chat, "created")
+	}
+	if seen && was.Chat.PermissionLevel != now.Chat.PermissionLevel || !seen && now.Chat.PermissionLevel != "" {
+		chat = append(chat, "permission_level_set")
+	}
+	if seen && was.Chat.ProviderID != now.Chat.ProviderID {
+		chat = append(chat, "provider_set")
+	}
+	if was.Chat.Title != now.Chat.Title {
+		chat = append(chat, "title_set")
+	}
+	if was.Ledger.Busy != now.Ledger.Busy {
+		chat = append(chat, map[bool]string{true: "turn_started", false: "turn_stopped"}[now.Ledger.Busy])
+	}
+	if now.Ledger.LastExit != nil && (was.Ledger.LastExit == nil || *was.Ledger.LastExit != *now.Ledger.LastExit) {
+		runner = append(runner, "exited")
+	}
+	if now.Live != nil && (was.Live == nil || was.Live.ID != now.Live.ID) {
+		runner = append(runner, "started")
+	}
+	return chat, runner
 }
 
 // reset drops the frames recorded so far.
 func (r *snapshotFrames) reset() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.frames = nil
+	r.frames, r.runner = nil, nil
 }
 
 // forChat returns the frames published about chatID, oldest first.

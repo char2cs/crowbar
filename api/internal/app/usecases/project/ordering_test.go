@@ -270,14 +270,13 @@ func TestRegression_UpdateRepo_AnnouncesACollaterallyShiftedHomeChat(t *testing.
 		{ID: "home-ws-A", ProjectID: "pA", Kind: domain.WorkspaceKindHome},
 	}
 	type frame struct {
-		id, workspaceID string
-		kind            tree.Kind
-		event           string
+		id   string
+		kind tree.Kind
 	}
 	var frames []frame
 	uc := project.New(mocks.NewProjectStore(), repos, workspaces, mocks.NewFolderStore(), nodes, nil,
-		func(_ context.Context, id, workspaceID string, kind tree.Kind, event string) {
-			frames = append(frames, frame{id, workspaceID, kind, event})
+		func(_ context.Context, id string, kind tree.Kind) {
+			frames = append(frames, frame{id, kind})
 		},
 	)
 	ctx := context.Background()
@@ -293,7 +292,7 @@ func TestRegression_UpdateRepo_AnnouncesACollaterallyShiftedHomeChat(t *testing.
 	assert.Equal(t, 0, nodeRow(t, nodes, "repo-A").Order, "the repo itself moved to the top")
 	assert.Equal(t, 1, nodeRow(t, nodes, "chat-1").Order, "the chat was pushed down as collateral")
 	require.Len(t, frames, 1, "the collaterally-shifted chat must be announced")
-	assert.Equal(t, frame{id: "chat-1", workspaceID: "home-ws-A", kind: tree.KindChat, event: "order_set"}, frames[0],
+	assert.Equal(t, frame{id: "chat-1", kind: tree.KindChat}, frames[0],
 		"announced as a CHAT, never as a folder frame carrying the chat id")
 }
 

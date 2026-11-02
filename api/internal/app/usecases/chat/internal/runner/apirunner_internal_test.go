@@ -44,27 +44,31 @@ func (s stubChatsForSpawn) SetProvider(_ context.Context, _, providerID string) 
 	return s.chat, nil
 }
 
-// spyLifecycle hears what the runner lifecycle announces, so a test blocks on
-// a runner_started or runner_exited commit rather than on a timer.
+// spyLifecycle hears every runner_started and runner_exited row l commits, so a
+// test blocks on the commit a client reads rather than on a timer.
 type spyLifecycle struct {
 	started chan string
 	exited  chan string
 }
 
-func newSpyLifecycle() *spyLifecycle {
-	return &spyLifecycle{started: make(chan string, 16), exited: make(chan string, 16)}
+func newSpyLifecycle(l *ledgerstore.Store) *spyLifecycle {
+	s := &spyLifecycle{started: make(chan string, 16), exited: make(chan string, 16)}
+	l.Subscribe(func(_ string, rows []ledger.Row, _ ledger.State) {
+		for _, r := range rows {
+			if r.Kind == ledger.KindRunnerStarted {
+				body, _ := ledger.DecodeBody[ledger.RunnerStarted](r)
+				s.started <- body.RunnerID
+			}
+			if r.Kind == ledger.KindRunnerExited {
+				body, _ := ledger.DecodeBody[ledger.RunnerExited](r)
+				s.exited <- body.RunnerID
+			}
+		}
+	})
+	return s
 }
 
 func (*spyLifecycle) Touch(context.Context, string) {}
-
-func (s *spyLifecycle) ApplyRunner(_ context.Context, _, runnerID, kind string) {
-	switch kind {
-	case frameStarted:
-		s.started <- runnerID
-	case frameExited:
-		s.exited <- runnerID
-	}
-}
 
 // startedRow is the runner_started row chat-1's ledger holds for runnerID.
 func startedRow(t *testing.T, l *ledgerstore.Store, runnerID string) ledger.RunnerStarted {
@@ -102,7 +106,8 @@ func newSpawnHarness(t *testing.T, surface string) *spawnHarness {
 
 	home := t.TempDir()
 	term := &fakeTermForAttach{}
-	lifecycle := newSpyLifecycle()
+	l := newTestLedger(t)
+	lifecycle := newSpyLifecycle(l)
 	return &spawnHarness{
 		rs: &Runners{
 			agents:        engineagents.New(),
@@ -120,7 +125,7 @@ func newSpawnHarness(t *testing.T, surface string) *spawnHarness {
 			// The real registries a runner's death reconciles through.
 			answers: answerdesk.New(answerdesk.DefaultRetention, nil),
 			turns:   noopTurns{},
-			ledger:  newTestLedger(t),
+			ledger:  l,
 		},
 		term: term, lifecycle: lifecycle, home: home, chatID: "chat-1",
 	}
@@ -242,7 +247,8 @@ func waitProcessGone(t *testing.T, cmd *exec.Cmd) {
 // has left.
 func ptylessRunners(t *testing.T) (*Runners, *spyLifecycle) {
 	t.Helper()
-	lifecycle := newSpyLifecycle()
+	l := newTestLedger(t)
+	lifecycle := newSpyLifecycle(l)
 	return &Runners{
 		live:      liveWith(t, engineagents.Runner{ID: "runner-1", ProviderID: "codex", CurrentChatID: "chat-1"}),
 		snapshots: lifecycle,
@@ -254,7 +260,7 @@ func ptylessRunners(t *testing.T) (*Runners, *spyLifecycle) {
 		answers:    answerdesk.New(answerdesk.DefaultRetention, nil),
 		turns:      noopTurns{},
 		chats:      stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}},
-		ledger:     newTestLedger(t),
+		ledger:     l,
 		background: newBackgroundWork(),
 	}, lifecycle
 }

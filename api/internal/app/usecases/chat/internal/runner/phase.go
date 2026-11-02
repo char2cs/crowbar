@@ -11,7 +11,6 @@ import (
 // announced: the chat's phase, and its runner starting, reporting or exiting.
 type Snapshotter interface {
 	Touch(ctx context.Context, chatID string)
-	ApplyRunner(ctx context.Context, chatID, runnerID, kind string)
 }
 
 // phases is the lifecycle operation each chat is in the middle of, set by the
@@ -65,12 +64,5 @@ func (rs *Runners) replacementPhase(chatID string) string {
 func (rs *Runners) touch(ctx context.Context, chatID string) {
 	if rs.snapshots != nil {
 		rs.snapshots.Touch(ctx, chatID)
-	}
-}
-
-// announceRunner publishes chatID's snapshot for its runner's lifecycle event.
-func (rs *Runners) announceRunner(ctx context.Context, chatID, runnerID, kind string) {
-	if rs.snapshots != nil {
-		rs.snapshots.ApplyRunner(ctx, chatID, runnerID, kind)
 	}
 }

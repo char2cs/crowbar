@@ -2,6 +2,7 @@ package tree_test
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -54,10 +55,10 @@ func (h *heard) takeFolders() []string {
 	return folders
 }
 
-func (h *heard) chat(_ context.Context, chatID string, p tree.Placement, kind string) {
+func (h *heard) chat(_ context.Context, chatID string, p tree.Placement) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.moved = append(h.moved, chatID+"@"+p.ParentID+":"+kind)
+	h.moved = append(h.moved, fmt.Sprintf("%s@%s:%d", chatID, p.ParentID, p.Order))
 }
 
 func (h *heard) take() []string {
@@ -77,11 +78,11 @@ func TestAnnounce_AMoveReemitsTheChatFrame(t *testing.T) {
 
 	_, err := repo.PutChat(ctx, "p1", "c-q", tree.Placement{ParentID: "f-1"})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"c-q@f-1:placement_set"}, h.take(), "heard before the write returns")
+	assert.Equal(t, []string{"c-q@f-1:0"}, h.take(), "heard before the write returns")
 
 	_, err = repo.PutChat(ctx, "p1", "c-q", tree.Placement{ParentID: "f-1", Order: 2})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"c-q@f-1:order_set"}, h.take())
+	assert.Equal(t, []string{"c-q@f-1:2"}, h.take())
 
 	_, err = repo.Put(ctx, "p1", tree.Node{ID: "ws-1", Kind: tree.KindWorkspace, ParentID: "f-1"})
 	require.NoError(t, err)
@@ -111,7 +112,7 @@ func TestAnnounce_AMovedPositionNodeIsHeard(t *testing.T) {
 
 	_, err = repo.PutChat(ctx, "p1", "c-q", tree.Placement{ParentID: "f-1"})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"c-q@f-1:placement_set"}, h.take(), "a chat with no Node is drawn by its own record")
+	assert.Equal(t, []string{"c-q@f-1:0"}, h.take(), "a chat with no Node is drawn by its own record")
 	_, err = repo.Put(ctx, "p1", tree.Node{ID: "c-q", Kind: tree.KindChat, ParentID: "f-2"})
 	require.NoError(t, err)
 	_, err = repo.PutChat(ctx, "p1", "c-q", tree.Placement{ParentID: "f-3"})

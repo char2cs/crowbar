@@ -34,9 +34,8 @@ func TestSnapshots_LedgerFactsBumpTheVersionOnlyWhenTheyChange(t *testing.T) {
 	require.NoError(t, err)
 
 	facts := snapshot.FactsOf(boundTo(t, [2]string{"p1", "S1"}))
-	s.ApplyLedger(ctx, "c1", facts, "")
+	s.ApplyLedger(ctx, "c1", facts, false)
 	frame := rec.last(t)
-	assert.Equal(t, snapshot.KindSnapshot, frame.Kind)
 	assert.Greater(t, frame.Snapshot.Version, before.Version)
 	c, ok := frame.Snapshot.Conversation()
 	require.True(t, ok)
@@ -44,30 +43,34 @@ func TestSnapshots_LedgerFactsBumpTheVersionOnlyWhenTheyChange(t *testing.T) {
 		Provider: "p1", SessionID: "S1", State: ledger.ConversationBound, BoundAt: t0, Cause: ledger.CauseAssigned,
 	}, c)
 
-	s.ApplyLedger(ctx, "c1", snapshot.FactsOf(boundTo(t, [2]string{"p1", "S1"})), "")
+	s.ApplyLedger(ctx, "c1", snapshot.FactsOf(boundTo(t, [2]string{"p1", "S1"})), false)
 	assert.Len(t, rec.frames, 1, "the same facts announce nothing")
 }
 
 // Busy is the ledger's answer: its flip is reported once, with the chat's
-// workspace, and a named kind announces a frame even when nothing changed.
+// workspace, and a moved turn announces a frame even when nothing changed.
 func TestSnapshots_ApplyLedgerReportsBusyFlips(t *testing.T) {
 	ctx := context.Background()
 	s, rec, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", WorkspaceID: "ws1"}}})
 	_, err := s.Get(ctx, "c1")
 	require.NoError(t, err)
 
-	flipped, wsID := s.ApplyLedger(ctx, "c1", snapshot.LedgerFacts{Busy: true}, "turn_started")
+	flipped, wsID := s.ApplyLedger(ctx, "c1", snapshot.LedgerFacts{Busy: true}, true)
 	assert.True(t, flipped)
 	assert.Equal(t, "ws1", wsID)
-	assert.Equal(t, "turn_started", rec.last(t).Kind)
+	assert.True(t, rec.last(t).Snapshot.Ledger.Busy)
 
-	flipped, _ = s.ApplyLedger(ctx, "c1", snapshot.LedgerFacts{Busy: true}, "")
+	flipped, _ = s.ApplyLedger(ctx, "c1", snapshot.LedgerFacts{Busy: true}, false)
 	assert.False(t, flipped)
-	assert.Len(t, rec.frames, 1, "the same facts under no kind announce nothing")
+	assert.Len(t, rec.frames, 1, "the same facts with no moved turn announce nothing")
 
-	flipped, _ = s.ApplyLedger(ctx, "c1", snapshot.LedgerFacts{}, "turn_stopped")
+	flipped, _ = s.ApplyLedger(ctx, "c1", snapshot.LedgerFacts{Busy: true}, true)
+	assert.False(t, flipped)
+	assert.Len(t, rec.frames, 2, "a moved turn announces the same facts again")
+
+	flipped, _ = s.ApplyLedger(ctx, "c1", snapshot.LedgerFacts{}, true)
 	assert.True(t, flipped)
-	assert.Equal(t, "turn_stopped", rec.last(t).Kind)
+	assert.False(t, rec.last(t).Snapshot.Ledger.Busy)
 }
 
 func TestSnapshots_AChatWithoutFactsReadsItsLedgerWithTheLockReleased(t *testing.T) {
@@ -77,7 +80,7 @@ func TestSnapshots_AChatWithoutFactsReadsItsLedgerWithTheLockReleased(t *testing
 	stale := boundTo(t, [2]string{"p1", "S1"})
 	published := snapshot.FactsOf(boundTo(t, [2]string{"p1", "S1"}, [2]string{"p1", "S2"}))
 	rd.ledger = func(string) (ledger.State, error) {
-		s.ApplyLedger(ctx, "c1", published, "") // the writer publishing while this read is in flight
+		s.ApplyLedger(ctx, "c1", published, false) // the writer publishing while this read is in flight
 		return stale, nil
 	}
 
@@ -142,7 +145,7 @@ func TestSnapshots_NoStaleFillOutlivesAPublication(t *testing.T) {
 		rd.released = nil
 		head = boundTo(t, [2]string{"p1", "S1"}, [2]string{"p1", "S2"})
 		delete(rd.chats, "c1") // the publication's own read of the chat fails
-		s.ApplyLedger(ctx, "c1", snapshot.FactsOf(head), "")
+		s.ApplyLedger(ctx, "c1", snapshot.FactsOf(head), false)
 		rd.chats["c1"] = c1
 	}
 
@@ -216,7 +219,7 @@ func TestSnapshots_TheSessionIsTheLedgersLastExit(t *testing.T) {
 		require.NoError(t, err)
 		r.Seq, r.At = st.Head()+1, t0
 		st.Apply(r)
-		s.ApplyLedger(ctx, "c1", snapshot.FactsOf(st), "")
+		s.ApplyLedger(ctx, "c1", snapshot.FactsOf(st), false)
 	}
 
 	apply(ledger.KindRunnerStarted, ledger.RunnerStarted{RunnerID: "r1", Provider: "claude"})

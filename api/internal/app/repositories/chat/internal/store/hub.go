@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -11,19 +10,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// eventNamePrefix is the aggregate-name segment every agentchat command's
-// EventName() puts first ("agentchat.<kind>.<id>" — see
-// internal/commands/*.go). eventKind strips it to isolate <kind>.
-const eventNamePrefix = "agentchat."
-
 // ChatEvent is one projected agentchat lifecycle event, in repo-owned terms:
-// the chat, its workspace, and kind, the <kind> segment of the emitting
-// command's EventName ("agentchat.<kind>.<id>"), or "deleted" for a Forget.
-// It is the single source of agent-chat row frames.
+// the chat as of it and its workspace, or a Forget. It is the single source of
+// agent-chat row frames.
 type ChatEvent struct {
 	ChatID      string
 	WorkspaceID string
-	Kind        string
 	Forgotten   bool
 	// Chat is the reduced aggregate AS OF this event — the command-side fold,
 	// never the lagging read model — and Version its aggregate version. They
@@ -40,15 +32,10 @@ type ChatEvent struct {
 // not.
 type WatchFunc func(ChatEvent)
 
-// registerHubProjection subscribes the hub (WS fan-out) projection to every
-// agentchat event on the singleton axAgentChat: for each event it derives the
-// lifecycle kind from evt.EventName ("agentchat.<kind>.<id>", set by
-// internal/commands/*.go) and hands (evt.AggregateID, kind) to broadcast. It is
-// the sole broadcaster of agent-chat lifecycle frames — the usecase's manual
-// BroadcastAgentChat calls were retired at cutover. It does NOT touch the
-// durable read model, so it and the store projection (store.go) derive
-// independently from the same event stream and cannot drift. Designed to
-// register ONCE on the singleton.
+// registerHubProjection hands every agentchat event on the singleton
+// axAgentChat, and every Forget, to watch with the aggregate as of it. It does
+// NOT touch the durable read model, so it and the store projection derive
+// independently from the same event stream. Designed to register ONCE.
 func registerHubProjection(
 	ax asynx.Asynx[domain.Chat],
 	watch WatchFunc,
@@ -90,7 +77,6 @@ func (p *hubProjector) onForget(evt asynxModels.Event[domain.Chat]) {
 	p.emit(ChatEvent{
 		ChatID:      evt.Aggregate.ID,
 		WorkspaceID: evt.Aggregate.WorkspaceID,
-		Kind:        "deleted",
 		Forgotten:   true,
 		Chat:        evt.Aggregate,
 		Version:     evt.Version,
@@ -106,23 +92,7 @@ func (p *hubProjector) onEvent(
 	p.emit(ChatEvent{
 		ChatID:      evt.AggregateID,
 		WorkspaceID: evt.Aggregate.WorkspaceID,
-		Kind:        eventKind(evt.EventName),
 		Chat:        evt.Aggregate,
 		Version:     evt.Version,
 	})
-}
-
-// eventKind extracts the <kind> segment from an agentchat EventName
-// ("agentchat.<kind>.<id>"). Falls back to the name with only the aggregate
-// prefix stripped if a future command ever emits a name that doesn't fit the
-// pattern, rather than silently dropping the frame.
-func eventKind(
-	eventName string,
-) string {
-	rest := strings.TrimPrefix(eventName, eventNamePrefix)
-	kind, _, found := strings.Cut(rest, ".")
-	if !found {
-		return rest
-	}
-	return kind
 }

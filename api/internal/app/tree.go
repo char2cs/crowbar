@@ -63,15 +63,15 @@ func announcePlacement(
 	late *lateStream,
 	workspaces *repositories.Container,
 ) error {
-	moved := func(ctx context.Context, chatID string, p tree.Placement, kind string) {
-		chatSnapshots.ApplyPlacement(ctx, chatID, p.ParentID, p.Order, kind)
+	moved := func(ctx context.Context, chatID string, p tree.Placement) {
+		chatSnapshots.ApplyPlacement(ctx, chatID, p.ParentID, p.Order)
 	}
 	nodeMoved := func(ctx context.Context, n tree.Node) {
 		if n.Kind == tree.KindWorkspace {
 			workspaces.Republish(ctx, n.ID)
 			return
 		}
-		chatSnapshots.ApplyPlacement(ctx, n.ID, n.ParentID, n.Order, "placement_set")
+		chatSnapshots.ApplyPlacement(ctx, n.ID, n.ParentID, n.Order)
 	}
 	if err := repotree.Announce(ax.tree, moved, nodeMoved, late.folder); err != nil {
 		return fmt.Errorf("app: placement: %w", err)
